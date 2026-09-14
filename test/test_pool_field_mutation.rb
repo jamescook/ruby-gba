@@ -9,7 +9,7 @@ require "differential"
 # works out as it runs.
 #
 # Two implementations sit behind those verbs. `set`/`add`/`sub` write a single
-# expression straight back into the slot. `approach`/`abs`/`negate_abs`/`flip`/`clamp`
+# expression straight back into the slot. `approach!`/`abs!`/`negate_abs!`/`flip!`/`clamp!`
 # have no single expression, so they round-trip through a scratch variable: load the
 # slot, apply the ordinary mutator to that, store it back. Every test here reads the
 # field's VALUE rather than a picture, because a field can hold a negative number and a
@@ -61,37 +61,47 @@ class TestPoolFieldMutation < Minitest::Test
   # --- the mutators that round-trip through a scratch variable ---
 
   def test_approach_moves_the_row_toward_the_target_by_one_step
-    changed, untouched = mutating(10) { |v| v.approach 80, 2 }
+    changed, untouched = mutating(10) { |v| v.approach! 80, 2 }
 
     assert_equal 12, changed
     assert_equal 10, untouched, "the other live row keeps its own value"
   end
 
   def test_approach_lands_on_the_target_rather_than_passing_it
-    changed, = mutating(79) { |v| v.approach 80, 5 }
+    changed, = mutating(79) { |v| v.approach! 80, 5 }
 
     assert_equal 80, changed, "a step longer than the distance left stops at the target"
   end
 
   def test_abs_makes_a_negative_row_positive_and_leaves_a_positive_one_alone
-    changed, untouched = mutating(-25) { |v| v.abs }
+    changed, untouched = mutating(-25) { |v| v.abs! }
 
     assert_equal 25, changed
     assert_equal(-25, untouched, "the other live row keeps its own value")
-    assert_equal 25, mutating(25) { |v| v.abs }.first
+    assert_equal 25, mutating(25) { |v| v.abs! }.first
   end
 
   def test_negate_abs_makes_a_row_negative_whichever_way_it_started
-    assert_equal(-25, mutating(25) { |v| v.negate_abs }.first)
-    assert_equal(-25, mutating(-25) { |v| v.negate_abs }.first)
+    assert_equal(-25, mutating(25) { |v| v.negate_abs! }.first)
+    assert_equal(-25, mutating(-25) { |v| v.negate_abs! }.first)
   end
 
   def test_flip_turns_a_row_the_other_way_round
-    changed, untouched = mutating(7) { |v| v.flip }
+    changed, untouched = mutating(7) { |v| v.flip! }
 
     assert_equal(-7, changed)
     assert_equal 7, untouched, "the other live row keeps its own value"
-    assert_equal 7, mutating(-7) { |v| v.flip }.first, "and back again"
+    assert_equal 7, mutating(-7) { |v| v.flip! }.first, "and back again"
+  end
+
+  # The same words without `!` are new numbers, and a field is a variable too: comparing
+  # `row.v.abs` leaves the row's own value negative.
+  def test_a_fields_abs_in_a_comparison_leaves_the_row_alone
+    changed, = mutating(-25) do |v|
+      (v.abs == 25).then { v.add 100 }
+    end
+
+    assert_equal 75, changed, "the comparison held, and v was still -25 when 100 was added"
   end
 
   # Several rows mutated in the same pass, each by its own amount: the scratch variable
@@ -109,7 +119,7 @@ class TestPoolFieldMutation < Minitest::Test
       rows.spawn v: -20, tag: 2
       rows.spawn v: -30, tag: 3
       rows.each do |row|
-        row.v.abs
+        row.v.abs!
         (row.tag == 1).then { set :first, row.v }
         (row.tag == 2).then { set :second, row.v }
         (row.tag == 3).then { set :third, row.v }
@@ -124,7 +134,7 @@ class TestPoolFieldMutation < Minitest::Test
 
   # THE CONSOLE RUNS IT THE SAME WAY. A marker is drawn at each row's own field, so
   # where the pixels land is the number the console worked out. One row takes the
-  # direct write (`sub`), the other the scratch round-trip (`abs`) from a negative
+  # direct write (`sub`), the other the scratch round-trip (`abs!`) from a negative
   # start that no coordinate could hold.
   def test_the_console_mutates_a_row_field_the_same_way
     program = marker_program
@@ -147,7 +157,7 @@ class TestPoolFieldMutation < Minitest::Test
       rows.spawn x: -30, y: 60
       rows.each do |row|
         (row.y == 40).then { row.x.sub 30 }
-        (row.y == 60).then { row.x.abs }
+        (row.y == 60).then { row.x.abs! }
         draw_rect_at row.x, row.y, 4, 4, :green
       end
       halt

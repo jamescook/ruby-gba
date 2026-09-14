@@ -31,7 +31,7 @@ class TestSpriteMover < Minitest::Test
         wait_vblank
         clear_screen :white
         held(:right).then { x.add 2 }
-        x.clamp 0, 235
+        x.clamp! 0, 235
         blit :heart, :x, :y
         f.add 1
         (f >= frames).then { halt }
@@ -91,7 +91,7 @@ class TestSpriteMover < Minitest::Test
         wait_vblank
         clear_screen :white
         held(:left).then { x.sub 2 }
-        x.clamp(-2, 237) # same half-off-edge clamp the example uses
+        x.clamp!(-2, 237) # same half-off-edge clamp the example uses
         blit :heart, :x, :y
         f.add 1
         (f >= frames).then { halt }

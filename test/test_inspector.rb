@@ -354,7 +354,7 @@ class TestInspector < Minitest::Test
           sub :player_y, 2
         end
         add :player_y, 1
-        clamp :player_y, 0, 136
+        clamp! :player_y, 0, 136
         draw_rect_at 8, :player_y, 4, 24, :white
       end
       game_loop do

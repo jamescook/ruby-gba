@@ -68,8 +68,8 @@ module RotozoomBg
     game_loop do
       held(:left).then  { board.rotate(board.angle - TURN_SPEED) }
       held(:right).then { board.rotate(board.angle + TURN_SPEED) }
-      held(:up).then    { board.scale.approach MAX_ZOOM, ZOOM_STEP }
-      held(:down).then  { board.scale.approach MIN_ZOOM, ZOOM_STEP }
+      held(:up).then    { board.scale.approach! MAX_ZOOM, ZOOM_STEP }
+      held(:down).then  { board.scale.approach! MIN_ZOOM, ZOOM_STEP }
     end
   end
 

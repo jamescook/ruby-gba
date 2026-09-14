@@ -283,7 +283,7 @@ module RubyGBA
     # the affine counterpart to a sprite's `scale`. 1.0 is the size it was drawn at, 2.0
     # twice as big, 0.5 half — a title screen that zooms in, a warp that zooms out. With
     # no argument it hands back the size as a {Value} you can read, compare and ease
-    # (`world.scale.approach 1.0, 0.05`). Needs `screen :rotozoom`.
+    # (`world.scale.approach! 1.0, 0.05`). Needs `screen :rotozoom`.
     def scale(size = nil)
       affine_vars # ensure the size variable exists even if only read below
       return affine_scale_value if size.nil?

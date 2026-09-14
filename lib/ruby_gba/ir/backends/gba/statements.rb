@@ -93,36 +93,12 @@ module RubyGBA
             @primitives.store_var(ACC, var)
           end
 
-          # Clamp a variable into [min, max] with two compare-and-maybe-replace steps.
-          #
-          # A bound the program works out as it runs is evaluated first and the value
-          # being clamped waits on the stack, the same way a binary operation holds one
-          # side while it computes the other. A bound that is a plain number skips all
-          # that and loads straight into a register, so a program with fixed bounds
-          # emits exactly what it always did.
+          # Clamp a variable into [min, max]: the variable held in its range, stored back — the
+          # same two compare-and-maybe-replace steps as the new number (see
+          # Expressions#eval_clamped).
           def emit_clamp(node)
-            @primitives.load_var(ACC, node.var)
-            clamp_acc_to(node.min, cond: :ge) # below the floor? take the floor
-            clamp_acc_to(node.max, cond: :le) # above the ceiling? take the ceiling
+            @lowering.value(Build.clamped(Build.var_ref(node.var), node.min, node.max))
             @primitives.store_var(ACC, node.var)
-          end
-
-          # Replace r0 with +bound+ unless the comparison against it already holds.
-          def clamp_acc_to(bound, cond:)
-            if (fixed = @primitives.const_int(bound))
-              @emitter.emit(ASM.load_immediate(TMP, fixed))
-            else
-              @emitter.emit(ASM.push(ACC))         # hold the value being clamped
-              @lowering.value(bound)      # r0 = the bound
-              @emitter.emit(ASM.mov_reg(TMP, ACC)) # r1 = the bound
-              @emitter.emit(ASM.pop(ACC))          # r0 = the value again
-            end
-
-            keep = @emitter.gensym
-            @emitter.emit(ASM.cmp_reg(ACC, TMP))
-            @emitter.emit_branch(:bcond, keep, cond: cond)
-            @emitter.emit(ASM.mov_reg(ACC, TMP))
-            @emitter.place_label(keep)
           end
 
           # if: run the then-body when the condition is non-zero. With no else, a

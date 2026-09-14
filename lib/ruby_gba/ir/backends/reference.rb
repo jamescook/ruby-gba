@@ -1765,6 +1765,12 @@ module RubyGBA
           when :var_ref then @vars[node.name]
           when :neg then Int32.neg(eval_value(node.operand))
           when :bit_not then Int32.bit_not(eval_value(node.operand))
+          when :absolute
+            v = eval_value(node.operand)
+            v.negative? ? Int32.neg(v) : v
+          when :clamped
+            v = eval_value(node.operand)
+            clamp_value(v, eval_value(node.min), eval_value(node.max))
           when :binop then eval_binop(node.op, eval_value(node.lhs), eval_value(node.rhs))
           when :mul_fix
             Int32.mul_fix(eval_value(node.lhs), eval_value(node.rhs), node.fraction_bits)

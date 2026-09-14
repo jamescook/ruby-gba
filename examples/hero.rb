@@ -204,7 +204,7 @@ module Hero
         hero.move :down, by: SPEED
         mist.sub MIST_PER_STEP
       end
-      mist.clamp 0, THICKEST
+      mist.clamp! 0, THICKEST
     end
   end
 

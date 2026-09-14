@@ -183,7 +183,7 @@ module Tiles
 
       pressed(:right).then { where.add 1 }
       pressed(:left).then { where.sub 1 }
-      where.clamp 0, room.map_count - 1
+      where.clamp! 0, room.map_count - 1
       room.show_map where
     end
   end

@@ -44,7 +44,7 @@ module GridCursor
       step = proc do |axis, delta, last|
         board.clear_cell cx, cy
         axis.add delta
-        axis.clamp 0, last
+        axis.clamp! 0, last
         board.set_cell cx, cy, :cyan
       end
 

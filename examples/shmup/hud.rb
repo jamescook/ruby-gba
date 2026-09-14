@@ -45,7 +45,7 @@ module Shmup
 
     def hit
       @lives.sub 1
-      @lives.clamp 0, 9 # keep the display sane if two enemies land on the same frame
+      @lives.clamp! 0, 9 # keep the display sane if two enemies land on the same frame
     end
 
     # Back to a fresh game.

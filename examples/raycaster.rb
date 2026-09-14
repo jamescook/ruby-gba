@@ -127,8 +127,8 @@ module Raycaster
       # a sine, each times the walking speed.
       step_x.set(sin[view + QUARTER] * WALK)
       step_y.set(sin[view] * WALK)
-      held(:down).then { step_x.flip }
-      held(:down).then { step_y.flip }
+      held(:down).then { step_x.flip! }
+      held(:down).then { step_y.flip! }
 
       (held(:up) | held(:down)).then do
         # Try the step, and take it only if the cell it lands in is empty — otherwise
@@ -198,7 +198,7 @@ module Raycaster
         # one over its distance. SOFTEN keeps a wall you are nose-to-nose with from being
         # infinitely tall, and the band keeps the answer on screen at both ends.
         col_h.set((WALL_SCALE / (seen + SOFTEN)).to_i)
-        col_h.clamp MIN_H, MAX_H
+        col_h.clamp! MIN_H, MAX_H
         top.set HORIZON
         top.sub(col_h / 2)
         # Shade the wall by how far away it is, which is what reads as depth: near walls

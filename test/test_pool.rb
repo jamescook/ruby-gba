@@ -38,7 +38,7 @@ class TestPool < Minitest::Test
     assert_equal 3, i[:__pool_bullet_count], "three instances are live"
   end
 
-  # A row handle's field is a mutable Value: b.y.add moves it, b.y.clamp pins it (the
+  # A row handle's field is a mutable Value: b.y.add moves it, b.y.clamp! pins it (the
   # read-modify-write path through a scratch var). The instance settles at the clamp.
   def test_a_field_is_mutable_per_instance
     b = Builder.new
@@ -51,7 +51,7 @@ class TestPool < Minitest::Test
         clear_screen :black
         movers.each do |m|
           m.y.add 2
-          m.y.clamp 0, 80
+          m.y.clamp! 0, 80
           draw_rect_at m.x, m.y, 2, 2, :green
         end
       end

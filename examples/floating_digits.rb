@@ -81,10 +81,10 @@ module FloatingDigits
         y.add dy
 
         # Bounce off each wall: pin the digit to the edge and reverse its direction.
-        (x < 0).then     { x.set 0;     dx.flip }
-        (x > max_x).then { x.set max_x; dx.flip }
-        (y < 0).then     { y.set 0;     dy.flip }
-        (y > max_y).then { y.set max_y; dy.flip }
+        (x < 0).then     { x.set 0;     dx.flip! }
+        (x > max_x).then { x.set max_x; dx.flip! }
+        (y < 0).then     { y.set 0;     dy.flip! }
+        (y > max_y).then { y.set max_y; dy.flip! }
 
         blit :"digit#{m[:d]}", :"x#{m[:d]}", :"y#{m[:d]}"
       end

@@ -103,7 +103,7 @@ module RubyGBA
           # before it was held in range would sound for a frame at whatever came out.
           wanted = handle_for(:__music_level_wanted)
           wanted.set amount * full / 100
-          wanted.clamp 0, full
+          wanted.clamp! 0, full
           level.set wanted
         end
         nil

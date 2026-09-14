@@ -904,6 +904,17 @@ module RubyGBA
         Nodes.build(:bit_not, operand: wrap(operand))
       end
 
+      # |operand|, as a new value — the `abs` statement changes a stored variable instead.
+      def absolute(operand)
+        Nodes.build(:absolute, operand: wrap(operand))
+      end
+
+      # +operand+ held within [min, max], as a new value — the `clamp` statement changes a
+      # stored variable instead.
+      def clamped(operand, min, max)
+        Nodes.build(:clamped, operand: wrap(operand), min: wrap(min), max: wrap(max))
+      end
+
       # --- input reads (value operands, e.g. inside an `if_` condition) ---
 
       # 1 while +button+ is down, else 0.

@@ -95,8 +95,8 @@ module SpriteMover
 
       # A sprite clips at the screen edges, so let the heart slide half off any side
       # or corner — just not so far it vanishes. It stays put until you steer back.
-      hero.x.clamp(-HALF_W, SCREEN_W - SPRITE_W + HALF_W)
-      hero.y.clamp(-HALF_H, SCREEN_H - SPRITE_H + HALF_H)
+      hero.x.clamp!(-HALF_W, SCREEN_W - SPRITE_W + HALF_W)
+      hero.y.clamp!(-HALF_H, SCREEN_H - SPRITE_H + HALF_H)
       # no draw call — moving the heart above is all it takes
     end
   end

@@ -81,7 +81,7 @@ class TestAffineBackground < Minitest::Test
 
   # The affine matrix is read live every frame, whether a program reaches it
   # through `rotate`/`scale` or mutates the underlying angle/scale Value directly
-  # (`board.scale.approach`, the same idiom a sprite's size already supports) — see
+  # (`board.scale.approach!`, the same idiom a sprite's size already supports) — see
   # Builder#affine_each_frame, registered once a background is made affine at all.
   def test_a_directly_mutated_scale_value_still_takes_effect
     map = marked_map({ [25, 10] => "#", [20, 10] => "$" })

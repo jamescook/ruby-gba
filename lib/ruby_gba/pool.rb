@@ -243,7 +243,7 @@ module RubyGBA
     # A ROUTINE THAT WORKS ON ONE INSTANCE — the body of `each` moved into a routine of its
     # own, which is where a game of any size puts it:
     #
-    #   guards.func(:chase) { |g| g.x.approach hero.x, 1 }
+    #   guards.func(:chase) { |g| g.x.approach! hero.x, 1 }
     #   guards.each { |g| call g.state }
     #
     # A routine is built ONCE, wherever it is called from, so it cannot close over the
@@ -521,8 +521,8 @@ module RubyGBA
       # per-instance counterpart to {Sprite#clamp_to_screen}. Clamps its x/y in place.
       def clamp_to_screen
         hit_x, hit_y, hit_w, hit_h = require_box!
-        field(:x).clamp(-hit_x, IR::Screen::WIDTH - hit_x - hit_w)
-        field(:y).clamp(-hit_y, IR::Screen::HEIGHT - hit_y - hit_h)
+        field(:x).clamp!(-hit_x, IR::Screen::WIDTH - hit_x - hit_w)
+        field(:y).clamp!(-hit_y, IR::Screen::HEIGHT - hit_y - hit_h)
         self
       end
 

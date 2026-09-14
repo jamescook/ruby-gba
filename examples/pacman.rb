@@ -199,8 +199,8 @@ module Pacman
       held(:right).then { pac.move :right, by: SPEED }
       held(:up).then    { pac.move :up,    by: SPEED }
       held(:down).then  { pac.move :down,  by: SPEED }
-      pac.x.clamp FLOOR_X.min, FLOOR_X.max # keep him inside the walls
-      pac.y.clamp FLOOR_Y.min, FLOOR_Y.max
+      pac.x.clamp! FLOOR_X.min, FLOOR_X.max # keep him inside the walls
+      pac.y.clamp! FLOOR_Y.min, FLOOR_Y.max
 
       # Eat a pellet Pac is touching. Both are sprites, so each knows its rectangle —
       # no boxes: just ask whether they overlap. On a bite, count it, waka, and send

@@ -176,7 +176,7 @@ class TestLayerTransparency < Minitest::Test
       layer(:glass, transparency: amount ? instance_exec(clear, &amount) : clear) do
         background :pane, tiles: :frontset, map: Array.new(20) { "#" * 20 }
       end
-      game_loop { clear.approach 0, 10 }
+      game_loop { clear.approach! 0, 10 }
     end
   end
 
@@ -455,7 +455,7 @@ class TestLayerTransparency < Minitest::Test
       tick = var :tick, 0
       game_loop do
         tick.add 1
-        clear.approach 0, 2
+        clear.approach! 0, 2
         (tick > FLASH_AT).then { fade :black, 0 } if lifting
       end
     end

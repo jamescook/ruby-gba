@@ -122,7 +122,7 @@ module RubyGBA
     end
 
     # The sprite's position, as {Value} handles — steer them with the expression
-    # DSL (`hero.x.add 2`, `hero.y.clamp 0, 150`). The framework reads them each
+    # DSL (`hero.x.add 2`, `hero.y.clamp! 0, 150`). The framework reads them each
     # frame to know where to draw.
     def x
       Value.new(@builder, Build.var_ref(@x_var), name: @x_var)
@@ -190,8 +190,8 @@ module RubyGBA
     # self. (It keeps the sprite's collision box on screen; a transparent margin around
     # the art may still slide off, which is what you want.)
     def clamp_to_screen
-      x.clamp(-@hit_x, IR::Screen::WIDTH - @hit_x - @hit_w)
-      y.clamp(-@hit_y, IR::Screen::HEIGHT - @hit_y - @hit_h)
+      x.clamp!(-@hit_x, IR::Screen::WIDTH - @hit_x - @hit_w)
+      y.clamp!(-@hit_y, IR::Screen::HEIGHT - @hit_y - @hit_h)
       self
     end
     alias stay_on_screen clamp_to_screen

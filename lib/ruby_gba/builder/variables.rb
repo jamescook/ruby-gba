@@ -107,12 +107,12 @@ module RubyGBA
 
       # Flip a variable's sign: var = -var.
       # Useful for reversing direction vectors.
-      def negate(name)
+      def negate!(name)
         record(Build.negate(name))
         ensure_var(name)
         mirror_save(name)
       end
-      alias flip negate
+      alias flip! negate!
 
       # Copy one variable's value into another: dest = src.
       #
@@ -127,7 +127,7 @@ module RubyGBA
 
       # Absolute value: var = |var|
       # If var < 0, negate it. Otherwise leave it.
-      def abs(name)
+      def abs!(name)
         record(Build.abs(name))
         ensure_var(name)
         mirror_save(name)
@@ -135,10 +135,23 @@ module RubyGBA
 
       # Make a variable negative: var = -|var|
       # If var > 0, negate it. Otherwise leave it.
-      def negate_abs(name)
+      def negate_abs!(name)
         record(Build.negate_abs(name))
         ensure_var(name)
         mirror_save(name)
+      end
+
+      # THE SAME FLAT VERBS WITHOUT THE `!`, which used to change the variable. A word without
+      # `!` never changes a variable, so each of these says which word does.
+      %i[abs negate_abs negate flip clamp approach].each do |verb|
+        define_method(verb) do |name = nil, *|
+          said = name.is_a?(Symbol) ? " :#{name}" : ""
+          handle = name.is_a?(Symbol) ? "the handle that `var :#{name}` gives you" : "the variable's handle"
+          raise ArgumentError,
+                "`#{verb}#{said}` does not change a variable. A word that changes a variable " \
+                "ends in `!`. To change it, write `#{verb}!#{said}`. To get a new number and keep " \
+                "the variable as it is, use `.#{verb == :negate ? :flip : verb}` on #{handle}."
+        end
       end
 
       # Hold a variable inside a range: below +min_val+ it becomes min_val, above
@@ -148,13 +161,13 @@ module RubyGBA
       # limit that depends on the level, a speed that changes — so a range does not
       # have to be known as the program is written.
       #
-      #   x.clamp 0, 239              # keep it on screen
-      #   speed.clamp 0, top_speed    # a limit the game changes
+      #   x.clamp! 0, 239              # keep it on screen
+      #   speed.clamp! 0, top_speed    # a limit the game changes
       #
       # @param name [Symbol] variable name
       # @param min_val [Integer, Symbol, Value] the lowest it may be
       # @param max_val [Integer, Symbol, Value] the highest it may be
-      def clamp(name, min_val, max_val)
+      def clamp!(name, min_val, max_val)
         record(Build.clamp(name, Value.node_for(min_val), Value.node_for(max_val)))
         ensure_var(name)
         ensure_var(min_val)
@@ -167,7 +180,7 @@ module RubyGBA
       # and stays there. This is the "chase, capped to a top speed" move — a homing
       # enemy, a camera easing to the player, pong's paddle tracking the ball.
       #
-      #   cpu_y.approach ball_y - PADDLE_H / 2, CPU_SPEED
+      #   cpu_y.approach! ball_y - PADDLE_H / 2, CPU_SPEED
       #
       # +target+ is where it's heading — a number, another variable, or an
       # expression Value. +step+ is the most it may move per call, like a top speed.
@@ -177,12 +190,10 @@ module RubyGBA
       # distance, so a negative one still moves toward the target, and a step of 0
       # holds still.
       #
-      #   cpu_y.approach ball_y - PADDLE_H / 2, CPU_SPEED
-      #
       # @param name [Symbol] the variable to move
       # @param target [Integer, Symbol, Value] where it's heading
       # @param step [Integer, Symbol, Value] the most it may move per call
-      def approach(name, target, step)
+      def approach!(name, target, step)
         # A step the author fixed has to be positive. One the game works out is read as a
         # distance instead (see #approach_bounds), so there is nothing to check here.
         fixed_step = Value.fixed_number(step)

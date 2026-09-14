@@ -471,7 +471,7 @@ module RubyGBA
     # than wherever the game happened to change its angle or size. Called once, as soon
     # as a background is made affine (see Builder::Tiled#make_background_affine) — not
     # only from `rotate`/`scale` themselves — so the matrix stays live even for a
-    # program that reaches into the angle/scale {Value}s directly (`bg.scale.approach`)
+    # program that reaches into the angle/scale {Value}s directly (`bg.scale.approach!`)
     # rather than through those two verbs.
     #
     # Also captures the CURRENT scene gate (whatever scene this first `rotate`/`scale`/

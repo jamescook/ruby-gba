@@ -160,7 +160,7 @@ module Corridor
 
             # The perspective divide: a wall twice as far covers half as much of the view.
             col_h.set((WALL_SCALE / (seen + SOFTEN)).to_i)
-            col_h.clamp MIN_H, MAX_H
+            col_h.clamp! MIN_H, MAX_H
             top.set HORIZON
             top.sub(col_h / 2)
 
@@ -184,8 +184,8 @@ module Corridor
 
         step_x.set(sin[view + QUARTER] * WALK)
         step_y.set(sin[view] * WALK)
-        held(:down).then { step_x.flip }
-        held(:down).then { step_y.flip }
+        held(:down).then { step_x.flip! }
+        held(:down).then { step_y.flip! }
 
         (held(:up) | held(:down)).then do
           nx.set px

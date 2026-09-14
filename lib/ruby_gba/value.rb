@@ -62,11 +62,15 @@ module RubyGBA
     # given the number they wrote. A variable and a list say it differently, and the rules
     # for lining two scales up are otherwise the same — so the rules live here once and
     # only the advice changes.
+    #
+    # +changing+ is how the author would change the variable this was worked out from instead —
+    # see #changing.
     def initialize(builder, node, name: nil, fraction_bits: nil, declaring: nil, mixing: nil,
-                   names: nil)
+                   names: nil, changing: nil)
       @builder = builder
       @node = node
       @name = name
+      @changing = changing
       @scale = Scale.new(bits: fraction_bits, declaring: declaring, mixing: mixing, names: names)
       # Only an expression is tracked, and only an expression pays for the stack walk
       # that pins the author's line — a handle can never be the orphan this is for.
@@ -380,30 +384,69 @@ module RubyGBA
     end
 
     # Keep the variable within [lo, hi].
-    def clamp(lo, hi)
-      mutate { @builder.clamp(@name, aligned_operand(lo, "compare"), aligned_operand(hi, "compare")) }
+    def clamp!(lo, hi)
+      mutate { @builder.clamp!(@name, aligned_operand(lo, "compare"), aligned_operand(hi, "compare")) }
     end
 
     # Move the variable toward +target+ by at most +step+ each call, never
-    # overshooting — the chase-at-a-top-speed move (see Builder#approach).
-    def approach(target, step)
-      mutate { @builder.approach(@name, aligned_operand(target, "compare"), aligned_operand(step, "add")) }
+    # overshooting — the chase-at-a-top-speed move (see Builder#approach!).
+    def approach!(target, step)
+      mutate { @builder.approach!(@name, aligned_operand(target, "compare"), aligned_operand(step, "add")) }
     end
 
     # Replace the variable with its absolute value.
-    def abs
-      mutate { @builder.abs(@name) }
+    def abs!
+      mutate { @builder.abs!(@name) }
     end
 
     # Force the variable negative: it becomes -|value|.
-    def negate_abs
-      mutate { @builder.negate_abs(@name) }
+    def negate_abs!
+      mutate { @builder.negate_abs!(@name) }
     end
 
     # Flip the variable's sign.
-    def flip
-      mutate { @builder.flip(@name) }
+    def flip!
+      mutate { @builder.flip!(@name) }
     end
+
+    # --- the same five as NEW numbers, leaving this one alone ---
+    #
+    # A word without `!` never changes anything, which is what Ruby's own Integer#abs and
+    # Comparable#clamp promise and what `apart.abs <= reach` reads as. Each is the number
+    # its `!` form would store.
+
+    # How far this is from nought.
+    def abs = new_number(Build.absolute(@node), "abs!")
+
+    # This held within [lo, hi].
+    def clamp(lo, hi)
+      new_number(Build.clamped(@node, aligned_operand(lo, "compare"), aligned_operand(hi, "compare")), "clamp!")
+    end
+
+    # This moved toward +target+ by at most +step+: how far there is to go, held within a
+    # step either way, added on — the same working-out `approach!` stores. A step written
+    # into the program must be positive; one the game works out is read as a distance.
+    def approach(target, step)
+      step = aligned_operand(step, "add")
+      fixed = Value.fixed_number(step)
+      raise ArgumentError, "approach's step must be positive. You gave #{fixed}." if fixed && !fixed.positive?
+
+      distance = fixed || Build.absolute(step)
+      low = fixed ? -fixed : Build.neg(distance)
+      gap = Build.binop(:-, aligned_operand(target, "compare"), @node)
+      new_number(Build.binop(:+, @node, Build.clamped(gap, low, distance)), "approach!")
+    end
+
+    # This, the other way round — the same number as `-x`.
+    def flip = new_number(Build.neg(@node), "flip!")
+
+    # This made negative: -|x|.
+    def negate_abs = new_number(Build.neg(Build.absolute(@node)), "negate_abs!")
+
+    # How to change the thing this names instead of making a new number, for the message
+    # about a new number nobody kept — "d.abs!" for a variable. Nil for a new number that
+    # was not made by one of the five words above straight from a variable or a pool field.
+    attr_reader :changing
 
     private
 
@@ -504,6 +547,16 @@ module RubyGBA
     def scaled(node, bits)
       Value.new(@builder, node, fraction_bits: bits)
     end
+
+    # A number worked out from this one by one of the five words that also have a `!` form,
+    # at this one's scale — remembering how +bang+ would have changed this instead, when this
+    # is a handle. A number worked out from a sum has nothing to change.
+    def new_number(node, bang)
+      Value.new(@builder, node, fraction_bits: @scale.bits, changing: handle? ? "#{spelled}.#{bang}" : nil)
+    end
+
+    # How the author wrote this handle, as near as it can be said: a variable's name.
+    def spelled = @name.to_s
 
     # Run a mutation, returning self so calls chain — but only for a handle that
     # names a variable. Mutating an expression has nowhere to store the result.

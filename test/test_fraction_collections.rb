@@ -171,8 +171,8 @@ class TestFractionCollections < Minitest::Test
       game_loop do
         movers.spawn(x: 9.0)
         movers.each do |m|
-          m.x.approach 10.0, 0.25
-          m.x.clamp 0.0, 20.0
+          m.x.approach! 10.0, 0.25
+          m.x.clamp! 0.0, 20.0
           seen.set m.x
         end
         halt

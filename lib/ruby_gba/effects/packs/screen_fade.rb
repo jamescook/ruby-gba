@@ -299,7 +299,7 @@ module RubyGBA
                   (color == FIRST_TINT + i).then { tint tint_color, level.to_i }
                 end
                 (level == target).then { active.set 0 }
-                                 .else { level.approach target, step }
+                                 .else { level.approach! target, step }
               end
             end
 

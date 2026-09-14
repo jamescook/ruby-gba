@@ -154,7 +154,7 @@ module RubyGBA
               (active == 1).then do
                 (level == target).then { active.set 0 }
                                  .else do
-                                   level.approach target, step
+                                   level.approach! target, step
                                    music_volume level.to_i
                                  end
               end

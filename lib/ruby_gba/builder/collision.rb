@@ -15,7 +15,7 @@ module RubyGBA
       #
       #   ball   = box(ball_x, ball_y, 4, 4)   # follows the ball's variables
       #   paddle = box(8, paddle_y, 4, 24)
-      #   ball.overlaps?(paddle).then { ball_dx.abs }   # bounce on contact
+      #   ball.overlaps?(paddle).then { ball_dx.abs! }   # bounce on contact
       #
       # A sprite already knows its bounds, so `hero.overlaps?(coin)` needs no box.
       def box(x, y, w, h)

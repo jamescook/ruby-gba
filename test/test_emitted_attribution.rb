@@ -37,7 +37,7 @@ class TestEmittedAttribution < Minitest::Test
         wait_vblank
         clear_screen :black
         x.add 1
-        x.clamp 0, 100
+        x.clamp! 0, 100
         fill_rect 10, 10, 20, 20, :red
       end
     end

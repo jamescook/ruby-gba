@@ -33,7 +33,7 @@ class TestApproach < Minitest::Test
   def test_moves_toward_a_higher_target_by_the_step
     i = interpret do
       x = var :x, 0
-      x.approach 100, 10
+      x.approach! 100, 10
     end
     assert_equal 10, i[:x]
   end
@@ -41,7 +41,7 @@ class TestApproach < Minitest::Test
   def test_moves_toward_a_lower_target_by_the_step
     i = interpret do
       x = var :x, 100
-      x.approach 0, 10
+      x.approach! 0, 10
     end
     assert_equal 90, i[:x]
   end
@@ -54,7 +54,7 @@ class TestApproach < Minitest::Test
     # 8 and stays.
     i = interpret do
       x = var :x, 5
-      x.approach 8, 10
+      x.approach! 8, 10
     end
     assert_equal 8, i[:x]
   end
@@ -62,7 +62,7 @@ class TestApproach < Minitest::Test
   def test_lands_exactly_when_the_target_is_below_and_within_a_step
     i = interpret do
       x = var :x, 5
-      x.approach 3, 10
+      x.approach! 3, 10
     end
     assert_equal 3, i[:x]
   end
@@ -70,7 +70,7 @@ class TestApproach < Minitest::Test
   def test_at_the_target_it_stays_put
     i = interpret do
       x = var :x, 7
-      x.approach 7, 10
+      x.approach! 7, 10
     end
     assert_equal 7, i[:x]
   end
@@ -82,7 +82,7 @@ class TestApproach < Minitest::Test
       x = var :x, 0
       f = var :f, 0
       game_loop do
-        x.approach 100, 7        # 100 / 7 → 15 steps to arrive
+        x.approach! 100, 7       # 100 / 7 → 15 steps to arrive
         f.add 1
         (f >= 30).then { halt }  # well past arrival
       end
@@ -97,7 +97,7 @@ class TestApproach < Minitest::Test
     i = interpret do
       ball_y = var :ball_y, 50
       cpu = var :cpu, 0
-      cpu.approach ball_y - 10, 6
+      cpu.approach! ball_y - 10, 6
     end
     assert_equal 6, i[:cpu]
   end
@@ -106,7 +106,7 @@ class TestApproach < Minitest::Test
     i = interpret do
       var :goal, 20
       x = var :x, 0
-      x.approach :goal, 5
+      x.approach! :goal, 5
     end
     assert_equal 5, i[:x]
   end
@@ -117,8 +117,8 @@ class TestApproach < Minitest::Test
     i = interpret do
       a = var :a, 0
       b = var :b, 100
-      a.approach 100, 10
-      b.approach 0, 10
+      a.approach! 100, 10
+      b.approach! 0, 10
     end
     assert_equal 10, i[:a]
     assert_equal 90, i[:b]
@@ -138,7 +138,7 @@ class TestApproach < Minitest::Test
 
   def test_approaching_an_expression_is_a_friendly_error
     # Only a variable has somewhere to store the result.
-    err = assert_raises(ArgumentError) { tree { (var(:x, 0) + 1).approach 100, 10 } }
+    err = assert_raises(ArgumentError) { tree { (var(:x, 0) + 1).approach! 100, 10 } }
     assert_match(/only a variable/, err.message)
   end
 
@@ -150,7 +150,7 @@ class TestApproach < Minitest::Test
     i = interpret do
       speed = var :speed, 10
       x = var :x, 0
-      3.times { x.approach 100, speed }
+      3.times { x.approach! 100, speed }
     end
 
     assert_equal 30, i[:x]
@@ -160,9 +160,9 @@ class TestApproach < Minitest::Test
     i = interpret do
       speed = var :speed, 5
       x = var :x, 0
-      x.approach 100, speed # +5
+      x.approach! 100, speed # +5
       speed.set 20
-      x.approach 100, speed # +20
+      x.approach! 100, speed # +20
     end
 
     assert_equal 25, i[:x]
@@ -172,7 +172,7 @@ class TestApproach < Minitest::Test
     i = interpret do
       speed = var :speed, 30
       x = var :x, 0
-      4.times { x.approach 100, speed }
+      4.times { x.approach! 100, speed }
     end
 
     assert_equal 100, i[:x], "it stops on the target rather than overshooting past it"
@@ -185,7 +185,7 @@ class TestApproach < Minitest::Test
     i = interpret do
       speed = var :speed, -10
       x = var :x, 0
-      x.approach 100, speed
+      x.approach! 100, speed
     end
 
     assert_equal 10, i[:x]
@@ -195,7 +195,7 @@ class TestApproach < Minitest::Test
     i = interpret do
       speed = var :speed, 0
       x = var :x, 50
-      x.approach 100, speed
+      x.approach! 100, speed
     end
 
     assert_equal 50, i[:x]
@@ -207,7 +207,7 @@ class TestApproach < Minitest::Test
     i = interpret do
       limit = var :limit, 40
       x = var :x, 100
-      x.clamp 0, limit
+      x.clamp! 0, limit
     end
 
     assert_equal 40, i[:x]
@@ -217,7 +217,7 @@ class TestApproach < Minitest::Test
     i = interpret do
       width = var :width, 20
       x = var :x, 100
-      x.clamp 0, width * 2
+      x.clamp! 0, width * 2
     end
 
     assert_equal 40, i[:x]
@@ -227,10 +227,10 @@ class TestApproach < Minitest::Test
     i = interpret do
       limit = var :limit, 40
       x = var :x, 100
-      x.clamp 0, limit
+      x.clamp! 0, limit
       limit.set 90
       x.set 100
-      x.clamp 0, limit
+      x.clamp! 0, limit
     end
 
     assert_equal 90, i[:x]
@@ -249,7 +249,7 @@ class TestApproach < Minitest::Test
       game_loop do
         wait_vblank
         clear_screen :black
-        x.approach 100, 7
+        x.approach! 100, 7
         draw_rect_at :x, 50, 2, 2, :green
         f.add 1
         (f >= frames).then { halt }
@@ -294,8 +294,8 @@ class TestApproach < Minitest::Test
       game_loop do
         wait_vblank
         clear_screen :black
-        x.approach 200, speed # a step the game holds in a variable
-        x.clamp 0, limit      # and a ceiling it holds in another
+        x.approach! 200, speed # a step the game holds in a variable
+        x.clamp! 0, limit      # and a ceiling it holds in another
         draw_rect_at :x, 50, 2, 2, :green
         f.add 1
         (f >= frames).then { halt }

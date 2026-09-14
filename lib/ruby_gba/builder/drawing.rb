@@ -205,7 +205,7 @@ module RubyGBA
       #
       #   level = var :level, 0
       #   game_loop do
-      #     level.approach 100, 4   # walk it up over a few frames
+      #     level.approach! 100, 4   # walk it up over a few frames
       #     fade :black, level
       #   end
       #
@@ -251,7 +251,7 @@ module RubyGBA
       #
       #   hurt = var :hurt, 0
       #   game_loop do
-      #     hurt.approach 0, 6      # ease it back off
+      #     hurt.approach! 0, 6      # ease it back off
       #     tint :red, hurt
       #   end
       #

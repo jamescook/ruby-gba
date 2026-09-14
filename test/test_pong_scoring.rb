@@ -50,8 +50,8 @@ class TestPongScoring < Minitest::Test
         ball       = box(bx, by, BALL_SIZE, BALL_SIZE)
         player_pad = box(LEFT_X, ppad, PADDLE_W, PADDLE_H)
         cpu_pad    = box(RIGHT_X, cpad, PADDLE_W, PADDLE_H)
-        ball.overlaps?(player_pad).then { bdx.abs }
-        ball.overlaps?(cpu_pad).then { bdx.negate_abs }
+        ball.overlaps?(player_pad).then { bdx.abs! }
+        ball.overlaps?(cpu_pad).then { bdx.negate_abs! }
 
         # Off an edge: score and stop, so the count is exactly what happened.
         (bx <= 0).then { cscore.add 1; halt }

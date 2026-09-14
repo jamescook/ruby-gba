@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require "test_helper"
+require "differential"
 
 # The expression DSL: `var` hands back a Value handle you compare with ordinary
 # Ruby operators to get a Condition, branch on with .then / .else, compose with
@@ -14,6 +15,7 @@ require "test_helper"
 # couple of the emulator tests confirm the same programs on real hardware.
 class TestDSLExpression < Minitest::Test
   include RubyGBA::IR::Build # constructors, for the guardrail trees
+  include Differential
 
   # Build through the DSL and run it on the reference backend, returning the
   # interpreter — whose #screen holds the pixels the program drew. `held` pins a
@@ -103,7 +105,7 @@ class TestDSLExpression < Minitest::Test
       v.set 5
       v.add 3
       v.sub 1
-      v.clamp 0, 5
+      v.clamp! 0, 5
       draw_rect_at :v, 20, 2, 2, :green # a variable position: x comes from v
     end
     assert_equal Color.resolve(:green), pixel_at(i, 5, 20)
@@ -114,18 +116,88 @@ class TestDSLExpression < Minitest::Test
     # d = -3; abs -> 3; +20 keeps the marker on-screen at x = 23.
     i = interpret do
       d = var :d, -3
-      d.abs
+      d.abs!
       d.add 20
       draw_rect_at :d, 30, 2, 2, :white
     end
     assert_equal Color.resolve(:white), pixel_at(i, 23, 30)
   end
 
+  # Read as Ruby reads it, `d.abs <= 5` asks how far d is from nought and leaves d alone — the
+  # way Integer#abs does. So the comparison holds, and d is still negative after it.
+  def test_abs_inside_a_comparison_leaves_the_variable_alone
+    i = interpret do
+      d = var :d, -3
+      (d.abs <= 5).then { pixel 1, 1, :red }
+      (d < 0).then { pixel 2, 2, :blue }
+    end
+    assert_equal Color.resolve(:red), pixel_at(i, 1, 1), "3 is within 5"
+    assert_equal Color.resolve(:blue), pixel_at(i, 2, 2), "d is still -3"
+  end
+
+  # THE FIVE AS NEW NUMBERS, each the number its `!` word would store, with d left at -3.
+  # Each answer is drawn as a mark at x = 40 + answer on its own row, so a wrong one lands
+  # in the wrong column. A bound and a step the game works out take a different path from
+  # ones written down, so both are here.
+  NEW_NUMBERS = [
+    [3,   ->(d, _t, _s) { d.abs }],
+    [0,   ->(d, _t, _s) { d.clamp(0, 9) }],
+    [9,   ->(d, _t, _s) { (d + 20).clamp(0, 9) }],
+    [-3,  ->(d, t, _s) { d.clamp(t - 20, t) }],        # already inside bounds worked out
+    [1,   ->(d, t, _s) { d.approach(t, 4) }],
+    [-1,  ->(d, t, s) { d.approach(t, s) }],           # a step of -2 read as a distance
+    [-4,  ->(d, _t, _s) { d.approach(-4, 4) }],        # within a step: lands on it
+    [3,   ->(d, _t, _s) { d.flip }],
+    [-3,  ->(d, _t, _s) { d.negate_abs }],
+    [-7,  ->(d, _t, _s) { (d + 10).negate_abs }],
+    [-3,  ->(d, _t, _s) { d }],                        # and d itself, untouched
+  ].freeze
+
+  def new_numbers_program(builder)
+    builder.instance_eval do
+      screen :bitmap
+      clear_screen :black
+      d = var :d, -3
+      t = var :t, 10
+      s = var :s, -2
+      out = var :out, 0
+      NEW_NUMBERS.each_with_index do |(_, number), row|
+        out.set number.call(d, t, s)
+        draw_rect_at out + 40, row * 4, 2, 2, :white
+      end
+      halt
+    end
+    builder.emit_pending_functions
+    builder.program
+  end
+
+  def test_the_five_words_without_bang_are_new_numbers_on_both_backends
+    program = new_numbers_program(Builder.new)
+    i = Reference.new.run(program)
+
+    NEW_NUMBERS.each_with_index do |(want, _), row|
+      assert_equal Color.resolve(:white), pixel_at(i, 40 + want, row * 4), "row #{row} is #{want}"
+    end
+    assert_backends_agree(program, frames: 2)
+  end
+
+  # A number that holds a fraction keeps it: |-1.5| is 1.5, not 1 or 2.
+  def test_a_new_number_keeps_the_fraction
+    i = interpret do
+      d = var :d, -1.5
+      (d.abs > 1.25).then { pixel 1, 1, :red }
+      (d.abs < 1.75).then { pixel 2, 2, :red }
+      (d.clamp(-1.0, 1.0) == -1.0).then { pixel 3, 3, :red }
+    end
+
+    [1, 2, 3].each { |at| assert_equal Color.resolve(:red), pixel_at(i, at, at) }
+  end
+
   def test_flip_reverses_the_sign
     # d = 5; flip -> -5; +25 brings the marker back on-screen at x = 20.
     i = interpret do
       d = var :d, 5
-      d.flip
+      d.flip!
       d.add 25
       draw_rect_at :d, 40, 2, 2, :white
     end

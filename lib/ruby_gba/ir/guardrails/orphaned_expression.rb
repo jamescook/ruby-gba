@@ -52,6 +52,8 @@ module RubyGBA
           # site, and there is no node in the tree to point at. Standalone so the message
           # is easy to assert.
           def self.finding(value)
+            return Finding.new(check: NAME, severity: :error, message: changing_message(value), node: value) if value.changing
+
             message =
               "You worked out a number and then did nothing with it. So the program is " \
               "unchanged and the work is thrown away. This usually means a change that " \
@@ -61,6 +63,16 @@ module RubyGBA
               "Ruby name moves to the new number, and the game's variable stays as it " \
               "was. The same is true of `hp + 1`, where `hp.add 1` changes the variable."
             Finding.new(check: NAME, severity: :error, message: message, node: value)
+          end
+
+          # ONE OF THE WORDS THAT USED TO CHANGE A VARIABLE, written the old way. `d.abs` on a
+          # line of its own changed d once; now it works out a new number and changes nothing,
+          # so the likeliest meaning is the `!` form, and the message says it by name.
+          def self.changing_message(value)
+            bare = value.changing.delete("!")
+            "`#{bare}` works out a new number and leaves the variable as it is. Nothing uses " \
+              "that number here, so this line does nothing. A word that changes a variable ends " \
+              "in `!`. To change the variable, write `#{value.changing}`."
           end
         end
       end

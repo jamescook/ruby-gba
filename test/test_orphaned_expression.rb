@@ -68,6 +68,58 @@ class TestOrphanedExpression < Minitest::Test
     assert_equal 1, findings.length
   end
 
+  # `d.abs` on a line of its own used to change d. Now it is a new number nobody kept, and
+  # the likeliest meaning is the `!` word, so the message names it — for each of the five.
+  def test_a_word_that_used_to_change_a_variable_names_its_bang_form
+    findings = findings_for do
+      screen :bitmap
+      d = var :d, -3
+      d.abs
+      d.clamp 0, 9
+      d.approach 10, 2
+      d.flip
+      d.negate_abs
+      halt
+    end
+
+    assert_equal %w[d.abs! d.clamp! d.approach! d.flip! d.negate_abs!],
+                 findings.map { |finding| finding.message[/write `([^`]+)`/, 1] }
+    assert_match(/`d\.abs` works out a new number/, findings.first.message)
+  end
+
+  # A number worked out from a sum has no variable to change, so nothing names a `!` word.
+  def test_a_new_number_from_a_sum_gets_the_ordinary_message
+    findings = findings_for do
+      screen :bitmap
+      d = var :d, -3
+      (d + 10).abs
+      halt
+    end
+
+    assert_match(/did nothing with it/, findings.first.message)
+    refute_match(/abs!/, findings.first.message)
+  end
+
+  def test_a_pool_fields_old_word_names_the_field
+    findings = findings_for do
+      screen :bitmap
+      guards = pool :guard, x: 0, capacity: 4
+      guards.each { |g| g.x.clamp 0, 239 }
+      halt
+    end
+
+    assert_match(/write `x\.clamp!`/, findings.first.message)
+  end
+
+  # The flat verbs that name a variable have no new number to give, so the old spelling
+  # stops the build on the spot.
+  def test_a_flat_verb_without_its_bang_is_a_friendly_error
+    err = assert_raises(ArgumentError) { findings_for { abs :d } }
+
+    assert_match(/`abs :d` does not change a variable/, err.message)
+    assert_match(/write `abs! :d`/, err.message)
+  end
+
   # --- ordinary code that must not be flagged ---
 
   def test_the_same_thing_written_correctly_is_not_reported

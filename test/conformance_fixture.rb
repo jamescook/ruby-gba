@@ -100,6 +100,8 @@ module ConformanceFixture
       *OPERATORS.map { |op| B.set(:acc, B.binop(op, B.var_ref(:x), B.int(2))) },
       B.set(:acc, B.neg(B.var_ref(:x))),      # neg
       B.set(:acc, B.bit_not(B.var_ref(:x))),  # bit_not
+      B.set(:acc, B.absolute(B.neg(B.var_ref(:x)))), # absolute
+      B.set(:acc, B.clamped(B.var_ref(:x), B.int(0), B.var_ref(:y))), # clamped, a bound worked out
       # Bit operations, at the places the two backends could disagree. A mask too big
       # to ride inside an instruction takes a different path from a small one; a shift
       # count the game works out takes a different path from one written down; and a

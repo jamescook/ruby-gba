@@ -176,9 +176,9 @@ module Breakout
       # Bounce off the two side walls and the ceiling. abs/negate_abs force the
       # direction rather than just flipping it, so a ball wedged against a wall for
       # a frame can't rattle back and forth.
-      (ball_x <= 0).then                 { ball_dx.abs;        beep :wall }
-      (ball_x >= SCREEN_W - BALL_SIZE).then { ball_dx.negate_abs; beep :wall }
-      (ball_y <= 0).then                 { ball_dy.abs;        beep :wall }
+      (ball_x <= 0).then                 { ball_dx.abs!;        beep :wall }
+      (ball_x >= SCREEN_W - BALL_SIZE).then { ball_dx.negate_abs!; beep :wall }
+      (ball_y <= 0).then                 { ball_dy.abs!;        beep :wall }
 
       ball   = box(ball_x, ball_y, BALL_SIZE, BALL_SIZE)
       paddle = box(paddle_x, PADDLE_Y, PADDLE_W, PADDLE_H)
@@ -190,7 +190,7 @@ module Breakout
       # paddle. `_hit` is the ball's centre measured from the paddle's left side.
       (ball_dy >= 0).then do
         ball.overlaps?(paddle).then do
-          ball_dy.negate_abs                       # always send it back up
+          ball_dy.negate_abs!                      # always send it back up
           copy :_hit, :ball_x
           add :_hit, BALL_SIZE / 2
           sub :_hit, :paddle_x
@@ -215,7 +215,7 @@ module Breakout
               alive[b[:name]].set 0
               score.add b[:points]
               bricks_left.sub 1
-              ball_dy.flip
+              ball_dy.flip!
               beep :brick
               shake_screen intensity: 2, frames: 4 # a small knock on impact
             end
@@ -284,7 +284,7 @@ module Breakout
       # Steer the paddle and keep it on screen.
       held(:left).then  { paddle_x.sub PADDLE_SPEED }
       held(:right).then { paddle_x.add PADDLE_SPEED }
-      paddle_x.clamp 0, SCREEN_W - PADDLE_W
+      paddle_x.clamp! 0, SCREEN_W - PADDLE_W
 
       call :update_ball
 
@@ -306,7 +306,7 @@ module Breakout
       # be dividing by nothing, so the first run simply has no bar to show.
       (high > 0).then do
         best_bar.set(score * BEST_BAR_W / high)
-        best_bar.clamp 0, BEST_BAR_W
+        best_bar.clamp! 0, BEST_BAR_W
         draw_rect_at BEST_BAR_X, BEST_BAR_Y, best_bar, BEST_BAR_H, :green
       end
     end

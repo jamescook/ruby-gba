@@ -139,7 +139,7 @@ module RubyGBA
                 left.sub 1 # -> -1, so this never runs again until the next shake
               end
               (left > 0).then do
-                direction.flip
+                direction.flip!
                 offset.set power * direction
                 camera offset, offset
                 left.sub 1

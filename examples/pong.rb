@@ -133,7 +133,7 @@ Pong = RubyGBA.game("PONG", code: "BPNG", maker: "01") do
   func :reset_ball do
     ball_x.set 118
     ball_y.set 78
-    ball_dx.flip  # reverse horizontal direction
+    ball_dx.flip! # reverse horizontal direction
   end
 
   func :reset_game do
@@ -157,8 +157,8 @@ Pong = RubyGBA.game("PONG", code: "BPNG", maker: "01") do
     # jittering. The target is the ball's y minus half a paddle, so the paddle's
     # center — not its top — is what tracks the ball. The step is a variable rather
     # than a number, which is the whole of the difficulty setting.
-    cpu_y.approach (ball_y - PADDLE_H / 2).to_f, cpu_speed
-    cpu_y.clamp 0, SCREEN_H - PADDLE_H
+    cpu_y.approach! (ball_y - PADDLE_H / 2).to_f, cpu_speed
+    cpu_y.clamp! 0, SCREEN_H - PADDLE_H
   end
 
   func :update_ball do
@@ -168,13 +168,13 @@ Pong = RubyGBA.game("PONG", code: "BPNG", maker: "01") do
 
     # Bounce off top wall
     (ball_y <= 0).then do
-      ball_dy.abs
+      ball_dy.abs!
       beep :wall_bounce
     end
 
     # Bounce off bottom wall
     (ball_y >= SCREEN_H - BALL_SIZE).then do
-      ball_dy.negate_abs
+      ball_dy.negate_abs!
       beep :wall_bounce
     end
 
@@ -189,14 +189,14 @@ Pong = RubyGBA.game("PONG", code: "BPNG", maker: "01") do
     cpu_pad    = box(RIGHT_X, cpu_y.to_i, PADDLE_W, PADDLE_H)
 
     ball.overlaps?(player_pad).then do
-      ball_dx.abs # bounce right
+      ball_dx.abs! # bounce right
       beep :paddle_hit
     end
 
     # The CPU tops out at CPU_SPEED, slower than the ball, so a fast diagonal can
     # leave it behind and let the player score.
     ball.overlaps?(cpu_pad).then do
-      ball_dx.negate_abs # bounce left
+      ball_dx.negate_abs! # bounce left
       beep :paddle_hit
     end
 
@@ -267,7 +267,7 @@ Pong = RubyGBA.game("PONG", code: "BPNG", maker: "01") do
     # finishes — the same pace `fade_out`/`fade_in` walk a level over frames at.
     (zoom_timer == 0).then { title_board.scale(1.0) } # idle: hold it at the size it was drawn
     (zoom_timer > 0).then do
-      title_board.scale.approach 4.0, ZOOM_PER_FRAME
+      title_board.scale.approach! 4.0, ZOOM_PER_FRAME
       zoom_timer.add 1
       (zoom_timer > ZOOM_FRAMES).then { call :reset_game }
     end
@@ -279,7 +279,7 @@ Pong = RubyGBA.game("PONG", code: "BPNG", maker: "01") do
     # Input
     held(:up).then   { player_y.sub PADDLE_SPEED }
     held(:down).then { player_y.add PADDLE_SPEED }
-    player_y.clamp 0, SCREEN_H - PADDLE_H
+    player_y.clamp! 0, SCREEN_H - PADDLE_H
 
     # Update
     call :update_cpu

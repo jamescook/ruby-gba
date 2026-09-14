@@ -82,30 +82,34 @@ module RubyGBA
       write(Build.binop(:-, read, matched(amount, "subtract")))
     end
 
-    # The read-modify-write mutators have no single expression, so they round-trip
-    # through a scratch variable: load the slot, apply the ordinary Value mutator, store
-    # it back. This reuses Value's whole mutation vocabulary unchanged.
-    def clamp(lo, hi)
-      via_scratch { |s| s.clamp(lo, hi) }
+    # The read-modify-write mutators round-trip through a scratch variable: load the slot,
+    # apply the ordinary Value mutator, store it back. This reuses Value's whole mutation
+    # vocabulary unchanged. The same words without `!` are new numbers, and come from Value.
+    def clamp!(lo, hi)
+      via_scratch { |s| s.clamp!(lo, hi) }
     end
 
-    def approach(target, step)
-      via_scratch { |s| s.approach(target, step) }
+    def approach!(target, step)
+      via_scratch { |s| s.approach!(target, step) }
     end
 
-    def abs
-      via_scratch(&:abs)
+    def abs!
+      via_scratch(&:abs!)
     end
 
-    def negate_abs
-      via_scratch(&:negate_abs)
+    def negate_abs!
+      via_scratch(&:negate_abs!)
     end
 
-    def flip
-      via_scratch(&:flip)
+    def flip!
+      via_scratch(&:flip!)
     end
 
     private
+
+    # A pool field is written through the instance a walk hands over, whose name this handle
+    # never learns — so a message names the field.
+    def spelled = @field.to_s
 
     # The value node that reads this instance's slot.
     def read

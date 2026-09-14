@@ -211,7 +211,7 @@ class TestPerSceneMode < Minitest::Test
   # every frame the scene is active) must not reset the rotate/scale matrix back to
   # identity each time. It used to: #emit_affine_background_hardware unconditionally
   # wrote the "no transform" matrix every time it ran, which stomped a growing
-  # `scale.approach` right back to 1.0 before the console ever showed it — so a title
+  # `scale.approach!` right back to 1.0 before the console ever showed it — so a title
   # screen that was supposed to zoom in just sat there, frozen. Checked here by
   # reading a whole scanline back at two points during a scale ramp and asserting
   # it's genuinely different — a frozen matrix would render byte-for-byte the same
@@ -229,7 +229,7 @@ class TestPerSceneMode < Minitest::Test
         tiles :ground, "#" => :dark, "$" => :light
         checker = (0...32).map { |r| (0...32).map { |c| (r + c).even? ? "#" : "$" }.join }
         board = background :board, tiles: :ground, map: checker
-        zoom.approach 4.0, 0.15
+        zoom.approach! 4.0, 0.15
         board.scale(zoom)
       end
       game_loop { wait_vblank; case_var(:state) { when_val 0, :title } }

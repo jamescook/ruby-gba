@@ -9,7 +9,7 @@ module RubyGBA
       # drops. It is the oldest trick there is for making a still picture feel alive.
       #
       # This is a pack, so every line below is written in public DSL verbs — `var`,
-      # `once_a_frame`, `.approach`, `.then` — the same ones a game is written in. It knows
+      # `once_a_frame`, `.approach!`, `.then` — the same ones a game is written in. It knows
       # nothing about matrices or video memory. What makes it possible at all is
       # `sprite.scale`, which IS a hardware feature and lives in the library proper; the
       # rhythm on top of it is not, so it lives here. That split is the whole rule (see
@@ -129,8 +129,8 @@ module RubyGBA
             once_a_frame(:"__pulse_#{name}") do
               tick.add 1
               (tick >= half * 2).then { tick.set 0 }
-              (tick < half).then { sprite.scale.approach top, step }
-                           .else { sprite.scale.approach bottom, step }
+              (tick < half).then { sprite.scale.approach! top, step }
+                           .else { sprite.scale.approach! bottom, step }
             end
 
             { top: top, bottom: bottom, step: step }

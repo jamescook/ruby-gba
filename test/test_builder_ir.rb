@@ -27,10 +27,10 @@ class TestBuilderIR < Minitest::Test
       add :x, 3        # immediate operand
       sub :x, :y       # variable operand
       copy :z, :x
-      flip :z          # flip is an alias for negate
-      abs :z
-      negate_abs :z
-      clamp :x, 0, 100
+      flip! :z          # flip! is an alias for negate!
+      abs! :z
+      negate_abs! :z
+      clamp! :x, 0, 100
     end
 
     assert_equal program(
@@ -49,7 +49,7 @@ class TestBuilderIR < Minitest::Test
   def test_clamp_records_one_node_not_its_byte_expansion
     # The legacy clamp expands to a pair of compares in bytes, but in the IR it
     # is a single clamp node — the inner set/if calls must not leak in.
-    got = tree { clamp :hp, 0, 100 }
+    got = tree { clamp! :hp, 0, 100 }
     assert_equal 1, got.children.size
     assert_equal :clamp, got.children.first.kind
   end
@@ -60,7 +60,7 @@ class TestBuilderIR < Minitest::Test
     got = tree do
       var :x, 10
       add :x, 100     # 110
-      clamp :x, 0, 20 # -> 20
+      clamp! :x, 0, 20 # -> 20
     end
     assert_equal 20, Reference.new.run(got)[:x]
   end

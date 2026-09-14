@@ -407,8 +407,8 @@ class TestTint < Minitest::Test
       game_loop do
         # The same two statements either way, so the loop itself cancels. One walks the
         # level to 0 and back on alternate frames; the other puts it straight back.
-        level.flip
-        moving ? level.add(100) : level.flip
+        level.flip!
+        moving ? level.add(100) : level.flip!
         tint :red, level if tinting
       end
     end
@@ -501,7 +501,7 @@ class TestTint < Minitest::Test
       screen :bitmap
       clear_screen :green
       level = var :level, 0
-      game_loop { level.approach 100, 4; tint :red, level }
+      game_loop { level.approach! 100, 4; tint :red, level }
     end
     b.emit_pending_functions
 

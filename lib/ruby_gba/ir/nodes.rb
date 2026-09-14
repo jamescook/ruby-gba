@@ -113,6 +113,24 @@ module RubyGBA
         operands operand: :value
       end
 
+      # How far a number is from nought: the number, or the number the other way round when
+      # it is below nought. A new number — the +abs+ statement changes a variable instead.
+      class Absolute
+        include Node
+        kind :absolute
+        category :value
+        operands operand: :value
+      end
+
+      # A number held inside a range: +min+ when it is below it, +max+ when it is above it,
+      # and itself in between. A new number — the +clamp+ statement changes a variable instead.
+      class Clamped
+        include Node
+        kind :clamped
+        category :value
+        operands operand: :value, min: :value, max: :value
+      end
+
       class Bitmap
         include Node
         kind :bitmap

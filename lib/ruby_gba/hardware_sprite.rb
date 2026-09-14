@@ -103,7 +103,7 @@ module RubyGBA
     def layer = @object_node.layer
 
     # The sprite's position, as {Value} handles — steer them with the expression DSL
-    # (`hero.x.add 2`, `hero.y.clamp 0, 150`). The framework reads them each frame to
+    # (`hero.x.add 2`, `hero.y.clamp! 0, 150`). The framework reads them each frame to
     # know where to draw.
     def x
       Value.new(@builder, Build.var_ref(@x_var), name: @x_var)
@@ -205,8 +205,8 @@ module RubyGBA
     # self. (It keeps the sprite's collision box on screen; a transparent margin around
     # the art may still slide off, which is what you want.)
     def clamp_to_screen
-      x.clamp(-@hit_x, IR::Screen::WIDTH - @hit_x - @hit_w)
-      y.clamp(-@hit_y, IR::Screen::HEIGHT - @hit_y - @hit_h)
+      x.clamp!(-@hit_x, IR::Screen::WIDTH - @hit_x - @hit_w)
+      y.clamp!(-@hit_y, IR::Screen::HEIGHT - @hit_y - @hit_h)
       self
     end
     alias stay_on_screen clamp_to_screen
@@ -293,7 +293,7 @@ module RubyGBA
     #
     #   coin.scale 1.6                 # half again as big
     #   coin.scale size                # whatever `size` says this frame
-    #   coin.scale.approach 1.0, 0.05  # ease it back down to normal
+    #   coin.scale.approach! 1.0, 0.05  # ease it back down to normal
     #
     # With no argument it hands back the size as a {Value} you can read, compare and
     # ease, so growing over time is the expression DSL and nothing new. The size can be
@@ -436,7 +436,7 @@ module RubyGBA
       @builder.make_object_scalable(@object_node, @scale_var)
     end
 
-    # The size variable as a handle. It carries a fraction, so `scale.approach 2.0, 0.1`
+    # The size variable as a handle. It carries a fraction, so `scale.approach! 2.0, 0.1`
     # and `scale * 2` mean what they read as.
     def scale_value
       Value.new(@builder, Build.var_ref(@scale_var), name: @scale_var,

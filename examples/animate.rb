@@ -61,8 +61,8 @@ module Animate
       held(:right).then { coin.move :right, by: SPEED }
       held(:up).then    { coin.move :up,    by: SPEED }
       held(:down).then  { coin.move :down,  by: SPEED }
-      coin.x.clamp 0, 240 - SIZE
-      coin.y.clamp 0, 160 - SIZE
+      coin.x.clamp! 0, 240 - SIZE
+      coin.y.clamp! 0, 160 - SIZE
     end
   end
 

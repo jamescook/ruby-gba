@@ -221,7 +221,7 @@ class TestPlainWords < Minitest::Test
       spin = var :spin, 0
       game_loop do
         spin.add 1
-        spin.clamp 0, 200
+        spin.clamp! 0, 200
         fill_rect 0, 0, 40, 40, :blue
         pixel 10, 10, :red
       end
