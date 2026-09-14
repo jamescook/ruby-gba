@@ -30,6 +30,9 @@ module Jukebox
   BAR_TOP    = 124
   BAR_BOTTOM = 148
 
+  # How long a tune takes to fade out when the cursor moves, and the next to fade in.
+  FADE_FRAMES = 12
+
   # Each song gets an accent color, so moving the cursor recolors the screen as
   # well as changing the tune.
   SONGS = [
@@ -114,6 +117,12 @@ module Jukebox
     bar_y = BARS.each_index.map { |i| var :"bar_y#{i}", BARS[i][1] }
     BARS.each_index { |i| var :"bar_v#{i}", BARS[i][2] }
 
+    # The tune actually playing, which is not always the one the cursor is on: when the cursor
+    # moves, the old tune fades out first, and only once nobody can hear it does this catch up
+    # and the new one fade in. `switching` says a switch is waiting for that silence.
+    playing   = var :playing, 0
+    switching = var :switching, 0
+
     game_loop do
       # --- Advance the bobbing blocks: move each by its speed, and reverse (snap
       # to the edge, flip the sign) whenever it reaches the top or bottom. ---
@@ -139,14 +148,28 @@ module Jukebox
         SONGS.each { |s| m.item s[:label], picked: s[:color] }
       end
 
-      # The picked row also tints the bobbing blocks and is the tune that plays. Naming it
-      # every frame is fine — it is the tune playing now — and naming a different one
-      # silences the old tune and starts the new one from its first note.
+      # --- Switching tunes, with a fade rather than a cut ---
+      # Moving the cursor fades the music out. A faded-out tune goes on playing silently, so
+      # the switch waits until the volume reads nothing, names the new tune while nobody can
+      # hear it, and fades that one in. Move again part way and the fade simply turns round.
+      songs.moved.then do
+        switching.set 1
+        fade_music_out frames: FADE_FRAMES
+      end
+      ((switching == 1) & (music_volume == 0)).then do
+        switching.set 0
+        playing.set songs.picked
+        fade_music_in
+      end
+
+      # The picked row tints the bobbing blocks straight away; the tune follows once it has
+      # faded. Naming the tune every frame is fine — it is the tune playing now — and naming a
+      # different one starts that one from its first note.
       SONGS.each_with_index do |s, i|
         (songs.picked == i).then do
           BARS.each_with_index { |(bx, _y0, _spd), j| draw_rect_at bx, :"bar_y#{j}", 8, 8, s[:color] }
-          play_song s[:name]
         end
+        (playing == i).then { play_song s[:name] }
       end
     end
   end

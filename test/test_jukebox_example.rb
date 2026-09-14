@@ -56,6 +56,23 @@ class TestJukeboxExample < Minitest::Test
                     "selecting row 1 should play Fur Elise"
   end
 
+  # SWITCHING SONGS IS A FADE, not a cut: the tune playing goes quiet first, the new one starts
+  # while nothing can be heard, and then comes up. Read off the log in order — the last volume
+  # any voice was set to before the new tune's first note is nothing, and after it the music is
+  # loud again.
+  def test_moving_the_cursor_fades_the_old_tune_out_before_the_new_one_comes_in
+    log = Reference.new.input_each_frame(&tap_down(1)).run(Jukebox.program, frames: 80).audio
+    start = log.index([:note, :fur_elise, ELISE_FIRST])
+
+    refute_nil start, "the second tune starts"
+    before = log[0...start].select { |entry| entry[0] == :loudness }
+    after = log[start..].select { |entry| entry[0] == :loudness }
+
+    assert_equal 0, before.last&.last, "the old tune is silent when the new one starts (#{before.inspect})"
+    assert_operator before.map(&:last).max, :>, 0, "...having been heard before that"
+    assert_operator after.map(&:last).max, :>, 0, "and the new tune comes up (#{after.inspect})"
+  end
+
   # Two rows down lands on the third tune.
   def test_selecting_the_third_song_plays_it_on_the_interpreter
     i = Reference.new.input_each_frame(&tap_down(2)).run(Jukebox.program, max_steps: 4000)
@@ -106,6 +123,18 @@ class TestJukeboxExample < Minitest::Test
     after = ROW_TOPS.map { |y| lit_span(moved.screen, y).first }
 
     assert_operator after[1], :<, after[0], "the cursor followed the pick down a row"
+  end
+
+  # ...and the console dips too: loud, a stretch of quiet as the cursor moves, then loud again.
+  def test_the_console_dips_between_tunes
+    rom = Jukebox.build_rom(out: StringIO.new, err: StringIO.new)
+    down = ->(frame) { (40..41).cover?(frame) ? RubyGBA::Constants::KEY_DOWN : 0 }
+    energy = assert_emulator_loads_rom(rom, frames: 110, keys: down).audio_energy_by_frame
+    loud = energy.max / 4
+
+    assert_operator energy[20..38].max, :>, loud, "the first tune plays (#{energy.inspect})"
+    assert_operator energy[42..70].min, :<, loud / 8, "it goes quiet as the cursor moves (#{energy.inspect})"
+    assert_operator energy[85..].max, :>, loud, "and the next tune comes up (#{energy.inspect})"
   end
 
   # On real hardware: the ROM boots and the music channel is actually driven.

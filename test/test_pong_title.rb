@@ -139,11 +139,17 @@ class TestPongTitle < Minitest::Test
   #
   # START, then the paddle is held at the top edge for the rest of the run: the cpu takes
   # five points off a player who is not defending, which is a finished game in half the
-  # frames an even match would take.
-  TO_THE_END = 900
+  # frames an even match would take — and then the half second the music takes to fade.
+  TO_THE_END = 960
+
+  # That game, played once for the tests that read it: it is most of this file's running time.
+  def finished_game
+    self.class.instance_variable_get(:@finished_game) ||
+      self.class.instance_variable_set(:@finished_game, title(TO_THE_END) { |f| f < 3 ? [:a] : [:up] })
+  end
 
   def test_the_music_stops_when_the_game_is_over
-    i = title(TO_THE_END) { |f| f < 3 ? [:a] : [:up] }
+    i = finished_game
 
     assert_equal WIN_SCORE, i[:cpu_score], "the game really did finish"
     assert_equal 3, i[:state], "on the screen that says so"
@@ -153,6 +159,24 @@ class TestPongTitle < Minitest::Test
     refute_empty sounded.select { |entry| entry[0] == :note }, "the song was playing during the rally"
     assert_equal :stop_music, sounded.last[0],
                  "and the end screen silenced it, with nothing sounding since"
+  end
+
+  # ...and it does not stop dead: the music fades down as the game ends, and is stopped only
+  # once nobody can hear it. Read off the log in order — the volumes the voice was set to after
+  # the last time it was at full fall to nothing, and only then does the song stop. A rest sets
+  # the voice to nothing too, so the falling is read off the notes that sounded.
+  def test_the_music_fades_as_the_game_ends
+    i = finished_game
+    stop = i.audio.rindex { |entry| entry[0] == :stop_music }
+
+    refute_nil stop, "the music stopped"
+    volumes = i.audio[0...stop].select { |entry| entry[0] == :loudness }.map(&:last)
+    fading = volumes.reverse.take_while { |volume| volume < volumes.max }.reverse
+    sounding = fading.reject(&:zero?)
+
+    assert_operator sounding.size, :>=, 3, "turned down over several frames (#{fading.inspect})"
+    assert_equal sounding.sort.reverse, sounding, "falling all the way (#{fading.inspect})"
+    assert_equal 0, fading.last, "down to nothing before the stop (#{fading.inspect})"
   end
 
   # --- the difficulty screen, and where its cursor opens ---

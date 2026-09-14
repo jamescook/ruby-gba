@@ -146,6 +146,7 @@ Pong = RubyGBA.game("PONG", code: "BPNG", maker: "01") do
     ball_x.set 118
     ball_y.set 78
     zoom_timer.set 0 # so the title starts unzoomed the next time it shows
+    fade_music_in    # the last game faded its music out; this one brings it up again
     state.set 1
   end
 
@@ -202,7 +203,10 @@ Pong = RubyGBA.game("PONG", code: "BPNG", maker: "01") do
     # Score: ball went off left edge — you just let one past, so the screen stings red.
     (ball_x <= 0).then do
       cpu_score.add 1
-      (cpu_score >= WIN_SCORE).then { state.set 3 }
+      (cpu_score >= WIN_SCORE).then do
+        state.set 3
+        fade_music_out
+      end
       beep :point
       flash_screen :red, frames: STING_FRAMES
       call :reset_ball
@@ -211,7 +215,10 @@ Pong = RubyGBA.game("PONG", code: "BPNG", maker: "01") do
     # Score: ball went off right edge
     (ball_x >= SCREEN_W).then do
       player_score.add 1
-      (player_score >= WIN_SCORE).then { state.set 2 }
+      (player_score >= WIN_SCORE).then do
+        state.set 2
+        fade_music_out
+      end
       beep :point
       call :reset_ball
     end
@@ -316,14 +323,15 @@ Pong = RubyGBA.game("PONG", code: "BPNG", maker: "01") do
     end
   end
 
-  # The two end screens. Each silences the music, because a song plays until something
+  # The two end screens. The music started fading the moment the last point was scored, and
+  # each screen stops the song once nobody can hear it, because a song plays until something
   # says otherwise: the tune belongs to the rally, and left alone it carries straight on
   # through GAME OVER and back onto the title, which sounds like the game never finished.
-  # Said every frame the screen is up, which costs one comparison — `stop_music` with
-  # nothing playing does nothing at all.
+  # Said every frame the screen is up, which costs a comparison — `stop_music` with nothing
+  # playing does nothing at all.
   scene :player_wins do
     clear_screen :black
-    stop_music
+    (music_volume == 0).then { stop_music }
     draw_text "YOU WIN!", :center, 60, :white
     draw_text "PRESS START", :center, 100, :gray
 
@@ -332,7 +340,7 @@ Pong = RubyGBA.game("PONG", code: "BPNG", maker: "01") do
 
   scene :cpu_wins do
     clear_screen :black
-    stop_music
+    (music_volume == 0).then { stop_music }
     draw_text "GAME OVER", :center, 60, :white
     draw_text "PRESS START", :center, 100, :gray
 
