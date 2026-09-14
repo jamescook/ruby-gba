@@ -129,12 +129,23 @@ class TestRubyGBAEmulatorProfile < Minitest::Test
   # 228 there are BOTH read 60 — the first has three quarters of its frame spare
   # and the second is one scanline from dropping to 30, and the rate cannot tell
   # them apart. What is left over can, and continuously.
+  # ASSERTED AS A DIFFERENCE, not against a number either game has to hit. A game that just
+  # fits its frame sits in a band a few thousand additions wide — below it there is headroom
+  # to spare and above it a pass takes two frames — and that band MOVES every time the
+  # framework emits cheaper code. Pinning a fixture inside it means a test that fails for
+  # the crime of the framework getting faster, which is what happened here.
+  #
+  # What the reading actually claims needs no band: two games the rate cannot tell apart,
+  # with headroom that is obviously different.
   def test_what_is_left_of_the_frame_separates_games_the_frame_rate_calls_equal
-    roomy = with_probe(adding_rom(5_000, "PROO", "PROO")) { |p| p.profile(settle: 10).idle_share }
-    tight = with_probe(adding_rom(20_000, "PTIG", "PTIG")) { |p| p.profile(settle: 10).idle_share }
+    roomy = with_probe(adding_rom(5_000, "PROO", "PROO")) { |p| p.profile(settle: 10) }
+    tight = with_probe(adding_rom(20_000, "PTIG", "PTIG")) { |p| p.profile(settle: 10) }
 
-    assert_operator roomy, :>, 0.5, "a game using a quarter of its frame has most of it spare"
-    assert_operator tight, :<, 0.1, "a game filling its frame has nothing spare"
+    assert_equal roomy.frames_per_second, tight.frames_per_second,
+                 "the rate calls these two games the same"
+    assert_operator roomy.idle_share, :>, 0.5, "a game using a quarter of its frame has most spare"
+    assert_operator tight.idle_share, :<, roomy.idle_share / 2,
+                    "and the busier one has far less, which the rate could not say"
   end
 
   def test_code_addresses_are_whole_instructions
