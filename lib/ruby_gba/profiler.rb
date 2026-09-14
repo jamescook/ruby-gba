@@ -577,9 +577,10 @@ module RubyGBA
     # Who had them is what varies, and a song holding most of them is a decision somebody made
     # and can revisit — see {SoundDrops} for why this reports and does not warn.
     #
-    # Said only where a song really held some. With no song playing the split is "the game had
-    # all of them", which the first line has already said, and "a song held 0" is a sentence
-    # about nothing.
+    # Said only where songs or sound effects really held some. With neither sounding the split is
+    # "the game had all of them", which the first line has already said, and "held 0" is a
+    # sentence about nothing. A song or effect note that finds no voice counts in the first line
+    # the same as a game sound does.
     def self.sound_drop_lines(drops, printer)
       return if drops.nil? || !drops.any?
 
@@ -587,9 +588,9 @@ module RubyGBA
                    "#{drops.voices} mixer voices was busy", severity: :bad)
       return if drops.music_held.zero?
 
-      printer.puts("  a song held #{drops.music_held} of them at the worst moment, and the " \
-                   "game's own sounds held #{drops.game_held} — a song's recorded part keeps " \
-                   "a voice while its note sounds")
+      printer.puts("  songs and sound effects held #{drops.music_held} of them at the worst moment, and " \
+                   "the game's own sounds held #{drops.game_held} — a recorded part of a song or a " \
+                   "sound effect keeps a voice while its note sounds")
     end
 
     # Said only on the screen where drawing can be lost — the tear-free one. Every other

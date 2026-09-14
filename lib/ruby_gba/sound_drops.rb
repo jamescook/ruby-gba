@@ -28,8 +28,9 @@ module RubyGBA
   # it belongs. What is said alongside it is the SPLIT, because that is the fact the author
   # cannot get any other way.
   module SoundDrops
-    # WHAT A RUN SAW. +dropped+ is how many plays found no free voice, +music_held+ the most
-    # voices a song held at one of those moments, +voices+ how many there are in all. A run
+    # WHAT A RUN SAW. +dropped+ is how many plays, and notes of songs and sound effects, found no
+    # voice, +music_held+ the most voices songs and sound effects held at one of those moments,
+    # +voices+ how many there are in all. A run
     # that could not be read says so with #measured? false, so "we could not tell" never reads
     # as "nothing was wrong".
     Reading = Data.define(:dropped, :music_held, :voices) do

@@ -92,6 +92,9 @@ module RubyGBA
         # The names of the samples sounding right now — see {Mixer#sounding}.
         def active_samples = @mixer.sounding
 
+        # ...and whose each of them is — see {Mixer#owners}.
+        def sound_owners = @mixer.owners
+
         # What this run could not play — see {Mixer#drops}.
         def sound_drops = @mixer.drops
 

@@ -13,10 +13,10 @@ module RubyGBA
         # which were lost, so this keeps the voices and nothing else. A voice ages by a frame
         # rather than by a sample, and that is the whole model.
         #
-        # THE VOICES ARE SHARED between the game's own sounds and a song's recorded parts, each
-        # taking one only while it sounds. A slot's +owner+ says whose it is: +:game+, or a
-        # song's part by its lane number. Who gives way when they run out is a stated rule both
-        # backends keep — see #take_for_music.
+        # THE VOICES ARE SHARED between the game's own sounds, a song's recorded parts and a sound
+        # effect's, each taking one only while it sounds. A slot's +owner+ says whose it is:
+        # +:game+, a song's part by its lane number, or an effect's part as [effect, lane]. Who
+        # gives way when they run out is a stated rule both backends keep — see #take_for_music.
         #
         # It calls nothing back. The interpreter hands it a log to write what happened into, and
         # values the IR carries are worked out before they arrive — the same bargain
@@ -39,13 +39,15 @@ module RubyGBA
           # way, so a misspelt one raises where a Hash key would have read as nil.
           #
           # +ticket+ says which play started it, so the one playing longest is known when a
-          # song's note needs a voice. It is [loops?, count] so that a sound which loops sorts
+          # note of a song or an effect needs a voice. It is [loops?, count] so that a sound which loops sorts
           # after every one-shot — a loop never ends by itself, so it gives way last.
+          # +rank+ is the rank of the song or effect whose note it is (IR::Tunes.song_rank), and
+          # nil for the game's own sound, which ranks below every one of them.
           # +envelope+ and the two beside it are the shape of the note, when it has one: +level+ is
           # how far it has climbed or fallen (0 to Envelope::FULL) and +phase+ which part of the
           # note it is in. A voice with no envelope carries none of it and sounds flat out, which
           # is what every voice did before shapes existed.
-          Voice = Struct.new(:name, :owner, :loop, :volume, :pitch, :frames_left, :frames_total,
+          Voice = Struct.new(:name, :owner, :rank, :loop, :volume, :pitch, :frames_left, :frames_total,
                              :ticket, :envelope, :level, :phase, keyword_init: true)
 
           # Which part of a note a voice is in. Named where the rule that moves it is
@@ -73,8 +75,8 @@ module RubyGBA
             @samples = {}   # name -> Assets::Sample
             @tickets = 0    # how many sounds the game has started, for the next ticket
             @peak = 0
-            @drops = 0      # plays that found every voice busy and were dropped
-            @drops_music = 0 # ...and the most voices a song held at one of those moments
+            @drops = 0      # plays and notes that found every voice busy and were dropped
+            @drops_music = 0 # ...and the most voices songs and effects held at one of those moments
           end
 
           # A `sample` declaration was reached. Gathered up front, like a func body, so playing
@@ -97,14 +99,18 @@ module RubyGBA
           # notes share them, so they come in whatever order they took them.
           def sounding = @slots.compact.map(&:name)
 
+          # WHOSE each of those voices is, in the same order: +:game+, [:song, part] or
+          # [effect, part], where a part is counted among the parts that play recordings.
+          def owners = @slots.compact.map { |voice| song?(voice) ? [:song, voice.owner] : voice.owner }
+
           # The level a currently-sounding sample is playing at (its first voice), or nil if it
           # is not playing — so a test can see `play(volume:)` took effect.
           def volume_of(name)
             @slots.compact.find { |v| v.owner == GAME && v.name == name }&.volume
           end
 
-          # WHAT THIS RUN COULD NOT PLAY: how many plays found every voice busy and were
-          # dropped, and how the song and the game were splitting the voices at the worst of
+          # WHAT THIS RUN COULD NOT PLAY: how many plays and notes found every voice busy and were
+          # dropped, and how the music and the game were splitting the voices at the worst of
           # them. The same shape the console's own count is read back in
           # (Verifier#sound_drops), so the two backends' answers meet in one equality.
           def drops
@@ -117,7 +123,7 @@ module RubyGBA
           # cut each other off), remembering how many frames it runs for (from its length and
           # rate) so a looping voice can re-trigger itself at the end. A one-shot voice simply
           # falls silent there. It takes the first free voice, as the console does; with none
-          # free, the quietest of a song's notes that is falling away (see #take_for_music); with
+          # free, the quietest note of a song or an effect that is falling away (see #take_for_music); with
           # none of those either, the new one is dropped.
           def start(node)
             info = sample_info(node.name)
@@ -170,59 +176,75 @@ module RubyGBA
             end
           end
 
-          # --- the voices a song's recorded parts borrow ---
+          # --- the voices the recorded parts of songs and sound effects borrow ---
 
-          # WHICH VOICE A SONG'S NOTE GETS, by the rule the console's player keeps
-          # (GBA::Mixer#emit_music_voice_routine): the part's own voice if it is still sounding a
-          # note with no shape, or the first free one, or the quietest note falling away, or —
-          # with none of those — the voice of the game's sound that has been playing longest, a
-          # one-shot before a loop. That sound is cut short.
+          # WHICH VOICE A NOTE OF A SONG OR A SOUND EFFECT GETS, by the rule the console's player
+          # keeps (GBA::Mixer#emit_music_voice_routine). In order:
+          #
+          #   1. the part's own voice, if it is still sounding a note with no shape;
+          #   2. the first free one;
+          #   3. the quietest note falling away, whoever's it is;
+          #   4. the voice of the lowest-ranked sound ranked below this note — the game's own sounds
+          #      first, since they rank below every song and effect, and of those the one playing
+          #      longest, a one-shot before a loop. That sound is cut short.
+          #
+          # With none of those the note is not played, and this answers nil. That is the part of
+          # the rule a song on its own never reaches, having fewer recorded parts than there are
+          # voices; it is a sound effect ranked above the song, or the song above an effect, that
+          # can fill them. Another part of the same song or effect has the same rank, so is never
+          # taken.
           #
           # A part's sounding note WITH a shape is not taken over: its note ends here, and it falls
           # away on its own voice while the new note takes another. Taking it over would stop the
           # old wave dead, which is the click the shape is there to remove.
           #
-          # +lane+ is the part, by number. +name+ is the recording and +frequency+ the note, out
-          # of which comes how many frames the recording lasts read at that pitch: a higher note
-          # reads it faster, so it runs out sooner.
-          # +envelope+ is the shape this note was asked for — the note's own, or its part's. A note
-          # that asks for none takes whatever the recording itself was declared with.
-          def take_for_music(lane, name, frequency, envelope = nil)
+          # +owner+ is the part (a song's lane number, or [effect, lane]) and +rank+ the rank of its
+          # song or effect. +name+ is the recording and +frequency+ the note, out of which comes how
+          # many frames the recording lasts read at that pitch: a higher note reads it faster, so it
+          # runs out sooner. +envelope+ is the shape this note was asked for — the note's own, or
+          # its part's. A note that asks for none takes whatever the recording itself was declared
+          # with.
+          def take_for_music(owner:, rank:, name:, frequency:, envelope:)
             info = @samples[name] ||
-                   raise(ProgramError, "a song part plays #{name.inspect}, which is not declared")
-            own = sounding_note(lane)
+                   raise(ProgramError, "a part plays #{name.inspect}, which is not declared")
+            own = sounding_note(owner)
             own = nil if own && falling!(@slots[own])
-            slot = own || @slots.index(nil) || quietest_tail ||
-                   @slots.each_index.select { |i| @slots[i].owner == GAME }.min_by { |i| @slots[i].ticket }
+            slot = own || @slots.index(nil) || quietest_tail || lowest_below(rank) or return note_drop
             frames = frames_for(info, frequency / Music::NOTE_FREQUENCIES.fetch(info.note || :C4).to_f)
-            @slots[slot] = Voice.new(name: name, owner: lane, frames_left: frames,
+            @slots[slot] = Voice.new(name: name, owner: owner, rank: rank, frames_left: frames,
                                      frames_total: frames, loop: info.held_by.positive?,
                                      **shaped(envelope || info.envelope))
           end
 
-          # A part rests: its voice, if it still has one, goes quiet and is free for anybody.
+          # A part rests: its voice, if it still has one, goes quiet and is free for anybody. True
+          # when it had one.
           #
           # A SHAPED NOTE IS NOT SILENCED HERE, only told to start falling — it goes on sounding,
           # more quietly each frame, until there is none of it left (see #step_envelopes). That
           # is the whole difference between a note that ends and a note that clicks.
-          def release_music(lane)
-            slot = sounding_note(lane)
-            return unless slot
+          def release_music(owner)
+            slot = sounding_note(owner)
+            return false unless slot
 
             @slots[slot] = nil unless falling!(@slots[slot])
+            true
           end
 
-          # Every voice a song holds is let go — what changing tune, or stopping, does. The ones
+          # Every voice the song holds is let go — what changing tune, or stopping, does. The ones
           # with a shape fall away rather than stopping, same as a part's own rest, and the ones
-          # already falling carry on as they were.
+          # already falling carry on as they were. A sound effect's voices are the effect's.
           def release_all_music
-            @slots.map! { |voice| voice if voice.nil? || voice.owner == GAME || tail?(voice) || falling!(voice) }
+            @slots.map! { |voice| voice if voice.nil? || !song?(voice) || tail?(voice) || falling!(voice) }
           end
 
           # The voice sounding a part's note now — not one of its earlier notes falling away.
-          def sounding_note(lane) = @slots.index { |v| v && v.owner == lane && !tail?(v) }
+          def sounding_note(owner) = @slots.index { |v| v && v.owner == owner && !tail?(v) }
 
-          # A song's note that has ended and is falling away, or has just finished falling.
+          # A note of the song's, rather than the game's or a sound effect's.
+          def song?(voice) = voice.owner.is_a?(Integer)
+
+          # A note of a song or an effect that has ended and is falling away, or has just finished
+          # falling.
           def tail?(voice) = voice.owner != GAME && [FALLING, DONE].include?(voice.phase)
 
           # THE QUIETEST OF A SONG'S NOTES FALLING AWAY — the first thing to give way when a voice
@@ -232,6 +254,18 @@ module RubyGBA
           def quietest_tail
             @slots.each_index.select { |i| @slots[i] && tail?(@slots[i]) }.min_by { |i| @slots[i].level }
           end
+
+          # THE LOWEST-RANKED SOUND RANKED BELOW +rank+ — the game's own first, the one playing
+          # longest of those, and then the lowest-ranked note of a song or an effect. The first of
+          # them in the order of the voices, when two rank the same, which is the one the console's
+          # walk over its voices keeps.
+          def lowest_below(rank)
+            ranked = @slots.each_index.select { |i| rank_of(@slots[i]) < rank }
+            ranked.min_by { |i| [rank_of(@slots[i]), @slots[i].ticket || [0, 0]] }
+          end
+
+          # The game's own sounds rank below every song and effect, whose ranks start at 0.
+          def rank_of(voice) = voice.rank || -1
 
           # Tell a voice its note has ended. True when it has a shape to fall through, so the
           # caller keeps it; false when it has none and simply stops.
@@ -302,12 +336,12 @@ module RubyGBA
             notes.fetch(pitch).to_f / notes.fetch(base || :C4)
           end
 
-          # A SOUND WAS JUST LOST — every voice was busy, so this play is dropped rather than
-          # cutting one off. Counted here so a test can hold the interpreter's answer against
-          # the console's, which is measured the same way (see {SoundDrops}, and
-          # GBA::Mixer#emit_note_drop for the console's half). A drop means every voice was
-          # sounding, so the only thing worth writing down is how the song and the game were
-          # splitting them.
+          # A SOUND WAS JUST LOST — every voice was busy, so this play, or this note of a song or
+          # an effect, is dropped rather than cutting off one it may not. Counted here so a test
+          # can hold the interpreter's answer against the console's, which is measured the same
+          # way (see {SoundDrops}, and GBA::Mixer#emit_note_drop for the console's half). A drop
+          # means every voice was sounding, so the only thing worth writing down is how the music
+          # and the game were splitting them.
           def note_drop
             @drops += 1
             @drops_music = [@drops_music, @slots.compact.count { |v| v.owner != GAME }].max

@@ -145,10 +145,20 @@ module RubyGBA
               offset, frequency, instrument, volume, envelope = @events[number][@cursors[number]]
               next unless offset == @frame
 
-              # A voice a sound effect holds with a higher rank: the part carries on in time,
-              # silent here, and is heard again from its next note once the voice is free.
+              # A voice a sound effect holds with a higher rank, or a mixer with no voice this note
+              # can have: the part carries on in time, silent here, and is heard again from its
+              # next note once there is one.
               shared = channel && kind != :wave
-              if shared && !take_voice(channel, rank, sounds: sounds?(frequency, volume || part.volume))
+              heard = if shared
+                        take_voice(channel, rank, sounds: sounds?(frequency, volume || part.volume))
+                      elsif lane
+                        sound_recording(owner: lane, rank: rank, name: instrument || part.instrument,
+                                        frequency: frequency, envelope: envelope || part.envelope) ||
+                          frequency.zero?
+                      else
+                        true
+                      end
+              unless heard
                 @cursors[number] += 1
                 next
               end
@@ -164,7 +174,6 @@ module RubyGBA
               # A part on the WAVE or NOISE voice: the console makes the sound itself, so no
               # mixer voice is taken — the whole point of putting a part there.
               console_voice(kind, part, frequency) if %i[wave noise].include?(kind)
-              sound_recording(lane, part, instrument, frequency, envelope) if lane
               @cursors[number] += 1
             end
             @mixer.count_the_voices
@@ -195,13 +204,21 @@ module RubyGBA
             run = @running[name] or return
 
             squares = 0
+            recorded = 0
             song.voices.each_with_index do |part, number|
               kind = IR::Tunes.part_kind(part)
               channel = console_channel(kind) { squares += 1 }
-              offset, frequency, _instrument, volume = part.events[run.cursors[number]]
+              lane = kind == :recorded ? (recorded += 1) - 1 : nil
+              offset, frequency, instrument, volume, envelope = part.events[run.cursors[number]]
               next unless offset == run.frame
 
               run.cursors[number] += 1
+              if lane
+                heard = sound_recording(owner: [name, lane], rank: rank, name: instrument || part.instrument,
+                                        frequency: frequency, envelope: envelope || part.envelope)
+                @log << [:note, name, frequency] if heard
+                next
+              end
               next unless take_voice(channel, rank, sounds: sounds?(frequency, volume || part.volume))
 
               @sounding.delete(channel) # the song's note there, if it had one, is gone
@@ -212,7 +229,8 @@ module RubyGBA
             run.frame += 1
           end
 
-          # An effect over: every voice it still holds goes quiet, and is free.
+          # An effect over: every voice it still holds goes quiet, and is free — a recorded note
+          # with a shape falling away rather than stopping, as it would at a rest.
           def finish_effect(name, rank)
             @running.delete(name)
             @holders.select { |_, holder| holder == rank }.each_key do |channel|
@@ -221,6 +239,8 @@ module RubyGBA
               @log << [:voice, channel, name, 0, 0]
               @log << [:noise, nil] if channel == NOISE_CHANNEL
             end
+            recorded = @songs.fetch(name).voices.count { |part| IR::Tunes.part_kind(part) == :recorded }
+            recorded.times { |lane| @log << [:note, name, 0] if @mixer.release_music([name, lane]) }
           end
 
           # MAY A NOTE OF THIS RANK SOUND ON +channel+? Yes when nobody holding it outranks it
@@ -308,14 +328,14 @@ module RubyGBA
             @log << [:loudness, channel, IR::Tunes.scaled_volume(volume, @level)]
           end
 
-          # A note on one of the mixer's voices: it starts from the top of the recording the
-          # note names (or the part's own), shaped the way the note asks (or the part, or the
-          # recording itself), and a rest gives the voice back.
-          def sound_recording(lane, part, instrument, frequency, envelope)
-            return @mixer.release_music(lane) if frequency.zero?
+          # A note on one of the mixer's voices: it starts from the top of recording +name+,
+          # shaped by +envelope+ (or the recording itself), and a rest gives the voice back. True
+          # when the note got a voice, or the rest had one to give back.
+          def sound_recording(owner:, rank:, name:, frequency:, envelope:)
+            return @mixer.release_music(owner) if frequency.zero?
 
-            @mixer.take_for_music(lane, instrument || part.instrument, frequency,
-                                  envelope || part.envelope)
+            !@mixer.take_for_music(owner: owner, rank: rank, name: name, frequency: frequency,
+                                   envelope: envelope).nil?
           end
 
           # A SONG'S NOTE ON THE WAVE OR NOISE VOICE. The console makes both sounds itself, so

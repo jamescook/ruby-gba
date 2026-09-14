@@ -228,7 +228,7 @@ class TestDroppedSounds < Minitest::Test
     _result, printed = profiled(losing_every_frame)
 
     assert_match(/did not play/, printed)
-    refute_match(/a song held/, printed)
+    refute_match(/sound effects held/, printed)
   end
 
   # ...and where a song really was holding voices, that is printed, because it is the half the
@@ -236,8 +236,8 @@ class TestDroppedSounds < Minitest::Test
   def test_the_report_says_what_the_song_held_when_it_held_any
     _result, printed = profiled(song_under_the_sounds)
 
-    assert_match(/a song held [1-9]\d* of them at the worst moment/, printed)
-    assert_match(/a song's recorded part keeps a voice while its note sounds/, printed)
+    assert_match(/songs and sound effects held [1-9]\d* of them at the worst moment/, printed)
+    assert_match(/a recorded part of a song or a sound effect keeps a voice while its note sounds/, printed)
   end
 
   # A run that lost nothing says NOTHING — not "0 dropped". A report that mentions every

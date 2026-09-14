@@ -137,6 +137,12 @@ module RubyGBA
         program.walk.select { |node| node.kind == :sound_effect_list }.flat_map(&:effects)
       end
 
+      # ...and their song nodes, with every song the program plays: all it can sound.
+      def played_and_effects(program)
+        names = effects(program)
+        played(program) + program.walk.select { |node| node.kind == :song && names.include?(node.name) }
+      end
+
       # THE ORDER A FRAME PLAYS THE SOUND EFFECTS IN: highest rank first, as [name, rank] — given
       # the effects' song nodes in the order they were declared. Played in this order, with the
       # song's parts at their own rank's place among them, whoever writes a voice first on a

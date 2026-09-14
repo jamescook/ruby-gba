@@ -20,12 +20,14 @@ class TestSoundEffects < Minitest::Test
   end
 
   # A game with +effects+ as sound effects and, when given, +tune+ as the one song it plays from
-  # its first pass. The block runs each pass with the effects and the pass number.
+  # its first pass. The block runs each pass with the effects and the pass number. Every game has a
+  # recording to play, :piano, four seconds long at middle C, which the block can play as @piano.
   def game(effects, tune: nil, &body)
     b = Builder.new
     b.instance_eval do
       screen :bitmap
       enable_sound
+      @piano = instrument :piano, pcm: [60, -60] * 16_000, rate: 8000, note: :C4
       music = songs :music, [tune] if tune
       sfx = sound_effects :sfx, effects
       pass = var :pass, 0
@@ -177,6 +179,130 @@ class TestSoundEffects < Minitest::Test
     assert_equal [[:"sfx.1", NOTES[:E5]]], heard_when_both_start.call(10)
     assert_equal [[:"sfx.0", NOTES[:C5]]], heard_when_both_start.call(90)
     assert_equal [[:"sfx.0", NOTES[:C5]]], heard_when_both_start.call(50), "a tie goes to the effect declared first"
+  end
+
+  # --- on the mixer ---
+
+  # The voices sounding after +frames+, from the interpreter: whose each one is, and the recording
+  # it plays.
+  def voices_after(program, frames)
+    i = Reference.new.run(program, frames: frames)
+    i.sound_owners.zip(i.active_samples)
+  end
+
+  # A part that plays a recording sounds each note on a voice of the mixer, which is the effect's.
+  def test_an_effect_plays_a_recording_on_a_voice_of_its_own
+    program = game([every_ten_ticks(:C4, :E4, plays: :piano)]) { |sfx, pass| (pass == 3).then { sfx.play 0 } }
+
+    assert_equal [[[:"sfx.0", 0], :piano]], voices_after(program, 8)
+  end
+
+  # Asked for again, its first note takes over the voice its last note was on, rather than a
+  # second one.
+  def test_an_effect_asked_for_again_keeps_its_one_voice
+    program = game([every_ten_ticks(:C4, :E4, plays: :piano)]) { |sfx, pass| ((pass == 3) | (pass == 8)).then { sfx.play 0 } }
+
+    assert_equal [[[:"sfx.0", 0], :piano]], voices_after(program, 12)
+  end
+
+  # At its end the effect lets its voice go, although the recording has further to run...
+  def test_an_effect_lets_its_voice_go_at_its_end
+    program = game([every_ten_ticks(:C4, :E4, plays: :piano)]) { |sfx, pass| (pass == 3).then { sfx.play 0 } }
+
+    assert_equal [[:"sfx.0", NOTES[:E4]]], notes_by_frame(program, 40)[14]
+    assert_equal [[:"sfx.0", 0]], notes_by_frame(program, 40)[38]
+    assert_empty voices_after(program, 40)
+  end
+
+  # ...and a note with a shape falls away there instead of stopping.
+  def test_a_shaped_effect_note_falls_away_at_its_end
+    shaped = Score.new(tempo: 150, parts: [Part.new(plays: :piano, envelope: { release: 0.25 },
+                                                    notes: [Note.new(at: 0, key: :C4, length: 20)])])
+    program = game([shaped]) { |sfx, pass| (pass == 3).then { sfx.play 0 } }
+
+    assert_equal [[[:"sfx.0", 0], :piano]], voices_after(program, 26), "still falling away just after its end"
+    assert_empty voices_after(program, 60), "and gone once it has"
+  end
+
+  # A note plays the recording at its own pitch, reading it faster for a higher note: two octaves
+  # up, the four seconds last one.
+  def test_an_effect_note_plays_its_recording_at_the_notes_pitch
+    long_note = ->(key) { Score.new(tempo: 150, length: 200, parts: [Part.new(plays: :piano, notes: [Note.new(at: 0, key: key)])]) }
+    at = ->(key) { game([long_note.call(key)]) { |sfx, pass| (pass == 3).then { sfx.play 0 } } }
+
+    assert_equal 1, voices_after(at.call(:C4), 80).size
+    assert_empty voices_after(at.call(:C6), 80)
+  end
+
+  # --- sharing the mixer ---
+
+  # A song whose +parts+ recorded parts each hold one note from its start, at +priority+.
+  def chord(parts, priority: 0)
+    Score.new(tempo: 150, priority: priority, length: 400,
+              parts: Array.new(parts) { Part.new(plays: :piano, notes: [Note.new(at: 0, key: :C4)]) })
+  end
+
+  # One recorded note ranked at +priority+, asked for on pass 10.
+  def recorded_hit(priority, parts: 1)
+    Score.new(tempo: 150, priority: priority, length: 30,
+              parts: Array.new(parts) { Part.new(plays: :piano, notes: [Note.new(at: 0, key: :C5)]) })
+  end
+
+  SONG_PARTS = Array.new(16) { |part| [:song, part] }.freeze
+
+  # Every voice holds the song, and the effect outranks it: the effect's note takes a voice from
+  # the song — the first of them, since they all rank the same.
+  def test_an_effect_note_takes_a_voice_from_a_song_it_outranks
+    program = game([recorded_hit(68)], tune: chord(16)) { |sfx, pass| (pass == 10).then { sfx.play 0 } }
+
+    assert_equal [[:"sfx.0", 0]] + SONG_PARTS.drop(1), Reference.new.run(program, frames: 20).sound_owners
+  end
+
+  # The song outranks the effect: the effect's note is not played, and nothing of the song's is
+  # touched.
+  def test_an_effect_note_below_the_song_with_every_voice_busy_is_not_played
+    program = game([recorded_hit(68)], tune: chord(16, priority: 80)) { |sfx, pass| (pass == 10).then { sfx.play 0 } }
+    i = Reference.new.run(program, frames: 20)
+
+    assert_equal SONG_PARTS, i.sound_owners
+    assert_includes i.audio, [:sound_effect, :"sfx.0"]
+    refute_includes i.audio, [:note, :"sfx.0", NOTES[:C5]]
+    assert_equal 1, i.sound_drops.dropped, "the profile counts the note that did not play"
+  end
+
+  # The other way round: an effect fills every voice, and the song's note under it is not played.
+  # The song carries on in time, and is heard again from its next note once the effect is over.
+  def test_a_song_note_below_an_effect_filling_every_voice_is_heard_from_its_next_note
+    tune = Score.new(tempo: 150, parts: [Part.new(plays: :piano, notes: [
+      Note.new(at: 0, key: :C4), Note.new(at: 20, key: :E4), Note.new(at: 40, key: :G4),
+    ])])
+    program = game([recorded_hit(68, parts: 16)], tune: tune) { |sfx, pass| (pass == 3).then { sfx.play 0 } }
+    heard = notes_by_frame(program, 50)
+
+    assert_equal [[:"music.0", NOTES[:C4]]], heard[2]
+    refute heard.key?(22), "the song's second note is not played"
+    assert_equal [[:"music.0", NOTES[:G4]]], heard[42]
+  end
+
+  # The game's own sounds rank below every song and effect, so they give way first.
+  def test_an_effect_note_takes_the_games_own_sound_before_the_songs
+    program = game([recorded_hit(68)], tune: chord(15)) do |sfx, pass|
+      (pass == 1).then { @piano.play(:G4) }
+      (pass == 10).then { sfx.play 0 }
+    end
+    i = Reference.new.run(program, frames: 20)
+
+    assert_equal [[:"sfx.0", 0]] + SONG_PARTS.take(15), i.sound_owners
+  end
+
+  # The song starting over lets go of its own voices and not the effect's.
+  def test_starting_the_song_over_leaves_an_effects_recorded_note_alone
+    program = game([recorded_hit(68)], tune: chord(1)) do |sfx, pass|
+      (pass == 10).then { sfx.play 0 }
+      (pass == 15).then { stop_music }
+    end
+
+    assert_includes Reference.new.run(program, frames: 18).sound_owners, [:"sfx.0", 0]
   end
 
   # --- picked by name, or by a number the game works out ---
@@ -456,6 +582,95 @@ class TestSoundEffects < Minitest::Test
     assert_backends_share_the_voice(program, SONG_TONES)
   end
 
+  # --- the console's mixer ---
+
+  # Whose each sounding voice is, +frames+ in, on each backend — the console run a little longer,
+  # since it starts later. Every program here holds its voices steady for longer than that.
+  def owners_on_both(program, frames:)
+    [Reference.new.run(program, frames: frames).sound_owners, console_voices(program, frames: frames).map(&:owner)]
+  end
+
+  def console_voices(program, frames:) = console_run(program, frames: frames).voices
+
+  def console_run(program, frames:) = assert_emulator_loads_rom(assemble_rom(program, name: "SFXMIX"), frames: frames + 2)
+
+  def test_the_console_plays_an_effects_recording_on_a_voice_of_its_own
+    program = game([every_ten_ticks(:C4, :E4, plays: :piano)]) { |sfx, pass| (pass == 3).then { sfx.play 0 } }
+    interpreted, console = owners_on_both(program, frames: 8)
+
+    assert_equal [[:"sfx.0", 0]], interpreted
+    assert_equal interpreted, console
+  end
+
+  # WHO GIVES WAY ON A FULL MIXER, on both backends: an effect over the song, a song over an
+  # effect, and the game's own sound going first.
+  def test_the_console_gives_a_voice_to_the_higher_rank_the_way_the_interpreter_does
+    over = game([recorded_hit(68)], tune: chord(16)) { |sfx, pass| (pass == 10).then { sfx.play 0 } }
+    under = game([recorded_hit(68)], tune: chord(16, priority: 80)) { |sfx, pass| (pass == 10).then { sfx.play 0 } }
+    game_first = game([recorded_hit(68)], tune: chord(15)) do |sfx, pass|
+      (pass == 1).then { @piano.play(:G4) }
+      (pass == 10).then { sfx.play 0 }
+    end
+
+    [over, under, game_first].each do |program|
+      interpreted, console = owners_on_both(program, frames: 20)
+      assert_equal interpreted, console
+    end
+    assert_equal 1, console_run(under, frames: 20).sound_drops.dropped, "the console counts the note that did not play"
+  end
+
+  # An effect filling every voice: the song's note under it is not played, and its next one is.
+  def test_the_console_plays_the_songs_next_note_once_an_effect_filling_the_mixer_ends
+    tune = Score.new(tempo: 150, parts: [Part.new(plays: :piano, notes: [
+      Note.new(at: 0, key: :C4), Note.new(at: 20, key: :E4), Note.new(at: 40, key: :G4),
+    ])])
+    program = game([recorded_hit(68, parts: 16)], tune: tune) { |sfx, pass| (pass == 3).then { sfx.play 0 } }
+
+    [25, 45].each do |frames|
+      interpreted, console = owners_on_both(program, frames: frames)
+      assert_equal interpreted, console, "#{frames} frames in"
+    end
+    assert_equal [[:song, 0]], Reference.new.run(program, frames: 45).sound_owners
+  end
+
+  # The effect's voice through a restart, its own restart, its end, and a shaped end.
+  def test_the_console_keeps_and_lets_go_of_an_effects_voice_the_way_the_interpreter_does
+    two_notes = every_ten_ticks(:C4, :E4, plays: :piano)
+    restarted = game([two_notes]) { |sfx, pass| ((pass == 3) | (pass == 8)).then { sfx.play 0 } }
+    song_restarts = game([recorded_hit(68)], tune: chord(1)) do |sfx, pass|
+      (pass == 10).then { sfx.play 0 }
+      (pass == 15).then { stop_music }
+    end
+    ended = game([two_notes]) { |sfx, pass| (pass == 3).then { sfx.play 0 } }
+    shaped = game([Score.new(tempo: 150, parts: [Part.new(plays: :piano, envelope: { release: 0.25 },
+                                                          notes: [Note.new(at: 0, key: :C4, length: 20)])])]) do |sfx, pass|
+      (pass == 3).then { sfx.play 0 }
+    end
+
+    { restarted => 12, song_restarts => 18, ended => 40, shaped => 26 }.each do |program, frames|
+      interpreted, console = owners_on_both(program, frames: frames)
+      assert_equal interpreted, console, "#{frames} frames in"
+      refute_empty interpreted unless program == ended
+    end
+  end
+
+  # An effect's voice plays at the effect's own volume while the music volume moves, and reads its
+  # recording at its note's pitch.
+  def test_the_console_plays_an_effects_recording_at_its_own_volume_and_pitch
+    high = Score.new(tempo: 150, length: 200, parts: [Part.new(plays: :piano, notes: [Note.new(at: 0, key: :C5)])])
+    program = game([high], tune: chord(1)) do |sfx, pass|
+      (pass == 3).then { sfx.play 0 }
+      (pass == 6).then { music_volume 50 }
+    end
+    voices = console_voices(program, frames: 12).to_h { |voice| [voice.owner, voice] }
+    written = RubyGBA::IR::Tunes.mix_loudness(12) # a part's volume when it says none
+
+    assert_equal written, voices.fetch([:"sfx.0", 0]).volume
+    assert_equal RubyGBA::IR::Tunes.scaled_volume(written, 8), voices.fetch([:song, 0]).volume, "half the music volume"
+    assert_in_delta 2.0, voices.fetch([:"sfx.0", 0]).step.fdiv(voices.fetch([:song, 0]).step), 0.01,
+                    "read twice as fast, an octave above the song's C4"
+  end
+
   # --- what it costs ---
 
   # THE PROFILE COUNTS IT, inside the routine that answers the display, which is where the player
@@ -490,18 +705,13 @@ class TestSoundEffects < Minitest::Test
     err.message
   end
 
-  def test_an_effect_that_plays_a_recording_is_a_friendly_error
-    piano = { hit: every_ten_ticks(:C5, plays: :piano) }
-    message = build_error { sound_effects :sfx, piano }
-
-    assert_match(/:hit of :sfx/, message)
-    assert_match(/`plays: :noise`/, message)
-  end
-
   def test_an_effect_on_the_wave_voice_is_a_friendly_error
-    pad = [every_ten_ticks(:C5, plays: :triangle)]
+    pad = { pad: every_ten_ticks(:C5, plays: :triangle) }
+    message = build_error { sound_effects :sfx, pad }
 
-    assert_match(/wave voice/, build_error { sound_effects :sfx, pad })
+    assert_match(/:pad of :sfx/, message)
+    assert_match(/wave voice/, message)
+    assert_match(/a recording/, message)
   end
 
   def test_an_effect_that_loops_is_a_friendly_error
@@ -533,7 +743,8 @@ class TestSoundEffects < Minitest::Test
     assert found.error?
     assert_match(/The sound effect :rumble of :sfx has 3 parts/, found.message)
     assert_match(/A sound effect can have 2 of them at most/, found.message)
-    refute_match(/instrument|plays: :wave/, found.message)
+    assert_match(/One part can play an instrument/, found.message)
+    refute_match(/plays: :wave/, found.message)
   end
 
   # A warning about a note in an effect names the effect, and offers only what an effect can do.

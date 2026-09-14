@@ -20,10 +20,11 @@ module RubyGBA
         # once per DISPLAYED FRAME, from the screen's own interrupt — so playing samples needs a
         # game loop, which is what arms that interrupt.
         #
-        # THE SLOTS ARE SHARED between the game's sounds and the music's notes, each taking one
-        # only while it sounds (see #emit_music_voice_routine for who gives way when they run
-        # out). A slot's SOUNDING word says whose it is: 0 nobody's, OWNER_GAME the game's, and
-        # a song's recorded part its own mark (Mixer.music_owner).
+        # THE SLOTS ARE SHARED between the game's sounds and the notes of songs and sound effects,
+        # each taking one only while it sounds (see #emit_music_voice_routine for who gives way
+        # when they run out). A slot's SOUNDING word says whose it is: 0 nobody's, OWNER_GAME the
+        # game's, and a recorded part its own mark (Mixer.music_owner, or Mixer.ranked_owner in a
+        # game whose sound effects play recordings).
         #
         # Owns the whole sampled-audio picture: registering samples as ROM data (asset
         # preparation, so it lives here beside the mix that uses what it prepares) and
@@ -170,6 +171,15 @@ module RubyGBA
           OWNER_GAME = 1
           def self.music_owner(lane) = OWNER_GAME + 1 + lane
 
+          # ...and in a game whose sound effects play recordings, whose it is and how it RANKS
+          # (IR::Tunes.song_rank), since a note of a song or an effect can then take the voice of
+          # one ranked below it. The rank, one more so that every such mark sits above the game's,
+          # goes above the part's own number. Comparing two marks shifted down by this many bits
+          # compares their ranks, and two parts of one song or one effect rank the same, so never
+          # take each other's voice.
+          MARK_RANK_SHIFT = 5
+          def self.ranked_owner(rank, lane) = ((rank + 1) << MARK_RANK_SHIFT) | lane
+
           TICKETS = :__mix_tickets # how many sounds the game has started, for the next ticket
           LOOPS_LAST = 0x8000_0000
 
@@ -185,8 +195,8 @@ module RubyGBA
           # Two words, both written on the drop path and nowhere else, so a game that never
           # runs out of voices pays for none of this beyond the miss branch it already had:
           #
-          #   DROPS       — how many plays found no free voice.
-          #   DROPS_MUSIC — the most voices A SONG held at one of those moments. The count of
+          #   DROPS       — how many plays, and notes of songs and sound effects, found no voice.
+          #   DROPS_MUSIC — the most voices SONGS AND EFFECTS held at one of those moments. The count of
           #                 voices SOUNDING needs no counting: a drop means every one of them
           #                 was. What the author cannot know without measuring is how the
           #                 music and the game's own sounds were splitting them, which is the
@@ -200,10 +210,11 @@ module RubyGBA
 
           # ONE SOUNDING VOICE, read back off a running console: which sample it is playing,
           # how far through it (a whole sample index), how long that sample is, how fast it
-          # reads it (16.16 — STEP_ONE is the recorded pitch), whether it loops, and its level
-          # (0..64). Values rather than addresses, so a test asks what is playing and never
-          # learns where in memory it is kept.
-          Voice = Data.define(:sample, :position, :length, :step, :loop, :volume)
+          # reads it (16.16 — STEP_ONE is the recorded pitch), whether it loops, its level
+          # (0..64), and whose it is — :game, [:song, part] or [effect, part], the same answer the
+          # interpreter's Reference#sound_owners gives. Values rather than addresses, so a test
+          # asks what is playing and never learns where in memory it is kept.
+          Voice = Data.define(:sample, :position, :length, :step, :loop, :volume, :owner)
 
           # WHERE THE CONSOLE KEEPS WHAT IT IS PLAYING, published by the build so the finished
           # cartridge can be asked about its own sound (see BuildRecord#voices).
@@ -226,7 +237,12 @@ module RubyGBA
           # "read the recording at this rate", so what pitch that comes out at depends on the
           # rate. It is also the one thing about the mixer an author might want to see, which
           # is why `rom.profile` reports it.
-          VoiceTable = Data.define(:base, :count, :sample_addresses, :clock) do
+          #
+          # +effect_marks+ turns the mark on a sound effect's voice back into [effect, part]. A game
+          # with any has ranked marks (Mixer.ranked_owner) on its song's voices too.
+          VoiceTable = Data.define(:base, :count, :sample_addresses, :clock, :effect_marks) do
+            def initialize(effect_marks: {}, **rest) = super
+
             # The sounding voices, in slot order. The block reads one 32-bit word off the
             # console at the address it is given — the reader is handed in rather than owned,
             # so this can be tested against a plain Hash as easily as against an emulator.
@@ -234,12 +250,22 @@ module RubyGBA
               names = sample_addresses.invert
               (0...count).filter_map do |slot|
                 at = base + (slot * SLOT_BYTES)
-                next if yield(at + SLOT_ACTIVE).zero?
+                mark = yield(at + SLOT_ACTIVE)
+                next if mark.zero?
 
                 Voice.new(sample: names[yield(at + SLOT_SRC)], position: yield(at + SLOT_POS),
                           length: yield(at + SLOT_LEN), step: yield(at + SLOT_STEP),
-                          loop: !yield(at + SLOT_LOOP).zero?, volume: yield(at + SLOT_VOL))
+                          loop: !yield(at + SLOT_LOOP).zero?, volume: yield(at + SLOT_VOL),
+                          owner: owner(mark))
               end
+            end
+
+            def owner(mark)
+              return :game if mark == OWNER_GAME
+              return effect_marks.fetch(mark) if effect_marks.key?(mark)
+              return [:song, mark & ((1 << MARK_RANK_SHIFT) - 1)] unless effect_marks.empty?
+
+              [:song, mark - Mixer.music_owner(0)]
             end
           end
 
@@ -281,6 +307,7 @@ module RubyGBA
             @plays_samples = false # does the program play any sample (uses Direct Sound)?
             @music_takes_voices = false # does a song's recorded part start notes in the slots?
             @uses_envelopes = false # does any note in it have a shape (see #emit_envelope_step)?
+            @effect_marks = {}      # a sound effect's part's mark -> [effect, part], when its notes rank
           end
 
           # The output rate the mix runs at, settled by #prepare_mixer.
@@ -306,6 +333,16 @@ module RubyGBA
           end
 
           def music_takes_voices? = @music_takes_voices
+
+          # ...and a sound effect's recorded parts do too, so every mark carries its rank
+          # (Mixer.ranked_owner) and a note can take the voice of one ranked below it. +effect_marks+
+          # is each effect part's mark, to [effect, part], for reading the voices back.
+          def ranks_voices!(effect_marks)
+            music_takes_voices!
+            @effect_marks = effect_marks
+          end
+
+          def ranks_voices? = !@effect_marks.empty?
 
           # ...and a game that moves the music volume sets a part's note to the new level while it
           # sounds, so it needs to find the voice the note is on.
@@ -361,7 +398,7 @@ module RubyGBA
           def voice_table
             return nil unless @voice_base
 
-            VoiceTable.new(base: @voice_base, count: MAX_VOICES, clock: @sample_clock,
+            VoiceTable.new(base: @voice_base, count: MAX_VOICES, clock: @sample_clock, effect_marks: @effect_marks,
                            sample_addresses: @samples.keys.to_h do |name|
                              [name, ROM_START + RubyGBA::ROM::ENTRY_OFFSET + @emitter.data_positions.fetch(name)]
                            end)
@@ -799,23 +836,34 @@ module RubyGBA
           # later. A falling voice is the first thing to give way, being on its way out already,
           # and the quietest of them first, since cutting that one short is the smallest jump.
           #
-          # There is always a 4 when there is no 1, 2 or 3: a part has one note sounding at most,
-          # and a song has fewer recorded parts than there are voices, so a table full of voices
-          # that are neither free nor falling has a game sound in it. It runs in the interrupt,
-          # where the game cannot be in the table — `play` and `stop` hold interrupts off while
-          # they are.
+          # There is always a 4 when there is no 1, 2 or 3 in a game with no sound effect that
+          # plays a recording: a part has one note sounding at most, and a song has fewer recorded
+          # parts than there are voices, so a table full of voices that are neither free nor
+          # falling has a game sound in it. It runs in the interrupt, where the game cannot be in
+          # the table — `play` and `stop` hold interrupts off while they are.
+          #
+          # IN A GAME WHOSE SOUND EFFECTS PLAY RECORDINGS, a voice can be full of song and effect
+          # notes, so the rule goes on (see Mixer.ranked_owner):
+          #
+          #   5. with no game sound either, the voice of the lowest-ranked note ranked below this
+          #      one — the first of them, when two rank the same;
+          #   6. and with none of those, no voice: r7 is 0, the note is not played, and it is
+          #      counted with the sounds that did not play (#emit_note_drop).
           #
           # In: r8 = the part's mark. Out: r7 = the voice. Uses r0, r1, r9-r12 — and, in a game that
-          # shapes a note, r2 and r3 as well, which it keeps on the stack because the player needs
-          # them back. Returns through lr, which the interrupt saved.
+          # shapes a note, r2 and r3 as well, and in one that ranks its voices r2-r5, which it keeps
+          # on the stack because the player needs them back. Returns through lr, which the
+          # interrupt saved.
           def emit_music_voice_routine
             e = @emitter
             done = e.gensym
             scan = e.gensym
             busy = e.gensym
             onward = e.gensym
+            ranked = e.gensym
+            kept = ranks_voices? ? [2, 3, 4, 5] : @uses_envelopes ? [2, 3] : []
             e.place_label(MUSIC_VOICE)
-            e.emit(ASM.push(2, 3)) if @uses_envelopes
+            e.emit(ASM.push(*kept)) unless kept.empty?
             e.emit(ASM.load_immediate(7, @voice_base))
             e.emit(ASM.load_immediate(1, @voice_base + (MAX_VOICES * SLOT_BYTES)))
             e.emit(ASM.load_immediate(9, 0))                    # the first free voice, none yet
@@ -824,6 +872,10 @@ module RubyGBA
             if @uses_envelopes
               e.emit(ASM.mvn_imm(3, 0))                         # the quietest tail so far: none, the loudest there is
               e.emit(ASM.load_immediate(ADDR, 0))               # ...and its voice
+            end
+            if ranks_voices?
+              e.emit(ASM.lsr_imm(5, 8, MARK_RANK_SHIFT))        # the lowest rank so far: none below this note's
+              e.emit(ASM.load_immediate(4, 0))                  # ...and its voice
             end
             e.place_label(scan)
             e.emit(ASM.ldr_offset(0, 7, SLOT_ACTIVE))
@@ -840,15 +892,24 @@ module RubyGBA
             e.emit_branch(:b, onward)
             e.place_label(busy)
             e.emit(ASM.cmp_imm(0, OWNER_GAME))
+            other = ranks_voices? ? ranked : onward
             if @uses_envelopes
-              emit_tail_candidate(onward)
+              emit_tail_candidate(onward, sounding: other)
             else
-              e.emit_branch(:bcond, onward, cond: :ne)          # another part's: never taken
+              e.emit_branch(:bcond, other, cond: :ne)           # another part's
             end
             e.emit(ASM.ldr_offset(0, 7, SLOT_TICKET))
             e.emit(ASM.cmp_reg(0, 11))
             e.emit(ASM.mov_reg_cond(:lo, 11, 0))                # 4. the game sound playing longest
             e.emit(ASM.mov_reg_cond(:lo, 10, 7))
+            if ranks_voices?
+              e.emit_branch(:b, onward)
+              e.place_label(ranked)
+              e.emit(ASM.lsr_imm(0, 0, MARK_RANK_SHIFT))
+              e.emit(ASM.cmp_reg(0, 5))
+              e.emit(ASM.mov_reg_cond(:lo, 5, 0))               # 5. the lowest rank below this note's
+              e.emit(ASM.mov_reg_cond(:lo, 4, 7))
+            end
             e.place_label(onward)
             e.emit(ASM.add_imm(7, 7, SLOT_BYTES))
             e.emit(ASM.cmp_reg(7, 1))
@@ -862,8 +923,17 @@ module RubyGBA
               e.emit_branch(:bcond, done, cond: :ne)
             end
             e.emit(ASM.mov_reg(7, 10))
+            if ranks_voices?
+              e.emit(ASM.cmp_imm(7, 0))
+              e.emit_branch(:bcond, done, cond: :ne)
+              e.emit(ASM.mov_reg(7, 4))
+              e.emit(ASM.cmp_imm(7, 0))
+              e.emit_branch(:bcond, done, cond: :ne)
+              emit_note_drop                                    # 6. no voice at all
+              e.emit(ASM.load_immediate(7, 0))
+            end
             e.place_label(done)
-            e.emit(ASM.pop(2, 3)) if @uses_envelopes
+            e.emit(ASM.pop(*kept)) unless kept.empty?
             e.emit(ASM.return)
           end
 
@@ -892,14 +962,14 @@ module RubyGBA
 
           # 3: another part's voice, with the flags of comparing its mark against the game's still
           # up. The game's own goes on to be weighed by its ticket; another part's is a tail if its
-          # note is falling, and otherwise never taken.
-          def emit_tail_candidate(onward)
+          # note is falling, and otherwise goes on to +sounding+.
+          def emit_tail_candidate(onward, sounding:)
             e = @emitter
             game = e.gensym
             e.emit_branch(:bcond, game, cond: :eq)
             e.emit(ASM.ldr_offset(2, 7, SLOT_PHASE))
             e.emit(ASM.cmp_imm(2, PHASE_FALLING))
-            e.emit_branch(:bcond, onward, cond: :lo)            # another part's note, still sounding
+            e.emit_branch(:bcond, sounding, cond: :lo)          # another part's note, still sounding
             emit_weigh_tail(onward)
             e.place_label(game)
           end
@@ -1507,8 +1577,8 @@ module RubyGBA
           # succeeds it would have counted part of the table and called it the whole. Here the
           # table is known to be full, so the walk is complete by construction.
           #
-          # A slot's SOUNDING word is 0 idle, OWNER_GAME the game's, and higher for a song's
-          # part (Mixer.music_owner) — so "above OWNER_GAME" is "a song's", in one compare.
+          # A slot's SOUNDING word is 0 idle, OWNER_GAME the game's, and higher for a part of a
+          # song or an effect — so "above OWNER_GAME" is "the music's", in one compare.
           # Uses r0/r1/r2 and r12, the same registers the search already spends.
           def emit_note_drop
             e = @emitter
@@ -1553,12 +1623,12 @@ module RubyGBA
           # the answer decides whether a single instruction of the envelope is emitted anywhere —
           # a game that names none is exactly the game it was before any of this existed.
           #
-          # Three places can say so: a recording declared with one, a part of a played tune, or
-          # one of that part's notes. A tune nobody plays says nothing, the same as it costs
-          # nothing everywhere else.
+          # Three places can say so: a recording declared with one, a part of a played tune or a
+          # sound effect, or one of that part's notes. A tune nobody plays says nothing, the same
+          # as it costs nothing everywhere else.
           def shapes_any_note?(program)
             program.walk.any? { |node| node.kind == :sample && node.envelope } ||
-              IR::Tunes.played(program).any? do |song|
+              IR::Tunes.played_and_effects(program).any? do |song|
                 IR::Tunes.soundings(song).any? { |sounding| sounding.envelope }
               end
           end

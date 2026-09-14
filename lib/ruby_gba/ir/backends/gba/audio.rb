@@ -193,6 +193,10 @@ module RubyGBA
           # noise voice, whichever of them any effect uses. Who holds each such voice is a rank in a
           # variable of its own (IR::Tunes.song_rank), and a note is written only when nobody
           # holding the voice outranks it.
+          #
+          # Then one recorded lane for each part that plays a recording, as many as the most any
+          # effect has. Those share the mixer's voices rather than one voice each, so who gives way
+          # is the mixer's to say, by the rank each voice's mark carries (Mixer.ranked_owner).
           EFFECT_STATE = 0    # 0, EFFECT_ASKED or EFFECT_SOUNDING
           EFFECT_FRAME = 4    # how far into the effect, in frames
           EFFECT_CURSORS = 8  # each lane's next event, as a byte offset into the score
@@ -221,6 +225,7 @@ module RubyGBA
             @effects = ranked.map(&:first)
             @effect_ranks = ranked.to_h
             @effect_lists = {}
+            @effects_record = false
             return unless plays_sound_effects?
 
             slots = @effects.each_with_index.to_h
@@ -229,8 +234,18 @@ module RubyGBA
             end
             squares = @effects.map { |name| IR::Tunes.parts_on(@songs.fetch(name), :square) }.max
             noise = @effects.any? { |name| IR::Tunes.parts_on(@songs.fetch(name), :noise).positive? }
+            recorded = @effects.map { |name| IR::Tunes.recorded_parts(@songs.fetch(name)) }.max
             @effect_lanes = MUSIC_CHANNELS.first(squares).map { |channel| Lane.new(:square, channel) }
             @effect_lanes << Lane.new(:noise, NOISE_CHANNEL) if noise
+            @effect_lanes += Array.new(recorded) { |lane| Lane.new(:recorded, lane) }
+            if recorded.positive?
+              @effects_record = true
+              @mixer.ranks_voices!(@effects.flat_map do |name|
+                Array.new(IR::Tunes.recorded_parts(@songs.fetch(name))) do |lane|
+                  [Mixer.ranked_owner(@effect_ranks.fetch(name), lane), [name, lane]]
+                end
+              end.to_h)
+            end
             # A power of two, so a place in the table is a shift of its number.
             @effect_slot_bytes = 1 << (EFFECT_CURSORS + (4 * @effect_lanes.size) - 1).bit_length
             @effect_table = @memory.alloc_roomy(@effects.size * @effect_slot_bytes)
@@ -238,8 +253,9 @@ module RubyGBA
 
           def effect_slots_blob(list) = :"__sound_effect_slots_#{list}"
 
-          # Does an effect share the voice this tune lane plays on?
-          def shared_lane?(lane) = plays_sound_effects? && @effect_lanes.any? { |shared| shared == lane }
+          # Does an effect share the console voice this tune lane plays on? A recorded lane shares
+          # the mixer instead, whose voices say for themselves who holds them.
+          def shared_lane?(lane) = plays_sound_effects? && lane.kind != :recorded && @effect_lanes.include?(lane)
 
           # A PART WITH NOTHING IN IT, for a lane being silenced when a tune changes. Silence is
           # a rest, and a rest names no pitch — so a part's tone, its fade and its rattle are all
@@ -533,6 +549,7 @@ module RubyGBA
             walk = e.gensym
             out = e.gensym
             e.place_label(SOUND_EFFECTS)
+            e.emit(ASM.push(LR)) if @effects_record # a recorded note calls the mixer
             e.emit(ASM.load_immediate(table_end, @effect_table + (@effects.size * @effect_slot_bytes)))
             e.place_label(walk)
             e.emit(ASM.cmp_reg(slot, table_end))
@@ -567,6 +584,8 @@ module RubyGBA
             e.emit(ASM.load_immediate(ACC, 0))                # at its end
             e.emit(ASM.str_offset(ACC, slot, EFFECT_STATE))
             @effect_lanes.each do |lane|
+              next emit_effect_voice_off(lane, rank) if lane.kind == :recorded
+
               kept = e.gensym
               @primitives.load_var(ACC, self.class.voice_rank(lane.index))
               e.emit(ASM.cmp_reg(ACC, rank))
@@ -584,12 +603,16 @@ module RubyGBA
               e.emit(ASM.ldr(ACC, row))
               e.emit(ASM.cmp_reg(ACC, frame))
               e.emit_branch(:bcond, skip, cond: :ne)           # not due
-              e.emit(ASM.add_imm(cursor, cursor, SQUARE_ROW))
+              e.emit(ASM.add_imm(cursor, cursor, row_bytes(lane)))
               e.emit(ASM.str_offset(cursor, slot, EFFECT_CURSORS + (4 * number)))
-              emit_take_voice(lane: lane, rank: rank, row: row, dropped: skip)
-              emit_console_note(lane, row)
-              song_lane = @lanes.index(lane)
-              forget_held_note(song_lane) if song_lane && holds_notes?(lane)
+              if lane.kind == :recorded
+                emit_effect_recorded_note(lane, rank, row)
+              else
+                emit_take_voice(lane: lane, rank: rank, row: row, dropped: skip)
+                emit_console_note(lane, row)
+                song_lane = @lanes.index(lane)
+                forget_held_note(song_lane) if song_lane && holds_notes?(lane)
+              end
               e.place_label(skip)
             end
             e.emit(ASM.add_imm(frame, frame, 1))
@@ -600,7 +623,55 @@ module RubyGBA
             e.emit(ASM.add_imm(entry, entry, EFFECT_STARTS + (4 * @effect_lanes.size)))
             e.emit_branch(:b, walk)
             e.place_label(out)
-            e.emit(ASM.return)
+            e.emit(@effects_record ? ASM.pop(PC) : ASM.return)
+          end
+
+          # THE REGISTERS THE EFFECTS ROUTINE KEEPS across a call into the mixer, which uses most
+          # of them: the score, the table's end, the cursor, the frame, the slot, the entry, the
+          # rank, the row and the rank it plays down to.
+          EFFECT_KEEPS = [2, 3, 4, 5, 7, 8, 9, 10, 11].freeze
+
+          # Where a routine returns to, kept on the stack by one that calls another, and popped
+          # straight into the program counter to return.
+          LR = 14
+          PC = 15
+
+          # AN EFFECT'S NOTE ON A RECORDED LANE, in the row at +row+: played the way a song's is
+          # (#emit_recorded_note), on a voice whose mark carries the effect's rank in +rank+.
+          def emit_effect_recorded_note(lane, rank, row)
+            @emitter.emit(ASM.push(*EFFECT_KEEPS))
+            @emitter.emit(ASM.mov_reg(3, row))
+            @emitter.emit(ASM.mov_reg(8, rank))
+            emit_ranked_mark(8, lane.index)
+            emit_recorded_note(lane: lane.index, base: 2, at: 3)
+            @emitter.emit(ASM.pop(*EFFECT_KEEPS))
+          end
+
+          # At an effect's end, its recorded lane lets go of the voice it still has, if it has one —
+          # a note with a shape falling away rather than stopping, the same as at a rest.
+          def emit_effect_voice_off(lane, rank)
+            @emitter.emit(ASM.push(EFFECT_SLOT, EFFECT_ENTRY))
+            @emitter.emit(ASM.mov_reg(8, rank))
+            emit_ranked_mark(8, lane.index)
+            @mixer.emit_music_voice_off
+            @emitter.emit(ASM.pop(EFFECT_SLOT, EFFECT_ENTRY))
+          end
+
+          # +reg+ = the mark a voice of recorded lane +lane+ carries, from the rank already in
+          # +reg+ (Mixer.ranked_owner).
+          def emit_ranked_mark(reg, lane)
+            @emitter.emit(ASM.add_imm(reg, reg, 1))
+            @emitter.emit(ASM.lsl_imm(reg, reg, Mixer::MARK_RANK_SHIFT))
+            @emitter.emit(ASM.orr_imm(reg, reg, lane)) unless lane.zero?
+          end
+
+          # +reg+ = the mark a voice of the tune's recorded lane +lane+ carries: its own number, or
+          # in a game whose sound effects play recordings, that and the tune's rank.
+          def emit_song_mark(reg, lane)
+            return @emitter.emit(ASM.load_immediate(reg, Mixer.music_owner(lane))) unless @effects_record
+
+            @primitives.load_var(reg, MUSIC_RANK)
+            emit_ranked_mark(reg, lane)
           end
 
           # MAY THE NOTE IN +row+, OF RANK +rank+, SOUND ON +lane+'s VOICE? When whoever holds the
@@ -793,7 +864,7 @@ module RubyGBA
           def emit_silence_lane(lane, number)
             if lane.kind == :recorded
               forget_held_note(number) if holds_notes?(lane)
-              @emitter.emit(ASM.load_immediate(8, Mixer.music_owner(lane.index)))
+              emit_song_mark(8, lane.index)
               @mixer.emit_music_voice_off
             elsif !shared_lane?(lane)
               emit_writes(console_note(lane, SILENCE, 0, 0))
@@ -921,7 +992,7 @@ module RubyGBA
             @primitives.load_var(WRITE_REG, self.class.music_note(number))
             @emitter.emit(ASM.cmp_imm(WRITE_REG, 0))
             @emitter.emit_branch(:bcond, resting, cond: :eq)          # a rest, or nothing yet
-            @emitter.emit(ASM.load_immediate(WORK_REG, Mixer.music_owner(lane.index)))
+            emit_song_mark(WORK_REG, lane.index)
             @mixer.emit_find_music_voice                              # r7 = its voice, or 0
             @emitter.emit(ASM.cmp_imm(NOTE_REG, 0))
             @emitter.emit_branch(:bcond, resting, cond: :eq)          # it ran out, or is falling away
@@ -984,7 +1055,7 @@ module RubyGBA
             end
 
             if lane.kind == :recorded
-              emit_recorded_note(lane.index, number, base, at)
+              emit_recorded_note(lane: lane.index, number: number, base: base, at: at)
               @emitter.emit(ASM.add_imm(cursor, cursor, RECORDED_ROW))
             elsif @scales
               @emitter.emit(ASM.ldr_offset(NOTE_REG, at, 4))           # both register values
@@ -1024,23 +1095,32 @@ module RubyGBA
           # Start the row's note on a mixer voice — from the top of the recording the row names, at
           # the row's step and loudness — or switch the part's voice off for a rest. Which voice is
           # the mixer's to say (Mixer#emit_music_voice_routine): the part's own, a free one, or
-          # one of the game's. The voice's SOUNDING word goes last, and it is the part's mark.
+          # one of the game's. The voice's SOUNDING word goes last, and it is the part's mark. In a
+          # game whose sound effects play recordings there may be no voice to have, and then the
+          # note is not played.
           #
-          # In a game that moves the music volume, the loudness the row says is kept for the lane
-          # (see #holds_notes?) and the voice gets it times the level.
-          def emit_recorded_note(lane, number, base, at)
+          # A tune's lane is +number+, and in a game that moves the music volume, the loudness the
+          # row says is kept for the lane (see #holds_notes?) and the voice gets it times the
+          # level. With no +number+ the note is a sound effect's, whose mark is already in r8 and
+          # whose volume is its own.
+          def emit_recorded_note(lane:, base:, at:, number: nil)
             voice, mark, recording = 7, 8, 9
             rest = @emitter.gensym
             sounded = @emitter.gensym
-            @emitter.emit(ASM.load_immediate(mark, Mixer.music_owner(lane)))
+            scales = @scales && number
+            emit_song_mark(mark, lane) if number
             @emitter.emit(ASM.ldr_offset(ACC, at, 4))                         # how fast to read it
             @emitter.emit(ASM.cmp_imm(ACC, 0))
             @emitter.emit_branch(:bcond, rest, cond: :eq)                     # 0 is a rest
             @mixer.emit_take_music_voice                                      # r7 = the voice it gets
+            if @effects_record
+              @emitter.emit(ASM.cmp_imm(voice, 0))
+              @emitter.emit_branch(:bcond, sounded, cond: :eq)                # ...none: not played
+            end
             @emitter.emit(ASM.ldr_offset(ACC, at, 4))
             @emitter.emit(ASM.str_offset(ACC, voice, Mixer::SLOT_STEP))
             @emitter.emit(ASM.load_halfword_offset(ACC, at, 10))              # how loud
-            if @scales
+            if scales
               @primitives.store_var(ACC, self.class.music_note(number))
               emit_scaled_loudness(ACC)
             end
@@ -1067,7 +1147,7 @@ module RubyGBA
             @emitter.emit(ASM.str_offset(mark, voice, Mixer::SLOT_ACTIVE))      # the part's now
             @emitter.emit_branch(:b, sounded)
             @emitter.place_label(rest)
-            forget_held_note(number) if @scales
+            forget_held_note(number) if scales
             @mixer.emit_music_voice_off
             @emitter.place_label(sounded)
           end
@@ -1117,7 +1197,7 @@ module RubyGBA
           # tune does not use points at a row that waits for NEVER.
           def score_blob
             entry_bytes = 1 << @entry_shift
-            soundings = @song_numbers.keys.flat_map { |name| IR::Tunes.soundings(@songs.fetch(name)) }.uniq
+            soundings = (@song_numbers.keys + @effects).flat_map { |name| IR::Tunes.soundings(@songs.fetch(name)) }.uniq
             @sounding_numbers = soundings.each_with_index.to_h
             @instruments_at = (@song_numbers.size + 1) * entry_bytes
             waves_at = @instruments_at + (soundings.size * INSTRUMENT_BYTES)
@@ -1194,14 +1274,16 @@ module RubyGBA
           end
 
           # Which effect lane each of an effect's parts plays on: its square parts the square
-          # voices in order, and its noise part the noise voice.
+          # voices in order, its noise part the noise voice, and its recorded parts the recorded
+          # lanes in order.
           def effect_lanes_for(song)
             squares = 0
+            recorded = 0
             song.voices.map do |part|
-              lane = if IR::Tunes.part_kind(part) == :noise
-                       Lane.new(:noise, NOISE_CHANNEL)
-                     else
-                       Lane.new(:square, MUSIC_CHANNELS.fetch(squares).tap { squares += 1 })
+              lane = case IR::Tunes.part_kind(part)
+                     when :noise then Lane.new(:noise, NOISE_CHANNEL)
+                     when :recorded then Lane.new(:recorded, recorded).tap { recorded += 1 }
+                     else Lane.new(:square, MUSIC_CHANNELS.fetch(squares).tap { squares += 1 })
                      end
               [part, @effect_lanes.index(lane)]
             end
