@@ -20,11 +20,19 @@ module RubyGBA
       LEVEL = :__music_level
       FULL_LEVEL = 16
 
+      # The loudness a recorded part's voice plays at when its written volume is 15. A mixer
+      # voice's loudness runs 0 to this, where a console voice's runs 0 to 15.
+      MIX_FULL = 64
+
       module_function
 
-      # A written volume (0..15) at +level+: multiplied and shifted back down, so it is whole
-      # numbers on every backend and never rounds up past what was written.
+      # A written volume (0..15) — or a mixer voice's loudness — at +level+: multiplied and shifted
+      # back down, so it is whole numbers on every backend and never rounds up past what was
+      # written.
       def scaled_volume(volume, level) = (volume * level) >> 4
+
+      # A part's written volume, 0..15 like the console voices', as a mixer voice's loudness.
+      def mix_loudness(volume) = (volume * MIX_FULL / 15.0).round
 
       # The songs the program can play, in the order they are declared: every song it names with
       # `play_song`, and every song in a list it picks from by number. A song that is written and

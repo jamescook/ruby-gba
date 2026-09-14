@@ -22,6 +22,11 @@ module RubyGBA
         # a mixer to sound recordings on, and songs; a number the IR carries is worked out
         # before it arrives (see #wants_number).
         class Player
+          # The wave and noise voices' numbers in the console's own count of its voices, which is
+          # what the log names a voice by.
+          WAVE_CHANNEL = 3
+          NOISE_CHANNEL = 4
+
           def initialize(mixer:, log:)
             @mixer = mixer
             @log = log
@@ -98,12 +103,17 @@ module RubyGBA
             song.voices.each_with_index do |part, number|
               kind = IR::Tunes.part_kind(part)
               lane = kind == :recorded ? (recorded += 1) - 1 : nil
-              channel = kind == :square ? (squares += 1) : nil
+              channel = console_channel(kind) { squares += 1 }
               offset, frequency, instrument, volume, envelope = @events[number][@cursors[number]]
               next unless offset == @frame
 
               @log << [:note, @playing, frequency]
-              sound_square(channel, frequency.zero? ? 0 : volume || part.volume) if channel && level
+              if channel && level
+                written = frequency.zero? ? 0 : volume || part.volume
+                kind == :noise ? log_loudness(channel, written) : hold(channel, written)
+              elsif lane && level
+                hold([:mixer, lane], frequency.zero? ? 0 : IR::Tunes.mix_loudness(volume || part.volume))
+              end
               # A part on the WAVE or NOISE voice: the console makes the sound itself, so no
               # mixer voice is taken — the whole point of putting a part there.
               console_voice(kind, part, frequency) if %i[wave noise].include?(kind)
@@ -142,18 +152,41 @@ module RubyGBA
             @cursors.fill(0)
           end
 
-          # THE MUSIC VOLUME HAS MOVED: every square voice holding a note sounds it again at the
-          # new level. A square voice takes its volume only as a note starts, so a note already
-          # sounding cannot be made quieter any other way.
+          # THE MUSIC VOLUME HAS MOVED: every voice holding a note takes the new level — a square
+          # voice by sounding the note again, since it takes a volume only as a note starts, and
+          # the wave voice and a mixer voice simply, since they take one while they play. Either
+          # way the voice is now at the new volume, which is what the log says.
+          #
+          # A recorded part's note is held only while its voice is still sounding it: the
+          # recording may have run out, or the note be falling away after a rest, and neither of
+          # those is the part's note any more.
           def follow_the_level(level)
             return if level == @level
 
             @level = level
-            @sounding.each { |channel, volume| log_loudness(channel, volume) if volume.positive? }
+            @sounding.each do |voice, volume|
+              next unless volume.positive?
+              next if voice.is_a?(Array) && !@mixer.sounding_note(voice.last)
+
+              log_loudness(voice, volume)
+            end
           end
 
-          # A note on a square voice, at the music volume in force. A rest is a volume of 0.
-          def sound_square(channel, volume)
+          # The console voice a part sounds on, if the console plays it itself — the square voices
+          # counted from 1 in the order the parts are written (the block counts one), and the wave
+          # and noise voices, of which there is one each. Nil for a part that plays a recording.
+          def console_channel(kind)
+            case kind
+            when :square then yield
+            when :wave then WAVE_CHANNEL
+            when :noise then NOISE_CHANNEL
+            end
+          end
+
+          # A note held on a console voice, at the music volume in force. A rest is a volume of 0.
+          # A drum hit is not held: it rings and fades by itself, so a new level waits for the
+          # next hit rather than striking this one again.
+          def hold(channel, volume)
             @sounding[channel] = volume
             log_loudness(channel, volume)
           end

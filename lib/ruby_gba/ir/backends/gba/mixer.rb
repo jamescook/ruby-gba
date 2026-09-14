@@ -307,9 +307,15 @@ module RubyGBA
 
           def music_takes_voices? = @music_takes_voices
 
-          # The routines that find a song's note a voice, and stop it (#emit_music_voice_routines).
+          # ...and a game that moves the music volume sets a part's note to the new level while it
+          # sounds, so it needs to find the voice the note is on.
+          def music_follows_level! = @music_follows_level = true
+
+          # The routines that find a song's note a voice, stop it, and find the voice it is on
+          # (#emit_music_voice_routines).
           MUSIC_VOICE = :__music_voice
           MUSIC_VOICE_OFF = :__music_voice_off
+          MUSIC_VOICE_FIND = :__music_voice_find
 
           # Register the samples: embed each one's PCM data as a ROM blob and note the
           # program plays sound. #prepare_mixer reserves the timer and memory.
@@ -682,10 +688,47 @@ module RubyGBA
             @emitter.emit_branch(:bl, MUSIC_VOICE_OFF)
           end
 
-          # The two routines those call, emitted once inside the screen's interrupt.
+          # ...and the voice sounding the part's note (r8) is wanted in r7, or 0 when it has none.
+          def emit_find_music_voice
+            @emitter.emit_branch(:bl, MUSIC_VOICE_FIND)
+          end
+
+          # The routines those call, emitted once inside the screen's interrupt.
           def emit_music_voice_routines
             emit_music_voice_routine
             emit_music_voice_off_routine
+            emit_music_voice_find_routine if @music_follows_level
+          end
+
+          # The voice sounding the part's note (r8's mark) into r7, or 0 when the part has none —
+          # its recording ran out and the mix retired it, or it rested. A voice of the part's that
+          # is falling away is an earlier note on its way out, not this one, and is passed over:
+          # the same reading #emit_music_voice_off_routine makes. Uses r0, r1, r7.
+          def emit_music_voice_find_routine
+            e = @emitter
+            scan = e.gensym
+            onward = e.gensym
+            done = e.gensym
+            e.place_label(MUSIC_VOICE_FIND)
+            e.emit(ASM.load_immediate(7, @voice_base))
+            e.emit(ASM.load_immediate(1, @voice_base + (MAX_VOICES * SLOT_BYTES)))
+            e.place_label(scan)
+            e.emit(ASM.ldr_offset(0, 7, SLOT_ACTIVE))
+            e.emit(ASM.cmp_reg(0, 8))
+            e.emit_branch(:bcond, onward, cond: :ne)
+            if @uses_envelopes
+              e.emit(ASM.ldr_offset(0, 7, SLOT_PHASE))
+              e.emit(ASM.cmp_imm(0, PHASE_FALLING))
+              e.emit_branch(:bcond, onward, cond: :hs)
+            end
+            e.emit_branch(:b, done)
+            e.place_label(onward)
+            e.emit(ASM.add_imm(7, 7, SLOT_BYTES))
+            e.emit(ASM.cmp_reg(7, 1))
+            e.emit_branch(:bcond, scan, cond: :lt)
+            e.emit(ASM.load_immediate(7, 0))
+            e.place_label(done)
+            e.emit(ASM.return)
           end
 
           # Stop the voice sounding the part's note (r8's mark) — or nothing, when the part has

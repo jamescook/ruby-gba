@@ -215,11 +215,13 @@ module RubyGBA
             # finding a tune's entry is a shift of its number rather than a multiply.
             @entry_shift = (ENTRY_STARTS + (4 * @lanes.size) - 1).bit_length
             @mixer.music_takes_voices! if recorded.positive?
+            @mixer.music_follows_level! if recorded.positive? && @scales
           end
 
           # Put every tune the program plays in the cartridge, as one score.
           def build_score
             @emitter.data_blobs[MUSIC_SCORE] = score_blob if plays_music?
+            @emitter.data_blobs[MUSIC_WAVE_LEVELS] = wave_levels_blob if plays_music? && @scales && @waves
           end
 
           # Does the program play any tune (so the player goes in the screen's interrupt)?
@@ -529,6 +531,7 @@ module RubyGBA
           # one.
           def emit_silence_lane(lane, number)
             if lane.kind == :recorded
+              forget_held_note(number) if holds_notes?(lane)
               @emitter.emit(ASM.load_immediate(8, Mixer.music_owner(lane.index)))
               @mixer.emit_music_voice_off
             else
@@ -544,8 +547,32 @@ module RubyGBA
           WORK_REG = 8
           WRITE_REG = 9
 
-          # Whether a lane keeps the note it is holding, for starting it again at a new volume.
-          def holds_notes?(lane) = @scales && lane.kind == :square
+          # Whether a lane keeps the note it is holding, for setting it to a new volume. The noise
+          # voice does not: a drum hit rings and fades by itself, and striking it again at a new
+          # volume would be a second hit, so a new level waits for the next one.
+          #
+          # A recorded lane keeps its note's loudness (0..IR::Tunes::MIX_FULL) rather than register
+          # values, and 0 for a rest.
+          def holds_notes?(lane) = @scales && %i[square wave recorded].include?(lane.kind)
+
+          # THE WAVE VOICE'S VOLUMES, looked up by a volume of 0..15: it has five, and a note sets
+          # the one nearest (Sound::Registers.wave_level). A table rather than arithmetic, since
+          # nearest-of-five is a divide.
+          MUSIC_WAVE_LEVELS = :__music_wave_levels
+
+          def wave_levels_blob
+            (0..15).map { |volume| Sound::Registers::WAVE_VOLUMES.fetch(Sound::Registers.wave_level(volume)) }
+                   .pack("v*")
+          end
+
+          # WHERE A WAVE ROW KEEPS ITS WRITTEN VOLUME, in a game that moves the music volume. The
+          # register value says one of five volumes, and sixteen do not come back out of five —
+          # so the 0..15 rides along in four bits of the same value that the voice does not read.
+          WAVE_VOLUME_SHIFT = 8
+
+          # A held note that is really sounding: its written volume is not 0. Where those four
+          # bits sit is the one thing that differs between the two voices.
+          def sounding_mask(lane) = lane.kind == :wave ? 0xF << WAVE_VOLUME_SHIFT : 0xF000
 
           def forget_held_note(number)
             @emitter.emit(ASM.load_immediate(ACC, 0))
@@ -565,12 +592,13 @@ module RubyGBA
             @primitives.store_var(LEVEL_REG, MUSIC_LEVEL_APPLIED)
             @lanes.each_with_index do |lane, number|
               next unless holds_notes?(lane)
+              next emit_follow_recorded(lane, number) if lane.kind == :recorded
 
               resting = @emitter.gensym
               @primitives.load_var(NOTE_REG, self.class.music_note(number))
-              @emitter.emit(ASM.tst_imm(NOTE_REG, 0xF000)) # a volume of 0 is a rest, or nothing yet
+              @emitter.emit(ASM.tst_imm(NOTE_REG, sounding_mask(lane))) # 0: a rest, or nothing yet
               @emitter.emit_branch(:bcond, resting, cond: :eq)
-              emit_scaled_note(lane)
+              emit_scaled_note(lane, starts: lane.kind == :square)
               @emitter.place_label(resting)
             end
             @emitter.place_label(same)
@@ -588,21 +616,74 @@ module RubyGBA
           # note again, every time it moves one. The emulator the tests run on takes a new volume
           # at once without that, so nothing there can tell the difference — the start is here
           # for the console.
-          def emit_scaled_note(lane)
+          #
+          # THE WAVE VOICE is the other shape of the same thing. Its written volume is the four
+          # bits WAVE_VOLUME_SHIFT keeps it in, the level scales it the same way, and what goes to
+          # the register is the nearest of the voice's five volumes, out of a table — with the
+          # bits below them kept, so the written volume is still there next time. It takes a new
+          # volume while it plays, so a held note is not started again (+starts:+ false); a new
+          # note is, the same as always.
+          def emit_scaled_note(lane, starts: true)
             regs = music_voice_regs(lane)
             emit_sweep(regs)
-            @emitter.emit(ASM.lsr_imm(WORK_REG, NOTE_REG, 12))
+            wave = lane.kind == :wave
+            @emitter.emit(ASM.lsr_imm(WORK_REG, NOTE_REG, wave ? WAVE_VOLUME_SHIFT : 12))
             @emitter.emit(ASM.and_imm(WORK_REG, WORK_REG, 0xF))      # the written volume
-            @emitter.emit(ASM.mul(WORK_REG, LEVEL_REG, WORK_REG))    # ...times the level
-            @emitter.emit(ASM.lsr_imm(WORK_REG, WORK_REG, 4))        # ...over sixteen
-            @emitter.emit(ASM.lsl_imm(WRITE_REG, NOTE_REG, 20))
-            @emitter.emit(ASM.lsr_imm(WRITE_REG, WRITE_REG, 20))     # the control without it
-            @emitter.emit(ASM.orr_reg_lsl(WRITE_REG, WRITE_REG, WORK_REG, 12))
+            emit_scaled_loudness(WORK_REG)                           # ...times the level, over sixteen
+            wave ? emit_nearest_wave_volume : emit_square_volume
             @emitter.emit(ASM.load_immediate(TMP, regs[:reg_a]))
             @emitter.emit(ASM.store_halfword(WRITE_REG, TMP))
+            return unless starts
+
             @emitter.emit(ASM.lsr_imm(WRITE_REG, NOTE_REG, 16))
             @emitter.emit(ASM.load_immediate(TMP, regs[:reg_b]))
             @emitter.emit(ASM.store_halfword(WRITE_REG, TMP))
+          end
+
+          # A RECORDED PART'S NOTE AT THE NEW LEVEL: the mixer voice sounding it, if it still has
+          # one, gets the note's loudness times the level. The mixer reads a voice's loudness as
+          # it mixes, so nothing is started again.
+          def emit_follow_recorded(lane, number)
+            resting = @emitter.gensym
+            @primitives.load_var(WRITE_REG, self.class.music_note(number))
+            @emitter.emit(ASM.cmp_imm(WRITE_REG, 0))
+            @emitter.emit_branch(:bcond, resting, cond: :eq)          # a rest, or nothing yet
+            @emitter.emit(ASM.load_immediate(WORK_REG, Mixer.music_owner(lane.index)))
+            @mixer.emit_find_music_voice                              # r7 = its voice, or 0
+            @emitter.emit(ASM.cmp_imm(NOTE_REG, 0))
+            @emitter.emit_branch(:bcond, resting, cond: :eq)          # it ran out, or is falling away
+            emit_scaled_loudness(WRITE_REG)
+            @emitter.emit(ASM.str_offset(WRITE_REG, NOTE_REG, Mixer::SLOT_VOL))
+            @emitter.place_label(resting)
+          end
+
+          # +reg+ = the loudness in it times the music volume, over sixteen. The level is read
+          # again here rather than trusted to still be in its register, because finding a note a
+          # voice uses that register too.
+          def emit_scaled_loudness(reg)
+            @primitives.load_var(LEVEL_REG, IR::Tunes::LEVEL)
+            @emitter.emit(ASM.mul(reg, LEVEL_REG, reg))
+            @emitter.emit(ASM.lsr_imm(reg, reg, 4))
+          end
+
+          # WRITE_REG = the square control in NOTE_REG with the volume in WORK_REG over its top
+          # four bits.
+          def emit_square_volume
+            @emitter.emit(ASM.lsl_imm(WRITE_REG, NOTE_REG, 20))
+            @emitter.emit(ASM.lsr_imm(WRITE_REG, WRITE_REG, 20))
+            @emitter.emit(ASM.orr_reg_lsl(WRITE_REG, WRITE_REG, WORK_REG, 12))
+          end
+
+          # WRITE_REG = the wave control in NOTE_REG with its top three bits — the voice's volume —
+          # replaced by the nearest of the five to the volume in WORK_REG.
+          def emit_nearest_wave_volume
+            @emitter.emit_load_data_address(WRITE_REG, MUSIC_WAVE_LEVELS)
+            @emitter.emit(ASM.lsl_imm(WORK_REG, WORK_REG, 1))
+            @emitter.emit(ASM.add_reg(WRITE_REG, WRITE_REG, WORK_REG))
+            @emitter.emit(ASM.load_halfword(WORK_REG, WRITE_REG))
+            @emitter.emit(ASM.lsl_imm(WRITE_REG, NOTE_REG, 19))
+            @emitter.emit(ASM.lsr_imm(WRITE_REG, WRITE_REG, 19))
+            @emitter.emit(ASM.orr_reg(WRITE_REG, WRITE_REG, WORK_REG))
           end
 
           # Play one lane's next event, if it is due on this frame.
@@ -615,11 +696,11 @@ module RubyGBA
             @emitter.emit_branch(:bcond, skip, cond: :ne)     # not yet — leave the lane alone
 
             if lane.kind == :recorded
-              emit_recorded_note(lane.index, base, at)
+              emit_recorded_note(lane.index, number, base, at)
               @emitter.emit(ASM.add_imm(cursor, cursor, RECORDED_ROW))
-            elsif holds_notes?(lane)
+            elsif @scales
               @emitter.emit(ASM.ldr_offset(NOTE_REG, at, 4))           # both register values
-              @primitives.store_var(NOTE_REG, self.class.music_note(number))
+              @primitives.store_var(NOTE_REG, self.class.music_note(number)) if holds_notes?(lane)
               emit_scaled_note(lane)
               @emitter.emit(ASM.add_imm(cursor, cursor, SQUARE_ROW))
             else
@@ -656,7 +737,10 @@ module RubyGBA
           # the row's step and loudness — or switch the part's voice off for a rest. Which voice is
           # the mixer's to say (Mixer#emit_music_voice_routine): the part's own, a free one, or
           # one of the game's. The voice's SOUNDING word goes last, and it is the part's mark.
-          def emit_recorded_note(lane, base, at)
+          #
+          # In a game that moves the music volume, the loudness the row says is kept for the lane
+          # (see #holds_notes?) and the voice gets it times the level.
+          def emit_recorded_note(lane, number, base, at)
             voice, mark, recording = 7, 8, 9
             rest = @emitter.gensym
             sounded = @emitter.gensym
@@ -668,6 +752,10 @@ module RubyGBA
             @emitter.emit(ASM.ldr_offset(ACC, at, 4))
             @emitter.emit(ASM.str_offset(ACC, voice, Mixer::SLOT_STEP))
             @emitter.emit(ASM.load_halfword_offset(ACC, at, 10))              # how loud
+            if @scales
+              @primitives.store_var(ACC, self.class.music_note(number))
+              emit_scaled_loudness(ACC)
+            end
             @emitter.emit(ASM.str_offset(ACC, voice, Mixer::SLOT_VOL))
             @emitter.emit(ASM.load_halfword_offset(ACC, at, 8))               # which recording...
             @emitter.emit(ASM.lsl_imm(ACC, ACC, INSTRUMENT_SHIFT))
@@ -691,6 +779,7 @@ module RubyGBA
             @emitter.emit(ASM.str_offset(mark, voice, Mixer::SLOT_ACTIVE))      # the part's now
             @emitter.emit_branch(:b, sounded)
             @emitter.place_label(rest)
+            forget_held_note(number) if @scales
             @mixer.emit_music_voice_off
             @emitter.place_label(sounded)
           end
@@ -831,11 +920,18 @@ module RubyGBA
               regs = music_voice_regs(lane)
               rows = events.map do |frame, frequency, _instrument, volume|
                 writes = console_note(lane, part, frequency, volume || part.volume)
-                [frame, note_reg_value(writes, regs[:reg_a]), note_reg_value(writes, regs[:reg_b])].pack("Vvv")
+                control = note_reg_value(writes, regs[:reg_a])
+                control |= (volume || part.volume) << WAVE_VOLUME_SHIFT if keeps_wave_volume?(lane, frequency)
+                [frame, control, note_reg_value(writes, regs[:reg_b])].pack("Vvv")
               end
               rows.join + [NEVER, 0, 0].pack("Vvv")
             end
           end
+
+          # Whether this row carries its written volume alongside the register value (see
+          # WAVE_VOLUME_SHIFT) — a note, not a rest, on the wave voice, in a game that moves the
+          # music volume. Every other game's rows are exactly what they were.
+          def keeps_wave_volume?(lane, frequency) = @scales && lane.kind == :wave && frequency.positive?
 
           # ONE NOTE ON A VOICE THE CONSOLE PLAYS ITSELF, as its two register values. Each kind
           # answers the pair its own way — a square voice by pitch and tone, the wave voice by a
@@ -854,7 +950,7 @@ module RubyGBA
           end
 
           # A part's volume, 0..15 like the square voices', as the mix's 0..64.
-          def loudness(volume) = (volume * Mixer::MIX_LEVELS[:full] / 15.0).round
+          def loudness(volume) = IR::Tunes.mix_loudness(volume)
 
           # Which two sound registers carry a music note's varying values on a given lane — the
           # control (tone and loudness) and the pitch-and-trigger. Channel 1 also clears its
