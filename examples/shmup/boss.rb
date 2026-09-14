@@ -32,8 +32,8 @@ module Shmup
     EDGE  = 240 - W # the far column it can slide to and still be fully on screen
     FUSE  = 100   # frames of sliding before it drops
 
-    HURT = 12     # frames of flickering after a shot lands
-    DEATH = 48    # ...and after the last one
+    HURT = 12     # frames of glowing warm after a shot lands
+    DEATH = 48    # ...and of flickering out after the last one
 
     # The cruiser, banking left: a long gun arm under the left shoulder and a stub fin on
     # the right, so the two directions are pictures you can tell apart. `#` is the hull,
@@ -96,7 +96,11 @@ module Shmup
       @player = player
       @hud = hud
 
-      build.image(:boss_left, "." => :transparent, "#" => :magenta, "=" => :green) { HULL }
+      # Given its own list of colours, in order, so a shot that lands can swap them for the
+      # warm pulse place by place: the hull's colour for the pulse's second, the core's for
+      # its third.
+      build.image(:boss_left, "." => :transparent, "#" => :magenta, "=" => :green,
+                              colors: [:transparent, :magenta, :green]) { HULL }
       # Drawn banking left, and facing right is that same picture reflected — `mirror`
       # turns it about the WHOLE canvas, so the gun arm swaps sides instead of each piece
       # flipping where it stands. The reflected direction stores no pixels of its own.
@@ -154,6 +158,7 @@ module Shmup
         @hits.set HITS
         @flash.set 0
         @rammed.set 0
+        @boss.show
         @phase.set :arriving
       end
     end
@@ -165,7 +170,7 @@ module Shmup
         @fuse.set FUSE
         @phase.set :sweeping
       end
-      flicker
+      glow_while_hurt
     end
 
     # Along the top, banking the way it goes, until the fuse runs out.
@@ -175,19 +180,20 @@ module Shmup
       (@boss.x >= EDGE).then { @drift.set(-SWEEP); @boss.face :left }
       @fuse.sub 1
       (@fuse <= 0).then { @phase.set :diving }
-      flicker
+      glow_while_hurt
     end
 
     # Straight down the screen. Dodge sideways or lose a ship — and `overlaps?` reads the
     # boss's whole picture, so the left arm hits you as surely as the middle does.
     def drop_on_the_ship
       @boss.y.add DIVE
-      ((@rammed == 0) & @player.ship.overlaps?(@boss)).then do
+      ((@rammed == 0) & @player.hittable & @player.ship.overlaps?(@boss)).then do
         @hud.hit
+        @player.hurt
         @rammed.set 1
       end
       @boss.below_bottom?.then { climb_back }
-      flicker
+      glow_while_hurt
     end
 
     # Out of the bottom of the screen and round to the top again.
@@ -198,8 +204,11 @@ module Shmup
     end
 
     # The last shot landed: flicker out, pay the bonus, and start the next wave of enemies.
+    # Hiding and showing reach every part of the picture, so the whole cruiser blinks rather
+    # than a corner of it.
     def break_up
-      flicker
+      glow_while_hurt
+      ((@flash % 8) < 4).then { @boss.show }.else { @boss.hide }
       (@flash <= 0).then do
         @boss.hide
         @hud.bonus BONUS
@@ -225,11 +234,16 @@ module Shmup
       end
     end
 
-    # Blink while it is hurt, and sit steady the rest of the time. Hiding and showing reach
-    # every part of the picture, so the whole cruiser blinks rather than a corner of it.
-    def flicker
-      (@flash > 0).then { @flash.sub 1 }
-      ((@flash % 8) < 4).then { @boss.show }.else { @boss.hide }
+    # Glow warm while it is hurt, and in its own colours the rest of the time. The pulse
+    # steps every other frame, and like hiding and showing, the colours reach every part of
+    # the picture at once.
+    def glow_while_hurt
+      (@flash > 0).then do
+        @flash.sub 1
+        @boss.draw_with WARM, showing: (@flash >> 1) & 3
+      end.else do
+        @boss.draw_with :own
+      end
     end
   end
 end

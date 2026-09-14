@@ -155,7 +155,78 @@ module RubyGBA
         Color.resolve(value)
       end
 
+      # A LIST OF COLOURS NO PICTURE OWNS, for a sprite to be drawn with instead of its own.
+      #
+      #   image :ship, from: "ship.png", colors: [:transparent, :white, :blue, :navy]
+      #   colors :hurt, [:transparent, :yellow, :orange, :red]
+      #   ship.draw_with :hurt
+      #
+      # It is laid out the way a picture's own `colors:` list is, see-through first, and it
+      # is matched to one by PLACE: a pixel drawn in the second colour of the ship's list is
+      # drawn in the second colour of this one. So the shape and the shading stay exactly
+      # as drawn and only the colours move, which is what a character flashing while it
+      # cannot be hit looks like on this console.
+      def colors(name, list)
+        color_list_name!(name)
+        unless list.is_a?(Array) && list.length.between?(2, OWN_COLORS)
+          raise ArgumentError,
+                "colors :#{name} needs a list of 2 to #{OWN_COLORS} colors, the first meaning see-through. " \
+                "Got #{list.inspect}."
+        end
+
+        @color_lists[name] = list.map { |c| c == :transparent ? 0x0000 : Color.resolve(c) }
+        name
+      end
+
+      # The colours of the `colors` lists +names+, for a sprite showing +poses+ to be drawn
+      # with — checked against the sprite, since a list is matched to its pictures by place.
+      # Called by a sprite or a pool told `draw_with`; +subject+ is what the error calls it.
+      def colors_to_draw_with(names, poses:, subject:)
+        own = own_list_to_swap(poses, subject)
+        names.map do |name|
+          list = @color_lists.fetch(name) do
+            raise ArgumentError,
+                  "#{subject} was told to draw_with :#{name}, which is not a list of colors. " \
+                  "Declare it first with `colors :#{name}, [:transparent, ...]`."
+          end
+          next list if list.length >= own.length
+
+          raise ArgumentError,
+                "#{subject} was told to draw_with :#{name}, which has #{list.length} colors. The sprite's own " \
+                "list has #{own.length}, and each place in it needs a color at the same place in :#{name}. " \
+                "Give :#{name} #{own.length} colors or more."
+        end
+      end
+
       private
+
+      # The one list every picture of a sprite was given, which is what another list swaps
+      # by place. Pictures with no list were given their places by the framework, so no
+      # other list can line up with them.
+      def own_list_to_swap(poses, subject)
+        lists = poses.map { |pose| @pictures.fetch(pose).colors }.uniq
+        return lists.first if lists.length == 1 && lists.first
+
+        raise ArgumentError,
+              "#{subject} was told to draw_with other colors, but its pictures have no `colors:` list. " \
+              "Another list of colors swaps the sprite's own colors by their places in its list. " \
+              "Give each picture it shows the same `colors:` list, like " \
+              "`image :#{poses.first}, ..., colors: [:transparent, ...]`."
+      end
+
+      def color_list_name!(name)
+        unless name.is_a?(Symbol)
+          raise ArgumentError, "colors needs a name that is a Symbol, like colors :hurt, [...]. Got #{name.inspect}."
+        end
+        if name == Recolors::OWN
+          raise ArgumentError,
+                "colors cannot be named :#{name}. `draw_with :#{name}` means a sprite's own colors. " \
+                "Pick a different name."
+        end
+        return unless @color_lists.key?(name)
+
+        raise ArgumentError, "colors :#{name} is declared twice. Give each list of colors its own name."
+      end
 
       # Record a picture's declaration and everything the rest of the build asks about
       # it: its shape, so a sprite can size itself from its art, and its pixels, so
@@ -264,6 +335,7 @@ module RubyGBA
       # ASCII-art form of #image: split the block's art into rows, infer the size
       # from its shape, map each char to a color (or transparency), and pack it.
       def define_ascii_image(name, char_map)
+        listed = char_map[:colors] # the picture's own list, beside the characters' colours
         rows = yield.to_s.each_line.map(&:chomp).reject(&:empty?)
         raise ArgumentError, "image :#{name} has no art. Add art rows to the block." if rows.empty?
 
@@ -286,9 +358,11 @@ module RubyGBA
           end
         end
 
-        remember_picture(Build.bitmap(name, width: widths.first, height: rows.size,
-                                            pixels: colors.pack("v*"),
-                                            transparent: transparent ? TRANSPARENT_PIXEL : nil))
+        pixels = colors.pack("v*")
+        marker = transparent ? TRANSPARENT_PIXEL : nil
+        remember_picture(Build.bitmap(name, width: widths.first, height: rows.size, pixels: pixels,
+                                            transparent: marker,
+                                            colors: own_colors(name, listed, pixels, marker)))
         record_visible_bounds(name: name, width: widths.first, height: rows.size, cells: colors, transparent: transparent ? TRANSPARENT_PIXEL : nil)
       end
 

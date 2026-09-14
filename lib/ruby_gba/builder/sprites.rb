@@ -191,6 +191,17 @@ module RubyGBA
         object_node.scale = Build.var_ref(scale_var)
       end
 
+      # Make a hardware sprite able to draw with other colours (see HardwareSprite#draw_with):
+      # the same shape as #make_object_rotatable. Its choice starts at its own colours, and a
+      # sprite never told otherwise keeps the constant and emits nothing for it.
+      def make_object_recolorable(object_node, colors_var)
+        return unless object_node.recolor.kind == :int
+
+        at_boot(Build.set(colors_var, Build.int(Build::OWN_COLORS)))
+        ensure_var(colors_var)
+        object_node.recolor = Build.var_ref(colors_var)
+      end
+
       private
 
       # A `screen :tiled` sprite: the console draws it in hardware. Reserve a name for

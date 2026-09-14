@@ -2062,18 +2062,71 @@ module RubyGBA
             end
             PaletteBanks::Picture.new(key: node.name, colors: colors, authored: authored_palette(node))
           end
+          pictures += recolor_pictures(nodes)
 
           @obj_banks = begin
             PaletteBanks.new(pictures)
           rescue PaletteBanks::Overflow
             raise LoweringError, too_many_object_colors(pictures)
           end
+          nodes.each { |node| recolor_banks_fit!(node) }
 
           colors = @obj_banks.entries
           @obj_palette_blob = :__obj_palette
           @obj_palette_units = colors.size
           @emit.data_blobs[@obj_palette_blob] = colors.pack("v*")
         end
+
+        # THE OTHER LISTS A SPRITE CAN BE DRAWN WITH, each a bank of its own.
+        #
+        # Which colours a sprite's pixels show is the bank named in its table entry, and
+        # nothing else — the pixels themselves are places in a bank. So drawing a sprite with
+        # another list is naming another bank, laid out the way the sprite's own is: each list
+        # goes in as a table no picture draws from, pinned as written, and two sprites (or the
+        # thirty slots of a pool) that name the same list share its bank.
+        def recolor_pictures(nodes)
+          nodes.flat_map do |node|
+            node.recolors.each_with_index.map do |list, index|
+              PaletteBanks::Picture.new(key: [:recolor, node.name, index], colors: [], authored: list)
+            end
+          end
+        end
+
+        # A sprite drawn with other lists has to be stored the small way, and so does every
+        # list — a bank is the only thing its table entry can name. When the banks ran out,
+        # one of them was stored the big way instead, and that is a friendly error.
+        def recolor_banks_fit!(node)
+          return if node.recolors.empty?
+
+          keys = [node.name, *node.recolors.each_index.map { |index| [:recolor, node.name, index] }]
+          return if keys.all? { |key| @obj_banks.placement(key).narrow? }
+
+          raise LoweringError,
+                "The sprites and the lists of colors they draw with need more than the " \
+                "#{PaletteBanks::BANKS} groups of colors the console holds for sprites. Each different list " \
+                "takes one group, and so does each sprite with different colors. To fix this, use fewer " \
+                "lists in `colors`, or give more sprites the same `colors:` list."
+        end
+
+        # The bank each of a sprite's other lists landed in, in the order the program counts
+        # them, then its own. nil for a sprite never drawn with another list.
+        #
+        # The draw reads it as a table of the bank already shifted to where the table entry
+        # carries it, one word each, so a frame picks one with a single read. Sprites whose
+        # lists landed in the same banks — every slot of a pool — share the one table.
+        def recolor_banks(node)
+          return nil if node.recolors.empty?
+
+          banks = [*node.recolors.each_index.map { |index| @obj_banks.placement([:recolor, node.name, index]).bank },
+                   @obj_banks.placement(node.name).bank]
+          blob = :"__recolor_banks_#{banks.join('_')}"
+          @emit.data_blobs[blob] = banks.map { |bank| bank << OBJ_BANK_SHIFT }.pack("V*")
+          plain_blob!(blob) # read from the middle, by the list the game picked
+          RecolorBanks.new(table: blob, own: banks.length - 1)
+        end
+
+        # Where a sprite's banks are kept, and which entry is its own colours.
+        RecolorBanks = Data.define(:table, :own)
 
         # The table a sprite's art came with, where its poses all name the same one.
         # Art made somewhere else on this console arrives as numbers picking out of its
@@ -2223,7 +2276,8 @@ module RubyGBA
             # 0 (the front) in every picture where the sprites are over all the scenery,
             # which is every picture that names no layers.
             attr2_base: (hardware_priority(name) << OBJ_PRIORITY_SHIFT) |
-              (place.narrow? ? place.bank << OBJ_BANK_SHIFT : 0),
+              (place.narrow? && node.recolors.empty? ? place.bank << OBJ_BANK_SHIFT : 0),
+            recolor: node.recolor, recolor_banks: recolor_banks(node),
           )
         end
 

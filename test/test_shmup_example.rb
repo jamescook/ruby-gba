@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require "test_helper"
+require "differential"
 
 require "stringio"
 require_relative "../examples/shmup"
@@ -13,6 +14,7 @@ require_relative "../examples/shmup"
 # enemy touching the ship calls the HUD's hit), and losing the last ship switches scenes —
 # on the interpreter oracle and on real hardware.
 class TestShmupExample < Minitest::Test
+  include Differential
 
   CYAN = Color.resolve(:cyan)       # the ship (player.rb)
   RED = Color.resolve(:red)         # an enemy (enemies.rb) / the GAME OVER banner
@@ -99,11 +101,13 @@ class TestShmupExample < Minitest::Test
 
   # Player#update runs its input logic from its own file: holding right walks the ship
   # to the right edge, where at rest it never is.
+  # (The ship may be glowing warm by then, having been hit on the way, so its hull is either.)
   def test_holding_right_drives_the_ship_from_its_own_file
+    hull = [CYAN, *WARM]
     still = Reference.new.run(Shmup.program, frames: MOVE).screen
     right = Reference.new.hold(:right).run(Shmup.program, frames: MOVE).screen
-    refute_equal CYAN, still.pixel(231, 133), "at rest the ship isn't at the right edge"
-    assert_equal CYAN, right.pixel(231, 133), "holding right, the ship moved there"
+    refute_includes hull, still.pixel(231, 133), "at rest the ship isn't at the right edge"
+    assert_includes hull, right.pixel(231, 133), "holding right, the ship moved there"
   end
 
   # The parts collaborate across files: an enemy that drifts into the ship calls the
@@ -111,6 +115,67 @@ class TestShmupExample < Minitest::Test
   def test_parts_collaborate_across_files
     i = Reference.new.run(Shmup.program, frames: MOVE)
     assert_operator i[:lives], :<, 3, "an enemy reached the ship — enemies.rb called hud.hit"
+  end
+
+  # --- a ship just lost cannot be hit, and glows warm while it cannot ---
+
+  WARM = %i[yellow orange red].map { |name| Color.resolve(name) }.freeze
+
+  # The colour of the ship's hull, frame by frame, alongside how many ships are left.
+  def ship_hull_by_frame(frames)
+    seen = []
+    i = Reference.new
+    i.each_vblank { |_f| seen << [i[:lives], i.screen.pixel(119, 146)] } # the hull, not the cockpit
+    i.run(Shmup.program, frames: frames)
+    seen
+  end
+
+  def test_the_ship_glows_warm_while_it_cannot_be_hit_and_then_is_cyan_again
+    seen = ship_hull_by_frame(MOVE + Shmup::Player::SAFE + 10)
+    lost = seen.index { |lives, _| lives < 3 }
+    refute_nil lost, "an enemy reached the ship"
+
+    # The frame after the hit is drawn before the ship's next pass has said to glow.
+    glowing = seen[lost + 2, Shmup::Player::SAFE - 2].map(&:last)
+    assert glowing.all? { |color| WARM.include?(color) },
+           "warm the whole time it cannot be hit, got #{glowing.map { |c| Color.name_for(c) }.tally}"
+    assert_operator glowing.uniq.length, :>=, 3, "and it pulses through the warm colours"
+    assert_equal CYAN, seen[lost + Shmup::Player::SAFE + 2].last, "then its own colour again"
+  end
+
+  def test_an_enemy_flies_through_a_ship_that_cannot_be_hit
+    seen = ship_hull_by_frame(MOVE + Shmup::Player::SAFE)
+    lost = seen.index { |lives, _| lives < 3 }
+
+    assert_equal [2], seen[lost, Shmup::Player::SAFE].map(&:first).uniq, "no second ship lost meanwhile"
+  end
+
+  # The boss glows warm for a moment after a shot lands, rather than blinking: every frame
+  # it is hurt, none of its magenta hull is on screen and a hull's worth of warm is. (An
+  # enemy is orange or red too, but three of them are a fraction of the cruiser.)
+  def test_the_boss_glows_warm_when_a_shot_lands
+    hurt = []
+    i = Reference.new.input_each_frame { |f| (f % 20).zero? ? [:a] : [] }
+    i.each_vblank do |_f|
+      # Past the frame the shot landed on, which is drawn before the boss's pass has glowed.
+      next unless i[:boss_flash].between?(1, Shmup::Boss::HURT - 2) && i[:boss_hits].positive?
+
+      warm = (0...160).sum { |y| (0...240).count { |x| WARM.include?(i.screen.pixel(x, y)) } }
+      hurt << [magenta_span(i.screen), warm]
+    end
+    i.run(Shmup.program, frames: BOSS_KILLED_BY)
+
+    refute_empty hurt, "a shot landed on the boss"
+    assert hurt.all? { |span, _| span.nil? }, "no magenta hull while it is hurt"
+    assert hurt.all? { |_, warm| warm > 1000 }, "the hull glows warm instead, got #{hurt.map(&:last)}"
+  end
+
+  # And the console draws the same warm ship, frame for frame — which is the half the
+  # interpreter cannot answer, since the colours come from which group of colours the
+  # sprite's table entry names.
+  def test_the_console_glows_the_ship_the_same
+    lost = ship_hull_by_frame(MOVE).index { |lives, _| lives < 3 }
+    assert_backends_agree(Shmup.program, frames: lost + 6)
   end
 
   # Losing the last ship switches to the game-over scene: the gameplay sprites and HUD

@@ -36,10 +36,14 @@ class TestDslReference < Minitest::Test
   # The three pool-walk ones are the seam between a Pool and the build, behind `pool.func`:
   # declaring one of its routines, and remembering where a walk is so a routine can be told
   # which instance it ran for. The cheat-sheet documents `pool.func`; nobody writes these.
+  # The three recolouring ones are the hooks behind `draw_with` on a sprite and on a pool
+  # instance: checking the lists named against the sprite's own, and giving a sprite or a
+  # pool somewhere to keep its choice. The cheat-sheet documents `colors` and `draw_with`.
   SKIP = %i[variables var_address debug_halted? make_object_rotatable make_object_scalable
             record_row_bend make_background_affine screen_pages keep_showing_pictures
             tile_collision_routine play_from_list
-            declare_instance_routine note_pool_walk pool_walk_scratch_var].freeze
+            declare_instance_routine note_pool_walk pool_walk_scratch_var
+            colors_to_draw_with make_object_recolorable make_pool_recolorable].freeze
 
   # …plus the verbs the loaded effect packs contribute. A pack's verb is an ordinary
   # DSL verb at the call site, so it has to be looked up in the same place.

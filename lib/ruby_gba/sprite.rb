@@ -286,6 +286,16 @@ module RubyGBA
       self
     end
 
+    # A sprite on a tiled screen can be drawn with another list of colours
+    # (HardwareSprite#draw_with). This one's pixels are painted into the picture as whole
+    # colours, so there is no list left to swap.
+    def draw_with(*)
+      raise ArgumentError,
+            "A sprite on `screen :bitmap` cannot draw_with other colors. That screen keeps a whole color " \
+            "in every pixel, so the sprite has no list of colors to swap. To fix this, use `screen :tiled`, " \
+            "or draw a second picture in the other colors."
+    end
+
     # The per-frame repaint runs in two passes across every sprite (see
     # Builder#wait_vblank): first each sprite is erased from where it was, then each
     # is drawn where it is now. Splitting it this way is what lets sprites overlap

@@ -41,6 +41,7 @@ require_relative "ruby_gba/pool"
 require_relative "ruby_gba/direction"
 require_relative "ruby_gba/grid"
 require_relative "ruby_gba/sprite"
+require_relative "ruby_gba/recolors" # the other colours a sprite or a pool can be drawn with
 require_relative "ruby_gba/hardware_sprite"
 require_relative "ruby_gba/timer"
 require_relative "ruby_gba/sample"

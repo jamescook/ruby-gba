@@ -60,7 +60,8 @@ module ConformanceFixture
       B.bitmap(:tile_b, width: 2, height: 2,
                         pixels: [0x03E0, 0x03E0, 0x03E0, 0x03E0].pack("v*"), transparent: nil),
       B.bitmap(:obj8, width: 8, height: 8, # an 8x8 picture for a composited object (a valid sprite size)
-                       pixels: Array.new(64, 0x03E0).pack("v*"), transparent: nil),
+                       pixels: Array.new(64, 0x03E0).pack("v*"), transparent: nil,
+                       colors: [0x0000, 0x03E0]), # ...with its own list, so it can be drawn with another
       B.sample(:clip, [0, 60, 120, 60, 0, -60, -120, -60].pack("c*"), 8000), # a tiny PCM clip
       B.backing_buffer(:under, width: 4, height: 4), # a save-under patch for a moving object
       B.table(:lut, [10, 20, 30, 40], width: :byte, signed: false), # a ROM lookup table (read by table_get below)
@@ -231,6 +232,9 @@ module ConformanceFixture
                           # halves of the transform, together, since a backend that does
                           # either does both through the same matrix.
                           angle: B.int(45), scale: B.int(B::SCALE_ONE * 3 / 2),
+                          # ...drawn with another list of colours, picked by a number the
+                          # program works out, rather than its own.
+                          recolor: B.binop(:-, B.var_ref(:x), B.var_ref(:x)), recolors: [[0x0000, 0x7C00]],
                           layer: :actors), # ...in front of the scenery
 
       B.present_objects([:hero_obj]),   # draw the declared objects for this frame

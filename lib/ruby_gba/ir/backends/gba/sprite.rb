@@ -55,13 +55,19 @@ module RubyGBA
         # GBA#set_to_keep_to_one_frame): the blob in the cartridge holding every pose laid out
         # at the same stride, +frame_bytes+ long each, one of which is copied into the room
         # at +tile_index+ whenever the pose changes. nil for every sprite that fits.
+        #
+        # +recolor_banks+ is set on a sprite that can be drawn with other colours: the table of
+        # the bank of sixteen each of its other lists landed in, counted the way the +recolor+
+        # operand counts them, and last its own (GBA#recolor_banks). Its +attr2_base+ then
+        # leaves the bank out, since the bank is the part of that word a frame decides. nil for
+        # every other sprite.
         Sprite = Data.define(
           :slot, :pieces, :scene,
           :tiles, :tile_units, :tile_index, :frames, :frame_bytes,
           :pose, :pose_count, :alike, :per_pose, :pose_table, :pose_words, :mirrors,
           :offset_x, :offset_y, :width, :height,
           :x, :y, :active, :angle, :scale, :transformed, :scales, :affine_slot,
-          :attr0_base, :attr1_base, :attr2_base,
+          :attr0_base, :attr1_base, :attr2_base, :recolor, :recolor_banks,
         )
       end
     end

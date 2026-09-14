@@ -126,6 +126,7 @@ module RubyGBA
           @tile_colors = {}        # name -> its pixels as colors, decoded once (nil = see-through)
           @backing = {}            # name -> { width:, height:, pixels: } (saved patch under a moving object)
           @objects = {}            # name -> :object node (a composited moving picture)
+          @recolor_maps = {}       # [a picture's own colours, a list it is drawn with] -> colour => colour
           @bg_nodes = []           # :background nodes, in order (the static scene under the objects)
           @bg_by_name = {}         # name -> :background node (for scrolling that background's window)
           @scene_fb = nil          # the settled scene (backdrop + backgrounds), built once, to restore under objects
@@ -1202,9 +1203,11 @@ module RubyGBA
 
         # Draw one snapshotted object from the layer captured this frame.
         def paint_object_layer(obj)
-          return blit_image_transformed(obj[:image], obj[:x], obj[:y], *obj[:transform]) if obj[:transform]
+          if obj[:transform]
+            return blit_image_transformed(obj[:image], obj[:x], obj[:y], *obj[:transform], recolor: obj[:recolor])
+          end
 
-          blit_image(obj[:image], obj[:x], obj[:y])
+          blit_image(obj[:image], obj[:x], obj[:y], recolor: obj[:recolor])
         end
 
         # The color of a background cell's pixel: the tile's pixel there, or the black
@@ -1264,12 +1267,35 @@ module RubyGBA
         # the scrolling-scene recomposite.
         def draw_object(obj, image, x, y)
           paint_through_for(obj.name)
+          recolor = object_recolor(obj, image)
           if object_transformed?(obj)
-            blit_image_transformed(image, x, y, *object_transform(obj))
+            blit_image_transformed(image, x, y, *object_transform(obj), recolor: recolor)
           else
-            blit_image(image, x, y)
+            blit_image(image, x, y, recolor: recolor)
           end
           @screen.paint_through(0)
+        end
+
+        # THE COLOURS AN OBJECT IS DRAWN IN THIS FRAME, when it is told to draw with another
+        # list: each colour of the picture's own list, mapped to the colour at the same place
+        # of that list. nil draws the picture as it is stored.
+        #
+        # A picture keeps colours rather than places, so a colour its list holds twice is
+        # read at the first of them — the place the console's table was built to draw it
+        # from as well.
+        def object_recolor(obj, image)
+          lists = obj.recolors
+          return nil if lists.empty?
+
+          which = eval_value(obj.recolor)
+          return nil unless which >= 0 && which < lists.length
+
+          own = @bitmaps.fetch(image).colors
+          @recolor_maps[[own, lists[which]]] ||= begin
+            map = {}
+            (1...own.length).each { |place| map[own[place]] = lists[which][place] unless map.key?(own[place]) }
+            map
+          end
         end
 
         # Does this object turn or resize? It does unless BOTH its angle and its size are
@@ -1302,7 +1328,7 @@ module RubyGBA
             next if image.nil?
 
             snap = { name: name, image: image, x: eval_value(obj.x), y: eval_value(obj.y),
-                     level: @picture.depths[name] }
+                     level: @picture.depths[name], recolor: object_recolor(obj, image) }
             snap[:transform] = object_transform(obj) if object_transformed?(obj)
             snap
           end
@@ -1422,7 +1448,7 @@ module RubyGBA
           end
         end
 
-        def blit_image_transformed(name, x, y, degrees, scale)
+        def blit_image_transformed(name, x, y, degrees, scale, recolor: nil)
           bmp = @bitmaps.fetch(name) { raise ProgramError, "blit of undefined image #{name.inspect}" }
           pixels = @data.fetch(name)
           transparent = bmp.transparent
@@ -1446,7 +1472,7 @@ module RubyGBA
               color = pixels.getbyte(i) | (pixels.getbyte(i + 1) << 8)
               next if transparent && color == transparent
 
-              @screen.set_pixel(left + ix, top + iy, color)
+              @screen.set_pixel(left + ix, top + iy, recolor ? recolor.fetch(color, color) : color)
             end
           end
         end
@@ -1494,7 +1520,8 @@ module RubyGBA
         # pixel is a little-endian 15-bit halfword in the stored bytes; set_pixel
         # clips any that fall off-screen, matching how the hardware framebuffer
         # behaves, and a transparent pixel is skipped so the background shows through.
-        def blit_image(name, x, y)
+        # +recolor+ maps a colour to the one it is drawn in instead (see #object_recolor).
+        def blit_image(name, x, y, recolor: nil)
           bmp = @bitmaps.fetch(name) { raise ProgramError, "blit of undefined image #{name.inspect}" }
           pixels = @data.fetch(name)
           transparent = bmp.transparent
@@ -1504,7 +1531,7 @@ module RubyGBA
               i = ((row * bmp.width) + col) * 2
               color = pixels.getbyte(i) | (pixels.getbyte(i + 1) << 8)
               next if transparent && color == transparent
-              @screen.set_pixel(x + col, y + row, color)
+              @screen.set_pixel(x + col, y + row, recolor ? recolor.fetch(color, color) : color)
             end
           end
         end

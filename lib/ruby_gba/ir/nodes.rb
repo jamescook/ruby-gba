@@ -508,10 +508,16 @@ module RubyGBA
         # one. It is on screen only while that state is active, which the +active+
         # operand already carries — what the NAME adds is that a target with somewhere
         # finite to keep pictures knows which of them are needed at the same time.
+        #
+        # +recolors+ is every other list of colours it can be drawn with, and +recolor+ says
+        # which of them it is drawn with now, counting from 0; any other number draws it in
+        # its own. A pixel keeps its place in the picture's own list, so drawn with another
+        # list it shows whatever colour that list holds at the same place.
         operands name: :name,
                  poses: :list, pose: :value, x: :value,
                  y: :value, active: :value, angle: :value,
-                 scale: :value, layer: :name, scene: :name
+                 scale: :value, layer: :name, scene: :name,
+                 recolor: :value, recolors: :list
       end
 
       class OnTimer

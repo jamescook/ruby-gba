@@ -17,7 +17,7 @@ module RubyGBA
       # Field names that would shadow a Pool/Instance method, so a component can't
       # declare one (it would clash with spawn/remove/each/count/…).
       POOL_RESERVED_FIELDS = %i[active free count slot spawn remove each full index name capacity
-                                func current].freeze
+                                func current draw_with].freeze
 
       # What spawn does when the pool is full: :drop ignores it (a safe no-op),
       # :recycle_oldest reuses the longest-lived instance so a new one always appears.
@@ -127,7 +127,27 @@ module RubyGBA
         :"__pool_walk_#{@pool_walk_seq}"
       end
 
+      # Give +pool+ a hidden slot per instance saying which other list of colours it is drawn
+      # with, the first time one is told to draw with one (see Pool#draw_with). Every slot
+      # starts in its own colours, and each slot's sprite reads its own.
+      def make_pool_recolorable(pool)
+        at_boot(Build.list_new(pool.colors_list, pool.capacity, width: :byte))
+        index = :"__pool_#{pool.name}_colors_fill"
+        ensure_var(index)
+        at_boot(Build.repeat(Build.int(pool.capacity), index,
+                             Build.list_push(pool.colors_list, Build.int(Build::OWN_COLORS))))
+        pool.slot_objects.each_with_index do |node, slot|
+          node.recolor = Build.list_get(pool.colors_list, Build.int(slot))
+        end
+      end
+
       private
+
+      # A spriteful pool never told to draw with other colours takes back the writes its
+      # spawns made in case it was (see Pool#settle_colors).
+      def finalize_pool_colors
+        (@spriteful_pools || []).each(&:settle_colors)
+      end
 
       # Which pool each instance routine belongs to.
       def instance_routines = @instance_routines ||= {}
@@ -349,13 +369,16 @@ module RubyGBA
       # way its position is: the direction it faces and where it is in its cycle are
       # per-instance, so ten guards face ten ways and do not march in step.
       def setup_pool_art(pool, capacity, art)
+        (@spriteful_pools ||= []) << pool
         capacity.times do |slot|
           name = pool.object_name(slot)
-          record(Build.object(name, poses: art.poses, pose: pool.pose_node(slot),
+          node = Build.object(name, poses: art.poses, pose: pool.pose_node(slot),
                                     x: Build.list_get(pool.field_list(:x), Build.int(slot)),
                                     y: Build.list_get(pool.field_list(:y), Build.int(slot)),
                                     active: scene_gate(Build.list_get(pool.active_list, Build.int(slot))),
-                                    scene: declaring_scene))
+                                    scene: declaring_scene)
+          record(node)
+          pool.slot_objects << node
           @pool_objects << name
         end
         register_pool_animation(pool, capacity, art) if art.animates?

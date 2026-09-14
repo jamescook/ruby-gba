@@ -9,7 +9,7 @@
 # build.held, build.var — the same verbs you'd write inline. There's no base class and no
 # magic: pass the build in, call verbs on it.
 #
-#   examples/shmup/player.rb   — the ship and its shot (move, fire)
+#   examples/shmup/player.rb   — the ship and its shot (move, fire, a moment it cannot be hit)
 #   examples/shmup/enemies.rb  — a fixed few enemies that dive and respawn
 #   examples/shmup/boss.rb     — a 96x48 cruiser: one sprite, bigger than the console draws
 #   examples/shmup/hud.rb      — the score / ships display
@@ -34,6 +34,13 @@ module Shmup
   PLAYING = 0
   GAME_OVER = 1
 
+  # A warm pulse, four steps long, for anything that has just been hit: the ship while it
+  # cannot be hit again, the boss for a moment after each shot lands. Each is a list of
+  # colours laid out like a picture's own `colors:` list, and a sprite drawn with one keeps
+  # its shape and shading while its colours step through these. The fourth is the second
+  # again, so the pulse rises and falls; the two share their colours on the console too.
+  WARM = %i[warm_yellow warm_orange warm_red warm_orange_again].freeze
+
   GAME = RubyGBA.game("SHMUP", code: "BSMP", maker: "01") do
     screen :tiled
     # The stack, back to front — one line saying what is in front of what, for a picture
@@ -41,6 +48,11 @@ module Shmup
     # :ui, so it reaches the field and everything moving in it and leaves the score alone.
     layers :enemies, :ship, :ui
     seed 0xC0DE # a fixed stream once at boot, so enemy respawns are reproducible
+    # Place for place: see-through, the hull, then the bright part (the cockpit, the core).
+    colors :warm_yellow,       [:transparent, :yellow, :white]
+    colors :warm_orange,       [:transparent, :orange, :yellow]
+    colors :warm_red,          [:transparent, :red, :orange]
+    colors :warm_orange_again, [:transparent, :orange, :yellow]
     var :state, PLAYING
     new_game = var :new_game, 0 # 1 asks the playing scene to start over
     leaving  = var :leaving, 0  # 1 while the field dims on the way to the game-over screen

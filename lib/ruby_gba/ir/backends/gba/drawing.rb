@@ -1540,6 +1540,7 @@ module RubyGBA
             emit_branch(:b, done)
 
             place_label(draw)
+            emit_hold_object_colors(obj) if obj.recolor_banks
             emit_send_object_frame(obj) if obj.frames
             # Worked out once for the whole sprite when it is drawn as several objects:
             # every piece stands at the same place and reads it back from there.
@@ -1558,6 +1559,38 @@ module RubyGBA
           end
 
           def oam_slot(first, piece) = OAM_START + ((first + piece) * 8)
+
+          # Where the bank a sprite is drawn from this frame is held while its pieces are
+          # written. One variable serves every sprite, since each is done before the next.
+          OBJ_COLORS_BANK = :__obj_colors_bank
+
+          # WHICH COLOURS A SPRITE DRAWS WITH THIS FRAME, for one that can be drawn with other
+          # lists. A pixel of a small-storage sprite is a place in a bank of sixteen, and the
+          # bank is named in the third word of the sprite's table entry — so naming another
+          # bank there is all it takes, and the picture itself is never touched. Worked out
+          # once, before the pieces, and ORed into each of their third words; since that word
+          # is written with the position and the pose, the colours change on the same frame.
+          #
+          # A number past the last list, or below 0 (which compared unsigned is past it too),
+          # is the sprite's own, kept as the table's last entry.
+          def emit_hold_object_colors(obj)
+            banks = obj.recolor_banks
+            @lowering.value(obj.recolor)
+            emit(ASM.cmp_imm(ACC, banks.own))
+            emit(ASM.mov_imm_cond(:hs, ACC, banks.own))
+            emit_load_data_address(TMP, banks.table)
+            emit(ASM.ldr_reg_lsl(ACC, TMP, ACC, 2))
+            store_var(ACC, OBJ_COLORS_BANK)
+          end
+
+          # OR this frame's bank into the third word being worked out in r0, for a sprite
+          # drawn with other lists (whose +attr2_base+ leaves the bank out).
+          def orr_object_colors(obj)
+            return unless obj.recolor_banks
+
+            load_var(TMP, OBJ_COLORS_BANK)
+            emit(ASM.orr_reg(ACC, ACC, TMP))
+          end
 
           # Which pose's pictures are sitting in a sprite's room right now, for a sprite that
           # keeps one frame at a time (see GBA#set_to_keep_to_one_frame). Its table place names
@@ -1678,6 +1711,7 @@ module RubyGBA
             emit(ASM.lsl_imm(ACC, POSE_WORD, 22))
             emit(ASM.lsr_imm(ACC, ACC, 22))
             orr_acc(obj.attr2_base) unless obj.attr2_base.zero?
+            orr_object_colors(obj)
             store_halfword_acc(base + 4)
             store_halfword_acc(mirror + 4) if mirror
           end
@@ -1849,14 +1883,19 @@ module RubyGBA
           # variable pose (facing / animation) is computed at run time.
           def emit_object_tile_number(obj, attr2_addr)
             fixed = const_int(obj.pose)
-            if fixed
+            if fixed && obj.recolor_banks.nil?
               write_reg16(attr2_addr, obj.tile_index + (fixed * obj.per_pose) | obj.attr2_base)
+            elsif fixed
+              emit(ASM.load_immediate(ACC, obj.tile_index + (fixed * obj.per_pose) | obj.attr2_base))
+              orr_object_colors(obj)
+              store_halfword_acc(attr2_addr)
             else
               @lowering.value(obj.pose)                          # r0 = pose index
               emit(ASM.load_immediate(TMP, obj.per_pose))   # r1 = stride between poses
               emit(ASM.mul(2, ACC, TMP))                      # r2 = pose * stride (rd must differ from rm)
               emit_add_const(ACC, 2, obj.tile_index, TMP)   # r0 = r2 + base tile
               orr_acc(obj.attr2_base) unless obj.attr2_base.zero?
+              orr_object_colors(obj)
               store_halfword_acc(attr2_addr)
             end
           end

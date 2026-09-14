@@ -158,6 +158,41 @@ module RubyGBA
       self
     end
 
+    # Which other list of colours each instance is drawn with (see Instance#draw_with), kept
+    # only by a pool that was ever told to draw with one.
+    def colors_list = :"__pool_#{@name}_colors"
+
+    # The sprite each slot is drawn as, one per slot, for a pool whose instances draw.
+    def slot_objects = @slot_objects ||= []
+
+    # Draw the instance at slot +index+ with other colours — the same verb a sprite has, and
+    # the same rules (see HardwareSprite#draw_with). Each instance keeps its own choice.
+    def draw_with(index, which, showing)
+      @recolors ||= begin
+        unless spriteful?
+          raise ArgumentError,
+                "pool :#{@name} was told to draw_with other colors, but its instances draw nothing. " \
+                "Give the pool pictures with image:, facing: or frames:."
+        end
+        @builder.make_pool_recolorable(self)
+        recolors = Recolors.new(@builder, subject: "pool :#{@name}", poses: @art.poses)
+        slot_objects.each { |node| recolors.reads(node) }
+        recolors
+      end
+      choice = FieldRef.new(builder: @builder, list: colors_list, index: index.node, pool: @name, field: :colors)
+      @recolors.draw_with(choice, which, showing)
+      self
+    end
+
+    # A pool never told to draw with other colours takes back the writes every spawn made
+    # just in case, so it is left exactly as it was before instances could be recoloured.
+    # Called once the whole program is built, when that is known.
+    def settle_colors
+      return if @recolors
+
+      color_resets.each { |node| node.parent&.children&.delete(node) }
+    end
+
     # The field names, in declaration order.
     def field_names = @fields.keys
 
@@ -307,12 +342,23 @@ module RubyGBA
     # whatever the slot it took was doing before. Instances spawned at different moments
     # therefore sit at different points in the same cycle, which is what stops a pool of
     # them pulsing as one.
+    #
+    # It starts in its own colours too. Whether the pool is ever recoloured is not known yet —
+    # the spawn is usually written before the walk that recolours — so a pool whose instances
+    # draw always writes it here, and #settle_colors takes it out again if nothing needed it.
     def reset_pose(slot)
       nodes = []
       nodes << Build.list_set(facing_list, slot, Build.int(0)) if @art&.faces?
       nodes << Build.list_set(frame_list, slot, Build.int(0)) if @art&.animates?
+      if spriteful?
+        reset = Build.list_set(colors_list, slot, Build.int(Build::OWN_COLORS))
+        color_resets << reset
+        nodes << reset
+      end
       nodes
     end
+
+    def color_resets = @color_resets ||= []
 
     # Statements that leave the oldest live instance's slot index in slot_var. Only reached
     # when the pool is full — every slot is live then — so it's a plain scan for the slot
@@ -395,6 +441,13 @@ module RubyGBA
       def initialize(pool, index)
         @pool = pool
         @index = index # a Value: the loop's current slot
+      end
+
+      # Draw this instance with another list of colours, or one of several picked by a
+      # number, or its own again — what a sprite's `draw_with` does, for one instance.
+      def draw_with(which, showing: nil)
+        @pool.draw_with(@index, which, showing)
+        self
       end
 
       # Retire this instance: free its slot, stop it next frame.

@@ -96,9 +96,11 @@ module Shmup
           end
         end
 
-        # Touched the ship: cost a life, send this one back.
-        player.ship.overlaps?(enemy).then do
+        # Touched the ship: cost a life, send this one back. A ship just lost cannot be hit
+        # for a moment, so an enemy flies straight through it then.
+        (player.hittable & player.ship.overlaps?(enemy)).then do
           hud.hit
+          player.hurt
           respawn enemy
         end
       end

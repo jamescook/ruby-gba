@@ -346,6 +346,27 @@ module RubyGBA
       self
     end
 
+    # Draw the sprite with a different list of colours, from now until it is told otherwise.
+    # The lists are declared with `colors`, see-through first, and matched to the sprite's
+    # own `colors:` list by place — so the shape and shading stay as drawn and only the
+    # colours change.
+    #
+    #   ship.draw_with :hurt                                   # one list
+    #   ship.draw_with [:warm1, :warm2, :warm3], showing: step # one of several, by a number
+    #   ship.draw_with :own                                    # back to its own colours
+    #
+    # A number outside the set draws it in its own colours. The change shows on the frame
+    # the sprite's position and pose next do, never before or after them.
+    def draw_with(which, showing: nil)
+      @recolors ||= begin
+        @colors_var = :"#{@object_name}_colors"
+        @builder.make_object_recolorable(@object_node, @colors_var)
+        Recolors.new(@builder, subject: "The sprite showing :#{@poses.first}", poses: @poses).reads(@object_node)
+      end
+      @recolors.draw_with(Value.new(@builder, Build.var_ref(@colors_var), name: @colors_var), which, showing)
+      self
+    end
+
     private
 
     # Move +delta+ pixels along one axis. With no walls it's a plain nudge; blocked, it

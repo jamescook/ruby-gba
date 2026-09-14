@@ -103,6 +103,7 @@ module RubyGBA
       @image_bounds = {}       # image name → [x, y, w, h] box around its visible (non-transparent) pixels, for collision
       @pictures = {}           # image name → its {IR::Assets::Image}, so `mirror` can turn one round
       @mirrored_images = {}    # image name → the name of its mirror, so mirroring one twice makes one picture
+      @color_lists = {}        # `colors` name → its colours, see-through first, for a sprite told to draw with it
       @tilesets = {}           # tileset name → { chars:, by_number:, tile_w:, tile_h:, solid_images: } — a tile-image map addressable by character or by number (a CSV cell)
       @screen_mode = nil       # the current display mode (set by `screen`), so `sprite` picks its backend
       @sprites = []            # live software sprites, repainted after every wait_vblank
@@ -427,6 +428,7 @@ module RubyGBA
       finalize_per_frame_routines
       finalize_name_dispatches
       finalize_pool_walks
+      finalize_pool_colors
       verify_targets_defined!
       verify_instance_routines!
       verify_stack_fits!
