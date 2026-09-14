@@ -35,7 +35,7 @@ class TestHardwareSpriteFacing < Minitest::Test
         held(:left).then  { pac.move :left,  by: 4 } # move AND face left  -> blue pose
         held(:right).then { pac.move :right, by: 4 } # move AND face right -> red pose
         pac.x.clamp! 8, 224
-        f.add 1
+        f.add! 1
         (f >= frames).then { halt }
       end
     end

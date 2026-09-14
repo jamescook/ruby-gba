@@ -83,7 +83,7 @@ class TestApproach < Minitest::Test
       f = var :f, 0
       game_loop do
         x.approach! 100, 7       # 100 / 7 → 15 steps to arrive
-        f.add 1
+        f.add! 1
         (f >= 30).then { halt }  # well past arrival
       end
     end
@@ -161,7 +161,7 @@ class TestApproach < Minitest::Test
       speed = var :speed, 5
       x = var :x, 0
       x.approach! 100, speed # +5
-      speed.set 20
+      speed.set! 20
       x.approach! 100, speed # +20
     end
 
@@ -228,8 +228,8 @@ class TestApproach < Minitest::Test
       limit = var :limit, 40
       x = var :x, 100
       x.clamp! 0, limit
-      limit.set 90
-      x.set 100
+      limit.set! 90
+      x.set! 100
       x.clamp! 0, limit
     end
 
@@ -251,7 +251,7 @@ class TestApproach < Minitest::Test
         clear_screen :black
         x.approach! 100, 7
         draw_rect_at :x, 50, 2, 2, :green
-        f.add 1
+        f.add! 1
         (f >= frames).then { halt }
       end
     end
@@ -297,7 +297,7 @@ class TestApproach < Minitest::Test
         x.approach! 200, speed # a step the game holds in a variable
         x.clamp! 0, limit      # and a ceiling it holds in another
         draw_rect_at :x, 50, 2, 2, :green
-        f.add 1
+        f.add! 1
         (f >= frames).then { halt }
       end
     end

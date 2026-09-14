@@ -25,7 +25,7 @@ class TestPerSceneMode < Minitest::Test
       var :state, 0
       scene :title do
         clear_screen :red
-        pressed(:start).then { set :state, 1 }
+        pressed(:start).then { set! :state, 1 }
       end
       scene :play do
         screen :bitmap, tear_free: true # this scene is double-buffered
@@ -184,7 +184,7 @@ class TestPerSceneMode < Minitest::Test
         board = background :board, tiles: :ground, map: (["#" * 32] * 32)
         board.scale(1.0)
         draw_text "HI", 100, 20, :white
-        pressed(:start).then { set :state, 1 }
+        pressed(:start).then { set! :state, 1 }
       end
       scene(:playing) { clear_screen :black }
 

@@ -75,7 +75,7 @@ class TestSongInstruments < Minitest::Test
       pass = var :pass, 0
       play_song :tune
       game_loop do
-        pass.add 1
+        pass.add! 1
         (pass == at).then { clips.each_with_index { |clip, n| clip.play(loop: loop_first && n.zero?) } }
       end
     end
@@ -143,7 +143,7 @@ class TestSongInstruments < Minitest::Test
       song(:beeps) { note :C5, :whole }
       pass = var :pass, 0
       game_loop do
-        pass.add 1
+        pass.add! 1
         (pass < 10).then { play_song :tune }.else { play_song :beeps }
       end
     end

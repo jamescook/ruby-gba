@@ -80,7 +80,7 @@ module RubyGBA
           # to that map's grid is the same for all nine. That is what keeps a background
           # with two hundred rooms the same nine reads as a background with one.
           base = map_base_for(cells)
-          clear.set 1
+          clear.set! 1
           down.each do |dy|
             py = top + dy
             across.each do |dx|
@@ -92,7 +92,7 @@ module RubyGBA
               inside = (px >= 0) & (px < width) & (py >= 0) & (py < height)
               cell = ((py / cells.tile_h) * cells.cols) + (px / cells.tile_w)
               solid = cells.table[base ? base + cell : cell]
-              (inside & (solid == 1)).then { clear.set 0 }
+              (inside & (solid == 1)).then { clear.set! 0 }
             end
           end
         end

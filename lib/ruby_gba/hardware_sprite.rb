@@ -11,7 +11,7 @@ module RubyGBA
   #   hero = sprite :hero, at: [100, 60]
   #   game_loop do
   #     wait_vblank
-  #     held(:right).then { hero.x.add 2 }          # steer with the expression DSL
+  #     held(:right).then { hero.x.add! 2 }          # steer with the expression DSL
   #     # no draw call — the framework draws the sprite for you each frame
   #   end
   #
@@ -103,7 +103,7 @@ module RubyGBA
     def layer = @object_node.layer
 
     # The sprite's position, as {Value} handles — steer them with the expression DSL
-    # (`hero.x.add 2`, `hero.y.clamp! 0, 150`). The framework reads them each frame to
+    # (`hero.x.add! 2`, `hero.y.clamp! 0, 150`). The framework reads them each frame to
     # know where to draw.
     def x
       Value.new(@builder, Build.var_ref(@x_var), name: @x_var)
@@ -191,10 +191,10 @@ module RubyGBA
       clear_of_walls(x + (step_x * by), y + (step_y * by))
     end
 
-    # Jump the sprite to an exact spot — sugar for x.set / y.set.
+    # Jump the sprite to an exact spot — sugar for x.set! / y.set!.
     def move_to(px, py)
-      x.set(px)
-      y.set(py)
+      x.set!(px)
+      y.set!(py)
       self
     end
 
@@ -261,7 +261,7 @@ module RubyGBA
       if fixed
         record(Build.set(@angle_var, Build.int(fixed % 360)))
       else
-        angle.set(degrees)
+        angle.set!(degrees)
         wrap_angle
       end
       self
@@ -273,7 +273,7 @@ module RubyGBA
     # turning either way. Makes this a rotating sprite (see #face_angle).
     def turn(degrees)
       ensure_rotatable
-      angle.add(degrees)
+      angle.add!(degrees)
       wrap_angle
       self
     end
@@ -312,7 +312,7 @@ module RubyGBA
               "a sprite's size must be more than 0. You gave #{size.inspect}. " \
               "1.0 is the size it was drawn at, 0.5 is half. To make it vanish, use `hide`."
       end
-      scale_value.set(size)
+      scale_value.set!(size)
       self
     end
 
@@ -375,11 +375,11 @@ module RubyGBA
     # against).
     def step(axis, delta)
       var = axis == :x ? x : y
-      return var.add(delta) if @solid_cells.nil? && (@walls.nil? || @walls.empty?)
+      return var.add!(delta) if @solid_cells.nil? && (@walls.nil? || @walls.empty?)
 
       target_x = axis == :x ? x + delta : x
       target_y = axis == :y ? y + delta : y
-      clear_of_walls(target_x, target_y).then { var.add(delta) }
+      clear_of_walls(target_x, target_y).then { var.add!(delta) }
     end
 
     # A {Condition} true when the sprite's box, placed at (target_x, target_y), doesn't
@@ -410,8 +410,8 @@ module RubyGBA
     # frame, not just the moving. Called, it is emitted once however many movers there are.
     def clear_of_tiles(target_x, target_y)
       routine = @builder.tile_collision_routine(@solid_cells, @hit_x, @hit_y, @hit_w, @hit_h)
-      @builder.set(routine[:x], Value.node_for(target_x))
-      @builder.set(routine[:y], Value.node_for(target_y))
+      @builder.set!(routine[:x], Value.node_for(target_x))
+      @builder.set!(routine[:y], Value.node_for(target_y))
       @builder.call(routine[:name])
       Value.new(@builder, Build.var_ref(routine[:clear]), name: routine[:clear]) == 1
     end
@@ -449,8 +449,8 @@ module RubyGBA
     # range. Cheap, and it runs at most once per turn.
     def wrap_angle
       a = angle
-      a.set(a - (a / 360 * 360))
-      (angle < 0).then { angle.add(360) }
+      a.set!(a - (a / 360 * 360))
+      (angle < 0).then { angle.add!(360) }
     end
 
     def record(node)

@@ -46,12 +46,12 @@ class TestMixerKeepsTime < Minitest::Test
       spin = var :spin, 0
       passes = var :passes, 0
       game_loop do
-        passes.add 1
+        passes.add! 1
         (started == 0).then do
-          started.set 1
+          started.set! 1
           clip.play
         end
-        repeat(burn) { spin.add 1 }
+        repeat(burn) { spin.add! 1 }
       end
     end
     b.emit_pending_functions
@@ -130,7 +130,7 @@ class TestMixerKeepsTime < Minitest::Test
         screen :bitmap
         passes = var :passes, 0
         sample(:v, pcm: [100, -100] * 400, rate: rate).play(loop: true)
-        game_loop { passes.add 1 }
+        game_loop { passes.add! 1 }
       end
       b.emit_pending_functions
       rom = ROM.assemble(backend.lower(b.program), title: "MIXBOOT", code: "ZMXB", maker: "01")

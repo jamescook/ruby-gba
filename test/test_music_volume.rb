@@ -33,7 +33,7 @@ class TestMusicVolume < Minitest::Test
       end
       pass = var :pass, 0
       game_loop do
-        pass.add 1
+        pass.add! 1
         named_once ? (pass == 1).then { play_song :hold } : play_song(:hold)
         instance_exec(pass, &body)
       end
@@ -195,7 +195,7 @@ class TestMusicVolume < Minitest::Test
       song(:tune) { note :C4, :whole }
       pass = var :pass, 0
       game_loop do
-        pass.add 1
+        pass.add! 1
         play_song :tune
         (pass == 10).then { fade_music_out }
         (pass == 90).then { fade_music_in }
@@ -229,7 +229,7 @@ class TestMusicVolume < Minitest::Test
       song(:tune) { note :C4, :whole }
       pass = var :pass, 0
       game_loop do
-        pass.add 1
+        pass.add! 1
         play_song :tune
         (pass == 10).then { fade_music_out }
         (pass == 90).then { music_volume 100 }
@@ -248,7 +248,7 @@ class TestMusicVolume < Minitest::Test
       pass = var :pass, 0
       slider = var :slider, 80
       game_loop do
-        pass.add 1
+        pass.add! 1
         play_song :tune
         (pass == 10).then { fade_music_out }
         (pass == 90).then { music_volume slider }
@@ -280,10 +280,10 @@ class TestMusicVolume < Minitest::Test
       loud_at_start = var :loud_at_start, 0
       silent_at = var :silent_at, 0
       game_loop do
-        pass.add 1
-        (pass == 1).then { loud_at_start.set music_volume }
+        pass.add! 1
+        (pass == 1).then { loud_at_start.set! music_volume }
         (pass == 2).then { fade_music_out frames: 4 }
-        ((music_volume == 0) & (silent_at == 0)).then { silent_at.set pass }
+        ((music_volume == 0) & (silent_at == 0)).then { silent_at.set! pass }
       end
     end
     b.emit_pending_functions
@@ -369,7 +369,7 @@ class TestMusicVolume < Minitest::Test
       end
       pass = var :pass, 0
       game_loop do
-        pass.add 1
+        pass.add! 1
         play_song :drums
         instance_exec(pass, &body)
       end

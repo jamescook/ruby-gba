@@ -51,12 +51,12 @@ class TestFractionType < Minitest::Test
   end
 
   # The scale is declared once and carried. A second handle for the same variable — from
-  # a later `set`, in another scene — must agree, or arithmetic there would be wrong.
+  # a later `set!`, in another scene — must agree, or arithmetic there would be wrong.
   def test_a_later_handle_for_the_same_variable_still_holds_a_fraction
     b = RubyGBA::Builder.new
     b.instance_eval { var :speed, 1.5 }
 
-    assert_predicate b.instance_eval { set :speed, 2.0 }, :fraction?
+    assert_predicate b.instance_eval { set! :speed, 2.0 }, :fraction?
   end
 
   # --- arithmetic that carries the fraction ---
@@ -155,7 +155,7 @@ class TestFractionType < Minitest::Test
     err = assert_raises(ArgumentError) do
       build do
         screen :bitmap
-        var(:count, 3).add 1.5
+        var(:count, 3).add! 1.5
       end
     end
 
@@ -171,7 +171,7 @@ class TestFractionType < Minitest::Test
       clear_screen :blue
       speed = var :speed, 1.5
       pos = var :pos, 20.25
-      pos.add(speed * speed)      # 20.25 + 2.25 = 22.5 — the multiply that would overflow
+      pos.add!(speed * speed)     # 20.25 + 2.25 = 22.5 — the multiply that would overflow
       draw_rect_at pos.to_i, 40, 2, 2, Color.resolve(:red)
       draw_rect_at (pos * 4).to_i, 60, 2, 2, Color.resolve(:green) # 90
       draw_rect_at (pos / 3).to_i, 80, 2, 2, Color.resolve(:white) # 7.5 -> 7
@@ -186,7 +186,7 @@ class TestFractionType < Minitest::Test
       screen :bitmap
       clear_screen :blue
       pos = var :pos, 10.5
-      pos.sub 11.0                                    # -0.5
+      pos.sub! 11.0                                   # -0.5
       draw_rect_at pos.to_i + 100, 40, 2, 2, Color.resolve(:red) # rounds down to -1, so 99
       halt
     end

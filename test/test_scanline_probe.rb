@@ -23,7 +23,7 @@ class TestScanlineProbe < Minitest::Test
       screen :bitmap
       wait_vblank
       fills.times { |i| dma_fill_rect 0, i % 100, 240, 1, :red }
-      set :sample, read_scanline
+      set! :sample, read_scanline
       halt
     end
     builder.emit_pending_functions

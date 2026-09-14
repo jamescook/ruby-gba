@@ -43,7 +43,7 @@ class TestPongScoring < Minitest::Test
       fc     = var :frame, 0
 
       game_loop do
-        bx.add bdx
+        bx.add! bdx
 
         # Verbatim from the example: bounce only when the ball's rectangle overlaps
         # a paddle's — the x-band AND the vertical span — via the overlaps? verb.
@@ -54,10 +54,10 @@ class TestPongScoring < Minitest::Test
         ball.overlaps?(cpu_pad).then { bdx.negate_abs! }
 
         # Off an edge: score and stop, so the count is exactly what happened.
-        (bx <= 0).then { cscore.add 1; halt }
-        (bx >= SCREEN_W).then { pscore.add 1; halt }
+        (bx <= 0).then { cscore.add! 1; halt }
+        (bx >= SCREEN_W).then { pscore.add! 1; halt }
 
-        fc.add 1
+        fc.add! 1
         (fc >= frames).then { halt }
       end
     end

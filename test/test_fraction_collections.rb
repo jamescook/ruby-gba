@@ -33,7 +33,7 @@ class TestFractionCollections < Minitest::Test
       game_loop do
         speeds << 1.5
         speeds << 0.25
-        total.set(speeds[0] + speeds[1])
+        total.set!(speeds[0] + speeds[1])
         halt
       end
     end
@@ -49,7 +49,7 @@ class TestFractionCollections < Minitest::Test
       here = var :here, 10.0
       game_loop do
         speeds << 0.5
-        here.add speeds[0]
+        here.add! speeds[0]
         halt
       end
     end
@@ -65,7 +65,7 @@ class TestFractionCollections < Minitest::Test
       game_loop do
         speeds << 1.5
         speeds << 2.5
-        many.set speeds.length
+        many.set! speeds.length
         halt
       end
     end
@@ -117,8 +117,8 @@ class TestFractionCollections < Minitest::Test
       game_loop do
         sparks.spawn(x: 10.0, vy: 0.5)
         sparks.each do |s|
-          s.x.add s.vy
-          seen.set s.x
+          s.x.add! s.vy
+          seen.set! s.x
         end
         halt
       end
@@ -137,10 +137,10 @@ class TestFractionCollections < Minitest::Test
       game_loop do
         sparks.spawn(x: 4.0, life: 3)
         sparks.each do |s|
-          s.life.sub 1
-          s.x.add 0.5
-          left.set s.life
-          where.set s.x
+          s.life.sub! 1
+          s.x.add! 0.5
+          left.set! s.life
+          where.set! s.x
         end
         halt
       end
@@ -173,7 +173,7 @@ class TestFractionCollections < Minitest::Test
         movers.each do |m|
           m.x.approach! 10.0, 0.25
           m.x.clamp! 0.0, 20.0
-          seen.set m.x
+          seen.set! m.x
         end
         halt
       end

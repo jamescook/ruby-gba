@@ -106,7 +106,7 @@ class TestIRGuardrailCallInsideArea < Minitest::Test
     prog = program do
       screen :bitmap
       x = var :x, 0
-      func(:bump) { x.add 1 }
+      func(:bump) { x.add! 1 }
       game_loop { inside(0, 0, 100, 100) { call :bump } }
     end
 

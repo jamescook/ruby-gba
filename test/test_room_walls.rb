@@ -46,7 +46,7 @@ class TestRoomWalls < Minitest::Test
         wait_vblank
         pressed(:a).then { room.show_map 1 }
         hero.move :right, by: 1
-        moved.set hero.x
+        moved.set! hero.x
       end
     end
     builder.emit_pending_functions

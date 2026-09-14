@@ -18,10 +18,10 @@ class TestVerifierMemory < Minitest::Test
     builder = Builder.new
     builder.instance_eval do
       screen :bitmap
-      set :answer, ANSWER
-      set :doubled, 0
-      add :doubled, :answer
-      add :doubled, :answer # doubled = 2 * answer
+      set! :answer, ANSWER
+      set! :doubled, 0
+      add! :doubled, :answer
+      add! :doubled, :answer # doubled = 2 * answer
       halt
     end
     builder.emit_pending_functions

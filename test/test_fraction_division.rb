@@ -110,8 +110,8 @@ class TestFractionDivision < Minitest::Test
       tiny = var :tiny, 0.0
       rounded = var :rounded, 0
       game_loop do
-        tiny.set 0.001
-        rounded.set((227.9 / tiny + 0.5).to_i)
+        tiny.set! 0.001
+        rounded.set!((227.9 / tiny + 0.5).to_i)
         halt
       end
     end
@@ -141,7 +141,7 @@ class TestFractionDivision < Minitest::Test
     state = interpret do
       screen :bitmap
       dist = var :dist, 2.5
-      var(:height, 0).set((160 / dist).to_i)
+      var(:height, 0).set!((160 / dist).to_i)
       halt
     end
 
@@ -152,7 +152,7 @@ class TestFractionDivision < Minitest::Test
     state = interpret do
       screen :bitmap
       dist = var :dist, 2.0
-      var(:tenths, 0).set(((90 / dist) * 10).to_i) # 45.0 -> 450
+      var(:tenths, 0).set!(((90 / dist) * 10).to_i) # 45.0 -> 450
       halt
     end
 
@@ -171,13 +171,13 @@ class TestFractionDivision < Minitest::Test
     without = emitted_bytes do
       screen :bitmap
       dist = var :dist, 2.5
-      var(:height, 0).set((dist * 4).to_i)
+      var(:height, 0).set!((dist * 4).to_i)
       halt
     end
     with = emitted_bytes do
       screen :bitmap
       dist = var :dist, 2.5
-      var(:height, 0).set((160 / dist).to_i)
+      var(:height, 0).set!((160 / dist).to_i)
       halt
     end
 

@@ -35,7 +35,7 @@ class TestHardwareSpriteScale < Minitest::Test
       f = var :f, 0
       game_loop do
         wait_vblank
-        f.add 1
+        f.add! 1
         (f >= frames).then { halt }
       end
     end
@@ -94,7 +94,7 @@ class TestHardwareSpriteScale < Minitest::Test
       game_loop do
         wait_vblank
         block.scale.approach! 2.0, 0.1
-        f.add 1
+        f.add! 1
         (f >= 12).then { halt }
       end
     end

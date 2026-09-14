@@ -128,10 +128,10 @@ module RubyGBA
         # that is running carries on from its own, finer, level.
         def start_music_fade(target, frames, duration)
           state = music_fade_state
-          (state[:active] == 0).then { state[:level].set music_volume.to_f }
-          state[:target].set target
-          state[:step].set FULL / music_fade_frames(frames, duration) if frames || duration
-          state[:active].set 1
+          (state[:active] == 0).then { state[:level].set! music_volume.to_f }
+          state[:target].set! target
+          state[:step].set! FULL / music_fade_frames(frames, duration) if frames || duration
+          state[:active].set! 1
           nil
         end
 
@@ -152,7 +152,7 @@ module RubyGBA
 
             once_a_frame(ROUTINE) do
               (active == 1).then do
-                (level == target).then { active.set 0 }
+                (level == target).then { active.set! 0 }
                                  .else do
                                    level.approach! target, step
                                    music_volume level.to_i

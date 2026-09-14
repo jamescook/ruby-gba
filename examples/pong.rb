@@ -131,23 +131,23 @@ Pong = RubyGBA.game("PONG", code: "BPNG", maker: "01") do
   # --- Subroutines ---
 
   func :reset_ball do
-    ball_x.set 118
-    ball_y.set 78
+    ball_x.set! 118
+    ball_y.set! 78
     ball_dx.flip! # reverse horizontal direction
   end
 
   func :reset_game do
-    player_score.set 0
-    cpu_score.set 0
-    player_y.set 68
-    cpu_y.set 68.0
-    ball_dx.set BALL_SPEED
-    ball_dy.set BALL_SPEED
-    ball_x.set 118
-    ball_y.set 78
-    zoom_timer.set 0 # so the title starts unzoomed the next time it shows
-    fade_music_in    # the last game faded its music out; this one brings it up again
-    state.set 1
+    player_score.set! 0
+    cpu_score.set! 0
+    player_y.set! 68
+    cpu_y.set! 68.0
+    ball_dx.set! BALL_SPEED
+    ball_dy.set! BALL_SPEED
+    ball_x.set! 118
+    ball_y.set! 78
+    zoom_timer.set! 0 # so the title starts unzoomed the next time it shows
+    fade_music_in     # the last game faded its music out; this one brings it up again
+    state.set! 1
   end
 
   func :update_cpu do
@@ -163,8 +163,8 @@ Pong = RubyGBA.game("PONG", code: "BPNG", maker: "01") do
 
   func :update_ball do
     # Move ball
-    ball_x.add ball_dx
-    ball_y.add ball_dy
+    ball_x.add! ball_dx
+    ball_y.add! ball_dy
 
     # Bounce off top wall
     (ball_y <= 0).then do
@@ -202,9 +202,9 @@ Pong = RubyGBA.game("PONG", code: "BPNG", maker: "01") do
 
     # Score: ball went off left edge — you just let one past, so the screen stings red.
     (ball_x <= 0).then do
-      cpu_score.add 1
+      cpu_score.add! 1
       (cpu_score >= WIN_SCORE).then do
-        state.set 3
+        state.set! 3
         fade_music_out
       end
       beep :point
@@ -214,9 +214,9 @@ Pong = RubyGBA.game("PONG", code: "BPNG", maker: "01") do
 
     # Score: ball went off right edge
     (ball_x >= SCREEN_W).then do
-      player_score.add 1
+      player_score.add! 1
       (player_score >= WIN_SCORE).then do
-        state.set 2
+        state.set! 2
         fade_music_out
       end
       beep :point
@@ -255,12 +255,12 @@ Pong = RubyGBA.game("PONG", code: "BPNG", maker: "01") do
     # here is a number counted by eye.
     menu_x = (SCREEN_W - [MUSIC_OFF, DIFFICULTY].map { |row| text_width(row) }.max) / 2
     menu :title, at: [menu_x, 90], spacing: 16, color: :gray, picked: :white do |m|
-      m.item("START") { zoom_timer.set 1 }
+      m.item("START") { zoom_timer.set! 1 }
       # A row whose words follow the setting. `1 - music_on` is the toggle: 1 becomes 0
       # and 0 becomes 1.
-      m.item([MUSIC_OFF, MUSIC_ON], showing: music_on) { music_on.set 1 - music_on }
+      m.item([MUSIC_OFF, MUSIC_ON], showing: music_on) { music_on.set! 1 - music_on }
       # ...and a row that opens a screen of its own, below.
-      m.item(DIFFICULTY) { state.set 4 }
+      m.item(DIFFICULTY) { state.set! 4 }
     end
 
     # Zoom the backdrop in once START is chosen, then hand off to :playing when the zoom
@@ -268,7 +268,7 @@ Pong = RubyGBA.game("PONG", code: "BPNG", maker: "01") do
     (zoom_timer == 0).then { title_board.scale(1.0) } # idle: hold it at the size it was drawn
     (zoom_timer > 0).then do
       title_board.scale.approach! 4.0, ZOOM_PER_FRAME
-      zoom_timer.add 1
+      zoom_timer.add! 1
       (zoom_timer > ZOOM_FRAMES).then { call :reset_game }
     end
   end
@@ -277,8 +277,8 @@ Pong = RubyGBA.game("PONG", code: "BPNG", maker: "01") do
     clear_screen :black
 
     # Input
-    held(:up).then   { player_y.sub PADDLE_SPEED }
-    held(:down).then { player_y.add PADDLE_SPEED }
+    held(:up).then   { player_y.sub! PADDLE_SPEED }
+    held(:down).then { player_y.add! PADDLE_SPEED }
     player_y.clamp! 0, SCREEN_H - PADDLE_H
 
     # Update
@@ -318,8 +318,8 @@ Pong = RubyGBA.game("PONG", code: "BPNG", maker: "01") do
     diff_x = (SCREEN_W - text_width(NORMAL)) / 2
     menu :difficulty, at: [diff_x, 80], spacing: 16, color: :gray, picked: :white,
                       starts_on: 1 do |m|
-      m.item(NORMAL) { cpu_speed.set CPU_NORMAL; state.set 0 }
-      m.item(HARD)   { cpu_speed.set CPU_HARD;   state.set 0 }
+      m.item(NORMAL) { cpu_speed.set! CPU_NORMAL; state.set! 0 }
+      m.item(HARD)   { cpu_speed.set! CPU_HARD;   state.set! 0 }
     end
   end
 
@@ -338,7 +338,7 @@ Pong = RubyGBA.game("PONG", code: "BPNG", maker: "01") do
     # Leaving before the fade is over stops the song there, so the next game starts it again.
     pressed(:start).then do
       stop_music
-      state.set 0
+      state.set! 0
     end
   end
 
@@ -350,7 +350,7 @@ Pong = RubyGBA.game("PONG", code: "BPNG", maker: "01") do
 
     pressed(:start).then do
       stop_music
-      state.set 0
+      state.set! 0
     end
   end
 

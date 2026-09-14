@@ -19,7 +19,7 @@ class TestPitchedVoices < Minitest::Test
       counter = var(:__f, 0)
       game_loop do
         wait_vblank
-        counter.add 1
+        counter.add! 1
         (counter >= frames).then { halt }
       end
     end

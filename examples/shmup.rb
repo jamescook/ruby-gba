@@ -75,7 +75,7 @@ module Shmup
         enemies.reset
         boss.reset
         hud.reset
-        set :new_game, 0
+        set! :new_game, 0
       end
 
       player.update
@@ -95,13 +95,13 @@ module Shmup
       # game disappears and the score you just got does not.
       ((hud.lives <= 0) & (leaving == 0)).then do
         fade_out :black, frames: 12, under: :ui
-        leaving.set 1
+        leaving.set! 1
       end
       (leaving == 1).then do
         (fade_level == 100).then do
-          set :state, GAME_OVER
+          set! :state, GAME_OVER
           fade_in frames: 12
-          leaving.set 0
+          leaving.set! 0
         end
       end
     end
@@ -112,8 +112,8 @@ module Shmup
       draw_text "GAME OVER",   :center, 68, :red
       draw_text "PRESS START", :center, 88, :white
       pressed(:start).then do
-        set :new_game, 1
-        set :state, PLAYING
+        set! :new_game, 1
+        set! :state, PLAYING
       end
     end
 

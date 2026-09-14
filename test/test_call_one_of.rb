@@ -60,9 +60,9 @@ class TestCallOneOf < Minitest::Test
       n = var :n, 0
       step = var :step, 1
       b = self
-      b.func(:first) { n.set 11 }
-      b.func(:second) { n.set 22 }
-      b.func(:third) { n.set 33 }
+      b.func(:first) { n.set! 11 }
+      b.func(:second) { n.set! 22 }
+      b.func(:third) { n.set! 33 }
       game_loop { b.call %i[first second third], number: step + 1 }
     end
 
@@ -78,8 +78,8 @@ class TestCallOneOf < Minitest::Test
       waited = var :waited, 0
       scripts = pool :script, step: 0, capacity: 4
       b = self
-      b.func(:op_walk) { walked.add 1 }
-      b.func(:op_wait) { waited.add 1 }
+      b.func(:op_walk) { walked.add! 1 }
+      b.func(:op_wait) { waited.add! 1 }
       scripts.spawn(step: 0)
       scripts.spawn(step: 1)
       scripts.spawn(step: 1)
@@ -114,8 +114,8 @@ class TestCallOneOf < Minitest::Test
       here = var :here, 0
       there = var :there, 1
       b = self
-      b.func(:in_quick_memory, fast: true) { moved.add 1 }
-      b.func(:in_cartridge, fast: false) { left.add 1 }
+      b.func(:in_quick_memory, fast: true) { moved.add! 1 }
+      b.func(:in_cartridge, fast: false) { left.add! 1 }
       game_loop do
         b.call %i[in_quick_memory in_cartridge], number: here
         b.call %i[in_quick_memory in_cartridge], number: there
@@ -137,7 +137,7 @@ class TestCallOneOf < Minitest::Test
       n = var :n, 0
       last = var :last, 256
       past = var :past, 257
-      names.each_with_index { |name, i| func(name) { n.set i } }
+      names.each_with_index { |name, i| func(name) { n.set! i } }
       b = self
       game_loop do
         b.call names, number: last
@@ -160,7 +160,7 @@ class TestCallOneOf < Minitest::Test
       n = var :n, 0
       which = var :which, 0
       b = self
-      b.func(:busy, fast: true) { b.repeat(200) { n.add 1 } }
+      b.func(:busy, fast: true) { b.repeat(200) { n.add! 1 } }
       game_loop { b.call [:busy], number: which }
     end
     busy = RubyGBA::Profiler.run(rom, frames: 30, picture: false).lines.find { |line| line.name == :busy }
@@ -178,14 +178,14 @@ class TestCallOneOf < Minitest::Test
       passes = var :passes, 0
       hits = var :hits, 0
       b = self
-      b.func(:one) { hits.add 1 }
-      b.func(:two) { hits.add 10 }
+      b.func(:one) { hits.add! 1 }
+      b.func(:two) { hits.add! 10 }
       game_loop do
-        passes.set 0
-        hits.set 0
+        passes.set! 0
+        hits.set! 0
         b.repeat(4) do |i|
           b.call %i[one two], number: i % 2
-          passes.add 1
+          passes.add! 1
         end
         b.halt
       end
@@ -285,8 +285,8 @@ class TestCallOneOf < Minitest::Test
       screen :bitmap
       n = var :n, 0
       b = self
-      b.func(:first) { n.set 11 }
-      b.func(:second) { n.set 22 }
+      b.func(:first) { n.set! 11 }
+      b.func(:second) { n.set! 22 }
       game_loop { b.call %i[first second], number: 1 }
     end
     kinds = program.walk.map(&:kind)
@@ -319,9 +319,9 @@ class TestCallOneOf < Minitest::Test
       n = var :n, 0
       picked = var :picked, which
       b = self
-      b.func(:first) { n.set 11 }
-      b.func(:second) { n.set 22 }
-      b.func(:third) { n.set 33 }
+      b.func(:first) { n.set! 11 }
+      b.func(:second) { n.set! 22 }
+      b.func(:third) { n.set! 33 }
       game_loop { b.call %i[first second third], number: picked }
     end
     Reference.new.run(program)
@@ -358,7 +358,7 @@ class TestCallOneOf < Minitest::Test
       screen :bitmap
       n = var :n, 0
       which = var :which, 0
-      names.each { |name| func(name) { n.add 1 } }
+      names.each { |name| func(name) { n.add! 1 } }
       b = self
       game_loop { sites.times { b.call names, number: which } }
     end
@@ -372,7 +372,7 @@ class TestCallOneOf < Minitest::Test
       screen :bitmap
       n = var :n, 0
       steps = table :steps, (0...dispatches).map { |i| (i * 37) % count }
-      names.each { |name| func(name) { n.add 1 } }
+      names.each { |name| func(name) { n.add! 1 } }
       b = self
       game_loop { b.repeat(dispatches) { |i| b.call names, number: steps[i] } }
     end
@@ -387,11 +387,11 @@ class TestCallOneOf < Minitest::Test
       n = var :n, 0
       op = var :op, 0
       steps = table :steps, (0...DISPATCHES).map { |i| (i * 37) % count }
-      names.each { |name| func(name) { n.add 1 } }
+      names.each { |name| func(name) { n.add! 1 } }
       b = self
       game_loop do
         b.repeat(DISPATCHES) do |i|
-          op.set steps[i]
+          op.set! steps[i]
           names.each_with_index { |name, k| (op == k).then { b.call name } }
         end
       end

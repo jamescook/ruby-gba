@@ -220,7 +220,7 @@ class TestPlainWords < Minitest::Test
       screen :bitmap
       spin = var :spin, 0
       game_loop do
-        spin.add 1
+        spin.add! 1
         spin.clamp! 0, 200
         fill_rect 0, 0, 40, 40, :blue
         pixel 10, 10, :red
@@ -237,7 +237,7 @@ class TestPlainWords < Minitest::Test
       layers :world, :ui
       score = var :score, 0
       layer(:ui) { draw_number score, 8, 8, :white }
-      game_loop { score.add 1 }
+      game_loop { score.add! 1 }
     end
   end
 end

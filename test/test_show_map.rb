@@ -34,7 +34,7 @@ class TestShowMap < Minitest::Test
       rooms = background :rooms, tiles: :dungeon, map: { hall: HALL, cave: CAVE, mixed: MIXED }
       frames = var :frames, 0
       game_loop do
-        frames.add 1
+        frames.add! 1
         instance_exec(rooms, frames, &steering)
       end
     end
@@ -67,7 +67,7 @@ class TestShowMap < Minitest::Test
   def test_a_map_can_be_named_by_a_number_the_game_works_out
     program = rooms_program do |rooms, frames|
       where = var :where, 0
-      (frames == 2).then { where.set 1 } # ...which is the cave, second of the three
+      (frames == 2).then { where.set! 1 } # ...which is the cave, second of the three
       rooms.show_map where
     end
 
@@ -205,7 +205,7 @@ class TestShowMap < Minitest::Test
     program = rooms_program do |rooms, frames|
       here = var :here, 0
       (frames == 2).then { rooms.show_map :cave }
-      (rooms.showing == rooms.map_number(:cave)).then { here.set 7 }
+      (rooms.showing == rooms.map_number(:cave)).then { here.set! 7 }
     end
 
     assert_equal 7, Reference.new.run(program, frames: 6)[:here]
@@ -230,7 +230,7 @@ class TestShowMap < Minitest::Test
   def test_both_backends_agree_on_a_number_the_game_worked_out
     program = rooms_program do |rooms, frames|
       where = var :where, 0
-      (frames == 3).then { where.set 2 }
+      (frames == 3).then { where.set! 2 }
       rooms.show_map where
     end
     assert_backends_agree(program, frames: 7)
@@ -251,7 +251,7 @@ class TestShowMap < Minitest::Test
       rooms = background :rooms, tiles: :dungeon, map: { left: left, right: right }
       frames = var :frames, 0
       game_loop do
-        frames.add 1
+        frames.add! 1
         (frames == 2).then { rooms.show_map :right }
         rooms.scroll_to 256, 0
       end
@@ -293,7 +293,7 @@ class TestShowMap < Minitest::Test
       rooms = background :rooms, tiles: :dungeon, map: maps
       frames = var :frames, 0
       game_loop do
-        frames.add 1
+        frames.add! 1
         (frames == 2).then { rooms.show_map pick }
       end
     end

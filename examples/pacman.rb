@@ -207,7 +207,7 @@ module Pacman
       # the pellet somewhere new on the floor.
       pellets.each do |pellet|
         pac.overlaps?(pellet).then do
-          eaten.add 1
+          eaten.add! 1
           beep :waka
           pellet.move_to rand(FLOOR_X), rand(FLOOR_Y)
         end
@@ -223,7 +223,7 @@ module Pacman
       # ghost back to its corner, so it doesn't sit on top of Pac buzzing every frame.
       ghost.overlaps?(pac).then do
         beep :caught
-        caught.add 1
+        caught.add! 1
         pac.move_to(*START)
         ghost.move_to(*GHOST_START)
       end

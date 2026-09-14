@@ -91,7 +91,7 @@ class TestAffineBackground < Minitest::Test
       image :red, "#" => :red do "########\n" * 8 end
       tiles :t, "#" => :white, "$" => :red
       board = background :board, tiles: :t, map: map
-      board.scale.set(2.0) # bypasses the #scale setter entirely
+      board.scale.set!(2.0) # bypasses the #scale setter entirely
       game_loop { wait_vblank }
     end
 

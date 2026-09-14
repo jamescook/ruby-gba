@@ -28,7 +28,7 @@ class TestSceneDisplayMode < Minitest::Test
       var :state, 0
       scene :title do
         clear_screen :red
-        pressed(:start).then { set :state, 1 }
+        pressed(:start).then { set! :state, 1 }
       end
       scene :play do
         screen :tiled # this scene is a tiled screen

@@ -37,7 +37,7 @@ class TestTimers < Minitest::Test
       var :last_fire, 0
       game_loop do
         wait_vblank
-        add :frame, 1
+        add! :frame, 1
         instance_exec(&body)
         if_ge :frame, frames do
           halt
@@ -50,7 +50,7 @@ class TestTimers < Minitest::Test
 
   def test_after_fires_exactly_once
     i = run_for(20) do
-      after(5) { add :fires, 1 }
+      after(5) { add! :fires, 1 }
     end
     assert_equal 1, i[:fires], "after(5) should fire exactly once across 20 frames"
   end
@@ -58,8 +58,8 @@ class TestTimers < Minitest::Test
   def test_after_fires_on_the_nth_frame
     i = run_for(20) do
       after(5) do
-        add :fires, 1
-        copy :last_fire, :frame # capture which frame it fired on
+        add! :fires, 1
+        copy! :last_fire, :frame # capture which frame it fired on
       end
     end
     assert_equal 5, i[:last_fire], "after(5) should fire on the 5th frame"
@@ -69,7 +69,7 @@ class TestTimers < Minitest::Test
   # never reach n. Reaching n exactly once proves the counter is hoisted to boot.
   def test_after_does_not_fire_before_its_time
     i = run_for(3) do
-      after(5) { add :fires, 1 }
+      after(5) { add! :fires, 1 }
     end
     assert_equal 0, i[:fires], "after(5) shouldn't fire within the first 3 frames"
   end
@@ -78,14 +78,14 @@ class TestTimers < Minitest::Test
 
   def test_every_fires_on_each_multiple
     i = run_for(12) do
-      every(3) { add :fires, 1 }
+      every(3) { add! :fires, 1 }
     end
     assert_equal 4, i[:fires], "every(3) over 12 frames should fire on 3,6,9,12"
   end
 
   def test_every_one_fires_each_frame
     i = run_for(7) do
-      every(1) { add :fires, 1 }
+      every(1) { add! :fires, 1 }
     end
     assert_equal 7, i[:fires], "every(1) should fire every frame"
   end
@@ -96,8 +96,8 @@ class TestTimers < Minitest::Test
     # 1 second is 60 frames, so it should fire on the 60th.
     i = run_for(80) do
       after(1, :seconds) do
-        add :fires, 1
-        copy :last_fire, :frame
+        add! :fires, 1
+        copy! :last_fire, :frame
       end
     end
     assert_equal 1, i[:fires]
@@ -107,7 +107,7 @@ class TestTimers < Minitest::Test
   def test_every_seconds_can_be_fractional
     # Half a second is 30 frames -> fires on 30 and 60.
     i = run_for(60) do
-      every(0.5, :seconds) { add :fires, 1 }
+      every(0.5, :seconds) { add! :fires, 1 }
     end
     assert_equal 2, i[:fires], "every(0.5, :seconds) should fire on frames 30 and 60"
   end
@@ -126,9 +126,9 @@ class TestTimers < Minitest::Test
       var :b, 0
       game_loop do
         wait_vblank
-        add :frame, 1
-        every(2) { add :a, 1 } # 2,4,6,8,10 -> 5
-        every(5) { add :b, 1 } # 5,10 -> 2
+        add! :frame, 1
+        every(2) { add! :a, 1 } # 2,4,6,8,10 -> 5
+        every(5) { add! :b, 1 } # 5,10 -> 2
         if_ge :frame, 10 do
           halt
         end
@@ -250,9 +250,9 @@ class TestTimers < Minitest::Test
       game_loop do
         wait_vblank
         clear_screen :white
-        after(2) { shown.set 1 } # turn the marker on after 2 frames
+        after(2) { shown.set! 1 } # turn the marker on after 2 frames
         (shown == 1).then { dma_fill_rect 100, 80, 8, 8, :red }
-        f.add 1
+        f.add! 1
         (f >= frames).then { halt }
       end
     end

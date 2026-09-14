@@ -42,13 +42,13 @@ Snake = RubyGBA.game("SNAKE", code: "BSNK", maker: "01") do
     hy = ys.last + dy
     # Hit a wall -> game over; else grow a new head and either eat or slide forward.
     ((hx < MIN_COL) | (hx > MAX_COL) | (hy < MIN_ROW) | (hy > MAX_ROW)).then do
-      state.set 2
+      state.set! 2
       beep :die
     end.else do
       xs.push hx; ys.push hy
       draw_rect_at hx * CELL, hy * CELL, CELL, CELL, :white
       ((hx == food_x) & (hy == food_y)).then do    # ate the food: grow + score
-        score.add 1; beep :eat; call :spawn_food
+        score.add! 1; beep :eat; call :spawn_food
       end.else do
         xs.shift; ys.shift                          # slid forward: drop the tail
       end
@@ -57,8 +57,8 @@ Snake = RubyGBA.game("SNAKE", code: "BSNK", maker: "01") do
 
   scene :playing do
     # Steer if the turn is perpendicular (the full file buffers it so you can't reverse).
-    held(:up).then    { (dy == 0).then { dx.set 0; dy.set(-1) } }
-    held(:right).then { (dx == 0).then { dx.set 1; dy.set 0 } }
+    held(:up).then    { (dy == 0).then { dx.set! 0; dy.set!(-1) } }
+    held(:right).then { (dx == 0).then { dx.set! 1; dy.set! 0 } }
     every(STEP) { call :step_snake }    # move on a beat, not every frame
   end
 
@@ -99,7 +99,7 @@ The worst part of learning the GBA is that mistakes rarely tell you *what* went 
 `var :dx, 1` returns a **handle**, and comparisons build a small expression tree rather than executing immediately:
 
 ```ruby
-(hy > MAX_ROW).then { state.set 2 }          # a Condition, not a Ruby `if`
+(hy > MAX_ROW).then { state.set! 2 }         # a Condition, not a Ruby `if`
 ate = (hx == food_x) & (hy == food_y)        # comparisons composed with &
 xs.push xs.last + dx                         # arithmetic on handles and list cells
 ```
@@ -282,12 +282,12 @@ scene :playing do
   ship = sprite :ship, at: [112, 132]     # belongs to :playing
   draw_number :score, 46, 4, :yellow       # so does the HUD
   # ... move, shoot, collide ...
-  (lives <= 0).then { set :state, GAME_OVER }
+  (lives <= 0).then { set! :state, GAME_OVER }
 end
 
 scene :game_over do
   draw_text "GAME OVER", 93, 68, :red       # shown only on this screen
-  pressed(:start).then { set :state, PLAYING }
+  pressed(:start).then { set! :state, PLAYING }
 end
 
 game_loop do

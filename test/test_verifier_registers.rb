@@ -12,7 +12,7 @@ class TestVerifierRegisters < Minitest::Test
     RubyGBA.build("REGS", code: "BREG", maker: "01", validate: false, out: StringIO.new, err: StringIO.new) do
       screen :bitmap
       count = var :count, 0
-      func(:count_up) { count.add 1 }
+      func(:count_up) { count.add! 1 }
       game_loop { call :count_up }
     end
   end

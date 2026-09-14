@@ -43,13 +43,13 @@ module BufferedBounce
       end
 
       balls.each do |b|
-        b[:x].add b[:dx]
-        b[:y].add b[:dy]
+        b[:x].add! b[:dx]
+        b[:y].add! b[:dy]
         # Bounce: at a wall, point the velocity back toward the middle.
-        (b[:x] <= 0).then              { b[:dx].set SPEED }
-        (b[:x] >= SCREEN_W - BALL).then { b[:dx].set(-SPEED) }
-        (b[:y] <= 0).then              { b[:dy].set SPEED }
-        (b[:y] >= SCREEN_H - BALL).then { b[:dy].set(-SPEED) }
+        (b[:x] <= 0).then              { b[:dx].set! SPEED }
+        (b[:x] >= SCREEN_W - BALL).then { b[:dx].set!(-SPEED) }
+        (b[:y] <= 0).then              { b[:dy].set! SPEED }
+        (b[:y] >= SCREEN_H - BALL).then { b[:dy].set!(-SPEED) }
       end
     end
   end

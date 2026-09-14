@@ -35,10 +35,10 @@ class TestSnakeCore < Minitest::Test
         ys.push cy
       end
       moves.each do |dx, dy|
-        set :hx, xs.last + dx
-        set :hy, ys.last + dy
+        set! :hx, xs.last + dx
+        set! :hy, ys.last + dy
         # Scan the current body: does the new head land on an existing cell?
-        repeat(xs.length) { |i| ((xs[i] == :hx) & (ys[i] == :hy)).then { set :hit, 1 } }
+        repeat(xs.length) { |i| ((xs[i] == :hx) & (ys[i] == :hy)).then { set! :hit, 1 } }
         xs.push :hx
         ys.push :hy
         unless grow
@@ -98,15 +98,15 @@ class TestSnakeCore < Minitest::Test
       ys = list :ys, capacity: 64
       [[2, 5], [3, 5], [4, 5]].each { |cx, cy| xs.push cx; ys.push cy }
       2.times do
-        set :hx, xs.last + 1
+        set! :hx, xs.last + 1
         xs.push :hx
         ys.push 5 # the body slides along row 5; only x changes here
         xs.shift
         ys.shift
       end
-      set :tail_x, xs.first
-      set :head_x, xs.last
-      set :len, xs.length
+      set! :tail_x, xs.first
+      set! :head_x, xs.last
+      set! :len, xs.length
       halt
     end
     builder.emit_pending_functions
@@ -131,7 +131,7 @@ class TestSnakeCore < Minitest::Test
       ys = list :ys, capacity: 64
       [[2, 5], [3, 5], [4, 5]].each { |cx, cy| xs.push cx; ys.push cy }
       # slide right once -> body [(3,5),(4,5),(5,5)]
-      set :hx, xs.last + 1
+      set! :hx, xs.last + 1
       xs.push :hx
       ys.push 5
       xs.shift

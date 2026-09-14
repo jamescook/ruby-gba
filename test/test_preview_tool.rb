@@ -45,7 +45,7 @@ class TestPreviewTool < Minitest::Test
       x = var :x, 4
       game_loop do
         wait_vblank
-        held(:right).then { x.add 2 }
+        held(:right).then { x.add! 2 }
         clear_screen :black
         draw_rect_at x, 10, 4, 4, :red
       end

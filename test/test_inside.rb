@@ -133,7 +133,7 @@ class TestInside < Minitest::Test
       tall = var :tall, 0
       game_loop do
         clear_screen :black
-        tall.set 90
+        tall.set! 90
         inside(*AREA) do
           dma_fill_rect 0, 0, 240, 160, :green
           (0...240).step(20) { |x| draw_column_at :bars, slice: 0, x: x, top: -20, height: tall }
@@ -156,7 +156,7 @@ class TestInside < Minitest::Test
     prog = program(tear_free: true) do
       tall = var :tall, 0
       game_loop do
-        tall.set 240
+        tall.set! 240
         inside(*AREA) do
           dma_fill_rect 0, 0, 240, 160, :green
           (0...240).step(6) { |x| draw_column_at :bars, slice: 0, x: x, top: -40, height: tall }

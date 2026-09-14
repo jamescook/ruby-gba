@@ -102,7 +102,7 @@ class TestTiledText < Minitest::Test
       draw_number :score, 100, 20, :white, digits: 1
       game_loop do
         wait_vblank            # composites the score's current digit
-        add :score, 1
+        add! :score, 1
         if_eq(:score, 6) { halt } # after this frame's present showed 6-1... see below
       end
     end
@@ -129,7 +129,7 @@ class TestTiledText < Minitest::Test
       draw_text "A", 100, 20, :white                       # always on: the control
       (blink == 1).then { draw_text "B", 140, 20, :white }  # only while blink is 1
       game_loop do
-        (blink == 1).then { blink.set 0 }.else { blink.set 1 }
+        (blink == 1).then { blink.set! 0 }.else { blink.set! 1 }
       end
     end
     b.emit_pending_functions
@@ -155,7 +155,7 @@ class TestTiledText < Minitest::Test
       blink = var :blink, 1
       (blink == 1).then { draw_text "A", 100, 20, :white }.else { draw_text "B", 140, 20, :white }
       game_loop do
-        (blink == 1).then { blink.set 0 }.else { blink.set 1 }
+        (blink == 1).then { blink.set! 0 }.else { blink.set! 1 }
       end
     end
     b.emit_pending_functions

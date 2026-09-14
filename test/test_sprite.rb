@@ -73,7 +73,7 @@ class TestSprite < Minitest::Test
       game_loop do
         wait_vblank
         after(frames) { halt }
-        hero.x.add 2                     # drive right, across the blue detail
+        hero.x.add! 2                    # drive right, across the blue detail
       end
     end
     builder.emit_pending_functions
@@ -101,7 +101,7 @@ class TestSprite < Minitest::Test
   # ---- it moves, and leaves no trail ----
 
   def test_moving_the_sprite_leaves_no_trail
-    prog = sprite_program(frames: 20) { |hero| hero.x.add 2 } # drift right every frame
+    prog = sprite_program(frames: 20) { |hero| hero.x.add! 2 } # drift right every frame
     screen = Reference.new.run(prog).screen
 
     # exactly one block of red survives, wherever it ended up — no smear
@@ -136,7 +136,7 @@ class TestSprite < Minitest::Test
       front = sprite :blob_b, at: [54, 50] # overlaps the right half of the green one
       frame = var :frame, 0
       game_loop do
-        frame.add 1
+        frame.add! 1
         (frame == 2).then { front.move_to 200, 50 } # the front one leaves first...
         (frame == 3).then { back.move_to 50, 130 }  # ...then the back one
       end
@@ -153,7 +153,7 @@ class TestSprite < Minitest::Test
   end
 
   def test_steering_with_held_input_moves_the_sprite
-    prog = sprite_program(frames: 15) { |hero| held(:right).then { hero.x.add 2 } }
+    prog = sprite_program(frames: 15) { |hero| held(:right).then { hero.x.add! 2 } }
     i = Reference.new.input_each_frame { |_f| [:right] }.run(prog)
     assert_operator i[:__spr1_x], :>, START[0], "holding right didn't move the sprite"
     assert_equal BLOCK * BLOCK, count_color(i.screen, :red), "held-move left a trail"
@@ -249,7 +249,7 @@ class TestSprite < Minitest::Test
   # ---- hardware: it renders and moves on the console ----
 
   def test_the_sprite_renders_and_moves_on_the_console
-    prog = sprite_program(frames: 30) { |hero| held(:right).then { hero.x.add 2 } }
+    prog = sprite_program(frames: 30) { |hero| held(:right).then { hero.x.add! 2 } }
     rom = ROM.assemble(GBA.new.lower(prog), title: "SPRITETS", code: "BSPT", maker: "01")
     v = assert_emulator_loads_rom(rom, frames: 12, keys: KEY_RIGHT)
     # it moved off its start (that cell is field again) and shows red further right

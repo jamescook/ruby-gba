@@ -41,7 +41,7 @@ module RubyGBA
       # sprite at its x/y (spawn shows one, remove hides it) and gains a collision box:
       #
       #   enemies = pool :enemy, x: 0, y: 0, hp: 3, capacity: 16, image: :ufo
-      #   enemies.each { |e| e.y.add 1; bullet.overlaps?(e).then { e.remove } }
+      #   enemies.each { |e| e.y.add! 1; bullet.overlaps?(e).then { e.remove } }
       #
       # A spriteful pool needs x: and y: fields and a `screen :tiled` (its instances are
       # hardware sprites). Without an image it's a pure-data pool (draw it yourself in
@@ -71,7 +71,7 @@ module RubyGBA
       #
       #   guards = pool :guard, x: 0, y: 0, capacity: 32, rate: 6,
       #                 facing: { left: [:walk_l1, :walk_l2], right: [:walk_r1, :walk_r2] }
-      #   guards.each { |g| g.face :left; g.x.sub 1 }
+      #   guards.each { |g| g.face :left; g.x.sub! 1 }
       #
       # Each instance holds its own direction and its own place in the cycle, so ten
       # guards face ten ways and do not march in step. That is the pool's own

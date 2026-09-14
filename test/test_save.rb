@@ -21,8 +21,8 @@ class TestSave < Minitest::Test
     s = var :s, 0
     game_loop do
       wait_vblank
-      s.set 7
-      (s > high).then { high.set s }
+      s.set! 7
+      (s > high).then { high.set! s }
     end
   end
 

@@ -125,8 +125,8 @@ class TestImage < Minitest::Test
     fb = screen_after do
       screen :bitmap
       image :dot, width: 1, height: 1, data: [:red]
-      set :px, 100
-      set :py, 50
+      set! :px, 100
+      set! :py, 50
       blit :dot, :px, :py
     end
 

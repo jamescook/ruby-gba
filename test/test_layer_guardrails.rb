@@ -249,7 +249,7 @@ class TestLayerGuardrails < Minitest::Test
       x = var :x, 0
       layer(:actors) do
         sprite :red_guy, at: [10, 10]
-        func(:move) { x.add 1 }
+        func(:move) { x.add! 1 }
       end
       game_loop { call :move }
     end
@@ -264,7 +264,7 @@ class TestLayerGuardrails < Minitest::Test
       x = var :x, 0
       layer(:actors) do
         sprite :red_guy, at: [10, 10]
-        once_a_frame { x.add 1 }
+        once_a_frame { x.add! 1 }
       end
       game_loop { nil }
     end

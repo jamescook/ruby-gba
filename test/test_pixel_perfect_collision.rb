@@ -37,7 +37,7 @@ class TestPixelPerfectCollision < Minitest::Test
       bb = sprite :corners, at: b_at, hitbox: hitbox
       game_loop do
         wait_vblank
-        a.overlaps?(bb).then { set :hit, 1 }
+        a.overlaps?(bb).then { set! :hit, 1 }
         halt
       end
     end
@@ -76,7 +76,7 @@ class TestPixelPerfectCollision < Minitest::Test
       middle = box 103, 23, 2, 2 # sits in the sprite's transparent middle
       game_loop do
         wait_vblank
-        a.overlaps?(middle).then { set :hit, 1 }
+        a.overlaps?(middle).then { set! :hit, 1 }
         halt
       end
     end
@@ -102,7 +102,7 @@ class TestPixelPerfectCollision < Minitest::Test
         game_loop do
           wait_vblank
           a.face(dir)
-          a.overlaps?(pin).then { set :hit, 1 }
+          a.overlaps?(pin).then { set! :hit, 1 }
           halt
         end
       end

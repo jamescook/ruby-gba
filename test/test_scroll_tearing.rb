@@ -36,8 +36,8 @@ class TestScrollTearing < Minitest::Test
                               map: Array.new(32) { (0...32).map { |c| c.even? ? "R" : "B" }.join }
       x = var :x, 0
       game_loop do
-        repeat(work) { add :x, 0 } if work.positive?
-        x.add 8
+        repeat(work) { add! :x, 0 } if work.positive?
+        x.add! 8
         bg.scroll_to x, 0
       end
     end
@@ -83,7 +83,7 @@ class TestScrollTearing < Minitest::Test
       bg = background :world, tiles: :field, map: map
       x = var :x, 0
       game_loop do
-        held(:right).then { x.add 4; bg.scroll_to x, 0 }
+        held(:right).then { x.add! 4; bg.scroll_to x, 0 }
       end
     end
     builder.emit_pending_functions

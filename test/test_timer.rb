@@ -20,9 +20,9 @@ class TestTimer < Minitest::Test
       var :snap, 0
       game_loop do
         wait_vblank
-        add :fc, 1
+        add! :fc, 1
         (fc == stop_at).then { beat.stop } if stop_at
-        set :snap, beat.ticks
+        set! :snap, beat.ticks
         (fc == stop_frame).then { halt }
       end
     end
@@ -56,7 +56,7 @@ class TestTimer < Minitest::Test
     b.instance_eval do
       screen :bitmap
       var :snap, 0
-      set :snap, RubyGBA::Timer.new(self, :ghost).ticks
+      set! :snap, RubyGBA::Timer.new(self, :ghost).ticks
       halt
     end
     assert_equal 0, Reference.new.run(b.program)[:snap]
@@ -84,7 +84,7 @@ class TestTimer < Minitest::Test
       %i[a b c].each do |name|
         t = timer name, per_second: 60
         var :"snap_#{name}", 0
-        set :"snap_#{name}", t.ticks
+        set! :"snap_#{name}", t.ticks
       end
       halt
     end
@@ -104,7 +104,7 @@ class TestTimer < Minitest::Test
       var :snap, 0
       game_loop do
         tone.play
-        set :snap, counted.ticks
+        set! :snap, counted.ticks
       end
     end
     err = assert_raises(RubyGBA::IR::Backends::GBA::LoweringError) { GBA.new.lower(b.program) }
@@ -114,7 +114,7 @@ class TestTimer < Minitest::Test
 
   # --- on_tick: a handler driven by the timer's overflow ---
 
-  # Runs `beat.on_tick { add :hits, 1 }` at the given rate and halts at `stop_frame`;
+  # Runs `beat.on_tick { add! :hits, 1 }` at the given rate and halts at `stop_frame`;
   # returns the interpreter so a test can read :hits.
   def run_on_tick(per_second:, stop_frame:, stop_at: nil)
     b = Builder.new
@@ -122,11 +122,11 @@ class TestTimer < Minitest::Test
       screen :bitmap
       var :hits, 0
       beat = timer :beat, per_second: per_second
-      beat.on_tick { add :hits, 1 }
+      beat.on_tick { add! :hits, 1 }
       fc = var :fc, 0
       game_loop do
         wait_vblank
-        add :fc, 1
+        add! :fc, 1
         (fc == stop_at).then { beat.stop } if stop_at
         (fc == stop_frame).then { halt }
       end
@@ -161,7 +161,7 @@ class TestTimer < Minitest::Test
       var :seen, 0
       game_loop do
         wait_vblank
-        set :seen, beat.ticks
+        set! :seen, beat.ticks
       end
     end
     b.emit_pending_functions
@@ -183,7 +183,7 @@ class TestTimer < Minitest::Test
       screen :bitmap
       clear_screen :black
       var :hits, 0
-      timer(:beat, per_second: 60).on_tick { add :hits, 1 }
+      timer(:beat, per_second: 60).on_tick { add! :hits, 1 }
       game_loop { wait_vblank }
     end
     b.emit_pending_functions
@@ -204,7 +204,7 @@ class TestTimer < Minitest::Test
       screen :bitmap
       clear_screen :black
       var :hits, 0
-      timer(:beat, per_second: 1200).on_tick { add :hits, 1 }
+      timer(:beat, per_second: 1200).on_tick { add! :hits, 1 }
       game_loop { wait_vblank }
     end
     b.emit_pending_functions

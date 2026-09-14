@@ -404,7 +404,7 @@ class TestLayerTransparency < Minitest::Test
       end
       tick = var :tick, 0
       game_loop do
-        tick.add 1
+        tick.add! 1
         (tick == FLASH_AT).then { flash_screen :black, frames: 6 }
       end
     end
@@ -454,7 +454,7 @@ class TestLayerTransparency < Minitest::Test
       end
       tick = var :tick, 0
       game_loop do
-        tick.add 1
+        tick.add! 1
         clear.approach! 0, 2
         (tick > FLASH_AT).then { fade :black, 0 } if lifting
       end

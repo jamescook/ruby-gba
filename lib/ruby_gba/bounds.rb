@@ -14,7 +14,7 @@ module RubyGBA
     # frame. Two rectangles touch when, on each axis, neither one starts past where
     # the other ends. Returns a {Condition}, so branch on it like any comparison:
     #
-    #   hero.overlaps?(coin).then { score.add 1 }
+    #   hero.overlaps?(coin).then { score.add! 1 }
     #
     # Touching edges count as a hit (the test is inclusive). +other+ is anything with
     # left / top / right / bottom — another box, a sprite, a handle of your own.

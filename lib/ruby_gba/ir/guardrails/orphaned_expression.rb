@@ -7,12 +7,12 @@ module RubyGBA
         # The `|=` slip, and everything shaped like it. Setting a flag in C is written
         # `flags |= MASK`, and both ways a person carries that over are silent:
         #
-        #   flags | MASK      # an expression nobody kept — the flag is never set
+        #   flags | MASK      # an expression nobody kept — the flag is never changed
         #   flags |= MASK     # Ruby reads this as `flags = flags | MASK`, which rebinds
         #                     # the Ruby local to an expression. The game's variable is
         #                     # untouched, and the name still looks right afterwards.
         #
-        # The same hole swallows `hp + 1` where `hp.add 1` was meant. Nothing is emitted,
+        # The same hole swallows `hp + 1` where `hp.add! 1` was meant. Nothing is emitted,
         # nothing complains, and the game quietly does not do the thing.
         #
         # HOW IT IS FOUND, which is the interesting part. This check cannot walk the tree,
@@ -58,10 +58,10 @@ module RubyGBA
               "You worked out a number and then did nothing with it. So the program is " \
               "unchanged and the work is thrown away. This usually means a change that " \
               "did not happen. `flags | 4` gives you a NEW number. It leaves `flags` as " \
-              "it was. To change the variable, write `flags.set flags | 4`. Take care " \
+              "it was. To change the variable, write `flags.set! flags | 4`. Take care " \
               "with `flags |= 4` too. Ruby reads that as `flags = flags | 4`. So the " \
               "Ruby name moves to the new number, and the game's variable stays as it " \
-              "was. The same is true of `hp + 1`, where `hp.add 1` changes the variable."
+              "was. The same is true of `hp + 1`, where `hp.add! 1` changes the variable."
             Finding.new(check: NAME, severity: :error, message: message, node: value)
           end
 

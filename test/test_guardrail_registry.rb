@@ -115,7 +115,7 @@ class TestGuardrailRegistry < Minitest::Test
     ex = assert_raises(RubyGBA::ROMError) do
       RubyGBA.build("BOOM", code: "BBOM", maker: "01", err: err) do
         screen :bitmap
-        set :boom, 1
+        set! :boom, 1
         halt
       end
     end
@@ -141,7 +141,7 @@ class TestGuardrailRegistry < Minitest::Test
     # proving a check is active only while it's loaded.
     rom = RubyGBA.build("NOREG", code: "BNRG", maker: "01", err: StringIO.new) do
       screen :bitmap
-      set :boom, 1
+      set! :boom, 1
       clear_screen :blue
       halt
     end

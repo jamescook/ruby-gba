@@ -35,23 +35,23 @@ module Shmup
     attr_reader :lives
 
     def score_up
-      @score.add 10
+      @score.add! 10
     end
 
     # A boss going down is worth a good deal more than an enemy.
     def bonus(points)
-      @score.add points
+      @score.add! points
     end
 
     def hit
-      @lives.sub 1
+      @lives.sub! 1
       @lives.clamp! 0, 9 # keep the display sane if two enemies land on the same frame
     end
 
     # Back to a fresh game.
     def reset
-      @score.set 0
-      @lives.set START_LIVES
+      @score.set! 0
+      @lives.set! START_LIVES
     end
   end
 end

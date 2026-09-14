@@ -17,8 +17,8 @@ class TestBuildReport < Minitest::Test
       screen :bitmap, tear_free: true
       clear_screen :black
       var :x, 0
-      func(:the_big_one) { 900.times { add :x, 1 } }
-      func(:the_other_big_one) { 900.times { add :x, 2 } }
+      func(:the_big_one) { 900.times { add! :x, 1 } }
+      func(:the_other_big_one) { 900.times { add! :x, 2 } }
       game_loop do
         call :the_big_one
         call :the_other_big_one
@@ -72,7 +72,7 @@ class TestBuildReport < Minitest::Test
     rom = RubyGBA.build("BRTR", code: "BRTR", maker: "01") do
       screen :bitmap
       var :x, 0
-      game_loop { clear_screen :black; add :x, 1 }
+      game_loop { clear_screen :black; add! :x, 1 }
     end
 
     assert_match(/it can tear/, report_for(rom))

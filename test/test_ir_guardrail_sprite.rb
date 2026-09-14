@@ -38,7 +38,7 @@ class TestSpriteGuardrails < Minitest::Test
   # ---- sprite + per-frame clear ----
 
   def test_flags_a_sprite_cleared_every_frame
-    prog = a_heart { |hero| clear_screen :black; hero.x.add 1 }
+    prog = a_heart { |hero| clear_screen :black; hero.x.add! 1 }
     findings = Cleared.new.detect(prog)
     assert_equal 1, findings.length
     assert findings.first.warning?, "the check is advisory"
@@ -47,7 +47,7 @@ class TestSpriteGuardrails < Minitest::Test
   end
 
   def test_flags_a_full_screen_fill_over_a_sprite
-    prog = a_heart { |hero| dma_fill_rect 0, 0, 240, 160, :black; hero.x.add 1 }
+    prog = a_heart { |hero| dma_fill_rect 0, 0, 240, 160, :black; hero.x.add! 1 }
     assert_equal 1, Cleared.new.detect(prog).length, "a full-screen fill is a clear too"
   end
 
@@ -59,7 +59,7 @@ class TestSpriteGuardrails < Minitest::Test
 
   def test_does_not_flag_a_clear_behind_a_press_edge
     # Clearing when a round (re)starts is a transition, not steady per-frame work.
-    prog = a_heart { |hero| pressed(:start).then { clear_screen :black }; hero.x.add 1 }
+    prog = a_heart { |hero| pressed(:start).then { clear_screen :black }; hero.x.add! 1 }
     assert_empty Cleared.new.detect(prog), "a clear behind a pressed edge is a once-in-a-while transition"
   end
 

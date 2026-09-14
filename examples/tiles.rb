@@ -181,8 +181,8 @@ module Tiles
       pressed(:a).then { room.set_tile door_col, door_row, "." }
       pressed(:b).then { room.set_tile door_col, door_row, "#" }
 
-      pressed(:right).then { where.add 1 }
-      pressed(:left).then { where.sub 1 }
+      pressed(:right).then { where.add! 1 }
+      pressed(:left).then { where.sub! 1 }
       where.clamp! 0, room.map_count - 1
       room.show_map where
     end

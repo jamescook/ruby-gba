@@ -198,11 +198,11 @@ module Hero
       # layer is see-through by whatever this holds, so the weather is one variable.
       held(:up).then do
         hero.move :up, by: SPEED
-        mist.add MIST_PER_STEP
+        mist.add! MIST_PER_STEP
       end
       held(:down).then do
         hero.move :down, by: SPEED
-        mist.sub MIST_PER_STEP
+        mist.sub! MIST_PER_STEP
       end
       mist.clamp! 0, THICKEST
     end

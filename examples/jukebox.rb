@@ -181,9 +181,9 @@ module Jukebox
       # to the edge, flip the sign) whenever it reaches the top or bottom. ---
       BARS.each_with_index do |(_x, _y0, spd), i|
         y = bar_y[i]
-        add :"bar_y#{i}", :"bar_v#{i}"
-        (y >= BAR_BOTTOM).then { y.set BAR_BOTTOM; set :"bar_v#{i}", -spd }
-        (y <= BAR_TOP).then    { y.set BAR_TOP;    set :"bar_v#{i}",  spd }
+        add! :"bar_y#{i}", :"bar_v#{i}"
+        (y >= BAR_BOTTOM).then { y.set! BAR_BOTTOM; set! :"bar_v#{i}", -spd }
+        (y <= BAR_TOP).then    { y.set! BAR_TOP;    set! :"bar_v#{i}",  spd }
       end
 
       # --- Draw the screen fresh each frame ---
@@ -206,12 +206,12 @@ module Jukebox
       # the switch waits until the volume reads nothing, names the new tune while nobody can
       # hear it, and fades that one in. Move again part way and the fade simply turns round.
       songs.moved.then do
-        switching.set 1
+        switching.set! 1
         fade_music_out frames: FADE_FRAMES
       end
       ((switching == 1) & (music_volume == 0)).then do
-        switching.set 0
-        playing.set songs.picked
+        switching.set! 0
+        playing.set! songs.picked
         fade_music_in
       end
 
@@ -228,8 +228,8 @@ module Jukebox
       # --- The sound effects, over whatever is playing ---
       # Each plays once from the frame after it is asked for. Who is heard when the piano is
       # already using every voice is the priorities' to say, not this code's.
-      pressed(:a).then { sfx.play :hooray; asked.set 1 }
-      pressed(:b).then { sfx.play :blip; asked.set 2 }
+      pressed(:a).then { sfx.play :hooray; asked.set! 1 }
+      pressed(:b).then { sfx.play :blip; asked.set! 2 }
       draw_text "A HOORAY", 64, EFFECTS_ROW, [:gray, :white], showing: asked == 1
       draw_text "B BLIP", 136, EFFECTS_ROW, [:gray, :white], showing: asked == 2
     end

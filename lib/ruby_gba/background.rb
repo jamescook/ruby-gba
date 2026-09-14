@@ -109,7 +109,7 @@ module RubyGBA
     def show_map(which)
       refuse_on_a_bitmap_screen!("show_map", instead: "Draw the new picture with `blit`")
       refuse_with_one_map!
-      @builder.set(shown_map_var, Value.node_for(number_of_map(which)))
+      @builder.set!(shown_map_var, Value.node_for(number_of_map(which)))
       # Recorded here as well as remembered, the same way a scroll is: a program with no
       # game loop has no gap between frames to hold the copy for, and then the copy simply
       # happens where it was asked for. The builder drops these once it knows there is a
@@ -225,7 +225,7 @@ module RubyGBA
     #   phase  = var :phase, 0
     #
     #   water.scroll_each_row { |row| ripple[(row + phase) % ripple.length] }
-    #   game_loop { phase.add 1 }         # the wave travels down the water
+    #   game_loop { phase.add! 1 }         # the wave travels down the water
     #
     # That is wavy water, a heat haze over a desert, a reflection in a lake, a screen
     # melting into a transition. The offset is ON TOP of the background's own scroll, so a
@@ -272,7 +272,7 @@ module RubyGBA
       if fixed
         record(Build.set(angle_var, Build.int(fixed % 360)))
       else
-        angle.set(degrees)
+        angle.set!(degrees)
         wrap_angle
       end
       apply_affine
@@ -293,7 +293,7 @@ module RubyGBA
               "a background's size must be more than 0. You gave #{size.inspect}. " \
               "1.0 is the size it was drawn at, 0.5 is half."
       end
-      affine_scale_value.set(size)
+      affine_scale_value.set!(size)
       apply_affine
       self
     end
@@ -399,8 +399,8 @@ module RubyGBA
     # HardwareSprite#wrap_angle, whose exact steps this mirrors.
     def wrap_angle
       a = angle
-      a.set(a - (a / 360 * 360))
-      (angle < 0).then { angle.add(360) }
+      a.set!(a - (a / 360 * 360))
+      (angle < 0).then { angle.add!(360) }
     end
 
     # Write this frame's angle/scale to the display — recorded at the call site, like

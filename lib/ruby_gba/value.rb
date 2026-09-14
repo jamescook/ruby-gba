@@ -369,18 +369,31 @@ module RubyGBA
 
     # Assign a new value: a number, another variable, or an expression Value. A variable
     # that holds a fraction takes one, and a number written here is converted to match.
-    def set(value)
-      mutate { @builder.set(@name, align!(value, "assign")) }
+    def set!(value)
+      mutate { @builder.set!(@name, align!(value, "assign")) }
     end
 
     # Add to the variable (a number or another Value).
-    def add(amount)
-      mutate { @builder.add(@name, align!(amount, "add")) }
+    def add!(amount)
+      mutate { @builder.add!(@name, align!(amount, "add")) }
     end
 
     # Subtract from the variable (a number or another Value).
-    def sub(amount)
-      mutate { @builder.sub(@name, align!(amount, "subtract")) }
+    def sub!(amount)
+      mutate { @builder.sub!(@name, align!(amount, "subtract")) }
+    end
+
+    # THE SAME THREE WITHOUT THE `!`, which used to change the variable. These three have no
+    # new-number meaning of their own — `set` answers no question at all, and a new number
+    # from adding is what `+` already is — so each says which word to write instead.
+    { set: nil, add: :+, sub: :- }.each do |word, operator|
+      define_method(word) do |amount = nil|
+        instead = operator ? " To get a new number and keep the variable as it is, write " \
+                             "`#{spelled} #{operator} #{amount.inspect}`." : ""
+        raise ArgumentError,
+              "`#{spelled}.#{word}` does not change a variable. A word that changes a variable " \
+              "ends in `!`. To change it, write `#{spelled}.#{word}!`.#{instead}#{at_dsl_line}"
+      end
     end
 
     # Keep the variable within [lo, hi].

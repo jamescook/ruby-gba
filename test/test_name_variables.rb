@@ -4,7 +4,7 @@ require "test_helper"
 require "differential"
 require "stringio"
 
-# A VARIABLE THAT HOLDS A NAME: `var :mode, :title`, `mode.set :playing`, `call mode`.
+# A VARIABLE THAT HOLDS A NAME: `var :mode, :title`, `mode.set! :playing`, `call mode`.
 #
 # A game's states are names, and what keeps them is a variable, which holds a number. Written
 # out, the author picks the numbers, keeps a comment saying which is which, and keeps any list
@@ -33,8 +33,8 @@ class TestNameVariables < Minitest::Test
       ran = var :ran, 0
       mode = var :mode, :title
       b = self
-      b.func(:title) { ran.set 1 }
-      b.func(:playing) { ran.set 2 }
+      b.func(:title) { ran.set! 1 }
+      b.func(:playing) { ran.set! 2 }
       game_loop { b.call mode }
     end
 
@@ -47,11 +47,11 @@ class TestNameVariables < Minitest::Test
       ran = var :ran, 0
       mode = var :mode, :title
       b = self
-      b.func(:title) { ran.set 1 }
-      b.func(:playing) { ran.set 2 }
+      b.func(:title) { ran.set! 1 }
+      b.func(:playing) { ran.set! 2 }
       game_loop do
         b.call mode
-        mode.set :playing
+        mode.set! :playing
       end
     end
 
@@ -67,8 +67,8 @@ class TestNameVariables < Minitest::Test
       b = self
       b.func(:title) { b.halt }
       game_loop do
-        (mode == :title).then { saw.set 1 }
-        (mode != :title).then { saw.set 2 }
+        (mode == :title).then { saw.set! 1 }
+        (mode != :title).then { saw.set! 2 }
         b.halt
       end
     end
@@ -86,9 +86,9 @@ class TestNameVariables < Minitest::Test
       ran = var :ran, 0
       mode = var :mode, :title
       b = self
-      b.func(:title) { mode.set :playing }
-      b.func(:playing) { mode.set :over }
-      b.func(:over) { ran.set 99 }
+      b.func(:title) { mode.set! :playing }
+      b.func(:playing) { mode.set! :over }
+      b.func(:over) { ran.set! 99 }
       game_loop { b.call mode }
     end
 
@@ -107,8 +107,8 @@ class TestNameVariables < Minitest::Test
       chased = var :chased, 0
       guards = pool :guard, x: 0, state: :idle, capacity: 8
       b = self
-      b.func(:idle) { idled.add 1 }
-      b.func(:chase) { chased.add 1 }
+      b.func(:idle) { idled.add! 1 }
+      b.func(:chase) { chased.add! 1 }
       guards.spawn(x: 0)                  # takes the state it was declared with
       guards.spawn(x: 1, state: :chase)   # ...and this one is given another
       guards.spawn(x: 2, state: :chase)
@@ -130,11 +130,11 @@ class TestNameVariables < Minitest::Test
       guards = pool :guard, x: 0, state: :idle, capacity: 8
       b = self
       b.func(:idle) { nil }
-      b.func(:chase) { chased.add 1 }
+      b.func(:chase) { chased.add! 1 }
       guards.spawn(x: 0)
       game_loop do
         guards.each do |g|
-          (g.state == :idle).then { g.state.set :chase }
+          (g.state == :idle).then { g.state.set! :chase }
           b.call g.state
         end
       end
@@ -156,7 +156,7 @@ class TestNameVariables < Minitest::Test
       b.func(:over) { b.fill_rect 190, 10, 40, 40, :blue }
       game_loop do
         b.call mode
-        mode.set :playing
+        mode.set! :playing
       end
     end
 
@@ -187,7 +187,7 @@ class TestNameVariables < Minitest::Test
         b.func(:title) { b.halt }
         game_loop do
           b.call mode
-          mode.set :paused          # a state, but nothing to run for it
+          mode.set! :paused          # a state, but nothing to run for it
         end
       end
     end
@@ -211,7 +211,7 @@ class TestNameVariables < Minitest::Test
 
   # A name is not a number: nothing in the program says which number a name got, and nothing
   # needs to. What this pins is that the two never leak into each other — a game that writes
-  # `mode.set :playing` and one that never mentions a number behave the same whichever order
+  # `mode.set! :playing` and one that never mentions a number behave the same whichever order
   # the names happened to be numbered in.
   def test_the_numbering_is_the_framework_s_own_business
     ran_first = Reference.new.run(states_in_order(%i[title playing over]))[:ran]
@@ -231,12 +231,12 @@ class TestNameVariables < Minitest::Test
       ran = var :ran, 0
       mode = var :mode, order.first
       b = self
-      b.func(:title) { ran.set 1 }
-      b.func(:playing) { ran.set 2 }
-      b.func(:over) { ran.set 3 }
-      order.each { |state| (mode == state).then { ran.add 0 } } # names them, changes nothing
+      b.func(:title) { ran.set! 1 }
+      b.func(:playing) { ran.set! 2 }
+      b.func(:over) { ran.set! 3 }
+      order.each { |state| (mode == state).then { ran.add! 0 } } # names them, changes nothing
       game_loop do
-        mode.set :playing
+        mode.set! :playing
         b.call mode
         b.halt
       end

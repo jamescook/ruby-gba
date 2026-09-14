@@ -143,7 +143,7 @@ class TestDifferential < Minitest::Test
       x = var :x, 10
       game_loop do
         clear_screen :black
-        x.add 3
+        x.add! 3
         draw_rect_at x, 40, 8, 8, Color.resolve(:white)
       end
     end
@@ -175,7 +175,7 @@ class TestDifferential < Minitest::Test
       x = var :x, 10
       game_loop do
         clear_screen :black
-        x.add 3
+        x.add! 3
         draw_rect_at x, 40, 8, 8, Color.resolve(:white)
         draw_text "BUF", 10, 100, Color.resolve(:cyan)
       end
@@ -372,7 +372,7 @@ class TestDifferential < Minitest::Test
       clear_screen :black
       x = var :x, 10
       game_loop do
-        x.add 2
+        x.add! 2
         draw_rect_at x, 40, 8, 8, Color.resolve(:white)
       end
     end
@@ -410,7 +410,7 @@ class TestDifferential < Minitest::Test
       screen :bitmap, tear_free: tear_free
       x = var :x, 10
       game_loop do
-        held(:right).then { x.add 3 }
+        held(:right).then { x.add! 3 }
         repeat(12) { clear_screen :black } # far more than a frame's worth of drawing
         draw_rect_at x, 40, 8, 8, Color.resolve(:white)
       end
@@ -455,7 +455,7 @@ class TestDifferential < Minitest::Test
       background :bg, tiles: :set, map: FULL_MAP
       guards = pool :guard, x: 0, y: 0, capacity: 32, image: :guy
       6.times { |i| guards.spawn(x: (i * 20) + 16, y: 32) }
-      game_loop { guards.each { |g| g.x.add 2 } }
+      game_loop { guards.each { |g| g.x.add! 2 } }
     end
   end
 
@@ -487,7 +487,7 @@ class TestDifferential < Minitest::Test
   # the helper have to say so — the frame offset it gets and whether its passes can be
   # counted on. They are worked out separately, so this pins them together.
   def test_a_program_that_names_no_screen_is_a_plain_bitmap_one_to_both_halves
-    silent = build { game_loop { var(:x, 0).add 1 } }
+    silent = build { game_loop { var(:x, 0).add! 1 } }
 
     refute shows_finished_passes?(silent)
     assert_equal BOOT_FRAMES[:bitmap], console_frames_for(silent, 4) - 4

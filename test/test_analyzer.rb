@@ -30,7 +30,7 @@ class TestAnalyzer < Minitest::Test
     result = measure do
       screen :bitmap
       n = var :n, 0
-      game_loop { 200.times { n.add 1 } }
+      game_loop { 200.times { n.add! 1 } }
     end
 
     assert_in_delta result.scanlines, result.typical, result.scanlines * 0.05,
@@ -108,7 +108,7 @@ class TestAnalyzer < Minitest::Test
     b.instance_eval do
       screen :bitmap
       var :state, 0
-      set :state, 3 # a second boot-time set — must not undo the override
+      set! :state, 3 # a second boot-time set — must not undo the override
       scene(:a) { clear_screen :red }
       scene(:b) { clear_screen :blue }
       game_loop { wait_vblank }
@@ -289,7 +289,7 @@ class TestAnalyzer < Minitest::Test
     b.instance_eval do
       screen :bitmap
       n = var :n, 0
-      game_loop { n.add 1 }
+      game_loop { n.add! 1 }
     end
     b.emit_pending_functions
     b.program

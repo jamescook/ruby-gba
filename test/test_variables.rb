@@ -43,7 +43,7 @@ class TestVariables < Minitest::Test
   def test_var_called_twice_keeps_the_same_address
     builder = build_with_builder do
       var :ball_x, 100
-      set :ball_x, 200
+      set! :ball_x, 200
     end
 
     # Re-setting a variable reuses its slot rather than allocating a new one.
@@ -53,7 +53,7 @@ class TestVariables < Minitest::Test
 
   def test_set_auto_declares_variable
     builder = build_with_builder do
-      set :counter, 42
+      set! :counter, 42
     end
 
     assert_equal IWRAM_START, builder.var_address(:counter)
@@ -61,8 +61,8 @@ class TestVariables < Minitest::Test
 
   def test_variables_returns_all_vars
     builder = build_with_builder do
-      set :x, 10
-      set :y, 20
+      set! :x, 10
+      set! :y, 20
     end
 
     vars = builder.variables
@@ -73,8 +73,8 @@ class TestVariables < Minitest::Test
 
   def test_set_then_set_reuses_address
     builder = build_with_builder do
-      set :x, 10
-      set :x, 20
+      set! :x, 10
+      set! :x, 20
     end
 
     # Second set doesn't allocate a new address
@@ -88,7 +88,7 @@ class TestVariables < Minitest::Test
 
   def test_add_var_auto_declares
     builder = build_with_builder do
-      add_var :nope, 1
+      add_var! :nope, 1
     end
 
     assert builder.variables.key?(:nope)
@@ -96,7 +96,7 @@ class TestVariables < Minitest::Test
 
   def test_sub_var_auto_declares
     builder = build_with_builder do
-      sub_var :nope, 1
+      sub_var! :nope, 1
     end
 
     assert builder.variables.key?(:nope)
@@ -106,7 +106,7 @@ class TestVariables < Minitest::Test
   # even if it was first mentioned here.
   def test_add_var_declares_a_variable_operand
     builder = build_with_builder do
-      add_var :counter, :step
+      add_var! :counter, :step
     end
 
     assert builder.variables.key?(:counter)
@@ -123,7 +123,7 @@ class TestVariables < Minitest::Test
       game_loop do
         wait_vblank
         var :ticks, 0 # declared inside the per-frame loop
-        add :ticks, 1 # ++ every frame
+        add! :ticks, 1 # ++ every frame
       end
     end
     builder.emit_pending_functions

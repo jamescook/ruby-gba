@@ -111,9 +111,9 @@ class TestGameLoop < Minitest::Test
   def test_game_loop_with_setup_before_it_still_loops
     rom = build do
       screen :bitmap
-      set :counter, 0
+      set! :counter, 0
       game_loop do
-        add_var :counter, 1
+        add_var! :counter, 1
       end
     end
     insts = instructions(rom)
@@ -133,7 +133,7 @@ class TestGameLoop < Minitest::Test
       screen :bitmap
       frames = var :frames, 0
       game_loop do
-        (frames < count).then { add :frames, 1 }
+        (frames < count).then { add! :frames, 1 }
       end
     end
     builder.emit_pending_functions
@@ -158,9 +158,9 @@ class TestGameLoop < Minitest::Test
   def test_game_loop_runs_in_mgba
     rom = build do
       screen :bitmap
-      set :counter, 0
+      set! :counter, 0
       game_loop do
-        add_var :counter, 1
+        add_var! :counter, 1
       end
     end
     assert_emulator_loads_rom(rom, frames: 10)

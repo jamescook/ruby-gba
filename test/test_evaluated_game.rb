@@ -97,7 +97,7 @@ class TestEvaluatedGame < Minitest::Test
       game_loop do
         clear_screen :black
         draw_rect_at x, 40, 20, 20, :green
-        x.add 1
+        x.add! 1
       end
     end
   end
@@ -109,7 +109,7 @@ class TestEvaluatedGame < Minitest::Test
     unpaced = RubyGBA.game("MANUAL", code: "ZMAN", maker: "01", frame_sync: :manual) do
       screen :bitmap
       n = var :n, 0
-      game_loop { n.add 1 }
+      game_loop { n.add! 1 }
     end
 
     ran = Reference.new.run(unpaced.program, frames: 5)

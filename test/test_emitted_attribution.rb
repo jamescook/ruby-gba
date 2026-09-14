@@ -36,7 +36,7 @@ class TestEmittedAttribution < Minitest::Test
       game_loop do
         wait_vblank
         clear_screen :black
-        x.add 1
+        x.add! 1
         x.clamp! 0, 100
         fill_rect 10, 10, 20, 20, :red
       end
@@ -111,7 +111,7 @@ class TestEmittedAttribution < Minitest::Test
       game_loop do
         wait_vblank
         clear_screen :black
-        x.add 1
+        x.add! 1
         fill_rect 0, 0, 8, 8, :red
       end
     end
@@ -163,7 +163,7 @@ class TestEmittedAttribution < Minitest::Test
       game_loop do
         wait_vblank
         clear_screen :black
-        x.add 1
+        x.add! 1
         fill_rect 10, 10, 20, 20, :red
       end
     end

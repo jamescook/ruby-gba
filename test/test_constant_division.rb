@@ -84,10 +84,10 @@ class TestConstantDivision < Minitest::Test
     builder.instance_eval do
       screen :bitmap
       DIVIDE_CASES.each_with_index do |(n, d), i|
-        var(:"q#{i}", 0).set(var(:"qn#{i}", n) / d)
+        var(:"q#{i}", 0).set!(var(:"qn#{i}", n) / d)
       end
       WRAP_CASES.each_with_index do |(n, d), i|
-        var(:"w#{i}", 0).set(var(:"wn#{i}", n) % d)
+        var(:"w#{i}", 0).set!(var(:"wn#{i}", n) % d)
       end
       halt
     end
@@ -149,14 +149,14 @@ class TestConstantDivision < Minitest::Test
     fixed = emitted_bytes do
       screen :bitmap
       n = var :n, 1000
-      var(:out, 0).set(n / 100)
+      var(:out, 0).set!(n / 100)
       halt
     end
     computed = emitted_bytes do
       screen :bitmap
       n = var :n, 1000
       d = var :d, 100
-      var(:out, 0).set(n / d)
+      var(:out, 0).set!(n / d)
       halt
     end
 
@@ -168,14 +168,14 @@ class TestConstantDivision < Minitest::Test
     fixed = emitted_bytes do
       screen :bitmap
       n = var :n, 1000
-      var(:out, 0).set(n % 100)
+      var(:out, 0).set!(n % 100)
       halt
     end
     computed = emitted_bytes do
       screen :bitmap
       n = var :n, 1000
       d = var :d, 100
-      var(:out, 0).set(n % d)
+      var(:out, 0).set!(n % d)
       halt
     end
 
@@ -188,8 +188,8 @@ class TestConstantDivision < Minitest::Test
     program = program_for do
       screen :bitmap
       d = var :d, 7
-      var(:out, 0).set(var(:n, -100) / d)
-      var(:left, 0).set(var(:m, -100) % d)
+      var(:out, 0).set!(var(:n, -100) / d)
+      var(:left, 0).set!(var(:m, -100) % d)
       halt
     end
 
@@ -209,8 +209,8 @@ class TestConstantDivision < Minitest::Test
   def test_dividing_by_one_is_left_alone_and_still_correct
     program = program_for do
       screen :bitmap
-      var(:out, 0).set(var(:n, -100) / 1)
-      var(:back, 0).set(var(:m, -100) / -1)
+      var(:out, 0).set!(var(:n, -100) / 1)
+      var(:back, 0).set!(var(:m, -100) / -1)
       halt
     end
     interpreter = Reference.new.run(program)

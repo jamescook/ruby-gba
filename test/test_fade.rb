@@ -112,7 +112,7 @@ class TestFade < Minitest::Test
       level = var :level, 0
       frame = var :frame, 0
       game_loop do
-        frame.add 1
+        frame.add! 1
         level.approach! 100, 25
         fade :black, level
         (frame >= 4).then { halt }

@@ -31,14 +31,14 @@ module RubyGBA
       self
     end
 
-    # Record the write that makes +choice+ (anything with a +set+) name what +which+ says:
+    # Record the write that makes +choice+ (anything with a +set!+) name what +which+ says:
     # one list, one of a set picked by +showing+, or the sprite's own colours.
     def draw_with(choice, which, showing)
       names = group(which, showing)
-      return choice.set(IR::Build::NO_RECOLOR) if names.nil?
+      return choice.set!(IR::Build::NO_RECOLOR) if names.nil?
 
       start = place(names)
-      return choice.set(start) if showing.nil?
+      return choice.set!(start) if showing.nil?
 
       pick(choice, count: names.length, start: start, showing: showing)
     end
@@ -90,7 +90,7 @@ module RubyGBA
     # the end should look like.
     def pick(choice, count:, start:, showing:)
       fixed = Value.fixed_number(showing)
-      return choice.set(fixed.between?(0, count - 1) ? start + fixed : IR::Build::NO_RECOLOR) if fixed
+      return choice.set!(fixed.between?(0, count - 1) ? start + fixed : IR::Build::NO_RECOLOR) if fixed
 
       step = showing.is_a?(Symbol) ? Value.new(@builder, IR::Build.var_ref(showing), name: showing) : showing
       unless step.respond_to?(:>=) && !step.is_a?(Condition)
@@ -98,7 +98,7 @@ module RubyGBA
               "#{@subject} was told to draw_with a list picked by showing: #{step.class}. showing: needs a " \
               "number, counting from 0, like showing: step."
       end
-      ((step >= 0) & (step < count)).then { choice.set(step + start) }.else { choice.set(IR::Build::NO_RECOLOR) }
+      ((step >= 0) & (step < count)).then { choice.set!(step + start) }.else { choice.set!(IR::Build::NO_RECOLOR) }
     end
   end
 end

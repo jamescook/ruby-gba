@@ -176,7 +176,7 @@ class TestLayers < Minitest::Test
     prog = stacked_game do
       layer :actors do
         var :speed, 2
-        set :speed, 3
+        set! :speed, 3
       end
     end
 

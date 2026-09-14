@@ -173,7 +173,7 @@ class TestRuntimeRectSize < Minitest::Test
       var :h, 40
       game_loop do
         clear_screen :blue
-        sub :h, 1
+        sub! :h, 1
         draw_rect_at 40, 20, 20, :h, Color.resolve(:red)
       end
     end
@@ -190,7 +190,7 @@ class TestRuntimeRectSize < Minitest::Test
       var :h, 40
       game_loop do
         clear_screen :blue
-        sub :h, 1
+        sub! :h, 1
         draw_rect_at 40, 20, 20, :h, Color.resolve(:red)
       end
     end
@@ -337,7 +337,7 @@ class TestRuntimeRectSize < Minitest::Test
       var :w, 8
       game_loop do
         clear_screen :blue
-        sub :w, 1
+        sub! :w, 1
         draw_rect_at 41, 20, :w, 6, Color.resolve(:red)
       end
     end

@@ -71,7 +71,7 @@ class TestInterpreterBudget < Minitest::Test
       game_loop do
         wait_vblank
         repeat(passes) { |_k| pixel 0, 0, :blue }
-        add :n, 1
+        add! :n, 1
       end
     end
     b.emit_pending_functions

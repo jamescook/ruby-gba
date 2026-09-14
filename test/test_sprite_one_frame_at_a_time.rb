@@ -89,7 +89,7 @@ class TestSpriteOneFrameAtATime < Minitest::Test
       sprite :enemy, at: [120, 60], frames: %i[enemy_0 enemy_1], rate: 2
       tick = var :tick, 0
       game_loop do
-        tick.add 1
+        tick.add! 1
         10.times { |n| (tick == 3 + n).then { link.face t.link_pose(:down, "walk", n) } }
         10.times { |n| (tick == 13 + n).then { link.face t.link_pose(:left, "run", n) } }
       end
@@ -118,7 +118,7 @@ class TestSpriteOneFrameAtATime < Minitest::Test
       sprite :hero, at: [40, 40], frames: hero, rate: 1
       guards = pool :guard, x: 0, y: 0, capacity: 6, frames: walk, rate: 1
       6.times { |n| guards.spawn(x: 20 + (n * 30), y: 100) }
-      game_loop { guards.each { |g| g.x.add 1 } }
+      game_loop { guards.each { |g| g.x.add! 1 } }
     end
   end
 
@@ -148,7 +148,7 @@ class TestSpriteOneFrameAtATime < Minitest::Test
       sprite :enemy, at: [120, 60], frames: %i[enemy_0 enemy_1], rate: 2
       tick = var :tick, 0
       game_loop do
-        tick.add 1
+        tick.add! 1
         (tick == 2).then { hero.face :right }
         (tick == 4).then { hero.face :left }
       end
@@ -202,10 +202,10 @@ class TestSpriteOneFrameAtATime < Minitest::Test
       scene(:playing) { frames.each_with_index { |(name, poses), n| sprite name, at: [40 + (n * 80), 40], frames: poses, rate: 60 } }
       scene(:paused) { sprite :banner, at: [40, 40] }
       game_loop do
-        tick.add 1
-        (tick == 3).then { set :state, 1 }
-        (tick == 5).then { set :state, 0 }
-        (tick == 8).then { set :state, 1 }
+        tick.add! 1
+        (tick == 3).then { set! :state, 1 }
+        (tick == 5).then { set! :state, 0 }
+        (tick == 8).then { set! :state, 1 }
         case_var(:state) { when_val 0, :playing; when_val 1, :paused }
       end
     end
@@ -289,7 +289,7 @@ class TestSpriteOneFrameAtATime < Minitest::Test
       walk.each_with_index { |name, n| image name, width: 32, height: 32, data: t.frame_art(4000 + n) }
       guards = pool :guard, x: 0, y: 0, capacity: 8, frames: walk, rate: 2
       guards.spawn(x: 10, y: 10)
-      game_loop { guards.each { |g| g.x.add 1 } }
+      game_loop { guards.each { |g| g.x.add! 1 } }
     end
     assert_operator sprite_memory_used(prog), :<=, SPRITE_MEMORY
   end

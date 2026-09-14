@@ -26,7 +26,7 @@ class TestTable < Minitest::Test
     i = interpret do
       squares = table :squares, [0, 1, 4, 9, 16, 25], width: :byte
       var :out, 0
-      set :out, squares[3]
+      set! :out, squares[3]
       halt
     end
     assert_equal 9, i[:out]
@@ -37,7 +37,7 @@ class TestTable < Minitest::Test
       t = table :t, [10, 20, 30, 40], width: :byte
       idx = var :idx, 2
       var :out, 0
-      set :out, t[idx]
+      set! :out, t[idx]
       halt
     end
     assert_equal 30, i[:out]
@@ -47,7 +47,7 @@ class TestTable < Minitest::Test
     i = interpret do
       t = table :sines, [0, 127, -128, -1], width: :byte # signed is inferred (a negative present)
       var :out, 0
-      set :out, t[2]
+      set! :out, t[2]
       halt
     end
     assert_equal(-128, i[:out])
@@ -59,7 +59,7 @@ class TestTable < Minitest::Test
       sin = table :sin, (0...256).map { |a| (Math.sin(a * Math::PI / 128) * 256).round }, width: :half
       var :q, 64
       var :out, 0
-      set :out, sin[:q] # sin at a quarter turn (64/256) is the peak, +256
+      set! :out, sin[:q] # sin at a quarter turn (64/256) is the peak, +256
       halt
     end
     assert_equal 256, i[:out]
@@ -69,7 +69,7 @@ class TestTable < Minitest::Test
     i = interpret do
       t = table :t, [100, 200, 300, 400], width: :half # 4 entries: index 5 wraps to 1
       var :out, 0
-      set :out, t[5]
+      set! :out, t[5]
       halt
     end
     assert_equal 200, i[:out]
@@ -80,8 +80,8 @@ class TestTable < Minitest::Test
       t = table :t, [7, 8, 9], width: :half # 3 entries: past-the-end clamps to the last, below-zero to the first
       var :hi, 0
       var :lo, 0
-      set :hi, t[9]
-      set :lo, t[-4]
+      set! :hi, t[9]
+      set! :lo, t[-4]
       halt
     end
     assert_equal 9, i[:hi]
@@ -154,7 +154,7 @@ class TestTable < Minitest::Test
       clear_screen :black
       dy = table :dy, [-24, 0, 24], width: :half # signed inferred; index 0 is -24
       var :y, 80
-      add :y, dy[0]                               # y = 80 + (-24) = 56
+      add! :y, dy[0]                              # y = 80 + (-24) = 56
       draw_rect_at 100, :y, 8, 8, :white
       halt
     end

@@ -80,7 +80,7 @@ module Shmup
 
     def update(player, hud)
       @enemies.each do |enemy|
-        enemy.y.add SPEED                            # drift down
+        enemy.y.add! SPEED                           # drift down
         # Turn to face the ship it is diving at. `face` is the same verb a single sprite
         # takes, and each instance holds its own direction — so this one test, written
         # once, leaves three enemies leaning three different ways in the same frame.
@@ -115,8 +115,8 @@ module Shmup
     private
 
     def respawn(enemy)
-      enemy.x.set @build.rand(0..(240 - SIZE)) # a fresh column, back at the top
-      enemy.y.set 0
+      enemy.x.set! @build.rand(0..(240 - SIZE)) # a fresh column, back at the top
+      enemy.y.set! 0
     end
   end
 end

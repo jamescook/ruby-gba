@@ -71,8 +71,8 @@ module RubyGBA
             home_y = var HOME_Y, 0
             # Read at boot rather than written as numbers, so wherever the author left the
             # sprite is where it stays — including a `center_on_screen` just above.
-            home_x.set sprite.x
-            home_y.set sprite.y
+            home_x.set! sprite.x
+            home_y.set! sprite.y
             # Put the world where the character is standing in it. The window's corner sits
             # as far back from their world position as they sit into the screen.
             across.scroll_to(-sprite.x + at[0], -sprite.y + at[1]) if at

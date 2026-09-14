@@ -14,7 +14,7 @@ class TestBuildRecord < Minitest::Test
       clear_screen :black
       t = var :t, 0
       game_loop do
-        repeat(50) { |i| t.add i }
+        repeat(50) { |i| t.add! i }
         fill_rect 0, 0, 40, 8, :green
       end
     end

@@ -138,7 +138,7 @@ class TestSpritePieces < Minitest::Test
       game_loop do
         (step < 4).then do
           hero.move 8, 5
-          step.add 1
+          step.add! 1
         end
       end
     end

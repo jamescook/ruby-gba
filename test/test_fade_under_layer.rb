@@ -150,7 +150,7 @@ class TestFadeUnderLayer < Minitest::Test
       game_loop do
         (whole == 1).then { fade :black, 100 }
                     .else { fade :black, 100, under: :ui }
-        whole.set 1
+        whole.set! 1
       end
     end
     b.emit_pending_functions
@@ -249,7 +249,7 @@ class TestFadeUnderLayer < Minitest::Test
       started = var :started, 0
       game_loop do
         (started == 0).then { fade_out under: under, frames: 4 }
-        started.set 1
+        started.set! 1
       end
     end
     b.emit_pending_functions

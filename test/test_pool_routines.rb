@@ -33,8 +33,8 @@ class TestPoolRoutines < Minitest::Test
       idler = var :idler, 0
       chaser = var :chaser, 0
       guards = pool :guard, x: 0, state: :idle, capacity: 4
-      guards.func(:idle) { |g| g.x.add 1; idler.set g.x }
-      guards.func(:chase) { |g| g.x.add 10; chaser.set g.x }
+      guards.func(:idle) { |g| g.x.add! 1; idler.set! g.x }
+      guards.func(:chase) { |g| g.x.add! 10; chaser.set! g.x }
       guards.spawn(x: 0)
       guards.spawn(x: 100, state: :chase)
       b = self
@@ -61,7 +61,7 @@ class TestPoolRoutines < Minitest::Test
       b = self
       game_loop do
         guards.each { |g| b.call g.state }
-        left.set guards.count
+        left.set! guards.count
         b.halt
       end
     end
@@ -78,13 +78,13 @@ class TestPoolRoutines < Minitest::Test
       screen :bitmap
       seen = var :seen, 0
       guards = pool :guard, x: 0, state: :idle, capacity: 4
-      guards.func(:idle) { |g| seen.add g.x }
+      guards.func(:idle) { |g| seen.add! g.x }
       guards.spawn(x: 1)
       guards.spawn(x: 10)
       b = self
       game_loop do
         guards.each do |outer|
-          guards.each { |inner| inner.x.add 0 } # a walk that changes nothing but the place
+          guards.each { |inner| inner.x.add! 0 } # a walk that changes nothing but the place
           b.call :idle
         end
         b.halt
@@ -124,7 +124,7 @@ class TestPoolRoutines < Minitest::Test
       screen :bitmap
       bullets = pool :bullet, x: 0, y: 0, capacity: 16
       bullets.spawn(x: 10, y: 10)
-      game_loop { bullets.each { |bullet| bullet.y.add 1 } }
+      game_loop { bullets.each { |bullet| bullet.y.add! 1 } }
     end
     written = program.walk.select { |node| node.kind == :set }.map(&:var)
 
@@ -139,7 +139,7 @@ class TestPoolRoutines < Minitest::Test
       program_with do
         screen :bitmap
         guards = pool :guard, x: 0, capacity: 4
-        guards.func(:chase) { |g| g.x.add 1 }
+        guards.func(:chase) { |g| g.x.add! 1 }
         b = self
         game_loop { b.call :chase } # no walk anywhere: which guard is chasing?
       end
@@ -156,7 +156,7 @@ class TestPoolRoutines < Minitest::Test
       program_with do
         screen :bitmap
         guards = pool :guard, x: 0, capacity: 4
-        guards.func(:chase) { |g| g.x.add 1 }
+        guards.func(:chase) { |g| g.x.add! 1 }
         b = self
         b.func(:update) { b.call :chase }
         game_loop { guards.each { |g| b.call :update } }
@@ -174,7 +174,7 @@ class TestPoolRoutines < Minitest::Test
       chased = var :chased, 0
       guards = pool :guard, x: 0, state: :idle, capacity: 4
       guards.func(:idle) { |_g| call :chase }
-      guards.func(:chase) { |g| g.x.add 5; chased.set g.x }
+      guards.func(:chase) { |g| g.x.add! 5; chased.set! g.x }
       guards.spawn(x: 20)
       b = self
       game_loop do

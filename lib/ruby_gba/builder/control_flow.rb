@@ -236,8 +236,8 @@ module RubyGBA
       # The interval is +n+ frames, or +n+ seconds when you'd rather think in time —
       # the framework converts seconds to frames for you:
       #
-      #   every(30) { blink.set 1 }              # every 30 frames
-      #   every(0.5, :seconds) { blink.set 1 }   # the same, said in seconds
+      #   every(30) { blink.set! 1 }              # every 30 frames
+      #   every(0.5, :seconds) { blink.set! 1 }   # the same, said in seconds
       #
       # @param n [Integer, Numeric] the interval (frames must be whole; seconds may be fractional)
       # @param unit [Symbol] :frames (default) or :seconds
@@ -258,8 +258,8 @@ module RubyGBA
       # block fires exactly once. Call it inside your game loop, where each pass is
       # one frame.
       #
-      #   after(600) { state.set 1 }             # 600 frames in
-      #   after(10, :seconds) { state.set 1 }    # the same, said in seconds
+      #   after(600) { state.set! 1 }             # 600 frames in
+      #   after(10, :seconds) { state.set! 1 }    # the same, said in seconds
       #
       # @param n [Integer, Numeric] the delay (frames must be whole; seconds may be fractional)
       # @param unit [Symbol] :frames (default) or :seconds
@@ -289,7 +289,7 @@ module RubyGBA
       # built on exactly this.
       #
       #   fade = var :fade, 0
-      #   once_a_frame { (fade > 0).then { fade.sub 1 } }
+      #   once_a_frame { (fade > 0).then { fade.sub! 1 } }
       #
       # AND IT KEEPS REAL TIME, which a game loop body does not. A pass of the loop is
       # one frame on a game that fits and two on a game that does not, so a body run

@@ -27,9 +27,9 @@ class TestFractionMath < Minitest::Test
       clear_screen :black
       a = var :a, ONE_AND_A_HALF
       product = var :product, 0
-      product.set(plain ? a * a : a.times_fraction(a, fraction_bits: 16))
+      product.set!(plain ? a * a : a.times_fraction(a, fraction_bits: 16))
       x = var :x, 0
-      x.set(product / PER_UNIT)
+      x.set!(product / PER_UNIT)
       draw_rect_at x, MARKER_Y, 4, 4, Color.resolve(:white)
       halt
     end

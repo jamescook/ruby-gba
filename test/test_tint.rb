@@ -78,7 +78,7 @@ class TestTint < Minitest::Test
       screen :bitmap
       clear_screen :green
       level = var :level, 0
-      level.set 50
+      level.set! 50
       tint :red, level
       halt
     end
@@ -116,7 +116,7 @@ class TestTint < Minitest::Test
       clear_screen :green
       level = var :level, 0
       game_loop do
-        level.set 50
+        level.set! 50
         tint :red, level
       end
     end
@@ -219,7 +219,7 @@ class TestTint < Minitest::Test
       sprite :body, at: [64, 64]
       level = var :level, 0
       game_loop do
-        level.set amount
+        level.set! amount
         tint :red, level
       end
     end
@@ -281,7 +281,7 @@ class TestTint < Minitest::Test
       game_loop do
         clear_screen :green
         tint :red, level
-        level.set 0
+        level.set! 0
       end
     end
     b.emit_pending_functions
@@ -301,7 +301,7 @@ class TestTint < Minitest::Test
       level = var :level, 0
       game_loop do
         clear_screen :green
-        level.set 50
+        level.set! 50
         tint :red, level
       end
     end
@@ -361,10 +361,10 @@ class TestTint < Minitest::Test
         sprite :dot, at: [200, 140]
       end
       game_loop do
-        frames.add 1
-        state.set 0
-        (frames > 2).then { state.set 1 }
-        (frames > 5).then { state.set 0; level.set 0 }
+        frames.add! 1
+        state.set! 0
+        (frames > 2).then { state.set! 1 }
+        (frames > 5).then { state.set! 0; level.set! 0 }
         case_var :state do
           when_val 0, :field
           when_val 1, :away
@@ -408,7 +408,7 @@ class TestTint < Minitest::Test
         # The same two statements either way, so the loop itself cancels. One walks the
         # level to 0 and back on alternate frames; the other puts it straight back.
         level.flip!
-        moving ? level.add(100) : level.flip!
+        moving ? level.add!(100) : level.flip!
         tint :red, level if tinting
       end
     end

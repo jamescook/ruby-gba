@@ -29,10 +29,10 @@ class TestInput < Minitest::Test
   def test_if_held_builds_without_error
     rom = build do
       screen :bitmap
-      set :player_y, 80
+      set! :player_y, 80
       game_loop do
         if_held :up do
-          sub_var :player_y, 2
+          sub_var! :player_y, 2
         end
       end
     end
@@ -55,7 +55,7 @@ class TestInput < Minitest::Test
     %i[a b select start right left up down r l].each do |btn|
       rom = build do
         if_held btn do
-          set :x, 1
+          set! :x, 1
         end
         halt
       end
@@ -66,7 +66,7 @@ class TestInput < Minitest::Test
   def test_if_held_emits_conditional_branch
     rom = build do
       if_held :up do
-        set :y, 1
+        set! :y, 1
       end
       halt
     end
@@ -80,7 +80,7 @@ class TestInput < Minitest::Test
   def test_if_held_branch_skips_correct_distance
     rom = build do
       if_held :a do
-        set :x, 42
+        set! :x, 42
       end
       halt
     end
@@ -109,7 +109,7 @@ class TestInput < Minitest::Test
       screen :bitmap
       game_loop do
         if_pressed :start do
-          set :state, 1
+          set! :state, 1
         end
       end
     end
@@ -120,7 +120,7 @@ class TestInput < Minitest::Test
   def test_if_pressed_emits_beq
     rom = build do
       if_pressed :start do
-        set :state, 1
+        set! :state, 1
       end
       halt
     end
@@ -138,16 +138,16 @@ class TestInput < Minitest::Test
   def test_input_rom_runs_in_mgba
     rom = build do
       screen :bitmap
-      set :player_y, 80
+      set! :player_y, 80
       game_loop do
         if_held :up do
-          sub_var :player_y, 2
+          sub_var! :player_y, 2
         end
         if_held :down do
-          add_var :player_y, 2
+          add_var! :player_y, 2
         end
         if_pressed :start do
-          set :player_y, 80
+          set! :player_y, 80
         end
       end
     end

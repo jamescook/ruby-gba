@@ -139,7 +139,7 @@ class TestRowBend < Minitest::Test
       ripple = table :ripple, (0...64).map { |i| (Math.sin(i * 2 * Math::PI / 64) * 3).round }
       phase = var :phase, 0
       water.scroll_each_row { |row| ripple[(row - phase) % 64] }
-      game_loop { phase.add 1 }
+      game_loop { phase.add! 1 }
     end
     b.emit_pending_functions
     b.program
@@ -192,7 +192,7 @@ class TestRowBend < Minitest::Test
       end
       boat = sprite :boat, at: [20, 40]
       game_loop do
-        phase.add 1
+        phase.add! 1
         boat.move :right, by: 4
       end
     end
@@ -369,7 +369,7 @@ class TestRowBend < Minitest::Test
     program = bars_program do |water|
       shift = var :shift, 0
       water.scroll_each_row do |row|
-        shift.set row % 4
+        shift.set! row % 4
         shift
       end
     end
@@ -384,7 +384,7 @@ class TestRowBend < Minitest::Test
     program = bars_program do |water|
       shift = var :shift, 0
       water.scroll_each_row do |row|
-        shift.set row % 8
+        shift.set! row % 8
         shift
       end
     end

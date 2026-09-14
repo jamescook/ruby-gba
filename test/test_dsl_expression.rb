@@ -5,7 +5,7 @@ require "differential"
 
 # The expression DSL: `var` hands back a Value handle you compare with ordinary
 # Ruby operators to get a Condition, branch on with .then / .else, compose with
-# & / |, and mutate with .set / .add / .sub / .clamp / .abs / ....
+# & / |, and change a variable with .set! / .add! / .sub! / .clamp! / .abs! / ....
 #
 # These tests assert BEHAVIOR, not tree shape: a tiny program is built through
 # the DSL, run on the reference backend's fake screen, and checked by the pixels
@@ -102,9 +102,9 @@ class TestDSLExpression < Minitest::Test
     # v walks 0 -> 5 -> 8 -> 7, then clamps down to 5; the marker's x reveals it.
     i = interpret do
       v = var :v, 0
-      v.set 5
-      v.add 3
-      v.sub 1
+      v.set! 5
+      v.add! 3
+      v.sub! 1
       v.clamp! 0, 5
       draw_rect_at :v, 20, 2, 2, :green # a variable position: x comes from v
     end
@@ -112,12 +112,59 @@ class TestDSLExpression < Minitest::Test
     assert_equal UNDRAWN, pixel_at(i, 8, 20), "the pre-clamp 8 is not where it landed"
   end
 
+  # A word that changes a variable ends in `!`, on the handle and as a flat verb alike.
+  def test_the_words_that_change_a_variable_end_in_bang
+    i = interpret do
+      v = var :v, 0
+      v.set! 5
+      v.add! 3
+      v.sub! 1
+      copy! :w, :v
+      add! :w, 10
+      sub! :w, 2
+      set! :z, 1
+      draw_rect_at :v, 20, 2, 2, :green # 7
+      draw_rect_at :w, 30, 2, 2, :white # 15
+      draw_rect_at :z, 40, 2, 2, :blue  # 1
+    end
+
+    assert_equal Color.resolve(:green), pixel_at(i, 7, 20)
+    assert_equal Color.resolve(:white), pixel_at(i, 15, 30)
+    assert_equal Color.resolve(:blue), pixel_at(i, 1, 40)
+  end
+
+  # ...and the same words without it say so rather than changing anything.
+  [%i[set 5], %i[add 1], %i[sub 1]].each do |word, amount|
+    define_method(:"test_a_variables_#{word}_without_its_bang_is_a_friendly_error") do
+      err = assert_raises(ArgumentError) { tree { var(:v, 0).public_send(word, amount) } }
+
+      assert_match(/`v\.#{word}` does not change a variable/, err.message)
+      assert_match(/write `v\.#{word}!`/, err.message)
+    end
+  end
+
+  def test_a_flat_verb_without_its_bang_is_a_friendly_error
+    err = assert_raises(ArgumentError) { tree { copy :w, :v } }
+
+    assert_match(/`copy :w, :v` does not change a variable/, err.message)
+    assert_match(/write `copy! :w, :v`/, err.message)
+  end
+
+  # `add` and `sub` have a Ruby operator that makes a new number, so the message offers it.
+  def test_add_and_sub_point_at_the_operator_that_makes_a_new_number
+    add = assert_raises(ArgumentError) { tree { var(:v, 0).add 1 } }
+    sub = assert_raises(ArgumentError) { tree { var(:v, 0).sub 1 } }
+
+    assert_match(/`v \+ 1`/, add.message)
+    assert_match(/`v - 1`/, sub.message)
+  end
+
   def test_unary_mutators_change_the_variable
     # d = -3; abs -> 3; +20 keeps the marker on-screen at x = 23.
     i = interpret do
       d = var :d, -3
       d.abs!
-      d.add 20
+      d.add! 20
       draw_rect_at :d, 30, 2, 2, :white
     end
     assert_equal Color.resolve(:white), pixel_at(i, 23, 30)
@@ -162,7 +209,7 @@ class TestDSLExpression < Minitest::Test
       s = var :s, -2
       out = var :out, 0
       NEW_NUMBERS.each_with_index do |(_, number), row|
-        out.set number.call(d, t, s)
+        out.set! number.call(d, t, s)
         draw_rect_at out + 40, row * 4, 2, 2, :white
       end
       halt
@@ -198,7 +245,7 @@ class TestDSLExpression < Minitest::Test
     i = interpret do
       d = var :d, 5
       d.flip!
-      d.add 25
+      d.add! 25
       draw_rect_at :d, 40, 2, 2, :white
     end
     assert_equal Color.resolve(:white), pixel_at(i, 20, 40)
@@ -213,7 +260,7 @@ class TestDSLExpression < Minitest::Test
     i = interpret do
       d = var :d, 5
       m = var :m, 0
-      m.set(25 + -d)
+      m.set!(25 + -d)
       draw_rect_at :m, 40, 2, 2, :white
       draw_rect_at :d, 60, 2, 2, :green
     end
@@ -226,7 +273,7 @@ class TestDSLExpression < Minitest::Test
     i = interpret do
       x = var :x, 20
       q = var :q, 0
-      q.set(x / 3)
+      q.set!(x / 3)
       draw_rect_at :q, 10, 2, 2, :green
     end
     # The marker's left edge sits at x = q. green at 6 and blank at 5 pins q = 6
@@ -241,8 +288,8 @@ class TestDSLExpression < Minitest::Test
     i = interpret do
       n = var :n, -7
       q = var :q, 0
-      q.set(n / 2)
-      q.add 30
+      q.set!(n / 2)
+      q.add! 30
       draw_rect_at :q, 20, 2, 2, :white
     end
     assert_equal Color.resolve(:white), pixel_at(i, 27, 20)
@@ -314,10 +361,10 @@ class TestDSLExpression < Minitest::Test
       f = var :f, 0
       game_loop do
         wait_vblank
-        pressed(:start).then { n.add 1 }
+        pressed(:start).then { n.add! 1 }
         (n == 1).then { pixel 10, 10, :red }
         (n >= 2).then { pixel 20, 20, :blue }
-        f.add 1
+        f.add! 1
         (f >= 4).then { halt }
       end
     end
@@ -370,7 +417,7 @@ class TestDSLExpression < Minitest::Test
     err = assert_raises(ArgumentError) do
       tree do
         x = var :x, 0
-        (x + 1).add 2 # (x + 1) is an expression, not a variable — can't mutate it
+        (x + 1).add! 2 # (x + 1) is an expression, not a variable — can't mutate it
       end
     end
     assert_match(/variable/, err.message)

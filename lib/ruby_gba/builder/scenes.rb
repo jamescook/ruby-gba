@@ -48,7 +48,7 @@ module RubyGBA
       #
       #   mode = var :mode, :title        # a variable that holds one of a set of names
       #   game_loop { call mode }         # runs :title, :playing or :over
-      #   pressed(:start).then { mode.set :playing }
+      #   pressed(:start).then { mode.set! :playing }
       #
       # The routines are the names that variable can hold, and the framework numbers them for
       # you — so this is the line above with the numbering taken off your hands. Which names

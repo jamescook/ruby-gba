@@ -41,7 +41,7 @@ class TestFrameSync < Minitest::Test
     program, = build do
       screen :bitmap
       var :n, 0
-      game_loop { add :n, 1 }
+      game_loop { add! :n, 1 }
     end
 
     assert_equal FRAMES, passes(program),
@@ -56,7 +56,7 @@ class TestFrameSync < Minitest::Test
       var :n, 0
       game_loop do
         wait_vblank
-        add :n, 1
+        add! :n, 1
       end
     end
 
@@ -72,7 +72,7 @@ class TestFrameSync < Minitest::Test
       var :n, 0
       game_loop do
         wait_vblank
-        add :n, 1
+        add! :n, 1
       end
     end
 
@@ -86,7 +86,7 @@ class TestFrameSync < Minitest::Test
     program, = build(frame_sync: :manual) do
       screen :bitmap
       var :n, 0
-      game_loop { add :n, 1 }
+      game_loop { add! :n, 1 }
     end
 
     i = Reference.new.run(program, frames: FRAMES)
@@ -100,7 +100,7 @@ class TestFrameSync < Minitest::Test
     program, = build do
       screen :bitmap
       var :n, 0
-      game_loop { repeat(4) { add :n, 1 } }
+      game_loop { repeat(4) { add! :n, 1 } }
     end
 
     assert_equal FRAMES * 4, passes(program),
@@ -129,7 +129,7 @@ class TestFrameSync < Minitest::Test
     _program, err = build do
       screen :bitmap
       var :n, 0
-      game_loop { add :n, 1 }
+      game_loop { add! :n, 1 }
     end
 
     refute_match(/thousands of times a second/, err,

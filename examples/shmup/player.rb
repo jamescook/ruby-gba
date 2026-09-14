@@ -66,7 +66,7 @@ module Shmup
 
     # A ship was lost: the next one cannot be hit for a moment.
     def hurt
-      @safe.set SAFE
+      @safe.set! SAFE
     end
 
     # Steer, keep on screen, fire, and fly the shot — one frame's worth.
@@ -83,13 +83,13 @@ module Shmup
     # Let an enemy that got shot take the shot out of play, so the player can fire again.
     def reclaim_shot
       @shot.hide
-      @shot_live.set 0
+      @shot_live.set! 0
     end
 
     # Back to the start: ship centred, no shot in flight, and hittable.
     def reset
       @ship.move_to 112, 132
-      @safe.set 0
+      @safe.set! 0
       reclaim_shot
     end
 
@@ -100,7 +100,7 @@ module Shmup
     # lists and round again; the ship's picture is the same picture throughout.
     def glow_while_safe
       (@safe > 0).then do
-        @safe.sub 1
+        @safe.sub! 1
         @ship.draw_with WARM, showing: (@safe >> 2) & 3
       end.else do
         @ship.draw_with :own
@@ -112,7 +112,7 @@ module Shmup
         @build.pressed(:a).then do
           @shot.move_to @ship.x + NOSE, @ship.y - 6
           @shot.show
-          @shot_live.set 1
+          @shot_live.set! 1
         end
       end
     end

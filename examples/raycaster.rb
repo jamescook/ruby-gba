@@ -120,26 +120,26 @@ module Raycaster
       dma_fill_rect 0, 0, 240, HORIZON, SKY
       dma_fill_rect 0, HORIZON, 240, 160 - HORIZON, FLOOR
 
-      held(:left).then  { view.sub 4 }
-      held(:right).then { view.add 4 }
+      held(:left).then  { view.sub! 4 }
+      held(:right).then { view.add! 4 }
 
       # Walking. The step is WALK cells in the direction the player faces — a cosine and
       # a sine, each times the walking speed.
-      step_x.set(sin[view + QUARTER] * WALK)
-      step_y.set(sin[view] * WALK)
+      step_x.set!(sin[view + QUARTER] * WALK)
+      step_y.set!(sin[view] * WALK)
       held(:down).then { step_x.flip! }
       held(:down).then { step_y.flip! }
 
       (held(:up) | held(:down)).then do
         # Try the step, and take it only if the cell it lands in is empty — otherwise
         # you walk through walls. `.to_i` is which cell a position is in.
-        nx.set px
-        nx.add step_x
-        ny.set py
-        ny.add step_y
+        nx.set! px
+        nx.add! step_x
+        ny.set! py
+        ny.add! step_y
         (world[(ny.to_i * MAP_W) + nx.to_i] == 0).then do
-          px.set nx
-          py.set ny
+          px.set! nx
+          py.set! ny
         end
       end
 
@@ -151,18 +151,18 @@ module Raycaster
         # neighbours, and since a ray only ever stops on a whole step, no amount of
         # correcting afterwards can put that step back — it shows as one notched column in
         # the middle of the view, wherever you look. Offset, every ray is treated alike.
-        ang.set view
-        ang.add(col * 2)
-        ang.sub(NUM_COLS - 1)
+        ang.set! view
+        ang.add!(col * 2)
+        ang.sub!(NUM_COLS - 1)
 
         # Step vector for this ray. cos(ang) = sin[ang + QUARTER]; a quarter cell per step.
-        dx.set(sin[ang + QUARTER] * STEP)
-        dy.set(sin[ang] * STEP)
+        dx.set!(sin[ang + QUARTER] * STEP)
+        dy.set!(sin[ang] * STEP)
 
-        rx.set px
-        ry.set py
-        hit.set 0
-        dist.set(STEPS * STEP) # if nothing is hit in range, treat it as far away
+        rx.set! px
+        ry.set! py
+        hit.set! 0
+        dist.set!(STEPS * STEP) # if nothing is hit in range, treat it as far away
 
         # March until the ray meets a wall, and stop there. `stop_when:` is the whole
         # difference between this and a plain counted loop: a ray that hits after six steps
@@ -171,13 +171,13 @@ module Raycaster
         # ask the question before each pass, which costs a little per step and saves all the
         # steps it does not take.
         repeat(STEPS, stop_when: hit == 1, estimate: { usually: 8 }) do |step|
-          rx.add dx
-          ry.add dy
+          rx.add! dx
+          ry.add! dy
           # The cell the ray is in now. The border ring is solid, so a ray leaving the
           # room meets the border wall first; the table read is bounds-safe regardless.
           (world[(ry.to_i * MAP_W) + rx.to_i] == 1).then do
-            hit.set 1
-            dist.set(step * STEP)
+            hit.set! 1
+            dist.set!(step * STEP)
           end
         end
 
@@ -191,16 +191,16 @@ module Raycaster
         # five, but scaled up twice that is past where a variable wraps. Nothing here
         # says so, because nothing here has to: the framework knows both sides hold a
         # fraction and works the product out at full width.
-        seen.set(dist * sin[(col * 2) + (QUARTER - (NUM_COLS - 1))])
+        seen.set!(dist * sin[(col * 2) + (QUARTER - (NUM_COLS - 1))])
 
         # The perspective divide, which is the whole trick of a view like this: a wall
         # twice as far away covers half as much of the screen, so its height on screen is
         # one over its distance. SOFTEN keeps a wall you are nose-to-nose with from being
         # infinitely tall, and the band keeps the answer on screen at both ends.
-        col_h.set((WALL_SCALE / (seen + SOFTEN)).to_i)
+        col_h.set!((WALL_SCALE / (seen + SOFTEN)).to_i)
         col_h.clamp! MIN_H, MAX_H
-        top.set HORIZON
-        top.sub(col_h / 2)
+        top.set! HORIZON
+        top.sub!(col_h / 2)
         # Shade the wall by how far away it is, which is what reads as depth: near walls
         # catch the light, far ones fall into the gloom. draw_rect_at takes a fixed color,
         # so each band is its own fill and exactly one of them runs. The HEIGHT is the

@@ -55,8 +55,8 @@ module RubyGBA
           end
 
           shake = screen_shake_state
-          shake[:left].set count
-          shake[:power].set intensity
+          shake[:left].set! count
+          shake[:power].set! intensity
         end
 
         # The guardrails this pack brings with it. Effects.register_pack forwards them
@@ -136,13 +136,13 @@ module RubyGBA
             once_a_frame(ROUTINE) do
               (left == 0).then do
                 camera 0, 0
-                left.sub 1 # -> -1, so this never runs again until the next shake
+                left.sub! 1 # -> -1, so this never runs again until the next shake
               end
               (left > 0).then do
                 direction.flip!
-                offset.set power * direction
+                offset.set! power * direction
                 camera offset, offset
-                left.sub 1
+                left.sub! 1
               end
             end
 

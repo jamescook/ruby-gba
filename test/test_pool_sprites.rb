@@ -69,8 +69,8 @@ class TestPoolSprites < Minitest::Test
       game_loop do
         wait_vblank
         enemies.each do |e|
-          e.overlaps?(near).then { set :near_hit, 1 }
-          e.overlaps?(far).then { set :far_hit, 1 }
+          e.overlaps?(near).then { set! :near_hit, 1 }
+          e.overlaps?(far).then { set! :far_hit, 1 }
         end
       end
     end

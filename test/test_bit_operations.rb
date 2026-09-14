@@ -54,8 +54,8 @@ class TestBitOperations < Minitest::Test
         row = shape[i >> 4]                      # which row of the shape — a shift by 4
         bit = (row >> (15 - (i & 15))) & 1       # ...and one pixel out of that row
         (bit == 1).then do
-          solid.add 1
-          where.add i
+          solid.add! 1
+          where.add! i
         end
       end
       halt
@@ -81,11 +81,11 @@ class TestBitOperations < Minitest::Test
       bank = var :bank, 0
       rebuilt = var :rebuilt, 0
 
-      tile.set cell & 0x3FF
-      across.set((cell >> 10) & 1)
-      down.set((cell >> 11) & 1)
-      bank.set((cell >> 12) & 15)
-      rebuilt.set((bank << 12) | (down << 11) | (across << 10) | tile)
+      tile.set! cell & 0x3FF
+      across.set!((cell >> 10) & 1)
+      down.set!((cell >> 11) & 1)
+      bank.set!((cell >> 12) & 15)
+      rebuilt.set!((bank << 12) | (down << 11) | (across << 10) | tile)
       halt
     end
   end
@@ -107,13 +107,13 @@ class TestBitOperations < Minitest::Test
       cleared = var :cleared, 0
       mask = var :mask, hurt
 
-      flags.set flags | hurt          # set a flag
-      flags.set flags | armed         # and another
-      flags.set flags | 0x01
-      both.set(flags & (hurt | armed)) # two flags at once, not next to each other
-      cleared.set(flags & ~mask)       # clear one through a mask the game works out
-      flags.set flags & ~hurt          # clear it, the mask written down
-      flags.set flags ^ 0x01           # turn one over
+      flags.set! flags | hurt          # set a flag
+      flags.set! flags | armed         # and another
+      flags.set! flags | 0x01
+      both.set!(flags & (hurt | armed)) # two flags at once, not next to each other
+      cleared.set!(flags & ~mask)       # clear one through a mask the game works out
+      flags.set! flags & ~hurt          # clear it, the mask written down
+      flags.set! flags ^ 0x01           # turn one over
       halt
     end
   end
@@ -144,16 +144,16 @@ class TestBitOperations < Minitest::Test
       var :up_round, 0
       var :down_round, 0
 
-      set :up_far, one << far            # a count worked out, past the end
-      set :down_far, back >> far         # -1 shifted down stays -1: the sign fills in
-      set :up_back, one << back          # a negative count: off the end, not the other way
-      set :down_back, one >> back
-      set :down_negative, low >> 6       # -256 down six places is -4, keeping its sign
+      set! :up_far, one << far            # a count worked out, past the end
+      set! :down_far, back >> far         # -1 shifted down stays -1: the sign fills in
+      set! :up_back, one << back          # a negative count: off the end, not the other way
+      set! :down_back, one >> back
+      set! :down_negative, low >> 6       # -256 down six places is -4, keeping its sign
       # A count of 256 is the one the chip would get wrong on its own: it reads only
       # the low byte of a count, and 256's low byte is zero, so left alone it would
       # shift by nothing at all instead of emptying the number.
-      set :up_round, one << round
-      set :down_round, low >> round
+      set! :up_round, one << round
+      set! :down_round, low >> round
       halt
     end
   end
@@ -188,7 +188,7 @@ class TestBitOperations < Minitest::Test
       build_program do
         screen :bitmap
         flags = var :flags, 1
-        set :out, flags << 40
+        set! :out, flags << 40
       end
     end
 
@@ -201,7 +201,7 @@ class TestBitOperations < Minitest::Test
       build_program do
         screen :bitmap
         flags = var :flags, 1
-        set :out, flags >> -2
+        set! :out, flags >> -2
       end
     end
 
@@ -217,9 +217,9 @@ class TestBitOperations < Minitest::Test
     assert_computes(masked: 0x0F & 0x3C, ored: 0xF0 | 0x0C, xored: 0xFF ^ 0x3C) do
       screen :bitmap
       value = var :value, 0x3C
-      set :masked, 0x0F & value
-      set :ored, 0xF0 | value
-      set :xored, 0xFF ^ value
+      set! :masked, 0x0F & value
+      set! :ored, 0xF0 | value
+      set! :xored, 0xFF ^ value
       halt
     end
   end
@@ -227,8 +227,8 @@ class TestBitOperations < Minitest::Test
   # ...and costs the same either way round, which it would not if the build put both
   # sides through the stack just because the number was written first.
   def test_a_number_on_the_left_costs_what_it_costs_on_the_right
-    left = emitted { |value| set :masked, 0x0F & value }
-    right = emitted { |value| set :masked, value & 0x0F }
+    left = emitted { |value| set! :masked, 0x0F & value }
+    right = emitted { |value| set! :masked, value & 0x0F }
 
     assert_equal right, left, "a mask written on the left emitted more code than the same mask on the right"
   end
@@ -241,7 +241,7 @@ class TestBitOperations < Minitest::Test
       build_program do
         screen :bitmap
         col = var :col, 3
-        set :bit, 0x8000 >> col
+        set! :bit, 0x8000 >> col
       end
     end
 
@@ -273,7 +273,7 @@ class TestBitOperations < Minitest::Test
       build_program do
         screen :bitmap
         px = var :px, 3.5
-        set :low, px & 15
+        set! :low, px & 15
       end
     end
 
@@ -287,7 +287,7 @@ class TestBitOperations < Minitest::Test
         screen :bitmap
         flags = var :flags, 0
         speed = var :speed, 1.5
-        set :low, flags & speed
+        set! :low, flags & speed
       end
     end
 

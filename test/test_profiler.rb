@@ -21,9 +21,9 @@ class TestProfiler < Minitest::Test
       var :x, 0
       var :y, 0
 
-      func(:the_hot_one) { repeat(2000) { add :x, 1 } }
-      func(:the_cold_one) { add :y, 1 }
-      func(:never_reached) { repeat(2000) { add :y, 1 } }
+      func(:the_hot_one) { repeat(2000) { add! :x, 1 } }
+      func(:the_cold_one) { add! :y, 1 }
+      func(:never_reached) { repeat(2000) { add! :y, 1 } }
 
       game_loop do
         call :the_hot_one
@@ -93,7 +93,7 @@ class TestProfiler < Minitest::Test
       screen :bitmap
       clear_screen :black
       var :x, 0
-      func(:only_while_held) { repeat(2000) { add :x, 1 } }
+      func(:only_while_held) { repeat(2000) { add! :x, 1 } }
       game_loop { held(:left).then { call :only_while_held } }
     end
 
@@ -120,9 +120,9 @@ class TestProfiler < Minitest::Test
       var :state, 0
       var :x, 0
 
-      scene(:title) { add :x, 1 }
+      scene(:title) { add! :x, 1 }
       scene(:playing) { call :the_work }
-      func(:the_work) { repeat(2000) { add :x, 1 } }
+      func(:the_work) { repeat(2000) { add! :x, 1 } }
 
       game_loop do
         case_var(:state) do
@@ -154,9 +154,9 @@ class TestProfiler < Minitest::Test
       var :state, 1
       var :x, 0
 
-      scene(:busy) { call :the_work; set :state, 2 } # leaves immediately
-      scene(:idle) { add :x, 1 }
-      func(:the_work) { repeat(2000) { add :x, 1 } }
+      scene(:busy) { call :the_work; set! :state, 2 } # leaves immediately
+      scene(:idle) { add! :x, 1 }
+      func(:the_work) { repeat(2000) { add! :x, 1 } }
 
       game_loop do
         case_var(:state) do
@@ -192,7 +192,7 @@ class TestProfiler < Minitest::Test
       game_loop do
         clear_screen :black
         6.times { |i| fill_rect 0, i * 24, 240, 24, :red }
-        add :x, 1
+        add! :x, 1
       end
     end
     result = heavy.profile(out: StringIO.new, frames: 10)
@@ -205,7 +205,7 @@ class TestProfiler < Minitest::Test
     light = RubyGBA.build("PTEL", code: "PTEL", maker: "01") do
       screen :bitmap
       var :x, 0
-      game_loop { fill_rect 0, 0, 8, 8, :red; add :x, 1 }
+      game_loop { fill_rect 0, 0, 8, 8, :red; add! :x, 1 }
     end
     result = light.profile(out: StringIO.new, frames: 10)
 
@@ -218,7 +218,7 @@ class TestProfiler < Minitest::Test
     buffered = RubyGBA.build("PTEB", code: "PTEB", maker: "01") do
       screen :bitmap, tear_free: true
       var :x, 0
-      game_loop { clear_screen :black; add :x, 1 }
+      game_loop { clear_screen :black; add! :x, 1 }
     end
     out = StringIO.new
     result = buffered.profile(out: out, frames: 10)
@@ -238,7 +238,7 @@ class TestProfiler < Minitest::Test
       clear_screen :black
       armed = var :armed, 0
       var :x, 0
-      func(:the_work) { repeat(2000) { add :x, bump } }
+      func(:the_work) { repeat(2000) { add! :x, bump } }
       game_loop { (armed == 1).then { call :the_work } }
     end
   end

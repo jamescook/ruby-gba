@@ -33,7 +33,7 @@ class TestSoundEffects < Minitest::Test
       sfx = sound_effects :sfx, effects
       pass = var :pass, 0
       game_loop do
-        pass.add 1
+        pass.add! 1
         music&.play 0
         instance_exec(sfx, pass, music, &body)
       end
@@ -509,7 +509,7 @@ class TestSoundEffects < Minitest::Test
     program = game([every_ten_ticks(:C5), every_ten_ticks(:E5)]) do |sfx, pass|
       which = var :which, 1
       (pass == 3).then { sfx.play which }
-      (pass == 4).then { which.set 7 }
+      (pass == 4).then { which.set! 7 }
       (pass == 5).then { sfx.play which }
     end
 
@@ -801,7 +801,7 @@ class TestSoundEffects < Minitest::Test
     program = game([loud, quiet]) do |sfx, pass|
       which = var :which, 1
       (pass == 3).then { sfx.play which }
-      (pass == 40).then { which.set 2 }
+      (pass == 40).then { which.set! 2 }
       (pass == 41).then { sfx.play which }
     end
     tones = { "sfx.0": :half, "sfx.1": :half }
@@ -973,7 +973,7 @@ class TestSoundEffects < Minitest::Test
     program = game([cry(72), hurt(64, group: nil)]) do |sfx, pass|
       which = var :which, 0
       (pass == 3).then { sfx.play which }
-      (pass == 4).then { which.set 1 }
+      (pass == 4).then { which.set! 1 }
       (pass == 8).then { sfx.play which }
     end
 

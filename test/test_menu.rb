@@ -40,7 +40,7 @@ class TestMenu < Minitest::Test
         options[:starts_on] = starts_on if starts_on
         m = menu(:main, **options) do |rows|
           ROWS.each_with_index do |label, i|
-            rows.item(label, enabled: i != 1) { set :chose, i + 1 }
+            rows.item(label, enabled: i != 1) { set! :chose, i + 1 }
           end
         end
         instance_exec(m, &extra) if extra
@@ -179,7 +179,7 @@ class TestMenu < Minitest::Test
   # raced down the list one row a frame can land on the right row by coincidence, and
   # in a three-row walk it often does.
   def counting_moves(repeat_every:)
-    menu_program(repeat_every: repeat_every) { |m| m.moved.then { add :chose, 1 } }
+    menu_program(repeat_every: repeat_every) { |m| m.moved.then { add! :chose, 1 } }
   end
 
   def test_holding_a_button_walks_the_list_instead_of_racing_down_it
@@ -224,7 +224,7 @@ class TestMenu < Minitest::Test
       var :times, 0
       game_loop do
         clear_screen :black
-        menu(:main, at: [X, Y]) { |rows| rows.item("GO") { add :times, 1 } }
+        menu(:main, at: [X, Y]) { |rows| rows.item("GO") { add! :times, 1 } }
       end
     end
     held = walk(i, frames: 10) { |_f| [:a] }
@@ -233,14 +233,14 @@ class TestMenu < Minitest::Test
   end
 
   def test_a_menu_can_be_read_and_moved_by_the_game
-    program = menu_program { |m| (m.picked == 2).then { set :chose, 99 } }
+    program = menu_program { |m| (m.picked == 2).then { set! :chose, 99 } }
     i = walk(program, frames: 3) { |f| f == 1 ? [:down] : [] }
 
     assert_equal 99, i[:chose], "the game read which row the cursor is on"
   end
 
   def test_moved_is_true_only_on_the_frame_the_cursor_changed_rows
-    program = menu_program { |m| m.moved.then { add :chose, 1 } }
+    program = menu_program { |m| m.moved.then { add! :chose, 1 } }
     i = walk(program, frames: 10) { |f| f == 1 ? [:down] : [] }
 
     assert_equal 1, i[:chose], "one move in ten frames is one `moved`"
@@ -263,11 +263,11 @@ class TestMenu < Minitest::Test
         menu(:main, at: [X, Y], spacing: SPACING) do |rows|
           ROWS.each { |label| rows.item(label) }
         end
-        pressed(:b).then { state.set 1 }
+        pressed(:b).then { state.set! 1 }
       end
       scene :away do
         draw_text "AWAY", 10, 120, :white
-        pressed(:b).then { state.set 0 }
+        pressed(:b).then { state.set! 0 }
       end
     end
 
@@ -295,11 +295,11 @@ class TestMenu < Minitest::Test
         menu(:main, at: [X, Y], spacing: SPACING, starts_on: 2) do |rows|
           ROWS.each { |label| rows.item(label) }
         end
-        pressed(:b).then { state.set 1 }
+        pressed(:b).then { state.set! 1 }
       end
       scene :away do
         draw_text "AWAY", 10, 120, :white
-        pressed(:b).then { state.set 0 }
+        pressed(:b).then { state.set! 0 }
       end
     end
 
@@ -316,7 +316,7 @@ class TestMenu < Minitest::Test
         menu(:left, at: [X, Y], spacing: SPACING) { |r| ROWS.each { |l| r.item(l) } }
         right = menu(:right, at: [160, Y], spacing: SPACING) { |r| ROWS.each { |l| r.item(l) } }
         # Setting the pick jumps that cursor, and only that one.
-        right.picked.set 3
+        right.picked.set! 3
       end
     end
     i = walk(program, frames: 2, &NOTHING_HELD)
@@ -356,7 +356,7 @@ class TestMenu < Minitest::Test
       game_loop do
         clear_screen :black
         menu(:main, at: [X, Y], spacing: SPACING, color: :gray, picked: :white) do |rows|
-          rows.item(["MUSIC OFF", "MUSIC ON"], showing: music) { music.set 1 - music }
+          rows.item(["MUSIC OFF", "MUSIC ON"], showing: music) { music.set! 1 - music }
           rows.item("START")
         end
         instance_exec(music, &extra) if extra
@@ -578,7 +578,7 @@ class TestMenu < Minitest::Test
   end
 
   def test_a_tiled_menu_holds_its_repeat_the_same_way
-    program = tiled_menu(repeat_every: 60) { |m| m.moved.then { add :chose, 1 } }
+    program = tiled_menu(repeat_every: 60) { |m| m.moved.then { add! :chose, 1 } }
     i = walk(program, frames: 30) { |_f| [:down] }
 
     assert_equal 1, i[:chose], "one move, and the wait swallows the other 29 frames"
@@ -601,10 +601,10 @@ class TestMenu < Minitest::Test
         menu(:main, at: [X, Y], spacing: SPACING, color: :gray, picked: :white) do |rows|
           ROWS.each { |label| rows.item(label) }
         end
-        pressed(:b).then { state.set 1 }
+        pressed(:b).then { state.set! 1 }
       end
       scene :away do
-        pressed(:b).then { state.set 0 }
+        pressed(:b).then { state.set! 0 }
       end
     end
 

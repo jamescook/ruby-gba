@@ -123,14 +123,14 @@ class TestPowerOfTwoMath < Minitest::Test
     fixed = emitted_bytes do
       screen :bitmap
       n = var :n, 100
-      var(:out, 0).set(n / 256)
+      var(:out, 0).set!(n / 256)
       halt
     end
     computed = emitted_bytes do
       screen :bitmap
       n = var :n, 100
       d = var :d, 256
-      var(:out, 0).set(n / d)
+      var(:out, 0).set!(n / d)
       halt
     end
 
@@ -143,14 +143,14 @@ class TestPowerOfTwoMath < Minitest::Test
       fixed = emitted_bytes do
         screen :bitmap
         n = var :n, 100
-        var(:out, 0).set(op.call(n, 64))
+        var(:out, 0).set!(op.call(n, 64))
         halt
       end
       computed = emitted_bytes do
         screen :bitmap
         n = var :n, 100
         d = var :d, 64
-        var(:out, 0).set(op.call(n, d))
+        var(:out, 0).set!(op.call(n, d))
         halt
       end
 
@@ -165,13 +165,13 @@ class TestPowerOfTwoMath < Minitest::Test
     two = emitted_bytes do
       screen :bitmap
       n = var :n, 100
-      var(:out, 0).set(n / 256)
+      var(:out, 0).set!(n / 256)
       halt
     end
     three = emitted_bytes do
       screen :bitmap
       n = var :n, 100
-      var(:out, 0).set(n / 100)
+      var(:out, 0).set!(n / 100)
       halt
     end
 

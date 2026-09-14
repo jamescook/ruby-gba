@@ -30,8 +30,8 @@ class TestPoolRecycle < Minitest::Test
         things.each { |t| (t.tag == remove_tag).then { t.remove } } if remove_tag && i == 1
       end
       things.each do |t|
-        (1..5).each { |n| (t.tag == n).then { set :"saw#{n}", 1 } }
-        add :total, 1
+        (1..5).each { |n| (t.tag == n).then { set! :"saw#{n}", 1 } }
+        add! :total, 1
       end
       halt
     end

@@ -27,14 +27,14 @@ class TestFastCodePlacement < Minitest::Test
       total = var :total, 0
       f = var :f, 0
       func(:work, fast: fast) do
-        total.set 0
-        repeat(passes) { |i| total.add i }
+        total.set! 0
+        repeat(passes) { |i| total.add! i }
       end
       game_loop do
         wait_vblank
         call :work
         fill_rect 0, 0, 40, 8, :green
-        f.add 1
+        f.add! 1
         (f >= halt_after).then { halt } if halt_after
       end
     end
@@ -153,7 +153,7 @@ class TestFastCodePlacement < Minitest::Test
       t = var :t, 0
       game_loop do
         wait_vblank
-        repeat(50) { |i| t.add i }
+        repeat(50) { |i| t.add! i }
         fill_rect 0, 0, 40, 8, :green
       end
     end
@@ -276,7 +276,7 @@ class TestFastCodePlacement < Minitest::Test
       screen :bitmap
       clear_screen :black
       n = var :n, 0
-      timer(:beat, per_second: per_second).on_tick { n.add 1 }
+      timer(:beat, per_second: per_second).on_tick { n.add! 1 }
       game_loop { fill_rect 0, 0, 40, 8, :green }
     end
     b.emit_pending_functions
@@ -333,10 +333,10 @@ class TestFastCodePlacement < Minitest::Test
   def test_a_block_that_calls_a_routine_still_bends_the_same_rows
     program = bending_program do |water|
       shift = var :shift, 0
-      func(:pick) { shift.set 4 }
+      func(:pick) { shift.set! 4 }
       water.scroll_each_row do |row|
         call :pick
-        shift.add row % 2
+        shift.add! row % 2
         shift
       end
     end
@@ -390,13 +390,13 @@ class TestFastCodePlacement < Minitest::Test
       screen :bitmap
       state = var :state, 0
       score = var :score, 0
-      func(:tally) { score.add 1 }
+      func(:tally) { score.add! 1 }
       scene(:title) { clear_screen :black }
       scene(:playing) do
         clear_screen :blue
         draw_number :score, 10, 20, :white, digits: 6
         call :tally
-        repeat(300) { |i| score.add i }
+        repeat(300) { |i| score.add! i }
       end
       scene(:over) { draw_number :score, 10, 30, :white, digits: 6 }
       game_loop do
@@ -442,7 +442,7 @@ class TestFastCodePlacement < Minitest::Test
       clear_screen :black
       list :big, capacity: 7000 # eats nearly all of the quick memory
       big = var :b, 0
-      func(:work, fast: true) { 400.times { big.add 1 } }
+      func(:work, fast: true) { 400.times { big.add! 1 } }
       game_loop { wait_vblank; call :work }
     end
     builder.emit_pending_functions

@@ -991,7 +991,7 @@ module RubyGBA
       # the other half of the range. A `table` can be asked, because every value in one is
       # known while the cartridge is built and the answer can be read off them; a list's values
       # are written while the game RUNS, so nothing at build time can tell. And the case that
-      # decides it is invisible either way: a countdown written `wait.sub 7` and then tested
+      # decides it is invisible either way: a countdown written `wait.sub! 7` and then tested
       # `wait <= 0` really does hold -4 for the length of that test, and in a slot that could
       # not go below nothing -4 reads back as 252 and the test never fires. That is a game that
       # quietly stops working rather than an error — measured in a real one, three of its ten

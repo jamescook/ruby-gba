@@ -128,7 +128,7 @@ module RubyGBA
         # @param under [Symbol, nil] a layer the flash sits under, or nil for the whole screen
         def flash_screen(color = :white, frames: nil, duration: nil, under: nil)
           state = screen_fade_state
-          state[:level].set FULL # start full, so the first frame shown is the bright one
+          state[:level].set! FULL # start full, so the first frame shown is the bright one
           start_fade(color, 0.0, frames, duration, default: FLASH_FRAMES, under: under)
         end
 
@@ -142,12 +142,12 @@ module RubyGBA
         # Reading the level is how it waits:
         #
         #   leaving = var :leaving, 0
-        #   (lives <= 0).then { fade_out; leaving.set 1 }     # start dimming
+        #   (lives <= 0).then { fade_out; leaving.set! 1 }    # start dimming
         #   (leaving == 1).then do
         #     (fade_level == 100).then do                     # ...and once it is dark,
-        #       state.set GAME_OVER                           # switch, and bring the
+        #       state.set! GAME_OVER                          # switch, and bring the
         #       fade_in                                       # new screen up
-        #       leaving.set 0
+        #       leaving.set! 0
         #     end
         #   end
         #
@@ -259,12 +259,12 @@ module RubyGBA
           check_fade_placement!(color, under)
           place_the_fade(under) if under
           state = screen_fade_state
-          state[:color].set fade_color_code(color) if color
-          state[:target].set target
+          state[:color].set! fade_color_code(color) if color
+          state[:target].set! target
           if frames || duration
-            state[:step].set FULL / fade_ramp_frames(frames, duration, default)
+            state[:step].set! FULL / fade_ramp_frames(frames, duration, default)
           end
-          state[:active].set 1
+          state[:active].set! 1
           nil
         end
 
@@ -298,7 +298,7 @@ module RubyGBA
                 fade_tint_colors.each_with_index do |tint_color, i|
                   (color == FIRST_TINT + i).then { tint tint_color, level.to_i }
                 end
-                (level == target).then { active.set 0 }
+                (level == target).then { active.set! 0 }
                                  .else { level.approach! target, step }
               end
             end

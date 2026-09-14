@@ -145,7 +145,7 @@ class TestIRGuardrailIwramBudget < Minitest::Test
       list :shots, capacity: 16
       game_loop do
         wait_vblank
-        enemies.each { |e| e.y.add 1 }
+        enemies.each { |e| e.y.add! 1 }
       end
     end
     refute_match(/#{RubyGBA::PlainWords::QUICK_MEMORY}/, err.string,

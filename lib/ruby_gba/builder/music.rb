@@ -81,7 +81,7 @@ module RubyGBA
       # WITH NO NUMBER IT READS how loud the music is now, 0 to 100 — which is how a game waits
       # for a fade to finish before it switches songs, so the switch is never heard:
       #
-      #   (music_volume == 0).then { track.set next_track; fade_music_in }
+      #   (music_volume == 0).then { track.set! next_track; fade_music_in }
       #
       # @param amount [Integer, Value, nil] 0..100; anything outside that is held at the nearer
       #   end. Leave it out to read the volume instead.
@@ -96,15 +96,15 @@ module RubyGBA
         return level * 100 / full if amount.nil?
 
         if amount.is_a?(Integer)
-          level.set amount.clamp(0, 100) * full / 100
+          level.set! amount.clamp(0, 100) * full / 100
         else
           # Worked out, held in range, and only then stored: the player reads the level from the
           # screen's interrupt, which can land between any two statements, and a level stored
           # before it was held in range would sound for a frame at whatever came out.
           wanted = handle_for(:__music_level_wanted)
-          wanted.set amount * full / 100
+          wanted.set! amount * full / 100
           wanted.clamp! 0, full
-          level.set wanted
+          level.set! wanted
         end
         nil
       end

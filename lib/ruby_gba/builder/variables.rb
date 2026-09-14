@@ -18,7 +18,7 @@ module RubyGBA
       # @param name [Symbol] variable name
       # @param value [Integer] value to store
       # @return [Value] a handle to the variable
-      def set(name, value)
+      def set!(name, value)
         record(Build.set(name, stored_node(name, value)))
         ensure_var(name)
         mirror_save(name)
@@ -35,7 +35,7 @@ module RubyGBA
       # A STARTING VALUE THAT IS A NAME — `var :mode, :title` — declares a variable that holds
       # one of a set of names rather than a count: the states a game can be in, the moves an
       # enemy can make. The framework gives each name a number, in the order it first appears,
-      # and nothing in the game ever writes one (see {NameSet}). `mode.set :playing` and
+      # and nothing in the game ever writes one (see {NameSet}). `mode.set! :playing` and
       # `(mode == :playing)` read as they look, and `call mode` runs the routine of that name.
       #
       # @param name [Symbol] variable name
@@ -59,7 +59,7 @@ module RubyGBA
       #     there is no separate "save" step to remember.
       #
       #   high = save_var :high_score, 0
-      #   (score > high).then { high.set score }   # a new record — saved on the spot
+      #   (score > high).then { high.set! score }   # a new record — saved on the spot
       #
       # @param name [Symbol] variable name
       # @param default [Integer] the value on a brand-new cartridge (nothing saved yet)
@@ -84,26 +84,26 @@ module RubyGBA
       #
       # @param name [Symbol] variable name
       # @param operand [Integer, Symbol] value to add
-      def add(name, operand)
+      def add!(name, operand)
         record(Build.add(name, Value.node_for(operand)))
         ensure_var(name)
         ensure_var(operand)
         mirror_save(name)
       end
-      alias add_var add
+      alias add_var! add!
 
       # Subtract from a variable: var -= operand.
       # Operand can be an immediate (Integer) or another variable (Symbol).
       #
       # @param name [Symbol] variable name
       # @param operand [Integer, Symbol] value to subtract
-      def sub(name, operand)
+      def sub!(name, operand)
         record(Build.sub(name, Value.node_for(operand)))
         ensure_var(name)
         ensure_var(operand)
         mirror_save(name)
       end
-      alias sub_var sub
+      alias sub_var! sub!
 
       # Flip a variable's sign: var = -var.
       # Useful for reversing direction vectors.
@@ -118,7 +118,7 @@ module RubyGBA
       #
       # @param dest [Symbol] destination variable
       # @param src [Symbol] source variable
-      def copy(dest, src)
+      def copy!(dest, src)
         record(Build.copy(dest, src))
         ensure_var(dest)
         ensure_var(src)
@@ -141,16 +141,20 @@ module RubyGBA
         mirror_save(name)
       end
 
-      # THE SAME FLAT VERBS WITHOUT THE `!`, which used to change the variable. A word without
-      # `!` never changes a variable, so each of these says which word does.
-      %i[abs negate_abs negate flip clamp approach].each do |verb|
-        define_method(verb) do |name = nil, *|
-          said = name.is_a?(Symbol) ? " :#{name}" : ""
-          handle = name.is_a?(Symbol) ? "the handle that `var :#{name}` gives you" : "the variable's handle"
-          raise ArgumentError,
-                "`#{verb}#{said}` does not change a variable. A word that changes a variable " \
-                "ends in `!`. To change it, write `#{verb}!#{said}`. To get a new number and keep " \
-                "the variable as it is, use `.#{verb == :negate ? :flip : verb}` on #{handle}."
+      # EVERY FLAT VERB WITHOUT ITS `!`, each of which used to change the variable it names. A
+      # word without `!` never changes a variable, so each says which word does — and, where
+      # there is one, how to get the same number without changing anything.
+      #
+      # A number is what `abs` and its four neighbours give back, on the variable's own handle;
+      # for adding and subtracting it is what `+` and `-` already are; and `set` and `copy`
+      # have no such form, since neither answers a question about a number.
+      NEW_NUMBERS = { abs: :abs, negate_abs: :negate_abs, negate: :flip, flip: :flip,
+                      clamp: :clamp, approach: :approach }.freeze
+      OPERATORS = { add: :+, sub: :-, add_var: :+, sub_var: :- }.freeze
+
+      (NEW_NUMBERS.keys + OPERATORS.keys + %i[set copy]).each do |verb|
+        define_method(verb) do |name = nil, *rest|
+          raise ArgumentError, changing_verb_message(verb, name, rest)
         end
       end
 
@@ -231,6 +235,32 @@ module RubyGBA
       end
 
       private
+
+      # What one of those says: the line as it was written, the word that changes the variable,
+      # and where the same number comes from instead.
+      def changing_verb_message(verb, name, rest)
+        written = [name, *rest].compact.map(&:inspect).join(", ")
+        said = written.empty? ? "" : " #{written}"
+        "`#{verb}#{said}` does not change a variable. A word that changes a variable ends in " \
+          "`!`. To change it, write `#{verb}!#{said}`.#{new_number_advice(verb, name, rest)}"
+      end
+
+      # A variable in the advice above reads as the handle it would be written as, not as the
+      # name the flat verb was given: `hp + 1`, not `:hp + 1`.
+      def as_written(operand) = operand.is_a?(Symbol) ? operand.to_s : operand.inspect
+
+      def new_number_advice(verb, name, rest)
+        if (word = NEW_NUMBERS[verb])
+          handle = name.is_a?(Symbol) ? "the handle that `var :#{name}` gives you" : "the variable's handle"
+          " To get a new number and keep the variable as it is, use `.#{word}` on #{handle}."
+        elsif (operator = OPERATORS[verb])
+          " To get a new number and keep the variable as it is, write " \
+            "`#{as_written(name)} #{operator} #{as_written(rest.first)}` with the handles that " \
+            "`var` gives you."
+        else
+          ""
+        end
+      end
 
       # A handle for a variable, carrying a fraction if that is what it holds. Every
       # route to a variable goes through here, so `var :px, 3.5` and a later

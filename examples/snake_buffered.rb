@@ -102,14 +102,14 @@ module BufferedSnake
     # every-frame repaint). Tries a handful of random cells, keeping the first that
     # isn't under the snake.
     func :spawn_food do
-      set :placed, 0
+      set! :placed, 0
       FOOD_TRIES.times do
         (placed == 0).then do
           roll :food_x, MIN_COL..MAX_COL
           roll :food_y, MIN_ROW..MAX_ROW
-          set :placed, 1
+          set! :placed, 1
           repeat(xs.length) do |i|
-            ((xs[i] == :food_x) & (ys[i] == :food_y)).then { set :placed, 0 }
+            ((xs[i] == :food_x) & (ys[i] == :food_y)).then { set! :placed, 0 }
           end
         end
       end
@@ -142,38 +142,38 @@ module BufferedSnake
         xs.push cx
         ys.push cy
       end
-      set :dx, 1
-      set :dy, 0
-      set :ndx, 1
-      set :ndy, 0
-      set :score, 0
+      set! :dx, 1
+      set! :dy, 0
+      set! :ndx, 1
+      set! :ndy, 0
+      set! :score, 0
       call :spawn_food
-      set :state, 1
+      set! :state, 1
     end
 
     # Advance the snake one cell — pure game logic, no drawing (draw_all handles the
     # picture). Commit the buffered turn, work out the new head, then die, eat, or
     # slide.
     func :step_snake do
-      copy :dx, :ndx
-      copy :dy, :ndy
-      set :hx, xs.last + dx
-      set :hy, ys.last + dy
+      copy! :dx, :ndx
+      copy! :dy, :ndy
+      set! :hx, xs.last + dx
+      set! :hy, ys.last + dy
 
-      set :self_hit, 0
+      set! :self_hit, 0
       repeat(xs.length) do |i|
-        ((xs[i] == :hx) & (ys[i] == :hy)).then { set :self_hit, 1 }
+        ((xs[i] == :hx) & (ys[i] == :hy)).then { set! :self_hit, 1 }
       end
 
       dead = (hx < MIN_COL) | (hx > MAX_COL) | (hy < MIN_ROW) | (hy > MAX_ROW) | (self_hit == 1)
       dead.then do
-        set :state, 2
+        set! :state, 2
         beep :die
       end.else do
         xs.push :hx
         ys.push :hy
         ((hx == food_x) & (hy == food_y)).then do
-          score.add 1
+          score.add! 1
           beep :eat
           call :spawn_food
         end.else do
@@ -186,17 +186,17 @@ module BufferedSnake
     scene :title do
       clear_screen :black
       draw_text "SNAKE", :center, 56, :green
-      every(0.5, :seconds) { (blink == 1).then { blink.set 0 }.else { blink.set 1 } }
+      every(0.5, :seconds) { (blink == 1).then { blink.set! 0 }.else { blink.set! 1 } }
       (blink == 1).then { draw_text "PRESS START", :center, 96, :gray }
       randomize
       pressed(:start).then { call :new_game }
     end
 
     scene :playing do
-      held(:up).then    { (dy == 0).then { set :ndx, 0; set :ndy, -1 } }
-      held(:down).then  { (dy == 0).then { set :ndx, 0; set :ndy, 1 } }
-      held(:left).then  { (dx == 0).then { set :ndx, -1; set :ndy, 0 } }
-      held(:right).then { (dx == 0).then { set :ndx, 1; set :ndy, 0 } }
+      held(:up).then    { (dy == 0).then { set! :ndx, 0; set! :ndy, -1 } }
+      held(:down).then  { (dy == 0).then { set! :ndx, 0; set! :ndy, 1 } }
+      held(:left).then  { (dx == 0).then { set! :ndx, -1; set! :ndy, 0 } }
+      held(:right).then { (dx == 0).then { set! :ndx, 1; set! :ndy, 0 } }
 
       every(STEP) { call :step_snake }
       call :draw_all # repaint the whole board, every frame — safe because buffered
@@ -207,7 +207,7 @@ module BufferedSnake
       draw_text "GAME OVER", :center, 52, :red
       draw_text "SCORE", :right, 80, :gray, within: STAT_LABEL
       draw_number score, :left, 80, :white, digits: 3, within: STAT_NUMBER
-      every(0.5, :seconds) { (blink == 1).then { blink.set 0 }.else { blink.set 1 } }
+      every(0.5, :seconds) { (blink == 1).then { blink.set! 0 }.else { blink.set! 1 } }
       (blink == 1).then { draw_text "PRESS START", :center, 110, :gray }
       pressed(:start).then { call :new_game }
     end

@@ -33,7 +33,7 @@ module Sparks
       # One new spark a frame, at a random column, falling at one of three speeds.
       sparks.spawn(x: rand(0..238), y: 0, vy: rand(1..3))
       sparks.each do |s|
-        s.y.add s.vy
+        s.y.add! s.vy
         draw_rect_at s.x, s.y, 2, 2, :yellow
         (s.y >= 160).then { s.remove } # off the bottom: give the slot back
       end

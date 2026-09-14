@@ -69,8 +69,8 @@ class TestTiledCollision < Minitest::Test
       var :went_left, 0
       game_loop do
         wait_vblank
-        hero.can_move?(:right, by: 2).then { set :went_right, 1 }
-        hero.can_move?(:left, by: 2).then { set :went_left, 1 }
+        hero.can_move?(:right, by: 2).then { set! :went_right, 1 }
+        hero.can_move?(:left, by: 2).then { set! :went_left, 1 }
         halt
       end
     end

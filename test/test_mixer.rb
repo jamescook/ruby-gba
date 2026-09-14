@@ -25,7 +25,7 @@ class TestMixer < Minitest::Test
       counter = var(:__f, 0)
       game_loop do
         wait_vblank
-        counter.add 1
+        counter.add! 1
         (counter >= frames).then { halt }
       end
     end
@@ -74,7 +74,7 @@ class TestMixer < Minitest::Test
       counter = var(:__f, 0)
       game_loop do
         wait_vblank
-        counter.add 1
+        counter.add! 1
         (counter == 5).then { blip.stop } # silence just the blip; music keeps going
         (counter >= 20).then { halt }
       end

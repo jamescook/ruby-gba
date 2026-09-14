@@ -36,7 +36,7 @@ class TestScenePresentation < Minitest::Test
 
       scene :playing do
         sprite :reddot, at: [40, 40] # belongs to :playing
-        pressed(:start).then { set :state, 1 }
+        pressed(:start).then { set! :state, 1 }
       end
       scene :over do
         sprite :bluedot, at: [100, 100] # belongs to :over

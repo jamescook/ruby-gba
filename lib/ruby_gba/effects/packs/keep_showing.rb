@@ -92,7 +92,7 @@ module RubyGBA
           # Calling it again before the last change has reached both pages simply asks
           # again, so a burst of changes cannot leave a page holding a stale figure.
           def changed
-            @todo.set @pages
+            @todo.set! @pages
             self
           end
 
@@ -102,7 +102,7 @@ module RubyGBA
           # one comparison and draws nothing.
           def draw
             (@todo > 0).then(estimate: { usually: 1, in: REPAINTS_IN }) do
-              @todo.sub 1
+              @todo.sub! 1
               @b.call(routine)
             end
             self
@@ -114,7 +114,7 @@ module RubyGBA
           # into the one that replaced it. It erases nothing itself; whatever draws next
           # covers it.
           def cancel
-            @todo.set 0
+            @todo.set! 0
             self
           end
 

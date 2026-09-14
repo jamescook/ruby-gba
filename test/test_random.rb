@@ -112,7 +112,7 @@ class TestRandom < Minitest::Test
   def test_rand_assigns_a_value_in_range
     i = interpret do
       seed 1
-      10.times { |k| set :"v#{k}", rand(1..6) }
+      10.times { |k| set! :"v#{k}", rand(1..6) }
     end
     (0...10).each { |k| assert_includes 1..6, i[:"v#{k}"], "rand(1..6) out of range" }
   end
@@ -122,7 +122,7 @@ class TestRandom < Minitest::Test
     # exercises the whole draw pipeline feeding an expression, deterministically.
     i = interpret do
       x = var :x, 0
-      x.set(rand(0..0) + 100)
+      x.set!(rand(0..0) + 100)
     end
     assert_equal 100, i[:x]
   end
@@ -133,7 +133,7 @@ class TestRandom < Minitest::Test
     i = interpret do
       seed 42
       y = var :y, 0
-      y.set(rand(10..10) * rand(2..2)) # fixed operands: 10 * 2, proves both draws ran
+      y.set!(rand(10..10) * rand(2..2)) # fixed operands: 10 * 2, proves both draws ran
     end
     assert_equal 20, i[:y]
   end
@@ -146,8 +146,8 @@ class TestRandom < Minitest::Test
       never = var :never, 0
       always = var :always, 0
       10.times do
-        chance(0).then   { never.add 1 }
-        chance(100).then { always.add 1 }
+        chance(0).then   { never.add! 1 }
+        chance(100).then { always.add! 1 }
       end
     end
     assert_equal 0,  i[:never],  "chance(0) must never fire"
@@ -158,7 +158,7 @@ class TestRandom < Minitest::Test
     i = interpret do
       seed 777
       hits = var :hits, 0
-      100.times { chance(50).then { hits.add 1 } }
+      100.times { chance(50).then { hits.add! 1 } }
     end
     # Deterministic given the seed, but assert a band so the test states the intent
     # (roughly half) rather than pinning an incidental exact count.
@@ -217,7 +217,7 @@ class TestRandom < Minitest::Test
           randomize
           pressed(:start).then do
             roll :rx, 0..200
-            done.set 1
+            done.set! 1
           end
         end
         (done > 0).then do
@@ -276,7 +276,7 @@ class TestRandom < Minitest::Test
   end
 
   def test_no_boot_seed_when_randomness_is_unused
-    program = tree { set :x, 1 }
+    program = tree { set! :x, 1 }
     refute program.children.any? { |n| n.kind == :set && n.var == Builder::RNG_STATE },
            "a game that never draws shouldn't carry the random stream at all"
   end

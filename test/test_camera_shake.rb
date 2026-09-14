@@ -31,7 +31,7 @@ class TestCameraShake < Minitest::Test
       fill_rect 100, 70, 40, 20, :red
       frame = var :frame, 0
       game_loop do
-        frame.add 1
+        frame.add! 1
         (frame == 3).then { shake_screen intensity: intensity, frames: length }
         (frame >= frames).then { halt }
       end

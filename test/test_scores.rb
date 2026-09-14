@@ -43,7 +43,7 @@ class TestScores < Minitest::Test
       music = songs :music, scores
       pass = var :pass, 0
       game_loop do
-        pass.add 1
+        pass.add! 1
         instance_exec(music, pass, &body)
       end
     end
@@ -96,7 +96,7 @@ class TestScores < Minitest::Test
     scores = [notes_every_ten_ticks(:C4), notes_every_ten_ticks(:E4), notes_every_ten_ticks(:G4)]
     program = game(scores) do |music, pass|
       track = var :track, 2
-      (pass == 15).then { track.set 1 }
+      (pass == 15).then { track.set! 1 }
       music.play track
     end
 
@@ -107,7 +107,7 @@ class TestScores < Minitest::Test
   def test_a_number_naming_no_song_leaves_the_music_alone
     program = game([notes_every_ten_ticks(:C4, :E4)]) do |music, pass|
       track = var :track, 0
-      (pass == 5).then { track.set 7 }
+      (pass == 5).then { track.set! 7 }
       music.play track
     end
 
@@ -205,7 +205,7 @@ class TestScores < Minitest::Test
     scores = [notes_every_ten_ticks(:C4, plays: :piano), notes_every_ten_ticks(:G4, plays: :harp)]
     rom = assemble_rom(game(scores) do |music, pass|
       track = var :track, 1
-      (pass == 10).then { track.set 9 }
+      (pass == 10).then { track.set! 9 }
       music.play track
     end, name: "SCORENONE")
 

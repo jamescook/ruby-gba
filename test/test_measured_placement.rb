@@ -31,9 +31,9 @@ class TestMeasuredPlacement < Minitest::Test
       var :state, 0
       var :x, 0
 
-      scene(:title) { add :x, 1 }
+      scene(:title) { add! :x, 1 }
       scene(:playing) { call :the_hot_one }
-      func(:the_hot_one) { repeat(3000) { add :x, 1 } }
+      func(:the_hot_one) { repeat(3000) { add! :x, 1 } }
 
       game_loop do
         case_var(:state) do
@@ -135,8 +135,8 @@ class TestMeasuredPlacement < Minitest::Test
       screen :bitmap
       clear_screen :black
       var :x, 0
-      func(:never_run, fast: true) { repeat(3000) { add :x, 1 } }
-      game_loop { add :x, 1 }
+      func(:never_run, fast: true) { repeat(3000) { add! :x, 1 } }
+      game_loop { add! :x, 1 }
     end
     placement = game.build_rom(out: StringIO.new, err: StringIO.new).built.placement
 

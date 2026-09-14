@@ -75,9 +75,9 @@ class TestMixerSampleClock < Minitest::Test
       started = var :started, 0
       frame = var :frame, 0
       game_loop do
-        frame.add 1
+        frame.add! 1
         (started == 0).then do
-          started.set 1
+          started.set! 1
           tone.play loop: true
         end
         (frame == stop_at).then { tone.stop }
@@ -133,7 +133,7 @@ class TestMixerSampleClock < Minitest::Test
       crowd = (1..joining).map { |n| sample :"quiet#{n}", pcm: quiet, rate: hz }
       frame = var :frame, 0
       game_loop do
-        frame.add 1
+        frame.add! 1
         (frame == 5).then { lead.play loop: true }
         (frame == 20).then { crowd.each { |tone| tone.play loop: true } }
       end
@@ -166,7 +166,7 @@ class TestMixerSampleClock < Minitest::Test
         started = var :started, 0
         game_loop do
           (started == 0).then do
-            started.set 1
+            started.set! 1
             tone.play loop: true
           end
           8.times { clear_screen :black }

@@ -29,8 +29,8 @@ class TestSubroutines < Minitest::Test
   def test_func_and_call_builds
     rom = build do
       func :reset_ball do
-        set :ball_x, 120
-        set :ball_y, 80
+        set! :ball_x, 120
+        set! :ball_y, 80
       end
 
       call :reset_ball
@@ -47,7 +47,7 @@ class TestSubroutines < Minitest::Test
       halt
 
       func :reset_ball do
-        set :ball_x, 120
+        set! :ball_x, 120
       end
     end
 
@@ -57,7 +57,7 @@ class TestSubroutines < Minitest::Test
   def test_multiple_calls_to_same_func
     rom = build do
       func :inc_score do
-        add_var :score, 1
+        add_var! :score, 1
       end
 
       call :inc_score
@@ -72,7 +72,7 @@ class TestSubroutines < Minitest::Test
   def test_func_emits_push_pop
     rom = build do
       func :noop do
-        set :x, 0
+        set! :x, 0
       end
       call :noop
       halt
@@ -91,7 +91,7 @@ class TestSubroutines < Minitest::Test
   def test_call_emits_bl
     rom = build do
       func :my_func do
-        set :x, 42
+        set! :x, 42
       end
       call :my_func
       halt
@@ -134,13 +134,13 @@ class TestSubroutines < Minitest::Test
       screen :bitmap
 
       func :update_ball do
-        add_var :ball_x, 2
+        add_var! :ball_x, 2
         if_ge :ball_x, 240 do
-          set :ball_x, 0
+          set! :ball_x, 0
         end
       end
 
-      set :ball_x, 120
+      set! :ball_x, 120
       game_loop do
         call :update_ball
       end
@@ -152,12 +152,12 @@ class TestSubroutines < Minitest::Test
   def test_func_calling_another_func
     rom = build do
       func :inner do
-        set :x, 1
+        set! :x, 1
       end
 
       func :outer do
         call :inner
-        set :y, 2
+        set! :y, 2
       end
 
       call :outer

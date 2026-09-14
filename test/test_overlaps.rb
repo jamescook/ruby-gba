@@ -63,8 +63,8 @@ class TestOverlaps < Minitest::Test
       hits   = var :hits, 0
       wall   = box(20, 0, 4, 8) # spans x 20..24
       game_loop do
-        ball_x.add 1
-        box(ball_x, 0, 4, 8).overlaps?(wall).then { hits.add 1 }
+        ball_x.add! 1
+        box(ball_x, 0, 4, 8).overlaps?(wall).then { hits.add! 1 }
         (ball_x >= 40).then { halt }
       end
     end
@@ -93,7 +93,7 @@ class TestOverlaps < Minitest::Test
       game_loop do
         wait_vblank
         hero.overlaps?(item).then { pixel 0, 0, :green }
-        frame.add 1
+        frame.add! 1
         (frame >= 2).then { halt }
       end
     end
@@ -152,9 +152,9 @@ class TestOverlaps < Minitest::Test
       frame = var :frame, 0
       game_loop do
         wait_vblank
-        hero.x.add 2
+        hero.x.add! 2
         (frame == 6).then { coin.hide } # vanish while the hero is on top of it
-        frame.add 1
+        frame.add! 1
         (frame >= 24).then { halt }
       end
     end

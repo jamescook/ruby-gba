@@ -40,12 +40,12 @@ class TestTextTwoColors < Minitest::Test
       if on == :bitmap
         game_loop do
           clear_screen :black
-          pressed(:a).then { flag.set 1 }
+          pressed(:a).then { flag.set! 1 }
           draw_text WORDS, X, Y, %i[gray white], showing: pick.call
         end
       else
         draw_text WORDS, X, Y, %i[gray white], showing: pick.call
-        game_loop { pressed(:a).then { flag.set 1 } }
+        game_loop { pressed(:a).then { flag.set! 1 } }
       end
     end
   end
@@ -229,7 +229,7 @@ class TestTextTwoColors < Minitest::Test
       flag = var :flag, 0
       game_loop do
         clear_screen :black
-        held(:a).then { flag.set 1 }
+        held(:a).then { flag.set! 1 }
         if colors.length == 1
           draw_text words, X, Y, colors.first
         else

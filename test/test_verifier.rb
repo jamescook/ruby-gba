@@ -173,8 +173,8 @@ class TestVerifier < Minitest::Test
       high = save_var :high_score, 0
       s = var :s, 0
       game_loop do
-        s.set 7
-        (s > high).then { high.set s }
+        s.set! 7
+        (s > high).then { high.set! s }
       end
     end
 

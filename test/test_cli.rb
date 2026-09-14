@@ -132,7 +132,7 @@ class TestCLI < Minitest::Test
       screen :bitmap
       var :x, 0
       game_loop do
-        held(:left).then { add :x, 1 }
+        held(:left).then { add! :x, 1 }
       end
     end
   RUBY
@@ -180,7 +180,7 @@ class TestCLI < Minitest::Test
           clear_screen :black
           t = var :t, 0
           game_loop do
-            repeat(50) { |i| t.add i }
+            repeat(50) { |i| t.add! i }
             fill_rect 0, 0, 40, 8, :green
           end
         end
@@ -329,7 +329,7 @@ class TestCLI < Minitest::Test
         Multi = RubyGBA.game "MULTI", code: "BMLT", maker: "01" do
           screen :bitmap
           ExtraState.declare(self)
-          game_loop { add :score, 1 }
+          game_loop { add! :score, 1 }
         end
       RUBY
 

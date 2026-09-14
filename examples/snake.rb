@@ -150,15 +150,15 @@ module Snake
     # are unrolled here at build time, so each is just one draw from the random
     # stream plus one scan of the body — no loop inside a loop at run time.
     func :spawn_food do
-      set :placed, 0
+      set! :placed, 0
       FOOD_TRIES.times do
         (placed == 0).then do
           roll :food_x, MIN_COL..MAX_COL
           roll :food_y, MIN_ROW..MAX_ROW
-          set :placed, 1 # assume it's clear...
+          set! :placed, 1 # assume it's clear...
           repeat(xs.length) do |i|
             # ...unless a body cell is already sitting there.
-            ((xs[i] == :food_x) & (ys[i] == :food_y)).then { set :placed, 0 }
+            ((xs[i] == :food_x) & (ys[i] == :food_y)).then { set! :placed, 0 }
           end
         end
       end
@@ -203,54 +203,54 @@ module Snake
         xs.push cx
         ys.push cy
       end
-      set :dx, 1
-      set :dy, 0
-      set :ndx, 1
-      set :ndy, 0
-      set :score, 0
+      set! :dx, 1
+      set! :dy, 0
+      set! :ndx, 1
+      set! :ndy, 0
+      set! :score, 0
       # Pick the food cell first, then paint the whole board once (which clears the
       # screen, so the food has to be placed before, not drawn before, the clear).
       call :spawn_food
       call :draw_board
-      set :state, 1
+      set! :state, 1
     end
 
     # Advance the snake one cell: commit the buffered turn, work out the new head,
     # and either die, eat, or slide — repainting only the cells that change.
     func :step_snake do
-      copy :dx, :ndx
-      copy :dy, :ndy
-      set :hx, xs.last + dx
-      set :hy, ys.last + dy
+      copy! :dx, :ndx
+      copy! :dy, :ndy
+      set! :hx, xs.last + dx
+      set! :hy, ys.last + dy
 
       # Would the new head land on a cell the body already occupies?
-      set :self_hit, 0
+      set! :self_hit, 0
       repeat(xs.length) do |i|
-        ((xs[i] == :hx) & (ys[i] == :hy)).then { set :self_hit, 1 }
+        ((xs[i] == :hx) & (ys[i] == :hy)).then { set! :self_hit, 1 }
       end
 
       # Game over if we hit a wall or ourselves. (Landing on the very last tail
       # cell counts too — the simplest "don't touch yourself at all" rule.)
       dead = (hx < MIN_COL) | (hx > MAX_COL) | (hy < MIN_ROW) | (hy > MAX_ROW) | (self_hit == 1)
       dead.then do
-        set :state, 2
+        set! :state, 2
         beep :die
         # Record a new best. Setting a save_var writes it through to save memory
         # automatically, so the high score is kept even after the power goes off.
-        (score > high).then { high.set score }
+        (score > high).then { high.set! score }
       end.else do
         # The current head is about to become a body segment — repaint it green.
         board.set_cell xs.last, ys.last, :green
         # Remember the tail cell before we might drop it, so we can erase it.
-        set :tail_x, xs.first
-        set :tail_y, ys.first
+        set! :tail_x, xs.first
+        set! :tail_y, ys.first
         # Grow a new head at the front of the body, and paint it white.
         xs.push :hx
         ys.push :hy
         board.set_cell hx, hy, :white
         # Eat (keep the tail, so we're one longer) or slide (drop and erase it).
         ((hx == food_x) & (hy == food_y)).then do
-          score.add 1
+          score.add! 1
           beep :eat
           call :spawn_food
           call :draw_food
@@ -272,7 +272,7 @@ module Snake
       draw_number :high_score, :left, 78, :white, digits: 3, within: STAT_NUMBER
 
       # Flash the prompt on and off twice a second.
-      every(0.5, :seconds) { (blink == 1).then { blink.set 0 }.else { blink.set 1 } }
+      every(0.5, :seconds) { (blink == 1).then { blink.set! 0 }.else { blink.set! 1 } }
       (blink == 1).then { draw_text "PRESS START", :center, 96, :gray }
 
       # Keep stirring the random stream while we wait, so the food layout is decided
@@ -285,10 +285,10 @@ module Snake
       # Steer every frame so turns feel responsive, but only remember the turn —
       # step_snake commits it. A turn is accepted only if it's perpendicular to the
       # current heading, so you can't spin 180° straight into your own neck.
-      held(:up).then    { (dy == 0).then { set :ndx, 0; set :ndy, -1 } }
-      held(:down).then  { (dy == 0).then { set :ndx, 0; set :ndy, 1 } }
-      held(:left).then  { (dx == 0).then { set :ndx, -1; set :ndy, 0 } }
-      held(:right).then { (dx == 0).then { set :ndx, 1; set :ndy, 0 } }
+      held(:up).then    { (dy == 0).then { set! :ndx, 0; set! :ndy, -1 } }
+      held(:down).then  { (dy == 0).then { set! :ndx, 0; set! :ndy, 1 } }
+      held(:left).then  { (dx == 0).then { set! :ndx, -1; set! :ndy, 0 } }
+      held(:right).then { (dx == 0).then { set! :ndx, 1; set! :ndy, 0 } }
 
       # Move on the beat, not every frame. The board is already on screen from
       # draw_board; step_snake only repaints the handful of cells that change.
@@ -303,7 +303,7 @@ module Snake
       draw_text "HIGH", :right, 90, :gray, within: STAT_LABEL
       draw_number :high_score, :left, 90, :white, digits: 3, within: STAT_NUMBER
 
-      every(0.5, :seconds) { (blink == 1).then { blink.set 0 }.else { blink.set 1 } }
+      every(0.5, :seconds) { (blink == 1).then { blink.set! 0 }.else { blink.set! 1 } }
       (blink == 1).then { draw_text "PRESS START", :center, 110, :gray }
 
       pressed(:start).then { call :new_game }

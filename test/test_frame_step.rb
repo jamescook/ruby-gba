@@ -31,7 +31,7 @@ class TestFrameStep < Minitest::Test
       game_loop do
         dma_fill_rect 0, 0, 240, 8, :black
         draw_rect_at 0, 0, step * WIDE, 8, :white
-        repeat(busy) { spin.add 1 } if busy.positive?
+        repeat(busy) { spin.add! 1 } if busy.positive?
       end
     end
     b.emit_pending_functions
@@ -85,14 +85,14 @@ class TestFrameStep < Minitest::Test
       last = var :last, 0
       loops = var :loops, 0
       spin = var :spin, 0
-      once_a_frame { ticks.add 1 }
+      once_a_frame { ticks.add! 1 }
       game_loop do
-        loops.add 1 # ...which the loop body does once a PASS, however many frames that took
+        loops.add! 1 # ...which the loop body does once a PASS, however many frames that took
         dma_fill_rect 0, 0, 240, 24, :black
         draw_rect_at 0, 0, step * WIDE, 8, :white
         draw_rect_at 0, 12, (ticks - last) * WIDE, 8, :white
-        last.set ticks
-        repeat(busy) { spin.add 1 } if busy.positive?
+        last.set! ticks
+        repeat(busy) { spin.add! 1 } if busy.positive?
       end
     end
     b.emit_pending_functions
@@ -161,8 +161,8 @@ class TestFrameStep < Minitest::Test
       screen :bitmap
       by_pass = var :by_pass, 0
       by_clock = var :by_clock, 0
-      once_a_frame { by_clock.add 1 }
-      game_loop { by_pass.add 1 }
+      once_a_frame { by_clock.add! 1 }
+      game_loop { by_pass.add! 1 }
     end
     b.emit_pending_functions
     b.program
@@ -189,11 +189,11 @@ class TestFrameStep < Minitest::Test
       beats = var :beats, 0
       spin = var :spin, 0
       game_loop do
-        every(period) { beats.add 1 }
+        every(period) { beats.add! 1 }
         dma_fill_rect 0, 0, 240, 24, :black
         draw_rect_at 0, 0, step * WIDE, 8, :white
         draw_rect_at 0, 12, beats * WIDE, 8, :white
-        repeat(busy) { spin.add 1 } if busy.positive?
+        repeat(busy) { spin.add! 1 } if busy.positive?
       end
     end
     b.emit_pending_functions
@@ -227,10 +227,10 @@ class TestFrameStep < Minitest::Test
       fired = var :fired, 0
       spin = var :spin, 0
       game_loop do
-        after(wait) { fired.set 1 }
+        after(wait) { fired.set! 1 }
         dma_fill_rect 0, 0, 240, 24, :black
         draw_rect_at 0, 12, fired * WIDE, 8, :white
-        repeat(busy) { spin.add 1 } if busy.positive?
+        repeat(busy) { spin.add! 1 } if busy.positive?
       end
     end
     b.emit_pending_functions

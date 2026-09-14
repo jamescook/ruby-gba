@@ -132,9 +132,9 @@ module Shmup
     # Back to a fresh game: no boss, and a full wave to run before the next one.
     def reset
       @boss.hide
-      @phase.set :away
-      @hits.set 0
-      @due.set WAVE
+      @phase.set! :away
+      @hits.set! 0
+      @due.set! WAVE
     end
 
     private
@@ -150,47 +150,47 @@ module Shmup
 
     # Nothing on screen: let the wave of enemies run, and enter when it is over.
     def wait_out_the_wave
-      @due.sub 1
+      @due.sub! 1
       (@due <= 0).then do
         @boss.move_to EDGE, -H
         @boss.face :left
-        @drift.set(-SWEEP)
-        @hits.set HITS
-        @flash.set 0
-        @rammed.set 0
+        @drift.set!(-SWEEP)
+        @hits.set! HITS
+        @flash.set! 0
+        @rammed.set! 0
         @boss.show
-        @phase.set :arriving
+        @phase.set! :arriving
       end
     end
 
     # Down from above the screen until it settles on its row.
     def come_down
-      @boss.y.add DIVE
+      @boss.y.add! DIVE
       (@boss.y >= TOP).then do
-        @fuse.set FUSE
-        @phase.set :sweeping
+        @fuse.set! FUSE
+        @phase.set! :sweeping
       end
       glow_while_hurt
     end
 
     # Along the top, banking the way it goes, until the fuse runs out.
     def slide_along_the_top
-      @boss.x.add @drift
-      (@boss.x <= 0).then { @drift.set SWEEP; @boss.face :right }
-      (@boss.x >= EDGE).then { @drift.set(-SWEEP); @boss.face :left }
-      @fuse.sub 1
-      (@fuse <= 0).then { @phase.set :diving }
+      @boss.x.add! @drift
+      (@boss.x <= 0).then { @drift.set! SWEEP; @boss.face :right }
+      (@boss.x >= EDGE).then { @drift.set!(-SWEEP); @boss.face :left }
+      @fuse.sub! 1
+      (@fuse <= 0).then { @phase.set! :diving }
       glow_while_hurt
     end
 
     # Straight down the screen. Dodge sideways or lose a ship — and `overlaps?` reads the
     # boss's whole picture, so the left arm hits you as surely as the middle does.
     def drop_on_the_ship
-      @boss.y.add DIVE
+      @boss.y.add! DIVE
       ((@rammed == 0) & @player.hittable & @player.ship.overlaps?(@boss)).then do
         @hud.hit
         @player.hurt
-        @rammed.set 1
+        @rammed.set! 1
       end
       @boss.below_bottom?.then { climb_back }
       glow_while_hurt
@@ -199,8 +199,8 @@ module Shmup
     # Out of the bottom of the screen and round to the top again.
     def climb_back
       @boss.move_to EDGE, -H
-      @rammed.set 0
-      @phase.set :arriving
+      @rammed.set! 0
+      @phase.set! :arriving
     end
 
     # The last shot landed: flicker out, pay the bonus, and start the next wave of enemies.
@@ -212,8 +212,8 @@ module Shmup
       (@flash <= 0).then do
         @boss.hide
         @hud.bonus BONUS
-        @due.set WAVE
-        @phase.set :away
+        @due.set! WAVE
+        @phase.set! :away
       end
     end
 
@@ -224,11 +224,11 @@ module Shmup
         @player.shot.overlaps?(@boss).then do
           @hud.score_up
           @player.reclaim_shot
-          @hits.sub 1
-          @flash.set HURT
+          @hits.sub! 1
+          @flash.set! HURT
           (@hits <= 0).then do
-            @flash.set DEATH
-            @phase.set :dying
+            @flash.set! DEATH
+            @phase.set! :dying
           end
         end
       end
@@ -239,7 +239,7 @@ module Shmup
     # the picture at once.
     def glow_while_hurt
       (@flash > 0).then do
-        @flash.sub 1
+        @flash.sub! 1
         @boss.draw_with WARM, showing: (@flash >> 1) & 3
       end.else do
         @boss.draw_with :own

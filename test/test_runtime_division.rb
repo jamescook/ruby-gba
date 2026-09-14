@@ -113,14 +113,14 @@ class TestRuntimeDivision < Minitest::Test
     constant = emitted_bytes do
       screen :bitmap
       n = var :n, 1000
-      var(:out, 0).set(n / 100)
+      var(:out, 0).set!(n / 100)
       halt
     end
     computed = emitted_bytes do
       screen :bitmap
       n = var :n, 1000
       d = var :d, 100
-      var(:out, 0).set(n / d)
+      var(:out, 0).set!(n / d)
       halt
     end
 
@@ -134,7 +134,7 @@ class TestRuntimeDivision < Minitest::Test
   def test_dividing_by_one_carries_the_routine
     program = program_for do
       screen :bitmap
-      var(:out, 0).set(var(:n, -100) / 1)
+      var(:out, 0).set!(var(:n, -100) / 1)
       halt
     end
     backend = GBA.new
@@ -153,9 +153,9 @@ class TestRuntimeDivision < Minitest::Test
       var :d, 7
       var :out, 0
       var :after, 0
-      func(:work) { set :out, (var(:n, 100) / var(:d, 7)) }
+      func(:work) { set! :out, (var(:n, 100) / var(:d, 7)) }
       call :work
-      set :after, 42
+      set! :after, 42
       halt
     end
     backend = GBA.new

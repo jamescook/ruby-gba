@@ -31,8 +31,8 @@ class TestHardwareSprite < Minitest::Test
       f = var :f, 0
       game_loop do
         wait_vblank
-        held(:right).then { hero.x.add step }
-        f.add 1
+        held(:right).then { hero.x.add! step }
+        f.add! 1
         (f >= frames).then { halt }
       end
     end

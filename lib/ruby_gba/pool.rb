@@ -7,7 +7,7 @@ module RubyGBA
   #
   #   bullets = pool :bullet, x: 0, y: 0, vy: 0, capacity: 64
   #   bullets.spawn x: ship.x, y: ship.y, vy: -4
-  #   bullets.each { |b| b.y.add b.vy; (b.y < 0).then { b.remove } }
+  #   bullets.each { |b| b.y.add! b.vy; (b.y < 0).then { b.remove } }
   #
   # Behind the scenes each field is a backing {List}, one slot per instance, alongside
   # an `active` column (which slots are live) and a `free` stack (open slot indices). So
@@ -218,7 +218,7 @@ module RubyGBA
     end
 
     # Run the block once per LIVE instance, handing it a row handle whose fields are
-    # mutable (`b.x.add`, `b.y.set`, read `b.x`) and which can retire itself (`b.remove`).
+    # mutable (`b.x.add!`, `b.y.set!`, read `b.x`) and which can retire itself (`b.remove`).
     # A removed or never-spawned slot is skipped. It walks all `capacity` slots (a cheap
     # active check on a dead one).
     def each(&block)
@@ -533,11 +533,11 @@ module RubyGBA
       def step(axis, delta)
         var = field(axis)
         cells = @pool.solid_cells
-        return var.add(delta) if cells.nil?
+        return var.add!(delta) if cells.nil?
 
         target_x = axis == :x ? field(:x) + delta : field(:x)
         target_y = axis == :y ? field(:y) + delta : field(:y)
-        clear_of_tiles(cells, target_x, target_y).then { var.add(delta) }
+        clear_of_tiles(cells, target_x, target_y).then { var.add!(delta) }
       end
 
       # The same shared routine a `sprite` calls — see Builder::Collision. A pool of
@@ -547,8 +547,8 @@ module RubyGBA
         hit_x, hit_y, hit_w, hit_h = require_box!
         builder = @pool.builder
         routine = builder.tile_collision_routine(cells, hit_x, hit_y, hit_w, hit_h)
-        builder.set(routine[:x], Value.node_for(target_x))
-        builder.set(routine[:y], Value.node_for(target_y))
+        builder.set!(routine[:x], Value.node_for(target_x))
+        builder.set!(routine[:y], Value.node_for(target_y))
         builder.call(routine[:name])
         Value.new(builder, IR::Build.var_ref(routine[:clear]), name: routine[:clear]) == 1
       end

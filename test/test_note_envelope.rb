@@ -74,7 +74,7 @@ class TestNoteEnvelope < Minitest::Test
       tone = sample :tone, pcm: RECORDING, rate: RATE, note: :C4
       started = var :started, 0
       game_loop do
-        (started == 0).then { started.set 1; tone.play(loop: true) }
+        (started == 0).then { started.set! 1; tone.play(loop: true) }
         clear_screen :black
       end
     end
@@ -251,7 +251,7 @@ class TestNoteEnvelope < Minitest::Test
       music.play 0
       pass = var :pass, 0
       game_loop do
-        pass.add 1
+        pass.add! 1
         (pass == burst).then { clips.each(&:play) } if burst
       end
     end

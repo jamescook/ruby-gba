@@ -35,7 +35,7 @@ module RubyGBA
   # WITH the value through arithmetic, so it is declared once and never repeated:
   #
   #   px = var :px, 3.5          # a Float initial value: this variable holds a fraction
-  #   px.add speed               # speed carries a fraction too — plain addition
+  #   px.add! speed              # speed carries a fraction too — plain addition
   #   px.to_i                    # a whole number again, for a pixel or an array index
   #
   # A Float anywhere in the program means "a number with a fraction", which is what a

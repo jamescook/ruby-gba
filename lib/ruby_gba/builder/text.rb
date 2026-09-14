@@ -342,20 +342,20 @@ module RubyGBA
       # glyph-by-index draw op would collapse each column to a single blit.
       def draw_live_number(value, x, y, color, digits, font)
         source = next_number_var
-        set(source, value)
+        set!(source, value)
         digit = next_number_var
         started = next_number_var
-        set(started, 0)
+        set!(started, 0)
 
         cell = Fonts.get(font).cell_w
         digits.times do |i|
           place = 10**(digits - 1 - i)
-          set(digit, digit_at(source, place))
+          set!(digit, digit_at(source, place))
           col_x = x + i * cell
           if i == digits - 1
             draw_glyph(digit, col_x, y, color, font) # the ones column always shows
           else
-            if_ne(digit, 0) { set(started, 1) }
+            if_ne(digit, 0) { set!(started, 1) }
             if_eq(started, 1) { draw_glyph(digit, col_x, y, color, font) }
           end
         end
@@ -480,7 +480,7 @@ module RubyGBA
         raise ArgumentError,
               "On a tiled screen, draw_number follows a variable and updates itself each frame. " \
               "Give it a variable (like :score), not an expression. Store the value in a variable " \
-              "first (for example `set :shown, hp - 1`). Then draw that variable."
+              "first (for example `set! :shown, hp - 1`). Then draw that variable."
       end
 
       # The sprite pose that shows the digit of +source+ at +place+ (1, 10, 100, …).

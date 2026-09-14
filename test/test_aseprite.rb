@@ -78,7 +78,7 @@ class TestAseprite < Minitest::Test
       f = var :f, 0
       game_loop do
         wait_vblank
-        f.add 1
+        f.add! 1
         (f >= run).then { halt }
       end
     end

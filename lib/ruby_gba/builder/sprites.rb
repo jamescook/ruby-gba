@@ -16,7 +16,7 @@ module RubyGBA
       #   hero = sprite :heart, at: [100, 60]
       #   game_loop do
       #     wait_vblank
-      #     held(:right).then { hero.x.add 2 }
+      #     held(:right).then { hero.x.add! 2 }
       #   end
       #
       # Pass +shown: false+ for a sprite that starts hidden and appears later — a

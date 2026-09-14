@@ -35,7 +35,7 @@ class TestIRGuardrailOrphanedCondition < Minitest::Test
   def test_a_comparison_used_with_then_is_not_orphaned
     orphans = orphans_for do
       x = var :x, 5
-      (x > 3).then { set :y, 1 }
+      (x > 3).then { set! :y, 1 }
     end
 
     assert_empty orphans
@@ -44,7 +44,7 @@ class TestIRGuardrailOrphanedCondition < Minitest::Test
   def test_a_then_else_chain_is_not_orphaned
     orphans = orphans_for do
       x = var :x, 5
-      (x > 3).then { set :y, 1 }.else { set :y, 0 }
+      (x > 3).then { set! :y, 1 }.else { set! :y, 0 }
     end
 
     assert_empty orphans
@@ -54,7 +54,7 @@ class TestIRGuardrailOrphanedCondition < Minitest::Test
     orphans = orphans_for do
       x = var :x, 5
       y = var :y, 2
-      ((x > 3) & (y < 10)).then { set :z, 1 }
+      ((x > 3) & (y < 10)).then { set! :z, 1 }
     end
 
     assert_empty orphans, "both operands are folded in by `&`, and the result is `.then`-ed"
@@ -77,7 +77,7 @@ class TestIRGuardrailOrphanedCondition < Minitest::Test
   end
 
   def test_held_used_with_then_is_not_orphaned
-    orphans = orphans_for { held(:a).then { set :y, 1 } }
+    orphans = orphans_for { held(:a).then { set! :y, 1 } }
 
     assert_empty orphans
   end
@@ -121,7 +121,7 @@ class TestIRGuardrailOrphanedCondition < Minitest::Test
         screen :bitmap
         x = var :x, 5
         if x > 3        # the footgun: a native `if` on a Condition
-          set :y, 1
+          set! :y, 1
         end
         halt
       end
@@ -136,7 +136,7 @@ class TestIRGuardrailOrphanedCondition < Minitest::Test
     RubyGBA.build("GUARD", code: "BGRD", maker: "01", out: StringIO.new, err: err) do
       screen :bitmap
       x = var :x, 5
-      (x > 3).then { set :y, 1 }
+      (x > 3).then { set! :y, 1 }
       halt
     end
 

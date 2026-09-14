@@ -75,8 +75,8 @@ class TestSpriteDrawsWith < Minitest::Test
       step = var :step, 0
       game_loop do
         ship.draw_with [:warm, :hot], showing: step
-        ship.x.add 1
-        step.add 1
+        ship.x.add! 1
+        step.add! 1
       end
     end
     builder.emit_pending_functions
@@ -103,7 +103,7 @@ class TestSpriteDrawsWith < Minitest::Test
   def test_a_sprite_told_its_own_colors_goes_back_to_them
     i = Reference.new.run(program do |ship|
       (ship.x == 40).then { ship.draw_with :hurt }.else { ship.draw_with :own }
-      ship.x.set 41
+      ship.x.set! 41
     end, frames: 4)
 
     assert_equal Color.resolve(:red), i.screen.pixel(42, 41)
@@ -162,7 +162,7 @@ class TestSpriteDrawsWith < Minitest::Test
       ships.spawn x: 80, y: 40
       frame = var :frame, 0
       game_loop do
-        frame.add 1
+        frame.add! 1
         ships.each do |ship|
           (frame == 1).then { (ship.x == 80).then { ship.draw_with :hurt } }
           (frame == respawn_at).then { (ship.x == 80).then { ship.remove } } if respawn_at
@@ -199,7 +199,7 @@ class TestSpriteDrawsWith < Minitest::Test
       ships.spawn x: 40, y: 40
       frame = var :frame, 0
       game_loop do
-        frame.add 1
+        frame.add! 1
         (frame == 1).then { ships.each { |ship| ship.draw_with :hurt } }
         (frame == 3).then { ships.spawn x: 80, y: 40 }
       end

@@ -176,8 +176,8 @@ module Piano
         end
       end
 
-      seq.add 1
-      (seq >= total).then { seq.set 0 } # loop the piece
+      seq.add! 1
+      (seq >= total).then { seq.set! 0 } # loop the piece
     end
   end
 

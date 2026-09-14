@@ -71,7 +71,7 @@ class TestHardwareSpritesMulti < Minitest::Test
       game_loop do
         wait_vblank
         (f == 1).then { shown ? guy.hide : guy.show }
-        f.add 1
+        f.add! 1
         (f >= frames).then { halt }
       end
     end

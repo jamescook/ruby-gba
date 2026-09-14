@@ -234,7 +234,7 @@ module RubyGBA
     #
     # A NARROW SLOT ALWAYS GOES BELOW NOTHING, and there is nothing to say about that — it is
     # not a choice you are given, because there is no way to make it correctly. The case that
-    # decides it is a countdown: `wait.sub 7` followed by `(wait <= 0)` really does hold -4
+    # decides it is a countdown: `wait.sub! 7` followed by `(wait <= 0)` really does hold -4
     # while that test runs, and a slot that could not go below nothing would read -4 back as
     # 252 and the test would never fire — a game that quietly stops working. Nothing at build
     # time can see that coming, since the value is worked out as the game runs. So a `:byte`
@@ -340,7 +340,7 @@ module RubyGBA
     # then just looked up:
     #
     #   sin = table :sin, (0...256).map { |a| (Math.sin(a * Math::PI / 128) * 256).round }, width: :half
-    #   y.set sin[angle]   # y = sin[angle], a plain lookup
+    #   y.set! sin[angle]   # y = sin[angle], a plain lookup
     #
     # `width` is the element size: :byte (8-bit), :half (16-bit), or :word (32-bit).
     # `signed` is inferred from the values (any negative makes it signed) unless you
@@ -926,7 +926,7 @@ module RubyGBA
     # Look up a variable's IWRAM address, raising if not declared.
     def var_address!(name)
       entry = @variables[name]
-      raise ArgumentError, "The variable :#{name} is not defined. Use `set :#{name}, value` first." unless entry
+      raise ArgumentError, "The variable :#{name} is not defined. Use `set! :#{name}, value` first." unless entry
       entry[:address]
     end
 

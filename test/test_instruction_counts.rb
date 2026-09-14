@@ -31,7 +31,7 @@ class TestInstructionCounts < Minitest::Test
     program, emitted = counts do
       x = var :x, 3
       y = var :y, 0
-      game_loop { y.set x }
+      game_loop { y.set! x }
     end
 
     assert_equal 1, emitted[find(program, :set)].instructions
@@ -44,7 +44,7 @@ class TestInstructionCounts < Minitest::Test
     program, emitted = counts do
       x = var :x, 3
       y = var :y, 0
-      game_loop { y.set(x + 2) }
+      game_loop { y.set!(x + 2) }
     end
 
     statement = find(program, :set)
@@ -62,7 +62,7 @@ class TestInstructionCounts < Minitest::Test
     program, emitted = counts do
       x = var :x, 3
       y = var :y, 0
-      game_loop { 8.times { y.add x } }
+      game_loop { 8.times { y.add! x } }
     end
 
     read = find(program, :var_ref)
@@ -81,7 +81,7 @@ class TestInstructionCounts < Minitest::Test
       x = var :x, 300
       d = var :d, 7
       y = var :y, 0
-      game_loop { y.set(x / d) }
+      game_loop { y.set!(x / d) }
     end
 
     refute_predicate emitted[find(program, :binop)], :straight?
@@ -93,7 +93,7 @@ class TestInstructionCounts < Minitest::Test
     program, emitted = counts do
       x = var :x, 3
       y = var :y, 0
-      game_loop { (x > 3).then { y.set 1 } }
+      game_loop { (x > 3).then { y.set! 1 } }
     end
 
     refute_predicate emitted[find(program, :binop)], :straight?
@@ -105,7 +105,7 @@ class TestInstructionCounts < Minitest::Test
     program, emitted = counts do
       x = var :x, 300
       y = var :y, 0
-      game_loop { y.set(x / 100) }
+      game_loop { y.set!(x / 100) }
     end
 
     assert_predicate emitted[find(program, :binop)], :straight?
@@ -117,7 +117,7 @@ class TestInstructionCounts < Minitest::Test
     rom = RubyGBA.build("COUNT", code: "BCNT", maker: "01", err: StringIO.new) do
       screen :bitmap
       y = var :y, 0
-      game_loop { y.add 1 }
+      game_loop { y.add! 1 }
     end
 
     step = rom.source_program.walk.find { |node| node.kind == :add }
@@ -132,7 +132,7 @@ class TestInstructionCounts < Minitest::Test
     b.instance_eval do
       screen :bitmap
       y = var :y, 0
-      game_loop { y.add 1 }
+      game_loop { y.add! 1 }
     end
     b.emit_pending_functions
     backend = GBA.new

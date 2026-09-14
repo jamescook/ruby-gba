@@ -49,7 +49,7 @@ class TestEffectsRegistry < Minitest::Test
   # A pack that brings a guardrail with it: it errors on a program that sets :boom.
   module Watched
     def watched_verb
-      set :boom, 1
+      set! :boom, 1
     end
 
     def self.checks
@@ -100,7 +100,7 @@ class TestEffectsRegistry < Minitest::Test
       clear_screen :blue
       frame = var :frame, 0
       game_loop do
-        frame.add 1
+        frame.add! 1
         (frame == 1).then { shake_screen intensity: 4, frames: 4 }
         (frame >= 3).then { halt }
       end
@@ -281,9 +281,9 @@ class TestEffectsRegistry < Minitest::Test
       screen :bitmap
       ticks = var :ticks, 0
       frame = var :frame, 0
-      once_a_frame { ticks.add 1 }
+      once_a_frame { ticks.add! 1 }
       game_loop do
-        frame.add 1
+        frame.add! 1
         (frame >= 5).then { halt }
       end
     end)
@@ -302,16 +302,16 @@ class TestEffectsRegistry < Minitest::Test
       play_ran = var :play_ran, 0
       frame = var :frame, 0
 
-      once_a_frame { ticks.add 1 }
+      once_a_frame { ticks.add! 1 }
 
       scene(:title) do
-        title_ran.add 1
-        (frame >= 2).then { set :state, 1 }
+        title_ran.add! 1
+        (frame >= 2).then { set! :state, 1 }
       end
-      scene(:playing) { play_ran.add 1 }
+      scene(:playing) { play_ran.add! 1 }
 
       game_loop do
-        frame.add 1
+        frame.add! 1
         case_var(:state) do
           when_val 0, :title
           when_val 1, :playing
@@ -329,7 +329,7 @@ class TestEffectsRegistry < Minitest::Test
     i = Reference.new.run(program do
       screen :bitmap
       ticks = var :ticks, 0
-      once_a_frame { ticks.add 1 }
+      once_a_frame { ticks.add! 1 }
       halt
     end)
 

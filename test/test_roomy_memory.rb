@@ -149,7 +149,7 @@ class TestRoomyMemory < Minitest::Test
       total = var :total, 0
       clear_screen :black
       repeat(8) { far.push 3 }
-      repeat(8) { |n| total.add far[n] }
+      repeat(8) { |n| total.add! far[n] }
       # A stripe as wide as the total, so the console can be asked what it read back.
       draw_rect_at 0, 10, total, 4, :green
       game_loop { wait_vblank }

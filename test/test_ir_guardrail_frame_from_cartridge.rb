@@ -17,7 +17,7 @@ class TestFrameFromCartridgeGuardrail < Minitest::Test
     rom = RubyGBA.build("COLD", code: "ZCLD", maker: "01", out: StringIO.new, err: err) do
       screen :bitmap
       spin = var :spin, 0
-      cold = lambda { 4000.times { spin.add 1 } }
+      cold = lambda { 4000.times { spin.add! 1 } }
       func(:thinking, fast: false) { cold.call } if cold_in_a_func
       game_loop do
         fill_rect 0, 0, 40, 8, :green

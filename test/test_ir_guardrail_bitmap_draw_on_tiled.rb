@@ -101,7 +101,7 @@ class TestIRGuardrailBitmapDrawOnTiled < Minitest::Test
       draw_text "SCORE", 8, 8, :white
       draw_number :score, 60, 8, :white, digits: 3
       hero = sprite :hero, at: [40, 40]
-      game_loop { hero.x.add 1; score.add 1 }
+      game_loop { hero.x.add! 1; score.add! 1 }
     end
 
     assert_empty Check.new.detect(prog),

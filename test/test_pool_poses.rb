@@ -80,7 +80,7 @@ class TestPoolPoses < Minitest::Test
         (turned == 0).then do
           guards.each { |g| g.face :right; g.remove }
           guards.spawn x: 20, y: 20
-          turned.set 1
+          turned.set! 1
         end
       end
     end
@@ -133,7 +133,7 @@ class TestPoolPoses < Minitest::Test
       later = b.var :later, 0
       b.game_loop do
         b.wait_vblank
-        later.add 1
+        later.add! 1
         (later == 2).then { guards.spawn x: 60, y: 20 }
       end
     end

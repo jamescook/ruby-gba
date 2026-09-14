@@ -7,8 +7,8 @@ module RubyGBA
   #   hero = sprite :heart, at: [100, 60]
   #   game_loop do
   #     wait_vblank
-  #     held(:left).then  { hero.x.sub 2 }   # steer with the ordinary expression DSL
-  #     held(:right).then { hero.x.add 2 }
+  #     held(:left).then  { hero.x.sub! 2 }   # steer with the ordinary expression DSL
+  #     held(:right).then { hero.x.add! 2 }
   #     # no draw call — the framework repaints the sprite for you (see below)
   #   end
   #
@@ -27,7 +27,7 @@ module RubyGBA
   # other (a hero picking up a coin) without smearing, because each captures clean
   # background and never a neighbour that hasn't been erased yet. Moving a sprite is
   # therefore just changing its position — `hero.x`/`hero.y` are the usual {Value}
-  # handles, so the whole add/sub/clamp/set vocabulary drives them — and the move
+  # handles, so the whole add!/sub!/clamp!/set! vocabulary drives them — and the move
   # shows up on the next frame.
   #
   # `hide` restores the pixels under the sprite and stops repainting it, so it
@@ -122,7 +122,7 @@ module RubyGBA
     end
 
     # The sprite's position, as {Value} handles — steer them with the expression
-    # DSL (`hero.x.add 2`, `hero.y.clamp! 0, 150`). The framework reads them each
+    # DSL (`hero.x.add! 2`, `hero.y.clamp! 0, 150`). The framework reads them each
     # frame to know where to draw.
     def x
       Value.new(@builder, Build.var_ref(@x_var), name: @x_var)
@@ -164,22 +164,22 @@ module RubyGBA
     def move(direction_or_dx, dy = nil, by: 1)
       if direction_or_dx.is_a?(Symbol)
         step_x, step_y = Direction.unit(direction_or_dx)
-        x.add(step_x * by) unless step_x.zero?
-        y.add(step_y * by) unless step_y.zero?
+        x.add!(step_x * by) unless step_x.zero?
+        y.add!(step_y * by) unless step_y.zero?
         # A sprite with poses turns to face the way it moves — press left, move AND
         # face left in one call. (Only for a direction it actually has a pose for.)
         face(direction_or_dx) if faceted? && @facing_dirs.key?(direction_or_dx)
       else
-        x.add(direction_or_dx)
-        y.add(dy) if dy && dy != 0
+        x.add!(direction_or_dx)
+        y.add!(dy) if dy && dy != 0
       end
       self
     end
 
-    # Jump the sprite to an exact spot — sugar for x.set / y.set.
+    # Jump the sprite to an exact spot — sugar for x.set! / y.set!.
     def move_to(px, py)
-      x.set(px)
-      y.set(py)
+      x.set!(px)
+      y.set!(py)
       self
     end
 

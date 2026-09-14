@@ -144,7 +144,7 @@ class TestAddressRegister < Minitest::Test
       a = var :a, 1
       b = var :b, 2
       c = var :c, 3
-      func(:body) { c.set(a + b) }
+      func(:body) { c.set!(a + b) }
       game_loop { call :body }
     end
     assert_equal 1, loads, "three variables reached one after another want the base once"
@@ -155,7 +155,7 @@ class TestAddressRegister < Minitest::Test
       screen :bitmap
       a = var :a, 1
       b = var :b, 2
-      func(:body) { (a > 0).then { b.set 1 }.else { b.set 2 } }
+      func(:body) { (a > 0).then { b.set! 1 }.else { b.set! 2 } }
       game_loop { call :body }
     end
     assert_equal 3, loads,
@@ -168,15 +168,15 @@ class TestAddressRegister < Minitest::Test
       screen :bitmap
       a = var :a, 1
       b = var :b, 2
-      func(:bump) { a.add 1 }
-      func(:body) { a.set 1; call :bump; b.set 2 }
+      func(:bump) { a.add! 1 }
+      func(:body) { a.set! 1; call :bump; b.set! 2 }
       game_loop { call :body }
     end
     without = base_loads_in(:body) do
       screen :bitmap
       a = var :a, 1
       b = var :b, 2
-      func(:body) { a.set 1; b.set 2 }
+      func(:body) { a.set! 1; b.set! 2 }
       game_loop { call :body }
     end
     assert_equal 1, without, "two writes in a row want the base once"
@@ -192,7 +192,7 @@ class TestAddressRegister < Minitest::Test
       b = var :b, 7
       c = var :c, 0
       d = var :d, 0
-      func(:sums) { c.set(a + b); d.set(c * a); c.set(d - b) }
+      func(:sums) { c.set!(a + b); d.set!(c * a); c.set!(d - b) }
       game_loop { call :sums; halt }
     end
     run = Reference.new.run(program)
@@ -266,7 +266,7 @@ class TestAddressRegister < Minitest::Test
         screen :bitmap
         xs = list :xs, capacity: 8
         a = var :a, 1
-        func(:body) { a.set(xs[0] + a); xs[1] = a }
+        func(:body) { a.set!(xs[0] + a); xs[1] = a }
         game_loop { call :body }
       end
     }
@@ -329,7 +329,7 @@ class TestAddressRegister < Minitest::Test
       func(:sums) do
         4.times { |k| xs << k + 1 }
         4.times { |k| ys << xs[k] * 2 }
-        4.times { |k| total.set(total + xs[k] + ys[k]) }
+        4.times { |k| total.set!(total + xs[k] + ys[k]) }
       end
       game_loop { call :sums; halt }
     end

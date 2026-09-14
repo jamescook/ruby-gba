@@ -22,11 +22,11 @@ class TestBuilderIR < Minitest::Test
 
   def test_variable_ops_build_a_matching_ir_tree
     got = tree do
-      var :x, 5        # var is an alias for set
-      set :y, 10
-      add :x, 3        # immediate operand
-      sub :x, :y       # variable operand
-      copy :z, :x
+      var :x, 5        # var is an alias for set!
+      set! :y, 10
+      add! :x, 3        # immediate operand
+      sub! :x, :y       # variable operand
+      copy! :z, :x
       flip! :z          # flip! is an alias for negate!
       abs! :z
       negate_abs! :z
@@ -59,7 +59,7 @@ class TestBuilderIR < Minitest::Test
     # same tree the DSL built executes on the reference backend and clamps as intended.
     got = tree do
       var :x, 10
-      add :x, 100     # 110
+      add! :x, 100     # 110
       clamp! :x, 0, 20 # -> 20
     end
     assert_equal 20, Reference.new.run(got)[:x]
@@ -104,18 +104,18 @@ class TestBuilderIR < Minitest::Test
 
   def test_control_flow_builds_a_nested_ir_tree
     got = tree do
-      set :x, 0
+      set! :x, 0
       func :bump do
-        add :x, 1
+        add! :x, 1
       end
       game_loop do
         wait_vblank
         if_gt :x, 5 do        # condition becomes a binop over var + operand
-          set :x, 0
+          set! :x, 0
         end
         call :bump
         if_held :up do        # condition becomes a held(:up) read
-          add :x, 10
+          add! :x, 10
         end
       end
     end
@@ -164,7 +164,7 @@ class TestBuilderIR < Minitest::Test
   end
 
   def test_if_pressed_builds_a_pressed_condition
-    got = tree { if_pressed(:start) { set :go, 1 } }
+    got = tree { if_pressed(:start) { set! :go, 1 } }
     assert_equal program(if_(pressed(:start), set(:go, 1))), got
   end
 
@@ -172,9 +172,9 @@ class TestBuilderIR < Minitest::Test
     # Build a loop that calls a func until a counter reaches the limit, then run
     # the exact tree the DSL built and check the counter.
     got = tree do
-      set :x, 0
+      set! :x, 0
       func :bump do
-        add :x, 1
+        add! :x, 1
       end
       game_loop do
         call :bump
@@ -232,7 +232,7 @@ class TestBuilderIR < Minitest::Test
       enable_sound
       var :score, 0
       func :award do
-        add :score, 1
+        add! :score, 1
         beep :high
       end
       game_loop do

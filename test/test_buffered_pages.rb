@@ -36,7 +36,7 @@ class TestBufferedPages < Minitest::Test
       n = var :n, 0
       game_loop do
         draw_rect_at n * 20, 4, 8, 100, :red
-        n.add 1
+        n.add! 1
       end
     end
     b.emit_pending_functions
@@ -140,7 +140,7 @@ class TestBufferedPages < Minitest::Test
       n = var :n, 0
       game_loop do
         draw_rect_at n * 20, 4, 8, 100, :red
-        n.add 1
+        n.add! 1
       end
     end
     b.emit_pending_functions

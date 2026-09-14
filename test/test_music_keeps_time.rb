@@ -31,7 +31,7 @@ class TestMusicKeepsTime < Minitest::Test
       end
       pass = var :pass, 0
       game_loop do
-        pass.add 1
+        pass.add! 1
         instance_exec(pass, &loop_body)
       end
     end
@@ -88,7 +88,7 @@ class TestMusicKeepsTime < Minitest::Test
       end
       pass = var :pass, 0
       game_loop do
-        pass.add 1
+        pass.add! 1
         # the first tune, then the second from pass 16, then back to the first from pass 22
         ((pass >= 16) & (pass < 22)).then { play_song :second }.else { play_song :first }
       end
@@ -117,7 +117,7 @@ class TestMusicKeepsTime < Minitest::Test
       end
       pass = var :pass, 0
       game_loop do
-        pass.add 1
+        pass.add! 1
         ((pass >= 5) & (pass < 8)).then { stop_music }.else { play_song :scale }
       end
     end
@@ -174,9 +174,9 @@ class TestMusicKeepsTime < Minitest::Test
       spin = var :spin, 0
       passes = var :passes, 0
       game_loop do
-        passes.add 1
+        passes.add! 1
         play_song :beat
-        repeat(burn) { spin.add 1 }
+        repeat(burn) { spin.add! 1 }
       end
     end
     b.emit_pending_functions
@@ -226,7 +226,7 @@ class TestMusicKeepsTime < Minitest::Test
       end
       passes = var :passes, 0
       game_loop do
-        passes.add 1
+        passes.add! 1
         (passes < 20).then { play_song :drone }.else { stop_music }
       end
     end
@@ -255,7 +255,7 @@ class TestMusicKeepsTime < Minitest::Test
       game_loop do
         stop_music
         (started == 0).then do
-          started.set 1
+          started.set! 1
           beep 440, decay: :slow
         end
       end

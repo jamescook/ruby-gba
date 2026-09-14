@@ -340,20 +340,20 @@ class TestInspector < Minitest::Test
   def test_no_unknown_instructions_in_pong
     rom = RubyGBA.build("PONG", code: "BPNG", maker: "01", validate: false) do
       screen :bitmap
-      set :state, 0
+      set! :state, 0
       scene :title do
         clear_screen :black
         draw_text "HI", 100, 76, :white
         if_pressed :start do
-          set :state, 1
+          set! :state, 1
         end
       end
       scene :playing do
         clear_screen :blue
         if_held :up do
-          sub :player_y, 2
+          sub! :player_y, 2
         end
-        add :player_y, 1
+        add! :player_y, 1
         clamp! :player_y, 0, 136
         draw_rect_at 8, :player_y, 4, 24, :white
       end
@@ -387,7 +387,7 @@ class TestInspector < Minitest::Test
     out = StringIO.new
     RubyGBA.build("TEST", code: "BTST", maker: "01", validate: false, out: out) do
       func :my_func do
-        set :x, 42
+        set! :x, 42
       end
       dump_func :my_func
       halt
@@ -402,7 +402,7 @@ class TestInspector < Minitest::Test
     out = StringIO.new
     RubyGBA.build("TEST", code: "BTST", maker: "01", validate: false, out: out) do
       scene :title do
-        set :x, 1
+        set! :x, 1
       end
       dump_func :title
       halt

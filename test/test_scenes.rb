@@ -28,10 +28,10 @@ class TestScenes < Minitest::Test
   def test_scene_does_not_clash_with_func
     rom = build do
       func :title do
-        set :x, 1
+        set! :x, 1
       end
       scene :title do
-        set :x, 2
+        set! :x, 2
       end
       call :title
       call :_scene_title
@@ -54,7 +54,7 @@ class TestScenes < Minitest::Test
         clear_screen :blue
       end
 
-      set :state, 0
+      set! :state, 0
       case_var :state do
         when_val 0, :title
         when_val 1, :playing
@@ -77,7 +77,7 @@ class TestScenes < Minitest::Test
         clear_screen :black
       end
 
-      set :state, 0
+      set! :state, 0
       game_loop do
         case_var :state do
           when_val 0, :title
@@ -96,7 +96,7 @@ class TestScenes < Minitest::Test
         clear_screen :black
         draw_text "PRESS START", 64, 100, :white
         if_pressed :start do
-          set :state, 1
+          set! :state, 1
         end
       end
 
@@ -104,7 +104,7 @@ class TestScenes < Minitest::Test
         clear_screen :blue
       end
 
-      set :state, 0
+      set! :state, 0
       game_loop do
         case_var :state do
           when_val 0, :title
@@ -128,7 +128,7 @@ class TestScenes < Minitest::Test
       scene :blue_scene  do clear_screen :blue end
       scene :green_scene do clear_screen :green end
 
-      set :state, 1
+      set! :state, 1
       case_var :state do
         when_val 0, :red_scene
         when_val 1, :blue_scene   # the match — runs, then clobbers scratch
@@ -152,11 +152,11 @@ class TestScenes < Minitest::Test
   HANDING_ON = lambda do |b|
     b.instance_eval do
       screen :bitmap
-      scene(:first)  { add :ran_first, 1;  set :state, 1 }
-      scene(:second) { add :ran_second, 1; set :state, 2 }
-      scene(:third)  { add :ran_third, 1 }
+      scene(:first)  { add! :ran_first, 1;  set! :state, 1 }
+      scene(:second) { add! :ran_second, 1; set! :state, 2 }
+      scene(:third)  { add! :ran_third, 1 }
 
-      set :state, 0
+      set! :state, 0
       case_var :state do
         when_val 0, :first
         when_val 1, :second
@@ -203,7 +203,7 @@ class TestScenes < Minitest::Test
         clear_screen :red
       end
 
-      set :state, 0
+      set! :state, 0
       game_loop do
         case_var :state do
           when_val 0, :title

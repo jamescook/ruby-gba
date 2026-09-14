@@ -61,14 +61,14 @@ module RubyGBA
 
           # Add one row.
           #
-          #   m.item("NEW GAME")                  { state.set PLAYING }
+          #   m.item("NEW GAME")                  { state.set! PLAYING }
           #   m.item("LOAD GAME", enabled: false) { }
           #   m.item("ODE TO JOY", picked: :yellow)
           #
           # A SETTINGS ROW SAYS A DIFFERENT THING depending on the setting, so give it the
           # list of things it can say and the variable that decides which:
           #
-          #   m.item(["MUSIC: OFF", "MUSIC: ON"], showing: music) { music.set 1 - music }
+          #   m.item(["MUSIC: OFF", "MUSIC: ON"], showing: music) { music.set! 1 - music }
           #
           # The words the value points at are the ones on screen, and they are part of the
           # row — so they light up with it, move with the cursor, and are what the block
@@ -150,9 +150,9 @@ module RubyGBA
         # per row saying what picking it does.
         #
         #   menu :main, at: [80, 60] do |m|
-        #     m.item("NEW GAME")                  { state.set PLAYING }
-        #     m.item("LOAD GAME", enabled: false) { state.set LOADING }
-        #     m.item("SOUND")                     { state.set SOUND }
+        #     m.item("NEW GAME")                  { state.set! PLAYING }
+        #     m.item("LOAD GAME", enabled: false) { state.set! LOADING }
+        #     m.item("SOUND")                     { state.set! SOUND }
         #   end
         #
         # Up and down move the cursor and WRAP at both ends. A row that cannot be picked
@@ -292,15 +292,15 @@ module RubyGBA
         # neither button is down, so the next tap moves at once however long you held
         # the last one.
         def menu_move(items, pick, wait, moved, repeat_every)
-          moved.set 0
+          moved.set! 0
           (held(:up) | held(:down)).then do
             (wait == 0).then do
-              wait.set repeat_every
-              moved.set 1
+              wait.set! repeat_every
+              moved.set! 1
               held(:down).then { menu_step(items, pick, 1) }
                          .else { menu_step(items, pick, -1) }
-            end.else { wait.sub 1 }
-          end.else { wait.set 0 }
+            end.else { wait.sub! 1 }
+          end.else { wait.set! 0 }
         end
 
         # One step of the cursor, wrapping at the end it walked off.
@@ -312,17 +312,17 @@ module RubyGBA
         def menu_step(items, pick, direction)
           last = items.length - 1
           if direction.positive?
-            pick.add 1
-            (pick > last).then { pick.set 0 }
+            pick.add! 1
+            (pick > last).then { pick.set! 0 }
           else
-            pick.sub 1
-            (pick < 0).then { pick.set last }
+            pick.sub! 1
+            (pick < 0).then { pick.set! last }
           end
 
           items.each_index do |i|
             next if items[i].enabled
 
-            (pick == i).then { pick.set menu_next_pickable(items, i, direction) }
+            (pick == i).then { pick.set! menu_next_pickable(items, i, direction) }
           end
         end
 
