@@ -109,7 +109,7 @@ class TestJukeboxExample < Minitest::Test
   # because the example drew ">" for a long time and nothing appeared: the built-in
   # font had no such glyph, so every frame drew an invisible cursor and the only thing
   # marking the picked row was its colour.
-  ROW_TOPS = [58, 78, 98].freeze
+  ROW_TOPS = Array.new(Jukebox::SONGS.size) { |row| Jukebox::FIRST_ROW + (row * Jukebox::ROW_GAP) }.freeze
 
   def test_the_cursor_hangs_off_the_left_of_the_picked_row
     at_rest = Reference.new.run(Jukebox.program, max_steps: 4000).screen
@@ -135,6 +135,156 @@ class TestJukeboxExample < Minitest::Test
     assert_operator energy[20..38].max, :>, loud, "the first tune plays (#{energy.inspect})"
     assert_operator energy[42..70].min, :<, loud / 8, "it goes quiet as the cursor moves (#{energy.inspect})"
     assert_operator energy[85..].max, :>, loud, "and the next tune comes up (#{energy.inspect})"
+  end
+
+  # --- the piano tune and its sound effects ---
+
+  # SOMEBODY AT THE JUKEBOX: moves the cursor down to the piano tune, waits for the chord it names
+  # (:big, every voice the tune's; :small, four of them), and a few frames into it presses each of
+  # +presses+ — a button, and how many frames after the first press it goes down. Each press is
+  # held for three frames, so the game sees one press whether a pass of its loop takes one frame
+  # or two. Handed whose each voice is on every frame, it answers the buttons held on that frame.
+  class Listener
+    TAP = 3
+
+    attr_reader :pressed_at
+
+    def initialize(chord:, presses:)
+      @chord = chord
+      @presses = presses
+      @frame = 0
+    end
+
+    def keys(owners)
+      @frame += 1
+      return taps_down if @frame <= 6 * TAP
+      return [] unless @pressed_at || waiting_over?(owners)
+
+      @pressed_at ||= @frame
+      @presses.filter_map { |button, after| button if (@frame - @pressed_at - after).between?(0, TAP - 1) }
+    end
+
+    private
+
+    # Three taps of DOWN: row 0 to the piano tune on row 3.
+    def taps_down = ((@frame - 1) / TAP).even? ? [:down] : []
+
+    # A few frames into the chord, so both backends are well inside it.
+    def waiting_over?(owners)
+      voices = @chord == :big ? 16 : 4
+      @in_chord = owners.size == voices && owners.all? { |owner| owner.first == :song } ? (@in_chord || 0) + 1 : 0
+      @in_chord > 8
+    end
+  end
+
+  # ONE FRAME OF THE JUKEBOX, as a test reads it: the voices sounding as the frame began, and
+  # how loud the console's sound was over it (nil from the interpreter, which mixes nothing).
+  Moment = Data.define(:voices, :loudness) do
+    def owners = voices.map { |voice| voice.respond_to?(:owner) ? voice.owner : voice }
+  end
+
+  # A run of the jukebox on the interpreter with +listener+ at the buttons: every frame's Moment,
+  # from the listener's first press on (from the start, when it never presses), and what the
+  # run logged.
+  def interpreted_jukebox(listener, frames:)
+    i = Reference.new
+    moments = []
+    i.input_each_frame do |_frame|
+      moments << Moment.new(voices: i.sound_owners, loudness: nil)
+      listener.keys(moments.last.owners)
+    end
+    i.run(Jukebox.program, frames: frames)
+    [from_the_press(moments, listener), i.audio]
+  end
+
+  # ...and on the console.
+  def console_jukebox(listener, frames:)
+    rom = Jukebox.build_rom(out: StringIO.new, err: StringIO.new)
+    Dir.mktmpdir do |dir|
+      path = File.join(dir, "jukebox.gba")
+      rom.write(path)
+      probe = RubyGBA::Emulator.probe(path)
+      moments = Array.new(frames) do
+        voices = rom.built.voices.read { |address| probe.read32(address) }
+        probe.step(1, keys: listener.keys(voices.map(&:owner)))
+        Moment.new(voices, probe.audio_energy)
+      end
+      probe.close
+      from_the_press(moments, listener)
+    end
+  end
+
+  def from_the_press(moments, listener) = moments.drop((listener.pressed_at || 1) - 1)
+
+  # The same listener's run on both backends: [interpreter, console], each from the first press.
+  def on_both(frames:, **listening)
+    [interpreted_jukebox(Listener.new(**listening), frames: frames).first,
+     console_jukebox(Listener.new(**listening), frames: frames)]
+  end
+
+  HOORAY = [:"sfx.hooray", 0].freeze
+  BLIP = [:"sfx.blip", 0].freeze
+  BIG_CHORD = Array.new(16) { |part| [:song, part] }.freeze
+  SMALL_CHORD = BIG_CHORD.first(4).freeze
+
+  # HOORAY ON THE BIG CHORD takes a voice from the tune, which has every one; the part that lost
+  # it has it back at the next big chord, two measures on.
+  def test_hooray_takes_a_voice_from_the_tunes_big_chord_on_both_backends
+    on_both(frames: 560, chord: :big, presses: [[:a, 0]]).each do |moments|
+      assert_equal BIG_CHORD, moments.first.owners, "every voice is the tune's as A goes down"
+      assert(moments.first(40).any? { |now| now.owners.include?(HOORAY) && now.owners.size == 16 },
+             "HOORAY takes one of them")
+      assert_equal BIG_CHORD, moments[250].owners, "and the tune has it back at its next big chord"
+    end
+  end
+
+  # BLIP ranks below the tune: on the big chord there is no voice for it, and the chord is left
+  # exactly as it was — on the small one, it is heard.
+  def test_blip_is_not_played_on_the_big_chord_and_is_on_the_small_one
+    big, log = interpreted_jukebox(Listener.new(chord: :big, presses: [[:b, 0]]), frames: 300)
+
+    assert_includes log, [:sound_effect, :"sfx.blip"]
+    [big, console_jukebox(Listener.new(chord: :big, presses: [[:b, 0]]), frames: 300)].each do |moments|
+      assert(moments.first(30).all? { |now| now.owners == BIG_CHORD }, "the big chord, untouched")
+    end
+    on_both(frames: 200, chord: :small, presses: [[:b, 0]]).each do |moments|
+      assert(moments.first(30).any? { |now| now.owners == SMALL_CHORD + [BLIP] }, "BLIP over the small chord")
+    end
+  end
+
+  # A SECOND PRESS STARTS HOORAY AGAIN from its first note: a few frames after it, its voice is
+  # reading the first note's pitch again where its second note would otherwise be sounding.
+  def test_hooray_pressed_again_starts_from_its_first_note
+    _, log = interpreted_jukebox(Listener.new(chord: :small, presses: [[:a, 0], [:a, 7]]), frames: 200)
+
+    assert_equal 2, log.count([:sound_effect, :"sfx.hooray"])
+    moments = console_jukebox(Listener.new(chord: :small, presses: [[:a, 0], [:a, 7]]), frames: 200)
+    steps = moments.first(30).map { |now| now.voices.find { |voice| voice.owner == HOORAY }&.step }
+    first_note = steps.compact.first
+
+    assert_equal first_note, steps[14], "the first note again, where the second was due (#{steps.inspect})"
+  end
+
+  # HOORAY KEEPS ITS OWN VOLUME while the music fades: A, then DOWN moves the cursor off the tune.
+  def test_hooray_does_not_fade_with_the_music
+    moments = console_jukebox(Listener.new(chord: :small, presses: [[:a, 0], [:down, 2]]), frames: 200)
+    hooray = moments.first(25).filter_map { |now| now.voices.find { |voice| voice.owner == HOORAY }&.volume }
+    tune = moments.first(25).map { |now| now.voices.select { |voice| voice.owner.first == :song }.sum(&:volume) }
+
+    assert_operator hooray.size, :>, 15, "HOORAY sounds through the fade"
+    assert_equal [hooray.first], hooray.uniq, "at one volume"
+    assert_operator tune.last, :<, tune.first, "while the tune goes quiet"
+  end
+
+  # HOORAY OVER THE SMALL CHORD, heard on the console: louder than the same frames with nobody
+  # pressing A, and once it has ended, frame for frame as loud as those — the tune was not
+  # touched and did not slip.
+  def test_hooray_adds_to_the_sound_and_leaves_the_tune_as_it_was
+    pressed = console_jukebox(Listener.new(chord: :small, presses: [[:a, 0]]), frames: 200)
+    quiet = console_jukebox(Listener.new(chord: :small, presses: []), frames: 200) # waits for the same frame
+
+    assert_operator pressed.first(40).sum(&:loudness), :>, quiet.first(40).sum(&:loudness), "HOORAY is heard"
+    assert_equal quiet[60, 60].map(&:loudness), pressed[60, 60].map(&:loudness), "and after it, the tune as it was"
   end
 
   # On real hardware: the ROM boots and the music channel is actually driven.
