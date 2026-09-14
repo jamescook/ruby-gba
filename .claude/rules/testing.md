@@ -110,6 +110,37 @@ observable screen result, run the *same* program on each and assert identical
 pixels — see `test/test_blit_clipping.rb` (`assert_same_pixels`) and the two
 `*_at_the_left_edge` tests in `test/test_sprite_mover.rb` as the worked examples.
 
+## Which frame's numbers the picture was drawn from
+
+**Read a pixel and a variable at the same moment and you are not always reading the same
+frame.** Which of the two you are looking at depends on who drew it, and it is the same answer
+on both backends:
+
+- **What the program draws** — `pixel`, `fill_rect`, `draw_rect_at`, `blit`, bitmap
+  `draw_text` — is in the picture a test reads for the pass that drew it, because it writes
+  the pixels itself and the test is reading those pixels. The picture and the variable agree.
+  (What a *player* sees can still lag or tear, since those writes happen while the frame is
+  being scanned out — that is the separate question `RubyGBA::Tearing` answers.)
+- **What the framework draws for you** — a `sprite`, a tiled `draw_text`/`draw_number` glyph,
+  a background's scroll position — is painted in the gap *before the next frame*, from the
+  variables as they stand then. So the picture shows the value from the pass **before** the
+  one whose variables you are reading: `v.var(:n)` is 5 while the sprite is standing where 4
+  put it.
+
+That is not a cost of the interpreter or a quirk of the emulator. A position decided while a
+frame is being drawn cannot appear in that frame — the frame was already on its way to the
+screen — so a game runs this way on real hardware too, and the one frame is not something to
+design away. Rotating the loop does not move it: the sequence of "body, gap, paint, body, gap,
+paint" is the same however you spell the loop.
+
+**What to do about it in a test:** run one frame further and read the picture then, or read
+the variable one frame earlier. `test/test_frame_pairing.rb` pins both halves of this on both
+backends, so if either ever stops behaving this way that file fails rather than a game's suite.
+
+It only bites a test that pairs the two — "is the sprite drawn where the program put it",
+"is the HUD showing the score the program set". A test that reads only pixels, or only
+variables, never meets it.
+
 ## Reference interpreter API
 
 ```ruby

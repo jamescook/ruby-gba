@@ -129,6 +129,11 @@ Test each layer the way a player experiences it, not by restating the code.
     the lowering; they fail loudly when the emulator is absent.
   - Supply input through the interpreter's `hold(:btn)` / `input_each_frame { }`
     and the emulator's `keys:`, not by poking internal state.
+  - **A pixel and a variable read at the same moment are not always the same frame.**
+    What the program draws itself is in step with its variables; what the framework
+    redraws for you every frame — a sprite, a HUD glyph, a background's scroll — shows
+    the value from the frame before, on both backends and on real hardware. See
+    "Which frame's numbers the picture was drawn from" in `.claude/rules/testing.md`.
   - Guardrail tests are behavioral too: assert the *friendly error* a misuse
     raises (a dropped `.then`, an unknown button) — the class and a key phrase,
     not the wording verbatim.
