@@ -218,42 +218,48 @@ module RubyGBA
           # anything at all may happen in the body — a call, a nested loop, a divide that
           # reaches the console's own routine — and the loop still counts right.
           #
-          # Counting up, a pass loads both numbers, compares them, then loads the counter again
-          # to add one and store it.
+          # Counting up, the test is at the END of a pass: load the counter, add one, store it,
+          # load the limit, compare and branch back while there are passes left. Tested at the
+          # start instead, a pass loads the counter twice (once to compare, once to add) and
+          # spends a branch out as well as the branch back. Every pass after the first is the
+          # same either way, so only the first test has to move — before the first pass.
           def emit_repeat_in_memory(node)
             return emit_countdown_in_memory(node) if counts_down?(node)
 
             index = node.index
             limit = :"#{index}__limit"
-
-            @lowering.value(node.count)   # r0 = count
-            @primitives.store_var(ACC, limit)           # limit = count (once)
-            @emitter.emit(ASM.load_immediate(ACC, 0))
-            @primitives.store_var(ACC, index)           # counter = 0
-
             top = @emitter.gensym
             done = @emitter.gensym
-            @emitter.place_label(top)
-            @primitives.load_var(ACC, index)            # r0 = counter
-            @primitives.load_var(TMP, limit)            # r1 = limit
-            @emitter.emit(ASM.cmp_reg(ACC, TMP))     # counter - limit
-            @emitter.emit_branch(:bcond, done, cond: :ge) # counter >= limit => finished
 
+            @lowering.value(node.count)                  # r0 = count
+            @primitives.store_var(ACC, limit)            # limit = count (once)
+            @emitter.emit(ASM.load_immediate(TMP, 0))
+            @primitives.store_var(TMP, index)            # counter = 0
+            @emitter.emit(ASM.cmp_imm(ACC, 0))
+            @emitter.emit_branch(:bcond, done, cond: :le) # no passes at all
+
+            @emitter.place_label(top)
             # ...and the other way out: a loop given something to stop for asks before every
             # pass, so one already answered on its first pass runs the body no times at all.
-            if LoopForm.stops_early?(node)
-              @lowering.value(node.stop_when)
-              @emitter.emit(ASM.cmp_imm(ACC, 0))
-              @emitter.emit_branch(:bcond, done, cond: :ne)
-            end
+            emit_stop_test(node, done)
 
             node.children.each { |stmt| @lowering.statement(stmt) }
 
             @primitives.load_var(ACC, index)
-            @emitter.emit(ASM.add_imm(ACC, ACC, 1))  # counter += 1
+            @emitter.emit(ASM.add_imm(ACC, ACC, 1))      # counter += 1
             @primitives.store_var(ACC, index)
-            @emitter.emit_branch(:b, top)
+            @primitives.load_var(TMP, limit)
+            @emitter.emit(ASM.cmp_reg(ACC, TMP))
+            @emitter.emit_branch(:bcond, top, cond: :lt) # passes left => go round
             @emitter.place_label(done)
+          end
+
+          def emit_stop_test(node, done)
+            return unless LoopForm.stops_early?(node)
+
+            @lowering.value(node.stop_when)
+            @emitter.emit(ASM.cmp_imm(ACC, 0))
+            @emitter.emit_branch(:bcond, done, cond: :ne)
           end
 
           # ...and counting down, when nothing reads the index. The passes left are kept in the
@@ -275,11 +281,7 @@ module RubyGBA
             @primitives.store_var(ACC, index)
 
             @emitter.place_label(top)
-            if LoopForm.stops_early?(node)
-              @lowering.value(node.stop_when)
-              @emitter.emit(ASM.cmp_imm(ACC, 0))
-              @emitter.emit_branch(:bcond, done, cond: :ne)
-            end
+            emit_stop_test(node, done)
 
             node.children.each { |stmt| @lowering.statement(stmt) }
 
@@ -293,8 +295,8 @@ module RubyGBA
           def counts_down?(node) = @unread_indexes.include?(node.index)
 
           # THE FAST SHAPE: the counter and the limit stay in two registers for the whole loop,
-          # so a pass is a compare, a branch, an add and a branch — four instructions, where the
-          # safe shape loads and stores its two numbers besides.
+          # so a pass ends in an add, a compare and a branch back — where the safe shape loads
+          # and stores its two numbers besides.
           #
           # The body may still READ the index (`xs[i]` is what most loops are for), and it
           # reads it out of the register: #load_var is told the index is being held, so a read
@@ -354,33 +356,35 @@ module RubyGBA
             @emitter.emit(ASM.pop(*registers))
           end
 
-          # The counting the two register shapes share: set up, test, run the body, step on.
+          # The counting the two register shapes share: set up, run the body, step on, test.
           # Only what happens to the body differs between them, so only that is passed in.
+          #
+          # The test is at the end of a pass — an add, a compare and a branch back — rather than
+          # at the start, where a pass would also spend a branch out. Moving the count into its
+          # register sets the flags on the way, so that same instruction says whether there is a
+          # first pass to make at all.
           def emit_repeat_loop(node, &body)
             return emit_countdown_loop(node, &body) if counts_down?(node)
 
-            @lowering.value(node.count)
-            @emitter.emit(ASM.mov_reg(LoopForm::LIMIT, ACC))
-            @emitter.emit(ASM.load_immediate(LoopForm::COUNTER, 0))
-
             top = @emitter.gensym
             done = @emitter.gensym
+
+            @lowering.value(node.count)
+            @emitter.emit(ASM.load_immediate(LoopForm::COUNTER, 0))
+            @emitter.emit(ASM.subs_imm(LoopForm::LIMIT, ACC, 0))
+            @emitter.emit_branch(:bcond, done, cond: :le)
+
             @emitter.place_label(top)
-            @emitter.emit(ASM.cmp_reg(LoopForm::COUNTER, LoopForm::LIMIT))
-            @emitter.emit_branch(:bcond, done, cond: :ge)
-
             @primitives.holding(node.index, LoopForm::COUNTER) { yield }
-
             @emitter.emit(ASM.add_imm(LoopForm::COUNTER, LoopForm::COUNTER, 1))
-            @emitter.emit_branch(:b, top)
+            @emitter.emit(ASM.cmp_reg(LoopForm::COUNTER, LoopForm::LIMIT))
+            @emitter.emit_branch(:bcond, top, cond: :lt)
             @emitter.place_label(done)
             @primitives.store_var(LoopForm::COUNTER, node.index)
           end
 
           # ...and counting down, when nothing reads the index: a pass ends in a subtract and a
-          # branch, where counting up spends a compare, a branch, an add and a branch. Moving the
-          # count into its register sets the flags on the way, so the same instruction says
-          # whether there is a first pass to make at all.
+          # branch, one instruction fewer again, because the subtract is its own test.
           def emit_countdown_loop(node)
             top = @emitter.gensym
             done = @emitter.gensym

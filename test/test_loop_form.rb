@@ -434,8 +434,45 @@ class TestLoopForm < Minitest::Test
     assert_equal 5, overhead
   end
 
-  # A count that runs no passes — nought, or below it — must still run none. Counting down
-  # tests at the END of a pass, so the first test has to be made before the first pass instead.
+  # A BODY THAT READS ITS INDEX has to be handed 0, 1, 2, so its loop counts up — but it can
+  # still test at the end of a pass rather than the start. Tested first, a pass is a compare, a
+  # branch out, the body, an add and a branch back; tested last it is the body, an add, a compare
+  # and a branch back, which is one branch fewer. The fourth instruction is the body finding the
+  # variable memory again, as above.
+  #
+  # Written out with no loop, the body reads an ordinary variable instead of the index, which is
+  # the same one instruction as reading the index out of its register.
+  def test_a_held_pass_that_reads_its_index_is_an_add_a_compare_and_a_branch
+    overhead = loop_overhead { |_b, n, index| n.set index }
+
+    assert_equal 4, overhead
+  end
+
+  # ...and the same around a call, where the index is also written out to its variable before
+  # the call, and the pair saved and restored around it.
+  def test_a_spilled_pass_that_reads_its_index_tests_at_the_end
+    overhead = loop_overhead do |b, n, index|
+      n.set index
+      b.call :bump
+    end
+
+    assert_equal 6, overhead
+  end
+
+  # Through memory, tested at the end, a pass loads the index, adds one, stores it, loads the
+  # limit, compares and branches back. Tested first it loads the index twice — once to compare
+  # and once to add — and spends a branch out and a branch back.
+  def test_a_pass_through_memory_that_reads_its_index_loads_it_once
+    overhead = loop_overhead do |b, n, index|
+      n.set index
+      3.times { b.call :bump }
+    end
+
+    assert_equal 7, overhead
+  end
+
+  # A count that runs no passes — nought, or below it — must still run none. A loop that tests
+  # at the END of a pass has to make its first test before the first pass instead.
   def test_a_loop_counted_nought_or_below_runs_no_passes_on_the_console
     rom = RubyGBA.build("LOOPNONE", code: "BLNO", maker: "01", err: StringIO.new, out: StringIO.new) do
       screen :bitmap
@@ -452,6 +489,16 @@ class TestLoopForm < Minitest::Test
           b.repeat(count) { b.call :bump }                        # spilled
           b.repeat(count) { 3.times { b.call :bump } }            # through memory
           b.repeat(count, stop_when: hit == 1) { passes.add 1 }   # stops early
+          b.repeat(count) { |i| passes.add i + 1 }                # ...and each reading its index
+          b.repeat(count) do |i|
+            passes.add i + 1
+            b.call :bump
+          end
+          b.repeat(count) do |i|
+            passes.add i + 1
+            3.times { b.call :bump }
+          end
+          b.repeat(count, stop_when: hit == 1) { |i| passes.add i + 1 }
         end
         b.repeat(3, stop_when: hit == 1) { passes.add 100 }
       end
@@ -484,14 +531,15 @@ class TestLoopForm < Minitest::Test
 
   # The instructions a pass of the loop runs beyond its body. Each form is measured at PASSES
   # and at twice that, so what either spends once — setting the loop up, or the first statement
-  # finding the variables — cancels out of the difference. The body is given the builder and a
-  # variable to count with.
+  # finding the variables — cancels out of the difference. The body is given the builder, a
+  # variable to count with, and something to read: the loop's index, or with no loop an
+  # ordinary variable.
   def loop_overhead(&body)
     looped = [PASSES, PASSES * 2].map do |passes|
-      instructions_a_frame(pass_rom("BLPL") { |b, n| b.repeat(passes) { body.call(b, n) } })
+      instructions_a_frame(pass_rom("BLPL") { |b, n, _k| b.repeat(passes) { |i| body.call(b, n, i) } })
     end
     inline = [PASSES, PASSES * 2].map do |passes|
-      instructions_a_frame(pass_rom("BLPI") { |b, n| passes.times { body.call(b, n) } })
+      instructions_a_frame(pass_rom("BLPI") { |b, n, k| passes.times { body.call(b, n, k) } })
     end
     ((looped.last - looped.first) - (inline.last - inline.first)) / PASSES
   end
@@ -504,9 +552,10 @@ class TestLoopForm < Minitest::Test
                               fast_code: false) do
       screen :bitmap
       n = var :n, 0
+      k = var :k, 0
       b = self
       func(:bump) { n.add 1 }
-      game_loop { yield b, n }
+      game_loop { yield b, n, k }
     end
   end
 
