@@ -148,6 +148,47 @@ class TestRubyGBAEmulatorProbe < Minitest::Test
     end
   end
 
+  # READING A WHOLE STRETCH AT ONCE. A game's state is an area of memory — a pool of
+  # sixty guards, a list, a map — and asking for it a word at a time costs a call into the
+  # emulator for every four bytes. A test that reads it every frame does that thousands of
+  # times, and a suite of those does it millions.
+  def test_a_stretch_of_memory_reads_the_same_as_asking_a_byte_at_a_time
+    with_probe(red_rom) do |probe|
+      probe.step(4)
+      start = 0x0300_0000
+
+      assert_equal (0...64).map { |i| probe.read8(start + i) },
+                   probe.read_bytes(start, 64).bytes
+    end
+  end
+
+  def test_a_stretch_read_as_words_is_the_same_as_asking_for_each
+    rom = RubyGBA.build("BULK", validate: false) do
+      screen :bitmap
+      var :a, 11
+      var :b, 22
+      var :c, 33
+      game_loop { wait_vblank }
+    end
+    with_probe(write_rom(rom, "bulk")) do |probe|
+      probe.step(4)
+      start = rom.var_addresses.fetch(:a)
+
+      assert_equal [11, 22, 33], probe.read_words(start, 3)
+      assert_equal [probe.read32(start), probe.read32(start + 4), probe.read32(start + 8)],
+                   probe.read_words(start, 3)
+    end
+  end
+
+  def test_reading_a_stretch_of_nothing_is_a_friendly_error
+    with_probe(red_rom) do |probe|
+      probe.step(1)
+
+      assert_raises(ArgumentError) { probe.read_bytes(0x0300_0000, 0) }
+      assert_raises(ArgumentError) { probe.read_bytes(0x0300_0000, -4) }
+    end
+  end
+
   def test_close_is_idempotent_and_observable
     probe = RubyGBAEmulator.open(red_rom)
     probe.step(1)

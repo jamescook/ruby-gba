@@ -329,6 +329,32 @@ module RubyGBAEmulator
       @core.bus_read32(address)
     end
 
+    # READ A WHOLE STRETCH AT ONCE, as raw bytes.
+    #
+    #   probe.read_bytes(guards_start, 64 * 4).unpack("V*")
+    #
+    # A game's state is an area of memory — a pool of sixty guards, a list, a map — and
+    # asking for it a word at a time crosses into the emulator once per four bytes. The
+    # crossing is what costs; the read itself is nothing. A test that reads a pool every
+    # frame makes thousands of those, and a suite of such tests makes millions.
+    #
+    # Every address behaves as it does for {#read32} beside it, registers and unmapped
+    # addresses included.
+    #
+    # @return [String] +count+ bytes, binary
+    def read_bytes(address, count)
+      ensure_open!
+      @core.bus_read_bytes(address, count)
+    end
+
+    # The same stretch as whole numbers — +count+ words, each four bytes, little-endian.
+    # What a run of variables or a pool's column reads as.
+    #
+    # @return [Array<Integer>]
+    def read_words(address, count)
+      read_bytes(address, count * 4).unpack("V*")
+    end
+
     # Write a little-endian word to the address bus, into a game that is already running.
     #
     # It is how a game is put into a state somebody would otherwise have to PLAY it into:

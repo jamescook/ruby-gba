@@ -848,6 +848,43 @@ mgba_core_bus_read32(VALUE self, VALUE addr)
     return UINT2NUM(val);
 }
 
+/* --------------------------------------------------------- */
+/* Core#bus_read_bytes(address, count)                        */
+/*                                                            */
+/* A WHOLE STRETCH IN ONE ASK. A game's state is an area of   */
+/* memory — a pool of sixty guards, a list, a map — and a     */
+/* test that reads one a word at a time crosses into the      */
+/* emulator once per four bytes. The crossing is the cost,    */
+/* not the read: gathering the bytes here and handing back    */
+/* one String makes it one crossing whatever the size.        */
+/*                                                            */
+/* Through the bus rather than straight out of the emulator's */
+/* memory, so every address behaves the way the single reads  */
+/* beside it do — mirrored regions, registers, and unmapped   */
+/* addresses included.                                        */
+/* --------------------------------------------------------- */
+
+static VALUE
+mgba_core_bus_read_bytes(VALUE self, VALUE addr, VALUE count)
+{
+    struct mgba_core *mc = get_mgba_core(self);
+    uint32_t address = (uint32_t)NUM2UINT(addr);
+    long wanted = NUM2LONG(count);
+    VALUE out;
+    uint8_t *bytes;
+    long i;
+
+    if (wanted <= 0) {
+        rb_raise(rb_eArgError, "there is nothing to read: asked for %ld bytes", wanted);
+    }
+    out = rb_str_new(NULL, wanted);
+    bytes = (uint8_t *)RSTRING_PTR(out);
+    for (i = 0; i < wanted; i++) {
+        bytes[i] = (uint8_t)mc->core->busRead8(mc->core, address + (uint32_t)i);
+    }
+    return out;
+}
+
 /* Core#bus_write32(address, value)                          */
 /* Write four bytes (little-endian) to the GBA address bus.  */
 /*                                                           */
@@ -2450,6 +2487,7 @@ Init_ruby_gba_emulator_ext(void)
     rb_define_method(cCore, "bus_read8",    mgba_core_bus_read8, 1);
     rb_define_method(cCore, "bus_read16",   mgba_core_bus_read16, 1);
     rb_define_method(cCore, "bus_read32",   mgba_core_bus_read32, 1);
+    rb_define_method(cCore, "bus_read_bytes", mgba_core_bus_read_bytes, 2);
     rb_define_method(cCore, "bus_write32",  mgba_core_bus_write32, 2);
     rb_define_method(cCore, "step",          mgba_core_step, 0);
     rb_define_method(cCore, "global_cycles", mgba_core_global_cycles, 0);
