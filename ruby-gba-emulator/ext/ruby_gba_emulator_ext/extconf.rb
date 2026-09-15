@@ -13,8 +13,15 @@ def add_mgba_deps
   $libs << " -lpthread" unless $libs.include?("-lpthread")
 
   # libmgba's static build also links libpng and libzip.
-  pkg_config("libpng") || ($libs << " -lpng" unless $libs.include?("-lpng"))
-  pkg_config("libzip") || ($libs << " -lzip" unless $libs.include?("-lzip"))
+  #
+  # Only ask pkg-config when it is really installed. Without it, mkmf falls back to a
+  # "<name>-config" script, and Homebrew's libpng-config does not know the options mkmf
+  # passes: it prints its usage text, mkmf pastes that into the compiler flags, and the
+  # parentheses in it break every link check that follows — which then reads as "libmgba
+  # not found" even though it is installed.
+  have_pkg_config = find_executable("pkg-config")
+  (have_pkg_config && pkg_config("libpng")) || ($libs << " -lpng" unless $libs.include?("-lpng"))
+  (have_pkg_config && pkg_config("libzip")) || ($libs << " -lzip" unless $libs.include?("-lzip"))
 
   # macOS: CoreFoundation for config directory resolution.
   if RUBY_PLATFORM =~ /darwin/
@@ -47,7 +54,7 @@ def find_mgba
   end
 
   # 2. pkg-config.
-  if pkg_config("mgba")
+  if find_executable("pkg-config") && pkg_config("mgba")
     add_mgba_deps
     return true
   end
