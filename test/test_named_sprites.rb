@@ -109,7 +109,10 @@ class TestNamedSprites < Minitest::Test
 
     assert_operator rows.length, :>, 1, "a 96x32 picture is more than one of the console's sprites"
     assert_equal [:boss], rows.map { |s| s[:name] }.uniq
-    assert_equal 24, rows.map { |s| s[:y] }.min, "and they are all up at the sprite's own place"
+    assert_equal [[8, 24]], rows.map { |s| [s[:x], s[:y]] }.uniq,
+                 "and every row says where the whole picture starts, which is one place"
+    assert_operator rows.map { |s| s[:piece_x] }.uniq.length, :>, 1,
+                    "while the pieces themselves stand apart, shoulder to shoulder"
   end
 
   # The case the other ways of guessing cannot do at all: a sprite drawn with another list of
@@ -302,6 +305,75 @@ class TestNamedSprites < Minitest::Test
     oracle = drawn(game).sprites.map { |s| [s[:name], s[:x], s[:y]] }
 
     assert_equal [[:coin, 100, 80], [:hero, 40, 40]], oracle.sort
+    assert_equal console.sort, oracle.sort
+  end
+
+  # --- where a sprite is, when the framework moved the picture to save memory ---
+  #
+  # A pose is stored trimmed to what it actually draws, and the sprite is put that much further
+  # along so the picture lands where it did. A pose drawn BACKWARDS is trimmed from the other
+  # side, so it is put a different amount further along. Neither is anything the author wrote,
+  # so a row that reported the console's own number would be quietly wrong by up to a canvas —
+  # right for a sprite facing one way and wrong for the same sprite facing the other.
+
+  # Art on a 32x8 canvas: a solid run of red from +left+ to +right+, see-through elsewhere.
+  def blob_rows(left, right)
+    Array.new(8) { Array.new(32) { |col| col.between?(left, right) ? "#" : "." }.join }.join("\n")
+  end
+
+  # One sprite facing the way its art was drawn, one facing the other way so its pose is the
+  # first one backwards. Both arts sit off-centre on their canvas, so trimming moves them.
+  def two_facings
+    facing_right = blob_rows(10, 17)
+    facing_left = blob_rows(4, 11)
+    RubyGBA.game "FACING" do
+      screen :tiled
+      image(:runner, "." => :transparent, "#" => :red)   { facing_right }
+      image(:turner, "." => :transparent, "#" => :green) { facing_left }
+      sprite :runner, at: [64, 40]
+      turner = sprite :turner, at: [144, 40], facing: { right: :turner, left: mirror(:turner) }
+      game_loop { turner.face :left }
+    end
+  end
+
+  # The first screen column in a row of the picture that has anything drawn on it.
+  def first_drawn_column(verifier, from, to, y, color)
+    (from...to).find { |x| verifier.pixel_is?(x, y, color) }
+  end
+
+  def test_a_row_says_where_the_picture_starts_whichever_way_it_faces
+    v = running(two_facings)
+
+    assert_equal 64, v.sprites(:runner).first[:x], "where the game put it, not where its tiles start"
+    assert_equal 144, v.sprites(:turner).first[:x], "and the same for one drawn backwards"
+  end
+
+  def test_where_a_row_says_the_picture_starts_is_where_the_pixels_are
+    v = running(two_facings)
+
+    # The run of red is drawn 10 columns into its canvas, and the green one mirrors to 20.
+    assert_equal v.sprites(:runner).first[:x] + 10, first_drawn_column(v, 0, 130, 44, :red)
+    assert_equal v.sprites(:turner).first[:x] + 20, first_drawn_column(v, 130, 240, 44, :green)
+  end
+
+  # The console's own number is still there under its own name, for a test that wants the
+  # hardware fact rather than the picture's corner.
+  def test_a_row_still_carries_the_place_the_console_was_given
+    v = running(two_facings)
+
+    assert_equal 72, v.sprites(:runner).first[:piece_x], "trimmed 8 in, so the tiles go 8 along"
+    assert_equal 160, v.sprites(:turner).first[:piece_x], "and backwards, trimmed from the far side"
+  end
+
+  # And the oracle, which never trimmed anything, says the same — which is the point of the two
+  # answering in the same words.
+  def test_the_two_backends_agree_about_a_trimmed_and_mirrored_sprite
+    game = two_facings
+
+    console = running(game).sprites.map { |s| [s[:name], s[:x], s[:y]] }
+    oracle = drawn(game).sprites.map { |s| [s[:name], s[:x], s[:y]] }
+
+    assert_equal [[:runner, 64, 40], [:turner, 144, 40]], oracle.sort
     assert_equal console.sort, oracle.sort
   end
 end

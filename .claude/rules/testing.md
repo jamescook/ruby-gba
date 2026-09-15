@@ -225,8 +225,14 @@ v.sprites                                  # every row being drawn, each saying 
 reads the table the console composes from, so it answers what pixels cannot: it tells a hidden
 sprite from one drawn in the backdrop colour, from one behind a background, from one a pixel
 off the edge. Each row is `{name:, x:, y:, slot:, tile:, palette:, priority:, shape:, size:,
-mirrored_across:, mirrored_down:, turned:}`, and a sprite the game switched off is simply
-absent. **Name it and only its rows come back** — never identify one by a slot number (a magic
+mirrored_across:, mirrored_down:, turned:, piece_x:, piece_y:}`, and a sprite the game switched
+off is simply absent. `x:`/`y:` are **where the picture starts** — the corner of the canvas the
+art was drawn on, which is where the game put the sprite, and the same number `i.sprites` gives.
+That is not the number the console carries: a pose is stored trimmed to what it draws and the
+sprite stands that much further along, and a pose drawn backwards is trimmed from the other side
+and stands a different amount again — so the console's own number is right facing one way and
+out by up to a canvas facing the other. `piece_x:`/`piece_y:` still carry it for a test that
+wants the hardware fact. **Name it and only its rows come back** — never identify one by a slot number (a magic
 number that moves the day the game declares something earlier), by position (which needs the
 game to keep its own position in a variable, and is a pixel or two out exactly while the thing
 is moving), or by which colours it draws from (no use at all once they are being swapped). A

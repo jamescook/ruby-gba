@@ -204,9 +204,21 @@ module RubyGBA
 
     # THE SPRITES THE CONSOLE IS DRAWING, each knowing which one the game declared it for.
     #
-    # One Hash per sprite being drawn, straight off the console's own table — +:name+, +:x+,
-    # +:y+, +:slot+, +:tile+, +:palette+, +:priority+, +:shape+, +:size+, +:mirrored_across+,
-    # +:mirrored_down+, +:turned+. Name one and only that sprite's rows come back.
+    # One Hash per sprite being drawn, off the console's own table — +:name+, +:x+, +:y+,
+    # +:slot+, +:tile+, +:palette+, +:priority+, +:shape+, +:size+, +:mirrored_across+,
+    # +:mirrored_down+, +:turned+, +:piece_x+, +:piece_y+. Name one and only that sprite's rows
+    # come back.
+    #
+    # +:x+ AND +:y+ ARE WHERE THE PICTURE STARTS — the corner of the canvas the art was drawn
+    # on, which is where the game put the sprite. That is NOT the number the console carries,
+    # and the difference is worth saying because it is invisible: a pose is stored trimmed to
+    # what it actually draws and the sprite stands that much further along to compensate, and a
+    # pose drawn backwards is trimmed from the other side and stands a different amount further
+    # along again. So the console's own number is right for a sprite facing one way and out by
+    # up to a canvas for the same sprite facing the other — which reads as the animation being
+    # wrong rather than the position. The build did the moving, so it is undone here; +piece_x+
+    # and +piece_y+ still carry what the console was told, for a test that wants that instead.
+    # A row the build cannot name is left where it is, since there is nothing to look up.
     #
     # Worth having because the finished picture cannot answer several ordinary questions: it
     # cannot tell a hidden sprite from one drawn in the backdrop colour, from one behind a
@@ -464,7 +476,15 @@ module RubyGBA
       whose = sprite_slots!.each_with_object({}) do |(name, slots), by_slot|
         slots.each { |slot| by_slot[slot] = name }
       end
-      @core.sprites.map { |row| row.merge(name: whose[row[:slot]]) }
+      moved = @rom.built.sprite_offsets
+      @core.sprites.map do |row|
+        name = whose[row[:slot]]
+        dx, dy = moved.dig(row[:slot], [row[:tile], row[:mirrored_across]]) || [0, 0]
+        # Back into the ranges the console keeps these in, so a sprite half off the left edge
+        # reads the way its own place reads rather than going negative.
+        row.merge(name: name, piece_x: row[:x], piece_y: row[:y],
+                  x: (row[:x] - dx) & 0x1FF, y: (row[:y] - dy) & 0xFF)
+      end
     end
 
     # Which places the build gave each declared sprite. A cartridge assembled without its

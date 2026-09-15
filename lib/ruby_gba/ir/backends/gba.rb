@@ -483,6 +483,7 @@ module RubyGBA
                                    video_memory: video_memory_report,
                                    roomy_memory: roomy_memory_report,
                                    sprite_slots: sprite_slots,
+                                   sprite_offsets: sprite_offsets,
                                    build_options: { fast_cartridge: @fast_cartridge, fast_code: @fast_code })
         end
 
@@ -512,6 +513,52 @@ module RubyGBA
             (places[node.declared] ||= []).concat((sprite.slot...(sprite.slot + sprite.pieces)).to_a)
           end
         end
+
+        # HOW FAR ALONG THE BUILD MOVED EACH OF A SPRITE'S STORED POSES.
+        #
+        # A pose is kept trimmed to the part of its canvas that actually draws something, and
+        # the sprite is told to stand that much further along so the picture does not move (see
+        # PoseCutter#pose_box). A pose drawn BACKWARDS is trimmed from the other side, so it
+        # stands a different amount further along again. Both are this backend's own doing, so
+        # a place read back off the console is that much past the corner of the picture — right
+        # for a sprite facing one way and wrong for the same sprite facing the other, which is
+        # the worst way for a number to be wrong.
+        #
+        # Keyed by the PLACE in the console's table — which is the one thing a row of that table
+        # says about itself that is its own — and then by the two things it says about which
+        # pose it is holding: the first tile it draws, and whether it is being drawn backwards.
+        #
+        # The place has to be the outer key rather than the sprite's name, because a picture
+        # cut into pieces can hold the same tiles in more than one of them (a wide plain wall
+        # is the easy case) and those pieces stand at different distances. Within ONE place,
+        # two poses that answer to the same tile and the same direction are the same stored
+        # picture and were moved the same distance, so there is never a choice to make.
+        def sprite_offsets
+          return {} unless @picture
+
+          @picture.objects.each_with_object({}) do |node, moved|
+            sprite = @objects[node.name]
+            sprite.pieces.times { |piece| moved[sprite.slot + piece] = pose_offsets(sprite, piece) }
+          end
+        end
+
+        # One piece's poses, as the map above. A sprite whose poses all trimmed alike was moved
+        # one distance whatever it is showing, and its poses are told apart by a stride between
+        # their tiles; one whose poses differ carries a word each, and the distance is in there
+        # with the rest of what changes (see #object_pose_table).
+        def pose_offsets(sprite, piece)
+          unless sprite.alike
+            row = sprite.pose_words[piece * sprite.pose_count, sprite.pose_count]
+            return row.to_h { |word| [pose_shown(word), pose_moved(word)] }
+          end
+
+          moved = [sprite.offset_x, sprite.offset_y]
+          (0...sprite.pose_count).to_h { |k| [[sprite.tile_index + (k * sprite.per_pose), false], moved] }
+        end
+
+        def pose_shown(word) = [word & 0x3FF, word.anybits?(POSE_MIRRORED)]
+
+        def pose_moved(word) = [(word >> 14) & 0xFF, (word >> 22) & 0xFF]
 
         # WHAT WENT IN THE OTHER MEMORY, and how much of it is left.
         #

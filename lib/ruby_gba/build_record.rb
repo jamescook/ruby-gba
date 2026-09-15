@@ -53,14 +53,23 @@ module RubyGBA
   # each for most, several in a row for a picture too big to draw in one go. The console's own
   # table says which place a sprite is in and nothing more, so without this nothing can get
   # from a place back to the name the game wrote. Empty for a game with no sprites.
+  # +sprite_offsets+ is how far along the build moved each of a sprite's stored poses, and it
+  # is what keeps +sprite_slots+ honest about WHERE. A pose is stored trimmed to the part of
+  # the canvas it actually draws on, and the sprite is then told to stand that much further
+  # along so the picture lands where the author put it — and a pose drawn backwards is trimmed
+  # from the other side, so it stands a different amount further along. Both are the build's
+  # own doing and neither is anything the game wrote, so a place read back off the console has
+  # to have them taken off again before it means the corner of the picture. Keyed by the place
+  # in that table, then by the two things a row of it says about which pose it is holding: its
+  # first tile, and whether it is being drawn backwards.
   class BuildRecord < Data.define(:source_program, :placement, :var_addresses, :loop_shapes,
                                   :palette_entries, :column_stretches, :compression,
                                   :build_options, :findings, :emitted, :routines, :video_memory,
                                   :roomy_memory, :timer_handlers, :voices, :sound_drops,
-                                  :sprite_slots)
+                                  :sprite_slots, :sprite_offsets)
     def initialize(findings: [], emitted: nil, routines: {}, video_memory: nil,
                    roomy_memory: nil, timer_handlers: {}, voices: nil, sound_drops: nil,
-                   sprite_slots: {}, **rest)
+                   sprite_slots: {}, sprite_offsets: {}, **rest)
       super
     end
 
