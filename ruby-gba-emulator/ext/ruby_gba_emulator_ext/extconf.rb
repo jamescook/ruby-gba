@@ -19,7 +19,17 @@ def add_mgba_deps
   # passes: it prints its usage text, mkmf pastes that into the compiler flags, and the
   # parentheses in it break every link check that follows — which then reads as "libmgba
   # not found" even though it is installed.
+  #
+  # Linked by bare name, they have to be found somewhere — and with MGBA_DIR pointing at a
+  # libmgba built by hand, nothing else has put Homebrew's lib directory on the search path.
+  # Without it the dependency check fails, the fallback links libmgba with none of them, and
+  # the missing symbols only surface when the extension is loaded.
   have_pkg_config = find_executable("pkg-config")
+  unless have_pkg_config
+    %w[/opt/homebrew/lib /usr/local/lib].each do |dir|
+      $LDFLAGS << " -L#{dir}" if File.directory?(dir) && !$LDFLAGS.include?(dir)
+    end
+  end
   (have_pkg_config && pkg_config("libpng")) || ($libs << " -lpng" unless $libs.include?("-lpng"))
   (have_pkg_config && pkg_config("libzip")) || ($libs << " -lzip" unless $libs.include?("-lzip"))
 
