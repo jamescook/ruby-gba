@@ -69,33 +69,6 @@ module Differential
   # measured console values are for.
   EMULATOR_BLEND_SLACK = 1
 
-  # A FRAME MEANS TWO DIFFERENT THINGS ONCE A GAME IS OVER BUDGET. The interpreter runs the
-  # game loop once per frame it is asked for, whatever the body costs. The console runs it
-  # once per frame it has TIME for. So a game whose pass takes two display frames plays half
-  # as much game per frame on the console, and the boot offset above stops being the whole
-  # story: measured on the wolf3d view, holding a button for 40 frames walked the player
-  # 2.8 cells in the interpreter and 1.47 on the console.
-  #
-  # So the two are lined up on PASSES of the loop, not on frames. A hidden counter is added
-  # to the program the console runs (the interpreter runs the original), the console is run
-  # for its frames, the counter says how many passes it managed, and the interpreter is run
-  # for exactly that many. No ratio, no measurement, no cost model, and it stays right when
-  # the game gets faster or slower. For a game that fits the counter agrees with the boot
-  # offset and nothing changes.
-  #
-  # THE SAME COUNT ANSWERS A SECOND QUESTION, which is where it earns its keep. BOOT_FRAMES
-  # is one number per screen mode, measured on a program with almost nothing to set up. A
-  # real game has a map to upload and a cast to declare, reaches its loop a frame later, and
-  # is then one pass behind for the whole run however fast the game itself is. To the picture
-  # that is the same thing as being slow — a pass fewer to show — and the pass count already
-  # says so, whichever of the two it was.
-  #
-  # A game whose picture cannot be caught half-drawn can be lined up this way (see
-  # #shows_finished_passes?). A single-buffered bitmap game caught mid-pass has a half-drawn
-  # picture that no interpreter frame can match — so that one is refused, with the reason,
-  # rather than compared at two different moments and the lowering blamed.
-  PASSES = :__diff_passes
-
   # A button name as the console's key bit, for holding buttons on both backends.
   KEY_BITS = RubyGBA::IR::Buttons::NAMES.to_h do |name|
     [name, RubyGBA::Constants.const_get(:"KEY_#{name.to_s.upcase}")]
@@ -134,27 +107,45 @@ module Differential
 
   # The console's picture after +cf+ frames, and how many passes of the game loop it
   # managed in them — nil for a program with no loop to count.
-  # The console's picture, and how many passes of the game loop it managed.
   #
-  # The passes are counted by adding a variable and an instruction to the game loop, so the
-  # console runs a program the interpreter never sees. That is worth removing — an extra
-  # instruction can tip a routine out of the console's quick memory, so the thing proved
-  # identical is not quite the thing that ships — but it is EXACT, and what replaces it has
-  # to be exact too.
+  # A FRAME MEANS TWO DIFFERENT THINGS ONCE A GAME IS OVER BUDGET. The interpreter runs the
+  # game loop once per frame it is asked for, whatever the body costs. The console runs it
+  # once per frame it has TIME for. So a game whose pass takes two display frames plays half
+  # as much game per frame on the console, and the boot offset stops being the whole story:
+  # measured on the wolf3d view, holding a button for 40 frames walked the player 2.8 cells
+  # in the interpreter and 1.47 on the console.
   #
-  # The emulator can report the game reading the pad, which a game loop does once a pass;
-  # that is a proxy rather than a count, and it says nothing at all about a loop that never
-  # reads input. Counting arrivals at the loop's own routine would be a real count, since
-  # the build knows where that routine is.
+  # So the two are lined up on PASSES of the loop, not on frames. The console is run for its
+  # frames while the emulator counts how many times the game loop was entered, and the
+  # interpreter is then run for exactly that many passes. No ratio, no measurement, no cost
+  # model, and it stays right when the game gets faster or slower. For a game that fits, the
+  # count agrees with the boot offset and nothing changes.
+  #
+  # THE SAME COUNT ANSWERS A SECOND QUESTION, which is where it earns its keep. BOOT_FRAMES
+  # is one number per screen mode, measured on a program with almost nothing to set up. A
+  # real game has a map to upload and a cast to declare, reaches its loop a frame later, and
+  # is then one pass behind for the whole run however fast the game itself is. To the picture
+  # that is the same thing as being slow — a pass fewer to show — and the pass count already
+  # says so, whichever of the two it was.
+  #
+  # A game whose picture cannot be caught half-drawn can be lined up this way (see
+  # #shows_finished_passes?). A single-buffered bitmap game caught mid-pass has a half-drawn
+  # picture that no interpreter frame can match — so that one is refused, with the reason,
+  # rather than compared at two different moments and the lowering blamed.
+  #
+  # THE CONSOLE RUNS THE SAME BYTES THE INTERPRETER IS GIVEN. The passes used to be counted
+  # by adding a variable and an instruction to the game loop, which meant the cartridge every
+  # pixel was proved identical about was not the cartridge that ships — and one extra
+  # instruction can tip a routine out of the console's quick memory, which changes the timing
+  # and therefore changes what is being compared. The emulator counts arrivals at the loop's
+  # own first instruction instead, so nothing is added to the program.
   def console_picture(program, cf, name, keys)
     mask = keys.sum { |key| KEY_BITS.fetch(key) }
-    counted = RubyGBA::Analyzer.instrument_frame_counter(program, PASSES)
-    return [RubyGBA::Verifier.new(assemble_rom(program, name: name), frames: cf, keys: mask).frame_gba, nil] unless counted
-
     backend = RubyGBA::IR::Backends::GBA.new
-    rom = RubyGBA::ROM.assemble(backend.lower(counted), title: name, code: "TEST", maker: "01")
-    verifier = RubyGBA::Verifier.new(rom, frames: cf, keys: mask, vars: backend.var_addresses)
-    [verifier.frame_gba, verifier.var(PASSES)]
+    rom = RubyGBA::ROM.assemble(backend.lower(program), title: name, code: "TEST", maker: "01",
+                                                       built: backend.build_record(program))
+    verifier = RubyGBA::Verifier.new(rom, frames: cf, keys: mask, count_passes: true)
+    [verifier.frame_gba, verifier.passes]
   end
 
   # A game whose picture cannot be lined up on passes is allowed to be this many passes

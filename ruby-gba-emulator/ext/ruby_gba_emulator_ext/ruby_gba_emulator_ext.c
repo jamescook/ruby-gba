@@ -181,6 +181,9 @@ struct mgba_core {
     char log_lines[LOG_LINES][LOG_LINE_MAX];
     /* Watching an address change — see Core#watch. NULL until something is watched. */
     struct mDebugger *debugger;
+    unsigned long arrivals;     /* times the program counter reached a watched routine */
+    uint32_t arrival_address;   /* the instruction being counted */
+    int counting_arrivals;      /* whether anything is being counted at all */
     int change_count;
     int change_dropped;
     struct watched_change {
@@ -1314,7 +1317,9 @@ watch_entered(struct mDebugger *debugger, enum mDebuggerEntryReason reason,
 {
     struct mgba_core *mc = s_watching_core;
 
-    if (mc && reason == DEBUGGER_ENTER_WATCHPOINT && info) {
+    if (mc && reason == DEBUGGER_ENTER_BREAKPOINT) {
+        mc->arrivals++;
+    } else if (mc && reason == DEBUGGER_ENTER_WATCHPOINT && info) {
         if (mc->change_count < CHANGES_MAX) {
             struct watched_change *slot = &mc->changes[mc->change_count];
             slot->address = info->address;
@@ -1329,6 +1334,80 @@ watch_entered(struct mDebugger *debugger, enum mDebuggerEntryReason reason,
     debugger->state = DEBUGGER_RUNNING;
 }
 
+/* Attach the debugger if nothing has yet, so a watch and a breakpoint share the one. */
+static void
+attach_debugger(struct mgba_core *mc)
+{
+    if (mc->debugger) return;
+
+    if (!mc->core->supportsDebuggerType(mc->core, DEBUGGER_CUSTOM)) {
+        rb_raise(rb_eRuntimeError, "this core cannot be watched");
+    }
+    /* mGBA's own factory only builds the command-line and network debuggers — the
+     * CUSTOM kind is the one a program drives itself, and it is expected to bring its
+     * own. So this is a plain zeroed one with somewhere to report to; attaching fills
+     * in the rest (the platform, the identity, the stack trace). */
+    mc->debugger = calloc(1, sizeof(struct mDebugger));
+    if (!mc->debugger) {
+        rb_raise(rb_eNoMemError, "could not make a debugger to watch with");
+    }
+    mc->debugger->type    = DEBUGGER_CUSTOM;
+    mc->debugger->entered = watch_entered;
+    mDebuggerAttach(mc->debugger, mc->core);
+    mc->debugger->state = DEBUGGER_RUNNING;
+}
+
+/* Core#watch_arrivals(address) — count every time the program reaches this instruction.
+ *
+ * The same debugger a watched address uses, with a breakpoint instead of a watchpoint. It is
+ * a REPORT rather than a stop: the callback counts the arrival and sets the debugger running
+ * again, so the cartridge never pauses.
+ *
+ * WHY THIS IS THE ONE HONEST WAY TO COUNT PASSES OF A GAME LOOP. The alternatives are a
+ * proxy or a modified cartridge. The pad-read count is a proxy, and it reports nothing at all
+ * for a loop that never asks for input. Adding a counter to the program means the cartridge
+ * measured is not the cartridge that ships, and an extra instruction can tip a routine out of
+ * the console's quick memory and change the timing being measured. An arrival at the loop's
+ * own first instruction is the pass itself.
+ *
+ * Checking a breakpoint is done per instruction, which sounds ruinous and is not — measured
+ * at a twelfth on a cartridge that sleeps most of the frame and a bit over a third on one
+ * that uses all of it. Nothing is attached until something is counted.
+ */
+static VALUE
+mgba_core_watch_arrivals(VALUE self, VALUE rb_address)
+{
+    struct mgba_core *mc = get_mgba_core(self);
+    struct mBreakpoint bp;
+
+    attach_debugger(mc);
+
+    memset(&bp, 0, sizeof(bp));
+    bp.address   = (uint32_t)NUM2ULONG(rb_address);
+    bp.segment   = -1;
+    bp.type      = BREAKPOINT_HARDWARE;
+    bp.condition = NULL;
+
+    s_watching_core = mc;
+    if (mc->debugger->platform->setBreakpoint(mc->debugger->platform, &bp) < 0) {
+        rb_raise(rb_eRuntimeError, "could not watch for arrivals at 0x%08X", (unsigned)bp.address);
+    }
+    /* Remembered here as well as in the debugger, because measuring what a frame COSTS walks
+     * the cartridge a step at a time by its own route, which never asks the debugger anything.
+     * That route counts arrivals itself — see measure_frame_split — so a caller can measure
+     * the cost of a window and count its passes in the same run. */
+    mc->arrival_address  = bp.address;
+    mc->counting_arrivals = 1;
+    return self;
+}
+
+/* Core#arrivals — how many times the watched instruction has been reached. */
+static VALUE
+mgba_core_arrivals(VALUE self)
+{
+    return ULONG2NUM(get_mgba_core(self)->arrivals);
+}
+
 /* Core#watch(address) — report every change to the word at this address. */
 static VALUE
 mgba_core_watch(VALUE self, VALUE rb_address)
@@ -1336,23 +1415,7 @@ mgba_core_watch(VALUE self, VALUE rb_address)
     struct mgba_core *mc = get_mgba_core(self);
     struct mWatchpoint wp;
 
-    if (!mc->debugger) {
-        if (!mc->core->supportsDebuggerType(mc->core, DEBUGGER_CUSTOM)) {
-            rb_raise(rb_eRuntimeError, "this core cannot be watched");
-        }
-        /* mGBA's own factory only builds the command-line and network debuggers — the
-         * CUSTOM kind is the one a program drives itself, and it is expected to bring its
-         * own. So this is a plain zeroed one with somewhere to report to; attaching fills
-         * in the rest (the platform, the identity, the stack trace). */
-        mc->debugger = calloc(1, sizeof(struct mDebugger));
-        if (!mc->debugger) {
-            rb_raise(rb_eNoMemError, "could not make a debugger to watch with");
-        }
-        mc->debugger->type    = DEBUGGER_CUSTOM;
-        mc->debugger->entered = watch_entered;
-        mDebuggerAttach(mc->debugger, mc->core);
-        mc->debugger->state = DEBUGGER_RUNNING;
-    }
+    attach_debugger(mc);
 
     memset(&wp, 0, sizeof(wp));
     wp.address   = (uint32_t)NUM2ULONG(rb_address);
@@ -2090,6 +2153,9 @@ mgba_core_cpu_halted_p(VALUE self)
  * WHAT NONE OF THIS AFFECTS: RubyGBA's profiler, which counts instructions by
  * sampling the program counter and reads its sleep off global time. Nothing
  * that decides anything goes through here. */
+static inline uint32_t
+executing_pc(struct ARMCore *cpu);
+
 static void
 measure_frame_split(struct mgba_core *mc, int64_t *out_busy, int64_t *out_active)
 {
@@ -2113,6 +2179,12 @@ measure_frame_split(struct mgba_core *mc, int64_t *out_busy, int64_t *out_active
         int32_t before = gba->cpu->cycles;
         uint64_t g_before = gba->timing.globalCycles;
         core->step(core);
+        /* This route never asks the debugger anything, so an arrival being counted has to be
+         * spotted here — the same comparison the debugger makes, in the same place, right
+         * after a step. Without it a caller measuring a window's cost would see its pass
+         * count stand still for the whole window. */
+        if (mc->counting_arrivals && executing_pc(gba->cpu) == mc->arrival_address)
+            mc->arrivals++;
         int32_t delta = gba->cpu->cycles - before;
         if (!was_halted && delta > 0)
             busy += delta;
@@ -2850,6 +2922,8 @@ Init_ruby_gba_emulator_ext(void)
     rb_define_method(cCore, "display_writes_missed", mgba_core_display_writes_missed, 0);
     rb_define_method(cCore, "enable_audio_channel", mgba_core_enable_audio_channel, 2);
     rb_define_method(cCore, "watch",       mgba_core_watch, 1);
+    rb_define_method(cCore, "watch_arrivals", mgba_core_watch_arrivals, 1);
+    rb_define_method(cCore, "arrivals",    mgba_core_arrivals, 0);
     rb_define_method(cCore, "take_changes",   mgba_core_take_changes, 0);
     rb_define_method(cCore, "changes_missed", mgba_core_changes_missed, 0);
     rb_define_method(cCore, "crashed?",    mgba_core_crashed_p, 0);

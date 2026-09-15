@@ -36,11 +36,15 @@ module RubyGBA
     # @param vars [Hash{Symbol=>Integer}, nil] variable name → IWRAM address, from the
     #   backend that lowered the ROM (backend.var_addresses) — lets {#var} read a
     #   variable's value back from memory after the run.
-    def initialize(rom, frames: 2, keys: nil, vars: nil)
+    # @param count_passes [Boolean] count how many times round the game loop the console
+    #   got, readable afterwards as {#passes}. Off by default because it is not free.
+    def initialize(rom, frames: 2, keys: nil, vars: nil, count_passes: false)
       @rom = rom
       @frames = frames
       @keys = keys
       @var_addresses = vars
+      @count_passes = count_passes
+      @passes_counted = false
       @pixels = nil
       @audio = nil
       @audio_by_frame = nil
@@ -196,6 +200,48 @@ module RubyGBA
       address = @var_addresses[name] ||
                 raise(ArgumentError, "unknown variable #{name.inspect} — known: #{@var_addresses.keys.join(', ')}")
       mem32(address)
+    end
+
+    # HOW MANY TIMES ROUND THE GAME LOOP THE CONSOLE GOT, in the frames it ran. Build the
+    # Verifier with `count_passes: true` to ask for it.
+    #
+    # This is not the frame count, and the difference is the reason it exists: the console
+    # runs the loop once per frame it has TIME for, so a game whose pass does not fit in a
+    # frame plays less game per frame than one that does. Anything lining this run up against
+    # a run somewhere else — the interpreter, an earlier build — has to line up on passes.
+    #
+    # It is counted by watching for the loop's own first instruction, so the cartridge
+    # measured is the cartridge that ships. The alternative is adding a counter to the
+    # program, and one extra instruction can tip a routine out of the console's quick memory
+    # and change the timing being measured.
+    #
+    # PASSES FINISHED, not passes begun. A run stops at a frame boundary, where the game is
+    # part-way through a pass — it has asked for the next frame and is waiting for it — so
+    # the pass in flight is not counted. A program with no game loop has no passes and gets
+    # nil, which is a different answer from none.
+    #
+    # WHICH INSTRUCTION IS WATCHED depends on where the build put the loop, and the two
+    # answers are chosen so that neither has to guess where the game is when the run stops.
+    #
+    # A loop the build kept in the console's quick memory is a routine the loop CALLS, so its
+    # first instruction runs once at the START of every pass — the one in flight included, and
+    # there is always one in flight. Passes finished is then one fewer than the arrivals.
+    #
+    # A loop left in the cartridge is written out in place, and the instruction that makes it
+    # a loop is the branch back to the top. That runs once at the END of every pass that
+    # finished, and never for the one in flight, so the arrivals ARE the passes finished. Its
+    # first instruction cannot be used instead: for a loop that waits for the screen, that is
+    # the instruction asking the console to sleep, and the console's own startup can enter
+    # that one twice.
+    def passes
+      unless @count_passes
+        raise ArgumentError,
+              "this run did not count passes — build the Verifier with `count_passes: true` to count them"
+      end
+      ensure_rendered!
+      return nil unless @passes_counted
+
+      [@core.arrivals - @pass_in_flight, 0].max
     end
 
     # --- the processor ---
@@ -437,6 +483,7 @@ module RubyGBA
       @rom.write(@tempfile.path)
       @tempfile.flush
       @core = Emulator.open(@tempfile.path, save_dir: self.class.save_dir)
+      count_the_passes if @count_passes
       @audio = +"".b
       @audio_by_frame = []
       @frames.times do |frame|
@@ -447,6 +494,26 @@ module RubyGBA
         @audio << chunk
       end
       @pixels = @core.video_buffer
+    end
+
+    # Watch for arrivals at the game loop's first instruction, before any frame runs. A
+    # program with no game loop has no such routine, and that is an answer rather than an
+    # error — see {#passes}.
+    def count_the_passes
+      unless @rom.built
+        raise ArgumentError,
+              "This ROM does not know where its game loop is, so its passes cannot be counted. " \
+              "Assemble it with its build record: ROM.assemble(code, ..., built: backend.build_record(program))."
+      end
+      span = @rom.built.routines[BuildRecord::FRAME_ROUTINE]
+      return unless span
+
+      # The start of the pass, or the end of it — see {#passes} for why each shape gets the
+      # one it does, and what each means for the pass that is still running when we stop.
+      kept_fast = @rom.built.fast_frame?
+      @pass_in_flight = kept_fast ? 1 : 0
+      @core.watch_arrivals(kept_fast ? span.begin : span.end)
+      @passes_counted = true
     end
 
     # The held-button bitmask for a given frame (0 if none configured).

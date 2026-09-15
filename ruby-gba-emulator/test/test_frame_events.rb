@@ -492,6 +492,69 @@ class TestFrameEvents < Minitest::Test
     [rom, write_rom(rom, "jumper")]
   end
 
+  # COUNTING THE PASSES A GAME LOOP MAKES, without modifying the game to do it.
+  #
+  # The framework has had to add a variable and an instruction to the loop and read that
+  # back, so the cartridge it measured was not the cartridge it ships. An arrival at the
+  # loop's own first instruction is the pass itself, and the build knows where that is.
+  FRAME_ROUTINE = RubyGBA::IR::Backends::GBA::Placement::FRAME_ROUTINE
+
+  # A loop that counts its own passes, so the arrival count has something exact to be
+  # checked against: the counter is the last thing in the body, so it says how many passes
+  # FINISHED, while an arrival marks one beginning.
+  def self_counting_rom
+    rom = RubyGBA.build("ARRIVE", code: "TARV", validate: false) do
+      screen :bitmap
+      clear_screen :black
+      passes = var :passes, 0
+      game_loop { passes.add! 1 }
+    end
+    [rom, write_rom(rom, "arrive")]
+  end
+
+  def test_a_probe_counts_every_arrival_at_the_game_loop
+    rom, path = self_counting_rom
+
+    with_probe(path) do |probe|
+      probe.watch_arrivals(rom.built.routines.fetch(FRAME_ROUTINE).begin)
+      probe.step(2) # past the console's own boot, so the loop is running
+      (3..10).each do |frames|
+        probe.step(1)
+
+        assert_equal probe.read32(rom.var_addresses.fetch(:passes)) + 1, probe.arrivals,
+                     "after #{frames} frames, one pass has begun that the game has not finished"
+      end
+    end
+  end
+
+  # The trap the pad-read count falls into, which this does not: a loop that never asks for
+  # input goes round just the same, and nothing about its passes reaches the pad.
+  def test_a_loop_that_never_asks_for_buttons_is_counted_all_the_same
+    rom = RubyGBA.build("NOASK", code: "TNAS", validate: false) do
+      screen :bitmap
+      game_loop { clear_screen :blue }
+    end
+    path = write_rom(rom, "noask")
+
+    with_probe(path) do |probe|
+      probe.watch_arrivals(rom.built.routines.fetch(FRAME_ROUTINE).begin)
+      probe.step(8)
+
+      assert_equal 0, probe.pad_reads, "it reads no buttons, which is what makes it the trap"
+      assert_operator probe.arrivals, :>, 0, "and it still went round the loop"
+    end
+  end
+
+  def test_a_cartridge_nobody_counted_reports_no_arrivals
+    _rom, path = self_counting_rom
+
+    with_probe(path) do |probe|
+      probe.step(8)
+
+      assert_equal 0, probe.arrivals
+    end
+  end
+
   def test_an_address_can_be_found_from_the_value_it_holds
     rom, path = jumping_rom
     address = rom.var_addresses.fetch(:hp)

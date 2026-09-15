@@ -38,9 +38,9 @@ module RubyGBA
     # RUN ONCE AND REMEMBERED, because asking a game what it is should not be an event: a
     # game's block is the slowest thing in a build, since it is where the art and the levels
     # are read off disk, and a test or a tool asks more than once. Every consumer in the
-    # library treats the tree as read-only and the two that rewrite one (see
-    # {Analyzer#boot_into} and {Analyzer#instrument_frame_counter}) already answer a copy,
-    # so there is one tree and everybody shares it.
+    # library treats the tree as read-only and the one that rewrites one (see
+    # {Analyzer#boot_into}) already answers a copy, so there is one tree and everybody
+    # shares it.
     #
     # The game's own progress reporting is OFF here, deliberately: this path is a test or
     # a tool asking what the game is, and nobody is watching a tree being built. A person

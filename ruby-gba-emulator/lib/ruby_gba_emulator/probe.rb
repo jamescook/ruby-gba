@@ -154,6 +154,47 @@ module RubyGBAEmulator
       @core.changes_missed
     end
 
+    # COUNT EVERY TIME THE PROGRAM REACHES AN INSTRUCTION.
+    #
+    #   probe.watch_arrivals(loop_address)
+    #   probe.step(60)
+    #   probe.arrivals   # => how many times the game loop has been entered
+    #
+    # What this answers is "how many times has this run", which nothing else here can:
+    # a picture says where a game got to, a variable says what it decided, and neither says
+    # how many times round the loop it went. The usual question is how many passes a game
+    # loop managed — a game too heavy for its frame makes fewer than the frames that passed,
+    # and that number is what lines a run up against a run somewhere else.
+    #
+    # The alternative is adding a counter to the program, which measures a cartridge nobody
+    # ships: one extra instruction can tip a routine out of the console's quick memory and
+    # change the very timing being measured.
+    #
+    # It never pauses the cartridge — each arrival is counted and the game runs straight on.
+    # One address at a time. Reading a raw address is the low-level form; a caller that built
+    # the cartridge knows its routines by name and reaches this through them.
+    #
+    # NOT FREE, and cheaper than it sounds: while anything is counted the emulator checks each
+    # instruction against the address. Measured at about a twelfth again on a cartridge that
+    # sleeps most of its frame, and a bit over a third on one that uses the whole of it. A
+    # cartridge nobody asked about runs exactly as before.
+    #
+    # @return [self]
+    def watch_arrivals(address)
+      ensure_open!
+      @core.watch_arrivals(address)
+      self
+    end
+
+    # How many times the counted instruction has been reached. Zero until
+    # {#watch_arrivals} has been called.
+    #
+    # @return [Integer]
+    def arrivals
+      ensure_open!
+      @core.arrivals
+    end
+
     # THE SPRITES THE CONSOLE IS SHOWING, read out of its own table rather than hunted for
     # in the finished picture.
     #

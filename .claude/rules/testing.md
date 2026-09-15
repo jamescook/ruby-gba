@@ -208,6 +208,21 @@ v.audio_energy / v.silent? / v.sound?      # "did the speaker do anything?"
 frames before you read pixels — give a static blit a couple, a moving sprite
 enough to reach its resting position.
 
+**How many times round the game loop the console got**, which is not the frame count:
+
+```ruby
+v = assert_emulator_loads_rom(rom, frames: 20, count_passes: true)
+v.passes                                   # passes FINISHED; nil for a program with no loop
+```
+
+The console runs the loop once per frame it has TIME for, so a game whose pass does not fit in
+a frame plays less game per frame than one that does — which is why lining a console run up
+against an interpreter run is done on passes and never on frames (see the differential below).
+It is counted by watching for the loop's own instructions while the cartridge runs, so the
+cartridge measured is the cartridge that ships; it is off by default because it costs a little
+(about a twelfth again on a cartridge that sleeps most of its frame, a bit over a third on one
+that uses all of it), and nothing pays for it unless it asks.
+
 ## Whole-screen differential testing
 
 `test/differential.rb` compares the two backends over **all 38,400 pixels** instead

@@ -177,9 +177,9 @@ module RubyGBA
     #
     # Overrides the LAST boot-time set of the selector, so a game that sets it more than
     # once at start still ends up in the chosen scene.
-    # Answers a COPY, for the same reason #instrument_frame_counter does: this rewrites where
-    # the game starts, and measuring one scene must not leave the caller's program booting
-    # into it — least of all when the next scene is about to be measured from the same tree.
+    # Answers a COPY: this rewrites where the game starts, and measuring one scene must not
+    # leave the caller's program booting into it — least of all when the next scene is about
+    # to be measured from the same tree.
     def boot_into(program, selector, value)
       booted = program.copy
       init = booted.children.select { |node| node.kind == :set && node.var == selector }.last
@@ -381,21 +381,26 @@ module RubyGBA
     # reading, so it is measured only where it says something new.
     #
     # Empty when there is no game loop to count.
+    # THE CARTRIDGE MEASURED IS THE CARTRIDGE THAT SHIPS. The passes used to be counted by
+    # adding a variable and an instruction to the loop, which is the worst place to do it: one
+    # extra instruction can tip a routine out of the console's quick memory, and what got kept
+    # there is half of what this report is for. The emulator counts arrivals at the loop's own
+    # first instruction instead, so nothing is added.
     def measure_saturated(program, options = {}, keys: [])
-      counter = :__profile_frames
-      counted = instrument_frame_counter(program, counter) or return {}
+      measuring = build_for_measuring(program, options)
+      loop_span = measuring[:rom].built&.routines&.[](BuildRecord::FRAME_ROUTINE) or return {}
 
-      measuring = build_for_measuring(counted, options)
-      address = measuring[:vars][counter]
       in_temp_rom(measuring[:rom]) do |path|
         probe = Emulator.probe(path)
+        probe.watch_arrivals(loop_span.begin)
         probe.step(SETTLE, keys: keys)
-        before = probe.read32(address)
+        before = probe.arrivals
         # Step the window a frame at a time rather than in one go, so the SAME run that counts
         # the passes also adds up the work — one emulator run answers both questions, and both
         # answers are then about the same frames rather than about two different runs.
         work = FPS_WINDOW.times.sum { frame_scanlines(probe.frame_cost(keys: keys)) }
-        elapsed = probe.read32(address) - before
+        # A difference, so whether a pass is in flight at either end cancels out.
+        elapsed = probe.arrivals - before
         probe.close
         next {} unless elapsed.positive?
 
@@ -408,28 +413,14 @@ module RubyGBA
       measure_saturated(program, options, keys: keys)[:fps]
     end
 
-    # A COPY of the program with a hidden counter that ticks once per game-loop iteration,
-    # or nil when there is no loop to count. Counting frames means adding something that
-    # counts them, and the caller's program is not the place to put it: the tree handed in
-    # is often the one a ROM reports on, so instrumenting it in place would leave that
-    # report describing a game with statements the shipped ROM does not have — and measuring
-    # twice would add the counter twice.
-    def instrument_frame_counter(program, counter)
-      counted = program.copy
-      loop_node = counted.walk.find { |node| node.kind == :loop }
-      return nil unless loop_node
-
-      counted.children.unshift(IR::Build.set(counter, IR::Build.int(0)))
-      loop_node.children << IR::Build.add(counter, IR::Build.int(1))
-      counted
-    end
-
     # A measuring ROM and where its variables live. The addresses come from the very
     # backend that built the ROM, so a reading of the scene variable (or the hidden frame
     # counter) is a reading of this ROM's memory and not a guess.
     def build_for_measuring(program, options = {})
       backend = IR::Backends::GBA.new(**options)
-      rom = ROM.assemble(backend.lower(program), title: "PROFILE")
+      # With its build record, so the run can be told where the game loop is and count the
+      # passes it makes without anything being added to the program.
+      rom = ROM.assemble(backend.lower(program), title: "PROFILE", built: backend.build_record(program))
       { rom: rom, vars: backend.var_addresses }
     end
 
