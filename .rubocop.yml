@@ -1,0 +1,14 @@
+plugins:
+  - rubocop-performance
+
+AllCops:
+  DisabledByDefault: true
+  NewCops: enable
+  SuggestExtensions: false
+  Exclude:
+    - "coverage/**/*"
+    - "vendor/**/*"
+    - "tmp/**/*"
+
+Performance:
+  Enabled: true

@@ -129,4 +129,9 @@ task :ua do
   sh "npx", "--yes", UA_VIEWER, "."
 end
 
+desc "Lint with RuboCop (performance cops only)"
+task :rubocop do
+  sh "rubocop"
+end
+
 task default: :test
