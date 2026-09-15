@@ -105,6 +105,40 @@ module RubyGBA
         # reads to watch a note fall away rather than stop.
         def level_of(name) = @mixer.level_of(name)
 
+        # THE SPRITES THIS RUN IS DRAWING, each knowing which one the game declared it for.
+        #
+        # One Hash per sprite on screen as the last frame left it — +:name+, +:x+, +:y+ and
+        # +:picture+, which is the one of its pictures the pose selector picked. Name a sprite
+        # and only its rows come back.
+        #
+        # Worth having because the finished picture cannot answer several ordinary questions: it
+        # cannot tell a sprite the game switched off from one drawn in the backdrop colour, from
+        # one behind a background, or from one a pixel off the edge. A sprite that is not being
+        # drawn is left out, which is the answer a test wants.
+        #
+        # THE SAME QUESTION THE CONSOLE ANSWERS, so a test reads the same way against either
+        # (see {Verifier#sprites}) — with one thing deliberately missing. The console has 128
+        # places to put a sprite in and its table says which place each row is in; there are no
+        # places here, and naming one was the thing worth removing. So a row says whose it is
+        # and what it is showing, and nothing about where the framework put it.
+        #
+        # Rows this cannot name come back with a nil +:name+ — a glyph of tiled text, say, which
+        # is drawn as a sprite the author named nothing for.
+        #
+        # @param name [Symbol, nil] keep only this declared sprite's rows; nil for every row
+        # @return [Array<Hash>]
+        def sprites(name = nil)
+          rows = @drawn.map { |on| { name: on[:name], x: on[:x], y: on[:y], picture: on[:picture] } }
+          return rows if name.nil?
+
+          known = @objects.each_value.filter_map(&:declared).uniq
+          unless known.include?(name)
+            raise ArgumentError, "This game has no sprite #{name.inspect}. " \
+                                 "Its sprites are: #{known.map(&:inspect).join(', ')}."
+          end
+          rows.select { |row| row[:name] == name }
+        end
+
         # +save+ is the cartridge's save memory — an external store that outlives the
         # interpreter, so passing the SAME object to two Reference.new(...).run calls models
         # a power cycle (the second boot sees what the first one saved). Defaults to a
@@ -134,6 +168,7 @@ module RubyGBA
           @bg_by_name = {}         # name -> :background node (for scrolling that background's window)
           @scene_fb = nil          # the settled scene (backdrop + backgrounds), built once, to restore under objects
           @obj_prev = {}           # object name -> [x, y] it was last drawn at (to erase before redrawing)
+          @drawn = []              # ...and what this frame put on screen: which picture, where, whose
           @repaints = false        # must the whole view be rebuilt every frame? (decided in collect_definitions)
           @bg_scroll = {}          # background name -> [x, y] its window is currently offset to
           @bg_maps = {}            # ...and this run's own copy of its cells, once any of them has changed
@@ -1244,8 +1279,10 @@ module RubyGBA
         # screen this frame and recomposite the whole view (scrolled scene, then these
         # objects on top). See #composite_scrolled_frame.
         def exec_present_objects(node)
+          @drawn = objects_on_screen(node.names)
+
           if @repaints
-            snapshot_object_layer(node)
+            snapshot_object_layer
             composite_scrolled_frame
             return
           end
@@ -1254,19 +1291,33 @@ module RubyGBA
           node.names.each do |name|
             prev = @obj_prev[name]
             restore_scene_rect(scene, name, prev) if prev
-          end
-          node.names.each do |name|
-            obj = @objects.fetch(name) { raise ProgramError, "present of undeclared object #{name.inspect}" }
             @obj_prev[name] = nil
+          end
+          @drawn.each do |on|
+            draw_object(on[:object], on[:picture], on[:x], on[:y])
+            @obj_prev[on[:object].name] = [on[:x], on[:y]]
+          end
+        end
+
+        # WHAT IS ON SCREEN THIS FRAME: one entry per object being drawn, saying which of its
+        # pictures the pose selector picked and where it went. An object the game has switched
+        # off, or one whose selector points outside its set of pictures, is simply not here —
+        # which is what "not being drawn" means, and is the answer both the drawing below and a
+        # test asking where something is want back.
+        #
+        # Worked out once a frame and kept, because two callers want it: the drawing, and
+        # {#sprites}. Reading it back is how a test asks the oracle which of the things it drew
+        # is the one the game named, without knowing a position or a colour in advance.
+        def objects_on_screen(names)
+          names.filter_map do |name|
+            obj = @objects.fetch(name) { raise ProgramError, "present of undeclared object #{name.inspect}" }
             next unless eval_value(obj.active) == 1
 
-            image = object_pose_image(obj)
-            next if image.nil? # a pose index out of range shows nothing this frame
+            picture = object_pose_image(obj)
+            next if picture.nil?
 
-            x = eval_value(obj.x)
-            y = eval_value(obj.y)
-            draw_object(obj, image, x, y)
-            @obj_prev[name] = [x, y]
+            { object: obj, name: obj.declared, picture: picture,
+              x: eval_value(obj.x), y: eval_value(obj.y) }
           end
         end
 
@@ -1338,20 +1389,15 @@ module RubyGBA
           [eval_value(obj.angle), eval_value(obj.scale)]
         end
 
-        # Capture the objects that are on screen this frame — their current pose picture
-        # and position, in draw order — as the sprite layer #composite_scrolled_frame
-        # paints over the scrolled scene. A hidden object, or one whose pose index is out
-        # of range, simply isn't in the layer this frame.
-        def snapshot_object_layer(node)
-          @obj_layer = node.names.filter_map do |name|
-            obj = @objects.fetch(name) { raise ProgramError, "present of undeclared object #{name.inspect}" }
-            next unless eval_value(obj.active) == 1
-
-            image = object_pose_image(obj)
-            next if image.nil?
-
-            snap = { name: name, image: image, x: eval_value(obj.x), y: eval_value(obj.y),
-                     level: @picture.depths[name], recolor: object_recolor(obj, image) }
+        # The objects on screen this frame dressed for compositing — each with the depth it
+        # sits at and the colours it is being drawn in — as the sprite layer
+        # #composite_scrolled_frame paints over the scrolled scene, in draw order.
+        def snapshot_object_layer
+          @obj_layer = @drawn.map do |on|
+            obj = on[:object]
+            image = on[:picture]
+            snap = { name: obj.name, image: image, x: on[:x], y: on[:y],
+                     level: @picture.depths[obj.name], recolor: object_recolor(obj, image) }
             snap[:transform] = object_transform(obj) if object_transformed?(obj)
             snap
           end

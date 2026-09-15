@@ -152,6 +152,9 @@ i.screen_mode                      # e.g. :bitmap
 i.audio                            # the audio/register log
 i.stopped_at_budget?               # true if it was still looping when cut off
 
+i.sprites(:hero)                   # the rows it drew for that named sprite
+i.sprites                          # everything it drew, each saying whose it is
+
 Reference.new.hold(:left, :a).run(prog)              # buttons held for the whole run
 Reference.new.input_each_frame { |f| [:left] }.run(prog)  # per-frame input; needed to observe `pressed` edges
 Reference.new.frames_each_pass { |pass| 3 }.run(prog)     # say a pass ran late: 3 frames of catch-up
@@ -173,6 +176,18 @@ raises rather than handing back a part-played run. **Do not pass `max_steps:` al
 `frames:`** — the per-frame default has room to spare, and a hand-sized budget beside a frame
 count is the old workaround for this bug. Reach for it only to run a program with no frames in it (an unpaced `frame_sync: :manual` loop),
 where it becomes the whole-run budget and `stopped_at_budget?` reports it.
+
+**Ask the oracle which sprite is which rather than hunting for it in the fake screen.**
+`i.sprites` is the interpreter's half of `v.sprites` below, and it answers the same questions
+pixels cannot: it tells a sprite the game switched off from one drawn in the backdrop colour,
+from one behind a background, from one a pixel off the edge. Each row is `{name:, x:, y:,
+picture:}` — `picture:` being the one of its pictures the pose selector picked, said as the
+name the author drew rather than as a number counting into the set. A sprite that is not being
+drawn is absent, every live slot of a `pool` comes back under the pool's name, and a row the
+author named nothing for (a letter of tiled text) has a nil `:name`. There is no slot number
+here and that is deliberate: the console has 128 places to put a sprite in and the interpreter
+has none, and naming a place was the thing worth getting rid of. Prefer this to building a ROM
+whenever the question is where something was drawn.
 
 Screen default fill is `0` (black). For clip/overwrite tests, `clear_screen` to a
 **distinct** background first so "clipped/absent" reads as that colour, and the
