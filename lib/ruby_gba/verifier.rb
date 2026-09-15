@@ -385,6 +385,14 @@ module RubyGBA
       @probe.channels
     end
 
+    # The pitch the wave voice is playing at, as the rate a game writes for it. Ask this rather
+    # than reading the register back: the console makes those bits write-only, so {#mem16}
+    # there says 0 whatever note is playing. See Probe#wave_rate.
+    def wave_rate
+      ensure_rendered!
+      @probe.wave_rate
+    end
+
     # HOW MANY TIMES ROUND THE GAME LOOP THE CONSOLE GOT, in the frames it ran. Build the
     # Verifier with `count_passes: true` to ask for it.
     #

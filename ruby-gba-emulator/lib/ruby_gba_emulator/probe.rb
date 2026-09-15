@@ -338,6 +338,18 @@ module RubyGBAEmulator
       channel_ids.keys
     end
 
+    # THE PITCH THE WAVE VOICE IS PLAYING AT, as the 11-bit rate a game writes to SOUND3CNT_X.
+    #
+    # Read out of the sound circuit rather than off that register, because the console never
+    # lets the register be read: its rate bits are write-only, so a game playing exactly the
+    # right note reads back as 0 there. This is the rate the voice is actually sounding.
+    #
+    # @return [Integer]
+    def wave_rate
+      ensure_open!
+      @core.wave_rate
+    end
+
     # DRAW THE PICTURE WITHOUT SOME OF IT, so a test can ask which layer drew what.
     #
     #   probe.showing(only: :sprites) { probe.step; probe.lit_pixels }
