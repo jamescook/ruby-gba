@@ -482,7 +482,35 @@ module RubyGBA
                                    sound_drops: drop_table,
                                    video_memory: video_memory_report,
                                    roomy_memory: roomy_memory_report,
+                                   sprite_slots: sprite_slots,
                                    build_options: { fast_cartridge: @fast_cartridge, fast_code: @fast_code })
+        end
+
+        # WHICH OF THE CONSOLE'S 128 PLACES EACH DECLARED SPRITE WAS GIVEN.
+        #
+        # The console composes the picture from a table of 128 sprites, and each row of it says
+        # which place it is — a number the build handed out and the author never saw. So a
+        # cartridge that did not carry this can be asked where its sprites are and cannot say
+        # which of the answers is the hero.
+        #
+        # Several places under one name is the ordinary case twice over. A picture too large
+        # for the console to draw in one go is cut up, and the pieces stand shoulder to
+        # shoulder from its first place; and every slot of a pool is a sprite of its own, all
+        # of them the one thing the author declared. Both come back as the whole run of places
+        # under that name, which is what somebody asking where a thing is wants.
+        #
+        # Keyed on the name the AUTHOR wrote. The program's own names for these are handed out
+        # as it is built, so they say nothing to anybody, and a sprite drawn for something the
+        # author named nothing (a letter of text) is left out rather than given one.
+        def sprite_slots
+          return {} unless @picture
+
+          @picture.objects.each_with_object({}) do |node, places|
+            next unless node.declared
+
+            sprite = @objects[node.name]
+            (places[node.declared] ||= []).concat((sprite.slot...(sprite.slot + sprite.pieces)).to_a)
+          end
         end
 
         # WHAT WENT IN THE OTHER MEMORY, and how much of it is left.

@@ -376,7 +376,7 @@ module RubyGBA
                                     x: Build.list_get(pool.field_list(:x), Build.int(slot)),
                                     y: Build.list_get(pool.field_list(:y), Build.int(slot)),
                                     active: scene_gate(Build.list_get(pool.active_list, Build.int(slot))),
-                                    scene: declaring_scene)
+                                    scene: declaring_scene, declared: pool.name)
           record(node)
           pool.slot_objects << node
           @pool_objects << name

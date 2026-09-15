@@ -531,7 +531,13 @@ module RubyGBA
         # which of them it is drawn with now, counting from 0; any other number draws it in
         # its own. A pixel keeps its place in the picture's own list, so drawn with another
         # list it shows whatever colour that list holds at the same place.
-        operands name: :name,
+        # +name+ is this thing's own identity, handed out as the program is built, and
+        # +declared+ is what the AUTHOR called it. They differ because one author's name can
+        # stand for many of these — every slot of a pool is one — and because some are drawn
+        # for things the author named no sprite for at all, a letter of text among them, which
+        # have no +declared+ to give. Keeping it is what lets a target report on what it drew
+        # in the author's own words rather than in numbers it made up.
+        operands name: :name, declared: :name,
                  poses: :list, pose: :value, x: :value,
                  y: :value, active: :value, angle: :value,
                  scale: :value, layer: :name, scene: :name,

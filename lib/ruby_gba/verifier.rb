@@ -202,6 +202,45 @@ module RubyGBA
       mem32(address)
     end
 
+    # THE SPRITES THE CONSOLE IS DRAWING, each knowing which one the game declared it for.
+    #
+    # One Hash per sprite being drawn, straight off the console's own table — +:name+, +:x+,
+    # +:y+, +:slot+, +:tile+, +:palette+, +:priority+, +:shape+, +:size+, +:mirrored_across+,
+    # +:mirrored_down+, +:turned+. Name one and only that sprite's rows come back.
+    #
+    # Worth having because the finished picture cannot answer several ordinary questions: it
+    # cannot tell a hidden sprite from one drawn in the backdrop colour, from one behind a
+    # background, or from one a pixel off the edge. A sprite the game has switched off is left
+    # out, which is the answer a test wants.
+    #
+    # WHAT THE NAME SAVES is the guessing. The console's table says which of its 128 places a
+    # sprite is in and nothing else, so a test with a cast otherwise picks its hero by a place
+    # number (which moves the day the game declares something earlier), by position (which
+    # needs the game to keep its own position in a variable, and is a pixel or two out exactly
+    # while the thing is moving), or by which colours it draws from (no use at all for a sprite
+    # whose colours are being swapped). The build gave out the places and the cartridge carries
+    # that, so the rows can say whose they are.
+    #
+    # A PICTURE TOO BIG for the console to draw in one go is several rows with the same name,
+    # not one merged row: which piece is which is the framework's business, and a test asking
+    # where something is wants all of it.
+    #
+    # Rows the build cannot name come back with a nil +:name+ — a glyph of tiled text, say.
+    #
+    # @param name [Symbol, nil] keep only this declared sprite's rows; nil for every row
+    # @return [Array<Hash>]
+    def sprites(name = nil)
+      rows = every_sprite
+      return rows if name.nil?
+
+      known = sprite_slots!
+      unless known.key?(name)
+        raise ArgumentError, "This game has no sprite #{name.inspect}. " \
+                             "Its sprites are: #{known.keys.map(&:inspect).join(', ')}."
+      end
+      rows.select { |row| row[:name] == name }
+    end
+
     # HOW MANY TIMES ROUND THE GAME LOOP THE CONSOLE GOT, in the frames it ran. Build the
     # Verifier with `count_passes: true` to ask for it.
     #
@@ -416,6 +455,28 @@ module RubyGBA
               "record, then read the voices: ROM.assemble(code, ..., built: backend.build_record(program))."
       end
       @rom.built.voices
+    end
+
+    # Every row of the console's table, each with the name of the sprite the game declared it
+    # for. Read once per call, so a test that steps the cartridge on sees where things moved to.
+    def every_sprite
+      ensure_rendered!
+      whose = sprite_slots!.each_with_object({}) do |(name, slots), by_slot|
+        slots.each { |slot| by_slot[slot] = name }
+      end
+      @core.sprites.map { |row| row.merge(name: whose[row[:slot]]) }
+    end
+
+    # Which places the build gave each declared sprite. A cartridge assembled without its
+    # build record cannot say, and that is a setup mistake in the test rather than a fact
+    # about the game — so it says how to fix it.
+    def sprite_slots!
+      unless @rom.built
+        raise ArgumentError,
+              "This ROM does not know which of its sprites is which. Assemble it with its build " \
+              "record: ROM.assemble(code, ..., built: backend.build_record(program))."
+      end
+      @rom.built.sprite_slots
     end
 
     # Where a routine's first instruction really is while the cartridge runs — which is not

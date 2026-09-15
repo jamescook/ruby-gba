@@ -704,12 +704,12 @@ module RubyGBA
 
       # Reserves the object; #present_objects is what actually draws it for a frame.
       def object(name, poses:, pose:, x:, y:, active:, angle: 0, scale: SCALE_ONE, layer: nil, scene: nil,
-                 recolor: NO_RECOLOR, recolors: [])
+                 recolor: NO_RECOLOR, recolors: [], declared: nil)
         Nodes.build(:object, name: name, poses: poses, pose: wrap(pose),
                           x: wrap(x), y: wrap(y), active: wrap(active),
                           angle: wrap(angle), scale: wrap(scale),
                           recolor: wrap(recolor), recolors: recolors,
-                          **in_layer(layer), **in_scene(scene))
+                          **declared_as(declared), **in_layer(layer), **in_scene(scene))
       end
 
       # The +recolor+ an object that is drawn in its own colours holds: a number that names
@@ -976,6 +976,13 @@ module RubyGBA
       # always there — a HUD, a hero every screen shows.
       def in_scene(name)
         name ? { scene: name } : {}
+      end
+
+      # ...and for what the author called a drawn thing. Absent means the author named no
+      # such thing: a letter of text is drawn the same way a sprite is, and belongs to the
+      # words rather than to anything the game asked for by name.
+      def declared_as(name)
+        name ? { declared: name } : {}
       end
 
       # The same idea for an effect, which names the layer it sits UNDER rather than the

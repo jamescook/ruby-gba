@@ -257,7 +257,7 @@ module RubyGBA
         object_node = Build.object(object_name, poses: poses, pose: pose,
                                                 x: Build.var_ref(pos_x), y: Build.var_ref(pos_y),
                                                 active: scene_gate(Build.var_ref(active)),
-                                                scene: declaring_scene)
+                                                scene: declaring_scene, declared: name)
         record(object_node)
         handle = HardwareSprite.new(self, object_name: object_name, object_node: object_node, x: pos_x, y: pos_y,
                                           active: active, hitbox: box, poses: poses, pixel_perfect: hitbox.nil?,
@@ -515,7 +515,7 @@ module RubyGBA
         object_node = Build.object(object_name, poses: poses, pose: pose,
                                                 x: Build.var_ref(pos_x), y: Build.var_ref(pos_y),
                                                 active: scene_gate(Build.var_ref(active)),
-                                                scene: declaring_scene)
+                                                scene: declaring_scene, declared: name)
         record(object_node)
         handle = HardwareSprite.new(self, object_name: object_name, object_node: object_node, x: pos_x, y: pos_y,
                                           active: active, hitbox: box, poses: poses, pixel_perfect: hitbox.nil?,

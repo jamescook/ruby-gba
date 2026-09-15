@@ -201,7 +201,24 @@ v.pixel_is?(x, y, :red)                    # colour by name or 15-bit value
 v.pixel_gba(x, y)                          # the raw 15-bit BGR555 (great in failure messages)
 v.region_color?(x, y, w, h, :blue)
 v.audio_energy / v.silent? / v.sound?      # "did the speaker do anything?"
+
+v.sprites(:hero)                           # the console's own rows for that named sprite
+v.sprites                                  # every row being drawn, each saying whose it is
 ```
+
+**Ask the console where a sprite is rather than hunting for it in the picture.** `v.sprites`
+reads the table the console composes from, so it answers what pixels cannot: it tells a hidden
+sprite from one drawn in the backdrop colour, from one behind a background, from one a pixel
+off the edge. Each row is `{name:, x:, y:, slot:, tile:, palette:, priority:, shape:, size:,
+mirrored_across:, mirrored_down:, turned:}`, and a sprite the game switched off is simply
+absent. **Name it and only its rows come back** — never identify one by a slot number (a magic
+number that moves the day the game declares something earlier), by position (which needs the
+game to keep its own position in a variable, and is a pixel or two out exactly while the thing
+is moving), or by which colours it draws from (no use at all once they are being swapped). A
+picture too big for one of the console's sprites is several rows with the same name, and every
+live slot of a `pool` comes back under the pool's name. Rows the author named nothing for — a
+letter of tiled text — have a nil `:name`. Needs a ROM assembled with its build record, which
+`assemble_rom` and `RubyGBA.build` both do; `rom.built.sprite_slots` is the raw map.
 
 `keys:` is an active-high `KEY_*` bitmask (OR them together), or a callable
 `->(frame) { mask }` for input that changes over time. The emulator runs `frames:`
