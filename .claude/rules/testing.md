@@ -222,7 +222,17 @@ v.sprites                                  # every row being drawn, each saying 
 
 v.step                                     # play one more frame; everything after reads it
 v.step(4, keys: KEY_RIGHT)                 # ...or four, holding a button while they run
+
+v.var(:hurt)                               # a variable the program computed, by name (vars: needed)
+v.mem32(address) / v.mem16 / v.mem8        # the raw word/halfword/byte at an address
 ```
+
+`v.var` is **the number the program counted to**, so a count taken below nothing reads below
+nothing and matches `i[:hurt]` for the same frame. A variable here is a signed whole number by
+definition, so nothing has to be asked or guessed; `v.mem32` stays the raw word, because an
+address holds whatever is at it and a hardware register is not a program's whole number. Worth
+knowing only because the wrong one is not obviously wrong: the raw word says four billion where
+the program says minus one, and `count > 0` then reads true for a count of minus one.
 
 **Ask the console where a sprite is rather than hunting for it in the picture.** `v.sprites`
 reads the table the console composes from, so it answers what pixels cannot: it tells a hidden

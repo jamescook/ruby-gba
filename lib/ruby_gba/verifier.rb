@@ -227,6 +227,19 @@ module RubyGBA
     # map from the backend that lowered the ROM — construct the Verifier with
     # `vars: backend.var_addresses`. This is how a test asserts what a program
     # actually computed on real hardware.
+    #
+    # IT IS THE NUMBER THE PROGRAM COUNTED TO, which means a count taken below nothing comes
+    # back below nothing. A variable here is a signed whole number by definition (see
+    # IR::Int32, the contract every backend keeps), so there is nothing to ask and nothing to
+    # guess: the word in memory holds no sign, and reading it out means putting the sign back.
+    # Worth saying because handing the word back instead is not obviously wrong — it is four
+    # billion where the program says minus one, and a game's own test of it (`count > 0` is
+    # false while the count is minus one) then passes while meaning the opposite. It also puts
+    # this beside the interpreter's answer for the same variable, which is how anything lining
+    # the two backends up compares them at all.
+    #
+    # {#mem32} is the other half and stays the raw word: an address is whatever is at it, and
+    # a hardware register is not a whole number in a program.
     def var(name)
       unless @var_addresses
         raise ArgumentError,
@@ -234,7 +247,7 @@ module RubyGBA
       end
       address = @var_addresses[name] ||
                 raise(ArgumentError, "unknown variable #{name.inspect} — known: #{@var_addresses.keys.join(', ')}")
-      mem32(address)
+      IR::Int32.wrap(mem32(address))
     end
 
     # THE SPRITES THE CONSOLE IS DRAWING, each knowing which one the game declared it for.
