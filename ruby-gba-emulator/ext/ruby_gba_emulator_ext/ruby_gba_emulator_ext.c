@@ -2566,6 +2566,26 @@ mgba_core_registers(VALUE self)
     return out;
 }
 
+/* Core#wave_rate — the pitch the wave voice is playing at, as the 11-bit rate a
+ * game writes to SOUND3CNT_X.
+ *
+ * NOT READ OFF THE REGISTER, because on the console it cannot be: those eleven
+ * bits are write-only, and reading SOUND3CNT_X gives back the looping bit and
+ * nothing else. mGBA keeps that faithfully — the write hands the whole value to
+ * the sound circuit and keeps only bit 14 for anybody reading — so a game that
+ * really is playing the right note reads back as rate 0. The sound circuit's own
+ * copy is the rate it is actually sounding, which is the thing worth asking about.
+ * GBA-only. */
+static VALUE
+mgba_core_wave_rate(VALUE self)
+{
+    struct mgba_core *mc = get_mgba_core(self);
+    if (mc->core->platform(mc->core) != mPLATFORM_GBA)
+        rb_raise(rb_eRuntimeError, "wave_rate is GBA-only");
+    struct GBA *gba = (struct GBA *)mc->core->board;
+    return INT2NUM(gba->audio.psg.ch3.rate);
+}
+
 /* Core#run_until(address, limit) — run one instruction at a time until the
  * next one to run is at +address+, and stop there without running it. True
  * when it got there; false when +limit+ instructions went by first.
@@ -2971,6 +2991,7 @@ Init_ruby_gba_emulator_ext(void)
     rb_define_method(cCore, "measure_frame_work", mgba_core_measure_frame_work, 0);
     rb_define_method(cCore, "profile",       mgba_core_profile, 2);
     rb_define_method(cCore, "registers",     mgba_core_registers, 0);
+    rb_define_method(cCore, "wave_rate",     mgba_core_wave_rate, 0);
     rb_define_method(cCore, "run_until",     mgba_core_run_until, 2);
 
     /* BIOS checksum utility */

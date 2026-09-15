@@ -79,17 +79,16 @@ class TestSongConsoleVoices < Minitest::Test
   # A wave part really reaches the wave voice's registers, and a noise part the noise voice's.
   # Read off the running console rather than off the score, so this is what the lowering did.
   #
-  # THE RATE AND NOT THE TRIGGER, because the bit that restarts a voice is write-only: it does
-  # what it does and reads back as nothing. So what a reader can see is the pitch, which is the
-  # part that says the right note arrived.
-  RATE = 0x07FF
-
+  # THE RATE AND NOT THE TRIGGER, because the pitch is the part that says the right note
+  # arrived. Neither can be read back off SOUND3CNT_X — the restart bit and the rate bits are
+  # both write-only, so the register says 0 whatever is playing — so the rate is asked of the
+  # sound circuit, which holds the one it is actually sounding.
   def test_the_console_sounds_both_voices
     rom = assemble_rom(every_voice_game, name: "VOICES")
     v = assert_emulator_loads_rom(rom, frames: 8)
 
     assert_equal Registers.wave_rate(RubyGBA::Music::NOTE_FREQUENCIES[:C2]),
-                 v.mem16(REG_SOUND3CNT_X) & RATE, "the wave voice is playing the pad's note"
+                 v.wave_rate, "the wave voice is playing the pad's note"
     refute_equal 0, v.mem16(REG_SOUND3CNT_H), "...at a level you can hear"
     refute_equal 0, v.mem16(REG_SOUND4CNT_L), "the noise voice was hit"
   end
@@ -160,7 +159,7 @@ class TestSongConsoleVoices < Minitest::Test
     interpreted = logged(program, frames: 8).select { |e| e.first == :wave }.map(&:last).first
     v = assert_emulator_loads_rom(assemble_rom(program, name: "VOICES"), frames: 10)
 
-    assert_equal Registers.wave_rate(interpreted[:frequency]), v.mem16(REG_SOUND3CNT_X) & RATE
+    assert_equal Registers.wave_rate(interpreted[:frequency]), v.wave_rate
   end
 
   # --- a note on the noise voice ---
