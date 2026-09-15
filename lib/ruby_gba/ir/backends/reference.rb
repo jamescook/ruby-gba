@@ -129,7 +129,7 @@ module RubyGBA
           @tile_colors = {}        # name -> its pixels as colors, decoded once (nil = see-through)
           @backing = {}            # name -> { width:, height:, pixels: } (saved patch under a moving object)
           @objects = {}            # name -> :object node (a composited moving picture)
-          @recolor_maps = {}       # [a picture's own colours, a list it is drawn with] -> colour => colour
+          @recolor_maps = {}       # [a picture, a list it is drawn with] -> a Recolor
           @bg_nodes = []           # :background nodes, in order (the static scene under the objects)
           @bg_by_name = {}         # name -> :background node (for scrolling that background's window)
           @scene_fb = nil          # the settled scene (backdrop + backgrounds), built once, to restore under objects
@@ -1285,12 +1285,8 @@ module RubyGBA
         end
 
         # THE COLOURS AN OBJECT IS DRAWN IN THIS FRAME, when it is told to draw with another
-        # list: each colour of the picture's own list, mapped to the colour at the same place
-        # of that list. nil draws the picture as it is stored.
-        #
-        # A picture keeps colours rather than places, so a colour its list holds twice is
-        # read at the first of them — the place the console's table was built to draw it
-        # from as well.
+        # list: each place of the picture's own list shows the colour at the same place of
+        # that list. nil draws the picture as it is stored.
         def object_recolor(obj, image)
           lists = obj.recolors
           return nil if lists.empty?
@@ -1298,11 +1294,28 @@ module RubyGBA
           which = eval_value(obj.recolor)
           return nil unless which >= 0 && which < lists.length
 
-          own = @bitmaps.fetch(image).colors
-          @recolor_maps[[own, lists[which]]] ||= begin
-            map = {}
-            (1...own.length).each { |place| map[own[place]] = lists[which][place] unless map.key?(own[place]) }
-            map
+          bmp = @bitmaps.fetch(image)
+          swapped = lists[which]
+          @recolor_maps[[image, swapped]] ||=
+            Recolor.new(places: bmp.places, by_place: swapped, by_color: by_color(bmp.colors, swapped))
+        end
+
+        # A picture given as COLOURS has no places recorded, so its swap is read the only way
+        # left: colour to colour, and a colour its list holds twice is read at the first of
+        # them. The build refuses that where the two places differ in the list being drawn
+        # with, so this is only ever reached where both places agree.
+        def by_color(own, swapped)
+          (1...own.length).each_with_object({}) { |place, map| map[own[place]] ||= swapped[place] }
+        end
+
+        # WHAT COLOUR A PIXEL IS DRAWN IN while an object draws with another list. A picture
+        # whose art was given as places is read by place, which is what the console does with
+        # it; one given as colours has only its colours to go on.
+        Recolor = Data.define(:places, :by_place, :by_color) do
+          def at(index, color)
+            return by_place[places.getbyte(index)] || color if places
+
+            by_color.fetch(color, color)
           end
         end
 
@@ -1476,11 +1489,12 @@ module RubyGBA
               sy = (((pc * ddx) + (pd * ddy)) >> 8) + (h / 2)
               next unless sx >= 0 && sx < w && sy >= 0 && sy < h
 
-              i = ((sy * w) + sx) * 2
+              at = (sy * w) + sx
+              i = at * 2
               color = pixels.getbyte(i) | (pixels.getbyte(i + 1) << 8)
               next if transparent && color == transparent
 
-              @screen.set_pixel(left + ix, top + iy, recolor ? recolor.fetch(color, color) : color)
+              @screen.set_pixel(left + ix, top + iy, recolor ? recolor.at(at, color) : color)
             end
           end
         end
@@ -1536,10 +1550,11 @@ module RubyGBA
 
           bmp.height.times do |row|
             bmp.width.times do |col|
-              i = ((row * bmp.width) + col) * 2
+              at = (row * bmp.width) + col
+              i = at * 2
               color = pixels.getbyte(i) | (pixels.getbyte(i + 1) << 8)
               next if transparent && color == transparent
-              @screen.set_pixel(x + col, y + row, recolor ? recolor.fetch(color, color) : color)
+              @screen.set_pixel(x + col, y + row, recolor ? recolor.at(at, color) : color)
             end
           end
         end

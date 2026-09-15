@@ -136,7 +136,7 @@ module RubyGBA
         kind :bitmap
         category :data
         operands name: :name, width: :int, height: :int, pixels: :text, transparent: :int,
-                 colors: :list
+                 colors: :list, places: :text
       end
 
       class Blit

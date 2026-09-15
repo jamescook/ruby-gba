@@ -501,9 +501,12 @@ module RubyGBA
       # came from somewhere that already decided one. It changes nothing about the
       # pixels — they are still colors — but it pins how a backend that draws through a
       # table lays that table out, which is what keeps imported art lining up.
-      def bitmap(name, width:, height:, pixels:, transparent: nil, colors: nil)
+      # +places+, where the art was given as numbers into that table rather than as colors,
+      # is one byte a pixel saying which place it came from. It is what tells two places
+      # holding the SAME color apart, which the pixels themselves cannot.
+      def bitmap(name, width:, height:, pixels:, transparent: nil, colors: nil, places: nil)
         Nodes.build(:bitmap, name: name, width: width, height: height,
-                          pixels: pixels, transparent: transparent, colors: colors)
+                          pixels: pixels, transparent: transparent, colors: colors, places: places)
       end
 
       # Draw a defined bitmap with its top-left at (x, y). x/y may be constants or

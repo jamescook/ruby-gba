@@ -18,11 +18,22 @@ module RubyGBA
       # A picture: its size, which color index is see-through (nil if none is), the
       # pixels themselves, and — where the art came from somewhere that already decided
       # them — its own table of colors in its own order (nil where it did not).
-      Image = Data.define(:width, :height, :transparent, :pixels, :colors) do
+      #
+      # +places+ is the same picture read the other way round: where the art was given as
+      # numbers into that table, one byte a pixel saying which place it came from (nil
+      # where the art was given as colors). The two are the same picture until the table
+      # holds one color at two places, which a palette taken off a real cartridge usually
+      # does — then a pixel's color no longer says which place drew it, and anything that
+      # reads a pixel as a NUMBER has to ask here instead.
+      Image = Data.define(:width, :height, :transparent, :pixels, :colors, :places) do
         def self.of(node)
-          new(width: node.width, height: node.height,
-              transparent: node.transparent, pixels: node.pixels, colors: node.colors)
+          new(width: node.width, height: node.height, transparent: node.transparent,
+              pixels: node.pixels, colors: node.colors, places: node.places)
         end
+
+        # Which place in the picture's own list this pixel was drawn at, or nil for a
+        # picture whose art was given as colors and never recorded one.
+        def place_at(index) = places&.getbyte(index)
 
         # ONE PIXEL, COUNTING ACROSS THE ROWS: pixel 0 is the top left, and the next is the
         # one to its right. Two bytes each, the low one first.
@@ -50,7 +61,15 @@ module RubyGBA
           turned = (0...height).each_with_object(+"".b) do |row, bytes|
             bytes << pixels.byteslice(row * width * 2, width * 2).unpack("v*").reverse.pack("v*")
           end
-          with(pixels: turned)
+          with(pixels: turned, places: places && mirrored_places)
+        end
+
+        private
+
+        def mirrored_places
+          (0...height).each_with_object(+"".b) do |row, bytes|
+            bytes << places.byteslice(row * width, width).reverse
+          end
         end
       end
 
