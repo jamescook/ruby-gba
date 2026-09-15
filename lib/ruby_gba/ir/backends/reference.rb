@@ -1297,7 +1297,8 @@ module RubyGBA
           bmp = @bitmaps.fetch(image)
           swapped = lists[which]
           @recolor_maps[[image, swapped]] ||=
-            Recolor.new(places: bmp.places, by_place: swapped, by_color: by_color(bmp.colors, swapped))
+            Recolor.new(places: bmp.places, by_place: swapped,
+                        by_color: bmp.places ? nil : by_color(bmp.colors, swapped))
         end
 
         # A picture given as COLOURS has no places recorded, so its swap is read the only way
@@ -1310,9 +1311,10 @@ module RubyGBA
 
         # WHAT COLOUR A PIXEL IS DRAWN IN while an object draws with another list. A picture
         # whose art was given as places is read by place, which is what the console does with
-        # it; one given as colours has only its colours to go on.
+        # it; one given as colours has only its colours to go on. One of the two halves is
+        # filled in and the other is not, since a picture is one kind or the other.
         Recolor = Data.define(:places, :by_place, :by_color) do
-          def at(index, color)
+          def color_for(index, color)
             return by_place[places.getbyte(index)] || color if places
 
             by_color.fetch(color, color)
@@ -1494,7 +1496,7 @@ module RubyGBA
               color = pixels.getbyte(i) | (pixels.getbyte(i + 1) << 8)
               next if transparent && color == transparent
 
-              @screen.set_pixel(left + ix, top + iy, recolor ? recolor.at(at, color) : color)
+              @screen.set_pixel(left + ix, top + iy, recolor ? recolor.color_for(at, color) : color)
             end
           end
         end
@@ -1554,7 +1556,7 @@ module RubyGBA
               i = at * 2
               color = pixels.getbyte(i) | (pixels.getbyte(i + 1) << 8)
               next if transparent && color == transparent
-              @screen.set_pixel(x + col, y + row, recolor ? recolor.at(at, color) : color)
+              @screen.set_pixel(x + col, y + row, recolor ? recolor.color_for(at, color) : color)
             end
           end
         end

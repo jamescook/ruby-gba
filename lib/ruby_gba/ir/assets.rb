@@ -51,6 +51,13 @@ module RubyGBA
         # Does this pixel draw anything? A picture with no see-through color draws every one.
         def drawn_at?(index) = transparent.nil? || raw_at(index) != transparent
 
+        # EVERY COLOR THIS PICTURE ACTUALLY DRAWS, its see-through pixels left out. What a
+        # picture was given and what it uses are different lists: a table can name colors no
+        # pixel is painted in, which is how one picture ships a whole game's palette.
+        def colors_drawn
+          pixels.unpack("v*").uniq.reject { |value| value == transparent }.map { |value| value & 0x7FFF }
+        end
+
         # THE SAME PICTURE THE OTHER WAY ROUND — every row read right to left.
         #
         # "Left is the right one, backwards" is close to universal in 2D games, and this

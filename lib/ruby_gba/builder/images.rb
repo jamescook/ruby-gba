@@ -68,12 +68,12 @@ module RubyGBA
       # Place 0 means see-through. The picture then remembers which place each pixel came
       # from, so a list that holds one color twice still tells its two places apart.
       def image(name, opts = {}, &block)
+        one_source_of_pixels!(name, opts, block)
         if block
           define_ascii_image(name, opts, &block)
         elsif opts[:places]
-          pixels_given!(name, opts)
-          define_placed_image(name, width: opts[:width], height: opts[:height],
-                                    places: opts[:places], colors: opts[:colors])
+          define_placed_image(name, places: opts[:places], width: opts[:width], height: opts[:height],
+                                    colors: opts[:colors])
         elsif opts[:from]
           bmp = Image.load(resolve_asset_path(opts[:from]), width: opts[:width], height: opts[:height],
                                                             transparent: opts.fetch(:transparent, false))
@@ -206,7 +206,7 @@ module RubyGBA
                   "list has #{own.length}, and each place in it needs a color at the same place in :#{name}. " \
                   "Give :#{name} #{own.length} colors or more."
           end
-          tell_places_apart!(own, list, name: name, poses: poses, subject: subject)
+          tell_places_apart!(own: own, swapped: list, name: name, poses: poses, subject: subject)
           list
         end
       end
@@ -223,32 +223,28 @@ module RubyGBA
       # not. Palettes lifted off real cartridges repeat a colour often (two blacks, two
       # whites), so this is refused rather than drawn wrong; art given as places says which
       # place each pixel meant and is never in doubt.
-      def tell_places_apart!(own, swapped, name:, poses:, subject:)
+      def tell_places_apart!(own:, swapped:, name:, poses:, subject:)
         guessed = poses.reject { |pose| @pictures.fetch(pose).places }
         return if guessed.empty?
 
-        drawn = guessed.flat_map { |pose| colors_drawn(@pictures.fetch(pose)) }
-        clash = (1...own.length).group_by { |place| own[place] }.find do |color, places|
-          places.length > 1 && drawn.include?(color) && swapped.values_at(*places).uniq.length > 1
+        drawn = guessed.flat_map { |pose| @pictures.fetch(pose).colors_drawn }
+        color, places = (1...own.length).group_by { |place| own[place] }.find do |value, at|
+          at.length > 1 && drawn.include?(value) && swapped.values_at(*at).uniq.length > 1
         end
-        return unless clash
+        return unless color
 
-        raise ArgumentError, two_places_one_color(clash, list: name, picture: guessed.first, subject: subject)
+        raise ArgumentError,
+              two_places_one_color(color: color, places: places, list: name,
+                                   picture: guessed.first, subject: subject)
       end
 
-      # Every colour a picture actually draws, its see-through pixels left out.
-      def colors_drawn(picture)
-        picture.pixels.unpack("v*").uniq.reject { |value| value == picture.transparent }
-               .map { |value| value & 0x7FFF }
-      end
-
-      def two_places_one_color((color, places), list:, picture:, subject:)
+      def two_places_one_color(color:, places:, list:, picture:, subject:)
         spelled = places.map { |place| "place #{place}" }
-        spelled = "#{spelled[0..-2].join(', ')} and #{spelled.last}"
+        both = "#{spelled[0..-2].join(', ')} and #{spelled.last}"
         "#{subject} was told to draw_with :#{list}. Its own list has #{Color.name_for(color)} at " \
-          "#{spelled}, and :#{list} has a different color at each of those places. The picture holds a " \
+          "#{both}, and :#{list} has a different color at each of those places. The picture holds a " \
           "color for each pixel, not a place, so nothing records which place a pixel came from. To fix " \
-          "this, give :#{list} one color for #{spelled}. Or give :#{picture} its pixels as places: " \
+          "this, give :#{list} one color for #{both}. Or give :#{picture} its pixels as places: " \
           "`image :#{picture}, ..., colors: [...], places: [...]`."
       end
 
@@ -397,10 +393,10 @@ module RubyGBA
       # The picture still keeps colors for everything that draws it; the places ride along
       # beside them, and only the two things that read a pixel as a NUMBER — the console's
       # sprite and tile storage, and swapping in another list of colors — look at them.
-      def define_placed_image(name, width:, height:, places:, colors:)
+      def define_placed_image(name, places:, width:, height:, colors:)
         positive_dims!(name, width, height)
         table = color_table(name, colors || [])
-        places = checked_places(name, places, width: width, height: height, table: table)
+        checked_places!(name, places: places, width: width, height: height, table: table)
 
         drawn = places.map { |place| place.zero? ? TRANSPARENT_PIXEL : table[place] }
         marker = places.include?(0) ? TRANSPARENT_PIXEL : nil
@@ -410,11 +406,19 @@ module RubyGBA
         record_visible_bounds(name: name, width: width, height: height, cells: drawn, transparent: marker)
       end
 
-      # A picture given places is given its pixels that way and no other. Two ways of
-      # saying what a pixel is would have to agree, and nothing could check that they did.
-      def pixels_given!(name, opts)
-        other = %i[data from].find { |key| opts[key] }
-        return unless other
+      # A picture says what its pixels are ONE way. Art in characters, colors and places are
+      # three ways of saying it, and two of them would have to agree with nothing able to
+      # check that they did.
+      def one_source_of_pixels!(name, opts, block)
+        return unless opts[:places]
+
+        if block
+          raise ArgumentError,
+                "image :#{name} was given places: and art drawn in characters. Art in characters says " \
+                "what each pixel is with the character map. To give places instead, write the picture " \
+                "with width:, height: and places:."
+        end
+        other = %i[data from].find { |key| opts[key] } or return
 
         raise ArgumentError,
               "image :#{name} was given both #{other}: and places:. A picture is drawn from one or " \
@@ -424,7 +428,7 @@ module RubyGBA
 
       # Every place, checked while the author is still looking at the line that wrote it:
       # the list it counts into, how many there are, and that each one names a color in it.
-      def checked_places(name, places, width:, height:, table:)
+      def checked_places!(name, places:, width:, height:, table:)
         if table.empty?
           raise ArgumentError,
                 "image :#{name} was given places: and no colors:. A place is a place in a list of " \
@@ -436,27 +440,32 @@ module RubyGBA
                 "image :#{name} is #{width}x#{height}, so it needs #{expected} places. Got #{places.length}."
         end
 
-        places.each do |place|
-          next if place.is_a?(Integer) && place >= 0 && place < table.length
+        places.uniq.each { |place| drawable_place!(name, place, table) }
+      end
 
+      # One place a pixel was drawn at: a place the list holds, and one that draws. Place 0
+      # is the see-through one, and a list is free to be see-through there and nowhere else —
+      # the console leaves a pixel alone at place 0 and paints it at every other place, so a
+      # see-through entry further along the list draws a hole's worth of black instead.
+      def drawable_place!(name, place, table)
+        unless place.is_a?(Integer) && place >= 0 && place < table.length
           raise ArgumentError,
                 "image :#{name} draws at place #{place.inspect}, and its list of colors has " \
                 "#{table.length} places (0 to #{table.length - 1}). Place 0 means see-through. " \
                 "Give every pixel a place the list holds."
         end
-        places
+        return if place.zero? || table[place]
+
+        raise ArgumentError,
+              "image :#{name} draws at place #{place}, and its list of colors is see-through at that " \
+              "place. Only place 0 means see-through. To fix this, give place #{place} a color, or draw " \
+              "those pixels at place 0."
       end
 
       # ASCII-art form of #image: split the block's art into rows, infer the size
       # from its shape, map each char to a color (or transparency), and pack it.
       def define_ascii_image(name, char_map)
         listed = char_map[:colors] # the picture's own list, beside the characters' colours
-        if char_map[:places]
-          raise ArgumentError,
-                "image :#{name} was given places: and art drawn in characters. Art in characters says " \
-                "what each pixel is with the character map. To give places instead, write the picture " \
-                "with width:, height: and places:."
-        end
         rows = yield.to_s.each_line.map(&:chomp).reject(&:empty?)
         raise ArgumentError, "image :#{name} has no art. Add art rows to the block." if rows.empty?
 

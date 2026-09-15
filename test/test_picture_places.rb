@@ -146,6 +146,28 @@ class TestPicturePlaces < Minitest::Test
     assert_empty mismatched_pixels(oracle, console)
   end
 
+  # A PICTURE THE CONSOLE STORES THE BIG WAY HAS NO PLACES TO KEEP. A background that can
+  # turn and resize reads a whole byte a pixel out of the one shared table, where a colour
+  # is a single entry however many places the author's list gave it — so a place number
+  # names an unrelated entry there and the colour has to be looked up instead.
+  def test_a_picture_stored_the_big_way_is_still_drawn_in_its_own_colors
+    map = Array.new(32) { Array.new(32, " ") }
+    map[10][25] = "#"
+    builder = Builder.new
+    builder.instance_eval do
+      screen :rotozoom
+      image :spot, width: 8, height: 8, colors: OWN, places: Array.new(64) { 3 }
+      tiles :t, "#" => :spot
+      background :board, tiles: :t, map: map.map(&:join)
+      game_loop {}
+    end
+    builder.emit_pending_functions
+    oracle, console, = backend_pictures(builder.program, frames: 2)
+
+    assert_equal Color.resolve(:red), console[(80 * 240) + 200], "place 3 of the list is red"
+    assert_empty mismatched_pixels(oracle, console)
+  end
+
   # --- art given as colours, where the two places cannot be told apart ---
 
   # The same picture drawn the ordinary way: every pixel a colour, so the two reds are one
@@ -173,7 +195,7 @@ class TestPicturePlaces < Minitest::Test
 
   # Nothing is wrong while the other list agrees about the two places, so nothing is said.
   def test_a_repeated_color_the_other_list_keeps_together_is_left_alone
-    rom = RubyGBA.build("PLACES", code: "BPLC", maker: "01", out: StringIO.new, err: StringIO.new) do
+    rom = RubyGBA.build("PLACES", out: StringIO.new, err: StringIO.new) do
       screen :tiled
       image :ship, width: 8, height: 8, data: COLORS, colors: OWN
       colors :hurt, %i[transparent yellow white yellow]
@@ -186,7 +208,7 @@ class TestPicturePlaces < Minitest::Test
 
   # The repeated colour is only a problem where the art draws it.
   def test_a_repeated_color_the_art_never_draws_is_left_alone
-    rom = RubyGBA.build("PLACES", code: "BPLC", maker: "01", out: StringIO.new, err: StringIO.new) do
+    rom = RubyGBA.build("PLACES", out: StringIO.new, err: StringIO.new) do
       screen :tiled
       image :ship, width: 8, height: 8, data: Array.new(64) { :green }, colors: OWN
       colors :hurt, HURT
@@ -224,6 +246,19 @@ class TestPicturePlaces < Minitest::Test
     end
 
     assert_match(/needs 64 places. Got 3/, error.message)
+  end
+
+  # The console leaves a pixel alone at place 0 and paints it everywhere else, so a list
+  # that is see-through further along has no colour to paint there.
+  def test_drawing_at_a_place_the_list_is_see_through_at_is_a_friendly_error
+    error = refused do
+      screen :tiled
+      image :ship, width: 8, height: 8, places: Array.new(64) { 2 },
+                   colors: %i[transparent red transparent]
+    end
+
+    assert_match(/see-through at that place/, error.message)
+    assert_match(/Only place 0 means see-through/, error.message)
   end
 
   def test_places_on_art_drawn_in_characters_is_a_friendly_error

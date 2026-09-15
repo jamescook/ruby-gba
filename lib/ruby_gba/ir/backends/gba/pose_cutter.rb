@@ -100,10 +100,7 @@ module RubyGBA
                               0
                             else
                               i = (y * width) + x
-                              # Art given as places already holds the number to write. Art
-                              # given as colors is looked up, and a color its list holds
-                              # twice can only come back as the first of the two.
-                              bmp.drawn_at?(i) ? bmp.place_at(i) || indices.fetch(bmp.color_at(i)) : 0
+                              bmp.drawn_at?(i) ? slot_of(bmp, i, indices, placement) : 0
                             end
                     next bytes << index.chr unless placement.narrow?
 
@@ -118,6 +115,19 @@ module RubyGBA
               end
             end
             bytes
+          end
+
+          # WHICH NUMBER ONE PIXEL IS STORED AS.
+          #
+          # A picture that got a BANK of sixteen reads its colors out of the author's own
+          # list, so a place in that list IS the number to write — which is what keeps two
+          # places holding the same color apart. A picture stored the big way reads the
+          # whole shared table instead, where the same color is one entry however many
+          # places the author's list gave it, so there is nothing to keep apart and the
+          # color is looked up.
+          def slot_of(bmp, index, indices, placement)
+            place = placement.narrow? && bmp.place_at(index)
+            place || indices.fetch(bmp.color_at(index))
           end
 
           # All of a sprite's poses share one size (they swap in place). Confirm that and

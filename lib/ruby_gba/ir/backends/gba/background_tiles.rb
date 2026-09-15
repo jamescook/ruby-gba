@@ -85,9 +85,12 @@ module RubyGBA
             pending = nil
             (TILE_PX * TILE_PX).times do |i|
               color = bmp.color_at(i)
-              # Art given as places already holds the number to write (place 0 is the
-              # see-through one); art given as colors is looked up.
-              index = bmp.place_at(i) || (color == BG_SEE_THROUGH ? 0 : place.indices.fetch(color))
+              # A tile that got a BANK of sixteen stores the place in the author's own list,
+              # which is the number the console reads. One stored the big way reads the whole
+              # shared table, where the same color is one entry however many places the list
+              # gave it — so there is nothing to keep apart and the color is looked up.
+              index = (place.narrow? && bmp.place_at(i)) ||
+                      (color == BG_SEE_THROUGH ? 0 : place.indices.fetch(color))
               next bytes << index.chr unless place.narrow?
 
               if pending.nil?
