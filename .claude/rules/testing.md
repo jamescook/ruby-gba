@@ -225,7 +225,27 @@ v.step(4, keys: KEY_RIGHT)                 # ...or four, holding a button while 
 
 v.var(:hurt)                               # a variable the program computed, by name (vars: needed)
 v.mem32(address) / v.mem16 / v.mem8        # the raw word/halfword/byte at an address
+
+v.palette(:sprites, row[:palette])         # the sixteen colours that sprite row is wearing
+v.palette                                  # the whole table: 512, backgrounds first then sprites
+v.showing(only: :sprites) { v.step; ... }  # draw the picture without some of it
+v.hearing(without: :wave) { v.step(40); ... }  # mix the sound without some of it
+v.layers / v.channels                      # the names those two can be given
 ```
+
+**One reader over one cartridge.** Everything above comes off the same Verifier on purpose —
+holding a second reader over the same ROM is two readings of one frame that can disagree, and
+they do: the emulator's own low-level handle (`RubyGBA::Emulator.probe`) reports where a
+sprite's tiles were PUT rather than where its picture starts. Reach for that handle only for
+what the Verifier deliberately does not do (cost and timing, watching an address change,
+profiling); never for a second reading of something the Verifier already answers.
+
+`showing` and `hearing` change the **console**, not the reading, so the block must `v.step`
+before it reads anything or it reads the picture from before the layer went. The layers and
+voices go back as they were when the block ends. Taking a voice out from under a note it is
+holding is a cut rather than a rest — the mix steps and drifts back over about half a second —
+so step well past that before asking whether it went quiet. The sound readers cover the whole
+run, so inside a block use `audio_energy_by_frame.last(n)` rather than the total.
 
 `v.var` is **the number the program counted to**, so a count taken below nothing reads below
 nothing and matches `i[:hurt]` for the same frame. A variable here is a signed whole number by
@@ -263,11 +283,8 @@ enough to reach its resting position.
 which picture is showing on each frame of a knockback, which colours a thing is drawn in while
 it cannot be hit, how many frames a flash lasts, whether something vanishes and comes back. It
 plays on from where the run left off, and everything read afterwards — pixels, `v.var`,
-`v.sprites` — is the frame it stopped on. Keep stepping the same Verifier rather than reaching
-for `RubyGBA::Emulator.probe`, which is the emulator's own low-level handle (cost, audio,
-watched addresses) and knows nothing of the build: its `sprites` have no names and carry the
-console's raw place, which is the picture's corner for a sprite facing one way and out by up to
-a canvas facing the other.
+`v.sprites`, `v.palette` — is the frame it stopped on. See "one reader over one cartridge"
+above for why this and not a second handle.
 
 **How many times round the game loop the console got**, which is not the frame count:
 

@@ -45,6 +45,8 @@ module RubyGBA
       @var_addresses = vars
       @count_passes = count_passes
       @passes_counted = false
+      @rendered = false
+      @played = 0
       @pixels = nil
       @audio = nil
       @audio_by_frame = nil
@@ -76,29 +78,18 @@ module RubyGBA
     # @return [self]
     def step(count = 1, keys: nil)
       ensure_rendered!
-      count.times do
-        @core.set_keys(keys_for(@frames, holding: keys))
-        @core.run_frame
-        chunk = @core.audio_buffer
-        @audio_by_frame << chunk
-        @audio << chunk
-        @frames += 1
-      end
-      @pixels = @core.video_buffer
+      play(count, holding: keys)
       self
     end
 
     # Get the 8-bit RGB color at a screen coordinate.
     # @return [Hash] { r:, g:, b: } with 0-255 values
     def pixel(x, y)
-      ensure_rendered!
+      picture = picture!
       validate_coords!(x, y)
       idx = (y * @width + x) * 4
       # mGBA native format is XBGR8 (0xXXBBGGRR) — R in low byte
-      r = @pixels.getbyte(idx)
-      g = @pixels.getbyte(idx + 1)
-      b = @pixels.getbyte(idx + 2)
-      { r: r, g: g, b: b }
+      { r: picture.getbyte(idx), g: picture.getbyte(idx + 1), b: picture.getbyte(idx + 2) }
     end
 
     # Get the 15-bit GBA color at a screen coordinate.
@@ -136,11 +127,10 @@ module RubyGBA
     # the two backends' pictures can be compared directly.
     # @return [Array<Integer>] 240*160 colors in BGR555
     def frame_gba
-      ensure_rendered!
       # mGBA gives us one 32-bit word per pixel as XBGR8 (0xXXBBGGRR): red in the
       # low byte, then green, then blue. The GBA itself stores 5 bits per channel,
       # so shift each 8-bit channel back down to the 15-bit color the ROM asked for.
-      @pixels.unpack("V*").map! do |word|
+      picture!.unpack("V*").map! do |word|
         r = word & 0xFF
         g = (word >> 8) & 0xFF
         b = (word >> 16) & 0xFF
@@ -150,8 +140,7 @@ module RubyGBA
 
     # Check if the entire screen is black (nothing rendered).
     def all_black?
-      ensure_rendered!
-      @pixels.bytes.each_slice(4).all? { |r, g, b, _| r == 0 && g == 0 && b == 0 }
+      picture!.bytes.each_slice(4).all? { |r, g, b, _| r == 0 && g == 0 && b == 0 }
     end
 
     # Check if every pixel in a rectangle matches a color.
@@ -199,19 +188,19 @@ module RubyGBA
     # 0x04000006; use {#mem16} for it.)
     def mem32(address)
       ensure_rendered!
-      @core.bus_read32(address)
+      @probe.read32(address)
     end
 
     # Read a 16-bit halfword off the GBA bus at +address+.
     def mem16(address)
       ensure_rendered!
-      @core.bus_read16(address)
+      @probe.read16(address)
     end
 
     # Read a single byte off the GBA bus at +address+.
     def mem8(address)
       ensure_rendered!
-      @core.bus_read8(address)
+      @probe.read8(address)
     end
 
     # How many times the game read the pad while the console ran it — what the emulator saw,
@@ -220,7 +209,7 @@ module RubyGBA
     # @return [Integer]
     def pad_reads
       ensure_rendered!
-      @core.pad_reads
+      @probe.pad_reads
     end
 
     # Read a program variable's value from IWRAM, by name. Needs the variable-address
@@ -301,6 +290,101 @@ module RubyGBA
       rows.select { |row| row[:name] == name }
     end
 
+    # THE COLOURS THE CONSOLE IS DRAWING FROM — 512 of them, the backgrounds' first and then
+    # the sprites', each a 15-bit colour.
+    #
+    # A game fades, tints, or recolours a character by changing these rather than by redrawing
+    # anything, so "did the fade happen" or "is he wearing the hurt colours" asked of the
+    # picture is a question about these numbers put the long way round, and one that whatever
+    # else is on screen can confuse.
+    #
+    # NAME THE HALF AND THE GROUP to get a usable answer. A sprite's row (see {#sprites}) says
+    # which GROUP OF SIXTEEN it draws from and nothing about where that group sits, so
+    # `palette(:sprites, row[:palette])` is the sixteen colours that row is wearing. Half on its
+    # own (`palette(:sprites)`) is that half's 256; nothing at all is the whole table.
+    #
+    # @param half [Symbol, nil] +:sprites+ or +:backgrounds+; nil for the whole table
+    # @param group [Integer, nil] which group of sixteen within that half
+    # @return [Array<Integer>]
+    def palette(half = nil, group = nil)
+      ensure_rendered!
+      whole = @probe.palette
+      return whole if half.nil?
+
+      from = PALETTE_HALVES.fetch(half) do
+        raise ArgumentError, "There is no #{half.inspect} half of the colour table. " \
+                             "The halves are: #{PALETTE_HALVES.keys.map(&:inspect).join(', ')}."
+      end
+      return whole[from, PALETTE_HALF] if group.nil?
+
+      whole[from + (group * PALETTE_GROUP), PALETTE_GROUP]
+    end
+
+    # DRAW THE PICTURE WITHOUT SOME OF IT, so a test can ask which layer drew what.
+    #
+    #   v.showing(only: :sprites) { v.step; v.pixel_is?(44, 44, :red) }
+    #
+    # The console composes one picture out of four backgrounds and the sprites, and the finished
+    # picture cannot be asked which of them drew a given pixel. So "is the hero there at all",
+    # asked of a hero standing behind a fence, has no answer in it. Leave the rest out and the
+    # question is just "what is left".
+    #
+    # NOTHING IS REDRAWN BY ASKING — this changes the console, not the reading — so the block
+    # has to {#step} before it reads anything, or it reads the picture from before the layer
+    # went. With a block the layers go back as they were afterwards, which is why the block form
+    # is the one to reach for; without one the change stands for the rest of the run.
+    #
+    # +only:+ keeps the layers named and leaves out the rest; +without:+ leaves out the ones
+    # named. Either takes one name or a list, from {#layers}.
+    #
+    # @return [Object] the block's value, or self when there is no block
+    def showing(only: nil, without: nil)
+      ensure_rendered!
+      return @probe.showing(only: only, without: without) { yield self } if block_given?
+
+      @probe.showing(only: only, without: without)
+      self
+    end
+
+    # MIX THE SOUND WITHOUT SOME OF IT, so a test can ask which voice sounded.
+    #
+    #   v.hearing(only: :noise) { v.step(10); v.audio_energy_by_frame.last(10).sum }
+    #
+    # A game with music under its effects mixes down to one loudness, and that number cannot say
+    # which voice put what into it — so "did the explosion sound" cannot be asked of it at all
+    # while the music plays. Silence the rest and it can.
+    #
+    # Same words and the same warning as {#showing}: +only:+ keeps, +without:+ leaves out, a
+    # block puts the voices back afterwards, and the block has to {#step} to hear anything. The
+    # sound readers here cover the WHOLE run, so a block reads the frames it just played —
+    # `audio_energy_by_frame.last(n)` — rather than the total.
+    #
+    # TAKING A VOICE OUT FROM UNDER A NOTE IT IS HOLDING IS A CUT, not a rest. The mix steps
+    # down where that note was and drifts back over about half a second, so a reading taken
+    # straight after is a reading of the cut and "has it gone quiet" wants half a second first.
+    #
+    # @return [Object] the block's value, or self when there is no block
+    def hearing(only: nil, without: nil)
+      ensure_rendered!
+      return @probe.hearing(only: only, without: without) { yield self } if block_given?
+
+      @probe.hearing(only: only, without: without)
+      self
+    end
+
+    # The layers {#showing} can name — four backgrounds and the sprites.
+    def layers
+      ensure_rendered!
+      @probe.layers
+    end
+
+    # The voices {#hearing} can name — two square voices, the wave voice, the noise voice, and
+    # the two the recorded sound comes out of.
+    def channels
+      ensure_rendered!
+      @probe.channels
+    end
+
     # HOW MANY TIMES ROUND THE GAME LOOP THE CONSOLE GOT, in the frames it ran. Build the
     # Verifier with `count_passes: true` to ask for it.
     #
@@ -340,7 +424,7 @@ module RubyGBA
       ensure_rendered!
       return nil unless @passes_counted
 
-      [@core.arrivals - @pass_in_flight, 0].max
+      [@probe.arrivals - @pass_in_flight, 0].max
     end
 
     # --- the processor ---
@@ -353,6 +437,13 @@ module RubyGBA
     # that never sleeps.
     RUN_UNTIL_LIMIT = 2_000_000
 
+    # HOW THE CONSOLE'S 512 COLOURS ARE LAID OUT: the backgrounds' 256 first, then the
+    # sprites'. Each half is sixteen groups of sixteen, and a sprite is told which group it
+    # draws from — so these are what turns "group 4" into a place in the table.
+    PALETTE_HALF = 256
+    PALETTE_GROUP = 16
+    PALETTE_HALVES = { backgrounds: 0, sprites: PALETTE_HALF }.freeze
+
     # Run on until the routine named +routine+ is about to run its first instruction. The
     # name is the one the program gave it (`func(:count_up)`), or BuildRecord::FRAME_ROUTINE
     # for the game loop's own body. Raises when the routine is never reached, rather than
@@ -360,8 +451,12 @@ module RubyGBA
     def run_until(routine, limit: RUN_UNTIL_LIMIT)
       ensure_rendered!
       address = routine_start!(routine)
-      return self if @core.run_until(address, limit)
-
+      @probe.run_until(address, limit: limit)
+      self
+    rescue RuntimeError
+      # The emulator says which ADDRESS it failed to reach, which is the only thing it knows.
+      # Only the build can turn that back into the name the program gave the routine, and the
+      # name is the whole reason anybody asked for it here.
       raise RuntimeError, format("The routine %p (at 0x%08X) did not run within %d instructions.",
                                  routine, address, limit)
     end
@@ -370,7 +465,7 @@ module RubyGBA
     # runs next) and +:cpsr+.
     def registers
       ensure_rendered!
-      @core.registers
+      @probe.registers
     end
 
     # WHAT THE CONSOLE IS PLAYING, as values — one per sounding voice, in the order the
@@ -479,7 +574,7 @@ module RubyGBA
       ensure_rendered!
       lines = []
       lines << "=== Frame Verifier Report ==="
-      lines << "  Frames rendered: #{@frames}"
+      lines << "  Frames rendered: #{@played}"
 
       # Count unique colors
       colors = Hash.new(0)
@@ -525,7 +620,7 @@ module RubyGBA
         slots.each { |slot| by_slot[slot] = name }
       end
       moved = @rom.built.sprite_offsets
-      @core.sprites.map do |row|
+      @probe.sprites.map do |row|
         name = whose[row[:slot]]
         dx, dy = moved.dig(row[:slot], [row[:tile], row[:mirrored_across]]) || [0, 0]
         # Back into the ranges the console keeps these in, so a sprite half off the left edge
@@ -596,33 +691,64 @@ module RubyGBA
       end
     end
 
-    def ensure_rendered!
-      return if @pixels
+    # The picture on screen right now — the frame the run stopped on. A run told to play no
+    # frames has none, which is a friendly error rather than a crash on nothing: the console
+    # draws when it is run, so there is nothing to read until it has been.
+    def picture!
+      ensure_rendered!
+      @pixels || raise(RuntimeError,
+                       "This run has played no frames, so there is no picture to read. " \
+                       "Give the Verifier `frames:` of 1 or more, or call `step` first.")
+    end
 
-      # Write ROM to a temp file, load in mGBA, run frames, read back the final
-      # frame's pixels and the whole run's audio. Audio drains per frame, so we
-      # concatenate each frame's chunk to hear the entire run, not just the last.
+    def ensure_rendered!
+      return if @rendered
+
+      # Write ROM to a temp file, open the emulator on it, and play the frames the run was
+      # built with.
       require "tempfile"
-      # Keep the core (and its ROM file) alive on the instance rather than tearing
-      # them down here: memory reads (#mem32 / #var) run against the same core after
-      # the frames, at the final frame boundary. Both are released when this Verifier
-      # is garbage-collected.
+      # Keep the emulator (and its ROM file) alive on the instance rather than tearing them
+      # down here: memory reads (#mem32 / #var) run against the same console after the frames,
+      # at the final frame boundary. Both are released when this Verifier is garbage-collected.
       @tempfile = Tempfile.new(["verify", ".gba"])
       @tempfile.binmode
       @rom.write(@tempfile.path)
       @tempfile.flush
-      @core = Emulator.open(@tempfile.path, save_dir: self.class.save_dir)
+      @probe = Emulator.probe(@tempfile.path, save_dir: self.class.save_dir)
+      @rendered = true
       count_the_passes if @count_passes
       @audio = +"".b
       @audio_by_frame = []
-      @frames.times do |frame|
-        @core.set_keys(keys_for(frame)) if @keys
-        @core.run_frame
-        chunk = @core.audio_buffer
-        @audio_by_frame << chunk
-        @audio << chunk
+      play(@frames)
+    end
+
+    # PLAY +count+ FRAMES and keep what they produced: the picture the last of them left, and
+    # the sound each one made, kept frame by frame so a run can be asked whether the sound
+    # arrived evenly rather than only how much of it there was.
+    #
+    # The frames go over in one go when the same buttons are held throughout, which is the
+    # usual case and which reads the picture once rather than once per frame. Input that
+    # changes frame by frame has to be handed over a frame at a time, so it is.
+    def play(count, holding: nil)
+      return unless count.positive?
+
+      if (holding || @keys).respond_to?(:call)
+        count.times do |frame|
+          @probe.step(1, keys: keys_for(@played + frame, holding: holding))
+          keep_what_it_played
+        end
+      else
+        @probe.step(count, keys: keys_for(@played, holding: holding))
+        keep_what_it_played
       end
-      @pixels = @core.video_buffer
+      @played += count
+      @pixels = @probe.frame_buffer
+    end
+
+    # The sound of the frames just played, kept beside the sound of the run so far.
+    def keep_what_it_played
+      @audio_by_frame.concat(@probe.audio_by_frame)
+      @audio << @probe.audio_buffer
     end
 
     # Watch for arrivals at the game loop's first instruction, before any frame runs. A
@@ -641,7 +767,7 @@ module RubyGBA
       # one it does, and what each means for the pass that is still running when we stop.
       kept_fast = @rom.built.fast_frame?
       @pass_in_flight = kept_fast ? 1 : 0
-      @core.watch_arrivals(kept_fast ? span.begin : span.end)
+      @probe.watch_arrivals(kept_fast ? span.begin : span.end)
       @passes_counted = true
     end
 

@@ -75,7 +75,7 @@ module RubyGBAEmulator
       @frames_run = 0
       @pixels = nil       # raw video buffer for the current frame
       @prev_pixels = nil  # raw video buffer for the frame before it
-      @last_audio = +"".b # audio drained during the most recent step
+      @last_audio = []    # one frame's audio per frame of the most recent step
     end
 
     # Advance the emulation by +n+ frames, holding +keys+ for each.
@@ -88,7 +88,7 @@ module RubyGBAEmulator
     def step(n = 1, keys: nil)
       ensure_open!
       mask = keys_mask(keys)
-      @last_audio = +"".b
+      @last_audio = []
       n.times do
         @core.set_keys(mask)
         @core.run_frame
@@ -101,6 +101,28 @@ module RubyGBAEmulator
       @pixels = @core.video_buffer
       self
     end
+
+    # THE SOUND THE LAST {#step} MADE, as the emulator's raw bytes — the sibling of
+    # {#frame_buffer}, which is the picture it left. Empty before anything has run.
+    #
+    # {#audio_energy} is the usual way to ask "did the speaker do anything", and this is for a
+    # caller that wants the sound itself: the SHAPE of it, not just how much there was. A break
+    # in the stream — the mixer handing the hardware a buffer that does not line up with what it
+    # eats — is a jump from one sample to the next, and a run full of them has exactly the same
+    # total energy as a clean one.
+    #
+    # @return [String] 16-bit samples, the two channels interleaved
+    def audio_buffer = @last_audio.join
+
+    # ...and the same sound cut back into the frames it came from, one String each, in order.
+    #
+    # What this answers that {#audio_buffer} cannot is whether the sound arrived EVENLY. A game
+    # that hands the hardware sound more slowly than the hardware plays it still makes plenty of
+    # noise — the total says nothing — but the noise comes in bursts with holes between them,
+    # and a run of frames with far less in them than their neighbours is what a hole looks like.
+    #
+    # @return [Array<String>] one frame's samples per frame the last step ran
+    def audio_by_frame = @last_audio.dup
 
     # BE TOLD WHEN THE WORD AT +address+ CHANGES, instead of reading it once a frame and
     # inferring the rest.
@@ -528,7 +550,7 @@ module RubyGBAEmulator
     def audio_energy
       return 0.0 if @last_audio.empty?
 
-      samples = @last_audio.unpack("s<*")
+      samples = audio_buffer.unpack("s<*")
       return 0.0 if samples.empty?
 
       sum = samples.sum { |s| s * s }
