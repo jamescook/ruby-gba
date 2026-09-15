@@ -168,6 +168,49 @@ class TestPicturePlaces < Minitest::Test
     assert_empty mismatched_pixels(oracle, console)
   end
 
+  # A LIST SHAPED THE WAY A REAL CARTRIDGE'S IS, which differs from the lists above in two
+  # ways that both bear on the same trap. Its entries are the console's own colour values
+  # rather than names, so its see-through entry is written as a number like the rest; and
+  # the colour it repeats is BLACK, which is the value that see-through entry holds too.
+  # Three of its six entries are therefore identical, and a picture that matched a pixel by
+  # colour would hand every black pixel the see-through place and draw a character full of
+  # holes. Half the palettes on a real cartridge repeat a colour, most often black.
+  CART_LIST = [0x0000, 0x7FFF, 0x001F, 0x0000, 0x03E0, 0x0000].freeze
+  CART_SWAP = [0x0000, 0x7FFF, 0x001F, 0x7C00, 0x03E0, 0x03FF].freeze
+
+  # Black from place 3, black from place 5, then nothing.
+  CART_PLACES = Array.new(64) { |i| [3, 3, 3, 5, 5, 5, 0, 0][i % 8] }.freeze
+
+  def cartridge_program
+    builder = Builder.new
+    builder.instance_eval do
+      screen :tiled
+      image :link, width: 8, height: 8, colors: CART_LIST, places: CART_PLACES, transparent: true
+      colors :hurt, CART_SWAP
+      hero = sprite :link, at: [40, 40]
+      game_loop { hero.draw_with :hurt }
+    end
+    builder.emit_pending_functions
+    builder.program
+  end
+
+  def test_one_colour_at_three_places_including_the_see_through_one_stays_apart
+    i = Reference.new.run(cartridge_program, frames: 2)
+
+    assert_equal 0x7C00, i.screen.pixel(41, 41), "black from place 3"
+    assert_equal 0x03FF, i.screen.pixel(44, 41), "black from place 5"
+    assert_equal 0x0000, i.screen.pixel(47, 41), "place 0 draws nothing"
+  end
+
+  def test_the_console_keeps_those_three_apart_too
+    oracle, console, = backend_pictures(cartridge_program, frames: 2)
+
+    assert_equal 0x7C00, console[(41 * 240) + 41], "black from place 3"
+    assert_equal 0x03FF, console[(41 * 240) + 44], "black from place 5"
+    assert_equal 0x0000, console[(41 * 240) + 47], "place 0 draws nothing"
+    assert_empty mismatched_pixels(oracle, console)
+  end
+
   # --- art given as colours, where the two places cannot be told apart ---
 
   # The same picture drawn the ordinary way: every pixel a colour, so the two reds are one
