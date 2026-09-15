@@ -208,6 +208,15 @@ module RubyGBAEmulator
     # background, or from one a pixel off the edge. A game with a cast of dozens asks those
     # constantly.
     #
+    # +:x+ AND +:y+ ARE WHERE THE CONSOLE WAS TOLD TO PUT THAT PIECE, which is not always the
+    # corner of the picture somebody drew — and the difference is invisible, being a plausible
+    # number rather than a wrong-looking one. Whatever built the cartridge is free to store a
+    # picture cut down to the part of it that draws something and then stand the piece that
+    # much further along to compensate, and to cut a backwards-drawn one from the other side so
+    # it stands a different amount again. None of that is in the console's table. So a caller
+    # that wants the picture's own corner has to ask whatever built the cartridge how far it
+    # moved each piece; this is the hardware's own number and nothing else.
+    #
     # @return [Array<Hash>]
     def sprites
       ensure_open!

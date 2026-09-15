@@ -219,6 +219,9 @@ v.audio_energy / v.silent? / v.sound?      # "did the speaker do anything?"
 
 v.sprites(:hero)                           # the console's own rows for that named sprite
 v.sprites                                  # every row being drawn, each saying whose it is
+
+v.step                                     # play one more frame; everything after reads it
+v.step(4, keys: KEY_RIGHT)                 # ...or four, holding a button while they run
 ```
 
 **Ask the console where a sprite is rather than hunting for it in the picture.** `v.sprites`
@@ -245,6 +248,16 @@ letter of tiled text — have a nil `:name`. Needs a ROM assembled with its buil
 `->(frame) { mask }` for input that changes over time. The emulator runs `frames:`
 frames before you read pixels — give a static blit a couple, a moving sprite
 enough to reach its resting position.
+
+**`v.step` when the question is about something HAPPENING**, not about where it ended up:
+which picture is showing on each frame of a knockback, which colours a thing is drawn in while
+it cannot be hit, how many frames a flash lasts, whether something vanishes and comes back. It
+plays on from where the run left off, and everything read afterwards — pixels, `v.var`,
+`v.sprites` — is the frame it stopped on. Keep stepping the same Verifier rather than reaching
+for `RubyGBA::Emulator.probe`, which is the emulator's own low-level handle (cost, audio,
+watched addresses) and knows nothing of the build: its `sprites` have no names and carry the
+console's raw place, which is the picture's corner for a sprite facing one way and out by up to
+a canvas facing the other.
 
 **How many times round the game loop the console got**, which is not the frame count:
 

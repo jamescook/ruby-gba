@@ -53,6 +53,41 @@ module RubyGBA
       Emulator.load! # fail fast if the emulator backend isn't built
     end
 
+    # RUN ON, so a test can watch something HAPPEN rather than only see where it ended up.
+    #
+    # A Verifier plays its +frames:+ the first time anything is read off it. This plays more,
+    # carrying on from there, and everything read afterwards is the frame it stopped on —
+    # pixels, variables, the sprites the console is drawing. What it is for is the question a
+    # fixed-length run cannot put at all: which picture is showing on each frame of a knockback,
+    # which colours something is drawn in while it cannot be hit, how many frames a flash lasts,
+    # whether a thing vanishes and comes back.
+    #
+    # IT IS THE SAME OBJECT ON PURPOSE rather than a second way into the running cartridge.
+    # Everything here reads the console through what the build wrote down — which of its 128
+    # places each sprite was given, how far along the build moved each stored pose, where the
+    # variables went — and a stepping reader without that record answers the same question
+    # differently from this one, for the same frame of the same cartridge. A sprite's position
+    # is the one where the two readings look equally plausible: the console's own number is the
+    # picture's corner for a sprite facing one way and out by up to a canvas facing the other.
+    #
+    # +keys+ holds buttons while it runs — a KEY_* bitmask, or a callable given the frame
+    # number. Left out, it keeps holding whatever the run was built with.
+    #
+    # @return [self]
+    def step(count = 1, keys: nil)
+      ensure_rendered!
+      count.times do
+        @core.set_keys(keys_for(@frames, holding: keys))
+        @core.run_frame
+        chunk = @core.audio_buffer
+        @audio_by_frame << chunk
+        @audio << chunk
+        @frames += 1
+      end
+      @pixels = @core.video_buffer
+      self
+    end
+
     # Get the 8-bit RGB color at a screen coordinate.
     # @return [Hash] { r:, g:, b: } with 0-255 values
     def pixel(x, y)
@@ -597,11 +632,13 @@ module RubyGBA
       @passes_counted = true
     end
 
-    # The held-button bitmask for a given frame (0 if none configured).
-    def keys_for(frame)
-      return 0 unless @keys
+    # The held-button bitmask for a given frame: what a step was told to hold, else what the
+    # run was built with, else nothing.
+    def keys_for(frame, holding: nil)
+      held = holding || @keys
+      return 0 unless held
 
-      @keys.respond_to?(:call) ? @keys.call(frame) : @keys
+      held.respond_to?(:call) ? held.call(frame) : held
     end
 
     def validate_coords!(x, y)

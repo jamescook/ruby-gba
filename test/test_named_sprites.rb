@@ -376,4 +376,68 @@ class TestNamedSprites < Minitest::Test
     assert_equal [[:runner, 64, 40], [:turner, 144, 40]], oracle.sort
     assert_equal console.sort, oracle.sort
   end
+
+  # --- watching it happen, a frame at a time ---
+  #
+  # A run of a fixed length answers where something ENDED UP. Anything watching something
+  # happen has to step instead: which picture is showing on each frame of a knockback, which
+  # colours a thing is drawn in while it cannot be hit, whether it vanishes and comes back.
+  # Those are the questions the names were for, so the rows have to mean the same thing
+  # whichever way the test asked — otherwise the same sprite in the same cartridge has two
+  # positions and the one a stepping test gets is the one nobody wrote.
+
+  def test_stepping_on_reads_the_corner_of_the_picture_too
+    v = running(two_facings, frames: 2)
+    v.step(2)
+
+    assert_equal 64, v.sprites(:runner).first[:x], "where the game put it, not where its tiles start"
+    assert_equal 144, v.sprites(:turner).first[:x], "and the same for one drawn backwards"
+  end
+
+  def test_stepping_to_a_frame_says_what_running_to_it_says
+    game = two_facings
+
+    stepped = running(game, frames: 2).step(2).sprites
+    straight = running(game, frames: 4).sprites
+
+    assert_equal straight.map { |s| [s[:name], s[:x], s[:y]] },
+                 stepped.map { |s| [s[:name], s[:x], s[:y]] }
+  end
+
+  def test_a_stepped_frame_and_the_oracle_agree
+    game = two_facings
+
+    stepped = running(game, frames: 2).step(2).sprites.map { |s| [s[:name], s[:x], s[:y]] }
+    oracle = drawn(game).sprites.map { |s| [s[:name], s[:x], s[:y]] }
+
+    assert_equal oracle.sort, stepped.sort
+  end
+
+  # ...and the frames really pass: the rows follow a sprite that is moving, still saying where
+  # its picture starts rather than where its tiles were put.
+  def test_the_rows_follow_a_sprite_from_one_frame_to_the_next
+    art = blob_rows(10, 17)
+    game = RubyGBA.game "MOVE" do
+      screen :tiled
+      image(:hero, "." => :transparent, "#" => :red) { art }
+      hero = sprite :hero, at: [40, 40]
+      game_loop { hero.move :right, by: 2 }
+    end
+
+    v = running(game, frames: 3)
+    started = first_drawn_column(v, 0, 240, 44, :red)
+    places = Array.new(4) do
+      where = v.sprites(:hero).first[:x]
+      v.step
+      where
+    end
+
+    assert_equal [2, 2, 2], places.each_cons(2).map { |was, now| now - was },
+                 "two pixels a frame, read off the table as it moves"
+    moving = v.sprites(:hero).first
+    assert_equal moving[:x] + 8, moving[:piece_x],
+                 "and it is still the picture's corner, several frames of moving on"
+    assert_equal started + 8, first_drawn_column(v, 0, 240, 44, :red),
+                 "the picture came on with it — four frames, two pixels each"
+  end
 end
