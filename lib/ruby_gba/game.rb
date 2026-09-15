@@ -49,8 +49,9 @@ module RubyGBA
       evaluated.program
     end
 
-    # The finished ROM. The out:/err: streams are injectable so a test (or the CLI)
-    # captures anything the build prints.
+    # The finished ROM. Where the build prints is injectable, so a test (or the CLI) captures
+    # it: out:/err: each take an open stream, the name of a file, or nil for a build that
+    # prints nothing (see {BuildOutput}).
     # THIS ONE MEASURES THE GAME, which {RubyGBA.build} does not do by default.
     #
     # The split is by who is asking. This is the method that makes a cartridge somebody is

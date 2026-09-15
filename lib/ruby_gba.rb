@@ -11,6 +11,7 @@ require_relative "ruby_gba/score" # music handed over as data, rather than writt
 require_relative "ruby_gba/envelope" # how a note starts and how it ends, so an edge is not a click
 require_relative "ruby_gba/asm"
 require_relative "ruby_gba/progress" # what a build says it is doing while it does it
+require_relative "ruby_gba/build_output" # where a build prints, however the caller said it
 require_relative "ruby_gba/ir"
 require_relative "ruby_gba/rom_validator"
 require_relative "ruby_gba/video_memory" # how much room the pictures took, and what the storage saved
@@ -112,8 +113,10 @@ module RubyGBA
   #   one cannot reach: a game measures each of its scenes, so a moment WITHIN one — a boss with
   #   half its health gone, a floor with sixty guards — has to be measured by hand and saved.
   # @return [RubyGBA::ROM] finalized ROM ready to write
-  # +out+/+err+ are the streams dump_func writes its disassembly and warnings to;
-  # they default to the process streams and can be pointed at a StringIO in tests.
+  # +out+/+err+ are where the build prints — the disassembly dump_func was asked for, and the
+  # warnings the guardrails found. Each takes an open stream (a StringIO, to capture them in a
+  # test), the NAME of a file (opened and closed for you), or nil for a build that prints
+  # nothing at all; they default to the process streams. See {BuildOutput}.
   # +code+ and +maker+ are the four characters an emulator tells one cartridge from another
   # by, and the two that name a publisher. Leave them out: the framework works a free code
   # out from the title (see {GameCode}), and a code a released cartridge already carries is
@@ -121,6 +124,13 @@ module RubyGBA
   def self.build(title, code: nil, maker: nil, validate: true, frame_sync: :auto, fast_cartridge: true,
                  fast_code: true, out: $stdout, err: $stderr, progress: Progress.silent,
                  profile: false, &block)
+    # Settle where this build prints BEFORE anything is read or checked, so a caller
+    # that named somewhere the build cannot write is told on every build rather than on
+    # the one build that finally has a warning to give (see {BuildOutput}).
+    output = BuildOutput.new(out: out, err: err)
+    out = output.out
+    err = output.err
+
     if profile == true
       return build_measured(title, code: code, maker: maker, validate: validate,
                             frame_sync: frame_sync, fast_cartridge: fast_cartridge,
@@ -228,6 +238,9 @@ module RubyGBA
     # reader sees the explanation and then the line saying the build stopped.
     progress.done
     findings&.emit(to: err)
+    # Last of all, because the line above is the last thing anybody prints: hand back any
+    # file this build opened for itself. A stream the caller opened is left alone.
+    output&.close
   end
 
   # BUILD IT, RUN IT, BUILD IT AGAIN — which is how the build knows what a game spends its
