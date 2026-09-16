@@ -312,13 +312,14 @@ class TestSpriteOneFrameAtATime < Minitest::Test
 
   # --- reading back where such a character is ---
 
-  # A 32x32 picture drawn in a 16-wide band starting at +from+, so the build trims it to a
-  # 16-wide box standing +from+ along. Poses drawn from different columns are trimmed by
-  # different amounts, which is the whole point: the sprite is told to stand a different
-  # distance along for each of them.
-  def banded_art(number, from)
-    (0...32).flat_map do |y|
-      (0...32).map do |x|
+  # A picture drawn in a 16-wide band starting at +from+ and see-through everywhere else, so the
+  # build trims it to a 16-wide box standing +from+ along. Poses drawn from different columns
+  # are trimmed by different amounts, which is the whole point: the sprite is told to stand a
+  # different distance along for each of them, and a reader has to take that distance off again
+  # before the console's number means the corner of the picture.
+  def banded_art(number, from, size = 32)
+    (0...size).flat_map do |y|
+      (0...size).map do |x|
         next :transparent if x < from || x >= from + 16
 
         INKS[((x * 5) + (y * 3) + number) % 15]
@@ -326,55 +327,79 @@ class TestSpriteOneFrameAtATime < Minitest::Test
     end
   end
 
-  # A character kept to one frame at a time whose poses do NOT all trim alike: the first is
-  # drawn down the left of its canvas and the second in the middle, and the rest fill their
-  # canvas. Every pose is copied into the same room in sprite memory, so the console's table
-  # says the same tile whichever one is showing — and the trim is what a reader has to take
-  # off the console's number to get back to where the game put the sprite.
+  # Where the characters below are declared to stand, and where reading them back must say they
+  # are, on every frame of their animation.
   STANDS_AT = 40
 
+  # A character kept to one frame at a time whose poses do NOT all trim alike. The first is
+  # drawn down the left of its canvas, the second in the middle, the next two are those two
+  # REVERSED — which is how nearly every 2D game faces a character, and which trims from the
+  # other side — and the rest fill their canvas. Every one of them is copied into the same room
+  # in sprite memory, so the console's table says the same tile whichever is showing.
   def banded_screen
     program do |t|
       screen :tiled
       poses = (0...70).map { |n| :"step_#{n}" }
       poses.each_with_index do |name, n|
-        data = case n
-               when 0 then t.banded_art(n, 0)   # trimmed to the left of the canvas
-               when 1 then t.banded_art(n, 8)   # ...and this one stands 8 further along
-               else t.frame_art(n)              # the rest fill their canvas
-               end
+        data = n < 2 ? t.banded_art(n, n * 8) : t.frame_art(n)
         image name, width: 32, height: 32, data: data, transparent: true
       end
-      sprite :walker, at: [STANDS_AT, STANDS_AT], frames: poses, rate: 1
+      showing = [poses[0], poses[1], mirror(poses[0]), mirror(poses[1]), *poses[2..]]
+      sprite :walker, at: [STANDS_AT, STANDS_AT], frames: showing, rate: 1
       game_loop {}
     end
   end
 
-  # THE BUG THIS PINS: the trim was looked up by the place in sprite memory the pose sits in,
-  # which is the same place for every pose of a character kept to one frame. So every pose was
-  # given whichever trim was recorded last, and the row read back was silently out by the
-  # difference for all the others — right on most frames and wrong on one, which is the shape
-  # of mistake that costs a day.
-  def test_a_character_kept_to_one_frame_reads_back_where_the_game_put_it
-    rom = assemble_rom(banded_screen, name: "BAND")
-    v = assert_emulator_loads_rom(rom, frames: 2)
-    seen = []
-    6.times do
-      row = v.sprites(:walker).first
-      refute_nil row, "the walker should be on screen"
-      assert_equal STANDS_AT, row[:x], "the walker is drawn where the game put it, whatever pose it is in"
-      seen << row[:piece_x]
+  # A character bigger than any one picture the console draws, so every pose is cut into pieces —
+  # and kept to one frame besides. Its pieces are separate rows of the console's table, each
+  # trimmed on its own, so this is the case where being keyed by the pose has to hold per piece.
+  def banded_giant_screen
+    program do |t|
+      screen :tiled
+      poses = (0...40).map { |n| :"stride_#{n}" }
+      poses.each_with_index do |name, n|
+        data = n < 2 ? t.banded_art(n, n * 8, 48) : t.growing_art(n)
+        image name, width: 48, height: 48, data: data, transparent: true
+      end
+      sprite :giant, at: [STANDS_AT, STANDS_AT], frames: poses, rate: 1
+      game_loop {}
+    end
+  end
+
+  # Read a character back over the frames of its animation: it must say it is where the game put
+  # it every time, and the console's own number must really move between those frames, or the
+  # test proves nothing.
+  def assert_stands_still(prog, name:, sprite:, frames: 6)
+    v = assert_emulator_loads_rom(assemble_rom(prog, name: name), frames: 2)
+    raw = []
+    frames.times do
+      rows = v.sprites(sprite)
+      refute_empty rows, "#{sprite} should be on screen"
+      rows.each { |row| assert_equal STANDS_AT, row[:x], "#{sprite} stands where the game put it, in every pose" }
+      raw << rows.map { |row| row[:piece_x] }
       v.step
     end
-    assert_operator seen.uniq.length, :>, 1,
+    assert_operator raw.uniq.length, :>, 1,
                     "the poses must really be trimmed differently, or this proves nothing"
   end
 
-  # ...and the oracle says the same number for the same program, which is what makes the one
-  # above a fact about the framework rather than about the console.
-  def test_the_oracle_puts_that_character_in_the_same_place
-    i = Reference.new.run(banded_screen, frames: 8)
+  # THE BUG THIS PINS: the trim was looked up by the place in sprite memory a pose sits in, which
+  # is the same place for every pose of a character kept to one frame. So every pose was given
+  # whichever trim was written down last, and the position read back was silently out by the
+  # difference for all the others — right on most frames of a cycle and wrong on a few, which is
+  # the shape of mistake that costs a day.
+  def test_a_character_kept_to_one_frame_reads_back_where_the_game_put_it
+    assert_stands_still(banded_screen, name: "BAND", sprite: :walker)
+  end
 
-    assert_equal [STANDS_AT], i.sprites(:walker).map { |row| row[:x] }.uniq
+  def test_a_character_cut_into_pieces_and_kept_to_one_frame_reads_back_where_the_game_put_it
+    assert_stands_still(banded_giant_screen, name: "GIANT", sprite: :giant)
+  end
+
+  # ...and the oracle puts them in the same place, which is what makes those two facts about the
+  # framework rather than about the console.
+  def test_the_oracle_puts_those_characters_in_the_same_place
+    assert_equal [STANDS_AT], Reference.new.run(banded_screen, frames: 8).sprites(:walker).map { |r| r[:x] }.uniq
+    assert_equal [STANDS_AT], Reference.new.run(banded_giant_screen, frames: 8).sprites(:giant).map { |r| r[:x] }.uniq
   end
 end

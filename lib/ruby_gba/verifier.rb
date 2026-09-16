@@ -236,8 +236,13 @@ module RubyGBA
       end
       address = @var_addresses[name] ||
                 raise(ArgumentError, "unknown variable #{name.inspect} — known: #{@var_addresses.keys.join(', ')}")
-      IR::Int32.wrap(mem32(address))
+      var_at(address)
     end
+
+    # The variable at an address, with its sign put back — the rule above, kept in one place so
+    # that anything reading a variable the program never named (the framework keeps a few of its
+    # own) reads it the same way a game's own variable is read.
+    def var_at(address) = IR::Int32.wrap(mem32(address))
 
     # THE SPRITES THE CONSOLE IS DRAWING, each knowing which one the game declared it for.
     #
@@ -631,7 +636,7 @@ module RubyGBA
       rooms = @rom.built.sprite_pose_in_room
       @probe.sprites.map do |row|
         name = whose[row[:slot]]
-        dx, dy = moved.dig(row[:slot], pose_in(row, rooms)) || [0, 0]
+        dx, dy = moved.dig(row[:slot], pose_key(row, rooms)) || [0, 0]
         # Back into the ranges the console keeps these in, so a sprite half off the left edge
         # reads the way its own place reads rather than going negative.
         row.merge(name: name, piece_x: row[:x], piece_y: row[:y],
@@ -639,22 +644,25 @@ module RubyGBA
       end
     end
 
-    # WHICH POSE A ROW IS HOLDING, said the way the build wrote that place's trims down.
+    # WHICH POSE A ROW IS HOLDING, said the way the build wrote that place's trims down (see
+    # IR::Backends::GBA#pose_key, the other end of this).
     #
-    # Nearly every sprite keeps all its pictures in sprite memory at once, and then the row says
-    # which pose it is showing by itself: the tiles it draws and whether it is drawn backwards
-    # are different for every pose, so those two are the answer.
+    # Nearly every sprite keeps all its pictures in sprite memory at once, and then the row tells
+    # its own poses apart: the tiles it draws and whether it is drawn backwards differ for every
+    # pose, so those two are the answer.
     #
-    # A sprite with more pictures than fit keeps ONE of them there at a time, and then they are
-    # not: every pose is copied into the same room, so the row says that one place whichever pose
-    # is in it. The cartridge keeps the pose number in a variable of its own for exactly this
-    # reason, and the build says where — so this reads it rather than guessing from a row that
-    # cannot know. Nothing copied in yet reads as no pose at all, which finds no trim and leaves
-    # the row where the console has it.
-    def pose_in(row, rooms)
+    # A sprite with more pictures than fit keeps ONE of them there at a time, and then the row
+    # cannot: every pose is copied into the same room, so it says that one place whichever pose
+    # is in it. The cartridge keeps the pose number in a variable of its own for exactly that
+    # reason — it is how it knows whether the frame already in the room is still the right one —
+    # and the build says where, so this reads it rather than guessing from a row that cannot
+    # know. A room nothing has been copied into yet holds no pose at all, and no pose finds no
+    # trim; a row being drawn always has one, because the frame goes in before the row is
+    # written.
+    def pose_key(row, rooms)
       address = rooms[row[:slot]] or return [row[:tile], row[:mirrored_across]]
 
-      IR::Int32.wrap(mem32(address))
+      var_at(address)
     end
 
     # Which places the build gave each declared sprite. A cartridge assembled without its

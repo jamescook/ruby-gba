@@ -505,14 +505,20 @@ module RubyGBA
         # as it is built, so they say nothing to anybody, and a sprite drawn for something the
         # author named nothing (a letter of text) is left out rather than given one.
         def sprite_slots
-          return {} unless @picture
-
-          @picture.objects.each_with_object({}) do |node, places|
+          each_built_sprite.each_with_object({}) do |(node, sprite), places|
             next unless node.declared
 
-            sprite = @objects[node.name]
             (places[node.declared] ||= []).concat((sprite.slot...(sprite.slot + sprite.pieces)).to_a)
           end
+        end
+
+        # Every sprite the picture declares, paired with the record the build made of it — what
+        # the three reports below all walk. Nothing at all for a program that draws no picture.
+        def each_built_sprite
+          return to_enum(:each_built_sprite) unless block_given?
+          return if @picture.nil?
+
+          @picture.objects.each { |node| yield node, @objects[node.name] }
         end
 
         # HOW FAR ALONG THE BUILD MOVED EACH OF A SPRITE'S STORED POSES.
@@ -526,19 +532,14 @@ module RubyGBA
         # the worst way for a number to be wrong.
         #
         # Keyed by the PLACE in the console's table — which is the one thing a row of that table
-        # says about itself that is its own — and then by the two things it says about which
-        # pose it is holding: the first tile it draws, and whether it is being drawn backwards.
+        # says about itself that is its own — and then by whatever tells that place's poses apart
+        # (see #pose_key, which is where the two answers to that are).
         #
         # The place has to be the outer key rather than the sprite's name, because a picture
         # cut into pieces can hold the same tiles in more than one of them (a wide plain wall
-        # is the easy case) and those pieces stand at different distances. Within ONE place,
-        # two poses that answer to the same tile and the same direction are the same stored
-        # picture and were moved the same distance, so there is never a choice to make.
+        # is the easy case) and those pieces stand at different distances.
         def sprite_offsets
-          return {} unless @picture
-
-          @picture.objects.each_with_object({}) do |node, moved|
-            sprite = @objects[node.name]
+          each_built_sprite.each_with_object({}) do |(_node, sprite), moved|
             sprite.pieces.times { |piece| moved[sprite.slot + piece] = pose_offsets(sprite, piece) }
           end
         end
@@ -549,10 +550,7 @@ module RubyGBA
         # what says that the offsets for that slot are counted by pose rather than looked up by
         # what the row says. Empty for a game whose sprites all keep every picture they can show.
         def sprite_pose_in_room
-          return {} unless @picture
-
-          @picture.objects.each_with_object({}) do |node, where|
-            sprite = @objects[node.name]
+          each_built_sprite.each_with_object({}) do |(_node, sprite), where|
             next unless sprite.frames
 
             address = var_addr(sprite.frame_in_room_var)
@@ -560,42 +558,38 @@ module RubyGBA
           end
         end
 
-        # One piece's poses, as the map above.
-        #
-        # A sprite KEPT TO ONE FRAME at a time is keyed by the pose NUMBER rather than by what
-        # the console's row says, and that is not a refinement — it is the whole of the thing
-        # this used to get wrong. Every pose of such a sprite is copied into one room, so the row
-        # says the same tile whichever pose is in it, and keying by the row collapsed all of them
-        # onto one entry: every pose then answered to whichever trim was written down last, and
-        # the position read back was out by the difference for all the others. Right on most
-        # frames and wrong on a few, which is the worst way for a number to be wrong.
-        # #sprite_pose_in_room is where the pose number is read from.
-        def pose_offsets(sprite, piece)
-          moved = pose_distances(sprite, piece)
-          return moved if sprite.frames
-
-          moved.transform_keys { |pose| pose_key(sprite, piece, pose) }
-        end
-
-        # How far the build moved each of one piece's poses, by pose number. A sprite whose poses
-        # all trimmed alike was moved one distance whatever it is showing; one whose poses differ
+        # One piece's poses, as the map above. A sprite whose poses all trimmed alike was moved one
+        # distance whatever it is showing and carries no words at all; one whose poses differ
         # carries a word each, with the distance in there among the rest of what changes (see
         # #object_pose_table).
-        def pose_distances(sprite, piece)
-          unless sprite.alike
-            row = sprite.pose_words[piece * sprite.pose_count, sprite.pose_count]
-            return row.each_with_index.to_h { |word, pose| [pose, pose_moved(word)] }
+        def pose_offsets(sprite, piece)
+          words = sprite.pose_words&.slice(piece * sprite.pose_count, sprite.pose_count)
+          alike = [sprite.offset_x, sprite.offset_y]
+          (0...sprite.pose_count).to_h do |pose|
+            word = words&.at(pose)
+            [pose_key(sprite, pose, word), word ? pose_moved(word) : alike]
           end
-
-          moved = [sprite.offset_x, sprite.offset_y]
-          (0...sprite.pose_count).to_h { |pose| [pose, moved] }
         end
 
-        # What the console's row says about which pose it is holding — the first tile it draws
-        # and whether it is drawn backwards. Poses that trimmed alike sit an even stride apart,
-        # so the tile is worked out; poses that differ carry their tile in their word.
-        def pose_key(sprite, piece, pose)
-          return pose_shown(sprite.pose_words[(piece * sprite.pose_count) + pose]) unless sprite.alike
+        # WHAT TELLS ONE POSE FROM ANOTHER once the cartridge is built, which has two answers.
+        #
+        # For nearly every sprite it is what the console's own row says — the first tile it draws
+        # and whether it is drawn backwards — because every pose has a place in sprite memory of
+        # its own: poses that trimmed alike sit an even stride apart, so the tile is worked out,
+        # and poses that differ carry their tile in their word. Two poses in one place answering
+        # to the same tile and the same direction are the same stored picture and were moved the
+        # same distance, so nothing is lost where those collapse together.
+        #
+        # A sprite KEPT TO ONE FRAME at a time has no such place, and that is the whole of what
+        # this used to get wrong. Every pose of one is copied into the same room, so the row says
+        # that one tile whichever pose is in it and all of them collapsed onto a single entry —
+        # every pose then answered to whichever trim was written down last, and the position read
+        # back was out by the difference for all the others. Right on most frames of a cycle and
+        # wrong on a few, which is the worst way for a number to be wrong. So it is known by its
+        # pose NUMBER instead; #sprite_pose_in_room says where that number is read from.
+        def pose_key(sprite, pose, word)
+          return pose if sprite.frames
+          return pose_shown(word) if word
 
           [sprite.tile_index + (pose * sprite.per_pose), false]
         end
