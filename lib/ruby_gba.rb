@@ -15,7 +15,6 @@ require_relative "ruby_gba/build_output" # where a build prints, however the cal
 require_relative "ruby_gba/ir"
 require_relative "ruby_gba/rom_validator"
 require_relative "ruby_gba/video_memory" # how much room the pictures took, and what the storage saved
-require_relative "ruby_gba/roomy_memory" # ...and what went in the other, roomier work memory
 require_relative "ruby_gba/build_record" # what the build worked out, for the cartridge to carry
 require_relative "ruby_gba/game_code" # the four characters an emulator tells one cartridge from another by
 require_relative "ruby_gba/rom"

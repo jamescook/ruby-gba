@@ -609,8 +609,8 @@ module RubyGBA
           placed = @lists.roomy_lists
           return nil if placed.empty? && @memory.roomy_used.zero?
 
-          RubyGBA::RoomyMemory.new(used: @memory.roomy_used, free: @memory.roomy_free,
-                                   collections: placed)
+          Roomy::Usage.new(used: @memory.roomy_used, free: @memory.roomy_free,
+                           collections: placed)
         end
 
         # WHAT THE PICTURES COST IN VIDEO MEMORY, and what storing them the small way saved.

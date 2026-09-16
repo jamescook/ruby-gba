@@ -50,6 +50,20 @@ module RubyGBA
             def rank = [asked == false ? 0 : (hot ? 2 : 1), -bytes]
           end
 
+          # WHAT CAME OF THE MOVES: how much of the roomy memory is spoken for, how much is
+          # left, and which collections landed there. The counterpart to Candidate — that one
+          # is what was considered, this is what happened — and the only way an author can see
+          # it, since a collection moving here is a decision nobody wrote. Seeing it is what
+          # lets them say `fast: false` about the one that should have moved instead.
+          Usage = Data.define(:used, :free, :collections) do
+            def total = used + free
+
+            def to_h
+              { used: used, free: free, total: total,
+                collections: collections.map { |name, bytes| { name: name.to_s, bytes: bytes } } }
+            end
+          end
+
           def initialize(program)
             @hot = Roomy.touched_every_frame(program)
           end
