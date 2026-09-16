@@ -27,7 +27,7 @@ module RubyGBA
       # @return [Sample]
       def sample(name, pcm: nil, from: nil, rate: nil, note: :C4, envelope: nil, holds_from: nil)
         raise ArgumentError, "A sample name must be a Symbol. You gave #{name.inspect}." unless name.is_a?(Symbol)
-        if RubyGBA::Music::CONSOLE_VOICE_NAMES.include?(name)
+        if RubyGBA::Audio::Music::CONSOLE_VOICE_NAMES.include?(name)
           raise ArgumentError, "The recording #{name.inspect} has the name of one of the console's own " \
                                "voices. A song part that says `plays: #{name.inspect}` plays that voice, " \
                                "not this recording. Give the recording a different name, for example " \
@@ -35,16 +35,16 @@ module RubyGBA
         end
 
         bytes, rate = sample_data(name, pcm, from, rate)
-        unless Whole.positive?(rate)
+        unless DSL::Whole.positive?(rate)
           raise ArgumentError, "sample :#{name} must have a positive rate. The rate is how many samples play in one second. You gave #{rate.inspect}."
         end
         raise ArgumentError, "sample :#{name} has no sound data. The samples or the .wav file are empty." if bytes.empty?
-        Sample.validate_note!(note, "sample :#{name} note:")
+        DSL::Sample.validate_note!(note, "sample :#{name} note:")
 
         record(IR::Build.sample(name, bytes, rate, note: note,
-                                                   envelope: Envelope.of(envelope, "sample :#{name}"),
+                                                   envelope: Audio::Envelope.of(envelope, "sample :#{name}"),
                                                    holds_from: holds_point(name, holds_from, bytes.bytesize, rate)))
-        Sample.new(self, name)
+        DSL::Sample.new(self, name)
       end
 
       # Define a playable instrument from a recorded sample — the same `pcm:`/`from:`/`rate:`
@@ -57,7 +57,7 @@ module RubyGBA
       #
       # @return [Instrument]
       def instrument(name, pcm: nil, from: nil, rate: nil, note: :C4, envelope: nil, holds_from: nil)
-        Instrument.new(self, sample(name, pcm: pcm, from: from, rate: rate, note: note,
+        DSL::Instrument.new(self, sample(name, pcm: pcm, from: from, rate: rate, note: note,
                                           envelope: envelope, holds_from: holds_from))
       end
 
@@ -92,7 +92,7 @@ module RubyGBA
         if from
           raise ArgumentError, "You gave both pcm: and from: to sample :#{name}. Give pcm: or from:, not both." if pcm
 
-          loaded = Wav.load(resolve_asset_path(from))
+          loaded = Audio::Wav.load(resolve_asset_path(from))
           [loaded[:bytes], rate || loaded[:rate]]
         elsif pcm
           [pack_pcm(name, pcm), rate || DEFAULT_SAMPLE_RATE]

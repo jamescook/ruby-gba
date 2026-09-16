@@ -37,19 +37,19 @@ class TestTiledCollisionCost < Minitest::Test
     RubyGBA.build("COLL", code: "BCOL", maker: "01", validate: false,
                   out: StringIO.new, err: StringIO.new) do
       screen :tiled
-      image :brick, width: 8, height: 8, data: Array.new(64, RubyGBA::Color.rgb(20, 10, 5))
-      image :floor, width: 8, height: 8, data: Array.new(64, RubyGBA::Color.rgb(5, 5, 10))
+      image :brick, width: 8, height: 8, data: Array.new(64, RubyGBA::Graphics::Color.rgb(20, 10, 5))
+      image :floor, width: 8, height: 8, data: Array.new(64, RubyGBA::Graphics::Color.rgb(5, 5, 10))
       tiles :dungeon, "#" => :brick, "." => :floor, solid: ["#"]
       room = background :room, tiles: :dungeon, map: map
       made = (1..movers).map do |i|
-        image :"guy#{i}", width: 16, height: 16, data: Array.new(256, RubyGBA::Color.rgb(31, 31, 0))
+        image :"guy#{i}", width: 16, height: 16, data: Array.new(256, RubyGBA::Graphics::Color.rgb(31, 31, 0))
         sprite(:"guy#{i}", at: [(i * 16) + 8, 24]).blocked_by(room)
       end
       game_loop { made.each { |s| s.move(:right, by: 1); s.move(:down, by: 1) } }
     end
   end
 
-  def loop_bytes(rom) = rom.built.placement.sizes[RubyGBA::BuildRecord::FRAME_ROUTINE].to_i
+  def loop_bytes(rom) = rom.built.placement.sizes[RubyGBA::Cartridge::BuildRecord::FRAME_ROUTINE].to_i
 
   # THE ONE THAT MATTERS. A bare room and a room full of pillars are the same code. The
   # grid is consulted, so what the room is MADE of never reaches the mover.
@@ -90,9 +90,9 @@ class TestTiledCollisionCost < Minitest::Test
     builder = Builder.new
     builder.instance_eval do
       screen :tiled
-      image :brick, width: 8, height: 8, data: Array.new(64, RubyGBA::Color.rgb(20, 10, 5))
-      image :floor, width: 8, height: 8, data: Array.new(64, RubyGBA::Color.rgb(5, 5, 10))
-      image :guy, width: 8, height: 8, data: Array.new(64, RubyGBA::Color.rgb(31, 31, 0))
+      image :brick, width: 8, height: 8, data: Array.new(64, RubyGBA::Graphics::Color.rgb(20, 10, 5))
+      image :floor, width: 8, height: 8, data: Array.new(64, RubyGBA::Graphics::Color.rgb(5, 5, 10))
+      image :guy, width: 8, height: 8, data: Array.new(64, RubyGBA::Graphics::Color.rgb(31, 31, 0))
       tiles :dungeon, "#" => :brick, "." => :floor, solid: ["#"]
       room = background :room, tiles: :dungeon, map: map
       guards = pool :guard, x: 0, y: 0, capacity: 32, image: :guy
@@ -123,7 +123,7 @@ class TestTiledCollisionCost < Minitest::Test
   # behaviour a sprite gets, asserted through the picture.
   def test_a_pooled_instance_stops_at_a_solid_tile
     i = Reference.new.run(pooled_game(1), frames: 40)
-    yellow = RubyGBA::Color.rgb(31, 31, 0)
+    yellow = RubyGBA::Graphics::Color.rgb(31, 31, 0)
     seen = (0...240).select { |x| (0...160).any? { |y| i.screen.pixel(x, y) == yellow } }
 
     refute_empty seen, "the guard should be on screen somewhere"
@@ -137,12 +137,12 @@ class TestTiledCollisionCost < Minitest::Test
     builder = Builder.new
     builder.instance_eval do
       screen :tiled
-      image :brick, width: 8, height: 8, data: Array.new(64, RubyGBA::Color.rgb(20, 10, 5))
-      image :floor, width: 8, height: 8, data: Array.new(64, RubyGBA::Color.rgb(5, 5, 10))
+      image :brick, width: 8, height: 8, data: Array.new(64, RubyGBA::Graphics::Color.rgb(20, 10, 5))
+      image :floor, width: 8, height: 8, data: Array.new(64, RubyGBA::Graphics::Color.rgb(5, 5, 10))
       tiles :dungeon, "#" => :brick, "." => :floor, solid: ["#"]
       room = background :room, tiles: :dungeon, map: map
       made = (1..4).map do |i|
-        image :"guy#{i}", width: 8, height: 8, data: Array.new(64, RubyGBA::Color.rgb(31, 31, 0))
+        image :"guy#{i}", width: 8, height: 8, data: Array.new(64, RubyGBA::Graphics::Color.rgb(31, 31, 0))
         sprite(:"guy#{i}", at: [(i * 24) + 16, 32]).blocked_by(room)
       end
       game_loop { made.each { |s| s.move(:right, by: 2); s.move(:down, by: 1) } }

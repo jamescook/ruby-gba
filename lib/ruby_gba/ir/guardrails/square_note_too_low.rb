@@ -18,7 +18,7 @@ module RubyGBA
           NAME = :square_note_too_low
           PLAIN_NAME = "a square-wave note lower than the voice can play"
 
-          LOWEST = Sound::Registers::SQUARE_LOWEST_HZ
+          LOWEST = Audio::Sound::Registers::SQUARE_LOWEST_HZ
 
           # The lowest MIDI key the square wave plays in tune, and its name: key 36, :C2.
           LOWEST_KEY = (69 + (12 * Math.log2(LOWEST / 440.0))).ceil

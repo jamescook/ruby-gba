@@ -8,7 +8,7 @@ require "test_helper"
 # delta), so it behaves the same on every backend; these tests assert the value
 # it lands on, both in the interpreter and on real hardware.
 class TestApproach < Minitest::Test
-  include RubyGBA::Constants
+  include RubyGBA::Cartridge::Constants
 
   # Build through the DSL and run on the reference backend, returning the
   # interpreter (read a variable's final value with i[:name]).
@@ -267,7 +267,7 @@ class TestApproach < Minitest::Test
 
   def test_marker_homes_in_on_hardware
     machine_code = RubyGBA::IR::Backends::GBA.new.lower(marker_program(frames: 20))
-    rom = RubyGBA::ROM.assemble(machine_code, title: "APPROACH", code: "BAPP", maker: "01")
+    rom = RubyGBA::Cartridge::ROM.assemble(machine_code, title: "APPROACH", code: "BAPP", maker: "01")
 
     v = assert_emulator_loads_rom(rom, frames: 22)
     assert v.green?(100, 50), "the marker reached the target on hardware"
@@ -331,7 +331,7 @@ class TestApproach < Minitest::Test
   end
 
   def rom_for(program)
-    RubyGBA::ROM.assemble(RubyGBA::IR::Backends::GBA.new.lower(program),
+    RubyGBA::Cartridge::ROM.assemble(RubyGBA::IR::Backends::GBA.new.lower(program),
                           title: "APPROACH", code: "BAPP", maker: "01")
   end
 end

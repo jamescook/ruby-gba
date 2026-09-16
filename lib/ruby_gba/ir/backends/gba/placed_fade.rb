@@ -40,7 +40,7 @@ module RubyGBA
         # Nothing to do — and not one emitted byte different — for a program that places no
         # fade, which is every program that names no layers.
         class PlacedFade
-          include Constants
+          include Cartridge::Constants
 
           # The window that keeps one sprite out of the fade: which place in the console's
           # table it takes, and when it shows.

@@ -33,7 +33,7 @@ class TestListHardware < Minitest::Test
                    "interpreter: (#{x}, #{ROW}) should be #{color || 'background'}"
     end
 
-    rom = RubyGBA::ROM.assemble(GBA.new.lower(prog), title: "LISTHW", code: "BLHW", maker: "01")
+    rom = RubyGBA::Cartridge::ROM.assemble(GBA.new.lower(prog), title: "LISTHW", code: "BLHW", maker: "01")
     v = assert_emulator_loads_rom(rom)
     expectations.each do |x, color|
       assert v.pixel_is?(x, ROW, color || :black),
@@ -165,7 +165,7 @@ class TestListHardware < Minitest::Test
       halt,
     )
 
-    rom = RubyGBA::ROM.assemble(GBA.new.lower(prog), title: "LISTBD", code: "BLBD", maker: "01")
+    rom = RubyGBA::Cartridge::ROM.assemble(GBA.new.lower(prog), title: "LISTBD", code: "BLBD", maker: "01")
     v = assert_emulator_loads_rom(rom)
     assert v.pixel_is?(110, ROW, :green), "both bad writes landed on the first slot"
     assert v.pixel_is?(30, ROW, :black), "so the first of them was overwritten by the second"
@@ -245,7 +245,7 @@ class TestListHardware < Minitest::Test
       halt,
     )
 
-    rom = RubyGBA::ROM.assemble(GBA.new.lower(prog), title: "LISTOF", code: "BLOF", maker: "01")
+    rom = RubyGBA::Cartridge::ROM.assemble(GBA.new.lower(prog), title: "LISTOF", code: "BLOF", maker: "01")
     v = assert_emulator_loads_rom(rom)
     assert v.pixel_is?(30, ROW, :green), "the first push survives"
     assert v.pixel_is?(90, ROW, :green), "the second push survives"

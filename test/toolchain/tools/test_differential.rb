@@ -530,7 +530,7 @@ class TestDifferential < Minitest::Test
 
     rom = assemble_rom(program, name: name)
     offsets = counts.filter_map do |cf|
-      console = RubyGBA::Verifier.new(rom, frames: cf).frame_gba
+      console = RubyGBA::Diagnostics::Verifier.new(rom, frames: cf).frame_gba
       hit = counts.find { |f| oracle[f] == console }
       hit && (cf - hit)
     end

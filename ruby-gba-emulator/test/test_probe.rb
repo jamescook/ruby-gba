@@ -133,8 +133,8 @@ class TestRubyGBAEmulatorProbe < Minitest::Test
     end
     with_probe(rom) do |probe|
       probe.step(8)
-      assert_equal RubyGBA::Sound::Registers.wave_rate(440), probe.wave_rate
-      assert_equal 0, probe.read16(RubyGBA::Constants::REG_SOUND3CNT_X) & 0x07FF,
+      assert_equal RubyGBA::Audio::Sound::Registers.wave_rate(440), probe.wave_rate
+      assert_equal 0, probe.read16(RubyGBA::Cartridge::Constants::REG_SOUND3CNT_X) & 0x07FF,
                    "the register itself reads back no pitch"
     end
   end
@@ -222,12 +222,12 @@ class TestRubyGBAEmulatorProbe < Minitest::Test
   # A program of three instructions written by hand, so where each one sits is known
   # without asking the build: the cartridge's code starts right after its header.
 
-  CODE_START = 0x0800_0000 + RubyGBA::ROM::ENTRY_OFFSET
+  CODE_START = 0x0800_0000 + RubyGBA::Cartridge::ROM::ENTRY_OFFSET
 
   def test_a_run_stops_at_an_address_and_reads_what_the_registers_hold_there
-    rom = hand_written_rom(RubyGBA::ASM.load_immediate(4, 0x55) +
-                           RubyGBA::ASM.load_immediate(5, 0x66) +
-                           RubyGBA::ASM.loop_forever)
+    rom = hand_written_rom(RubyGBA::Cartridge::ASM.load_immediate(4, 0x55) +
+                           RubyGBA::Cartridge::ASM.load_immediate(5, 0x66) +
+                           RubyGBA::Cartridge::ASM.loop_forever)
     with_probe(rom) do |probe|
       probe.run_until(CODE_START + 4)
       assert_equal CODE_START + 4, probe.registers[:pc]
@@ -237,7 +237,7 @@ class TestRubyGBAEmulatorProbe < Minitest::Test
   end
 
   def test_a_run_that_never_reaches_the_address_says_so_rather_than_stopping_somewhere_else
-    rom = hand_written_rom(RubyGBA::ASM.loop_forever)
+    rom = hand_written_rom(RubyGBA::Cartridge::ASM.loop_forever)
     with_probe(rom) do |probe|
       err = assert_raises(RuntimeError) { probe.run_until(CODE_START + 0x100, limit: 1000) }
       assert_match(/0x080001C0/, err.message)
@@ -288,7 +288,7 @@ class TestRubyGBAEmulatorProbe < Minitest::Test
 
   # A cartridge holding exactly these instructions and nothing the framework adds.
   def hand_written_rom(code)
-    rom = RubyGBA::ROM.assemble(code, title: "BYHAND", code: "THND", maker: "01")
+    rom = RubyGBA::Cartridge::ROM.assemble(code, title: "BYHAND", code: "THND", maker: "01")
     tf = Tempfile.new(["byhand", ".gba"])
     tf.binmode
     rom.write(tf.path)

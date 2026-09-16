@@ -11,10 +11,10 @@ require "test_helper"
 # A note held across the loop point is sounded again there on every pass after the first, and a
 # part that is silent there is silenced there, whatever the end of the song left it doing.
 class TestSongLoopPoint < Minitest::Test
-  Score = RubyGBA::Score
+  Score = RubyGBA::Audio::Score
   Part = Score::Part
   Note = Score::Note
-  NOTES = RubyGBA::Music::NOTE_FREQUENCIES
+  NOTES = RubyGBA::Audio::Music::NOTE_FREQUENCIES
   STEP_ONE = GBA::Mixer::STEP_ONE
 
   # At 150 beats a minute and 24 ticks a beat, a tick is one frame. Every song here is 72 ticks
@@ -175,7 +175,7 @@ class TestSongLoopPoint < Minitest::Test
   end
 
   def test_loop_from_here_at_the_end_of_a_song_is_a_friendly_error
-    ctx = RubyGBA::Music::SongContext.new
+    ctx = RubyGBA::Audio::Music::SongContext.new
     ctx.instance_eval do
       note :C4, :quarter
       loop_from_here
@@ -185,7 +185,7 @@ class TestSongLoopPoint < Minitest::Test
   end
 
   def test_parts_that_mark_different_loop_points_are_a_friendly_error
-    ctx = RubyGBA::Music::SongContext.new
+    ctx = RubyGBA::Audio::Music::SongContext.new
     ctx.instance_eval do
       voice(:melody) { note(:C4, :quarter); loop_from_here; note(:E4, :half) }
       voice(:bass) { note(:C3, :half); loop_from_here; note(:G3, :quarter) }

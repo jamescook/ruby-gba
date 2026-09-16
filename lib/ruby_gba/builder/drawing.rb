@@ -10,7 +10,7 @@ module RubyGBA
     # names — the MODE_*/BG*_ENABLE bits in SCREEN_MODES and the SCREEN_* bounds in
     # validate_coords! (a concern doesn't inherit Builder's own Constants include).
     module Drawing
-      include Constants
+      include Cartridge::Constants
 
       # Friendly screen mode presets — the names {#screen} accepts. The tear-proof
       # double-buffered screen isn't a separate name here: it's `screen :bitmap,
@@ -180,7 +180,7 @@ module RubyGBA
       # @param x [Symbol, Integer, Value] the window's left edge, in pixels
       # @param y [Symbol, Integer, Value] the window's top edge, in pixels
       def camera(x, y)
-        record(Build.camera(x: Value.node_for(x), y: Value.node_for(y)))
+        record(Build.camera(x: DSL::Value.node_for(x), y: DSL::Value.node_for(y)))
         ensure_var(x)
         ensure_var(y)
       end
@@ -224,14 +224,14 @@ module RubyGBA
           raise ArgumentError,
                 "fade goes to :black or :white. You gave #{toward.inspect}."
         end
-        fixed = Value.fixed_number(amount)
+        fixed = DSL::Value.fixed_number(amount)
         if fixed && !(0..100).cover?(fixed)
           raise ArgumentError,
                 "fade's amount is how far to go, from 0 to 100. You gave #{fixed}."
         end
         check_effect_layer!(:fade, under) if under
 
-        record(Build.fade(toward: toward, amount: Value.node_for(amount), under: under))
+        record(Build.fade(toward: toward, amount: DSL::Value.node_for(amount), under: under))
         ensure_var(amount)
       end
 
@@ -258,13 +258,13 @@ module RubyGBA
       # @param color [Symbol, String, Integer] the color to move the picture toward
       # @param amount [Symbol, Integer, Value] how far, 0 to 100
       def tint(color, amount = 100)
-        fixed = Value.fixed_number(amount)
+        fixed = DSL::Value.fixed_number(amount)
         if fixed && !(0..100).cover?(fixed)
           raise ArgumentError,
                 "tint's amount is how far to go, from 0 to 100. You gave #{fixed}."
         end
 
-        record(Build.tint(color: Color.resolve(color), amount: Value.node_for(amount)))
+        record(Build.tint(color: Graphics::Color.resolve(color), amount: DSL::Value.node_for(amount)))
         ensure_var(amount)
       end
 
@@ -321,8 +321,8 @@ module RubyGBA
                 "something the game works out as it runs."
         end
 
-        record(Build.draw_column_at(name, Value.node_for(slice), Value.node_for(x),
-                                    Value.node_for(top), Value.node_for(height), width: width,
+        record(Build.draw_column_at(name, DSL::Value.node_for(slice), DSL::Value.node_for(x),
+                                    DSL::Value.node_for(top), DSL::Value.node_for(height), width: width,
                                     usually: stretched_usually(height, estimate, "column")))
         [slice, x, top, height].each { |operand| ensure_var(operand) }
       end
@@ -348,8 +348,8 @@ module RubyGBA
       # @param estimate [Hash, nil] `{ usually: N }` — how tall it normally is, for the
       #   estimate only. Changes nothing about how the game runs; see {#draw_column_at}.
       def draw_rect_at(x_pos, y_pos, w, h, c, estimate: nil)
-        record(Build.draw_rect_at(Value.node_for(x_pos), Value.node_for(y_pos),
-                                  Value.node_for(w), Value.node_for(h), c,
+        record(Build.draw_rect_at(DSL::Value.node_for(x_pos), DSL::Value.node_for(y_pos),
+                                  DSL::Value.node_for(w), DSL::Value.node_for(h), c,
                                   usually: stretched_usually(h, estimate, "rectangle")))
         ensure_var(x_pos)
         ensure_var(y_pos)
@@ -373,7 +373,7 @@ module RubyGBA
       # @param over [Symbol, String, Integer] the background color a cleared cell shows
       # @return [Grid] a handle with set_cell / clear_cell
       def grid(name, cols:, rows:, cell:, over:)
-        Grid.new(self, name: name, cols: cols, rows: rows, cell: cell, over: over)
+        DSL::Grid.new(self, name: name, cols: cols, rows: rows, cell: cell, over: over)
       end
 
       private
@@ -416,7 +416,7 @@ module RubyGBA
                 "#{IR::Palette::CAPACITY}. Give a shorter list."
         end
 
-        colors.map { |spec| Color.resolve(spec) }
+        colors.map { |spec| Graphics::Color.resolve(spec) }
       end
 
       def validate_coords!(x, y)

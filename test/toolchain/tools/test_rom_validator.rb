@@ -9,7 +9,7 @@ require "tempfile"
 # after lowering, so they run at finalization rather than as IR guardrails (which
 # reason about the program before any ROM exists).
 class TestROMValidator < Minitest::Test
-  ROMValidator = RubyGBA::ROMValidator
+  ROMValidator = RubyGBA::Cartridge::ROMValidator
 
   def test_a_valid_rom_passes
     rom = RubyGBA.build("GOOD", code: "BGOD", maker: "01") do
@@ -77,7 +77,7 @@ class TestROMValidator < Minitest::Test
 
   def test_an_empty_title_is_a_warning
     rom = ROM.new(title: "", code: "BEMP", maker: "01")
-    rom.emit(RubyGBA::ASM.loop_forever)
+    rom.emit(RubyGBA::Cartridge::ASM.loop_forever)
     rom.finalize!(validate: false)
     result = ROMValidator.check(rom)
 
@@ -109,7 +109,7 @@ class TestROMValidator < Minitest::Test
     # branch and checksum but not this, so the validation it runs must catch it
     # and refuse the ROM.
     rom = ROM.new(title: "BAD", code: "BBAD", maker: "01")
-    rom.emit(RubyGBA::ASM.loop_forever)
+    rom.emit(RubyGBA::Cartridge::ASM.loop_forever)
     rom.buffer.setbyte(0xB2, 0x00)
 
     err = assert_raises(RubyGBA::ROMError) { rom.finalize!(validate: true) }

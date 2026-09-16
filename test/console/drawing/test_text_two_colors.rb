@@ -16,7 +16,7 @@ require_relative "../../differential"
 class TestTextTwoColors < Minitest::Test
   include Differential
 
-  Fonts = RubyGBA::Fonts
+  Fonts = RubyGBA::Graphics::Fonts
 
   X = 40
   Y = 30
@@ -193,7 +193,7 @@ class TestTextTwoColors < Minitest::Test
   def test_the_colour_changes_on_real_hardware
     require_emulator!
     program = label(on: :tiled)
-    rom = RubyGBA::ROM.assemble(GBA.new.lower(program), title: "TWOCOL", code: "BTWO", maker: "01")
+    rom = RubyGBA::Cartridge::ROM.assemble(GBA.new.lower(program), title: "TWOCOL", code: "BTWO", maker: "01")
 
     # A pixel the "H" lights: its left stem, two rows down.
     pixel = [X, Y + 2]
@@ -202,7 +202,7 @@ class TestTextTwoColors < Minitest::Test
 
     assert dull.pixel_is?(*pixel, :gray), "the label starts in the first colour"
 
-    bright = assert_emulator_loads_rom(rom, frames: 6, keys: RubyGBA::Constants::KEY_A)
+    bright = assert_emulator_loads_rom(rom, frames: 6, keys: RubyGBA::Cartridge::Constants::KEY_A)
 
     assert bright.white?(*pixel), "and the console swaps it for the second when the test holds"
   end

@@ -170,7 +170,7 @@ module RubyGBA
           raise ArgumentError, "a music fade takes frames: or duration:, not both." if frames && duration
 
           count = duration ? music_fade_seconds(duration) : frames
-          unless Whole.positive?(count)
+          unless DSL::Whole.positive?(count)
             raise ArgumentError,
                   "a music fade needs a positive whole number of frames. You gave #{(frames || duration).inspect}."
           end

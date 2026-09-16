@@ -9,7 +9,7 @@ require "tmpdir"
 # and read the busy scanlines a frame burns.
 class TestAnalyzer < Minitest::Test
 
-  Analyzer = RubyGBA::Analyzer
+  Analyzer = RubyGBA::Diagnostics::Analyzer
 
   # Build a program, write it to a temp .gba, and measure it.
   def measure(&block)
@@ -20,7 +20,7 @@ class TestAnalyzer < Minitest::Test
     Dir.mktmpdir do |dir|
       path = File.join(dir, "a.gba")
       rom.write(path)
-      return RubyGBA::Analyzer.measure(path)
+      return RubyGBA::Diagnostics::Analyzer.measure(path)
     end
   end
 
@@ -170,12 +170,12 @@ class TestAnalyzer < Minitest::Test
     Dir.mktmpdir do |dir|
       path = File.join(dir, "bend.gba")
       rom.write(path)
-      probe = RubyGBA::Emulator.probe(path)
+      probe = RubyGBA::Diagnostics::Emulator.probe(path)
       probe.step(8)
       busy = 10.times.map { probe.frame_cost.busy_scanlines }.max
       probe.close
 
-      reading = RubyGBA::Analyzer.measure(path)
+      reading = RubyGBA::Diagnostics::Analyzer.measure(path)
       assert_operator busy, :>, 20, "bending really does cost this frame a lot of CPU"
       assert_operator reading.scanlines, :>=, busy,
                       "the reading must not come in under the CPU the frame demonstrably executed"

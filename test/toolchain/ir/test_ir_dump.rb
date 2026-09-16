@@ -68,13 +68,13 @@ class TestIRDump < Minitest::Test
     assert_equal GBA.new(fast_cartridge: true, fast_code: false).lower(ConformanceFixture.program), machine_code
   end
 
-  # A custom-registered font (`font :name do ... end`) lives in RubyGBA::Fonts, a
+  # A custom-registered font (`font :name do ... end`) lives in RubyGBA::Graphics::Fonts, a
   # process-global registry OUTSIDE the IR tree — draw_text's `font:` operand only
   # names it by symbol. A fresh process running the emitted class never ran that
   # `font` DSL call, so without this the lookup fails there even though it worked
   # in the process that built the ROM. `fonts:` is how emit_class hands it back.
   def test_emit_class_carries_a_custom_font_the_tree_only_references_by_name
-    font = RubyGBA::Font.new(glyphs: { "A" => [0b111, 0b101, 0b111] }, widths: { "A" => 3 }, height: 3)
+    font = RubyGBA::Graphics::Font.new(glyphs: { "A" => [0b111, 0b101, 0b111] }, widths: { "A" => 3 }, height: 3)
     tree = program(draw_text("A", 0, 0, :white, font: :dump_test_font), halt)
     source = Dump.emit_class(tree, class_name: "LetteredIR", fast_cartridge: true, fast_code: true,
                                    fonts: { dump_test_font: font })
@@ -83,7 +83,7 @@ class TestIRDump < Minitest::Test
     scratch.module_eval(source, "generated_ir.rb", 1)
 
     assert scratch::LetteredIR.new.lower # doesn't raise looking up :dump_test_font
-    assert_equal font.to_definition, RubyGBA::Fonts.get(:dump_test_font).to_definition
+    assert_equal font.to_definition, RubyGBA::Graphics::Fonts.get(:dump_test_font).to_definition
   end
 
   # ---- shape: parse with Prism, assert specific AST nodes ----
@@ -98,13 +98,13 @@ class TestIRDump < Minitest::Test
   # tests above prove the source rebuilds the tree; this is the half they cannot see, since a
   # part that spelled out all nine fields would round-trip just as well and read far worse.)
   def test_a_part_is_written_back_as_the_call_that_makes_one_saying_only_what_it_said
-    plain = RubyGBA::Music::Part.new(events: [[0, 262]])
-    drums = RubyGBA::Music::Part.new(events: [[0, 262]], noise: true, decay: :slow)
+    plain = RubyGBA::Audio::Music::Part.new(events: [[0, 262]])
+    drums = RubyGBA::Audio::Music::Part.new(events: [[0, 262]], noise: true, decay: :slow)
 
     assert_includes Dump.source(song(:tune, total_frames: 4, voices: [plain])),
-                    "RubyGBA::Music::Part.new(events: [[0, 262]])"
+                    "RubyGBA::Audio::Music::Part.new(events: [[0, 262]])"
     assert_includes Dump.source(song(:beat, total_frames: 4, voices: [drums])),
-                    "RubyGBA::Music::Part.new(events: [[0, 262]], noise: true, decay: :slow)"
+                    "RubyGBA::Audio::Music::Part.new(events: [[0, 262]], noise: true, decay: :slow)"
   end
 
   def test_a_kind_with_operands_and_children_orders_declared_operands_before_children

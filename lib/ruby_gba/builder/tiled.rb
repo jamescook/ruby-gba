@@ -209,7 +209,7 @@ module RubyGBA
         # build already stamped — so nothing is copied until the game asks for another.
         boot += [:"__bg_#{name}_map", :"__bg_#{name}_live"] if map_names.size > 1
         boot.each { |var| at_boot(Build.set(var, Build.int(0))); ensure_var(var) }
-        Background.new(self, name: name, scroll_x: scroll_x, scroll_y: scroll_y,
+        DSL::Background.new(self, name: name, scroll_x: scroll_x, scroll_y: scroll_y,
                              walls: wall_rects(img_rows, set), affine: @screen_mode == :rotozoom,
                              cells: [grids.first.map(&:length).max || 0, grids.first.length],
                              tile_index: tile_lookup(set, index_of),
@@ -272,8 +272,8 @@ module RubyGBA
         ensure_var(row_var)
         node = Build.scroll_rows(name, row: row_var, offset: Build.int(0))
         offset = nil
-        push_container(node) { offset = block.call(Value.new(self, Build.var_ref(row_var))) }
-        node.offset = Value.node_for(offset)
+        push_container(node) { offset = block.call(DSL::Value.new(self, Build.var_ref(row_var))) }
+        node.offset = DSL::Value.node_for(offset)
         node
       end
 
@@ -296,7 +296,7 @@ module RubyGBA
       # per tileset.
       def import_tile_cells(name, path, tile, transparent, cells)
         tile_w, tile_h = sheet_tile_size("tiles :#{name}", tile)
-        sheet = Image.slice(resolve_asset_path(path), tile_w: tile_w, tile_h: tile_h, transparent: transparent)
+        sheet = Graphics::Image.slice(resolve_asset_path(path), tile_w: tile_w, tile_h: tile_h, transparent: transparent)
         cells.each_with_index.each_with_object({}) do |((char, where), idx), out|
           col, row = sheet_cell_at("tiles :#{name} tile #{char.inspect}", where, sheet.cols)
           bmp = sheet.cell(col, row)
@@ -314,7 +314,7 @@ module RubyGBA
       # no characters — a background over this tileset is authored as a CSV of numbers.
       def define_sheet_tileset(name, path, tile, transparent, solid_numbers)
         tile_w, tile_h = sheet_tile_size("tiles :#{name}", tile)
-        sheet = Image.slice(resolve_asset_path(path), tile_w: tile_w, tile_h: tile_h, transparent: transparent)
+        sheet = Graphics::Image.slice(resolve_asset_path(path), tile_w: tile_w, tile_h: tile_h, transparent: transparent)
 
         by_number = {}
         sheet.rows.times do |row|

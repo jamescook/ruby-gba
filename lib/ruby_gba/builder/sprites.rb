@@ -132,7 +132,7 @@ module RubyGBA
         boot[pose_var] = 0 if has_poses
         boot[frame_var] = 0 if animated_facing
         boot.each do |var_name, value|
-          at_boot(Build.set(var_name, Value.node_for(value)))
+          at_boot(Build.set(var_name, DSL::Value.node_for(value)))
           ensure_var(var_name)
         end
         # A directional animation cycles the FRAME (its direction is chosen by `face`);
@@ -150,7 +150,7 @@ module RubyGBA
         # a sprite AFTER you've drawn its background, so it captures the real scenery.)
         record(Build.backing_buffer(buffer, width: width, height: height))
 
-        handle = Sprite.new(self, x: pos_x, y: pos_y, old_x: old_x, old_y: old_y,
+        handle = DSL::Sprite.new(self, x: pos_x, y: pos_y, old_x: old_x, old_y: old_y,
                                   active: active, buffer: buffer, hitbox: box, pixel_perfect: hitbox.nil?,
                                   image: (has_poses ? nil : name), poses: poses,
                                   facing_var: pose_var, facing_dirs: facing_dirs,
@@ -232,7 +232,7 @@ module RubyGBA
         boot[pose_var] = 0 if posed
         boot[frame_var] = 0 if animated_facing
         boot.each do |var_name, value|
-          at_boot(Build.set(var_name, Value.node_for(value)))
+          at_boot(Build.set(var_name, DSL::Value.node_for(value)))
           ensure_var(var_name)
         end
         # A directional animation cycles the FRAME (its direction is chosen by `face`);
@@ -259,7 +259,7 @@ module RubyGBA
                                                 active: scene_gate(Build.var_ref(active)),
                                                 scene: declaring_scene, declared: name)
         record(object_node)
-        handle = HardwareSprite.new(self, object_name: object_name, object_node: object_node, x: pos_x, y: pos_y,
+        handle = DSL::HardwareSprite.new(self, object_name: object_name, object_node: object_node, x: pos_x, y: pos_y,
                                           active: active, hitbox: box, poses: poses, pixel_perfect: hitbox.nil?,
                                           facing_var: pose_var, facing_dirs: facing_dirs,
                                           frame_var: frame_var, frames_per_dir: frames_per_dir)
@@ -400,7 +400,7 @@ module RubyGBA
         # A directional animation (facing: with a list of frames per direction) cycles
         # its frames, so it needs a rate the same way a plain frames: animation does.
         if facing && facing.values.any? { |v| v.is_a?(Array) && v.length >= 2 }
-          return if Whole.positive?(rate)
+          return if DSL::Whole.positive?(rate)
 
           raise ArgumentError,
                 "#{subject} :#{name} needs a positive rate: (how many game frames each picture is shown). Got #{rate.inspect}."
@@ -411,7 +411,7 @@ module RubyGBA
         unless frames.is_a?(Array) && frames.length >= 2
           raise ArgumentError, "#{subject} :#{name} #{source}"
         end
-        return if Whole.positive?(rate)
+        return if DSL::Whole.positive?(rate)
 
         raise ArgumentError,
               "#{subject} :#{name} needs a positive rate: (how many frames each picture is shown). Got #{rate.inspect}."
@@ -477,13 +477,13 @@ module RubyGBA
         buffer = :"__spr#{id}_under"
 
         { pos_x => start_x, pos_y => start_y, old_x => start_x, old_y => start_y, active => (shown ? 1 : 0) }.each do |var, value|
-          at_boot(Build.set(var, Value.node_for(value)))
+          at_boot(Build.set(var, DSL::Value.node_for(value)))
           ensure_var(var)
         end
         off, len, frame = setup_clip_animation(id, clips, durations)
 
         record(Build.backing_buffer(buffer, width: width, height: height))
-        handle = Sprite.new(self, x: pos_x, y: pos_y, old_x: old_x, old_y: old_y,
+        handle = DSL::Sprite.new(self, x: pos_x, y: pos_y, old_x: old_x, old_y: old_y,
                                   active: active, buffer: buffer, hitbox: box, pixel_perfect: hitbox.nil?,
                                   image: nil, poses: poses, facing_dirs: {},
                                   clips: clips, clip_off_var: off, clip_len_var: len, frame_var: frame,
@@ -506,7 +506,7 @@ module RubyGBA
         active = :"__obj#{id}_on"
 
         { pos_x => start_x, pos_y => start_y, active => (shown ? 1 : 0) }.each do |var, value|
-          at_boot(Build.set(var, Value.node_for(value)))
+          at_boot(Build.set(var, DSL::Value.node_for(value)))
           ensure_var(var)
         end
         off, len, frame = setup_clip_animation(id, clips, durations)
@@ -517,7 +517,7 @@ module RubyGBA
                                                 active: scene_gate(Build.var_ref(active)),
                                                 scene: declaring_scene, declared: name)
         record(object_node)
-        handle = HardwareSprite.new(self, object_name: object_name, object_node: object_node, x: pos_x, y: pos_y,
+        handle = DSL::HardwareSprite.new(self, object_name: object_name, object_node: object_node, x: pos_x, y: pos_y,
                                           active: active, hitbox: box, poses: poses, pixel_perfect: hitbox.nil?,
                                           facing_dirs: {},
                                           clips: clips, clip_off_var: off, clip_len_var: len, frame_var: frame)

@@ -6,7 +6,7 @@ require "test_helper"
 # runs n times with the index counting 0..n-1, on the reference interpreter (the
 # oracle) and on the console. The index is a Value, so it drives real positions.
 class TestRepeat < Minitest::Test
-  include RubyGBA::Constants
+  include RubyGBA::Cartridge::Constants
 
   # One green 2px mark per iteration, spaced 4 apart (2 drawn, 2 gap) so the
   # marks stay discrete: column = i * 4. After repeat(n) there are marks at
@@ -55,7 +55,7 @@ class TestRepeat < Minitest::Test
   end
 
   def test_runs_on_hardware
-    rom = RubyGBA::ROM.assemble(
+    rom = RubyGBA::Cartridge::ROM.assemble(
       RubyGBA::IR::Backends::GBA.new.lower(marching_program(4)),
       title: "REPEAT", code: "BRPT", maker: "01",
     )

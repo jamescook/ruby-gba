@@ -46,7 +46,7 @@ module RubyGBA
           # A beep shares the SECOND square voice, so one square part is fine. A wave tone or a
           # noise hit shares the only voice of its kind, so one part is already a collision.
           def collides?(song, verb)
-            return Tunes.parts_on(song, :square) >= Music::MAX_SQUARE_PARTS if verb == :beep
+            return Tunes.parts_on(song, :square) >= Audio::Music::MAX_SQUARE_PARTS if verb == :beep
 
             Tunes.parts_on(song, verb).positive?
           end

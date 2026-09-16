@@ -76,7 +76,7 @@ class TestBufferedMode4 < Minitest::Test
     given = %i[magenta cyan yellow green]
     rom = assemble_rom(
       program(
-        screen(:bitmap, buffered: true, colors: given.map { |c| RubyGBA::Color.resolve(c) }),
+        screen(:bitmap, buffered: true, colors: given.map { |c| RubyGBA::Graphics::Color.resolve(c) }),
         clear_screen(:green),
         dma_fill_rect(0, 0, 40, 40, :yellow),
         dma_fill_rect(40, 0, 40, 40, :cyan),

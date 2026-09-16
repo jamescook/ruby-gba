@@ -171,18 +171,18 @@ module RubyGBA
         index = :"__repeat_#{@repeat_seq}"
         ensure_var(index)
         ensure_var(count)
-        i = Value.new(self, Build.var_ref(index), name: index)
+        i = DSL::Value.new(self, Build.var_ref(index), name: index)
         # A Condition carries its own node; anything else is an ordinary value, where not-zero
         # means stop. Handing one here USES it, the same as branching on it with `.then` — the
         # guardrail that catches a comparison nobody acted on must not call this one an orphan.
         leave =
-          if stop_when.is_a?(Condition)
+          if stop_when.is_a?(DSL::Condition)
             consume_condition(stop_when)
             stop_when.node
           elsif stop_when
-            Value.node_for(stop_when)
+            DSL::Value.node_for(stop_when)
           end
-        push_container(Build.repeat(Value.node_for(count), index,
+        push_container(Build.repeat(DSL::Value.node_for(count), index,
                                     stop_when: leave, usually: usually, most: most)) do
           run_block(i, &block)
         end
@@ -404,7 +404,7 @@ module RubyGBA
       # @param var_name [Symbol] variable to compare
       # @param operand [Integer, Symbol] immediate value or variable name to compare against
       def emit_conditional(cond, var_name, operand, &block)
-        condition = Build.binop(COND_TO_OP.fetch(cond), Build.var_ref(var_name), Value.node_for(operand))
+        condition = Build.binop(COND_TO_OP.fetch(cond), Build.var_ref(var_name), DSL::Value.node_for(operand))
         ensure_var(var_name)
         ensure_var(operand)
 

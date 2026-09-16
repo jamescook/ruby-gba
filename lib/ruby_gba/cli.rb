@@ -81,9 +81,9 @@ module RubyGBA
     TEXT
     option :format, banner: "NAME", default: "human",
                     desc: "What to print: human (the report) or json (the same numbers as data)"
-    option :frames, type: :numeric, banner: "N", default: RubyGBA::Profiler::FRAMES,
+    option :frames, type: :numeric, banner: "N", default: RubyGBA::Diagnostics::Profiler::FRAMES,
                     desc: "How many frames to measure over"
-    option :settle, type: :numeric, banner: "N", default: RubyGBA::Profiler::SETTLE,
+    option :settle, type: :numeric, banner: "N", default: RubyGBA::Diagnostics::Profiler::SETTLE,
                     desc: "Frames to run first, so the game is past its boot"
     option :keys, type: :array, banner: "BUTTON", default: [],
                   desc: "Hold these buttons for the whole run"
@@ -108,7 +108,7 @@ module RubyGBA
     def inspect(rom_file)
       raise Thor::Error, "I cannot find the ROM file #{rom_file}." unless File.file?(rom_file)
 
-      RubyGBA::Inspector.new(rom_file).report
+      RubyGBA::Diagnostics::Inspector.new(rom_file).report
     end
 
     desc "new NAME", "Write a runnable starter game as NAME.rb"
@@ -129,7 +129,7 @@ module RubyGBA
     def build_cartridge(game_file)
       game = load_game(game_file)
       # Somebody is sitting there waiting for this, so it says what it is doing.
-      rom = game.build_rom(progress: RubyGBA::Progress.to($stderr))
+      rom = game.build_rom(progress: RubyGBA::Diagnostics::Progress.to($stderr))
       path = options[:output] || File.join(File.dirname(File.expand_path(game_file)), game.default_filename)
       rom.write(path)
       say "Built #{File.basename(path)} (#{rom.size} bytes)"
@@ -158,12 +158,12 @@ module RubyGBA
 
     # Fonts the game registered itself with `font :name do ... end` — everything
     # BUT the two that ship built in, which the emitted class gets back for free
-    # just by requiring the library. {RubyGBA::Fonts} is process-global (a font
+    # just by requiring the library. {RubyGBA::Graphics::Fonts} is process-global (a font
     # once registered stays registered), so by the time this runs (after
     # load_game/build_rom evaluated the DSL block) it already holds whichever ones
     # this game defined.
     def custom_fonts
-      (RubyGBA::Fonts.names - %i[default tiny]).to_h { |name| [name, RubyGBA::Fonts.get(name)] }
+      (RubyGBA::Graphics::Fonts.names - %i[default tiny]).to_h { |name| [name, RubyGBA::Graphics::Fonts.get(name)] }
     end
 
     # One line on what the build kept in the console's quick memory, for --stats. The

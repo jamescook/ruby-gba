@@ -183,7 +183,7 @@ class TestRoomyMemory < Minitest::Test
     end
 
     out = StringIO.new
-    RubyGBA::BuildReport.render(rom, out: out)
+    RubyGBA::Diagnostics::BuildReport.render(rom, out: out)
     printed = out.string
     assert_match(/roomy memory/, printed)
     assert_match(/:world/, printed, "it names what moved")
@@ -199,7 +199,7 @@ class TestRoomyMemory < Minitest::Test
     end
 
     out = StringIO.new
-    RubyGBA::BuildReport.render(rom, out: out)
+    RubyGBA::Diagnostics::BuildReport.render(rom, out: out)
     refute_match(/roomy memory/, out.string)
   end
 end

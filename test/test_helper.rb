@@ -34,8 +34,8 @@ module SharedConstants
   Reference = RubyGBA::IR::Backends::Reference # the oracle: runs a program in-process
   GBA = RubyGBA::IR::Backends::GBA             # the lowering: turns a program into a ROM
   Builder = RubyGBA::Builder                   # the DSL surface
-  Color = RubyGBA::Color
-  ROM = RubyGBA::ROM
+  Color = RubyGBA::Graphics::Color
+  ROM = RubyGBA::Cartridge::ROM
 end
 
 # Every IR node class by its bare name, so a test that builds a tree by hand says
@@ -51,7 +51,7 @@ module NodeTypes
 end
 
 # Shared helpers for tests that exercise the emulator in-process. The emulator backend
-# (ruby-gba-emulator, a headless libmgba probe) is reached through RubyGBA::Emulator — the one
+# (ruby-gba-emulator, a headless libmgba probe) is reached through RubyGBA::Diagnostics::Emulator — the one
 # seam — so nothing here names it directly.
 #
 # Include this in a test class instead of copy-pasting begin/require/rescue
@@ -61,14 +61,14 @@ module EmulatorSupport
   # debug scripts that degrade gracefully. Suite tests use #require_emulator!,
   # which fails loud, since the emulator is required, not optional.
   def self.gem_available?
-    RubyGBA::Emulator.available?
+    RubyGBA::Diagnostics::Emulator.available?
   end
 
   # Ensure the emulator is available, failing loudly if it isn't. It is required to verify
   # ROMs, so a missing build is a real error, not a reason to silently skip and pass with the
   # coverage gutted. `rake test` builds it first; run `rake test:emulator` to build it by hand.
   def require_emulator!
-    RubyGBA::Emulator.load!
+    RubyGBA::Diagnostics::Emulator.load!
   end
 
   # Lower an IR program to a finished ROM, the way the emulator tests need it — a
@@ -82,20 +82,20 @@ module EmulatorSupport
   def assemble_rom(program, name: "TEST")
     backend = RubyGBA::IR::Backends::GBA.new
     code = backend.lower(program)
-    RubyGBA::ROM.assemble(code, title: name, code: "TEST", maker: "01",
+    RubyGBA::Cartridge::ROM.assemble(code, title: name, code: "TEST", maker: "01",
                                 built: backend.build_record(program))
   end
 
   # Load +rom+ into the emulator and run it headless for +frames+ frames,
   # asserting it loads and runs without raising. Fails loudly if the emulator isn't
-  # built (it's required). Returns a RubyGBA::Verifier so callers can make pixel
+  # built (it's required). Returns a RubyGBA::Diagnostics::Verifier so callers can make pixel
   # assertions on the rendered frame:
   #
   #   v = assert_emulator_loads_rom(rom, frames: 30)
   #   assert v.red?(120, 80)
   def assert_emulator_loads_rom(rom, frames: 10, **opts)
     require_emulator!
-    verifier = RubyGBA::Verifier.new(rom, frames: frames, **opts)
+    verifier = RubyGBA::Diagnostics::Verifier.new(rom, frames: frames, **opts)
     verifier.pixel(0, 0) # force the emulator to load the ROM and run the frames
     verifier
   rescue StandardError => e

@@ -17,7 +17,7 @@ module RubyGBA
         # knowing their names — the two kinds it does own (:data_addr, :label_addr) and
         # a plain branch are resolved directly.
         class Emit
-          include Constants
+          include Cartridge::Constants
 
           # A PLACEHOLDER WAITING FOR AN ANSWER — the note the first pass leaves itself about a
           # number it cannot know yet, because the thing it refers to has not been placed.
@@ -113,7 +113,7 @@ module RubyGBA
             end
             @fixups << Branch.new(pos: pos, kind: kind, cond: cond, target: target)
             @branches += 1
-            emit(ASM.nop)
+            emit(Cartridge::ASM.nop)
           end
 
           # Call the routine whose address is already in +reg+, and come back here after.
@@ -126,9 +126,9 @@ module RubyGBA
           # and they do it here so there is one place that knows what such a call looks like
           # — which is also the one place that can count it as a jump.
           def emit_call_through(reg)
-            emit(ASM.mov_reg(14, 15)) # lr = the instruction after the jump below
+            emit(Cartridge::ASM.mov_reg(14, 15)) # lr = the instruction after the jump below
             @branches += 1
-            emit(ASM.bx(reg))
+            emit(Cartridge::ASM.bx(reg))
           end
 
           # Second pass: every label and data-blob position is known now, so patch
@@ -169,9 +169,9 @@ module RubyGBA
             word_offset = (target - fix.pos) / 4
             encoded =
               case fix.kind
-              when :b then ASM.branch(word_offset)
-              when :bcond then ASM.branch_cond(fix.cond, word_offset)
-              when :bl then ASM.branch_link(word_offset)
+              when :b then Cartridge::ASM.branch(word_offset)
+              when :bcond then Cartridge::ASM.branch_cond(fix.cond, word_offset)
+              when :bl then Cartridge::ASM.branch_link(word_offset)
               end
             @code[fix.pos, 4] = encoded
           end
@@ -181,7 +181,7 @@ module RubyGBA
           # cartridge right after the header, so its address is the cartridge base
           # plus the header plus that position.
           def resolve_data_address(fix)
-            @code[fix.pos, 16] = ASM.load_immediate_fixed(fix.reg, data_address(fix.target))
+            @code[fix.pos, 16] = Cartridge::ASM.load_immediate_fixed(fix.reg, data_address(fix.target))
           end
 
           # Where blob +name+ is when the cartridge runs.
@@ -189,7 +189,7 @@ module RubyGBA
             position = @data_positions.fetch(name) do
               raise LoweringError, "reference to undefined data #{name.inspect}"
             end
-            ROM_START + RubyGBA::ROM::ENTRY_OFFSET + position
+            ROM_START + RubyGBA::Cartridge::ROM::ENTRY_OFFSET + position
           end
 
           # Patch a load with a *code label's* run-time address — the same cartridge
@@ -197,7 +197,7 @@ module RubyGBA
           # the label table. Used to hand the interrupt vector the address of a routine
           # that lives in the code, not in the data region.
           def resolve_label_address(fix)
-            @code[fix.pos, 16] = ASM.load_immediate_fixed(fix.reg, label_address(fix.target))
+            @code[fix.pos, 16] = Cartridge::ASM.load_immediate_fixed(fix.reg, label_address(fix.target))
           end
 
           # Where code label +name+ is in the cartridge when it runs.
@@ -205,14 +205,14 @@ module RubyGBA
             position = @labels.fetch(name) do
               raise LoweringError, "reference to undefined label #{name.inspect}"
             end
-            ROM_START + RubyGBA::ROM::ENTRY_OFFSET + position
+            ROM_START + RubyGBA::Cartridge::ROM::ENTRY_OFFSET + position
           end
 
           # Load the run-time address of a named code label into +reg+ (a fixed-size
           # placeholder patched in the second pass, once the label's position is known).
           def emit_load_label_address(reg, label)
             @fixups << AddressLoad.new(pos: pos, kind: :label_addr, reg: reg, target: label)
-            emit(ASM.load_immediate_fixed(reg, 0))
+            emit(Cartridge::ASM.load_immediate_fixed(reg, 0))
           end
 
           # Blobs are copied into palette / video / sound memory by DMA, whose source
@@ -242,16 +242,16 @@ module RubyGBA
           # source, a sequencer's cursor) build on this.
           def emit_load_data_address(reg, name)
             @fixups << AddressLoad.new(pos: pos, kind: :data_addr, reg: reg, target: name)
-            emit(ASM.load_immediate_fixed(reg, 0))
+            emit(Cartridge::ASM.load_immediate_fixed(reg, 0))
           end
 
           # A memory-mapped register / VRAM halfword write — the one ASM primitive
           # nearly every lowering concern reaches for, so it lives beside emit rather
           # than with the rest of Primitives.
           def write_reg16(address, value)
-            emit(ASM.load_immediate(ACC, value))
-            emit(ASM.load_immediate(TMP, address))
-            emit(ASM.store_halfword(ACC, TMP))
+            emit(Cartridge::ASM.load_immediate(ACC, value))
+            emit(Cartridge::ASM.load_immediate(TMP, address))
+            emit(Cartridge::ASM.store_halfword(ACC, TMP))
           end
 
           # Patch a fixed 16-byte placeholder in place — the shape every custom fixup

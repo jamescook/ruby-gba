@@ -71,7 +71,7 @@ module Differential
 
   # A button name as the console's key bit, for holding buttons on both backends.
   KEY_BITS = RubyGBA::IR::Buttons::NAMES.to_h do |name|
-    [name, RubyGBA::Constants.const_get(:"KEY_#{name.to_s.upcase}")]
+    [name, RubyGBA::Cartridge::Constants.const_get(:"KEY_#{name.to_s.upcase}")]
   end.freeze
 
   class OverBudget < StandardError; end
@@ -142,9 +142,9 @@ module Differential
   def console_picture(program, cf, name, keys)
     mask = keys.sum { |key| KEY_BITS.fetch(key) }
     backend = RubyGBA::IR::Backends::GBA.new
-    rom = RubyGBA::ROM.assemble(backend.lower(program), title: name, code: "TEST", maker: "01",
+    rom = RubyGBA::Cartridge::ROM.assemble(backend.lower(program), title: name, code: "TEST", maker: "01",
                                                        built: backend.build_record(program))
-    verifier = RubyGBA::Verifier.new(rom, frames: cf, keys: mask, count_passes: true)
+    verifier = RubyGBA::Diagnostics::Verifier.new(rom, frames: cf, keys: mask, count_passes: true)
     [verifier.frame_gba, verifier.passes]
   end
 
@@ -264,7 +264,7 @@ module Differential
   def color_label(value)
     return "backdrop" if value.zero?
 
-    name = RubyGBA::Color::PRESETS.key(value)
+    name = RubyGBA::Graphics::Color::PRESETS.key(value)
     name ? name.to_s : format("0x%04X", value)
   end
 end

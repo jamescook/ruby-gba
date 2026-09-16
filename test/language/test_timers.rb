@@ -12,7 +12,7 @@ require "test_helper"
 # a fixed number of frames, and check how often (and when) the block fired. A
 # the emulator test confirms the schedule holds on real hardware.
 class TestTimers < Minitest::Test
-  include RubyGBA::Constants
+  include RubyGBA::Cartridge::Constants
 
   Build = RubyGBA::IR::Build
 
@@ -265,7 +265,7 @@ class TestTimers < Minitest::Test
     i = Reference.new.run(program)
     assert_equal Color.resolve(:red), i.screen.pixel(103, 83), "interpreter: marker on after 2 frames"
 
-    rom = RubyGBA::ROM.assemble(RubyGBA::IR::Backends::GBA.new.lower(program),
+    rom = RubyGBA::Cartridge::ROM.assemble(RubyGBA::IR::Backends::GBA.new.lower(program),
                                 title: "TIMERS", code: "BTMR", maker: "01")
     v = assert_emulator_loads_rom(rom, frames: 6)
     assert v.red?(103, 83), "console: the after(2) marker is drawn"

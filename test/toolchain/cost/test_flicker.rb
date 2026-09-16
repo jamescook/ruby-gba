@@ -8,7 +8,7 @@ require "test_helper"
 # one, at every shape that matters. The pictures are tiny; the rule does not care
 # how big they are.
 class TestFlickerRule < Minitest::Test
-  Flicker = RubyGBA::Flicker
+  Flicker = RubyGBA::Diagnostics::Flicker
 
   W = 8
   H = 8
@@ -117,11 +117,11 @@ class TestFlickerMeasurable < Minitest::Test
   end
 
   def test_a_tear_free_screen_can_lose_drawing
-    assert RubyGBA::Flicker.measurable?(program_on(buffered: true))
+    assert RubyGBA::Diagnostics::Flicker.measurable?(program_on(buffered: true))
   end
 
   def test_a_plain_bitmap_screen_cannot
-    refute RubyGBA::Flicker.measurable?(program_on)
+    refute RubyGBA::Diagnostics::Flicker.measurable?(program_on)
   end
 
   # The two are never both asked of one game: a screen keeps one picture or two,
@@ -129,7 +129,7 @@ class TestFlickerMeasurable < Minitest::Test
   def test_the_two_questions_are_never_both_asked
     [program_on, program_on(buffered: true),
      program(screen(:tiled), halt), program(screen(:rotozoom), halt)].each do |prog|
-      asked = [RubyGBA::Flicker.measurable?(prog), RubyGBA::Tearing.measurable?(prog)]
+      asked = [RubyGBA::Diagnostics::Flicker.measurable?(prog), RubyGBA::Diagnostics::Tearing.measurable?(prog)]
       assert_operator asked.count(true), :<=, 1,
                       "at most one question should apply, got #{asked.inspect}"
     end
@@ -140,7 +140,7 @@ class TestFlickerMeasurable < Minitest::Test
   # has no framebuffer, so neither applies and both say "not measured".
   def test_a_bitmap_screen_always_gets_one_of_the_two
     [program_on, program_on(buffered: true)].each do |prog|
-      asked = [RubyGBA::Flicker.measurable?(prog), RubyGBA::Tearing.measurable?(prog)]
+      asked = [RubyGBA::Diagnostics::Flicker.measurable?(prog), RubyGBA::Diagnostics::Tearing.measurable?(prog)]
       assert_equal 1, asked.count(true), "a bitmap screen should get one question, got #{asked.inspect}"
     end
   end
@@ -178,7 +178,7 @@ class TestFlickerOnTheInterpreter < Minitest::Test
   def reading_for(program, at: 30)
     before = Reference.new.run(program, frames: at).screen.pages
     after = Reference.new.run(program, frames: at + 2).screen.pages
-    RubyGBA::Flicker.read(before, after)
+    RubyGBA::Diagnostics::Flicker.read(before, after)
   end
 
   def test_a_trail_drawn_once_is_caught

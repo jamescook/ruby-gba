@@ -10,7 +10,7 @@ require "test_helper"
 # the interpreter oracle and on real hardware — the same pose-swap the (timer-driven)
 # flipbook animation verb builds on.
 class TestHardwareSpriteFacing < Minitest::Test
-  include RubyGBA::Constants
+  include RubyGBA::Cartridge::Constants
 
   SOLID8 = (["########"] * 8).join("\n")
   FLOOR_MAP = Array.new(20, "#" * 30).freeze

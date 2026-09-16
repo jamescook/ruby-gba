@@ -21,9 +21,9 @@ class TestLayerTransparency < Minitest::Test
 
   SOLID_TILE = (("#" * 8) + "\n").freeze * 8
 
-  RED = RubyGBA::Color.resolve(:red)
-  WHITE = RubyGBA::Color.resolve(:white)
-  GREEN = RubyGBA::Color.resolve(:green)
+  RED = RubyGBA::Graphics::Color.resolve(:red)
+  WHITE = RubyGBA::Graphics::Color.resolve(:white)
+  GREEN = RubyGBA::Graphics::Color.resolve(:green)
 
   # White over red, half way: each channel takes half of each side and the sixteenth is
   # dropped once, from the sum. Named rather than derived — it is the number the console
@@ -43,10 +43,10 @@ class TestLayerTransparency < Minitest::Test
   def report_of(prog)
     backend = RubyGBA::IR::Backends::GBA.new
     machine_code = backend.lower(prog)
-    rom = RubyGBA::ROM.assemble(machine_code, title: "LAYR", code: "LAYR", maker: "01",
+    rom = RubyGBA::Cartridge::ROM.assemble(machine_code, title: "LAYR", code: "LAYR", maker: "01",
                                               built: backend.build_record(prog))
     out = StringIO.new
-    RubyGBA::BuildReport.render(rom, out: out)
+    RubyGBA::Diagnostics::BuildReport.render(rom, out: out)
     out.string
   end
 

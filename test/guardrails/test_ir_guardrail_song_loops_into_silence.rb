@@ -11,12 +11,12 @@ class TestSongLoopsIntoSilenceGuardrail < Minitest::Test
   include RubyGBA::IR::Build
 
   Check = RubyGBA::IR::Guardrails::Checks::SongLoopsIntoSilence
-  Score = RubyGBA::Score
+  Score = RubyGBA::Audio::Score
 
   # A second long, looping from frame 24 — 0.4 seconds in.
   def tune(*parts, loop_frame: 24)
     song(:tune, total_frames: 60, loop_frame: loop_frame,
-                voices: parts.map { |events| RubyGBA::Music::Part.new(events: events) })
+                voices: parts.map { |events| RubyGBA::Audio::Music::Part.new(events: events) })
   end
 
   def detect(*parts, **opts) = Check.new.detect(program(tune(*parts, **opts)))

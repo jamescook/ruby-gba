@@ -53,7 +53,7 @@ class TestFastCodePlacement < Minitest::Test
   def rom_of(program, title:, code:, **opts)
     backend = GBA.new(**opts)
     machine_code = backend.lower(program)
-    RubyGBA::ROM.assemble(machine_code, title: title, code: code, maker: "01",
+    RubyGBA::Cartridge::ROM.assemble(machine_code, title: title, code: code, maker: "01",
                                         built: backend.build_record(program))
   end
 
@@ -79,7 +79,7 @@ class TestFastCodePlacement < Minitest::Test
   end
 
   def console_pixels(program, **opts)
-    rom = RubyGBA::ROM.assemble(GBA.new(**opts).lower(program), title: "PLACE", code: "PLC1", maker: "01")
+    rom = RubyGBA::Cartridge::ROM.assemble(GBA.new(**opts).lower(program), title: "PLACE", code: "PLC1", maker: "01")
     verifier = assert_emulator_loads_rom(rom, frames: 4)
     height = RubyGBA::IR::Screen::HEIGHT
     width = RubyGBA::IR::Screen::WIDTH
@@ -103,7 +103,7 @@ class TestFastCodePlacement < Minitest::Test
   end
 
   def frame_scanlines(program, **opts)
-    rom = RubyGBA::ROM.assemble(GBA.new(**opts).lower(program), title: "SPEED", code: "SPD1", maker: "01")
+    rom = RubyGBA::Cartridge::ROM.assemble(GBA.new(**opts).lower(program), title: "SPEED", code: "SPD1", maker: "01")
     require_emulator!
     Tempfile.create(["place", ".gba"]) do |file|
       file.binmode
@@ -158,7 +158,7 @@ class TestFastCodePlacement < Minitest::Test
       end
     end
     out = StringIO.new
-    RubyGBA::BuildReport.render(rom, out: out)
+    RubyGBA::Diagnostics::BuildReport.render(rom, out: out)
 
     assert_match(/kept in quick memory/, out.string)
     assert_match(/the game loop/, out.string)
@@ -213,7 +213,7 @@ class TestFastCodePlacement < Minitest::Test
   end
 
   def profile_of(rom)
-    RubyGBA::Profiler.run(rom, frames: 30, picture: false)
+    RubyGBA::Diagnostics::Profiler.run(rom, frames: 30, picture: false)
   end
 
   # --- the routine the console interrupts into ---
@@ -365,7 +365,7 @@ class TestFastCodePlacement < Minitest::Test
     rom = rom_of(bending_program, title: "BENDP", code: "BNDP")
 
     out = StringIO.new
-    RubyGBA::BuildReport.render(rom, out: out)
+    RubyGBA::Diagnostics::BuildReport.render(rom, out: out)
     assert_match(/kept in quick memory/, out.string)
     assert_match(/answers the display and the timers/, out.string)
   end

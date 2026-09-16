@@ -27,7 +27,7 @@ module RubyGBA
           # the promises they make to each other, rather than written down again here. A new
           # play past this is dropped rather than stealing one already sounding (safe and quiet
           # — a game rarely needs more).
-          MAX_VOICES = Sound::MIXER_VOICES
+          MAX_VOICES = Audio::Sound::MIXER_VOICES
 
           # ONE SOUNDING VOICE: the sample it is playing, whose it is, whether it loops, how
           # loud, at what pitch, how many frames it has left of the recording and how many it
@@ -51,9 +51,9 @@ module RubyGBA
                              :ticket, :envelope, :level, :phase, keyword_init: true)
 
           # Which part of a note a voice is in. Named where the rule that moves it is
-          # ({RubyGBA::Envelope}), so this backend and the console's own pass cannot drift apart
+          # ({RubyGBA::Audio::Envelope}), so this backend and the console's own pass cannot drift apart
           # about when a note is over.
-          FALLING = RubyGBA::Envelope::FALLING
+          FALLING = RubyGBA::Audio::Envelope::FALLING
 
           # ...and the frame after a note has fallen to nothing, which the console spends mixing
           # the last of the fade (GBA::Mixer::PHASE_DONE) and this backend spends holding the voice
@@ -114,7 +114,7 @@ module RubyGBA
           # them. The same shape the console's own count is read back in
           # (Verifier#sound_drops), so the two backends' answers meet in one equality.
           def drops
-            SoundDrops::Reading.new(dropped: @drops, music_held: @drops_music, voices: MAX_VOICES)
+            Diagnostics::SoundDrops::Reading.new(dropped: @drops, music_held: @drops_music, voices: MAX_VOICES)
           end
 
           # --- the game's own sounds ---
@@ -146,8 +146,8 @@ module RubyGBA
           # did before shapes existed.
           def shaped(envelope)
             shape = envelope && !envelope.plain? ? envelope : nil
-            { envelope: shape, level: shape ? 0 : RubyGBA::Envelope::FULL,
-              phase: RubyGBA::Envelope::CLIMBING }
+            { envelope: shape, level: shape ? 0 : RubyGBA::Audio::Envelope::FULL,
+              phase: RubyGBA::Audio::Envelope::CLIMBING }
           end
 
           # Stop a sample: drop its voices from the mix (or every voice of the game's, if no
@@ -210,7 +210,7 @@ module RubyGBA
             own = sounding_note(owner)
             own = nil if own && falling!(@slots[own])
             slot = own || @slots.index(nil) || quietest_tail || lowest_below(rank) or return note_drop
-            frames = frames_for(info, frequency / Music::NOTE_FREQUENCIES.fetch(info.note || :C4).to_f)
+            frames = frames_for(info, frequency / Audio::Music::NOTE_FREQUENCIES.fetch(info.note || :C4).to_f)
             @slots[slot] = Voice.new(name: name, owner: owner, rank: rank, frames_left: frames,
                                      frames_total: frames, loop: info.held_by.positive?,
                                      **shaped(envelope || info.envelope))
@@ -294,7 +294,7 @@ module RubyGBA
 
           # ONE FRAME OF EVERY SOUNDING NOTE'S SHAPE — the counterpart of the pass the console
           # runs between the tune's frame and the mix (GBA::Mixer#emit_envelope_step). The rule
-          # itself is neither backend's: it is {RubyGBA::Envelope}#step, so the two cannot differ
+          # itself is neither backend's: it is {RubyGBA::Audio::Envelope}#step, so the two cannot differ
           # about how fast a note fades. A note that has fallen to nothing is over, and its voice
           # goes back on the frame after — the frame the console spends mixing the last of it.
           def step_envelopes
@@ -307,7 +307,7 @@ module RubyGBA
             end
           end
 
-          # How loud a sounding voice is right now, out of {RubyGBA::Envelope}::FULL — its first
+          # How loud a sounding voice is right now, out of {RubyGBA::Audio::Envelope}::FULL — its first
           # voice, or nil when it is not sounding at all. What a test reads to see a note fall
           # away instead of stopping.
           def level_of(name)
@@ -332,7 +332,7 @@ module RubyGBA
           def pitch_ratio(pitch, base)
             return 1.0 unless pitch
 
-            notes = Music::NOTE_FREQUENCIES
+            notes = Audio::Music::NOTE_FREQUENCIES
             notes.fetch(pitch).to_f / notes.fetch(base || :C4)
           end
 

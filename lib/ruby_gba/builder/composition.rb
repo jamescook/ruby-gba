@@ -93,7 +93,7 @@ module RubyGBA
         validate_on_full!(name, on_full)
         validate_pool_widths!(name, fields, widths)
         art = pool_art!(name, image: image, facing: facing, frames: frames, rate: rate, fields: fields)
-        handle = Pool.new(self, name, fields, capacity, image: image, hitbox: art&.hitbox, on_full: on_full,
+        handle = DSL::Pool.new(self, name, fields, capacity, image: image, hitbox: art&.hitbox, on_full: on_full,
                                                         usually: usual_length(estimate, capacity), art: art)
         setup_pool_storage(handle, capacity, fields, widths, fast)
         setup_pool_art(handle, capacity, art) if art
@@ -301,7 +301,7 @@ module RubyGBA
       # than a game quietly losing the bottom of every speed: the scale a fraction is kept at
       # already uses most of a word.
       def check_width_holds_fractions!(name, field, default, width)
-        return if width == :word || Fraction.bits_of(default).nil?
+        return if width == :word || DSL::Fraction.bits_of(default).nil?
 
         raise ArgumentError,
               "pool :#{name} gives field :#{field} the width :#{width}, but it was declared with " \
@@ -311,7 +311,7 @@ module RubyGBA
 
       def validate_pool!(name, capacity, fields)
         raise ArgumentError, "A pool needs a name that is a Symbol. Got #{name.inspect}." unless name.is_a?(Symbol)
-        unless Whole.positive?(capacity)
+        unless DSL::Whole.positive?(capacity)
           raise ArgumentError, "pool :#{name} needs a positive capacity. Got #{capacity.inspect}."
         end
 
@@ -329,9 +329,9 @@ module RubyGBA
 
         raise ArgumentError,
               "pool :#{name} has #{capacity} instances of #{fields.size} fields each. It needs about " \
-              "#{bytes / 1024}KB of the console's #{PlainWords::QUICK_MEMORY}. This is too much. A pool must " \
+              "#{bytes / 1024}KB of the console's #{Diagnostics::PlainWords::QUICK_MEMORY}. This is too much. A pool must " \
               "use much less than #{POOL_MAX_BYTES / 1024}KB. The console has only 32KB of " \
-              "#{PlainWords::QUICK_MEMORY} in total. Use a smaller capacity or fewer fields."
+              "#{Diagnostics::PlainWords::QUICK_MEMORY} in total. Use a smaller capacity or fewer fields."
       end
 
       def validate_on_full!(name, policy)

@@ -247,7 +247,7 @@ module RubyGBA
       # plays once — an introduction. Left out, the song loops from its start.
       def song(name, total_frames:, voices: nil, events: nil, duty: :half, volume: 12, loop_frame: nil, priority: nil,
                group: nil)
-        voices ||= [Music::Part.new(events: events, duty: duty, volume: volume)]
+        voices ||= [Audio::Music::Part.new(events: events, duty: duty, volume: volume)]
         looping = loop_frame ? { loop_frame: loop_frame } : {}
         looping[:priority] = priority if priority
         looping[:group] = group if group
@@ -333,7 +333,7 @@ module RubyGBA
       # +over+/+usually+/+of+ say a pool's live slots; +runs+/+per+ say how many frames in
       # every +per+ the body runs. Both are read by the estimate only.
       def if_(cond, *body, over: nil, usually: nil, of: nil, runs: nil, per: nil)
-        if usually && !Whole.within?(usually, 1..of.to_i)
+        if usually && !DSL::Whole.within?(usually, 1..of.to_i)
           raise ArgumentError,
                 "`usually:` must be between 1 and the #{of.inspect} slots of :#{over}. " \
                 "You gave #{usually.inspect}."
@@ -418,7 +418,7 @@ module RubyGBA
       # Start (or restart) the named timer running at +hz+ overflows per second. Restart
       # resets its elapsed-overflow count to zero.
       def timer_start(name, hz)
-        unless Whole.positive?(hz)
+        unless DSL::Whole.positive?(hz)
           raise ArgumentError, "a timer's rate must be a positive whole number of Hz, got #{hz.inspect}"
         end
         Nodes.build(:timer_start, name: name, hz: hz)
@@ -770,11 +770,11 @@ module RubyGBA
       # insist on the quick one, nil to let the framework decide. It changes nothing the
       # program does, only how long a read takes.
       def list_new(name, capacity, usually: nil, width: :word, fast: nil)
-        unless Whole.positive?(capacity)
+        unless DSL::Whole.positive?(capacity)
           raise ArgumentError,
                 "a list's capacity must be a positive whole number, got #{capacity.inspect}"
         end
-        if usually && !Whole.within?(usually, 1..capacity)
+        if usually && !DSL::Whole.within?(usually, 1..capacity)
           raise ArgumentError,
                 "`usually:` must be between 1 and the capacity of #{capacity}. " \
                 "You gave #{usually.inspect}."

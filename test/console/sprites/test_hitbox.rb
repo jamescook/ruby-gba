@@ -11,7 +11,7 @@ require "test_helper"
 # DSL codegen, so both backends run the same test — asserted on the interpreter oracle
 # here, with one hardware check.
 class TestHitbox < Minitest::Test
-  include RubyGBA::Constants
+  include RubyGBA::Cartridge::Constants
 
   # An 8x8 dot with a 4x4 visible block in the middle (columns/rows 2..5) and a 2px
   # transparent border. So its visible box is [2, 2, 4, 4]; its full image is [0,0,8,8].

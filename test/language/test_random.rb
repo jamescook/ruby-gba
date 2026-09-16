@@ -12,7 +12,7 @@ require "test_helper"
 # the emulator test confirms the same draws land on real hardware, which (running the
 # same IR) also proves the two backends produce an identical sequence.
 class TestRandom < Minitest::Test
-  include RubyGBA::Constants
+  include RubyGBA::Cartridge::Constants
 
   Build = RubyGBA::IR::Build
 
@@ -259,7 +259,7 @@ class TestRandom < Minitest::Test
     x = i[:rx]
     assert_equal Color.resolve(:red), i.screen.pixel(x, 80), "interpreter drew the marker at x=#{x}"
 
-    rom = RubyGBA::ROM.assemble(RubyGBA::IR::Backends::GBA.new.lower(program),
+    rom = RubyGBA::Cartridge::ROM.assemble(RubyGBA::IR::Backends::GBA.new.lower(program),
                                 title: "RANDOMIZE", code: "BRDZ", maker: "01")
     v = assert_emulator_loads_rom(rom, frames: 5, keys: KEY_START)
     assert v.red?(x, 80), "console drew the randomized marker at the same x=#{x}"
@@ -350,7 +350,7 @@ class TestRandom < Minitest::Test
     # The interpreter drew the 4x4 marker here.
     assert_equal Color.resolve(:red), i.screen.pixel(x, y), "interpreter drew the marker at (#{x},#{y})"
 
-    rom = RubyGBA::ROM.assemble(RubyGBA::IR::Backends::GBA.new.lower(program),
+    rom = RubyGBA::Cartridge::ROM.assemble(RubyGBA::IR::Backends::GBA.new.lower(program),
                                 title: "RANDOM", code: "BRND", maker: "01")
     v = assert_emulator_loads_rom(rom, frames: 4)
     assert v.red?(x, y), "console drew the marker at the same (#{x},#{y}) the interpreter did"

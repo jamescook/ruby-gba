@@ -63,7 +63,7 @@ module RubyGBA
       # @param blank [Object] the pixel value that is not drawn
       # @return [Symbol] the font name
       def font(name, on: "#", spacing: 1, fold: nil, glyphs: nil, blank: 0, &block)
-        definition = Font::Definition.new(name, on: on)
+        definition = Graphics::Font::Definition.new(name, on: on)
         if glyphs
           raise ArgumentError, "font :#{name} takes a block or glyphs:, not both. Give one of them." if block
 
@@ -77,7 +77,7 @@ module RubyGBA
 
           definition.instance_eval(&block)
         end
-        Fonts.register(name, definition.to_font(spacing: spacing, fold: fold))
+        Graphics::Fonts.register(name, definition.to_font(spacing: spacing, fold: fold))
         name
       end
 
@@ -130,7 +130,7 @@ module RubyGBA
                 "draw_number. Got #{text.inspect}."
         end
         colors = text_colors!(color, showing)
-        chosen = Fonts.get(font) # fail early with a friendly error on an unknown font name
+        chosen = Graphics::Fonts.get(font) # fail early with a friendly error on an unknown font name
         x = column_for(x, drawn_width(text, chosen), within, "draw_text")
 
         # A tiled screen has no framebuffer to paint into, so text is drawn as little
@@ -175,11 +175,11 @@ module RubyGBA
       # @param digits [Integer] how many digit columns to reserve
       # @param within [Range, nil] the columns to place the field in
       def draw_number(value, x, y, color, digits: DEFAULT_DIGITS, font: :default, within: nil)
-        unless Whole.positive?(digits)
+        unless DSL::Whole.positive?(digits)
           raise ArgumentError, "draw_number needs a positive number of digits. Got #{digits.inspect}."
         end
 
-        chosen = Fonts.get(font)
+        chosen = Graphics::Fonts.get(font)
         x = column_for(x, (digits * chosen.cell_w) - chosen.spacing, within, "draw_number")
 
         # On a tiled screen, a number is drawn as sprite glyphs, declared once and
@@ -191,7 +191,7 @@ module RubyGBA
 
         case value
         when Integer        then draw_fixed_number(value, x, y, color, digits, font)
-        when Symbol, Value  then draw_live_number(value, x, y, color, digits, font)
+        when Symbol, DSL::Value  then draw_live_number(value, x, y, color, digits, font)
         else
           raise ArgumentError,
                 "draw_number draws a number: a value, a variable, or an expression. Got #{value.inspect}."
@@ -213,14 +213,14 @@ module RubyGBA
           raise ArgumentError, "text_width measures words (a String). Got #{text.inspect}."
         end
 
-        drawn_width(text, Fonts.get(font))
+        drawn_width(text, Graphics::Fonts.get(font))
       end
 
       # How tall one line of text is, in pixels — the other side of a box round it.
       #
       # @param font [Symbol] a font registered in {Fonts}
       # @return [Integer] pixels down
-      def text_height(font: :default) = Fonts.get(font).height
+      def text_height(font: :default) = Graphics::Fonts.get(font).height
 
       private
 
@@ -257,9 +257,9 @@ module RubyGBA
       # is used as it is; anything else is read the way a game reads a flag — not zero
       # means yes.
       def text_color_test(showing)
-        return showing if showing.is_a?(Condition)
+        return showing if showing.is_a?(DSL::Condition)
 
-        Value.new(self, Value.node_for(showing)) != 0
+        DSL::Value.new(self, DSL::Value.node_for(showing)) != 0
       end
 
       # The column to draw at, from the left edge a game asked for. A number passes
@@ -326,7 +326,7 @@ module RubyGBA
       # column step is the chosen font's cell width, so a narrower font packs tighter.
       def draw_fixed_number(number, x, y, color, digits, font)
         text = number.to_s
-        col = [digits - text.length, 0].max * Fonts.get(font).cell_w
+        col = [digits - text.length, 0].max * Graphics::Fonts.get(font).cell_w
         record(Build.draw_text(text, x + col, y, color, font: font))
       end
 
@@ -347,7 +347,7 @@ module RubyGBA
         started = next_number_var
         set!(started, 0)
 
-        cell = Fonts.get(font).cell_w
+        cell = Graphics::Fonts.get(font).cell_w
         digits.times do |i|
           place = 10**(digits - 1 - i)
           set!(digit, digit_at(source, place))
@@ -427,7 +427,7 @@ module RubyGBA
       # not there, so a test is what this takes: a test is 0 or 1, and a pair has a
       # 0 and a 1.
       def draw_text_tiled(text, x, y, colors, font, showing)
-        f = Fonts.get(font)
+        f = Graphics::Fonts.get(font)
         pose = colors.length == 1 ? Build.int(0) : glyph_color_pose(showing)
         text.each_char.with_index do |ch, i|
           next if f.glyph_pixels(ch).zero? # a space, or a character the font lacks: nothing to draw
@@ -452,8 +452,8 @@ module RubyGBA
       # showing the matching glyph for its place in the value — recomputed every frame
       # from the variable, with leading zeros left blank so it reads naturally.
       def draw_number_tiled(value, x, y, color, digits, font)
-        cell = Fonts.get(font).cell_w
-        fixed = Value.fixed_number(value)
+        cell = Graphics::Fonts.get(font).cell_w
+        fixed = DSL::Value.fixed_number(value)
         if fixed
           text = fixed.to_s
           pad = [digits - text.length, 0].max # right-align in the field
@@ -516,7 +516,7 @@ module RubyGBA
       # digit reused across columns (or a repeated letter) is built once.
       def glyph_image(font_name, char, color)
         @glyph_images[[font_name, char, color]] ||= begin
-          font = Fonts.get(font_name)
+          font = Graphics::Fonts.get(font_name)
           fits_a_glyph_tile!(font_name, font)
           data = Array.new(HUD_GLYPH_PX * HUD_GLYPH_PX, Images::TRANSPARENT_PIXEL)
           font.each_pixel(char.to_s) { |dx, dy| data[(dy * HUD_GLYPH_PX) + dx] = color }

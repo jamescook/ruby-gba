@@ -14,7 +14,7 @@ require_relative "../../examples/snake"
 # that change each step) so the per-frame work stays inside the console's vblank
 # window — a full redraw every frame overruns it and tears once the snake grows.
 class TestSnakeExample < Minitest::Test
-  include RubyGBA::Constants
+  include RubyGBA::Cartridge::Constants
 
   CELL = Snake::CELL
 

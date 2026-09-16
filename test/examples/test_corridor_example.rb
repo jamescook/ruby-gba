@@ -12,7 +12,7 @@ require_relative "../../examples/corridor"
 # it is a real game that draws a real picture, and it is heavy enough that a change which
 # pushed it over would be caught here.
 class TestCorridorExample < Minitest::Test
-  include RubyGBA::Constants
+  include RubyGBA::Cartridge::Constants
 
   # RubyGBA.build runs the guardrails and the ROM-image validation, so a clean build IS
   # the check.
@@ -75,7 +75,7 @@ class TestCorridorExample < Minitest::Test
 
   def profile_of(game)
     rom = game.build_rom(out: StringIO.new, err: StringIO.new, profile: false)
-    RubyGBA::Profiler.run(rom, frames: 30, picture: false)
+    RubyGBA::Diagnostics::Profiler.run(rom, frames: 30, picture: false)
   end
 
   def idle_share_of(game) = profile_of(game).idle_share

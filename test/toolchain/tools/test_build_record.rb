@@ -26,7 +26,7 @@ class TestBuildRecord < Minitest::Test
     program = RubyGBA::IR::Build.program(RubyGBA::IR::Build.screen(:bitmap),
                                          RubyGBA::IR::Build.clear_screen(:black),
                                          RubyGBA::IR::Build.halt)
-    rom = RubyGBA::ROM.assemble(GBA.new.lower(program), title: "RAW", code: "ZRAW", maker: "01")
+    rom = RubyGBA::Cartridge::ROM.assemble(GBA.new.lower(program), title: "RAW", code: "ZRAW", maker: "01")
 
     assert_nil rom.built
     assert_nil rom.source_program
@@ -37,7 +37,7 @@ class TestBuildRecord < Minitest::Test
   # the safe, dearer one, so a report built on them reads plausibly and is wrong by nearly
   # the factor the quick memory is worth — with nothing on the page to say which it was.
   def test_a_cartridge_that_cannot_report_on_itself_refuses_rather_than_guessing
-    rom = RubyGBA::ROM.new(title: "RAW", code: "ZRAW", maker: "01")
+    rom = RubyGBA::Cartridge::ROM.new(title: "RAW", code: "ZRAW", maker: "01")
 
     error = assert_raises(RubyGBA::ROMError) { rom.profile(out: StringIO.new) }
     assert_match(/does not know how it was built/, error.message)
@@ -74,7 +74,7 @@ class TestBuildRecord < Minitest::Test
   # The half that used to be settable is not any more. A ROM cannot be talked into being
   # half a report after the fact.
   def test_nothing_can_fill_a_cartridge_in_afterwards
-    rom = RubyGBA::ROM.new(title: "RAW", code: "ZRAW", maker: "01")
+    rom = RubyGBA::Cartridge::ROM.new(title: "RAW", code: "ZRAW", maker: "01")
 
     %i[source_program= placement= var_addresses= loop_shapes= palette_entries= compression=].each do |setter|
       refute_respond_to rom, setter

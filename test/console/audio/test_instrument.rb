@@ -9,7 +9,7 @@ require "test_helper"
 # voices; notes play live from input) and on the emulator (a chord is three distinct pitched voices).
 class TestInstrument < Minitest::Test
 
-  NOTES = RubyGBA::Music::NOTE_FREQUENCIES
+  NOTES = RubyGBA::Audio::Music::NOTE_FREQUENCIES
 
   # Build a piano, hand it to the block to play, then loop `frames` frames.
   def play_frames(frames, &use)

@@ -10,7 +10,7 @@ require "test_helper"
 # and on real hardware.
 class TestOverlaps < Minitest::Test
 
-  Condition = RubyGBA::Condition
+  Condition = RubyGBA::DSL::Condition
 
   # Draw a white marker at (0, 0) iff box A overlaps box B, and report the marker
   # pixel from the interpreter. Coordinates are plain integers here so the test

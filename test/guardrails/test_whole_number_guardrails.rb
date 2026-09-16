@@ -4,7 +4,7 @@ require "test_helper"
 require "stringio"
 
 # A capacity, a rate, a size, how many digits: a dozen verbs will not accept an argument
-# that is not a whole number above zero, and they all ask {RubyGBA::Whole} the same
+# that is not a whole number above zero, and they all ask {RubyGBA::DSL::Whole} the same
 # question. What they must NOT share is the answer they give back.
 #
 # Each of these errors teaches something only that verb knows — a timer points at `every`

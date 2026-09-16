@@ -22,7 +22,7 @@ class TestScrollExample < Minitest::Test
 
   def test_the_world_renders
     s = Reference.new.run(Scroll.program, max_steps: 200).screen
-    blue = RubyGBA::Color.resolve(:blue)
+    blue = RubyGBA::Graphics::Color.resolve(:blue)
     assert blue_in_lake?(->(x, y) { s.pixel(x, y) == blue }), "the lake renders in the middle of the world"
   end
 

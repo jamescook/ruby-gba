@@ -19,8 +19,8 @@ class TestSpritePoseSizes < Minitest::Test
   include Differential
 
   CANVAS = 64
-  INK = RubyGBA::Color.rgb(31, 20, 0)
-  CLEAR = RubyGBA::Color.rgb(0, 0, 1)
+  INK = RubyGBA::Graphics::Color.rgb(31, 20, 0)
+  CLEAR = RubyGBA::Graphics::Color.rgb(0, 0, 1)
 
   # A pose drawing a +w+ by +h+ block at (+ox+, +oy+) on a CANVAS-square canvas.
   def pose(w, h, ox, oy)
@@ -137,7 +137,7 @@ class TestSpritePoseSizes < Minitest::Test
   # while a tile NUMBER counts in 32s whichever way the picture is stored. So the step
   # from one pose to the next is two per tile there and one in every other sprite in the
   # suite, and counting tiles instead of those units silently draws the wrong pose.
-  INKS = (0...20).map { |i| RubyGBA::Color.rgb(i + 5, 31 - i, 3) }
+  INKS = (0...20).map { |i| RubyGBA::Graphics::Color.rgb(i + 5, 31 - i, 3) }
 
   # An 8x8 block running through all twenty inks from +from+, on a 16x16 canvas.
   def wide_pose(from)

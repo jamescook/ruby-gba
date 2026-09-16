@@ -238,7 +238,7 @@ class TestRubyGBAEmulatorProfile < Minitest::Test
         game_loop { repeat(passes) { add! :x, 1 } }
       end.program
 
-      counted = RubyGBA::Analyzer.measure_fps(program)
+      counted = RubyGBA::Diagnostics::Analyzer.measure_fps(program)
       measured = with_probe(adding_rom(passes, "PFXC", "PFXC")) do |probe|
         probe.profile(frames: 60, settle: 20).frames_per_second
       end

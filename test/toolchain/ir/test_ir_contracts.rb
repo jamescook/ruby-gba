@@ -28,8 +28,8 @@ class TestIRContracts < Minitest::Test
     assert_equal 240, Screen::WIDTH
     assert_equal 160, Screen::HEIGHT
     # The GBA hardware constants are an alias for the contract, not a second copy.
-    assert_equal Screen::WIDTH, RubyGBA::Constants::SCREEN_WIDTH
-    assert_equal Screen::HEIGHT, RubyGBA::Constants::SCREEN_HEIGHT
+    assert_equal Screen::WIDTH, RubyGBA::Cartridge::Constants::SCREEN_WIDTH
+    assert_equal Screen::HEIGHT, RubyGBA::Cartridge::Constants::SCREEN_HEIGHT
   end
 
   def test_the_interpreter_framebuffer_sizes_itself_from_the_contract

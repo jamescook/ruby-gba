@@ -70,7 +70,7 @@ class TestMeasuredPlacement < Minitest::Test
       out = StringIO.new
       rom = game_with_work_in_a_later_scene.build_rom(out: StringIO.new, err: StringIO.new,
                                                       profile: expected == :measurement)
-      RubyGBA::BuildReport.render(rom, out: out)
+      RubyGBA::Diagnostics::BuildReport.render(rom, out: out)
 
       if expected == :measurement
         assert_match(/chosen from a measurement/, out.string)
@@ -88,7 +88,7 @@ class TestMeasuredPlacement < Minitest::Test
       path = File.join(dir, "game.profile.json")
       first = game_with_work_in_a_later_scene.build_rom(out: StringIO.new, err: StringIO.new,
                                                         profile: false)
-      RubyGBA::RoutineProfile.from_work(RubyGBA::Profiler.every_scene(first, frames: 10).work).write(path)
+      RubyGBA::Diagnostics::RoutineProfile.from_work(RubyGBA::Diagnostics::Profiler.every_scene(first, frames: 10).work).write(path)
 
       placement = placement_for(path)
 
@@ -102,7 +102,7 @@ class TestMeasuredPlacement < Minitest::Test
   def test_a_measurement_naming_a_routine_the_game_no_longer_has_says_so
     Dir.mktmpdir do |dir|
       path = File.join(dir, "stale.profile.json")
-      RubyGBA::RoutineProfile.from_work({ a_routine_since_renamed: 5000 }).write(path)
+      RubyGBA::Diagnostics::RoutineProfile.from_work({ a_routine_since_renamed: 5000 }).write(path)
 
       err = StringIO.new
       game_with_work_in_a_later_scene.build_rom(out: StringIO.new, err: err, profile: path)
@@ -117,7 +117,7 @@ class TestMeasuredPlacement < Minitest::Test
   def test_a_routine_the_build_made_is_not_reported_as_drift
     Dir.mktmpdir do |dir|
       path = File.join(dir, "built.profile.json")
-      RubyGBA::RoutineProfile.from_work({ __digit_routine_default: 5000 }).write(path)
+      RubyGBA::Diagnostics::RoutineProfile.from_work({ __digit_routine_default: 5000 }).write(path)
 
       err = StringIO.new
       game_with_work_in_a_later_scene.build_rom(out: StringIO.new, err: err, profile: path)
@@ -147,7 +147,7 @@ class TestMeasuredPlacement < Minitest::Test
   # A routine measured at almost nothing is not worth the room: moving it costs a longer call
   # at every site, every frame, and gives back only a share of what little it runs.
   def test_a_routine_that_hardly_runs_is_not_worth_the_room
-    profile = RubyGBA::RoutineProfile.from_work({ busy: 5000, idle: 3 })
+    profile = RubyGBA::Diagnostics::RoutineProfile.from_work({ busy: 5000, idle: 3 })
 
     assert profile.worth_moving?(:busy)
     refute profile.worth_moving?(:idle)

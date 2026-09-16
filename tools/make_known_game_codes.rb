@@ -7,7 +7,7 @@ require "json"
 # that were sold, and the prototypes, betas and kiosk builds that got out too. A
 # prototype's code is as taken as a hit's — an emulator matches it the same way.
 #
-# Why the framework carries this list at all is explained on RubyGBA::GameCode.
+# Why the framework carries this list at all is explained on RubyGBA::Cartridge::GameCode.
 #
 # The list is final. The last Game Boy Advance cartridge shipped in 2008, so nothing
 # will be added to it — which is what makes shipping it honest rather than a

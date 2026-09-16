@@ -7,9 +7,9 @@ require "test_helper"
 # and layout, and the registry / a second font.
 class TestFont < Minitest::Test
 
-  Fonts = RubyGBA::Fonts
-  Font = RubyGBA::Font
-  F = RubyGBA::Fonts.default # the built-in 5x7 uppercase font
+  Fonts = RubyGBA::Graphics::Fonts
+  Font = RubyGBA::Graphics::Font
+  F = RubyGBA::Graphics::Fonts.default # the built-in 5x7 uppercase font
 
   # ---- glyph data (the default font) ----
 

@@ -78,7 +78,7 @@ module RubyGBA
             return if @value.nil?
 
             bytes.unpack("V*").each do |word|
-              return forget if ASM.disturbs?(word, @reg)
+              return forget if Cartridge::ASM.disturbs?(word, @reg)
             end
           end
         end

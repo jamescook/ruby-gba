@@ -11,7 +11,7 @@ module RubyGBA
         # column, and the run-time digit glyph loop. Neither screen owns this; it is
         # the shape a framebuffer has, whichever one is live.
         class Framebuffer
-          include Constants
+          include Cartridge::Constants
 
           # HOW A PICTURE ROW BECOMES A SCREEN ROW, which is a divide by the picture's own
           # height: a stretch that covers rows 8 to 15 of a 64-row picture covers the eighth
@@ -75,7 +75,7 @@ module RubyGBA
           # Stash a solid fill color as a packed two-pixel word in IWRAM and return its
           # address — the fixed source a DMA fill re-reads for every pixel.
           def hold_fill_word(color)
-            value = Color.resolve(color)
+            value = Graphics::Color.resolve(color)
             word = (value << 16) | value
             scratch = @primitives.var_addr(:_dma_scratch)
             @primitives.store_word_immediate(word, scratch)
@@ -146,17 +146,17 @@ module RubyGBA
           # whichever colour they come out — a handful of instructions, where painting the
           # words under the test and again under its opposite was every pixel of them twice.
           def emit_text_color(node, reg)
-            return @emitter.emit(ASM.load_immediate(reg, yield(node.color))) unless node.picked
+            return @emitter.emit(Cartridge::ASM.load_immediate(reg, yield(node.color))) unless node.picked
 
             @lowering.value(node.showing) # r0 = the test: not zero picks the second colour
             first = @emitter.gensym
             done = @emitter.gensym
-            @emitter.emit(ASM.cmp_imm(ACC, 0))
+            @emitter.emit(Cartridge::ASM.cmp_imm(ACC, 0))
             @emitter.emit_branch(:bcond, first, cond: :eq)
-            @emitter.emit(ASM.load_immediate(reg, yield(node.picked)))
+            @emitter.emit(Cartridge::ASM.load_immediate(reg, yield(node.picked)))
             @emitter.emit_branch(:b, done)
             @emitter.place_label(first)
-            @emitter.emit(ASM.load_immediate(reg, yield(node.color)))
+            @emitter.emit(Cartridge::ASM.load_immediate(reg, yield(node.color)))
             @emitter.place_label(done)
           end
 
@@ -169,31 +169,31 @@ module RubyGBA
           # picture as palette numbers, one byte each.
           def emit_column_setup(node, bmp, done, blob: node.name, pixel_bytes: 2)
             @lowering.value(node.height)
-            @emitter.emit(ASM.mov_reg(COLUMN_ROWS, ACC))
-            @emitter.emit(ASM.cmp_imm(COLUMN_ROWS, 0))
+            @emitter.emit(Cartridge::ASM.mov_reg(COLUMN_ROWS, ACC))
+            @emitter.emit(Cartridge::ASM.cmp_imm(COLUMN_ROWS, 0))
             @emitter.emit_branch(:bcond, done, cond: :le) # a column of no height draws nothing
 
             # step = (picture height << 16) / height, by the shared divide routine —
             # which takes the numerator in TMP and the divisor in ACC, and hands the
             # answer back in ACC.
-            @emitter.emit(ASM.load_immediate(TMP, bmp.height << COLUMN_FIXED))
-            @emitter.emit(ASM.mov_reg(ACC, COLUMN_ROWS))
+            @emitter.emit(Cartridge::ASM.load_immediate(TMP, bmp.height << COLUMN_FIXED))
+            @emitter.emit(Cartridge::ASM.mov_reg(ACC, COLUMN_ROWS))
             @divide.emit_call_divide_routine
-            @emitter.emit(ASM.mov_reg(COLUMN_STEP, ACC))
+            @emitter.emit(Cartridge::ASM.mov_reg(COLUMN_STEP, ACC))
 
             @lowering.value(node.x)
-            @emitter.emit(ASM.mov_reg(COLUMN_X, ACC))
+            @emitter.emit(Cartridge::ASM.mov_reg(COLUMN_X, ACC))
             @lowering.value(node.top)
-            @emitter.emit(ASM.mov_reg(COLUMN_Y, ACC))
+            @emitter.emit(Cartridge::ASM.mov_reg(COLUMN_Y, ACC))
 
             # The picture's column: its first pixel is `slice` pixels along its first
             # row, and its rows are a whole picture width apart.
             @lowering.value(node.slice)
             emit_clamp_to(ACC, bmp.width - 1)
             emit_column_runs_pointer(node.name) # ...and where THIS column holds its pixels
-            @emitter.emit(ASM.lsl_imm(ACC, ACC, 1)) if pixel_bytes == 2
+            @emitter.emit(Cartridge::ASM.lsl_imm(ACC, ACC, 1)) if pixel_bytes == 2
             @emitter.emit_load_data_address(COLUMN_SRC, blob)
-            @emitter.emit(ASM.add_reg(COLUMN_SRC, COLUMN_SRC, ACC))
+            @emitter.emit(Cartridge::ASM.add_reg(COLUMN_SRC, COLUMN_SRC, ACC))
           end
 
           # This column's list of the stretches of rows that hold pixels. ACC holds the
@@ -201,12 +201,12 @@ module RubyGBA
           def emit_column_runs_pointer(name)
             return unless @stretched_columns.skips_empty_rows?(name)
 
-            @emitter.emit(ASM.lsl_imm(SPARE, ACC, 1)) # a halfword a column
+            @emitter.emit(Cartridge::ASM.lsl_imm(SPARE, ACC, 1)) # a halfword a column
             @emitter.emit_load_data_address(TMP, @stretched_columns.runs_start_blob(name))
-            @emitter.emit(ASM.add_reg(TMP, TMP, SPARE))
-            @emitter.emit(ASM.load_halfword(SPARE, TMP))
+            @emitter.emit(Cartridge::ASM.add_reg(TMP, TMP, SPARE))
+            @emitter.emit(Cartridge::ASM.load_halfword(SPARE, TMP))
             @emitter.emit_load_data_address(COLUMN_RUNS, @stretched_columns.runs_blob(name))
-            @emitter.emit(ASM.add_reg(COLUMN_RUNS, COLUMN_RUNS, SPARE))
+            @emitter.emit(Cartridge::ASM.add_reg(COLUMN_RUNS, COLUMN_RUNS, SPARE))
           end
 
           # THE WALK, ONCE PER STRETCH OF PIXELS instead of once down the whole square.
@@ -228,8 +228,8 @@ module RubyGBA
           # rounded and why the far one sometimes wants a second spare row.
           def emit_column_runs(name, bmp, bail)
             unless @stretched_columns.skips_empty_rows?(name)
-              @emitter.emit(ASM.load_immediate(SPARE, 0))
-              @emitter.emit(ASM.mov_reg(HIGH, COLUMN_ROWS))
+              @emitter.emit(Cartridge::ASM.load_immediate(SPARE, 0))
+              @emitter.emit(Cartridge::ASM.mov_reg(HIGH, COLUMN_ROWS))
               return yield(bail)
             end
 
@@ -240,38 +240,38 @@ module RubyGBA
             # on a picture whose height needs one, waits with them.
             held = divide.by_multiply? ? [ACC, COLUMN_Y, COLUMN_ROWS] : [COLUMN_Y, COLUMN_ROWS]
             at = ->(reg) { held.index(reg) * 4 } # where each one waits, since the list has two lengths
-            @emitter.emit(ASM.load_immediate(ACC, divide.magic)) if divide.by_multiply?
-            @emitter.emit(ASM.push(*held))
+            @emitter.emit(Cartridge::ASM.load_immediate(ACC, divide.magic)) if divide.by_multiply?
+            @emitter.emit(Cartridge::ASM.push(*held))
 
             top = @emitter.gensym
             finish = @emitter.gensym
             @emitter.place_label(top)
-            @emitter.emit(ASM.ldrb_offset(ACC, COLUMN_RUNS, 0))
-            @emitter.emit(ASM.cmp_imm(ACC, RUNS_END))
+            @emitter.emit(Cartridge::ASM.ldrb_offset(ACC, COLUMN_RUNS, 0))
+            @emitter.emit(Cartridge::ASM.cmp_imm(ACC, RUNS_END))
             @emitter.emit_branch(:bcond, finish, cond: :eq)
-            @emitter.emit(ASM.ldrb_offset(HIGH, COLUMN_RUNS, 1))
-            @emitter.emit(ASM.add_imm(COLUMN_RUNS, COLUMN_RUNS, 2))
-            @emitter.emit(ASM.ldr_offset(COLUMN_ROWS, STACK, at[COLUMN_ROWS]))
+            @emitter.emit(Cartridge::ASM.ldrb_offset(HIGH, COLUMN_RUNS, 1))
+            @emitter.emit(Cartridge::ASM.add_imm(COLUMN_RUNS, COLUMN_RUNS, 2))
+            @emitter.emit(Cartridge::ASM.ldr_offset(COLUMN_ROWS, STACK, at[COLUMN_ROWS]))
 
             # Both ends of the stretch, each a picture row times the height on screen and
             # then divided by the picture's own height. COLUMN_Y is somewhere to keep the
             # second product while the first is divided; it is loaded back below.
-            @emitter.emit(ASM.mul(TMP, ACC, COLUMN_ROWS))
-            @emitter.emit(ASM.add_imm(HIGH, HIGH, 1))
-            @emitter.emit(ASM.mul(COLUMN_Y, HIGH, COLUMN_ROWS))
-            @emitter.emit(ASM.ldr_offset(ACC, STACK, at[ACC])) if divide.by_multiply?
+            @emitter.emit(Cartridge::ASM.mul(TMP, ACC, COLUMN_ROWS))
+            @emitter.emit(Cartridge::ASM.add_imm(HIGH, HIGH, 1))
+            @emitter.emit(Cartridge::ASM.mul(COLUMN_Y, HIGH, COLUMN_ROWS))
+            @emitter.emit(Cartridge::ASM.ldr_offset(ACC, STACK, at[ACC])) if divide.by_multiply?
             emit_column_divide(divide, from: TMP, into: SPARE, spill: HIGH) # the first screen row...
             emit_column_divide(divide, from: COLUMN_Y, into: HIGH, spill: TMP)
             # ...and one past the last, with a row to spare.
-            @emitter.emit(ASM.add_imm(HIGH, HIGH, divide.spare_rows))
-            @emitter.emit(ASM.ldr_offset(COLUMN_Y, STACK, at[COLUMN_Y]))
+            @emitter.emit(Cartridge::ASM.add_imm(HIGH, HIGH, divide.spare_rows))
+            @emitter.emit(Cartridge::ASM.ldr_offset(COLUMN_Y, STACK, at[COLUMN_Y]))
 
             after = @emitter.gensym
             yield(after)
             @emitter.place_label(after)
             @emitter.emit_branch(:b, top)
             @emitter.place_label(finish)
-            @emitter.emit(ASM.pop(*held))
+            @emitter.emit(Cartridge::ASM.pop(*held))
           end
 
           # One end of a stretch, from a picture row times the height on screen to the screen
@@ -284,11 +284,11 @@ module RubyGBA
           # number is carried across as it stands.
           def emit_column_divide(divide, from:, into:, spill:)
             if divide.by_multiply?
-              @emitter.emit(ASM.smull(spill, into, from, ACC))
+              @emitter.emit(Cartridge::ASM.smull(spill, into, from, ACC))
             elsif divide.shift.zero?
-              @emitter.emit(ASM.mov_reg(into, from))
+              @emitter.emit(Cartridge::ASM.mov_reg(into, from))
             else
-              @emitter.emit(ASM.lsr_imm(into, from, divide.shift))
+              @emitter.emit(Cartridge::ASM.lsr_imm(into, from, divide.shift))
             end
           end
 
@@ -308,34 +308,34 @@ module RubyGBA
           # when nothing of the column shows at all.
           def emit_clip_column_rows(done)
             above = @emitter.gensym
-            @emitter.emit(ASM.rsb_imm(ACC, COLUMN_Y, clip_top)) # rows above where drawing may land...
-            @emitter.emit(ASM.cmp_reg(ACC, SPARE))
+            @emitter.emit(Cartridge::ASM.rsb_imm(ACC, COLUMN_Y, clip_top)) # rows above where drawing may land...
+            @emitter.emit(Cartridge::ASM.cmp_reg(ACC, SPARE))
             @emitter.emit_branch(:bcond, above, cond: :ge)
-            @emitter.emit(ASM.mov_reg(ACC, SPARE))       # ...or where the picture's own pixels start
+            @emitter.emit(Cartridge::ASM.mov_reg(ACC, SPARE))       # ...or where the picture's own pixels start
             @emitter.place_label(above)
 
             # Stop at the bottom edge, or after the picture's last pixel in this column,
             # whichever comes first — then take off the rows skipped at the top.
             under = @emitter.gensym
-            @emitter.emit(ASM.load_immediate(TMP, clip_bottom))
-            @emitter.emit(ASM.sub_reg(TMP, TMP, COLUMN_Y)) # one past the last row that shows
-            @emitter.emit(ASM.cmp_reg(TMP, HIGH))
+            @emitter.emit(Cartridge::ASM.load_immediate(TMP, clip_bottom))
+            @emitter.emit(Cartridge::ASM.sub_reg(TMP, TMP, COLUMN_Y)) # one past the last row that shows
+            @emitter.emit(Cartridge::ASM.cmp_reg(TMP, HIGH))
             @emitter.emit_branch(:bcond, under, cond: :le)
-            @emitter.emit(ASM.mov_reg(TMP, HIGH))
+            @emitter.emit(Cartridge::ASM.mov_reg(TMP, HIGH))
             @emitter.place_label(under)
             past = @emitter.gensym
-            @emitter.emit(ASM.cmp_reg(COLUMN_ROWS, TMP))
+            @emitter.emit(Cartridge::ASM.cmp_reg(COLUMN_ROWS, TMP))
             @emitter.emit_branch(:bcond, past, cond: :le)
-            @emitter.emit(ASM.mov_reg(COLUMN_ROWS, TMP))
+            @emitter.emit(Cartridge::ASM.mov_reg(COLUMN_ROWS, TMP))
             @emitter.place_label(past)
-            @emitter.emit(ASM.sub_reg(COLUMN_ROWS, COLUMN_ROWS, ACC))
-            @emitter.emit(ASM.cmp_imm(COLUMN_ROWS, 0))
+            @emitter.emit(Cartridge::ASM.sub_reg(COLUMN_ROWS, COLUMN_ROWS, ACC))
+            @emitter.emit(Cartridge::ASM.cmp_imm(COLUMN_ROWS, 0))
             @emitter.emit_branch(:bcond, done, cond: :le)
 
             # Start the walk where it becomes visible, which is what keeps the picture
             # in the same place: the rows skipped are stepped over rather than left out.
-            @emitter.emit(ASM.add_reg(COLUMN_Y, COLUMN_Y, ACC))
-            @emitter.emit(ASM.mul(COLUMN_POS, ACC, COLUMN_STEP))
+            @emitter.emit(Cartridge::ASM.add_reg(COLUMN_Y, COLUMN_Y, ACC))
+            @emitter.emit(Cartridge::ASM.mul(COLUMN_POS, ACC, COLUMN_STEP))
           end
 
           # Hold a register between 0 and +top+, so a slice or a row worked out past
@@ -343,16 +343,16 @@ module RubyGBA
           # in memory.
           def emit_clamp_to(reg, top)
             keep = @emitter.gensym
-            @emitter.emit(ASM.cmp_imm(reg, 0))
+            @emitter.emit(Cartridge::ASM.cmp_imm(reg, 0))
             @emitter.emit_branch(:bcond, keep, cond: :ge)
-            @emitter.emit(ASM.load_immediate(reg, 0))
+            @emitter.emit(Cartridge::ASM.load_immediate(reg, 0))
             @emitter.place_label(keep)
 
             under = @emitter.gensym
-            @emitter.emit(ASM.load_immediate(TMP, top))
-            @emitter.emit(ASM.cmp_reg(reg, TMP))
+            @emitter.emit(Cartridge::ASM.load_immediate(TMP, top))
+            @emitter.emit(Cartridge::ASM.cmp_reg(reg, TMP))
             @emitter.emit_branch(:bcond, under, cond: :le)
-            @emitter.emit(ASM.mov_reg(reg, TMP))
+            @emitter.emit(Cartridge::ASM.mov_reg(reg, TMP))
             @emitter.place_label(under)
           end
 
@@ -366,19 +366,19 @@ module RubyGBA
           # reaches them, so those can be filled in place.
           def eval_rect_position(node, x_reg:, y_reg:, rows_reg:, width_reg: nil)
             @lowering.value(node.x)
-            @emitter.emit(ASM.push(ACC))
+            @emitter.emit(Cartridge::ASM.push(ACC))
             @lowering.value(node.y)
-            @emitter.emit(ASM.push(ACC))
+            @emitter.emit(Cartridge::ASM.push(ACC))
             unless @primitives.const_int(node.h)
               @lowering.value(node.h)
-              @emitter.emit(ASM.mov_reg(rows_reg, ACC))
+              @emitter.emit(Cartridge::ASM.mov_reg(rows_reg, ACC))
             end
             if width_reg && !@primitives.const_int(node.w)
               @lowering.value(node.w)
-              @emitter.emit(ASM.mov_reg(width_reg, ACC))
+              @emitter.emit(Cartridge::ASM.mov_reg(width_reg, ACC))
             end
-            @emitter.emit(ASM.pop(y_reg))
-            @emitter.emit(ASM.pop(x_reg))
+            @emitter.emit(Cartridge::ASM.pop(y_reg))
+            @emitter.emit(Cartridge::ASM.pop(x_reg))
           end
 
           # Walk the ten-glyph table for a run-time digit, calling +block+ once per set
@@ -404,32 +404,32 @@ module RubyGBA
             top_bit = 1 << (width - 1)
 
             @emitter.emit_load_data_address(1, table) # r1 = the glyph table's ROM address
-            @emitter.emit(ASM.load_immediate(2, font.height))
-            @emitter.emit(ASM.mul(3, 0, 2))          # r3 = digit * height (its row offset)
-            @emitter.emit(ASM.add_reg(6, 1, 3))      # r6 = &glyph[digit], row 0
+            @emitter.emit(Cartridge::ASM.load_immediate(2, font.height))
+            @emitter.emit(Cartridge::ASM.mul(3, 0, 2))          # r3 = digit * height (its row offset)
+            @emitter.emit(Cartridge::ASM.add_reg(6, 1, 3))      # r6 = &glyph[digit], row 0
             yield :hold                              # the plot loads its per-glyph register(s)
-            @emitter.emit(ASM.load_immediate(5, 0))  # r5 = row = 0
+            @emitter.emit(Cartridge::ASM.load_immediate(5, 0))  # r5 = row = 0
 
             row_loop = @emitter.gensym
             @emitter.place_label(row_loop)
-            @emitter.emit(ASM.ldrb_offset(7, 6, 0))  # r7 = this row's byte
-            @emitter.emit(ASM.load_immediate(4, 0))  # r4 = col = 0
+            @emitter.emit(Cartridge::ASM.ldrb_offset(7, 6, 0))  # r7 = this row's byte
+            @emitter.emit(Cartridge::ASM.load_immediate(4, 0))  # r4 = col = 0
 
             col_loop = @emitter.gensym
             @emitter.place_label(col_loop)
             next_col = @emitter.gensym
-            @emitter.emit(ASM.tst_imm(7, top_bit))   # is the leftmost remaining column lit?
+            @emitter.emit(Cartridge::ASM.tst_imm(7, top_bit))   # is the leftmost remaining column lit?
             @emitter.emit_branch(:bcond, next_col, cond: :eq)
             yield :plot                              # yes: stamp it
             @emitter.place_label(next_col)
-            @emitter.emit(ASM.lsl_imm(7, 7, 1))      # shift the next column into the top bit
-            @emitter.emit(ASM.add_imm(4, 4, 1))
-            @emitter.emit(ASM.cmp_imm(4, width))
+            @emitter.emit(Cartridge::ASM.lsl_imm(7, 7, 1))      # shift the next column into the top bit
+            @emitter.emit(Cartridge::ASM.add_imm(4, 4, 1))
+            @emitter.emit(Cartridge::ASM.cmp_imm(4, width))
             @emitter.emit_branch(:bcond, col_loop, cond: :lt)
 
-            @emitter.emit(ASM.add_imm(6, 6, 1))      # advance to the next row's byte
-            @emitter.emit(ASM.add_imm(5, 5, 1))
-            @emitter.emit(ASM.cmp_imm(5, font.height))
+            @emitter.emit(Cartridge::ASM.add_imm(6, 6, 1))      # advance to the next row's byte
+            @emitter.emit(Cartridge::ASM.add_imm(5, 5, 1))
+            @emitter.emit(Cartridge::ASM.cmp_imm(5, font.height))
             @emitter.emit_branch(:bcond, row_loop, cond: :lt)
           end
 

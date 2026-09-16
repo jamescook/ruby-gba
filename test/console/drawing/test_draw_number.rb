@@ -163,7 +163,7 @@ class TestDrawNumber < Minitest::Test
 
     # The chosen glyph is looked up from embedded data, so the font's row bytes
     # appear verbatim in the ROM (here, the default font's "0" glyph).
-    zero_glyph = RubyGBA::Font::DEFAULT_GLYPHS["0"].pack("C*")
+    zero_glyph = RubyGBA::Graphics::Font::DEFAULT_GLYPHS["0"].pack("C*")
     assert_includes code, zero_glyph, "the digit glyphs should be embedded as ROM data"
 
     # And it's a fraction of the hand-written ten-way fan-out it replaces.

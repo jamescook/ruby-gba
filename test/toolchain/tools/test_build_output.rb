@@ -44,7 +44,7 @@ class TestBuildOutput < Minitest::Test
   def test_a_build_that_warns_can_be_pointed_at_the_null_device_by_name
     rom = build(game_that_warns, out: File::NULL, err: File::NULL)
 
-    assert_kind_of RubyGBA::ROM, rom
+    assert_kind_of RubyGBA::Cartridge::ROM, rom
   end
 
   # And a path is not merely tolerated: what the build had to say is in the file

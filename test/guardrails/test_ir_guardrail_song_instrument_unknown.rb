@@ -12,7 +12,7 @@ class TestSongInstrumentUnknownGuardrail < Minitest::Test
 
   def tune(instrument)
     song(:tune, total_frames: 4,
-                voices: [RubyGBA::Music::Part.new(events: [[0, 262]], instrument: instrument)])
+                voices: [RubyGBA::Audio::Music::Part.new(events: [[0, 262]], instrument: instrument)])
   end
 
   def clip = sample(:piano, [0, 60, 0, -60].pack("c*"), 8000)

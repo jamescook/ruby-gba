@@ -8,7 +8,7 @@ require "test_helper"
 # contributes 0-9.
 class TestGlyphUsage < Minitest::Test
   Usage = RubyGBA::IR::GlyphUsage
-  Fonts = RubyGBA::Fonts
+  Fonts = RubyGBA::Graphics::Fonts
 
   def program(&block)
     b = Builder.new

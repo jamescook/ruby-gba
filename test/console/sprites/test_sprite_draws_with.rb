@@ -358,7 +358,7 @@ class TestSpriteDrawsWith < Minitest::Test
     error = refused(GBA::LoweringError) do
       screen :tiled
       image :ship, width: 8, height: 8, data: SHIP, colors: OWN
-      names = (1..16).map { |n| colors :"pulse#{n}", [:transparent, RubyGBA::Color.rgb(n, 0, 0), :white] }
+      names = (1..16).map { |n| colors :"pulse#{n}", [:transparent, RubyGBA::Graphics::Color.rgb(n, 0, 0), :white] }
       ship = sprite :ship, at: [40, 40]
       step = var :step, 0
       game_loop { ship.draw_with names, showing: step }

@@ -50,7 +50,7 @@ module RubyGBA
 
         # How far into the song a frame is, for a person: "0.2 seconds".
         def seconds(frame)
-          value = (frame / Score::FRAME_RATE.to_f).round(2)
+          value = (frame / Audio::Score::FRAME_RATE.to_f).round(2)
           "#{value.to_s.delete_suffix('.0')} second#{'s' unless value == 1}"
         end
 

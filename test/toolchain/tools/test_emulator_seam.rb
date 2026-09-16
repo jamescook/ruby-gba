@@ -9,7 +9,7 @@ require_relative "../../test_helper"
 # and to no other. Getting that wrong is quiet in a way most failures are not: the binary is
 # there, every timestamp says it is current, and the only thing that knows is the loader.
 class TestEmulatorSeam < Minitest::Test
-  Emulator = RubyGBA::Emulator
+  Emulator = RubyGBA::Diagnostics::Emulator
 
   # The backend is loaded here rather than by a require at the top of the file, because going
   # through the seam is the thing under test.

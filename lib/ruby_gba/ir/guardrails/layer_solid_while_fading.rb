@@ -41,7 +41,7 @@ module RubyGBA
           def blends?(node)
             return false unless node.transparency
 
-            fixed = Value.fixed_number(node.transparency)
+            fixed = DSL::Value.fixed_number(node.transparency)
             fixed.nil? || fixed.positive?
           end
 

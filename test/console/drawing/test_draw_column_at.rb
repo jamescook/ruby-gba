@@ -16,8 +16,8 @@ class TestDrawColumnAt < Minitest::Test
 
   # Four rows, each its own color, so a stretch is readable row by row.
   BARS = %i[red red green green blue blue white white].freeze
-  NAMES = { RubyGBA::Color.resolve(:red) => :red, RubyGBA::Color.resolve(:green) => :green,
-            RubyGBA::Color.resolve(:blue) => :blue, RubyGBA::Color.resolve(:white) => :white,
+  NAMES = { RubyGBA::Graphics::Color.resolve(:red) => :red, RubyGBA::Graphics::Color.resolve(:green) => :green,
+            RubyGBA::Graphics::Color.resolve(:blue) => :blue, RubyGBA::Graphics::Color.resolve(:white) => :white,
             0 => nil }.freeze
 
   def program(&block)
@@ -114,12 +114,12 @@ class TestDrawColumnAt < Minitest::Test
     end
 
     interp = Reference.new.run(prog, frames: 2)
-    drawn = (0...8).count { |x| interp.screen.pixel(x, 0) == RubyGBA::Color.resolve(:red) }
+    drawn = (0...8).count { |x| interp.screen.pixel(x, 0) == RubyGBA::Graphics::Color.resolve(:red) }
     assert_equal 8, drawn, "the interpreter should draw every column"
 
     rom = ROM.assemble(GBA.new.lower(prog), title: "LOOP")
     gba = assert_emulator_loads_rom(rom, frames: 4)
-    on_console = (0...8).count { |x| gba.pixel_gba(x, 0) == RubyGBA::Color.resolve(:red) }
+    on_console = (0...8).count { |x| gba.pixel_gba(x, 0) == RubyGBA::Graphics::Color.resolve(:red) }
 
     assert_equal 8, on_console, "the console should draw every column too"
   end
@@ -150,7 +150,7 @@ class TestDrawColumnAt < Minitest::Test
     end
 
     run = Reference.new.run(prog, frames: 2)
-    seen = (0...8).map { |x| run.screen.pixel(x, 3) == RubyGBA::Color.resolve(:white) }
+    seen = (0...8).map { |x| run.screen.pixel(x, 3) == RubyGBA::Graphics::Color.resolve(:white) }
 
     assert_equal [true] * 4 + [false] * 4, seen,
                  "the thing shows over the far wall and is hidden by the near one"
@@ -242,7 +242,7 @@ class TestDrawColumnAt < Minitest::Test
 
     assert_equal %i[white white other other other other white white],
                  column_on_screen(run, 10, 0, 8).map { |c| c == :other ? :other : c }
-    assert_equal RubyGBA::Color.resolve(:gray), run.screen.pixel(10, 3),
+    assert_equal RubyGBA::Graphics::Color.resolve(:gray), run.screen.pixel(10, 3),
                  "the see-through rows must show what was already there"
   end
 end

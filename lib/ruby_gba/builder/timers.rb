@@ -20,7 +20,7 @@ module RubyGBA
       # @return [Timer]
       def timer(name, per_second:)
         raise ArgumentError, "A timer name must be a Symbol. Got #{name.inspect}. Use a name like :beat." unless name.is_a?(Symbol)
-        unless Whole.positive?(per_second)
+        unless DSL::Whole.positive?(per_second)
           raise ArgumentError,
                 "timer :#{name} needs per_second to be a positive whole number of ticks a second. " \
                 "Got #{per_second.inspect}. " \
@@ -30,7 +30,7 @@ module RubyGBA
         # The IR speaks in Hz (overflows per second) — the same number, named for what it
         # is one layer down.
         record(IR::Build.timer_start(name, per_second))
-        Timer.new(self, name)
+        DSL::Timer.new(self, name)
       end
     end
   end

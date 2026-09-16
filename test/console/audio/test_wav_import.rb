@@ -10,7 +10,7 @@ require "tempfile"
 # unit-tested; the DSL path is pinned on the interpreter and the emulator.
 class TestWavImport < Minitest::Test
 
-  Wav = RubyGBA::Wav
+  Wav = RubyGBA::Audio::Wav
 
   # Build a minimal valid WAV byte string. +samples+ are raw per-channel values (unsigned
   # for 8-bit, signed for 16-bit), interleaved for stereo.

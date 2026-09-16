@@ -42,7 +42,7 @@ module RubyGBA
         # object before its own @drawing exists, so it hands in `self` and the call
         # resolves once @drawing does (see gba.rb#initialize).
         class PaletteTint
-          include Constants
+          include Cartridge::Constants
 
           # The last tint written into the color table, so a tint that has not moved can
           # be skipped. It packs the color and how far, because both have to match for the
@@ -146,31 +146,31 @@ module RubyGBA
           # sixteenths as it runs, and r0 carries those steps on to #emit_tint_shares
           # rather than being worked out twice.
           def emit_tint_state(node, done)
-            color = Color.resolve(node.color)
+            color = Graphics::Color.resolve(node.color)
             if (amount = @primitives.const_int(node.amount))
               wanted = tint_state_word(color, @drawing.fade_steps(amount))
               @primitives.load_var(ACC, TINT_STATE)
-              @emitter.emit(ASM.load_immediate(TMP, wanted))
-              @emitter.emit(ASM.cmp_reg(ACC, TMP))
+              @emitter.emit(Cartridge::ASM.load_immediate(TMP, wanted))
+              @emitter.emit(Cartridge::ASM.cmp_reg(ACC, TMP))
               @emitter.emit_branch(:bcond, done, cond: :eq)
               @primitives.store_var(TMP, TINT_STATE)
-              @emitter.emit(ASM.load_immediate(ACC, @drawing.fade_steps(amount)))
+              @emitter.emit(Cartridge::ASM.load_immediate(ACC, @drawing.fade_steps(amount)))
               return
             end
 
             @lowering.value(Build.binop(:/, Build.binop(:*, node.amount, Build.int(BLD_MAX)),
                                    Build.int(100)))
             @drawing.emit_clamp_blend_steps
-            @emitter.emit(ASM.mov_reg(TINT_STEPS, ACC))                      # kept while the state is compared
-            @emitter.emit(ASM.load_immediate(TMP, color << TINT_COLOR_SHIFT))
-            @emitter.emit(ASM.orr_reg(TMP, TMP, ACC))                        # r1 = the state asked for
-            @emitter.emit(ASM.cmp_imm(ACC, 0))
-            @emitter.emit(ASM.mov_imm_cond(:eq, TMP, 0))                     # ...but no tint is one state
+            @emitter.emit(Cartridge::ASM.mov_reg(TINT_STEPS, ACC))                      # kept while the state is compared
+            @emitter.emit(Cartridge::ASM.load_immediate(TMP, color << TINT_COLOR_SHIFT))
+            @emitter.emit(Cartridge::ASM.orr_reg(TMP, TMP, ACC))                        # r1 = the state asked for
+            @emitter.emit(Cartridge::ASM.cmp_imm(ACC, 0))
+            @emitter.emit(Cartridge::ASM.mov_imm_cond(:eq, TMP, 0))                     # ...but no tint is one state
             @primitives.load_var(ACC, TINT_STATE)
-            @emitter.emit(ASM.cmp_reg(ACC, TMP))
+            @emitter.emit(Cartridge::ASM.cmp_reg(ACC, TMP))
             @emitter.emit_branch(:bcond, done, cond: :eq)
             @primitives.store_var(TMP, TINT_STATE)
-            @emitter.emit(ASM.mov_reg(ACC, TINT_STEPS))
+            @emitter.emit(Cartridge::ASM.mov_reg(ACC, TINT_STEPS))
           end
 
           def tint_state_word(color, steps)
@@ -190,22 +190,22 @@ module RubyGBA
           #
           # r0 holds the steps on the way in.
           def emit_tint_shares(node)
-            color = Color.resolve(node.color)
-            @emitter.emit(ASM.load_immediate(TINT_RB, RB_MASK))
-            @emitter.emit(ASM.load_immediate(TINT_G, G_MASK))
-            @emitter.emit(ASM.load_immediate(TINT_KEEP, BLD_MAX))
-            @emitter.emit(ASM.sub_reg(TINT_KEEP, TINT_KEEP, ACC)) # 16 sixteenths, less the tint's
+            color = Graphics::Color.resolve(node.color)
+            @emitter.emit(Cartridge::ASM.load_immediate(TINT_RB, RB_MASK))
+            @emitter.emit(Cartridge::ASM.load_immediate(TINT_G, G_MASK))
+            @emitter.emit(Cartridge::ASM.load_immediate(TINT_KEEP, BLD_MAX))
+            @emitter.emit(Cartridge::ASM.sub_reg(TINT_KEEP, TINT_KEEP, ACC)) # 16 sixteenths, less the tint's
 
             if (amount = @primitives.const_int(node.amount))
               steps = @drawing.fade_steps(amount)
-              @emitter.emit(ASM.load_immediate(TINT_ADD, (color & RB_MASK) * steps))
-              return @emitter.emit(ASM.load_immediate(TINT_ADD_G, (color & G_MASK) * steps))
+              @emitter.emit(Cartridge::ASM.load_immediate(TINT_ADD, (color & RB_MASK) * steps))
+              return @emitter.emit(Cartridge::ASM.load_immediate(TINT_ADD_G, (color & G_MASK) * steps))
             end
 
-            @emitter.emit(ASM.load_immediate(TMP, color & RB_MASK))
-            @emitter.emit(ASM.mul(TINT_ADD, TMP, ACC))
-            @emitter.emit(ASM.load_immediate(TMP, color & G_MASK))
-            @emitter.emit(ASM.mul(TINT_ADD_G, TMP, ACC))
+            @emitter.emit(Cartridge::ASM.load_immediate(TMP, color & RB_MASK))
+            @emitter.emit(Cartridge::ASM.mul(TINT_ADD, TMP, ACC))
+            @emitter.emit(Cartridge::ASM.load_immediate(TMP, color & G_MASK))
+            @emitter.emit(Cartridge::ASM.mul(TINT_ADD_G, TMP, ACC))
           end
 
           # Walk one color table: read each original from the cartridge, blend it, write
@@ -219,27 +219,27 @@ module RubyGBA
           # other, and neither can the sum) does two of them in one multiply.
           def emit_tint_table(blob_name, dest, units)
             @emitter.emit_load_data_address(TINT_SRC, blob_name)
-            @emitter.emit(ASM.load_immediate(TINT_DST, dest))
+            @emitter.emit(Cartridge::ASM.load_immediate(TINT_DST, dest))
             @primitives.emit_add_const(TINT_END, TINT_SRC, units * 2, ACC)
 
             top = @emitter.gensym
             @emitter.place_label(top)
-            @emitter.emit(ASM.load_halfword(ACC, TINT_SRC))        # r0 = the original color
-            @emitter.emit(ASM.and_reg(TMP, ACC, TINT_RB))
-            @emitter.emit(ASM.mul(TMP, TINT_KEEP, TMP))            # red and blue, both at once
-            @emitter.emit(ASM.add_reg(TMP, TMP, TINT_ADD))         # + the color's share, before the drop
-            @emitter.emit(ASM.lsr_imm(TMP, TMP, BLEND_SHIFT))
-            @emitter.emit(ASM.and_reg(TMP, TMP, TINT_RB))
-            @emitter.emit(ASM.and_reg(ACC, ACC, TINT_G))
-            @emitter.emit(ASM.mul(ACC, TINT_KEEP, ACC))            # ...then green
-            @emitter.emit(ASM.add_reg(ACC, ACC, TINT_ADD_G))
-            @emitter.emit(ASM.lsr_imm(ACC, ACC, BLEND_SHIFT))
-            @emitter.emit(ASM.and_reg(ACC, ACC, TINT_G))
-            @emitter.emit(ASM.add_reg(ACC, ACC, TMP))
-            @emitter.emit(ASM.store_halfword(ACC, TINT_DST))
-            @emitter.emit(ASM.add_imm(TINT_SRC, TINT_SRC, 2))
-            @emitter.emit(ASM.add_imm(TINT_DST, TINT_DST, 2))
-            @emitter.emit(ASM.cmp_reg(TINT_SRC, TINT_END))
+            @emitter.emit(Cartridge::ASM.load_halfword(ACC, TINT_SRC))        # r0 = the original color
+            @emitter.emit(Cartridge::ASM.and_reg(TMP, ACC, TINT_RB))
+            @emitter.emit(Cartridge::ASM.mul(TMP, TINT_KEEP, TMP))            # red and blue, both at once
+            @emitter.emit(Cartridge::ASM.add_reg(TMP, TMP, TINT_ADD))         # + the color's share, before the drop
+            @emitter.emit(Cartridge::ASM.lsr_imm(TMP, TMP, BLEND_SHIFT))
+            @emitter.emit(Cartridge::ASM.and_reg(TMP, TMP, TINT_RB))
+            @emitter.emit(Cartridge::ASM.and_reg(ACC, ACC, TINT_G))
+            @emitter.emit(Cartridge::ASM.mul(ACC, TINT_KEEP, ACC))            # ...then green
+            @emitter.emit(Cartridge::ASM.add_reg(ACC, ACC, TINT_ADD_G))
+            @emitter.emit(Cartridge::ASM.lsr_imm(ACC, ACC, BLEND_SHIFT))
+            @emitter.emit(Cartridge::ASM.and_reg(ACC, ACC, TINT_G))
+            @emitter.emit(Cartridge::ASM.add_reg(ACC, ACC, TMP))
+            @emitter.emit(Cartridge::ASM.store_halfword(ACC, TINT_DST))
+            @emitter.emit(Cartridge::ASM.add_imm(TINT_SRC, TINT_SRC, 2))
+            @emitter.emit(Cartridge::ASM.add_imm(TINT_DST, TINT_DST, 2))
+            @emitter.emit(Cartridge::ASM.cmp_reg(TINT_SRC, TINT_END))
             @emitter.emit_branch(:bcond, top, cond: :ne)
           end
 
@@ -283,9 +283,9 @@ module RubyGBA
           def emit_lift_palette_tint(mode)
             skip = @emitter.gensym
             @primitives.load_var(ACC, TINT_STATE)
-            @emitter.emit(ASM.cmp_imm(ACC, 0))
+            @emitter.emit(Cartridge::ASM.cmp_imm(ACC, 0))
             @emitter.emit_branch(:bcond, skip, cond: :eq)
-            @emitter.emit(ASM.load_immediate(ACC, 0))
+            @emitter.emit(Cartridge::ASM.load_immediate(ACC, 0))
             @primitives.store_var(ACC, TINT_STATE)
             tint_tables(mode).each { |blob, dest, units| @drawing.emit_plain_dma_blob(blob, dest, units) }
             @emitter.place_label(skip)
@@ -305,7 +305,7 @@ module RubyGBA
           # makes no promise about what is in its memory when it powers on, and a stale
           # value here would make the first tint of the game do nothing at all.
           def emit_tint_state_init
-            @emitter.emit(ASM.load_immediate(ACC, 0))
+            @emitter.emit(Cartridge::ASM.load_immediate(ACC, 0))
             @primitives.store_var(ACC, TINT_STATE)
           end
 

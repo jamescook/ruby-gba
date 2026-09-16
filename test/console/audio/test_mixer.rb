@@ -105,7 +105,7 @@ class TestMixer < Minitest::Test
       buzz = sample :buzz, pcm: [25, -25] * 2000, rate: 8000
       20.times { buzz.play } # far more than the mixer holds
     end
-    assert_equal RubyGBA::Sound::MIXER_VOICES, i.peak_voices,
+    assert_equal RubyGBA::Audio::Sound::MIXER_VOICES, i.peak_voices,
                  "the mix is capped at the shared limit, extra plays dropped"
   end
 
@@ -147,7 +147,7 @@ class TestMixer < Minitest::Test
     program = frames_program(2) { sample(:zap, pcm: [10, -10] * 100, rate: 8000).play }
     bare = ROM.assemble(GBA.new.lower(program), title: "BARE", code: "BBAR", maker: "01")
 
-    error = assert_raises(ArgumentError) { RubyGBA::Verifier.new(bare, frames: 1).voices }
+    error = assert_raises(ArgumentError) { RubyGBA::Diagnostics::Verifier.new(bare, frames: 1).voices }
     assert_match(/build record/, error.message)
   end
 
@@ -159,7 +159,7 @@ class TestMixer < Minitest::Test
   # about which. So ask each one what it is playing, by name. The console answers from its
   # own voice table — reading what the lowering really did, not what the interpreter says
   # it should have — and the two lists have to match.
-  SOUNDS = (0...(RubyGBA::Sound::MIXER_VOICES + 2)).map { |i| :"s#{i}" }
+  SOUNDS = (0...(RubyGBA::Audio::Sound::MIXER_VOICES + 2)).map { |i| :"s#{i}" }
 
   def test_both_backends_keep_the_same_sounds_when_the_mixer_is_full
     # Each sample gets bytes of its own, so no two can ever share a place in the cartridge and
@@ -169,7 +169,7 @@ class TestMixer < Minitest::Test
       SOUNDS.each_with_index.map { |name, i| sample name, pcm: [25 + i, -25 - i] * 2000, rate: 8000 }
             .each(&:play)
     end
-    kept = SOUNDS.first(RubyGBA::Sound::MIXER_VOICES)
+    kept = SOUNDS.first(RubyGBA::Audio::Sound::MIXER_VOICES)
 
     interpreted = Reference.new.run(program, max_steps: 200_000).active_samples
     assert_equal kept, interpreted, "the interpreter keeps the first #{kept.size} and drops the rest"

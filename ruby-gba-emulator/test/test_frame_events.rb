@@ -85,7 +85,7 @@ class TestFrameEvents < Minitest::Test
   # two are indistinguishable, so anything turning a row into the colours it wears would be
   # right for most sprites and arbitrary for the rest, looking identical either way.
   def test_a_sprite_says_how_many_colours_its_picture_draws_from
-    many = (0...20).map { |n| RubyGBA::Color.rgb(n + 6, 31 - n, (n * 2) % 32) }
+    many = (0...20).map { |n| RubyGBA::Graphics::Color.rgb(n + 6, 31 - n, (n * 2) % 32) }
     path = build_rom("COLORS", code: "TCOL") do
       screen :tiled
       image(:few, "." => :transparent, "#" => :red) { (["########"] * 8).join("\n") }

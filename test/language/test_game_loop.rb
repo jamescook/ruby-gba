@@ -9,7 +9,7 @@ require "test_helper"
 # real proof is the differential test at the bottom: the loop advances exactly once
 # per frame on the interpreter AND on real hardware (a hang would miss the count).
 class TestGameLoop < Minitest::Test
-  include RubyGBA::Constants
+  include RubyGBA::Cartridge::Constants
 
   # ARM SWI with comment 0x05 in the top byte -> VBlankIntrWait.
   VBLANK_INTR_WAIT = 0xEF000000 | (0x05 << 16)
@@ -32,7 +32,7 @@ class TestGameLoop < Minitest::Test
   # All ARM words in the ROM's code region, up to the zero padding.
   def instructions(rom)
     result = []
-    offset = RubyGBA::ROM::ENTRY_OFFSET
+    offset = RubyGBA::Cartridge::ROM::ENTRY_OFFSET
     while offset + 4 <= rom.buffer.bytesize
       word = rom.buffer[offset, 4].unpack1("V")
       break if word.zero?
@@ -149,7 +149,7 @@ class TestGameLoop < Minitest::Test
   def test_the_loop_advances_once_per_frame_on_the_console
     program = counting_loop(20)
     backend = GBA.new
-    rom = RubyGBA::ROM.assemble(backend.lower(program), title: "FRAMES", code: "BFRM", maker: "01")
+    rom = RubyGBA::Cartridge::ROM.assemble(backend.lower(program), title: "FRAMES", code: "BFRM", maker: "01")
     v = assert_emulator_loads_rom(rom, frames: 30, vars: backend.var_addresses)
     assert_equal 20, v.var(:frames),
                  "VBlank interrupts advance the loop once per frame on hardware — no interrupt hang"

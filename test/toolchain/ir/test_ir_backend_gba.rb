@@ -11,7 +11,7 @@ class TestIRBackendGBA < Minitest::Test
 
   # Lower a program to machine code, then assemble it into a runnable ROM.
   def lower(program)
-    RubyGBA::ROM.assemble(GBA.new.lower(program), title: "IRLOWER", code: "IRLO", maker: "98")
+    RubyGBA::Cartridge::ROM.assemble(GBA.new.lower(program), title: "IRLOWER", code: "IRLO", maker: "98")
   end
 
   # Decode the branch/call word at byte +at+ back into the target byte offset it
@@ -89,7 +89,7 @@ class TestIRBackendGBA < Minitest::Test
 
   def test_a_drawing_program_finalizes_into_a_valid_rom
     rom = lower(program(screen(:bitmap), clear_screen(:blue), halt))
-    assert_instance_of RubyGBA::ROM, rom
+    assert_instance_of RubyGBA::Cartridge::ROM, rom
     assert_operator rom.size, :>, 0xC0
   end
 
@@ -163,14 +163,14 @@ class TestIRBackendGBA < Minitest::Test
     assert v.black?(10, 10)
   end
 
-  KEY_START = RubyGBA::Constants::KEY_START
+  KEY_START = RubyGBA::Cartridge::Constants::KEY_START
 
   def test_pressed_program_lowers_to_a_valid_rom
     rom = lower(program(
       screen(:bitmap),
       loop_(wait_vblank, if_(pressed(:start), pixel(10, 10, :red))),
     ))
-    assert_instance_of RubyGBA::ROM, rom
+    assert_instance_of RubyGBA::Cartridge::ROM, rom
   end
 
   def test_pressed_does_not_fire_without_input
@@ -481,8 +481,8 @@ class TestIRBackendGBA < Minitest::Test
       screen(:bitmap),
       enable_sound,
       song(:duet, total_frames: 4, voices: [
-        RubyGBA::Music::Part.new(events: [[0, 523], [2, 587]]),
-        RubyGBA::Music::Part.new(events: [[0, 131]], volume: 8),
+        RubyGBA::Audio::Music::Part.new(events: [[0, 523], [2, 587]]),
+        RubyGBA::Audio::Music::Part.new(events: [[0, 131]], volume: 8),
       ]),
       loop_(wait_vblank, play_song(:duet)),
     ))

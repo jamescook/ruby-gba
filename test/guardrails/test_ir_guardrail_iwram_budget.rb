@@ -80,7 +80,7 @@ class TestIRGuardrailIwramBudget < Minitest::Test
     assert_match(/list :trail/, message)                          # the offender, by name
     assert_match(/32KB/, message)                                 # the quick memory
     assert_match(/256KB/, message)                                # ...and the roomy one
-    assert_match(/#{RubyGBA::PlainWords::QUICK_MEMORY}/, message) # said the one way it is said
+    assert_match(/#{RubyGBA::Diagnostics::PlainWords::QUICK_MEMORY}/, message) # said the one way it is said
   end
 
   # VARIABLES CANNOT MOVE, so they have their own ceiling and their own explanation. A
@@ -148,7 +148,7 @@ class TestIRGuardrailIwramBudget < Minitest::Test
         enemies.each { |e| e.y.add! 1 }
       end
     end
-    refute_match(/#{RubyGBA::PlainWords::QUICK_MEMORY}/, err.string,
+    refute_match(/#{RubyGBA::Diagnostics::PlainWords::QUICK_MEMORY}/, err.string,
                  "an ordinary game is nowhere near the budget")
   end
 end

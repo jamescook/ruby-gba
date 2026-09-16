@@ -125,7 +125,7 @@ class TestMixerSampleClock < Minitest::Test
     wave = ->(height) { (0...hz).map { |i| (Math.sin(2 * Math::PI * 220 * i / hz) * height).round } }
     loud = wave.call(100)
     quiet = wave.call(1)
-    joining = RubyGBA::Sound::MIXER_VOICES - 1
+    joining = RubyGBA::Audio::Sound::MIXER_VOICES - 1
     rom = RubyGBA.build("MIXCLK", validate: false,
                         out: StringIO.new, err: StringIO.new) do
       screen :bitmap

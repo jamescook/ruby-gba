@@ -23,7 +23,7 @@ require_relative "preview"
 #                  of tile numbers (1 = brick from the sheet, 2 = floor, 0 = empty),
 #                  imported by examples/level.rb via `background from:`.
 module MakeExampleAssets
-  Color = RubyGBA::Color
+  Color = RubyGBA::Graphics::Color
 
   ASSETS = File.expand_path("../examples/assets", __dir__)
 

@@ -118,7 +118,7 @@ class TestFrameSync < Minitest::Test
       halt
     end
 
-    assert_equal RubyGBA::Color.resolve(:red), Reference.new.run(program).screen.pixel(110, 75),
+    assert_equal RubyGBA::Graphics::Color.resolve(:red), Reference.new.run(program).screen.pixel(110, 75),
                  "the developer's own sync presented the page"
     refute_match(/frame_sync/, err, "nothing was dropped, so there is nothing to report")
   end

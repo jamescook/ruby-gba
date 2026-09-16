@@ -10,7 +10,7 @@ require_relative "../../examples/maze"
 # the room renders, the hero starts on the floor, and holding into a wall stops it flush
 # instead of passing through — on the interpreter oracle and on real hardware.
 class TestMazeExample < Minitest::Test
-  include RubyGBA::Constants
+  include RubyGBA::Cartridge::Constants
 
   HERO = Color.rgb(31, 20, 0)  # the hero disc's body
   BRICK = Color.rgb(20, 10, 8) # a wall brick

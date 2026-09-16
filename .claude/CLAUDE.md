@@ -49,7 +49,7 @@ can't be allowlisted, and can't be denied granularly.
 
 Integration tests run ROMs in an emulator via **ruby-gba-emulator** — a lean, headless libmgba
 probe. It is a **gem of its own**, living in this repository under `ruby-gba-emulator/`, and it
-is reached through the one seam, `RubyGBA::Emulator` (`lib/ruby_gba/diagnostics/emulator.rb`), so nothing
+is reached through the one seam, `RubyGBA::Diagnostics::Emulator` (`lib/ruby_gba/diagnostics/emulator.rb`), so nothing
 else names the backend directly.
 
 **Why a separate gem:** building a cartridge is pure Ruby and running one is not. It is
@@ -157,6 +157,35 @@ Test each layer the way a player experiences it, not by restating the code.
 
 ## Architecture
 
+### Where a lib file goes
+
+`lib/ruby_gba/` is five modules, each a directory, by what a file IS — never by what it
+happens to touch:
+
+| directory | module | a file goes here when… |
+|---|---|---|
+| `dsl/` | `RubyGBA::DSL` | a game names it directly (a `Value`, a `Sprite`, a `List`), or it is a kind of thing one of those holds (`Whole`, `Fraction`, `NameSet`) |
+| `audio/` | `RubyGBA::Audio` | it is the sound and music model behind the verbs (`Score`, `Envelope`, `Music`) |
+| `graphics/` | `RubyGBA::Graphics` | it is what a picture is made of — colours, letters, images |
+| `cartridge/` | `RubyGBA::Cartridge` | it turns a checked program into cartridge bytes (`ROM`, `ASM`, `Constants`) |
+| `diagnostics/` | `RubyGBA::Diagnostics` | it reads a built or running cartridge back, or says something to the author about their build (`Verifier`, `Profiler`, `BuildReport`, `PlainWords`) |
+
+The directory and the module always match: a file in `audio/` defines its classes inside
+`module RubyGBA; module Audio`. A file whose home is not obvious goes where its CALLERS would
+look for it, and a new directory per feature is the flat list again one level down, so there
+isn't one.
+
+What stays at the top: `builder.rb`, `ir.rb` and `effects.rb`, the front doors of the three
+directories that were already modules of their own (`builder/`, `ir/`, `effects/`) — anything
+in those stays there; `version.rb`; and `cli.rb` and `pager.rb`, the command-line program,
+which `bin/ruby-gba` requires and the library never does. `RubyGBA.game` and the two error
+classes stay on `RubyGBA` itself.
+
+Inside a module, a sibling is named bare (`Value` from `dsl/pool.rb`) and anything else by its
+module (`Graphics::Color` from `dsl/sprite.rb`). Where a nearer scope has a constant of the
+same name — the GBA backend has an `Audio` class of its own — write the whole path,
+`RubyGBA::Audio::Score`, because `Audio::Score` there means the wrong thing.
+
 ### Core Files
 
 - `lib/ruby_gba/builder.rb` — The DSL entry point (`Builder`). Thin now: it `require`s and
@@ -179,7 +208,7 @@ Test each layer the way a player experiences it, not by restating the code.
 - `lib/ruby_gba/graphics/font.rb` — Bitmap font model (glyphs + metrics); built-in fonts registered in `fonts.rb`
 - `lib/ruby_gba/cartridge/rom_validator.rb` — ROM validation (header, checksum, structural checks) — `ROMValidator`
 - `lib/ruby_gba/diagnostics/inspector.rb` — ROM disassembly and header reporting
-- `lib/ruby_gba/diagnostics/verifier.rb` — Pixel-level verification via libmgba (through the `RubyGBA::Emulator` seam → ruby-gba-emulator)
+- `lib/ruby_gba/diagnostics/verifier.rb` — Pixel-level verification via libmgba (through the `RubyGBA::Diagnostics::Emulator` seam → ruby-gba-emulator)
 - `lib/ruby_gba/diagnostics/emulator.rb` — The one seam to the emulator backend; swap emulators here
 - `lib/ruby_gba/cartridge/test_patterns.rb` — Built-in test ROMs (solid fill, color bars, etc)
 

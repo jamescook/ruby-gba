@@ -93,7 +93,7 @@ module RubyGBA
 
         # ...checked here so a bad waveform is said at the line that wrote it. Spelled out
         # because a bare `Sound` inside this concern is the concern itself.
-        RubyGBA::Sound.wave_steps!(shape) if shape.is_a?(Array)
+        RubyGBA::Audio::Sound.wave_steps!(shape) if shape.is_a?(Array)
         record(Build.wave(shape: shape, frequency: note_frequency(pitch), volume: volume))
       end
 
@@ -108,9 +108,9 @@ module RubyGBA
       def note_frequency(pitch)
         case pitch
         when Symbol
-          RubyGBA::Music::NOTE_FREQUENCIES.fetch(pitch) do
+          RubyGBA::Audio::Music::NOTE_FREQUENCIES.fetch(pitch) do
             raise ArgumentError, "The note :#{pitch} is not known. " \
-              "Available notes: #{RubyGBA::Music::NOTE_FREQUENCIES.keys.first(12).join(', ')}, ..."
+              "Available notes: #{RubyGBA::Audio::Music::NOTE_FREQUENCIES.keys.first(12).join(', ')}, ..."
           end
         when Integer
           raise ArgumentError, "The frequency must be positive. You gave #{pitch}." unless pitch.positive?

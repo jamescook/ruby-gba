@@ -3,7 +3,7 @@
 require "test_helper"
 
 class TestSound < Minitest::Test
-  include RubyGBA::Constants
+  include RubyGBA::Cartridge::Constants
 
   def build(validate: false, &block)
     RubyGBA.build("SNDTEST", code: "BSND", maker: "01", validate: validate, &block)

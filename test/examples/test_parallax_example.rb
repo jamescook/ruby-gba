@@ -12,7 +12,7 @@ require_relative "../../examples/parallax"
 # far" is pinned in test_background_layers.rb; this confirms the example itself renders
 # and scrolls, on the interpreter oracle and on real hardware.
 class TestParallaxExample < Minitest::Test
-  include RubyGBA::Constants
+  include RubyGBA::Cartridge::Constants
 
   SKY   = Color.rgb(11, 17, 28) # the far layer's sky
   GRASS = Color.rgb(4, 18, 4)   # the near layer's grass line

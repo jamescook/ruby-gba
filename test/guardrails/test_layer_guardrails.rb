@@ -659,6 +659,6 @@ class TestLayerGuardrails < Minitest::Test
       game_loop { nil }
     end
 
-    assert RubyGBA::ROMValidator.check(rom).ok?
+    assert RubyGBA::Cartridge::ROMValidator.check(rom).ok?
   end
 end

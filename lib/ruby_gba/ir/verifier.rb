@@ -51,13 +51,13 @@ module RubyGBA
         mode:    ->(v) { v.is_a?(Symbol) || v.is_a?(Integer) }, # a screen-mode name or raw register value
         tone:    ->(v) { v.is_a?(Symbol) || v.is_a?(Integer) }, # a defined-sound name or raw frequency
         list:    ->(v) { v.is_a?(Array) },                     # a case dispatch table
-        score:   ->(v) { v.is_a?(Array) && v.all?(Music::Part) }, # a song's parts, each resolved
+        score:   ->(v) { v.is_a?(Array) && v.all?(Audio::Music::Part) }, # a song's parts, each resolved
         save:    ->(v) { v.is_a?(Array) && v.all?(SavedVar) },    # the variables that survive power-off
         # What the wave voice plays: one of the named shapes, or the steps of a waveform itself.
         waveform: ->(v) { v.is_a?(Symbol) || (v.is_a?(Array) && v.all?(Integer)) },
         branch:  ->(v) { v.is_a?(Node) && v.kind == :else },   # an if's else-branch node
         flag:    ->(v) { v == true || v == false },            # an on/off switch (e.g. double buffering)
-        shape:   ->(v) { v.is_a?(Envelope) },                  # how a note starts and how it ends
+        shape:   ->(v) { v.is_a?(Audio::Envelope) },                  # how a note starts and how it ends
       }.freeze
 
       # Verify a whole program tree. Returns the node on success; raises

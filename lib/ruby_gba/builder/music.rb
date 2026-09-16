@@ -7,7 +7,7 @@ module RubyGBA
     # beep/SFX on channel 2; they share the @sound_enabled flag with {Sound}.
     #
     # A concern of {Builder}, mixed in so song/play_song/stop_music are flat DSL
-    # verbs. Note this is Builder::Music (the verbs) — distinct from RubyGBA::Music
+    # verbs. Note this is Builder::Music (the verbs) — distinct from RubyGBA::Audio::Music
     # (the note/tempo notation the `song` block is written in).
     module Music
       # Define a named song using the note/rest DSL.
@@ -26,9 +26,9 @@ module RubyGBA
       def song(name, &block)
         raise ArgumentError, "The song :#{name} is already defined. Use a different name." if @songs.key?(name)
 
-        # Fully qualified: RubyGBA::Music is the note/tempo DSL the block is written
+        # Fully qualified: RubyGBA::Audio::Music is the note/tempo DSL the block is written
         # in — a bare `Music` here would mean this Builder::Music concern instead.
-        ctx = RubyGBA::Music::SongContext.new
+        ctx = RubyGBA::Audio::Music::SongContext.new
         ctx.instance_eval(&block)
         @songs[name] = ctx
 
@@ -111,14 +111,14 @@ module RubyGBA
 
       # HAND OVER MUSIC AS DATA, and play it by number.
       #
-      #   music = songs :music, [title_theme, file_select, forest]   # RubyGBA::Score each
+      #   music = songs :music, [title_theme, file_select, forest]   # RubyGBA::Audio::Score each
       #   music.play 2            # the forest
       #   music.play track        # ...or whichever one a number the game holds says
       #
       # For a game whose music already exists as numbers — decoded from another cartridge,
       # read from a file — rather than written as `song` blocks. A Hash names them instead:
       # `songs :music, { title: TITLE, forest: FOREST }`, then `music.play :forest`. Returns a
-      # {RubyGBA::SongList}.
+      # {RubyGBA::DSL::SongList}.
       def songs(name, scores)
         keys, members = record_scores(name: name, scores: scores, verb: :songs, entry: "Song") do |key, score|
           next unless score.group
@@ -128,26 +128,26 @@ module RubyGBA
                                "from this Score."
         end
         record(Build.song_list(name, members))
-        RubyGBA::SongList.new(self, name, keys)
+        RubyGBA::DSL::SongList.new(self, name, keys)
       end
 
       # SOUNDS HANDED OVER AS DATA, each played ONCE over the song that is playing.
       #
-      #   sfx = sound_effects :sfx, { hit: HIT, spark: SPARK }   # RubyGBA::Score each
+      #   sfx = sound_effects :sfx, { hit: HIT, spark: SPARK }   # RubyGBA::Audio::Score each
       #   sfx.play :hit
       #   sfx.play which          # ...or whichever one a number the game holds says
       #
       # A sword hit, a door, a chest: short runs of notes the way a tune is, decoded from the same
       # place. Asked for again while it is still sounding, one starts again from its first note.
       # When an effect and the song, or two effects, want the same voice at once, the Score with
-      # the higher `priority:` sounds on it. Returns a {RubyGBA::SoundEffectList}.
+      # the higher `priority:` sounds on it. Returns a {RubyGBA::DSL::SoundEffectList}.
       def sound_effects(name, scores)
         keys, members = record_scores(name: name, scores: scores, verb: :sound_effects,
                                       entry: "Sound effect") do |key, score|
           check_sound_effect!(effect: "Sound effect #{key.inspect} of :#{name}", score: score)
         end
         record(Build.sound_effect_list(name, members))
-        RubyGBA::SoundEffectList.new(self, name, keys)
+        RubyGBA::DSL::SoundEffectList.new(self, name, keys)
       end
 
       # The hook behind SoundEffectList#play: record that effect number +which+ of the list starts
@@ -155,7 +155,7 @@ module RubyGBA
       def play_sound_effect(name, which)
         raise ArgumentError, "Sound is off. Call enable_sound before playing :#{name}." unless @sound_enabled
 
-        record(Build.play_sound_effect(name, which: Value.node_for(which)))
+        record(Build.play_sound_effect(name, which: DSL::Value.node_for(which)))
       end
 
       # The hook behind SongList#play: record that the tune playing now is number +which+ of
@@ -163,7 +163,7 @@ module RubyGBA
       def play_from_list(name, which)
         raise ArgumentError, "Sound is off. Call enable_sound before playing :#{name}." unless @sound_enabled
 
-        record(Build.play_from_list(name, which: Value.node_for(which)))
+        record(Build.play_from_list(name, which: DSL::Value.node_for(which)))
       end
 
       private
@@ -179,9 +179,9 @@ module RubyGBA
 
         entries = score_entries(name: name, scores: scores, verb: verb)
         members = entries.map do |key, score|
-          unless score.is_a?(RubyGBA::Score)
+          unless score.is_a?(RubyGBA::Audio::Score)
             raise ArgumentError, "#{entry} #{key.inspect} of :#{name} is #{score.inspect}, which is not a " \
-                                 "RubyGBA::Score. Give `#{verb}` a list of Scores, or a Hash of them by name."
+                                 "RubyGBA::Audio::Score. Give `#{verb}` a list of Scores, or a Hash of them by name."
           end
 
           yield key, score if block_given?

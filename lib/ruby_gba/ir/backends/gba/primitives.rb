@@ -6,7 +6,7 @@ module RubyGBA
       class GBA
         # Small shared primitives: variable addresses, stores, constant folding.
         class Primitives
-          include Constants
+          include Cartridge::Constants
 
           def initialize(emitter:, memory:)
             @emitter = emitter
@@ -57,19 +57,19 @@ module RubyGBA
           # register in step (see Statements#emit_repeat, the only holder today: a loop's index).
           def load_var(reg, name)
             held = held_register(name)
-            return @emitter.emit(ASM.mov_reg(reg, held)) if held
+            return @emitter.emit(Cartridge::ASM.mov_reg(reg, held)) if held
 
             offset = var_offset(name)
-            return @emitter.emit(ASM.ldr_offset(reg, ADDR, offset)) if emit_var_base(offset)
+            return @emitter.emit(Cartridge::ASM.ldr_offset(reg, ADDR, offset)) if emit_var_base(offset)
 
-            @emitter.emit(ASM.ldr(reg, ADDR))
+            @emitter.emit(Cartridge::ASM.ldr(reg, ADDR))
           end
 
           def store_var(reg, name)
             offset = var_offset(name)
-            return @emitter.emit(ASM.str_offset(reg, ADDR, offset)) if emit_var_base(offset)
+            return @emitter.emit(Cartridge::ASM.str_offset(reg, ADDR, offset)) if emit_var_base(offset)
 
-            @emitter.emit(ASM.str(reg, ADDR))
+            @emitter.emit(Cartridge::ASM.str(reg, ADDR))
           end
 
           def var_offset(name) = var_addr(name) - IWRAM_START
@@ -95,22 +95,22 @@ module RubyGBA
 
           # Store the full 32-bit word in r0 to a fixed address.
           def store_word_acc(address)
-            @emitter.emit(ASM.load_immediate(TMP, address))
-            @emitter.emit(ASM.str(ACC, TMP))
+            @emitter.emit(Cartridge::ASM.load_immediate(TMP, address))
+            @emitter.emit(Cartridge::ASM.str(ACC, TMP))
           end
 
           # Store the low 16 bits of r0 to a fixed address — for a register that is a
           # halfword wide and holds a value the program worked out as it ran.
           def store_halfword_acc(address)
-            @emitter.emit(ASM.load_immediate(TMP, address))
-            @emitter.emit(ASM.store_halfword(ACC, TMP))
+            @emitter.emit(Cartridge::ASM.load_immediate(TMP, address))
+            @emitter.emit(Cartridge::ASM.store_halfword(ACC, TMP))
           end
 
           # Write a full 32-bit word to an address (used for the DMA registers).
           def store_word_immediate(value, address)
-            @emitter.emit(ASM.load_immediate(ACC, value))
-            @emitter.emit(ASM.load_immediate(TMP, address))
-            @emitter.emit(ASM.str(ACC, TMP))
+            @emitter.emit(Cartridge::ASM.load_immediate(ACC, value))
+            @emitter.emit(Cartridge::ASM.load_immediate(TMP, address))
+            @emitter.emit(Cartridge::ASM.str(ACC, TMP))
           end
 
           # The value of an operand the author fixed, or nil if the game works it out. The
@@ -118,7 +118,7 @@ module RubyGBA
           # fixed; what this adds is the console's own arithmetic, where a number is signed
           # and thirty-two bits wide.
           def const_int(node)
-            fixed = Value.fixed_number(node)
+            fixed = DSL::Value.fixed_number(node)
             Int32.wrap(fixed) if fixed
           end
 
@@ -145,10 +145,10 @@ module RubyGBA
             top = @emitter.gensym
             done = @emitter.gensym
             @emitter.place_label(top)
-            @emitter.emit(ASM.cmp_imm(counter, 0))
+            @emitter.emit(Cartridge::ASM.cmp_imm(counter, 0))
             @emitter.emit_branch(:bcond, done, cond: :le)
             yield
-            @emitter.emit(ASM.sub_imm(counter, counter, 1))
+            @emitter.emit(Cartridge::ASM.sub_imm(counter, counter, 1))
             @emitter.emit_branch(:b, top)
             @emitter.place_label(done)
           end
@@ -158,12 +158,12 @@ module RubyGBA
           # ARM can only fold an 8-bit rotated immediate into the instruction.
           def emit_add_const(rd, rn, imm, scratch)
             if imm.zero?
-              @emitter.emit(ASM.mov_reg(rd, rn)) unless rd == rn
-            elsif ASM.encode_rotated_immediate(imm)
-              @emitter.emit(ASM.add_imm(rd, rn, imm))
+              @emitter.emit(Cartridge::ASM.mov_reg(rd, rn)) unless rd == rn
+            elsif Cartridge::ASM.encode_rotated_immediate(imm)
+              @emitter.emit(Cartridge::ASM.add_imm(rd, rn, imm))
             else
-              @emitter.emit(ASM.load_immediate(scratch, imm))
-              @emitter.emit(ASM.add_reg(rd, rn, scratch))
+              @emitter.emit(Cartridge::ASM.load_immediate(scratch, imm))
+              @emitter.emit(Cartridge::ASM.add_reg(rd, rn, scratch))
             end
           end
 
@@ -188,10 +188,10 @@ module RubyGBA
             return if held.holds?(address)
 
             step = held.value && address - held.value
-            if step && ASM.encode_rotated_immediate(step.abs)
-              @emitter.emit(step.negative? ? ASM.sub_imm(reg, reg, -step) : ASM.add_imm(reg, reg, step))
+            if step && Cartridge::ASM.encode_rotated_immediate(step.abs)
+              @emitter.emit(step.negative? ? Cartridge::ASM.sub_imm(reg, reg, -step) : Cartridge::ASM.add_imm(reg, reg, step))
             else
-              @emitter.emit(ASM.load_immediate(reg, address))
+              @emitter.emit(Cartridge::ASM.load_immediate(reg, address))
             end
             held.now_holds(address)
           end
@@ -205,11 +205,11 @@ module RubyGBA
           # immediate (capacity up to 256) rides directly in the AND; a wider one is
           # loaded into +scratch+ first, since ARM can't fold it into the instruction.
           def emit_and_const(rd, rn, imm, scratch)
-            if ASM.encode_rotated_immediate(imm)
-              @emitter.emit(ASM.and_imm(rd, rn, imm))
+            if Cartridge::ASM.encode_rotated_immediate(imm)
+              @emitter.emit(Cartridge::ASM.and_imm(rd, rn, imm))
             else
-              @emitter.emit(ASM.load_immediate(scratch, imm))
-              @emitter.emit(ASM.and_reg(rd, rn, scratch))
+              @emitter.emit(Cartridge::ASM.load_immediate(scratch, imm))
+              @emitter.emit(Cartridge::ASM.and_reg(rd, rn, scratch))
             end
           end
 

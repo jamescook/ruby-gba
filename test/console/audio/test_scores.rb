@@ -9,10 +9,10 @@ require "stringio"
 # number it works out as it runs: `music = songs :music, scores` then `music.play track`.
 # Nothing about the tune is written in the program.
 class TestScores < Minitest::Test
-  Score = RubyGBA::Score
+  Score = RubyGBA::Audio::Score
   Part = Score::Part
   Note = Score::Note
-  NOTES = RubyGBA::Music::NOTE_FREQUENCIES
+  NOTES = RubyGBA::Audio::Music::NOTE_FREQUENCIES
   STEP_ONE = GBA::Mixer::STEP_ONE
 
   # A step carries the note's pitch against the recorded one AND the resampling: the mix runs

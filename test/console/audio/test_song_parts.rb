@@ -10,9 +10,9 @@ require "stringio"
 # game being built on the framework reads out of a retail cartridge wants seven to nine, and
 # twelve at the most, with the game's own sounds beside them.
 class TestSongParts < Minitest::Test
-  NOTES = RubyGBA::Music::NOTE_FREQUENCIES
+  NOTES = RubyGBA::Audio::Music::NOTE_FREQUENCIES
   STEP_ONE = GBA::Mixer::STEP_ONE
-  VOICES = RubyGBA::Sound::MIXER_VOICES
+  VOICES = RubyGBA::Audio::Sound::MIXER_VOICES
 
   # Twelve recorded parts, one note each, all on the downbeat — a chord twelve voices wide.
   CHORD = %i[C4 Cs4 D4 Ds4 E4 F4 Fs4 G4 Gs4 A4 As4 B4].freeze
@@ -165,7 +165,7 @@ class TestSongParts < Minitest::Test
       play_song :big
       game_loop { wait_vblank }
     end
-    result = RubyGBA::Profiler.run(rom, frames: 30, picture: false)
+    result = RubyGBA::Diagnostics::Profiler.run(rom, frames: 30, picture: false)
     shares = result.lines.to_h { |line| [line.name, line.share] }
 
     assert_operator shares.fetch(:__mix_routine, 0), :>, 0, "mixing the eight parts is measured (#{shares.inspect})"

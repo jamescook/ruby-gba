@@ -74,11 +74,11 @@ module Raycaster
 
   # The palette. Sky and floor bracket the eye line, and the three wall shades are the
   # depth cue: a near wall catches the light, a far one falls into the gloom.
-  SKY = RubyGBA::Color.rgb(5, 7, 12)
-  FLOOR = RubyGBA::Color.rgb(11, 8, 5)
-  NEAR = RubyGBA::Color.rgb(29, 27, 23)
-  MID = RubyGBA::Color.rgb(20, 18, 15)
-  FAR = RubyGBA::Color.rgb(11, 10, 9)
+  SKY = RubyGBA::Graphics::Color.rgb(5, 7, 12)
+  FLOOR = RubyGBA::Graphics::Color.rgb(11, 8, 5)
+  NEAR = RubyGBA::Graphics::Color.rgb(29, 27, 23)
+  MID = RubyGBA::Graphics::Color.rgb(20, 18, 15)
+  FAR = RubyGBA::Graphics::Color.rgb(11, 10, 9)
   WALL_SHADES = [NEAR, MID, FAR].freeze
 
   GAME = RubyGBA.game("RAYCAST") do

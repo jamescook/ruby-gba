@@ -6,45 +6,45 @@ require "test_helper"
 # tell one cartridge from another, so a made-up code that belongs to a real one is a
 # cartridge wearing somebody else's name and somebody else's save hardware.
 class TestGameCode < Minitest::Test
-  CODE = RubyGBA::ROM::HEADER_CODE
-  MAKER = RubyGBA::ROM::HEADER_MAKER
+  CODE = RubyGBA::Cartridge::ROM::HEADER_CODE
+  MAKER = RubyGBA::Cartridge::ROM::HEADER_MAKER
 
   def test_a_real_cartridges_code_is_taken
-    assert RubyGBA::GameCode.taken?("BSMP"), "Metal Slug Advance shipped with this code"
+    assert RubyGBA::Cartridge::GameCode.taken?("BSMP"), "Metal Slug Advance shipped with this code"
   end
 
   # The header field is upper-case ASCII, and an emulator would match the lower-case
   # spelling to the same cartridge.
   def test_a_taken_code_is_taken_however_it_is_spelled
-    assert RubyGBA::GameCode.taken?("bsmp")
+    assert RubyGBA::Cartridge::GameCode.taken?("bsmp")
   end
 
   def test_no_real_cartridge_starts_with_one_of_the_free_letters
-    RubyGBA::GameCode::FREE_LETTERS.each do |letter|
-      starting = RubyGBA::GameCode.known.select { |code| code.start_with?(letter) }
+    RubyGBA::Cartridge::GameCode::FREE_LETTERS.each do |letter|
+      starting = RubyGBA::Cartridge::GameCode.known.select { |code| code.start_with?(letter) }
       assert_empty starting, "#{letter} was supposed to be free"
     end
   end
 
   def test_the_letter_the_framework_picks_is_one_of_the_free_ones
-    assert_includes RubyGBA::GameCode::FREE_LETTERS, RubyGBA::GameCode::OUR_LETTER
+    assert_includes RubyGBA::Cartridge::GameCode::FREE_LETTERS, RubyGBA::Cartridge::GameCode::OUR_LETTER
   end
 
   def test_the_framework_works_a_free_code_out_from_the_name
-    code = RubyGBA::GameCode.for("SNAKE")
+    code = RubyGBA::Cartridge::GameCode.for("SNAKE")
 
     assert_equal 4, code.length
-    refute RubyGBA::GameCode.taken?(code), "#{code} belongs to a real cartridge"
+    refute RubyGBA::Cartridge::GameCode.taken?(code), "#{code} belongs to a real cartridge"
   end
 
   def test_the_same_name_always_gets_the_same_code
-    assert_equal RubyGBA::GameCode.for("SNAKE"), RubyGBA::GameCode.for("SNAKE")
+    assert_equal RubyGBA::Cartridge::GameCode.for("SNAKE"), RubyGBA::Cartridge::GameCode.for("SNAKE")
   end
 
   # Two games that start the same way still get codes of their own, so an emulator
   # keeps their saves apart.
   def test_names_that_start_the_same_get_different_codes
-    refute_equal RubyGBA::GameCode.for("SNAKE"), RubyGBA::GameCode.for("SNAKEBUF")
+    refute_equal RubyGBA::Cartridge::GameCode.for("SNAKE"), RubyGBA::Cartridge::GameCode.for("SNAKEBUF")
   end
 
   # A game says what it is called and nothing else: the four characters underneath
@@ -52,7 +52,7 @@ class TestGameCode < Minitest::Test
   def test_a_game_that_writes_no_code_gets_a_free_one
     rom = RubyGBA.build("SNAKE") { halt }
 
-    assert_equal RubyGBA::GameCode.for("SNAKE"), rom.buffer[CODE, 4], "game code"
+    assert_equal RubyGBA::Cartridge::GameCode.for("SNAKE"), rom.buffer[CODE, 4], "game code"
     refute_equal "01", rom.buffer[MAKER, 2], "01 is Nintendo's maker code"
   end
 

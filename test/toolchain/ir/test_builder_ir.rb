@@ -95,9 +95,9 @@ class TestBuilderIR < Minitest::Test
       fill_rect 5, 5, 4, 3, :green
     end
     screen = Reference.new.run(got).screen
-    assert_equal RubyGBA::Color.resolve(:red), screen.pixel(10, 20)
-    assert_equal RubyGBA::Color.resolve(:green), screen.pixel(5, 5)
-    assert_equal RubyGBA::Color.resolve(:black), screen.pixel(0, 0)
+    assert_equal RubyGBA::Graphics::Color.resolve(:red), screen.pixel(10, 20)
+    assert_equal RubyGBA::Graphics::Color.resolve(:green), screen.pixel(5, 5)
+    assert_equal RubyGBA::Graphics::Color.resolve(:black), screen.pixel(0, 0)
   end
 
   # ---- control flow: nesting, conditions, funcs, dispatch ----

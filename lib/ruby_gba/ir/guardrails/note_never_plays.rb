@@ -51,7 +51,7 @@ module RubyGBA
 
           def describe(problem, total)
             kind, frame, before = problem
-            too_short = "This error occurs when a note is shorter than one frame (1/#{Score::FRAME_RATE} of a " \
+            too_short = "This error occurs when a note is shorter than one frame (1/#{Audio::Score::FRAME_RATE} of a " \
                         "second). To fix this, make the note longer, or make the tempo slower."
             stuck = "The part then stays silent until the song starts again."
             case kind

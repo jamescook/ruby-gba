@@ -36,13 +36,13 @@ class TestNoteEnvelope < Minitest::Test
   TICKS_PER_BEAT = 24
 
   def score(envelope)
-    notes = (0...NOTES).map { |n| RubyGBA::Score::Note.new(at: GAP * n, key: :C4, length: 6 + n) }
+    notes = (0...NOTES).map { |n| RubyGBA::Audio::Score::Note.new(at: GAP * n, key: :C4, length: 6 + n) }
     tune_of(notes, envelope)
   end
 
   def tune_of(notes, envelope)
-    part = RubyGBA::Score::Part.new(plays: :tone, notes: notes, envelope: envelope, volume: 15)
-    RubyGBA::Score.new(parts: [part], tempo: TEMPO, ticks_per_beat: TICKS_PER_BEAT,
+    part = RubyGBA::Audio::Score::Part.new(plays: :tone, notes: notes, envelope: envelope, volume: 15)
+    RubyGBA::Audio::Score.new(parts: [part], tempo: TEMPO, ticks_per_beat: TICKS_PER_BEAT,
                        length: GAP * (NOTES + 1))
   end
 
@@ -59,7 +59,7 @@ class TestNoteEnvelope < Minitest::Test
 
   # One channel of the rendering, and the jump from each sample to the next.
   def rendered(rom)
-    mono = RubyGBA::Verifier.new(rom, frames: FRAMES).audio_samples.each_slice(2).map(&:first)
+    mono = RubyGBA::Diagnostics::Verifier.new(rom, frames: FRAMES).audio_samples.each_slice(2).map(&:first)
     [mono, mono.each_cons(2).map { |a, b| (b - a).abs }]
   end
 
@@ -129,7 +129,7 @@ class TestNoteEnvelope < Minitest::Test
   # frame and is silent in six. Most of that fall happens in the first frame, so a level that moved
   # only at the frame boundary took most of the wave away in one step — a click, a smaller one than
   # stopping dead but the same thing. The gain slides across the frame instead.
-  FASTEST_RETAIL_RELEASE = RubyGBA::Envelope.new(release: 89)
+  FASTEST_RETAIL_RELEASE = RubyGBA::Audio::Envelope.new(release: 89)
 
   def test_the_fastest_retail_release_ends_a_note_without_a_jump
     require_emulator!
@@ -155,9 +155,9 @@ class TestNoteEnvelope < Minitest::Test
   def test_a_note_that_arrives_mid_fade_does_not_cut_the_fade_off
     require_emulator!
     own = the_waves_own_step
-    notes = (0..NOTES).map { |n| RubyGBA::Score::Note.new(at: (0...n).sum { |k| 8 + k }, key: :C4) }
+    notes = (0..NOTES).map { |n| RubyGBA::Audio::Score::Note.new(at: (0...n).sum { |k| 8 + k }, key: :C4) }
 
-    [FASTEST_RETAIL_RELEASE, RubyGBA::Envelope.new(release: 188)].each do |shape|
+    [FASTEST_RETAIL_RELEASE, RubyGBA::Audio::Envelope.new(release: 188)].each do |shape|
       _, steps = rendered(build(shape, tune: tune_of(notes, shape)))
 
       assert_operator steps.max, :<=, own * 2,
@@ -169,8 +169,8 @@ class TestNoteEnvelope < Minitest::Test
   # ends there, however long the note was written; with one it reads round and lasts.
   def test_a_held_note_lasts_longer_than_its_recording
     short = (SINE * 4).freeze # a tenth of a second at most
-    tune = RubyGBA::Score.new(
-      parts: [RubyGBA::Score::Part.new(plays: :tone, notes: [RubyGBA::Score::Note.new(at: 0, key: :C4, length: 60)])],
+    tune = RubyGBA::Audio::Score.new(
+      parts: [RubyGBA::Audio::Score::Part.new(plays: :tone, notes: [RubyGBA::Audio::Score::Note.new(at: 0, key: :C4, length: 60)])],
       tempo: TEMPO, ticks_per_beat: TICKS_PER_BEAT, length: 90
     )
     held = RubyGBA.build("ENVELOPE", code: "BENV", maker: "01", validate: false) do
@@ -193,9 +193,9 @@ class TestNoteEnvelope < Minitest::Test
   # Run a one-note song on the reference interpreter for +frames+ frames and hand back the
   # interpreter, so a test can ask what is still sounding.
   def interpret(envelope, frames:)
-    tune = RubyGBA::Score.new(
-      parts: [RubyGBA::Score::Part.new(plays: :tone, envelope: envelope,
-                                       notes: [RubyGBA::Score::Note.new(at: 0, key: :C4, length: 6)])],
+    tune = RubyGBA::Audio::Score.new(
+      parts: [RubyGBA::Audio::Score::Part.new(plays: :tone, envelope: envelope,
+                                       notes: [RubyGBA::Audio::Score::Note.new(at: 0, key: :C4, length: 6)])],
       tempo: TEMPO, ticks_per_beat: TICKS_PER_BEAT, length: 90
     )
     builder = Builder.new
@@ -230,14 +230,14 @@ class TestNoteEnvelope < Minitest::Test
 
   # --- the voices a falling note holds, which both backends have to agree about ---
 
-  VOICES = RubyGBA::Sound::MIXER_VOICES
-  SLOW_RELEASE = RubyGBA::Envelope.new(release: 250) # still sounding a good second after its note
+  VOICES = RubyGBA::Audio::Sound::MIXER_VOICES
+  SLOW_RELEASE = RubyGBA::Audio::Envelope.new(release: 250) # still sounding a good second after its note
 
   # A game with two recordings, a part that plays +notes+ shaped by SLOW_RELEASE, and — on pass
   # +burst+ — as many sounds of the game's own as there are voices.
   def voices_game(notes, burst: nil)
-    tune = RubyGBA::Score.new(
-      parts: [RubyGBA::Score::Part.new(plays: :low, envelope: SLOW_RELEASE, notes: notes)],
+    tune = RubyGBA::Audio::Score.new(
+      parts: [RubyGBA::Audio::Score::Part.new(plays: :low, envelope: SLOW_RELEASE, notes: notes)],
       tempo: TEMPO, ticks_per_beat: TICKS_PER_BEAT, length: 200
     )
     b = Builder.new
@@ -267,8 +267,8 @@ class TestNoteEnvelope < Minitest::Test
   end
 
   def test_a_parts_next_note_leaves_the_last_falling_on_its_own_voice
-    notes = [RubyGBA::Score::Note.new(at: 0, key: :C4, instrument: :low),
-             RubyGBA::Score::Note.new(at: 10, key: :C4, instrument: :high)]
+    notes = [RubyGBA::Audio::Score::Note.new(at: 0, key: :C4, instrument: :low),
+             RubyGBA::Audio::Score::Note.new(at: 10, key: :C4, instrument: :high)]
     (ruby, _), (console, _) = voices_on_both(voices_game(notes), frames: 14)
 
     assert_equal %i[low high], ruby, "the first note falls away on its voice while the second sounds on another"
@@ -276,7 +276,7 @@ class TestNoteEnvelope < Minitest::Test
   end
 
   def test_a_game_sound_takes_a_falling_notes_voice_rather_than_being_dropped
-    notes = [RubyGBA::Score::Note.new(at: 0, key: :C4, length: 4)]
+    notes = [RubyGBA::Audio::Score::Note.new(at: 0, key: :C4, length: 4)]
     ruby, console = voices_on_both(voices_game(notes, burst: 10), frames: 14)
 
     clips = (0...VOICES).map { |n| :"s#{n}" }
@@ -289,64 +289,64 @@ class TestNoteEnvelope < Minitest::Test
 
   # The four numbers, and the two ways an author can say them.
   def test_a_time_becomes_the_number_that_takes_about_that_long
-    env = RubyGBA::Envelope.of({ release: 0.4 }, "a part")
+    env = RubyGBA::Audio::Envelope.of({ release: 0.4 }, "a part")
 
-    assert_equal 24, RubyGBA::Envelope.frames_to_fall(env.release, RubyGBA::Envelope::FULL, 0)
-    assert_equal RubyGBA::Envelope::MOST, env.attack, "a time of nothing is full at once"
-    assert_equal RubyGBA::Envelope::MOST, env.sustain, "what is not said holds where it was"
+    assert_equal 24, RubyGBA::Audio::Envelope.frames_to_fall(env.release, RubyGBA::Audio::Envelope::FULL, 0)
+    assert_equal RubyGBA::Audio::Envelope::MOST, env.attack, "a time of nothing is full at once"
+    assert_equal RubyGBA::Audio::Envelope::MOST, env.sustain, "what is not said holds where it was"
   end
 
   def test_the_numbers_the_consoles_own_engine_keeps_are_taken_as_they_are
-    env = RubyGBA::Envelope.new(attack: 255, decay: 245, sustain: 180, release: 216)
+    env = RubyGBA::Audio::Envelope.new(attack: 255, decay: 245, sustain: 180, release: 216)
 
     assert_equal 216, env.release
     assert_equal 0xD8_B4_F5_FF, env.packed
   end
 
   def test_an_envelope_that_says_nothing_is_the_note_as_it_always_was
-    assert_predicate RubyGBA::Envelope.of({}, "a part"), :plain?
-    refute_predicate RubyGBA::Envelope.of({ release: 0.2 }, "a part"), :plain?
+    assert_predicate RubyGBA::Audio::Envelope.of({}, "a part"), :plain?
+    refute_predicate RubyGBA::Audio::Envelope.of({ release: 0.2 }, "a part"), :plain?
   end
 
   # The rule that moves the level, which both backends follow.
   def test_the_level_climbs_holds_and_falls_away
-    env = RubyGBA::Envelope.new(attack: 64, decay: 128, sustain: 100, release: 128)
-    level, phase = env.step(0, RubyGBA::Envelope::CLIMBING)
+    env = RubyGBA::Audio::Envelope.new(attack: 64, decay: 128, sustain: 100, release: 128)
+    level, phase = env.step(0, RubyGBA::Audio::Envelope::CLIMBING)
 
-    assert_equal [64, RubyGBA::Envelope::CLIMBING], [level, phase]
-    level, phase = env.step(200, RubyGBA::Envelope::CLIMBING)
+    assert_equal [64, RubyGBA::Audio::Envelope::CLIMBING], [level, phase]
+    level, phase = env.step(200, RubyGBA::Audio::Envelope::CLIMBING)
 
-    assert_equal [RubyGBA::Envelope::FULL, RubyGBA::Envelope::HOLDING], [level, phase]
-    assert_equal [127, RubyGBA::Envelope::HOLDING], env.step(255, RubyGBA::Envelope::HOLDING)
-    assert_equal [100, RubyGBA::Envelope::HOLDING], env.step(100, RubyGBA::Envelope::HOLDING),
+    assert_equal [RubyGBA::Audio::Envelope::FULL, RubyGBA::Audio::Envelope::HOLDING], [level, phase]
+    assert_equal [127, RubyGBA::Audio::Envelope::HOLDING], env.step(255, RubyGBA::Audio::Envelope::HOLDING)
+    assert_equal [100, RubyGBA::Audio::Envelope::HOLDING], env.step(100, RubyGBA::Audio::Envelope::HOLDING),
                  "it holds at the sustain level rather than falling through it"
-    assert_equal [50, RubyGBA::Envelope::FALLING], env.step(100, RubyGBA::Envelope::FALLING)
+    assert_equal [50, RubyGBA::Audio::Envelope::FALLING], env.step(100, RubyGBA::Audio::Envelope::FALLING)
   end
 
   # --- what an author is told when they write it wrong ---
 
   def test_a_time_that_is_not_a_time_names_itself
-    error = assert_raises(ArgumentError) { RubyGBA::Envelope.of({ release: :slow }, "the part :lead") }
+    error = assert_raises(ArgumentError) { RubyGBA::Audio::Envelope.of({ release: :slow }, "the part :lead") }
 
     assert_match(/the part :lead/, error.message)
     assert_match(/release/, error.message)
   end
 
   def test_a_key_the_envelope_does_not_have_names_itself
-    error = assert_raises(ArgumentError) { RubyGBA::Envelope.of({ fade: 0.2 }, "the part :lead") }
+    error = assert_raises(ArgumentError) { RubyGBA::Audio::Envelope.of({ fade: 0.2 }, "the part :lead") }
 
     assert_match(/fade/, error.message)
     assert_match(/attack/, error.message)
   end
 
   def test_a_sustain_outside_its_range_names_itself
-    error = assert_raises(ArgumentError) { RubyGBA::Envelope.of({ sustain: 4 }, "the part :lead") }
+    error = assert_raises(ArgumentError) { RubyGBA::Audio::Envelope.of({ sustain: 4 }, "the part :lead") }
 
     assert_match(/sustain/, error.message)
   end
 
   def test_one_of_the_four_numbers_outside_its_range_names_itself
-    error = assert_raises(ArgumentError) { RubyGBA::Envelope.new(attack: 300) }
+    error = assert_raises(ArgumentError) { RubyGBA::Audio::Envelope.new(attack: 300) }
 
     assert_match(/attack/, error.message)
     assert_match(/0 to 255/, error.message)

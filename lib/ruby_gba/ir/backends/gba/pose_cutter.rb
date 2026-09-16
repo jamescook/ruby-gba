@@ -37,7 +37,7 @@ module RubyGBA
         # into tiles the way it reads them. Nothing here knows about memory or about where a
         # sprite ends up: it is the art and the twelve shapes the hardware has.
         class PoseCutter
-          include Constants
+          include Cartridge::Constants
 
           def initialize(bitmaps)
             @bitmaps = bitmaps

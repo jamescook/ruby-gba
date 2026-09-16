@@ -33,7 +33,7 @@ class TestTearing < Minitest::Test
 
   def tearing_of(rom)
     require_emulator!
-    readings = RubyGBA::Analyzer.profile(rom.source_program, options: rom.build_options)
+    readings = RubyGBA::Diagnostics::Analyzer.profile(rom.source_program, options: rom.build_options)
     readings.values.first.tearing
   end
 

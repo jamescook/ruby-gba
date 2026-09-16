@@ -31,7 +31,7 @@ class TestTickRateMeasured < Minitest::Test
     end
   end
 
-  def rate_of(rom) = RubyGBA::Profiler.run(rom, frames: 60, picture: false).tick_rates.first
+  def rate_of(rom) = RubyGBA::Diagnostics::Profiler.run(rom, frames: 60, picture: false).tick_rates.first
 
   # THE MECHANISM. A game that draws nothing gets every tick it asked for, which is what
   # says the handler was found and the ticks counted against real time correctly.
@@ -82,8 +82,8 @@ class TestTickRateMeasured < Minitest::Test
   # What the author reads: the number, and both causes, with neither asserted.
   def test_the_report_gives_the_number_and_does_not_blame_the_handler
     out = StringIO.new
-    RubyGBA::Profiler.render(
-      RubyGBA::Profiler.run(rom_for(rate: 4096, clears: 4), frames: 60, picture: false), out: out
+    RubyGBA::Diagnostics::Profiler.render(
+      RubyGBA::Diagnostics::Profiler.run(rom_for(rate: 4096, clears: 4), frames: 60, picture: false), out: out
     )
     said = out.string
 
@@ -94,8 +94,8 @@ class TestTickRateMeasured < Minitest::Test
 
   def test_a_timer_keeping_up_prints_nothing_about_itself
     out = StringIO.new
-    RubyGBA::Profiler.render(
-      RubyGBA::Profiler.run(rom_for(rate: 4096, clears: 0), frames: 60, picture: false), out: out
+    RubyGBA::Diagnostics::Profiler.render(
+      RubyGBA::Diagnostics::Profiler.run(rom_for(rate: 4096, clears: 0), frames: 60, picture: false), out: out
     )
 
     refute_match(/timer :beat/, out.string)
@@ -108,6 +108,6 @@ class TestTickRateMeasured < Minitest::Test
       game_loop { clear_screen :black }
     end
 
-    assert_empty RubyGBA::Profiler.run(rom, frames: 20, picture: false).tick_rates
+    assert_empty RubyGBA::Diagnostics::Profiler.run(rom, frames: 20, picture: false).tick_rates
   end
 end

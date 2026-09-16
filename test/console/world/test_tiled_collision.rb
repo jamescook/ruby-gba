@@ -8,7 +8,7 @@ require "test_helper"
 # and agree by construction — asserted here on the interpreter oracle and on hardware.
 # `can_move?` exposes the same test for manual control.
 class TestTiledCollision < Minitest::Test
-  include RubyGBA::Constants
+  include RubyGBA::Cartridge::Constants
 
   SOLID8 = (["########"] * 8).join("\n")
 

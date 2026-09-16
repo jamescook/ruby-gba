@@ -12,9 +12,9 @@ require "test_helper"
 # the slicing happens at BUILD time and bakes real images into the program — so the same
 # imported art is checked on the interpreter oracle AND on real hardware (the emulator).
 class TestFacingSheet < Minitest::Test
-  include RubyGBA::Constants
+  include RubyGBA::Cartridge::Constants
 
-  Image = RubyGBA::Image
+  Image = RubyGBA::Graphics::Image
 
   SOLID8 = (["########"] * 8).join("\n")
 

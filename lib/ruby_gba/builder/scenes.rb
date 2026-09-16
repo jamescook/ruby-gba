@@ -59,7 +59,7 @@ module RubyGBA
       #   or a value holding the name of one
       # @param number [Integer, Symbol, Value, nil] which of the list to call
       def call(name, number: nil)
-        return call_by_name(name, number) if name.is_a?(Value)
+        return call_by_name(name, number) if name.is_a?(DSL::Value)
         return call_one_of(name, number) if name.is_a?(Array)
 
         unless number.nil?
@@ -162,13 +162,13 @@ module RubyGBA
       # picks while building, so it is a plain call; one the game works out picks as it runs.
       def call_one_of(names, number)
         routines_to_pick_from!(names, number)
-        fixed = Value.fixed_number(number)
+        fixed = DSL::Value.fixed_number(number)
         if fixed
           number_in_list!(names, fixed)
           return record(Build.call(names.fetch(fixed)))
         end
 
-        record(Build.call_one_of(names, which: Value.node_for(number)))
+        record(Build.call_one_of(names, which: DSL::Value.node_for(number)))
         ensure_var(number)
       end
 
@@ -186,7 +186,7 @@ module RubyGBA
                 "`call` was given #{names[stray].inspect} in its list of routines. Each item in the list " \
                 "must be the name of a routine, like `:#{names.grep(Symbol).first || 'op_walk'}`."
         end
-        return unless Fraction.bits_of(number)
+        return unless DSL::Fraction.bits_of(number)
 
         raise ArgumentError,
               "`call` picks a routine by a whole number, and the number given to `number:` holds a " \

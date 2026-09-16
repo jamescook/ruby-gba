@@ -191,7 +191,7 @@ class TestHardwareSpriteScale < Minitest::Test
   # convert. If either moves without the other, every size is silently wrong by a factor.
   def test_the_drawn_size_matches_the_dsl_fraction_scale
     assert_equal RubyGBA::IR::Build::SCALE_ONE,
-                 RubyGBA::Fraction.scale(1.0, RubyGBA::Fraction::DEFAULT_BITS)
+                 RubyGBA::DSL::Fraction.scale(1.0, RubyGBA::DSL::Fraction::DEFAULT_BITS)
   end
 
   # A size of zero can still arrive at run time (the build-time error only catches one

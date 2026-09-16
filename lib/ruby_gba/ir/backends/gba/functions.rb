@@ -35,7 +35,7 @@ module RubyGBA
             cold = @funcs.reject { |name, _| @placement.fast_funcs.include?(name) }
             return if cold.empty?
 
-            @emitter.emit(ASM.loop_forever) # fall-through guard
+            @emitter.emit(Cartridge::ASM.loop_forever) # fall-through guard
             cold.each { |name, fnode| emit_one_function(name, fnode) }
           end
 
@@ -45,7 +45,7 @@ module RubyGBA
           def emit_one_function(name, fnode)
             start = @emitter.pos
             @emitter.place_label(func_label(name))
-            @emitter.emit(ASM.push(14))                          # push {lr}
+            @emitter.emit(Cartridge::ASM.push(14))                          # push {lr}
             # Draws in this func lower in its resolved mode; a scene (a per-frame
             # entry point) also switches the hardware to that mode as it takes over.
             @lowering.in_mode(@modes.func_mode.fetch(name, @modes.default_mode)) do
@@ -60,7 +60,7 @@ module RubyGBA
               end
               fnode.children.each { |stmt| @lowering.statement(stmt) }
             end
-            @emitter.emit(ASM.pop(15))                           # pop {pc}  (return)
+            @emitter.emit(Cartridge::ASM.pop(15))                           # pop {pc}  (return)
             @func_ranges[name] = (start...@emitter.pos)          # byte span, for dump_func
           end
 
@@ -118,7 +118,7 @@ module RubyGBA
             emit_compare_acc(node.targets.length)
             @emitter.emit_branch(:bcond, none, cond: :hs)              # past the end, or below 0
             @emitter.emit_load_data_address(ADDR, table)               # r12 = the table
-            @emitter.emit(ASM.ldr_reg_lsl(ADDR, ADDR, ACC, 2))         # r12 = where that routine starts
+            @emitter.emit(Cartridge::ASM.ldr_reg_lsl(ADDR, ADDR, ACC, 2))         # r12 = where that routine starts
             @emitter.emit_call_through(ADDR)
             @emitter.place_label(none)
           end
@@ -128,10 +128,10 @@ module RubyGBA
           # Compare r0 with +count+: in the instruction when it fits there, or through r1 when
           # it is too big to.
           def emit_compare_acc(count)
-            return @emitter.emit(ASM.cmp_imm(ACC, count)) if ASM.encode_rotated_immediate(count)
+            return @emitter.emit(Cartridge::ASM.cmp_imm(ACC, count)) if Cartridge::ASM.encode_rotated_immediate(count)
 
-            @emitter.emit(ASM.load_immediate(TMP, count))
-            @emitter.emit(ASM.cmp_reg(ACC, TMP))
+            @emitter.emit(Cartridge::ASM.load_immediate(TMP, count))
+            @emitter.emit(Cartridge::ASM.cmp_reg(ACC, TMP))
           end
         end
       end

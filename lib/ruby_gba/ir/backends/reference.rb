@@ -129,7 +129,7 @@ module RubyGBA
         # @return [Array<Hash>]
         def sprites(name = nil)
           rows = @drawn.map do |on|
-            RubyGBA::DrawnSprite.new(name: on[:name], x: on[:x], y: on[:y], picture: on[:picture])
+            RubyGBA::Diagnostics::DrawnSprite.new(name: on[:name], x: on[:x], y: on[:y], picture: on[:picture])
           end
           return rows if name.nil?
 
@@ -322,7 +322,7 @@ module RubyGBA
             when :func
               @funcs[n.name] = n
             when :define_sound
-              @defined_sounds[n.name] = Sound::Effect.new(
+              @defined_sounds[n.name] = Audio::Sound::Effect.new(
                 frequency: n.frequency, duty: n.duty,
                 decay: n.decay, volume: n.volume,
               )
@@ -807,7 +807,7 @@ module RubyGBA
           x = eval_value(node.x)
           y = eval_value(node.y)
           color = resolve_color(node.picked && eval_value(node.showing) != 0 ? node.picked : node.color)
-          Fonts.get(node.font).each_pixel(node.text) do |dx, dy|
+          Graphics::Fonts.get(node.font).each_pixel(node.text) do |dx, dy|
             @screen.set_pixel(x + dx, y + dy, color)
           end
         end
@@ -820,7 +820,7 @@ module RubyGBA
           return unless (0..9).cover?(digit)
 
           color = resolve_color(node.color)
-          Fonts.get(node.font).each_pixel(digit.to_s) do |dx, dy|
+          Graphics::Fonts.get(node.font).each_pixel(digit.to_s) do |dx, dy|
             @screen.set_pixel(node.x + dx, node.y + dy, color)
           end
         end
@@ -829,7 +829,7 @@ module RubyGBA
         # played — the shared rule, so the interpreter and the ROM agree on what a
         # given beep means.
         def resolve_effect(node)
-          Sound.resolve_effect(node.tone, duty: node.duty, decay: node.decay,
+          Audio::Sound.resolve_effect(node.tone, duty: node.duty, decay: node.decay,
                                             volume: node.volume, defined: @defined_sounds)
         end
 
@@ -837,7 +837,7 @@ module RubyGBA
         # that played — the shared rule, so the interpreter and the ROM agree on
         # what a given hit means.
         def resolve_noise(node)
-          Sound.resolve_noise(node.preset, pitch: node.pitch, decay: node.decay,
+          Audio::Sound.resolve_noise(node.preset, pitch: node.pitch, decay: node.decay,
                                              volume: node.volume, metallic: node.metallic)
         end
 
@@ -1183,7 +1183,7 @@ module RubyGBA
         # reach. Applied as the screen is read, so nothing drawn changes and the picture
         # is all still there when the amount returns to 0.
         def exec_tint(node)
-          @screen.tint_to(Color.resolve(node.color), eval_value(node.amount))
+          @screen.tint_to(Graphics::Color.resolve(node.color), eval_value(node.amount))
         end
 
         # Turn the blend on or off for the thing about to be painted: on for anything the
@@ -1903,7 +1903,7 @@ module RubyGBA
         end
 
         def resolve_color(color)
-          Color.resolve(color)
+          Graphics::Color.resolve(color)
         end
 
         # Arithmetic routes through Int32 (signed 32-bit wraparound); comparisons

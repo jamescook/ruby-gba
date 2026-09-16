@@ -13,7 +13,7 @@ require_relative "../../examples/hero"
 # the interpreter oracle and on real hardware. The player never touches object
 # memory, tile numbers, or a scroll register.
 class TestHeroExample < Minitest::Test
-  include RubyGBA::Constants
+  include RubyGBA::Cartridge::Constants
 
   CENTER = [120, 80].freeze # the middle of the screen, where the hero's body always sits
 

@@ -151,7 +151,7 @@ class TestSnakeCore < Minitest::Test
                    "interpreter: (#{x}, 20) should be #{color}"
     end
 
-    rom = RubyGBA::ROM.assemble(GBA.new.lower(prog), title: "SNAKE", code: "BSNK", maker: "01")
+    rom = RubyGBA::Cartridge::ROM.assemble(GBA.new.lower(prog), title: "SNAKE", code: "BSNK", maker: "01")
     v = assert_emulator_loads_rom(rom)
     marks.each do |x, color|
       assert v.pixel_is?(x, 20, color),

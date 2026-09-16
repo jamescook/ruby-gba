@@ -13,13 +13,13 @@ require "tempfile"
 def build_and_run(name, &block)
   rom = RubyGBA.build(name, code: "BTST", maker: "01", &block)
   puts "Built #{name}: #{rom.size} bytes"
-  puts RubyGBA::Inspector.from_rom(rom).header_report
-  puts RubyGBA::Inspector.from_rom(rom).code_report(max_instructions: 20)
+  puts RubyGBA::Diagnostics::Inspector.from_rom(rom).header_report
+  puts RubyGBA::Diagnostics::Inspector.from_rom(rom).code_report(max_instructions: 20)
   puts
 
   Tempfile.create([name.downcase, ".gba"]) do |f|
     rom.write(f.path)
-    core = RubyGBA::Emulator.open(f.path)
+    core = RubyGBA::Diagnostics::Emulator.open(f.path)
     100.times { core.run_frame }
     core.destroy
   end

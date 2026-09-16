@@ -9,7 +9,7 @@ require "test_helper"
 # actually changes over time — on the interpreter oracle and on real hardware — by
 # reading the sprite's color a few frames apart.
 class TestSpriteAnimation < Minitest::Test
-  include RubyGBA::Constants
+  include RubyGBA::Cartridge::Constants
 
   SOLID8 = (["########"] * 8).join("\n")
 

@@ -18,7 +18,7 @@ class TestPictureStorage < Minitest::Test
 
   # Sixteen colours is one too many for a bank (the sixteenth slot means see-through), so a
   # picture drawn from these is stored the big way and one drawn from any fifteen is not.
-  SIXTEEN = (1..16).map { |i| RubyGBA::Color.rgb(i, 0, 0) }.freeze
+  SIXTEEN = (1..16).map { |i| RubyGBA::Graphics::Color.rgb(i, 0, 0) }.freeze
   FIFTEEN = SIXTEEN.first(15).freeze
 
   # A 16x16 picture painted in stripes of the given colours, so every one of them is really
@@ -136,7 +136,7 @@ class TestPictureStorage < Minitest::Test
     per_scene = pictures_each
     builder.instance_eval do
       screen :tiled
-      shades = (1..15).map { |c| RubyGBA::Color.rgb(c, 0, 0) }
+      shades = (1..15).map { |c| RubyGBA::Graphics::Color.rgb(c, 0, 0) }
       (per_scene * 2).times do |i|
         # Every picture different, so none is shared away — the run number spelled out in
         # the first four pixels, fifteen shades to a digit. Only fifteen colours in all of
@@ -236,8 +236,8 @@ class TestPictureStorage < Minitest::Test
   # side by side — which is exactly what one shared table could never do and is the whole
   # reason banks are worth having.
   def two_palettes_program
-    reds = (1..15).map { |i| RubyGBA::Color.rgb(i * 2, 0, 0) }
-    blues = (1..15).map { |i| RubyGBA::Color.rgb(0, 0, i * 2) }
+    reds = (1..15).map { |i| RubyGBA::Graphics::Color.rgb(i * 2, 0, 0) }
+    blues = (1..15).map { |i| RubyGBA::Graphics::Color.rgb(0, 0, i * 2) }
     left = striped(reds)
     right = striped(blues)
     builder = Builder.new
@@ -415,7 +415,7 @@ class TestPictureStorage < Minitest::Test
     listed = [:transparent, *drawn]
     builder.instance_eval do
       screen :tiled
-      image :bright, width: 8, height: 8, data: Array.new(64, RubyGBA::Color.rgb(31, 31, 31))
+      image :bright, width: 8, height: 8, data: Array.new(64, RubyGBA::Graphics::Color.rgb(31, 31, 31))
       tiles :field, "#" => :bright
       background :room, tiles: :field, map: Array.new(20) { "#" * 30 }
       image :link, width: 16, height: 16, data: art, colors: listed
@@ -444,8 +444,8 @@ class TestPictureStorage < Minitest::Test
 
   # Two pictures sharing no colours cannot share a bank, and both have to get one.
   def test_pictures_with_different_colors_get_banks_of_their_own
-    reds = (1..15).map { |i| RubyGBA::Color.rgb(i, 0, 0) }
-    blues = (1..15).map { |i| RubyGBA::Color.rgb(0, 0, i) }
+    reds = (1..15).map { |i| RubyGBA::Graphics::Color.rgb(i, 0, 0) }
+    blues = (1..15).map { |i| RubyGBA::Graphics::Color.rgb(0, 0, i) }
     banks = RubyGBA::IR::Backends::GBA::PaletteBanks.new(
       [RubyGBA::IR::Backends::GBA::PaletteBanks::Picture.new(key: :a, colors: reds, authored: nil),
        RubyGBA::IR::Backends::GBA::PaletteBanks::Picture.new(key: :b, colors: blues, authored: nil)]
@@ -471,7 +471,7 @@ class TestPictureStorage < Minitest::Test
   def test_a_picture_that_cannot_get_a_bank_falls_back_to_the_big_storage
     # Eight colours each, none shared, so no two can fit one bank together.
     pictures = (0...20).map do |i|
-      colors = (1..8).map { |c| RubyGBA::Color.rgb(c, i + 1, 0) }
+      colors = (1..8).map { |c| RubyGBA::Graphics::Color.rgb(c, i + 1, 0) }
       RubyGBA::IR::Backends::GBA::PaletteBanks::Picture.new(key: :"p#{i}", colors: colors, authored: nil)
     end
     banks = RubyGBA::IR::Backends::GBA::PaletteBanks.new(pictures)

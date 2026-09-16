@@ -12,7 +12,7 @@ require "test_helper"
 # (Mode 3 -> Mode 4) has to actually happen: the palette is uploaded, the pages are
 # set up, and the flip only runs while the buffered scene is live.
 class TestPerSceneMode < Minitest::Test
-  include RubyGBA::Constants
+  include RubyGBA::Cartridge::Constants
 
   Build = RubyGBA::IR::Build
 
@@ -196,7 +196,7 @@ class TestPerSceneMode < Minitest::Test
     b.emit_pending_functions
     prog = b.program
 
-    rom = RubyGBA::ROM.assemble(GBA.new.lower(prog), title: "AFMD", code: "BAFM", maker: "01")
+    rom = RubyGBA::Cartridge::ROM.assemble(GBA.new.lower(prog), title: "AFMD", code: "BAFM", maker: "01")
 
     v = assert_emulator_loads_rom(rom, frames: 10)
     white_shows = (100..112).any? { |x| (20..27).any? { |y| v.pixel_is?(x, y, :white) } }
@@ -235,7 +235,7 @@ class TestPerSceneMode < Minitest::Test
       game_loop { wait_vblank; case_var(:state) { when_val 0, :title } }
     end
     b.emit_pending_functions
-    rom = RubyGBA::ROM.assemble(GBA.new.lower(b.program), title: "ZOOM", code: "BZOM", maker: "01")
+    rom = RubyGBA::Cartridge::ROM.assemble(GBA.new.lower(b.program), title: "ZOOM", code: "BZOM", maker: "01")
 
     early = assert_emulator_loads_rom(rom, frames: 3)
     later = assert_emulator_loads_rom(rom, frames: 20)

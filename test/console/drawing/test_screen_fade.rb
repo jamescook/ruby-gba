@@ -11,10 +11,10 @@ require "test_helper"
 # lifts. The picture underneath never changes, which is exactly what makes a fade cheap
 # and also what makes a fade left un-lifted so hard to spot by eye.
 class TestScreenFade < Minitest::Test
-  WHITE = RubyGBA::Color.resolve(:white)
-  RED = RubyGBA::Color.resolve(:red)
-  GREEN = RubyGBA::Color.resolve(:green)
-  BLUE = RubyGBA::Color.resolve(:blue)
+  WHITE = RubyGBA::Graphics::Color.resolve(:white)
+  RED = RubyGBA::Graphics::Color.resolve(:red)
+  GREEN = RubyGBA::Graphics::Color.resolve(:green)
+  BLUE = RubyGBA::Graphics::Color.resolve(:blue)
   BLACK = 0
 
   def program(&block)
@@ -311,7 +311,7 @@ class TestScreenFade < Minitest::Test
         (frame == 20).then { fade_in frames: 4 }
       end
     end
-    rom = RubyGBA::ROM.assemble(GBA.new.lower(prog), title: "FADE", code: "BFAD", maker: "01")
+    rom = RubyGBA::Cartridge::ROM.assemble(GBA.new.lower(prog), title: "FADE", code: "BFAD", maker: "01")
 
     assert assert_emulator_loads_rom(rom, frames: 12).black?(120, 80),
            "the console really does black the picture out"
@@ -333,7 +333,7 @@ class TestScreenFade < Minitest::Test
         (frame == 2).then { flash_screen :red, frames: 6 }
       end
     end
-    rom = RubyGBA::ROM.assemble(GBA.new.lower(prog), title: "FLASH", code: "BFLS", maker: "01")
+    rom = RubyGBA::Cartridge::ROM.assemble(GBA.new.lower(prog), title: "FLASH", code: "BFLS", maker: "01")
 
     assert assert_emulator_loads_rom(rom, frames: 4).red?(120, 80),
            "the console really does sting the picture red"

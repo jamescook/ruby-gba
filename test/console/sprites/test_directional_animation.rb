@@ -9,7 +9,7 @@ require "test_helper"
 # interpreter oracle and on real hardware, that facing picks the right ROW and the
 # frame animates WITHIN it.
 class TestDirectionalAnimation < Minitest::Test
-  include RubyGBA::Constants
+  include RubyGBA::Cartridge::Constants
 
   SOLID8 = (["########"] * 8).join("\n")
 

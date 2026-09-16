@@ -11,7 +11,7 @@ require_relative "../../examples/pacman"
 # the whole stack renders and behaves — on the interpreter oracle and on real
 # hardware. (Facing correctness itself is pinned in test_hardware_sprite_facing.rb.)
 class TestPacmanExample < Minitest::Test
-  include RubyGBA::Constants
+  include RubyGBA::Cartridge::Constants
 
   START_X, START_Y = Pacman::START
 

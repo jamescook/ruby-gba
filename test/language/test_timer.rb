@@ -56,7 +56,7 @@ class TestTimer < Minitest::Test
     b.instance_eval do
       screen :bitmap
       var :snap, 0
-      set! :snap, RubyGBA::Timer.new(self, :ghost).ticks
+      set! :snap, RubyGBA::DSL::Timer.new(self, :ghost).ticks
       halt
     end
     assert_equal 0, Reference.new.run(b.program)[:snap]

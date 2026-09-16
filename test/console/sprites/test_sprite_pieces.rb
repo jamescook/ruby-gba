@@ -21,11 +21,11 @@ class TestSpritePieces < Minitest::Test
   # Seven colors laid out by tile, so a piece drawn in the wrong place shows as a color
   # out of order rather than as a shape that happens to look similar.
   INKS = [
-    RubyGBA::Color.rgb(31, 0, 0), RubyGBA::Color.rgb(0, 31, 0), RubyGBA::Color.rgb(0, 0, 31),
-    RubyGBA::Color.rgb(31, 31, 0), RubyGBA::Color.rgb(31, 0, 31), RubyGBA::Color.rgb(0, 31, 31),
-    RubyGBA::Color.rgb(31, 31, 31),
+    RubyGBA::Graphics::Color.rgb(31, 0, 0), RubyGBA::Graphics::Color.rgb(0, 31, 0), RubyGBA::Graphics::Color.rgb(0, 0, 31),
+    RubyGBA::Graphics::Color.rgb(31, 31, 0), RubyGBA::Graphics::Color.rgb(31, 0, 31), RubyGBA::Graphics::Color.rgb(0, 31, 31),
+    RubyGBA::Graphics::Color.rgb(31, 31, 31),
   ].freeze
-  CLEAR = RubyGBA::Color.rgb(1, 1, 1)
+  CLEAR = RubyGBA::Graphics::Color.rgb(1, 1, 1)
 
   # A ragged character on a +w+ by +h+ canvas: an ellipse of +fill+ across, so the corners
   # of the canvas are empty and the pieces that cover them can be dropped.
@@ -365,7 +365,7 @@ class TestSpritePieces < Minitest::Test
 
     refute_nil objects
     assert_operator objects.used, :>, 1
-    assert_equal RubyGBA::Constants::MAX_SPRITES, objects.capacity
+    assert_equal RubyGBA::Cartridge::Constants::MAX_SPRITES, objects.capacity
     assert_equal [[:big, objects.used]], objects.big
   end
 
@@ -380,7 +380,7 @@ class TestSpritePieces < Minitest::Test
       game_loop {}
     end
     out = StringIO.new
-    RubyGBA::BuildReport.render(rom, out: out)
+    RubyGBA::Diagnostics::BuildReport.render(rom, out: out)
 
     assert_match(/the sprites the console draws at once: \d+ of 128 used/, out.string)
     assert_match(/:big is bigger than one sprite, so it is drawn as \d+/, out.string)

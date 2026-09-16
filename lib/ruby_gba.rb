@@ -91,10 +91,10 @@ module RubyGBA
   #   in the console's quick memory, where code runs about two and a half times faster
   #   (default: true). `rom.profile` says what it chose. Pass false to stop it choosing —
   #   a routine you mark `func :name, fast: true` yourself still goes there.
-  # @param progress [RubyGBA::Progress] what the build says it is doing while it does it.
+  # @param progress [RubyGBA::Diagnostics::Progress] what the build says it is doing while it does it.
   #   The default says nothing; `Progress.to($stderr)` names each phase and how far it has
-  #   got. See {RubyGBA::Progress}.
-  # @param profile [true, false, String, RubyGBA::RoutineProfile] where this game's frames
+  #   got. See {RubyGBA::Diagnostics::Progress}.
+  # @param profile [true, false, String, RubyGBA::Diagnostics::RoutineProfile] where this game's frames
   #   really go, which decides which routines are kept in the console's quick memory.
   #
   #   TRUE MEASURES IT: the build builds the game once, runs it, and builds it again knowing
@@ -112,7 +112,7 @@ module RubyGBA
   #   A PATH or a {RoutineProfile} uses a measurement taken earlier, for the case the automatic
   #   one cannot reach: a game measures each of its scenes, so a moment WITHIN one — a boss with
   #   half its health gone, a floor with sixty guards — has to be measured by hand and saved.
-  # @return [RubyGBA::ROM] finalized ROM ready to write
+  # @return [RubyGBA::Cartridge::ROM] finalized ROM ready to write
   # +out+/+err+ are where the build prints — the disassembly dump_func was asked for, and the
   # warnings the guardrails found. Each takes an open stream (a StringIO, to capture them in a
   # test), the NAME of a file (opened and closed for you), or nil for a build that prints
@@ -122,12 +122,12 @@ module RubyGBA
   # out from the title (see {GameCode}), and a code a released cartridge already carries is
   # refused rather than quietly shipped.
   def self.build(title, code: nil, maker: nil, validate: true, frame_sync: :auto, fast_cartridge: true,
-                 fast_code: true, out: $stdout, err: $stderr, progress: Progress.silent,
+                 fast_code: true, out: $stdout, err: $stderr, progress: Diagnostics::Progress.silent,
                  profile: false, &block)
     # Settle where this build prints BEFORE anything is read or checked, so a caller
     # that named somewhere the build cannot write is told on every build rather than on
     # the one build that finally has a warning to give (see {BuildOutput}).
-    output = BuildOutput.new(out: out, err: err)
+    output = Diagnostics::BuildOutput.new(out: out, err: err)
     out = output.out
     err = output.err
 
@@ -138,7 +138,7 @@ module RubyGBA
     end
 
     progress.step("reading the game")
-    evaluated = EvaluatedGame.new(block, frame_sync: frame_sync, progress: progress)
+    evaluated = Cartridge::EvaluatedGame.new(block, frame_sync: frame_sync, progress: progress)
     program = evaluated.program
 
     # First prove the tree is well-formed — every value operand is a value node,
@@ -216,14 +216,14 @@ module RubyGBA
     # which routines went in the console's quick memory, where the variables landed, and so
     # on — so that a finished ROM can report on itself (see BuildRecord and rom.profile).
     # None of it is in the bytes, and nothing can recover it by reading them back.
-    rom = ROM.assemble(machine_code, title: title, code: code, maker: maker,
+    rom = Cartridge::ROM.assemble(machine_code, title: title, code: code, maker: maker,
                                      validate: evaluated.debug_halted? ? false : validate,
                                      built: record)
 
     # Every phase is over; a disassembly dump is a debugging aid, not a phase.
     progress.done
     unless evaluated.dump_requests.empty?
-      FuncDumper.new(rom, backend.func_ranges, out: out, err: err).dump(evaluated.dump_requests)
+      Diagnostics::FuncDumper.new(rom, backend.func_ranges, out: out, err: err).dump(evaluated.dump_requests)
     end
     rom
   ensure
@@ -282,9 +282,9 @@ module RubyGBA
       raise
     end
 
-    survey = Profiler.every_scene(first)
+    survey = Diagnostics::Profiler.every_scene(first)
     warn_of_slow_scenes(survey, err)
-    measurement = RoutineProfile.from_work(survey.work, game: title)
+    measurement = Diagnostics::RoutineProfile.from_work(survey.work, game: title)
     build(title, code: code, maker: maker, profile: measurement,
           out: out, err: err, progress: progress, **options, &block)
   rescue LoadError
@@ -330,7 +330,7 @@ module RubyGBA
   # What the caller handed over, read into a {RoutineProfile} — or nothing, which means the
   # choice is made from the shape of the program.
   def self.given_profile(profile, program, err)
-    measured = profile.is_a?(RoutineProfile) ? profile : RoutineProfile.read(profile || nil)
+    measured = profile.is_a?(Diagnostics::RoutineProfile) ? profile : Diagnostics::RoutineProfile.read(profile || nil)
     warn_of_forgotten_routines(measured, program, err)
     measured
   end

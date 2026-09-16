@@ -11,9 +11,9 @@ require_relative "../../differential"
 class TestLayerStacking < Minitest::Test
   include Differential
 
-  RED = RubyGBA::Color.resolve(:red)
-  BLUE = RubyGBA::Color.resolve(:blue)
-  GREEN = RubyGBA::Color.resolve(:green)
+  RED = RubyGBA::Graphics::Color.resolve(:red)
+  BLUE = RubyGBA::Graphics::Color.resolve(:blue)
+  GREEN = RubyGBA::Graphics::Color.resolve(:green)
 
   # Somewhere both sprites cover, and somewhere both backgrounds cover.
   OVERLAP_X = 104

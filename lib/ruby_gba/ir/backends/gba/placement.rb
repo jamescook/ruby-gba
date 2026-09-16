@@ -44,7 +44,7 @@ module RubyGBA
         # and since the moved routines are copied as ONE block their distances from each
         # other are preserved, so they call each other exactly as they did before.
         module Placement
-          include Constants
+          include Cartridge::Constants
 
           # The block of moved routines sits between these two labels in the cartridge,
           # which is where boot copies it from.
@@ -233,7 +233,7 @@ module RubyGBA
           def emit_hot_functions
             return if @fast_funcs.empty?
 
-            emit(ASM.loop_forever) # fall-through guard, outside the block so it is not copied
+            emit(Cartridge::ASM.loop_forever) # fall-through guard, outside the block so it is not copied
             place_label(HOT_START)
             @emitting_hot = true
             @functions.funcs.each { |name, node| @functions.emit_one_function(name, node) if @fast_funcs.include?(name) }
@@ -282,16 +282,16 @@ module RubyGBA
           # bytes and it does not show.)
           def emit_copy_hot_code_to_iwram
             emit_load_label_address(ACC, HOT_START)
-            emit(ASM.load_immediate(TMP, REG_DMA3SAD))
-            emit(ASM.str(ACC, TMP))              # source = the block, in the cartridge
+            emit(Cartridge::ASM.load_immediate(TMP, REG_DMA3SAD))
+            emit(Cartridge::ASM.str(ACC, TMP))              # source = the block, in the cartridge
             emit_load_fast_address(ACC, HOT_START)
-            emit(ASM.load_immediate(TMP, REG_DMA3DAD))
-            emit(ASM.str(ACC, TMP))              # destination = where it is going
+            emit(Cartridge::ASM.load_immediate(TMP, REG_DMA3DAD))
+            emit(Cartridge::ASM.str(ACC, TMP))              # destination = where it is going
             # A size rather than an address, so it refers to nothing.
             @emit.fixups << Emit::AddressLoad.new(pos: pos, kind: :hot_size, reg: ACC, target: nil)
-            emit(ASM.load_immediate_fixed(ACC, 0)) # ...and how much, patched once it is known
-            emit(ASM.load_immediate(TMP, REG_DMA3CNT))
-            emit(ASM.str(ACC, TMP))
+            emit(Cartridge::ASM.load_immediate_fixed(ACC, 0)) # ...and how much, patched once it is known
+            emit(Cartridge::ASM.load_immediate(TMP, REG_DMA3CNT))
+            emit(Cartridge::ASM.str(ACC, TMP))
           end
 
           # Patch in the transfer's size and start it: whole words, both ends advancing.
@@ -299,7 +299,7 @@ module RubyGBA
           # via the resolver map GBA#lower builds (see GBA#lower).
           def resolve_hot_size(fix)
             words = @hot_bytes / 4
-            @emit.patch16(fix.pos, ASM.load_immediate_fixed(fix.reg, words | DMA_32BIT | DMA_ENABLE))
+            @emit.patch16(fix.pos, Cartridge::ASM.load_immediate_fixed(fix.reg, words | DMA_32BIT | DMA_ENABLE))
           end
 
           # Call a routine. A call that stays on one side of the cartridge/quick-memory
@@ -338,14 +338,14 @@ module RubyGBA
           # reference to embedded data uses.
           def emit_load_fast_address(reg, label)
             @emit.fixups << Emit::AddressLoad.new(pos: pos, kind: :fast_addr, reg: reg, target: label)
-            emit(ASM.load_immediate_fixed(reg, 0))
+            emit(Cartridge::ASM.load_immediate_fixed(reg, 0))
           end
 
           # Also a custom fixup kind, handed to Emit's resolver map the same way
           # #resolve_hot_size is.
           def resolve_fast_address(fix)
             offset = @emit.labels.fetch(fix.target) - @emit.labels.fetch(HOT_START)
-            @emit.patch16(fix.pos, ASM.load_immediate_fixed(fix.reg, @hot_base + offset))
+            @emit.patch16(fix.pos, Cartridge::ASM.load_immediate_fixed(fix.reg, @hot_base + offset))
           end
 
           # A TABLE OF WHERE ROUTINES START, one word each in the order given, for a call that
@@ -497,7 +497,7 @@ module RubyGBA
               # Say which routine is being weighed, in the words an author would use. The
               # phase is quick now that nothing is priced, but it is the one place a build
               # names the routines it is deciding between, and that is worth seeing.
-              @progress.of(n + 1, ranked.length, PlainWords.routine(name))
+              @progress.of(n + 1, ranked.length, Diagnostics::PlainWords.routine(name))
               next if chosen.include?(name) || forbidden.include?(name)
 
               size = sizes[name]

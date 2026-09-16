@@ -137,16 +137,16 @@ module RubyGBA
         RUBY
       end
 
-      # `RubyGBA::Fonts.register :name, RubyGBA::Font.new(...)` for each of +fonts+,
+      # `RubyGBA::Graphics::Fonts.register :name, RubyGBA::Graphics::Font.new(...)` for each of +fonts+,
       # one call per line — empty when there are none, so a game with no custom
       # fonts (the common case) gets no extra lines at all.
       def font_registrations(fonts)
-        fonts.map { |name, font| "RubyGBA::Fonts.register(#{name.inspect}, #{font_source(font)})\n" }.join
+        fonts.map { |name, font| "RubyGBA::Graphics::Fonts.register(#{name.inspect}, #{font_source(font)})\n" }.join
       end
 
       def font_source(font)
         args = font.to_definition.map { |key, value| "#{key}: #{value.inspect}" }
-        "RubyGBA::Font.new(#{args.join(', ')})"
+        "RubyGBA::Graphics::Font.new(#{args.join(', ')})"
       end
     end
   end

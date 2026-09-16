@@ -14,7 +14,7 @@ class TestVerifier < Minitest::Test
       pixel 120, 80, :red
       halt
     end
-    v = RubyGBA::Verifier.new(rom)
+    v = RubyGBA::Diagnostics::Verifier.new(rom)
     assert v.red?(120, 80), "Expected red at (120, 80), got #{v.pixel(120, 80)}"
   end
 
@@ -24,7 +24,7 @@ class TestVerifier < Minitest::Test
       pixel 120, 80, :red
       halt
     end
-    v = RubyGBA::Verifier.new(rom)
+    v = RubyGBA::Diagnostics::Verifier.new(rom)
     assert v.black?(0, 0), "Expected black at (0, 0), got #{v.pixel(0, 0)}"
   end
 
@@ -34,7 +34,7 @@ class TestVerifier < Minitest::Test
       pixel 50, 50, :green
       halt
     end
-    v = RubyGBA::Verifier.new(rom)
+    v = RubyGBA::Diagnostics::Verifier.new(rom)
     assert v.green?(50, 50), "Expected green at (50, 50), got #{v.pixel(50, 50)}"
   end
 
@@ -44,7 +44,7 @@ class TestVerifier < Minitest::Test
       pixel 200, 100, :blue
       halt
     end
-    v = RubyGBA::Verifier.new(rom)
+    v = RubyGBA::Diagnostics::Verifier.new(rom)
     assert v.blue?(200, 100), "Expected blue at (200, 100), got #{v.pixel(200, 100)}"
   end
 
@@ -54,7 +54,7 @@ class TestVerifier < Minitest::Test
       fill_rect 10, 10, 20, 20, :red
       halt
     end
-    v = RubyGBA::Verifier.new(rom)
+    v = RubyGBA::Diagnostics::Verifier.new(rom)
     assert v.region_color?(10, 10, 20, 20, :red),
            "Expected all red in rect. Mismatch: #{v.region_mismatch(10, 10, 20, 20, :red)}"
   end
@@ -65,7 +65,7 @@ class TestVerifier < Minitest::Test
       fill_rect 100, 70, 40, 20, :blue
       halt
     end
-    v = RubyGBA::Verifier.new(rom)
+    v = RubyGBA::Diagnostics::Verifier.new(rom)
     assert v.black?(0, 0), "Expected black outside rect"
     assert v.black?(99, 70), "Expected black just outside rect"
     assert v.blue?(100, 70), "Expected blue inside rect"
@@ -77,7 +77,7 @@ class TestVerifier < Minitest::Test
       pixel 0, 0, :white
       halt
     end
-    v = RubyGBA::Verifier.new(rom)
+    v = RubyGBA::Diagnostics::Verifier.new(rom)
     assert_equal 0x7FFF, v.pixel_gba(0, 0)
   end
 
@@ -86,7 +86,7 @@ class TestVerifier < Minitest::Test
       screen :bitmap
       halt
     end
-    v = RubyGBA::Verifier.new(rom)
+    v = RubyGBA::Diagnostics::Verifier.new(rom)
     assert v.all_black?, "Expected all black for empty screen"
   end
 
@@ -96,7 +96,7 @@ class TestVerifier < Minitest::Test
       pixel 0, 0, :white
       halt
     end
-    v = RubyGBA::Verifier.new(rom)
+    v = RubyGBA::Diagnostics::Verifier.new(rom)
     refute v.all_black?, "Screen should not be all black"
   end
 
@@ -106,7 +106,7 @@ class TestVerifier < Minitest::Test
       fill_rect 0, 0, 16, 16, :red
       halt
     end
-    v = RubyGBA::Verifier.new(rom)
+    v = RubyGBA::Diagnostics::Verifier.new(rom)
     map = v.screen_map
     # Top-left 2x2 tiles should be R, rest should be .
     lines = map.split("\n")
@@ -121,7 +121,7 @@ class TestVerifier < Minitest::Test
       fill_rect 10, 10, 20, 20, :green
       halt
     end
-    v = RubyGBA::Verifier.new(rom)
+    v = RubyGBA::Diagnostics::Verifier.new(rom)
     report = v.report
     assert_includes report, "Frame Verifier Report"
     assert_includes report, "Unique colors"
@@ -135,7 +135,7 @@ class TestVerifier < Minitest::Test
       fill_rect 0, 0, 10, 10, :red
       halt
     end
-    v = RubyGBA::Verifier.new(rom)
+    v = RubyGBA::Diagnostics::Verifier.new(rom)
     assert_nil v.region_mismatch(0, 0, 10, 10, :red)
   end
 
@@ -145,7 +145,7 @@ class TestVerifier < Minitest::Test
       pixel 5, 5, :red
       halt
     end
-    v = RubyGBA::Verifier.new(rom)
+    v = RubyGBA::Diagnostics::Verifier.new(rom)
     info = v.region_mismatch(0, 0, 10, 10, :red)
     refute_nil info, "Expected mismatch info for non-uniform region"
     assert_equal 0, info[:x]
@@ -157,7 +157,7 @@ class TestVerifier < Minitest::Test
       screen :bitmap
       halt
     end
-    v = RubyGBA::Verifier.new(rom)
+    v = RubyGBA::Diagnostics::Verifier.new(rom)
     assert_raises(ArgumentError) { v.pixel(240, 0) }
     assert_raises(ArgumentError) { v.pixel(0, 160) }
     assert_raises(ArgumentError) { v.pixel(-1, 0) }
@@ -179,7 +179,7 @@ class TestVerifier < Minitest::Test
     end
 
     in_a_temp_directory_of_its_own do |dir|
-      v = RubyGBA::Verifier.new(rom, frames: 6)
+      v = RubyGBA::Diagnostics::Verifier.new(rom, frames: 6)
       v.pixel(0, 0) # force the render, which is what opens the emulator
 
       loose = Dir.children(dir).grep(/\.sav\z/)

@@ -37,7 +37,7 @@ end
 puts "Code at 0xC0:"
 dump_instructions(rom.buffer, 0xC0, 10)
 puts
-puts RubyGBA::Inspector.from_rom(rom).code_report(max_instructions: 10)
+puts RubyGBA::Diagnostics::Inspector.from_rom(rom).code_report(max_instructions: 10)
 puts
 
 # Verify manually:
@@ -77,7 +77,7 @@ end
 puts "Code at 0xC0:"
 dump_instructions(rom.buffer, 0xC0, 20)
 puts
-puts RubyGBA::Inspector.from_rom(rom).code_report(max_instructions: 20)
+puts RubyGBA::Diagnostics::Inspector.from_rom(rom).code_report(max_instructions: 20)
 puts
 
 # pixel address: VRAM_START + (80*240 + 120)*2 = 0x06000000 + 38640 = 0x060096F0
@@ -100,7 +100,7 @@ puts "ROM size: #{rom.size} bytes"
 puts "First 6 instructions:"
 dump_instructions(rom.buffer, 0xC0, 6)
 puts
-puts RubyGBA::Inspector.from_rom(rom).code_report(max_instructions: 10)
+puts RubyGBA::Diagnostics::Inspector.from_rom(rom).code_report(max_instructions: 10)
 puts
 
 # ============================================================
@@ -126,7 +126,7 @@ puts
 if EmulatorSupport.gem_available?
   ["/tmp/debug_bigrect.gba", "/tmp/debug_blocks.gba"].each do |path|
     puts "Running #{path} in the emulator for 100 frames..."
-    core = RubyGBA::Emulator.open(path)
+    core = RubyGBA::Diagnostics::Emulator.open(path)
     100.times { core.run_frame }
     core.destroy
     puts "OK"

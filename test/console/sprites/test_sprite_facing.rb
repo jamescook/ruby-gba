@@ -8,7 +8,7 @@ require "test_helper"
 # right, red left) so "which pose is showing" is a pixel check — on the interpreter
 # and on the emulator. (The poses are the same size so they share one save-under buffer.)
 class TestSpriteFacing < Minitest::Test
-  include RubyGBA::Constants
+  include RubyGBA::Cartridge::Constants
 
   POSE = 2 # a 2x2 pose
 

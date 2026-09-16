@@ -4,98 +4,100 @@ require "digest"
 require "set"
 
 module RubyGBA
-  # The four characters a cartridge's header holds, and where they come from.
-  #
-  # A cartridge carries a name (12 characters) and, separately, a four-character
-  # code. The name is for people; the CODE is the only thing an emulator has to tell
-  # one cartridge from another, and it leans on it twice. It looks the code up in a
-  # catalogue of real cartridges to put a title in its window, and it looks the same
-  # code up in a table of its own to decide what save hardware the cartridge has —
-  # plain memory, flash, or a little chip read a bit at a time — and whether it
-  # carries a clock, a light sensor or a rumble motor. That second one REPLACES what
-  # the emulator would otherwise work out from the cartridge's own save signature.
-  #
-  # So a code invented by hand is a real footgun. The mnemonic ones are long gone —
-  # thousands of cartridges shipped, and nearly every one of them starts with "A" or
-  # "B" — and landing on one means the emulator reports somebody else's game and fits
-  # somebody else's hardware, so a game that saves can stop saving with nothing on
-  # screen to say why.
-  #
-  # Nobody has to pick one. {for} works a free code out from the game's own name, so
-  # a program says what its game is called and never mentions this at all.
-  module GameCode
-    LENGTH = 4
+  module Cartridge
+    # The four characters a cartridge's header holds, and where they come from.
+    #
+    # A cartridge carries a name (12 characters) and, separately, a four-character
+    # code. The name is for people; the CODE is the only thing an emulator has to tell
+    # one cartridge from another, and it leans on it twice. It looks the code up in a
+    # catalogue of real cartridges to put a title in its window, and it looks the same
+    # code up in a table of its own to decide what save hardware the cartridge has —
+    # plain memory, flash, or a little chip read a bit at a time — and whether it
+    # carries a clock, a light sensor or a rumble motor. That second one REPLACES what
+    # the emulator would otherwise work out from the cartridge's own save signature.
+    #
+    # So a code invented by hand is a real footgun. The mnemonic ones are long gone —
+    # thousands of cartridges shipped, and nearly every one of them starts with "A" or
+    # "B" — and landing on one means the emulator reports somebody else's game and fits
+    # somebody else's hardware, so a game that saves can stop saving with nothing on
+    # screen to say why.
+    #
+    # Nobody has to pick one. {for} works a free code out from the game's own name, so
+    # a program says what its game is called and never mentions this at all.
+    module GameCode
+      LENGTH = 4
 
-    # Nintendo used the first character to say what kind of cartridge it was: "A"
-    # and "B" for ordinary games, and a handful of others for the ones with extra
-    # hardware inside (Boktai's light sensor, Drill Dozer's rumble). These letters it
-    # never used, on any cartridge in the list below — so a code that starts with one
-    # of them cannot be a real cartridge's, whatever the other three characters are.
-    # A test holds that true against the list rather than trusting this comment.
-    FREE_LETTERS = %w[D E H I L N O Q T W Y].freeze
+      # Nintendo used the first character to say what kind of cartridge it was: "A"
+      # and "B" for ordinary games, and a handful of others for the ones with extra
+      # hardware inside (Boktai's light sensor, Drill Dozer's rumble). These letters it
+      # never used, on any cartridge in the list below — so a code that starts with one
+      # of them cannot be a real cartridge's, whatever the other three characters are.
+      # A test holds that true against the list rather than trusting this comment.
+      FREE_LETTERS = %w[D E H I L N O Q T W Y].freeze
 
-    # The one this framework picks. H for homebrew.
-    OUR_LETTER = "H"
+      # The one this framework picks. H for homebrew.
+      OUR_LETTER = "H"
 
-    # What the other three characters are drawn from.
-    ALPHABET = ("0".."9").to_a.concat(("A".."Z").to_a).freeze
+      # What the other three characters are drawn from.
+      ALPHABET = ("0".."9").to_a.concat(("A".."Z").to_a).freeze
 
-    # "01" is Nintendo's, and it is what the usual homebrew tools write by default.
-    # A game built here is nobody's licensee, so it says so.
-    NO_PUBLISHER = "00"
+      # "01" is Nintendo's, and it is what the usual homebrew tools write by default.
+      # A game built here is nobody's licensee, so it says so.
+      NO_PUBLISHER = "00"
 
-    DATA_FILE = File.expand_path("../data/known_game_codes.txt", __dir__)
+      DATA_FILE = File.expand_path("../data/known_game_codes.txt", __dir__)
 
-    # The codes of every real Game Boy Advance cartridge an emulator's catalogue knows
-    # — the ones that were sold, and the prototypes and kiosk builds that got out too,
-    # since an emulator matches a prototype's code exactly as it matches a hit's. The
-    # last cartridge shipped in 2008, so the list is finished; it is regenerated by
-    # tools/make_known_game_codes.rb.
-    def self.known
-      @known ||= File.readlines(DATA_FILE, chomp: true).reject(&:empty?).to_set.freeze
-    end
-
-    # Does a real cartridge already carry this code? Asked of the upper-case form,
-    # since the header field is upper-case ASCII and "bsmp" would reach the same
-    # emulator entry "BSMP" does.
-    def self.taken?(code)
-      known.include?(code.to_s.upcase)
-    end
-
-    # The code this game gets when its program does not write one. It starts with a
-    # letter no cartridge ever used, so it cannot be a real one's whatever else it
-    # holds. The other three are DERIVED from the name rather than spelled out of it:
-    # spelling would give "SNAKE" and "SNAKEBUF" the same three letters, and an
-    # emulator would then keep one set of saves for both. Three characters is 46,656
-    # codes, so deriving makes a clash unlikely rather than impossible — the point is
-    # that games with similar names stop being the likely case. The same name always
-    # gives the same code, which is what keeps a build byte-for-byte repeatable.
-    def self.for(title)
-      number = Digest::SHA256.digest(title.to_s).unpack1("N")
-      tail = Array.new(LENGTH - 1) do
-        character = ALPHABET[number % ALPHABET.size]
-        number /= ALPHABET.size
-        character
+      # The codes of every real Game Boy Advance cartridge an emulator's catalogue knows
+      # — the ones that were sold, and the prototypes and kiosk builds that got out too,
+      # since an emulator matches a prototype's code exactly as it matches a hit's. The
+      # last cartridge shipped in 2008, so the list is finished; it is regenerated by
+      # tools/make_known_game_codes.rb.
+      def self.known
+        @known ||= File.readlines(DATA_FILE, chomp: true).reject(&:empty?).to_set.freeze
       end
-      "#{OUR_LETTER}#{tail.join}"
-    end
 
-    # Refuse a code a real cartridge already carries.
-    def self.check!(code)
-      return code unless taken?(code)
+      # Does a real cartridge already carry this code? Asked of the upper-case form,
+      # since the header field is upper-case ASCII and "bsmp" would reach the same
+      # emulator entry "BSMP" does.
+      def self.taken?(code)
+        known.include?(code.to_s.upcase)
+      end
 
-      raise ArgumentError, refusal(code)
-    end
+      # The code this game gets when its program does not write one. It starts with a
+      # letter no cartridge ever used, so it cannot be a real one's whatever else it
+      # holds. The other three are DERIVED from the name rather than spelled out of it:
+      # spelling would give "SNAKE" and "SNAKEBUF" the same three letters, and an
+      # emulator would then keep one set of saves for both. Three characters is 46,656
+      # codes, so deriving makes a clash unlikely rather than impossible — the point is
+      # that games with similar names stop being the likely case. The same name always
+      # gives the same code, which is what keeps a build byte-for-byte repeatable.
+      def self.for(title)
+        number = Digest::SHA256.digest(title.to_s).unpack1("N")
+        tail = Array.new(LENGTH - 1) do
+          character = ALPHABET[number % ALPHABET.size]
+          number /= ALPHABET.size
+          character
+        end
+        "#{OUR_LETTER}#{tail.join}"
+      end
 
-    def self.refusal(code)
-      "The game code #{code.inspect} belongs to a real Game Boy Advance cartridge. " \
-        "An emulator reads this code to know which game it has. " \
-        "It will show the name of that cartridge. " \
-        "It will also give this game the save hardware of that cartridge, and then saving can stop working. " \
-        "Remove `code:` and the framework picks a free code from the name. " \
-        "To pick a code yourself, use a first letter from #{FREE_LETTERS.join(", ")}. " \
-        "No real cartridge uses one of those letters first."
+      # Refuse a code a real cartridge already carries.
+      def self.check!(code)
+        return code unless taken?(code)
+
+        raise ArgumentError, refusal(code)
+      end
+
+      def self.refusal(code)
+        "The game code #{code.inspect} belongs to a real Game Boy Advance cartridge. " \
+          "An emulator reads this code to know which game it has. " \
+          "It will show the name of that cartridge. " \
+          "It will also give this game the save hardware of that cartridge, and then saving can stop working. " \
+          "Remove `code:` and the framework picks a free code from the name. " \
+          "To pick a code yourself, use a first letter from #{FREE_LETTERS.join(", ")}. " \
+          "No real cartridge uses one of those letters first."
+      end
+      private_class_method :refusal
     end
-    private_class_method :refusal
   end
 end

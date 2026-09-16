@@ -10,7 +10,7 @@ require "test_helper"
 class TestValueCoercion < Minitest::Test
   include RubyGBA::IR::Build
 
-  Value = RubyGBA::Value
+  Value = RubyGBA::DSL::Value
 
   # ---- the coercer itself --------------------------------------------------
 

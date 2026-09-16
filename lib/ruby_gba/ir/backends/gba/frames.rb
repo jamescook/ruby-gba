@@ -27,7 +27,7 @@ module RubyGBA
         # anything to encapsulate. Takes emitter: and primitives: purely to reach load_var/
         # store_var/emit/etc without going through GBA's shared self.
         class Frames
-          include Constants
+          include Cartridge::Constants
 
           # The names and the cap are the same on every backend, so they live with the IR.
           COUNT = IR::Frames::COUNT
@@ -45,7 +45,7 @@ module RubyGBA
           # r0 and r12 are both saved by the BIOS before it enters here.
           def emit_frame_count
             @primitives.load_var(ACC, COUNT)
-            @emitter.emit(ASM.add_imm(ACC, ACC, 1))
+            @emitter.emit(Cartridge::ASM.add_imm(ACC, ACC, 1))
             @primitives.store_var(ACC, COUNT)
           end
 
@@ -65,18 +65,18 @@ module RubyGBA
             @primitives.load_var(ACC, COUNT)
             @primitives.load_var(TMP, SEEN)
             @primitives.store_var(ACC, SEEN)  # this pass's mark, for the next one to measure from
-            @emitter.emit(ASM.sub_reg(ACC, ACC, TMP))
+            @emitter.emit(Cartridge::ASM.sub_reg(ACC, ACC, TMP))
 
             under = @emitter.gensym
-            @emitter.emit(ASM.cmp_imm(ACC, MOST))
+            @emitter.emit(Cartridge::ASM.cmp_imm(ACC, MOST))
             @emitter.emit_branch(:bcond, under, cond: :le)
-            @emitter.emit(ASM.load_immediate(ACC, MOST))
+            @emitter.emit(Cartridge::ASM.load_immediate(ACC, MOST))
             @emitter.place_label(under)
 
             over = @emitter.gensym
-            @emitter.emit(ASM.cmp_imm(ACC, 1))
+            @emitter.emit(Cartridge::ASM.cmp_imm(ACC, 1))
             @emitter.emit_branch(:bcond, over, cond: :ge)
-            @emitter.emit(ASM.load_immediate(ACC, 1))
+            @emitter.emit(Cartridge::ASM.load_immediate(ACC, 1))
             @emitter.place_label(over)
             @primitives.store_var(ACC, STEP)
           end

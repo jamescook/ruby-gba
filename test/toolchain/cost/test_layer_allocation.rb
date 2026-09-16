@@ -16,8 +16,8 @@ class TestLayerAllocation < Minitest::Test
 
   Stacking = RubyGBA::IR::Stacking
 
-  RED = RubyGBA::Color.resolve(:red)
-  WHITE = RubyGBA::Color.resolve(:white)
+  RED = RubyGBA::Graphics::Color.resolve(:red)
+  WHITE = RubyGBA::Graphics::Color.resolve(:white)
 
   # Where the sprite and the fence both cover.
   SPOT_X = 104
@@ -219,7 +219,7 @@ class TestLayerAllocation < Minitest::Test
     end
 
     out = StringIO.new
-    RubyGBA::BuildReport.render(rom, out: out)
+    RubyGBA::Diagnostics::BuildReport.render(rom, out: out)
     report = out.string
 
     assert_match(/the stack, back to front/, report)
@@ -237,7 +237,7 @@ class TestLayerAllocation < Minitest::Test
     end
 
     out = StringIO.new
-    RubyGBA::BuildReport.render(rom, out: out)
+    RubyGBA::Diagnostics::BuildReport.render(rom, out: out)
 
     refute_match(/the stack/, out.string)
   end

@@ -8,7 +8,7 @@ require "stringio"
 # something asks a Game what it is — held against each other. They were written out twice
 # and drifted, so what these tests pin is that there is one answer and not two.
 class TestEvaluatedGame < Minitest::Test
-  Progress = RubyGBA::Progress
+  Progress = RubyGBA::Diagnostics::Progress
 
   # A game that stops half way through itself. The blue clear is in the program; the red
   # one is written after the `debug_halt` and never happened.
@@ -43,7 +43,7 @@ class TestEvaluatedGame < Minitest::Test
       rom = game.build_rom(out: StringIO.new, err: StringIO.new, validate: false)
     end
 
-    same = RubyGBA::ROM.assemble(GBA.new.lower(program), title: "DBGHLT", code: "ZDBG",
+    same = RubyGBA::Cartridge::ROM.assemble(GBA.new.lower(program), title: "DBGHLT", code: "ZDBG",
                                                          maker: "01", validate: false)
     assert_equal same.buffer, rom.buffer, "the tree a test runs is the tree that ships"
   end
@@ -159,7 +159,7 @@ class TestEvaluatedGame < Minitest::Test
   # They come off the evaluated game now rather than out of the Builder, so the class a
   # person learns the DSL from is not also the build pipeline's surface.
   def test_it_carries_what_the_run_learned_that_the_tree_cannot_hold
-    evaluated = RubyGBA::EvaluatedGame.new(proc do
+    evaluated = RubyGBA::Cartridge::EvaluatedGame.new(proc do
       screen :bitmap
       x = var :x, 0
       game_loop do

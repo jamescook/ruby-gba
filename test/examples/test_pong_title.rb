@@ -15,7 +15,7 @@ require_relative "../../examples/pong"
 # The MUSIC row is the part that could not be written before: what it SAYS depends on the
 # setting, so the row carries the list of things it can say and the variable that decides.
 class TestPongTitle < Minitest::Test
-  Fonts = RubyGBA::Fonts
+  Fonts = RubyGBA::Graphics::Fonts
 
   ROW_START = 90       # the menu's first row (examples/pong.rb: `at: [menu_x, 90]`)
   ROW_MUSIC = 106      # ...and the two below it, one `spacing: 16` apart each time
@@ -198,7 +198,7 @@ class TestPongTitle < Minitest::Test
 
   # ...and the next game brings its music back, from its first note and not from wherever the
   # silent song had got to.
-  C4 = RubyGBA::Music::NOTE_FREQUENCIES[:C4]
+  C4 = RubyGBA::Audio::Music::NOTE_FREQUENCIES[:C4]
 
   def test_the_next_game_starts_its_music_from_the_top
     i, _over, left = finished_game
@@ -295,7 +295,7 @@ class TestPongTitle < Minitest::Test
     assert still.white?(column - 11, ROW_START + 1),
            "the cursor sits beside START, drawn by the sprite hardware over the zooming backdrop"
 
-    moved = assert_emulator_loads_rom(rom, frames: 8, keys: RubyGBA::Constants::KEY_DOWN)
+    moved = assert_emulator_loads_rom(rom, frames: 8, keys: RubyGBA::Cartridge::Constants::KEY_DOWN)
 
     assert moved.white?(column - 11, ROW_MUSIC + 1), "and walks to the music row"
   end
@@ -326,10 +326,10 @@ class TestPongTitle < Minitest::Test
 
     # Down onto the music row, then A to turn it off — and now that column IS lettered.
     walk = lambda do |frame|
-      next RubyGBA::Constants::KEY_DOWN if frame < 3
+      next RubyGBA::Cartridge::Constants::KEY_DOWN if frame < 3
       next 0 if frame < 6
 
-      RubyGBA::Constants::KEY_A
+      RubyGBA::Cartridge::Constants::KEY_A
     end
     off = assert_emulator_loads_rom(rom, frames: 12, keys: walk)
 

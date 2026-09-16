@@ -12,7 +12,7 @@ require "test_helper"
 # owns a red block and a :over scene owns a blue block; only the active scene's block
 # shows, on the interpreter oracle and on the console.
 class TestScenePresentation < Minitest::Test
-  include RubyGBA::Constants
+  include RubyGBA::Cartridge::Constants
 
   RED = Color.resolve(:red)
   BLUE = Color.resolve(:blue)

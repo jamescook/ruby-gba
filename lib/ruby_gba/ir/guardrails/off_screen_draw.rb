@@ -56,9 +56,9 @@ module RubyGBA
             when :fill_rect, :dma_fill_rect, :draw_rect_at
               rect_bounds(node)
             when :draw_text
-              at(node) { |x, y| font = Fonts.get(node.font); [x, y, font.text_width(node.text), font.height] }
+              at(node) { |x, y| font = Graphics::Fonts.get(node.font); [x, y, font.text_width(node.text), font.height] }
             when :draw_digit
-              at(node) { |x, y| font = Fonts.get(node.font); [x, y, font.width, font.height] } # one glyph
+              at(node) { |x, y| font = Graphics::Fonts.get(node.font); [x, y, font.width, font.height] } # one glyph
             when :blit
               blit_bounds(node, bitmaps)
             end

@@ -389,10 +389,10 @@ class TestLoopForm < Minitest::Test
     end
     pair = [LoopForm::COUNTER, LoopForm::LIMIT]
 
-    assert_includes rom.buffer, RubyGBA::ASM.push(*pair), "the pair is saved"
-    assert_includes rom.buffer, RubyGBA::ASM.pop(*pair), "and put back"
-    assert_includes rom.buffer, RubyGBA::ASM.push(LoopForm::COUNTER), "the counter alone is saved"
-    assert_includes rom.buffer, RubyGBA::ASM.pop(LoopForm::COUNTER), "and put back"
+    assert_includes rom.buffer, RubyGBA::Cartridge::ASM.push(*pair), "the pair is saved"
+    assert_includes rom.buffer, RubyGBA::Cartridge::ASM.pop(*pair), "and put back"
+    assert_includes rom.buffer, RubyGBA::Cartridge::ASM.push(LoopForm::COUNTER), "the counter alone is saved"
+    assert_includes rom.buffer, RubyGBA::Cartridge::ASM.pop(LoopForm::COUNTER), "and put back"
   end
 
   # --- what a pass of the loop itself costs ---
@@ -615,7 +615,7 @@ class TestLoopForm < Minitest::Test
   end
 
   def instructions_a_frame(rom)
-    result = RubyGBA::Profiler.run(rom, frames: 10, picture: false)
+    result = RubyGBA::Diagnostics::Profiler.run(rom, frames: 10, picture: false)
     refute result.dropping_frames?, "a pass count is only exact while the game keeps up (#{result.fps} fps)"
     result.samples_per_frame
   end
@@ -627,7 +627,7 @@ class TestLoopForm < Minitest::Test
     Dir.mktmpdir do |dir|
       path = File.join(dir, "loops.gba")
       rom.write(path)
-      probe = RubyGBA::Emulator.probe(path)
+      probe = RubyGBA::Diagnostics::Emulator.probe(path)
       probe.step(SETTLE)
       value = probe.read32(address)
       probe.close

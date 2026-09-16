@@ -3,14 +3,14 @@
 require "test_helper"
 
 class TestConditionals < Minitest::Test
-  include RubyGBA::Constants
+  include RubyGBA::Cartridge::Constants
 
   def build(validate: false, &block)
     RubyGBA.build("CONDTEST", code: "BCND", maker: "01", validate: validate, &block)
   end
 
   def instructions(rom)
-    start = RubyGBA::ROM::ENTRY_OFFSET
+    start = RubyGBA::Cartridge::ROM::ENTRY_OFFSET
     result = []
     offset = start
     while offset + 4 <= rom.buffer.bytesize

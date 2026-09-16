@@ -11,7 +11,7 @@ require "test_helper"
 # This pins the model on the reference interpreter (the oracle). The GBA hardware
 # realization — reconfiguring DISPCNT / VRAM / OAM on the crossing — is its sibling.
 class TestSceneDisplayMode < Minitest::Test
-  include RubyGBA::Constants
+  include RubyGBA::Cartridge::Constants
 
   RED = Color.resolve(:red)     # the bitmap title's fill
   GREEN = Color.resolve(:green) # the tiled game's hardware sprite
@@ -98,9 +98,9 @@ class TestSceneDisplayMode < Minitest::Test
     end
     b.emit_pending_functions
 
-    assert_instance_of RubyGBA::HardwareSprite, tiled_sprite,
+    assert_instance_of RubyGBA::DSL::HardwareSprite, tiled_sprite,
                        "the tiled scene's sprite is a hardware (OAM) sprite"
-    assert_instance_of RubyGBA::Sprite, bitmap_sprite,
+    assert_instance_of RubyGBA::DSL::Sprite, bitmap_sprite,
                        "the bitmap scene's sprite stays a software sprite, even though a tiled scene was built first"
   end
 

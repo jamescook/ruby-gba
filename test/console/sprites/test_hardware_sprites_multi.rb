@@ -8,7 +8,7 @@ require "test_helper"
 # interpreter oracle and on real hardware. Still no OAM, tile indices, or palette
 # banks in the game code.
 class TestHardwareSpritesMulti < Minitest::Test
-  include RubyGBA::Constants
+  include RubyGBA::Cartridge::Constants
 
   SOLID8 = (["########"] * 8).join("\n") # a solid 8x8 tile of one color
   FLOOR_MAP = Array.new(20, "#" * 30).freeze # a white floor filling the screen

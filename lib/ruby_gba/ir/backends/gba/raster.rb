@@ -85,7 +85,7 @@ module RubyGBA
         # this object is built (tiled backgrounds are prepared first), so only bg_number,
         # called at emission time, ever actually reads it.
         class Raster
-          include Constants
+          include Cartridge::Constants
 
           # The lines the picture is drawn on. The display counts on past the bottom of the
           # picture (through 227) while nothing is being drawn, so a line at or past this
@@ -244,8 +244,8 @@ module RubyGBA
           def emit_first_row_bend(node)
             @primitives.store_word_immediate(0, @primitives.var_addr(node.row))
             emit_row_offset(node)
-            @emitter.emit(ASM.load_immediate(ADDR, @row_bend_table.fetch(node.name)))
-            @emitter.emit(ASM.store_halfword(ACC, ADDR))
+            @emitter.emit(Cartridge::ASM.load_immediate(ADDR, @row_bend_table.fetch(node.name)))
+            @emitter.emit(Cartridge::ASM.store_halfword(ACC, ADDR))
             @primitives.store_halfword_acc(Drawing::BG_HOFS_REGS[bg_number(node.name)])
           end
 
@@ -260,13 +260,13 @@ module RubyGBA
             @emitter.place_label(top)
             emit_row_offset(node)
             @primitives.load_var(TMP, node.row)
-            @emitter.emit(ASM.lsl_imm(SPARE, TMP, 1))         # two bytes an entry
-            @emitter.emit(ASM.load_immediate(ADDR, base))
-            @emitter.emit(ASM.add_reg(ADDR, ADDR, SPARE))
-            @emitter.emit(ASM.store_halfword(ACC, ADDR))
-            @emitter.emit(ASM.add_imm(TMP, TMP, 1))
+            @emitter.emit(Cartridge::ASM.lsl_imm(SPARE, TMP, 1))         # two bytes an entry
+            @emitter.emit(Cartridge::ASM.load_immediate(ADDR, base))
+            @emitter.emit(Cartridge::ASM.add_reg(ADDR, ADDR, SPARE))
+            @emitter.emit(Cartridge::ASM.store_halfword(ACC, ADDR))
+            @emitter.emit(Cartridge::ASM.add_imm(TMP, TMP, 1))
             @primitives.store_var(TMP, node.row)
-            @emitter.emit(ASM.cmp_imm(TMP, VISIBLE_LINES))
+            @emitter.emit(Cartridge::ASM.cmp_imm(TMP, VISIBLE_LINES))
             @emitter.emit_branch(:bcond, top, cond: :lt)
           end
 
@@ -292,15 +292,15 @@ module RubyGBA
           # the picture bent like all the others.
           def emit_row_bend_handler
             done = @emitter.gensym
-            @emitter.emit(ASM.load_immediate(TMP, REG_VCOUNT))
-            @emitter.emit(ASM.load_halfword(ACC, TMP))         # r0 = the line just finished
-            @emitter.emit(ASM.cmp_imm(ACC, LAST_LINE))
-            @emitter.emit(ASM.mov_imm_cond(:eq, ACC, 0))       # the last line sets up the next frame's first
-            @emitter.emit(ASM.add_imm_cond(:ne, ACC, ACC, 1))  # ...otherwise the next line down
-            @emitter.emit(ASM.cmp_imm(ACC, VISIBLE_LINES))
+            @emitter.emit(Cartridge::ASM.load_immediate(TMP, REG_VCOUNT))
+            @emitter.emit(Cartridge::ASM.load_halfword(ACC, TMP))         # r0 = the line just finished
+            @emitter.emit(Cartridge::ASM.cmp_imm(ACC, LAST_LINE))
+            @emitter.emit(Cartridge::ASM.mov_imm_cond(:eq, ACC, 0))       # the last line sets up the next frame's first
+            @emitter.emit(Cartridge::ASM.add_imm_cond(:ne, ACC, ACC, 1))  # ...otherwise the next line down
+            @emitter.emit(Cartridge::ASM.cmp_imm(ACC, VISIBLE_LINES))
             @emitter.emit_branch(:bcond, done, cond: :ge)      # below the picture: nothing to bend
             if latches_row_bends?
-              @emitter.emit(ASM.lsl_imm(SPARE, ACC, 1))        # two bytes an entry, held for them all
+              @emitter.emit(Cartridge::ASM.lsl_imm(SPARE, ACC, 1))        # two bytes an entry, held for them all
               @row_bends.each_value { |node| emit_read_row_from_table(node) }
             else
               # Every bend is told the line first, because working one offset out needs the
@@ -315,9 +315,9 @@ module RubyGBA
           # reads that register as it draws the line, so this is the whole of the handler's
           # work — the number was worked out in the gap between frames.
           def emit_read_row_from_table(node)
-            @emitter.emit(ASM.load_immediate(ADDR, @row_bend_table.fetch(node.name)))
-            @emitter.emit(ASM.add_reg(ADDR, ADDR, SPARE))
-            @emitter.emit(ASM.load_halfword(ACC, ADDR))
+            @emitter.emit(Cartridge::ASM.load_immediate(ADDR, @row_bend_table.fetch(node.name)))
+            @emitter.emit(Cartridge::ASM.add_reg(ADDR, ADDR, SPARE))
+            @emitter.emit(Cartridge::ASM.load_halfword(ACC, ADDR))
             @primitives.store_halfword_acc(Drawing::BG_HOFS_REGS[bg_number(node.name)])
           end
 

@@ -12,8 +12,8 @@ require "test_helper"
 # original place once it ends.
 class TestCameraShake < Minitest::Test
 
-  RED = RubyGBA::Color.resolve(:red)
-  BLUE = RubyGBA::Color.resolve(:blue)
+  RED = RubyGBA::Graphics::Color.resolve(:red)
+  BLUE = RubyGBA::Graphics::Color.resolve(:blue)
 
   def program(&block)
     b = Builder.new

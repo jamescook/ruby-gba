@@ -12,7 +12,7 @@ require "test_helper"
 class TestFractionCollections < Minitest::Test
   include EmulatorSupport
 
-  ONE = 1 << RubyGBA::Fraction::DEFAULT_BITS
+  ONE = 1 << RubyGBA::DSL::Fraction::DEFAULT_BITS
 
   def run_program(&block)
     prog = RubyGBA.game("FRAC", code: "ZFRC", maker: "01") do

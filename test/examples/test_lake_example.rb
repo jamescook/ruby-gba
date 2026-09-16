@@ -18,9 +18,9 @@ class TestLakeExample < Minitest::Test
   include Differential
 
   # The art, as the example draws it.
-  BELL = RubyGBA::Color.rgb(31, 26, 31)
-  WATER = RubyGBA::Color.rgb(6, 11, 24)
-  GLINT = RubyGBA::Color.rgb(28, 27, 17) # the sun's reflection, the brightest thing in the lake
+  BELL = RubyGBA::Graphics::Color.rgb(31, 26, 31)
+  WATER = RubyGBA::Graphics::Color.rgb(6, 11, 24)
+  GLINT = RubyGBA::Graphics::Color.rgb(28, 27, 17) # the sun's reflection, the brightest thing in the lake
 
   # How far the blend goes, in the sixteenths the display counts in.
   STEPS = (Lake::SEE_THROUGH * 16) / 100
@@ -98,11 +98,11 @@ class TestLakeExample < Minitest::Test
   # console blends in five, so it may read a step high on a channel; the exact arithmetic
   # is what the interpreter assertions above pin, and this asks only that the blend
   # happened at all (see Differential::EMULATOR_BLEND_SLACK).
-  BELL_OVER_ANY_WATER = [WATER, RubyGBA::Color.rgb(8, 14, 27), RubyGBA::Color.rgb(10, 17, 29)]
+  BELL_OVER_ANY_WATER = [WATER, RubyGBA::Graphics::Color.rgb(8, 14, 27), RubyGBA::Graphics::Color.rgb(10, 17, 29)]
                         .map { |shade| blend(BELL, shade) }.freeze
 
   def test_the_console_blends_the_jellyfish_into_the_lake
-    seen = RubyGBA::Verifier.new(assemble_rom(Lake.program, name: "LAKE"), frames: 9).frame_gba.uniq
+    seen = RubyGBA::Diagnostics::Verifier.new(assemble_rom(Lake.program, name: "LAKE"), frames: 9).frame_gba.uniq
     blended = seen.any? do |shown|
       BELL_OVER_ANY_WATER.any? { |want| within_slack?(want, shown, EMULATOR_BLEND_SLACK) }
     end

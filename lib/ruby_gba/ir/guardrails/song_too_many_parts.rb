@@ -22,13 +22,13 @@ module RubyGBA
           # Each voice a part can play on: how many of that kind a song may have, and what the
           # message calls it. Kept together so a message and a limit cannot drift apart.
           LIMITS = {
-            square: [Music::MAX_SQUARE_PARTS, "play the square wave",
+            square: [Audio::Music::MAX_SQUARE_PARTS, "play the square wave",
                      "the console has %<limit>d square-wave voices"],
-            wave: [Music::MAX_WAVE_PARTS, "play the wave voice",
+            wave: [Audio::Music::MAX_WAVE_PARTS, "play the wave voice",
                    "the console has %<limit>d wave voice"],
-            noise: [Music::MAX_NOISE_PARTS, "play the noise voice",
+            noise: [Audio::Music::MAX_NOISE_PARTS, "play the noise voice",
                     "the console has %<limit>d noise voice"],
-            recorded: [Sound::MIXER_VOICES, "play an instrument",
+            recorded: [Audio::Sound::MIXER_VOICES, "play an instrument",
                        "the mixer plays %<limit>d recordings at once"],
           }.freeze
 

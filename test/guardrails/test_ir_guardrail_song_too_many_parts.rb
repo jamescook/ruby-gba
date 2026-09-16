@@ -12,16 +12,16 @@ class TestSongTooManyPartsGuardrail < Minitest::Test
   include RubyGBA::IR::Build
 
   Check = RubyGBA::IR::Guardrails::Checks::SongTooManyParts
-  Part = RubyGBA::Score::Part
-  Note = RubyGBA::Score::Note
+  Part = RubyGBA::Audio::Score::Part
+  Note = RubyGBA::Audio::Score::Note
 
   # One more part that plays an instrument than the mixer has voices.
-  TOO_MANY = RubyGBA::Sound::MIXER_VOICES + 1
+  TOO_MANY = RubyGBA::Audio::Sound::MIXER_VOICES + 1
 
   # A part on whichever voice: an instrument by name, or `wave:`/`noise:` for the two the
   # console plays itself. Naming none of them is a square-wave part.
   def part(instrument = nil, **plays)
-    RubyGBA::Music::Part.new(events: [[0, 262]], instrument: instrument, **plays)
+    RubyGBA::Audio::Music::Part.new(events: [[0, 262]], instrument: instrument, **plays)
   end
 
   def detect(voices) = Check.new.detect(program(song(:big, total_frames: 4, voices: voices)))
@@ -64,7 +64,7 @@ class TestSongTooManyPartsGuardrail < Minitest::Test
 
   def test_every_voice_used_and_no_more_is_quiet
     assert_empty detect([part, part, part(wave: :triangle), part(noise: true)] +
-                        Array.new(RubyGBA::Sound::MIXER_VOICES) { part(:organ) })
+                        Array.new(RubyGBA::Audio::Sound::MIXER_VOICES) { part(:organ) })
   end
 
   # --- the console's own two voices, one each ---
@@ -124,7 +124,7 @@ class TestSongTooManyPartsGuardrail < Minitest::Test
 
   def test_a_score_meets_the_same_limit
     chord = Array.new(TOO_MANY) { |n| Part.new(plays: :organ, notes: [Note.new(at: 0, key: 48 + n)]) }
-    said = build { songs(:music, [RubyGBA::Score.new(parts: chord)]).play 0 }
+    said = build { songs(:music, [RubyGBA::Audio::Score.new(parts: chord)]).play 0 }
 
     assert_match(/Song 0 of :music has #{TOO_MANY} parts that play an instrument/, said,
                  "a song from a list is named by its place in the list")
@@ -132,7 +132,7 @@ class TestSongTooManyPartsGuardrail < Minitest::Test
 
   def test_a_score_is_shown_the_fix_the_way_a_score_writes_it
     trio = Array.new(3) { |n| Part.new(notes: [Note.new(at: 0, key: 60 + n)]) }
-    said = build { songs(:music, [RubyGBA::Score.new(parts: trio)]).play 0 }
+    said = build { songs(:music, [RubyGBA::Audio::Score.new(parts: trio)]).play 0 }
 
     assert_match(/Score::Part\.new\(plays: :strings/, said)
   end

@@ -18,9 +18,9 @@ class TestSpriteMirror < Minitest::Test
   include Differential
 
   CANVAS = 32
-  INK = RubyGBA::Color.rgb(31, 20, 0)
-  EDGE = RubyGBA::Color.rgb(0, 31, 10)
-  CLEAR = RubyGBA::Color.rgb(0, 0, 1)
+  INK = RubyGBA::Graphics::Color.rgb(31, 20, 0)
+  EDGE = RubyGBA::Graphics::Color.rgb(0, 31, 10)
+  CLEAR = RubyGBA::Graphics::Color.rgb(0, 0, 1)
 
   # A pose that is deliberately NOT symmetric and NOT centred: a block at (+ox+, +oy+)
   # with its left column a different colour, so a mirror that is drawn in the wrong

@@ -56,7 +56,7 @@ module Jukebox
     { name: :chorale,    label: "PIANO CHORDS", color: :green },
   ].freeze
 
-  Score = RubyGBA::Score
+  Score = RubyGBA::Audio::Score
   Part = Score::Part
   Note = Score::Note
 

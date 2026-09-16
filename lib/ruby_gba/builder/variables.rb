@@ -43,7 +43,7 @@ module RubyGBA
       # @return [Value] a handle to the variable
       def var(name, value)
         ensure_var(name)
-        @name_vars[name] ||= NameSet.new("the variable :#{name}") if value.is_a?(Symbol)
+        @name_vars[name] ||= DSL::NameSet.new("the variable :#{name}") if value.is_a?(Symbol)
         at_boot(Build.set(name, stored_node(name, value)))
         handle_for(name)
       end
@@ -85,7 +85,7 @@ module RubyGBA
       # @param name [Symbol] variable name
       # @param operand [Integer, Symbol] value to add
       def add!(name, operand)
-        record(Build.add(name, Value.node_for(operand)))
+        record(Build.add(name, DSL::Value.node_for(operand)))
         ensure_var(name)
         ensure_var(operand)
         mirror_save(name)
@@ -98,7 +98,7 @@ module RubyGBA
       # @param name [Symbol] variable name
       # @param operand [Integer, Symbol] value to subtract
       def sub!(name, operand)
-        record(Build.sub(name, Value.node_for(operand)))
+        record(Build.sub(name, DSL::Value.node_for(operand)))
         ensure_var(name)
         ensure_var(operand)
         mirror_save(name)
@@ -172,7 +172,7 @@ module RubyGBA
       # @param min_val [Integer, Symbol, Value] the lowest it may be
       # @param max_val [Integer, Symbol, Value] the highest it may be
       def clamp!(name, min_val, max_val)
-        record(Build.clamp(name, Value.node_for(min_val), Value.node_for(max_val)))
+        record(Build.clamp(name, DSL::Value.node_for(min_val), DSL::Value.node_for(max_val)))
         ensure_var(name)
         ensure_var(min_val)
         ensure_var(max_val)
@@ -200,7 +200,7 @@ module RubyGBA
       def approach!(name, target, step)
         # A step the author fixed has to be positive. One the game works out is read as a
         # distance instead (see #approach_bounds), so there is nothing to check here.
-        fixed_step = Value.fixed_number(step)
+        fixed_step = DSL::Value.fixed_number(step)
         if fixed_step && !fixed_step.positive?
           raise ArgumentError, "approach's step must be positive. You gave #{fixed_step}."
         end
@@ -212,7 +212,7 @@ module RubyGBA
         # How far there is to go, capped to a single step in either direction, then
         # applied — a branchless move that can't overshoot: when the target is
         # already within one step, the cap does nothing and it lands right on it.
-        record(Build.set(delta, Build.binop(:-, Value.node_for(target), Build.var_ref(name))))
+        record(Build.set(delta, Build.binop(:-, DSL::Value.node_for(target), Build.var_ref(name))))
         low, high = approach_bounds(step)
         record(Build.clamp(delta, low, high))
         record(Build.add(name, Build.var_ref(delta)))
@@ -241,12 +241,12 @@ module RubyGBA
       def changing_verb_message(verb, name, rest)
         written = [name, *rest].compact.map(&:inspect).join(", ")
         said = written.empty? ? "" : " #{written}"
-        ChangingWord.refusal(written: "#{verb}#{said}", bang: "#{verb}!#{said}",
+        DSL::ChangingWord.refusal(written: "#{verb}#{said}", bang: "#{verb}!#{said}",
                              instead: new_number_advice(verb, name, rest))
       end
 
       def new_number_advice(verb, name, rest)
-        return ChangingWord.operator_advice(name, CHANGING_OPERATOR_WORDS[verb], rest.first, handles: true) unless CHANGING_HANDLE_WORDS.key?(verb)
+        return DSL::ChangingWord.operator_advice(name, CHANGING_OPERATOR_WORDS[verb], rest.first, handles: true) unless CHANGING_HANDLE_WORDS.key?(verb)
 
         handle = name.is_a?(Symbol) ? "the handle that `var :#{name}` gives you" : "the variable's handle"
         " To get a new number and keep the variable as it is, use " \
@@ -257,7 +257,7 @@ module RubyGBA
       # route to a variable goes through here, so `var :px, 3.5` and a later
       # `set :px, ...` hand back handles that agree about what the variable is.
       def handle_for(name)
-        Value.new(self, Build.var_ref(name), name: name, fraction_bits: @fraction_vars[name],
+        DSL::Value.new(self, Build.var_ref(name), name: name, fraction_bits: @fraction_vars[name],
                                              names: @name_vars[name])
       end
 
@@ -275,11 +275,11 @@ module RubyGBA
       # fraction. Writing a Float — `var :px, 3.5` — is how a program says it does; the
       # scale is then carried by every handle for that variable and never written again.
       def fraction_node_for(name, value)
-        bits = Fraction.bits_of(value)
+        bits = DSL::Fraction.bits_of(value)
         @fraction_vars[name] = bits if bits
-        return Build.int(Fraction.scale(value, bits)) if value.is_a?(Float)
+        return Build.int(DSL::Fraction.scale(value, bits)) if value.is_a?(Float)
 
-        Value.node_for(value)
+        DSL::Value.node_for(value)
       end
 
       # A fresh hidden variable to hold one approach call's capped delta. Named per
@@ -299,13 +299,13 @@ module RubyGBA
       # its target for ever, which is silent and looks like a physics bug. Taking the
       # size of it means the step says how fast, and the target says which way.
       def approach_bounds(step)
-        fixed = Value.fixed_number(step)
+        fixed = DSL::Value.fixed_number(step)
         return [-fixed, fixed] if fixed
 
         limit = next_approach_var
         ensure_var(limit)
         ensure_var(step)
-        record(Build.set(limit, Value.node_for(step)))
+        record(Build.set(limit, DSL::Value.node_for(step)))
         record(Build.abs(limit))
         [Build.binop(:-, Build.int(0), Build.var_ref(limit)), Build.var_ref(limit)]
       end

@@ -15,8 +15,8 @@ class TestEffectsRegistry < Minitest::Test
   Effects = RubyGBA::Effects
   Guardrails = RubyGBA::IR::Guardrails
 
-  RED = RubyGBA::Color.resolve(:red)
-  BLUE = RubyGBA::Color.resolve(:blue)
+  RED = RubyGBA::Graphics::Color.resolve(:red)
+  BLUE = RubyGBA::Graphics::Color.resolve(:blue)
 
   # A pack: one verb written in plain DSL verbs, plus a private helper only its own
   # verb uses. Exactly the shape a third party would write.

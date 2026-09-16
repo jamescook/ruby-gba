@@ -51,12 +51,12 @@ at the wrong place by accident. `registers[:pc]` is the address of the instructi
 next, which is where `run_until` stopped. The picture is not refreshed by it: `pixel` still
 shows the last whole frame `step` ran.
 
-From ruby-gba, `RubyGBA::Verifier` does the same by routine name, so nobody counts bytes —
+From ruby-gba, `RubyGBA::Diagnostics::Verifier` does the same by routine name, so nobody counts bytes —
 where a routine landed is in the build record, including the ones copied into the console's
 quick memory at boot:
 
 ```ruby
-v = RubyGBA::Verifier.new(rom, frames: 2)
+v = RubyGBA::Diagnostics::Verifier.new(rom, frames: 2)
 v.run_until(:count_up)        # the first instruction of func(:count_up)
 v.registers[:r14]             # where it will return to
 ```

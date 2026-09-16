@@ -46,7 +46,7 @@ class TestInside < Minitest::Test
       end
     end, frames: 2)
 
-    red = RubyGBA::Color.resolve(:red)
+    red = RubyGBA::Graphics::Color.resolve(:red)
     wrong = every_pixel.reject { |x, y| (run.screen.pixel(x, y) == red) == inside?(x, y) }
 
     assert_empty wrong.first(8), "red should be exactly the area and nothing else"
@@ -64,7 +64,7 @@ class TestInside < Minitest::Test
       end
     end, frames: 2)
 
-    painted = every_pixel.select { |x, y| run.screen.pixel(x, y) != RubyGBA::Color.resolve(:black) }
+    painted = every_pixel.select { |x, y| run.screen.pixel(x, y) != RubyGBA::Graphics::Color.resolve(:black) }
 
     refute_empty painted, "the columns should draw something"
     assert_empty painted.reject { |x, y| inside?(x, y) }.first(8), "and nothing outside the area"
@@ -80,7 +80,7 @@ class TestInside < Minitest::Test
       end
     end, frames: 2)
 
-    assert_equal RubyGBA::Color.resolve(:blue), run.screen.pixel(4, 150),
+    assert_equal RubyGBA::Graphics::Color.resolve(:blue), run.screen.pixel(4, 150),
                  "the panel is outside the area and draws"
   end
 
@@ -115,9 +115,9 @@ class TestInside < Minitest::Test
       end
     end, frames: 2)
 
-    assert_equal RubyGBA::Color.resolve(:green), run.screen.pixel(10, 10), "the routine's own area held"
-    assert_equal RubyGBA::Color.resolve(:red), run.screen.pixel(50, 30), "the caller's area is painted after it"
-    assert_equal RubyGBA::Color.resolve(:black), run.screen.pixel(200, 150),
+    assert_equal RubyGBA::Graphics::Color.resolve(:green), run.screen.pixel(10, 10), "the routine's own area held"
+    assert_equal RubyGBA::Graphics::Color.resolve(:red), run.screen.pixel(50, 30), "the caller's area is painted after it"
+    assert_equal RubyGBA::Graphics::Color.resolve(:black), run.screen.pixel(200, 150),
                  "and the caller's edges are back in force for the fill that followed the call"
   end
 

@@ -15,7 +15,7 @@ class TestSpriteOneFrameAtATime < Minitest::Test
   SPRITE_MEMORY = 32 * 1024
 
   # Fifteen colours, so every picture is stored the small way (half a byte a pixel).
-  INKS = (1..15).map { |i| RubyGBA::Color.rgb(i * 2, 31 - (i * 2), 10) }.freeze
+  INKS = (1..15).map { |i| RubyGBA::Graphics::Color.rgb(i * 2, 31 - (i * 2), 10) }.freeze
 
   # A 32x32 picture that fills its whole square and differs from every other one made here:
   # a slanted stripe pattern, with the picture's number written along the top row in two inks.

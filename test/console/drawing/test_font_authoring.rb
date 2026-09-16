@@ -7,7 +7,7 @@ require "test_helper"
 # and that malformed art is a friendly error.
 class TestFontAuthoring < Minitest::Test
 
-  Fonts = RubyGBA::Fonts
+  Fonts = RubyGBA::Graphics::Fonts
 
   # Fonts register into a process-global registry (the backends look them up there),
   # so drop any a test defined, leaving the built-ins.

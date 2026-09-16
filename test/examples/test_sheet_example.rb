@@ -15,7 +15,7 @@ require_relative "../../tools/make_example_assets" # the art's colors, so expect
 # It uses the real ImageMagick adapter and does NOT skip when it's missing:
 # importing is the whole point, so its absence is a real failure.
 class TestSheetExample < Minitest::Test
-  include RubyGBA::Constants
+  include RubyGBA::Cartridge::Constants
 
   Assets = MakeExampleAssets
 

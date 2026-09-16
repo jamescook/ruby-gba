@@ -10,7 +10,7 @@ require_relative "../../examples/bird"
 # interpreter oracle and on the console.
 class TestBirdExample < Minitest::Test
 
-  SKY = RubyGBA::Color.rgb(12, 18, 28) # the background tile color
+  SKY = RubyGBA::Graphics::Color.rgb(12, 18, 28) # the background tile color
 
   def test_it_builds_a_rom
     assert_operator Bird.build_rom(out: StringIO.new, err: StringIO.new).size, :>, 0

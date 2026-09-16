@@ -21,9 +21,9 @@ require "differential"
 class TestSpriteTileSharing < Minitest::Test
   include Differential
 
-  CLEAR = RubyGBA::Color.rgb(0, 0, 1)
-  INK = RubyGBA::Color.rgb(31, 20, 0)
-  INK2 = RubyGBA::Color.rgb(0, 31, 10)
+  CLEAR = RubyGBA::Graphics::Color.rgb(0, 0, 1)
+  INK = RubyGBA::Graphics::Color.rgb(31, 20, 0)
+  INK2 = RubyGBA::Graphics::Color.rgb(0, 31, 10)
 
   # A +size+-square picture of noise, +seed+ deciding the pattern.
   def noise(size, seed, ink = INK)
@@ -273,7 +273,7 @@ class TestSpriteTileSharing < Minitest::Test
       game_loop {}
     end
     out = StringIO.new
-    RubyGBA::BuildReport.render(rom, out: out)
+    RubyGBA::Diagnostics::BuildReport.render(rom, out: out)
 
     assert_match(/saved where poses share a part/, out.string)
   end

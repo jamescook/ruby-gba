@@ -6,7 +6,7 @@ require "test_helper"
 # holding a direction. Proves image (ASCII art + transparency) + blit +
 # held-input move a sprite, on both backends.
 class TestSpriteMover < Minitest::Test
-  include RubyGBA::Constants
+  include RubyGBA::Cartridge::Constants
 
   # A heart that starts at (100, 60), slides right while :right is held, and halts
   # after +frames+ steps so its final resting place is deterministic. Holding
@@ -55,7 +55,7 @@ class TestSpriteMover < Minitest::Test
 
   def test_runs_on_hardware
     machine_code = RubyGBA::IR::Backends::GBA.new.lower(sprite_program(frames: 4))
-    rom = RubyGBA::ROM.assemble(machine_code, title: "SPRITEMV", code: "BSPM", maker: "01")
+    rom = RubyGBA::Cartridge::ROM.assemble(machine_code, title: "SPRITEMV", code: "BSPM", maker: "01")
 
     v = assert_emulator_loads_rom(rom, frames: 6, keys: KEY_RIGHT)
     assert v.red?(109, 60),   "the heart is drawn after moving right"
@@ -120,7 +120,7 @@ class TestSpriteMover < Minitest::Test
   end
 
   def test_hardware_clips_the_heart_at_the_left_edge
-    rom = RubyGBA::ROM.assemble(
+    rom = RubyGBA::Cartridge::ROM.assemble(
       RubyGBA::IR::Backends::GBA.new.lower(heart_at_left_edge(frames: 3)),
       title: "SPRITEMV", code: "BSPM", maker: "01",
     )

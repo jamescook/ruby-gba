@@ -10,9 +10,9 @@ require "test_helper"
 # has not moved on screen, and that the scenery has. Reading only one of them would pass
 # for a game where nothing happens at all.
 class TestFollowCamera < Minitest::Test
-  RED = RubyGBA::Color.resolve(:red)
-  BLUE = RubyGBA::Color.resolve(:blue)
-  GREEN = RubyGBA::Color.resolve(:green)
+  RED = RubyGBA::Graphics::Color.resolve(:red)
+  BLUE = RubyGBA::Graphics::Color.resolve(:blue)
+  GREEN = RubyGBA::Graphics::Color.resolve(:green)
 
   def program(&block)
     b = Builder.new
@@ -227,10 +227,10 @@ class TestFollowCamera < Minitest::Test
 
   def test_the_world_scrolls_under_a_planted_character_on_the_console
     prog = walking_game { |hero| held(:right).then { hero.move :right, by: 2 } }
-    rom = RubyGBA::ROM.assemble(GBA.new.lower(prog), title: "FOLLOW", code: "BFLW", maker: "01")
+    rom = RubyGBA::Cartridge::ROM.assemble(GBA.new.lower(prog), title: "FOLLOW", code: "BFLW", maker: "01")
 
     at_rest = assert_emulator_loads_rom(rom, frames: 4)
-    walked = assert_emulator_loads_rom(rom, frames: 30, keys: RubyGBA::Constants::KEY_RIGHT)
+    walked = assert_emulator_loads_rom(rom, frames: 30, keys: RubyGBA::Cartridge::Constants::KEY_RIGHT)
 
     assert at_rest.red?(120, 80), "the character renders in the middle of the screen"
     assert walked.red?(120, 80), "and is still there after walking — the console moved the world"

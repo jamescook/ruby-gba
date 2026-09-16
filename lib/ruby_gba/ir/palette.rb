@@ -59,7 +59,7 @@ module RubyGBA
       # bug (the pass would have collected a color that's really drawn), so it's a
       # clear error rather than a wrong index.
       def index_of(spec)
-        value = Color.resolve(spec)
+        value = Graphics::Color.resolve(spec)
         @slots.fetch(value) do
           raise ArgumentError,
                 "color #{spec.inspect} is not in the palette — this program never draws it"
@@ -186,7 +186,7 @@ module RubyGBA
             if node.kind == :bitmap
               collect_bitmap(node, values)
             else
-              node.drawn_colors.each { |color| values << Color.resolve(color) }
+              node.drawn_colors.each { |color| values << Graphics::Color.resolve(color) }
             end
           end
         end
@@ -229,7 +229,7 @@ module RubyGBA
       end
 
       # Say :magenta rather than #7C1F where the color has a name people write.
-      def name_for(value) = Color.name_for(value)
+      def name_for(value) = Graphics::Color.name_for(value)
 
       def conflict_message(tables)
         "Two screens were given different colors (#{tables.map(&:length).join(' and ')} of them). " \

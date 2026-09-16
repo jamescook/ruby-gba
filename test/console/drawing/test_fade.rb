@@ -13,10 +13,10 @@ class TestFade < Minitest::Test
 
   Guardrails = RubyGBA::IR::Guardrails
 
-  RED = RubyGBA::Color.resolve(:red)
-  BLUE = RubyGBA::Color.resolve(:blue)
-  BLACK = RubyGBA::Color.resolve(:black)
-  WHITE = RubyGBA::Color.resolve(:white)
+  RED = RubyGBA::Graphics::Color.resolve(:red)
+  BLUE = RubyGBA::Graphics::Color.resolve(:blue)
+  BLACK = RubyGBA::Graphics::Color.resolve(:black)
+  WHITE = RubyGBA::Graphics::Color.resolve(:white)
 
   def program(&block)
     b = Builder.new

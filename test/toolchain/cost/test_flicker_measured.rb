@@ -79,7 +79,7 @@ class TestFlickerMeasured < Minitest::Test
     end
   end
 
-  def flicker_of(rom) = RubyGBA::Profiler.run(rom, frames: 12).flicker
+  def flicker_of(rom) = RubyGBA::Diagnostics::Profiler.run(rom, frames: 12).flicker
 
   # THE ONE THAT MATTERS. The console really is showing two different pictures in
   # turn, and the reading says so and says where.
@@ -88,7 +88,7 @@ class TestFlickerMeasured < Minitest::Test
 
     assert_predicate reading, :measured?
     assert_predicate reading, :losing?, "half the dots land in each picture"
-    assert_operator reading.pixels, :>, RubyGBA::Flicker::FLOOR
+    assert_operator reading.pixels, :>, RubyGBA::Diagnostics::Flicker::FLOOR
     assert_equal 40, reading.first[1], "the stuck pixels are on the row the dots are drawn on"
   end
 
@@ -123,7 +123,7 @@ class TestFlickerMeasured < Minitest::Test
   def test_the_reading_does_not_depend_on_which_frame_the_window_starts
     rom = repainting_rom
     readings = [0, 1].map do |offset|
-      RubyGBA::Profiler.run(rom, frames: 12 + offset).flicker
+      RubyGBA::Diagnostics::Profiler.run(rom, frames: 12 + offset).flicker
     end
 
     assert(readings.all?(&:measured?), "both windows should have been looked at")
@@ -144,19 +144,19 @@ class TestFlickerMeasured < Minitest::Test
       end
     end
 
-    assert_nil RubyGBA::Profiler.run(rom, frames: 8).flicker
+    assert_nil RubyGBA::Diagnostics::Profiler.run(rom, frames: 8).flicker
   end
 
   # The switch that turns the per-pixel readings off entirely.
   def test_the_picture_readings_can_be_turned_off
-    assert_nil RubyGBA::Profiler.run(losing_rom, frames: 8, picture: false).flicker
+    assert_nil RubyGBA::Diagnostics::Profiler.run(losing_rom, frames: 8, picture: false).flicker
   end
 
   # What the author reads. The wording is free to improve; that it names the
   # symptom, where to look, and both fixes is not.
   def test_the_report_says_what_the_player_sees_and_what_to_do
     out = StringIO.new
-    RubyGBA::Profiler.render(RubyGBA::Profiler.run(losing_rom, frames: 12), out: out)
+    RubyGBA::Diagnostics::Profiler.render(RubyGBA::Diagnostics::Profiler.run(losing_rom, frames: 12), out: out)
     said = out.string
 
     assert_match(/pixels flicker/, said)
@@ -167,7 +167,7 @@ class TestFlickerMeasured < Minitest::Test
 
   def test_the_report_says_so_when_every_drawing_arrives
     out = StringIO.new
-    RubyGBA::Profiler.render(RubyGBA::Profiler.run(kept_rom, frames: 12), out: out)
+    RubyGBA::Diagnostics::Profiler.render(RubyGBA::Diagnostics::Profiler.run(kept_rom, frames: 12), out: out)
 
     assert_match(/every drawing reached both/, out.string)
   end

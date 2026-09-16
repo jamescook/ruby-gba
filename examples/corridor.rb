@@ -71,13 +71,13 @@ module Corridor
   MIN_H = 6
   USUAL_H = 31 # about how tall a wall stands on a normal frame, measured. See `estimate:`.
 
-  SKY = RubyGBA::Color.rgb(4, 6, 11)
-  FLOOR = RubyGBA::Color.rgb(10, 7, 4)
-  NEAR = RubyGBA::Color.rgb(29, 26, 20)
-  MID = RubyGBA::Color.rgb(19, 17, 13)
-  FAR = RubyGBA::Color.rgb(10, 9, 8)
-  BAR = RubyGBA::Color.rgb(2, 2, 4)
-  GOLD_C = RubyGBA::Color.rgb(31, 27, 6)
+  SKY = RubyGBA::Graphics::Color.rgb(4, 6, 11)
+  FLOOR = RubyGBA::Graphics::Color.rgb(10, 7, 4)
+  NEAR = RubyGBA::Graphics::Color.rgb(29, 26, 20)
+  MID = RubyGBA::Graphics::Color.rgb(19, 17, 13)
+  FAR = RubyGBA::Graphics::Color.rgb(10, 9, 8)
+  BAR = RubyGBA::Graphics::Color.rgb(2, 2, 4)
+  GOLD_C = RubyGBA::Graphics::Color.rgb(31, 27, 6)
   WALL_SHADES = [NEAR, MID, FAR].freeze
 
   # The game, with the ray count left as a parameter. It is a parameter because it is the one

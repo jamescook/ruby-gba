@@ -11,7 +11,7 @@ require_relative "../../conformance_fixture"
 # the backends AGREE on output; this one checks they all COVER every feature.
 class TestCrossBackendConformance < Minitest::Test
   Node = RubyGBA::IR::Node
-  ROMValidator = RubyGBA::ROMValidator
+  ROMValidator = RubyGBA::Cartridge::ROMValidator
 
   # ---- the fixture actually covers everything (maintenance guard) ----
 

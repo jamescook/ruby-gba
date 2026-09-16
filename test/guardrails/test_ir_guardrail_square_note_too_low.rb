@@ -12,12 +12,12 @@ class TestSquareNoteTooLowGuardrail < Minitest::Test
   include RubyGBA::IR::Build
 
   Check = RubyGBA::IR::Guardrails::Checks::SquareNoteTooLow
-  Registers = RubyGBA::Sound::Registers
-  Part = RubyGBA::Score::Part
-  Note = RubyGBA::Score::Note
+  Registers = RubyGBA::Audio::Sound::Registers
+  Part = RubyGBA::Audio::Score::Part
+  Note = RubyGBA::Audio::Score::Note
 
   def detect(hz, instrument: nil)
-    voice = RubyGBA::Music::Part.new(events: [[0, hz], [4, 0]], instrument: instrument)
+    voice = RubyGBA::Audio::Music::Part.new(events: [[0, hz], [4, 0]], instrument: instrument)
     Check.new.detect(program(song(:low, total_frames: 8, voices: [voice])))
   end
 
@@ -38,7 +38,7 @@ class TestSquareNoteTooLowGuardrail < Minitest::Test
   end
 
   def test_c2_and_above_is_quiet
-    assert_empty detect(RubyGBA::Music::NOTE_FREQUENCIES[:C2])
+    assert_empty detect(RubyGBA::Audio::Music::NOTE_FREQUENCIES[:C2])
   end
 
   def test_a_part_that_plays_an_instrument_has_no_such_bottom
@@ -60,7 +60,7 @@ class TestSquareNoteTooLowGuardrail < Minitest::Test
 
   def test_a_score_names_the_part_by_its_index
     bass = Part.new(notes: [Note.new(at: 0, key: 60), Note.new(at: 24, key: 24), Note.new(at: 48, key: 28)])
-    said = warnings { songs(:music, { forest: RubyGBA::Score.new(parts: [Part.new(notes: []), bass]) }).play :forest }
+    said = warnings { songs(:music, { forest: RubyGBA::Audio::Score.new(parts: [Part.new(notes: []), bass]) }).play :forest }
 
     assert_match(/Part 1 of the song :forest of :music plays a note at 33 Hz \(MIDI key 24\)/, said)
     assert_match(/2 notes that are too low/, said)

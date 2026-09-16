@@ -25,7 +25,7 @@ module RubyGBA
         # is, and the biggest users so the fix is obvious.
         class IwramBudget
           NAME = :iwram_budget
-          PLAIN_NAME = "the #{PlainWords::QUICK_MEMORY} budget"
+          PLAIN_NAME = "the #{Diagnostics::PlainWords::QUICK_MEMORY} budget"
 
           # The GBA's fast RAM is 32KB, but not all of it is free for the program's data:
           # the call stack lives at the top and the framework keeps a little scratch of its
@@ -165,7 +165,7 @@ module RubyGBA
 
           def message(total, users)
             "This program reserves about #{human(total)} of memory for its data. But the console has only " \
-              "#{human(IWRAM_BYTES)} of #{PlainWords::QUICK_MEMORY} and #{human(EWRAM_BYTES)} of roomier " \
+              "#{human(IWRAM_BYTES)} of #{Diagnostics::PlainWords::QUICK_MEMORY} and #{human(EWRAM_BYTES)} of roomier " \
               "memory, and both are full. The biggest users are #{top_users(users)}. To fix this, use a " \
               "smaller capacity for a pool or a list. Or use fewer fields. Or use narrower items " \
               "(`width: :byte`). Then it all fits."
@@ -174,7 +174,7 @@ module RubyGBA
           # The variables and the sprites' save-buffers can only be in the quick memory, so
           # a program whose variables alone are over it cannot be helped by the other one.
           def pinned_message(pinned, users)
-            "This program reserves about #{human(pinned)} of the console's #{PlainWords::QUICK_MEMORY} for " \
+            "This program reserves about #{human(pinned)} of the console's #{Diagnostics::PlainWords::QUICK_MEMORY} for " \
               "things that can only live there. But the console has only #{human(IWRAM_BYTES)} of it, and " \
               "about #{human(BUDGET_BYTES)} of that is free for your data — the rest holds the call stack " \
               "and the framework's own state. A list or a pool can move to the roomier memory; a variable " \

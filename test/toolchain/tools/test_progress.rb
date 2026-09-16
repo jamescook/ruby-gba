@@ -11,7 +11,7 @@ require "stringio"
 # that one pointed at a stream says the phases in order with what each took, and that a phase
 # reporting tens of thousands of times does not turn into tens of thousands of lines.
 class TestProgress < Minitest::Test
-  Progress = RubyGBA::Progress
+  Progress = RubyGBA::Diagnostics::Progress
 
   # A clock that only moves when a test moves it, so an elapsed time is a fact rather than a
   # race. It answers the one question Progress asks of a clock.

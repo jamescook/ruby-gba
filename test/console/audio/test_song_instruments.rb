@@ -9,7 +9,7 @@ require "stringio"
 # note's pitch, through the mixer, and a rest silences it. The part names the instrument, never a
 # channel — which voice it uses is the framework's business.
 class TestSongInstruments < Minitest::Test
-  NOTES = RubyGBA::Music::NOTE_FREQUENCIES
+  NOTES = RubyGBA::Audio::Music::NOTE_FREQUENCIES
   STEP_ONE = GBA::Mixer::STEP_ONE
 
   # A piano recorded at C4, a second long — longer than any note here, so it is the next event
@@ -57,7 +57,7 @@ class TestSongInstruments < Minitest::Test
 
   # --- the voices, which the music and the game's own sounds share ---
 
-  VOICES = RubyGBA::Sound::MIXER_VOICES
+  VOICES = RubyGBA::Audio::Sound::MIXER_VOICES
   CLIPS = VOICES + 2 # two more of the game's own sounds than there are voices
   def clip_names(range) = range.map { |n| :"s#{n}" }
 

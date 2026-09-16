@@ -6,7 +6,7 @@ module RubyGBA
       class GBA
         # Evaluating value nodes (arithmetic, comparisons, data, input reads).
         class Expressions
-          include Constants
+          include Cartridge::Constants
 
           def initialize(emitter:, primitives:, lowering:, divide:, tables:)
             @emitter = emitter
@@ -16,12 +16,12 @@ module RubyGBA
             @tables = tables
           end
 
-          def eval_int(node) = @emitter.emit(ASM.load_immediate(ACC, Int32.wrap(node.value)))
+          def eval_int(node) = @emitter.emit(Cartridge::ASM.load_immediate(ACC, Int32.wrap(node.value)))
           def eval_var_ref(node) = @primitives.load_var(ACC, node.name)
 
           def eval_neg(node)
             @lowering.value(node.operand)
-            @emitter.emit(ASM.rsb_imm(ACC, ACC, 0))
+            @emitter.emit(Cartridge::ASM.rsb_imm(ACC, ACC, 0))
           end
 
           # A chance is "the random draw is below the threshold" — evaluate it as
@@ -33,15 +33,15 @@ module RubyGBA
           # Read VCOUNT — the scanline being drawn right now (0..227) — into the
           # accumulator. A halfword load straight from the display's scanline register.
           def eval_read_scanline(_node = nil)
-            @emitter.emit(ASM.load_immediate(TMP, REG_VCOUNT))
-            @emitter.emit(ASM.load_halfword(ACC, TMP))
+            @emitter.emit(Cartridge::ASM.load_immediate(TMP, REG_VCOUNT))
+            @emitter.emit(Cartridge::ASM.load_halfword(ACC, TMP))
           end
 
           # Read one byte of a named blob: point the address register at the blob,
           # then load the byte at its fixed index into the accumulator.
           def eval_data_byte(node)
             @emitter.emit_load_data_address(ADDR, node.name)
-            @emitter.emit(ASM.ldrb_offset(ACC, ADDR, node.index))
+            @emitter.emit(Cartridge::ASM.ldrb_offset(ACC, ADDR, node.index))
           end
 
           # Read table[index] into the accumulator: evaluate the index, make it safe
@@ -59,9 +59,9 @@ module RubyGBA
               emit_clamp_acc(0, info.count - 1)                    # clamp: 0..count-1
             end
             shift = { 1 => 0, 2 => 1, 4 => 2 }.fetch(info.elem_bytes)
-            @emitter.emit(ASM.lsl_imm(ACC, ACC, shift)) unless shift.zero?  # r0 = index * elem_bytes
+            @emitter.emit(Cartridge::ASM.lsl_imm(ACC, ACC, shift)) unless shift.zero?  # r0 = index * elem_bytes
             @emitter.emit_load_data_address(TMP, node.name)               # r1 = table base
-            @emitter.emit(ASM.add_reg(ADDR, TMP, ACC))                      # r12 = &table[index]
+            @emitter.emit(Cartridge::ASM.add_reg(ADDR, TMP, ACC))                      # r12 = &table[index]
             emit_table_load(info)                                  # r0 = element
           end
 
@@ -70,11 +70,11 @@ module RubyGBA
           # into the whole register; a word already fills it.
           def emit_table_load(info)
             case [info.elem_bytes, info.signed]
-            when [1, false] then @emitter.emit(ASM.ldrb_offset(ACC, ADDR, 0))
-            when [1, true]  then @emitter.emit(ASM.ldrsb(ACC, ADDR))
-            when [2, false] then @emitter.emit(ASM.load_halfword(ACC, ADDR))
-            when [2, true]  then @emitter.emit(ASM.ldrsh(ACC, ADDR))
-            else @emitter.emit(ASM.ldr(ACC, ADDR))
+            when [1, false] then @emitter.emit(Cartridge::ASM.ldrb_offset(ACC, ADDR, 0))
+            when [1, true]  then @emitter.emit(Cartridge::ASM.ldrsb(ACC, ADDR))
+            when [2, false] then @emitter.emit(Cartridge::ASM.load_halfword(ACC, ADDR))
+            when [2, true]  then @emitter.emit(Cartridge::ASM.ldrsh(ACC, ADDR))
+            else @emitter.emit(Cartridge::ASM.ldr(ACC, ADDR))
             end
           end
 
@@ -82,17 +82,17 @@ module RubyGBA
           # emit_clamp uses for a variable, but on r0.
           def emit_clamp_acc(low, high)
             keep_low = @emitter.gensym
-            @emitter.emit(ASM.load_immediate(TMP, low))
-            @emitter.emit(ASM.cmp_reg(ACC, TMP))
+            @emitter.emit(Cartridge::ASM.load_immediate(TMP, low))
+            @emitter.emit(Cartridge::ASM.cmp_reg(ACC, TMP))
             @emitter.emit_branch(:bcond, keep_low, cond: :ge)
-            @emitter.emit(ASM.mov_reg(ACC, TMP))
+            @emitter.emit(Cartridge::ASM.mov_reg(ACC, TMP))
             @emitter.place_label(keep_low)
 
             keep_high = @emitter.gensym
-            @emitter.emit(ASM.load_immediate(TMP, high))
-            @emitter.emit(ASM.cmp_reg(ACC, TMP))
+            @emitter.emit(Cartridge::ASM.load_immediate(TMP, high))
+            @emitter.emit(Cartridge::ASM.cmp_reg(ACC, TMP))
             @emitter.emit_branch(:bcond, keep_high, cond: :le)
-            @emitter.emit(ASM.mov_reg(ACC, TMP))
+            @emitter.emit(Cartridge::ASM.mov_reg(ACC, TMP))
             @emitter.place_label(keep_high)
           end
 
@@ -104,24 +104,24 @@ module RubyGBA
             return if emit_constant_binop(node)
 
             @lowering.value(node.lhs)
-            @emitter.emit(ASM.push(ACC))
+            @emitter.emit(Cartridge::ASM.push(ACC))
             @lowering.value(node.rhs)
-            @emitter.emit(ASM.pop(TMP))             # r1 = lhs, r0 = rhs
+            @emitter.emit(Cartridge::ASM.pop(TMP))             # r1 = lhs, r0 = rhs
 
             op = node.op
             case op
-            when :+ then @emitter.emit(ASM.add_reg(ACC, TMP, ACC))
-            when :- then @emitter.emit(ASM.sub_reg(ACC, TMP, ACC))
-            when :* then @emitter.emit(ASM.mul(ACC, TMP, ACC))
+            when :+ then @emitter.emit(Cartridge::ASM.add_reg(ACC, TMP, ACC))
+            when :- then @emitter.emit(Cartridge::ASM.sub_reg(ACC, TMP, ACC))
+            when :* then @emitter.emit(Cartridge::ASM.mul(ACC, TMP, ACC))
             # Condition composition: both sides are already 0/1, so a bitwise
             # and/or gives the combined 0/1 the branch tests for.
-            when :and then @emitter.emit(ASM.and_reg(ACC, TMP, ACC))
-            when :or then @emitter.emit(ASM.orr_reg(ACC, TMP, ACC))
+            when :and then @emitter.emit(Cartridge::ASM.and_reg(ACC, TMP, ACC))
+            when :or then @emitter.emit(Cartridge::ASM.orr_reg(ACC, TMP, ACC))
             # The program's own bit operations. The chip does each in one
             # instruction, which is why reading packed data costs what it reads.
-            when :& then @emitter.emit(ASM.and_reg(ACC, TMP, ACC))
-            when :| then @emitter.emit(ASM.orr_reg(ACC, TMP, ACC))
-            when :^ then @emitter.emit(ASM.eor_reg(ACC, TMP, ACC))
+            when :& then @emitter.emit(Cartridge::ASM.and_reg(ACC, TMP, ACC))
+            when :| then @emitter.emit(Cartridge::ASM.orr_reg(ACC, TMP, ACC))
+            when :^ then @emitter.emit(Cartridge::ASM.eor_reg(ACC, TMP, ACC))
             when :<< then emit_shift_by_value(:left)
             when :>> then emit_shift_by_value(:right)
             when :/ then emit_division
@@ -142,12 +142,12 @@ module RubyGBA
           # 0...32, negative ones included, reads as huge that way and is pinned at 32,
           # which is the count that empties the number. Two instructions, no branch.
           def emit_shift_by_value(direction)
-            @emitter.emit(ASM.cmp_imm(ACC, Int32::BITS))
-            @emitter.emit(ASM.mov_imm_cond(:hs, ACC, Int32::BITS))
+            @emitter.emit(Cartridge::ASM.cmp_imm(ACC, Int32::BITS))
+            @emitter.emit(Cartridge::ASM.mov_imm_cond(:hs, ACC, Int32::BITS))
             @emitter.emit(if direction == :left
-                            ASM.mov_reg_lsl_reg(ACC, TMP, ACC)
+                            Cartridge::ASM.mov_reg_lsl_reg(ACC, TMP, ACC)
                           else
-                            ASM.mov_reg_asr_reg(ACC, TMP, ACC) # down, keeping the sign
+                            Cartridge::ASM.mov_reg_asr_reg(ACC, TMP, ACC) # down, keeping the sign
                           end)
           end
 
@@ -155,15 +155,15 @@ module RubyGBA
           # this is its own node rather than an exclusive-or with all ones.
           def eval_bit_not(node)
             @lowering.value(node.operand)
-            @emitter.emit(ASM.mvn_reg(ACC, ACC))
+            @emitter.emit(Cartridge::ASM.mvn_reg(ACC, ACC))
           end
 
           # How far a number is from nought: turned round only when it is below nought, which
           # the chip does in one instruction that runs only when the compare said "less".
           def eval_absolute(node)
             @lowering.value(node.operand)
-            @emitter.emit(ASM.cmp_imm(ACC, 0))
-            @emitter.emit(ASM.rsb_imm_cond(:lt, ACC, ACC, 0))
+            @emitter.emit(Cartridge::ASM.cmp_imm(ACC, 0))
+            @emitter.emit(Cartridge::ASM.rsb_imm_cond(:lt, ACC, ACC, 0))
           end
 
           # A number held inside a range: the floor if it is below it, then the ceiling if it
@@ -182,18 +182,18 @@ module RubyGBA
           # straight into a register.
           def clamp_acc_to(bound, cond:)
             if (fixed = @primitives.const_int(bound))
-              @emitter.emit(ASM.load_immediate(TMP, fixed))
+              @emitter.emit(Cartridge::ASM.load_immediate(TMP, fixed))
             else
-              @emitter.emit(ASM.push(ACC))         # hold the value being clamped
+              @emitter.emit(Cartridge::ASM.push(ACC))         # hold the value being clamped
               @lowering.value(bound)               # r0 = the bound
-              @emitter.emit(ASM.mov_reg(TMP, ACC)) # r1 = the bound
-              @emitter.emit(ASM.pop(ACC))          # r0 = the value again
+              @emitter.emit(Cartridge::ASM.mov_reg(TMP, ACC)) # r1 = the bound
+              @emitter.emit(Cartridge::ASM.pop(ACC))          # r0 = the value again
             end
 
             keep = @emitter.gensym
-            @emitter.emit(ASM.cmp_reg(ACC, TMP))
+            @emitter.emit(Cartridge::ASM.cmp_reg(ACC, TMP))
             @emitter.emit_branch(:bcond, keep, cond: cond)
-            @emitter.emit(ASM.mov_reg(ACC, TMP))
+            @emitter.emit(Cartridge::ASM.mov_reg(ACC, TMP))
             @emitter.place_label(keep)
           end
 
@@ -248,16 +248,16 @@ module RubyGBA
             @lowering.value(lhs)
             if (0..0xFF).cover?(value)
               @emitter.emit(case op
-                            when :& then ASM.and_imm(ACC, ACC, value)
-                            when :| then ASM.orr_imm(ACC, ACC, value)
-                            else ASM.eor_imm(ACC, ACC, value)
+                            when :& then Cartridge::ASM.and_imm(ACC, ACC, value)
+                            when :| then Cartridge::ASM.orr_imm(ACC, ACC, value)
+                            else Cartridge::ASM.eor_imm(ACC, ACC, value)
                             end)
             else
-              @emitter.emit(ASM.load_immediate(TMP, value))
+              @emitter.emit(Cartridge::ASM.load_immediate(TMP, value))
               @emitter.emit(case op
-                            when :& then ASM.and_reg(ACC, ACC, TMP)
-                            when :| then ASM.orr_reg(ACC, ACC, TMP)
-                            else ASM.eor_reg(ACC, ACC, TMP)
+                            when :& then Cartridge::ASM.and_reg(ACC, ACC, TMP)
+                            when :| then Cartridge::ASM.orr_reg(ACC, ACC, TMP)
+                            else Cartridge::ASM.eor_reg(ACC, ACC, TMP)
                             end)
             end
             true
@@ -270,9 +270,9 @@ module RubyGBA
           def emit_constant_shift_left(lhs, count)
             @lowering.value(lhs)
             if Int32.shifts_within_the_number?(count)
-              @emitter.emit(ASM.lsl_imm(ACC, ACC, count)) if count.positive?
+              @emitter.emit(Cartridge::ASM.lsl_imm(ACC, ACC, count)) if count.positive?
             else
-              @emitter.emit(ASM.load_immediate(ACC, 0))
+              @emitter.emit(Cartridge::ASM.load_immediate(ACC, 0))
             end
             true
           end
@@ -284,7 +284,7 @@ module RubyGBA
           def emit_constant_shift_right(lhs, count)
             @lowering.value(lhs)
             places = Int32.shifts_within_the_number?(count) ? count : Int32::BITS - 1
-            @emitter.emit(ASM.asr_imm(ACC, ACC, places)) if places.positive?
+            @emitter.emit(Cartridge::ASM.asr_imm(ACC, ACC, places)) if places.positive?
             true
           end
 
@@ -308,7 +308,7 @@ module RubyGBA
 
             if divisor.negative?
               emit_constant_divide(lhs, divisor.abs)
-              @emitter.emit(ASM.rsb_imm(ACC, ACC, 0))
+              @emitter.emit(Cartridge::ASM.rsb_imm(ACC, ACC, 0))
               return true
             end
 
@@ -338,9 +338,9 @@ module RubyGBA
           # no call.
           def emit_divide_by_power_of_two(lhs, bits)
             @lowering.value(lhs)
-            @emitter.emit(ASM.asr_imm(TMP, ACC, 31))                  # r1 = -1 when negative, else 0
-            @emitter.emit(ASM.add_reg_lsr(ACC, ACC, TMP, 32 - bits))  # + (2**bits - 1) when negative
-            @emitter.emit(ASM.asr_imm(ACC, ACC, bits))
+            @emitter.emit(Cartridge::ASM.asr_imm(TMP, ACC, 31))                  # r1 = -1 when negative, else 0
+            @emitter.emit(Cartridge::ASM.add_reg_lsr(ACC, ACC, TMP, 32 - bits))  # + (2**bits - 1) when negative
+            @emitter.emit(Cartridge::ASM.asr_imm(ACC, ACC, bits))
             true
           end
 
@@ -360,12 +360,12 @@ module RubyGBA
           def emit_reciprocal_divide(lhs, divisor)
             recipe = Reciprocal.for(divisor)
             @lowering.value(lhs)
-            @emitter.emit(ASM.mov_reg(SPARE, ACC))                      # r2 = the numerator, kept
-            @emitter.emit(ASM.load_immediate(TMP, recipe.multiplier))
-            @emitter.emit(ASM.smull(ACC, HIGH, TMP, SPARE))             # r3:r0 = multiplier * numerator
-            @emitter.emit(ASM.add_reg(HIGH, HIGH, SPARE)) if recipe.add_numerator
-            @emitter.emit(ASM.asr_imm(HIGH, HIGH, recipe.shift)) if recipe.shift.positive?
-            @emitter.emit(ASM.add_reg_lsr(ACC, HIGH, HIGH, 31))         # toward zero, not toward minus infinity
+            @emitter.emit(Cartridge::ASM.mov_reg(SPARE, ACC))                      # r2 = the numerator, kept
+            @emitter.emit(Cartridge::ASM.load_immediate(TMP, recipe.multiplier))
+            @emitter.emit(Cartridge::ASM.smull(ACC, HIGH, TMP, SPARE))             # r3:r0 = multiplier * numerator
+            @emitter.emit(Cartridge::ASM.add_reg(HIGH, HIGH, SPARE)) if recipe.add_numerator
+            @emitter.emit(Cartridge::ASM.asr_imm(HIGH, HIGH, recipe.shift)) if recipe.shift.positive?
+            @emitter.emit(Cartridge::ASM.add_reg_lsr(ACC, HIGH, HIGH, 31))         # toward zero, not toward minus infinity
             true
           end
 
@@ -401,23 +401,23 @@ module RubyGBA
           # makes the correction three instructions and no branch.
           def emit_reciprocal_modulo(lhs, size)
             emit_reciprocal_divide(lhs, size)
-            @emitter.emit(ASM.load_immediate(TMP, size))
-            @emitter.emit(ASM.mul(HIGH, ACC, TMP))         # r3 = quotient * size
-            @emitter.emit(ASM.sub_reg(ACC, SPARE, HIGH))   # r0 = numerator - that = the leftover
-            @emitter.emit(ASM.asr_imm(SPARE, ACC, 31))     # r2 = -1 when the leftover is negative
-            @emitter.emit(ASM.and_reg(SPARE, SPARE, TMP))  # r2 = one size, but only then
-            @emitter.emit(ASM.add_reg(ACC, ACC, SPARE))
+            @emitter.emit(Cartridge::ASM.load_immediate(TMP, size))
+            @emitter.emit(Cartridge::ASM.mul(HIGH, ACC, TMP))         # r3 = quotient * size
+            @emitter.emit(Cartridge::ASM.sub_reg(ACC, SPARE, HIGH))   # r0 = numerator - that = the leftover
+            @emitter.emit(Cartridge::ASM.asr_imm(SPARE, ACC, 31))     # r2 = -1 when the leftover is negative
+            @emitter.emit(Cartridge::ASM.and_reg(SPARE, SPARE, TMP))  # r2 = one size, but only then
+            @emitter.emit(Cartridge::ASM.add_reg(ACC, ACC, SPARE))
           end
 
           # Turn a wrap onto 0...size into a wrap onto -size...0, which is what Ruby's `%`
           # gives for a negative divisor. Every answer but zero moves down by one size;
           # zero stays zero, which is the only reason this needs a branch at all.
           def emit_flip_wrap_negative(size)
-            @emitter.emit(ASM.load_immediate(TMP, size))
+            @emitter.emit(Cartridge::ASM.load_immediate(TMP, size))
             done = @emitter.gensym
-            @emitter.emit(ASM.cmp_imm(ACC, 0))
+            @emitter.emit(Cartridge::ASM.cmp_imm(ACC, 0))
             @emitter.emit_branch(:bcond, done, cond: :eq)
-            @emitter.emit(ASM.sub_reg(ACC, ACC, TMP))
+            @emitter.emit(Cartridge::ASM.sub_reg(ACC, ACC, TMP))
             @emitter.place_label(done)
           end
 
@@ -425,7 +425,7 @@ module RubyGBA
           # what a multiply would have left anyway.
           def emit_multiply_by_power_of_two(lhs, bits)
             @lowering.value(lhs)
-            @emitter.emit(ASM.lsl_imm(ACC, ACC, bits))
+            @emitter.emit(Cartridge::ASM.lsl_imm(ACC, ACC, bits))
             true
           end
 
@@ -433,10 +433,10 @@ module RubyGBA
           # along inside the instruction (anything past 8 bits).
           def emit_and_mask(reg, mask)
             if mask <= 0xFF
-              @emitter.emit(ASM.and_imm(reg, reg, mask))
+              @emitter.emit(Cartridge::ASM.and_imm(reg, reg, mask))
             else
-              @emitter.emit(ASM.load_immediate(TMP, mask))
-              @emitter.emit(ASM.and_reg(reg, reg, TMP))
+              @emitter.emit(Cartridge::ASM.load_immediate(TMP, mask))
+              @emitter.emit(Cartridge::ASM.and_reg(reg, reg, TMP))
             end
           end
 
@@ -454,18 +454,18 @@ module RubyGBA
           # answer in the accumulator like every other value.
           def eval_mul_fix(node)
             @lowering.value(node.lhs)
-            @emitter.emit(ASM.push(ACC))
+            @emitter.emit(Cartridge::ASM.push(ACC))
             @lowering.value(node.rhs)
-            @emitter.emit(ASM.pop(TMP))                        # r1 = lhs, r0 = rhs
-            @emitter.emit(ASM.smull(SPARE, HIGH, ACC, TMP))    # r3:r2 = lhs * rhs, all 64 bits of it
+            @emitter.emit(Cartridge::ASM.pop(TMP))                        # r1 = lhs, r0 = rhs
+            @emitter.emit(Cartridge::ASM.smull(SPARE, HIGH, ACC, TMP))    # r3:r2 = lhs * rhs, all 64 bits of it
 
             case node.fraction_bits
-            when 0 then @emitter.emit(ASM.mov_reg(ACC, SPARE)) # nothing to shift off — the low word is the answer
-            when 32 then @emitter.emit(ASM.mov_reg(ACC, HIGH)) # shifted right by a whole word — the high one is
+            when 0 then @emitter.emit(Cartridge::ASM.mov_reg(ACC, SPARE)) # nothing to shift off — the low word is the answer
+            when 32 then @emitter.emit(Cartridge::ASM.mov_reg(ACC, HIGH)) # shifted right by a whole word — the high one is
             else
               bits = node.fraction_bits
-              @emitter.emit(ASM.lsr_imm(ACC, SPARE, bits))                  # r0 = the low word, shifted down
-              @emitter.emit(ASM.orr_reg_lsl(ACC, ACC, HIGH, 32 - bits))     # + the high word's bits sliding in
+              @emitter.emit(Cartridge::ASM.lsr_imm(ACC, SPARE, bits))                  # r0 = the low word, shifted down
+              @emitter.emit(Cartridge::ASM.orr_reg_lsl(ACC, ACC, HIGH, 32 - bits))     # + the high word's bits sliding in
             end
           end
 
@@ -484,9 +484,9 @@ module RubyGBA
             end
 
             @lowering.value(node.lhs)
-            @emitter.emit(ASM.push(ACC))
+            @emitter.emit(Cartridge::ASM.push(ACC))
             @lowering.value(node.rhs)
-            @emitter.emit(ASM.pop(TMP)) # r1 = the numerator, r0 = the divisor
+            @emitter.emit(Cartridge::ASM.pop(TMP)) # r1 = the numerator, r0 = the divisor
             @divide.emit_call_divide_fix_routine(node.fraction_bits)
           end
 
@@ -500,7 +500,7 @@ module RubyGBA
           def eval_shift_right(node)
             @lowering.value(node.operand)
             bits = node.bits
-            @emitter.emit(ASM.asr_imm(ACC, ACC, bits)) if bits.positive? # shifting by none is nothing to do
+            @emitter.emit(Cartridge::ASM.asr_imm(ACC, ACC, bits)) if bits.positive? # shifting by none is nothing to do
           end
 
           # Divide by a value the game works out — the only division left that has to be
@@ -526,18 +526,18 @@ module RubyGBA
           # time instead. The divisor waits on the stack, since the routine is free to
           # use every scratch register.
           def emit_modulo
-            @emitter.emit(ASM.push(ACC))                  # the divisor, needed once the answer is back
+            @emitter.emit(Cartridge::ASM.push(ACC))                  # the divisor, needed once the answer is back
             @divide.emit_call_divide_routine
-            @emitter.emit(ASM.mov_reg(ACC, TMP))          # r0 = the leftover, signed like the numerator
-            @emitter.emit(ASM.pop(SPARE))                 # r2 = the divisor again
+            @emitter.emit(Cartridge::ASM.mov_reg(ACC, TMP))          # r0 = the leftover, signed like the numerator
+            @emitter.emit(Cartridge::ASM.pop(SPARE))                 # r2 = the divisor again
 
             done = @emitter.gensym
-            @emitter.emit(ASM.cmp_imm(ACC, 0))
+            @emitter.emit(Cartridge::ASM.cmp_imm(ACC, 0))
             @emitter.emit_branch(:bcond, done, cond: :eq) # nothing left over: no signs to disagree
-            @emitter.emit(ASM.eor_reg(HIGH, ACC, SPARE))  # do the two signs differ?
-            @emitter.emit(ASM.cmp_imm(HIGH, 0))
+            @emitter.emit(Cartridge::ASM.eor_reg(HIGH, ACC, SPARE))  # do the two signs differ?
+            @emitter.emit(Cartridge::ASM.cmp_imm(HIGH, 0))
             @emitter.emit_branch(:bcond, done, cond: :ge)
-            @emitter.emit(ASM.add_reg(ACC, ACC, SPARE))
+            @emitter.emit(Cartridge::ASM.add_reg(ACC, ACC, SPARE))
             @emitter.place_label(done)
           end
 
@@ -547,11 +547,11 @@ module RubyGBA
             _true_cond, false_cond = COMPARISONS.fetch(op) do
               raise LoweringError, "unknown operator #{op.inspect}"
             end
-            @emitter.emit(ASM.cmp_reg(TMP, ACC))          # lhs - rhs
+            @emitter.emit(Cartridge::ASM.cmp_reg(TMP, ACC))          # lhs - rhs
             done = @emitter.gensym
-            @emitter.emit(ASM.load_immediate(ACC, 0))
+            @emitter.emit(Cartridge::ASM.load_immediate(ACC, 0))
             @emitter.emit_branch(:bcond, done, cond: false_cond)
-            @emitter.emit(ASM.load_immediate(ACC, 1))
+            @emitter.emit(Cartridge::ASM.load_immediate(ACC, 1))
             @emitter.place_label(done)
           end
 
@@ -562,13 +562,13 @@ module RubyGBA
             mask = BUTTON_BIT.fetch(button) do
               raise LoweringError, "unknown button #{button.inspect}"
             end
-            @emitter.emit(ASM.load_immediate(TMP, REG_KEYINPUT))
-            @emitter.emit(ASM.load_halfword(ACC, TMP))
-            @emitter.emit(ASM.tst_imm(ACC, mask))         # zero flag set => button down
+            @emitter.emit(Cartridge::ASM.load_immediate(TMP, REG_KEYINPUT))
+            @emitter.emit(Cartridge::ASM.load_halfword(ACC, TMP))
+            @emitter.emit(Cartridge::ASM.tst_imm(ACC, mask))         # zero flag set => button down
             done = @emitter.gensym
-            @emitter.emit(ASM.load_immediate(ACC, 0))
+            @emitter.emit(Cartridge::ASM.load_immediate(ACC, 0))
             @emitter.emit_branch(:bcond, done, cond: :ne) # bit not zero => not held => leave 0
-            @emitter.emit(ASM.load_immediate(ACC, 1))
+            @emitter.emit(Cartridge::ASM.load_immediate(ACC, 1))
             @emitter.place_label(done)
           end
 
@@ -581,19 +581,19 @@ module RubyGBA
             end
             @primitives.load_var(ACC, CUR_KEYS)
             @primitives.load_var(TMP, PREV_KEYS)
-            @emitter.emit(ASM.mvn_reg(TMP, TMP))          # ~prev
-            @emitter.emit(ASM.and_reg(ACC, ACC, TMP))     # cur & ~prev = buttons newly down
-            @emitter.emit(ASM.tst_imm(ACC, mask))
+            @emitter.emit(Cartridge::ASM.mvn_reg(TMP, TMP))          # ~prev
+            @emitter.emit(Cartridge::ASM.and_reg(ACC, ACC, TMP))     # cur & ~prev = buttons newly down
+            @emitter.emit(Cartridge::ASM.tst_imm(ACC, mask))
             done = @emitter.gensym
-            @emitter.emit(ASM.load_immediate(ACC, 0))
+            @emitter.emit(Cartridge::ASM.load_immediate(ACC, 0))
             @emitter.emit_branch(:bcond, done, cond: :eq) # bit zero => not a fresh press => 0
-            @emitter.emit(ASM.load_immediate(ACC, 1))
+            @emitter.emit(Cartridge::ASM.load_immediate(ACC, 1))
             @emitter.place_label(done)
           end
 
           # Start both snapshots empty (no button pressed) before the game runs.
           def emit_input_init
-            @emitter.emit(ASM.load_immediate(ACC, 0))
+            @emitter.emit(Cartridge::ASM.load_immediate(ACC, 0))
             @primitives.store_var(ACC, CUR_KEYS)
             @primitives.store_var(ACC, PREV_KEYS)
           end
@@ -604,11 +604,11 @@ module RubyGBA
           def snapshot_keys
             @primitives.load_var(ACC, CUR_KEYS)
             @primitives.store_var(ACC, PREV_KEYS)              # previous = last frame's current
-            @emitter.emit(ASM.load_immediate(TMP, REG_KEYINPUT))
-            @emitter.emit(ASM.load_halfword(ACC, TMP))
-            @emitter.emit(ASM.mvn_reg(ACC, ACC))            # invert: 1 bit now means "down"
-            @emitter.emit(ASM.lsl_imm(ACC, ACC, 22))        # drop everything above the
-            @emitter.emit(ASM.lsr_imm(ACC, ACC, 22))        # ten button bits
+            @emitter.emit(Cartridge::ASM.load_immediate(TMP, REG_KEYINPUT))
+            @emitter.emit(Cartridge::ASM.load_halfword(ACC, TMP))
+            @emitter.emit(Cartridge::ASM.mvn_reg(ACC, ACC))            # invert: 1 bit now means "down"
+            @emitter.emit(Cartridge::ASM.lsl_imm(ACC, ACC, 22))        # drop everything above the
+            @emitter.emit(Cartridge::ASM.lsr_imm(ACC, ACC, 22))        # ten button bits
             @primitives.store_var(ACC, CUR_KEYS)               # current = this frame's keys
           end
         end

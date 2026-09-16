@@ -57,7 +57,7 @@ class TestFrameFromCartridgeGuardrail < Minitest::Test
   def test_the_report_names_the_game_loop_rather_than_its_internal_name
     rom, = game(cold_in_a_func: false)
     io = StringIO.new
-    RubyGBA::BuildReport.render(rom, out: io)
+    RubyGBA::Diagnostics::BuildReport.render(rom, out: io)
 
     assert_match(/the game loop did not fit/, io.string)
     refute_match(/__frame/, io.string)

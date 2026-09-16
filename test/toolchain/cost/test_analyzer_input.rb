@@ -12,7 +12,7 @@ require "test_helper"
 # boiled down — nearly free at rest, over budget while a button is down.
 class TestAnalyzerInput < Minitest::Test
 
-  Analyzer = RubyGBA::Analyzer
+  Analyzer = RubyGBA::Diagnostics::Analyzer
 
   # Enough passes of a trivial body to fill a whole frame — the workload stands in for
   # any per-frame work whose amount follows the player (a raycaster's taller columns, a

@@ -27,7 +27,7 @@ module RubyGBA
           # that reaches 100 for one frame of a thickening fog is the effect working.
           def detect(program)
             node = program.each.find do |n|
-              n.kind == :layers && Value.fixed_number(n.transparency) == INVISIBLE
+              n.kind == :layers && DSL::Value.fixed_number(n.transparency) == INVISIBLE
             end
             return [] unless node
 

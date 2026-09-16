@@ -22,7 +22,7 @@ module RubyGBA
         # themselves value nodes, evaluated through the {Lowering} this class is handed
         # rather than through whatever else happens to own value evaluation.
         class Collision
-          include Constants
+          include Cartridge::Constants
 
           # The hidden variables the routine works in (IWRAM scratch, reused each call —
           # a collision test never runs nested inside another).
@@ -106,7 +106,7 @@ module RubyGBA
             store_min(PO_X1, PO_AX, a[:w], PO_BX, b[:w])
             store_min(PO_Y1, PO_AY, a[:h], PO_BY, b[:h])
 
-            @emitter.emit(ASM.load_immediate(ACC, 0))
+            @emitter.emit(Cartridge::ASM.load_immediate(ACC, 0))
             @primitives.store_var(ACC, PO_RES) # default: no overlap
 
             done = @emitter.gensym
@@ -132,10 +132,10 @@ module RubyGBA
           # base + pose*(w*h) — and stash the address.
           def stash_mask_address(pose_node, mask, dest)
             @lowering.value(pose_node) # ACC = pose index
-            @emitter.emit(ASM.load_immediate(TMP, mask[:w] * mask[:h]))
-            @emitter.emit(ASM.mul(ACC, TMP, ACC)) # ACC = pose * area
+            @emitter.emit(Cartridge::ASM.load_immediate(TMP, mask[:w] * mask[:h]))
+            @emitter.emit(Cartridge::ASM.mul(ACC, TMP, ACC)) # ACC = pose * area
             @emitter.emit_load_data_address(TMP, mask[:blob])
-            @emitter.emit(ASM.add_reg(ACC, TMP, ACC)) # ACC = base + pose*area
+            @emitter.emit(Cartridge::ASM.add_reg(ACC, TMP, ACC)) # ACC = base + pose*area
             @primitives.store_var(ACC, dest)
           end
 
@@ -143,10 +143,10 @@ module RubyGBA
           def store_max(dest, var_a, add_a, var_b, add_b)
             edge(var_a, add_a)          # ACC = A edge
             edge_into(var_b, add_b, TMP) # TMP = B edge
-            @emitter.emit(ASM.cmp_reg(ACC, TMP))
+            @emitter.emit(Cartridge::ASM.cmp_reg(ACC, TMP))
             keep = @emitter.gensym
             @emitter.emit_branch(:bcond, keep, cond: :ge) # A >= B: keep A
-            @emitter.emit(ASM.mov_reg(ACC, TMP))
+            @emitter.emit(Cartridge::ASM.mov_reg(ACC, TMP))
             @emitter.place_label(keep)
             @primitives.store_var(ACC, dest)
           end
@@ -155,10 +155,10 @@ module RubyGBA
           def store_min(dest, var_a, add_a, var_b, add_b)
             edge(var_a, add_a)
             edge_into(var_b, add_b, TMP)
-            @emitter.emit(ASM.cmp_reg(ACC, TMP))
+            @emitter.emit(Cartridge::ASM.cmp_reg(ACC, TMP))
             keep = @emitter.gensym
             @emitter.emit_branch(:bcond, keep, cond: :le) # A <= B: keep A
-            @emitter.emit(ASM.mov_reg(ACC, TMP))
+            @emitter.emit(Cartridge::ASM.mov_reg(ACC, TMP))
             @emitter.place_label(keep)
             @primitives.store_var(ACC, dest)
           end
@@ -166,12 +166,12 @@ module RubyGBA
           # ACC = the value in +var+ plus a constant (an edge = a corner plus a size).
           def edge(var, add)
             @primitives.load_var(ACC, var)
-            @emitter.emit(ASM.add_imm(ACC, ACC, add)) if add.positive?
+            @emitter.emit(Cartridge::ASM.add_imm(ACC, ACC, add)) if add.positive?
           end
 
           def edge_into(var, add, reg)
             @primitives.load_var(reg, var)
-            @emitter.emit(ASM.add_imm(reg, reg, add)) if add.positive?
+            @emitter.emit(Cartridge::ASM.add_imm(reg, reg, add)) if add.positive?
           end
 
           # Branch to +target+ when var_a >= var_b (signed) — coordinates can be
@@ -179,7 +179,7 @@ module RubyGBA
           def branch_if_ge(var_a, var_b, target)
             @primitives.load_var(ACC, var_a)
             @primitives.load_var(TMP, var_b)
-            @emitter.emit(ASM.cmp_reg(ACC, TMP))
+            @emitter.emit(Cartridge::ASM.cmp_reg(ACC, TMP))
             @emitter.emit_branch(:bcond, target, cond: :ge)
           end
 
@@ -206,12 +206,12 @@ module RubyGBA
             # A pixel counts only if it's drawn in BOTH sprites; a see-through pixel in
             # either means move on to the next column.
             load_mask_byte(PO_A_MASK, aw, PO_AX, PO_AY)
-            @emitter.emit(ASM.cmp_imm(ACC, 0))
+            @emitter.emit(Cartridge::ASM.cmp_imm(ACC, 0))
             @emitter.emit_branch(:bcond, next_x, cond: :eq)
             load_mask_byte(PO_B_MASK, bw, PO_BX, PO_BY)
-            @emitter.emit(ASM.cmp_imm(ACC, 0))
+            @emitter.emit(Cartridge::ASM.cmp_imm(ACC, 0))
             @emitter.emit_branch(:bcond, next_x, cond: :eq)
-            @emitter.emit(ASM.load_immediate(ACC, 1)) # both solid: a real hit
+            @emitter.emit(Cartridge::ASM.load_immediate(ACC, 1)) # both solid: a real hit
             @primitives.store_var(ACC, PO_RES)
             @emitter.emit_branch(:b, done)
 
@@ -231,23 +231,23 @@ module RubyGBA
           def load_mask_byte(mask_var, width, ox_var, oy_var)
             @primitives.load_var(ACC, PO_Y)
             @primitives.load_var(TMP, oy_var)
-            @emitter.emit(ASM.sub_reg(ACC, ACC, TMP))     # y - oy
-            @emitter.emit(ASM.load_immediate(TMP, width))
-            @emitter.emit(ASM.mul(ACC, TMP, ACC))         # (y - oy) * width
+            @emitter.emit(Cartridge::ASM.sub_reg(ACC, ACC, TMP))     # y - oy
+            @emitter.emit(Cartridge::ASM.load_immediate(TMP, width))
+            @emitter.emit(Cartridge::ASM.mul(ACC, TMP, ACC))         # (y - oy) * width
             @primitives.store_var(ACC, PO_ROW)
             @primitives.load_var(ACC, PO_X)
             @primitives.load_var(TMP, ox_var)
-            @emitter.emit(ASM.sub_reg(ACC, ACC, TMP))     # x - ox
+            @emitter.emit(Cartridge::ASM.sub_reg(ACC, ACC, TMP))     # x - ox
             @primitives.load_var(TMP, PO_ROW)
-            @emitter.emit(ASM.add_reg(ACC, TMP, ACC))     # the flat index into the mask
+            @emitter.emit(Cartridge::ASM.add_reg(ACC, TMP, ACC))     # the flat index into the mask
             @primitives.load_var(TMP, mask_var)
-            @emitter.emit(ASM.add_reg(ADDR, TMP, ACC))    # mask base + index
-            @emitter.emit(ASM.ldrb_offset(ACC, ADDR, 0))  # the solid/transparent byte
+            @emitter.emit(Cartridge::ASM.add_reg(ADDR, TMP, ACC))    # mask base + index
+            @emitter.emit(Cartridge::ASM.ldrb_offset(ACC, ADDR, 0))  # the solid/transparent byte
           end
 
           def increment(var)
             @primitives.load_var(ACC, var)
-            @emitter.emit(ASM.add_imm(ACC, ACC, 1))
+            @emitter.emit(Cartridge::ASM.add_imm(ACC, ACC, 1))
             @primitives.store_var(ACC, var)
           end
         end

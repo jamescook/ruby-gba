@@ -2,7 +2,7 @@
 
 require "test_helper"
 
-# The image importer (RubyGBA::Image): turn a real image file on the host machine
+# The image importer (RubyGBA::Graphics::Image): turn a real image file on the host machine
 # into GBA-ready pixels, behind a swappable adapter.
 #
 # Two layers are tested apart:
@@ -16,7 +16,7 @@ require "test_helper"
 class TestImageImport < Minitest::Test
   include RubyGBA::IR::Build
 
-  Image = RubyGBA::Image
+  Image = RubyGBA::Graphics::Image
 
   FIXTURES = File.expand_path("../../fixtures", __dir__)
   # The 2x2 fixture is red / green / blue / white, row-major (top-left first).
@@ -25,7 +25,7 @@ class TestImageImport < Minitest::Test
   # A 2x2 with an alpha channel: opaque red/green on top, transparent bottom row.
   ALPHA_2X2  = File.join(FIXTURES, "import_alpha_2x2.png")
   EXPECTED   = [0x001F, 0x03E0, 0x7C00, 0x7FFF].freeze # red, green, blue, white
-  MARKER     = RubyGBA::Image::TRANSPARENT             # 0x8000, the see-through marker
+  MARKER     = RubyGBA::Graphics::Image::TRANSPARENT             # 0x8000, the see-through marker
 
   # An adapter that returns canned pixels — lets the library be tested with no
   # ImageMagick at all. Its job is exactly the real adapter's: hand back
@@ -165,7 +165,7 @@ class TestImageImport < Minitest::Test
   end
 
   def test_imported_image_draws_on_hardware
-    rom = RubyGBA::ROM.assemble(
+    rom = RubyGBA::Cartridge::ROM.assemble(
       RubyGBA::IR::Backends::GBA.new.lower(photo_program(10, 20)),
       title: "PHOTO", code: "BPHT", maker: "01",
     )
@@ -205,7 +205,7 @@ class TestImageImport < Minitest::Test
   end
 
   def test_cutout_shows_background_through_transparent_pixels_on_hardware
-    rom = RubyGBA::ROM.assemble(
+    rom = RubyGBA::Cartridge::ROM.assemble(
       RubyGBA::IR::Backends::GBA.new.lower(cutout_program(10, 20)),
       title: "CUTOUT", code: "BCUT", maker: "01",
     )

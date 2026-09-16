@@ -15,9 +15,9 @@ require_relative "../../differential"
 class TestFadeUnderLayer < Minitest::Test
   include Differential
 
-  WHITE = RubyGBA::Color.resolve(:white)
-  GREEN = RubyGBA::Color.resolve(:green)
-  BLACK = RubyGBA::Color.resolve(:black)
+  WHITE = RubyGBA::Graphics::Color.resolve(:white)
+  GREEN = RubyGBA::Graphics::Color.resolve(:green)
+  BLACK = RubyGBA::Graphics::Color.resolve(:black)
 
   # A tiled game with a green field, a white player sprite, and a white HUD — one thing
   # in each of three layers, so a fade can be placed between any two of them.

@@ -11,9 +11,9 @@ require "tempfile"
 # frames' durations set the speed. This is the metadata-driven complement to the blind
 # grid slice of frames_from: / facing_from:.
 class TestAseprite < Minitest::Test
-  include RubyGBA::Constants
+  include RubyGBA::Cartridge::Constants
 
-  Aseprite = RubyGBA::Aseprite
+  Aseprite = RubyGBA::Graphics::Aseprite
 
   SOLID8 = (["########"] * 8).join("\n")
   # The committed fixtures. A JSON+PNG export and a native .aseprite binary, both a 4-frame
@@ -129,7 +129,7 @@ class TestAseprite < Minitest::Test
     sprite = Aseprite.load_binary(File.binread(BIRD))
     assert_equal 6, sprite.frames.length, "the bird has six frames"
     assert_equal [64, 64], [sprite.frames[0].width, sprite.frames[0].height]
-    marker = RubyGBA::Image::TRANSPARENT
+    marker = RubyGBA::Graphics::Image::TRANSPARENT
     lit = sprite.frames[0].data.count { |px| px != marker }
     assert_operator lit, :>, 100, "the seven layers composite into a bird's worth of lit pixels"
   end

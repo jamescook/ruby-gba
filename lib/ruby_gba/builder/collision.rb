@@ -19,7 +19,7 @@ module RubyGBA
       #
       # A sprite already knows its bounds, so `hero.overlaps?(coin)` needs no box.
       def box(x, y, w, h)
-        Box.new(self, x, y, w, h)
+        DSL::Box.new(self, x, y, w, h)
       end
 
       # TILE COLLISION: the routine that asks a background's grid whether a box is clear of
@@ -72,9 +72,9 @@ module RubyGBA
         height = cells.rows * cells.tile_h
 
         func(name) do
-          clear = Value.new(self, IR::Build.var_ref(TILE_COLLISION_CLEAR), name: TILE_COLLISION_CLEAR)
-          left = Value.new(self, IR::Build.var_ref(TILE_COLLISION_X), name: TILE_COLLISION_X) + hit_x
-          top = Value.new(self, IR::Build.var_ref(TILE_COLLISION_Y), name: TILE_COLLISION_Y) + hit_y
+          clear = DSL::Value.new(self, IR::Build.var_ref(TILE_COLLISION_CLEAR), name: TILE_COLLISION_CLEAR)
+          left = DSL::Value.new(self, IR::Build.var_ref(TILE_COLLISION_X), name: TILE_COLLISION_X) + hit_x
+          top = DSL::Value.new(self, IR::Build.var_ref(TILE_COLLISION_Y), name: TILE_COLLISION_Y) + hit_y
           # WHICH ROOM'S WALLS, worked out once for the whole check rather than once per
           # cell: every sample a mover takes is in the map it is standing in, so the offset
           # to that map's grid is the same for all nine. That is what keeps a background
@@ -108,7 +108,7 @@ module RubyGBA
       def map_base_for(cells)
         return nil if cells.map_var.nil?
 
-        Value.new(self, IR::Build.var_ref(cells.map_var), name: cells.map_var) * cells.cells_per_map
+        DSL::Value.new(self, IR::Build.var_ref(cells.map_var), name: cells.map_var) * cells.cells_per_map
       end
 
       # Where along a box to ask, for a box +size+ pixels across on +tile+-pixel cells:

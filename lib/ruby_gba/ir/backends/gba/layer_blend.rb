@@ -47,7 +47,7 @@ module RubyGBA
         # its own @drawing exists, so it hands in `self` and the call resolves once
         # @drawing does (see gba.rb#initialize).
         class LayerBlend
-          include Constants
+          include Cartridge::Constants
 
           # attr0 bits 10-11 = 1: draw this sprite through the blend rather than straight.
           # (The same two bits hold OBJ_WINDOW_MODE at 2, which is why they are one field

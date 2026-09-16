@@ -18,7 +18,7 @@ module RubyGBA
       #   image :friend, width: 16, height: 16, data: bmp.data
       #
       # From-a-file form — hand it an image on your machine and a size, and it's
-      # imported (via RubyGBA::Image) and embedded in one step:
+      # imported (via RubyGBA::Graphics::Image) and embedded in one step:
       #
       #   image :friend, from: "friend.png", width: 16, height: 16
       #
@@ -75,7 +75,7 @@ module RubyGBA
           define_placed_image(name, places: opts[:places], width: opts[:width], height: opts[:height],
                                     colors: opts[:colors])
         elsif opts[:from]
-          bmp = Image.load(resolve_asset_path(opts[:from]), width: opts[:width], height: opts[:height],
+          bmp = Graphics::Image.load(resolve_asset_path(opts[:from]), width: opts[:width], height: opts[:height],
                                                             transparent: opts.fetch(:transparent, false))
           define_pixel_image(name, width: bmp.width, height: bmp.height, data: bmp.data,
                                    transparent: bmp.transparent, colors: opts[:colors])
@@ -111,7 +111,7 @@ module RubyGBA
                 "blit :#{name} was given showing:, but it draws one picture. showing: picks between " \
                 "several, so give it a list: blit [:#{name}, :other], #{x}, #{y}, showing: ..."
         end
-        record(Build.blit(name, Value.node_for(x), Value.node_for(y)))
+        record(Build.blit(name, DSL::Value.node_for(x), DSL::Value.node_for(y)))
         ensure_var(x)
         ensure_var(y)
       end
@@ -152,18 +152,18 @@ module RubyGBA
       # Pack 5-bit RGB channels (0-31 each) into a 15-bit GBA color.
       # Raises on out-of-range values to catch mistakes early.
       def rgb(r, g, b)
-        Color.rgb(r, g, b)
+        Graphics::Color.rgb(r, g, b)
       end
 
       # Pack 8-bit RGB channels (0-255 each) into a 15-bit GBA color.
       # Automatically downsamples to 5-bit per channel.
       def rgb8(r, g, b)
-        Color.rgb8(r, g, b)
+        Graphics::Color.rgb8(r, g, b)
       end
 
       # Resolve a color from a name, hex string, or raw value.
       def color(value)
-        Color.resolve(value)
+        Graphics::Color.resolve(value)
       end
 
       # A LIST OF COLOURS NO PICTURE OWNS, for a sprite to be drawn with instead of its own.
@@ -185,7 +185,7 @@ module RubyGBA
                 "Got #{list.inspect}."
         end
 
-        @color_lists[name] = list.map { |c| c == :transparent ? 0x0000 : Color.resolve(c) }
+        @color_lists[name] = list.map { |c| c == :transparent ? 0x0000 : Graphics::Color.resolve(c) }
         name
       end
 
@@ -241,7 +241,7 @@ module RubyGBA
       def two_places_one_color(color:, places:, list:, picture:, subject:)
         spelled = places.map { |place| "place #{place}" }
         both = "#{spelled[0..-2].join(', ')} and #{spelled.last}"
-        "#{subject} was told to draw_with :#{list}. Its own list has #{Color.name_for(color)} at " \
+        "#{subject} was told to draw_with :#{list}. Its own list has #{Graphics::Color.name_for(color)} at " \
           "#{both}, and :#{list} has a different color at each of those places. The picture holds a " \
           "color for each pixel, not a place, so nothing records which place a pixel came from. To fix " \
           "this, give :#{list} one color for #{both}. Or give :#{picture} its pixels as places: " \
@@ -271,7 +271,7 @@ module RubyGBA
         unless name.is_a?(Symbol)
           raise ArgumentError, "colors needs a name that is a Symbol, like colors :hurt, [...]. Got #{name.inspect}."
         end
-        if name == Recolors::OWN
+        if name == DSL::Recolors::OWN
           raise ArgumentError,
                 "colors cannot be named :#{name}. `draw_with :#{name}` means a sprite's own colors. " \
                 "Pick a different name."
@@ -331,7 +331,7 @@ module RubyGBA
         raise ArgumentError, "blit was given an empty list of pictures. Name at least one." if names.empty?
 
         same_size_blit!(names)
-        record(Build.blit_pose(names, Value.node_for(showing), Value.node_for(x), Value.node_for(y)))
+        record(Build.blit_pose(names, DSL::Value.node_for(showing), DSL::Value.node_for(x), DSL::Value.node_for(y)))
         ensure_var(x)
         ensure_var(y)
         ensure_var(showing)
@@ -378,7 +378,7 @@ module RubyGBA
 
         transparent = TRANSPARENT_PIXEL if transparent == true
         data = data.map { |c| c == :transparent ? transparent : c } if transparent == TRANSPARENT_PIXEL
-        pixels = data.map { |c| c == transparent ? transparent : Color.resolve(c) }.pack("v*")
+        pixels = data.map { |c| c == transparent ? transparent : Graphics::Color.resolve(c) }.pack("v*")
         given = own_colors(name, colors, pixels, transparent)
         remember_picture(Build.bitmap(name, width: width, height: height, pixels: pixels,
                                             transparent: transparent, colors: given))
@@ -483,7 +483,7 @@ module RubyGBA
               transparent = true
               TRANSPARENT_PIXEL
             else
-              Color.resolve(spec)
+              Graphics::Color.resolve(spec)
             end
           end
         end
@@ -520,7 +520,7 @@ module RubyGBA
           next unless slot.zero?
 
           raise ArgumentError,
-                "image :#{name} draws with #{Color.name_for(value & 0x7FFF)}, which is first in its list of " \
+                "image :#{name} draws with #{Graphics::Color.name_for(value & 0x7FFF)}, which is first in its list of " \
                 "colors. The first color in the list means see-through, so those pixels will not be drawn. " \
                 "Put a see-through entry first and move this color after it."
         end
@@ -530,7 +530,7 @@ module RubyGBA
       # A picture's own list, resolved to colors. The see-through entry is kept as nil so
       # nothing mistakes it for the black a real pixel can be drawn in.
       def color_table(name, colors)
-        return colors.map { |c| c == :transparent ? nil : Color.resolve(c) } if colors.length <= OWN_COLORS
+        return colors.map { |c| c == :transparent ? nil : Graphics::Color.resolve(c) } if colors.length <= OWN_COLORS
 
         raise ArgumentError,
               "image :#{name} was given #{colors.length} colors. A picture drawn from its own list of " \
@@ -539,7 +539,7 @@ module RubyGBA
       end
 
       def unlisted_color(name, value)
-        "image :#{name} draws with #{Color.name_for(value)}, which is not in the list of colors it was " \
+        "image :#{name} draws with #{Graphics::Color.name_for(value)}, which is not in the list of colors it was " \
           "given. A picture given `colors:` is drawn from those colors and no others. Add this one to " \
           "the list, or draw the picture with a color already in it."
       end
@@ -575,7 +575,7 @@ module RubyGBA
       end
 
       def positive_dims!(name, width, height)
-        return if Whole.positive?(width) && Whole.positive?(height)
+        return if DSL::Whole.positive?(width) && DSL::Whole.positive?(height)
 
         raise ArgumentError, "image :#{name} needs a width and height above 0. Got #{width}x#{height}."
       end

@@ -319,7 +319,7 @@ module RubyGBA
                   else
                     frames || default
                   end
-          unless Whole.positive?(count)
+          unless DSL::Whole.positive?(count)
             raise ArgumentError,
                   "a fade needs a positive whole number of frames. You gave #{(frames || duration).inspect}."
           end
@@ -365,7 +365,7 @@ module RubyGBA
         def fade_color_code(color)
           return COLORS.fetch(color) if COLORS.key?(color)
 
-          resolved = Color.resolve(color)
+          resolved = Graphics::Color.resolve(color)
           fade_tint_colors << resolved unless fade_tint_colors.include?(resolved)
           FIRST_TINT + fade_tint_colors.index(resolved)
         end

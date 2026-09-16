@@ -8,7 +8,7 @@ require "test_helper"
 # Aseprite first). These build tiny .aseprite files in memory to exercise each case,
 # without committing binary fixtures.
 class TestAsepriteLayers < Minitest::Test
-  Aseprite = RubyGBA::Aseprite
+  Aseprite = RubyGBA::Graphics::Aseprite
 
   # --- a minimal in-memory .aseprite builder (RGBA or grayscale, solid-color cels) ---
 

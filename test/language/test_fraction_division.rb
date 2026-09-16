@@ -117,7 +117,7 @@ class TestFractionDivision < Minitest::Test
     end
     backend = GBA.new
     rom = ROM.assemble(backend.lower(program), title: "SATRND", code: "ZSAT", maker: "01")
-    console = RubyGBA::Verifier.new(rom, frames: 4, vars: backend.var_addresses)
+    console = RubyGBA::Diagnostics::Verifier.new(rom, frames: 4, vars: backend.var_addresses)
 
     assert_operator Reference.new.run(program)[:rounded], :<, 0, "the oracle wraps it negative"
     assert_equal Reference.new.run(program)[:rounded], Int32.wrap(console.var(:rounded)),

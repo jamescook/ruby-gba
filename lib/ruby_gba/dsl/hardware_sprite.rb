@@ -1,460 +1,462 @@
 # frozen_string_literal: true
 
 module RubyGBA
-  # A handle to a hardware sprite: a moving picture the console composites over the
-  # background for you. You get one from `sprite :hero, at: [x, y]` when the screen
-  # is a `screen :tiled` — and it behaves, from the game's side, exactly like the
-  # software {Sprite} you get in `screen :bitmap`. Same handle, same code:
-  #
-  #   screen :tiled
-  #   background :room, tiles: :dungeon, map: ...   # the scene behind the sprite
-  #   hero = sprite :hero, at: [100, 60]
-  #   game_loop do
-  #     wait_vblank
-  #     held(:right).then { hero.x.add! 2 }          # steer with the expression DSL
-  #     # no draw call — the framework draws the sprite for you each frame
-  #   end
-  #
-  # The difference from a software sprite is under the hood and in your favor. A
-  # software sprite has to remember and repaint the pixels underneath itself so it
-  # leaves no trail; a hardware sprite doesn't, because the console redraws the
-  # whole picture — background and sprites — every frame from scratch. That means it
-  # costs no per-pixel work to move, and (in a later slice) sprites can stack over
-  # each other with a set order, which software save-under can't do. The trade is
-  # that it only exists on a `screen :tiled`, drawn from tiles.
-  #
-  # You don't call a draw verb. Builder#wait_vblank draws every hardware sprite once
-  # per frame, during the vertical blank — the brief safe window to change the
-  # screen — so moving one is just changing `x`/`y`, and it shows on the next frame.
-  class HardwareSprite
-    include Bounds       # gains overlaps? from left / top / right / bottom (its collision box)
-    include PixelBounds  # ...and makes that overlaps? shape-accurate (per-pixel) by default
-
-    Build = IR::Build
-
-    # Built by Builder#hardware_sprite, which reserves the object name, boots the
-    # position/visibility variables, and records the object declaration. The names
-    # passed here are hidden state the player never sees; `x`/`y` expose the position.
+  module DSL
+    # A handle to a hardware sprite: a moving picture the console composites over the
+    # background for you. You get one from `sprite :hero, at: [x, y]` when the screen
+    # is a `screen :tiled` — and it behaves, from the game's side, exactly like the
+    # software {Sprite} you get in `screen :bitmap`. Same handle, same code:
     #
-    # @param builder [Builder] the build these operations record into
-    # @param object_name [Symbol] the declared object this handle steers
-    # @param x [Symbol] the variable holding the sprite's current x (exposed as #x)
-    # @param y [Symbol] the variable holding its current y (exposed as #y)
-    # @param active [Symbol] 1 while shown, 0 while hidden
-    # @param hitbox [Array(Integer,Integer,Integer,Integer)] the collision box [x, y, w, h]
-    #   relative to the sprite's top-left (by default the box around its visible pixels)
-    # @param poses [Array<Symbol>] the sprite's picture(s), for the per-pixel collision test
-    # @param pixel_perfect [Boolean] collide on the drawn pixels (true) or just the box (false,
-    #   set when the sprite was given an explicit hitbox:)
-    # @param facing_var [Symbol, nil] the variable holding which pose is showing (faceted only)
-    # @param facing_dirs [Hash{Symbol=>Integer}, nil] direction -> pose index (faceted only)
-    def initialize(builder, object_name:, x:, y:, active:, hitbox:, poses:, pixel_perfect:,
-                   object_node: nil, facing_var: nil, facing_dirs: nil, frame_var: nil, frames_per_dir: 1,
-                   clips: nil, clip_off_var: nil, clip_len_var: nil)
-      @builder = builder
-      @object_name = object_name
-      @object_node = object_node # the IR object node; turning it swaps in a variable angle
-      @angle_var = nil           # allocated the first time the sprite is told to turn
-      @scale_var = nil           # ...and this the first time it is told to resize
-      @x_var = x
-      @y_var = y
-      @active = active
-      @hit_x, @hit_y, @hit_w, @hit_h = hitbox # collision box, offset from the sprite's top-left
-      @poses = poses             # the picture(s) the per-pixel collision test reads
-      @pixel_perfect = pixel_perfect
-      @facing_var = facing_var   # the variable the object's pose selector reads (facing, or single pose)
-      @facing_dirs = facing_dirs # direction -> facing index, for face / auto-facing move
-      @frame_var = frame_var     # a directional-animation OR named-clip frame variable; nil otherwise
-      @frames_per_dir = frames_per_dir # frames per direction (1 unless a directional animation)
-      @clips = clips             # named animations from an Aseprite sheet (name -> {off, len}); nil otherwise
-      @clip_off_var = clip_off_var # the current clip's start offset (a named-clip sprite)
-      @clip_len_var = clip_len_var # the current clip's length
-      @walls = nil               # solid-tile Boxes this sprite is blocked by (nil until blocked_by)
-    end
-
-    # What per-pixel collision (see {PixelBounds}) reads off this sprite: the build to
-    # record into, its picture set, the pose it's showing now, and whether it collides
-    # on its drawn pixels at all.
-    def pixel_perfect? = @pixel_perfect
-    def collision_builder = @builder
-    def collision_poses = @poses
-    def collision_pose = pose_index_node
-
-    # Which pose is showing right now, as a value node — the same composition the object's
-    # pose selector uses, so per-pixel collision reads the frame the console is drawing. A
-    # plain sprite is pose 0, a facing/frames sprite is its selector, and a directional
-    # animation is facing * frames_per_direction + frame.
-    def pose_index_node
-      return Build.binop(:+, Build.var_ref(@clip_off_var), Build.var_ref(@frame_var)) if @clip_off_var
-      return Build.int(0) unless @facing_var
-      return Build.var_ref(@facing_var) unless @frame_var
-
-      Build.binop(:+, Build.binop(:*, Build.var_ref(@facing_var), Build.int(@frames_per_dir)),
-                  Build.var_ref(@frame_var))
-    end
-
-    # The object this handle drives — Builder#wait_vblank lists it for the per-frame
-    # draw.
-    attr_reader :object_name
-
-    # Where this sprite sits in the stack — the layer it was declared in, or nil in a
-    # game that names no layers. It's read off the object itself rather than kept here
-    # as well, so the handle and the program can never disagree about it.
-    def layer = @object_node.layer
-
-    # The sprite's position, as {Value} handles — steer them with the expression DSL
-    # (`hero.x.add! 2`, `hero.y.clamp! 0, 150`). The framework reads them each frame to
-    # know where to draw.
-    def x
-      Value.new(@builder, Build.var_ref(@x_var), name: @x_var)
-    end
-
-    def y
-      Value.new(@builder, Build.var_ref(@y_var), name: @y_var)
-    end
-
-    # The sprite's collision-box edges, as {Value}s — its position plus its hitbox
-    # (by default the box hugging its visible pixels). These are what make `overlaps?`
-    # work on a sprite with no box of its own: `hero.overlaps?(coin)`.
-    def left
-      x + @hit_x
-    end
-
-    def top
-      y + @hit_y
-    end
-
-    def right
-      x + @hit_x + @hit_w
-    end
-
-    def bottom
-      y + @hit_y + @hit_h
-    end
-
-    # Move the sprite, the same two ways a software {Sprite} moves: a named direction
-    # (turned into x/y arithmetic for you, with `by:` the speed), or a raw (dx, dy)
-    # nudge for velocity/physics.
-    #
-    #   hero.move :left            # a step left
-    #   hero.move :up_right, by: 3 # diagonals, three pixels at a time
-    #   hero.move 2, -1            # or a raw (dx, dy)
-    def move(direction_or_dx, dy = nil, by: 1)
-      if direction_or_dx.is_a?(Symbol)
-        step_x, step_y = Direction.unit(direction_or_dx)
-        step(:x, step_x * by) unless step_x.zero?
-        step(:y, step_y * by) unless step_y.zero?
-        # A sprite with poses turns to face the way it moves — press left, move AND
-        # face left in one call (only for a direction it has a pose for).
-        face(direction_or_dx) if faceted? && @facing_dirs.key?(direction_or_dx)
-      else
-        step(:x, direction_or_dx) if direction_or_dx != 0
-        step(:y, dy) if dy && dy != 0
-      end
-      self
-    end
-
-    # Stop this sprite from moving through +background+'s wall tiles — the ones its
-    # tileset marked `solid:`. After this, `move` is checked automatically: a step that
-    # would put the sprite into a wall simply doesn't happen, so it slides along walls
-    # and stops at them with no collision code of your own.
-    #
-    #   world = background :maze, tiles: :bricks, map: MAZE   # bricks marked solid:
-    #   hero  = sprite :hero, at: [24, 24]
-    #   hero.blocked_by world
+    #   screen :tiled
+    #   background :room, tiles: :dungeon, map: ...   # the scene behind the sprite
+    #   hero = sprite :hero, at: [100, 60]
     #   game_loop do
     #     wait_vblank
-    #     held(:right).then { hero.move :right }   # walks until a wall, then stops
+    #     held(:right).then { hero.x.add! 2 }          # steer with the expression DSL
+    #     # no draw call — the framework draws the sprite for you each frame
     #   end
     #
-    # You keep full manual control too: `can_move?` asks before moving so you can do
-    # your own thing when blocked, and the raw position ops (`move_to`, `x`/`y`) are
-    # never checked — an escape hatch for teleports and scripted moves.
-    def blocked_by(background)
-      @solid_cells = background.solid_lookup
-      @walls = @solid_cells ? [] : background.solid_boxes
-      self
-    end
+    # The difference from a software sprite is under the hood and in your favor. A
+    # software sprite has to remember and repaint the pixels underneath itself so it
+    # leaves no trail; a hardware sprite doesn't, because the console redraws the
+    # whole picture — background and sprites — every frame from scratch. That means it
+    # costs no per-pixel work to move, and (in a later slice) sprites can stack over
+    # each other with a set order, which software save-under can't do. The trade is
+    # that it only exists on a `screen :tiled`, drawn from tiles.
+    #
+    # You don't call a draw verb. Builder#wait_vblank draws every hardware sprite once
+    # per frame, during the vertical blank — the brief safe window to change the
+    # screen — so moving one is just changing `x`/`y`, and it shows on the next frame.
+    class HardwareSprite
+      include Bounds       # gains overlaps? from left / top / right / bottom (its collision box)
+      include PixelBounds  # ...and makes that overlaps? shape-accurate (per-pixel) by default
 
-    # Whether this sprite could step +by+ pixels in +direction+ without hitting a wall
-    # — a {Condition} to branch on, for taking collision into your own hands:
-    #
-    #   hero.can_move?(:left).then { hero.move :left }   # or do something else if not
-    #
-    # Needs `blocked_by` to have named the walls first.
-    def can_move?(direction, by: 1)
-      if @walls.nil? && @solid_cells.nil?
-        raise ArgumentError, "call blocked_by(background) before can_move? — it needs to know the walls"
+      Build = IR::Build
+
+      # Built by Builder#hardware_sprite, which reserves the object name, boots the
+      # position/visibility variables, and records the object declaration. The names
+      # passed here are hidden state the player never sees; `x`/`y` expose the position.
+      #
+      # @param builder [Builder] the build these operations record into
+      # @param object_name [Symbol] the declared object this handle steers
+      # @param x [Symbol] the variable holding the sprite's current x (exposed as #x)
+      # @param y [Symbol] the variable holding its current y (exposed as #y)
+      # @param active [Symbol] 1 while shown, 0 while hidden
+      # @param hitbox [Array(Integer,Integer,Integer,Integer)] the collision box [x, y, w, h]
+      #   relative to the sprite's top-left (by default the box around its visible pixels)
+      # @param poses [Array<Symbol>] the sprite's picture(s), for the per-pixel collision test
+      # @param pixel_perfect [Boolean] collide on the drawn pixels (true) or just the box (false,
+      #   set when the sprite was given an explicit hitbox:)
+      # @param facing_var [Symbol, nil] the variable holding which pose is showing (faceted only)
+      # @param facing_dirs [Hash{Symbol=>Integer}, nil] direction -> pose index (faceted only)
+      def initialize(builder, object_name:, x:, y:, active:, hitbox:, poses:, pixel_perfect:,
+                     object_node: nil, facing_var: nil, facing_dirs: nil, frame_var: nil, frames_per_dir: 1,
+                     clips: nil, clip_off_var: nil, clip_len_var: nil)
+        @builder = builder
+        @object_name = object_name
+        @object_node = object_node # the IR object node; turning it swaps in a variable angle
+        @angle_var = nil           # allocated the first time the sprite is told to turn
+        @scale_var = nil           # ...and this the first time it is told to resize
+        @x_var = x
+        @y_var = y
+        @active = active
+        @hit_x, @hit_y, @hit_w, @hit_h = hitbox # collision box, offset from the sprite's top-left
+        @poses = poses             # the picture(s) the per-pixel collision test reads
+        @pixel_perfect = pixel_perfect
+        @facing_var = facing_var   # the variable the object's pose selector reads (facing, or single pose)
+        @facing_dirs = facing_dirs # direction -> facing index, for face / auto-facing move
+        @frame_var = frame_var     # a directional-animation OR named-clip frame variable; nil otherwise
+        @frames_per_dir = frames_per_dir # frames per direction (1 unless a directional animation)
+        @clips = clips             # named animations from an Aseprite sheet (name -> {off, len}); nil otherwise
+        @clip_off_var = clip_off_var # the current clip's start offset (a named-clip sprite)
+        @clip_len_var = clip_len_var # the current clip's length
+        @walls = nil               # solid-tile Boxes this sprite is blocked by (nil until blocked_by)
       end
 
-      step_x, step_y = Direction.unit(direction)
-      clear_of_walls(x + (step_x * by), y + (step_y * by))
-    end
+      # What per-pixel collision (see {PixelBounds}) reads off this sprite: the build to
+      # record into, its picture set, the pose it's showing now, and whether it collides
+      # on its drawn pixels at all.
+      def pixel_perfect? = @pixel_perfect
+      def collision_builder = @builder
+      def collision_poses = @poses
+      def collision_pose = pose_index_node
 
-    # Jump the sprite to an exact spot — sugar for x.set! / y.set!.
-    def move_to(px, py)
-      x.set!(px)
-      y.set!(py)
-      self
-    end
+      # Which pose is showing right now, as a value node — the same composition the object's
+      # pose selector uses, so per-pixel collision reads the frame the console is drawing. A
+      # plain sprite is pose 0, a facing/frames sprite is its selector, and a directional
+      # animation is facing * frames_per_direction + frame.
+      def pose_index_node
+        return Build.binop(:+, Build.var_ref(@clip_off_var), Build.var_ref(@frame_var)) if @clip_off_var
+        return Build.int(0) unless @facing_var
+        return Build.var_ref(@facing_var) unless @frame_var
 
-    # Keep the sprite fully on the screen: pin its position so its box never crosses
-    # an edge, worked out from the sprite's own size — no coordinate literals. The
-    # counterpart to the off-screen tests ({Bounds#off_screen?} and friends): call it
-    # after a move to pen a player inside the play field. Clamps x/y in place, returns
-    # self. (It keeps the sprite's collision box on screen; a transparent margin around
-    # the art may still slide off, which is what you want.)
-    def clamp_to_screen
-      x.clamp!(-@hit_x, IR::Screen::WIDTH - @hit_x - @hit_w)
-      y.clamp!(-@hit_y, IR::Screen::HEIGHT - @hit_y - @hit_h)
-      self
-    end
-    alias stay_on_screen clamp_to_screen
-
-    # Put the sprite in the middle of the screen, worked out from its own size — the
-    # sibling of {#clamp_to_screen}, and for the same reason: no coordinate literals.
-    # Where a hero stands in a game whose world scrolls under them, where a logo sits
-    # on a title screen, where a cursor starts on a menu.
-    #
-    #   hero = sprite :guy, at: [0, 0]
-    #   hero.center_on_screen
-    #
-    # It centres the sprite's collision box, which is the box that hugs its visible
-    # pixels unless you gave it one — so a picture with a transparent margin still
-    # LOOKS centred, which a naive half-the-width would not manage.
-    def center_on_screen
-      move_to((IR::Screen::WIDTH - @hit_w) / 2 - @hit_x,
-              (IR::Screen::HEIGHT - @hit_h) / 2 - @hit_y)
-    end
-
-    # Turn the sprite to face a direction, swapping to that pose in place (no move).
-    # Only for a sprite given `facing:` poses, and only a direction it has a pose for
-    # — anything else is a friendly error. On hardware this swaps which uploaded
-    # picture the console draws; the change shows on the next frame.
-    def face(direction)
-      unless faceted?
-        raise ArgumentError,
-              "this sprite has no poses to face with — give it `facing: { left: :img_l, right: :img_r, ... }`"
+        Build.binop(:+, Build.binop(:*, Build.var_ref(@facing_var), Build.int(@frames_per_dir)),
+                    Build.var_ref(@frame_var))
       end
-      index = @facing_dirs[direction] or
-        raise ArgumentError, "this sprite cannot face #{direction.inspect} — it faces #{@facing_dirs.keys.join(', ')}"
 
-      record(Build.set(@facing_var, Build.int(index)))
-      self
-    end
+      # The object this handle drives — Builder#wait_vblank lists it for the per-frame
+      # draw.
+      attr_reader :object_name
 
-    # Turn the sprite to point at an exact angle: +degrees+ clockwise from upright,
-    # pivoting on its own center. Where `face` swaps between a few fixed poses, this
-    # rotates the picture itself to any angle — a ship that points wherever it aims, a
-    # key that turns. +degrees+ can be a whole number or a {Value} (an aim you work out
-    # at run time).
-    #
-    #   ship.face_angle 90        # point to the right
-    #   ship.face_angle aim       # point the way `aim` says
-    #
-    # The first turn makes this a rotating sprite; one that never turns draws upright and
-    # costs nothing extra. The angle wraps, so 370 is the same as 10, and -90 the same as
-    # 270. Only a `screen :tiled` sprite can turn (the console rotates it in hardware).
-    def face_angle(degrees)
-      ensure_rotatable
-      fixed = Value.fixed_number(degrees)
-      if fixed
-        record(Build.set(@angle_var, Build.int(fixed % 360)))
-      else
-        angle.set!(degrees)
+      # Where this sprite sits in the stack — the layer it was declared in, or nil in a
+      # game that names no layers. It's read off the object itself rather than kept here
+      # as well, so the handle and the program can never disagree about it.
+      def layer = @object_node.layer
+
+      # The sprite's position, as {Value} handles — steer them with the expression DSL
+      # (`hero.x.add! 2`, `hero.y.clamp! 0, 150`). The framework reads them each frame to
+      # know where to draw.
+      def x
+        Value.new(@builder, Build.var_ref(@x_var), name: @x_var)
+      end
+
+      def y
+        Value.new(@builder, Build.var_ref(@y_var), name: @y_var)
+      end
+
+      # The sprite's collision-box edges, as {Value}s — its position plus its hitbox
+      # (by default the box hugging its visible pixels). These are what make `overlaps?`
+      # work on a sprite with no box of its own: `hero.overlaps?(coin)`.
+      def left
+        x + @hit_x
+      end
+
+      def top
+        y + @hit_y
+      end
+
+      def right
+        x + @hit_x + @hit_w
+      end
+
+      def bottom
+        y + @hit_y + @hit_h
+      end
+
+      # Move the sprite, the same two ways a software {Sprite} moves: a named direction
+      # (turned into x/y arithmetic for you, with `by:` the speed), or a raw (dx, dy)
+      # nudge for velocity/physics.
+      #
+      #   hero.move :left            # a step left
+      #   hero.move :up_right, by: 3 # diagonals, three pixels at a time
+      #   hero.move 2, -1            # or a raw (dx, dy)
+      def move(direction_or_dx, dy = nil, by: 1)
+        if direction_or_dx.is_a?(Symbol)
+          step_x, step_y = Direction.unit(direction_or_dx)
+          step(:x, step_x * by) unless step_x.zero?
+          step(:y, step_y * by) unless step_y.zero?
+          # A sprite with poses turns to face the way it moves — press left, move AND
+          # face left in one call (only for a direction it has a pose for).
+          face(direction_or_dx) if faceted? && @facing_dirs.key?(direction_or_dx)
+        else
+          step(:x, direction_or_dx) if direction_or_dx != 0
+          step(:y, dy) if dy && dy != 0
+        end
+        self
+      end
+
+      # Stop this sprite from moving through +background+'s wall tiles — the ones its
+      # tileset marked `solid:`. After this, `move` is checked automatically: a step that
+      # would put the sprite into a wall simply doesn't happen, so it slides along walls
+      # and stops at them with no collision code of your own.
+      #
+      #   world = background :maze, tiles: :bricks, map: MAZE   # bricks marked solid:
+      #   hero  = sprite :hero, at: [24, 24]
+      #   hero.blocked_by world
+      #   game_loop do
+      #     wait_vblank
+      #     held(:right).then { hero.move :right }   # walks until a wall, then stops
+      #   end
+      #
+      # You keep full manual control too: `can_move?` asks before moving so you can do
+      # your own thing when blocked, and the raw position ops (`move_to`, `x`/`y`) are
+      # never checked — an escape hatch for teleports and scripted moves.
+      def blocked_by(background)
+        @solid_cells = background.solid_lookup
+        @walls = @solid_cells ? [] : background.solid_boxes
+        self
+      end
+
+      # Whether this sprite could step +by+ pixels in +direction+ without hitting a wall
+      # — a {Condition} to branch on, for taking collision into your own hands:
+      #
+      #   hero.can_move?(:left).then { hero.move :left }   # or do something else if not
+      #
+      # Needs `blocked_by` to have named the walls first.
+      def can_move?(direction, by: 1)
+        if @walls.nil? && @solid_cells.nil?
+          raise ArgumentError, "call blocked_by(background) before can_move? — it needs to know the walls"
+        end
+
+        step_x, step_y = Direction.unit(direction)
+        clear_of_walls(x + (step_x * by), y + (step_y * by))
+      end
+
+      # Jump the sprite to an exact spot — sugar for x.set! / y.set!.
+      def move_to(px, py)
+        x.set!(px)
+        y.set!(py)
+        self
+      end
+
+      # Keep the sprite fully on the screen: pin its position so its box never crosses
+      # an edge, worked out from the sprite's own size — no coordinate literals. The
+      # counterpart to the off-screen tests ({Bounds#off_screen?} and friends): call it
+      # after a move to pen a player inside the play field. Clamps x/y in place, returns
+      # self. (It keeps the sprite's collision box on screen; a transparent margin around
+      # the art may still slide off, which is what you want.)
+      def clamp_to_screen
+        x.clamp!(-@hit_x, IR::Screen::WIDTH - @hit_x - @hit_w)
+        y.clamp!(-@hit_y, IR::Screen::HEIGHT - @hit_y - @hit_h)
+        self
+      end
+      alias stay_on_screen clamp_to_screen
+
+      # Put the sprite in the middle of the screen, worked out from its own size — the
+      # sibling of {#clamp_to_screen}, and for the same reason: no coordinate literals.
+      # Where a hero stands in a game whose world scrolls under them, where a logo sits
+      # on a title screen, where a cursor starts on a menu.
+      #
+      #   hero = sprite :guy, at: [0, 0]
+      #   hero.center_on_screen
+      #
+      # It centres the sprite's collision box, which is the box that hugs its visible
+      # pixels unless you gave it one — so a picture with a transparent margin still
+      # LOOKS centred, which a naive half-the-width would not manage.
+      def center_on_screen
+        move_to((IR::Screen::WIDTH - @hit_w) / 2 - @hit_x,
+                (IR::Screen::HEIGHT - @hit_h) / 2 - @hit_y)
+      end
+
+      # Turn the sprite to face a direction, swapping to that pose in place (no move).
+      # Only for a sprite given `facing:` poses, and only a direction it has a pose for
+      # — anything else is a friendly error. On hardware this swaps which uploaded
+      # picture the console draws; the change shows on the next frame.
+      def face(direction)
+        unless faceted?
+          raise ArgumentError,
+                "this sprite has no poses to face with — give it `facing: { left: :img_l, right: :img_r, ... }`"
+        end
+        index = @facing_dirs[direction] or
+          raise ArgumentError, "this sprite cannot face #{direction.inspect} — it faces #{@facing_dirs.keys.join(', ')}"
+
+        record(Build.set(@facing_var, Build.int(index)))
+        self
+      end
+
+      # Turn the sprite to point at an exact angle: +degrees+ clockwise from upright,
+      # pivoting on its own center. Where `face` swaps between a few fixed poses, this
+      # rotates the picture itself to any angle — a ship that points wherever it aims, a
+      # key that turns. +degrees+ can be a whole number or a {Value} (an aim you work out
+      # at run time).
+      #
+      #   ship.face_angle 90        # point to the right
+      #   ship.face_angle aim       # point the way `aim` says
+      #
+      # The first turn makes this a rotating sprite; one that never turns draws upright and
+      # costs nothing extra. The angle wraps, so 370 is the same as 10, and -90 the same as
+      # 270. Only a `screen :tiled` sprite can turn (the console rotates it in hardware).
+      def face_angle(degrees)
+        ensure_rotatable
+        fixed = Value.fixed_number(degrees)
+        if fixed
+          record(Build.set(@angle_var, Build.int(fixed % 360)))
+        else
+          angle.set!(degrees)
+          wrap_angle
+        end
+        self
+      end
+
+      # Turn the sprite by +degrees+ from the way it points now: a positive number turns it
+      # clockwise, a negative one counter-clockwise. Call it each frame to spin steadily or
+      # to steer — `held(:left).then { ship.turn(-3) }`. The angle wraps, so it can keep
+      # turning either way. Makes this a rotating sprite (see #face_angle).
+      def turn(degrees)
+        ensure_rotatable
+        angle.add!(degrees)
         wrap_angle
+        self
       end
-      self
-    end
 
-    # Turn the sprite by +degrees+ from the way it points now: a positive number turns it
-    # clockwise, a negative one counter-clockwise. Call it each frame to spin steadily or
-    # to steer — `held(:left).then { ship.turn(-3) }`. The angle wraps, so it can keep
-    # turning either way. Makes this a rotating sprite (see #face_angle).
-    def turn(degrees)
-      ensure_rotatable
-      angle.add!(degrees)
-      wrap_angle
-      self
-    end
-
-    # The sprite's heading as a {Value} you can read and compare — degrees clockwise from
-    # upright, always 0..359. Reading it makes this a rotating sprite.
-    #
-    #   (ship.angle == 0).then { ... }   # pointing straight up?
-    def angle
-      ensure_rotatable
-      Value.new(@builder, Build.var_ref(@angle_var), name: @angle_var)
-    end
-
-    # Draw the sprite bigger or smaller, about its own center. 1.0 is the size it was
-    # drawn at, 2.0 is twice as big, 0.5 half — a boss that swells, a coin that pops
-    # when you collect it, an enemy that shrinks into the distance.
-    #
-    #   coin.scale 1.6                 # half again as big
-    #   coin.scale size                # whatever `size` says this frame
-    #   coin.scale.approach! 1.0, 0.05  # ease it back down to normal
-    #
-    # With no argument it hands back the size as a {Value} you can read, compare and
-    # ease, so growing over time is the expression DSL and nothing new. The size can be
-    # a fraction (that is the point) and composes with #face_angle — a sprite can turn
-    # and resize at once for the same price as either.
-    #
-    # Twice the drawn size is the ceiling: the console gives a turned sprite a box twice
-    # as wide and tall to swing its corners through, and past that the picture runs out
-    # of box and its edges are cut off. Only a `screen :tiled` sprite can resize.
-    def scale(size = nil)
-      ensure_scalable
-      return scale_value if size.nil?
-
-      if size.is_a?(Numeric) && size <= 0
-        raise ArgumentError,
-              "a sprite's size must be more than 0. You gave #{size.inspect}. " \
-              "1.0 is the size it was drawn at, 0.5 is half. To make it vanish, use `hide`."
+      # The sprite's heading as a {Value} you can read and compare — degrees clockwise from
+      # upright, always 0..359. Reading it makes this a rotating sprite.
+      #
+      #   (ship.angle == 0).then { ... }   # pointing straight up?
+      def angle
+        ensure_rotatable
+        Value.new(@builder, Build.var_ref(@angle_var), name: @angle_var)
       end
-      scale_value.set!(size)
-      self
-    end
 
-    # Play a named animation from the sprite's Aseprite sheet (a frameTag). It runs from
-    # its first frame and loops until you play another one. Only for a sprite made with
-    # `from_aseprite:`, and only a name the sheet defines — anything else is a friendly
-    # error. Switching is instant; the console shows the new animation next frame.
-    def play(clip)
-      raise ArgumentError, "this sprite has no named animations to play — make it with `sprite ..., from_aseprite: \"file.json\"`" unless @clips
+      # Draw the sprite bigger or smaller, about its own center. 1.0 is the size it was
+      # drawn at, 2.0 is twice as big, 0.5 half — a boss that swells, a coin that pops
+      # when you collect it, an enemy that shrinks into the distance.
+      #
+      #   coin.scale 1.6                 # half again as big
+      #   coin.scale size                # whatever `size` says this frame
+      #   coin.scale.approach! 1.0, 0.05  # ease it back down to normal
+      #
+      # With no argument it hands back the size as a {Value} you can read, compare and
+      # ease, so growing over time is the expression DSL and nothing new. The size can be
+      # a fraction (that is the point) and composes with #face_angle — a sprite can turn
+      # and resize at once for the same price as either.
+      #
+      # Twice the drawn size is the ceiling: the console gives a turned sprite a box twice
+      # as wide and tall to swing its corners through, and past that the picture runs out
+      # of box and its edges are cut off. Only a `screen :tiled` sprite can resize.
+      def scale(size = nil)
+        ensure_scalable
+        return scale_value if size.nil?
 
-      info = @clips[clip] or
-        raise ArgumentError, "this sprite has no animation #{clip.inspect} — it has #{@clips.keys.join(', ')}"
-
-      record(Build.set(@clip_off_var, Build.int(info[:off])))
-      record(Build.set(@clip_len_var, Build.int(info[:len])))
-      record(Build.set(@frame_var, Build.int(0)))
-      self
-    end
-
-    # Hide the sprite: it stops being drawn (its table slot is marked unused) and
-    # vanishes on the next frame, its spot in the layering held for when it returns.
-    # `show` brings it back at its current position. Setting the flag is all it takes
-    # — the per-frame draw reads it — so hiding an already-hidden sprite is harmless.
-    def hide
-      record(Build.set(@active, Build.int(0)))
-      self
-    end
-
-    def show
-      record(Build.set(@active, Build.int(1)))
-      self
-    end
-
-    # Draw the sprite with a different list of colours, from now until it is told otherwise.
-    # The lists are declared with `colors`, see-through first, and matched to the sprite's
-    # own `colors:` list by place — so the shape and shading stay as drawn and only the
-    # colours change.
-    #
-    #   ship.draw_with :hurt                                   # one list
-    #   ship.draw_with [:warm1, :warm2, :warm3], showing: step # one of several, by a number
-    #   ship.draw_with :own                                    # back to its own colours
-    #
-    # A number outside the set draws it in its own colours. The change shows on the frame
-    # the sprite's position and pose next do, never before or after them.
-    def draw_with(which, showing: nil)
-      @recolors ||= begin
-        @colors_var = :"#{@object_name}_colors"
-        @builder.make_object_recolorable(@object_node, @colors_var)
-        Recolors.new(@builder, subject: "The sprite showing :#{@poses.first}", poses: @poses).reads(@object_node)
+        if size.is_a?(Numeric) && size <= 0
+          raise ArgumentError,
+                "a sprite's size must be more than 0. You gave #{size.inspect}. " \
+                "1.0 is the size it was drawn at, 0.5 is half. To make it vanish, use `hide`."
+        end
+        scale_value.set!(size)
+        self
       end
-      @recolors.draw_with(Value.new(@builder, Build.var_ref(@colors_var), name: @colors_var), which, showing)
-      self
-    end
 
-    private
+      # Play a named animation from the sprite's Aseprite sheet (a frameTag). It runs from
+      # its first frame and loops until you play another one. Only for a sprite made with
+      # `from_aseprite:`, and only a name the sheet defines — anything else is a friendly
+      # error. Switching is instant; the console shows the new animation next frame.
+      def play(clip)
+        raise ArgumentError, "this sprite has no named animations to play — make it with `sprite ..., from_aseprite: \"file.json\"`" unless @clips
 
-    # Move +delta+ pixels along one axis. With no walls it's a plain nudge; blocked, it
-    # happens only if the sprite's box at the destination is clear of every wall (each
-    # axis checked on its own, so the sprite can still slide along a wall it's pressed
-    # against).
-    def step(axis, delta)
-      var = axis == :x ? x : y
-      return var.add!(delta) if @solid_cells.nil? && (@walls.nil? || @walls.empty?)
+        info = @clips[clip] or
+          raise ArgumentError, "this sprite has no animation #{clip.inspect} — it has #{@clips.keys.join(', ')}"
 
-      target_x = axis == :x ? x + delta : x
-      target_y = axis == :y ? y + delta : y
-      clear_of_walls(target_x, target_y).then { var.add!(delta) }
-    end
+        record(Build.set(@clip_off_var, Build.int(info[:off])))
+        record(Build.set(@clip_len_var, Build.int(info[:len])))
+        record(Build.set(@frame_var, Build.int(0)))
+        self
+      end
 
-    # A {Condition} true when the sprite's box, placed at (target_x, target_y), doesn't
-    # overlap any wall. "Doesn't overlap" is separated on some axis — the destination
-    # ends at or before a wall begins, or begins at or after it ends — so a sprite can
-    # rest flush against a wall (touching isn't overlapping) yet never cross into one.
-    def clear_of_walls(target_x, target_y)
-      return clear_of_tiles(target_x, target_y) if @solid_cells
+      # Hide the sprite: it stops being drawn (its table slot is marked unused) and
+      # vanishes on the next frame, its spot in the layering held for when it returns.
+      # `show` brings it back at its current position. Setting the flag is all it takes
+      # — the per-frame draw reads it — so hiding an already-hidden sprite is harmless.
+      def hide
+        record(Build.set(@active, Build.int(0)))
+        self
+      end
 
-      left = target_x + @hit_x
-      top = target_y + @hit_y
-      right = left + @hit_w
-      bottom = top + @hit_h
-      @walls.map do |wall|
-        (right <= wall.x) | (wall.right <= left) | (bottom <= wall.y) | (wall.bottom <= top)
-      end.reduce(:&)
-    end
+      def show
+        record(Build.set(@active, Build.int(1)))
+        self
+      end
 
-    # A {Condition} true when the sprite's box, placed at (target_x, target_y), is clear of
-    # the background's solid tiles — ASKED OF THE GRID rather than tested against every
-    # rectangle the solid cells merge into.
-    #
-    # WHY IT IS A ROUTINE AND NOT WRITTEN OUT HERE. The check is the same code wherever it
-    # is used: the only things that change between one mover and the next are where it is
-    # going, and those go in as arguments. Written out at each place that moves, a game
-    # with eight movers emitted it sixteen times (each moves on two axes) and the game
-    # loop stopped fitting in the console's quick memory — which slows down the WHOLE
-    # frame, not just the moving. Called, it is emitted once however many movers there are.
-    def clear_of_tiles(target_x, target_y)
-      routine = @builder.tile_collision_routine(@solid_cells, @hit_x, @hit_y, @hit_w, @hit_h)
-      @builder.set!(routine[:x], Value.node_for(target_x))
-      @builder.set!(routine[:y], Value.node_for(target_y))
-      @builder.call(routine[:name])
-      Value.new(@builder, Build.var_ref(routine[:clear]), name: routine[:clear]) == 1
-    end
+      # Draw the sprite with a different list of colours, from now until it is told otherwise.
+      # The lists are declared with `colors`, see-through first, and matched to the sprite's
+      # own `colors:` list by place — so the shape and shading stay as drawn and only the
+      # colours change.
+      #
+      #   ship.draw_with :hurt                                   # one list
+      #   ship.draw_with [:warm1, :warm2, :warm3], showing: step # one of several, by a number
+      #   ship.draw_with :own                                    # back to its own colours
+      #
+      # A number outside the set draws it in its own colours. The change shows on the frame
+      # the sprite's position and pose next do, never before or after them.
+      def draw_with(which, showing: nil)
+        @recolors ||= begin
+          @colors_var = :"#{@object_name}_colors"
+          @builder.make_object_recolorable(@object_node, @colors_var)
+          Recolors.new(@builder, subject: "The sprite showing :#{@poses.first}", poses: @poses).reads(@object_node)
+        end
+        @recolors.draw_with(Value.new(@builder, Build.var_ref(@colors_var), name: @colors_var), which, showing)
+        self
+      end
 
-    def faceted?
-      !@facing_var.nil?
-    end
+      private
 
-    # Allocate this sprite's rotation-angle variable and attach it to the object the
-    # first time the sprite is told to turn — so an object that never turns keeps its
-    # constant-0 angle and stays upright for free. Idempotent: later turns reuse it.
-    def ensure_rotatable
-      @angle_var ||= :"#{@object_name}_angle"
-      @builder.make_object_rotatable(@object_node, @angle_var)
-    end
+      # Move +delta+ pixels along one axis. With no walls it's a plain nudge; blocked, it
+      # happens only if the sprite's box at the destination is clear of every wall (each
+      # axis checked on its own, so the sprite can still slide along a wall it's pressed
+      # against).
+      def step(axis, delta)
+        var = axis == :x ? x : y
+        return var.add!(delta) if @solid_cells.nil? && (@walls.nil? || @walls.empty?)
 
-    # The same idea for size: allocate the variable and attach it to the object the
-    # first time the sprite is resized, so one that never is stays at its drawn size for
-    # free. Idempotent.
-    def ensure_scalable
-      @scale_var ||= :"#{@object_name}_scale"
-      @builder.make_object_scalable(@object_node, @scale_var)
-    end
+        target_x = axis == :x ? x + delta : x
+        target_y = axis == :y ? y + delta : y
+        clear_of_walls(target_x, target_y).then { var.add!(delta) }
+      end
 
-    # The size variable as a handle. It carries a fraction, so `scale.approach! 2.0, 0.1`
-    # and `scale * 2` mean what they read as.
-    def scale_value
-      Value.new(@builder, Build.var_ref(@scale_var), name: @scale_var,
-                          fraction_bits: Fraction::DEFAULT_BITS)
-    end
+      # A {Condition} true when the sprite's box, placed at (target_x, target_y), doesn't
+      # overlap any wall. "Doesn't overlap" is separated on some axis — the destination
+      # ends at or before a wall begins, or begins at or after it ends — so a sprite can
+      # rest flush against a wall (touching isn't overlapping) yet never cross into one.
+      def clear_of_walls(target_x, target_y)
+        return clear_of_tiles(target_x, target_y) if @solid_cells
 
-    # Fold the angle variable back into 0..359 after a set or turn. One truncated-
-    # division modulo (a - (a / 360) * 360, the BIOS Div on hardware) lands it in
-    # (-360, 360); a single conditional add of 360 then lifts a negative result into
-    # range. Cheap, and it runs at most once per turn.
-    def wrap_angle
-      a = angle
-      a.set!(a - (a / 360 * 360))
-      (angle < 0).then { angle.add!(360) }
-    end
+        left = target_x + @hit_x
+        top = target_y + @hit_y
+        right = left + @hit_w
+        bottom = top + @hit_h
+        @walls.map do |wall|
+          (right <= wall.x) | (wall.right <= left) | (bottom <= wall.y) | (wall.bottom <= top)
+        end.reduce(:&)
+      end
 
-    def record(node)
-      @builder.record_statement(node)
+      # A {Condition} true when the sprite's box, placed at (target_x, target_y), is clear of
+      # the background's solid tiles — ASKED OF THE GRID rather than tested against every
+      # rectangle the solid cells merge into.
+      #
+      # WHY IT IS A ROUTINE AND NOT WRITTEN OUT HERE. The check is the same code wherever it
+      # is used: the only things that change between one mover and the next are where it is
+      # going, and those go in as arguments. Written out at each place that moves, a game
+      # with eight movers emitted it sixteen times (each moves on two axes) and the game
+      # loop stopped fitting in the console's quick memory — which slows down the WHOLE
+      # frame, not just the moving. Called, it is emitted once however many movers there are.
+      def clear_of_tiles(target_x, target_y)
+        routine = @builder.tile_collision_routine(@solid_cells, @hit_x, @hit_y, @hit_w, @hit_h)
+        @builder.set!(routine[:x], Value.node_for(target_x))
+        @builder.set!(routine[:y], Value.node_for(target_y))
+        @builder.call(routine[:name])
+        Value.new(@builder, Build.var_ref(routine[:clear]), name: routine[:clear]) == 1
+      end
+
+      def faceted?
+        !@facing_var.nil?
+      end
+
+      # Allocate this sprite's rotation-angle variable and attach it to the object the
+      # first time the sprite is told to turn — so an object that never turns keeps its
+      # constant-0 angle and stays upright for free. Idempotent: later turns reuse it.
+      def ensure_rotatable
+        @angle_var ||= :"#{@object_name}_angle"
+        @builder.make_object_rotatable(@object_node, @angle_var)
+      end
+
+      # The same idea for size: allocate the variable and attach it to the object the
+      # first time the sprite is resized, so one that never is stays at its drawn size for
+      # free. Idempotent.
+      def ensure_scalable
+        @scale_var ||= :"#{@object_name}_scale"
+        @builder.make_object_scalable(@object_node, @scale_var)
+      end
+
+      # The size variable as a handle. It carries a fraction, so `scale.approach! 2.0, 0.1`
+      # and `scale * 2` mean what they read as.
+      def scale_value
+        Value.new(@builder, Build.var_ref(@scale_var), name: @scale_var,
+                            fraction_bits: Fraction::DEFAULT_BITS)
+      end
+
+      # Fold the angle variable back into 0..359 after a set or turn. One truncated-
+      # division modulo (a - (a / 360) * 360, the BIOS Div on hardware) lands it in
+      # (-360, 360); a single conditional add of 360 then lifts a negative result into
+      # range. Cheap, and it runs at most once per turn.
+      def wrap_angle
+        a = angle
+        a.set!(a - (a / 360 * 360))
+        (angle < 0).then { angle.add!(360) }
+      end
+
+      def record(node)
+        @builder.record_statement(node)
+      end
     end
   end
 end

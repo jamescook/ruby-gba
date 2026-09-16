@@ -163,7 +163,7 @@ class TestCallOneOf < Minitest::Test
       b.func(:busy, fast: true) { b.repeat(200) { n.add! 1 } }
       game_loop { b.call [:busy], number: which }
     end
-    busy = RubyGBA::Profiler.run(rom, frames: 30, picture: false).lines.find { |line| line.name == :busy }
+    busy = RubyGBA::Diagnostics::Profiler.run(rom, frames: 30, picture: false).lines.find { |line| line.name == :busy }
 
     refute_nil busy, "the frame is spent in :busy, so the profile has to find it"
     assert_equal :quick_memory, busy.where
@@ -401,7 +401,7 @@ class TestCallOneOf < Minitest::Test
   # Instructions a frame, measured on a real run. Each of these games sleeps out the rest of
   # its frame, so what is counted is the work and not the waiting.
   def measure(rom)
-    result = RubyGBA::Profiler.run(rom, frames: 30, picture: false)
+    result = RubyGBA::Diagnostics::Profiler.run(rom, frames: 30, picture: false)
     refute result.dropping_frames?,
            "this measurement only compares like with like while both games keep up (#{result.fps} fps)"
     result.samples_per_frame

@@ -5,7 +5,7 @@ require "test_helper"
 require "tempfile"
 
 class TestMusic < Minitest::Test
-  include RubyGBA::Constants
+  include RubyGBA::Cartridge::Constants
 
   def build(validate: false, &block)
     RubyGBA.build("MUSTEST", code: "BMUS", maker: "01", validate: validate, &block)
@@ -16,7 +16,7 @@ class TestMusic < Minitest::Test
   # ========================================================================
 
   def test_song_context_collects_events
-    ctx = RubyGBA::Music::SongContext.new
+    ctx = RubyGBA::Audio::Music::SongContext.new
     ctx.instance_eval do
       tempo 120
       note :C4, :quarter
@@ -34,7 +34,7 @@ class TestMusic < Minitest::Test
   end
 
   def test_song_context_tempo_affects_duration
-    ctx = RubyGBA::Music::SongContext.new
+    ctx = RubyGBA::Audio::Music::SongContext.new
     ctx.instance_eval do
       tempo 60  # slow: quarter = 60 frames
       note :A4, :quarter
@@ -44,7 +44,7 @@ class TestMusic < Minitest::Test
   end
 
   def test_song_context_dotted_durations
-    ctx = RubyGBA::Music::SongContext.new
+    ctx = RubyGBA::Audio::Music::SongContext.new
     ctx.instance_eval do
       tempo 120  # quarter = 30 frames
       note :C4, :dotted_quarter  # 1.5 * 30 = 45
@@ -57,7 +57,7 @@ class TestMusic < Minitest::Test
   end
 
   def test_song_context_duty_and_volume
-    ctx = RubyGBA::Music::SongContext.new
+    ctx = RubyGBA::Audio::Music::SongContext.new
     ctx.instance_eval do
       duty :quarter
       volume 8
@@ -68,21 +68,21 @@ class TestMusic < Minitest::Test
   end
 
   def test_song_context_unknown_note_raises
-    ctx = RubyGBA::Music::SongContext.new
+    ctx = RubyGBA::Audio::Music::SongContext.new
     assert_raises(ArgumentError) do
       ctx.note(:Z9, :quarter)
     end
   end
 
   def test_song_context_unknown_duration_raises
-    ctx = RubyGBA::Music::SongContext.new
+    ctx = RubyGBA::Audio::Music::SongContext.new
     assert_raises(ArgumentError) do
       ctx.note(:C4, :triple)
     end
   end
 
   def test_song_context_note_by_frequency
-    ctx = RubyGBA::Music::SongContext.new
+    ctx = RubyGBA::Audio::Music::SongContext.new
     ctx.instance_eval do
       tempo 120
       note 440, :quarter  # A4 by frequency
@@ -94,28 +94,28 @@ class TestMusic < Minitest::Test
   end
 
   def test_song_context_note_bad_frequency_raises
-    ctx = RubyGBA::Music::SongContext.new
+    ctx = RubyGBA::Audio::Music::SongContext.new
     assert_raises(ArgumentError) do
       ctx.note(-100, :quarter)
     end
   end
 
   def test_song_context_note_bad_type_raises
-    ctx = RubyGBA::Music::SongContext.new
+    ctx = RubyGBA::Audio::Music::SongContext.new
     assert_raises(ArgumentError) do
       ctx.note("C4", :quarter)
     end
   end
 
   def test_song_context_bad_tempo_raises
-    ctx = RubyGBA::Music::SongContext.new
+    ctx = RubyGBA::Audio::Music::SongContext.new
     assert_raises(ArgumentError) do
       ctx.tempo(-10)
     end
   end
 
   def test_song_context_bad_volume_raises
-    ctx = RubyGBA::Music::SongContext.new
+    ctx = RubyGBA::Audio::Music::SongContext.new
     assert_raises(ArgumentError) do
       ctx.volume(20)
     end
@@ -126,7 +126,7 @@ class TestMusic < Minitest::Test
   # ========================================================================
 
   def test_voice_blocks_collect_separate_parts
-    ctx = RubyGBA::Music::SongContext.new
+    ctx = RubyGBA::Audio::Music::SongContext.new
     ctx.instance_eval do
       tempo 120
       voice :melody do
@@ -147,7 +147,7 @@ class TestMusic < Minitest::Test
   end
 
   def test_each_voice_keeps_its_own_duty_and_volume
-    ctx = RubyGBA::Music::SongContext.new
+    ctx = RubyGBA::Audio::Music::SongContext.new
     ctx.instance_eval do
       voice :lead do
         duty :quarter
@@ -165,7 +165,7 @@ class TestMusic < Minitest::Test
   end
 
   def test_mixing_loose_notes_and_voice_blocks_is_a_friendly_error
-    ctx = RubyGBA::Music::SongContext.new
+    ctx = RubyGBA::Audio::Music::SongContext.new
     err = assert_raises(ArgumentError) do
       ctx.instance_eval do
         note :C4, :quarter
@@ -284,7 +284,7 @@ class TestMusic < Minitest::Test
   # ========================================================================
 
   def test_note_frequencies_cover_c3_to_c6
-    freqs = RubyGBA::Music::NOTE_FREQUENCIES
+    freqs = RubyGBA::Audio::Music::NOTE_FREQUENCIES
     assert_equal 131, freqs[:C3]
     assert_equal 262, freqs[:C4]
     assert_equal 440, freqs[:A4]
@@ -293,7 +293,7 @@ class TestMusic < Minitest::Test
   end
 
   def test_all_durations_defined
-    durs = RubyGBA::Music::DURATION_MULTIPLIERS
+    durs = RubyGBA::Audio::Music::DURATION_MULTIPLIERS
     assert_equal 4.0, durs[:whole]
     assert_equal 2.0, durs[:half]
     assert_equal 1.0, durs[:quarter]

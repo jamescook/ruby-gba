@@ -7,7 +7,7 @@ require "test_helper"
 # edge. Asserted by tracking landmark tiles as the view moves — on the interpreter
 # oracle and on real hardware. The dev never touches a scroll register.
 class TestBackgroundScroll < Minitest::Test
-  include RubyGBA::Constants
+  include RubyGBA::Cartridge::Constants
 
   SOLID8 = (["########"] * 8).join("\n")
 

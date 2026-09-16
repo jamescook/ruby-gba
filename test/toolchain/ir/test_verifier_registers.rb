@@ -23,7 +23,7 @@ class TestVerifierRegisters < Minitest::Test
     v.run_until(:count_up)
 
     assert_equal rom.built.routines.fetch(:count_up).begin, v.registers[:pc]
-    assert_includes rom.built.routines.fetch(RubyGBA::BuildRecord::FRAME_ROUTINE), v.registers[:r14],
+    assert_includes rom.built.routines.fetch(RubyGBA::Cartridge::BuildRecord::FRAME_ROUTINE), v.registers[:r14],
                     "the routine was called from the game loop, so that is where it returns to"
   end
 

@@ -155,14 +155,14 @@ class TestRomBuilder < Minitest::Test
   end
 
   def test_finalize_pads_the_rom_up_to_a_power_of_two
-    rom = RubyGBA::ROM.new(title: "PAD", code: "TEST", maker: "01")
+    rom = RubyGBA::Cartridge::ROM.new(title: "PAD", code: "TEST", maker: "01")
     rom.emit("\xAB".b * 5000)
     rom.finalize!(validate: false)
     assert power_of_two?(rom.size), "ROM size #{rom.size} should be a power of two"
   end
 
   def test_finalize_pads_to_the_smallest_fitting_power_of_two
-    rom = RubyGBA::ROM.new(title: "PAD", code: "TEST", maker: "01")
+    rom = RubyGBA::Cartridge::ROM.new(title: "PAD", code: "TEST", maker: "01")
     rom.emit("\xAB".b * 5000)
     before = rom.size
     rom.finalize!(validate: false)
@@ -171,7 +171,7 @@ class TestRomBuilder < Minitest::Test
   end
 
   def test_padding_preserves_the_code_and_zero_fills_the_rest
-    rom = RubyGBA::ROM.new(title: "PAD", code: "TEST", maker: "01")
+    rom = RubyGBA::Cartridge::ROM.new(title: "PAD", code: "TEST", maker: "01")
     start = rom.code_offset
     payload = "\xAB\xCD".b * 100
     rom.emit(payload)

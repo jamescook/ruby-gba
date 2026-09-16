@@ -15,7 +15,7 @@ require_relative "../../examples/breakout"
 # where the headless run is cut off; and the emulator for the *picture* (the title, the
 # brick wall, and the paddle really render), read from settled frames on hardware.
 class TestBreakoutExample < Minitest::Test
-  include RubyGBA::Constants
+  include RubyGBA::Cartridge::Constants
 
   NUM_BRICKS = Breakout::BRICKS.length
 

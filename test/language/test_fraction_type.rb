@@ -124,7 +124,7 @@ class TestFractionType < Minitest::Test
   def test_mixing_two_different_scales_is_a_build_error
     err = assert_raises(ArgumentError) do
       b = RubyGBA::Builder.new
-      coarse = RubyGBA::Value.new(b, RubyGBA::IR::Build.var_ref(:c), name: :c, fraction_bits: 8)
+      coarse = RubyGBA::DSL::Value.new(b, RubyGBA::IR::Build.var_ref(:c), name: :c, fraction_bits: 8)
       b.instance_eval { var :fine, 1.5 } + coarse
     end
 
@@ -144,7 +144,7 @@ class TestFractionType < Minitest::Test
   def test_dividing_fractions_of_different_scales_is_a_build_error
     err = assert_raises(ArgumentError) do
       b = RubyGBA::Builder.new
-      coarse = RubyGBA::Value.new(b, RubyGBA::IR::Build.var_ref(:c), name: :c, fraction_bits: 8)
+      coarse = RubyGBA::DSL::Value.new(b, RubyGBA::IR::Build.var_ref(:c), name: :c, fraction_bits: 8)
       b.instance_eval { var :fine, 3.0 } / coarse
     end
 

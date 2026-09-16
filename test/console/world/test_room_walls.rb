@@ -14,7 +14,7 @@ require "differential"
 # With `walls:` they are their own data — which is what a real game's collision is, and
 # what lets a map say it has no walls at all.
 class TestRoomWalls < Minitest::Test
-  include RubyGBA::Constants
+  include RubyGBA::Cartridge::Constants
   include Differential
 
   SOLID8 = (["########"] * 8).join("\n")

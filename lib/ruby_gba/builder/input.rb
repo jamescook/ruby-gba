@@ -35,7 +35,7 @@ module RubyGBA
       def held(button)
         reject_block!(:held, button) if block_given?
         check_button!(button)
-        Condition.new(self, Build.held(button))
+        DSL::Condition.new(self, Build.held(button))
       end
 
       # A {Condition} true on the frame a button is first pressed (edge-detected).
@@ -44,7 +44,7 @@ module RubyGBA
       def pressed(button)
         reject_block!(:pressed, button) if block_given?
         check_button!(button)
-        Condition.new(self, Build.pressed(button))
+        DSL::Condition.new(self, Build.pressed(button))
       end
 
       private

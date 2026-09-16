@@ -731,7 +731,7 @@ class TestMenu < Minitest::Test
 
     assert still.white?(*cursor_pixel.call(0)), "the cursor rests beside the first row"
 
-    moved = assert_emulator_loads_rom(rom, frames: 6, keys: RubyGBA::Constants::KEY_DOWN)
+    moved = assert_emulator_loads_rom(rom, frames: 6, keys: RubyGBA::Cartridge::Constants::KEY_DOWN)
 
     assert moved.white?(*cursor_pixel.call(2)),
            "the console composites the cursor onto the row it walked to"
@@ -780,7 +780,7 @@ class TestMenu < Minitest::Test
     assert still.white?(*cursor_pixel.call(0)), "the cursor rests beside the first row"
     assert still.black?(*cursor_pixel.call(2)), "and nowhere else"
 
-    moved = assert_emulator_loads_rom(rom, frames: 6, keys: RubyGBA::Constants::KEY_DOWN)
+    moved = assert_emulator_loads_rom(rom, frames: 6, keys: RubyGBA::Cartridge::Constants::KEY_DOWN)
 
     assert moved.white?(*cursor_pixel.call(2)),
            "holding down walks past the row that cannot be picked, to row 2"

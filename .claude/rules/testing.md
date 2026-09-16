@@ -121,7 +121,7 @@ it lands wherever it is first needed, so the same `tint` reads as 172 bytes in o
 **What the console really DID**, for anything about time:
 
 ```ruby
-result = RubyGBA::Profiler.run(rom, frames: 30, picture: false)
+result = RubyGBA::Diagnostics::Profiler.run(rom, frames: 30, picture: false)
 result.idle_share        # how much of each frame was left over — the usual one
 result.fps               # 60.0, or less when a pass does not fit in a frame
 result.samples_per_frame # instructions a frame
@@ -140,14 +140,14 @@ of those compare `fps` instead.
 
 **Tearing is measured too.** Whether a game CAN tear is a fact about the screen it chose, and
 `BuildReport` says it. Whether one that can DOES is a race down the screen the drawing can win
-even after overrunning, so a profile reads what happened (`RubyGBA::Tearing`) — except on a
+even after overrunning, so a profile reads what happened (`RubyGBA::Diagnostics::Tearing`) — except on a
 screen with no framebuffer to read it off, where it says nothing rather than reporting no tear.
 
 ## The two backends you assert against
 
 - **Reference interpreter** `RubyGBA::IR::Backends::Reference` — headless oracle, no
   emulator, in-process, deterministic. This is the source of truth.
-- **Hardware** via `ruby-gba-emulator` → `RubyGBA::Verifier` — runs the real ROM, reads real
+- **Hardware** via `ruby-gba-emulator` → `RubyGBA::Diagnostics::Verifier` — runs the real ROM, reads real
   pixels/audio. Fails loudly when the emulator is absent; it is required, not optional.
 
 A feature isn't done until it's asserted on **both**. For anything with an
@@ -166,7 +166,7 @@ on both backends:
   `draw_text` — is in the picture a test reads for the pass that drew it, because it writes
   the pixels itself and the test is reading those pixels. The picture and the variable agree.
   (What a *player* sees can still lag or tear, since those writes happen while the frame is
-  being scanned out — that is the separate question `RubyGBA::Tearing` answers.)
+  being scanned out — that is the separate question `RubyGBA::Diagnostics::Tearing` answers.)
 - **What the framework draws for you** — a `sprite`, a tiled `draw_text`/`draw_number` glyph,
   a background's scroll position — is painted in the gap *before the next frame*, from the
   variables as they stand then. So the picture shows the value from the pass **before** the
@@ -256,7 +256,7 @@ include EmulatorSupport                    # from test/test_helper.rb
 require_emulator!                          # ensure the emulator; fails loud if it isn't built
 
 # lower an IR program to a ROM:
-rom = RubyGBA::ROM.assemble(RubyGBA::IR::Backends::GBA.new.lower(prog), title: "NAME")
+rom = RubyGBA::Cartridge::ROM.assemble(RubyGBA::IR::Backends::GBA.new.lower(prog), title: "NAME")
 
 v = assert_emulator_loads_rom(rom, frames: 6, keys: KEY_LEFT)  # returns a Verifier
 v.red?(x, y) / v.white? / v.blue? / v.green? / v.black?     # named-colour checks
@@ -283,7 +283,7 @@ v.layers / v.channels                      # the names those two can be given
 
 **One reader over one cartridge.** Everything above comes off the same Verifier on purpose —
 holding a second reader over the same ROM is two readings of one frame that can disagree, and
-they do: the emulator's own low-level handle (`RubyGBA::Emulator.probe`) reports where a
+they do: the emulator's own low-level handle (`RubyGBA::Diagnostics::Emulator.probe`) reports where a
 sprite's tiles were PUT rather than where its picture starts. Reach for that handle only for
 what the Verifier deliberately does not do (cost and timing, watching an address change,
 profiling); never for a second reading of something the Verifier already answers.

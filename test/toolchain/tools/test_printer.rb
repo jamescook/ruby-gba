@@ -15,7 +15,7 @@ require "test_helper"
 # the news is bad — so the failure landed exactly where a report is most needed.
 class TestPrinter < Minitest::Test
   Printer = RubyGBA::IR::Printer
-  Profiler = RubyGBA::Profiler
+  Profiler = RubyGBA::Diagnostics::Profiler
 
   RED = "\e[31m"
 
@@ -36,9 +36,9 @@ class TestPrinter < Minitest::Test
 
   def torn = Profiler::Tear.new(looked: 6, torn: 4, worst: 97)
   def held_together = Profiler::Tear.new(looked: 6, torn: 0, worst: 0)
-  def flickering = RubyGBA::Flicker::Reading.new(pixels: 1842, first: [40, 12])
-  def all_arrived = RubyGBA::Flicker::Reading.new(pixels: 0, first: nil)
-  def dropped_sounds = RubyGBA::SoundDrops::Reading.new(dropped: 7, music_held: 9, voices: 16)
+  def flickering = RubyGBA::Diagnostics::Flicker::Reading.new(pixels: 1842, first: [40, 12])
+  def all_arrived = RubyGBA::Diagnostics::Flicker::Reading.new(pixels: 0, first: nil)
+  def dropped_sounds = RubyGBA::Diagnostics::SoundDrops::Reading.new(dropped: 7, music_held: 9, voices: 16)
 
   def test_a_torn_picture_says_so_in_colour
     line = colored { |printer| Profiler.tearing_line(torn, printer) }

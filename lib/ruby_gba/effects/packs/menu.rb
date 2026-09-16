@@ -436,7 +436,7 @@ module RubyGBA
         def menu_deciding_value!(item)
           showing = item.showing
           return handle_for(showing) if showing.is_a?(Symbol)
-          return showing if showing.is_a?(Value)
+          return showing if showing.is_a?(DSL::Value)
 
           raise ArgumentError,
                 "`showing:` takes the variable that says which words the row shows. Give a " \
@@ -460,11 +460,11 @@ module RubyGBA
         # a bigger question than this verb. Caught at the call site, where the labels are,
         # rather than at lowering, where the message could only count anonymous sprites.
         def menu_fits_the_sprite_table!(name, spent)
-          return if spent <= Constants::MAX_SPRITES
+          return if spent <= Cartridge::Constants::MAX_SPRITES
 
           raise ArgumentError,
                 "menu :#{name} needs #{spent} sprites for its rows, and the console draws at " \
-                "most #{Constants::MAX_SPRITES} at once. On a tiled screen the console draws " \
+                "most #{Cartridge::Constants::MAX_SPRITES} at once. On a tiled screen the console draws " \
                 "each character as its own little sprite. To fix this, use shorter labels or " \
                 "fewer rows. Or put the menu on a `screen :bitmap`, where text costs no " \
                 "sprites at all."

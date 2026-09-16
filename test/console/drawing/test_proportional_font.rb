@@ -10,7 +10,7 @@ require "test_helper"
 # what distinguishes the two. Checked on the interpreter and on real hardware.
 class TestProportionalFont < Minitest::Test
 
-  Fonts = RubyGBA::Fonts
+  Fonts = RubyGBA::Graphics::Fonts
 
   X = 40 # where the text's top-left sits
   Y = 40
@@ -139,9 +139,9 @@ class TestProportionalFont < Minitest::Test
   # the run-time digit must match the same digit drawn as fixed text.
   def register_hud_font
     wide_w = [0b10001, 0b10001, 0b10101, 0b11011, 0b10001] # 5 wide, 5 tall
-    glyphs = RubyGBA::Font::TINY_GLYPHS.merge("W" => wide_w) # tiny's digits are 3 wide
+    glyphs = RubyGBA::Graphics::Font::TINY_GLYPHS.merge("W" => wide_w) # tiny's digits are 3 wide
     widths = glyphs.keys.to_h { |k| [k, k == "W" ? 5 : 3] }
-    Fonts.register(:hud, RubyGBA::Font.new(glyphs: glyphs, widths: widths, height: 5))
+    Fonts.register(:hud, RubyGBA::Graphics::Font.new(glyphs: glyphs, widths: widths, height: 5))
   end
 
   def test_data_driven_digits_render_at_the_digit_width_on_hardware

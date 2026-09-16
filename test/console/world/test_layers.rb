@@ -343,7 +343,7 @@ class TestLayers < Minitest::Test
       game_loop { hero.move :right, by: 1 }
     end
 
-    assert RubyGBA::ROMValidator.check(rom).ok?
+    assert RubyGBA::Cartridge::ROMValidator.check(rom).ok?
   end
 
   # The interpreter has to make a picture out of a layered program, not choke on the
@@ -352,6 +352,6 @@ class TestLayers < Minitest::Test
     prog = stacked_game { game_loop { nil } }
     i = Reference.new.run(prog, max_steps: 200_000)
 
-    assert_equal RubyGBA::Color.resolve(:red), i.screen.pixel(104, 64)
+    assert_equal RubyGBA::Graphics::Color.resolve(:red), i.screen.pixel(104, 64)
   end
 end

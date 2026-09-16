@@ -7,7 +7,7 @@ require "stringio"
 class TestInspector < Minitest::Test
   # Helper: disassemble a single instruction word via Inspector internals.
   def disasm(word)
-    inspector = RubyGBA::Inspector.from_rom(minimal_rom)
+    inspector = RubyGBA::Diagnostics::Inspector.from_rom(minimal_rom)
     desc, = inspector.send(:disassemble, word, Array.new(16, 0))
     desc
   end
@@ -60,50 +60,50 @@ class TestInspector < Minitest::Test
   # ========================================================================
 
   def test_branch_unconditional
-    word = RubyGBA::ASM.branch(-10).unpack1("V")
+    word = RubyGBA::Cartridge::ASM.branch(-10).unpack1("V")
     result = disasm(word)
     assert_includes result, "B"
     refute_includes result, "???"
   end
 
   def test_branch_conditional_ge
-    word = RubyGBA::ASM.branch_cond(:ge, 4).unpack1("V")
+    word = RubyGBA::Cartridge::ASM.branch_cond(:ge, 4).unpack1("V")
     result = disasm(word)
     assert_includes result, "BGE"
   end
 
   def test_branch_conditional_lt
-    word = RubyGBA::ASM.branch_cond(:lt, -2).unpack1("V")
+    word = RubyGBA::Cartridge::ASM.branch_cond(:lt, -2).unpack1("V")
     result = disasm(word)
     assert_includes result, "BLT"
   end
 
   def test_branch_conditional_eq
-    word = RubyGBA::ASM.branch_cond(:eq, 3).unpack1("V")
+    word = RubyGBA::Cartridge::ASM.branch_cond(:eq, 3).unpack1("V")
     result = disasm(word)
     assert_includes result, "BEQ"
   end
 
   def test_branch_conditional_ne
-    word = RubyGBA::ASM.branch_cond(:ne, 5).unpack1("V")
+    word = RubyGBA::Cartridge::ASM.branch_cond(:ne, 5).unpack1("V")
     result = disasm(word)
     assert_includes result, "BNE"
   end
 
   def test_branch_conditional_gt
-    word = RubyGBA::ASM.branch_cond(:gt, 2).unpack1("V")
+    word = RubyGBA::Cartridge::ASM.branch_cond(:gt, 2).unpack1("V")
     result = disasm(word)
     assert_includes result, "BGT"
   end
 
   def test_branch_conditional_le
-    word = RubyGBA::ASM.branch_cond(:le, 2).unpack1("V")
+    word = RubyGBA::Cartridge::ASM.branch_cond(:le, 2).unpack1("V")
     result = disasm(word)
     assert_includes result, "BLE"
   end
 
   def test_branch_link
-    word = RubyGBA::ASM.branch_link(10).unpack1("V")
+    word = RubyGBA::Cartridge::ASM.branch_link(10).unpack1("V")
     result = disasm(word)
     assert_includes result, "BL"
   end
@@ -119,14 +119,14 @@ class TestInspector < Minitest::Test
   # ========================================================================
 
   def test_mov_imm
-    word = RubyGBA::ASM.load_immediate(3, 42).unpack1("V")
+    word = RubyGBA::Cartridge::ASM.load_immediate(3, 42).unpack1("V")
     result = disasm(word)
     assert_includes result, "MOV"
     assert_includes result, "r3"
   end
 
   def test_add_imm
-    word = RubyGBA::ASM.add_imm(10, 10, 12).unpack1("V")
+    word = RubyGBA::Cartridge::ASM.add_imm(10, 10, 12).unpack1("V")
     result = disasm(word)
     assert_includes result, "ADD"
     assert_includes result, "r10"
@@ -134,47 +134,47 @@ class TestInspector < Minitest::Test
   end
 
   def test_sub_imm
-    word = RubyGBA::ASM.sub_imm(10, 10, 1).unpack1("V")
+    word = RubyGBA::Cartridge::ASM.sub_imm(10, 10, 1).unpack1("V")
     result = disasm(word)
     assert_includes result, "SUB"
     assert_includes result, "r10"
   end
 
   def test_cmp_imm
-    word = RubyGBA::ASM.cmp_imm(10, 0).unpack1("V")
+    word = RubyGBA::Cartridge::ASM.cmp_imm(10, 0).unpack1("V")
     result = disasm(word)
     assert_includes result, "CMP"
     assert_includes result, "r10"
   end
 
   def test_tst_imm
-    word = RubyGBA::ASM.tst_imm(8, 8).unpack1("V")
+    word = RubyGBA::Cartridge::ASM.tst_imm(8, 8).unpack1("V")
     result = disasm(word)
     assert_includes result, "TST"
     assert_includes result, "r8"
   end
 
   def test_rsb_imm
-    word = RubyGBA::ASM.rsb_imm(10, 10, 0).unpack1("V")
+    word = RubyGBA::Cartridge::ASM.rsb_imm(10, 10, 0).unpack1("V")
     result = disasm(word)
     assert_includes result, "RSB"
     assert_includes result, "r10"
   end
 
   def test_and_imm
-    word = RubyGBA::ASM.and_imm(8, 8, 0xFF).unpack1("V")
+    word = RubyGBA::Cartridge::ASM.and_imm(8, 8, 0xFF).unpack1("V")
     result = disasm(word)
     assert_includes result, "AND"
   end
 
   def test_orr_imm
-    word = RubyGBA::ASM.orr_imm(0, 0, 0x400).unpack1("V")
+    word = RubyGBA::Cartridge::ASM.orr_imm(0, 0, 0x400).unpack1("V")
     result = disasm(word)
     assert_includes result, "ORR"
   end
 
   def test_mvn_imm
-    word = RubyGBA::ASM.mvn_imm(0, 0).unpack1("V")
+    word = RubyGBA::Cartridge::ASM.mvn_imm(0, 0).unpack1("V")
     result = disasm(word)
     assert_includes result, "MVN"
   end
@@ -184,7 +184,7 @@ class TestInspector < Minitest::Test
   # ========================================================================
 
   def test_add_reg
-    word = RubyGBA::ASM.add_reg(4, 4, 2).unpack1("V")
+    word = RubyGBA::Cartridge::ASM.add_reg(4, 4, 2).unpack1("V")
     result = disasm(word)
     assert_includes result, "ADD"
     assert_includes result, "r4"
@@ -192,7 +192,7 @@ class TestInspector < Minitest::Test
   end
 
   def test_sub_reg
-    word = RubyGBA::ASM.sub_reg(10, 10, 11).unpack1("V")
+    word = RubyGBA::Cartridge::ASM.sub_reg(10, 10, 11).unpack1("V")
     result = disasm(word)
     assert_includes result, "SUB"
     assert_includes result, "r10"
@@ -200,7 +200,7 @@ class TestInspector < Minitest::Test
   end
 
   def test_cmp_reg
-    word = RubyGBA::ASM.cmp_reg(10, 11).unpack1("V")
+    word = RubyGBA::Cartridge::ASM.cmp_reg(10, 11).unpack1("V")
     result = disasm(word)
     assert_includes result, "CMP"
     assert_includes result, "r10"
@@ -208,19 +208,19 @@ class TestInspector < Minitest::Test
   end
 
   def test_and_reg
-    word = RubyGBA::ASM.and_reg(11, 8, 11).unpack1("V")
+    word = RubyGBA::Cartridge::ASM.and_reg(11, 8, 11).unpack1("V")
     result = disasm(word)
     assert_includes result, "AND"
   end
 
   def test_eor_reg
-    word = RubyGBA::ASM.eor_reg(8, 8, 9).unpack1("V")
+    word = RubyGBA::Cartridge::ASM.eor_reg(8, 8, 9).unpack1("V")
     result = disasm(word)
     assert_includes result, "EOR"
   end
 
   def test_mov_reg
-    word = RubyGBA::ASM.mov_reg(4, 3).unpack1("V")
+    word = RubyGBA::Cartridge::ASM.mov_reg(4, 3).unpack1("V")
     result = disasm(word)
     assert_includes result, "MOV"
     assert_includes result, "r4"
@@ -228,7 +228,7 @@ class TestInspector < Minitest::Test
   end
 
   def test_mvn_reg
-    word = RubyGBA::ASM.mvn_reg(8, 8).unpack1("V")
+    word = RubyGBA::Cartridge::ASM.mvn_reg(8, 8).unpack1("V")
     result = disasm(word)
     assert_includes result, "MVN"
     assert_includes result, "r8"
@@ -239,7 +239,7 @@ class TestInspector < Minitest::Test
   # ========================================================================
 
   def test_lsl_imm
-    word = RubyGBA::ASM.lsl_imm(8, 8, 22).unpack1("V")
+    word = RubyGBA::Cartridge::ASM.lsl_imm(8, 8, 22).unpack1("V")
     result = disasm(word)
     assert_includes result, "LSL"
     assert_includes result, "r8"
@@ -247,7 +247,7 @@ class TestInspector < Minitest::Test
   end
 
   def test_lsr_imm
-    word = RubyGBA::ASM.lsr_imm(8, 8, 22).unpack1("V")
+    word = RubyGBA::Cartridge::ASM.lsr_imm(8, 8, 22).unpack1("V")
     result = disasm(word)
     assert_includes result, "LSR"
     assert_includes result, "r8"
@@ -255,7 +255,7 @@ class TestInspector < Minitest::Test
   end
 
   def test_asr_imm
-    word = RubyGBA::ASM.asr_imm(5, 5, 4).unpack1("V")
+    word = RubyGBA::Cartridge::ASM.asr_imm(5, 5, 4).unpack1("V")
     result = disasm(word)
     assert_includes result, "ASR"
     assert_includes result, "r5"
@@ -267,7 +267,7 @@ class TestInspector < Minitest::Test
   # ========================================================================
 
   def test_ldr
-    word = RubyGBA::ASM.ldr(10, 12).unpack1("V")
+    word = RubyGBA::Cartridge::ASM.ldr(10, 12).unpack1("V")
     result = disasm(word)
     assert_includes result, "LDR"
     assert_includes result, "r10"
@@ -275,7 +275,7 @@ class TestInspector < Minitest::Test
   end
 
   def test_str
-    word = RubyGBA::ASM.str(10, 12).unpack1("V")
+    word = RubyGBA::Cartridge::ASM.str(10, 12).unpack1("V")
     result = disasm(word)
     assert_includes result, "STR"
     assert_includes result, "r10"
@@ -283,7 +283,7 @@ class TestInspector < Minitest::Test
   end
 
   def test_ldr_offset
-    word = RubyGBA::ASM.ldr_offset(3, 1, 8).unpack1("V")
+    word = RubyGBA::Cartridge::ASM.ldr_offset(3, 1, 8).unpack1("V")
     result = disasm(word)
     assert_includes result, "LDR"
     assert_includes result, "r3"
@@ -293,12 +293,12 @@ class TestInspector < Minitest::Test
   # The offset held in a register and scaled on the way in, which is how a table of words is
   # read by number. Read as an immediate offset it would print a number that is not there.
   def test_ldr_with_a_scaled_register_offset
-    word = RubyGBA::ASM.ldr_reg_lsl(12, 12, 0, 2).unpack1("V")
+    word = RubyGBA::Cartridge::ASM.ldr_reg_lsl(12, 12, 0, 2).unpack1("V")
     assert_equal "LDR   r12, [r12, r0, LSL #2]", disasm(word).strip
   end
 
   def test_str_offset
-    word = RubyGBA::ASM.str_offset(0, 1, 4).unpack1("V")
+    word = RubyGBA::Cartridge::ASM.str_offset(0, 1, 4).unpack1("V")
     result = disasm(word)
     assert_includes result, "STR"
     assert_includes result, "r0"
@@ -306,7 +306,7 @@ class TestInspector < Minitest::Test
   end
 
   def test_ldrh
-    word = RubyGBA::ASM.load_halfword(1, 0).unpack1("V")
+    word = RubyGBA::Cartridge::ASM.load_halfword(1, 0).unpack1("V")
     result = disasm(word)
     assert_includes result, "LDRH"
     assert_includes result, "r1"
@@ -314,7 +314,7 @@ class TestInspector < Minitest::Test
   end
 
   def test_strh
-    word = RubyGBA::ASM.store_halfword(0, 1).unpack1("V")
+    word = RubyGBA::Cartridge::ASM.store_halfword(0, 1).unpack1("V")
     result = disasm(word)
     assert_includes result, "STRH"
     assert_includes result, "r0"
@@ -326,7 +326,7 @@ class TestInspector < Minitest::Test
   # ========================================================================
 
   def test_mul
-    word = RubyGBA::ASM.mul(4, 5, 4).unpack1("V")
+    word = RubyGBA::Cartridge::ASM.mul(4, 5, 4).unpack1("V")
     result = disasm(word)
     assert_includes result, "MUL"
     assert_includes result, "r4"
@@ -365,7 +365,7 @@ class TestInspector < Minitest::Test
       end
     end
 
-    inspector = RubyGBA::Inspector.from_rom(rom)
+    inspector = RubyGBA::Diagnostics::Inspector.from_rom(rom)
     code = rom.buffer.byteslice(0xC0, rom.code_offset - 0xC0)
     words = code.unpack("V*")
 

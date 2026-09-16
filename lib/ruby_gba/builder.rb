@@ -44,7 +44,7 @@ module RubyGBA
   #     halt
   #   end
   class Builder
-    include Constants
+    include Cartridge::Constants
 
     include Randomness # seed, randomize, roll, rand, chance
     include Sound      # enable_sound, define_sound, beep
@@ -71,8 +71,8 @@ module RubyGBA
 
     # @param frame_sync [Symbol] :auto (the framework paces each game_loop) or
     #   :manual (the developer places `wait_vblank` themselves)
-    # @param progress [RubyGBA::Progress] what a build says it is doing (see {#progress})
-    def initialize(frame_sync: :auto, progress: Progress.silent)
+    # @param progress [RubyGBA::Diagnostics::Progress] what a build says it is doing (see {#progress})
+    def initialize(frame_sync: :auto, progress: Diagnostics::Progress.silent)
       unless %i[auto manual].include?(frame_sync)
         raise ArgumentError, "frame_sync must be :auto or :manual, got #{frame_sync.inspect}"
       end
@@ -162,7 +162,7 @@ module RubyGBA
     #   floors.each_with_index { |floor, n| progress.of n + 1, floors.length, floor.name; ... }
     #
     # A build is already a run of named phases saying how far each has got (see
-    # {RubyGBA::Progress}). Anything a game or an effect pack does while the block runs
+    # {RubyGBA::Diagnostics::Progress}). Anything a game or an effect pack does while the block runs
     # happens INSIDE one of those phases, and without this it happens namelessly — the
     # build stands there saying "reading the game" for a minute with no clue which minute
     # of it belongs to whom. This is the seam: a pack's verbs are mixed into this class,
@@ -264,7 +264,7 @@ module RubyGBA
     def list(name, capacity:, estimate: nil, holds: nil, width: :word, fast: nil)
       record(Build.list_new(name, capacity, usually: usual_length(estimate, capacity),
                                             width: width, fast: fast))
-      List.new(self, name, fraction_bits: list_fraction_bits(name, holds))
+      DSL::List.new(self, name, fraction_bits: list_fraction_bits(name, holds))
     end
 
     # What `holds:` said, as a number of fraction bits. A whole number says the same as
@@ -277,7 +277,7 @@ module RubyGBA
               "numbers with a fraction. `list :#{name}` was given #{holds.inspect}."
       end
 
-      Fraction.bits_of(holds)
+      DSL::Fraction.bits_of(holds)
     end
 
     # What the `estimate:` hint says this list usually holds, as the one number a walk is
@@ -360,11 +360,11 @@ module RubyGBA
       # it no longer fits in a half — so it takes a word unless the program says
       # otherwise. Reads from it carry the fraction, so nothing downstream repeats it.
       width = :word if bits && width == :half
-      values = values.map { |v| bits ? Fraction.scale(v, bits) : v }
+      values = values.map { |v| bits ? DSL::Fraction.scale(v, bits) : v }
       signed = values.any?(&:negative?) if signed.nil?
       check_table_values_fit!(name, values, width, signed)
       record(Build.table(name, values, width: width, signed: signed))
-      Table.new(self, name, values.length, fraction_bits: bits)
+      DSL::Table.new(self, name, values.length, fraction_bits: bits)
     end
 
     # Define an entry point of raw ARM instructions — the escape hatch for
@@ -856,7 +856,7 @@ module RubyGBA
     # go, so the frame that is about to be drawn is drawn at the amount this frame has.
     def finalize_layer_blend
       return if @frame_boundaries.empty? || @layers_node.nil?
-      return if Value.fixed_number(@layers_node.transparency) # a number needs telling once
+      return if DSL::Value.fixed_number(@layers_node.transparency) # a number needs telling once
 
       @frame_boundaries.each do |wait_node|
         container = wait_node.parent
@@ -1026,7 +1026,7 @@ module RubyGBA
     # says so. This is what lets a sine table be written as plain trigonometry — the
     # scaling that used to be spelled out in the table's own definition is done here.
     def table_fraction_bits(values)
-      Fraction::DEFAULT_BITS if values.any?(Float)
+      DSL::Fraction::DEFAULT_BITS if values.any?(Float)
     end
 
     # Every value must fit the element width. A value that does not fit would be
@@ -1114,11 +1114,11 @@ module RubyGBA
       end
 
       def loop_forever
-        @bytes << ASM.loop_forever
+        @bytes << Cartridge::ASM.loop_forever
       end
 
       def nop
-        @bytes << ASM.nop
+        @bytes << Cartridge::ASM.nop
       end
     end
   end

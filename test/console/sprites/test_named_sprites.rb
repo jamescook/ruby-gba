@@ -293,7 +293,7 @@ class TestNamedSprites < Minitest::Test
     i = drawn(game)
 
     assert_equal Color.resolve(:gray), i.screen.pixel(44, 44), "the fence is what you see there"
-    assert_equal [RubyGBA::DrawnSprite.new(name: :hero, x: 40, y: 40, picture: :hero)], i.sprites(:hero)
+    assert_equal [RubyGBA::Diagnostics::DrawnSprite.new(name: :hero, x: 40, y: 40, picture: :hero)], i.sprites(:hero)
   end
 
   # The two backends put to the same question, which is the point of giving the oracle one that

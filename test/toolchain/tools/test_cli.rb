@@ -340,7 +340,7 @@ class TestCLI < Minitest::Test
     end
   end
 
-  # A custom font (`font :name do ... end`) registers into RubyGBA::Fonts as a side
+  # A custom font (`font :name do ... end`) registers into RubyGBA::Graphics::Fonts as a side
   # effect, rather than living in the IR tree draw_text's `font:` operand just names
   # by symbol — so the emitted class has to carry the font's own definition too, or
   # lowering it in a fresh process fails looking the name up. This is the regression
@@ -365,7 +365,7 @@ class TestCLI < Minitest::Test
 
       out, status = cli("build", "lettered.rb", "--format=ir", "-o", "lettered_ir.rb", dir: dir)
       assert status.success?, out
-      assert_match(/Fonts\.register\(:blocky, RubyGBA::Font\.new/, File.read(File.join(dir, "lettered_ir.rb")))
+      assert_match(/Fonts\.register\(:blocky, RubyGBA::Graphics::Font\.new/, File.read(File.join(dir, "lettered_ir.rb")))
 
       run_out, run_status = run_ruby(File.join(dir, "lettered_ir.rb"), dir: dir)
       assert run_status.success?, run_out

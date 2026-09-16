@@ -88,7 +88,7 @@ module RubyGBA
       # touched alternately all through a pool walk, and sharing one would leave each
       # evicting the other every time.
       class GBA
-        include RubyGBA::Constants
+        include RubyGBA::Cartridge::Constants
         include Placement
 
         class LoweringError < StandardError; end
@@ -287,7 +287,7 @@ module RubyGBA
         # one by name with `func :thing, fast: true`.
         # +progress+ is what this pass says it is doing while it does it. Most of a build's
         # time is spent in here, so it names its own phases; the default says nothing.
-        def initialize(fast_cartridge: true, fast_code: true, progress: Progress.silent,
+        def initialize(fast_cartridge: true, fast_code: true, progress: Diagnostics::Progress.silent,
                        routine_profile: nil)
           @fast_cartridge = fast_cartridge
           @fast_code = fast_code
@@ -465,12 +465,12 @@ module RubyGBA
         end
 
         # Everything this build worked out about the program it just lowered, in one piece,
-        # for the cartridge to carry (see {RubyGBA::BuildRecord}). Valid after #lower —
+        # for the cartridge to carry (see {RubyGBA::Cartridge::BuildRecord}). Valid after #lower —
         # every part of it is a decision the lowering made. Handing it over whole is what
         # lets a ROM be assembled in one call instead of being filled in field by field
         # afterwards.
         def build_record(program)
-          RubyGBA::BuildRecord.new(source_program: program, placement: iwram_report,
+          RubyGBA::Cartridge::BuildRecord.new(source_program: program, placement: iwram_report,
                                    var_addresses: var_addresses, loop_shapes: loop_shapes,
                                    palette_entries: palette_entries,
                                    column_stretches: @stretched_columns&.to_h || {},
@@ -623,7 +623,7 @@ module RubyGBA
         def video_memory_report
           return nil if @objects.empty? && @backgrounds.empty?
 
-          RubyGBA::VideoMemory.new(sprites: sprite_memory_report, tiles: tile_memory_report,
+          RubyGBA::Diagnostics::VideoMemory.new(sprites: sprite_memory_report, tiles: tile_memory_report,
                                    objects: object_count_report)
         end
 
@@ -640,7 +640,7 @@ module RubyGBA
           twins = twin_object_count
           return nil if big.empty? && twins.zero?
 
-          RubyGBA::VideoMemory::Objects.new(used: object_count(@picture.objects) + twins,
+          RubyGBA::Diagnostics::VideoMemory::Objects.new(used: object_count(@picture.objects) + twins,
                                             capacity: MAX_SPRITES, big: big, twins: twins)
         end
 
@@ -652,7 +652,7 @@ module RubyGBA
           # keeping one frame here at a time, and those are different savings to report.
           one_frame = @objects.count { |_name, obj| obj.frames }
           shared = @objects.count { |_name, obj| obj.tiles.nil? && obj.frames.nil? }
-          RubyGBA::VideoMemory::Area.new(used: @obj_layout.bytes, capacity: OBJ_TILE_CAPACITY,
+          RubyGBA::Diagnostics::VideoMemory::Area.new(used: @obj_layout.bytes, capacity: OBJ_TILE_CAPACITY,
                                          small: small, big: @objects.size - small,
                                          saved: sprite_memory_saved, shared: shared,
                                          one_frame: one_frame, repeats: @obj_layout.repeats)
@@ -679,7 +679,7 @@ module RubyGBA
           return nil if @bg_shared.nil?
 
           used = @bg_shared.tile_bytes
-          RubyGBA::VideoMemory::Area.new(used: used, capacity: used + @vram.free_bytes,
+          RubyGBA::Diagnostics::VideoMemory::Area.new(used: used, capacity: used + @vram.free_bytes,
                                          small: @bg_shared.small, big: @bg_shared.big,
                                          saved: @bg_shared.saved, shared: @bg_shared.shared,
                                          skipped: @bg_shared.skipped)
@@ -733,7 +733,7 @@ module RubyGBA
           hot_start = @emit.labels[Placement::HOT_START]
           return hot_base + (span.begin - hot_start) if hot_base && hot_start && fast_funcs.include?(name)
 
-          ROM_START + RubyGBA::ROM::ENTRY_OFFSET + span.begin
+          ROM_START + RubyGBA::Cartridge::ROM::ENTRY_OFFSET + span.begin
         end
 
         # ROUTINES THE LOWERING MAKES, which an author never wrote and cannot be found in
@@ -753,7 +753,7 @@ module RubyGBA
             finish = @emit.labels[:"#{name}_end"] or next
             next if @functions.func_ranges.key?(name) # a routine somebody wrote, already placed
 
-            base = ROM_START + RubyGBA::ROM::ENTRY_OFFSET
+            base = ROM_START + RubyGBA::Cartridge::ROM::ENTRY_OFFSET
             [name, (base + start)...(base + finish)]
           end.to_h
         end
@@ -905,7 +905,7 @@ module RubyGBA
         # Each variable's allocated IWRAM address (name => address), known once the
         # program has been lowered. This backend — not the builder — decides where a
         # variable lives, so this is the authoritative map a hardware test uses to
-        # read a variable's value back from memory (see RubyGBA::Verifier#var).
+        # read a variable's value back from memory (see RubyGBA::Diagnostics::Verifier#var).
         #
         # The cost model reads this too, and the reason is not bookkeeping. Reaching a
         # variable starts by building its address, and how many instructions that takes
@@ -1126,7 +1126,7 @@ module RubyGBA
           write_io_halfword(REG_IME, 0)                          # interrupts off while we wire things up
           write_io_halfword(REG_DISPSTAT, announce) unless announce.zero?
           write_io_halfword(REG_IE, enabled)                     # listen for exactly these interrupts
-          emit(ASM.load_immediate(TMP, REG_INTR_VECTOR))         # the vector the BIOS reads on every interrupt
+          emit(Cartridge::ASM.load_immediate(TMP, REG_INTR_VECTOR))         # the vector the BIOS reads on every interrupt
           # ...store our dispatcher's address there. It runs from wherever its bytes ended
           # up, and by this point the copy into the quick memory has already happened, so a
           # dispatcher that moved is pointed at its home there rather than the cartridge.
@@ -1135,7 +1135,7 @@ module RubyGBA
           else
             emit_load_label_address(ACC, IRQ_HANDLER_LABEL)
           end
-          emit(ASM.str(ACC, TMP))
+          emit(Cartridge::ASM.str(ACC, TMP))
           write_io_halfword(REG_IME, 1)                          # interrupts on
         end
 
@@ -1148,7 +1148,7 @@ module RubyGBA
         def emit_irq_handler
           start = pos
           place_label(IRQ_HANDLER_LABEL)
-          emit(ASM.push(*IRQ_SAVED_REGS))
+          emit(Cartridge::ASM.push(*IRQ_SAVED_REGS))
           # A bending background is checked FIRST because it fires by far the most often —
           # once for every line the display draws, against once a frame for everything
           # else. Every check ahead of it would be paid 228 times a frame.
@@ -1193,8 +1193,8 @@ module RubyGBA
               info[:handler].children.each { |child| @lowering.statement(child) }
             end
           end
-          emit(ASM.pop(*IRQ_SAVED_REGS))
-          emit(ASM.return) # BX LR back to the BIOS dispatcher
+          emit(Cartridge::ASM.pop(*IRQ_SAVED_REGS))
+          emit(Cartridge::ASM.return) # BX LR back to the BIOS dispatcher
           # The routines the music player calls to find its notes a voice, past the return and
           # inside this routine's span — so they move with it if it is copied to the quick
           # memory, and a call to them is always near enough.
@@ -1216,9 +1216,9 @@ module RubyGBA
         # source's body may have clobbered the scratch registers.
         def emit_irq_source(bit, bios_ack: false)
           skip = gensym
-          emit(ASM.load_immediate(TMP, REG_IF))
-          emit(ASM.load_halfword(ACC, TMP))     # r0 = pending interrupt flags
-          emit(ASM.tst_imm(ACC, bit))
+          emit(Cartridge::ASM.load_immediate(TMP, REG_IF))
+          emit(Cartridge::ASM.load_halfword(ACC, TMP))     # r0 = pending interrupt flags
+          emit(Cartridge::ASM.tst_imm(ACC, bit))
           emit_branch(:bcond, skip, cond: :eq)  # this source's bit is clear -> it didn't fire
           yield if block_given?
           emit_irq_ack(bit, bios: bios_ack)
@@ -1229,24 +1229,24 @@ module RubyGBA
         # 1 bit clears it), and for VBlank also OR it into the BIOS's mirror (REG_IFBIOS)
         # that VBlankIntrWait polls. Uses only r0-r2 (all BIOS-saved).
         def emit_irq_ack(bit, bios: false)
-          emit(ASM.load_immediate(ACC, bit))       # r0 = the bit
-          emit(ASM.load_immediate(TMP, REG_IF))    # r1 = &REG_IF
-          emit(ASM.store_halfword(ACC, TMP))       # REG_IF = bit -> clear it in hardware
+          emit(Cartridge::ASM.load_immediate(ACC, bit))       # r0 = the bit
+          emit(Cartridge::ASM.load_immediate(TMP, REG_IF))    # r1 = &REG_IF
+          emit(Cartridge::ASM.store_halfword(ACC, TMP))       # REG_IF = bit -> clear it in hardware
           return unless bios
 
-          emit(ASM.load_immediate(TMP, REG_IFBIOS)) # r1 = &REG_IFBIOS
-          emit(ASM.load_halfword(2, TMP))           # r2 = its current value
-          emit(ASM.orr_reg(2, 2, ACC))              # r2 |= bit
-          emit(ASM.store_halfword(2, TMP))          # write it back -> VBlankIntrWait can wake
+          emit(Cartridge::ASM.load_immediate(TMP, REG_IFBIOS)) # r1 = &REG_IFBIOS
+          emit(Cartridge::ASM.load_halfword(2, TMP))           # r2 = its current value
+          emit(Cartridge::ASM.orr_reg(2, 2, ACC))              # r2 |= bit
+          emit(Cartridge::ASM.store_halfword(2, TMP))          # write it back -> VBlankIntrWait can wake
         end
 
         # Store a 16-bit immediate into a memory-mapped I/O register — both the address and
         # the value are known at build time, so: load the address, load the value, store the
         # halfword. (r0/r1 are scratch between statements, so this needs no save/restore.)
         def write_io_halfword(address, value)
-          emit(ASM.load_immediate(TMP, address))
-          emit(ASM.load_immediate(ACC, value))
-          emit(ASM.store_halfword(ACC, TMP))
+          emit(Cartridge::ASM.load_immediate(TMP, address))
+          emit(Cartridge::ASM.load_immediate(ACC, value))
+          emit(Cartridge::ASM.store_halfword(ACC, TMP))
         end
 
         # Register every definition in the tree up front — funcs, named sound
@@ -1269,7 +1269,7 @@ module RubyGBA
             when :func
               @functions.funcs[node.name] = node
             when :define_sound
-              @defined_sounds[node.name] = Sound::Effect.new(
+              @defined_sounds[node.name] = RubyGBA::Audio::Sound::Effect.new(
                 frequency: node.frequency, duty: node.duty,
                 decay: node.decay, volume: node.volume,
               )

@@ -72,7 +72,7 @@ class TestSave < Minitest::Test
   # --- Console (the emulator): the game writes real SRAM, read straight back ---
 
   def test_the_console_writes_the_high_score_into_battery_ram
-    rom = RubyGBA::ROM.assemble(GBA.new.lower(build(&KEEPER)), title: "SAVE", code: "BSAV", maker: "01")
+    rom = RubyGBA::Cartridge::ROM.assemble(GBA.new.lower(build(&KEEPER)), title: "SAVE", code: "BSAV", maker: "01")
     v = assert_emulator_loads_rom(rom, frames: 6)
 
     assert_equal SAVE_MAGIC, sram_word(v, SRAM), "the marker should be written to save memory"

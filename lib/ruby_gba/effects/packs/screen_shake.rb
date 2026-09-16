@@ -48,7 +48,7 @@ module RubyGBA
         # @param duration [Numeric, nil] how long to shake, in seconds (instead of frames)
         def shake_screen(intensity: 2, frames: nil, duration: nil)
           count = shake_screen_frames(frames, duration)
-          unless Whole.positive?(intensity)
+          unless DSL::Whole.positive?(intensity)
             raise ArgumentError,
                   "shake_screen needs a positive whole number for intensity. " \
                   "You gave #{intensity.inspect}."
@@ -164,7 +164,7 @@ module RubyGBA
           end
 
           frames ||= 8 # a short, punchy default
-          unless Whole.positive?(frames)
+          unless DSL::Whole.positive?(frames)
             raise ArgumentError,
                   "shake_screen needs a positive whole number of frames. You gave #{frames.inspect}."
           end

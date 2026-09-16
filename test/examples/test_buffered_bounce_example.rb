@@ -11,7 +11,7 @@ require_relative "../../examples/buffered_bounce"
 # clean (which runs the guardrails and ROM-image checks) and actually renders its
 # balls on a blue field, on both backends, so it can't rot into a black screen.
 class TestBufferedBounceExample < Minitest::Test
-  include RubyGBA::Constants
+  include RubyGBA::Cartridge::Constants
 
   BALL_COLORS = %i[yellow cyan magenta].freeze
 

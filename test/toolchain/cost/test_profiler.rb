@@ -249,7 +249,7 @@ class TestProfiler < Minitest::Test
     path = File.join(dir, name)
     rom_path = File.join(dir, "#{name}.gba")
     rom.write(rom_path)
-    probe = RubyGBA::Emulator.probe(rom_path)
+    probe = RubyGBA::Diagnostics::Emulator.probe(rom_path)
     begin
       probe.step(12)
       probe.write32(rom.built.var_addresses[:armed], 1)
@@ -361,7 +361,7 @@ class TestProfiler < Minitest::Test
   # ended up, and they cannot be recovered from the bytes — a routine kept in the console's
   # quick memory was copied there at boot and runs nowhere near where it sits.
   def test_a_cartridge_that_does_not_know_how_it_was_built_says_so
-    bare = RubyGBA::ROM.assemble("\x00\x00\x00\xEA".b, title: "BARE", code: "BARE", maker: "01")
+    bare = RubyGBA::Cartridge::ROM.assemble("\x00\x00\x00\xEA".b, title: "BARE", code: "BARE", maker: "01")
 
     assert_raises(RubyGBA::ROMError) { bare.profile(out: StringIO.new) }
   end

@@ -3,7 +3,7 @@
 require "test_helper"
 
 class TestScenes < Minitest::Test
-  include RubyGBA::Constants
+  include RubyGBA::Cartridge::Constants
 
   def build(validate: false, &block)
     RubyGBA.build("SCNTEST", code: "BSCN", maker: "01", validate: validate, &block)

@@ -139,10 +139,10 @@ class TestMusicVolume < Minitest::Test
     Dir.mktmpdir do |dir|
       path = File.join(dir, "volumes.gba")
       rom.write(path)
-      probe = RubyGBA::Emulator.probe(path)
+      probe = RubyGBA::Diagnostics::Emulator.probe(path)
       volumes = Array.new(frames) do
         probe.step(1)
-        (probe.read32(RubyGBA::Constants::REG_SOUND1CNT_H) >> 12) & 0xF
+        (probe.read32(RubyGBA::Cartridge::Constants::REG_SOUND1CNT_H) >> 12) & 0xF
       end
       probe.close
       volumes.chunk_while { |a, b| a == b }.map(&:first).drop_while(&:zero?)
@@ -309,7 +309,7 @@ class TestMusicVolume < Minitest::Test
     program = held_note_game { |pass| (pass == 5).then { music_volume 50 } }
     console = assert_emulator_loads_rom(assemble_rom(program, name: "MUSVOL"), frames: 20)
 
-    assert_equal 6, console.mem16(RubyGBA::Constants::REG_SOUND1CNT_H) >> 12
+    assert_equal 6, console.mem16(RubyGBA::Cartridge::Constants::REG_SOUND1CNT_H) >> 12
   end
 
   # ...and the speaker agrees: silence where the note is still being held. (On the console a
@@ -391,7 +391,7 @@ class TestMusicVolume < Minitest::Test
     program = drum_game { |pass| (pass == 5).then { music_volume 50 } }
     console = assert_emulator_loads_rom(assemble_rom(program, name: "MUSVOLN"), frames: 80)
 
-    assert_equal 6, console.mem16(RubyGBA::Constants::REG_SOUND4CNT_L) >> 12
+    assert_equal 6, console.mem16(RubyGBA::Cartridge::Constants::REG_SOUND4CNT_L) >> 12
   end
 
   # --- a part on the wave voice ---
@@ -408,9 +408,9 @@ class TestMusicVolume < Minitest::Test
   def test_the_console_sets_the_wave_voice_to_the_nearest_of_its_volumes
     program = held_note_game(plays: :triangle) { |pass| (pass == 5).then { music_volume 50 } }
     console = assert_emulator_loads_rom(assemble_rom(program, name: "MUSVOLW"), frames: 20)
-    nearest = RubyGBA::Sound::Registers::WAVE_VOLUMES.fetch(RubyGBA::Sound::Registers.wave_level(6))
+    nearest = RubyGBA::Audio::Sound::Registers::WAVE_VOLUMES.fetch(RubyGBA::Audio::Sound::Registers.wave_level(6))
 
-    assert_equal nearest, console.mem16(RubyGBA::Constants::REG_SOUND3CNT_H) & 0xE000
+    assert_equal nearest, console.mem16(RubyGBA::Cartridge::Constants::REG_SOUND3CNT_H) & 0xE000
   end
 
   def test_no_music_volume_silences_a_note_the_wave_voice_is_holding

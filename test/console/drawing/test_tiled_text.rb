@@ -10,9 +10,9 @@ require "test_helper"
 # observable result: the right glyph lands in the right place, the number tracks its
 # variable, leading zeros blank out — on the interpreter oracle and on real hardware.
 class TestTiledText < Minitest::Test
-  include RubyGBA::Constants
+  include RubyGBA::Cartridge::Constants
 
-  Fonts = RubyGBA::Fonts
+  Fonts = RubyGBA::Graphics::Fonts
 
   WHITE = Color.resolve(:white)
 

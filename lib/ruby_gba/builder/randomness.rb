@@ -55,7 +55,7 @@ module RubyGBA
       # @param n [Integer, Symbol, Value] the stream's new starting point
       def seed(n)
         use_rng!
-        record(Build.set(RNG_STATE, Value.node_for(n)))
+        record(Build.set(RNG_STATE, DSL::Value.node_for(n)))
         ensure_var(n)
       end
 
@@ -96,7 +96,7 @@ module RubyGBA
         record(Build.set(name, Build.binop(:/, Build.var_ref(RNG_STATE), Build.int(RNG_HIGH_DIV))))
         record(Build.abs(name))
         record(Build.set(name, range_reduce(name, lo, width)))
-        Value.new(self, Build.var_ref(name), name: name)
+        DSL::Value.new(self, Build.var_ref(name), name: name)
       end
 
       # Draw a random number in +range+ and hand back a {Value} — for assigning it
@@ -128,7 +128,7 @@ module RubyGBA
         # Wrap the test as a `chance` value node (true when the 0..99 draw is below
         # percent), so it reads as a probability rather than a bare comparison — the
         # cost estimator weighs a body it gates by percent.
-        Condition.new(self, Build.chance(Build.var_ref(draw), percent))
+        DSL::Condition.new(self, Build.chance(Build.var_ref(draw), percent))
       end
 
       private

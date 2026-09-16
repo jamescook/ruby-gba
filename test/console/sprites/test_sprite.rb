@@ -12,7 +12,7 @@ require "test_helper"
 # A trail would leave more. Each program ends with `after(N) { halt }` so the run
 # stops on a settled frame (right after a completed repaint), making the count exact.
 class TestSprite < Minitest::Test
-  include RubyGBA::Constants
+  include RubyGBA::Cartridge::Constants
 
   BLOCK = 4           # a 4x4 solid-red sprite
   FIELD = :blue       # the field it moves over

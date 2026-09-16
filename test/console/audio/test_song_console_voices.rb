@@ -14,9 +14,9 @@ require "tmpdir"
 # busy song reaches for them before it reaches for another recording, and the voices it does not
 # spend stay free for the game's own sounds.
 class TestSongConsoleVoices < Minitest::Test
-  include RubyGBA::Constants
+  include RubyGBA::Cartridge::Constants
 
-  Registers = RubyGBA::Sound::Registers
+  Registers = RubyGBA::Audio::Sound::Registers
 
   # A tune whose parts cover every voice there is: two square, one wave, one noise, one recorded.
   def every_voice_game(frames: 60)
@@ -54,14 +54,14 @@ class TestSongConsoleVoices < Minitest::Test
 
     refute_empty played, "the pad part sounded the wave voice"
     assert_equal :triangle, played.first[:shape], "at the timbre the part named"
-    assert_equal RubyGBA::Music::NOTE_FREQUENCIES[:C2], played.first[:frequency]
+    assert_equal RubyGBA::Audio::Music::NOTE_FREQUENCIES[:C2], played.first[:frequency]
   end
 
   def test_a_noise_part_sounds_a_hit_on_the_interpreter
     hits = logged(every_voice_game).select { |entry| entry.first == :noise }.map(&:last).compact
 
     refute_empty hits, "the drum part hit the noise voice"
-    assert_equal RubyGBA::Music::NOTE_FREQUENCIES[:C2], hits.first[:pitch]
+    assert_equal RubyGBA::Audio::Music::NOTE_FREQUENCIES[:C2], hits.first[:pitch]
     assert_equal :fast, hits.first[:decay], "a drum hit rings out rather than being held"
   end
 
@@ -87,7 +87,7 @@ class TestSongConsoleVoices < Minitest::Test
     rom = assemble_rom(every_voice_game, name: "VOICES")
     v = assert_emulator_loads_rom(rom, frames: 8)
 
-    assert_equal Registers.wave_rate(RubyGBA::Music::NOTE_FREQUENCIES[:C2]),
+    assert_equal Registers.wave_rate(RubyGBA::Audio::Music::NOTE_FREQUENCIES[:C2]),
                  v.wave_rate, "the wave voice is playing the pad's note"
     refute_equal 0, v.mem16(REG_SOUND3CNT_H), "...at a level you can hear"
     refute_equal 0, v.mem16(REG_SOUND4CNT_L), "the noise voice was hit"
@@ -122,7 +122,7 @@ class TestSongConsoleVoices < Minitest::Test
     Dir.mktmpdir do |dir|
       path = File.join(dir, "voices.gba")
       rom.write(path)
-      probe = RubyGBA::Emulator.probe(path)
+      probe = RubyGBA::Diagnostics::Emulator.probe(path)
       begin
         probe.step(8)
 
@@ -168,8 +168,8 @@ class TestSongConsoleVoices < Minitest::Test
   # higher, thinner hiss. So a note picks the clock nearest to it — which is what makes a low
   # note a kick and a high one a hat, and it has to be monotonic for that to be true.
   def test_a_higher_note_gives_a_faster_hiss
-    low = Registers.noise_frequency(*Registers.noise_clock(RubyGBA::Music::NOTE_FREQUENCIES[:C2]))
-    high = Registers.noise_frequency(*Registers.noise_clock(RubyGBA::Music::NOTE_FREQUENCIES[:C5]))
+    low = Registers.noise_frequency(*Registers.noise_clock(RubyGBA::Audio::Music::NOTE_FREQUENCIES[:C2]))
+    high = Registers.noise_frequency(*Registers.noise_clock(RubyGBA::Audio::Music::NOTE_FREQUENCIES[:C5]))
 
     assert_operator high, :>, low, "a higher note sits higher on the ladder"
   end
@@ -195,7 +195,7 @@ class TestSongConsoleVoices < Minitest::Test
   # --- what `plays:` accepts ---
 
   def part_for(plays)
-    RubyGBA::Music::VoiceContext.new(RubyGBA::Music::SongContext.new, plays: plays).to_voice
+    RubyGBA::Audio::Music::VoiceContext.new(RubyGBA::Audio::Music::SongContext.new, plays: plays).to_voice
   end
 
   def test_plays_names_a_voice_by_what_it_sounds_like
@@ -226,7 +226,7 @@ class TestSongConsoleVoices < Minitest::Test
   # --- the noise part's own settings ---
 
   def test_a_noise_part_says_how_its_hits_fade_and_whether_they_rattle
-    part = RubyGBA::Music::VoiceContext.new(RubyGBA::Music::SongContext.new, plays: :noise)
+    part = RubyGBA::Audio::Music::VoiceContext.new(RubyGBA::Audio::Music::SongContext.new, plays: :noise)
     part.decay :slow
     part.metallic true
     part.note :C3, :quarter
@@ -349,10 +349,10 @@ class TestSongConsoleVoices < Minitest::Test
   # --- a Score says it the same way ---
 
   def test_a_score_part_names_the_console_voices_too
-    notes = [RubyGBA::Score::Note.new(at: 0, key: 48)]
-    pad = RubyGBA::Score::Part.new(plays: :wave, notes: notes)
-    drums = RubyGBA::Score::Part.new(plays: :noise, notes: notes, decay: :slow, metallic: true)
-    song = RubyGBA::Score.new(parts: [pad, drums]).to_song
+    notes = [RubyGBA::Audio::Score::Note.new(at: 0, key: 48)]
+    pad = RubyGBA::Audio::Score::Part.new(plays: :wave, notes: notes)
+    drums = RubyGBA::Audio::Score::Part.new(plays: :noise, notes: notes, decay: :slow, metallic: true)
+    song = RubyGBA::Audio::Score.new(parts: [pad, drums]).to_song
 
     assert_equal :triangle, song[:voices].first.wave
     assert song[:voices].last.noise

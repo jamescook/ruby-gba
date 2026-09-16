@@ -272,13 +272,13 @@ module RubyGBA
         check_one_transparent_layer!(name, amount)
 
         @layers_node.transparent = name
-        @layers_node.transparency = Value.node_for(amount)
+        @layers_node.transparency = DSL::Value.node_for(amount)
         @transparency_written = amount
         ensure_var(amount)
       end
 
       def check_transparency_amount!(name, amount)
-        fixed = Value.fixed_number(amount)
+        fixed = DSL::Value.fixed_number(amount)
         return if fixed.nil? && value_like?(amount) # the game works it out — checked as it runs
         return if fixed && (0..100).cover?(fixed)
 
@@ -295,13 +295,13 @@ module RubyGBA
       end
 
       def value_like?(amount)
-        amount.is_a?(Symbol) || amount.is_a?(Value) || amount.is_a?(IR::Node)
+        amount.is_a?(Symbol) || amount.is_a?(DSL::Value) || amount.is_a?(IR::Node)
       end
 
       # How see-through the layer was asked to be, as the author wrote it — a number, or
       # the name of what the game works it out from. For a message about it.
       def transparency_as_written
-        Value.fixed_number(@transparency_written) || @transparency_written.inspect
+        DSL::Value.fixed_number(@transparency_written) || @transparency_written.inspect
       end
 
       # A bitmap screen paints its scenery, its sprites and its text into ONE picture
@@ -455,7 +455,7 @@ module RubyGBA
         # A verb drawing its own text names ITSELF here: a `menu`'s rows really cannot
         # belong to a layer on a bitmap screen, and the author wrote `menu`, not the
         # `draw_text` underneath it (see Text#verb_owns_its_text).
-        verb = @verb_owns_text || PlainWords.verb(node.kind)
+        verb = @verb_owns_text || Diagnostics::PlainWords.verb(node.kind)
         raise ArgumentError,
               "`#{verb}` paints where you call it#{on_a_bitmap_screen(node)}, so it cannot " \
               "belong to the layer :#{@current_layer}. A layer holds the things the framework " \
@@ -476,7 +476,7 @@ module RubyGBA
       # find it. A layer holds things; a fade is not a thing in the picture, it is
       # something done to the picture from a place in the stack.
       def refuse_whole_screen_in_layer!(node)
-        verb = PlainWords.verb(node.kind)
+        verb = Diagnostics::PlainWords.verb(node.kind)
         raise ArgumentError,
               "`#{verb}` changes the whole screen, so it cannot belong to the layer " \
               ":#{@current_layer}. To fix this, call `#{verb}` outside the `layer` " \

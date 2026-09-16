@@ -1,288 +1,290 @@
 # frozen_string_literal: true
 
 module RubyGBA
-  # A PIECE OF MUSIC AS DATA — for a game whose music already exists as numbers rather than as
-  # something to write out by hand: decoded out of another game's cartridge, read from a file,
-  # made up by a program. A `song do ... end` block is for writing a tune; a Score is for handing
-  # one over. `songs :music, [score, ...]` takes a list of them and plays them by number.
-  #
-  #   note = RubyGBA::Score::Note
-  #   melody = RubyGBA::Score::Part.new(plays: :flute, notes: [
-  #     note.new(at: 0,  key: 72, length: 22),   # key 72 is the C above middle C
-  #     note.new(at: 24, key: 76, length: 22),
-  #   ])
-  #   RubyGBA::Score.new(parts: [melody], tempo: 150)
-  #
-  # TIME IS COUNTED IN TICKS, the way sequenced music is stored everywhere: a beat is
-  # +ticks_per_beat+ of them, and the tempo is how many beats a minute. The framework turns
-  # ticks into frames once, when the game is built — so a decoder hands over what its format
-  # says and never does the sum. The tempo can change as the song goes:
-  # `tempo: [[0, 120], [960, 140]]` is 120 from the start and 140 from tick 960.
-  #
-  # A PART is one line of music: a note at a time, each lasting until the next one starts or
-  # its own +length+ runs out. It plays the square wave, or the recording its +plays:+ names.
-  #
-  # A NOTE has a +key+ — a MIDI note number (60 is middle C) or a note name like :C4 — or no
-  # key at all, which is a rest. It can also name its own +instrument+ and +volume+, for music
-  # that changes instrument or loudness from one note to the next. What a part cannot do is
-  # change from a square wave to a recording halfway through: it plays one or the other.
-  #
-  # A SONG WITH AN INTRODUCTION says where its loop starts: `loop_from: 384` plays the first 384
-  # ticks once, then everything from there to the end over and over. Without it, the whole song
-  # repeats.
-  #
-  # PRIORITY decides who sounds when a sound effect and the song, or two sound effects, want
-  # the same one of the console's voices at once: the higher number takes it (see
-  # IR::Tunes.song_rank). A cartridge's own sound engine carries one on every sequence, so a decoder
-  # hands it straight over.
-  #
-  # A GROUP says which sound effects cut each other off: effects with the same +group+ play one at
-  # a time, the way a character has one voice. Asked for while another of its group sounds, an
-  # effect of at least that priority stops it and starts; one of lower priority is not played. A
-  # cartridge's engine plays each effect on one of a few players, and the player is the group.
-  Score = Data.define(:parts, :tempo, :ticks_per_beat, :length, :loop_from, :priority, :group)
+  module Audio
+    # A PIECE OF MUSIC AS DATA — for a game whose music already exists as numbers rather than as
+    # something to write out by hand: decoded out of another game's cartridge, read from a file,
+    # made up by a program. A `song do ... end` block is for writing a tune; a Score is for handing
+    # one over. `songs :music, [score, ...]` takes a list of them and plays them by number.
+    #
+    #   note = RubyGBA::Audio::Score::Note
+    #   melody = RubyGBA::Audio::Score::Part.new(plays: :flute, notes: [
+    #     note.new(at: 0,  key: 72, length: 22),   # key 72 is the C above middle C
+    #     note.new(at: 24, key: 76, length: 22),
+    #   ])
+    #   RubyGBA::Audio::Score.new(parts: [melody], tempo: 150)
+    #
+    # TIME IS COUNTED IN TICKS, the way sequenced music is stored everywhere: a beat is
+    # +ticks_per_beat+ of them, and the tempo is how many beats a minute. The framework turns
+    # ticks into frames once, when the game is built — so a decoder hands over what its format
+    # says and never does the sum. The tempo can change as the song goes:
+    # `tempo: [[0, 120], [960, 140]]` is 120 from the start and 140 from tick 960.
+    #
+    # A PART is one line of music: a note at a time, each lasting until the next one starts or
+    # its own +length+ runs out. It plays the square wave, or the recording its +plays:+ names.
+    #
+    # A NOTE has a +key+ — a MIDI note number (60 is middle C) or a note name like :C4 — or no
+    # key at all, which is a rest. It can also name its own +instrument+ and +volume+, for music
+    # that changes instrument or loudness from one note to the next. What a part cannot do is
+    # change from a square wave to a recording halfway through: it plays one or the other.
+    #
+    # A SONG WITH AN INTRODUCTION says where its loop starts: `loop_from: 384` plays the first 384
+    # ticks once, then everything from there to the end over and over. Without it, the whole song
+    # repeats.
+    #
+    # PRIORITY decides who sounds when a sound effect and the song, or two sound effects, want
+    # the same one of the console's voices at once: the higher number takes it (see
+    # IR::Tunes.song_rank). A cartridge's own sound engine carries one on every sequence, so a decoder
+    # hands it straight over.
+    #
+    # A GROUP says which sound effects cut each other off: effects with the same +group+ play one at
+    # a time, the way a character has one voice. Asked for while another of its group sounds, an
+    # effect of at least that priority stops it and starts; one of lower priority is not played. A
+    # cartridge's engine plays each effect on one of a few players, and the player is the group.
+    Score = Data.define(:parts, :tempo, :ticks_per_beat, :length, :loop_from, :priority, :group)
 
-  class Score
-    # FRAMES A SECOND, the rate the music is played at — the same round figure a song block's
-    # note lengths are worked out from, so the two agree about how long a beat is.
-    FRAME_RATE = 60
+    class Score
+      # FRAMES A SECOND, the rate the music is played at — the same round figure a song block's
+      # note lengths are worked out from, so the two agree about how long a beat is.
+      FRAME_RATE = 60
 
-    # The highest priority there is. A byte, which is what a cartridge carries.
-    MOST_PRIORITY = 255
+      # The highest priority there is. A byte, which is what a cartridge carries.
+      MOST_PRIORITY = 255
 
-    # +length+ is where the song comes round again, in ticks. Left out, it is where the last
-    # note ends — and a note with no length of its own counts as a beat long for that, since
-    # it lasts until the next note and the last one has none after it. +loop_from+ is the tick
-    # it comes round TO; left out, that is its start.
-    def initialize(parts:, tempo: 120, ticks_per_beat: 24, length: nil, loop_from: nil, priority: 0, group: nil)
-      super
-    end
-
-    # The score as the plain data every backend replays: each part's events as [frame,
-    # frequency in Hz, instrument, volume] — a frequency of 0 a rest, and a nil instrument or
-    # volume meaning the part's own — the song's length in frames, its priority and group, and
-    # the frame it loops from when it has an introduction.
-    def to_song
-      Checks.score!(self)
-      frames = Timing.new(self)
-      ticks = length || last_tick
-      total = [frames.at(ticks), 1].max
-      song = { voices: parts.map { |part| part.to_voice(frames, total) }, total_frames: total,
-               priority: priority, group: group }
-      return song unless loop_from
-
-      Checks.loop_from!(loop_from, ticks) { frames.at(loop_from) < total }
-      song.merge(loop_frame: frames.at(loop_from))
-    end
-
-    private def last_tick
-      parts.flat_map(&:notes).map { |note| note.at + (note.length || ticks_per_beat) }.max || 0
-    end
-
-    Part = Data.define(:notes, :plays, :volume, :duty, :decay, :metallic, :envelope)
-
-    class Part
-      # +decay+ and +metallic+ are read only by a part on the noise voice (`plays: :noise`) —
-      # how fast a hit fades, and whether it rattles or thuds. Every other kind of part holds
-      # its note until the next one, so there is nothing for them to say.
-      #
-      # +envelope+ shapes how each of this part's notes starts and ends — read only by a part
-      # that plays a recording, since the console's own voices shape their own. A part that says
-      # nothing takes whatever the instrument it plays was declared with.
-      def initialize(notes:, plays: nil, volume: 12, duty: :half, decay: :fast, metallic: false,
-                     envelope: nil)
+      # +length+ is where the song comes round again, in ticks. Left out, it is where the last
+      # note ends — and a note with no length of its own counts as a beat long for that, since
+      # it lasts until the next note and the last one has none after it. +loop_from+ is the tick
+      # it comes round TO; left out, that is its start.
+      def initialize(parts:, tempo: 120, ticks_per_beat: 24, length: nil, loop_from: nil, priority: 0, group: nil)
         super
       end
 
-      # This part as the resolved data the IR carries. Which of the console's voices it plays on
-      # is worked out by the same reader a `song` block's parts use, so the two ways a song
-      # reaches the IR cannot disagree about it (see Music::Part.playing).
-      def to_voice(frames, total)
-        Music::Part.playing(plays, events: Events.of(self, frames, total), duty: duty,
-                                   volume: volume, decay: decay, metallic: metallic,
-                                   envelope: Envelope.of(envelope, "a part"))
+      # The score as the plain data every backend replays: each part's events as [frame,
+      # frequency in Hz, instrument, volume] — a frequency of 0 a rest, and a nil instrument or
+      # volume meaning the part's own — the song's length in frames, its priority and group, and
+      # the frame it loops from when it has an introduction.
+      def to_song
+        Checks.score!(self)
+        frames = Timing.new(self)
+        ticks = length || last_tick
+        total = [frames.at(ticks), 1].max
+        song = { voices: parts.map { |part| part.to_voice(frames, total) }, total_frames: total,
+                 priority: priority, group: group }
+        return song unless loop_from
+
+        Checks.loop_from!(loop_from, ticks) { frames.at(loop_from) < total }
+        song.merge(loop_frame: frames.at(loop_from))
       end
-    end
 
-    Note = Data.define(:at, :key, :length, :instrument, :volume, :envelope)
-
-    class Note
-      def initialize(at:, key: nil, length: nil, instrument: nil, volume: nil, envelope: nil)
-        super
+      private def last_tick
+        parts.flat_map(&:notes).map { |note| note.at + (note.length || ticks_per_beat) }.max || 0
       end
 
-      # How high the note is, in Hz — 0 for a rest. A MIDI note number is tuned the usual
-      # way, from A above middle C (number 69) at 440 Hz.
-      def frequency
-        case key
-        when nil then 0
-        when Symbol then Music::NOTE_FREQUENCIES.fetch(key)
-        else 440.0 * (2**((key - 69) / 12.0))
+      Part = Data.define(:notes, :plays, :volume, :duty, :decay, :metallic, :envelope)
+
+      class Part
+        # +decay+ and +metallic+ are read only by a part on the noise voice (`plays: :noise`) —
+        # how fast a hit fades, and whether it rattles or thuds. Every other kind of part holds
+        # its note until the next one, so there is nothing for them to say.
+        #
+        # +envelope+ shapes how each of this part's notes starts and ends — read only by a part
+        # that plays a recording, since the console's own voices shape their own. A part that says
+        # nothing takes whatever the instrument it plays was declared with.
+        def initialize(notes:, plays: nil, volume: 12, duty: :half, decay: :fast, metallic: false,
+                       envelope: nil)
+          super
+        end
+
+        # This part as the resolved data the IR carries. Which of the console's voices it plays on
+        # is worked out by the same reader a `song` block's parts use, so the two ways a song
+        # reaches the IR cannot disagree about it (see Music::Part.playing).
+        def to_voice(frames, total)
+          Music::Part.playing(plays, events: Events.of(self, frames, total), duty: duty,
+                                     volume: volume, decay: decay, metallic: metallic,
+                                     envelope: Envelope.of(envelope, "a part"))
         end
       end
 
-      # The instrument this note names for itself, by name, or nil to play the part's own.
-      def instrument_name
-        instrument.respond_to?(:name) && !instrument.is_a?(Symbol) ? instrument.name : instrument
-      end
-    end
+      Note = Data.define(:at, :key, :length, :instrument, :volume, :envelope)
 
-    # TICKS INTO FRAMES, from the tempo map. Each note's frame is worked out from the start of
-    # the song with exact fractions and rounded once, so rounding never builds up over a long
-    # song the way adding up rounded note lengths would.
-    class Timing
-      def initialize(score)
-        @per_beat = score.ticks_per_beat
-        @changes = score.tempo.is_a?(Array) ? score.tempo.sort_by(&:first) : [[0, score.tempo]]
-      end
-
-      def at(tick)
-        seconds = 0r
-        from, bpm = @changes.first
-        @changes.drop(1).each do |change_at, next_bpm|
-          break if change_at > tick
-
-          seconds += Rational(change_at - from) * 60 / (@per_beat * bpm.to_r)
-          from = change_at
-          bpm = next_bpm
+      class Note
+        def initialize(at:, key: nil, length: nil, instrument: nil, volume: nil, envelope: nil)
+          super
         end
-        seconds += Rational(tick - from) * 60 / (@per_beat * bpm.to_r)
-        (seconds * FRAME_RATE).round
-      end
-    end
 
-    # A PART'S EVENTS, as the player walks them: one event on a frame, in order. A note with a
-    # length ends in a rest where the length runs out, unless the next note has already begun.
-    # Two events that round onto one frame keep the later — the player takes one event a frame,
-    # and the earlier would last no time at all — and nothing is kept past the song's end.
-    module Events
-      module_function
-
-      def of(part, frames, total)
-        notes = part.notes.sort_by(&:at)
-        events = notes.each_with_index.flat_map do |note, n|
-          on = [frames.at(note.at), note.frequency, note.instrument_name, note.volume,
-                Envelope.of(note.envelope, "a note")]
-          next [on] unless note.length
-
-          ends = note.at + note.length
-          following = notes[n + 1]
-          following && following.at <= ends ? [on] : [on, [frames.at(ends), 0, nil, nil, nil]]
+        # How high the note is, in Hz — 0 for a rest. A MIDI note number is tuned the usual
+        # way, from A above middle C (number 69) at 440 Hz.
+        def frequency
+          case key
+          when nil then 0
+          when Symbol then Music::NOTE_FREQUENCIES.fetch(key)
+          else 440.0 * (2**((key - 69) / 12.0))
+          end
         end
-        events.each_with_object({}) { |event, by_frame| by_frame[event.first] = event }
-              .values.select { |event| event.first < total }.sort_by(&:first)
-      end
-    end
 
-    # WHAT A SCORE HAS TO BE, said plainly and early — a game hands these over from its own
-    # decoder, and a mistake in one names the note it is in, rather than coming out as a wrong
-    # sound or a crash somewhere deep in the build. What a SONG has to be — how many parts, how
-    # low a square-wave note — is the same for a Score and a song block, so it is checked on the
-    # finished program instead (IR::Guardrails).
-    module Checks
-      module_function
-
-      def score!(score)
-        if !score.parts.is_a?(Array) || score.parts.empty?
-          raise ArgumentError, "A Score needs at least one part. Give them in `parts:`."
-        end
-        unless score.ticks_per_beat.is_a?(Integer) && score.ticks_per_beat.positive?
-          raise ArgumentError, "ticks_per_beat: must be a whole number more than 0. " \
-                               "You gave #{score.ticks_per_beat.inspect}."
-        end
-        tempo!(score.tempo)
-        priority!(score.priority)
-        unless score.group.nil? || score.group.is_a?(Symbol)
-          raise ArgumentError, "A Score has the group #{score.group.inspect}. A group is a name, like :voice. " \
-                               "Give `group:` a name, or remove it."
-        end
-        score.parts.each_with_index { |part, number| part!(part, number) }
-      end
-
-      def priority!(priority)
-        return if priority.is_a?(Integer) && priority.between?(0, MOST_PRIORITY)
-
-        raise ArgumentError, "A Score has the priority #{priority.inspect}. A priority is a whole number " \
-                             "from 0 to #{MOST_PRIORITY}. Give `priority:` a number in that range, or " \
-                             "remove it for 0."
-      end
-
-      # The loop starts somewhere inside the song: at a tick from 0 up to its last one — and
-      # far enough before the end that it lands on an earlier frame than the end does, which the
-      # block is asked once the tick is known to be a number.
-      def loop_from!(loop_from, ticks)
-        unless loop_from.is_a?(Integer) && loop_from >= 0
-          raise ArgumentError, "loop_from: is the tick where the loop starts, a whole number 0 or more. " \
-                               "You gave #{loop_from.inspect}."
-        end
-        return if loop_from < ticks && yield
-
-        raise ArgumentError, "The Score loops from tick #{loop_from}, and it is #{ticks} ticks long. The " \
-                             "loop must start before the end. Give a tick less than #{ticks}."
-      end
-
-      def tempo!(tempo)
-        changes = tempo.is_a?(Array) ? tempo : [[0, tempo]]
-        unless changes.map(&:first).min&.zero?
-          raise ArgumentError, "A tempo map must start at tick 0. Give `tempo: [[0, bpm], ...]`."
-        end
-        changes.each do |at, bpm|
-          next if bpm.is_a?(Numeric) && bpm.positive?
-
-          raise ArgumentError, "A tempo is beats a minute, more than 0. The tempo at tick #{at} " \
-                               "is #{bpm.inspect}."
+        # The instrument this note names for itself, by name, or nil to play the part's own.
+        def instrument_name
+          instrument.respond_to?(:name) && !instrument.is_a?(Symbol) ? instrument.name : instrument
         end
       end
 
-      def part!(part, number)
-        raise ArgumentError, "Part #{number} is not a Score::Part." unless part.is_a?(Part)
-        raise ArgumentError, "Part #{number} needs its notes in `notes:`." unless part.notes.is_a?(Array)
+      # TICKS INTO FRAMES, from the tempo map. Each note's frame is worked out from the start of
+      # the song with exact fractions and rounded once, so rounding never builds up over a long
+      # song the way adding up rounded note lengths would.
+      class Timing
+        def initialize(score)
+          @per_beat = score.ticks_per_beat
+          @changes = score.tempo.is_a?(Array) ? score.tempo.sort_by(&:first) : [[0, score.tempo]]
+        end
 
-        volume!(part.volume, "Part #{number}")
+        def at(tick)
+          seconds = 0r
+          from, bpm = @changes.first
+          @changes.drop(1).each do |change_at, next_bpm|
+            break if change_at > tick
 
-        part.notes.each_with_index do |note, index|
-          note!(note, "Note #{index} of part #{number}")
-          next unless note.instrument && !part.plays
-
-          raise ArgumentError, "Note #{index} of part #{number} plays #{note.instrument_name.inspect}, " \
-                               "but part #{number} plays the square wave. Give the part an instrument " \
-                               "with `plays:`. Then a note can change it."
+            seconds += Rational(change_at - from) * 60 / (@per_beat * bpm.to_r)
+            from = change_at
+            bpm = next_bpm
+          end
+          seconds += Rational(tick - from) * 60 / (@per_beat * bpm.to_r)
+          (seconds * FRAME_RATE).round
         end
       end
 
-      def note!(note, where)
-        raise ArgumentError, "#{where} is not a Score::Note." unless note.is_a?(Note)
-        unless note.at.is_a?(Integer) && note.at >= 0
-          raise ArgumentError, "#{where} starts at tick #{note.at.inspect}. A tick is a whole number, 0 or more."
+      # A PART'S EVENTS, as the player walks them: one event on a frame, in order. A note with a
+      # length ends in a rest where the length runs out, unless the next note has already begun.
+      # Two events that round onto one frame keep the later — the player takes one event a frame,
+      # and the earlier would last no time at all — and nothing is kept past the song's end.
+      module Events
+        module_function
+
+        def of(part, frames, total)
+          notes = part.notes.sort_by(&:at)
+          events = notes.each_with_index.flat_map do |note, n|
+            on = [frames.at(note.at), note.frequency, note.instrument_name, note.volume,
+                  Envelope.of(note.envelope, "a note")]
+            next [on] unless note.length
+
+            ends = note.at + note.length
+            following = notes[n + 1]
+            following && following.at <= ends ? [on] : [on, [frames.at(ends), 0, nil, nil, nil]]
+          end
+          events.each_with_object({}) { |event, by_frame| by_frame[event.first] = event }
+                .values.select { |event| event.first < total }.sort_by(&:first)
         end
-        unless note.length.nil? || (note.length.is_a?(Integer) && note.length.positive?)
-          raise ArgumentError, "#{where} is #{note.length.inspect} ticks long. A length is a whole number " \
-                               "more than 0, or nothing for a note that lasts until the next one."
-        end
-        key!(note.key, where)
-        volume!(note.volume, where) if note.volume
       end
 
-      # A loudness is 0 (silent) to 15 (the loudest), the same scale a song block's `volume` is.
-      def volume!(volume, where)
-        return if volume.is_a?(Integer) && volume.between?(0, 15)
+      # WHAT A SCORE HAS TO BE, said plainly and early — a game hands these over from its own
+      # decoder, and a mistake in one names the note it is in, rather than coming out as a wrong
+      # sound or a crash somewhere deep in the build. What a SONG has to be — how many parts, how
+      # low a square-wave note — is the same for a Score and a song block, so it is checked on the
+      # finished program instead (IR::Guardrails).
+      module Checks
+        module_function
 
-        raise ArgumentError, "#{where} has the volume #{volume.inspect}. A volume is 0 to 15."
-      end
+        def score!(score)
+          if !score.parts.is_a?(Array) || score.parts.empty?
+            raise ArgumentError, "A Score needs at least one part. Give them in `parts:`."
+          end
+          unless score.ticks_per_beat.is_a?(Integer) && score.ticks_per_beat.positive?
+            raise ArgumentError, "ticks_per_beat: must be a whole number more than 0. " \
+                                 "You gave #{score.ticks_per_beat.inspect}."
+          end
+          tempo!(score.tempo)
+          priority!(score.priority)
+          unless score.group.nil? || score.group.is_a?(Symbol)
+            raise ArgumentError, "A Score has the group #{score.group.inspect}. A group is a name, like :voice. " \
+                                 "Give `group:` a name, or remove it."
+          end
+          score.parts.each_with_index { |part, number| part!(part, number) }
+        end
 
-      def key!(key, where)
-        case key
-        when nil then nil
-        when Symbol
-          return if Music::NOTE_FREQUENCIES.key?(key)
+        def priority!(priority)
+          return if priority.is_a?(Integer) && priority.between?(0, MOST_PRIORITY)
 
-          raise ArgumentError, "#{where} has the key #{key.inspect}, which is not a note. " \
-                               "Use a note like :C4, or a MIDI note number."
-        when Integer
-          raise ArgumentError, "#{where} has the key #{key}. A MIDI note number is 0 to 127." unless key.between?(0, 127)
-        else
-          raise ArgumentError, "#{where} has the key #{key.inspect}. Use a MIDI note number " \
-                               "(60 is middle C) or a note like :C4."
+          raise ArgumentError, "A Score has the priority #{priority.inspect}. A priority is a whole number " \
+                               "from 0 to #{MOST_PRIORITY}. Give `priority:` a number in that range, or " \
+                               "remove it for 0."
+        end
+
+        # The loop starts somewhere inside the song: at a tick from 0 up to its last one — and
+        # far enough before the end that it lands on an earlier frame than the end does, which the
+        # block is asked once the tick is known to be a number.
+        def loop_from!(loop_from, ticks)
+          unless loop_from.is_a?(Integer) && loop_from >= 0
+            raise ArgumentError, "loop_from: is the tick where the loop starts, a whole number 0 or more. " \
+                                 "You gave #{loop_from.inspect}."
+          end
+          return if loop_from < ticks && yield
+
+          raise ArgumentError, "The Score loops from tick #{loop_from}, and it is #{ticks} ticks long. The " \
+                               "loop must start before the end. Give a tick less than #{ticks}."
+        end
+
+        def tempo!(tempo)
+          changes = tempo.is_a?(Array) ? tempo : [[0, tempo]]
+          unless changes.map(&:first).min&.zero?
+            raise ArgumentError, "A tempo map must start at tick 0. Give `tempo: [[0, bpm], ...]`."
+          end
+          changes.each do |at, bpm|
+            next if bpm.is_a?(Numeric) && bpm.positive?
+
+            raise ArgumentError, "A tempo is beats a minute, more than 0. The tempo at tick #{at} " \
+                                 "is #{bpm.inspect}."
+          end
+        end
+
+        def part!(part, number)
+          raise ArgumentError, "Part #{number} is not a Score::Part." unless part.is_a?(Part)
+          raise ArgumentError, "Part #{number} needs its notes in `notes:`." unless part.notes.is_a?(Array)
+
+          volume!(part.volume, "Part #{number}")
+
+          part.notes.each_with_index do |note, index|
+            note!(note, "Note #{index} of part #{number}")
+            next unless note.instrument && !part.plays
+
+            raise ArgumentError, "Note #{index} of part #{number} plays #{note.instrument_name.inspect}, " \
+                                 "but part #{number} plays the square wave. Give the part an instrument " \
+                                 "with `plays:`. Then a note can change it."
+          end
+        end
+
+        def note!(note, where)
+          raise ArgumentError, "#{where} is not a Score::Note." unless note.is_a?(Note)
+          unless note.at.is_a?(Integer) && note.at >= 0
+            raise ArgumentError, "#{where} starts at tick #{note.at.inspect}. A tick is a whole number, 0 or more."
+          end
+          unless note.length.nil? || (note.length.is_a?(Integer) && note.length.positive?)
+            raise ArgumentError, "#{where} is #{note.length.inspect} ticks long. A length is a whole number " \
+                                 "more than 0, or nothing for a note that lasts until the next one."
+          end
+          key!(note.key, where)
+          volume!(note.volume, where) if note.volume
+        end
+
+        # A loudness is 0 (silent) to 15 (the loudest), the same scale a song block's `volume` is.
+        def volume!(volume, where)
+          return if volume.is_a?(Integer) && volume.between?(0, 15)
+
+          raise ArgumentError, "#{where} has the volume #{volume.inspect}. A volume is 0 to 15."
+        end
+
+        def key!(key, where)
+          case key
+          when nil then nil
+          when Symbol
+            return if Music::NOTE_FREQUENCIES.key?(key)
+
+            raise ArgumentError, "#{where} has the key #{key.inspect}, which is not a note. " \
+                                 "Use a note like :C4, or a MIDI note number."
+          when Integer
+            raise ArgumentError, "#{where} has the key #{key}. A MIDI note number is 0 to 127." unless key.between?(0, 127)
+          else
+            raise ArgumentError, "#{where} has the key #{key.inspect}. Use a MIDI note number " \
+                                 "(60 is middle C) or a note like :C4."
+          end
         end
       end
     end

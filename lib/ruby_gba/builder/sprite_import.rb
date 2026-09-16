@@ -13,7 +13,7 @@ module RubyGBA
       # naming or numbering, just "cut it up and cycle the pieces."
       def import_frames(name:, path:, tile:, transparent:)
         tile_w, tile_h = sheet_tile_size("sprite :#{name}", tile)
-        sheet = Image.slice(resolve_asset_path(path), tile_w: tile_w, tile_h: tile_h, transparent: transparent)
+        sheet = Graphics::Image.slice(resolve_asset_path(path), tile_w: tile_w, tile_h: tile_h, transparent: transparent)
         (0...(sheet.cols * sheet.rows)).map do |i|
           bmp = sheet.cell(i % sheet.cols, i / sheet.cols)
           frame = :"__frame_#{name}_#{i}"
@@ -37,7 +37,7 @@ module RubyGBA
         end
 
         tile_w, tile_h = sheet_tile_size("sprite :#{name}", tile)
-        sheet = Image.slice(resolve_asset_path(path), tile_w: tile_w, tile_h: tile_h, transparent: transparent)
+        sheet = Graphics::Image.slice(resolve_asset_path(path), tile_w: tile_w, tile_h: tile_h, transparent: transparent)
         unless sheet.rows == dirs.length
           raise ArgumentError,
                 "sprite :#{name} facing_from: has #{sheet.rows} rows, but dirs: names #{dirs.length}. " \
@@ -73,7 +73,7 @@ module RubyGBA
         end
         _poses, width, height = same_size_images!(name, "Aseprite frame", poses)
 
-        tags = [Aseprite::Tag.new(:all, 0, frames.length - 1)] if tags.empty?
+        tags = [Graphics::Aseprite::Tag.new(:all, 0, frames.length - 1)] if tags.empty?
         clips = tags.to_h { |tag| [tag.name, { off: tag.from, len: (tag.to - tag.from) + 1 }] }
         durations = frames.map { |frame| duration_frames(frame.duration) }
         [poses, clips, width, height, durations]
@@ -84,20 +84,20 @@ module RubyGBA
       # step — or a JSON + PNG export (the JSON names its PNG, found beside it).
       def load_aseprite(name, path, transparent)
         if path.downcase.end_with?(".aseprite", ".ase")
-          sprite = Aseprite.load_binary(File.binread(path))
+          sprite = Graphics::Aseprite.load_binary(File.binread(path))
           return [sprite.frames, sprite.tags]
         end
 
-        doc = Aseprite.parse(File.read(path))
+        doc = Graphics::Aseprite.parse(File.read(path))
         unless doc.image
           raise ArgumentError,
                 "sprite :#{name} from_aseprite: #{path.inspect} does not name its image. " \
                 "Re-export from Aseprite with the JSON data option, which records the PNG name."
         end
-        sheet = Image.load_sheet(File.expand_path(doc.image, File.dirname(path)), transparent: transparent)
+        sheet = Graphics::Image.load_sheet(File.expand_path(doc.image, File.dirname(path)), transparent: transparent)
         frames = doc.frames.map do |f|
           bmp = sheet.region(x: f.x, y: f.y, w: f.w, h: f.h)
-          Aseprite::FrameImage.new(bmp.width, bmp.height, bmp.data, bmp.transparent, f.duration)
+          Graphics::Aseprite::FrameImage.new(bmp.width, bmp.height, bmp.data, bmp.transparent, f.duration)
         end
         [frames, doc.tags]
       end

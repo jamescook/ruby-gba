@@ -50,7 +50,7 @@ class TestBlitClipping < Minitest::Test
                    "interpreter: (#{x}, #{y}) should be #{color || 'background'}"
     end
 
-    rom = RubyGBA::ROM.assemble(GBA.new.lower(prog), title: "CLIPTEST", code: "BCLP", maker: "01")
+    rom = RubyGBA::Cartridge::ROM.assemble(GBA.new.lower(prog), title: "CLIPTEST", code: "BCLP", maker: "01")
     v = assert_emulator_loads_rom(rom)
     expectations.each do |x, y, color|
       assert v.pixel_is?(x, y, color || BG),

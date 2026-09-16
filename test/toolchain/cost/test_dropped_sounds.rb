@@ -15,7 +15,7 @@ require "stringio"
 class TestDroppedSounds < Minitest::Test
   include EmulatorSupport
 
-  VOICES = RubyGBA::Sound::MIXER_VOICES
+  VOICES = RubyGBA::Audio::Sound::MIXER_VOICES
 
   # More sounds at once than there are voices. Each one gets bytes of its own so no two can
   # share a place in the cartridge — this is about the mixer, not about identical sounds
@@ -134,7 +134,7 @@ class TestDroppedSounds < Minitest::Test
     Dir.mktmpdir do |dir|
       path = File.join(dir, "boot.gba")
       rom.write(path)
-      probe = RubyGBA::Emulator.probe(path)
+      probe = RubyGBA::Diagnostics::Emulator.probe(path)
       begin
         probe.write32(drops.drops_at, 0xDEAD)
         probe.write32(drops.music_at, 0xBEEF)

@@ -31,11 +31,11 @@ module RubyGBA
         # the mix itself. @samples / @plays_samples are this object's own state, not
         # handed in — nothing outside sampled audio ever reads them.
         class Mixer
-          include Constants
+          include Cartridge::Constants
 
           # How many samples can sound at once — read from {Sound}, where the two backends
           # keep the promises they make to each other, rather than written down again here.
-          MAX_VOICES = Sound::MIXER_VOICES
+          MAX_VOICES = RubyGBA::Audio::Sound::MIXER_VOICES
 
           # The mix routine's inner loop runs once per output sample per voice — thousands
           # of times a frame. From ROM it would stall on a wait state at every instruction
@@ -106,7 +106,7 @@ module RubyGBA
           # sound that loops has the top bit set, which makes it later than every sound that
           # plays once, so it is the last to go.
           #
-          # THEN THE ENVELOPE, for a voice that has one (see {RubyGBA::Envelope}): the four
+          # THEN THE ENVELOPE, for a voice that has one (see {RubyGBA::Audio::Envelope}): the four
           # numbers packed into ENV, where the LEVEL has climbed or fallen to, which PHASE of the
           # note it is in, GAIN — the loudness the mix actually multiplies by, which is VOL
           # scaled by that level — and RAMP, how far the gain moves with each sample. ENV of 0
@@ -281,7 +281,7 @@ module RubyGBA
             # same reader the voice table takes, so this can be read from a running emulator or
             # from a plain Hash.
             def read
-              SoundDrops::Reading.new(dropped: yield(drops_at), music_held: yield(music_at),
+              Diagnostics::SoundDrops::Reading.new(dropped: yield(drops_at), music_held: yield(music_at),
                                       voices: voices)
             end
           end
@@ -347,9 +347,9 @@ module RubyGBA
           # +reg+ = the mark a voice of recorded lane +lane+ carries, from the rank already in +reg+
           # (Mixer.ranked_owner, worked out as the game runs).
           def emit_ranked_mark(reg, lane)
-            @emitter.emit(ASM.add_imm(reg, reg, 1))
-            @emitter.emit(ASM.lsl_imm(reg, reg, MARK_RANK_SHIFT))
-            @emitter.emit(ASM.orr_imm(reg, reg, lane)) unless lane.zero?
+            @emitter.emit(Cartridge::ASM.add_imm(reg, reg, 1))
+            @emitter.emit(Cartridge::ASM.lsl_imm(reg, reg, MARK_RANK_SHIFT))
+            @emitter.emit(Cartridge::ASM.orr_imm(reg, reg, lane)) unless lane.zero?
           end
 
           # ...and a game that moves the music volume sets a part's note to the new level while it
@@ -408,7 +408,7 @@ module RubyGBA
 
             VoiceTable.new(base: @voice_base, count: MAX_VOICES, clock: @sample_clock, effect_marks: @effect_marks,
                            sample_addresses: @samples.keys.to_h do |name|
-                             [name, ROM_START + RubyGBA::ROM::ENTRY_OFFSET + @emitter.data_positions.fetch(name)]
+                             [name, ROM_START + RubyGBA::Cartridge::ROM::ENTRY_OFFSET + @emitter.data_positions.fetch(name)]
                            end)
           end
 
@@ -474,7 +474,7 @@ module RubyGBA
             emit_zero_region(@mix_totals, @mixer_spf * 2)          # the totals start at nothing
             emit_zero_region(@mix_buf0, buffer_bytes)              # buffers start silent...
             emit_zero_region(@mix_buf1, buffer_bytes)
-            @emitter.emit(ASM.load_immediate(ACC, 0))
+            @emitter.emit(Cartridge::ASM.load_immediate(ACC, 0))
             @primitives.store_var(ACC, MIX_FRONT)                  # ...playing buffer 0 first
             # NOTHING HAS BEEN LOST YET, and this has to be said rather than assumed: the
             # console's memory is not zero at power-on, so a counter left unwritten reads as
@@ -483,12 +483,12 @@ module RubyGBA
             @primitives.store_var(ACC, DROPS_MUSIC)
             # A lot half the count away from any the DMA could be on, so the first hand-over
             # finds it out of reach and starts the counting from wherever the DMA really is.
-            @emitter.emit(ASM.load_immediate(ACC, 0x8000_0000))
+            @emitter.emit(Cartridge::ASM.load_immediate(ACC, 0x8000_0000))
             @primitives.store_var(ACC, MIX_LOT)
 
             @emitter.write_reg16(REG_SOUNDCNT_X, SOUND_MASTER_ENABLE)   # master sound on
             @emitter.write_reg16(REG_SOUNDCNT_H, direct_sound_a_config) # channel A, full volume, FIFO reset
-            @emitter.emit(ASM.load_immediate(ACC, @mix_buf0))
+            @emitter.emit(Cartridge::ASM.load_immediate(ACC, @mix_buf0))
             store_reg_ioreg(ACC, REG_DMA1SAD)                      # DMA source = buffer 0
             @primitives.store_word_immediate(REG_FIFO_A, REG_DMA1DAD) # DMA dest = the sound FIFO
             # ...feeding it continuously, and for now saying so each time it does (see below).
@@ -509,7 +509,7 @@ module RubyGBA
             # period is taken up at the next sample, without restarting anything.
             @emitter.write_reg16(@timers.timer_reg_l(CLOCK_TIMER), 65_536 - @sample_clock.period)
             # Back to the start of buffer 0, with the DMA no longer announcing every lot.
-            @emitter.emit(ASM.load_immediate(ACC, @mix_buf0))
+            @emitter.emit(Cartridge::ASM.load_immediate(ACC, @mix_buf0))
             store_reg_ioreg(ACC, REG_DMA1SAD)
             emit_rearm_dma
 
@@ -538,31 +538,31 @@ module RubyGBA
             wait = e.gensym
             found = e.gensym
             gave_up = e.gensym
-            e.emit(ASM.push(4))
-            e.emit(ASM.load_immediate(ADDR, REG_IF))
-            e.emit(ASM.load_immediate(3, @timers.timer_reg_l(COUNT_TIMER)))
-            e.emit(ASM.load_immediate(4, IRQ_DMA1))
-            e.emit(ASM.load_immediate(2, 0x10000))     # the last lot's count: none yet
-            e.emit(ASM.load_immediate(1, 0x10000))     # turns of the loop before giving up
-            e.emit(ASM.store_halfword(4, ADDR))        # clear a flag left from before
+            e.emit(Cartridge::ASM.push(4))
+            e.emit(Cartridge::ASM.load_immediate(ADDR, REG_IF))
+            e.emit(Cartridge::ASM.load_immediate(3, @timers.timer_reg_l(COUNT_TIMER)))
+            e.emit(Cartridge::ASM.load_immediate(4, IRQ_DMA1))
+            e.emit(Cartridge::ASM.load_immediate(2, 0x10000))     # the last lot's count: none yet
+            e.emit(Cartridge::ASM.load_immediate(1, 0x10000))     # turns of the loop before giving up
+            e.emit(Cartridge::ASM.store_halfword(4, ADDR))        # clear a flag left from before
             e.place_label(wait)
-            e.emit(ASM.subs_imm(1, 1, 1))
+            e.emit(Cartridge::ASM.subs_imm(1, 1, 1))
             e.emit_branch(:bcond, gave_up, cond: :eq)
-            e.emit(ASM.load_halfword(ACC, ADDR))
-            e.emit(ASM.tst_imm(ACC, IRQ_DMA1))
+            e.emit(Cartridge::ASM.load_halfword(ACC, ADDR))
+            e.emit(Cartridge::ASM.tst_imm(ACC, IRQ_DMA1))
             e.emit_branch(:bcond, wait, cond: :eq)     # no lot moved yet
-            e.emit(ASM.load_halfword(ACC, 3))          # the count, the moment one did
-            e.emit(ASM.store_halfword(4, ADDR))        # and clear its flag for the next
-            e.emit(ASM.sub_reg(2, ACC, 2))
-            e.emit(ASM.cmp_imm(2, Timers::DMA_SAMPLES_A_LOT))
-            e.emit(ASM.mov_reg(2, ACC))
+            e.emit(Cartridge::ASM.load_halfword(ACC, 3))          # the count, the moment one did
+            e.emit(Cartridge::ASM.store_halfword(4, ADDR))        # and clear its flag for the next
+            e.emit(Cartridge::ASM.sub_reg(2, ACC, 2))
+            e.emit(Cartridge::ASM.cmp_imm(2, Timers::DMA_SAMPLES_A_LOT))
+            e.emit(Cartridge::ASM.mov_reg(2, ACC))
             e.emit_branch(:bcond, wait, cond: :ne)     # not a lot's worth since the last: not settled
-            e.emit(ASM.and_imm(ACC, ACC, Timers::DMA_SAMPLES_A_LOT - 1))
+            e.emit(Cartridge::ASM.and_imm(ACC, ACC, Timers::DMA_SAMPLES_A_LOT - 1))
             e.emit_branch(:b, found)
             e.place_label(gave_up)
-            e.emit(ASM.load_immediate(ACC, 0))
+            e.emit(Cartridge::ASM.load_immediate(ACC, 0))
             e.place_label(found)
-            e.emit(ASM.pop(4))
+            e.emit(Cartridge::ASM.pop(4))
             @primitives.store_var(ACC, MIX_PHASE)
           end
 
@@ -574,14 +574,14 @@ module RubyGBA
           def emit_copy_mix_routine_to_iwram
             @emitter.emit_load_label_address(0, :__mix_routine)      # r0 = routine start in ROM
             @emitter.emit_load_label_address(1, :__mix_routine_end)  # r1 = routine end in ROM
-            @emitter.emit(ASM.load_immediate(2, @mix_routine_iwram)) # r2 = IWRAM destination
+            @emitter.emit(Cartridge::ASM.load_immediate(2, @mix_routine_iwram)) # r2 = IWRAM destination
             copy = @emitter.gensym
             @emitter.place_label(copy)
-            @emitter.emit(ASM.ldr(3, 0))                             # r3 = [r0]
-            @emitter.emit(ASM.str(3, 2))                             # [r2] = r3
-            @emitter.emit(ASM.add_imm(0, 0, 4))
-            @emitter.emit(ASM.add_imm(2, 2, 4))
-            @emitter.emit(ASM.cmp_reg(0, 1))
+            @emitter.emit(Cartridge::ASM.ldr(3, 0))                             # r3 = [r0]
+            @emitter.emit(Cartridge::ASM.str(3, 2))                             # [r2] = r3
+            @emitter.emit(Cartridge::ASM.add_imm(0, 0, 4))
+            @emitter.emit(Cartridge::ASM.add_imm(2, 2, 4))
+            @emitter.emit(Cartridge::ASM.cmp_reg(0, 1))
             @emitter.emit_branch(:bcond, copy, cond: :lt)            # while r0 < r1
           end
 
@@ -595,30 +595,30 @@ module RubyGBA
               @emitter.emit_load_data_address(4, node.name) # r4 = the sample's address in ROM
               find_free_slot                          # r0 = a free slot's address, or none -> skip
               done = @emitter.gensym
-              @emitter.emit(ASM.cmp_imm(0, 0))        # find_free_slot leaves r0 = 0 when full
+              @emitter.emit(Cartridge::ASM.cmp_imm(0, 0))        # find_free_slot leaves r0 = 0 when full
               @emitter.emit_branch(:bcond, done, cond: :eq)
 
-              @emitter.emit(ASM.str(4, 0))                             # slot.src = address (SLOT_SRC = 0)
-              @emitter.emit(ASM.load_immediate(TMP, 0))
-              @emitter.emit(ASM.str_offset(TMP, 0, SLOT_POS))          # slot.pos = 0
-              @emitter.emit(ASM.load_immediate(TMP, sample.length))
-              @emitter.emit(ASM.str_offset(TMP, 0, SLOT_LEN))          # slot.len = length
-              @emitter.emit(ASM.load_immediate(TMP, loop_back(node, sample)))
-              @emitter.emit(ASM.str_offset(TMP, 0, SLOT_LOOP))         # how far back at the end
-              @emitter.emit(ASM.load_immediate(TMP, MIX_LEVELS.fetch(node.volume, MIX_LEVELS[:full])))
-              @emitter.emit(ASM.str_offset(TMP, 0, SLOT_VOL))          # slot.volume (0..64 gain)
+              @emitter.emit(Cartridge::ASM.str(4, 0))                             # slot.src = address (SLOT_SRC = 0)
+              @emitter.emit(Cartridge::ASM.load_immediate(TMP, 0))
+              @emitter.emit(Cartridge::ASM.str_offset(TMP, 0, SLOT_POS))          # slot.pos = 0
+              @emitter.emit(Cartridge::ASM.load_immediate(TMP, sample.length))
+              @emitter.emit(Cartridge::ASM.str_offset(TMP, 0, SLOT_LEN))          # slot.len = length
+              @emitter.emit(Cartridge::ASM.load_immediate(TMP, loop_back(node, sample)))
+              @emitter.emit(Cartridge::ASM.str_offset(TMP, 0, SLOT_LOOP))         # how far back at the end
+              @emitter.emit(Cartridge::ASM.load_immediate(TMP, MIX_LEVELS.fetch(node.volume, MIX_LEVELS[:full])))
+              @emitter.emit(Cartridge::ASM.str_offset(TMP, 0, SLOT_VOL))          # slot.volume (0..64 gain)
               emit_start_envelope(0, TMP, sample.envelope) if @uses_envelopes
-              @emitter.emit(ASM.load_immediate(TMP, voice_step(node, sample)))
-              @emitter.emit(ASM.str_offset(TMP, 0, SLOT_STEP))         # slot.step (pitch + rate, 16.16)
-              @emitter.emit(ASM.load_immediate(TMP, 0))
-              @emitter.emit(ASM.str_offset(TMP, 0, SLOT_FRAC))         # slot.frac = 0 (fresh)
+              @emitter.emit(Cartridge::ASM.load_immediate(TMP, voice_step(node, sample)))
+              @emitter.emit(Cartridge::ASM.str_offset(TMP, 0, SLOT_STEP))         # slot.step (pitch + rate, 16.16)
+              @emitter.emit(Cartridge::ASM.load_immediate(TMP, 0))
+              @emitter.emit(Cartridge::ASM.str_offset(TMP, 0, SLOT_FRAC))         # slot.frac = 0 (fresh)
               @primitives.load_var(2, TICKETS)
-              @emitter.emit(ASM.add_imm(2, 2, 1))
+              @emitter.emit(Cartridge::ASM.add_imm(2, 2, 1))
               @primitives.store_var(2, TICKETS)                        # the next ticket...
-              @emitter.emit(ASM.orr_imm(2, 2, LOOPS_LAST)) if node.loop # ...after every one-shot, if it loops
-              @emitter.emit(ASM.str_offset(2, 0, SLOT_TICKET))
-              @emitter.emit(ASM.load_immediate(TMP, OWNER_GAME))
-              @emitter.emit(ASM.str_offset(TMP, 0, SLOT_ACTIVE))       # slot.active: the game's (now it sounds)
+              @emitter.emit(Cartridge::ASM.orr_imm(2, 2, LOOPS_LAST)) if node.loop # ...after every one-shot, if it loops
+              @emitter.emit(Cartridge::ASM.str_offset(2, 0, SLOT_TICKET))
+              @emitter.emit(Cartridge::ASM.load_immediate(TMP, OWNER_GAME))
+              @emitter.emit(Cartridge::ASM.str_offset(TMP, 0, SLOT_ACTIVE))       # slot.active: the game's (now it sounds)
               @emitter.place_label(done)
             end
           end
@@ -640,22 +640,22 @@ module RubyGBA
           # +slot+ holds the voice's address and +scratch+ is a register free to be clobbered.
           def emit_start_envelope(slot, scratch, envelope)
             shape = envelope && !envelope.plain? ? envelope : nil
-            @emitter.emit(ASM.load_immediate(scratch, shape ? shape.packed : 0))
-            @emitter.emit(ASM.str_offset(scratch, slot, SLOT_ENV))
-            @emitter.emit(ASM.load_immediate(scratch, shape ? 0 : Envelope::FULL))
-            @emitter.emit(ASM.str_offset(scratch, slot, SLOT_LEVEL)) # a shaped note climbs from nothing
-            @emitter.emit(ASM.load_immediate(scratch, PHASE_CLIMBING))
-            @emitter.emit(ASM.str_offset(scratch, slot, SLOT_PHASE))
+            @emitter.emit(Cartridge::ASM.load_immediate(scratch, shape ? shape.packed : 0))
+            @emitter.emit(Cartridge::ASM.str_offset(scratch, slot, SLOT_ENV))
+            @emitter.emit(Cartridge::ASM.load_immediate(scratch, shape ? 0 : RubyGBA::Audio::Envelope::FULL))
+            @emitter.emit(Cartridge::ASM.str_offset(scratch, slot, SLOT_LEVEL)) # a shaped note climbs from nothing
+            @emitter.emit(Cartridge::ASM.load_immediate(scratch, PHASE_CLIMBING))
+            @emitter.emit(Cartridge::ASM.str_offset(scratch, slot, SLOT_PHASE))
             # The gain the mix reads, and no slide. A shaped note is climbed by the pass before the
             # first mix, which is the same frame, so nothing of the note is lost by starting it at
             # nothing.
-            @emitter.emit(ASM.load_immediate(scratch, 0))
-            @emitter.emit(ASM.str_offset(scratch, slot, SLOT_RAMP))
+            @emitter.emit(Cartridge::ASM.load_immediate(scratch, 0))
+            @emitter.emit(Cartridge::ASM.str_offset(scratch, slot, SLOT_RAMP))
             unless shape
-              @emitter.emit(ASM.ldr_offset(scratch, slot, SLOT_VOL))
-              @emitter.emit(ASM.lsl_imm(scratch, scratch, GAIN_FRACTION))
+              @emitter.emit(Cartridge::ASM.ldr_offset(scratch, slot, SLOT_VOL))
+              @emitter.emit(Cartridge::ASM.lsl_imm(scratch, scratch, GAIN_FRACTION))
             end
-            @emitter.emit(ASM.str_offset(scratch, slot, SLOT_GAIN))
+            @emitter.emit(Cartridge::ASM.str_offset(scratch, slot, SLOT_GAIN))
           end
 
           # The 16.16 step for a voice: how many source samples to advance per output sample.
@@ -663,14 +663,14 @@ module RubyGBA
           # clip still sounds right) and the pitch shift (playing at a note other than the
           # sample's recorded one reads it faster or slower). At least 1, so it never stalls.
           def voice_step(node, sample)
-            notes = RubyGBA::Music::NOTE_FREQUENCIES
+            notes = RubyGBA::Audio::Music::NOTE_FREQUENCIES
             step_at(sample, notes.fetch(node.pitch || sample.note || :C4))
           end
 
           # The 16.16 step that sounds +sample+ at +frequency+ Hz — the same sum for a note a game
           # plays and a note a song plays, so the two are in tune with each other.
           def step_at(sample, frequency)
-            ratio = frequency.to_f / RubyGBA::Music::NOTE_FREQUENCIES.fetch(sample.note || :C4)
+            ratio = frequency.to_f / RubyGBA::Audio::Music::NOTE_FREQUENCIES.fetch(sample.note || :C4)
             step = (sample.rate.to_f / @mixer_rate) * ratio
             [(step * STEP_ONE).round, 1].max
           end
@@ -682,24 +682,24 @@ module RubyGBA
             name = node && node.name
             holding_off_interrupts do
               @emitter.emit_load_data_address(4, name) if name # r4 = the sample's address to match
-              @emitter.emit(ASM.load_immediate(1, @voice_base))                            # r1 = slot pointer
-              @emitter.emit(ASM.load_immediate(2, @voice_base + (MAX_VOICES * SLOT_BYTES))) # r2 = past the last
+              @emitter.emit(Cartridge::ASM.load_immediate(1, @voice_base))                            # r1 = slot pointer
+              @emitter.emit(Cartridge::ASM.load_immediate(2, @voice_base + (MAX_VOICES * SLOT_BYTES))) # r2 = past the last
               loop_lbl = @emitter.gensym
               skip = @emitter.gensym
               @emitter.place_label(loop_lbl)
-              @emitter.emit(ASM.ldr_offset(0, 1, SLOT_ACTIVE))
-              @emitter.emit(ASM.cmp_imm(0, OWNER_GAME))
+              @emitter.emit(Cartridge::ASM.ldr_offset(0, 1, SLOT_ACTIVE))
+              @emitter.emit(Cartridge::ASM.cmp_imm(0, OWNER_GAME))
               @emitter.emit_branch(:bcond, skip, cond: :ne)              # not a sound of the game's
               if name
-                @emitter.emit(ASM.ldr(0, 1))                             # r0 = slot.src
-                @emitter.emit(ASM.cmp_reg(0, 4))                         # slot plays this sample?
+                @emitter.emit(Cartridge::ASM.ldr(0, 1))                             # r0 = slot.src
+                @emitter.emit(Cartridge::ASM.cmp_reg(0, 4))                         # slot plays this sample?
                 @emitter.emit_branch(:bcond, skip, cond: :ne)            # no -> leave it
               end
-              @emitter.emit(ASM.load_immediate(0, 0))
-              @emitter.emit(ASM.str_offset(0, 1, SLOT_ACTIVE))           # active = 0
+              @emitter.emit(Cartridge::ASM.load_immediate(0, 0))
+              @emitter.emit(Cartridge::ASM.str_offset(0, 1, SLOT_ACTIVE))           # active = 0
               @emitter.place_label(skip)
-              @emitter.emit(ASM.add_imm(1, 1, SLOT_BYTES))               # next slot
-              @emitter.emit(ASM.cmp_reg(1, 2))
+              @emitter.emit(Cartridge::ASM.add_imm(1, 1, SLOT_BYTES))               # next slot
+              @emitter.emit(Cartridge::ASM.cmp_reg(1, 2))
               @emitter.emit_branch(:bcond, loop_lbl, cond: :lt)
             end
           end
@@ -712,13 +712,13 @@ module RubyGBA
           # spends in the table, the interrupt waits and then sees it whole. r3 keeps what the
           # master switch was, so it is put back as it was found.
           def holding_off_interrupts
-            @emitter.emit(ASM.load_immediate(TMP, REG_IME))
-            @emitter.emit(ASM.load_halfword(3, TMP))
-            @emitter.emit(ASM.load_immediate(ACC, 0))
-            @emitter.emit(ASM.store_halfword(ACC, TMP))
+            @emitter.emit(Cartridge::ASM.load_immediate(TMP, REG_IME))
+            @emitter.emit(Cartridge::ASM.load_halfword(3, TMP))
+            @emitter.emit(Cartridge::ASM.load_immediate(ACC, 0))
+            @emitter.emit(Cartridge::ASM.store_halfword(ACC, TMP))
             yield
-            @emitter.emit(ASM.load_immediate(TMP, REG_IME))
-            @emitter.emit(ASM.store_halfword(3, TMP))
+            @emitter.emit(Cartridge::ASM.load_immediate(TMP, REG_IME))
+            @emitter.emit(Cartridge::ASM.store_halfword(3, TMP))
           end
 
           # A NOTE OF A SONG'S RECORDED PART NEEDS A VOICE — the call the music player makes, from
@@ -755,25 +755,25 @@ module RubyGBA
             onward = e.gensym
             done = e.gensym
             e.place_label(MUSIC_VOICE_FIND)
-            e.emit(ASM.load_immediate(7, @voice_base))
-            e.emit(ASM.load_immediate(1, @voice_base + (MAX_VOICES * SLOT_BYTES)))
+            e.emit(Cartridge::ASM.load_immediate(7, @voice_base))
+            e.emit(Cartridge::ASM.load_immediate(1, @voice_base + (MAX_VOICES * SLOT_BYTES)))
             e.place_label(scan)
-            e.emit(ASM.ldr_offset(0, 7, SLOT_ACTIVE))
-            e.emit(ASM.cmp_reg(0, 8))
+            e.emit(Cartridge::ASM.ldr_offset(0, 7, SLOT_ACTIVE))
+            e.emit(Cartridge::ASM.cmp_reg(0, 8))
             e.emit_branch(:bcond, onward, cond: :ne)
             if @uses_envelopes
-              e.emit(ASM.ldr_offset(0, 7, SLOT_PHASE))
-              e.emit(ASM.cmp_imm(0, PHASE_FALLING))
+              e.emit(Cartridge::ASM.ldr_offset(0, 7, SLOT_PHASE))
+              e.emit(Cartridge::ASM.cmp_imm(0, PHASE_FALLING))
               e.emit_branch(:bcond, onward, cond: :hs)
             end
             e.emit_branch(:b, done)
             e.place_label(onward)
-            e.emit(ASM.add_imm(7, 7, SLOT_BYTES))
-            e.emit(ASM.cmp_reg(7, 1))
+            e.emit(Cartridge::ASM.add_imm(7, 7, SLOT_BYTES))
+            e.emit(Cartridge::ASM.cmp_reg(7, 1))
             e.emit_branch(:bcond, scan, cond: :lt)
-            e.emit(ASM.load_immediate(7, 0))
+            e.emit(Cartridge::ASM.load_immediate(7, 0))
             e.place_label(done)
-            e.emit(ASM.return)
+            e.emit(Cartridge::ASM.return)
           end
 
           # Stop the voice sounding the part's note (r8's mark) — or nothing, when the part has
@@ -793,34 +793,34 @@ module RubyGBA
             onward = e.gensym
             done = e.gensym
             e.place_label(MUSIC_VOICE_OFF)
-            e.emit(ASM.load_immediate(7, @voice_base))
-            e.emit(ASM.load_immediate(1, @voice_base + (MAX_VOICES * SLOT_BYTES)))
+            e.emit(Cartridge::ASM.load_immediate(7, @voice_base))
+            e.emit(Cartridge::ASM.load_immediate(1, @voice_base + (MAX_VOICES * SLOT_BYTES)))
             e.place_label(scan)
-            e.emit(ASM.ldr_offset(0, 7, SLOT_ACTIVE))
-            e.emit(ASM.cmp_reg(0, 8))
+            e.emit(Cartridge::ASM.ldr_offset(0, 7, SLOT_ACTIVE))
+            e.emit(Cartridge::ASM.cmp_reg(0, 8))
             e.emit_branch(:bcond, onward, cond: :ne)
             if @uses_envelopes
               stop = e.gensym
-              e.emit(ASM.ldr_offset(0, 7, SLOT_PHASE))
-              e.emit(ASM.cmp_imm(0, PHASE_FALLING))
+              e.emit(Cartridge::ASM.ldr_offset(0, 7, SLOT_PHASE))
+              e.emit(Cartridge::ASM.cmp_imm(0, PHASE_FALLING))
               e.emit_branch(:bcond, onward, cond: :hs)        # an earlier note, already on its way out
-              e.emit(ASM.ldr_offset(0, 7, SLOT_ENV))
-              e.emit(ASM.cmp_imm(0, 0))
+              e.emit(Cartridge::ASM.ldr_offset(0, 7, SLOT_ENV))
+              e.emit(Cartridge::ASM.cmp_imm(0, 0))
               e.emit_branch(:bcond, stop, cond: :eq)          # no envelope: it stops where it is
-              e.emit(ASM.load_immediate(0, PHASE_FALLING))
-              e.emit(ASM.str_offset(0, 7, SLOT_PHASE))        # ...otherwise it starts falling
+              e.emit(Cartridge::ASM.load_immediate(0, PHASE_FALLING))
+              e.emit(Cartridge::ASM.str_offset(0, 7, SLOT_PHASE))        # ...otherwise it starts falling
               e.emit_branch(:b, done)
               e.place_label(stop)
             end
-            e.emit(ASM.load_immediate(0, 0))
-            e.emit(ASM.str_offset(0, 7, SLOT_ACTIVE))
+            e.emit(Cartridge::ASM.load_immediate(0, 0))
+            e.emit(Cartridge::ASM.str_offset(0, 7, SLOT_ACTIVE))
             e.emit_branch(:b, done)
             e.place_label(onward)
-            e.emit(ASM.add_imm(7, 7, SLOT_BYTES))
-            e.emit(ASM.cmp_reg(7, 1))
+            e.emit(Cartridge::ASM.add_imm(7, 7, SLOT_BYTES))
+            e.emit(Cartridge::ASM.cmp_reg(7, 1))
             e.emit_branch(:bcond, scan, cond: :lt)
             e.place_label(done)
-            e.emit(ASM.return)
+            e.emit(Cartridge::ASM.return)
           end
 
           # WHICH VOICE A SONG'S NOTE GETS — one routine, placed inside the screen's interrupt
@@ -871,78 +871,78 @@ module RubyGBA
             ranked = e.gensym
             kept = ranks_voices? ? [2, 3, 4, 5] : @uses_envelopes ? [2, 3] : []
             e.place_label(MUSIC_VOICE)
-            e.emit(ASM.push(*kept)) unless kept.empty?
-            e.emit(ASM.load_immediate(7, @voice_base))
-            e.emit(ASM.load_immediate(1, @voice_base + (MAX_VOICES * SLOT_BYTES)))
-            e.emit(ASM.load_immediate(9, 0))                    # the first free voice, none yet
-            e.emit(ASM.mvn_imm(11, 0))                          # the oldest ticket so far: none, the largest there is
-            e.emit(ASM.load_immediate(10, 0))                   # ...and its voice
+            e.emit(Cartridge::ASM.push(*kept)) unless kept.empty?
+            e.emit(Cartridge::ASM.load_immediate(7, @voice_base))
+            e.emit(Cartridge::ASM.load_immediate(1, @voice_base + (MAX_VOICES * SLOT_BYTES)))
+            e.emit(Cartridge::ASM.load_immediate(9, 0))                    # the first free voice, none yet
+            e.emit(Cartridge::ASM.mvn_imm(11, 0))                          # the oldest ticket so far: none, the largest there is
+            e.emit(Cartridge::ASM.load_immediate(10, 0))                   # ...and its voice
             if @uses_envelopes
-              e.emit(ASM.mvn_imm(3, 0))                         # the quietest tail so far: none, the loudest there is
-              e.emit(ASM.load_immediate(ADDR, 0))               # ...and its voice
+              e.emit(Cartridge::ASM.mvn_imm(3, 0))                         # the quietest tail so far: none, the loudest there is
+              e.emit(Cartridge::ASM.load_immediate(ADDR, 0))               # ...and its voice
             end
             if ranks_voices?
-              e.emit(ASM.lsr_imm(5, 8, MARK_RANK_SHIFT))        # the lowest rank so far: none below this note's
-              e.emit(ASM.load_immediate(4, 0))                  # ...and its voice
+              e.emit(Cartridge::ASM.lsr_imm(5, 8, MARK_RANK_SHIFT))        # the lowest rank so far: none below this note's
+              e.emit(Cartridge::ASM.load_immediate(4, 0))                  # ...and its voice
             end
             e.place_label(scan)
-            e.emit(ASM.ldr_offset(0, 7, SLOT_ACTIVE))
-            e.emit(ASM.cmp_reg(0, 8))
+            e.emit(Cartridge::ASM.ldr_offset(0, 7, SLOT_ACTIVE))
+            e.emit(Cartridge::ASM.cmp_reg(0, 8))
             if @uses_envelopes
               emit_own_voice(onward, done)
             else
               e.emit_branch(:bcond, done, cond: :eq)            # 1. the part's own
             end
-            e.emit(ASM.cmp_imm(0, 0))
+            e.emit(Cartridge::ASM.cmp_imm(0, 0))
             e.emit_branch(:bcond, busy, cond: :ne)
-            e.emit(ASM.cmp_imm(9, 0))
-            e.emit(ASM.mov_reg_cond(:eq, 9, 7))                 # 2. the first free one
+            e.emit(Cartridge::ASM.cmp_imm(9, 0))
+            e.emit(Cartridge::ASM.mov_reg_cond(:eq, 9, 7))                 # 2. the first free one
             e.emit_branch(:b, onward)
             e.place_label(busy)
-            e.emit(ASM.cmp_imm(0, OWNER_GAME))
+            e.emit(Cartridge::ASM.cmp_imm(0, OWNER_GAME))
             other = ranks_voices? ? ranked : onward
             if @uses_envelopes
               emit_tail_candidate(onward, sounding: other)
             else
               e.emit_branch(:bcond, other, cond: :ne)           # another part's
             end
-            e.emit(ASM.ldr_offset(0, 7, SLOT_TICKET))
-            e.emit(ASM.cmp_reg(0, 11))
-            e.emit(ASM.mov_reg_cond(:lo, 11, 0))                # 4. the game sound playing longest
-            e.emit(ASM.mov_reg_cond(:lo, 10, 7))
+            e.emit(Cartridge::ASM.ldr_offset(0, 7, SLOT_TICKET))
+            e.emit(Cartridge::ASM.cmp_reg(0, 11))
+            e.emit(Cartridge::ASM.mov_reg_cond(:lo, 11, 0))                # 4. the game sound playing longest
+            e.emit(Cartridge::ASM.mov_reg_cond(:lo, 10, 7))
             if ranks_voices?
               e.emit_branch(:b, onward)
               e.place_label(ranked)
-              e.emit(ASM.lsr_imm(0, 0, MARK_RANK_SHIFT))
-              e.emit(ASM.cmp_reg(0, 5))
-              e.emit(ASM.mov_reg_cond(:lo, 5, 0))               # 5. the lowest rank below this note's
-              e.emit(ASM.mov_reg_cond(:lo, 4, 7))
+              e.emit(Cartridge::ASM.lsr_imm(0, 0, MARK_RANK_SHIFT))
+              e.emit(Cartridge::ASM.cmp_reg(0, 5))
+              e.emit(Cartridge::ASM.mov_reg_cond(:lo, 5, 0))               # 5. the lowest rank below this note's
+              e.emit(Cartridge::ASM.mov_reg_cond(:lo, 4, 7))
             end
             e.place_label(onward)
-            e.emit(ASM.add_imm(7, 7, SLOT_BYTES))
-            e.emit(ASM.cmp_reg(7, 1))
+            e.emit(Cartridge::ASM.add_imm(7, 7, SLOT_BYTES))
+            e.emit(Cartridge::ASM.cmp_reg(7, 1))
             e.emit_branch(:bcond, scan, cond: :lt)
-            e.emit(ASM.mov_reg(7, 9))
-            e.emit(ASM.cmp_imm(7, 0))
+            e.emit(Cartridge::ASM.mov_reg(7, 9))
+            e.emit(Cartridge::ASM.cmp_imm(7, 0))
             e.emit_branch(:bcond, done, cond: :ne)
             if @uses_envelopes
-              e.emit(ASM.mov_reg(7, ADDR))                      # 3. the quietest tail
-              e.emit(ASM.cmp_imm(7, 0))
+              e.emit(Cartridge::ASM.mov_reg(7, ADDR))                      # 3. the quietest tail
+              e.emit(Cartridge::ASM.cmp_imm(7, 0))
               e.emit_branch(:bcond, done, cond: :ne)
             end
-            e.emit(ASM.mov_reg(7, 10))
+            e.emit(Cartridge::ASM.mov_reg(7, 10))
             if ranks_voices?
-              e.emit(ASM.cmp_imm(7, 0))
+              e.emit(Cartridge::ASM.cmp_imm(7, 0))
               e.emit_branch(:bcond, done, cond: :ne)
-              e.emit(ASM.mov_reg(7, 4))
-              e.emit(ASM.cmp_imm(7, 0))
+              e.emit(Cartridge::ASM.mov_reg(7, 4))
+              e.emit(Cartridge::ASM.cmp_imm(7, 0))
               e.emit_branch(:bcond, done, cond: :ne)
               emit_note_drop                                    # 6. no voice at all
-              e.emit(ASM.load_immediate(7, 0))
+              e.emit(Cartridge::ASM.load_immediate(7, 0))
             end
             e.place_label(done)
-            e.emit(ASM.pop(*kept)) unless kept.empty?
-            e.emit(ASM.return)
+            e.emit(Cartridge::ASM.pop(*kept)) unless kept.empty?
+            e.emit(Cartridge::ASM.return)
           end
 
           # 1, in a game that shapes a note: the part's own voice, with the flags of comparing its
@@ -955,14 +955,14 @@ module RubyGBA
             others = e.gensym
             tail = e.gensym
             e.emit_branch(:bcond, others, cond: :ne)
-            e.emit(ASM.ldr_offset(2, 7, SLOT_PHASE))
-            e.emit(ASM.cmp_imm(2, PHASE_FALLING))
+            e.emit(Cartridge::ASM.ldr_offset(2, 7, SLOT_PHASE))
+            e.emit(Cartridge::ASM.cmp_imm(2, PHASE_FALLING))
             e.emit_branch(:bcond, tail, cond: :hs)              # an earlier note of the part's, falling
-            e.emit(ASM.ldr_offset(2, 7, SLOT_ENV))
-            e.emit(ASM.cmp_imm(2, 0))
+            e.emit(Cartridge::ASM.ldr_offset(2, 7, SLOT_ENV))
+            e.emit(Cartridge::ASM.cmp_imm(2, 0))
             e.emit_branch(:bcond, done, cond: :eq)              # no shape: the new note takes it over
-            e.emit(ASM.load_immediate(2, PHASE_FALLING))
-            e.emit(ASM.str_offset(2, 7, SLOT_PHASE))            # a shape: its note ends, and it falls away
+            e.emit(Cartridge::ASM.load_immediate(2, PHASE_FALLING))
+            e.emit(Cartridge::ASM.str_offset(2, 7, SLOT_PHASE))            # a shape: its note ends, and it falls away
             e.place_label(tail)
             emit_weigh_tail(onward)
             e.place_label(others)
@@ -975,8 +975,8 @@ module RubyGBA
             e = @emitter
             game = e.gensym
             e.emit_branch(:bcond, game, cond: :eq)
-            e.emit(ASM.ldr_offset(2, 7, SLOT_PHASE))
-            e.emit(ASM.cmp_imm(2, PHASE_FALLING))
+            e.emit(Cartridge::ASM.ldr_offset(2, 7, SLOT_PHASE))
+            e.emit(Cartridge::ASM.cmp_imm(2, PHASE_FALLING))
             e.emit_branch(:bcond, sounding, cond: :lo)          # another part's note, still sounding
             emit_weigh_tail(onward)
             e.place_label(game)
@@ -986,10 +986,10 @@ module RubyGBA
           # the first of them, when two are as quiet. On to the next voice either way.
           def emit_weigh_tail(onward)
             e = @emitter
-            e.emit(ASM.ldr_offset(2, 7, SLOT_LEVEL))
-            e.emit(ASM.cmp_reg(2, 3))
-            e.emit(ASM.mov_reg_cond(:lo, 3, 2))
-            e.emit(ASM.mov_reg_cond(:lo, ADDR, 7))
+            e.emit(Cartridge::ASM.ldr_offset(2, 7, SLOT_LEVEL))
+            e.emit(Cartridge::ASM.cmp_reg(2, 3))
+            e.emit(Cartridge::ASM.mov_reg_cond(:lo, 3, 2))
+            e.emit(Cartridge::ASM.mov_reg_cond(:lo, ADDR, 7))
             e.emit_branch(:b, onward)
           end
 
@@ -1026,51 +1026,51 @@ module RubyGBA
             write = e.gensym
             retire = e.gensym
             onward = e.gensym
-            e.emit(ASM.load_immediate(4, @voice_base))
-            e.emit(ASM.load_immediate(5, MAX_VOICES))
+            e.emit(Cartridge::ASM.load_immediate(4, @voice_base))
+            e.emit(Cartridge::ASM.load_immediate(5, MAX_VOICES))
 
             e.place_label(voice)
-            e.emit(ASM.ldr_offset(0, 4, SLOT_ACTIVE))
-            e.emit(ASM.cmp_imm(0, 0))
+            e.emit(Cartridge::ASM.ldr_offset(0, 4, SLOT_ACTIVE))
+            e.emit(Cartridge::ASM.cmp_imm(0, 0))
             e.emit_branch(:bcond, onward, cond: :eq)          # nothing sounding here
-            e.emit(ASM.ldr_offset(1, 4, SLOT_ENV))
-            e.emit(ASM.cmp_imm(1, 0))
+            e.emit(Cartridge::ASM.ldr_offset(1, 4, SLOT_ENV))
+            e.emit(Cartridge::ASM.cmp_imm(1, 0))
             e.emit_branch(:bcond, onward, cond: :eq)          # no envelope: its gain never moves
-            e.emit(ASM.ldr_offset(2, 4, SLOT_LEVEL))
-            e.emit(ASM.ldr_offset(6, 4, SLOT_PHASE))
-            e.emit(ASM.load_immediate(7, 0))                  # not the note's first frame, until it is
-            e.emit(ASM.cmp_imm(6, PHASE_DONE))
+            e.emit(Cartridge::ASM.ldr_offset(2, 4, SLOT_LEVEL))
+            e.emit(Cartridge::ASM.ldr_offset(6, 4, SLOT_PHASE))
+            e.emit(Cartridge::ASM.load_immediate(7, 0))                  # not the note's first frame, until it is
+            e.emit(Cartridge::ASM.cmp_imm(6, PHASE_DONE))
             e.emit_branch(:bcond, retire, cond: :eq)          # its gain reached nothing last frame
-            e.emit(ASM.cmp_imm(6, PHASE_FALLING))
+            e.emit(Cartridge::ASM.cmp_imm(6, PHASE_FALLING))
             e.emit_branch(:bcond, falling, cond: :eq)
-            e.emit(ASM.cmp_imm(6, PHASE_CLIMBING))
+            e.emit(Cartridge::ASM.cmp_imm(6, PHASE_CLIMBING))
             e.emit_branch(:bcond, holding, cond: :ne)
 
             # Climbing: the attack is ADDED each frame until the note is as loud as it was asked
             # to be, and then the note is up and holding. A level of nothing here is a note that
             # has only just started, since an attack adds at least one.
-            e.emit(ASM.cmp_imm(2, 0))
-            e.emit(ASM.mov_imm_cond(:eq, 7, 1))
-            e.emit(ASM.and_imm(0, 1, 0xFF))
-            e.emit(ASM.add_reg(2, 2, 0))
-            e.emit(ASM.cmp_imm(2, Envelope::FULL))
-            e.emit(ASM.mov_imm_cond(:ge, 2, Envelope::FULL))
-            e.emit(ASM.mov_imm_cond(:ge, 6, PHASE_HOLDING))
+            e.emit(Cartridge::ASM.cmp_imm(2, 0))
+            e.emit(Cartridge::ASM.mov_imm_cond(:eq, 7, 1))
+            e.emit(Cartridge::ASM.and_imm(0, 1, 0xFF))
+            e.emit(Cartridge::ASM.add_reg(2, 2, 0))
+            e.emit(Cartridge::ASM.cmp_imm(2, RubyGBA::Audio::Envelope::FULL))
+            e.emit(Cartridge::ASM.mov_imm_cond(:ge, 2, RubyGBA::Audio::Envelope::FULL))
+            e.emit(Cartridge::ASM.mov_imm_cond(:ge, 6, PHASE_HOLDING))
             e.emit_branch(:b, write)
 
             # Holding: the level falls toward the sustain level and stays there. The fall is a
             # MULTIPLY by a fraction, so it slows as it goes — which is what a struck note does.
             e.place_label(holding)
-            e.emit(ASM.lsr_imm(3, 1, 16))
-            e.emit(ASM.and_imm(3, 3, 0xFF))                   # r3 = the sustain level
-            e.emit(ASM.cmp_reg(2, 3))
+            e.emit(Cartridge::ASM.lsr_imm(3, 1, 16))
+            e.emit(Cartridge::ASM.and_imm(3, 3, 0xFF))                   # r3 = the sustain level
+            e.emit(Cartridge::ASM.cmp_reg(2, 3))
             e.emit_branch(:bcond, write, cond: :le)           # already there
-            e.emit(ASM.lsr_imm(0, 1, 8))
-            e.emit(ASM.and_imm(0, 0, 0xFF))                   # r0 = the decay
-            e.emit(ASM.mul(2, 0, 2))
-            e.emit(ASM.lsr_imm(2, 2, Envelope::SCALE))
-            e.emit(ASM.cmp_reg(2, 3))
-            e.emit(ASM.mov_reg_cond(:lt, 2, 3))               # never below the sustain level
+            e.emit(Cartridge::ASM.lsr_imm(0, 1, 8))
+            e.emit(Cartridge::ASM.and_imm(0, 0, 0xFF))                   # r0 = the decay
+            e.emit(Cartridge::ASM.mul(2, 0, 2))
+            e.emit(Cartridge::ASM.lsr_imm(2, 2, RubyGBA::Audio::Envelope::SCALE))
+            e.emit(Cartridge::ASM.cmp_reg(2, 3))
+            e.emit(Cartridge::ASM.mov_reg_cond(:lt, 2, 3))               # never below the sustain level
             e.emit_branch(:b, write)
 
             # Falling: the note has ended, so the level is multiplied down until there is none of
@@ -1080,15 +1080,15 @@ module RubyGBA
             # voice goes back. A voice taken away while its gain is still up is the very click
             # all of this is here to remove.
             e.place_label(falling)
-            e.emit(ASM.lsr_imm(0, 1, 24))                     # r0 = the release
-            e.emit(ASM.mul(2, 0, 2))
-            e.emit(ASM.lsr_imm(2, 2, Envelope::SCALE))
-            e.emit(ASM.cmp_imm(2, 0))
-            e.emit(ASM.mov_imm_cond(:eq, 6, PHASE_DONE))
+            e.emit(Cartridge::ASM.lsr_imm(0, 1, 24))                     # r0 = the release
+            e.emit(Cartridge::ASM.mul(2, 0, 2))
+            e.emit(Cartridge::ASM.lsr_imm(2, 2, RubyGBA::Audio::Envelope::SCALE))
+            e.emit(Cartridge::ASM.cmp_imm(2, 0))
+            e.emit(Cartridge::ASM.mov_imm_cond(:eq, 6, PHASE_DONE))
 
             e.place_label(write)
-            e.emit(ASM.str_offset(2, 4, SLOT_LEVEL))
-            e.emit(ASM.str_offset(6, 4, SLOT_PHASE))
+            e.emit(Cartridge::ASM.str_offset(2, 4, SLOT_LEVEL))
+            e.emit(Cartridge::ASM.str_offset(6, 4, SLOT_PHASE))
             # THE LOUDNESS THE FRAME ENDS AT: what the note asked for, scaled by the level. The
             # level is a byte and the scale is out of 256, so the level's own top bit is added
             # back in: a full 255 counts as 256, exactly the loudness asked for, and nothing
@@ -1096,32 +1096,32 @@ module RubyGBA
             # speaker a shade off the middle, and dropping the voice then is a small click of its
             # own. The gain keeps sixteen bits of fraction, so the product goes up by eight bits
             # more rather than down, and the fraction the level gives is kept.
-            e.emit(ASM.ldr_offset(0, 4, SLOT_VOL))
-            e.emit(ASM.add_reg_lsr(3, 2, 2, 7))
-            e.emit(ASM.mul(0, 3, 0))
-            e.emit(ASM.lsl_imm(0, 0, GAIN_FRACTION - Envelope::SCALE))
-            e.emit(ASM.cmp_imm(7, 0))
-            e.emit(ASM.ldr_offset(3, 4, SLOT_GAIN))           # where the gain is now...
-            e.emit(ASM.mov_reg_cond(:ne, 3, 0))               # ...or, on a first frame, already there
-            e.emit(ASM.str_offset(3, 4, SLOT_GAIN))
+            e.emit(Cartridge::ASM.ldr_offset(0, 4, SLOT_VOL))
+            e.emit(Cartridge::ASM.add_reg_lsr(3, 2, 2, 7))
+            e.emit(Cartridge::ASM.mul(0, 3, 0))
+            e.emit(Cartridge::ASM.lsl_imm(0, 0, GAIN_FRACTION - RubyGBA::Audio::Envelope::SCALE))
+            e.emit(Cartridge::ASM.cmp_imm(7, 0))
+            e.emit(Cartridge::ASM.ldr_offset(3, 4, SLOT_GAIN))           # where the gain is now...
+            e.emit(Cartridge::ASM.mov_reg_cond(:ne, 3, 0))               # ...or, on a first frame, already there
+            e.emit(Cartridge::ASM.str_offset(3, 4, SLOT_GAIN))
             # ...and the slide to it: how far, shared out over the frame. Shifted down before the
             # multiply and down again after, so the product fits: a whole gain's worth of distance
             # times the share for one sample is more than 32 bits can hold.
-            e.emit(ASM.sub_reg(0, 0, 3))
-            e.emit(ASM.asr_imm(0, 0, RAMP_SPLIT))
-            e.emit(ASM.load_immediate(3, (1 << (2 * RAMP_SPLIT)) / @mixer_spf))
-            e.emit(ASM.mul(0, 3, 0))
-            e.emit(ASM.asr_imm(0, 0, RAMP_SPLIT))
-            e.emit(ASM.str_offset(0, 4, SLOT_RAMP))
+            e.emit(Cartridge::ASM.sub_reg(0, 0, 3))
+            e.emit(Cartridge::ASM.asr_imm(0, 0, RAMP_SPLIT))
+            e.emit(Cartridge::ASM.load_immediate(3, (1 << (2 * RAMP_SPLIT)) / @mixer_spf))
+            e.emit(Cartridge::ASM.mul(0, 3, 0))
+            e.emit(Cartridge::ASM.asr_imm(0, 0, RAMP_SPLIT))
+            e.emit(Cartridge::ASM.str_offset(0, 4, SLOT_RAMP))
             e.emit_branch(:b, onward)
 
             e.place_label(retire)
-            e.emit(ASM.load_immediate(0, 0))
-            e.emit(ASM.str_offset(0, 4, SLOT_ACTIVE))
+            e.emit(Cartridge::ASM.load_immediate(0, 0))
+            e.emit(Cartridge::ASM.str_offset(0, 4, SLOT_ACTIVE))
 
             e.place_label(onward)
-            e.emit(ASM.add_imm(4, 4, SLOT_BYTES))
-            e.emit(ASM.subs_imm(5, 5, 1))
+            e.emit(Cartridge::ASM.add_imm(4, 4, SLOT_BYTES))
+            e.emit(Cartridge::ASM.subs_imm(5, 5, 1))
             e.emit_branch(:bcond, voice, cond: :ne)
           end
 
@@ -1181,16 +1181,16 @@ module RubyGBA
             chosen = e.gensym
             wait = e.gensym
             @primitives.load_var(0, MIX_FRONT)      # r0 = the buffer that was playing
-            e.emit(ASM.cmp_imm(0, 0))
+            e.emit(Cartridge::ASM.cmp_imm(0, 0))
             e.emit_branch(:bcond, play_buf1, cond: :eq)
-            e.emit(ASM.load_immediate(ACC, 0))
+            e.emit(Cartridge::ASM.load_immediate(ACC, 0))
             @primitives.store_var(ACC, MIX_FRONT)
-            e.emit(ASM.load_immediate(3, @mix_buf0))
+            e.emit(Cartridge::ASM.load_immediate(3, @mix_buf0))
             e.emit_branch(:b, chosen)
             e.place_label(play_buf1)
-            e.emit(ASM.load_immediate(ACC, 1))
+            e.emit(Cartridge::ASM.load_immediate(ACC, 1))
             @primitives.store_var(ACC, MIX_FRONT)
-            e.emit(ASM.load_immediate(3, @mix_buf1))
+            e.emit(Cartridge::ASM.load_immediate(3, @mix_buf1))
             e.place_label(chosen)                   # r3 = the buffer to play now
 
             # Everything the re-arm needs that is not the count, loaded before the count is read,
@@ -1198,35 +1198,35 @@ module RubyGBA
             # r4-r8 around this.
             @primitives.load_var(2, MIX_PHASE)
             @primitives.load_var(1, MIX_LOT)
-            e.emit(ASM.load_immediate(ADDR, @timers.timer_reg_l(CLOCK_TIMER)))
-            e.emit(ASM.load_immediate(4, REG_DMA1SAD))
-            e.emit(ASM.load_immediate(5, dma_fifo_control))
-            e.emit(ASM.load_immediate(6, 0))
-            e.emit(ASM.load_immediate(7, 65_536 - count_clearance))
+            e.emit(Cartridge::ASM.load_immediate(ADDR, @timers.timer_reg_l(CLOCK_TIMER)))
+            e.emit(Cartridge::ASM.load_immediate(4, REG_DMA1SAD))
+            e.emit(Cartridge::ASM.load_immediate(5, dma_fifo_control))
+            e.emit(Cartridge::ASM.load_immediate(6, 0))
+            e.emit(Cartridge::ASM.load_immediate(7, 65_536 - count_clearance))
 
             e.place_label(wait)
-            e.emit(ASM.load_halfword(ACC, ADDR))               # timer 0 counts up to the next sample
-            e.emit(ASM.cmp_reg(ACC, 7))
+            e.emit(Cartridge::ASM.load_halfword(ACC, ADDR))               # timer 0 counts up to the next sample
+            e.emit(Cartridge::ASM.cmp_reg(ACC, 7))
             e.emit_branch(:bcond, wait, cond: :hs)            # the next sample is too near: let it pass
-            e.emit(ASM.load_halfword_offset(ACC, ADDR, COUNT_TIMER * 4)) # samples taken
-            e.emit(ASM.sub_reg(ACC, ACC, 2))
-            e.emit(ASM.lsl_imm(ACC, ACC, 16))                 # top twelve bits: lots taken
-            e.emit(ASM.sub_reg(8, ACC, 1))
-            e.emit(ASM.lsr_imm(8, 8, 20))                     # how far into this buffer the next one is
-            e.emit(ASM.cmp_imm(8, guard_lots + 1))
-            e.emit(ASM.mov_imm_cond(:hs, 8, 0))               # out of reach: start from its beginning
-            e.emit(ASM.lsl_imm(8, 8, 4))
-            e.emit(ASM.add_reg(8, 8, 3))
-            e.emit(ASM.str(8, 4))                             # the DMA's source
-            e.emit(ASM.str_offset(6, 4, REG_DMA1CNT - REG_DMA1SAD)) # off...
-            e.emit(ASM.str_offset(5, 4, REG_DMA1CNT - REG_DMA1SAD)) # ...and on, which reloads it
+            e.emit(Cartridge::ASM.load_halfword_offset(ACC, ADDR, COUNT_TIMER * 4)) # samples taken
+            e.emit(Cartridge::ASM.sub_reg(ACC, ACC, 2))
+            e.emit(Cartridge::ASM.lsl_imm(ACC, ACC, 16))                 # top twelve bits: lots taken
+            e.emit(Cartridge::ASM.sub_reg(8, ACC, 1))
+            e.emit(Cartridge::ASM.lsr_imm(8, 8, 20))                     # how far into this buffer the next one is
+            e.emit(Cartridge::ASM.cmp_imm(8, guard_lots + 1))
+            e.emit(Cartridge::ASM.mov_imm_cond(:hs, 8, 0))               # out of reach: start from its beginning
+            e.emit(Cartridge::ASM.lsl_imm(8, 8, 4))
+            e.emit(Cartridge::ASM.add_reg(8, 8, 3))
+            e.emit(Cartridge::ASM.str(8, 4))                             # the DMA's source
+            e.emit(Cartridge::ASM.str_offset(6, 4, REG_DMA1CNT - REG_DMA1SAD)) # off...
+            e.emit(Cartridge::ASM.str_offset(5, 4, REG_DMA1CNT - REG_DMA1SAD)) # ...and on, which reloads it
 
             # Out of reach, this buffer starts at the lot the DMA takes next. Either way the next
             # one starts a frame's worth of lots later.
-            e.emit(ASM.lsr_imm(ACC, ACC, 20))
-            e.emit(ASM.mov_reg_lsl_cond(:hs, 1, ACC, 20))
-            e.emit(ASM.load_immediate(ACC, lots_a_frame << 20))
-            e.emit(ASM.add_reg(1, 1, ACC))
+            e.emit(Cartridge::ASM.lsr_imm(ACC, ACC, 20))
+            e.emit(Cartridge::ASM.mov_reg_lsl_cond(:hs, 1, ACC, 20))
+            e.emit(Cartridge::ASM.load_immediate(ACC, lots_a_frame << 20))
+            e.emit(Cartridge::ASM.add_reg(1, 1, ACC))
             @primitives.store_var(1, MIX_LOT)
           end
 
@@ -1258,7 +1258,7 @@ module RubyGBA
             mix_buf0 = @emitter.gensym
             done = @emitter.gensym
             @primitives.load_var(0, MIX_FRONT)      # r0 = the buffer now playing
-            @emitter.emit(ASM.cmp_imm(0, 0))
+            @emitter.emit(Cartridge::ASM.cmp_imm(0, 0))
             @emitter.emit_branch(:bcond, mix_buf0, cond: :ne)
             emit_call_mix(@mix_buf1)
             emit_copy_guard(from: @mix_buf1, to: @mix_buf0)
@@ -1273,14 +1273,14 @@ module RubyGBA
           def emit_copy_guard(from:, to:)
             e = @emitter
             copy = e.gensym
-            e.emit(ASM.load_immediate(0, from))
-            e.emit(ASM.load_immediate(1, to + @mixer_spf))
-            e.emit(ASM.load_immediate(2, guard_lots * Timers::DMA_SAMPLES_A_LOT / 4))
+            e.emit(Cartridge::ASM.load_immediate(0, from))
+            e.emit(Cartridge::ASM.load_immediate(1, to + @mixer_spf))
+            e.emit(Cartridge::ASM.load_immediate(2, guard_lots * Timers::DMA_SAMPLES_A_LOT / 4))
             e.place_label(copy)
-            e.emit(ASM.ldr(3, 0))
-            e.emit(ASM.add_imm(0, 0, 4))
-            e.emit(ASM.str_post(3, 1, 4))
-            e.emit(ASM.subs_imm(2, 2, 1))
+            e.emit(Cartridge::ASM.ldr(3, 0))
+            e.emit(Cartridge::ASM.add_imm(0, 0, 4))
+            e.emit(Cartridge::ASM.str_post(3, 1, 4))
+            e.emit(Cartridge::ASM.subs_imm(2, 2, 1))
             e.emit_branch(:bcond, copy, cond: :ne)
           end
 
@@ -1289,8 +1289,8 @@ module RubyGBA
           # lives in the quick memory, too far for a relative branch — so the call goes
           # through a register (see Emit#emit_call_through).
           def emit_call_mix(dest)
-            @emitter.emit(ASM.load_immediate(0, dest))                 # r0 = destination buffer (the one param)
-            @emitter.emit(ASM.load_immediate(ADDR, @mix_routine_iwram)) # r12 = routine's address in IWRAM
+            @emitter.emit(Cartridge::ASM.load_immediate(0, dest))                 # r0 = destination buffer (the one param)
+            @emitter.emit(Cartridge::ASM.load_immediate(ADDR, @mix_routine_iwram)) # r12 = routine's address in IWRAM
             @emitter.emit_call_through(ADDR)
           end
 
@@ -1321,8 +1321,8 @@ module RubyGBA
           end
 
           def store_reg_ioreg(reg, address)
-            @emitter.emit(ASM.load_immediate(TMP, address))
-            @emitter.emit(ASM.str(reg, TMP))
+            @emitter.emit(Cartridge::ASM.load_immediate(TMP, address))
+            @emitter.emit(Cartridge::ASM.str(reg, TMP))
           end
 
           # (Re)start channel A's DMA from the source last written. The DMA reloads its source
@@ -1379,34 +1379,34 @@ module RubyGBA
             return unless @plays_samples
 
             e = @emitter
-            e.emit(ASM.loop_forever) # fall-through guard: the routine is only entered via the call
+            e.emit(Cartridge::ASM.loop_forever) # fall-through guard: the routine is only entered via the call
             e.place_label(:__mix_routine)
             start = e.pos
-            e.emit(ASM.push(0, *(LR if @uses_envelopes)))    # push {r0}: stash the destination buffer at [sp]
-            e.emit(ASM.load_immediate(3, @mix_totals))        # the running totals
-            e.emit(ASM.mov_reg(7, 3))                         # (still here after the voices = nothing sounded)
-            e.emit(ASM.load_immediate(4, @voice_base))        # first slot
-            e.emit(ASM.load_immediate(5, MAX_VOICES))         # voices to visit
+            e.emit(Cartridge::ASM.push(0, *(LR if @uses_envelopes)))    # push {r0}: stash the destination buffer at [sp]
+            e.emit(Cartridge::ASM.load_immediate(3, @mix_totals))        # the running totals
+            e.emit(Cartridge::ASM.mov_reg(7, 3))                         # (still here after the voices = nothing sounded)
+            e.emit(Cartridge::ASM.load_immediate(4, @voice_base))        # first slot
+            e.emit(Cartridge::ASM.load_immediate(5, MAX_VOICES))         # voices to visit
 
             voice = e.gensym
             next_voice = e.gensym
             e.place_label(voice)
-            e.emit(ASM.ldr_offset(0, 4, SLOT_ACTIVE))
-            e.emit(ASM.cmp_imm(0, 0))
+            e.emit(Cartridge::ASM.ldr_offset(0, 4, SLOT_ACTIVE))
+            e.emit(Cartridge::ASM.cmp_imm(0, 0))
             e.emit_branch(:bcond, next_voice, cond: :eq)      # idle slot -> skip
-            e.emit(ASM.ldr_offset(6, 4, SLOT_SRC))            # r6 = where the recording starts
-            e.emit(ASM.ldr_offset(9, 4, SLOT_LEN))
-            e.emit(ASM.add_reg(9, 6, 9))                      # r9 = where it ends
-            e.emit(ASM.ldr_offset(0, 4, SLOT_POS))
-            e.emit(ASM.add_reg(6, 6, 0))                      # r6 = read pointer = start + position
-            e.emit(ASM.ldr_offset(10, 4, SLOT_STEP))          # the step, 16.16...
-            e.emit(ASM.lsr_imm(8, 10, STEP_SHIFT))            # ...r8 = its whole samples
-            e.emit(ASM.lsl_imm(10, 10, STEP_SHIFT))           # ...r10 = its fraction, in the top half
-            e.emit(ASM.ldr_offset(11, 4, SLOT_FRAC))          # r11 = the fraction carried in (top half)
-            e.emit(ASM.ldr_offset(12, 4, gain_field))         # r12 = the gain it is sounding at
-            e.emit(ASM.ldr_offset(LR, 4, SLOT_RAMP)) if @uses_envelopes # lr = how far it slides a sample
-            e.emit(ASM.mov_reg(7, 3))                         # r7 = the first total
-            e.emit(ASM.load_immediate(2, @mixer_spf))         # r2 = output samples to fill
+            e.emit(Cartridge::ASM.ldr_offset(6, 4, SLOT_SRC))            # r6 = where the recording starts
+            e.emit(Cartridge::ASM.ldr_offset(9, 4, SLOT_LEN))
+            e.emit(Cartridge::ASM.add_reg(9, 6, 9))                      # r9 = where it ends
+            e.emit(Cartridge::ASM.ldr_offset(0, 4, SLOT_POS))
+            e.emit(Cartridge::ASM.add_reg(6, 6, 0))                      # r6 = read pointer = start + position
+            e.emit(Cartridge::ASM.ldr_offset(10, 4, SLOT_STEP))          # the step, 16.16...
+            e.emit(Cartridge::ASM.lsr_imm(8, 10, STEP_SHIFT))            # ...r8 = its whole samples
+            e.emit(Cartridge::ASM.lsl_imm(10, 10, STEP_SHIFT))           # ...r10 = its fraction, in the top half
+            e.emit(Cartridge::ASM.ldr_offset(11, 4, SLOT_FRAC))          # r11 = the fraction carried in (top half)
+            e.emit(Cartridge::ASM.ldr_offset(12, 4, gain_field))         # r12 = the gain it is sounding at
+            e.emit(Cartridge::ASM.ldr_offset(LR, 4, SLOT_RAMP)) if @uses_envelopes # lr = how far it slides a sample
+            e.emit(Cartridge::ASM.mov_reg(7, 3))                         # r7 = the first total
+            e.emit(Cartridge::ASM.load_immediate(2, @mixer_spf))         # r2 = output samples to fill
 
             sample = e.gensym
             advance = e.gensym
@@ -1414,49 +1414,49 @@ module RubyGBA
             retire = e.gensym
             end_voice = e.gensym
             e.place_label(sample)
-            e.emit(ASM.ldrsb(0, 6))                           # r0 = the voice's raw sample (signed)
+            e.emit(Cartridge::ASM.ldrsb(0, 6))                           # r0 = the voice's raw sample (signed)
             if @uses_envelopes
-              e.emit(ASM.mul(1, 12, 0))                       # r1 = gain × sample
-              e.emit(ASM.ldrsh(0, 7))                         # r0 = the total so far
-              e.emit(ASM.add_reg_asr(0, 0, 1, VOL_SHIFT + GAIN_FRACTION)) # ...plus that ÷ 64, fraction and all
-              e.emit(ASM.store_halfword_post(0, 7, 2))        # put it back, and on to the next total
-              e.emit(ASM.add_reg(12, 12, LR))                 # the gain slides a sample's worth
+              e.emit(Cartridge::ASM.mul(1, 12, 0))                       # r1 = gain × sample
+              e.emit(Cartridge::ASM.ldrsh(0, 7))                         # r0 = the total so far
+              e.emit(Cartridge::ASM.add_reg_asr(0, 0, 1, VOL_SHIFT + GAIN_FRACTION)) # ...plus that ÷ 64, fraction and all
+              e.emit(Cartridge::ASM.store_halfword_post(0, 7, 2))        # put it back, and on to the next total
+              e.emit(Cartridge::ASM.add_reg(12, 12, LR))                 # the gain slides a sample's worth
             else
-              e.emit(ASM.mul(1, 0, 12))                       # r1 = sample × volume
-              e.emit(ASM.ldrsh(0, 7))                         # r0 = the total so far
-              e.emit(ASM.add_reg_asr(0, 0, 1, VOL_SHIFT))     # ...plus sample × volume ÷ 64 (:full is unchanged)
-              e.emit(ASM.store_halfword_post(0, 7, 2))        # put it back, and on to the next total
+              e.emit(Cartridge::ASM.mul(1, 0, 12))                       # r1 = sample × volume
+              e.emit(Cartridge::ASM.ldrsh(0, 7))                         # r0 = the total so far
+              e.emit(Cartridge::ASM.add_reg_asr(0, 0, 1, VOL_SHIFT))     # ...plus sample × volume ÷ 64 (:full is unchanged)
+              e.emit(Cartridge::ASM.store_halfword_post(0, 7, 2))        # put it back, and on to the next total
             end
-            e.emit(ASM.adds_reg(11, 11, 10))                  # fraction += the step's; a carry is one more sample
-            e.emit(ASM.adc_reg(6, 6, 8))                      # read pointer += whole samples + that carry
-            e.emit(ASM.cmp_reg(6, 9))
+            e.emit(Cartridge::ASM.adds_reg(11, 11, 10))                  # fraction += the step's; a carry is one more sample
+            e.emit(Cartridge::ASM.adc_reg(6, 6, 8))                      # read pointer += whole samples + that carry
+            e.emit(Cartridge::ASM.cmp_reg(6, 9))
             e.emit_branch(:bcond, wrapped, cond: :ge)         # reached (or passed) the end
             e.place_label(advance)
-            e.emit(ASM.subs_imm(2, 2, 1))
+            e.emit(Cartridge::ASM.subs_imm(2, 2, 1))
             e.emit_branch(:bcond, sample, cond: :ne)          # more of the frame to fill
             e.emit_branch(:b, end_voice)
 
             e.place_label(wrapped)
-            e.emit(ASM.ldr_offset(0, 4, SLOT_LOOP))           # how far back at the end, 0 = play once
-            e.emit(ASM.cmp_imm(0, 0))
+            e.emit(Cartridge::ASM.ldr_offset(0, 4, SLOT_LOOP))           # how far back at the end, 0 = play once
+            e.emit(Cartridge::ASM.cmp_imm(0, 0))
             e.emit_branch(:bcond, retire, cond: :eq)
-            e.emit(ASM.sub_reg(6, 6, 0))                      # back to where it holds from
+            e.emit(Cartridge::ASM.sub_reg(6, 6, 0))                      # back to where it holds from
             e.emit_branch(:b, advance)
 
             e.place_label(retire)                             # one-shot done: mark idle, stop adding
-            e.emit(ASM.load_immediate(0, 0))
-            e.emit(ASM.str_offset(0, 4, SLOT_ACTIVE))
+            e.emit(Cartridge::ASM.load_immediate(0, 0))
+            e.emit(Cartridge::ASM.str_offset(0, 4, SLOT_ACTIVE))
 
             e.place_label(end_voice)
-            e.emit(ASM.ldr_offset(0, 4, SLOT_SRC))
-            e.emit(ASM.sub_reg(0, 6, 0))
-            e.emit(ASM.str_offset(0, 4, SLOT_POS))            # remember how far this voice has played
-            e.emit(ASM.str_offset(11, 4, SLOT_FRAC))          # ...and the leftover fraction
-            e.emit(ASM.str_offset(12, 4, SLOT_GAIN)) if @uses_envelopes # ...and where its gain slid to
+            e.emit(Cartridge::ASM.ldr_offset(0, 4, SLOT_SRC))
+            e.emit(Cartridge::ASM.sub_reg(0, 6, 0))
+            e.emit(Cartridge::ASM.str_offset(0, 4, SLOT_POS))            # remember how far this voice has played
+            e.emit(Cartridge::ASM.str_offset(11, 4, SLOT_FRAC))          # ...and the leftover fraction
+            e.emit(Cartridge::ASM.str_offset(12, 4, SLOT_GAIN)) if @uses_envelopes # ...and where its gain slid to
 
             e.place_label(next_voice)
-            e.emit(ASM.add_imm(4, 4, SLOT_BYTES))             # next slot
-            e.emit(ASM.subs_imm(5, 5, 1))
+            e.emit(Cartridge::ASM.add_imm(4, 4, SLOT_BYTES))             # next slot
+            e.emit(Cartridge::ASM.subs_imm(5, 5, 1))
             e.emit_branch(:bcond, voice, cond: :ne)
 
             # NOTHING SOUNDED: every total is still 0, so the frame is silence — written a word
@@ -1464,38 +1464,38 @@ module RubyGBA
             # silent more often than not, so this is the frame it has most. (The buffer is
             # whole words long, so rounding up to one writes nothing that is not its own.)
             silent = e.gensym
-            e.emit(ASM.pop(6, *(LR if @uses_envelopes)))      # r6 = the destination (and the stack balanced)
-            e.emit(ASM.load_immediate(5, 0))
-            e.emit(ASM.cmp_reg(7, 3))
+            e.emit(Cartridge::ASM.pop(6, *(LR if @uses_envelopes)))      # r6 = the destination (and the stack balanced)
+            e.emit(Cartridge::ASM.load_immediate(5, 0))
+            e.emit(Cartridge::ASM.cmp_reg(7, 3))
             e.emit_branch(:bcond, silent, cond: :eq)
 
             # Every voice is in the totals. Turn each into the byte the hardware plays, clamped
             # into [-128, 127] with no branch — movgt/movlt only fire when out of range — and
             # leave the total at 0 for next frame.
-            e.emit(ASM.mov_reg(7, 3))
-            e.emit(ASM.load_immediate(2, @mixer_spf))
-            e.emit(ASM.mvn_imm(4, 127))                       # clamp floor = -128
+            e.emit(Cartridge::ASM.mov_reg(7, 3))
+            e.emit(Cartridge::ASM.load_immediate(2, @mixer_spf))
+            e.emit(Cartridge::ASM.mvn_imm(4, 127))                       # clamp floor = -128
             byte = e.gensym
             e.place_label(byte)
-            e.emit(ASM.ldrsh(0, 7))
-            e.emit(ASM.cmp_imm(0, 127))
-            e.emit(ASM.mov_imm_cond(:gt, 0, 127))             # over 127  -> 127
-            e.emit(ASM.cmp_reg(0, 4))
-            e.emit(ASM.mov_reg_cond(:lt, 0, 4))               # under -128 -> -128
-            e.emit(ASM.strb_post(0, 6, 1))
-            e.emit(ASM.store_halfword_post(5, 7, 2))          # the total starts again at nothing
-            e.emit(ASM.subs_imm(2, 2, 1))
+            e.emit(Cartridge::ASM.ldrsh(0, 7))
+            e.emit(Cartridge::ASM.cmp_imm(0, 127))
+            e.emit(Cartridge::ASM.mov_imm_cond(:gt, 0, 127))             # over 127  -> 127
+            e.emit(Cartridge::ASM.cmp_reg(0, 4))
+            e.emit(Cartridge::ASM.mov_reg_cond(:lt, 0, 4))               # under -128 -> -128
+            e.emit(Cartridge::ASM.strb_post(0, 6, 1))
+            e.emit(Cartridge::ASM.store_halfword_post(5, 7, 2))          # the total starts again at nothing
+            e.emit(Cartridge::ASM.subs_imm(2, 2, 1))
             e.emit_branch(:bcond, byte, cond: :ne)
-            e.emit(ASM.return)                                # bx lr -> back to the caller
+            e.emit(Cartridge::ASM.return)                                # bx lr -> back to the caller
 
             e.place_label(silent)
-            e.emit(ASM.load_immediate(2, (@mixer_spf + 3) / 4))
+            e.emit(Cartridge::ASM.load_immediate(2, (@mixer_spf + 3) / 4))
             quiet = e.gensym
             e.place_label(quiet)
-            e.emit(ASM.str_post(5, 6, 4))
-            e.emit(ASM.subs_imm(2, 2, 1))
+            e.emit(Cartridge::ASM.str_post(5, 6, 4))
+            e.emit(Cartridge::ASM.subs_imm(2, 2, 1))
             e.emit_branch(:bcond, quiet, cond: :ne)
-            e.emit(ASM.return)
+            e.emit(Cartridge::ASM.return)
             e.place_label(:__mix_routine_end)
 
             size = @emitter.pos - start
@@ -1511,24 +1511,24 @@ module RubyGBA
           # Leave r0 = the address of a free voice slot, or 0 if every one is busy. Uses r0/r1/r2
           # only, so the caller's r3 and r4 survive.
           def find_free_slot
-            @emitter.emit(ASM.load_immediate(1, @voice_base))
-            @emitter.emit(ASM.load_immediate(2, @voice_base + (MAX_VOICES * SLOT_BYTES)))
+            @emitter.emit(Cartridge::ASM.load_immediate(1, @voice_base))
+            @emitter.emit(Cartridge::ASM.load_immediate(2, @voice_base + (MAX_VOICES * SLOT_BYTES)))
             scan = @emitter.gensym
             found = @emitter.gensym
             miss = @emitter.gensym
             @emitter.place_label(scan)
-            @emitter.emit(ASM.ldr_offset(0, 1, SLOT_ACTIVE))
-            @emitter.emit(ASM.cmp_imm(0, 0))
+            @emitter.emit(Cartridge::ASM.ldr_offset(0, 1, SLOT_ACTIVE))
+            @emitter.emit(Cartridge::ASM.cmp_imm(0, 0))
             @emitter.emit_branch(:bcond, found, cond: :eq)        # active == 0 -> free
-            @emitter.emit(ASM.add_imm(1, 1, SLOT_BYTES))
-            @emitter.emit(ASM.cmp_reg(1, 2))
+            @emitter.emit(Cartridge::ASM.add_imm(1, 1, SLOT_BYTES))
+            @emitter.emit(Cartridge::ASM.cmp_reg(1, 2))
             @emitter.emit_branch(:bcond, scan, cond: :lt)
             emit_find_tail(miss) if @uses_envelopes               # nothing free: a note falling away gives way
             emit_note_drop                                        # nothing at all: write down what was lost
-            @emitter.emit(ASM.load_immediate(0, 0))               # none free
+            @emitter.emit(Cartridge::ASM.load_immediate(0, 0))               # none free
             @emitter.emit_branch(:b, miss)
             @emitter.place_label(found)
-            @emitter.emit(ASM.mov_reg(0, 1))                      # r0 = the free slot's address
+            @emitter.emit(Cartridge::ASM.mov_reg(0, 1))                      # r0 = the free slot's address
             @emitter.place_label(miss)
           end
 
@@ -1546,30 +1546,30 @@ module RubyGBA
             scan = e.gensym
             keep = e.gensym
             onward = e.gensym
-            e.emit(ASM.load_immediate(1, @voice_base))
-            e.emit(ASM.load_immediate(2, 0))                      # r2 = the quietest so far, none yet
+            e.emit(Cartridge::ASM.load_immediate(1, @voice_base))
+            e.emit(Cartridge::ASM.load_immediate(2, 0))                      # r2 = the quietest so far, none yet
             e.place_label(scan)
-            e.emit(ASM.ldr_offset(0, 1, SLOT_ACTIVE))
-            e.emit(ASM.cmp_imm(0, OWNER_GAME))
+            e.emit(Cartridge::ASM.ldr_offset(0, 1, SLOT_ACTIVE))
+            e.emit(Cartridge::ASM.cmp_imm(0, OWNER_GAME))
             e.emit_branch(:bcond, onward, cond: :ls)              # free, or one of the game's
-            e.emit(ASM.ldr_offset(0, 1, SLOT_PHASE))
-            e.emit(ASM.cmp_imm(0, PHASE_FALLING))
+            e.emit(Cartridge::ASM.ldr_offset(0, 1, SLOT_PHASE))
+            e.emit(Cartridge::ASM.cmp_imm(0, PHASE_FALLING))
             e.emit_branch(:bcond, onward, cond: :lo)              # a song's note, still sounding
-            e.emit(ASM.cmp_imm(2, 0))
+            e.emit(Cartridge::ASM.cmp_imm(2, 0))
             e.emit_branch(:bcond, keep, cond: :eq)
-            e.emit(ASM.ldr_offset(0, 1, SLOT_LEVEL))
-            e.emit(ASM.ldr_offset(ADDR, 2, SLOT_LEVEL))
-            e.emit(ASM.cmp_reg(0, ADDR))
+            e.emit(Cartridge::ASM.ldr_offset(0, 1, SLOT_LEVEL))
+            e.emit(Cartridge::ASM.ldr_offset(ADDR, 2, SLOT_LEVEL))
+            e.emit(Cartridge::ASM.cmp_reg(0, ADDR))
             e.emit_branch(:bcond, onward, cond: :hs)              # no quieter than the one kept
             e.place_label(keep)
-            e.emit(ASM.mov_reg(2, 1))
+            e.emit(Cartridge::ASM.mov_reg(2, 1))
             e.place_label(onward)
-            e.emit(ASM.add_imm(1, 1, SLOT_BYTES))
-            e.emit(ASM.load_immediate(ADDR, @voice_base + (MAX_VOICES * SLOT_BYTES)))
-            e.emit(ASM.cmp_reg(1, ADDR))
+            e.emit(Cartridge::ASM.add_imm(1, 1, SLOT_BYTES))
+            e.emit(Cartridge::ASM.load_immediate(ADDR, @voice_base + (MAX_VOICES * SLOT_BYTES)))
+            e.emit(Cartridge::ASM.cmp_reg(1, ADDR))
             e.emit_branch(:bcond, scan, cond: :lt)
-            e.emit(ASM.mov_reg(0, 2))
-            e.emit(ASM.cmp_imm(0, 0))
+            e.emit(Cartridge::ASM.mov_reg(0, 2))
+            e.emit(Cartridge::ASM.cmp_imm(0, 0))
             e.emit_branch(:bcond, taken, cond: :ne)
           end
 
@@ -1592,38 +1592,38 @@ module RubyGBA
             e = @emitter
             scan = e.gensym
             keep = e.gensym
-            e.emit(ASM.load_immediate(1, @voice_base))
-            e.emit(ASM.load_immediate(ADDR, @voice_base + (MAX_VOICES * SLOT_BYTES)))
-            e.emit(ASM.load_immediate(2, 0))                      # r2 = voices a song is holding
+            e.emit(Cartridge::ASM.load_immediate(1, @voice_base))
+            e.emit(Cartridge::ASM.load_immediate(ADDR, @voice_base + (MAX_VOICES * SLOT_BYTES)))
+            e.emit(Cartridge::ASM.load_immediate(2, 0))                      # r2 = voices a song is holding
             e.place_label(scan)
-            e.emit(ASM.ldr_offset(0, 1, SLOT_ACTIVE))
-            e.emit(ASM.cmp_imm(0, OWNER_GAME))
-            e.emit(ASM.add_imm_cond(:gt, 2, 2, 1))                # a song's mark sits above the game's
-            e.emit(ASM.add_imm(1, 1, SLOT_BYTES))
-            e.emit(ASM.cmp_reg(1, ADDR))
+            e.emit(Cartridge::ASM.ldr_offset(0, 1, SLOT_ACTIVE))
+            e.emit(Cartridge::ASM.cmp_imm(0, OWNER_GAME))
+            e.emit(Cartridge::ASM.add_imm_cond(:gt, 2, 2, 1))                # a song's mark sits above the game's
+            e.emit(Cartridge::ASM.add_imm(1, 1, SLOT_BYTES))
+            e.emit(Cartridge::ASM.cmp_reg(1, ADDR))
             e.emit_branch(:bcond, scan, cond: :lt)
 
             @primitives.load_var(0, DROPS_MUSIC)
-            e.emit(ASM.cmp_reg(2, 0))
+            e.emit(Cartridge::ASM.cmp_reg(2, 0))
             e.emit_branch(:bcond, keep, cond: :le)                # not the worst split so far
             @primitives.store_var(2, DROPS_MUSIC)
             e.place_label(keep)
             @primitives.load_var(0, DROPS)
-            e.emit(ASM.add_imm(0, 0, 1))
+            e.emit(Cartridge::ASM.add_imm(0, 0, 1))
             @primitives.store_var(0, DROPS)
           end
 
           # Zero +bytes+ bytes of memory starting at +addr+ (voice slots, output buffers).
           def emit_zero_region(addr, bytes)
-            @emitter.emit(ASM.load_immediate(0, addr))
-            @emitter.emit(ASM.load_immediate(1, 0))
-            @emitter.emit(ASM.load_immediate(2, bytes))
+            @emitter.emit(Cartridge::ASM.load_immediate(0, addr))
+            @emitter.emit(Cartridge::ASM.load_immediate(1, 0))
+            @emitter.emit(Cartridge::ASM.load_immediate(2, bytes))
             loop_lbl = @emitter.gensym
             @emitter.place_label(loop_lbl)
-            @emitter.emit(ASM.strb(1, 0))
-            @emitter.emit(ASM.add_imm(0, 0, 1))
-            @emitter.emit(ASM.sub_imm(2, 2, 1))
-            @emitter.emit(ASM.cmp_imm(2, 0))
+            @emitter.emit(Cartridge::ASM.strb(1, 0))
+            @emitter.emit(Cartridge::ASM.add_imm(0, 0, 1))
+            @emitter.emit(Cartridge::ASM.sub_imm(2, 2, 1))
+            @emitter.emit(Cartridge::ASM.cmp_imm(2, 0))
             @emitter.emit_branch(:bcond, loop_lbl, cond: :ne)
           end
 

@@ -26,7 +26,7 @@ class TestFrameStep < Minitest::Test
     b = RubyGBA::Builder.new
     b.instance_eval do
       screen :bitmap
-      step = RubyGBA::Value.new(self, RubyGBA::IR::Build.var_ref(Frames::STEP))
+      step = RubyGBA::DSL::Value.new(self, RubyGBA::IR::Build.var_ref(Frames::STEP))
       spin = var :spin, 0
       game_loop do
         dma_fill_rect 0, 0, 240, 8, :black
@@ -40,7 +40,7 @@ class TestFrameStep < Minitest::Test
 
   # The bar's width in frames: how many WIDE-wide blocks of white are on that row.
   def reading(screen_pixel, row: 4)
-    white = RubyGBA::Color.resolve(:white)
+    white = RubyGBA::Graphics::Color.resolve(:white)
     lit = (0...240).count { |x| screen_pixel.call(x, row) == white }
     lit / WIDE
   end
@@ -80,7 +80,7 @@ class TestFrameStep < Minitest::Test
     b = RubyGBA::Builder.new
     b.instance_eval do
       screen :bitmap
-      step = RubyGBA::Value.new(self, RubyGBA::IR::Build.var_ref(Frames::STEP))
+      step = RubyGBA::DSL::Value.new(self, RubyGBA::IR::Build.var_ref(Frames::STEP))
       ticks = var :ticks, 0
       last = var :last, 0
       loops = var :loops, 0
@@ -185,7 +185,7 @@ class TestFrameStep < Minitest::Test
     b = RubyGBA::Builder.new
     b.instance_eval do
       screen :bitmap
-      step = RubyGBA::Value.new(self, RubyGBA::IR::Build.var_ref(Frames::STEP))
+      step = RubyGBA::DSL::Value.new(self, RubyGBA::IR::Build.var_ref(Frames::STEP))
       beats = var :beats, 0
       spin = var :spin, 0
       game_loop do

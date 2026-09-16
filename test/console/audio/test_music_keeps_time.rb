@@ -39,9 +39,9 @@ class TestMusicKeepsTime < Minitest::Test
     b.program
   end
 
-  C4 = RubyGBA::Music::NOTE_FREQUENCIES[:C4]
-  E4 = RubyGBA::Music::NOTE_FREQUENCIES[:E4]
-  G4 = RubyGBA::Music::NOTE_FREQUENCIES[:G4]
+  C4 = RubyGBA::Audio::Music::NOTE_FREQUENCIES[:C4]
+  E4 = RubyGBA::Audio::Music::NOTE_FREQUENCIES[:E4]
+  G4 = RubyGBA::Audio::Music::NOTE_FREQUENCIES[:G4]
 
   # --- the interpreter, told that a pass ran late ---
 
@@ -102,7 +102,7 @@ class TestMusicKeepsTime < Minitest::Test
 
     # C4 and E4 (the first tune reaches its second note), A4 (the second), then the first tune
     # again FROM ITS DOWNBEAT — not from wherever it had got to when it was left.
-    assert_equal [C4, E4, RubyGBA::Music::NOTE_FREQUENCIES[:A4], C4], heard
+    assert_equal [C4, E4, RubyGBA::Audio::Music::NOTE_FREQUENCIES[:A4], C4], heard
   end
 
   def test_stopping_the_music_silences_it_and_starting_again_starts_over

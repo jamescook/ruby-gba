@@ -23,7 +23,7 @@ require_relative "preview"
 #   - piano.wav — a single ~0.6s piano-ish note at C4, which the `instrument` verb
 #     pitches across the keys.
 module MakePianoAssets
-  Color = RubyGBA::Color
+  Color = RubyGBA::Graphics::Color
 
   ASSETS = File.expand_path("../examples/assets", __dir__)
 

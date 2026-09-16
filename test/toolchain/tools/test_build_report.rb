@@ -28,7 +28,7 @@ class TestBuildReport < Minitest::Test
 
   def report_for(rom)
     out = StringIO.new
-    RubyGBA::BuildReport.render(rom, out: out)
+    RubyGBA::Diagnostics::BuildReport.render(rom, out: out)
     out.string
   end
 
@@ -100,7 +100,7 @@ class TestBuildReport < Minitest::Test
   # --- it rides along with the measured half ---
 
   def test_a_profile_prints_the_build_facts_above_the_measured_ones
-    skip "needs the emulator" unless RubyGBA::Emulator.available?
+    skip "needs the emulator" unless RubyGBA::Diagnostics::Emulator.available?
 
     out = StringIO.new
     crowded_game.profile(out: out, frames: 5)

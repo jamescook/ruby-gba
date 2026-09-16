@@ -9,7 +9,7 @@ require "test_helper"
 # moves, and the friendly guardrails — on the interpreter oracle and on real
 # hardware. The dev never touches OAM, tile indices, or object memory.
 class TestHardwareSprite < Minitest::Test
-  include RubyGBA::Constants
+  include RubyGBA::Cartridge::Constants
 
   EIGHT_BY_EIGHT = (["########"] * 8).join("\n") # a solid 8x8 tile of one color
 

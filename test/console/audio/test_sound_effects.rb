@@ -8,10 +8,10 @@ require "test_helper"
 # same way a tune is, and each plays over the room's music without stopping it. When the effect
 # and the song want the same voice, the one with the higher priority sounds on it.
 class TestSoundEffects < Minitest::Test
-  Score = RubyGBA::Score
+  Score = RubyGBA::Audio::Score
   Part = Score::Part
   Note = Score::Note
-  NOTES = RubyGBA::Music::NOTE_FREQUENCIES
+  NOTES = RubyGBA::Audio::Music::NOTE_FREQUENCIES
 
   # At 150 beats a minute and 24 ticks a beat, a tick is one frame.
   def every_ten_ticks(*keys, plays: nil, priority: 0, length: nil)
@@ -569,8 +569,8 @@ class TestSoundEffects < Minitest::Test
   # told from the song's by being quieter and thinner.
   SETTING = 0xF0C0
 
-  SQUARE_1 = RubyGBA::Constants::REG_SOUND1CNT_H
-  NOISE = RubyGBA::Constants::REG_SOUND4CNT_L
+  SQUARE_1 = RubyGBA::Cartridge::Constants::REG_SOUND1CNT_H
+  NOISE = RubyGBA::Cartridge::Constants::REG_SOUND4CNT_L
 
   # How a voice was set on the console: [frames since it first sounded, setting] for each change.
   def console_changes(program, register, frames:)
@@ -583,7 +583,7 @@ class TestSoundEffects < Minitest::Test
     Dir.mktmpdir do |dir|
       path = File.join(dir, "sfx.gba")
       rom.write(path)
-      probe = RubyGBA::Emulator.probe(path)
+      probe = RubyGBA::Diagnostics::Emulator.probe(path)
       readings = Array.new(frames) do
         probe.step(1)
         yield probe
@@ -621,7 +621,7 @@ class TestSoundEffects < Minitest::Test
     runs.map { |setting, frame| [frame - runs.first.last, setting] }
   end
 
-  REGISTERS = { 1 => SQUARE_1, 2 => RubyGBA::Constants::REG_SOUND2CNT_L, 3 => RubyGBA::Constants::REG_SOUND3CNT_H,
+  REGISTERS = { 1 => SQUARE_1, 2 => RubyGBA::Cartridge::Constants::REG_SOUND2CNT_L, 3 => RubyGBA::Cartridge::Constants::REG_SOUND3CNT_H,
                 4 => NOISE }.freeze
 
   # The two backends agree about when a voice changed and what it changed to, from the first sound
@@ -636,9 +636,9 @@ class TestSoundEffects < Minitest::Test
   # A voice's setting that reads back: a square voice's tone, and the volume — or for a +tone+ of
   # :wave, the nearest of the wave voice's five volumes.
   def self.setting(tone, volume)
-    return RubyGBA::Sound::Registers::WAVE_VOLUMES.fetch(RubyGBA::Sound::Registers.wave_level(volume)) if tone == :wave
+    return RubyGBA::Audio::Sound::Registers::WAVE_VOLUMES.fetch(RubyGBA::Audio::Sound::Registers.wave_level(volume)) if tone == :wave
 
-    ((tone ? RubyGBA::Sound::Registers.duty_bits(tone) : 0) << 6) | (volume << 12)
+    ((tone ? RubyGBA::Audio::Sound::Registers.duty_bits(tone) : 0) << 6) | (volume << 12)
   end
   def setting(tone, volume) = self.class.setting(tone, volume)
   def square_setting(tone, volume) = setting(tone, volume)
@@ -723,7 +723,7 @@ class TestSoundEffects < Minitest::Test
 
   # A waveform as the number wave RAM holds for it, reading its four words in order.
   def waveform(shape)
-    RubyGBA::Sound::Registers.wavetable_halfwords(shape).each_slice(2).each_with_index.sum do |(low, high), word|
+    RubyGBA::Audio::Sound::Registers.wavetable_halfwords(shape).each_slice(2).each_with_index.sum do |(low, high), word|
       (low | (high << 16)) << (32 * word)
     end
   end
@@ -739,7 +739,7 @@ class TestSoundEffects < Minitest::Test
   # ...and from the console, reading wave RAM once a frame from the frame the voice first sounds.
   def console_waveforms(program, frames:)
     readings = console_readings(program, frames: frames) do |probe|
-      ram = (0...4).sum { |word| probe.read32(RubyGBA::Constants::REG_WAVE_RAM + (word * 4)) << (32 * word) }
+      ram = (0...4).sum { |word| probe.read32(RubyGBA::Cartridge::Constants::REG_WAVE_RAM + (word * 4)) << (32 * word) }
       [probe.read32(REGISTERS.fetch(3)) & SETTING, ram]
     end
     changes(readings.drop_while { |setting, _| setting.zero? }.map(&:last))
@@ -1097,7 +1097,7 @@ class TestSoundEffects < Minitest::Test
         sfx = sound_effects :sfx, effects
         game_loop { effects.size.times { |n| sfx.play n } if playing }
       end
-      RubyGBA::Profiler.run(rom, frames: 30, picture: false).lines.find { |line| line.name == :__interrupt }.samples
+      RubyGBA::Diagnostics::Profiler.run(rom, frames: 30, picture: false).lines.find { |line| line.name == :__interrupt }.samples
     end
 
     assert_operator interrupt_samples.call(true), :>, interrupt_samples.call(false)

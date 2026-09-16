@@ -13,11 +13,11 @@ require "test_helper"
 #   * The backend has to forget at a label and at a call, because both reach code that
 #     was not walked through to get here.
 class TestAddressRegister < Minitest::Test
-  A = RubyGBA::ASM
+  A = RubyGBA::Cartridge::ASM
   AddressRegister = RubyGBA::IR::Backends::GBA::AddressRegister
   ADDR = RubyGBA::IR::Backends::GBA::ADDR
   LIST_ADDR = RubyGBA::IR::Backends::GBA::LIST_ADDR
-  BASE = RubyGBA::Constants::IWRAM_START
+  BASE = RubyGBA::Cartridge::Constants::IWRAM_START
   # The one instruction this whole change is about: the base put in the address register.
   BASE_LOAD = A.load_immediate(ADDR, BASE)
 
