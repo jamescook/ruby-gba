@@ -408,7 +408,7 @@ class TestMusicVolume < Minitest::Test
   def test_the_console_sets_the_wave_voice_to_the_nearest_of_its_volumes
     program = held_note_game(plays: :triangle) { |pass| (pass == 5).then { music_volume 50 } }
     console = assert_emulator_loads_rom(assemble_rom(program, name: "MUSVOLW"), frames: 20)
-    nearest = RubyGBA::Audio::Sound::Registers::WAVE_VOLUMES.fetch(RubyGBA::Audio::Sound::Registers.wave_level(6))
+    nearest = RubyGBA::Audio::Sound::Registers::WAVE_VOLUMES.fetch(RubyGBA::Audio::Sound.wave_level(6))
 
     assert_equal nearest, console.mem16(RubyGBA::Cartridge::Constants::REG_SOUND3CNT_H) & 0xE000
   end

@@ -1178,12 +1178,12 @@ module RubyGBA
           def holds_notes?(lane) = @scales && %i[square wave recorded].include?(lane.kind)
 
           # THE WAVE VOICE'S VOLUMES, looked up by a volume of 0..15: it has five, and a note sets
-          # the one nearest (Sound::Registers.wave_level). A table rather than arithmetic, since
+          # the one nearest (Sound.wave_level). A table rather than arithmetic, since
           # nearest-of-five is a divide.
           MUSIC_WAVE_LEVELS = :__music_wave_levels
 
           def wave_levels_blob
-            (0..15).map { |volume| RubyGBA::Audio::Sound::Registers::WAVE_VOLUMES.fetch(RubyGBA::Audio::Sound::Registers.wave_level(volume)) }
+            (0..15).map { |volume| RubyGBA::Audio::Sound::Registers::WAVE_VOLUMES.fetch(RubyGBA::Audio::Sound.wave_level(volume)) }
                    .pack("v*")
           end
 

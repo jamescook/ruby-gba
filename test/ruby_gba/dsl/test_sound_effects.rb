@@ -636,7 +636,7 @@ class TestSoundEffects < Minitest::Test
   # A voice's setting that reads back: a square voice's tone, and the volume — or for a +tone+ of
   # :wave, the nearest of the wave voice's five volumes.
   def self.setting(tone, volume)
-    return RubyGBA::Audio::Sound::Registers::WAVE_VOLUMES.fetch(RubyGBA::Audio::Sound::Registers.wave_level(volume)) if tone == :wave
+    return RubyGBA::Audio::Sound::Registers::WAVE_VOLUMES.fetch(RubyGBA::Audio::Sound.wave_level(volume)) if tone == :wave
 
     ((tone ? RubyGBA::Audio::Sound::Registers.duty_bits(tone) : 0) << 6) | (volume << 12)
   end

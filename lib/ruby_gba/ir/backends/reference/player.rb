@@ -289,7 +289,7 @@ module RubyGBA
           def sounds?(kind, frequency, volume)
             return false unless frequency.positive? && volume.positive?
 
-            kind != :wave || Audio::Sound::Registers.wave_level(volume) != :mute
+            kind != :wave || Audio::Sound.wave_level(volume) != :mute
           end
 
           # The tune the program asked for has changed, or it said stop: silence what was

@@ -6,15 +6,19 @@ module RubyGBA
     # or a note *is*, so every backend agrees on it (the audio counterpart to how
     # Int32 pins arithmetic). It has two layers:
     #
-    #   * the musical layer (this module directly): named sound-effect presets and
-    #     the rule for resolving a beep's tone + overrides into concrete musical
-    #     values — a frequency in Hz, a wave shape, a fade, a volume. This layer is
-    #     hardware-free, so a headless interpreter can use it to say "an 880 Hz
-    #     blip played" without any notion of registers.
+    #   * the musical layer (this module directly): named sound-effect presets, the
+    #     rule for resolving a beep's tone + overrides into concrete musical values —
+    #     a frequency in Hz, a wave shape, a fade, a volume — and what each kind of
+    #     voice can actually do, which every backend has to honour whether or not it
+    #     writes a register (SQUARE_LOWEST_HZ, wave_level). This layer is hardware-free,
+    #     so a headless interpreter can use it to say "an 880 Hz blip played" without
+    #     any notion of registers.
     #
     #   * Registers: the console-specific encoding — turning those musical values
     #     into the exact sound-register writes the hardware needs. A backend that
-    #     lowers to a real ROM uses this; the interpreter never does.
+    #     lowers to a real ROM uses this; the interpreter never does, and a test says
+    #     so rather than leaving it to whoever edits next
+    #     (test/ruby_gba/audio/test_registers_seam.rb).
     module Sound
       # One resolved beep, purely musical — no hardware in sight. The four parts are fixed
       # here rather than named by a caller, so it is a value object and asking it for anything
@@ -113,6 +117,30 @@ module RubyGBA
       # ...and how loud one step can be. Four bits, so 0 is silence and 15 is the top.
       WAVE_STEP_MAX = 15
 
+      # WHAT THE TWO KINDS OF VOICE CAN ACTUALLY DO. These are limits, not encodings, which is
+      # why they sit out here with the musical half rather than inside Registers: a backend that
+      # never writes a register still has to honour them, or the two backends disagree about
+      # what a game sounds like.
+      #
+      # The wave voice has FIVE loudnesses and not a range — off, and four steps — so a part
+      # written at volume 6 of 15 plays at the nearest of them. Every backend rounds the same
+      # way, and one that rounded 6 down to silence while another rounded it up would differ on
+      # whether a note is heard at all.
+      WAVE_LEVEL_STEPS = %i[mute quarter half three_quarter full].freeze
+
+      # Round a 0..15 volume to the level the wave voice really has.
+      def self.wave_level(volume)
+        WAVE_LEVEL_STEPS[((volume.clamp(0, 15) * (WAVE_LEVEL_STEPS.size - 1)) / 15.0).round]
+      end
+
+      # THE LOWEST PITCH A SQUARE VOICE REACHES, 64 Hz — just under C2. The console tunes those
+      # voices by a period value that cannot go past its own bottom, so a lower note does not
+      # play low, it plays AT 64 Hz: a different note, quietly wrong rather than silent. That is
+      # what the guardrail warns about before the cartridge exists, so the number has to be
+      # readable without a register in sight. (The wave voice tunes by a sample rate instead and
+      # reaches an octave lower, which is most of why a tune puts its bass there.)
+      SQUARE_LOWEST_HZ = 131_072 / 2048
+
       # WHAT THE WAVE VOICE PLAYS, which is one of two things a game can say.
       #
       # A NAME is the usual answer — `wave :triangle, :C4`, `plays: :sine` — and the samples are
@@ -187,11 +215,6 @@ module RubyGBA
         # frequency divides down as the exponent grows, so a bigger number is a
         # lower, rumblier noise and a smaller one a higher hiss.
         NOISE_SHIFTS = { high: 2, mid: 5, low: 8 }.freeze
-
-        # THE LOWEST PITCH A SQUARE-WAVE CHANNEL HAS: its period value at 0, the bottom of the
-        # range below, is 131072 / 2048 = 64 Hz. A lower note cannot be asked for — the value is
-        # held at 0 — so it sounds at 64 Hz instead, which is a different note.
-        SQUARE_LOWEST_HZ = 131_072 / 2048
 
         # The console tunes a channel by a period value, not a frequency:
         # freq_hz = 131072 / (2048 - value). Invert that and keep it in range.
@@ -291,14 +314,8 @@ module RubyGBA
         def wave_note(frequency:, volume:)
           return [[REG_SOUND3CNT_H, 0x0000], [REG_SOUND3CNT_X, 0x0000]] if frequency.zero?
 
-          [[REG_SOUND3CNT_H, WAVE_VOLUMES.fetch(wave_level(volume))],
+          [[REG_SOUND3CNT_H, WAVE_VOLUMES.fetch(Sound.wave_level(volume))],
            [REG_SOUND3CNT_X, 0x8000 | wave_rate(frequency)]]
-        end
-
-        WAVE_LEVEL_STEPS = %i[mute quarter half three_quarter full].freeze
-
-        def wave_level(volume)
-          WAVE_LEVEL_STEPS[((volume.clamp(0, 15) * (WAVE_LEVEL_STEPS.size - 1)) / 15.0).round]
         end
 
         # Put a waveform in wave RAM and switch the voice on — the once-per-tune half of the pair
