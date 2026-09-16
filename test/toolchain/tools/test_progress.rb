@@ -4,7 +4,7 @@ require "test_helper"
 
 require "stringio"
 
-# WHAT A BUILD SAYS IT IS DOING (lib/ruby_gba/progress.rb).
+# WHAT A BUILD SAYS IT IS DOING (lib/ruby_gba/diagnostics/progress.rb).
 #
 # A big game takes a while to build, and a build that says nothing is indistinguishable from one
 # that has hung. These check the thing a build talks to: that the default says nothing at all,

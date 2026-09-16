@@ -38,7 +38,7 @@ The Game Boy Advance BIOS will not boot a cartridge unless its header (offset
 `0x04`–`0x9F`) contains a specific 156-byte Nintendo logo bitmap. To produce ROMs
 that run on real hardware and on accuracy-focused emulators, this tool writes those
 bytes into the ROM header (see `HEADER_LOGO_BYTES` in
-`lib/ruby_gba/constants.rb`).
+`lib/ruby_gba/cartridge/constants.rb`).
 
 That logo is the intellectual property of Nintendo. It is reproduced here **solely
 for interoperability** — it is functionally required for a cartridge to boot — and

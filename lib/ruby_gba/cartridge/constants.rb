@@ -1,6 +1,6 @@
 # frozen_string_literal: true
 
-require_relative "ir/screen"
+require_relative "../ir/screen"
 
 module RubyGBA
   # GBA hardware constants. Names follow the tonc/libgba conventions

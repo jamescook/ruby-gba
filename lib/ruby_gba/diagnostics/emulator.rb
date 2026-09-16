@@ -33,7 +33,7 @@ module RubyGBA
 
     # The sibling checkout, for a clone with no bundle. Raises with what to do about it.
     def load_from_checkout!
-      lib = File.expand_path("../../ruby-gba-emulator/lib", __dir__)
+      lib = File.expand_path("../../../ruby-gba-emulator/lib", __dir__)
       raise_missing!("it is not installed and there is no ruby-gba-emulator/ beside this one") unless
         File.directory?(lib)
 

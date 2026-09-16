@@ -44,7 +44,7 @@ module RubyGBA
     # A game built here is nobody's licensee, so it says so.
     NO_PUBLISHER = "00"
 
-    DATA_FILE = File.expand_path("data/known_game_codes.txt", __dir__)
+    DATA_FILE = File.expand_path("../data/known_game_codes.txt", __dir__)
 
     # The codes of every real Game Boy Advance cartridge an emulator's catalogue knows
     # — the ones that were sold, and the prototypes and kiosk builds that got out too,

@@ -3,7 +3,7 @@
 require "test_helper"
 require "stringio"
 
-# THE ONE VERDICT THAT COULD ONLY EVER BE ESTIMATED, now measured (lib/ruby_gba/tearing.rb).
+# THE ONE VERDICT THAT COULD ONLY EVER BE ESTIMATED, now measured (lib/ruby_gba/diagnostics/tearing.rb).
 #
 # The display draws each row as it reaches it, out of video memory as it stands at that
 # moment — so the picture the emulator hands back is what the screen really showed, seam and

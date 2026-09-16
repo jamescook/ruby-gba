@@ -1,6 +1,6 @@
 # frozen_string_literal: true
 
-require_relative "../../plain_words"
+require_relative "../../diagnostics/plain_words"
 
 module RubyGBA
   module IR

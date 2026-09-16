@@ -1,75 +1,75 @@
 # frozen_string_literal: true
 
 require_relative "ruby_gba/version"
-require_relative "ruby_gba/constants"
-require_relative "ruby_gba/plain_words" # what a person calls this — the English a build says out loud
-require_relative "ruby_gba/whole"
-require_relative "ruby_gba/color"
-require_relative "ruby_gba/sound"
-require_relative "ruby_gba/music" # before the IR: the backends size their music player by it
-require_relative "ruby_gba/score" # music handed over as data, rather than written as a block
-require_relative "ruby_gba/envelope" # how a note starts and how it ends, so an edge is not a click
-require_relative "ruby_gba/sprite_row" # one sprite read back, off the console or off the oracle
-require_relative "ruby_gba/asm"
-require_relative "ruby_gba/progress" # what a build says it is doing while it does it
-require_relative "ruby_gba/build_output" # where a build prints, however the caller said it
+require_relative "ruby_gba/cartridge/constants"
+require_relative "ruby_gba/diagnostics/plain_words" # what a person calls this — the English a build says out loud
+require_relative "ruby_gba/dsl/whole"
+require_relative "ruby_gba/graphics/color"
+require_relative "ruby_gba/audio/sound"
+require_relative "ruby_gba/audio/music" # before the IR: the backends size their music player by it
+require_relative "ruby_gba/audio/score" # music handed over as data, rather than written as a block
+require_relative "ruby_gba/audio/envelope" # how a note starts and how it ends, so an edge is not a click
+require_relative "ruby_gba/diagnostics/sprite_row" # one sprite read back, off the console or off the oracle
+require_relative "ruby_gba/cartridge/asm"
+require_relative "ruby_gba/diagnostics/progress" # what a build says it is doing while it does it
+require_relative "ruby_gba/diagnostics/build_output" # where a build prints, however the caller said it
 require_relative "ruby_gba/ir"
-require_relative "ruby_gba/rom_validator"
-require_relative "ruby_gba/video_memory" # how much room the pictures took, and what the storage saved
-require_relative "ruby_gba/build_record" # what the build worked out, for the cartridge to carry
-require_relative "ruby_gba/game_code" # the four characters an emulator tells one cartridge from another by
-require_relative "ruby_gba/rom"
-require_relative "ruby_gba/font"
-require_relative "ruby_gba/fonts"
-require_relative "ruby_gba/fraction"
-require_relative "ruby_gba/name_set" # the names a variable or a pool field can hold
+require_relative "ruby_gba/cartridge/rom_validator"
+require_relative "ruby_gba/diagnostics/video_memory" # how much room the pictures took, and what the storage saved
+require_relative "ruby_gba/cartridge/build_record" # what the build worked out, for the cartridge to carry
+require_relative "ruby_gba/cartridge/game_code" # the four characters an emulator tells one cartridge from another by
+require_relative "ruby_gba/cartridge/rom"
+require_relative "ruby_gba/graphics/font"
+require_relative "ruby_gba/graphics/fonts"
+require_relative "ruby_gba/dsl/fraction"
+require_relative "ruby_gba/dsl/name_set" # the names a variable or a pool field can hold
 require_relative "ruby_gba/builder"
 require_relative "ruby_gba/effects" # the verb/effect pack registry, and the packs that ship on by default
-require_relative "ruby_gba/evaluated_game" # the one place a game's block becomes a program
-require_relative "ruby_gba/game"
-require_relative "ruby_gba/author_source"
-require_relative "ruby_gba/scale"
-require_relative "ruby_gba/changing_word"
-require_relative "ruby_gba/value"
-require_relative "ruby_gba/condition"
-require_relative "ruby_gba/branch"
-require_relative "ruby_gba/bounds"
-require_relative "ruby_gba/pixel_bounds"
-require_relative "ruby_gba/box"
+require_relative "ruby_gba/cartridge/evaluated_game" # the one place a game's block becomes a program
+require_relative "ruby_gba/cartridge/game"
+require_relative "ruby_gba/diagnostics/author_source"
+require_relative "ruby_gba/dsl/scale"
+require_relative "ruby_gba/dsl/changing_word"
+require_relative "ruby_gba/dsl/value"
+require_relative "ruby_gba/dsl/condition"
+require_relative "ruby_gba/dsl/branch"
+require_relative "ruby_gba/dsl/bounds"
+require_relative "ruby_gba/dsl/pixel_bounds"
+require_relative "ruby_gba/dsl/box"
 require_relative "ruby_gba/builder/debug"
-require_relative "ruby_gba/list"
-require_relative "ruby_gba/table"
-require_relative "ruby_gba/field_ref"
-require_relative "ruby_gba/pool"
-require_relative "ruby_gba/direction"
-require_relative "ruby_gba/grid"
-require_relative "ruby_gba/sprite"
-require_relative "ruby_gba/recolors" # the other colours a sprite or a pool can be drawn with
-require_relative "ruby_gba/hardware_sprite"
-require_relative "ruby_gba/timer"
-require_relative "ruby_gba/sample"
-require_relative "ruby_gba/instrument"
-require_relative "ruby_gba/score_list"
-require_relative "ruby_gba/song_list"
-require_relative "ruby_gba/sound_effect_list"
-require_relative "ruby_gba/wav"
-require_relative "ruby_gba/background"
-require_relative "ruby_gba/image"
-require_relative "ruby_gba/aseprite"
-require_relative "ruby_gba/inspector"
-require_relative "ruby_gba/func_dumper"
+require_relative "ruby_gba/dsl/list"
+require_relative "ruby_gba/dsl/table"
+require_relative "ruby_gba/dsl/field_ref"
+require_relative "ruby_gba/dsl/pool"
+require_relative "ruby_gba/dsl/direction"
+require_relative "ruby_gba/dsl/grid"
+require_relative "ruby_gba/dsl/sprite"
+require_relative "ruby_gba/dsl/recolors" # the other colours a sprite or a pool can be drawn with
+require_relative "ruby_gba/dsl/hardware_sprite"
+require_relative "ruby_gba/dsl/timer"
+require_relative "ruby_gba/dsl/sample"
+require_relative "ruby_gba/dsl/instrument"
+require_relative "ruby_gba/dsl/score_list"
+require_relative "ruby_gba/dsl/song_list"
+require_relative "ruby_gba/dsl/sound_effect_list"
+require_relative "ruby_gba/audio/wav"
+require_relative "ruby_gba/dsl/background"
+require_relative "ruby_gba/graphics/image"
+require_relative "ruby_gba/graphics/aseprite"
+require_relative "ruby_gba/diagnostics/inspector"
+require_relative "ruby_gba/diagnostics/func_dumper"
 require_relative "ruby_gba/pager"
-require_relative "ruby_gba/test_patterns"
-require_relative "ruby_gba/emulator"
-require_relative "ruby_gba/verifier"
-require_relative "ruby_gba/tearing"
-require_relative "ruby_gba/flicker"
-require_relative "ruby_gba/tick_rate"
-require_relative "ruby_gba/sound_drops"
-require_relative "ruby_gba/analyzer"
-require_relative "ruby_gba/build_report" # the exact half of a profile: what the build made
-require_relative "ruby_gba/profiler"
-require_relative "ruby_gba/routine_profile"
+require_relative "ruby_gba/cartridge/test_patterns"
+require_relative "ruby_gba/diagnostics/emulator"
+require_relative "ruby_gba/diagnostics/verifier"
+require_relative "ruby_gba/diagnostics/tearing"
+require_relative "ruby_gba/diagnostics/flicker"
+require_relative "ruby_gba/diagnostics/tick_rate"
+require_relative "ruby_gba/diagnostics/sound_drops"
+require_relative "ruby_gba/diagnostics/analyzer"
+require_relative "ruby_gba/diagnostics/build_report" # the exact half of a profile: what the build made
+require_relative "ruby_gba/diagnostics/profiler"
+require_relative "ruby_gba/diagnostics/routine_profile"
 
 module RubyGBA
   class ROMError < StandardError; end
