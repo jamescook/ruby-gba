@@ -140,7 +140,7 @@ module RubyGBA
 
       # The first call-stack frame outside the library — the author's line — as
       # "path:line", or nil if every frame is internal.
-      def self.author_source = Diagnostics::AuthorSource.author_source
+      def self.author_source = Messages::AuthorSource.author_source
     end
   end
 end

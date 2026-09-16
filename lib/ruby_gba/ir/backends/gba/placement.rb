@@ -497,7 +497,7 @@ module RubyGBA
               # Say which routine is being weighed, in the words an author would use. The
               # phase is quick now that nothing is priced, but it is the one place a build
               # names the routines it is deciding between, and that is worth seeing.
-              @progress.of(n + 1, ranked.length, Diagnostics::PlainWords.routine(name))
+              @progress.of(n + 1, ranked.length, Messages::PlainWords.routine(name))
               next if chosen.include?(name) || forbidden.include?(name)
 
               size = sizes[name]

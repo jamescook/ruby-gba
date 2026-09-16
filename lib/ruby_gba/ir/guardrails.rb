@@ -218,7 +218,7 @@ module RubyGBA
       # leftover Conditions, not the tree). Either way the pass treats them alike;
       # pass your own list via +checks:+ to run a different set.
       class Validator
-        def initialize(checks: Guardrails.default_checks, progress: Diagnostics::Progress.silent)
+        def initialize(checks: Guardrails.default_checks, progress: Messages::Progress.silent)
           @checks = checks
           @progress = progress
         end

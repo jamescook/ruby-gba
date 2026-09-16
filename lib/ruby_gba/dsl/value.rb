@@ -77,7 +77,7 @@ module RubyGBA
         # that pins the author's line — a handle can never be the orphan this is for.
         return if handle? || !@builder.respond_to?(:track_expression)
 
-        @source = Diagnostics::AuthorSource.author_source
+        @source = Messages::AuthorSource.author_source
         @builder.track_expression(self)
       end
 

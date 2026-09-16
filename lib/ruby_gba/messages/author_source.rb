@@ -1,7 +1,7 @@
 # frozen_string_literal: true
 
 module RubyGBA
-  module Diagnostics
+  module Messages
     # WHERE THE AUTHOR WROTE IT — the first stack frame outside the framework.
     #
     # A handle, a comparison and an alignment error are all created deep inside the

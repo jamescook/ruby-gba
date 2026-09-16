@@ -110,7 +110,7 @@ module RubyGBA
       end
 
       # Where in the game's own source this went wrong.
-      def at_dsl_line = Diagnostics::AuthorSource.at_author_line
+      def at_dsl_line = Messages::AuthorSource.at_author_line
 
       private
 

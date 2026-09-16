@@ -129,7 +129,7 @@ module RubyGBA
     def build_cartridge(game_file)
       game = load_game(game_file)
       # Somebody is sitting there waiting for this, so it says what it is doing.
-      rom = game.build_rom(progress: RubyGBA::Diagnostics::Progress.to($stderr))
+      rom = game.build_rom(progress: RubyGBA::Messages::Progress.to($stderr))
       path = options[:output] || File.join(File.dirname(File.expand_path(game_file)), game.default_filename)
       rom.write(path)
       say "Built #{File.basename(path)} (#{rom.size} bytes)"

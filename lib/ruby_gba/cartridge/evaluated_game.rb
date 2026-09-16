@@ -27,7 +27,7 @@ module RubyGBA
       # the Builder so that anything running inside the game's own block — the game itself, an
       # effect pack's verb — can say what it is doing too. The default says nothing, which is
       # the right answer for anything that is not a person waiting at a terminal.
-      def initialize(block, frame_sync: :auto, progress: Diagnostics::Progress.silent)
+      def initialize(block, frame_sync: :auto, progress: Messages::Progress.silent)
         @builder = Builder.new(frame_sync: frame_sync, progress: progress)
         # `debug_halt` throws rather than returns, because it stops the game's block where it
         # stands and there is no other way out of somebody else's code. Catching it here is

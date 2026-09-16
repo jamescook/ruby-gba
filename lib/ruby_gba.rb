@@ -2,7 +2,7 @@
 
 require_relative "ruby_gba/version"
 require_relative "ruby_gba/cartridge/constants"
-require_relative "ruby_gba/diagnostics/plain_words" # what a person calls this — the English a build says out loud
+require_relative "ruby_gba/messages/plain_words" # what a person calls this — the English a build says out loud
 require_relative "ruby_gba/dsl/whole"
 require_relative "ruby_gba/graphics/color"
 require_relative "ruby_gba/audio/sound"
@@ -11,8 +11,8 @@ require_relative "ruby_gba/audio/score" # music handed over as data, rather than
 require_relative "ruby_gba/audio/envelope" # how a note starts and how it ends, so an edge is not a click
 require_relative "ruby_gba/diagnostics/sprite_row" # one sprite read back, off the console or off the oracle
 require_relative "ruby_gba/cartridge/asm"
-require_relative "ruby_gba/diagnostics/progress" # what a build says it is doing while it does it
-require_relative "ruby_gba/diagnostics/build_output" # where a build prints, however the caller said it
+require_relative "ruby_gba/messages/progress" # what a build says it is doing while it does it
+require_relative "ruby_gba/messages/build_output" # where a build prints, however the caller said it
 require_relative "ruby_gba/ir"
 require_relative "ruby_gba/cartridge/rom_validator"
 require_relative "ruby_gba/diagnostics/video_memory" # how much room the pictures took, and what the storage saved
@@ -27,7 +27,7 @@ require_relative "ruby_gba/builder"
 require_relative "ruby_gba/effects" # the verb/effect pack registry, and the packs that ship on by default
 require_relative "ruby_gba/cartridge/evaluated_game" # the one place a game's block becomes a program
 require_relative "ruby_gba/cartridge/game"
-require_relative "ruby_gba/diagnostics/author_source"
+require_relative "ruby_gba/messages/author_source"
 require_relative "ruby_gba/dsl/scale"
 require_relative "ruby_gba/dsl/changing_word"
 require_relative "ruby_gba/dsl/value"
@@ -91,9 +91,9 @@ module RubyGBA
   #   in the console's quick memory, where code runs about two and a half times faster
   #   (default: true). `rom.profile` says what it chose. Pass false to stop it choosing —
   #   a routine you mark `func :name, fast: true` yourself still goes there.
-  # @param progress [RubyGBA::Diagnostics::Progress] what the build says it is doing while it does it.
+  # @param progress [RubyGBA::Messages::Progress] what the build says it is doing while it does it.
   #   The default says nothing; `Progress.to($stderr)` names each phase and how far it has
-  #   got. See {RubyGBA::Diagnostics::Progress}.
+  #   got. See {RubyGBA::Messages::Progress}.
   # @param profile [true, false, String, RubyGBA::Diagnostics::RoutineProfile] where this game's frames
   #   really go, which decides which routines are kept in the console's quick memory.
   #
@@ -116,18 +116,18 @@ module RubyGBA
   # +out+/+err+ are where the build prints — the disassembly dump_func was asked for, and the
   # warnings the guardrails found. Each takes an open stream (a StringIO, to capture them in a
   # test), the NAME of a file (opened and closed for you), or nil for a build that prints
-  # nothing at all; they default to the process streams. See {BuildOutput}.
+  # nothing at all; they default to the process streams. See {Messages::BuildOutput}.
   # +code+ and +maker+ are the four characters an emulator tells one cartridge from another
   # by, and the two that name a publisher. Leave them out: the framework works a free code
   # out from the title (see {GameCode}), and a code a released cartridge already carries is
   # refused rather than quietly shipped.
   def self.build(title, code: nil, maker: nil, validate: true, frame_sync: :auto, fast_cartridge: true,
-                 fast_code: true, out: $stdout, err: $stderr, progress: Diagnostics::Progress.silent,
+                 fast_code: true, out: $stdout, err: $stderr, progress: Messages::Progress.silent,
                  profile: false, &block)
     # Settle where this build prints BEFORE anything is read or checked, so a caller
     # that named somewhere the build cannot write is told on every build rather than on
-    # the one build that finally has a warning to give (see {BuildOutput}).
-    output = Diagnostics::BuildOutput.new(out: out, err: err)
+    # the one build that finally has a warning to give (see {Messages::BuildOutput}).
+    output = Messages::BuildOutput.new(out: out, err: err)
     out = output.out
     err = output.err
 

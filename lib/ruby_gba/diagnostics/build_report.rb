@@ -263,7 +263,7 @@ module RubyGBA
         else
           printer.puts "  kept in quick memory (#{faster}):"
           placement.funcs.each do |name|
-            printer.puts "    #{routine_size(placement, name)}#{PlainWords.routine(name)}"
+            printer.puts "    #{routine_size(placement, name)}#{Messages::PlainWords.routine(name)}"
           end
           printer.puts format("    %s of 32K used, %s free",
                               kb(placement.used_bytes), kb(placement.free_bytes))
@@ -319,7 +319,7 @@ module RubyGBA
         placement.passed_over.first(NAMED_MISSES).each do |over|
           printer.puts format("    (%s did not fit — it needs %s and %s was left when its " \
                               "turn came, so it runs from the cartridge.%s)",
-                              PlainWords.routine(over.name), kb(over.bytes), kb(over.room),
+                              Messages::PlainWords.routine(over.name), kb(over.bytes), kb(over.room),
                               repeated_note(program, over))
         end
       end
@@ -387,10 +387,10 @@ module RubyGBA
           free_bytes: placement.free_bytes,
           chosen_from: placement.chosen_from.to_s,
           kept: placement.funcs.map do |name|
-            { name: name.to_s, label: PlainWords.routine(name), bytes: placement.sizes[name] }
+            { name: name.to_s, label: Messages::PlainWords.routine(name), bytes: placement.sizes[name] }
           end,
           passed_over: placement.passed_over.map do |over|
-            { name: over.name.to_s, label: PlainWords.routine(over.name),
+            { name: over.name.to_s, label: Messages::PlainWords.routine(over.name),
               bytes: over.bytes, room: over.room }
           end
         })

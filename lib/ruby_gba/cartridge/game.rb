@@ -52,7 +52,7 @@ module RubyGBA
 
       # The finished ROM. Where the build prints is injectable, so a test (or the CLI) captures
       # it: out:/err: each take an open stream, the name of a file, or nil for a build that
-      # prints nothing (see {BuildOutput}).
+      # prints nothing (see {Messages::BuildOutput}).
       # THIS ONE MEASURES THE GAME, which {RubyGBA.build} does not do by default.
       #
       # The split is by who is asking. This is the method that makes a cartridge somebody is
@@ -64,7 +64,7 @@ module RubyGBA
       # Pass `profile: false` to skip it — a quicker build, and one that depends on nothing but
       # the source. Pass a path or a {RoutineProfile} to use a measurement taken by hand, for a
       # moment the automatic one cannot reach.
-      def build_rom(out: $stdout, err: $stderr, validate: true, progress: Diagnostics::Progress.silent,
+      def build_rom(out: $stdout, err: $stderr, validate: true, progress: Messages::Progress.silent,
                     profile: true)
         RubyGBA.build(@title, code: @code, maker: @maker, validate: validate,
                       frame_sync: @frame_sync, fast_cartridge: @fast_cartridge,
@@ -90,7 +90,7 @@ module RubyGBA
         # SAY WHAT IT IS DOING, because this path is by definition somebody who ran a build by
         # hand and is now waiting for it. A build reached any other way — a test, a tool, a
         # library call — stays silent, which is what the default does.
-        rom = build_rom(progress: Diagnostics::Progress.to($stderr))
+        rom = build_rom(progress: Messages::Progress.to($stderr))
         path = File.join(File.dirname(File.expand_path(caller_path)), default_filename)
         rom.write(path)
         $stdout.puts "Built #{File.basename(path)} (#{rom.size} bytes)"

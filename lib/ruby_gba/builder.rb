@@ -71,8 +71,8 @@ module RubyGBA
 
     # @param frame_sync [Symbol] :auto (the framework paces each game_loop) or
     #   :manual (the developer places `wait_vblank` themselves)
-    # @param progress [RubyGBA::Diagnostics::Progress] what a build says it is doing (see {#progress})
-    def initialize(frame_sync: :auto, progress: Diagnostics::Progress.silent)
+    # @param progress [RubyGBA::Messages::Progress] what a build says it is doing (see {#progress})
+    def initialize(frame_sync: :auto, progress: Messages::Progress.silent)
       unless %i[auto manual].include?(frame_sync)
         raise ArgumentError, "frame_sync must be :auto or :manual, got #{frame_sync.inspect}"
       end
@@ -162,7 +162,7 @@ module RubyGBA
     #   floors.each_with_index { |floor, n| progress.of n + 1, floors.length, floor.name; ... }
     #
     # A build is already a run of named phases saying how far each has got (see
-    # {RubyGBA::Diagnostics::Progress}). Anything a game or an effect pack does while the block runs
+    # {RubyGBA::Messages::Progress}). Anything a game or an effect pack does while the block runs
     # happens INSIDE one of those phases, and without this it happens namelessly — the
     # build stands there saying "reading the game" for a minute with no clue which minute
     # of it belongs to whom. This is the seam: a pack's verbs are mixed into this class,

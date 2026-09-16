@@ -1,7 +1,7 @@
 # frozen_string_literal: true
 
 module RubyGBA
-  module Diagnostics
+  module Messages
     # Where a build prints: the warnings the guardrails found, and the disassembly
     # `dump_func` was asked for. `out:` and `err:` each take one of three things, because all
     # three are reasonable readings of "where does this go" — an open stream, the NAME of a

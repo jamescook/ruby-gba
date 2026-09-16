@@ -12,7 +12,7 @@ require "stringio"
 # apart, and the console's 32K of fast memory is what that looks like — three different names
 # for it in ONE build. A learner cannot tell three names for one thing from three things.
 #
-# So the English lives in {RubyGBA::Diagnostics::PlainWords} and this fails when a second name for one
+# So the English lives in {RubyGBA::Messages::PlainWords} and this fails when a second name for one
 # thing turns up. Two shapes of drift, and they need different tests:
 #
 #   A WORD COMES BACK. Nothing stops somebody typing "fast RAM" into a new message, and no
@@ -25,7 +25,7 @@ require "stringio"
 #   is replaced and both readers are made to say the new one — which they can only do if
 #   they really are reading the one place.
 class TestPlainWords < Minitest::Test
-  PlainWords = RubyGBA::Diagnostics::PlainWords
+  PlainWords = RubyGBA::Messages::PlainWords
   Placement = RubyGBA::IR::Backends::GBA::Placement
 
   LIB = File.expand_path("../../../lib", __dir__)
@@ -67,7 +67,7 @@ class TestPlainWords < Minitest::Test
     explained = StringIO.new
 
     while_it_says(:routine, said) do
-      rom = a_game_worth_moving(progress: RubyGBA::Diagnostics::Progress.to(progress))
+      rom = a_game_worth_moving(progress: RubyGBA::Messages::Progress.to(progress))
       RubyGBA::Diagnostics::BuildReport.render(rom, out: explained)
     end
 

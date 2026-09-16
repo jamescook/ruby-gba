@@ -157,7 +157,7 @@ Test each layer the way a player experiences it, not by restating the code.
 
 ### Where a lib file goes
 
-`lib/ruby_gba/` is five modules, each a directory, by what a file IS — never by what it
+`lib/ruby_gba/` is six modules, each a directory, by what a file IS — never by what it
 happens to touch:
 
 | directory | module | a file goes here when… |
@@ -166,7 +166,13 @@ happens to touch:
 | `audio/` | `RubyGBA::Audio` | it is the sound and music model behind the verbs (`Score`, `Envelope`, `Music`) |
 | `graphics/` | `RubyGBA::Graphics` | it is what a picture is made of — colours, letters, images |
 | `cartridge/` | `RubyGBA::Cartridge` | it turns a checked program into cartridge bytes (`ROM`, `ASM`, `Constants`) |
-| `diagnostics/` | `RubyGBA::Diagnostics` | it reads a built or running cartridge back, or says something to the author about their build (`Verifier`, `Profiler`, `BuildReport`, `PlainWords`) |
+| `diagnostics/` | `RubyGBA::Diagnostics` | it reads a built or running cartridge back (`Verifier`, `Profiler`, `BuildReport`) |
+| `messages/` | `RubyGBA::Messages` | it is how a build talks to the author while it builds (`PlainWords`, `Progress`, `BuildOutput`, `AuthorSource`) |
+
+The last two both say things to a person, so the line between them is which way each one
+faces. `diagnostics/` needs a finished cartridge before it has anything to say. `messages/`
+is reached from the guardrails, the builder and the lowering — all of which run while there
+is no cartridge yet — so a file that names the emulator can never belong there.
 
 The directory and the module always match: a file in `audio/` defines its classes inside
 `module RubyGBA; module Audio`. A file whose home is not obvious goes where its CALLERS would

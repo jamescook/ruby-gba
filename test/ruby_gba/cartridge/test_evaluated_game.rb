@@ -8,7 +8,7 @@ require "stringio"
 # something asks a Game what it is — held against each other. They were written out twice
 # and drifted, so what these tests pin is that there is one answer and not two.
 class TestEvaluatedGame < Minitest::Test
-  Progress = RubyGBA::Diagnostics::Progress
+  Progress = RubyGBA::Messages::Progress
 
   # A game that stops half way through itself. The blue clear is in the program; the red
   # one is written after the `debug_halt` and never happened.

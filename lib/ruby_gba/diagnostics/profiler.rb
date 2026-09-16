@@ -434,7 +434,7 @@ module RubyGBA
         total = profile.samples
 
         lines = tally.sort_by { |_, seen| -seen }.map do |name, seen|
-          Line.new(name: name, label: PlainWords.routine(name), samples: seen,
+          Line.new(name: name, label: Messages::PlainWords.routine(name), samples: seen,
                    share: share(seen, total), where: where_of(routines[name]))
         end
         lines += outside.sort_by { |_, seen| -seen }.map do |region, seen|

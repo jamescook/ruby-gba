@@ -4,14 +4,14 @@ require "test_helper"
 
 require "stringio"
 
-# WHAT A BUILD SAYS IT IS DOING (lib/ruby_gba/diagnostics/progress.rb).
+# WHAT A BUILD SAYS IT IS DOING (lib/ruby_gba/messages/progress.rb).
 #
 # A big game takes a while to build, and a build that says nothing is indistinguishable from one
 # that has hung. These check the thing a build talks to: that the default says nothing at all,
 # that one pointed at a stream says the phases in order with what each took, and that a phase
 # reporting tens of thousands of times does not turn into tens of thousands of lines.
 class TestProgress < Minitest::Test
-  Progress = RubyGBA::Diagnostics::Progress
+  Progress = RubyGBA::Messages::Progress
 
   # A clock that only moves when a test moves it, so an elapsed time is a fact rather than a
   # race. It answers the one question Progress asks of a clock.

@@ -40,7 +40,7 @@ module RubyGBA
           # What the two routines are called. This chip cannot divide, so every division in a
           # program goes through one of them — which makes them routines a measured profile has
           # to be able to name, and the name has to be settled in one place for the report to
-          # say it without keeping a second copy (see PlainWords::ROUTINES).
+          # say it without keeping a second copy (see Messages::PlainWords::ROUTINES).
           ROUTINE = :__divide_routine
           FIX_ROUTINE = :__divide_fix_routine
 

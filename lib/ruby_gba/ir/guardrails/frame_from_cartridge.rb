@@ -1,6 +1,6 @@
 # frozen_string_literal: true
 
-require_relative "../../diagnostics/plain_words"
+require_relative "../../messages/plain_words"
 
 module RubyGBA
   module IR
@@ -47,14 +47,14 @@ module RubyGBA
           private
 
           def message(over)
-            "The game loop's body did not fit in the console's #{Diagnostics::PlainWords::QUICK_MEMORY}. It needs " \
+            "The game loop's body did not fit in the console's #{Messages::PlainWords::QUICK_MEMORY}. It needs " \
               "#{kb(over.bytes)}, and #{kb(over.room)} was free when its turn came. So the whole frame " \
               "runs from the cartridge, at about two and a half times slower than it could. The cause " \
               "is not the work the loop does. The cause is how much code is in it. The usual cause is a " \
               "large piece of code in the loop that seldom runs. To fix this, move that code into a " \
               "`func` of its own, and mark it `fast: false`. Then the loop is small enough to fit, and " \
               "the rare code runs from the cartridge only when it runs. To see what was kept in the " \
-              "#{Diagnostics::PlainWords::QUICK_MEMORY} and what was not, call `rom.profile` on the built ROM."
+              "#{Messages::PlainWords::QUICK_MEMORY} and what was not, call `rom.profile` on the built ROM."
           end
 
           def kb(bytes) = format("%.1fK", bytes / 1024.0)

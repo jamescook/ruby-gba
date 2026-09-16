@@ -287,7 +287,7 @@ module RubyGBA
         # one by name with `func :thing, fast: true`.
         # +progress+ is what this pass says it is doing while it does it. Most of a build's
         # time is spent in here, so it names its own phases; the default says nothing.
-        def initialize(fast_cartridge: true, fast_code: true, progress: Diagnostics::Progress.silent,
+        def initialize(fast_cartridge: true, fast_code: true, progress: Messages::Progress.silent,
                        routine_profile: nil)
           @fast_cartridge = fast_cartridge
           @fast_code = fast_code

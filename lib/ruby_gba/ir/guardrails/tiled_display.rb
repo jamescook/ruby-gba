@@ -37,9 +37,9 @@ module RubyGBA
         end
 
         # The verb the developer typed for a node, e.g. :fill_rect -> "fill_rect". The table is
-        # {PlainWords}', shared with the builder's own layer refusal, which has to name the
+        # {Messages::PlainWords}', shared with the builder's own layer refusal, which has to name the
         # same verbs back to the same person.
-        def verb_for(kind) = Diagnostics::PlainWords.verb(kind)
+        def verb_for(kind) = Messages::PlainWords.verb(kind)
       end
     end
   end

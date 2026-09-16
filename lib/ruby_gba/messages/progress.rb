@@ -1,7 +1,7 @@
 # frozen_string_literal: true
 
 module RubyGBA
-  module Diagnostics
+  module Messages
     # WHAT A BUILD SAYS IT IS DOING WHILE IT DOES IT.
     #
     # A big game takes a while to build, and a build that says nothing is indistinguishable from

@@ -26,7 +26,7 @@ module RubyGBA
           # +attribution+ counts what each node turned into. Every node in the program passes
           # through the two methods below, and this is the only place that is true, so this is
           # where the counting has to happen. See {Attribution}.
-          def initialize(attribution:, progress: Diagnostics::Progress.silent, emitted: -> { 0 })
+          def initialize(attribution:, progress: Messages::Progress.silent, emitted: -> { 0 })
             @values = {}
             @statements = {}
             @progress = progress

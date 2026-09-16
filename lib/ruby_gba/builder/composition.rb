@@ -329,9 +329,9 @@ module RubyGBA
 
         raise ArgumentError,
               "pool :#{name} has #{capacity} instances of #{fields.size} fields each. It needs about " \
-              "#{bytes / 1024}KB of the console's #{Diagnostics::PlainWords::QUICK_MEMORY}. This is too much. A pool must " \
+              "#{bytes / 1024}KB of the console's #{Messages::PlainWords::QUICK_MEMORY}. This is too much. A pool must " \
               "use much less than #{POOL_MAX_BYTES / 1024}KB. The console has only 32KB of " \
-              "#{Diagnostics::PlainWords::QUICK_MEMORY} in total. Use a smaller capacity or fewer fields."
+              "#{Messages::PlainWords::QUICK_MEMORY} in total. Use a smaller capacity or fewer fields."
       end
 
       def validate_on_full!(name, policy)
