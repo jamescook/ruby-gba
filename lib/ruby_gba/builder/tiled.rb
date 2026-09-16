@@ -26,6 +26,11 @@ module RubyGBA
     # For a level drawn in a map editor (like Tiled) and exported, you skip the
     # characters entirely: import the whole tile sheet as numbered tiles and hand the
     # background the editor's CSV export — a grid of those numbers — with `from:`.
+    #
+    # For a level the BUILD works out — decoded out of somewhere, or generated — write
+    # the grid straight into `map:` as rows of arrays, whose cells are whatever the
+    # tileset is keyed by. Those are the three ways a game gets a level, and all three
+    # produce the same one thing: a grid of references into a tileset.
     # See {#tiles} and {#background}.
     #
     # One `background` paints a single layer. Declare several and they stack — the
@@ -42,6 +47,15 @@ module RubyGBA
       #
       #      tiles :dungeon, "#" => :brick, "." => :floor
       #
+      #    A KEY NEED NOT BE A CHARACTER, and that matters for a level the build works
+      #    out rather than one a person types. A game that decodes its level from
+      #    somewhere has a tile NUMBER per cell and never had a character at all, and a
+      #    real screenful holds more distinct tiles than anybody would invent an
+      #    alphabet for. So a key is whatever the game already calls its tiles, and the
+      #    `background` map is written in those:
+      #
+      #      tiles :room, 0 => :tile_0, 1 => :tile_1, 2 => :tile_2
+      #
       #    You can still import those tiles from a tile sheet — one image file holding
       #    the tiles in a grid — with `from:` (the file) and `tile:` (each tile's size
       #    in pixels); then each character points at a cell instead of a hand-drawn
@@ -53,8 +67,9 @@ module RubyGBA
       # 2. BY NUMBER — import the WHOLE tile sheet with `from:` and `tile:` and NO
       #    characters. Every cell becomes a numbered tile: 1, 2, 3… left-to-right then
       #    top-to-bottom — the exact numbering a map editor like Tiled writes into a
-      #    CSV export. A background over this tileset is authored as that CSV of
-      #    numbers (see `background from:`), so there are no characters to name.
+      #    CSV export. A background over this tileset is authored as those numbers —
+      #    the editor's CSV (see `background from:`), or a grid of them written
+      #    straight into `map:` — so there are no characters to name.
       #
       #      tiles :world, from: "world.png", tile: 8
       #
@@ -62,15 +77,15 @@ module RubyGBA
       # background.
       #
       # Add `solid:` to mark which tiles are walls a sprite can't move through — the
-      # characters that block (`solid: ["#"]`, or one char `solid: "#"`), or, for a
-      # numbered sheet, the tile numbers (`solid: [1, 2]`). A `background` built from
-      # this tileset then knows where its walls are, so a sprite told to be
+      # KEYS that block, whichever kind this tileset has: characters (`solid: ["#"]`,
+      # or one char `solid: "#"`), or tile numbers (`solid: [1, 2]`). A `background`
+      # built from this tileset then knows where its walls are, so a sprite told to be
       # `blocked_by` it stops at them (see {HardwareSprite#blocked_by}).
       #
       # @param name [Symbol] the tileset's name, referenced by `background(tiles:)`
-      # @param char_map [Hash] one entry per tile: character => image name, or (with
-      #   `from:`) character => cell — or empty with `from:` to import the whole sheet
-      #   as numbered tiles. Options `from:`/`tile:`/`transparent:`/`solid:`.
+      # @param char_map [Hash] one entry per tile: key => image name, or (with `from:`)
+      #   key => cell — or empty with `from:` to import the whole sheet as numbered
+      #   tiles. Options `from:`/`tile:`/`transparent:`/`solid:`.
       def tiles(name, char_map)
         char_map = char_map.dup
         solid = Array(char_map.delete(:solid)) # tiles that block movement: characters, or sheet tile numbers
@@ -118,10 +133,10 @@ module RubyGBA
       # Paint a tiled background: a tileset plus a map of which tile goes in each grid
       # cell. Author the map two ways:
       #
-      # - `map:` — a block of tileset characters, one character per cell, rows
-      #   separated by newlines (a heredoc reads most like the picture), or an array
-      #   of row strings. Each character is stamped as its tile; a space leaves the
-      #   cell empty (the background shows through).
+      # - `map:` — the grid of tileset keys. A row is a String of them, one character
+      #   per cell, rows separated by newlines (a heredoc reads most like the picture),
+      #   which is how a level somebody typed is written; a space leaves the cell empty
+      #   (the background shows through).
       #
       #     background :level, tiles: :dungeon, map: <<~MAP
       #       ##########
@@ -129,9 +144,22 @@ module RubyGBA
       #       ##########
       #     MAP
       #
+      #   A row may be an ARRAY instead, one element per cell, and then a cell is
+      #   whatever the tileset is keyed by rather than a single character; `nil` is
+      #   the empty cell. That is the same grid said another way, and it is how a
+      #   level the BUILD works out is written — decoded from somewhere, or generated.
+      #   Such a level has a tile number per cell and never had characters, and a real
+      #   screenful holds more distinct tiles than there are characters anybody would
+      #   read.
+      #
+      #     background :room, tiles: :room, map: [[0, 1, 1, 2],
+      #                                           [3, nil, 1, 2]]
+      #
       # - `from:` — a CSV tilemap exported from a map editor like Tiled: a grid of
       #   tile numbers (the numbering `tiles from:` gives an imported sheet), one row
       #   per line. A `0` leaves the cell empty. The file is found next to your script.
+      #   This one is editor interop — for a grid the build worked out, write it into
+      #   `map:` rather than through a file.
       #
       #     background :level, tiles: :world, from: "level.csv"
       #
@@ -167,8 +195,9 @@ module RubyGBA
       #
       # @param name [Symbol] the background's name
       # @param tiles [Symbol] a tileset defined with {#tiles}
-      # @param map [String, Array<String>, Hash, nil] the grid of tile characters, or a
-      #   Hash of name => grid for a background with several maps
+      # @param map [String, Array<String>, Array<Array>, Hash, nil] the grid of tileset
+      #   keys — rows of characters, or rows of keys — or a Hash of name => grid for a
+      #   background with several maps
       # @param from [String, Hash, nil] path to a CSV tilemap (a grid of tile numbers), or
       #   a Hash of name => path for a background with several maps
       # @param walls [String, Array<String>, Array<Array>, Hash, nil] which cells stop a
@@ -379,42 +408,74 @@ module RubyGBA
 
       # The background's cells as a grid of tile-image names (nil = blank), plus the
       # list of distinct tile images in a stable order. Author the grid with `map:` (a
-      # block of tileset characters) or `from:` (a CSV tilemap of tile numbers) — one
-      # or the other, never both.
+      # grid of tileset keys) or `from:` (a CSV tilemap of tile numbers) — one or the
+      # other, never both.
       def background_image_grid(name, tiles, set, map:, from:)
         if from
           raise ArgumentError, "background :#{name}: give it a map: or a from:, not both" if map
 
           csv_image_grid(name, tiles, set, from)
         elsif map
-          char_image_grid(name, tiles, set, map)
+          keyed_image_grid(name, tiles, set, map)
         else
           raise ArgumentError,
-                "background :#{name} needs a map: (a grid of tile characters) or a from: (a CSV tilemap file)"
+                "background :#{name} needs a map: (a grid of tile keys) or a from: (a CSV tilemap file)"
         end
       end
 
-      # Turn a character map into a grid of tile-image names. A space (or a character
-      # not in the tileset — a friendly error) is the only surprise here.
-      def char_image_grid(name, tiles, set, map)
+      # Turn a `map:` into a grid of tile-image names. Its cells are whatever the
+      # tileset is KEYED by, and a row says them one of two ways: as a String, one
+      # character per cell, or as an Array, one element per cell. The two are the same
+      # grid — a String row is the typed-out form, and it can only reach a tileset whose
+      # keys are single characters, which is why the Array form exists at all. A level
+      # the build works out (decoded from somewhere, generated) has a tile number per
+      # cell and was never characters, and there are more distinct tiles in a real
+      # screenful than anybody would type as an alphabet.
+      #
+      # The blank cell — leave the background showing through — is a space in a String
+      # row and nil in an Array row. (It is `0` in a CSV, whose numbering starts at 1;
+      # that convention belongs to the editors that export one, so it stays in
+      # csv_image_grid rather than becoming a rule here.)
+      def keyed_image_grid(name, tiles, set, map)
+        keys = tileset_keys(name, tiles, set, map)
+
+        img_rows = background_rows(name, map).map do |row|
+          row.map do |cell|
+            next nil if cell.nil? || cell == " "
+
+            keys[cell] || raise(ArgumentError,
+                                "background :#{name}: #{cell.inspect} is not in tileset :#{tiles}. " \
+                                "Its tiles are #{keys.keys.map(&:inspect).join(', ')}.")
+          end
+        end
+        [img_rows, keys.values.uniq]
+      end
+
+      # What a `map:` cell selects by. A tileset written out by character is keyed by
+      # those characters; one imported whole from a sheet has none, and its keys are the
+      # tile numbers the sheet was sliced into.
+      #
+      # A CHARACTER map over that second kind is the one combination with no answer, and
+      # it is worth its own error: the characters it is written in mean nothing there, so
+      # every cell would be wrong rather than one of them.
+      def tileset_keys(name, tiles, set, map)
         chars = set[:chars]
-        if chars.empty?
+        return chars unless chars.empty?
+
+        if character_map?(map)
           raise ArgumentError,
                 "background :#{name}: tileset :#{tiles} was imported as numbered tiles, so it has no characters. " \
                 "A character map: cannot select its tiles. " \
-                "Write the map as a CSV of tile numbers and pass it with from: instead."
+                "Write the map as rows of its tile numbers, or give from: a CSV file."
         end
+        set[:by_number]
+      end
 
-        img_rows = background_rows(name, map).map do |row|
-          row.each_char.map do |ch|
-            next nil if ch == " " # a blank cell — leave the background showing through
+      # A map written as characters: a block of text, or rows of it.
+      def character_map?(map)
+        return true if map.is_a?(String)
 
-            chars[ch] || raise(ArgumentError,
-                               "background :#{name}: character #{ch.inspect} is not in tileset " \
-                               ":#{tiles}. Its tiles are #{chars.keys.map(&:inspect).join(', ')}.")
-          end
-        end
-        [img_rows, chars.values.uniq]
+        map.is_a?(Array) && map.all?(String)
       end
 
       # Turn a CSV tilemap (a grid of tile numbers) into a grid of tile-image names. A
@@ -564,23 +625,38 @@ module RubyGBA
         rects
       end
 
-      # Normalize a background map into an array of row strings. A string is split on
-      # newlines (blank lines dropped); an array is taken as its rows already. A map
-      # is a rectangle, so every row must be the same width — a ragged one is almost
-      # always a typo (a stray or missing character), and left alone it would push
+      # Normalize a background map into a grid of CELLS, whatever shape it was written
+      # in: a block of text is split on newlines (blank lines dropped) and each line
+      # into its characters; an Array is its rows already, and a row that is a String is
+      # split the same way while a row that is an Array is its cells already. So the
+      # rest of the build sees one thing — a grid — and never asks which form it came
+      # in as.
+      #
+      # A map is a rectangle, so every row must be the same width. A ragged one is
+      # almost always a typo (a stray or missing cell), and left alone it would push
       # part of the level out of line, so we catch it with a plain-language error.
       def background_rows(name, map)
         rows = case map
                when String then map.each_line.map(&:chomp).reject(&:empty?)
-               when Array then map.map(&:to_s)
-               else raise ArgumentError, "background :#{name} map must be a String or an Array of row strings"
+               when Array then map
+               else raise ArgumentError,
+                          "background :#{name}: the map must be a String or an Array of rows."
                end
+        rows = rows.map do |row|
+          case row
+          when String then row.chars
+          when Array then row
+          else raise ArgumentError,
+                     "background :#{name}: every row of a map must be a String or an Array. " \
+                     "This row is #{row.inspect}."
+          end
+        end
         raise ArgumentError, "background :#{name} has an empty map" if rows.empty?
 
         widths = rows.map(&:length).uniq
         unless widths.size == 1
           raise ArgumentError,
-                "background :#{name} has rows of different widths (#{widths.sort.join(', ')} characters). " \
+                "background :#{name} has rows of different widths (#{widths.sort.join(', ')} cells). " \
                 "Every row must be the same length, because a map is a rectangle."
         end
         rows
