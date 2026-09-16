@@ -279,12 +279,34 @@ Keep the IR **target-agnostic**: `IR::Node` describes *what the program does*, n
 
 ### Writing commit messages
 
-- Commit messages are for humans and should read as if a human wrote them.
-- Be concise.
+**The subject line names what changed.** A file, a class, a constant, a directory — the
+identifier you would type into `grep`. It is the only line most readers ever see, and its one
+job is to let somebody scanning `git log --oneline` decide whether this is the commit they are
+hunting for. A subject that names nothing fails at that however well it reads:
+
+```
+GOOD  Move ASM from Cartridge to IR::Backends::GBA
+GOOD  Split PlainWords, Progress, BuildOutput, AuthorSource into Messages
+GOOD  Narrow the pool's live column to a byte
+BAD   Name the ARM encoder after the backend that emits ARM   (which encoder? which file?)
+BAD   Share what a sound voice can do; keep how it is written private   (names nothing at all)
+BAD   Give every lib directory a front door   (true, and unsearchable)
+```
+
+Start it with a verb in the imperative — Move, Add, Split, Narrow, Fix, Remove — and keep it
+under about 70 characters. **Why** belongs in the body, never the subject.
+
+- The body is for what the subject cannot hold: why the change was needed, what was surprising,
+  what a reader would otherwise get wrong. Two or three sentences. If there is nothing to say,
+  leave it out — a subject alone is a fine commit message.
+- **This is the one place the house voice does NOT apply.** Code comments here are deliberately
+  narrative and teach the hardware generously (see "Writing code comments"). A commit subject is
+  the opposite: an index entry. Do not carry the comment voice into it.
 - Do not name the issue tracker, or an issue id, in a commit message. A `commit-msg` hook
   rejects one as a backstop; don't lean on it instead of just not writing it.
 - Do not add a `Co-Authored-By` trailer. Do not say how many tests were added.
-- Avoid AI "fluff" that sounds pleased with itself - be direct and get to the point.
+- No fluff that sounds pleased with itself, and no narrating the process ("first moved, then
+  renamed"). State what the tree looks like now.
 
 ### Writing user-facing errors and warnings — use the `simple-english` skill
 
