@@ -2,7 +2,7 @@
 
 require "test_helper"
 
-require_relative "../differential"
+require_relative "../../../../differential"
 
 # Dividing, multiplying and wrapping by a power of two — the arithmetic the console can
 # do for nothing, and the one new operator that lets a program ask for a wrap at all.

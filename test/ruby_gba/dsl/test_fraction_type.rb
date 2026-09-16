@@ -2,7 +2,7 @@
 
 require "test_helper"
 
-require_relative "../differential"
+require_relative "../../differential"
 
 # Numbers that carry a fraction, declared by writing a Float and then carried through
 # arithmetic without the program mentioning a scale again. See lib/ruby_gba/dsl/fraction.rb

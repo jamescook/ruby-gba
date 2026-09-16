@@ -3,7 +3,7 @@
 require "test_helper"
 
 require "zlib"
-require_relative "../../../tools/preview"
+require_relative "../../tools/preview"
 
 # The preview tool (tools/preview.rb): runs a program on the interpreter, captures its
 # frames, and encodes each as a PNG in a self-contained HTML page you can watch. These

@@ -1,7 +1,7 @@
 # frozen_string_literal: true
 
 require "test_helper"
-require_relative "../../differential"
+require_relative "../../../../differential"
 
 # Placing a fade in the stack: `fade :black, 100, under: :ui` blends everything behind
 # :ui and leaves :ui and anything in front of it alone. "Fade the game out and keep the

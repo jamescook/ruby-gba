@@ -12,42 +12,48 @@ how — the APIs and worked examples.
 
 ## Where a test file goes
 
-`test/` is five directories, and a new test file belongs in one of them. The
-directories say what a test is **about**, never how it runs — a test that checks
-the same behavior on the headless interpreter and on the emulator is one test of
-one thing, and it lives with the thing rather than with the backends.
+`test/` mirrors the code it tests, the Ruby convention: a test sits in the
+directory that matches the directory of the file whose behaviour it checks, and
+keeps a name of its own.
 
-- **`test/language/`** — the program's own logic: a variable, a number, a
-  branch, a loop, a collection, a routine, which scene is running, a button
-  read. If you can ask whether it is right without looking at the screen or
-  listening, it goes here.
-- **`test/console/`** — what the machine shows and plays, split by which part of
-  it answers: `drawing/` (pixels on a bitmap screen, text, and effects over the
-  whole picture), `sprites/` (things drawn again every frame over the picture —
-  poses, animation, what they hit), `world/` (tiled scenery — tilesets, maps,
-  layers, scrolling, walls), `audio/` (anything that makes a sound).
-- **`test/guardrails/`** — one file per known mistake, proving it produces the
-  right friendly error or warning. A feature file that checks one error among
-  ordinary behavior tests stays with its feature; this directory is for files
-  that exist only for the error.
-- **`test/examples/`** — a test that loads a program out of `examples/` and runs
-  the whole of it (`require_relative "../../examples/..."`).
-- **`test/toolchain/`** — the framework's own machinery: `ir/` (the op-tree and
-  the lowering, tested through hand-made `IR::Build` trees rather than the DSL),
-  `cost/` (anything whose assertion is a number about the build or the run —
-  bytes, instructions, which memory something landed in, frames, dropped
-  sounds), `tools/` (the command line, the disassembler, the finished-cartridge
-  checks, the reports and drift checks, the harness's own helpers).
+| the test is about… | it lives in | e.g. |
+|---|---|---|
+| a file in `lib/ruby_gba/<dir>/` | `test/ruby_gba/<dir>/` | `lib/ruby_gba/audio/score.rb` → `test/ruby_gba/audio/` |
+| a file at the top of `lib/ruby_gba/` | `test/ruby_gba/` | `cli.rb` → `test/ruby_gba/test_cli.rb` |
+| a program in `examples/` | `test/examples/` | `examples/pong.rb` → `test/examples/test_pong_title.rb` |
+| a script in `tools/` | `test/tools/` | `tools/emitted.rb` → `test/tools/test_emitted_tool.rb` |
 
-Two rules keep this from rotting.
+It mirrors lib's DIRECTORIES, not its files. Most tests here build a whole game
+and check what it does, so one test touches many files and one file is checked by
+many tests; a folder per lib file would be a folder per test.
+
+**Which file a test is about** is the one a person opens first when it fails:
+
+- A test that builds a program through the DSL and checks what it does belongs to
+  the builder file that DEFINES the verb — `test/ruby_gba/builder/`. Find it with
+  `grep -n "def <verb>" lib/ruby_gba/builder/*.rb`. A test about a method on a
+  handle rather than a verb (`sprite.face_angle`, `list.shift`) belongs to the dsl
+  file that defines the method — `test/ruby_gba/dsl/`.
+- A test that builds IR by hand and checks a backend belongs to that backend —
+  `test/ruby_gba/ir/backends/gba/` and so on. It is the same behaviour at a lower
+  altitude, so it lives where the lowering lives.
+- A test of one guardrail — the friendly error for one known mistake — belongs to
+  that guardrail: `test/ruby_gba/ir/guardrails/`.
+- A test whose assertion is a number about the build or the run (bytes,
+  instructions, frames, dropped sounds) belongs to the file that makes that
+  number: usually a backend file, or `test/ruby_gba/diagnostics/` for the profiler
+  and the reports.
+
+It is never about which backend a test asserts against. A test that checks the
+same behaviour on the headless interpreter and on the emulator is one test of one
+thing, and it lives with the thing.
 
 **One file, one `Minitest::Test` subclass.** A second class in a file hides from
 the directory it sits in and from anyone grepping for a test name. Split it.
 
-**Do not add a directory per feature.** There are hundreds of features, and one
-directory each rebuilds the flat list a level down. A file that fits none of the
-five almost always belongs in `language/` or `console/`; say why in a comment
-rather than inventing a sixth home.
+**No directory the lib does not have.** A new directory under `test/` is a new
+directory under `lib/` first. That is what stops the tree growing a folder per
+feature.
 
 The shared helpers — `test_helper.rb`, `differential.rb`, `emulator_blend.rb`,
 `conformance_fixture.rb` — stay at `test/`, and are loaded **by bare name**
@@ -92,9 +98,9 @@ only to name ONE file or one test:
 
 ```bash
 rake test:parallel                                              # the suite (JOBS=8 to pick a count)
-rake test TEST=test/language/test_thing.rb                      # one file
-rake test TEST=test/language/test_thing.rb TESTOPTS="--name=/pattern/"  # one test; -n /pat/ trips shell quoting
-ruby -Itest test/language/test_thing.rb                         # one file, no rake
+rake test TEST=test/ruby_gba/dsl/test_thing.rb                  # one file
+rake test TEST=test/ruby_gba/dsl/test_thing.rb TESTOPTS="--name=/pattern/"  # one test; -n /pat/ trips shell quoting
+ruby -Itest test/ruby_gba/dsl/test_thing.rb                     # one file, no rake
 ```
 
 The Wolfenstein port (`~/open_source/ruby-wolf3d`) has the same pair for its own suite, which
@@ -152,9 +158,9 @@ screen with no framebuffer to read it off, where it says nothing rather than rep
 
 A feature isn't done until it's asserted on **both**. For anything with an
 observable screen result, run the *same* program on each and assert identical
-pixels — see `test/console/drawing/test_blit_clipping.rb` (`assert_same_pixels`)
+pixels — see `test/ruby_gba/builder/test_blit_clipping.rb` (`assert_same_pixels`)
 and the two `*_at_the_left_edge` tests in
-`test/console/sprites/test_sprite_mover.rb` as the worked examples.
+`test/ruby_gba/dsl/test_sprite_mover.rb` as the worked examples.
 
 ## Which frame's numbers the picture was drawn from
 
@@ -180,7 +186,7 @@ design away. Rotating the loop does not move it: the sequence of "body, gap, pai
 paint" is the same however you spell the loop.
 
 **What to do about it in a test:** run one frame further and read the picture then, or read
-the variable one frame earlier. `test/console/drawing/test_frame_pairing.rb` pins both halves of this on both
+the variable one frame earlier. `test/ruby_gba/ir/test_frame_pairing.rb` pins both halves of this on both
 backends, so if either ever stops behaving this way that file fails rather than a game's suite.
 
 It only bites a test that pairs the two — "is the sprite drawn where the program put it",

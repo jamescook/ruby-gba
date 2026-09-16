@@ -12,8 +12,8 @@ require "json"
 # its dependency) stays out of every other test. Everything else builds ROMs through
 # the library (RubyGBA.game / RubyGBA.build) with no CLI involved.
 class TestCLI < Minitest::Test
-  BIN = File.expand_path("../../../bin/ruby-gba", __dir__)
-  LIB = File.expand_path("../../../lib", __dir__)
+  BIN = File.expand_path("../../bin/ruby-gba", __dir__)
+  LIB = File.expand_path("../../lib", __dir__)
 
   # Run the CLI in +dir+ and return [combined_output, Process::Status].
   def cli(*args, dir:)

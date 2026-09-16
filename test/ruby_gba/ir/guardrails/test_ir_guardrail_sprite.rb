@@ -52,7 +52,7 @@ class TestSpriteGuardrails < Minitest::Test
   end
 
   def test_does_not_flag_the_correct_sprite_mover
-    require_relative "../../examples/sprite_mover"
+    require_relative "../../../../examples/sprite_mover"
     assert_empty Cleared.new.detect(SpriteMover.program),
                  "sprite_mover clears once BEFORE the loop, not every frame"
   end
@@ -76,7 +76,7 @@ class TestSpriteGuardrails < Minitest::Test
   def test_does_not_flag_the_sprites_own_draws
     # sprite_mover's only blits are the framework's (the initial draw and the
     # per-frame repaint), so nothing should be flagged.
-    require_relative "../../examples/sprite_mover"
+    require_relative "../../../../examples/sprite_mover"
     assert_empty Manual.new.detect(SpriteMover.program), "the sprite's own draws aren't hand blits"
   end
 

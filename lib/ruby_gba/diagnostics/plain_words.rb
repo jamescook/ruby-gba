@@ -17,7 +17,7 @@ module RubyGBA
     #
     # So the English lives here and the corners read it. Two things follow that cannot be had
     # while it is scattered: rewording something is one edit in one place, and a test can fail
-    # when a second name for one thing turns up (see test/toolchain/tools/test_plain_words.rb).
+    # when a second name for one thing turns up (see test/ruby_gba/diagnostics/test_plain_words.rb).
     #
     # WHAT BELONGS HERE is a name for a thing SEVERAL PLACES have to mention — a piece of
     # hardware, a routine nobody wrote, a verb whose node kind is not what the author typed.

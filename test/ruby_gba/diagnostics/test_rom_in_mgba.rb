@@ -5,7 +5,7 @@
 # in-process for 100 frames, and confirm they don't crash.
 #
 # Usage:
-#   ruby test/toolchain/tools/test_rom_in_mgba.rb
+#   ruby test/ruby_gba/diagnostics/test_rom_in_mgba.rb
 
 require_relative "../../test_helper"
 require "tempfile"

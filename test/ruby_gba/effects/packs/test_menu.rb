@@ -2,7 +2,7 @@
 
 require "test_helper"
 
-require_relative "../../differential"
+require_relative "../../../differential"
 
 # `menu` — a list of rows, a cursor that moves between them, and a block per row.
 #

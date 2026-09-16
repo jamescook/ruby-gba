@@ -2,8 +2,8 @@
 
 require "test_helper"
 
-require_relative "../fixtures/scene_classes/title_screen"
-require_relative "../fixtures/scene_classes/play_screen"
+require_relative "../../fixtures/scene_classes/title_screen"
+require_relative "../../fixtures/scene_classes/play_screen"
 
 # A scene can be a plain class in its own file — the coarse-grained form of the multi-file
 # parts pattern. Each screen (TitleScreen, PlayScreen — separate files) takes the build,

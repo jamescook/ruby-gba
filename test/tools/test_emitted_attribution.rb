@@ -2,7 +2,7 @@
 
 require "test_helper"
 
-require_relative "../../../tools/emitted_attribution"
+require_relative "../../tools/emitted_attribution"
 
 # Which emitted bytes came from which part of the program (tools/emitted_attribution.rb).
 # It is what turns "this change cost 18 instructions" into "18 instructions of clamp,

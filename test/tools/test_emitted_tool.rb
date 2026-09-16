@@ -5,7 +5,7 @@ require "test_helper"
 require "fileutils"
 require "stringio"
 require "tmpdir"
-require_relative "../../../tools/emitted"
+require_relative "../../tools/emitted"
 
 # The emitted-code tool (tools/emitted.rb, `rake emitted`): build every example twice —
 # once against the working tree's library and once against an older one — and say

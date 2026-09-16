@@ -4,7 +4,7 @@ require "test_helper"
 
 require "stringio"
 require "tmpdir"
-require_relative "../../../tools/emitted_baseline"
+require_relative "../../tools/emitted_baseline"
 
 # The recorded size of every example, and the check that nothing grew past it
 # (tools/emitted_baseline.rb, `rake emitted:record` / `rake emitted:check`).
