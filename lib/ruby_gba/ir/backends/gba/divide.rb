@@ -225,14 +225,14 @@ module RubyGBA
           def copy_routine(from, to, destination)
             @emitter.emit_load_label_address(0, from) # r0 = the routine, in ROM
             @emitter.emit_load_label_address(1, to)
-            @emitter.emit(Cartridge::ASM.load_immediate(2, destination))
+            @emitter.emit(ASM.load_immediate(2, destination))
             copy = @emitter.gensym
             @emitter.place_label(copy)
-            @emitter.emit(Cartridge::ASM.ldr(3, 0))
-            @emitter.emit(Cartridge::ASM.str(3, 2))
-            @emitter.emit(Cartridge::ASM.add_imm(0, 0, 4))
-            @emitter.emit(Cartridge::ASM.add_imm(2, 2, 4))
-            @emitter.emit(Cartridge::ASM.cmp_reg(0, 1))
+            @emitter.emit(ASM.ldr(3, 0))
+            @emitter.emit(ASM.str(3, 2))
+            @emitter.emit(ASM.add_imm(0, 0, 4))
+            @emitter.emit(ASM.add_imm(2, 2, 4))
+            @emitter.emit(ASM.cmp_reg(0, 1))
             @emitter.emit_branch(:bcond, copy, cond: :lt)
           end
 
@@ -249,12 +249,12 @@ module RubyGBA
           # It hands back only a quotient; there is no leftover to speak of, since the
           # numerator it divided was not the one the program wrote.
           def emit_call_divide_fix_routine(bits)
-            @emitter.emit(Cartridge::ASM.load_immediate(FIX_BITS, bits))
+            @emitter.emit(ASM.load_immediate(FIX_BITS, bits))
             emit_call_routine_at(@divide_fix_routine_iwram)
           end
 
           def emit_call_routine_at(address)
-            @emitter.emit(Cartridge::ASM.load_immediate(ADDR, address))
+            @emitter.emit(ASM.load_immediate(ADDR, address))
             @emitter.emit_call_through(ADDR)
           end
 
@@ -264,12 +264,12 @@ module RubyGBA
           def emit_divide_routine
             return unless @divide_routine_iwram
 
-            @emitter.emit(Cartridge::ASM.loop_forever) # the routine is only ever entered by the call above
+            @emitter.emit(ASM.loop_forever) # the routine is only ever entered by the call above
             @emitter.place_label(:__divide_routine)
             start = @emitter.pos
             by_zero = @emitter.gensym
 
-            @emitter.emit(Cartridge::ASM.cmp_imm(DIV_DEN, 0))
+            @emitter.emit(ASM.cmp_imm(DIV_DEN, 0))
             @emitter.emit_branch(:bcond, by_zero, cond: :eq)
 
             emit_divide_signs_aside
@@ -301,52 +301,52 @@ module RubyGBA
           def emit_divide_fix_routine
             return unless @divide_fix_routine_iwram
 
-            @emitter.emit(Cartridge::ASM.loop_forever) # the routine is only ever entered by the call above
+            @emitter.emit(ASM.loop_forever) # the routine is only ever entered by the call above
             @emitter.place_label(:__divide_fix_routine)
             start = @emitter.pos
             by_zero = @emitter.gensym
             too_big = @emitter.gensym
 
-            @emitter.emit(Cartridge::ASM.cmp_imm(DIV_DEN, 0))
+            @emitter.emit(ASM.cmp_imm(DIV_DEN, 0))
             @emitter.emit_branch(:bcond, by_zero, cond: :eq)
 
-            @emitter.emit(Cartridge::ASM.eor_reg(DIV_SIGNS, DIV_NUM, DIV_DEN)) # bit 31 = the answer's sign
-            @emitter.emit(Cartridge::ASM.cmp_imm(DIV_NUM, 0))
-            @emitter.emit(Cartridge::ASM.rsb_imm_cond(:lt, DIV_NUM, DIV_NUM, 0))
-            @emitter.emit(Cartridge::ASM.cmp_imm(DIV_DEN, 0))
-            @emitter.emit(Cartridge::ASM.rsb_imm_cond(:lt, DIV_DEN, DIV_DEN, 0))
+            @emitter.emit(ASM.eor_reg(DIV_SIGNS, DIV_NUM, DIV_DEN)) # bit 31 = the answer's sign
+            @emitter.emit(ASM.cmp_imm(DIV_NUM, 0))
+            @emitter.emit(ASM.rsb_imm_cond(:lt, DIV_NUM, DIV_NUM, 0))
+            @emitter.emit(ASM.cmp_imm(DIV_DEN, 0))
+            @emitter.emit(ASM.rsb_imm_cond(:lt, DIV_DEN, DIV_DEN, 0))
 
             # Widen the numerator across two registers. The shift is held in a register
             # rather than written into the instruction, which is what lets it be a whole
             # word: widening by 32 leaves nothing in the low half and the number itself
             # in the high one, and widening by nothing does the reverse.
-            @emitter.emit(Cartridge::ASM.rsb_imm(FIX_WIDE, FIX_BITS, 32))
-            @emitter.emit(Cartridge::ASM.mov_reg_lsl_reg(FIX_LOW, DIV_NUM, FIX_BITS))
-            @emitter.emit(Cartridge::ASM.mov_reg_lsr_reg(FIX_HIGH, DIV_NUM, FIX_WIDE))
+            @emitter.emit(ASM.rsb_imm(FIX_WIDE, FIX_BITS, 32))
+            @emitter.emit(ASM.mov_reg_lsl_reg(FIX_LOW, DIV_NUM, FIX_BITS))
+            @emitter.emit(ASM.mov_reg_lsr_reg(FIX_HIGH, DIV_NUM, FIX_WIDE))
 
             # If the top half already reaches the divisor, the answer is wider than a
             # number can hold before a single step has run.
-            @emitter.emit(Cartridge::ASM.cmp_reg(FIX_HIGH, DIV_DEN))
+            @emitter.emit(ASM.cmp_reg(FIX_HIGH, DIV_DEN))
             @emitter.emit_branch(:bcond, too_big, cond: :hs)
 
             LADDER_STEPS.times do
-              @emitter.emit(Cartridge::ASM.adds_reg(FIX_LOW, FIX_LOW, FIX_LOW))   # walk the numerator along...
-              @emitter.emit(Cartridge::ASM.adcs_reg(FIX_HIGH, FIX_HIGH, FIX_HIGH)) # ...carrying between halves
-              @emitter.emit(Cartridge::ASM.sub_reg_cond(:hs, FIX_HIGH, FIX_HIGH, DIV_DEN)) # past a whole word: it fits
-              @emitter.emit(Cartridge::ASM.orr_imm_cond(:hs, FIX_LOW, FIX_LOW, 1))
-              @emitter.emit(Cartridge::ASM.cmp_reg(FIX_HIGH, DIV_DEN))            # otherwise ask outright
-              @emitter.emit(Cartridge::ASM.sub_reg_cond(:hs, FIX_HIGH, FIX_HIGH, DIV_DEN))
-              @emitter.emit(Cartridge::ASM.orr_imm_cond(:hs, FIX_LOW, FIX_LOW, 1))
+              @emitter.emit(ASM.adds_reg(FIX_LOW, FIX_LOW, FIX_LOW))   # walk the numerator along...
+              @emitter.emit(ASM.adcs_reg(FIX_HIGH, FIX_HIGH, FIX_HIGH)) # ...carrying between halves
+              @emitter.emit(ASM.sub_reg_cond(:hs, FIX_HIGH, FIX_HIGH, DIV_DEN)) # past a whole word: it fits
+              @emitter.emit(ASM.orr_imm_cond(:hs, FIX_LOW, FIX_LOW, 1))
+              @emitter.emit(ASM.cmp_reg(FIX_HIGH, DIV_DEN))            # otherwise ask outright
+              @emitter.emit(ASM.sub_reg_cond(:hs, FIX_HIGH, FIX_HIGH, DIV_DEN))
+              @emitter.emit(ASM.orr_imm_cond(:hs, FIX_LOW, FIX_LOW, 1))
             end
 
             # The answer is built without a sign, so its top bit being set means it has
             # outgrown a signed number.
-            @emitter.emit(Cartridge::ASM.cmp_imm(FIX_LOW, 0))
+            @emitter.emit(ASM.cmp_imm(FIX_LOW, 0))
             @emitter.emit_branch(:bcond, too_big, cond: :lt)
-            @emitter.emit(Cartridge::ASM.mov_reg(DIV_DEN, FIX_LOW))
-            @emitter.emit(Cartridge::ASM.cmp_imm(DIV_SIGNS, 0))
-            @emitter.emit(Cartridge::ASM.rsb_imm_cond(:lt, DIV_DEN, DIV_DEN, 0))
-            @emitter.emit(Cartridge::ASM.return)
+            @emitter.emit(ASM.mov_reg(DIV_DEN, FIX_LOW))
+            @emitter.emit(ASM.cmp_imm(DIV_SIGNS, 0))
+            @emitter.emit(ASM.rsb_imm_cond(:lt, DIV_DEN, DIV_DEN, 0))
+            @emitter.emit(ASM.return)
 
             @emitter.place_label(too_big)
             emit_divide_fix_saturate
@@ -361,10 +361,10 @@ module RubyGBA
           # An answer with no room left is held at the end of the range rather than
           # wrapped (see Int32.div_fix for why that is the useful wrong answer).
           def emit_divide_fix_saturate
-            @emitter.emit(Cartridge::ASM.mvn_imm(DIV_DEN, SIGN_BIT))               # the largest there is
-            @emitter.emit(Cartridge::ASM.cmp_imm(DIV_SIGNS, 0))
-            @emitter.emit(Cartridge::ASM.mov_imm_cond(:lt, DIV_DEN, SIGN_BIT))     # or the smallest
-            @emitter.emit(Cartridge::ASM.return)
+            @emitter.emit(ASM.mvn_imm(DIV_DEN, SIGN_BIT))               # the largest there is
+            @emitter.emit(ASM.cmp_imm(DIV_SIGNS, 0))
+            @emitter.emit(ASM.mov_imm_cond(:lt, DIV_DEN, SIGN_BIT))     # or the smallest
+            @emitter.emit(ASM.return)
           end
 
           # Divide sizes and put the signs back afterwards, because long division has no
@@ -374,13 +374,13 @@ module RubyGBA
           # numerator's sign where it already sits, the quotient's in the bottom bit —
           # rather than stacked, so nothing touches memory.
           def emit_divide_signs_aside
-            @emitter.emit(Cartridge::ASM.and_imm(DIV_SIGNS, DIV_NUM, SIGN_BIT))
-            @emitter.emit(Cartridge::ASM.eor_reg(DIV_COUNT, DIV_NUM, DIV_DEN))
-            @emitter.emit(Cartridge::ASM.orr_reg_lsr(DIV_SIGNS, DIV_SIGNS, DIV_COUNT, 31))
-            @emitter.emit(Cartridge::ASM.cmp_imm(DIV_NUM, 0))
-            @emitter.emit(Cartridge::ASM.rsb_imm_cond(:lt, DIV_NUM, DIV_NUM, 0))
-            @emitter.emit(Cartridge::ASM.cmp_imm(DIV_DEN, 0))
-            @emitter.emit(Cartridge::ASM.rsb_imm_cond(:lt, DIV_DEN, DIV_DEN, 0))
+            @emitter.emit(ASM.and_imm(DIV_SIGNS, DIV_NUM, SIGN_BIT))
+            @emitter.emit(ASM.eor_reg(DIV_COUNT, DIV_NUM, DIV_DEN))
+            @emitter.emit(ASM.orr_reg_lsr(DIV_SIGNS, DIV_SIGNS, DIV_COUNT, 31))
+            @emitter.emit(ASM.cmp_imm(DIV_NUM, 0))
+            @emitter.emit(ASM.rsb_imm_cond(:lt, DIV_NUM, DIV_NUM, 0))
+            @emitter.emit(ASM.cmp_imm(DIV_DEN, 0))
+            @emitter.emit(ASM.rsb_imm_cond(:lt, DIV_DEN, DIV_DEN, 0))
           end
 
           # Scale the divisor up under the numerator, then run that many division steps.
@@ -392,34 +392,34 @@ module RubyGBA
           # Entering the written-out run of steps that far from its end runs exactly that
           # many of them.
           def emit_divide_ladder
-            @emitter.emit(Cartridge::ASM.load_immediate(DIV_ANS, 0))
-            @emitter.emit(Cartridge::ASM.load_immediate(DIV_COUNT, 0))
+            @emitter.emit(ASM.load_immediate(DIV_ANS, 0))
+            @emitter.emit(ASM.load_immediate(DIV_COUNT, 0))
             SCALE_STEPS.each do |step|
-              @emitter.emit(Cartridge::ASM.cmp_reg_lsr(DIV_DEN, DIV_NUM, step))
-              @emitter.emit(Cartridge::ASM.mov_reg_lsl_cond(:ls, DIV_DEN, DIV_DEN, step))
-              @emitter.emit(Cartridge::ASM.add_imm_cond(:ls, DIV_COUNT, DIV_COUNT, step))
+              @emitter.emit(ASM.cmp_reg_lsr(DIV_DEN, DIV_NUM, step))
+              @emitter.emit(ASM.mov_reg_lsl_cond(:ls, DIV_DEN, DIV_DEN, step))
+              @emitter.emit(ASM.add_imm_cond(:ls, DIV_COUNT, DIV_COUNT, step))
             end
 
-            @emitter.emit(Cartridge::ASM.rsb_imm(DIV_COUNT, DIV_COUNT, LADDER_STEPS - 1)) # steps to skip
-            @emitter.emit(Cartridge::ASM.add_pc_reg_lsl(DIV_COUNT, 4))                   # four instructions each
-            @emitter.emit(Cartridge::ASM.nop)                                            # pc reads two ahead
+            @emitter.emit(ASM.rsb_imm(DIV_COUNT, DIV_COUNT, LADDER_STEPS - 1)) # steps to skip
+            @emitter.emit(ASM.add_pc_reg_lsl(DIV_COUNT, 4))                   # four instructions each
+            @emitter.emit(ASM.nop)                                            # pc reads two ahead
             LADDER_STEPS.times do
-              @emitter.emit(Cartridge::ASM.cmp_reg(DIV_NUM, DIV_DEN))                    # does the divisor fit?
-              @emitter.emit(Cartridge::ASM.sub_reg_cond(:hs, DIV_NUM, DIV_NUM, DIV_DEN)) # take it out when it does
-              @emitter.emit(Cartridge::ASM.adc_reg(DIV_ANS, DIV_ANS, DIV_ANS))           # double, sliding that in
-              @emitter.emit(Cartridge::ASM.lsr_imm(DIV_DEN, DIV_DEN, 1))                 # halve it for the next place
+              @emitter.emit(ASM.cmp_reg(DIV_NUM, DIV_DEN))                    # does the divisor fit?
+              @emitter.emit(ASM.sub_reg_cond(:hs, DIV_NUM, DIV_NUM, DIV_DEN)) # take it out when it does
+              @emitter.emit(ASM.adc_reg(DIV_ANS, DIV_ANS, DIV_ANS))           # double, sliding that in
+              @emitter.emit(ASM.lsr_imm(DIV_DEN, DIV_DEN, 1))                 # halve it for the next place
             end
           end
 
           # Put the signs back and leave the answers where a caller expects them: the
           # quotient in r0, the leftover in r1 (where it already is).
           def emit_divide_signs_back
-            @emitter.emit(Cartridge::ASM.mov_reg(DIV_DEN, DIV_ANS))
-            @emitter.emit(Cartridge::ASM.tst_imm(DIV_SIGNS, 1))
-            @emitter.emit(Cartridge::ASM.rsb_imm_cond(:ne, DIV_DEN, DIV_DEN, 0)) # the two signs differed
-            @emitter.emit(Cartridge::ASM.cmp_imm(DIV_SIGNS, 0))
-            @emitter.emit(Cartridge::ASM.rsb_imm_cond(:lt, DIV_NUM, DIV_NUM, 0)) # the numerator was negative
-            @emitter.emit(Cartridge::ASM.return)
+            @emitter.emit(ASM.mov_reg(DIV_DEN, DIV_ANS))
+            @emitter.emit(ASM.tst_imm(DIV_SIGNS, 1))
+            @emitter.emit(ASM.rsb_imm_cond(:ne, DIV_DEN, DIV_DEN, 0)) # the two signs differed
+            @emitter.emit(ASM.cmp_imm(DIV_SIGNS, 0))
+            @emitter.emit(ASM.rsb_imm_cond(:lt, DIV_NUM, DIV_NUM, 0)) # the numerator was negative
+            @emitter.emit(ASM.return)
           end
 
           # Dividing by zero has no answer, and this gives back what the console's own
@@ -427,10 +427,10 @@ module RubyGBA
           # itself left over. A program that does this has a fault in it either way; what
           # matters is that it behaves as it always did and does not hang.
           def emit_divide_by_zero
-            @emitter.emit(Cartridge::ASM.load_immediate(DIV_DEN, 1))
-            @emitter.emit(Cartridge::ASM.cmp_imm(DIV_NUM, 0))
-            @emitter.emit(Cartridge::ASM.rsb_imm_cond(:lt, DIV_DEN, DIV_DEN, 0))
-            @emitter.emit(Cartridge::ASM.return)
+            @emitter.emit(ASM.load_immediate(DIV_DEN, 1))
+            @emitter.emit(ASM.cmp_imm(DIV_NUM, 0))
+            @emitter.emit(ASM.rsb_imm_cond(:lt, DIV_DEN, DIV_DEN, 0))
+            @emitter.emit(ASM.return)
           end
 
           def guard_routine_size(what, size, room)

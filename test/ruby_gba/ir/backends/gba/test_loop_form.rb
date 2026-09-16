@@ -389,10 +389,10 @@ class TestLoopForm < Minitest::Test
     end
     pair = [LoopForm::COUNTER, LoopForm::LIMIT]
 
-    assert_includes rom.buffer, RubyGBA::Cartridge::ASM.push(*pair), "the pair is saved"
-    assert_includes rom.buffer, RubyGBA::Cartridge::ASM.pop(*pair), "and put back"
-    assert_includes rom.buffer, RubyGBA::Cartridge::ASM.push(LoopForm::COUNTER), "the counter alone is saved"
-    assert_includes rom.buffer, RubyGBA::Cartridge::ASM.pop(LoopForm::COUNTER), "and put back"
+    assert_includes rom.buffer, RubyGBA::IR::Backends::GBA::ASM.push(*pair), "the pair is saved"
+    assert_includes rom.buffer, RubyGBA::IR::Backends::GBA::ASM.pop(*pair), "and put back"
+    assert_includes rom.buffer, RubyGBA::IR::Backends::GBA::ASM.push(LoopForm::COUNTER), "the counter alone is saved"
+    assert_includes rom.buffer, RubyGBA::IR::Backends::GBA::ASM.pop(LoopForm::COUNTER), "and put back"
   end
 
   # --- what a pass of the loop itself costs ---

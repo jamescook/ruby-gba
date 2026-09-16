@@ -199,7 +199,7 @@ module RubyGBA
           def emit_scene_preamble(name)
             mode = @layout.modes.func_mode[name]
             @primitives.load_var(ACC, MODE_STATE)
-            @emitter.emit(Cartridge::ASM.cmp_imm(ACC, mode_state_marker(mode)))
+            @emitter.emit(ASM.cmp_imm(ACC, mode_state_marker(mode)))
             skip = @emitter.gensym
             @emitter.emit_branch(:bcond, skip, cond: :eq) # already in this mode? nothing to do
             enter_mode(mode)
@@ -231,12 +231,12 @@ module RubyGBA
             return if sending.empty? && rooms.empty?
 
             @primitives.load_var(ACC, SCENE_ART_STATE)
-            @emitter.emit(Cartridge::ASM.cmp_imm(ACC, @layout.scene_art.keys.index(name) + 1))
+            @emitter.emit(ASM.cmp_imm(ACC, @layout.scene_art.keys.index(name) + 1))
             skip = @emitter.gensym
             @emitter.emit_branch(:bcond, skip, cond: :eq) # already loaded? nothing to send
             sending.each { |blob, at, units| emit_dma_blob(blob, OBJ_TILE_BASE + (at * 32), units * 16) }
             forget_frames_in_rooms(rooms)
-            @emitter.emit(Cartridge::ASM.load_immediate(ACC, @layout.scene_art.keys.index(name) + 1))
+            @emitter.emit(ASM.load_immediate(ACC, @layout.scene_art.keys.index(name) + 1))
             @primitives.store_var(ACC, SCENE_ART_STATE)
             @emitter.place_label(skip)
           end
@@ -266,8 +266,8 @@ module RubyGBA
           # one DMA of `size` 16-bit entries, source and destination both advancing.
           def upload_palette
             emit_load_data_address(ACC, PALETTE_BLOB)     # r0 = table address in the cartridge
-            emit(Cartridge::ASM.load_immediate(TMP, REG_DMA3SAD))
-            emit(Cartridge::ASM.str(ACC, TMP))                       # DMA source = the table
+            emit(ASM.load_immediate(TMP, REG_DMA3SAD))
+            emit(ASM.str(ACC, TMP))                       # DMA source = the table
             store_word_immediate(BG_PALETTE, REG_DMA3DAD) # DMA destination = palette memory
             store_word_immediate(@layout.palette.size | DMA_ENABLE, REG_DMA3CNT) # go: 16-bit, both increment
             @palette_tint.emit_tint_state_reset # the table now holds the originals again
@@ -304,7 +304,7 @@ module RubyGBA
           # The runtime check costs a compare; the mode rarely changes.
           def emit_flip_if_buffered
             load_var(ACC, MODE_STATE)
-            emit(Cartridge::ASM.cmp_imm(ACC, MODE_BUFFERED))
+            emit(ASM.cmp_imm(ACC, MODE_BUFFERED))
             skip = gensym
             emit_branch(:bcond, skip, cond: :ne)
             emit_flip
@@ -318,15 +318,15 @@ module RubyGBA
           # minus the current one).
           def emit_flip
             load_var(ACC, DISPCNT_STATE)
-            emit(Cartridge::ASM.load_immediate(TMP, DISPCNT_FRAME_SELECT))
-            emit(Cartridge::ASM.eor_reg(ACC, ACC, TMP))            # flip the page-select bit
+            emit(ASM.load_immediate(TMP, DISPCNT_FRAME_SELECT))
+            emit(ASM.eor_reg(ACC, ACC, TMP))            # flip the page-select bit
             store_var(ACC, DISPCNT_STATE)
-            emit(Cartridge::ASM.load_immediate(TMP, REG_DISPCNT))
-            emit(Cartridge::ASM.store_halfword(ACC, TMP))          # the finished page is now shown
+            emit(ASM.load_immediate(TMP, REG_DISPCNT))
+            emit(ASM.store_halfword(ACC, TMP))          # the finished page is now shown
 
             load_var(ACC, BACKBUF)
-            emit(Cartridge::ASM.load_immediate(TMP, PAGE_PAIR_SUM))
-            emit(Cartridge::ASM.sub_reg(ACC, TMP, ACC))            # the other page
+            emit(ASM.load_immediate(TMP, PAGE_PAIR_SUM))
+            emit(ASM.sub_reg(ACC, TMP, ACC))            # the other page
             store_var(ACC, BACKBUF)
           end
 
@@ -346,17 +346,17 @@ module RubyGBA
               write_reg16(VRAM_START + ((yi * SCREEN_WIDTH) + xi) * 2, color)
             else
               @lowering.value(node.y)            # r0 = y
-              emit(Cartridge::ASM.push(ACC))
+              emit(ASM.push(ACC))
               @lowering.value(node.x)            # r0 = x
-              emit(Cartridge::ASM.pop(TMP))              # r1 = y
-              emit(Cartridge::ASM.load_immediate(2, SCREEN_WIDTH))
-              emit(Cartridge::ASM.mul(3, TMP, 2))        # r3 = y * width
-              emit(Cartridge::ASM.add_reg(3, 3, ACC))    # r3 = y*width + x
-              emit(Cartridge::ASM.lsl_imm(3, 3, 1))      # r3 = offset * 2 bytes
-              emit(Cartridge::ASM.load_immediate(2, VRAM_START))
-              emit(Cartridge::ASM.add_reg(3, 2, 3))      # r3 = VRAM address
-              emit(Cartridge::ASM.load_immediate(ACC, color))
-              emit(Cartridge::ASM.store_halfword(ACC, 3))
+              emit(ASM.pop(TMP))              # r1 = y
+              emit(ASM.load_immediate(2, SCREEN_WIDTH))
+              emit(ASM.mul(3, TMP, 2))        # r3 = y * width
+              emit(ASM.add_reg(3, 3, ACC))    # r3 = y*width + x
+              emit(ASM.lsl_imm(3, 3, 1))      # r3 = offset * 2 bytes
+              emit(ASM.load_immediate(2, VRAM_START))
+              emit(ASM.add_reg(3, 2, 3))      # r3 = VRAM address
+              emit(ASM.load_immediate(ACC, color))
+              emit(ASM.store_halfword(ACC, 3))
             end
           end
 
@@ -367,7 +367,7 @@ module RubyGBA
 
             x, y, w, h = constant_ints!(node, x: node.x, y: node.y, w: node.w, h: node.h)
             color = Graphics::Color.resolve(node.color)
-            emit(Cartridge::ASM.load_immediate(ACC, color))
+            emit(ASM.load_immediate(ACC, color))
             h.times do |dy|
               row = y + dy
               next unless (@framebuffer.clip_top...@framebuffer.clip_bottom).cover?(row)
@@ -376,8 +376,8 @@ module RubyGBA
                 col = x + dx
                 next unless (@framebuffer.clip_left...@framebuffer.clip_right).cover?(col)
 
-                emit(Cartridge::ASM.load_immediate(TMP, VRAM_START + ((row * SCREEN_WIDTH) + col) * 2))
-                emit(Cartridge::ASM.store_halfword(ACC, TMP))
+                emit(ASM.load_immediate(TMP, VRAM_START + ((row * SCREEN_WIDTH) + col) * 2))
+                emit(ASM.store_halfword(ACC, TMP))
               end
             end
           end
@@ -468,10 +468,10 @@ module RubyGBA
               # which is the rare case and pays for itself only there. A strip one pixel wide
               # has no second case: it is inside or it draws nothing.
               clipped = gensym
-              emit(Cartridge::ASM.cmp_imm(COLUMN_X, @framebuffer.clip_left))
+              emit(ASM.cmp_imm(COLUMN_X, @framebuffer.clip_left))
               emit_branch(:bcond, clipped, cond: :lt)
-              emit(Cartridge::ASM.load_immediate(TMP, @framebuffer.clip_right - width))
-              emit(Cartridge::ASM.cmp_reg(COLUMN_X, TMP))
+              emit(ASM.load_immediate(TMP, @framebuffer.clip_right - width))
+              emit(ASM.cmp_reg(COLUMN_X, TMP))
               emit_branch(:bcond, clipped, cond: :gt)
 
               emit_column_rows { emit_draw_column_row(bmp, width, clipped: false) }
@@ -486,8 +486,8 @@ module RubyGBA
           def emit_column_rows
             emit_row_loop(COLUMN_ROWS) do
               yield
-              emit(Cartridge::ASM.add_reg(COLUMN_POS, COLUMN_POS, COLUMN_STEP))
-              emit(Cartridge::ASM.add_imm(COLUMN_Y, COLUMN_Y, 1))
+              emit(ASM.add_reg(COLUMN_POS, COLUMN_POS, COLUMN_STEP))
+              emit(ASM.add_imm(COLUMN_Y, COLUMN_Y, 1))
             end
           end
 
@@ -501,12 +501,12 @@ module RubyGBA
 
             # ...to the screen at (x, y), and to the pixels beside it. Their addresses are a
             # fixed distance along from the first, so the row's address is built once.
-            emit(Cartridge::ASM.load_immediate(TMP, SCREEN_WIDTH))
-            emit(Cartridge::ASM.mul(TMP, COLUMN_Y, TMP))
-            emit(Cartridge::ASM.add_reg(TMP, TMP, COLUMN_X))
-            emit(Cartridge::ASM.lsl_imm(TMP, TMP, 1))
-            emit(Cartridge::ASM.load_immediate(SPARE, VRAM_START))
-            emit(Cartridge::ASM.add_reg(TMP, TMP, SPARE))
+            emit(ASM.load_immediate(TMP, SCREEN_WIDTH))
+            emit(ASM.mul(TMP, COLUMN_Y, TMP))
+            emit(ASM.add_reg(TMP, TMP, COLUMN_X))
+            emit(ASM.lsl_imm(TMP, TMP, 1))
+            emit(ASM.load_immediate(SPARE, VRAM_START))
+            emit(ASM.add_reg(TMP, TMP, SPARE))
             width.times { |dx| emit_column_store(dx, clipped: clipped) }
 
             place_label(skip)
@@ -520,34 +520,34 @@ module RubyGBA
           # reaches at most one less than that count times it — which is strictly less than
           # the picture's height however the rounding falls.
           def emit_read_column_pixel(bmp, skip)
-            emit(Cartridge::ASM.lsr_imm(ACC, COLUMN_POS, COLUMN_FIXED))
-            emit(Cartridge::ASM.load_immediate(TMP, bmp.width * 2))
-            emit(Cartridge::ASM.mul(ACC, ACC, TMP))
-            emit(Cartridge::ASM.add_reg(ACC, COLUMN_SRC, ACC))
-            emit(Cartridge::ASM.load_halfword(ACC, ACC))
+            emit(ASM.lsr_imm(ACC, COLUMN_POS, COLUMN_FIXED))
+            emit(ASM.load_immediate(TMP, bmp.width * 2))
+            emit(ASM.mul(ACC, ACC, TMP))
+            emit(ASM.add_reg(ACC, COLUMN_SRC, ACC))
+            emit(ASM.load_halfword(ACC, ACC))
 
             # A see-through pixel carries a value no real color has, so it means "leave this
             # one alone" and nothing is written — which is what lets a scaled sprite in a
             # first-person view keep its shape instead of standing in a black box.
             return unless bmp.transparent
 
-            emit(Cartridge::ASM.load_immediate(TMP, bmp.transparent))
-            emit(Cartridge::ASM.cmp_reg(ACC, TMP))
+            emit(ASM.load_immediate(TMP, bmp.transparent))
+            emit(ASM.cmp_reg(ACC, TMP))
             emit_branch(:bcond, skip, cond: :eq)
           end
 
           # One pixel of the strip. In the clipped copy of the rows its own column is tested,
           # since only part of the strip is on the screen.
           def emit_column_store(offset, clipped:)
-            return emit(Cartridge::ASM.store_halfword_offset(ACC, TMP, offset * 2)) unless clipped
+            return emit(ASM.store_halfword_offset(ACC, TMP, offset * 2)) unless clipped
 
             past = gensym
-            emit(Cartridge::ASM.add_imm(SPARE, COLUMN_X, offset))
-            emit(Cartridge::ASM.cmp_imm(SPARE, @framebuffer.clip_left))
+            emit(ASM.add_imm(SPARE, COLUMN_X, offset))
+            emit(ASM.cmp_imm(SPARE, @framebuffer.clip_left))
             emit_branch(:bcond, past, cond: :lt)
-            emit(Cartridge::ASM.cmp_imm(SPARE, @framebuffer.clip_right))
+            emit(ASM.cmp_imm(SPARE, @framebuffer.clip_right))
             emit_branch(:bcond, past, cond: :ge)
-            emit(Cartridge::ASM.store_halfword_offset(ACC, TMP, offset * 2))
+            emit(ASM.store_halfword_offset(ACC, TMP, offset * 2))
             place_label(past)
           end
 
@@ -610,39 +610,39 @@ module RubyGBA
             if width
               emit_add_const(ACC, x_reg, width, TMP)
             else
-              emit(Cartridge::ASM.add_reg(ACC, x_reg, CONTROL_REG)) # CONTROL_REG still holds the raw width here
+              emit(ASM.add_reg(ACC, x_reg, CONTROL_REG)) # CONTROL_REG still holds the raw width here
             end
 
             # right := min(right, clip_right)
             keep_right = gensym
-            emit(Cartridge::ASM.cmp_imm(ACC, @framebuffer.clip_right))
+            emit(ASM.cmp_imm(ACC, @framebuffer.clip_right))
             emit_branch(:bcond, keep_right, cond: :le)
-            emit(Cartridge::ASM.load_immediate(ACC, @framebuffer.clip_right))
+            emit(ASM.load_immediate(ACC, @framebuffer.clip_right))
             place_label(keep_right)
 
             # x_reg := max(x_reg, clip_left)
             keep_left = gensym
-            emit(Cartridge::ASM.cmp_imm(x_reg, @framebuffer.clip_left))
+            emit(ASM.cmp_imm(x_reg, @framebuffer.clip_left))
             emit_branch(:bcond, keep_left, cond: :ge)
-            emit(Cartridge::ASM.load_immediate(x_reg, @framebuffer.clip_left))
+            emit(ASM.load_immediate(x_reg, @framebuffer.clip_left))
             place_label(keep_left)
 
             # width := right - x_reg. Nothing left of the row to draw at all bails the
             # whole rect, the same way a width of zero already did — a rect the game
             # shrank to nothing, or slid entirely off the area, draws nothing either way.
-            emit(Cartridge::ASM.sub_reg(TMP, ACC, x_reg))
-            emit(Cartridge::ASM.cmp_imm(TMP, 0))
+            emit(ASM.sub_reg(TMP, ACC, x_reg))
+            emit(ASM.cmp_imm(TMP, 0))
             emit_branch(:bcond, skip, cond: :le)
-            emit(Cartridge::ASM.mov_reg(CONTROL_REG, TMP))
-            emit(Cartridge::ASM.load_immediate(ACC, @framebuffer.dma_fill_control_halfwords(0)))
-            emit(Cartridge::ASM.orr_reg(CONTROL_REG, CONTROL_REG, ACC)) # ...now it is a control word
+            emit(ASM.mov_reg(CONTROL_REG, TMP))
+            emit(ASM.load_immediate(ACC, @framebuffer.dma_fill_control_halfwords(0)))
+            emit(ASM.orr_reg(CONTROL_REG, CONTROL_REG, ACC)) # ...now it is a control word
 
             if height
               height.times { |dy| emit_mode3_rect_row(dy, x_reg, y_reg, scratch) }
             else
               emit_row_loop(rows_left) do
                 emit_mode3_rect_row(0, x_reg, y_reg, scratch)
-                emit(Cartridge::ASM.add_imm(y_reg, y_reg, 1)) # ...and on to the next row down
+                emit(ASM.add_imm(y_reg, y_reg, 1)) # ...and on to the next row down
               end
             end
             place_label(skip)
@@ -662,27 +662,27 @@ module RubyGBA
 
             # r4 = y + dy, checked against the area before it becomes an address.
             if dy.zero?
-              emit(Cartridge::ASM.mov_reg(4, y_reg))
+              emit(ASM.mov_reg(4, y_reg))
             else
-              emit(Cartridge::ASM.add_imm(4, y_reg, dy))
+              emit(ASM.add_imm(4, y_reg, dy))
             end
-            emit(Cartridge::ASM.cmp_imm(4, @framebuffer.clip_top))
+            emit(ASM.cmp_imm(4, @framebuffer.clip_top))
             emit_branch(:bcond, row_skip, cond: :lt)
-            emit(Cartridge::ASM.cmp_imm(4, @framebuffer.clip_bottom))
+            emit(ASM.cmp_imm(4, @framebuffer.clip_bottom))
             emit_branch(:bcond, row_skip, cond: :ge)
 
-            emit(Cartridge::ASM.load_immediate(5, SCREEN_WIDTH))
-            emit(Cartridge::ASM.mul(4, 5, 4))           # r4 = width * (y + dy)
-            emit(Cartridge::ASM.add_reg(4, 4, x_reg))   # + x
-            emit(Cartridge::ASM.lsl_imm(4, 4, 1))       # * 2 bytes per pixel
-            emit(Cartridge::ASM.load_immediate(5, VRAM_START))
-            emit(Cartridge::ASM.add_reg(4, 4, 5))       # + VRAM base
+            emit(ASM.load_immediate(5, SCREEN_WIDTH))
+            emit(ASM.mul(4, 5, 4))           # r4 = width * (y + dy)
+            emit(ASM.add_reg(4, 4, x_reg))   # + x
+            emit(ASM.lsl_imm(4, 4, 1))       # * 2 bytes per pixel
+            emit(ASM.load_immediate(5, VRAM_START))
+            emit(ASM.add_reg(4, 4, 5))       # + VRAM base
 
             store_word_immediate(scratch, REG_DMA3SAD)
-            emit(Cartridge::ASM.load_immediate(TMP, REG_DMA3DAD))
-            emit(Cartridge::ASM.str(4, TMP))            # destination is the computed address
-            emit(Cartridge::ASM.load_immediate(TMP, REG_DMA3CNT))
-            emit(Cartridge::ASM.str(CONTROL_REG, TMP))
+            emit(ASM.load_immediate(TMP, REG_DMA3DAD))
+            emit(ASM.str(4, TMP))            # destination is the computed address
+            emit(ASM.load_immediate(TMP, REG_DMA3CNT))
+            emit(ASM.str(CONTROL_REG, TMP))
 
             place_label(row_skip)
           end
@@ -828,24 +828,24 @@ module RubyGBA
 
           def emit_computed_tile_write(node, bg, grid, entry)
             @lowering.value(node.col)
-            emit(Cartridge::ASM.mov_reg(TILE_COL, ACC))
+            emit(ASM.mov_reg(TILE_COL, ACC))
             @lowering.value(node.row)
-            emit(Cartridge::ASM.mov_reg(TILE_ROW, ACC))
+            emit(ASM.mov_reg(TILE_ROW, ACC))
 
             done = gensym
             # One unsigned compare catches both ends: a negative coordinate reads as a
             # very large number, so anything outside 0...size fails the same test.
-            emit(Cartridge::ASM.cmp_imm(TILE_COL, grid.cols))
+            emit(ASM.cmp_imm(TILE_COL, grid.cols))
             emit_branch(:bcond, done, cond: :hs)
-            emit(Cartridge::ASM.cmp_imm(TILE_ROW, grid.rows))
+            emit(ASM.cmp_imm(TILE_ROW, grid.rows))
             emit_branch(:bcond, done, cond: :hs)
 
             emit_cell_index(grid)
-            emit(Cartridge::ASM.load_immediate(TMP, VRAM_START + (bg.screen_block * SCREENBLOCK_BYTES)))
-            emit(Cartridge::ASM.lsl_imm(TILE_ADDR, TILE_ADDR, 1)) # two bytes a cell
-            emit(Cartridge::ASM.add_reg(TILE_ADDR, TMP, TILE_ADDR))
-            emit(Cartridge::ASM.load_immediate(ACC, entry))
-            emit(Cartridge::ASM.store_halfword(ACC, TILE_ADDR))
+            emit(ASM.load_immediate(TMP, VRAM_START + (bg.screen_block * SCREENBLOCK_BYTES)))
+            emit(ASM.lsl_imm(TILE_ADDR, TILE_ADDR, 1)) # two bytes a cell
+            emit(ASM.add_reg(TILE_ADDR, TMP, TILE_ADDR))
+            emit(ASM.load_immediate(ACC, entry))
+            emit(ASM.store_halfword(ACC, TILE_ADDR))
             place_label(done)
           end
 
@@ -853,24 +853,24 @@ module RubyGBA
           # TILE_ADDR. Which quarter of the map it is in rides in bits 10 and up; a map
           # that fits one square has no quarters and needs neither shift.
           def emit_cell_index(grid)
-            emit(Cartridge::ASM.and_imm(TILE_ADDR, TILE_ROW, MAP_CELLS - 1))
-            emit(Cartridge::ASM.lsl_imm(TILE_ADDR, TILE_ADDR, 5))
-            emit(Cartridge::ASM.and_imm(TMP, TILE_COL, MAP_CELLS - 1))
-            emit(Cartridge::ASM.orr_reg(TILE_ADDR, TILE_ADDR, TMP))
+            emit(ASM.and_imm(TILE_ADDR, TILE_ROW, MAP_CELLS - 1))
+            emit(ASM.lsl_imm(TILE_ADDR, TILE_ADDR, 5))
+            emit(ASM.and_imm(TMP, TILE_COL, MAP_CELLS - 1))
+            emit(ASM.orr_reg(TILE_ADDR, TILE_ADDR, TMP))
             return if grid.cols == MAP_CELLS && grid.rows == MAP_CELLS
 
             unless grid.rows == MAP_CELLS
               # The bottom half of a tall map is a whole square further on — two of them
               # when the map is also wide, since a row of squares comes first.
-              emit(Cartridge::ASM.lsr_imm(TMP, TILE_ROW, 5))
-              emit(Cartridge::ASM.lsl_imm(TMP, TMP, grid.cols == MAP_CELLS ? 10 : 11))
-              emit(Cartridge::ASM.orr_reg(TILE_ADDR, TILE_ADDR, TMP))
+              emit(ASM.lsr_imm(TMP, TILE_ROW, 5))
+              emit(ASM.lsl_imm(TMP, TMP, grid.cols == MAP_CELLS ? 10 : 11))
+              emit(ASM.orr_reg(TILE_ADDR, TILE_ADDR, TMP))
             end
             return if grid.cols == MAP_CELLS
 
-            emit(Cartridge::ASM.lsr_imm(TMP, TILE_COL, 5))
-            emit(Cartridge::ASM.lsl_imm(TMP, TMP, 10))
-            emit(Cartridge::ASM.orr_reg(TILE_ADDR, TILE_ADDR, TMP))
+            emit(ASM.lsr_imm(TMP, TILE_COL, 5))
+            emit(ASM.lsl_imm(TMP, TMP, 10))
+            emit(ASM.orr_reg(TILE_ADDR, TILE_ADDR, TMP))
           end
 
           # HAND A BACKGROUND A WHOLE DIFFERENT MAP.
@@ -904,8 +904,8 @@ module RubyGBA
 
             done = gensym
             emit_map_source(bg, node.which, done)
-            emit(Cartridge::ASM.load_immediate(TMP, REG_DMA3SAD))
-            emit(Cartridge::ASM.str(ACC, TMP)) # DMA source = that map in the cartridge
+            emit(ASM.load_immediate(TMP, REG_DMA3SAD))
+            emit(ASM.str(ACC, TMP)) # DMA source = that map in the cartridge
             store_word_immediate(map_vram_address(bg), REG_DMA3DAD)
             store_word_immediate(bg.map_units | DMA_ENABLE, REG_DMA3CNT) # go: 16-bit, both increment
             place_label(done)
@@ -921,11 +921,11 @@ module RubyGBA
             @lowering.value(which)
             # One unsigned compare catches both ends: a negative number reads as a very
             # large one, so anything outside 0...count fails the same test.
-            emit(Cartridge::ASM.cmp_imm(ACC, bg.map_count))
+            emit(ASM.cmp_imm(ACC, bg.map_count))
             emit_branch(:bcond, done, cond: :hs)
             emit_map_stride(bg)
             emit_load_data_address(ACC, bg.map)
-            emit(Cartridge::ASM.add_reg(ACC, ACC, TMP))
+            emit(ASM.add_reg(ACC, ACC, TMP))
           end
 
           def emit_fixed_map_source(bg, fixed, done)
@@ -934,8 +934,8 @@ module RubyGBA
             emit_load_data_address(ACC, bg.map)
             return if fixed.zero?
 
-            emit(Cartridge::ASM.load_immediate(TMP, fixed * bg.map_bytes))
-            emit(Cartridge::ASM.add_reg(ACC, ACC, TMP))
+            emit(ASM.load_immediate(TMP, fixed * bg.map_bytes))
+            emit(ASM.add_reg(ACC, ACC, TMP))
           end
 
           # TMP = how far along the blob this map starts. The stride is a power of two for
@@ -944,10 +944,10 @@ module RubyGBA
           def emit_map_stride(bg)
             shift = Math.log2(bg.map_bytes).to_i
             if 2**shift == bg.map_bytes
-              emit(Cartridge::ASM.lsl_imm(TMP, ACC, shift))
+              emit(ASM.lsl_imm(TMP, ACC, shift))
             else
-              emit(Cartridge::ASM.load_immediate(TMP, bg.map_bytes))
-              emit(Cartridge::ASM.mul(TMP, ACC, TMP))
+              emit(ASM.load_immediate(TMP, bg.map_bytes))
+              emit(ASM.mul(TMP, ACC, TMP))
             end
           end
 
@@ -1040,7 +1040,7 @@ module RubyGBA
             # zoomed title screen can never keep distorting a bitmap gameplay scene
             # that's since taken over BG2 for its own framebuffer.
             @lowering.value(node.active)
-            emit(Cartridge::ASM.cmp_imm(ACC, 0))
+            emit(ASM.cmp_imm(ACC, 0))
             skip = gensym
             emit_branch(:bcond, skip, cond: :eq)
             emit_bg_affine_matrix(node)
@@ -1057,15 +1057,15 @@ module RubyGBA
             emit_bg_affine_scale_reciprocal(node.scale)
             @lowering.value(node.angle)                       # r0 = angle in degrees (0..359)
             emit_load_data_address(TMP, OBJ_SINE_BLOB)   # r1 = sine table base
-            emit(Cartridge::ASM.lsl_imm(2, ACC, 1))                 # r2 = angle * 2 (halfword offset)
-            emit(Cartridge::ASM.add_reg(ADDR, TMP, 2))
-            emit(Cartridge::ASM.ldrsh(2, ADDR))                     # r2 = sin(angle)
-            emit(Cartridge::ASM.add_imm(3, ACC, 90))                # r3 = angle + 90
-            emit(Cartridge::ASM.lsl_imm(3, 3, 1))
-            emit(Cartridge::ASM.add_reg(ADDR, TMP, 3))
-            emit(Cartridge::ASM.ldrsh(3, ADDR))                     # r3 = sin(angle + 90) = cos(angle)
+            emit(ASM.lsl_imm(2, ACC, 1))                 # r2 = angle * 2 (halfword offset)
+            emit(ASM.add_reg(ADDR, TMP, 2))
+            emit(ASM.ldrsh(2, ADDR))                     # r2 = sin(angle)
+            emit(ASM.add_imm(3, ACC, 90))                # r3 = angle + 90
+            emit(ASM.lsl_imm(3, 3, 1))
+            emit(ASM.add_reg(ADDR, TMP, 3))
+            emit(ASM.ldrsh(3, ADDR))                     # r3 = sin(angle + 90) = cos(angle)
             emit_bg_scale_sine_and_cosine
-            emit(Cartridge::ASM.rsb_imm(ACC, 2, 0))                 # r0 = -sin(angle)
+            emit(ASM.rsb_imm(ACC, 2, 0))                 # r0 = -sin(angle)
             store_halfword_reg(3, REG_BG2PA)
             store_var(3, BG_AFFINE_PA)
             store_halfword_reg(2, REG_BG2PB)
@@ -1082,13 +1082,13 @@ module RubyGBA
           # variables), so this runs every frame rather than only when scale is in play.
           def emit_bg_affine_scale_reciprocal(scale)
             @lowering.value(scale)                                    # r0 = size, in SCALE_ONE-ths
-            emit(Cartridge::ASM.cmp_imm(ACC, Affine::MIN_SCALE))
-            emit(Cartridge::ASM.mov_imm_cond(:lt, ACC, Affine::MIN_SCALE))
-            emit(Cartridge::ASM.load_immediate(Divide::DIV_NUM, Build::SCALE_ONE * Affine::ONE_TH))
+            emit(ASM.cmp_imm(ACC, Affine::MIN_SCALE))
+            emit(ASM.mov_imm_cond(:lt, ACC, Affine::MIN_SCALE))
+            emit(ASM.load_immediate(Divide::DIV_NUM, Build::SCALE_ONE * Affine::ONE_TH))
             emit_call_divide_routine
-            emit(Cartridge::ASM.load_immediate(TMP, Affine::MAX))
-            emit(Cartridge::ASM.cmp_reg(ACC, TMP))
-            emit(Cartridge::ASM.mov_reg_cond(:gt, ACC, TMP))
+            emit(ASM.load_immediate(TMP, Affine::MAX))
+            emit(ASM.cmp_reg(ACC, TMP))
+            emit(ASM.mov_reg_cond(:gt, ACC, TMP))
             store_var(ACC, BG_AFFINE_SCALE_RECIP)
           end
 
@@ -1096,10 +1096,10 @@ module RubyGBA
           # 256ths — the background's own copy of #emit_scale_sine_and_cosine.
           def emit_bg_scale_sine_and_cosine
             load_var(4, BG_AFFINE_SCALE_RECIP)
-            emit(Cartridge::ASM.mul(5, 2, 4))
-            emit(Cartridge::ASM.asr_imm(2, 5, 8))
-            emit(Cartridge::ASM.mul(5, 3, 4))
-            emit(Cartridge::ASM.asr_imm(3, 5, 8))
+            emit(ASM.mul(5, 2, 4))
+            emit(ASM.asr_imm(2, 5, 8))
+            emit(ASM.mul(5, 3, 4))
+            emit(ASM.asr_imm(3, 5, 8))
           end
 
           # The matrix pivots on the layer's own top-left corner by itself — turn or
@@ -1115,25 +1115,25 @@ module RubyGBA
           # of its own to offset, so this stands in for it.
           def emit_bg_affine_reference_point
             load_var(2, BG_AFFINE_PA)
-            emit(Cartridge::ASM.load_immediate(3, AFFINE_BG_CENTER_X))
-            emit(Cartridge::ASM.mul(4, 2, 3))                       # r4 = PA * center_x
+            emit(ASM.load_immediate(3, AFFINE_BG_CENTER_X))
+            emit(ASM.mul(4, 2, 3))                       # r4 = PA * center_x
             load_var(2, BG_AFFINE_PB)
-            emit(Cartridge::ASM.load_immediate(3, AFFINE_BG_CENTER_Y))
-            emit(Cartridge::ASM.mul(5, 2, 3))                       # r5 = PB * center_y
-            emit(Cartridge::ASM.add_reg(4, 4, 5))                   # r4 = PA*center_x + PB*center_y
-            emit(Cartridge::ASM.load_immediate(ACC, AFFINE_BG_CENTER_X * Affine::ONE_TH))
-            emit(Cartridge::ASM.sub_reg(ACC, ACC, 4))
+            emit(ASM.load_immediate(3, AFFINE_BG_CENTER_Y))
+            emit(ASM.mul(5, 2, 3))                       # r5 = PB * center_y
+            emit(ASM.add_reg(4, 4, 5))                   # r4 = PA*center_x + PB*center_y
+            emit(ASM.load_immediate(ACC, AFFINE_BG_CENTER_X * Affine::ONE_TH))
+            emit(ASM.sub_reg(ACC, ACC, 4))
             store_word_acc(REG_BG2X)
 
             load_var(2, BG_AFFINE_PC)
-            emit(Cartridge::ASM.load_immediate(3, AFFINE_BG_CENTER_X))
-            emit(Cartridge::ASM.mul(4, 2, 3))                       # r4 = PC * center_x
+            emit(ASM.load_immediate(3, AFFINE_BG_CENTER_X))
+            emit(ASM.mul(4, 2, 3))                       # r4 = PC * center_x
             load_var(2, BG_AFFINE_PD)
-            emit(Cartridge::ASM.load_immediate(3, AFFINE_BG_CENTER_Y))
-            emit(Cartridge::ASM.mul(5, 2, 3))                       # r5 = PD * center_y
-            emit(Cartridge::ASM.add_reg(4, 4, 5))                   # r4 = PC*center_x + PD*center_y
-            emit(Cartridge::ASM.load_immediate(ACC, AFFINE_BG_CENTER_Y * Affine::ONE_TH))
-            emit(Cartridge::ASM.sub_reg(ACC, ACC, 4))
+            emit(ASM.load_immediate(3, AFFINE_BG_CENTER_Y))
+            emit(ASM.mul(5, 2, 3))                       # r5 = PD * center_y
+            emit(ASM.add_reg(4, 4, 5))                   # r4 = PC*center_x + PD*center_y
+            emit(ASM.load_immediate(ACC, AFFINE_BG_CENTER_Y * Affine::ONE_TH))
+            emit(ASM.sub_reg(ACC, ACC, 4))
             store_word_acc(REG_BG2Y)
           end
 
@@ -1179,7 +1179,7 @@ module RubyGBA
 
           def emit_camera_axis(value, reg)
             @lowering.value(value)                   # r0 = the offset in whole pixels
-            emit(Cartridge::ASM.lsl_imm(ACC, ACC, 8))      # ...into the 8-fraction-bit format
+            emit(ASM.lsl_imm(ACC, ACC, 8))      # ...into the 8-fraction-bit format
             store_word_acc(reg)
           end
 
@@ -1274,11 +1274,11 @@ module RubyGBA
             hand_back = gensym
             done = gensym
             @lowering.value(fade_steps_value(node.amount))
-            emit(Cartridge::ASM.mov_reg(FADE_HELD, ACC))
-            emit(Cartridge::ASM.cmp_imm(FADE_HELD, 0))
+            emit(ASM.mov_reg(FADE_HELD, ACC))
+            emit(ASM.cmp_imm(FADE_HELD, 0))
             emit_branch(:bcond, hand_back, cond: :eq)
             emit_fade_control(node)
-            emit(Cartridge::ASM.mov_reg(ACC, FADE_HELD))
+            emit(ASM.mov_reg(ACC, FADE_HELD))
             store_halfword_acc(REG_BLDY)
             emit_branch(:b, done)
             place_label(hand_back)
@@ -1340,9 +1340,9 @@ module RubyGBA
           # the two sides — a color coming in, or what is behind showing through — and the
           # register does not care, so neither does this.
           def emit_blend_weights_from_acc
-            emit(Cartridge::ASM.load_immediate(TMP, BLD_MAX))
-            emit(Cartridge::ASM.sub_reg(TMP, TMP, ACC))              # r1 = what is left of the near side
-            emit(Cartridge::ASM.orr_reg_lsl(ACC, TMP, ACC, 8))       # ...with the far side's share above it
+            emit(ASM.load_immediate(TMP, BLD_MAX))
+            emit(ASM.sub_reg(TMP, TMP, ACC))              # r1 = what is left of the near side
+            emit(ASM.orr_reg_lsl(ACC, TMP, ACC, 8))       # ...with the far side's share above it
             store_halfword_acc(REG_BLDALPHA)
           end
 
@@ -1351,10 +1351,10 @@ module RubyGBA
           # itself clamps this is free, but a share worked out here can be more than all of
           # it — and that takes a picture somewhere no color goes.
           def emit_clamp_blend_steps
-            emit(Cartridge::ASM.cmp_imm(ACC, 0))
-            emit(Cartridge::ASM.mov_imm_cond(:lt, ACC, 0))
-            emit(Cartridge::ASM.cmp_imm(ACC, BLD_MAX))
-            emit(Cartridge::ASM.mov_imm_cond(:gt, ACC, BLD_MAX))
+            emit(ASM.cmp_imm(ACC, 0))
+            emit(ASM.mov_imm_cond(:lt, ACC, 0))
+            emit(ASM.cmp_imm(ACC, BLD_MAX))
+            emit(ASM.mov_imm_cond(:gt, ACC, BLD_MAX))
           end
 
           def emit_scroll_background(node)
@@ -1392,8 +1392,8 @@ module RubyGBA
           # and video memory at startup.
           def emit_plain_dma_blob(blob_name, dest, units)
             emit_load_data_address(ACC, blob_name)
-            emit(Cartridge::ASM.load_immediate(TMP, REG_DMA3SAD))
-            emit(Cartridge::ASM.str(ACC, TMP)) # DMA source = the blob in the cartridge
+            emit(ASM.load_immediate(TMP, REG_DMA3SAD))
+            emit(ASM.str(ACC, TMP)) # DMA source = the blob in the cartridge
             store_word_immediate(dest, REG_DMA3DAD)
             store_word_immediate(units | DMA_ENABLE, REG_DMA3CNT) # go: 16-bit, both increment
           end
@@ -1410,8 +1410,8 @@ module RubyGBA
           # reads the expanded size from the header, so there is no length to pass.
           def emit_bios_decompress(blob_name, dest, swi_number)
             emit_load_data_address(0, blob_name)   # r0 = packed source in the cartridge
-            emit(Cartridge::ASM.load_immediate(1, dest))      # r1 = destination slot
-            emit(Cartridge::ASM.swi(swi_number << 16))
+            emit(ASM.load_immediate(1, dest))      # r1 = destination slot
+            emit(ASM.swi(swi_number << 16))
           end
 
           # Pack a blob the first time we are about to upload it, and remember the
@@ -1529,7 +1529,7 @@ module RubyGBA
           # slots from the sprite's own, so the whole thing keeps one place in the stack.
           def emit_present_object(obj, twin: nil)
             @lowering.value(obj.active)
-            emit(Cartridge::ASM.cmp_imm(ACC, 0))
+            emit(ASM.cmp_imm(ACC, 0))
             draw = gensym
             done = gensym
             emit_branch(:bcond, draw, cond: :ne)
@@ -1576,10 +1576,10 @@ module RubyGBA
           def emit_hold_object_colors(obj)
             banks = obj.recolor_banks
             @lowering.value(obj.recolor)
-            emit(Cartridge::ASM.cmp_imm(ACC, banks.own))
-            emit(Cartridge::ASM.mov_imm_cond(:hs, ACC, banks.own))
+            emit(ASM.cmp_imm(ACC, banks.own))
+            emit(ASM.mov_imm_cond(:hs, ACC, banks.own))
             emit_load_data_address(TMP, banks.table)
-            emit(Cartridge::ASM.ldr_reg_lsl(ACC, TMP, ACC, 2))
+            emit(ASM.ldr_reg_lsl(ACC, TMP, ACC, 2))
             store_var(ACC, OBJ_COLORS_BANK)
           end
 
@@ -1589,7 +1589,7 @@ module RubyGBA
             return unless obj.recolor_banks
 
             load_var(TMP, OBJ_COLORS_BANK)
-            emit(Cartridge::ASM.orr_reg(ACC, ACC, TMP))
+            emit(ASM.orr_reg(ACC, ACC, TMP))
           end
 
           # Which pose's pictures are sitting in a sprite's room right now, for a sprite that
@@ -1617,15 +1617,15 @@ module RubyGBA
             already = gensym
             @lowering.value(obj.pose)
             load_var(TMP, frame_in_room(obj))
-            emit(Cartridge::ASM.cmp_reg(ACC, TMP))
+            emit(ASM.cmp_reg(ACC, TMP))
             emit_branch(:bcond, already, cond: :eq)
             store_var(ACC, frame_in_room(obj))
-            emit(Cartridge::ASM.load_immediate(TMP, obj.frame_bytes))
-            emit(Cartridge::ASM.mul(2, ACC, TMP))                    # r2 = where this frame starts in the blob
+            emit(ASM.load_immediate(TMP, obj.frame_bytes))
+            emit(ASM.mul(2, ACC, TMP))                    # r2 = where this frame starts in the blob
             emit_load_data_address(ACC, obj.frames)
-            emit(Cartridge::ASM.add_reg(ACC, ACC, 2))
-            emit(Cartridge::ASM.load_immediate(TMP, REG_DMA3SAD))
-            emit(Cartridge::ASM.str(ACC, TMP))                       # source = the frame in the cartridge
+            emit(ASM.add_reg(ACC, ACC, 2))
+            emit(ASM.load_immediate(TMP, REG_DMA3SAD))
+            emit(ASM.str(ACC, TMP))                       # source = the frame in the cartridge
             store_word_immediate(OBJ_TILE_BASE + (obj.tile_index * 32), REG_DMA3DAD)
             store_word_immediate((obj.frame_bytes / 4) | DMA_ENABLE | DMA_32BIT, REG_DMA3CNT)
             place_label(already)
@@ -1687,30 +1687,30 @@ module RubyGBA
             emit_load_pose_word(obj, piece)
             # attr0 = (y + how far down) & 0xFF, then the shape out of bits 10..11.
             load_var(ACC, POSE_DRAW_Y)
-            emit(Cartridge::ASM.lsr_imm(TMP, POSE_WORD, 22))
-            emit(Cartridge::ASM.add_reg(ACC, ACC, TMP))
+            emit(ASM.lsr_imm(TMP, POSE_WORD, 22))
+            emit(ASM.add_reg(ACC, ACC, TMP))
             mask_into_acc(0xFF)
-            emit(Cartridge::ASM.and_imm(TMP, POSE_WORD, 0x0C00))   # shape, still at bit 10
-            emit(Cartridge::ASM.orr_reg_lsl(ACC, ACC, TMP, 4))     # ...into bit 14
+            emit(ASM.and_imm(TMP, POSE_WORD, 0x0C00))   # shape, still at bit 10
+            emit(ASM.orr_reg_lsl(ACC, ACC, TMP, 4))     # ...into bit 14
             orr_acc(obj.attr0_base) unless obj.attr0_base.zero?
             store_halfword_acc(base)
             mirror_attr0(mirror)
             # attr1 = (x + how far right) & 0x1FF, then the size out of bits 12..13.
             load_var(ACC, POSE_DRAW_X)
-            emit(Cartridge::ASM.lsr_imm(TMP, POSE_WORD, 14))
-            emit(Cartridge::ASM.and_imm(TMP, TMP, 0xFF))
-            emit(Cartridge::ASM.add_reg(ACC, ACC, TMP))
+            emit(ASM.lsr_imm(TMP, POSE_WORD, 14))
+            emit(ASM.and_imm(TMP, TMP, 0xFF))
+            emit(ASM.add_reg(ACC, ACC, TMP))
             mask_into_acc(0x1FF)
-            emit(Cartridge::ASM.and_imm(TMP, POSE_WORD, 0x3000))   # size, still at bit 12
-            emit(Cartridge::ASM.orr_reg_lsl(ACC, ACC, TMP, 2))     # ...into bit 14
+            emit(ASM.and_imm(TMP, POSE_WORD, 0x3000))   # size, still at bit 12
+            emit(ASM.orr_reg_lsl(ACC, ACC, TMP, 2))     # ...into bit 14
             emit_pose_mirror_bit if obj.mirrors&.any?
             orr_acc(obj.attr1_base) unless obj.attr1_base.zero?
             store_halfword_acc(base + 2)
             store_halfword_acc(mirror + 2) if mirror
             # attr2 = the pose's own first tile, out of bits 0..9. Two shifts rather than a
             # mask: a ten-bit mask is not one of the immediates this chip can carry.
-            emit(Cartridge::ASM.lsl_imm(ACC, POSE_WORD, 22))
-            emit(Cartridge::ASM.lsr_imm(ACC, ACC, 22))
+            emit(ASM.lsl_imm(ACC, POSE_WORD, 22))
+            emit(ASM.lsr_imm(ACC, ACC, 22))
             orr_acc(obj.attr2_base) unless obj.attr2_base.zero?
             orr_object_colors(obj)
             store_halfword_acc(base + 4)
@@ -1721,9 +1721,9 @@ module RubyGBA
           # entry. Only emitted for a sprite that actually has a mirrored pose, so a
           # sprite whose poses merely differ in size pays nothing for it.
           def emit_pose_mirror_bit
-            emit(Cartridge::ASM.lsr_imm(TMP, POSE_WORD, 18))       # bit 30 down to bit 12...
-            emit(Cartridge::ASM.and_imm(TMP, TMP, OBJ_HFLIP))      # ...and nothing else with it
-            emit(Cartridge::ASM.orr_reg(ACC, ACC, TMP))
+            emit(ASM.lsr_imm(TMP, POSE_WORD, 18))       # bit 30 down to bit 12...
+            emit(ASM.and_imm(TMP, TMP, OBJ_HFLIP))      # ...and nothing else with it
+            emit(ASM.orr_reg(ACC, ACC, TMP))
           end
 
           # How far a load can reach from a register on its own (the instruction carries a
@@ -1742,19 +1742,19 @@ module RubyGBA
             fixed = const_int(obj.pose)
             if fixed
               at = fixed.between?(0, obj.pose_count - 1) ? row + fixed : row
-              return emit(Cartridge::ASM.load_immediate(POSE_WORD, words[at]))
+              return emit(ASM.load_immediate(POSE_WORD, words[at]))
             end
 
             @lowering.value(obj.pose)
-            emit(Cartridge::ASM.lsl_imm(ACC, ACC, 2)) # a word each
+            emit(ASM.lsl_imm(ACC, ACC, 2)) # a word each
             emit_load_data_address(TMP, obj.pose_table)
-            emit(Cartridge::ASM.add_reg(TMP, TMP, ACC))
+            emit(ASM.add_reg(TMP, TMP, ACC))
             offset = row * 4
-            return emit(Cartridge::ASM.ldr(POSE_WORD, TMP)) if offset.zero?
-            return emit(Cartridge::ASM.ldr_offset(POSE_WORD, TMP, offset)) if offset < LDR_OFFSET_LIMIT
+            return emit(ASM.ldr(POSE_WORD, TMP)) if offset.zero?
+            return emit(ASM.ldr_offset(POSE_WORD, TMP, offset)) if offset < LDR_OFFSET_LIMIT
 
             emit_add_const(TMP, TMP, offset, ACC) # ACC is spent: the pose is already added in
-            emit(Cartridge::ASM.ldr(POSE_WORD, TMP))
+            emit(ASM.ldr(POSE_WORD, TMP))
           end
 
           # Drop the attr0 just written into the window twin's slot as well, with the bit
@@ -1774,7 +1774,7 @@ module RubyGBA
           # the whole picture. Asked once for all of them, after they are drawn.
           def emit_window_gate(twin, pieces)
             @lowering.value(twin.gate)
-            emit(Cartridge::ASM.cmp_imm(ACC, 0))
+            emit(ASM.cmp_imm(ACC, 0))
             keeps = gensym
             emit_branch(:bcond, keeps, cond: :ne)
             pieces.times { |piece| write_reg16(oam_slot(twin.slot, piece), OBJ_HIDDEN_ATTR0) }
@@ -1791,14 +1791,14 @@ module RubyGBA
             half_h = obj.height / 2
             # attr0 = ((y - half_h) & 0xFF) | rotate/scale + double-size + shape/color
             @lowering.value(obj.y)
-            emit(Cartridge::ASM.sub_imm(ACC, ACC, half_h)) unless half_h.zero?
+            emit(ASM.sub_imm(ACC, ACC, half_h)) unless half_h.zero?
             mask_into_acc(0xFF)
             orr_acc(obj.attr0_base | OBJ_ROTSCALE | OBJ_DOUBLE_SIZE)
             store_halfword_acc(base)
             mirror_attr0(mirror)
             # attr1 = ((x - half_w) & 0x1FF) | size | affine-group index (bits 9..13)
             @lowering.value(obj.x)
-            emit(Cartridge::ASM.sub_imm(ACC, ACC, half_w)) unless half_w.zero?
+            emit(ASM.sub_imm(ACC, ACC, half_w)) unless half_w.zero?
             mask_into_acc(0x1FF)
             orr_acc(obj.attr1_base | (obj.affine_slot << 9))
             store_halfword_acc(base + 2)
@@ -1823,15 +1823,15 @@ module RubyGBA
             emit_object_scale_reciprocal(obj) if obj.scales # do the divide first: it clobbers everything
             @lowering.value(obj.angle)                      # r0 = angle in degrees (0..359)
             emit_load_data_address(TMP, OBJ_SINE_BLOB)   # r1 = sine table base
-            emit(Cartridge::ASM.lsl_imm(2, ACC, 1))                 # r2 = angle * 2 (halfword offset)
-            emit(Cartridge::ASM.add_reg(ADDR, TMP, 2))
-            emit(Cartridge::ASM.ldrsh(2, ADDR))                     # r2 = sin(angle)
-            emit(Cartridge::ASM.add_imm(3, ACC, 90))                # r3 = angle + 90
-            emit(Cartridge::ASM.lsl_imm(3, 3, 1))
-            emit(Cartridge::ASM.add_reg(ADDR, TMP, 3))
-            emit(Cartridge::ASM.ldrsh(3, ADDR))                     # r3 = sin(angle + 90) = cos(angle)
+            emit(ASM.lsl_imm(2, ACC, 1))                 # r2 = angle * 2 (halfword offset)
+            emit(ASM.add_reg(ADDR, TMP, 2))
+            emit(ASM.ldrsh(2, ADDR))                     # r2 = sin(angle)
+            emit(ASM.add_imm(3, ACC, 90))                # r3 = angle + 90
+            emit(ASM.lsl_imm(3, 3, 1))
+            emit(ASM.add_reg(ADDR, TMP, 3))
+            emit(ASM.ldrsh(3, ADDR))                     # r3 = sin(angle + 90) = cos(angle)
             emit_scale_sine_and_cosine if obj.scales   # r2, r3 *= one over the size
-            emit(Cartridge::ASM.rsb_imm(ACC, 2, 0))                 # r0 = -sin(angle)
+            emit(ASM.rsb_imm(ACC, 2, 0))                 # r0 = -sin(angle)
             store_halfword_reg(3, group + 6)             # PA =  cos
             store_halfword_reg(2, group + 14)            # PB =  sin
             store_halfword_reg(ACC, group + 22)          # PC = -sin
@@ -1850,13 +1850,13 @@ module RubyGBA
           # routine uses every scratch register there is.
           def emit_object_scale_reciprocal(obj)
             @lowering.value(obj.scale)                             # r0 = size, in SCALE_ONE-ths
-            emit(Cartridge::ASM.cmp_imm(ACC, Affine::MIN_SCALE))
-            emit(Cartridge::ASM.mov_imm_cond(:lt, ACC, Affine::MIN_SCALE)) # a size of 0 has no reciprocal
-            emit(Cartridge::ASM.load_immediate(Divide::DIV_NUM, Build::SCALE_ONE * Affine::ONE_TH))
+            emit(ASM.cmp_imm(ACC, Affine::MIN_SCALE))
+            emit(ASM.mov_imm_cond(:lt, ACC, Affine::MIN_SCALE)) # a size of 0 has no reciprocal
+            emit(ASM.load_immediate(Divide::DIV_NUM, Build::SCALE_ONE * Affine::ONE_TH))
             emit_call_divide_routine                            # r0 = SCALE_ONE * 256 / size
-            emit(Cartridge::ASM.load_immediate(TMP, Affine::MAX))
-            emit(Cartridge::ASM.cmp_reg(ACC, TMP))
-            emit(Cartridge::ASM.mov_reg_cond(:gt, ACC, TMP))               # too tiny to say: hold at the largest
+            emit(ASM.load_immediate(TMP, Affine::MAX))
+            emit(ASM.cmp_reg(ACC, TMP))
+            emit(ASM.mov_reg_cond(:gt, ACC, TMP))               # too tiny to say: hold at the largest
             store_var(ACC, OBJ_SCALE_RECIP)
           end
 
@@ -1865,17 +1865,17 @@ module RubyGBA
           # Affine.matrix — which rounds down for the same reason.
           def emit_scale_sine_and_cosine
             load_var(4, OBJ_SCALE_RECIP)
-            emit(Cartridge::ASM.mul(5, 2, 4)) # rd must differ from rm, so the product lands elsewhere
-            emit(Cartridge::ASM.asr_imm(2, 5, 8))
-            emit(Cartridge::ASM.mul(5, 3, 4))
-            emit(Cartridge::ASM.asr_imm(3, 5, 8))
+            emit(ASM.mul(5, 2, 4)) # rd must differ from rm, so the product lands elsewhere
+            emit(ASM.asr_imm(2, 5, 8))
+            emit(ASM.mul(5, 3, 4))
+            emit(ASM.asr_imm(3, 5, 8))
           end
 
           # Store the low halfword of +reg+ to a fixed address (a sibling of
           # store_halfword_acc for when the value isn't in the accumulator).
           def store_halfword_reg(reg, address)
-            emit(Cartridge::ASM.load_immediate(TMP, address))
-            emit(Cartridge::ASM.store_halfword(reg, TMP))
+            emit(ASM.load_immediate(TMP, address))
+            emit(ASM.store_halfword(reg, TMP))
           end
 
           # Write a sprite's tile number (attr2) for this frame. The sprite's poses sit
@@ -1887,13 +1887,13 @@ module RubyGBA
             if fixed && obj.recolor_banks.nil?
               write_reg16(attr2_addr, obj.tile_index + (fixed * obj.per_pose) | obj.attr2_base)
             elsif fixed
-              emit(Cartridge::ASM.load_immediate(ACC, obj.tile_index + (fixed * obj.per_pose) | obj.attr2_base))
+              emit(ASM.load_immediate(ACC, obj.tile_index + (fixed * obj.per_pose) | obj.attr2_base))
               orr_object_colors(obj)
               store_halfword_acc(attr2_addr)
             else
               @lowering.value(obj.pose)                          # r0 = pose index
-              emit(Cartridge::ASM.load_immediate(TMP, obj.per_pose))   # r1 = stride between poses
-              emit(Cartridge::ASM.mul(2, ACC, TMP))                      # r2 = pose * stride (rd must differ from rm)
+              emit(ASM.load_immediate(TMP, obj.per_pose))   # r1 = stride between poses
+              emit(ASM.mul(2, ACC, TMP))                      # r2 = pose * stride (rd must differ from rm)
               emit_add_const(ACC, 2, obj.tile_index, TMP)   # r0 = r2 + base tile
               orr_acc(obj.attr2_base) unless obj.attr2_base.zero?
               orr_object_colors(obj)
@@ -1903,15 +1903,15 @@ module RubyGBA
 
           # r0 &= mask, using a scratch register so any mask width is fine.
           def mask_into_acc(mask)
-            emit(Cartridge::ASM.load_immediate(TMP, mask))
-            emit(Cartridge::ASM.and_reg(ACC, ACC, TMP))
+            emit(ASM.load_immediate(TMP, mask))
+            emit(ASM.and_reg(ACC, ACC, TMP))
           end
 
           # r0 |= value, via a scratch register (values here have bits too high for an
           # inline immediate).
           def orr_acc(value)
-            emit(Cartridge::ASM.load_immediate(TMP, value))
-            emit(Cartridge::ASM.orr_reg(ACC, ACC, TMP))
+            emit(ASM.load_immediate(TMP, value))
+            emit(ASM.orr_reg(ACC, ACC, TMP))
           end
 
           # Bitmap-mode background: no tile hardware, so stamp each non-empty cell with
@@ -1995,12 +1995,12 @@ module RubyGBA
             x_reg = 7
             y_reg = 8
             @lowering.value(x_node)
-            emit(Cartridge::ASM.mov_reg(x_reg, ACC))
+            emit(ASM.mov_reg(x_reg, ACC))
             @lowering.value(y_node)
-            emit(Cartridge::ASM.mov_reg(y_reg, ACC))
+            emit(ASM.mov_reg(y_reg, ACC))
             case base
             when Symbol  then emit_load_data_address(buf_reg, base)    # r6 = ROM blob address
-            when Integer then emit(Cartridge::ASM.load_immediate(buf_reg, base))  # r6 = RAM buffer address
+            when Integer then emit(ASM.load_immediate(buf_reg, base))  # r6 = RAM buffer address
             else raise LoweringError, "rect DMA base must be a blob name or a RAM address, got #{base.inspect}"
             end
 
@@ -2009,59 +2009,59 @@ module RubyGBA
 
               # screen_y = y + row; drop the whole row if it's above or below screen.
               emit_add_const(9, y_reg, row, 2)          # r9 = screen_y
-              emit(Cartridge::ASM.cmp_imm(9, 0))
+              emit(ASM.cmp_imm(9, 0))
               emit_branch(:bcond, skip, cond: :lt)
-              emit(Cartridge::ASM.cmp_imm(9, SCREEN_HEIGHT))
+              emit(ASM.cmp_imm(9, SCREEN_HEIGHT))
               emit_branch(:bcond, skip, cond: :ge)
 
               # visible_left = max(x, 0)  -> r10
-              emit(Cartridge::ASM.mov_reg(10, x_reg))
-              emit(Cartridge::ASM.cmp_imm(x_reg, 0))
+              emit(ASM.mov_reg(10, x_reg))
+              emit(ASM.cmp_imm(x_reg, 0))
               keep_left = gensym
               emit_branch(:bcond, keep_left, cond: :ge)
-              emit(Cartridge::ASM.load_immediate(10, 0))
+              emit(ASM.load_immediate(10, 0))
               place_label(keep_left)
 
               # visible_right = min(x + width, SCREEN_WIDTH)  -> r11
               emit_add_const(11, x_reg, width, 2)
-              emit(Cartridge::ASM.cmp_imm(11, SCREEN_WIDTH))
+              emit(ASM.cmp_imm(11, SCREEN_WIDTH))
               keep_right = gensym
               emit_branch(:bcond, keep_right, cond: :le)
-              emit(Cartridge::ASM.load_immediate(11, SCREEN_WIDTH))
+              emit(ASM.load_immediate(11, SCREEN_WIDTH))
               place_label(keep_right)
 
               # visible_width = visible_right - visible_left  -> r4; if <= 0 the row
               # is entirely off to one side, so skip it.
-              emit(Cartridge::ASM.sub_reg(4, 11, 10))
-              emit(Cartridge::ASM.cmp_imm(4, 0))
+              emit(ASM.sub_reg(4, 11, 10))
+              emit(ASM.cmp_imm(4, 0))
               emit_branch(:bcond, skip, cond: :le)
 
               # buffer span address = base + (row*width + left_skip) * 2  -> r5
-              emit(Cartridge::ASM.sub_reg(5, 10, x_reg))           # left_skip = visible_left - x
+              emit(ASM.sub_reg(5, 10, x_reg))           # left_skip = visible_left - x
               emit_add_const(5, 5, row * width, 2)      # + this row's start in the buffer
-              emit(Cartridge::ASM.lsl_imm(5, 5, 1))                # * 2 bytes/pixel
-              emit(Cartridge::ASM.add_reg(5, buf_reg, 5))
+              emit(ASM.lsl_imm(5, 5, 1))                # * 2 bytes/pixel
+              emit(ASM.add_reg(5, buf_reg, 5))
 
               # screen span address = VRAM + (screen_y*SCREEN_WIDTH + visible_left) * 2 -> r3
-              emit(Cartridge::ASM.load_immediate(2, SCREEN_WIDTH))
-              emit(Cartridge::ASM.mul(3, 9, 2))                    # r3 = screen_y * width
-              emit(Cartridge::ASM.add_reg(3, 3, 10))               # + visible_left
-              emit(Cartridge::ASM.lsl_imm(3, 3, 1))
-              emit(Cartridge::ASM.load_immediate(2, VRAM_START))
-              emit(Cartridge::ASM.add_reg(3, 3, 2))
+              emit(ASM.load_immediate(2, SCREEN_WIDTH))
+              emit(ASM.mul(3, 9, 2))                    # r3 = screen_y * width
+              emit(ASM.add_reg(3, 3, 10))               # + visible_left
+              emit(ASM.lsl_imm(3, 3, 1))
+              emit(ASM.load_immediate(2, VRAM_START))
+              emit(ASM.add_reg(3, 3, 2))
 
               # control = visible_width | DMA_ENABLE (16-bit, source+dest increment).
-              emit(Cartridge::ASM.orr_imm(4, 4, DMA_ENABLE))
+              emit(ASM.orr_imm(4, 4, DMA_ENABLE))
 
               # Direction decides which span is the source: :dest sends the buffer
               # (r5) to the screen (r3); :src reads the screen (r3) into the buffer (r5).
               sad, dad = vram == :dest ? [5, 3] : [3, 5]
-              emit(Cartridge::ASM.load_immediate(TMP, REG_DMA3SAD))
-              emit(Cartridge::ASM.str(sad, TMP))                   # source span
-              emit(Cartridge::ASM.load_immediate(TMP, REG_DMA3DAD))
-              emit(Cartridge::ASM.str(dad, TMP))                   # destination span
-              emit(Cartridge::ASM.load_immediate(TMP, REG_DMA3CNT))
-              emit(Cartridge::ASM.str(4, TMP))                     # kick off the row copy
+              emit(ASM.load_immediate(TMP, REG_DMA3SAD))
+              emit(ASM.str(sad, TMP))                   # source span
+              emit(ASM.load_immediate(TMP, REG_DMA3DAD))
+              emit(ASM.str(dad, TMP))                   # destination span
+              emit(ASM.load_immediate(TMP, REG_DMA3CNT))
+              emit(ASM.str(4, TMP))                     # kick off the row copy
 
               place_label(skip)
             end
@@ -2086,9 +2086,9 @@ module RubyGBA
             x_reg = 2
             y_reg = 3
             @lowering.value(node.x)
-            emit(Cartridge::ASM.mov_reg(x_reg, ACC))
+            emit(ASM.mov_reg(x_reg, ACC))
             @lowering.value(node.y)
-            emit(Cartridge::ASM.mov_reg(y_reg, ACC))
+            emit(ASM.mov_reg(y_reg, ACC))
 
             bmp.height.times do |row|
               lit = width.times.reject { |col| colors[(row * width) + col] == bmp.transparent }
@@ -2096,29 +2096,29 @@ module RubyGBA
 
               skip_row = gensym
               emit_add_const(4, y_reg, row, 5)          # r4 = screen_y
-              emit(Cartridge::ASM.cmp_imm(4, 0))
+              emit(ASM.cmp_imm(4, 0))
               emit_branch(:bcond, skip_row, cond: :lt)
-              emit(Cartridge::ASM.cmp_imm(4, SCREEN_HEIGHT))
+              emit(ASM.cmp_imm(4, SCREEN_HEIGHT))
               emit_branch(:bcond, skip_row, cond: :ge)
-              emit(Cartridge::ASM.load_immediate(5, SCREEN_WIDTH))
-              emit(Cartridge::ASM.mul(6, 4, 5))                    # r6 = screen_y * width (row base)
+              emit(ASM.load_immediate(5, SCREEN_WIDTH))
+              emit(ASM.mul(6, 4, 5))                    # r6 = screen_y * width (row base)
 
               lit.each do |col|
                 color = colors[(row * width) + col]
                 skip_px = gensym
 
                 emit_add_const(7, x_reg, col, 8)        # r7 = screen_x
-                emit(Cartridge::ASM.cmp_imm(7, 0))
+                emit(ASM.cmp_imm(7, 0))
                 emit_branch(:bcond, skip_px, cond: :lt)
-                emit(Cartridge::ASM.cmp_imm(7, SCREEN_WIDTH))
+                emit(ASM.cmp_imm(7, SCREEN_WIDTH))
                 emit_branch(:bcond, skip_px, cond: :ge)
 
-                emit(Cartridge::ASM.add_reg(7, 6, 7))              # r7 = row_base + screen_x
-                emit(Cartridge::ASM.lsl_imm(7, 7, 1))              # * 2 bytes/pixel
-                emit(Cartridge::ASM.load_immediate(8, VRAM_START))
-                emit(Cartridge::ASM.add_reg(7, 7, 8))              # VRAM address
-                emit(Cartridge::ASM.load_immediate(8, color))
-                emit(Cartridge::ASM.store_halfword(8, 7))
+                emit(ASM.add_reg(7, 6, 7))              # r7 = row_base + screen_x
+                emit(ASM.lsl_imm(7, 7, 1))              # * 2 bytes/pixel
+                emit(ASM.load_immediate(8, VRAM_START))
+                emit(ASM.add_reg(7, 7, 8))              # VRAM address
+                emit(ASM.load_immediate(8, color))
+                emit(ASM.store_halfword(8, 7))
 
                 place_label(skip_px)
               end
@@ -2140,8 +2140,8 @@ module RubyGBA
               py = y + dy
               next unless @framebuffer.in_bounds?(px, py)
 
-              emit(Cartridge::ASM.load_immediate(TMP, VRAM_START + ((py * SCREEN_WIDTH) + px) * 2))
-              emit(Cartridge::ASM.store_halfword(ACC, TMP))
+              emit(ASM.load_immediate(TMP, VRAM_START + ((py * SCREEN_WIDTH) + px) * 2))
+              emit(ASM.store_halfword(ACC, TMP))
             end
           end
           # Draw the run-time digit held in +value+ (0..9). A font can't be indexed by a
@@ -2196,9 +2196,9 @@ module RubyGBA
           def emit_draw_digit_data(node, font, width, x, y)
             color = Graphics::Color.resolve(node.color)
             @lowering.value(node.value)             # r0 = the digit (0..9)
-            emit(Cartridge::ASM.load_immediate(1, x))
-            emit(Cartridge::ASM.load_immediate(2, y))
-            emit(Cartridge::ASM.load_immediate(3, color))
+            emit(ASM.load_immediate(1, x))
+            emit(ASM.load_immediate(2, y))
+            emit(ASM.load_immediate(3, color))
             emit_call_cold_routine(digit_routine_label(node.font, font, width))
           end
 
@@ -2229,19 +2229,19 @@ module RubyGBA
             return unless @pending_digit_routines
 
             @pending_digit_routines.each do |font_name, font, width|
-              emit(Cartridge::ASM.loop_forever) # fall-through guard: only ever entered by the call above
+              emit(ASM.loop_forever) # fall-through guard: only ever entered by the call above
               place_label(:"__digit_routine_#{font_name}")
-              emit(Cartridge::ASM.push(14))
-              emit(Cartridge::ASM.mov_reg(10, 1)) # r10 = x, held across the routine
-              emit(Cartridge::ASM.mov_reg(11, 2)) # r11 = y
-              emit(Cartridge::ASM.mov_reg(12, 3)) # r12 = the fill color
+              emit(ASM.push(14))
+              emit(ASM.mov_reg(10, 1)) # r10 = x, held across the routine
+              emit(ASM.mov_reg(11, 2)) # r11 = y
+              emit(ASM.mov_reg(12, 3)) # r12 = the fill color
               @framebuffer.emit_digit_glyph_loop(font_name, font, width) do |phase|
                 case phase
-                when :hold then emit(Cartridge::ASM.mov_reg(8, 12)) # r8 = the fill color, held
+                when :hold then emit(ASM.mov_reg(8, 12)) # r8 = the fill color, held
                 when :plot then emit_plot_digit_pixel(10, 11)
                 end
               end
-              emit(Cartridge::ASM.pop(15))
+              emit(ASM.pop(15))
               # Where it ends, so a profile of the finished game can say how much of a frame
               # went into drawing digits. A routine the LOWERING makes has no other record of
               # its span — func_ranges only knows routines somebody wrote.
@@ -2254,15 +2254,15 @@ module RubyGBA
           # shared routine, not constants baked in here — and r5/r4 are the live
           # row/col. Uses r0–r3 as scratch and leaves the loop registers alone.
           def emit_plot_digit_pixel(x_reg, y_reg)
-            emit(Cartridge::ASM.add_reg(0, y_reg, 5))        # r0 = screen_y = y + row
-            emit(Cartridge::ASM.load_immediate(1, SCREEN_WIDTH))
-            emit(Cartridge::ASM.mul(2, 0, 1))                # r2 = screen_y * width
-            emit(Cartridge::ASM.add_reg(0, x_reg, 4))        # r0 = screen_x = x + col
-            emit(Cartridge::ASM.add_reg(2, 2, 0))            # r2 = screen_y*width + screen_x
-            emit(Cartridge::ASM.lsl_imm(2, 2, 1))            # * 2 bytes per pixel
-            emit(Cartridge::ASM.load_immediate(1, VRAM_START))
-            emit(Cartridge::ASM.add_reg(2, 2, 1))            # r2 = the pixel's VRAM address
-            emit(Cartridge::ASM.store_halfword(8, 2))        # write the color
+            emit(ASM.add_reg(0, y_reg, 5))        # r0 = screen_y = y + row
+            emit(ASM.load_immediate(1, SCREEN_WIDTH))
+            emit(ASM.mul(2, 0, 1))                # r2 = screen_y * width
+            emit(ASM.add_reg(0, x_reg, 4))        # r0 = screen_x = x + col
+            emit(ASM.add_reg(2, 2, 0))            # r2 = screen_y*width + screen_x
+            emit(ASM.lsl_imm(2, 2, 1))            # * 2 bytes per pixel
+            emit(ASM.load_immediate(1, VRAM_START))
+            emit(ASM.add_reg(2, 2, 1))            # r2 = the pixel's VRAM address
+            emit(ASM.store_halfword(8, 2))        # write the color
           end
 
         end

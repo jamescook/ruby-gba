@@ -45,7 +45,7 @@ module RubyGBA
           # r0 and r12 are both saved by the BIOS before it enters here.
           def emit_frame_count
             @primitives.load_var(ACC, COUNT)
-            @emitter.emit(Cartridge::ASM.add_imm(ACC, ACC, 1))
+            @emitter.emit(ASM.add_imm(ACC, ACC, 1))
             @primitives.store_var(ACC, COUNT)
           end
 
@@ -65,18 +65,18 @@ module RubyGBA
             @primitives.load_var(ACC, COUNT)
             @primitives.load_var(TMP, SEEN)
             @primitives.store_var(ACC, SEEN)  # this pass's mark, for the next one to measure from
-            @emitter.emit(Cartridge::ASM.sub_reg(ACC, ACC, TMP))
+            @emitter.emit(ASM.sub_reg(ACC, ACC, TMP))
 
             under = @emitter.gensym
-            @emitter.emit(Cartridge::ASM.cmp_imm(ACC, MOST))
+            @emitter.emit(ASM.cmp_imm(ACC, MOST))
             @emitter.emit_branch(:bcond, under, cond: :le)
-            @emitter.emit(Cartridge::ASM.load_immediate(ACC, MOST))
+            @emitter.emit(ASM.load_immediate(ACC, MOST))
             @emitter.place_label(under)
 
             over = @emitter.gensym
-            @emitter.emit(Cartridge::ASM.cmp_imm(ACC, 1))
+            @emitter.emit(ASM.cmp_imm(ACC, 1))
             @emitter.emit_branch(:bcond, over, cond: :ge)
-            @emitter.emit(Cartridge::ASM.load_immediate(ACC, 1))
+            @emitter.emit(ASM.load_immediate(ACC, 1))
             @emitter.place_label(over)
             @primitives.store_var(ACC, STEP)
           end

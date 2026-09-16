@@ -10,7 +10,6 @@ require_relative "ruby_gba/audio/music" # before the IR: the backends size their
 require_relative "ruby_gba/audio/score" # music handed over as data, rather than written as a block
 require_relative "ruby_gba/audio/envelope" # how a note starts and how it ends, so an edge is not a click
 require_relative "ruby_gba/diagnostics/sprite_row" # one sprite read back, off the console or off the oracle
-require_relative "ruby_gba/cartridge/asm"
 require_relative "ruby_gba/messages/progress" # what a build says it is doing while it does it
 require_relative "ruby_gba/messages/build_output" # where a build prints, however the caller said it
 require_relative "ruby_gba/ir"

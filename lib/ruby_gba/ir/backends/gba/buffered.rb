@@ -144,7 +144,7 @@ module RubyGBA
             load_var(base, BACKBUF) # the hidden page base, held for the whole rect
             # A row narrow enough to be written out needs the fill unit in a register, and it
             # is the same unit for every row — so it is loaded once here rather than per row.
-            emit(Cartridge::ASM.load_immediate(RECT_FILL, fill_unit(index))) if direct_fill?(middle_w)
+            emit(ASM.load_immediate(RECT_FILL, fill_unit(index))) if direct_fill?(middle_w)
 
             # A rect as wide as the screen is one unbroken run of memory: there is no gap
             # to skip between rows, because the next row starts exactly where the last one
@@ -197,8 +197,8 @@ module RubyGBA
 
             store_word_immediate(scratch, REG_DMA3SAD)
             emit_add_const(ACC, base, (row * SCREEN_WIDTH) + x, TMP) # + byte offset (1 byte/pixel)
-            emit(Cartridge::ASM.load_immediate(TMP, REG_DMA3DAD))
-            emit(Cartridge::ASM.str(ACC, TMP))                                  # destination = that row
+            emit(ASM.load_immediate(TMP, REG_DMA3DAD))
+            emit(ASM.str(ACC, TMP))                                  # destination = that row
             store_word_immediate(dma_fill_control_16(w / 2), REG_DMA3CNT)
           end
 
@@ -208,7 +208,7 @@ module RubyGBA
           # fixed offset from it.
           def emit_buffered_row_stores(base:, x:, row:, w:)
             emit_add_const(1, base, (row * SCREEN_WIDTH) + x, ACC) # r1 = the row's first unit
-            (w / 2).times { |unit| emit(Cartridge::ASM.store_halfword_offset(RECT_FILL, 1, unit * 2)) }
+            (w / 2).times { |unit| emit(ASM.store_halfword_offset(RECT_FILL, 1, unit * 2)) }
           end
 
           # The 16-bit unit a packed fill writes: the palette index in both of its pixels.
@@ -261,10 +261,10 @@ module RubyGBA
           # rect cost the same per row at 2 pixels wide as at 16, because almost none of
           # the cost was the pixels.
           def emit_row_address_setup
-            emit(Cartridge::ASM.load_immediate(RECT_ADDR, SCREEN_WIDTH))
-            emit(Cartridge::ASM.mul(RECT_ROW, RECT_ADDR, RECT_Y)) # r4 = SCREEN_WIDTH * y, 1 byte/pixel
+            emit(ASM.load_immediate(RECT_ADDR, SCREEN_WIDTH))
+            emit(ASM.mul(RECT_ROW, RECT_ADDR, RECT_Y)) # r4 = SCREEN_WIDTH * y, 1 byte/pixel
             load_var(RECT_ADDR, BACKBUF)               # r5 = hidden page base
-            emit(Cartridge::ASM.add_reg(RECT_ROW, RECT_ROW, RECT_ADDR))
+            emit(ASM.add_reg(RECT_ROW, RECT_ROW, RECT_ADDR))
           end
 
           # One row down the screen: the address (240 bytes a row on this display, which
@@ -272,8 +272,8 @@ module RubyGBA
           # r4 by the time the first row runs, so from here it tracks which row this is,
           # for #emit_buffered_computed_row's own top/bottom check.
           def emit_advance_row
-            emit(Cartridge::ASM.add_imm(RECT_ROW, RECT_ROW, SCREEN_WIDTH))
-            emit(Cartridge::ASM.add_imm(RECT_Y, RECT_Y, 1))
+            emit(ASM.add_imm(RECT_ROW, RECT_ROW, SCREEN_WIDTH))
+            emit(ASM.add_imm(RECT_Y, RECT_Y, 1))
           end
 
           # +h+ is the height when it is settled while building — then the rows are
@@ -350,19 +350,19 @@ module RubyGBA
             needs_clip = gensym
             done = gensym
 
-            emit(Cartridge::ASM.cmp_imm(RECT_X, @framebuffer.clip_left))
+            emit(ASM.cmp_imm(RECT_X, @framebuffer.clip_left))
             emit_branch(:bcond, needs_clip, cond: :lt)
             emit_add_const(ACC, RECT_X, w, TMP)
-            emit(Cartridge::ASM.cmp_imm(ACC, @framebuffer.clip_right))
+            emit(ASM.cmp_imm(ACC, @framebuffer.clip_right))
             emit_branch(:bcond, needs_clip, cond: :gt)
-            emit(Cartridge::ASM.cmp_imm(RECT_Y, @framebuffer.clip_top))
+            emit(ASM.cmp_imm(RECT_Y, @framebuffer.clip_top))
             emit_branch(:bcond, needs_clip, cond: :lt)
             if h
               emit_add_const(ACC, RECT_Y, h, TMP)
             else
-              emit(Cartridge::ASM.add_reg(ACC, RECT_Y, RECT_ROWS_LEFT))
+              emit(ASM.add_reg(ACC, RECT_Y, RECT_ROWS_LEFT))
             end
-            emit(Cartridge::ASM.cmp_imm(ACC, @framebuffer.clip_bottom))
+            emit(ASM.cmp_imm(ACC, @framebuffer.clip_bottom))
             emit_branch(:bcond, needs_clip, cond: :gt)
 
             parity = Parity.of(node.x)
@@ -371,8 +371,8 @@ module RubyGBA
               emit_buffered_rect_rows(**rows, starts_odd: parity == :odd)
             else
               odd_column = gensym
-              emit(Cartridge::ASM.and_imm(ACC, RECT_X, 1))
-              emit(Cartridge::ASM.cmp_imm(ACC, 0))
+              emit(ASM.and_imm(ACC, RECT_X, 1))
+              emit(ASM.cmp_imm(ACC, 0))
               emit_branch(:bcond, odd_column, cond: :ne)
               emit_buffered_rect_rows(**rows, starts_odd: false)
               emit_branch(:b, done)
@@ -382,7 +382,7 @@ module RubyGBA
             emit_branch(:b, done)
 
             place_label(needs_clip)
-            emit(Cartridge::ASM.load_immediate(RECT_MIDDLE, w))
+            emit(ASM.load_immediate(RECT_MIDDLE, w))
             emit_buffered_rect_clip_and_rows(node, scratch, index)
 
             place_label(done)
@@ -415,7 +415,7 @@ module RubyGBA
 
             @framebuffer.eval_rect_position(node, x_reg: RECT_X, y_reg: RECT_Y,
                                      rows_reg: RECT_ROWS_LEFT, width_reg: RECT_MIDDLE)
-            emit(Cartridge::ASM.load_immediate(RECT_MIDDLE, w)) if w # a fixed width isn't loaded above
+            emit(ASM.load_immediate(RECT_MIDDLE, w)) if w # a fixed width isn't loaded above
 
             emit_buffered_rect_clip_and_rows(node, scratch, index)
           end
@@ -429,44 +429,44 @@ module RubyGBA
             done = gensym
 
             # right = x + width, unclipped, worked out before x itself is touched.
-            emit(Cartridge::ASM.add_reg(RECT_RIGHT, RECT_X, RECT_MIDDLE))
+            emit(ASM.add_reg(RECT_RIGHT, RECT_X, RECT_MIDDLE))
             keep_right = gensym
-            emit(Cartridge::ASM.cmp_imm(RECT_RIGHT, @framebuffer.clip_right))
+            emit(ASM.cmp_imm(RECT_RIGHT, @framebuffer.clip_right))
             emit_branch(:bcond, keep_right, cond: :le)
-            emit(Cartridge::ASM.load_immediate(RECT_RIGHT, @framebuffer.clip_right))
+            emit(ASM.load_immediate(RECT_RIGHT, @framebuffer.clip_right))
             place_label(keep_right)
 
             keep_left = gensym
-            emit(Cartridge::ASM.cmp_imm(RECT_X, @framebuffer.clip_left))
+            emit(ASM.cmp_imm(RECT_X, @framebuffer.clip_left))
             emit_branch(:bcond, keep_left, cond: :ge)
-            emit(Cartridge::ASM.load_immediate(RECT_X, @framebuffer.clip_left))
+            emit(ASM.load_immediate(RECT_X, @framebuffer.clip_left))
             place_label(keep_left)
 
             # A rect the game shrank to nothing, or slid entirely off the area, draws
             # nothing — and a block fill asked for zero units would move 65536 of them,
             # so this is not optional.
-            emit(Cartridge::ASM.sub_reg(RECT_MIDDLE, RECT_RIGHT, RECT_X))
-            emit(Cartridge::ASM.cmp_imm(RECT_MIDDLE, 0))
+            emit(ASM.sub_reg(RECT_MIDDLE, RECT_RIGHT, RECT_X))
+            emit(ASM.cmp_imm(RECT_MIDDLE, 0))
             emit_branch(:bcond, done, cond: :le)
 
-            emit(Cartridge::ASM.sub_imm(RECT_RIGHT, RECT_RIGHT, 1))       # the last column, one back from "past the end"
-            emit(Cartridge::ASM.and_imm(RECT_LEFT, RECT_X, 1))            # starts on an odd column?
-            emit(Cartridge::ASM.and_imm(ACC, RECT_RIGHT, 1))
-            emit(Cartridge::ASM.rsb_imm(ACC, ACC, 1))                     # ends on an even one?
-            emit(Cartridge::ASM.sub_reg(RECT_MIDDLE, RECT_MIDDLE, RECT_LEFT)) # what the two ends
-            emit(Cartridge::ASM.sub_reg(RECT_MIDDLE, RECT_MIDDLE, ACC))       # do not cover
+            emit(ASM.sub_imm(RECT_RIGHT, RECT_RIGHT, 1))       # the last column, one back from "past the end"
+            emit(ASM.and_imm(RECT_LEFT, RECT_X, 1))            # starts on an odd column?
+            emit(ASM.and_imm(ACC, RECT_RIGHT, 1))
+            emit(ASM.rsb_imm(ACC, ACC, 1))                     # ends on an even one?
+            emit(ASM.sub_reg(RECT_MIDDLE, RECT_MIDDLE, RECT_LEFT)) # what the two ends
+            emit(ASM.sub_reg(RECT_MIDDLE, RECT_MIDDLE, ACC))       # do not cover
 
             # Turn that into a transfer count, or leave it at zero to mean "no middle".
             no_middle = gensym
-            emit(Cartridge::ASM.cmp_imm(RECT_MIDDLE, 0))
+            emit(ASM.cmp_imm(RECT_MIDDLE, 0))
             emit_branch(:bcond, no_middle, cond: :eq)
-            emit(Cartridge::ASM.lsr_imm(RECT_MIDDLE, RECT_MIDDLE, 1)) # two pixels per unit moved
-            emit(Cartridge::ASM.load_immediate(TMP, dma_fill_control_16(0)))
-            emit(Cartridge::ASM.orr_reg(RECT_MIDDLE, RECT_MIDDLE, TMP))
+            emit(ASM.lsr_imm(RECT_MIDDLE, RECT_MIDDLE, 1)) # two pixels per unit moved
+            emit(ASM.load_immediate(TMP, dma_fill_control_16(0)))
+            emit(ASM.orr_reg(RECT_MIDDLE, RECT_MIDDLE, TMP))
             place_label(no_middle)
 
             height = const_int(node.h)
-            emit(Cartridge::ASM.load_immediate(RECT_ROWS_LEFT, height)) if height
+            emit(ASM.load_immediate(RECT_ROWS_LEFT, height)) if height
             emit_row_address_setup
             emit_row_loop(RECT_ROWS_LEFT) do
               emit_buffered_computed_row(index: index, scratch: scratch)
@@ -481,32 +481,32 @@ module RubyGBA
           # which of the three actually run having been decided above the loop.
           def emit_buffered_computed_row(index:, scratch:)
             row_skip = gensym
-            emit(Cartridge::ASM.cmp_imm(RECT_Y, @framebuffer.clip_top))
+            emit(ASM.cmp_imm(RECT_Y, @framebuffer.clip_top))
             emit_branch(:bcond, row_skip, cond: :lt)
-            emit(Cartridge::ASM.cmp_imm(RECT_Y, @framebuffer.clip_bottom))
+            emit(ASM.cmp_imm(RECT_Y, @framebuffer.clip_bottom))
             emit_branch(:bcond, row_skip, cond: :ge)
 
             skip_left = gensym
-            emit(Cartridge::ASM.cmp_imm(RECT_LEFT, 0))
+            emit(ASM.cmp_imm(RECT_LEFT, 0))
             emit_branch(:bcond, skip_left, cond: :eq)
             emit_splice_column(index: index, col_reg: RECT_X, high: true)
             place_label(skip_left)
 
             skip_middle = gensym
-            emit(Cartridge::ASM.cmp_imm(RECT_MIDDLE, 0))
+            emit(ASM.cmp_imm(RECT_MIDDLE, 0))
             emit_branch(:bcond, skip_middle, cond: :eq)
-            emit(Cartridge::ASM.add_reg(RECT_ADDR, RECT_ROW, RECT_X))
-            emit(Cartridge::ASM.add_reg(RECT_ADDR, RECT_ADDR, RECT_LEFT)) # past a spliced first pixel
+            emit(ASM.add_reg(RECT_ADDR, RECT_ROW, RECT_X))
+            emit(ASM.add_reg(RECT_ADDR, RECT_ADDR, RECT_LEFT)) # past a spliced first pixel
             store_word_immediate(scratch, REG_DMA3SAD)
-            emit(Cartridge::ASM.load_immediate(TMP, REG_DMA3DAD))
-            emit(Cartridge::ASM.str(RECT_ADDR, TMP))
-            emit(Cartridge::ASM.load_immediate(TMP, REG_DMA3CNT))
-            emit(Cartridge::ASM.str(RECT_MIDDLE, TMP))
+            emit(ASM.load_immediate(TMP, REG_DMA3DAD))
+            emit(ASM.str(RECT_ADDR, TMP))
+            emit(ASM.load_immediate(TMP, REG_DMA3CNT))
+            emit(ASM.str(RECT_MIDDLE, TMP))
             place_label(skip_middle)
 
             skip_right = gensym
-            emit(Cartridge::ASM.and_imm(ACC, RECT_RIGHT, 1))
-            emit(Cartridge::ASM.cmp_imm(ACC, 0))
+            emit(ASM.and_imm(ACC, RECT_RIGHT, 1))
+            emit(ASM.cmp_imm(ACC, 0))
             emit_branch(:bcond, skip_right, cond: :ne) # ends on an odd column: nothing to splice
             emit_splice_column(index: index, col_reg: RECT_RIGHT, high: false)
             place_label(skip_right)
@@ -520,18 +520,18 @@ module RubyGBA
           # and write it back. An odd column is the HIGH half of its unit, so its
           # address needs the low bit cleared to name the unit.
           def emit_splice_column(index:, col_reg:, high:)
-            emit(Cartridge::ASM.add_reg(RECT_ADDR, RECT_ROW, col_reg))
+            emit(ASM.add_reg(RECT_ADDR, RECT_ROW, col_reg))
             if high
-              emit(Cartridge::ASM.lsr_imm(RECT_ADDR, RECT_ADDR, 1))
-              emit(Cartridge::ASM.lsl_imm(RECT_ADDR, RECT_ADDR, 1))
+              emit(ASM.lsr_imm(RECT_ADDR, RECT_ADDR, 1))
+              emit(ASM.lsl_imm(RECT_ADDR, RECT_ADDR, 1))
             end
-            emit(Cartridge::ASM.load_halfword(ACC, RECT_ADDR))
+            emit(ASM.load_halfword(ACC, RECT_ADDR))
             splice_index_byte(ACC, index, high)
-            emit(Cartridge::ASM.store_halfword(ACC, RECT_ADDR))
+            emit(ASM.store_halfword(ACC, RECT_ADDR))
           end
 
           def emit_rect_fill_value(index)
-            emit(Cartridge::ASM.load_immediate(RECT_FILL, (index << 8) | index))
+            emit(ASM.load_immediate(RECT_FILL, (index << 8) | index))
           end
 
           # Fill the middle of one row of a fits-whole, run-time-positioned rect: +w+
@@ -549,19 +549,19 @@ module RubyGBA
           def emit_buffered_rect_row_middle(offset:, w:, scratch:)
             return emit_buffered_rect_row_dma(offset: offset, w: w, scratch: scratch) unless direct_fill?(w)
 
-            emit(Cartridge::ASM.add_reg(RECT_ADDR, RECT_ROW, RECT_X))
+            emit(ASM.add_reg(RECT_ADDR, RECT_ROW, RECT_X))
             emit_add_const(RECT_ADDR, RECT_ADDR, offset, ACC)
-            (w / 2).times { |unit| emit(Cartridge::ASM.store_halfword_offset(RECT_FILL, RECT_ADDR, unit * 2)) }
+            (w / 2).times { |unit| emit(ASM.store_halfword_offset(RECT_FILL, RECT_ADDR, unit * 2)) }
           end
 
           # DMA one row of a fits-whole, run-time-positioned rect: +w+ pixels starting
           # +offset+ columns right of the rect's x, on the row whose address r4 holds.
           def emit_buffered_rect_row_dma(offset:, w:, scratch:)
-            emit(Cartridge::ASM.add_reg(RECT_ADDR, RECT_ROW, RECT_X))
+            emit(ASM.add_reg(RECT_ADDR, RECT_ROW, RECT_X))
             emit_add_const(RECT_ADDR, RECT_ADDR, offset, ACC)
             store_word_immediate(scratch, REG_DMA3SAD)
-            emit(Cartridge::ASM.load_immediate(TMP, REG_DMA3DAD))
-            emit(Cartridge::ASM.str(RECT_ADDR, TMP))
+            emit(ASM.load_immediate(TMP, REG_DMA3DAD))
+            emit(ASM.str(RECT_ADDR, TMP))
             store_word_immediate(dma_fill_control_16(w / 2), REG_DMA3CNT)
           end
 
@@ -573,15 +573,15 @@ module RubyGBA
           # the right edge (x + w - 1, an even column, since the width is even) the low
           # half of its own — so only the left edge's address needs its low bit cleared.
           def emit_splice_rect_edge(index:, offset:, high:)
-            emit(Cartridge::ASM.add_reg(RECT_ADDR, RECT_ROW, RECT_X))
+            emit(ASM.add_reg(RECT_ADDR, RECT_ROW, RECT_X))
             emit_add_const(RECT_ADDR, RECT_ADDR, offset, ACC)
             if high
-              emit(Cartridge::ASM.lsr_imm(RECT_ADDR, RECT_ADDR, 1)) # clear the low bit ->
-              emit(Cartridge::ASM.lsl_imm(RECT_ADDR, RECT_ADDR, 1)) # r5 = the containing unit's address
+              emit(ASM.lsr_imm(RECT_ADDR, RECT_ADDR, 1)) # clear the low bit ->
+              emit(ASM.lsl_imm(RECT_ADDR, RECT_ADDR, 1)) # r5 = the containing unit's address
             end
-            emit(Cartridge::ASM.load_halfword(ACC, RECT_ADDR))      # r0 = the current pixel pair
+            emit(ASM.load_halfword(ACC, RECT_ADDR))      # r0 = the current pixel pair
             splice_index_byte(ACC, index, high)
-            emit(Cartridge::ASM.store_halfword(ACC, RECT_ADDR))
+            emit(ASM.store_halfword(ACC, RECT_ADDR))
           end
 
           # Stash a solid fill color as a word of four packed indices in IWRAM and
@@ -598,8 +598,8 @@ module RubyGBA
           # Point DMA3's destination at the hidden page's base (a run-time value).
           def point_dma_dest_at_backbuf
             load_var(ACC, BACKBUF)
-            emit(Cartridge::ASM.load_immediate(TMP, REG_DMA3DAD))
-            emit(Cartridge::ASM.str(ACC, TMP))
+            emit(ASM.load_immediate(TMP, REG_DMA3DAD))
+            emit(ASM.str(ACC, TMP))
           end
 
           # The DMA3 control word for a source-fixed 16-bit fill of +count+ halfwords —
@@ -647,9 +647,9 @@ module RubyGBA
           def emit_draw_digit_data_buffered(node, font, width, x, y)
             index = @layout.palette.index_of(node.color)
             @lowering.value(node.value)             # r0 = the digit (0..9)
-            emit(Cartridge::ASM.load_immediate(1, x))
-            emit(Cartridge::ASM.load_immediate(2, y))
-            emit(Cartridge::ASM.load_immediate(3, index))
+            emit(ASM.load_immediate(1, x))
+            emit(ASM.load_immediate(2, y))
+            emit(ASM.load_immediate(3, index))
             emit_call_cold_routine(digit_routine_label(node.font, font, width))
           end
 
@@ -681,19 +681,19 @@ module RubyGBA
             return unless @pending_digit_routines
 
             @pending_digit_routines.each do |font_name, font, width|
-              emit(Cartridge::ASM.loop_forever) # fall-through guard: only ever entered by the call above
+              emit(ASM.loop_forever) # fall-through guard: only ever entered by the call above
               place_label(:"__digit_routine_buffered_#{font_name}")
-              emit(Cartridge::ASM.push(14))
-              emit(Cartridge::ASM.mov_reg(10, 1)) # r10 = x, held across the routine
-              emit(Cartridge::ASM.mov_reg(11, 2)) # r11 = y
-              emit(Cartridge::ASM.mov_reg(8, 3))  # r8 = the palette index
+              emit(ASM.push(14))
+              emit(ASM.mov_reg(10, 1)) # r10 = x, held across the routine
+              emit(ASM.mov_reg(11, 2)) # r11 = y
+              emit(ASM.mov_reg(8, 3))  # r8 = the palette index
               @framebuffer.emit_digit_glyph_loop(font_name, font, width) do |phase|
                 case phase
                 when :hold then load_var(9, BACKBUF)          # r9 = the hidden page base, held
                 when :plot then emit_plot_digit_index(10, 11, 8)
                 end
               end
-              emit(Cartridge::ASM.pop(15))
+              emit(ASM.pop(15))
               # Where it ends, so a profile of the finished game can say how much of a frame
               # went into drawing digits. A routine the LOWERING makes has no other record of
               # its span — func_ranges only knows routines somebody wrote.
@@ -708,18 +708,18 @@ module RubyGBA
           # base; x_reg/y_reg/index_reg are the shared routine's arguments (see
           # #emit_digit_routines); r5/r4 are the live row/col; r0–r3 are scratch.
           def emit_plot_digit_index(x_reg, y_reg, index_reg)
-            emit(Cartridge::ASM.add_reg(0, y_reg, 5))          # r0 = screen_y = y + row
-            emit(Cartridge::ASM.load_immediate(1, SCREEN_WIDTH))
-            emit(Cartridge::ASM.mul(2, 0, 1))                  # r2 = screen_y * width
-            emit(Cartridge::ASM.add_reg(0, x_reg, 4))          # r0 = screen_x = x + col
-            emit(Cartridge::ASM.add_reg(2, 2, 0))              # r2 = byte offset = screen_y*width + screen_x
-            emit(Cartridge::ASM.add_reg(1, 9, 2))              # r1 = page_base + offset (the pixel's byte, maybe odd)
-            emit(Cartridge::ASM.lsr_imm(1, 1, 1))              # clear the low bit ->
-            emit(Cartridge::ASM.lsl_imm(1, 1, 1))              # r1 = the containing 16-bit unit's address
-            emit(Cartridge::ASM.load_halfword(0, 1))           # r0 = the current pixel pair
+            emit(ASM.add_reg(0, y_reg, 5))          # r0 = screen_y = y + row
+            emit(ASM.load_immediate(1, SCREEN_WIDTH))
+            emit(ASM.mul(2, 0, 1))                  # r2 = screen_y * width
+            emit(ASM.add_reg(0, x_reg, 4))          # r0 = screen_x = x + col
+            emit(ASM.add_reg(2, 2, 0))              # r2 = byte offset = screen_y*width + screen_x
+            emit(ASM.add_reg(1, 9, 2))              # r1 = page_base + offset (the pixel's byte, maybe odd)
+            emit(ASM.lsr_imm(1, 1, 1))              # clear the low bit ->
+            emit(ASM.lsl_imm(1, 1, 1))              # r1 = the containing 16-bit unit's address
+            emit(ASM.load_halfword(0, 1))           # r0 = the current pixel pair
             # width is even, so the offset's parity is the column's: 0 = low/even byte.
-            emit(Cartridge::ASM.and_imm(3, 2, 1))              # r3 = screen_x & 1
-            emit(Cartridge::ASM.cmp_imm(3, 0))
+            emit(ASM.and_imm(3, 2, 1))              # r3 = screen_x & 1
+            emit(ASM.cmp_imm(3, 0))
             high = gensym
             done = gensym
             emit_branch(:bcond, high, cond: :ne)
@@ -728,7 +728,7 @@ module RubyGBA
             place_label(high)
             splice_index_byte_reg(0, index_reg, true)  # odd column: the high byte
             place_label(done)
-            emit(Cartridge::ASM.store_halfword(0, 1))          # write the spliced pair back
+            emit(ASM.store_halfword(0, 1))          # write the spliced pair back
           end
 
           # The same splice as #splice_index_byte, with the index arriving in a
@@ -736,11 +736,11 @@ module RubyGBA
           # needs, since one routine's index varies with which digit call reached it.
           def splice_index_byte_reg(reg, index_reg, high)
             if high
-              emit(Cartridge::ASM.and_imm(reg, reg, 0x00FF))         # keep the left (low) pixel
-              emit(Cartridge::ASM.orr_reg_lsl(reg, reg, index_reg, 8)) # set the right (high) pixel
+              emit(ASM.and_imm(reg, reg, 0x00FF))         # keep the left (low) pixel
+              emit(ASM.orr_reg_lsl(reg, reg, index_reg, 8)) # set the right (high) pixel
             else
-              emit(Cartridge::ASM.and_imm(reg, reg, 0xFF00))         # keep the right (high) pixel
-              emit(Cartridge::ASM.orr_reg(reg, reg, index_reg))      # set the left (low) pixel
+              emit(ASM.and_imm(reg, reg, 0xFF00))         # keep the right (high) pixel
+              emit(ASM.orr_reg(reg, reg, index_reg))      # set the left (low) pixel
             end
           end
 
@@ -770,9 +770,9 @@ module RubyGBA
           def emit_write_index_pixel_const(base_reg, px, py, index, held: false)
             halfword_offset = ((py * SCREEN_WIDTH) + px) & ~1 # start of the pixel's 16-bit unit
             emit_add_const(1, base_reg, halfword_offset, ACC) # r1 = &unit (scratch r0)
-            emit(Cartridge::ASM.load_halfword(ACC, 1))                   # r0 = the current pixel pair
+            emit(ASM.load_halfword(ACC, 1))                   # r0 = the current pixel pair
             held ? splice_index_byte_reg(ACC, index, px.odd?) : splice_index_byte(ACC, index, px.odd?)
-            emit(Cartridge::ASM.store_halfword(ACC, 1))
+            emit(ASM.store_halfword(ACC, 1))
           end
 
           # Read-modify-write one pixel whose coordinates are computed at run time: the
@@ -780,21 +780,21 @@ module RubyGBA
           # x/y; r1 the unit address; r0 the value being spliced; r4/r5 scratch.
           def emit_pixel_buffered_runtime(node, index)
             @lowering.value(node.x)
-            emit(Cartridge::ASM.mov_reg(2, ACC))
+            emit(ASM.mov_reg(2, ACC))
             @lowering.value(node.y)
-            emit(Cartridge::ASM.mov_reg(3, ACC))
+            emit(ASM.mov_reg(3, ACC))
 
-            emit(Cartridge::ASM.load_immediate(4, SCREEN_WIDTH))
-            emit(Cartridge::ASM.mul(4, 3, 4))          # r4 = y * width
-            emit(Cartridge::ASM.add_reg(4, 4, 2))      # r4 = y*width + x (byte offset)
+            emit(ASM.load_immediate(4, SCREEN_WIDTH))
+            emit(ASM.mul(4, 3, 4))          # r4 = y * width
+            emit(ASM.add_reg(4, 4, 2))      # r4 = y*width + x (byte offset)
             load_var(5, BACKBUF)            # r5 = hidden page base
-            emit(Cartridge::ASM.add_reg(1, 5, 4))      # r1 = base + byte offset (maybe odd)
-            emit(Cartridge::ASM.lsr_imm(1, 1, 1))      # clear the low bit ->
-            emit(Cartridge::ASM.lsl_imm(1, 1, 1))      # r1 = the containing 16-bit unit's address
-            emit(Cartridge::ASM.load_halfword(ACC, 1)) # r0 = the current pixel pair
+            emit(ASM.add_reg(1, 5, 4))      # r1 = base + byte offset (maybe odd)
+            emit(ASM.lsr_imm(1, 1, 1))      # clear the low bit ->
+            emit(ASM.lsl_imm(1, 1, 1))      # r1 = the containing 16-bit unit's address
+            emit(ASM.load_halfword(ACC, 1)) # r0 = the current pixel pair
 
-            emit(Cartridge::ASM.and_imm(4, 2, 1))      # r4 = x & 1 (0 = left/low byte, 1 = right/high)
-            emit(Cartridge::ASM.cmp_imm(4, 0))
+            emit(ASM.and_imm(4, 2, 1))      # r4 = x & 1 (0 = left/low byte, 1 = right/high)
+            emit(ASM.cmp_imm(4, 0))
             high = gensym
             done = gensym
             emit_branch(:bcond, high, cond: :ne)
@@ -803,18 +803,18 @@ module RubyGBA
             place_label(high)
             splice_index_byte(ACC, index, true)  # odd x: high byte
             place_label(done)
-            emit(Cartridge::ASM.store_halfword(ACC, 1))
+            emit(ASM.store_halfword(ACC, 1))
           end
 
           # Replace one byte of the 16-bit pixel pair in +reg+ with +index+, keeping
           # the other pixel: the high byte when +high+ (an odd column), else the low.
           def splice_index_byte(reg, index, high)
             if high
-              emit(Cartridge::ASM.and_imm(reg, reg, 0x00FF))     # keep the left (low) pixel
-              emit(Cartridge::ASM.orr_imm(reg, reg, index << 8)) # set the right (high) pixel
+              emit(ASM.and_imm(reg, reg, 0x00FF))     # keep the left (low) pixel
+              emit(ASM.orr_imm(reg, reg, index << 8)) # set the right (high) pixel
             else
-              emit(Cartridge::ASM.and_imm(reg, reg, 0xFF00))     # keep the right (high) pixel
-              emit(Cartridge::ASM.orr_imm(reg, reg, index))      # set the left (low) pixel
+              emit(ASM.and_imm(reg, reg, 0xFF00))     # keep the right (high) pixel
+              emit(ASM.orr_imm(reg, reg, index))      # set the left (low) pixel
             end
           end
 
@@ -858,10 +858,10 @@ module RubyGBA
               # edge takes a second copy of the rows that tests each of its pixels. A strip one
               # pixel wide has no second case — it is inside or it draws nothing.
               clipped = gensym
-              emit(Cartridge::ASM.cmp_imm(COLUMN_X, @framebuffer.clip_left))
+              emit(ASM.cmp_imm(COLUMN_X, @framebuffer.clip_left))
               emit_branch(:bcond, clipped, cond: :lt)
-              emit(Cartridge::ASM.load_immediate(TMP, @framebuffer.clip_right - width))
-              emit(Cartridge::ASM.cmp_reg(COLUMN_X, TMP))
+              emit(ASM.load_immediate(TMP, @framebuffer.clip_right - width))
+              emit(ASM.cmp_reg(COLUMN_X, TMP))
               emit_branch(:bcond, clipped, cond: :gt)
 
               emit_buffered_column_bodies(bmp, width, clear, Parity.of(node.x))
@@ -887,8 +887,8 @@ module RubyGBA
 
             odd = gensym
             both = gensym
-            emit(Cartridge::ASM.and_imm(ACC, COLUMN_X, 1))
-            emit(Cartridge::ASM.cmp_imm(ACC, 0))
+            emit(ASM.and_imm(ACC, COLUMN_X, 1))
+            emit(ASM.cmp_imm(ACC, 0))
             emit_branch(:bcond, odd, cond: :ne)
             emit_buffered_column_rows { emit_buffered_column_row(bmp, width, clear, false) }
             emit_branch(:b, both)
@@ -902,13 +902,13 @@ module RubyGBA
           # address before the page, which is fine — the walk steps forward to it and writes
           # nothing until the row is on screen.
           def emit_column_destination
-            emit(Cartridge::ASM.load_immediate(TMP, SCREEN_WIDTH))
-            emit(Cartridge::ASM.mul(COLUMN_DEST, COLUMN_Y, TMP)) # 1 byte a pixel, so this is bytes
+            emit(ASM.load_immediate(TMP, SCREEN_WIDTH))
+            emit(ASM.mul(COLUMN_DEST, COLUMN_Y, TMP)) # 1 byte a pixel, so this is bytes
             load_var(TMP, BACKBUF)
-            emit(Cartridge::ASM.add_reg(COLUMN_DEST, COLUMN_DEST, TMP))
-            emit(Cartridge::ASM.lsr_imm(TMP, COLUMN_X, 1)) # clear the low bit ->
-            emit(Cartridge::ASM.lsl_imm(TMP, TMP, 1))      # ...the pair this column sits in
-            emit(Cartridge::ASM.add_reg(COLUMN_DEST, COLUMN_DEST, TMP))
+            emit(ASM.add_reg(COLUMN_DEST, COLUMN_DEST, TMP))
+            emit(ASM.lsr_imm(TMP, COLUMN_X, 1)) # clear the low bit ->
+            emit(ASM.lsl_imm(TMP, TMP, 1))      # ...the pair this column sits in
+            emit(ASM.add_reg(COLUMN_DEST, COLUMN_DEST, TMP))
           end
 
           # The walk down the screen. The destination steps one screen width a row, which is
@@ -917,9 +917,9 @@ module RubyGBA
           def emit_buffered_column_rows
             emit_row_loop(COLUMN_ROWS) do
               yield
-              emit(Cartridge::ASM.add_reg(COLUMN_POS, COLUMN_POS, COLUMN_STEP))
-              emit(Cartridge::ASM.add_imm(COLUMN_Y, COLUMN_Y, 1))
-              emit(Cartridge::ASM.add_imm(COLUMN_DEST, COLUMN_DEST, SCREEN_WIDTH)) # one row down
+              emit(ASM.add_reg(COLUMN_POS, COLUMN_POS, COLUMN_STEP))
+              emit(ASM.add_imm(COLUMN_Y, COLUMN_Y, 1))
+              emit(ASM.add_imm(COLUMN_DEST, COLUMN_DEST, SCREEN_WIDTH)) # one row down
             end
           end
 
@@ -944,18 +944,18 @@ module RubyGBA
           # Nothing holds the row back — see the note on the direct screen's reader for why it
           # cannot run past the picture.
           def emit_read_column_number(bmp, clear, skip)
-            emit(Cartridge::ASM.lsr_imm(ACC, COLUMN_POS, COLUMN_FIXED))
-            emit(Cartridge::ASM.load_immediate(TMP, bmp.width))
-            emit(Cartridge::ASM.mul(ACC, ACC, TMP))
-            emit(Cartridge::ASM.add_reg(ACC, COLUMN_SRC, ACC))
-            emit(Cartridge::ASM.ldrb_offset(ACC, ACC, 0))
+            emit(ASM.lsr_imm(ACC, COLUMN_POS, COLUMN_FIXED))
+            emit(ASM.load_immediate(TMP, bmp.width))
+            emit(ASM.mul(ACC, ACC, TMP))
+            emit(ASM.add_reg(ACC, COLUMN_SRC, ACC))
+            emit(ASM.ldrb_offset(ACC, ACC, 0))
 
             # A see-through pixel carries the one number that is not any color in the table,
             # so it means "leave this one alone" and the pair is not touched at all.
             return unless clear
 
-            emit(Cartridge::ASM.load_immediate(TMP, clear))
-            emit(Cartridge::ASM.cmp_reg(ACC, TMP))
+            emit(ASM.load_immediate(TMP, clear))
+            emit(ASM.cmp_reg(ACC, TMP))
             emit_branch(:bcond, skip, cond: :eq)
           end
 
@@ -978,20 +978,20 @@ module RubyGBA
           def emit_buffered_column_units(width, starts_odd)
             units = column_units(width, starts_odd)
             # The number in both halves, for the units the strip covers whole.
-            emit(Cartridge::ASM.orr_reg_lsl(SPARE, ACC, ACC, 8)) if units.any? { |(_, kind)| kind == :both }
+            emit(ASM.orr_reg_lsl(SPARE, ACC, ACC, 8)) if units.any? { |(_, kind)| kind == :both }
 
             units.each do |offset, kind|
-              next emit(Cartridge::ASM.store_halfword_offset(SPARE, COLUMN_DEST, offset)) if kind == :both
+              next emit(ASM.store_halfword_offset(SPARE, COLUMN_DEST, offset)) if kind == :both
 
-              emit(Cartridge::ASM.load_halfword_offset(TMP, COLUMN_DEST, offset))
+              emit(ASM.load_halfword_offset(TMP, COLUMN_DEST, offset))
               if kind == :high
-                emit(Cartridge::ASM.and_imm(TMP, TMP, 0x00FF))
-                emit(Cartridge::ASM.orr_reg_lsl(TMP, TMP, ACC, 8))
+                emit(ASM.and_imm(TMP, TMP, 0x00FF))
+                emit(ASM.orr_reg_lsl(TMP, TMP, ACC, 8))
               else
-                emit(Cartridge::ASM.and_imm(TMP, TMP, 0xFF00))
-                emit(Cartridge::ASM.orr_reg(TMP, TMP, ACC))
+                emit(ASM.and_imm(TMP, TMP, 0xFF00))
+                emit(ASM.orr_reg(TMP, TMP, ACC))
               end
-              emit(Cartridge::ASM.store_halfword_offset(TMP, COLUMN_DEST, offset))
+              emit(ASM.store_halfword_offset(TMP, COLUMN_DEST, offset))
             end
           end
 
@@ -1000,33 +1000,33 @@ module RubyGBA
           # and only the strips at the edges of the screen ever run it.
           def emit_buffered_column_pixel_clipped(offset)
             past = gensym
-            emit(Cartridge::ASM.add_imm(SPARE, COLUMN_X, offset))
-            emit(Cartridge::ASM.cmp_imm(SPARE, @framebuffer.clip_left))
+            emit(ASM.add_imm(SPARE, COLUMN_X, offset))
+            emit(ASM.cmp_imm(SPARE, @framebuffer.clip_left))
             emit_branch(:bcond, past, cond: :lt)
-            emit(Cartridge::ASM.cmp_imm(SPARE, @framebuffer.clip_right))
+            emit(ASM.cmp_imm(SPARE, @framebuffer.clip_right))
             emit_branch(:bcond, past, cond: :ge)
 
             # The pixel's own byte, then the pair it sits in and which half of it that is.
-            emit(Cartridge::ASM.and_imm(TMP, COLUMN_X, 1))
-            emit(Cartridge::ASM.add_imm(TMP, TMP, offset))
-            emit(Cartridge::ASM.add_reg(TMP, TMP, COLUMN_DEST))
-            emit(Cartridge::ASM.and_imm(HIGH, TMP, 1))
-            emit(Cartridge::ASM.lsr_imm(TMP, TMP, 1))
-            emit(Cartridge::ASM.lsl_imm(TMP, TMP, 1))
-            emit(Cartridge::ASM.load_halfword(SPARE, TMP))
+            emit(ASM.and_imm(TMP, COLUMN_X, 1))
+            emit(ASM.add_imm(TMP, TMP, offset))
+            emit(ASM.add_reg(TMP, TMP, COLUMN_DEST))
+            emit(ASM.and_imm(HIGH, TMP, 1))
+            emit(ASM.lsr_imm(TMP, TMP, 1))
+            emit(ASM.lsl_imm(TMP, TMP, 1))
+            emit(ASM.load_halfword(SPARE, TMP))
 
             high = gensym
             wrote = gensym
-            emit(Cartridge::ASM.cmp_imm(HIGH, 0))
+            emit(ASM.cmp_imm(HIGH, 0))
             emit_branch(:bcond, high, cond: :ne)
-            emit(Cartridge::ASM.and_imm(SPARE, SPARE, 0xFF00))
-            emit(Cartridge::ASM.orr_reg(SPARE, SPARE, ACC))
+            emit(ASM.and_imm(SPARE, SPARE, 0xFF00))
+            emit(ASM.orr_reg(SPARE, SPARE, ACC))
             emit_branch(:b, wrote)
             place_label(high)
-            emit(Cartridge::ASM.and_imm(SPARE, SPARE, 0x00FF))
-            emit(Cartridge::ASM.orr_reg_lsl(SPARE, SPARE, ACC, 8))
+            emit(ASM.and_imm(SPARE, SPARE, 0x00FF))
+            emit(ASM.orr_reg_lsl(SPARE, SPARE, ACC, 8))
             place_label(wrote)
-            emit(Cartridge::ASM.store_halfword(SPARE, TMP))
+            emit(ASM.store_halfword(SPARE, TMP))
             place_label(past)
           end
 
@@ -1072,9 +1072,9 @@ module RubyGBA
           # start of the next one.
           def emit_blit_rows_buffered(node, bmp)
             @lowering.value(node.x)
-            emit(Cartridge::ASM.mov_reg(BLIT_X, ACC))
+            emit(ASM.mov_reg(BLIT_X, ACC))
             @lowering.value(node.y)
-            emit(Cartridge::ASM.mov_reg(BLIT_Y, ACC))
+            emit(ASM.mov_reg(BLIT_Y, ACC))
             emit_load_data_address(BLIT_SRC, @framebuffer.indexed_blob(node.name))
 
             bmp.height.times { |row| emit_blit_row_buffered(bmp, row) }
@@ -1083,9 +1083,9 @@ module RubyGBA
           def emit_blit_row_buffered(bmp, row)
             skip = gensym
             emit_add_const(BLIT_ROW_Y, BLIT_Y, row, SPARE)
-            emit(Cartridge::ASM.cmp_imm(BLIT_ROW_Y, @framebuffer.clip_top))
+            emit(ASM.cmp_imm(BLIT_ROW_Y, @framebuffer.clip_top))
             emit_branch(:bcond, skip, cond: :lt)
-            emit(Cartridge::ASM.cmp_imm(BLIT_ROW_Y, @framebuffer.clip_bottom))
+            emit(ASM.cmp_imm(BLIT_ROW_Y, @framebuffer.clip_bottom))
             emit_branch(:bcond, skip, cond: :ge)
 
             emit_blit_row_span(bmp, skip)
@@ -1097,22 +1097,22 @@ module RubyGBA
           # What is left of this row after the sides: r10 its first column, r11 one past
           # its last, r4 how many pixels that is. A row entirely off to one side leaves.
           def emit_blit_row_span(bmp, skip)
-            emit(Cartridge::ASM.mov_reg(BLIT_LEFT, BLIT_X))
-            emit(Cartridge::ASM.cmp_imm(BLIT_X, @framebuffer.clip_left))
+            emit(ASM.mov_reg(BLIT_LEFT, BLIT_X))
+            emit(ASM.cmp_imm(BLIT_X, @framebuffer.clip_left))
             keep_left = gensym
             emit_branch(:bcond, keep_left, cond: :ge)
-            emit(Cartridge::ASM.load_immediate(BLIT_LEFT, @framebuffer.clip_left))
+            emit(ASM.load_immediate(BLIT_LEFT, @framebuffer.clip_left))
             place_label(keep_left)
 
             emit_add_const(BLIT_RIGHT, BLIT_X, bmp.width, SPARE)
-            emit(Cartridge::ASM.cmp_imm(BLIT_RIGHT, @framebuffer.clip_right))
+            emit(ASM.cmp_imm(BLIT_RIGHT, @framebuffer.clip_right))
             keep_right = gensym
             emit_branch(:bcond, keep_right, cond: :le)
-            emit(Cartridge::ASM.load_immediate(BLIT_RIGHT, @framebuffer.clip_right))
+            emit(ASM.load_immediate(BLIT_RIGHT, @framebuffer.clip_right))
             place_label(keep_right)
 
-            emit(Cartridge::ASM.sub_reg(BLIT_UNITS, BLIT_RIGHT, BLIT_LEFT))
-            emit(Cartridge::ASM.cmp_imm(BLIT_UNITS, 0))
+            emit(ASM.sub_reg(BLIT_UNITS, BLIT_RIGHT, BLIT_LEFT))
+            emit(ASM.cmp_imm(BLIT_UNITS, 0))
             emit_branch(:bcond, skip, cond: :le)
           end
 
@@ -1120,29 +1120,29 @@ module RubyGBA
           # and both are even: the picture's width is even so a row starts on a pair, and
           # the column is even so what the sides cut off is a whole number of pairs.
           def emit_blit_row_addresses(bmp, row)
-            emit(Cartridge::ASM.sub_reg(BLIT_FROM, BLIT_LEFT, BLIT_X))     # how much of the row the left edge ate
+            emit(ASM.sub_reg(BLIT_FROM, BLIT_LEFT, BLIT_X))     # how much of the row the left edge ate
             emit_add_const(BLIT_FROM, BLIT_FROM, row * bmp.width, SPARE)
-            emit(Cartridge::ASM.add_reg(BLIT_FROM, BLIT_SRC, BLIT_FROM))
+            emit(ASM.add_reg(BLIT_FROM, BLIT_SRC, BLIT_FROM))
 
-            emit(Cartridge::ASM.load_immediate(SPARE, SCREEN_WIDTH))
-            emit(Cartridge::ASM.mul(BLIT_TO, BLIT_ROW_Y, SPARE)) # a byte a pixel, so this is already bytes
-            emit(Cartridge::ASM.add_reg(BLIT_TO, BLIT_TO, BLIT_LEFT))
+            emit(ASM.load_immediate(SPARE, SCREEN_WIDTH))
+            emit(ASM.mul(BLIT_TO, BLIT_ROW_Y, SPARE)) # a byte a pixel, so this is already bytes
+            emit(ASM.add_reg(BLIT_TO, BLIT_TO, BLIT_LEFT))
             load_var(SPARE, BACKBUF)
-            emit(Cartridge::ASM.add_reg(BLIT_TO, BLIT_TO, SPARE))
+            emit(ASM.add_reg(BLIT_TO, BLIT_TO, SPARE))
           end
 
           # Hand the row to the copying engine: two pixels a unit, source and destination
           # both stepping forward.
           def emit_blit_row_copy
-            emit(Cartridge::ASM.lsr_imm(BLIT_UNITS, BLIT_UNITS, 1))
-            emit(Cartridge::ASM.load_immediate(SPARE, DMA_ENABLE))
-            emit(Cartridge::ASM.orr_reg(BLIT_UNITS, BLIT_UNITS, SPARE))
-            emit(Cartridge::ASM.load_immediate(TMP, REG_DMA3SAD))
-            emit(Cartridge::ASM.str(BLIT_FROM, TMP))
-            emit(Cartridge::ASM.load_immediate(TMP, REG_DMA3DAD))
-            emit(Cartridge::ASM.str(BLIT_TO, TMP))
-            emit(Cartridge::ASM.load_immediate(TMP, REG_DMA3CNT))
-            emit(Cartridge::ASM.str(BLIT_UNITS, TMP))
+            emit(ASM.lsr_imm(BLIT_UNITS, BLIT_UNITS, 1))
+            emit(ASM.load_immediate(SPARE, DMA_ENABLE))
+            emit(ASM.orr_reg(BLIT_UNITS, BLIT_UNITS, SPARE))
+            emit(ASM.load_immediate(TMP, REG_DMA3SAD))
+            emit(ASM.str(BLIT_FROM, TMP))
+            emit(ASM.load_immediate(TMP, REG_DMA3DAD))
+            emit(ASM.str(BLIT_TO, TMP))
+            emit(ASM.load_immediate(TMP, REG_DMA3CNT))
+            emit(ASM.str(BLIT_UNITS, TMP))
           end
 
           # WHY THE SCREEN WANTS PAIRS, said the same way in every one of these three. It is

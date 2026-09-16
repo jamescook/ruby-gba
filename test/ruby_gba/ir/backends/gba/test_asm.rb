@@ -3,7 +3,7 @@
 require "test_helper"
 
 class TestASM < Minitest::Test
-  A = RubyGBA::Cartridge::ASM
+  A = RubyGBA::IR::Backends::GBA::ASM
 
   # Helper: decode a load_immediate sequence back to the value it loads.
   # Simulates ARM execution of MOV/ORR with rotated immediates.

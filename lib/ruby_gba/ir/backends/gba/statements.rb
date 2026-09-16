@@ -58,7 +58,7 @@ module RubyGBA
           def emit_accumulate(node, op)
             @lowering.value(node.operand)       # r0 = operand
             @primitives.load_var(TMP, node.var)        # r1 = current value
-            @emitter.emit(Cartridge::ASM.send(op, ACC, TMP, ACC)) # r0 = r1 (op) r0
+            @emitter.emit(ASM.send(op, ACC, TMP, ACC)) # r0 = r1 (op) r0
             @primitives.store_var(ACC, node.var)
           end
 
@@ -72,7 +72,7 @@ module RubyGBA
 
           def emit_negate(node)
             @primitives.load_var(ACC, node.var)
-            @emitter.emit(Cartridge::ASM.rsb_imm(ACC, ACC, 0))   # r0 = 0 - r0
+            @emitter.emit(ASM.rsb_imm(ACC, ACC, 0))   # r0 = 0 - r0
             @primitives.store_var(ACC, node.var)
           end
 
@@ -85,10 +85,10 @@ module RubyGBA
           # the negate when the value is already on the wanted side.
           def emit_conditional_negate(var, skip_when:)
             @primitives.load_var(ACC, var)
-            @emitter.emit(Cartridge::ASM.cmp_imm(ACC, 0))
+            @emitter.emit(ASM.cmp_imm(ACC, 0))
             done = @emitter.gensym
             @emitter.emit_branch(:bcond, done, cond: skip_when)
-            @emitter.emit(Cartridge::ASM.rsb_imm(ACC, ACC, 0))
+            @emitter.emit(ASM.rsb_imm(ACC, ACC, 0))
             @emitter.place_label(done)
             @primitives.store_var(ACC, var)
           end
@@ -106,7 +106,7 @@ module RubyGBA
           # jumps to the else-body, and the then-body jumps over it to the end.
           def emit_if(node)
             @lowering.value(node.cond)
-            @emitter.emit(Cartridge::ASM.cmp_imm(ACC, 0))
+            @emitter.emit(ASM.cmp_imm(ACC, 0))
             else_node = node.else
 
             if else_node
@@ -209,9 +209,9 @@ module RubyGBA
 
             @lowering.value(node.count)                  # r0 = count
             @primitives.store_var(ACC, limit)            # limit = count (once)
-            @emitter.emit(Cartridge::ASM.load_immediate(TMP, 0))
+            @emitter.emit(ASM.load_immediate(TMP, 0))
             @primitives.store_var(TMP, index)            # counter = 0
-            @emitter.emit(Cartridge::ASM.cmp_imm(ACC, 0))
+            @emitter.emit(ASM.cmp_imm(ACC, 0))
             @emitter.emit_branch(:bcond, done, cond: :le) # no passes at all
 
             @emitter.place_label(top)
@@ -220,10 +220,10 @@ module RubyGBA
             node.children.each { |stmt| @lowering.statement(stmt) }
 
             @primitives.load_var(ACC, index)
-            @emitter.emit(Cartridge::ASM.add_imm(ACC, ACC, 1))      # counter += 1
+            @emitter.emit(ASM.add_imm(ACC, ACC, 1))      # counter += 1
             @primitives.store_var(ACC, index)
             @primitives.load_var(TMP, limit)
-            @emitter.emit(Cartridge::ASM.cmp_reg(ACC, TMP))
+            @emitter.emit(ASM.cmp_reg(ACC, TMP))
             @emitter.emit_branch(:bcond, top, cond: :lt) # passes left => go round
             @emitter.place_label(done)
           end
@@ -234,7 +234,7 @@ module RubyGBA
             return unless LoopForm.stops_early?(node)
 
             @lowering.value(node.stop_when)
-            @emitter.emit(Cartridge::ASM.cmp_imm(ACC, 0))
+            @emitter.emit(ASM.cmp_imm(ACC, 0))
             @emitter.emit_branch(:bcond, done, cond: :ne)
           end
 
@@ -252,7 +252,7 @@ module RubyGBA
             done = @emitter.gensym
 
             @lowering.value(node.count)
-            @emitter.emit(Cartridge::ASM.cmp_imm(ACC, 0))
+            @emitter.emit(ASM.cmp_imm(ACC, 0))
             @emitter.emit_branch(:bcond, done, cond: :le)
             @primitives.store_var(ACC, index)
 
@@ -262,7 +262,7 @@ module RubyGBA
             node.children.each { |stmt| @lowering.statement(stmt) }
 
             @primitives.load_var(ACC, index)
-            @emitter.emit(Cartridge::ASM.subs_imm(ACC, ACC, 1))
+            @emitter.emit(ASM.subs_imm(ACC, ACC, 1))
             @primitives.store_var(ACC, index)
             @emitter.emit_branch(:bcond, top, cond: :ne)
             @emitter.place_label(done)
@@ -327,9 +327,9 @@ module RubyGBA
           end
 
           def emit_saving(*registers)
-            @emitter.emit(Cartridge::ASM.push(*registers))
+            @emitter.emit(ASM.push(*registers))
             yield
-            @emitter.emit(Cartridge::ASM.pop(*registers))
+            @emitter.emit(ASM.pop(*registers))
           end
 
           # The counting the two register shapes share: set up, run the body, step on, test.
@@ -346,14 +346,14 @@ module RubyGBA
             done = @emitter.gensym
 
             @lowering.value(node.count)
-            @emitter.emit(Cartridge::ASM.load_immediate(LoopForm::COUNTER, 0))
-            @emitter.emit(Cartridge::ASM.subs_imm(LoopForm::LIMIT, ACC, 0))
+            @emitter.emit(ASM.load_immediate(LoopForm::COUNTER, 0))
+            @emitter.emit(ASM.subs_imm(LoopForm::LIMIT, ACC, 0))
             @emitter.emit_branch(:bcond, done, cond: :le)
 
             @emitter.place_label(top)
             @primitives.holding(node.index, LoopForm::COUNTER) { yield }
-            @emitter.emit(Cartridge::ASM.add_imm(LoopForm::COUNTER, LoopForm::COUNTER, 1))
-            @emitter.emit(Cartridge::ASM.cmp_reg(LoopForm::COUNTER, LoopForm::LIMIT))
+            @emitter.emit(ASM.add_imm(LoopForm::COUNTER, LoopForm::COUNTER, 1))
+            @emitter.emit(ASM.cmp_reg(LoopForm::COUNTER, LoopForm::LIMIT))
             @emitter.emit_branch(:bcond, top, cond: :lt)
             @emitter.place_label(done)
             @primitives.store_var(LoopForm::COUNTER, node.index)
@@ -366,12 +366,12 @@ module RubyGBA
             done = @emitter.gensym
 
             @lowering.value(node.count)
-            @emitter.emit(Cartridge::ASM.subs_imm(LoopForm::COUNTER, ACC, 0))
+            @emitter.emit(ASM.subs_imm(LoopForm::COUNTER, ACC, 0))
             @emitter.emit_branch(:bcond, done, cond: :le)
 
             @emitter.place_label(top)
             yield
-            @emitter.emit(Cartridge::ASM.subs_imm(LoopForm::COUNTER, LoopForm::COUNTER, 1))
+            @emitter.emit(ASM.subs_imm(LoopForm::COUNTER, LoopForm::COUNTER, 1))
             @emitter.emit_branch(:bcond, top, cond: :ne)
             @emitter.place_label(done)
           end
@@ -420,7 +420,7 @@ module RubyGBA
 
           def emit_call(node) = @placement.emit_call_func(node.target)
           def emit_raw(node) = @emitter.emit(node.bytes) # escape hatch: pre-assembled bytes, verbatim
-          def emit_halt(_node) = @emitter.emit(Cartridge::ASM.loop_forever)
+          def emit_halt(_node) = @emitter.emit(ASM.loop_forever)
         end
       end
     end

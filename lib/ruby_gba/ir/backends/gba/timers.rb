@@ -190,8 +190,8 @@ module RubyGBA
           # live counter (a 16-bit halfword load, like reading any hardware register).
           def eval_timer_ticks(node)
             info = timer_info(node.name)
-            @emitter.emit(Cartridge::ASM.load_immediate(TMP, timer_reg_l(info[:count])))
-            @emitter.emit(Cartridge::ASM.load_halfword(ACC, TMP))
+            @emitter.emit(ASM.load_immediate(TMP, timer_reg_l(info[:count])))
+            @emitter.emit(ASM.load_halfword(ACC, TMP))
           end
 
           # The reload/counter and control registers for hardware timer +index+ — each

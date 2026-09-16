@@ -1114,11 +1114,11 @@ module RubyGBA
       end
 
       def loop_forever
-        @bytes << Cartridge::ASM.loop_forever
+        @bytes << IR::Backends::GBA::ASM.loop_forever
       end
 
       def nop
-        @bytes << Cartridge::ASM.nop
+        @bytes << IR::Backends::GBA::ASM.nop
       end
     end
   end

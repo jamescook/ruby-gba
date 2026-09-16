@@ -92,7 +92,7 @@ module RubyGBA
           def emit_forget_waveform
             return unless @effect_waves
 
-            @emitter.emit(Cartridge::ASM.load_immediate(ACC, 0))
+            @emitter.emit(ASM.load_immediate(ACC, 0))
             @primitives.store_var(ACC, WAVE_LOADED)
           end
 
@@ -407,27 +407,27 @@ module RubyGBA
               return unless fixed.between?(0, slots.size - 1)
               return emit_ask_in_group(place: slots[fixed]) if grouped
 
-              @emitter.emit(Cartridge::ASM.load_immediate(TMP, @effect_table + (slots[fixed] * @effect_slot_bytes)))
+              @emitter.emit(ASM.load_immediate(TMP, @effect_table + (slots[fixed] * @effect_slot_bytes)))
               return emit_ask
             end
 
             none = @emitter.gensym
             @lowering.value(node.which)                       # ACC = which
-            @emitter.emit(Cartridge::ASM.cmp_imm(ACC, 0))
+            @emitter.emit(ASM.cmp_imm(ACC, 0))
             @emitter.emit_branch(:bcond, none, cond: :lt)
-            @emitter.emit(Cartridge::ASM.load_immediate(TMP, slots.size))
-            @emitter.emit(Cartridge::ASM.cmp_reg(ACC, TMP))
+            @emitter.emit(ASM.load_immediate(TMP, slots.size))
+            @emitter.emit(ASM.cmp_reg(ACC, TMP))
             @emitter.emit_branch(:bcond, none, cond: :ge)     # past the last effect
             @emitter.emit_load_data_address(TMP, effect_slots_blob(node.name))
-            @emitter.emit(Cartridge::ASM.lsl_imm(ACC, ACC, 1))
-            @emitter.emit(Cartridge::ASM.add_reg(TMP, TMP, ACC))
-            @emitter.emit(Cartridge::ASM.load_halfword(ACC, TMP))        # its place in the table
+            @emitter.emit(ASM.lsl_imm(ACC, ACC, 1))
+            @emitter.emit(ASM.add_reg(TMP, TMP, ACC))
+            @emitter.emit(ASM.load_halfword(ACC, TMP))        # its place in the table
             if grouped
               emit_ask_in_group
             else
-              @emitter.emit(Cartridge::ASM.lsl_imm(ACC, ACC, @effect_slot_bytes.bit_length - 1))
-              @emitter.emit(Cartridge::ASM.load_immediate(TMP, @effect_table))
-              @emitter.emit(Cartridge::ASM.add_reg(TMP, TMP, ACC))
+              @emitter.emit(ASM.lsl_imm(ACC, ACC, @effect_slot_bytes.bit_length - 1))
+              @emitter.emit(ASM.load_immediate(TMP, @effect_table))
+              @emitter.emit(ASM.add_reg(TMP, TMP, ACC))
               emit_ask
             end
             @emitter.place_label(none)
@@ -435,8 +435,8 @@ module RubyGBA
 
           # Ask for the effect whose place in the table is at the address in TMP: one store.
           def emit_ask
-            @emitter.emit(Cartridge::ASM.load_immediate(ACC, EFFECT_ASKED))
-            @emitter.emit(Cartridge::ASM.str_offset(ACC, TMP, EFFECT_STATE))
+            @emitter.emit(ASM.load_immediate(ACC, EFFECT_ASKED))
+            @emitter.emit(ASM.str_offset(ACC, TMP, EFFECT_STATE))
           end
 
           # THE REGISTERS THE ASK IN A GROUP WORKS IN. The place asked for is handed over in
@@ -470,12 +470,12 @@ module RubyGBA
           # first it finds. An effect in no group has an empty list, and is simply asked for.
           def emit_ask_in_group(place: nil)
             e = @emitter
-            place ? e.emit(Cartridge::ASM.load_immediate(ASK_PLACE, place)) : e.emit(Cartridge::ASM.mov_reg(ASK_PLACE, ACC))
+            place ? e.emit(ASM.load_immediate(ASK_PLACE, place)) : e.emit(ASM.mov_reg(ASK_PLACE, ACC))
             found = e.gensym
             ask = e.gensym
             done = e.gensym
             @mixer.holding_off_interrupts do
-              e.emit(Cartridge::ASM.push(*ASK_KEEPS))
+              e.emit(ASM.push(*ASK_KEEPS))
               emit_open_group(ask)
               emit_find_in_group(found)
               e.emit_branch(:b, ask)                                    # none of them: ask
@@ -483,13 +483,13 @@ module RubyGBA
               emit_decide_in_group(done)
               e.place_label(ask)
               emit_table_place(ADDR, ASK_PLACE)
-              e.emit(Cartridge::ASM.ldr_offset(ASK_STATE, ADDR, EFFECT_STATE))
-              e.emit(Cartridge::ASM.cmp_imm(ASK_STATE, EFFECT_STOPPING))
-              e.emit(Cartridge::ASM.mov_imm_cond(:eq, ASK_STATE, EFFECT_RESTARTING))
-              e.emit(Cartridge::ASM.mov_imm_cond(:ne, ASK_STATE, EFFECT_ASKED))
-              e.emit(Cartridge::ASM.str_offset(ASK_STATE, ADDR, EFFECT_STATE))
+              e.emit(ASM.ldr_offset(ASK_STATE, ADDR, EFFECT_STATE))
+              e.emit(ASM.cmp_imm(ASK_STATE, EFFECT_STOPPING))
+              e.emit(ASM.mov_imm_cond(:eq, ASK_STATE, EFFECT_RESTARTING))
+              e.emit(ASM.mov_imm_cond(:ne, ASK_STATE, EFFECT_ASKED))
+              e.emit(ASM.str_offset(ASK_STATE, ADDR, EFFECT_STATE))
               e.place_label(done)
-              e.emit(Cartridge::ASM.pop(*ASK_KEEPS))
+              e.emit(ASM.pop(*ASK_KEEPS))
             end
           end
 
@@ -498,14 +498,14 @@ module RubyGBA
           def emit_open_group(ask)
             e = @emitter
             e.emit_load_data_address(ASK_BLOB, SOUND_EFFECT_GROUPS)
-            e.emit(Cartridge::ASM.lsl_imm(ADDR, ASK_PLACE, GROUP_ENTRY_SHIFT))
-            e.emit(Cartridge::ASM.add_reg(ADDR, ASK_BLOB, ADDR))
-            e.emit(Cartridge::ASM.load_halfword_offset(ASK_LIST, ADDR, GROUP_LIST))
-            e.emit(Cartridge::ASM.add_reg(ASK_LIST, ASK_BLOB, ASK_LIST))
-            e.emit(Cartridge::ASM.load_halfword_offset(ASK_LEFT, ADDR, GROUP_COUNT))
-            e.emit(Cartridge::ASM.load_halfword_offset(ASK_PRIORITY, ADDR, GROUP_PRIORITY))
-            e.emit(Cartridge::ASM.load_immediate(ASK_TABLE, @effect_table))
-            e.emit(Cartridge::ASM.cmp_imm(ASK_LEFT, 0))
+            e.emit(ASM.lsl_imm(ADDR, ASK_PLACE, GROUP_ENTRY_SHIFT))
+            e.emit(ASM.add_reg(ADDR, ASK_BLOB, ADDR))
+            e.emit(ASM.load_halfword_offset(ASK_LIST, ADDR, GROUP_LIST))
+            e.emit(ASM.add_reg(ASK_LIST, ASK_BLOB, ASK_LIST))
+            e.emit(ASM.load_halfword_offset(ASK_LEFT, ADDR, GROUP_COUNT))
+            e.emit(ASM.load_halfword_offset(ASK_PRIORITY, ADDR, GROUP_PRIORITY))
+            e.emit(ASM.load_immediate(ASK_TABLE, @effect_table))
+            e.emit(ASM.cmp_imm(ASK_LEFT, 0))
             e.emit_branch(:bcond, ask, cond: :eq)
           end
 
@@ -515,15 +515,15 @@ module RubyGBA
             e = @emitter
             scan = e.gensym
             e.place_label(scan)
-            e.emit(Cartridge::ASM.load_halfword(ASK_MEMBER, ASK_LIST))
-            e.emit(Cartridge::ASM.add_imm(ASK_LIST, ASK_LIST, GROUP_MEMBER_BYTES))
+            e.emit(ASM.load_halfword(ASK_MEMBER, ASK_LIST))
+            e.emit(ASM.add_imm(ASK_LIST, ASK_LIST, GROUP_MEMBER_BYTES))
             emit_table_place(ADDR, ASK_MEMBER)
-            e.emit(Cartridge::ASM.ldr_offset(ASK_STATE, ADDR, EFFECT_STATE))
+            e.emit(ASM.ldr_offset(ASK_STATE, ADDR, EFFECT_STATE))
             [EFFECT_ASKED, EFFECT_SOUNDING, EFFECT_RESTARTING].each do |current|
-              e.emit(Cartridge::ASM.cmp_imm(ASK_STATE, current))
+              e.emit(ASM.cmp_imm(ASK_STATE, current))
               e.emit_branch(:bcond, found, cond: :eq)
             end
-            e.emit(Cartridge::ASM.subs_imm(ASK_LEFT, ASK_LEFT, 1))
+            e.emit(ASM.subs_imm(ASK_LEFT, ASK_LEFT, 1))
             e.emit_branch(:bcond, scan, cond: :ne)
           end
 
@@ -534,29 +534,29 @@ module RubyGBA
           def emit_decide_in_group(done)
             e = @emitter
             other = e.gensym
-            e.emit(Cartridge::ASM.cmp_reg(ASK_MEMBER, ASK_PLACE))
+            e.emit(ASM.cmp_reg(ASK_MEMBER, ASK_PLACE))
             e.emit_branch(:bcond, other, cond: :ne)
-            e.emit(Cartridge::ASM.cmp_imm(ASK_STATE, EFFECT_SOUNDING))
+            e.emit(ASM.cmp_imm(ASK_STATE, EFFECT_SOUNDING))
             e.emit_branch(:bcond, done, cond: :ne)
-            e.emit(Cartridge::ASM.load_immediate(ASK_STATE, EFFECT_RESTARTING))
-            e.emit(Cartridge::ASM.str_offset(ASK_STATE, ADDR, EFFECT_STATE))
+            e.emit(ASM.load_immediate(ASK_STATE, EFFECT_RESTARTING))
+            e.emit(ASM.str_offset(ASK_STATE, ADDR, EFFECT_STATE))
             e.emit_branch(:b, done)
 
             e.place_label(other)
-            e.emit(Cartridge::ASM.lsl_imm(ASK_STATE, ASK_MEMBER, GROUP_ENTRY_SHIFT))
-            e.emit(Cartridge::ASM.add_reg(ASK_STATE, ASK_BLOB, ASK_STATE))
-            e.emit(Cartridge::ASM.load_halfword_offset(ASK_STATE, ASK_STATE, GROUP_PRIORITY))
-            e.emit(Cartridge::ASM.cmp_reg(ASK_PRIORITY, ASK_STATE))
+            e.emit(ASM.lsl_imm(ASK_STATE, ASK_MEMBER, GROUP_ENTRY_SHIFT))
+            e.emit(ASM.add_reg(ASK_STATE, ASK_BLOB, ASK_STATE))
+            e.emit(ASM.load_halfword_offset(ASK_STATE, ASK_STATE, GROUP_PRIORITY))
+            e.emit(ASM.cmp_reg(ASK_PRIORITY, ASK_STATE))
             e.emit_branch(:bcond, done, cond: :lo)                      # it outranks this one
-            e.emit(Cartridge::ASM.load_immediate(ASK_STATE, EFFECT_STOPPING))
-            e.emit(Cartridge::ASM.str_offset(ASK_STATE, ADDR, EFFECT_STATE))
+            e.emit(ASM.load_immediate(ASK_STATE, EFFECT_STOPPING))
+            e.emit(ASM.str_offset(ASK_STATE, ADDR, EFFECT_STATE))
           end
 
           # +reg+ = the address of the table place whose number is in +number+ (the table's start
           # in ASK_TABLE).
           def emit_table_place(reg, number)
-            @emitter.emit(Cartridge::ASM.lsl_imm(reg, number, @effect_slot_bytes.bit_length - 1))
-            @emitter.emit(Cartridge::ASM.add_reg(reg, ASK_TABLE, reg))
+            @emitter.emit(ASM.lsl_imm(reg, number, @effect_slot_bytes.bit_length - 1))
+            @emitter.emit(ASM.add_reg(reg, ASK_TABLE, reg))
           end
 
           # NAME THE TUNE PLAYING NOW. One number into one variable, and the player in the
@@ -566,7 +566,7 @@ module RubyGBA
             number = @song_numbers.fetch(node.name) do
               raise LoweringError, "play_song for undefined song #{node.name.inspect}"
             end
-            @emitter.emit(Cartridge::ASM.load_immediate(ACC, number))
+            @emitter.emit(ASM.load_immediate(ACC, number))
             @primitives.store_var(ACC, MUSIC_WANTED)
           end
 
@@ -581,16 +581,16 @@ module RubyGBA
             if fixed
               return unless fixed.between?(0, count - 1)
 
-              @emitter.emit(Cartridge::ASM.load_immediate(ACC, base + fixed))
+              @emitter.emit(ASM.load_immediate(ACC, base + fixed))
               return @primitives.store_var(ACC, MUSIC_WANTED)
             end
 
             none = @emitter.gensym
             @lowering.value(node.which)                       # ACC = which
-            @emitter.emit(Cartridge::ASM.cmp_imm(ACC, 0))
+            @emitter.emit(ASM.cmp_imm(ACC, 0))
             @emitter.emit_branch(:bcond, none, cond: :lt)
-            @emitter.emit(Cartridge::ASM.load_immediate(TMP, count))
-            @emitter.emit(Cartridge::ASM.cmp_reg(ACC, TMP))
+            @emitter.emit(ASM.load_immediate(TMP, count))
+            @emitter.emit(ASM.cmp_reg(ACC, TMP))
             @emitter.emit_branch(:bcond, none, cond: :ge)     # past the last song
             @primitives.emit_add_const(ACC, ACC, base, TMP)
             @primitives.store_var(ACC, MUSIC_WANTED)
@@ -602,10 +602,10 @@ module RubyGBA
           def emit_stop_music(_node = nil)
             return unless plays_music?
 
-            @emitter.emit(Cartridge::ASM.load_immediate(ACC, 0))
+            @emitter.emit(ASM.load_immediate(ACC, 0))
             @primitives.store_var(ACC, MUSIC_WANTED) # first, so the player never sees a count
             @primitives.load_var(ACC, MUSIC_STOPS)   # move on with the old tune still named
-            @emitter.emit(Cartridge::ASM.add_imm(ACC, ACC, 1))
+            @emitter.emit(ASM.add_imm(ACC, ACC, 1))
             @primitives.store_var(ACC, MUSIC_STOPS)
           end
 
@@ -650,17 +650,17 @@ module RubyGBA
 
             @primitives.load_var(value, MUSIC_WANTED)
             @primitives.load_var(playing, MUSIC_PLAYING)
-            @emitter.emit(Cartridge::ASM.cmp_reg(value, playing))
+            @emitter.emit(ASM.cmp_reg(value, playing))
             @emitter.emit_branch(:bcond, changed, cond: :ne)
             if @counts_stops # ...or the same tune, stopped and named again since last frame
               @primitives.load_var(ACC, MUSIC_STOPS)
               @primitives.load_var(TMP, MUSIC_STOPS_SEEN)
-              @emitter.emit(Cartridge::ASM.cmp_reg(ACC, TMP))
+              @emitter.emit(ASM.cmp_reg(ACC, TMP))
               @emitter.emit_branch(:bcond, changed, cond: :ne)
             end
 
             # The same tune as last frame — or still none.
-            @emitter.emit(Cartridge::ASM.cmp_imm(playing, 0))
+            @emitter.emit(ASM.cmp_imm(playing, 0))
             @emitter.emit_branch(:bcond, done, cond: :eq)
             @emitter.emit_load_data_address(base, MUSIC_SCORE)
             @primitives.load_var(frame, MUSIC_FRAME)
@@ -674,22 +674,22 @@ module RubyGBA
             end
             @emitter.emit_load_data_address(base, MUSIC_SCORE)
             emit_silence_tune(base, at, frame, playing)
-            @emitter.emit(Cartridge::ASM.mov_reg(playing, value))
+            @emitter.emit(ASM.mov_reg(playing, value))
             @primitives.store_var(playing, MUSIC_PLAYING)
-            @emitter.emit(Cartridge::ASM.cmp_imm(playing, 0))
+            @emitter.emit(ASM.cmp_imm(playing, 0))
             @emitter.emit_branch(:bcond, done, cond: :eq)
-            @emitter.emit(Cartridge::ASM.load_immediate(frame, 0))
+            @emitter.emit(ASM.load_immediate(frame, 0))
             emit_rewind_lanes(base, at, playing)
             if @waves && @effect_waves
               emit_entry_address(at, base, playing)
-              @emitter.emit(Cartridge::ASM.ldr_offset(ACC, at, ENTRY_WAVE))
+              @emitter.emit(ASM.ldr_offset(ACC, at, ENTRY_WAVE))
               @primitives.store_var(ACC, MUSIC_WAVE)
             elsif @waves
               emit_upload_wavetable(base, at, playing)
             end
             if plays_sound_effects?
               emit_entry_address(at, base, playing)
-              @emitter.emit(Cartridge::ASM.ldr_offset(ACC, at, @entry_rank))
+              @emitter.emit(ASM.ldr_offset(ACC, at, @entry_rank))
               @primitives.store_var(ACC, MUSIC_RANK)
             end
 
@@ -697,36 +697,36 @@ module RubyGBA
             if plays_sound_effects? # ...the effects that outrank the tune
               @primitives.load_var(EFFECT_OUTRANKS, MUSIC_RANK)
               emit_first_effect
-              @emitter.emit(Cartridge::ASM.push(frame))
+              @emitter.emit(ASM.push(frame))
               @emitter.emit_branch(:bl, SOUND_EFFECTS)
-              @emitter.emit(Cartridge::ASM.pop(frame))
-              @emitter.emit(Cartridge::ASM.push(EFFECT_SLOT, EFFECT_ENTRY)) # where they stopped
+              @emitter.emit(ASM.pop(frame))
+              @emitter.emit(ASM.push(EFFECT_SLOT, EFFECT_ENTRY)) # where they stopped
             end
             emit_follow_the_level if @scales
             @lanes.each_with_index { |lane, number| emit_play_lane(lane, number, base, at, value, frame) }
 
             onward = @emitter.gensym
-            @emitter.emit(Cartridge::ASM.add_imm(frame, frame, 1))
+            @emitter.emit(ASM.add_imm(frame, frame, 1))
             emit_entry_address(at, base, playing)
-            @emitter.emit(Cartridge::ASM.ldr(ACC, at))                 # the tune's length
-            @emitter.emit(Cartridge::ASM.cmp_reg(frame, ACC))
+            @emitter.emit(ASM.ldr(ACC, at))                 # the tune's length
+            @emitter.emit(ASM.cmp_reg(frame, ACC))
             @emitter.emit_branch(:bcond, onward, cond: :lt) # not at the end yet
             emit_loop_back(base, at, frame, onward) if @loops
-            @emitter.emit(Cartridge::ASM.load_immediate(frame, 0))     # round again from the top
+            @emitter.emit(ASM.load_immediate(frame, 0))     # round again from the top
             emit_rewind_lanes(base, at, playing)
             @emitter.place_label(onward)
             @primitives.store_var(frame, MUSIC_FRAME)
             if plays_sound_effects? # ...and the rest, carrying on from where the first run stopped
-              @emitter.emit(Cartridge::ASM.pop(EFFECT_SLOT, EFFECT_ENTRY))
+              @emitter.emit(ASM.pop(EFFECT_SLOT, EFFECT_ENTRY))
               @emitter.emit_load_data_address(base, MUSIC_SCORE)
-              @emitter.emit(Cartridge::ASM.load_immediate(EFFECT_OUTRANKS, 0))
+              @emitter.emit(ASM.load_immediate(EFFECT_OUTRANKS, 0))
               @emitter.emit_branch(:bl, SOUND_EFFECTS)
               @emitter.emit_branch(:b, finished)
             end
             @emitter.place_label(done)
             if plays_sound_effects? # no tune: every effect
               @emitter.emit_load_data_address(base, MUSIC_SCORE)
-              @emitter.emit(Cartridge::ASM.load_immediate(EFFECT_OUTRANKS, 0))
+              @emitter.emit(ASM.load_immediate(EFFECT_OUTRANKS, 0))
               emit_first_effect
               @emitter.emit_branch(:bl, SOUND_EFFECTS)
             end
@@ -741,7 +741,7 @@ module RubyGBA
           EFFECT_OUTRANKS = 11
 
           def emit_first_effect
-            @emitter.emit(Cartridge::ASM.load_immediate(EFFECT_SLOT, @effect_table))
+            @emitter.emit(ASM.load_immediate(EFFECT_SLOT, @effect_table))
             @primitives.emit_add_const(EFFECT_ENTRY, 2, @effects_at, ACC)
           end
 
@@ -767,73 +767,73 @@ module RubyGBA
             out = e.gensym
             makes_calls = @mixer.ranks_voices? || @effect_waves
             e.place_label(SOUND_EFFECTS)
-            e.emit(Cartridge::ASM.push(Mixer::LR)) if makes_calls
-            e.emit(Cartridge::ASM.load_immediate(table_end, @effect_table + (@effects.size * @effect_slot_bytes)))
+            e.emit(ASM.push(Mixer::LR)) if makes_calls
+            e.emit(ASM.load_immediate(table_end, @effect_table + (@effects.size * @effect_slot_bytes)))
             e.place_label(walk)
-            e.emit(Cartridge::ASM.cmp_reg(slot, table_end))
+            e.emit(ASM.cmp_reg(slot, table_end))
             e.emit_branch(:bcond, out, cond: :hs)
-            e.emit(Cartridge::ASM.ldr_offset(rank, entry, EFFECT_RANK))
-            e.emit(Cartridge::ASM.cmp_reg(rank, outranks))
+            e.emit(ASM.ldr_offset(rank, entry, EFFECT_RANK))
+            e.emit(ASM.cmp_reg(rank, outranks))
             e.emit_branch(:bcond, out, cond: :le)              # not above the tune
 
             onward = e.gensym
             sounding = e.gensym
             play = e.gensym
             stop = e.gensym
-            e.emit(Cartridge::ASM.ldr_offset(ACC, slot, EFFECT_STATE))
-            e.emit(Cartridge::ASM.cmp_imm(ACC, EFFECT_SOUNDING))
+            e.emit(ASM.ldr_offset(ACC, slot, EFFECT_STATE))
+            e.emit(ASM.cmp_imm(ACC, EFFECT_SOUNDING))
             e.emit_branch(:bcond, sounding, cond: :eq)
             if grouped?
               start = e.gensym
-              e.emit(Cartridge::ASM.cmp_imm(ACC, EFFECT_ASKED))
+              e.emit(ASM.cmp_imm(ACC, EFFECT_ASKED))
               e.emit_branch(:bcond, start, cond: :eq)
-              e.emit(Cartridge::ASM.cmp_imm(ACC, EFFECT_STOPPING))
+              e.emit(ASM.cmp_imm(ACC, EFFECT_STOPPING))
               e.emit_branch(:bcond, stop, cond: :eq)           # cut off by another of its group
-              e.emit(Cartridge::ASM.cmp_imm(ACC, EFFECT_RESTARTING))
+              e.emit(ASM.cmp_imm(ACC, EFFECT_RESTARTING))
               e.emit_branch(:bcond, onward, cond: :ne)         # none of those: nothing to do
               emit_let_go_of_voices(rank)                      # asked for again: it stops first
               e.place_label(start)
             else
-              e.emit(Cartridge::ASM.cmp_imm(ACC, EFFECT_ASKED))
+              e.emit(ASM.cmp_imm(ACC, EFFECT_ASKED))
               e.emit_branch(:bcond, onward, cond: :ne)         # neither: nothing to do
             end
 
-            e.emit(Cartridge::ASM.load_immediate(ACC, EFFECT_SOUNDING))  # asked for: from its first frame
-            e.emit(Cartridge::ASM.str_offset(ACC, slot, EFFECT_STATE))
-            e.emit(Cartridge::ASM.load_immediate(frame, 0))
+            e.emit(ASM.load_immediate(ACC, EFFECT_SOUNDING))  # asked for: from its first frame
+            e.emit(ASM.str_offset(ACC, slot, EFFECT_STATE))
+            e.emit(ASM.load_immediate(frame, 0))
             @effect_lanes.each_index do |number|
-              e.emit(Cartridge::ASM.ldr_offset(ACC, entry, EFFECT_STARTS + (4 * number)))
-              e.emit(Cartridge::ASM.str_offset(ACC, slot, EFFECT_CURSORS + (4 * number)))
+              e.emit(ASM.ldr_offset(ACC, entry, EFFECT_STARTS + (4 * number)))
+              e.emit(ASM.str_offset(ACC, slot, EFFECT_CURSORS + (4 * number)))
             end
             e.emit_branch(:b, play)
 
             e.place_label(sounding)
-            e.emit(Cartridge::ASM.ldr_offset(frame, slot, EFFECT_FRAME))
-            e.emit(Cartridge::ASM.ldr_offset(ACC, entry, EFFECT_LENGTH))
-            e.emit(Cartridge::ASM.cmp_reg(frame, ACC))
+            e.emit(ASM.ldr_offset(frame, slot, EFFECT_FRAME))
+            e.emit(ASM.ldr_offset(ACC, entry, EFFECT_LENGTH))
+            e.emit(ASM.cmp_reg(frame, ACC))
             e.emit_branch(:bcond, play, cond: :lt)
             e.place_label(stop)
-            e.emit(Cartridge::ASM.load_immediate(ACC, 0))                # at its end
-            e.emit(Cartridge::ASM.str_offset(ACC, slot, EFFECT_STATE))
+            e.emit(ASM.load_immediate(ACC, 0))                # at its end
+            e.emit(ASM.str_offset(ACC, slot, EFFECT_STATE))
             emit_let_go_of_voices(rank)
             e.emit_branch(:b, onward)
 
             e.place_label(play)
             @effect_lanes.each_with_index do |lane, number|
               skip = e.gensym
-              e.emit(Cartridge::ASM.ldr_offset(cursor, slot, EFFECT_CURSORS + (4 * number)))
-              e.emit(Cartridge::ASM.add_reg(row, base, cursor))
-              e.emit(Cartridge::ASM.ldr(ACC, row))
-              e.emit(Cartridge::ASM.cmp_reg(ACC, frame))
+              e.emit(ASM.ldr_offset(cursor, slot, EFFECT_CURSORS + (4 * number)))
+              e.emit(ASM.add_reg(row, base, cursor))
+              e.emit(ASM.ldr(ACC, row))
+              e.emit(ASM.cmp_reg(ACC, frame))
               e.emit_branch(:bcond, skip, cond: :ne)           # not due
-              e.emit(Cartridge::ASM.add_imm(cursor, cursor, row_bytes(lane)))
-              e.emit(Cartridge::ASM.str_offset(cursor, slot, EFFECT_CURSORS + (4 * number)))
+              e.emit(ASM.add_imm(cursor, cursor, row_bytes(lane)))
+              e.emit(ASM.str_offset(cursor, slot, EFFECT_CURSORS + (4 * number)))
               if lane.kind == :recorded
                 emit_effect_recorded_note(lane, rank, row)
               else
                 emit_take_voice(lane: lane, rank: rank, row: row, dropped: skip)
                 if lane.kind == :wave
-                  e.emit(Cartridge::ASM.ldr_offset(ACC, entry, effect_wave_at))
+                  e.emit(ASM.ldr_offset(ACC, entry, effect_wave_at))
                   emit_load_waveform(row)
                 end
                 emit_console_note(lane, row)
@@ -842,15 +842,15 @@ module RubyGBA
               end
               e.place_label(skip)
             end
-            e.emit(Cartridge::ASM.add_imm(frame, frame, 1))
-            e.emit(Cartridge::ASM.str_offset(frame, slot, EFFECT_FRAME))
+            e.emit(ASM.add_imm(frame, frame, 1))
+            e.emit(ASM.str_offset(frame, slot, EFFECT_FRAME))
 
             e.place_label(onward)
-            e.emit(Cartridge::ASM.add_imm(slot, slot, @effect_slot_bytes))
-            e.emit(Cartridge::ASM.add_imm(entry, entry, effect_entry_bytes))
+            e.emit(ASM.add_imm(slot, slot, @effect_slot_bytes))
+            e.emit(ASM.add_imm(entry, entry, effect_entry_bytes))
             e.emit_branch(:b, walk)
             e.place_label(out)
-            e.emit(makes_calls ? Cartridge::ASM.pop(PC) : Cartridge::ASM.return)
+            e.emit(makes_calls ? ASM.pop(PC) : ASM.return)
             emit_upload_wave_routine if @effect_waves
           end
 
@@ -864,8 +864,8 @@ module RubyGBA
           # note starts the voice and a rest does not, so the bit that starts it says which.
           def emit_load_waveform(row)
             rest = @emitter.gensym
-            @emitter.emit(Cartridge::ASM.load_halfword_offset(TMP, row, 6))
-            @emitter.emit(Cartridge::ASM.tst_imm(TMP, 0x8000))
+            @emitter.emit(ASM.load_halfword_offset(TMP, row, 6))
+            @emitter.emit(ASM.tst_imm(TMP, 0x8000))
             @emitter.emit_branch(:bcond, rest, cond: :eq)
             @emitter.emit_branch(:bl, UPLOAD_WAVE)
             @emitter.place_label(rest)
@@ -878,15 +878,15 @@ module RubyGBA
             loaded = e.gensym
             e.place_label(UPLOAD_WAVE)
             @primitives.load_var(TMP, WAVE_LOADED)
-            e.emit(Cartridge::ASM.cmp_reg(ACC, TMP))
+            e.emit(ASM.cmp_reg(ACC, TMP))
             e.emit_branch(:bcond, loaded, cond: :eq)
             @primitives.store_var(ACC, WAVE_LOADED)
-            e.emit(Cartridge::ASM.push(*WAVE_COPY_REGS))
-            e.emit(Cartridge::ASM.add_reg(WAVE_COPY_REGS.first, 2, ACC))
+            e.emit(ASM.push(*WAVE_COPY_REGS))
+            e.emit(ASM.add_reg(WAVE_COPY_REGS.first, 2, ACC))
             emit_copy_waveform(WAVE_COPY_REGS.first)
-            e.emit(Cartridge::ASM.pop(*WAVE_COPY_REGS))
+            e.emit(ASM.pop(*WAVE_COPY_REGS))
             e.place_label(loaded)
-            e.emit(Cartridge::ASM.return)
+            e.emit(ASM.return)
           end
 
           # EVERY VOICE THE EFFECT OF RANK +rank+ STILL HOLDS goes quiet and is free: a console voice
@@ -897,7 +897,7 @@ module RubyGBA
 
               kept = @emitter.gensym
               @primitives.load_var(ACC, self.class.voice_rank(lane.index))
-              @emitter.emit(Cartridge::ASM.cmp_reg(ACC, rank))
+              @emitter.emit(ASM.cmp_reg(ACC, rank))
               @emitter.emit_branch(:bcond, kept, cond: :ne)    # not its voice any more
               emit_free_voice(lane)
               @emitter.place_label(kept)
@@ -918,28 +918,28 @@ module RubyGBA
           # (#emit_recorded_note), on a voice whose mark carries the effect's rank in +rank+.
           def emit_effect_recorded_note(lane, rank, row)
             mark, base, at = 8, 2, 3
-            @emitter.emit(Cartridge::ASM.push(*EFFECT_KEEPS))
-            @emitter.emit(Cartridge::ASM.mov_reg(at, row))
-            @emitter.emit(Cartridge::ASM.mov_reg(mark, rank))
+            @emitter.emit(ASM.push(*EFFECT_KEEPS))
+            @emitter.emit(ASM.mov_reg(at, row))
+            @emitter.emit(ASM.mov_reg(mark, rank))
             @mixer.emit_ranked_mark(mark, lane.index)
             emit_recorded_note(lane: lane.index, base: base, at: at)
-            @emitter.emit(Cartridge::ASM.pop(*EFFECT_KEEPS))
+            @emitter.emit(ASM.pop(*EFFECT_KEEPS))
           end
 
           # At an effect's end, its recorded lane lets go of the voice it still has, if it has one —
           # a note with a shape falling away rather than stopping, the same as at a rest.
           def emit_effect_voice_off(lane, rank)
-            @emitter.emit(Cartridge::ASM.push(EFFECT_SLOT, EFFECT_ENTRY))
-            @emitter.emit(Cartridge::ASM.mov_reg(8, rank))
+            @emitter.emit(ASM.push(EFFECT_SLOT, EFFECT_ENTRY))
+            @emitter.emit(ASM.mov_reg(8, rank))
             @mixer.emit_ranked_mark(8, lane.index)
             @mixer.emit_music_voice_off
-            @emitter.emit(Cartridge::ASM.pop(EFFECT_SLOT, EFFECT_ENTRY))
+            @emitter.emit(ASM.pop(EFFECT_SLOT, EFFECT_ENTRY))
           end
 
           # +reg+ = the mark a voice of the tune's recorded lane +lane+ carries: its own number, or
           # in a game whose sound effects play recordings, that and the tune's rank.
           def emit_song_mark(reg, lane)
-            return @emitter.emit(Cartridge::ASM.load_immediate(reg, Mixer.music_owner(lane))) unless @mixer.ranks_voices?
+            return @emitter.emit(ASM.load_immediate(reg, Mixer.music_owner(lane))) unless @mixer.ranks_voices?
 
             @primitives.load_var(reg, MUSIC_RANK)
             @mixer.emit_ranked_mark(reg, lane)
@@ -951,19 +951,19 @@ module RubyGBA
           def emit_take_voice(lane:, rank:, row:, dropped:)
             holder = self.class.voice_rank(lane.index)
             @primitives.load_var(ACC, holder)
-            @emitter.emit(Cartridge::ASM.cmp_reg(ACC, rank))
+            @emitter.emit(ASM.cmp_reg(ACC, rank))
             @emitter.emit_branch(:bcond, dropped, cond: :gt)
-            @emitter.emit(Cartridge::ASM.load_halfword_offset(ACC, row, 4))
-            @emitter.emit(Cartridge::ASM.tst_imm(ACC, 0xF000))
-            @emitter.emit(Cartridge::ASM.mov_reg(TMP, rank)) unless rank == TMP
-            @emitter.emit(Cartridge::ASM.mov_imm_cond(:eq, TMP, 0))
+            @emitter.emit(ASM.load_halfword_offset(ACC, row, 4))
+            @emitter.emit(ASM.tst_imm(ACC, 0xF000))
+            @emitter.emit(ASM.mov_reg(TMP, rank)) unless rank == TMP
+            @emitter.emit(ASM.mov_imm_cond(:eq, TMP, 0))
             @primitives.store_var(TMP, holder)
           end
 
           # Silence +lane+'s voice, and nobody holds it.
           def emit_free_voice(lane)
             emit_writes(console_note(lane, SILENCE, 0, 0))
-            @emitter.emit(Cartridge::ASM.load_immediate(ACC, 0))
+            @emitter.emit(ASM.load_immediate(ACC, 0))
             @primitives.store_var(ACC, self.class.voice_rank(lane.index))
           end
 
@@ -973,7 +973,7 @@ module RubyGBA
           # (VBlankIntrWait). The interrupt itself was armed once at boot (emit_irq_setup),
           # so this is a single instruction; the CPU draws no power while it waits.
           def emit_wait_vblank(_node = nil)
-            @emitter.emit(Cartridge::ASM.swi(SWI_VBLANK_INTR_WAIT << 16))
+            @emitter.emit(ASM.swi(SWI_VBLANK_INTR_WAIT << 16))
 
             # How many frames the pass that just ended really took. First thing after the wait,
             # because everything below is entitled to ask — and it is the difference between two
@@ -1031,15 +1031,15 @@ module RubyGBA
 
           # +at+ = where tune number +playing+'s directory entry sits.
           def emit_entry_address(at, base, playing)
-            @emitter.emit(Cartridge::ASM.lsl_imm(at, playing, @entry_shift))
-            @emitter.emit(Cartridge::ASM.add_reg(at, base, at))
+            @emitter.emit(ASM.lsl_imm(at, playing, @entry_shift))
+            @emitter.emit(ASM.add_reg(at, base, at))
           end
 
           # Point every lane's cursor at its first event.
           def emit_rewind_lanes(base, at, playing)
             emit_entry_address(at, base, playing)
             @lanes.each_index do |number|
-              @emitter.emit(Cartridge::ASM.ldr_offset(ACC, at, ENTRY_STARTS + (4 * number)))
+              @emitter.emit(ASM.ldr_offset(ACC, at, ENTRY_STARTS + (4 * number)))
               @primitives.store_var(ACC, self.class.music_cursor(number))
             end
           end
@@ -1051,13 +1051,13 @@ module RubyGBA
           # +at+ holds the tune's directory entry.
           def emit_loop_back(base, at, frame, onward)
             top = @emitter.gensym
-            @emitter.emit(Cartridge::ASM.ldr_offset(ACC, at, ENTRY_LOOP))
-            @emitter.emit(Cartridge::ASM.cmp_imm(ACC, 0))
+            @emitter.emit(ASM.ldr_offset(ACC, at, ENTRY_LOOP))
+            @emitter.emit(ASM.cmp_imm(ACC, 0))
             @emitter.emit_branch(:bcond, top, cond: :eq)   # no table: it loops from its start
-            @emitter.emit(Cartridge::ASM.add_reg(at, base, ACC))
-            @emitter.emit(Cartridge::ASM.ldr(frame, at))              # the frame it goes back to
+            @emitter.emit(ASM.add_reg(at, base, ACC))
+            @emitter.emit(ASM.ldr(frame, at))              # the frame it goes back to
             @lanes.each_index do |number|
-              @emitter.emit(Cartridge::ASM.ldr_offset(ACC, at, 4 + (4 * number)))
+              @emitter.emit(ASM.ldr_offset(ACC, at, 4 + (4 * number)))
               @primitives.store_var(ACC, self.class.music_cursor(number))
             end
             @emitter.emit_branch(:b, onward)
@@ -1083,10 +1083,10 @@ module RubyGBA
           def emit_upload_wavetable(base, at, playing)
             none = @emitter.gensym
             emit_entry_address(at, base, playing)
-            @emitter.emit(Cartridge::ASM.ldr_offset(ACC, at, ENTRY_WAVE))
-            @emitter.emit(Cartridge::ASM.cmp_imm(ACC, 0))
+            @emitter.emit(ASM.ldr_offset(ACC, at, ENTRY_WAVE))
+            @emitter.emit(ASM.cmp_imm(ACC, 0))
             @emitter.emit_branch(:bcond, none, cond: :eq) # this tune plays no waveform
-            @emitter.emit(Cartridge::ASM.add_reg(WAVE_COPY_REGS.first, base, ACC))
+            @emitter.emit(ASM.add_reg(WAVE_COPY_REGS.first, base, ACC))
             emit_copy_waveform(WAVE_COPY_REGS.first)
             @emitter.place_label(none)
           end
@@ -1098,15 +1098,15 @@ module RubyGBA
             WAVE_BANKS.each do |bank|
               copy = @emitter.gensym
               @emitter.write_reg16(REG_SOUND3CNT_L, bank) # the CPU reaches this bank
-              @emitter.emit(Cartridge::ASM.mov_reg(walk, source))
-              @emitter.emit(Cartridge::ASM.load_immediate(dest, REG_WAVE_RAM))
-              @emitter.emit(Cartridge::ASM.load_immediate(left, WAVE_HALFWORDS))
+              @emitter.emit(ASM.mov_reg(walk, source))
+              @emitter.emit(ASM.load_immediate(dest, REG_WAVE_RAM))
+              @emitter.emit(ASM.load_immediate(left, WAVE_HALFWORDS))
               @emitter.place_label(copy)
-              @emitter.emit(Cartridge::ASM.load_halfword(ACC, walk))
-              @emitter.emit(Cartridge::ASM.store_halfword(ACC, dest))
-              @emitter.emit(Cartridge::ASM.add_imm(walk, walk, 2))
-              @emitter.emit(Cartridge::ASM.add_imm(dest, dest, 2))
-              @emitter.emit(Cartridge::ASM.subs_imm(left, left, 1))
+              @emitter.emit(ASM.load_halfword(ACC, walk))
+              @emitter.emit(ASM.store_halfword(ACC, dest))
+              @emitter.emit(ASM.add_imm(walk, walk, 2))
+              @emitter.emit(ASM.add_imm(dest, dest, 2))
+              @emitter.emit(ASM.subs_imm(left, left, 1))
               @emitter.emit_branch(:bcond, copy, cond: :ne)
             end
             @emitter.write_reg16(REG_SOUND3CNT_L, WAVE_ON)
@@ -1122,13 +1122,13 @@ module RubyGBA
           # and a one-part tune ending must not cut a beep off.
           def emit_silence_tune(base, at, lanes_used, playing)
             quiet = @emitter.gensym
-            @emitter.emit(Cartridge::ASM.cmp_imm(playing, 0))
+            @emitter.emit(ASM.cmp_imm(playing, 0))
             @emitter.emit_branch(:bcond, quiet, cond: :eq)
             emit_entry_address(at, base, playing)
-            @emitter.emit(Cartridge::ASM.ldr_offset(lanes_used, at, ENTRY_LANES_USED)) # one bit for each lane it uses
+            @emitter.emit(ASM.ldr_offset(lanes_used, at, ENTRY_LANES_USED)) # one bit for each lane it uses
             @lanes.each_with_index do |lane, number|
               unused = @emitter.gensym
-              @emitter.emit(Cartridge::ASM.tst_imm(lanes_used, 1 << number))
+              @emitter.emit(ASM.tst_imm(lanes_used, 1 << number))
               @emitter.emit_branch(:bcond, unused, cond: :eq)
               emit_silence_lane(lane, number)
               @emitter.place_label(unused)
@@ -1154,8 +1154,8 @@ module RubyGBA
               forget_held_note(number) if holds_notes?(lane)
               kept = @emitter.gensym
               @primitives.load_var(ACC, self.class.voice_rank(lane.index))
-              @emitter.emit(Cartridge::ASM.lsl_imm(ACC, ACC, IR::Tunes::RANK_SHIFT))
-              @emitter.emit(Cartridge::ASM.cmp_imm(ACC, 0))
+              @emitter.emit(ASM.lsl_imm(ACC, ACC, IR::Tunes::RANK_SHIFT))
+              @emitter.emit(ASM.cmp_imm(ACC, 0))
               @emitter.emit_branch(:bcond, kept, cond: :ne)
               emit_free_voice(lane)
               @emitter.place_label(kept)
@@ -1197,7 +1197,7 @@ module RubyGBA
           def sounding_mask(lane) = lane.kind == :wave ? 0xF << WAVE_VOLUME_SHIFT : 0xF000
 
           def forget_held_note(number)
-            @emitter.emit(Cartridge::ASM.load_immediate(ACC, 0))
+            @emitter.emit(ASM.load_immediate(ACC, 0))
             @primitives.store_var(ACC, self.class.music_note(number))
           end
 
@@ -1210,7 +1210,7 @@ module RubyGBA
             same = @emitter.gensym
             @primitives.load_var(LEVEL_REG, IR::Tunes::LEVEL)
             @primitives.load_var(ACC, MUSIC_LEVEL_APPLIED)
-            @emitter.emit(Cartridge::ASM.cmp_reg(LEVEL_REG, ACC))
+            @emitter.emit(ASM.cmp_reg(LEVEL_REG, ACC))
             @emitter.emit_branch(:bcond, same, cond: :eq)
             @primitives.store_var(LEVEL_REG, MUSIC_LEVEL_APPLIED)
             @lanes.each_with_index do |lane, number|
@@ -1219,7 +1219,7 @@ module RubyGBA
 
               resting = @emitter.gensym
               @primitives.load_var(NOTE_REG, self.class.music_note(number))
-              @emitter.emit(Cartridge::ASM.tst_imm(NOTE_REG, sounding_mask(lane))) # 0: a rest, or nothing yet
+              @emitter.emit(ASM.tst_imm(NOTE_REG, sounding_mask(lane))) # 0: a rest, or nothing yet
               @emitter.emit_branch(:bcond, resting, cond: :eq)
               emit_scaled_note(lane, starts: lane.kind == :square)
               @emitter.place_label(resting)
@@ -1250,17 +1250,17 @@ module RubyGBA
             regs = music_voice_regs(lane)
             emit_sweep(regs)
             wave = lane.kind == :wave
-            @emitter.emit(Cartridge::ASM.lsr_imm(WORK_REG, NOTE_REG, wave ? WAVE_VOLUME_SHIFT : 12))
-            @emitter.emit(Cartridge::ASM.and_imm(WORK_REG, WORK_REG, 0xF))      # the written volume
+            @emitter.emit(ASM.lsr_imm(WORK_REG, NOTE_REG, wave ? WAVE_VOLUME_SHIFT : 12))
+            @emitter.emit(ASM.and_imm(WORK_REG, WORK_REG, 0xF))      # the written volume
             emit_scaled_loudness(WORK_REG)                           # ...times the level, over sixteen
             wave ? emit_nearest_wave_volume : emit_square_volume
-            @emitter.emit(Cartridge::ASM.load_immediate(TMP, regs[:reg_a]))
-            @emitter.emit(Cartridge::ASM.store_halfword(WRITE_REG, TMP))
+            @emitter.emit(ASM.load_immediate(TMP, regs[:reg_a]))
+            @emitter.emit(ASM.store_halfword(WRITE_REG, TMP))
             return unless starts
 
-            @emitter.emit(Cartridge::ASM.lsr_imm(WRITE_REG, NOTE_REG, 16))
-            @emitter.emit(Cartridge::ASM.load_immediate(TMP, regs[:reg_b]))
-            @emitter.emit(Cartridge::ASM.store_halfword(WRITE_REG, TMP))
+            @emitter.emit(ASM.lsr_imm(WRITE_REG, NOTE_REG, 16))
+            @emitter.emit(ASM.load_immediate(TMP, regs[:reg_b]))
+            @emitter.emit(ASM.store_halfword(WRITE_REG, TMP))
           end
 
           # A RECORDED PART'S NOTE AT THE NEW LEVEL: the mixer voice sounding it, if it still has
@@ -1269,14 +1269,14 @@ module RubyGBA
           def emit_follow_recorded(lane, number)
             resting = @emitter.gensym
             @primitives.load_var(WRITE_REG, self.class.music_note(number))
-            @emitter.emit(Cartridge::ASM.cmp_imm(WRITE_REG, 0))
+            @emitter.emit(ASM.cmp_imm(WRITE_REG, 0))
             @emitter.emit_branch(:bcond, resting, cond: :eq)          # a rest, or nothing yet
             emit_song_mark(WORK_REG, lane.index)
             @mixer.emit_find_music_voice                              # r7 = its voice, or 0
-            @emitter.emit(Cartridge::ASM.cmp_imm(NOTE_REG, 0))
+            @emitter.emit(ASM.cmp_imm(NOTE_REG, 0))
             @emitter.emit_branch(:bcond, resting, cond: :eq)          # it ran out, or is falling away
             emit_scaled_loudness(WRITE_REG)
-            @emitter.emit(Cartridge::ASM.str_offset(WRITE_REG, NOTE_REG, Mixer::SLOT_VOL))
+            @emitter.emit(ASM.str_offset(WRITE_REG, NOTE_REG, Mixer::SLOT_VOL))
             @emitter.place_label(resting)
           end
 
@@ -1285,37 +1285,37 @@ module RubyGBA
           # voice uses that register too.
           def emit_scaled_loudness(reg)
             @primitives.load_var(LEVEL_REG, IR::Tunes::LEVEL)
-            @emitter.emit(Cartridge::ASM.mul(reg, LEVEL_REG, reg))
-            @emitter.emit(Cartridge::ASM.lsr_imm(reg, reg, IR::Tunes::LEVEL_SHIFT))
+            @emitter.emit(ASM.mul(reg, LEVEL_REG, reg))
+            @emitter.emit(ASM.lsr_imm(reg, reg, IR::Tunes::LEVEL_SHIFT))
           end
 
           # WRITE_REG = the square control in NOTE_REG with the volume in WORK_REG over its top
           # four bits.
           def emit_square_volume
-            @emitter.emit(Cartridge::ASM.lsl_imm(WRITE_REG, NOTE_REG, 20))
-            @emitter.emit(Cartridge::ASM.lsr_imm(WRITE_REG, WRITE_REG, 20))
-            @emitter.emit(Cartridge::ASM.orr_reg_lsl(WRITE_REG, WRITE_REG, WORK_REG, 12))
+            @emitter.emit(ASM.lsl_imm(WRITE_REG, NOTE_REG, 20))
+            @emitter.emit(ASM.lsr_imm(WRITE_REG, WRITE_REG, 20))
+            @emitter.emit(ASM.orr_reg_lsl(WRITE_REG, WRITE_REG, WORK_REG, 12))
           end
 
           # WRITE_REG = the wave control in NOTE_REG with its top three bits — the voice's volume —
           # replaced by the nearest of the five to the volume in WORK_REG.
           def emit_nearest_wave_volume
             @emitter.emit_load_data_address(WRITE_REG, MUSIC_WAVE_LEVELS)
-            @emitter.emit(Cartridge::ASM.lsl_imm(WORK_REG, WORK_REG, 1))
-            @emitter.emit(Cartridge::ASM.add_reg(WRITE_REG, WRITE_REG, WORK_REG))
-            @emitter.emit(Cartridge::ASM.load_halfword(WORK_REG, WRITE_REG))
-            @emitter.emit(Cartridge::ASM.lsl_imm(WRITE_REG, NOTE_REG, 19))
-            @emitter.emit(Cartridge::ASM.lsr_imm(WRITE_REG, WRITE_REG, 19))
-            @emitter.emit(Cartridge::ASM.orr_reg(WRITE_REG, WRITE_REG, WORK_REG))
+            @emitter.emit(ASM.lsl_imm(WORK_REG, WORK_REG, 1))
+            @emitter.emit(ASM.add_reg(WRITE_REG, WRITE_REG, WORK_REG))
+            @emitter.emit(ASM.load_halfword(WORK_REG, WRITE_REG))
+            @emitter.emit(ASM.lsl_imm(WRITE_REG, NOTE_REG, 19))
+            @emitter.emit(ASM.lsr_imm(WRITE_REG, WRITE_REG, 19))
+            @emitter.emit(ASM.orr_reg(WRITE_REG, WRITE_REG, WORK_REG))
           end
 
           # Play one lane's next event, if it is due on this frame.
           def emit_play_lane(lane, number, base, at, cursor, frame)
             skip = @emitter.gensym
             @primitives.load_var(cursor, self.class.music_cursor(number))
-            @emitter.emit(Cartridge::ASM.add_reg(at, base, cursor))      # the row it points at
-            @emitter.emit(Cartridge::ASM.ldr(ACC, at))                   # the frame it is due
-            @emitter.emit(Cartridge::ASM.cmp_reg(ACC, frame))
+            @emitter.emit(ASM.add_reg(at, base, cursor))      # the row it points at
+            @emitter.emit(ASM.ldr(ACC, at))                   # the frame it is due
+            @emitter.emit(ASM.cmp_reg(ACC, frame))
             @emitter.emit_branch(:bcond, skip, cond: :ne)     # not yet — leave the lane alone
 
             if shared_lane?(lane)
@@ -1327,7 +1327,7 @@ module RubyGBA
               heard = @emitter.gensym
               @emitter.emit_branch(:b, heard)
               @emitter.place_label(dropped)
-              @emitter.emit(Cartridge::ASM.add_imm(cursor, cursor, SQUARE_ROW))
+              @emitter.emit(ASM.add_imm(cursor, cursor, SQUARE_ROW))
               @primitives.store_var(cursor, self.class.music_cursor(number))
               @emitter.emit_branch(:b, skip)
               @emitter.place_label(heard)
@@ -1339,15 +1339,15 @@ module RubyGBA
 
             if lane.kind == :recorded
               emit_recorded_note(lane: lane.index, number: number, base: base, at: at)
-              @emitter.emit(Cartridge::ASM.add_imm(cursor, cursor, RECORDED_ROW))
+              @emitter.emit(ASM.add_imm(cursor, cursor, RECORDED_ROW))
             elsif @scales
-              @emitter.emit(Cartridge::ASM.ldr_offset(NOTE_REG, at, 4))           # both register values
+              @emitter.emit(ASM.ldr_offset(NOTE_REG, at, 4))           # both register values
               @primitives.store_var(NOTE_REG, self.class.music_note(number)) if holds_notes?(lane)
               emit_scaled_note(lane)
-              @emitter.emit(Cartridge::ASM.add_imm(cursor, cursor, SQUARE_ROW))
+              @emitter.emit(ASM.add_imm(cursor, cursor, SQUARE_ROW))
             else
               emit_console_note(lane, at)
-              @emitter.emit(Cartridge::ASM.add_imm(cursor, cursor, SQUARE_ROW))
+              @emitter.emit(ASM.add_imm(cursor, cursor, SQUARE_ROW))
             end
             @primitives.store_var(cursor, self.class.music_cursor(number))
             @emitter.place_label(skip)
@@ -1360,18 +1360,18 @@ module RubyGBA
             regs = music_voice_regs(lane)
             emit_sweep(regs)
             [[4, regs[:reg_a]], [6, regs[:reg_b]]].each do |offset, addr|
-              @emitter.emit(Cartridge::ASM.load_halfword_offset(ACC, at, offset))
-              @emitter.emit(Cartridge::ASM.load_immediate(TMP, addr))
-              @emitter.emit(Cartridge::ASM.store_halfword(ACC, TMP))
+              @emitter.emit(ASM.load_halfword_offset(ACC, at, offset))
+              @emitter.emit(ASM.load_immediate(TMP, addr))
+              @emitter.emit(ASM.store_halfword(ACC, TMP))
             end
           end
 
           # Channel 1's sweep, cleared before each note it plays so the trigger lands last.
           def emit_sweep(regs)
             regs[:const].each do |addr, value|
-              @emitter.emit(Cartridge::ASM.load_immediate(ACC, value))
-              @emitter.emit(Cartridge::ASM.load_immediate(TMP, addr))
-              @emitter.emit(Cartridge::ASM.store_halfword(ACC, TMP))
+              @emitter.emit(ASM.load_immediate(ACC, value))
+              @emitter.emit(ASM.load_immediate(TMP, addr))
+              @emitter.emit(ASM.store_halfword(ACC, TMP))
             end
           end
 
@@ -1392,42 +1392,42 @@ module RubyGBA
             sounded = @emitter.gensym
             follows_level = @scales && number # an effect keeps its own volume
             emit_song_mark(mark, lane) if number
-            @emitter.emit(Cartridge::ASM.ldr_offset(ACC, at, 4))                         # how fast to read it
-            @emitter.emit(Cartridge::ASM.cmp_imm(ACC, 0))
+            @emitter.emit(ASM.ldr_offset(ACC, at, 4))                         # how fast to read it
+            @emitter.emit(ASM.cmp_imm(ACC, 0))
             @emitter.emit_branch(:bcond, rest, cond: :eq)                     # 0 is a rest
             @mixer.emit_take_music_voice                                      # r7 = the voice it gets
             if @mixer.ranks_voices?
-              @emitter.emit(Cartridge::ASM.cmp_imm(voice, 0))
+              @emitter.emit(ASM.cmp_imm(voice, 0))
               @emitter.emit_branch(:bcond, sounded, cond: :eq)                # ...none: not played
             end
-            @emitter.emit(Cartridge::ASM.ldr_offset(ACC, at, 4))
-            @emitter.emit(Cartridge::ASM.str_offset(ACC, voice, Mixer::SLOT_STEP))
-            @emitter.emit(Cartridge::ASM.load_halfword_offset(ACC, at, 10))              # how loud
+            @emitter.emit(ASM.ldr_offset(ACC, at, 4))
+            @emitter.emit(ASM.str_offset(ACC, voice, Mixer::SLOT_STEP))
+            @emitter.emit(ASM.load_halfword_offset(ACC, at, 10))              # how loud
             if follows_level
               @primitives.store_var(ACC, self.class.music_note(number))
               emit_scaled_loudness(ACC)
             end
-            @emitter.emit(Cartridge::ASM.str_offset(ACC, voice, Mixer::SLOT_VOL))
-            @emitter.emit(Cartridge::ASM.load_halfword_offset(ACC, at, 8))               # which recording...
-            @emitter.emit(Cartridge::ASM.lsl_imm(ACC, ACC, INSTRUMENT_SHIFT))
-            @emitter.emit(Cartridge::ASM.add_reg(recording, base, ACC))
+            @emitter.emit(ASM.str_offset(ACC, voice, Mixer::SLOT_VOL))
+            @emitter.emit(ASM.load_halfword_offset(ACC, at, 8))               # which recording...
+            @emitter.emit(ASM.lsl_imm(ACC, ACC, INSTRUMENT_SHIFT))
+            @emitter.emit(ASM.add_reg(recording, base, ACC))
             @primitives.emit_add_const(recording, recording, @instruments_at, ACC) # ...its table entry
-            @emitter.emit(Cartridge::ASM.ldr(ACC, recording))                            # where it is
-            @emitter.emit(Cartridge::ASM.str_offset(ACC, voice, Mixer::SLOT_SRC))
-            @emitter.emit(Cartridge::ASM.ldr_offset(ACC, recording, INSTRUMENT_LENGTH))  # how long it is
-            @emitter.emit(Cartridge::ASM.str_offset(ACC, voice, Mixer::SLOT_LEN))
+            @emitter.emit(ASM.ldr(ACC, recording))                            # where it is
+            @emitter.emit(ASM.str_offset(ACC, voice, Mixer::SLOT_SRC))
+            @emitter.emit(ASM.ldr_offset(ACC, recording, INSTRUMENT_LENGTH))  # how long it is
+            @emitter.emit(ASM.str_offset(ACC, voice, Mixer::SLOT_LEN))
             # A NOTE CAN OUTLAST ITS RECORDING, and this is what stops it ending there: a
             # recording that holds says how far back to read when it reaches the end, so the body
             # of the note goes round for as long as the note lasts. One that does not hold says 0
             # here, and runs out as it always did.
-            @emitter.emit(Cartridge::ASM.ldr_offset(ACC, recording, INSTRUMENT_HELD_BY))
-            @emitter.emit(Cartridge::ASM.str_offset(ACC, voice, Mixer::SLOT_LOOP))
-            @emitter.emit(Cartridge::ASM.load_immediate(ACC, 0))
+            @emitter.emit(ASM.ldr_offset(ACC, recording, INSTRUMENT_HELD_BY))
+            @emitter.emit(ASM.str_offset(ACC, voice, Mixer::SLOT_LOOP))
+            @emitter.emit(ASM.load_immediate(ACC, 0))
             [Mixer::SLOT_POS, Mixer::SLOT_FRAC].each do |field|
-              @emitter.emit(Cartridge::ASM.str_offset(ACC, voice, field))                # from the top, once
+              @emitter.emit(ASM.str_offset(ACC, voice, field))                # from the top, once
             end
             emit_note_shape(voice, recording) if @mixer.shapes_notes?
-            @emitter.emit(Cartridge::ASM.str_offset(mark, voice, Mixer::SLOT_ACTIVE))      # the part's now
+            @emitter.emit(ASM.str_offset(mark, voice, Mixer::SLOT_ACTIVE))      # the part's now
             @emitter.emit_branch(:b, sounded)
             @emitter.place_label(rest)
             forget_held_note(number) if follows_level
@@ -1446,20 +1446,20 @@ module RubyGBA
           # The compare's flags carry down through the two stores after it: an LDR, an STR and a
           # plain MOV all leave the flags alone, so one compare answers both questions.
           def emit_note_shape(voice, recording)
-            @emitter.emit(Cartridge::ASM.load_immediate(TMP, Mixer::PHASE_CLIMBING))
-            @emitter.emit(Cartridge::ASM.str_offset(TMP, voice, Mixer::SLOT_PHASE))
-            @emitter.emit(Cartridge::ASM.ldr_offset(ACC, recording, INSTRUMENT_ENVELOPE))
-            @emitter.emit(Cartridge::ASM.str_offset(ACC, voice, Mixer::SLOT_ENV))
-            @emitter.emit(Cartridge::ASM.cmp_imm(ACC, 0))
-            @emitter.emit(Cartridge::ASM.mov_imm_cond(:eq, ACC, RubyGBA::Audio::Envelope::FULL))
-            @emitter.emit(Cartridge::ASM.mov_imm_cond(:ne, ACC, 0))
-            @emitter.emit(Cartridge::ASM.str_offset(ACC, voice, Mixer::SLOT_LEVEL))
-            @emitter.emit(Cartridge::ASM.ldr_offset(ACC, voice, Mixer::SLOT_VOL))
-            @emitter.emit(Cartridge::ASM.mov_imm_cond(:ne, ACC, 0))     # a shaped note is silent until it climbs
-            @emitter.emit(Cartridge::ASM.lsl_imm(ACC, ACC, Mixer::GAIN_FRACTION))
-            @emitter.emit(Cartridge::ASM.str_offset(ACC, voice, Mixer::SLOT_GAIN))
-            @emitter.emit(Cartridge::ASM.load_immediate(ACC, 0))
-            @emitter.emit(Cartridge::ASM.str_offset(ACC, voice, Mixer::SLOT_RAMP)) # and it does not slide
+            @emitter.emit(ASM.load_immediate(TMP, Mixer::PHASE_CLIMBING))
+            @emitter.emit(ASM.str_offset(TMP, voice, Mixer::SLOT_PHASE))
+            @emitter.emit(ASM.ldr_offset(ACC, recording, INSTRUMENT_ENVELOPE))
+            @emitter.emit(ASM.str_offset(ACC, voice, Mixer::SLOT_ENV))
+            @emitter.emit(ASM.cmp_imm(ACC, 0))
+            @emitter.emit(ASM.mov_imm_cond(:eq, ACC, RubyGBA::Audio::Envelope::FULL))
+            @emitter.emit(ASM.mov_imm_cond(:ne, ACC, 0))
+            @emitter.emit(ASM.str_offset(ACC, voice, Mixer::SLOT_LEVEL))
+            @emitter.emit(ASM.ldr_offset(ACC, voice, Mixer::SLOT_VOL))
+            @emitter.emit(ASM.mov_imm_cond(:ne, ACC, 0))     # a shaped note is silent until it climbs
+            @emitter.emit(ASM.lsl_imm(ACC, ACC, Mixer::GAIN_FRACTION))
+            @emitter.emit(ASM.str_offset(ACC, voice, Mixer::SLOT_GAIN))
+            @emitter.emit(ASM.load_immediate(ACC, 0))
+            @emitter.emit(ASM.str_offset(ACC, voice, Mixer::SLOT_RAMP)) # and it does not slide
           end
 
           # EVERY TUNE THE PROGRAM PLAYS, as one piece of data:

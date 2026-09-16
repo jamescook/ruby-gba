@@ -13,7 +13,7 @@ require "test_helper"
 #   * The backend has to forget at a label and at a call, because both reach code that
 #     was not walked through to get here.
 class TestAddressRegister < Minitest::Test
-  A = RubyGBA::Cartridge::ASM
+  A = RubyGBA::IR::Backends::GBA::ASM
   AddressRegister = RubyGBA::IR::Backends::GBA::AddressRegister
   ADDR = RubyGBA::IR::Backends::GBA::ADDR
   LIST_ADDR = RubyGBA::IR::Backends::GBA::LIST_ADDR

@@ -165,7 +165,7 @@ happens to touch:
 | `dsl/` | `RubyGBA::DSL` | a game names it directly (a `Value`, a `Sprite`, a `List`), or it is a kind of thing one of those holds (`Whole`, `Fraction`, `NameSet`) |
 | `audio/` | `RubyGBA::Audio` | it is the sound and music model behind the verbs (`Score`, `Envelope`, `Music`) |
 | `graphics/` | `RubyGBA::Graphics` | it is what a picture is made of — colours, letters, images |
-| `cartridge/` | `RubyGBA::Cartridge` | it turns a checked program into cartridge bytes (`ROM`, `ASM`, `Constants`) |
+| `cartridge/` | `RubyGBA::Cartridge` | it turns a checked program into cartridge bytes (`ROM`, `Constants`, `GameCode`) |
 | `diagnostics/` | `RubyGBA::Diagnostics` | it reads a built or running cartridge back (`Verifier`, `Profiler`, `BuildReport`) |
 | `messages/` | `RubyGBA::Messages` | it is how a build talks to the author while it builds (`PlainWords`, `Progress`, `BuildOutput`, `AuthorSource`) |
 
@@ -198,8 +198,10 @@ same name — the GBA backend has an `Audio` class of its own — write the whol
   `images`, `sprites`, `sprite_import`, `input`, `drawing`, `variables`, `control_flow`,
   `scenes`, `collision`, `tiled`, `composition`, `timers`, `sampled_audio`, `layers`. Every
   verb builds a node in an IR tree and returns; nothing here emits ARM (see "Codegen IR").
-- `lib/ruby_gba/cartridge/asm.rb` — ARM7TDMI instruction encoding (MOV, LDR, STR, branch, etc), used
-  by the GBA lowering backend and by the `entry` escape hatch's raw-instruction context.
+- `lib/ruby_gba/ir/backends/gba/asm.rb` — ARM7TDMI instruction encoding (MOV, LDR, STR, branch,
+  etc). It sits with the lowering because that is who emits ARM: every caller but one is a file
+  beside it, and those name it bare. The exception is the `entry` escape hatch's
+  raw-instruction context in `builder.rb`, which names it in full.
 - `lib/ruby_gba/ir/` — Intermediate representation: a plain-Ruby op-tree the DSL builds instead of emitting target code directly. `node.rb` (`IR::Node`), `build.rb` (readable constructors). See "Codegen IR" below.
 - `lib/ruby_gba/cartridge/rom.rb` — ROM buffer management, header, finalization
 - `lib/ruby_gba/cartridge/game_code.rb` — the four characters an emulator tells one cartridge from

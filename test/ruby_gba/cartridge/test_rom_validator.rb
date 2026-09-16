@@ -77,7 +77,7 @@ class TestROMValidator < Minitest::Test
 
   def test_an_empty_title_is_a_warning
     rom = ROM.new(title: "", code: "BEMP", maker: "01")
-    rom.emit(RubyGBA::Cartridge::ASM.loop_forever)
+    rom.emit(RubyGBA::IR::Backends::GBA::ASM.loop_forever)
     rom.finalize!(validate: false)
     result = ROMValidator.check(rom)
 
@@ -109,7 +109,7 @@ class TestROMValidator < Minitest::Test
     # branch and checksum but not this, so the validation it runs must catch it
     # and refuse the ROM.
     rom = ROM.new(title: "BAD", code: "BBAD", maker: "01")
-    rom.emit(RubyGBA::Cartridge::ASM.loop_forever)
+    rom.emit(RubyGBA::IR::Backends::GBA::ASM.loop_forever)
     rom.buffer.setbyte(0xB2, 0x00)
 
     err = assert_raises(RubyGBA::ROMError) { rom.finalize!(validate: true) }

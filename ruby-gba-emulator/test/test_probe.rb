@@ -225,9 +225,9 @@ class TestRubyGBAEmulatorProbe < Minitest::Test
   CODE_START = 0x0800_0000 + RubyGBA::Cartridge::ROM::ENTRY_OFFSET
 
   def test_a_run_stops_at_an_address_and_reads_what_the_registers_hold_there
-    rom = hand_written_rom(RubyGBA::Cartridge::ASM.load_immediate(4, 0x55) +
-                           RubyGBA::Cartridge::ASM.load_immediate(5, 0x66) +
-                           RubyGBA::Cartridge::ASM.loop_forever)
+    rom = hand_written_rom(RubyGBA::IR::Backends::GBA::ASM.load_immediate(4, 0x55) +
+                           RubyGBA::IR::Backends::GBA::ASM.load_immediate(5, 0x66) +
+                           RubyGBA::IR::Backends::GBA::ASM.loop_forever)
     with_probe(rom) do |probe|
       probe.run_until(CODE_START + 4)
       assert_equal CODE_START + 4, probe.registers[:pc]
@@ -237,7 +237,7 @@ class TestRubyGBAEmulatorProbe < Minitest::Test
   end
 
   def test_a_run_that_never_reaches_the_address_says_so_rather_than_stopping_somewhere_else
-    rom = hand_written_rom(RubyGBA::Cartridge::ASM.loop_forever)
+    rom = hand_written_rom(RubyGBA::IR::Backends::GBA::ASM.loop_forever)
     with_probe(rom) do |probe|
       err = assert_raises(RuntimeError) { probe.run_until(CODE_START + 0x100, limit: 1000) }
       assert_match(/0x080001C0/, err.message)

@@ -1,5 +1,6 @@
 # frozen_string_literal: true
 
+require_relative "gba/asm" # the ARM instructions themselves, which everything below emits
 require_relative "gba/sprite" # what the build worked out about one sprite, for the draw to read
 require_relative "gba/pose_cutter" # how a sprite's picture is cut into the rectangles the console draws
 require_relative "gba/sprite_pictures" # one sprite's pictures, and the sets of them sprites share
@@ -1126,7 +1127,7 @@ module RubyGBA
           write_io_halfword(REG_IME, 0)                          # interrupts off while we wire things up
           write_io_halfword(REG_DISPSTAT, announce) unless announce.zero?
           write_io_halfword(REG_IE, enabled)                     # listen for exactly these interrupts
-          emit(Cartridge::ASM.load_immediate(TMP, REG_INTR_VECTOR))         # the vector the BIOS reads on every interrupt
+          emit(ASM.load_immediate(TMP, REG_INTR_VECTOR))         # the vector the BIOS reads on every interrupt
           # ...store our dispatcher's address there. It runs from wherever its bytes ended
           # up, and by this point the copy into the quick memory has already happened, so a
           # dispatcher that moved is pointed at its home there rather than the cartridge.
@@ -1135,7 +1136,7 @@ module RubyGBA
           else
             emit_load_label_address(ACC, IRQ_HANDLER_LABEL)
           end
-          emit(Cartridge::ASM.str(ACC, TMP))
+          emit(ASM.str(ACC, TMP))
           write_io_halfword(REG_IME, 1)                          # interrupts on
         end
 
@@ -1148,7 +1149,7 @@ module RubyGBA
         def emit_irq_handler
           start = pos
           place_label(IRQ_HANDLER_LABEL)
-          emit(Cartridge::ASM.push(*IRQ_SAVED_REGS))
+          emit(ASM.push(*IRQ_SAVED_REGS))
           # A bending background is checked FIRST because it fires by far the most often —
           # once for every line the display draws, against once a frame for everything
           # else. Every check ahead of it would be paid 228 times a frame.
@@ -1193,8 +1194,8 @@ module RubyGBA
               info[:handler].children.each { |child| @lowering.statement(child) }
             end
           end
-          emit(Cartridge::ASM.pop(*IRQ_SAVED_REGS))
-          emit(Cartridge::ASM.return) # BX LR back to the BIOS dispatcher
+          emit(ASM.pop(*IRQ_SAVED_REGS))
+          emit(ASM.return) # BX LR back to the BIOS dispatcher
           # The routines the music player calls to find its notes a voice, past the return and
           # inside this routine's span — so they move with it if it is copied to the quick
           # memory, and a call to them is always near enough.
@@ -1216,9 +1217,9 @@ module RubyGBA
         # source's body may have clobbered the scratch registers.
         def emit_irq_source(bit, bios_ack: false)
           skip = gensym
-          emit(Cartridge::ASM.load_immediate(TMP, REG_IF))
-          emit(Cartridge::ASM.load_halfword(ACC, TMP))     # r0 = pending interrupt flags
-          emit(Cartridge::ASM.tst_imm(ACC, bit))
+          emit(ASM.load_immediate(TMP, REG_IF))
+          emit(ASM.load_halfword(ACC, TMP))     # r0 = pending interrupt flags
+          emit(ASM.tst_imm(ACC, bit))
           emit_branch(:bcond, skip, cond: :eq)  # this source's bit is clear -> it didn't fire
           yield if block_given?
           emit_irq_ack(bit, bios: bios_ack)
@@ -1229,24 +1230,24 @@ module RubyGBA
         # 1 bit clears it), and for VBlank also OR it into the BIOS's mirror (REG_IFBIOS)
         # that VBlankIntrWait polls. Uses only r0-r2 (all BIOS-saved).
         def emit_irq_ack(bit, bios: false)
-          emit(Cartridge::ASM.load_immediate(ACC, bit))       # r0 = the bit
-          emit(Cartridge::ASM.load_immediate(TMP, REG_IF))    # r1 = &REG_IF
-          emit(Cartridge::ASM.store_halfword(ACC, TMP))       # REG_IF = bit -> clear it in hardware
+          emit(ASM.load_immediate(ACC, bit))       # r0 = the bit
+          emit(ASM.load_immediate(TMP, REG_IF))    # r1 = &REG_IF
+          emit(ASM.store_halfword(ACC, TMP))       # REG_IF = bit -> clear it in hardware
           return unless bios
 
-          emit(Cartridge::ASM.load_immediate(TMP, REG_IFBIOS)) # r1 = &REG_IFBIOS
-          emit(Cartridge::ASM.load_halfword(2, TMP))           # r2 = its current value
-          emit(Cartridge::ASM.orr_reg(2, 2, ACC))              # r2 |= bit
-          emit(Cartridge::ASM.store_halfword(2, TMP))          # write it back -> VBlankIntrWait can wake
+          emit(ASM.load_immediate(TMP, REG_IFBIOS)) # r1 = &REG_IFBIOS
+          emit(ASM.load_halfword(2, TMP))           # r2 = its current value
+          emit(ASM.orr_reg(2, 2, ACC))              # r2 |= bit
+          emit(ASM.store_halfword(2, TMP))          # write it back -> VBlankIntrWait can wake
         end
 
         # Store a 16-bit immediate into a memory-mapped I/O register — both the address and
         # the value are known at build time, so: load the address, load the value, store the
         # halfword. (r0/r1 are scratch between statements, so this needs no save/restore.)
         def write_io_halfword(address, value)
-          emit(Cartridge::ASM.load_immediate(TMP, address))
-          emit(Cartridge::ASM.load_immediate(ACC, value))
-          emit(Cartridge::ASM.store_halfword(ACC, TMP))
+          emit(ASM.load_immediate(TMP, address))
+          emit(ASM.load_immediate(ACC, value))
+          emit(ASM.store_halfword(ACC, TMP))
         end
 
         # Register every definition in the tree up front — funcs, named sound

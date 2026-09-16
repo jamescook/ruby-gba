@@ -153,7 +153,7 @@ module RubyGBA
           # left as-is — nothing reads them until a push makes them live.
           def emit_list_new(node)
             info = list_info(node.name)
-            @emitter.emit(Cartridge::ASM.load_immediate(ACC, 0))
+            @emitter.emit(ASM.load_immediate(ACC, 0))
             @primitives.store_var(ACC, head_var(node.name)) if info[:ring]
             @primitives.store_var(ACC, length_var(node.name))
           end
@@ -167,19 +167,19 @@ module RubyGBA
             length = length_var(node.name)
 
             @primitives.load_var(ACC, length)            # r0 = length (the tail offset)
-            @emitter.emit(Cartridge::ASM.load_immediate(TMP, info[:capacity]))
-            @emitter.emit(Cartridge::ASM.cmp_reg(ACC, TMP))                  # length - capacity
+            @emitter.emit(ASM.load_immediate(TMP, info[:capacity]))
+            @emitter.emit(ASM.cmp_reg(ACC, TMP))                  # length - capacity
             skip = @emitter.gensym
             @emitter.emit_branch(:bcond, skip, cond: :ge)         # full => drop the push
 
             emit_slot_address(info, node.name)         # r1 = &slot[(head+length)&mask]
-            @emitter.emit(Cartridge::ASM.push(TMP))                          # hold the address across the value eval
+            @emitter.emit(ASM.push(TMP))                          # hold the address across the value eval
             @lowering.value(node.value)                     # r0 = value
-            @emitter.emit(Cartridge::ASM.pop(TMP))                           # r1 = address
+            @emitter.emit(ASM.pop(TMP))                           # r1 = address
             emit_store_element(info, ACC, TMP)                    # slot = value
 
             @primitives.load_var(ACC, length)                        # length += 1
-            @emitter.emit(Cartridge::ASM.add_imm(ACC, ACC, 1))
+            @emitter.emit(ASM.add_imm(ACC, ACC, 1))
             @primitives.store_var(ACC, length)
             @emitter.place_label(skip)
           end
@@ -193,19 +193,19 @@ module RubyGBA
             length = length_var(node.name)
 
             @primitives.load_var(ACC, length)
-            @emitter.emit(Cartridge::ASM.cmp_imm(ACC, 0))
+            @emitter.emit(ASM.cmp_imm(ACC, 0))
             skip = @emitter.gensym
             @emitter.emit_branch(:bcond, skip, cond: :eq)         # empty => nothing to drop
 
             if node.from == :front
               @primitives.load_var(ACC, head)                        # head = (head + 1) & mask
-              @emitter.emit(Cartridge::ASM.add_imm(ACC, ACC, 1))
+              @emitter.emit(ASM.add_imm(ACC, ACC, 1))
               @primitives.emit_and_const(ACC, ACC, info[:mask], TMP)
               @primitives.store_var(ACC, head)
             end
 
             @primitives.load_var(ACC, length)                        # length -= 1
-            @emitter.emit(Cartridge::ASM.sub_imm(ACC, ACC, 1))
+            @emitter.emit(ASM.sub_imm(ACC, ACC, 1))
             @primitives.store_var(ACC, length)
             @emitter.place_label(skip)
           end
@@ -218,9 +218,9 @@ module RubyGBA
 
             @lowering.value(node.index)                     # r0 = index
             emit_slot_address(info, node.name)         # r1 = &slot[(head+index)&mask]
-            @emitter.emit(Cartridge::ASM.push(TMP))
+            @emitter.emit(ASM.push(TMP))
             @lowering.value(node.value)                     # r0 = value
-            @emitter.emit(Cartridge::ASM.pop(TMP))                           # r1 = address
+            @emitter.emit(ASM.pop(TMP))                           # r1 = address
             emit_store_element(info, ACC, TMP)                    # slot = value
           end
 
@@ -258,15 +258,15 @@ module RubyGBA
           def emit_slot_address(info, name)
             if info[:ring]
               @primitives.load_var(TMP, head_var(name))            # r1 = head
-              @emitter.emit(Cartridge::ASM.add_reg(ACC, TMP, ACC))            # r0 = head + offset
+              @emitter.emit(ASM.add_reg(ACC, TMP, ACC))            # r0 = head + offset
               @primitives.emit_and_const(ACC, ACC, info[:mask], TMP) # r0 = slot (ring-wrapped)
             else
               emit_bound_to_capacity(info[:capacity])              # r0 = slot, or nought
             end
             shift = Math.log2(info[:bytes]).to_i                   # 4 bytes -> 2, 2 -> 1, 1 -> 0
-            @emitter.emit(Cartridge::ASM.lsl_imm(ACC, ACC, shift)) if shift.positive? # r0 = slot * elem size
+            @emitter.emit(ASM.lsl_imm(ACC, ACC, shift)) if shift.positive? # r0 = slot * elem size
             @primitives.emit_list_base(info[:base])               # r9 = base address, often already there
-            @emitter.emit(Cartridge::ASM.add_reg(TMP, LIST_ADDR, ACC))       # r1 = base + slot*size
+            @emitter.emit(ASM.add_reg(TMP, LIST_ADDR, ACC))       # r1 = base + slot*size
           end
 
           # LOAD AND STORE ONE ELEMENT at the address in +addr+, at the list's own width. A
@@ -280,9 +280,9 @@ module RubyGBA
           # back negative would break every countdown written `sub` first and tested second.
           def emit_load_element(info, into, addr)
             case info[:width]
-            when :word then @emitter.emit(Cartridge::ASM.ldr(into, addr))
-            when :half then @emitter.emit(Cartridge::ASM.ldrsh(into, addr))
-            when :byte then @emitter.emit(Cartridge::ASM.ldrsb(into, addr))
+            when :word then @emitter.emit(ASM.ldr(into, addr))
+            when :half then @emitter.emit(ASM.ldrsh(into, addr))
+            when :byte then @emitter.emit(ASM.ldrsb(into, addr))
             end
           end
 
@@ -291,9 +291,9 @@ module RubyGBA
           # the index bound makes, and the interpreter cuts it down to exactly the same number.
           def emit_store_element(info, from, addr)
             case info[:width]
-            when :word then @emitter.emit(Cartridge::ASM.str(from, addr))
-            when :half then @emitter.emit(Cartridge::ASM.store_halfword(from, addr))
-            when :byte then @emitter.emit(Cartridge::ASM.strb(from, addr))
+            when :word then @emitter.emit(ASM.str(from, addr))
+            when :half then @emitter.emit(ASM.store_halfword(from, addr))
+            when :byte then @emitter.emit(ASM.strb(from, addr))
             end
           end
 
@@ -302,13 +302,13 @@ module RubyGBA
           # number it is enormous, so it fails the same test. Predicated rather than branched,
           # so there is no jump in the hottest thing a list does.
           def emit_bound_to_capacity(capacity)
-            if Cartridge::ASM.encode_rotated_immediate(capacity)
-              @emitter.emit(Cartridge::ASM.cmp_imm(ACC, capacity))
+            if ASM.encode_rotated_immediate(capacity)
+              @emitter.emit(ASM.cmp_imm(ACC, capacity))
             else
-              @emitter.emit(Cartridge::ASM.load_immediate(TMP, capacity))
-              @emitter.emit(Cartridge::ASM.cmp_reg(ACC, TMP))
+              @emitter.emit(ASM.load_immediate(TMP, capacity))
+              @emitter.emit(ASM.cmp_reg(ACC, TMP))
             end
-            @emitter.emit(Cartridge::ASM.mov_imm_cond(:hs, ACC, 0))
+            @emitter.emit(ASM.mov_imm_cond(:hs, ACC, 0))
           end
         end
       end

@@ -56,17 +56,17 @@ module RubyGBA
             stored = 6
             saved = 7
 
-            @emitter.emit(Cartridge::ASM.load_immediate(base, SRAM_START))
-            @emitter.emit(Cartridge::ASM.load_immediate(marker, Int32.wrap(node.magic)))
+            @emitter.emit(ASM.load_immediate(base, SRAM_START))
+            @emitter.emit(ASM.load_immediate(marker, Int32.wrap(node.magic)))
             emit_assemble_word(stored, base, 0, scratch: 2) # the marker actually in save memory
-            @emitter.emit(Cartridge::ASM.cmp_reg(stored, marker))       # equal? -> the save is real
+            @emitter.emit(ASM.cmp_reg(stored, marker))       # equal? -> the save is real
 
             node.vars.each do |var|
               offset = save_slot_offset(var.slot)
               emit_assemble_word(saved, base, offset, scratch: 2)
-              @emitter.emit(Cartridge::ASM.mov_reg_cond(:eq, ACC, saved))       # real save -> take the saved value
-              @emitter.emit(Cartridge::ASM.load_immediate(3, Int32.wrap(var.default)))
-              @emitter.emit(Cartridge::ASM.mov_reg_cond(:ne, ACC, 3))           # fresh cartridge -> take the default
+              @emitter.emit(ASM.mov_reg_cond(:eq, ACC, saved))       # real save -> take the saved value
+              @emitter.emit(ASM.load_immediate(3, Int32.wrap(var.default)))
+              @emitter.emit(ASM.mov_reg_cond(:ne, ACC, 3))           # fresh cartridge -> take the default
               @primitives.store_var(ACC, var.name)                  # into the live variable in IWRAM
               emit_store_word_to_sram(ACC, base, offset, scratch: 3) # and back to save memory
             end
@@ -79,11 +79,11 @@ module RubyGBA
           def emit_save_store(node)
             offset = save_slot_offset(node.slot)
             @primitives.load_var(ACC, node.var)
-            @emitter.emit(Cartridge::ASM.load_immediate(TMP, SRAM_START + offset)) # the slot's address
-            @emitter.emit(Cartridge::ASM.strb(ACC, TMP))                           # low byte
+            @emitter.emit(ASM.load_immediate(TMP, SRAM_START + offset)) # the slot's address
+            @emitter.emit(ASM.strb(ACC, TMP))                           # low byte
             [8, 16, 24].each_with_index do |shift, i|
-              @emitter.emit(Cartridge::ASM.lsr_imm(2, ACC, shift))
-              @emitter.emit(Cartridge::ASM.strb_offset(2, TMP, i + 1))
+              @emitter.emit(ASM.lsr_imm(2, ACC, shift))
+              @emitter.emit(ASM.strb_offset(2, TMP, i + 1))
             end
           end
 
@@ -101,11 +101,11 @@ module RubyGBA
           # rebuilding the 32-bit value. +base+ points at the start of save memory;
           # +offset+ is where this value's slot begins.
           def emit_assemble_word(dest, base, offset, scratch:)
-            @emitter.emit(Cartridge::ASM.ldrb_offset(dest, base, offset)) # byte 0 (lowest)
+            @emitter.emit(ASM.ldrb_offset(dest, base, offset)) # byte 0 (lowest)
             [8, 16, 24].each_with_index do |shift, i|
-              @emitter.emit(Cartridge::ASM.ldrb_offset(scratch, base, offset + i + 1))
-              @emitter.emit(Cartridge::ASM.lsl_imm(scratch, scratch, shift))
-              @emitter.emit(Cartridge::ASM.orr_reg(dest, dest, scratch))
+              @emitter.emit(ASM.ldrb_offset(scratch, base, offset + i + 1))
+              @emitter.emit(ASM.lsl_imm(scratch, scratch, shift))
+              @emitter.emit(ASM.orr_reg(dest, dest, scratch))
             end
           end
 
@@ -113,10 +113,10 @@ module RubyGBA
           # +offset+ from +base+. STRB stores a register's low byte, so each higher byte
           # is shifted down into place first.
           def emit_store_word_to_sram(src, base, offset, scratch:)
-            @emitter.emit(Cartridge::ASM.strb_offset(src, base, offset)) # byte 0 (lowest)
+            @emitter.emit(ASM.strb_offset(src, base, offset)) # byte 0 (lowest)
             [8, 16, 24].each_with_index do |shift, i|
-              @emitter.emit(Cartridge::ASM.lsr_imm(scratch, src, shift))
-              @emitter.emit(Cartridge::ASM.strb_offset(scratch, base, offset + i + 1))
+              @emitter.emit(ASM.lsr_imm(scratch, src, shift))
+              @emitter.emit(ASM.strb_offset(scratch, base, offset + i + 1))
             end
           end
         end
