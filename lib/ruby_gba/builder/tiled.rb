@@ -445,10 +445,26 @@ module RubyGBA
 
             keys[cell] || raise(ArgumentError,
                                 "background :#{name}: #{cell.inspect} is not in tileset :#{tiles}. " \
-                                "Its tiles are #{keys.keys.map(&:inspect).join(', ')}.")
+                                "#{tileset_tiles_in_words(keys.keys)}")
           end
         end
         [img_rows, keys.values.uniq]
+      end
+
+      # WHICH TILES A TILESET HAS, said in an error. A tileset somebody wrote out has a
+      # handful of keys and naming them all is the whole answer — you can see at a glance
+      # which one you meant. One a level was computed against can have hundreds, and
+      # listing those buries the single fact the reader came for under a wall of numbers.
+      # So past a size nobody would read, say how many there are and where they start and
+      # end, which is what tells somebody whether their key was even in the right range.
+      TILE_KEYS_TO_NAME = 24
+
+      def tileset_tiles_in_words(keys)
+        return "Its tiles are #{keys.map(&:inspect).join(', ')}." if keys.length <= TILE_KEYS_TO_NAME
+
+        first = keys.first(3).map(&:inspect).join(", ")
+        last = keys.last(3).map(&:inspect).join(", ")
+        "It has #{keys.length} tiles. The first are #{first} and the last are #{last}."
       end
 
       # What a `map:` cell selects by. A tileset written out by character is keyed by

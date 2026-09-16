@@ -182,6 +182,22 @@ class TestComputedTilemap < Minitest::Test
     assert_match(/7/, err.message, "the error names the key that is not there")
   end
 
+  # A tileset written out by hand has a handful of keys and the error names them all.
+  # One a computed level draws on can have hundreds, and listing those buries the one
+  # fact the reader came for.
+  def test_a_big_tilesets_error_says_how_many_tiles_it_has_rather_than_naming_them_all
+    b = Builder.new
+    100.times { |n| solid_tile(b, :"tile_#{n}", RubyGBA::Graphics::Color.rgb(n % 32, 0, 0)) }
+    keyed = (0...100).to_h { |n| [n, :"tile_#{n}"] }
+    b.instance_eval { tiles :many, keyed }
+    err = assert_raises(ArgumentError) do
+      b.instance_eval { background :oops, tiles: :many, map: [[500]] }
+    end
+    assert_match(/500 is not in tileset :many/, err.message)
+    assert_match(/has 100 tiles/, err.message)
+    refute_match(/\b50\b/, err.message, "it does not read out every key it has")
+  end
+
   def test_a_ragged_grid_of_keys_is_a_friendly_error
     b = Builder.new
     numbered_tileset(b)
