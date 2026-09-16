@@ -68,7 +68,15 @@ module RubyGBA
           :offset_x, :offset_y, :width, :height,
           :x, :y, :active, :angle, :scale, :transformed, :scales, :affine_slot,
           :attr0_base, :attr1_base, :attr2_base, :recolor, :recolor_banks,
-        )
+        ) do
+          # WHICH POSE IS IN THE ROOM, for a sprite kept to one frame at a time — the name of the
+          # variable the cartridge keeps it in, written as each frame is copied in. Every pose of
+          # such a sprite goes into the SAME place in sprite memory, so the console's own table
+          # says that one place whichever pose is showing and nothing in it can tell them apart.
+          # This is what can. The sprite's place in the table names it, being the one thing about
+          # a sprite that no other sprite shares. Meaningless for a sprite with no +frames+.
+          def frame_in_room_var = :"__frame_in_room_#{slot}"
+        end
       end
     end
   end

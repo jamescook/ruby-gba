@@ -628,14 +628,33 @@ module RubyGBA
         slots.each { |slot| by_slot[slot] = name }
       end
       moved = @rom.built.sprite_offsets
+      rooms = @rom.built.sprite_pose_in_room
       @probe.sprites.map do |row|
         name = whose[row[:slot]]
-        dx, dy = moved.dig(row[:slot], [row[:tile], row[:mirrored_across]]) || [0, 0]
+        dx, dy = moved.dig(row[:slot], pose_in(row, rooms)) || [0, 0]
         # Back into the ranges the console keeps these in, so a sprite half off the left edge
         # reads the way its own place reads rather than going negative.
         row.merge(name: name, piece_x: row[:x], piece_y: row[:y],
                   x: (row[:x] - dx) & 0x1FF, y: (row[:y] - dy) & 0xFF)
       end
+    end
+
+    # WHICH POSE A ROW IS HOLDING, said the way the build wrote that place's trims down.
+    #
+    # Nearly every sprite keeps all its pictures in sprite memory at once, and then the row says
+    # which pose it is showing by itself: the tiles it draws and whether it is drawn backwards
+    # are different for every pose, so those two are the answer.
+    #
+    # A sprite with more pictures than fit keeps ONE of them there at a time, and then they are
+    # not: every pose is copied into the same room, so the row says that one place whichever pose
+    # is in it. The cartridge keeps the pose number in a variable of its own for exactly this
+    # reason, and the build says where — so this reads it rather than guessing from a row that
+    # cannot know. Nothing copied in yet reads as no pose at all, which finds no trim and leaves
+    # the row where the console has it.
+    def pose_in(row, rooms)
+      address = rooms[row[:slot]] or return [row[:tile], row[:mirrored_across]]
+
+      IR::Int32.wrap(mem32(address))
     end
 
     # Which places the build gave each declared sprite. A cartridge assembled without its

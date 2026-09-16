@@ -62,14 +62,21 @@ module RubyGBA
   # to have them taken off again before it means the corner of the picture. Keyed by the place
   # in that table, then by the two things a row of it says about which pose it is holding: its
   # first tile, and whether it is being drawn backwards.
+  # +sprite_pose_in_room+ is the exception to that keying, and it exists because a sprite with
+  # more pictures than sprite memory holds keeps ONE of them there at a time — so every pose of
+  # it goes into the same place, and the place stops telling the poses apart. Such a sprite's
+  # +sprite_offsets+ are counted by pose number instead, and this says where to read the pose
+  # number from: the address of the variable the cartridge writes as it copies a frame in. A
+  # place in here is what says which of the two keyings that place's offsets use. Empty for a
+  # game whose sprites all keep every picture they can show.
   class BuildRecord < Data.define(:source_program, :placement, :var_addresses, :loop_shapes,
                                   :palette_entries, :column_stretches, :compression,
                                   :build_options, :findings, :emitted, :routines, :video_memory,
                                   :roomy_memory, :timer_handlers, :voices, :sound_drops,
-                                  :sprite_slots, :sprite_offsets)
+                                  :sprite_slots, :sprite_offsets, :sprite_pose_in_room)
     def initialize(findings: [], emitted: nil, routines: {}, video_memory: nil,
                    roomy_memory: nil, timer_handlers: {}, voices: nil, sound_drops: nil,
-                   sprite_slots: {}, sprite_offsets: {}, **rest)
+                   sprite_slots: {}, sprite_offsets: {}, sprite_pose_in_room: {}, **rest)
       super
     end
 

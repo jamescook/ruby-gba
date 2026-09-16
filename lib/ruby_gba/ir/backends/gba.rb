@@ -484,6 +484,7 @@ module RubyGBA
                                    roomy_memory: roomy_memory_report,
                                    sprite_slots: sprite_slots,
                                    sprite_offsets: sprite_offsets,
+                                   sprite_pose_in_room: sprite_pose_in_room,
                                    build_options: { fast_cartridge: @fast_cartridge, fast_code: @fast_code })
         end
 
@@ -542,18 +543,61 @@ module RubyGBA
           end
         end
 
-        # One piece's poses, as the map above. A sprite whose poses all trimmed alike was moved
-        # one distance whatever it is showing, and its poses are told apart by a stride between
-        # their tiles; one whose poses differ carries a word each, and the distance is in there
-        # with the rest of what changes (see #object_pose_table).
+        # WHERE A KEPT-TO-ONE-FRAME SPRITE SAYS WHICH POSE IT IS SHOWING: the address of the
+        # variable the cartridge writes as it copies a frame into the sprite's room. Keyed by
+        # the place in the console's table, the same as #sprite_offsets, and a slot in here is
+        # what says that the offsets for that slot are counted by pose rather than looked up by
+        # what the row says. Empty for a game whose sprites all keep every picture they can show.
+        def sprite_pose_in_room
+          return {} unless @picture
+
+          @picture.objects.each_with_object({}) do |node, where|
+            sprite = @objects[node.name]
+            next unless sprite.frames
+
+            address = var_addr(sprite.frame_in_room_var)
+            sprite.pieces.times { |piece| where[sprite.slot + piece] = address }
+          end
+        end
+
+        # One piece's poses, as the map above.
+        #
+        # A sprite KEPT TO ONE FRAME at a time is keyed by the pose NUMBER rather than by what
+        # the console's row says, and that is not a refinement — it is the whole of the thing
+        # this used to get wrong. Every pose of such a sprite is copied into one room, so the row
+        # says the same tile whichever pose is in it, and keying by the row collapsed all of them
+        # onto one entry: every pose then answered to whichever trim was written down last, and
+        # the position read back was out by the difference for all the others. Right on most
+        # frames and wrong on a few, which is the worst way for a number to be wrong.
+        # #sprite_pose_in_room is where the pose number is read from.
         def pose_offsets(sprite, piece)
+          moved = pose_distances(sprite, piece)
+          return moved if sprite.frames
+
+          moved.transform_keys { |pose| pose_key(sprite, piece, pose) }
+        end
+
+        # How far the build moved each of one piece's poses, by pose number. A sprite whose poses
+        # all trimmed alike was moved one distance whatever it is showing; one whose poses differ
+        # carries a word each, with the distance in there among the rest of what changes (see
+        # #object_pose_table).
+        def pose_distances(sprite, piece)
           unless sprite.alike
             row = sprite.pose_words[piece * sprite.pose_count, sprite.pose_count]
-            return row.to_h { |word| [pose_shown(word), pose_moved(word)] }
+            return row.each_with_index.to_h { |word, pose| [pose, pose_moved(word)] }
           end
 
           moved = [sprite.offset_x, sprite.offset_y]
-          (0...sprite.pose_count).to_h { |k| [[sprite.tile_index + (k * sprite.per_pose), false], moved] }
+          (0...sprite.pose_count).to_h { |pose| [pose, moved] }
+        end
+
+        # What the console's row says about which pose it is holding — the first tile it draws
+        # and whether it is drawn backwards. Poses that trimmed alike sit an even stride apart,
+        # so the tile is worked out; poses that differ carry their tile in their word.
+        def pose_key(sprite, piece, pose)
+          return pose_shown(sprite.pose_words[(piece * sprite.pose_count) + pose]) unless sprite.alike
+
+          [sprite.tile_index + (pose * sprite.per_pose), false]
         end
 
         def pose_shown(word) = [word & 0x3FF, word.anybits?(POSE_MIRRORED)]

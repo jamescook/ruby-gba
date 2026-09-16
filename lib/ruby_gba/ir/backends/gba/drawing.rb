@@ -1593,9 +1593,10 @@ module RubyGBA
           end
 
           # Which pose's pictures are sitting in a sprite's room right now, for a sprite that
-          # keeps one frame at a time (see GBA#set_to_keep_to_one_frame). Its table place names
-          # it, being the one thing about a sprite that no other sprite shares.
-          def frame_in_room(obj) = :"__frame_in_room_#{obj.slot}"
+          # keeps one frame at a time (see GBA#set_to_keep_to_one_frame). The sprite names its
+          # own variable, so that anything reading a finished cartridge back looks in the same
+          # place this writes (see Sprite#frame_in_room_var, and GBA#sprite_pose_in_room).
+          def frame_in_room(obj) = obj.frame_in_room_var
 
           # Nothing is in any room: set at boot, and again whenever sprite memory is written
           # over — a screen change sends every picture again, and a scene taking over sends
