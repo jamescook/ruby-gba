@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+require_relative "../../../cartridge/constants" # the register addresses this reads, a leaf both sides sit on
+
 module RubyGBA
   module IR
     module Backends

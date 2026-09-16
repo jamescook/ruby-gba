@@ -21,6 +21,7 @@ require_relative "builder/composition"
 require_relative "builder/timers"
 require_relative "builder/sampled_audio"
 require_relative "builder/layers"
+require_relative "builder/debug" # the probe-only verbs, defined but deliberately not mixed in
 
 module RubyGBA
   # DSL context for building a GBA ROM.

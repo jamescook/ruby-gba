@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+require_relative "../ir/backends/gba/placement" # FRAME_ROUTINE and IRQ_ROUTINE, re-exported below
+
 module RubyGBA
   module Cartridge
     # WHAT THE BUILD WORKED OUT about a cartridge: everything a finished ROM needs to report

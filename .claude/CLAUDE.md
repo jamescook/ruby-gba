@@ -179,11 +179,15 @@ The directory and the module always match: a file in `audio/` defines its classe
 look for it, and a new directory per feature is the flat list again one level down, so there
 isn't one.
 
-What stays at the top: `builder.rb`, `ir.rb` and `effects.rb`, the front doors of the three
-directories that were already modules of their own (`builder/`, `ir/`, `effects/`) — anything
-in those stays there; `version.rb`; and `cli.rb` and `pager.rb`, the command-line program,
-which `bin/ruby-gba` requires and the library never does. `RubyGBA.game` and the two error
-classes stay on `RubyGBA` itself.
+**Every directory has a front door beside it** — `audio.rb` next to `audio/`, and the same for
+all nine — which requires that directory's files and nothing else's. So **a new file is
+required in its own module's front door, never in `lib/ruby_gba.rb`**, which names modules
+only: eleven lines for the whole library. The order of those eleven is not free, and the
+comment above them says which steps are real dependencies between modules and why.
+
+What stays at the top besides the front doors: `version.rb`, and `cli.rb` and `pager.rb`, the
+command-line program, which `bin/ruby-gba` requires and the library never does. `RubyGBA.game`
+and the two error classes stay on `RubyGBA` itself.
 
 Inside a module, a sibling is named bare (`Value` from `dsl/pool.rb`) and anything else by its
 module (`Graphics::Color` from `dsl/sprite.rb`). Where a nearer scope has a constant of the

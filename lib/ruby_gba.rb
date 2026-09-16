@@ -1,74 +1,33 @@
 # frozen_string_literal: true
 
 require_relative "ruby_gba/version"
-require_relative "ruby_gba/cartridge/constants"
-require_relative "ruby_gba/messages/plain_words" # what a person calls this — the English a build says out loud
-require_relative "ruby_gba/dsl/whole"
-require_relative "ruby_gba/graphics/color"
-require_relative "ruby_gba/audio/sound"
-require_relative "ruby_gba/audio/music" # before the IR: the backends size their music player by it
-require_relative "ruby_gba/audio/score" # music handed over as data, rather than written as a block
-require_relative "ruby_gba/audio/envelope" # how a note starts and how it ends, so an edge is not a click
-require_relative "ruby_gba/diagnostics/sprite_row" # one sprite read back, off the console or off the oracle
-require_relative "ruby_gba/messages/progress" # what a build says it is doing while it does it
-require_relative "ruby_gba/messages/build_output" # where a build prints, however the caller said it
-require_relative "ruby_gba/ir"
-require_relative "ruby_gba/cartridge/rom_validator"
-require_relative "ruby_gba/diagnostics/video_memory" # how much room the pictures took, and what the storage saved
-require_relative "ruby_gba/cartridge/build_record" # what the build worked out, for the cartridge to carry
-require_relative "ruby_gba/cartridge/game_code" # the four characters an emulator tells one cartridge from another by
-require_relative "ruby_gba/cartridge/rom"
-require_relative "ruby_gba/graphics/font"
-require_relative "ruby_gba/graphics/fonts"
-require_relative "ruby_gba/dsl/fraction"
-require_relative "ruby_gba/dsl/name_set" # the names a variable or a pool field can hold
-require_relative "ruby_gba/builder"
+# THE WHOLE LIBRARY, IN ELEVEN LINES, and this is the only place that says so. Each one loads a
+# module through a front door of its own (or, for version and pager, a single file); what is
+# inside a module is that module's business and is listed in its own front door.
+#
+# THE ORDER IS NOT ALPHABETICAL AND CANNOT BE. It is what each piece needs to have been defined
+# before its own class bodies run, and every step of it is a dependency worth knowing about:
+#
+#   audio, builder and diagnostics all need CARTRIDGE first — not for a cartridge, but for
+#     Cartridge::Constants, the table of hardware register addresses. Three modules that have
+#     nothing to do with the bytes on a card reach into the one that does, purely to name an
+#     address. That table is filed in the wrong place; moving it is its own piece of work.
+#   ir needs AUDIO, because a backend sizes its music player from what a tune is.
+#   dsl needs IR, because a handle a game holds is a way of building a node.
+#   effects needs BUILDER, because an effect pack adds verbs to it.
+#
+# Everything else is free to move. Adding a require here means a new module, not a new file —
+# a file goes in its own module's front door.
+require_relative "ruby_gba/messages" # what a build says to the person running it, while it builds
+require_relative "ruby_gba/cartridge" # the bytes on the card, and the card itself
+require_relative "ruby_gba/graphics" # what a picture is made of
+require_relative "ruby_gba/audio" # what a beep, a note and a tune are
+require_relative "ruby_gba/ir" # the op-tree a program becomes, and the backends that consume it
+require_relative "ruby_gba/dsl" # the handles a game holds: a Value, a Sprite, a List, a Pool
+require_relative "ruby_gba/builder" # ...and the verbs that hand them back
 require_relative "ruby_gba/effects" # the verb/effect pack registry, and the packs that ship on by default
-require_relative "ruby_gba/cartridge/evaluated_game" # the one place a game's block becomes a program
-require_relative "ruby_gba/cartridge/game"
-require_relative "ruby_gba/messages/author_source"
-require_relative "ruby_gba/dsl/scale"
-require_relative "ruby_gba/dsl/changing_word"
-require_relative "ruby_gba/dsl/value"
-require_relative "ruby_gba/dsl/condition"
-require_relative "ruby_gba/dsl/branch"
-require_relative "ruby_gba/dsl/bounds"
-require_relative "ruby_gba/dsl/pixel_bounds"
-require_relative "ruby_gba/dsl/box"
-require_relative "ruby_gba/builder/debug"
-require_relative "ruby_gba/dsl/list"
-require_relative "ruby_gba/dsl/table"
-require_relative "ruby_gba/dsl/field_ref"
-require_relative "ruby_gba/dsl/pool"
-require_relative "ruby_gba/dsl/direction"
-require_relative "ruby_gba/dsl/grid"
-require_relative "ruby_gba/dsl/sprite"
-require_relative "ruby_gba/dsl/recolors" # the other colours a sprite or a pool can be drawn with
-require_relative "ruby_gba/dsl/hardware_sprite"
-require_relative "ruby_gba/dsl/timer"
-require_relative "ruby_gba/dsl/sample"
-require_relative "ruby_gba/dsl/instrument"
-require_relative "ruby_gba/dsl/score_list"
-require_relative "ruby_gba/dsl/song_list"
-require_relative "ruby_gba/dsl/sound_effect_list"
-require_relative "ruby_gba/audio/wav"
-require_relative "ruby_gba/dsl/background"
-require_relative "ruby_gba/graphics/image"
-require_relative "ruby_gba/graphics/aseprite"
-require_relative "ruby_gba/diagnostics/inspector"
-require_relative "ruby_gba/diagnostics/func_dumper"
-require_relative "ruby_gba/pager"
-require_relative "ruby_gba/cartridge/test_patterns"
-require_relative "ruby_gba/diagnostics/emulator"
-require_relative "ruby_gba/diagnostics/verifier"
-require_relative "ruby_gba/diagnostics/tearing"
-require_relative "ruby_gba/diagnostics/flicker"
-require_relative "ruby_gba/diagnostics/tick_rate"
-require_relative "ruby_gba/diagnostics/sound_drops"
-require_relative "ruby_gba/diagnostics/analyzer"
-require_relative "ruby_gba/diagnostics/build_report" # the exact half of a profile: what the build made
-require_relative "ruby_gba/diagnostics/profiler"
-require_relative "ruby_gba/diagnostics/routine_profile"
+require_relative "ruby_gba/diagnostics" # reading a built or running cartridge back
+require_relative "ruby_gba/pager" # a long report shown a screen at a time
 
 module RubyGBA
   class ROMError < StandardError; end
