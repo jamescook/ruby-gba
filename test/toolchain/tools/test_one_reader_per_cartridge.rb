@@ -38,6 +38,25 @@ class TestOneReaderPerCartridge < Minitest::Test
     end
   end
 
+  # Twenty colours, which is more than a group of sixteen holds.
+  MANY = (0...20).map { |n| Color.rgb(n + 6, 31 - n, (n * 2) % 32) }
+
+  # A hero drawn from two colours and a signpost drawn from twenty. The console stores a sprite's
+  # picture one of two ways — half a byte a pixel, out of a group of sixteen colours, or a whole
+  # byte out of all 256 — and the build picks by how many colours the art uses. Both kinds are in
+  # this one program because the question below is whether a row can be asked for the colours it
+  # is drawing from without the caller having to know which kind it is holding.
+  def two_kinds_of_picture
+    RubyGBA.game "TWOWAY" do
+      screen :tiled
+      image(:hero, "#" => :red) { EIGHT }
+      image :signpost, width: 8, height: 8, data: (0...64).map { |i| MANY[i % MANY.length] }
+      sprite :hero, at: [40, 40]
+      sprite :signpost, at: [80, 40]
+      game_loop { wait_vblank }
+    end
+  end
+
   # --- the colours ---
 
   def test_the_reader_that_knows_the_sprites_reads_the_colours_too
@@ -66,6 +85,31 @@ class TestOneReaderPerCartridge < Minitest::Test
     assert_equal Color.resolve(:white), v.palette(:sprites, row[:palette])[1],
                  "wearing the second colour of the list he was told to draw with"
     assert v.pixel_is?(40, 40, :white), "...and that is what is on the screen"
+  end
+
+  # A ROW SAYS WHICH OF THE TWO WAYS ITS PICTURE IS STORED. The field naming a group of sixteen
+  # means nothing for a picture stored the other way, so a row that simply handed over "the
+  # sixteen colours at that group" would give the right ones for most sprites and an arbitrary
+  # sixteen for the rest, with nothing on it to say which you were holding.
+  def test_a_row_says_how_many_colours_its_picture_draws_from
+    v = running(two_kinds_of_picture)
+
+    assert_equal 16, v.sprites(:hero).first[:color_count], "two colours, so it is stored the small way"
+    assert_equal 256, v.sprites(:signpost).first[:color_count], "twenty colours, so it is stored the big way"
+  end
+
+  # ...and once it says that, it can hand the colours themselves over — which is the thing a test
+  # wanted all along, with no group number and no arithmetic at the call site.
+  def test_a_row_hands_over_the_colours_it_is_drawing_from
+    v = running(two_kinds_of_picture)
+    hero = v.sprites(:hero).first
+    signpost = v.sprites(:signpost).first
+
+    assert_equal 16, hero[:colors].length
+    assert_equal v.palette(:sprites, hero[:palette]), hero[:colors], "its own group of sixteen"
+    assert_equal 256, signpost[:colors].length
+    assert_equal v.palette(:sprites), signpost[:colors], "the whole table, which is what it draws from"
+    assert_includes hero[:colors], Color.resolve(:red)
   end
 
   # --- leaving a layer out of the picture ---

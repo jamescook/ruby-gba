@@ -78,6 +78,30 @@ class TestFrameEvents < Minitest::Test
     assert_equal 24, shown.first[:y]
   end
 
+  # HOW MANY COLOURS A SPRITE DRAWS FROM, which is the thing that decides what the rest of its
+  # row means. A picture is stored one of two ways — half a byte a pixel, picking out of a group
+  # of sixteen colours, or a whole byte picking out of all 256 — and the row's palette field
+  # names the group for the first and means nothing for the second. Without this on the row the
+  # two are indistinguishable, so anything turning a row into the colours it wears would be
+  # right for most sprites and arbitrary for the rest, looking identical either way.
+  def test_a_sprite_says_how_many_colours_its_picture_draws_from
+    many = (0...20).map { |n| RubyGBA::Color.rgb(n + 6, 31 - n, (n * 2) % 32) }
+    path = build_rom("COLORS", code: "TCOL") do
+      screen :tiled
+      image(:few, "." => :transparent, "#" => :red) { (["########"] * 8).join("\n") }
+      image :lots, width: 8, height: 8, data: (0...64).map { |i| many[i % many.length] }
+      sprite :few, at: [40, 24]
+      sprite :lots, at: [80, 24]
+      game_loop { wait_vblank }
+    end
+
+    probe = RubyGBAEmulator.open(path)
+    probe.step(4)
+    counts = probe.sprites.sort_by { |row| row[:x] }.map { |row| row[:color_count] }
+
+    assert_equal [16, 256], counts, "one drawn from two colours, one from twenty"
+  end
+
   # A sprite the game has hidden is not on screen, and the table says so rather than the
   # test inferring it from an absence of pixels — which is the same picture a sprite drawn
   # in the backdrop colour makes.

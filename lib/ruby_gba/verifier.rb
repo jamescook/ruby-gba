@@ -247,9 +247,13 @@ module RubyGBA
     # THE SPRITES THE CONSOLE IS DRAWING, each knowing which one the game declared it for.
     #
     # One Hash per sprite being drawn, off the console's own table — +:name+, +:x+, +:y+,
-    # +:slot+, +:tile+, +:palette+, +:priority+, +:shape+, +:size+, +:mirrored_across+,
-    # +:mirrored_down+, +:turned+, +:piece_x+, +:piece_y+. Name one and only that sprite's rows
-    # come back.
+    # +:slot+, +:tile+, +:palette+, +:color_count+, +:colors+, +:priority+, +:shape+, +:size+,
+    # +:mirrored_across+, +:mirrored_down+, +:turned+, +:piece_x+, +:piece_y+. Name one and only
+    # that sprite's rows come back.
+    #
+    # +:colors+ IS THE COLOURS IT IS WEARING, ready to compare against — no group number and no
+    # arithmetic, and right for a picture stored either of the two ways (see #colors_drawn_from,
+    # and +:color_count+, which says which way).
     #
     # +:x+ AND +:y+ ARE WHERE THE PICTURE STARTS — the corner of the canvas the art was drawn
     # on, which is where the game put the sprite. That is NOT the number the console carries,
@@ -634,14 +638,33 @@ module RubyGBA
       end
       moved = @rom.built.sprite_offsets
       rooms = @rom.built.sprite_pose_in_room
+      table = palette(:sprites) # read once for the lot, not once per row
       @probe.sprites.map do |row|
         name = whose[row[:slot]]
         dx, dy = moved.dig(row[:slot], pose_key(row, rooms)) || [0, 0]
         # Back into the ranges the console keeps these in, so a sprite half off the left edge
         # reads the way its own place reads rather than going negative.
         row.merge(name: name, piece_x: row[:x], piece_y: row[:y],
-                  x: (row[:x] - dx) & 0x1FF, y: (row[:y] - dy) & 0xFF)
+                  x: (row[:x] - dx) & 0x1FF, y: (row[:y] - dy) & 0xFF,
+                  colors: colors_drawn_from(row, table))
       end
+    end
+
+    # THE COLOURS A ROW IS DRAWING FROM, which is the question the row's +palette+ field looks
+    # like an answer to and is not.
+    #
+    # A picture is stored one of two ways, and the console picks by how many colours the art
+    # uses: half a byte a pixel, picking out of a GROUP of sixteen colours, or a whole byte
+    # picking out of all 256. +palette+ names the group, so it is the answer for the first kind
+    # and means nothing for the second — and the two look identical from outside, which is why
+    # handing over "the sixteen at that group" would be quietly wrong for a sprite drawn from
+    # more than fifteen colours rather than obviously wrong.
+    #
+    # +color_count+ says which kind, so this can simply take the right run: the group for a
+    # picture that has one, and the whole table for a picture that draws from all of it.
+    def colors_drawn_from(row, table)
+      from = row[:color_count] == PALETTE_GROUP ? row[:palette] * PALETTE_GROUP : 0
+      table[from, row[:color_count]]
     end
 
     # WHICH POSE A ROW IS HOLDING, said the way the build wrote that place's trims down (see

@@ -1508,6 +1508,16 @@ mgba_core_sprites(VALUE self)
         rb_hash_aset(entry, ID2SYM(rb_intern("y")),        INT2NUM(GBAObjAttributesAGetY(obj->a)));
         rb_hash_aset(entry, ID2SYM(rb_intern("tile")),     INT2NUM(GBAObjAttributesCGetTile(obj->c)));
         rb_hash_aset(entry, ID2SYM(rb_intern("palette")),  INT2NUM(GBAObjAttributesCGetPalette(obj->c)));
+        /* HOW MANY COLOURS THIS PICTURE DRAWS FROM, which decides what the palette field
+         * above means. A picture is stored one of two ways: half a byte a pixel, picking out
+         * of a GROUP of sixteen colours, or a whole byte picking out of all 256. The palette
+         * field names the group — and means nothing at all for a picture stored the other
+         * way, where there is no group to name. Nothing else on the row says which, so
+         * without this a reader handing over "the sixteen colours at that group" would be
+         * right for most sprites and arbitrary for the rest, and would look the same either
+         * way. */
+        rb_hash_aset(entry, ID2SYM(rb_intern("color_count")),
+                     INT2NUM(GBAObjAttributesAIs256Color(obj->a) ? 256 : 16));
         rb_hash_aset(entry, ID2SYM(rb_intern("priority")), INT2NUM(GBAObjAttributesCGetPriority(obj->c)));
         rb_hash_aset(entry, ID2SYM(rb_intern("shape")),    INT2NUM(GBAObjAttributesAGetShape(obj->a)));
         rb_hash_aset(entry, ID2SYM(rb_intern("size")),     INT2NUM(GBAObjAttributesBGetSize(obj->b)));
