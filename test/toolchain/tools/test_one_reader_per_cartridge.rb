@@ -71,7 +71,7 @@ class TestOneReaderPerCartridge < Minitest::Test
     v = running(hurt_hero)
     row = v.sprites(:hero).first
 
-    assert_equal 16, v.palette(:sprites, row[:palette]).length
+    assert_equal 16, v.palette(:sprites, row.palette).length
     assert_equal 256, v.palette(:sprites).length
   end
 
@@ -81,8 +81,8 @@ class TestOneReaderPerCartridge < Minitest::Test
     v = running(hurt_hero)
     row = v.sprites(:hero).first
 
-    assert_equal [40, 40], [row[:x], row[:y]], "where the game put him"
-    assert_equal Color.resolve(:white), v.palette(:sprites, row[:palette])[1],
+    assert_equal [40, 40], [row.x, row.y], "where the game put him"
+    assert_equal Color.resolve(:white), v.palette(:sprites, row.palette)[1],
                  "wearing the second colour of the list he was told to draw with"
     assert v.pixel_is?(40, 40, :white), "...and that is what is on the screen"
   end
@@ -94,8 +94,8 @@ class TestOneReaderPerCartridge < Minitest::Test
   def test_a_row_says_how_many_colours_its_picture_draws_from
     v = running(two_kinds_of_picture)
 
-    assert_equal 16, v.sprites(:hero).first[:color_count], "two colours, so it is stored the small way"
-    assert_equal 256, v.sprites(:signpost).first[:color_count], "twenty colours, so it is stored the big way"
+    assert_equal 16, v.sprites(:hero).first.color_count, "two colours, so it is stored the small way"
+    assert_equal 256, v.sprites(:signpost).first.color_count, "twenty colours, so it is stored the big way"
   end
 
   # ...and once it says that, it can hand the colours themselves over — which is the thing a test
@@ -105,11 +105,21 @@ class TestOneReaderPerCartridge < Minitest::Test
     hero = v.sprites(:hero).first
     signpost = v.sprites(:signpost).first
 
-    assert_equal 16, hero[:colors].length
-    assert_equal v.palette(:sprites, hero[:palette]), hero[:colors], "its own group of sixteen"
-    assert_equal 256, signpost[:colors].length
-    assert_equal v.palette(:sprites), signpost[:colors], "the whole table, which is what it draws from"
-    assert_includes hero[:colors], Color.resolve(:red)
+    assert_equal 16, hero.colors.length
+    assert_equal v.palette(:sprites, hero.palette), hero.colors, "its own group of sixteen"
+    assert_equal 256, signpost.colors.length
+    assert_equal v.palette(:sprites), signpost.colors, "the whole table, which is what it draws from"
+    assert_includes hero.colors, Color.resolve(:red)
+  end
+
+  # A FIELD A ROW DOES NOT HAVE CANNOT BE READ AT ALL. As a Hash it read back as nothing, so a
+  # test asserting on a name it got slightly wrong passed, or failed for a reason that was not
+  # the one it looked like — the same quiet wrong answer as a row handing over somebody else's
+  # colours.
+  def test_a_field_a_sprite_does_not_have_cannot_be_read
+    row = running(hurt_hero).sprites(:hero).first
+
+    assert_raises(NoMethodError) { row.colour_count }
   end
 
   # --- leaving a layer out of the picture ---

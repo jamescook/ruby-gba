@@ -128,7 +128,9 @@ module RubyGBA
         # @param name [Symbol, nil] keep only this declared sprite's rows; nil for every row
         # @return [Array<Hash>]
         def sprites(name = nil)
-          rows = @drawn.map { |on| { name: on[:name], x: on[:x], y: on[:y], picture: on[:picture] } }
+          rows = @drawn.map do |on|
+            RubyGBA::DrawnSprite.new(name: on[:name], x: on[:x], y: on[:y], picture: on[:picture])
+          end
           return rows if name.nil?
 
           known = @objects.each_value.filter_map(&:declared).uniq
@@ -136,7 +138,7 @@ module RubyGBA
             raise ArgumentError, "This game has no sprite #{name.inspect}. " \
                                  "Its sprites are: #{known.map(&:inspect).join(', ')}."
           end
-          rows.select { |row| row[:name] == name }
+          rows.select { |row| row.name == name }
         end
 
         # +save+ is the cartridge's save memory — an external store that outlives the

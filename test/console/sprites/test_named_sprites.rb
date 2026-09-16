@@ -56,23 +56,23 @@ class TestNamedSprites < Minitest::Test
     hero = v.sprites(:hero)
 
     assert_equal 1, hero.length
-    assert_equal 40, hero.first[:x]
-    assert_equal 40, hero.first[:y]
+    assert_equal 40, hero.first.x
+    assert_equal 40, hero.first.y
   end
 
   # And they are told apart: the other sprite's row is the other one.
   def test_two_sprites_are_not_confused_for_each_other
     v = running(two_sprites)
 
-    assert_equal [100], v.sprites(:coin).map { |s| s[:x] }
-    refute_equal v.sprites(:hero).first[:slot], v.sprites(:coin).first[:slot]
+    assert_equal [100], v.sprites(:coin).map { |s| s.x }
+    refute_equal v.sprites(:hero).first.slot, v.sprites(:coin).first.slot
   end
 
   # With no name, every row the console is drawing, each saying whose it is.
   def test_every_row_says_whose_it_is
     v = running(two_sprites)
 
-    assert_equal [:coin, :hero], v.sprites.map { |s| s[:name] }.uniq.sort
+    assert_equal [:coin, :hero], v.sprites.map { |s| s.name }.uniq.sort
   end
 
   # A sprite the game switched off is not in the table at all, which is the answer a test
@@ -108,10 +108,10 @@ class TestNamedSprites < Minitest::Test
     rows = running(game).sprites(:boss)
 
     assert_operator rows.length, :>, 1, "a 96x32 picture is more than one of the console's sprites"
-    assert_equal [:boss], rows.map { |s| s[:name] }.uniq
-    assert_equal [[8, 24]], rows.map { |s| [s[:x], s[:y]] }.uniq,
+    assert_equal [:boss], rows.map { |s| s.name }.uniq
+    assert_equal [[8, 24]], rows.map { |s| [s.x, s.y] }.uniq,
                  "and every row says where the whole picture starts, which is one place"
-    assert_operator rows.map { |s| s[:piece_x] }.uniq.length, :>, 1,
+    assert_operator rows.map { |s| s.piece_x }.uniq.length, :>, 1,
                     "while the pieces themselves stand apart, shoulder to shoulder"
   end
 
@@ -130,7 +130,7 @@ class TestNamedSprites < Minitest::Test
     hero = v.sprites(:hero)
 
     assert_equal 1, hero.length
-    assert_equal 40, hero.first[:x]
+    assert_equal 40, hero.first.x
   end
 
   # Every slot of a pool is a sprite of its own and all of them are the one thing the author
@@ -154,7 +154,7 @@ class TestNamedSprites < Minitest::Test
     rows = running(game).sprites(:shot)
 
     assert_equal 2, rows.length, "two spawned, six slots still empty"
-    assert_equal [20, 60], rows.map { |s| s[:x] }.sort
+    assert_equal [20, 60], rows.map { |s| s.x }.sort
   end
 
   # A hero with two letters of text over him. Text is drawn as a sprite per letter, and the
@@ -171,7 +171,7 @@ class TestNamedSprites < Minitest::Test
 
   # A letter's row says nothing rather than making a name up.
   def test_a_letter_of_text_belongs_to_no_named_sprite
-    named = running(hero_and_text).sprites.group_by { |s| s[:name] }
+    named = running(hero_and_text).sprites.group_by { |s| s.name }
 
     assert_operator named[nil].length, :>=, 2, "one row per letter, none of them a named sprite"
     assert_equal 1, named[:hero].length
@@ -197,8 +197,8 @@ class TestNamedSprites < Minitest::Test
     hero = drawn(two_sprites).sprites(:hero)
 
     assert_equal 1, hero.length
-    assert_equal 40, hero.first[:x]
-    assert_equal 40, hero.first[:y]
+    assert_equal 40, hero.first.x
+    assert_equal 40, hero.first.y
   end
 
   # A sprite the game switched off is not among the things it drew, matching what the console's
@@ -240,7 +240,7 @@ class TestNamedSprites < Minitest::Test
     rows = drawn(game).sprites(:shot)
 
     assert_equal 2, rows.length, "two spawned, six slots still empty"
-    assert_equal [20, 60], rows.map { |s| s[:x] }.sort
+    assert_equal [20, 60], rows.map { |s| s.x }.sort
   end
 
   # Which pose a sprite is showing, said as the picture the author drew rather than as a number
@@ -254,7 +254,7 @@ class TestNamedSprites < Minitest::Test
       game_loop { wait_vblank }
     end
 
-    showing = (1..4).map { |frames| drawn(game, frames: frames).sprites(:walker).first[:picture] }
+    showing = (1..4).map { |frames| drawn(game, frames: frames).sprites(:walker).first.picture }
 
     assert_equal %i[step_a step_b], showing.uniq.sort, "it walks through both of its pictures"
   end
@@ -265,7 +265,7 @@ class TestNamedSprites < Minitest::Test
   def test_the_oracle_names_a_sprite_the_game_does_not_have
     i = drawn(hero_and_text)
 
-    assert_equal [nil, nil], i.sprites.reject { |s| s[:name] }.map { |s| s[:name] }
+    assert_equal [nil, nil], i.sprites.reject { |s| s.name }.map { |s| s.name }
     error = assert_raises(ArgumentError) { i.sprites(:dragon) }
     assert_match(/:dragon/, error.message)
     assert_match(/Its sprites are: :hero\./, error.message)
@@ -293,7 +293,7 @@ class TestNamedSprites < Minitest::Test
     i = drawn(game)
 
     assert_equal Color.resolve(:gray), i.screen.pixel(44, 44), "the fence is what you see there"
-    assert_equal [{ name: :hero, x: 40, y: 40, picture: :hero }], i.sprites(:hero)
+    assert_equal [RubyGBA::DrawnSprite.new(name: :hero, x: 40, y: 40, picture: :hero)], i.sprites(:hero)
   end
 
   # The two backends put to the same question, which is the point of giving the oracle one that
@@ -301,8 +301,8 @@ class TestNamedSprites < Minitest::Test
   def test_the_console_and_the_oracle_agree_about_which_sprite_is_which
     game = two_sprites
 
-    console = running(game).sprites.map { |s| [s[:name], s[:x], s[:y]] }
-    oracle = drawn(game).sprites.map { |s| [s[:name], s[:x], s[:y]] }
+    console = running(game).sprites.map { |s| [s.name, s.x, s.y] }
+    oracle = drawn(game).sprites.map { |s| [s.name, s.x, s.y] }
 
     assert_equal [[:coin, 100, 80], [:hero, 40, 40]], oracle.sort
     assert_equal console.sort, oracle.sort
@@ -344,16 +344,16 @@ class TestNamedSprites < Minitest::Test
   def test_a_row_says_where_the_picture_starts_whichever_way_it_faces
     v = running(two_facings)
 
-    assert_equal 64, v.sprites(:runner).first[:x], "where the game put it, not where its tiles start"
-    assert_equal 144, v.sprites(:turner).first[:x], "and the same for one drawn backwards"
+    assert_equal 64, v.sprites(:runner).first.x, "where the game put it, not where its tiles start"
+    assert_equal 144, v.sprites(:turner).first.x, "and the same for one drawn backwards"
   end
 
   def test_where_a_row_says_the_picture_starts_is_where_the_pixels_are
     v = running(two_facings)
 
     # The run of red is drawn 10 columns into its canvas, and the green one mirrors to 20.
-    assert_equal v.sprites(:runner).first[:x] + 10, first_drawn_column(v, 0, 130, 44, :red)
-    assert_equal v.sprites(:turner).first[:x] + 20, first_drawn_column(v, 130, 240, 44, :green)
+    assert_equal v.sprites(:runner).first.x + 10, first_drawn_column(v, 0, 130, 44, :red)
+    assert_equal v.sprites(:turner).first.x + 20, first_drawn_column(v, 130, 240, 44, :green)
   end
 
   # The console's own number is still there under its own name, for a test that wants the
@@ -361,8 +361,8 @@ class TestNamedSprites < Minitest::Test
   def test_a_row_still_carries_the_place_the_console_was_given
     v = running(two_facings)
 
-    assert_equal 72, v.sprites(:runner).first[:piece_x], "trimmed 8 in, so the tiles go 8 along"
-    assert_equal 160, v.sprites(:turner).first[:piece_x], "and backwards, trimmed from the far side"
+    assert_equal 72, v.sprites(:runner).first.piece_x, "trimmed 8 in, so the tiles go 8 along"
+    assert_equal 160, v.sprites(:turner).first.piece_x, "and backwards, trimmed from the far side"
   end
 
   # And the oracle, which never trimmed anything, says the same — which is the point of the two
@@ -370,8 +370,8 @@ class TestNamedSprites < Minitest::Test
   def test_the_two_backends_agree_about_a_trimmed_and_mirrored_sprite
     game = two_facings
 
-    console = running(game).sprites.map { |s| [s[:name], s[:x], s[:y]] }
-    oracle = drawn(game).sprites.map { |s| [s[:name], s[:x], s[:y]] }
+    console = running(game).sprites.map { |s| [s.name, s.x, s.y] }
+    oracle = drawn(game).sprites.map { |s| [s.name, s.x, s.y] }
 
     assert_equal [[:runner, 64, 40], [:turner, 144, 40]], oracle.sort
     assert_equal console.sort, oracle.sort
@@ -390,8 +390,8 @@ class TestNamedSprites < Minitest::Test
     v = running(two_facings, frames: 2)
     v.step(2)
 
-    assert_equal 64, v.sprites(:runner).first[:x], "where the game put it, not where its tiles start"
-    assert_equal 144, v.sprites(:turner).first[:x], "and the same for one drawn backwards"
+    assert_equal 64, v.sprites(:runner).first.x, "where the game put it, not where its tiles start"
+    assert_equal 144, v.sprites(:turner).first.x, "and the same for one drawn backwards"
   end
 
   def test_stepping_to_a_frame_says_what_running_to_it_says
@@ -400,15 +400,15 @@ class TestNamedSprites < Minitest::Test
     stepped = running(game, frames: 2).step(2).sprites
     straight = running(game, frames: 4).sprites
 
-    assert_equal straight.map { |s| [s[:name], s[:x], s[:y]] },
-                 stepped.map { |s| [s[:name], s[:x], s[:y]] }
+    assert_equal straight.map { |s| [s.name, s.x, s.y] },
+                 stepped.map { |s| [s.name, s.x, s.y] }
   end
 
   def test_a_stepped_frame_and_the_oracle_agree
     game = two_facings
 
-    stepped = running(game, frames: 2).step(2).sprites.map { |s| [s[:name], s[:x], s[:y]] }
-    oracle = drawn(game).sprites.map { |s| [s[:name], s[:x], s[:y]] }
+    stepped = running(game, frames: 2).step(2).sprites.map { |s| [s.name, s.x, s.y] }
+    oracle = drawn(game).sprites.map { |s| [s.name, s.x, s.y] }
 
     assert_equal oracle.sort, stepped.sort
   end
@@ -427,7 +427,7 @@ class TestNamedSprites < Minitest::Test
     v = running(game, frames: 3)
     started = first_drawn_column(v, 0, 240, 44, :red)
     places = Array.new(4) do
-      where = v.sprites(:hero).first[:x]
+      where = v.sprites(:hero).first.x
       v.step
       where
     end
@@ -435,7 +435,7 @@ class TestNamedSprites < Minitest::Test
     assert_equal [2, 2, 2], places.each_cons(2).map { |was, now| now - was },
                  "two pixels a frame, read off the table as it moves"
     moving = v.sprites(:hero).first
-    assert_equal moving[:x] + 8, moving[:piece_x],
+    assert_equal moving.x + 8, moving.piece_x,
                  "and it is still the picture's corner, several frames of moving on"
     assert_equal started + 8, first_drawn_column(v, 0, 240, 44, :red),
                  "the picture came on with it — four frames, two pixels each"

@@ -226,11 +226,13 @@ where it becomes the whole-run budget and `stopped_at_budget?` reports it.
 **Ask the oracle which sprite is which rather than hunting for it in the fake screen.**
 `i.sprites` is the interpreter's half of `v.sprites` below, and it answers the same questions
 pixels cannot: it tells a sprite the game switched off from one drawn in the backdrop colour,
-from one behind a background, from one a pixel off the edge. Each row is `{name:, x:, y:,
-picture:}` — `picture:` being the one of its pictures the pose selector picked, said as the
-name the author drew rather than as a number counting into the set. A sprite that is not being
-drawn is absent, every live slot of a `pool` comes back under the pool's name, and a row the
-author named nothing for (a letter of tiled text) has a nil `:name`. There is no slot number
+from one behind a background, from one a pixel off the edge. Each row is a `DrawnSprite`,
+reading `row.name`, `.x`, `.y` and `.picture` — `picture` being the one of its pictures the pose
+selector picked, said as the name the author drew rather than as a number counting into the set.
+The first three are named and mean the same as on a `SpriteRow` off the console, so a test
+comparing the two backends reads both the same way (and `row[:x]` works on neither). A sprite
+that is not being drawn is absent, every live slot of a `pool` comes back under the pool's name,
+and a row the author named nothing for (a letter of tiled text) has a nil `name`. There is no slot number
 here and that is deliberate: the console has 128 places to put a sprite in and the interpreter
 has none, and naming a place was the thing worth getting rid of. Prefer this to building a ROM
 whenever the question is where something was drawn.
@@ -303,18 +305,22 @@ the program says minus one, and `count > 0` then reads true for a count of minus
 **Ask the console where a sprite is rather than hunting for it in the picture.** `v.sprites`
 reads the table the console composes from, so it answers what pixels cannot: it tells a hidden
 sprite from one drawn in the backdrop colour, from one behind a background, from one a pixel
-off the edge. Each row is `{name:, x:, y:, slot:, tile:, palette:, color_count:, colors:,
-priority:, shape:, size:, mirrored_across:, mirrored_down:, turned:, piece_x:, piece_y:}`, and a
-sprite the game switched off is simply absent. `x:`/`y:` are **where the picture starts** — the corner of the canvas the
+off the edge. Each row reads `row.name`, `.x`, `.y`, `.slot`, `.tile`, `.palette`,
+`.color_count`, `.colors`, `.priority`, `.shape`, `.size`, `.mirrored_across`, `.mirrored_down`,
+`.turned`, `.piece_x`, `.piece_y`, and a sprite the game switched off is simply absent.
+**A row is a `SpriteRow`, not a Hash, and `row[:x]` does not work** — deliberately: as a Hash a
+field name that was slightly wrong read back as nothing, so a test asserting on one passed, or
+failed for a reason that was not the one it looked like. Written as a method a wrong name cannot
+be run at all. `x`/`y` are **where the picture starts** — the corner of the canvas the
 art was drawn on, which is where the game put the sprite, and the same number `i.sprites` gives.
 That is not the number the console carries: a pose is stored trimmed to what it draws and the
 sprite stands that much further along, and a pose drawn backwards is trimmed from the other side
 and stands a different amount again — so the console's own number is right facing one way and
-out by up to a canvas facing the other. `piece_x:`/`piece_y:` still carry it for a test that
-wants the hardware fact. `colors:` is **the colours it is wearing**, ready to compare against —
+out by up to a canvas facing the other. `piece_x`/`piece_y` still carry it for a test that
+wants the hardware fact. `colors` is **the colours it is wearing**, ready to compare against —
 no group number and no arithmetic. A picture is stored one of two ways, drawing from a group of
-sixteen colours or from all 256, and `color_count:` says which; `colors:` is already the right
-run either way, which `v.palette(:sprites, row[:palette])` is not (that one is meaningless for a
+sixteen colours or from all 256, and `color_count` says which; `colors` is already the right
+run either way, which `v.palette(:sprites, row.palette)` is not (that one is meaningless for a
 picture of the second kind). **Name it and only its rows come back** — never identify one by a slot number (a magic
 number that moves the day the game declares something earlier), by position (which needs the
 game to keep its own position in a variable, and is a pixel or two out exactly while the thing

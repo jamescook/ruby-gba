@@ -375,8 +375,8 @@ class TestSpriteOneFrameAtATime < Minitest::Test
     frames.times do
       rows = v.sprites(sprite)
       refute_empty rows, "#{sprite} should be on screen"
-      rows.each { |row| assert_equal STANDS_AT, row[:x], "#{sprite} stands where the game put it, in every pose" }
-      raw << rows.map { |row| row[:piece_x] }
+      rows.each { |row| assert_equal STANDS_AT, row.x, "#{sprite} stands where the game put it, in every pose" }
+      raw << rows.map { |row| row.piece_x }
       v.step
     end
     assert_operator raw.uniq.length, :>, 1,
@@ -399,7 +399,7 @@ class TestSpriteOneFrameAtATime < Minitest::Test
   # ...and the oracle puts them in the same place, which is what makes those two facts about the
   # framework rather than about the console.
   def test_the_oracle_puts_those_characters_in_the_same_place
-    assert_equal [STANDS_AT], Reference.new.run(banded_screen, frames: 8).sprites(:walker).map { |r| r[:x] }.uniq
-    assert_equal [STANDS_AT], Reference.new.run(banded_giant_screen, frames: 8).sprites(:giant).map { |r| r[:x] }.uniq
+    assert_equal [STANDS_AT], Reference.new.run(banded_screen, frames: 8).sprites(:walker).map { |r| r.x }.uniq
+    assert_equal [STANDS_AT], Reference.new.run(banded_giant_screen, frames: 8).sprites(:giant).map { |r| r.x }.uniq
   end
 end

@@ -296,7 +296,7 @@ module RubyGBA
         raise ArgumentError, "This game has no sprite #{name.inspect}. " \
                              "Its sprites are: #{known.keys.map(&:inspect).join(', ')}."
       end
-      rows.select { |row| row[:name] == name }
+      rows.select { |row| row.name == name }
     end
 
     # THE COLOURS THE CONSOLE IS DRAWING FROM — 512 of them, the backgrounds' first and then
@@ -309,7 +309,7 @@ module RubyGBA
     #
     # NAME THE HALF AND THE GROUP to get a usable answer. A sprite's row (see {#sprites}) says
     # which GROUP OF SIXTEEN it draws from and nothing about where that group sits, so
-    # `palette(:sprites, row[:palette])` is the sixteen colours that row is wearing. Half on its
+    # `palette(:sprites, row.palette)` is the sixteen colours that row is wearing. Half on its
     # own (`palette(:sprites)`) is that half's 256; nothing at all is the whole table.
     #
     # @param half [Symbol, nil] +:sprites+ or +:backgrounds+; nil for the whole table
@@ -644,9 +644,9 @@ module RubyGBA
         dx, dy = moved.dig(row[:slot], pose_key(row, rooms)) || [0, 0]
         # Back into the ranges the console keeps these in, so a sprite half off the left edge
         # reads the way its own place reads rather than going negative.
-        row.merge(name: name, piece_x: row[:x], piece_y: row[:y],
-                  x: (row[:x] - dx) & 0x1FF, y: (row[:y] - dy) & 0xFF,
-                  colors: colors_drawn_from(row, table))
+        SpriteRow.new(**row, name: name, piece_x: row[:x], piece_y: row[:y],
+                      x: (row[:x] - dx) & 0x1FF, y: (row[:y] - dy) & 0xFF,
+                      colors: colors_drawn_from(row, table))
       end
     end
 
