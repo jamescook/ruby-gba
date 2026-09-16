@@ -1,0 +1,338 @@
+# frozen_string_literal: true
+
+require "test_helper"
+require_relative "../../examples/pong"
+
+# Pong's title screen (examples/pong.rb): a two-row `menu` over the zooming backdrop.
+#
+# It is worth its own test file because of WHERE it runs. The title declares
+# `screen :rotozoom`, so there is no framebuffer to paint into — the console composites
+# every character of every row as a little sprite of its own. The menu written there is
+# the same verb, written the same way, as the one the jukebox uses on a plain bitmap
+# screen. These tests read the picture the console would show and never mention which of
+# the two it is.
+#
+# The MUSIC row is the part that could not be written before: what it SAYS depends on the
+# setting, so the row carries the list of things it can say and the variable that decides.
+class TestPongTitle < Minitest::Test
+  Fonts = RubyGBA::Fonts
+
+  ROW_START = 90       # the menu's first row (examples/pong.rb: `at: [menu_x, 90]`)
+  ROW_MUSIC = 106      # ...and the two below it, one `spacing: 16` apart each time
+  ROW_DIFFICULTY = 122
+  CURSOR = ">"
+
+  PICKED = Color.resolve(:white)
+  PLAIN = Color.resolve(:gray)
+
+  # Where the labels start. The example asks the font, so the test asks it the same way
+  # rather than carrying a number that would go stale if a row were reworded.
+  def column
+    (240 - Fonts.get(:default).text_width(MUSIC_OFF)) / 2
+  end
+
+  def title(frames, &keys)
+    i = Reference.new
+    i = i.input_each_frame(&keys) if keys
+    i.run(Pong.program, frames: frames)
+    i
+  end
+
+  # Every lit pixel of +words+ laid on the font's grid from (x, y) — which is how the
+  # console lays a row of glyph sprites out.
+  def word_pixels(words, x, y)
+    font = Fonts.get(:default)
+    words.each_char.with_index.flat_map do |char, i|
+      found = []
+      font.each_pixel(char) { |dx, dy| found << [x + (i * font.cell_w) + dx, y + dy] }
+      found
+    end
+  end
+
+  # Is this row saying these words, in this colour?
+  def says?(interp, words, y, color)
+    pixels = word_pixels(words, column, y)
+    refute_empty pixels, "#{words.inspect} should light some pixels"
+    pixels.all? { |x, py| interp.screen.pixel(x, py) == color }
+  end
+
+  def cursor_row?(interp, y)
+    word_pixels(CURSOR, column - 11, y).any? { |x, py| interp.screen.pixel(x, py).to_i.positive? }
+  end
+
+  # --- the menu is up, and says what it should ---
+
+  def test_the_title_opens_on_the_start_row_with_the_music_on
+    i = title(3) { |_f| [] }
+
+    assert cursor_row?(i, ROW_START), "the cursor rests on START"
+    assert says?(i, "START", ROW_START, PICKED), "and START is the picked row"
+    assert says?(i, MUSIC_ON, ROW_MUSIC, PLAIN), "the music row says it is on, and is not picked"
+    refute says?(i, MUSIC_OFF, ROW_MUSIC, PLAIN),
+           "and says ONLY that — the other words are not sitting underneath it"
+  end
+
+  def test_moving_down_lights_the_music_row_instead
+    i = title(4) { |f| f == 1 ? [:down] : [] }
+
+    assert cursor_row?(i, ROW_MUSIC), "the cursor walked to the music row"
+    assert says?(i, MUSIC_ON, ROW_MUSIC, PICKED), "which lights up, words and all"
+    assert says?(i, "START", ROW_START, PLAIN), "and START goes plain again"
+  end
+
+  # --- the setting row, which is the point of it ---
+
+  def test_choosing_the_music_row_changes_what_it_says
+    i = title(6) { |f| { 1 => [:down], 3 => [:a] }.fetch(f, []) }
+
+    assert says?(i, MUSIC_OFF, ROW_MUSIC, PICKED), "the row now reads MUSIC: OFF"
+    refute says?(i, MUSIC_ON, ROW_MUSIC, PICKED), "and no longer reads MUSIC: ON"
+  end
+
+  def test_choosing_it_twice_puts_the_music_back_on
+    i = title(9) { |f| { 1 => [:down], 3 => [:a], 6 => [:a] }.fetch(f, []) }
+
+    assert says?(i, MUSIC_ON, ROW_MUSIC, PICKED)
+    refute says?(i, MUSIC_OFF, ROW_MUSIC, PICKED), "and the words it used to say are gone"
+  end
+
+  def test_the_words_that_change_are_part_of_the_row_and_light_up_with_it
+    off_and_picked = title(6) { |f| { 1 => [:down], 3 => [:a] }.fetch(f, []) }
+
+    assert says?(off_and_picked, MUSIC_OFF, ROW_MUSIC, PICKED)
+
+    # Walk back up to START: the same words are still there, now in the plain colour.
+    off_and_plain = title(9) { |f| { 1 => [:down], 3 => [:a], 6 => [:up] }.fetch(f, []) }
+
+    assert says?(off_and_plain, MUSIC_OFF, ROW_MUSIC, PLAIN),
+           "the value the row shows is part of the row, so it dims with it"
+  end
+
+  # --- and it actually turns the music off ---
+
+  def notes(interp)
+    interp.audio.select { |entry| entry[0] == :note }
+  end
+
+  # Long enough to leave the title (START, then the zoom) and get well into a rally.
+  INTO_THE_GAME = 200
+
+  def test_the_music_plays_when_it_is_left_on
+    i = title(INTO_THE_GAME) { |f| f < 3 ? [:a] : [] }
+
+    refute_empty notes(i), "the gameplay song should be sounding"
+  end
+
+  def test_turning_the_music_off_on_the_title_keeps_it_off_in_the_game
+    i = title(INTO_THE_GAME) do |f|
+      # down to the music row, A to turn it off, up to START, A to begin.
+      { 1 => [:down], 3 => [:a], 5 => [:up], 7 => [:a] }.fetch(f, [])
+    end
+
+    assert_empty notes(i), "nothing should sound for the whole rally"
+  end
+
+  # ...and it stops when the game does. A song plays until something silences it, so a
+  # tune started in the rally carries straight on through the end screen and back onto
+  # the title unless the end screen says otherwise — which sounds like the game never
+  # finished.
+  #
+  # START, then the paddle is held at the top edge: the cpu takes five points off a player who
+  # is not defending, which is a finished game in half the frames an even match would take.
+  # Once it is over, the end screen is left alone for longer than the music takes to fade, then
+  # START goes back to the title and A starts the next game — enough frames for its music to
+  # begin.
+  TO_THE_NEXT_GAME = 1080
+  LINGER = 40 # frames on the end screen, past the half second the fade takes
+
+  # That game, played once for every test that reads it: it is most of this file's running
+  # time. Returns the interpreter, how much had sounded when the game ended, and how much when
+  # START left the end screen.
+  def finished_game
+    self.class.instance_variable_get(:@finished_game) ||
+      self.class.instance_variable_set(:@finished_game, play_to_the_next_game)
+  end
+
+  def play_to_the_next_game
+    i = Reference.new
+    over_at = over = left = nil
+    i.input_each_frame do |f|
+      next(f < 3 ? [:a] : [:up]) unless over_at || i[:state] == 3
+
+      over_at ||= f
+      over ||= i.audio.size
+      left ||= i.audio.size if f == over_at + LINGER
+      { over_at + LINGER => [:start], over_at + LINGER + 4 => [:a] }.fetch(f, [])
+    end
+    i.run(Pong.program, frames: TO_THE_NEXT_GAME)
+    [i, over, left]
+  end
+
+  def test_the_music_stops_when_the_game_is_over
+    i, over, left = finished_game
+
+    refute_nil left, "the game really did finish, and the end screen was left"
+    refute_empty i.audio.take(over).select { |entry| entry[0] == :note }, "the song was playing during the rally"
+    on_the_end_screen = i.audio[over...left].select { |entry| %i[note stop_music].include?(entry[0]) }
+    assert_equal :stop_music, on_the_end_screen.last&.first,
+                 "and the end screen silenced it, with nothing sounding since (#{on_the_end_screen.inspect})"
+  end
+
+  # ...and it does not stop dead: the music fades down as the game ends, and is stopped only
+  # once nobody can hear it. Read off the log in order — the volumes the voice was set to after
+  # the last time it was at full fall to nothing, and only then does the song stop. A rest sets
+  # the voice to nothing too, so the falling is read off the notes that sounded.
+  def test_the_music_fades_as_the_game_ends
+    i, _over, left = finished_game
+    stop = i.audio.take(left).rindex { |entry| entry[0] == :stop_music }
+
+    refute_nil stop, "the music stopped"
+    volumes = i.audio[0...stop].select { |entry| entry[0] == :loudness }.map(&:last)
+    fading = volumes.reverse.take_while { |volume| volume < volumes.max }.reverse
+    sounding = fading.reject(&:zero?)
+
+    assert_operator sounding.size, :>=, 3, "turned down over several frames (#{fading.inspect})"
+    assert_equal sounding.sort.reverse, sounding, "falling all the way (#{fading.inspect})"
+    assert_equal 0, fading.last, "down to nothing before the stop (#{fading.inspect})"
+  end
+
+  # ...and the next game brings its music back, from its first note and not from wherever the
+  # silent song had got to.
+  C4 = RubyGBA::Music::NOTE_FREQUENCIES[:C4]
+
+  def test_the_next_game_starts_its_music_from_the_top
+    i, _over, left = finished_game
+    notes = i.audio.drop(left).select { |entry| entry[0] == :note }
+
+    assert_equal [:note, :gameplay, C4], notes.first, "the next game's music opens on its first note"
+  end
+
+  # --- the difficulty screen, and where its cursor opens ---
+  #
+  # The title's third row opens a screen of its own: two rows, NORMAL and HARD, and a
+  # cursor that starts on the SECOND of them. That is the game recommending a setting —
+  # a player who presses the button straight through gets the harder game rather than
+  # the gentler one, which is a real difference in how pong plays rather than a
+  # cosmetic one.
+  #
+  # That screen inherits pong's top-level bitmap mode, so its rows are painted into the
+  # picture where the title's are composited by the console. Neither the example nor
+  # these tests say which; the rows are read the same way on both.
+
+  DIFF_NORMAL = 80 # examples/pong.rb: `at: [diff_x, 80], spacing: 16`
+  DIFF_HARD = 96
+
+  # Down twice to the DIFFICULTY row, then A to open it.
+  def open_difficulty(frames, extra = {})
+    title(frames) { |f| { 1 => [:down], 4 => [:down], 7 => [:a] }.merge(extra).fetch(f, []) }
+  end
+
+  # The colour a difficulty row's label is drawn in, or nil if it drew nothing. Read from
+  # the label itself rather than from the cursor beside it, so "picked" is the row lighting
+  # up and not something else on the line.
+  def difficulty_row_color(interp, y)
+    diff_x = (240 - Fonts.get(:default).text_width(NORMAL)) / 2
+    (diff_x...(diff_x + 40)).each do |x|
+      (0...7).each do |dy|
+        px = interp.screen.pixel(x, y + dy)
+        return px if px&.positive?
+      end
+    end
+    nil
+  end
+
+  def test_the_difficulty_screen_opens_on_hard
+    i = open_difficulty(10)
+
+    assert_equal PICKED, difficulty_row_color(i, DIFF_HARD), "the cursor opens on HARD"
+    assert_equal PLAIN, difficulty_row_color(i, DIFF_NORMAL), "and NORMAL is the plain row"
+  end
+
+  # Where the cursor STARTS, not where it is held: it moves from there like any other.
+  def test_the_difficulty_cursor_still_moves_from_where_it_started
+    i = open_difficulty(13, 10 => [:up])
+
+    assert_equal PICKED, difficulty_row_color(i, DIFF_NORMAL)
+    assert_equal PLAIN, difficulty_row_color(i, DIFF_HARD)
+  end
+
+  # ...and what the setting does. Both runs reach the same rally at the same moment — the
+  # zoom hands over to a game whose ball and paddles start in fixed places — so the only
+  # difference is how fast the cpu paddle chases. Measured at the moment the ball is near
+  # the bottom of the screen, a long way from where the paddle began.
+  RALLY = 110
+
+  def cpu_gap(setting)
+    keys = { 1 => [:down], 4 => [:down], 7 => [:a] } # to the difficulty screen
+    keys[10] = [:up] if setting == :normal           # up from HARD to NORMAL
+    keys[13] = [:a]                                  # choose it, which returns to the title
+    keys[16] = [:up]                                 # up past MUSIC...
+    keys[19] = [:up]                                 # ...to START
+    keys[22] = [:a]                                  # ...and begin
+    i = title(RALLY) { |f| keys.fetch(f, []) }
+    [(i[:cpu_y] / 65_536.0) + (PADDLE_H / 2) - i[:ball_y], i[:ball_y]]
+  end
+
+  PADDLE_H = 24
+
+  def test_the_cpu_paddle_keeps_up_better_on_hard
+    normal, normal_ball = cpu_gap(:normal)
+    hard, hard_ball = cpu_gap(:hard)
+
+    assert_equal normal_ball, hard_ball, "the same rally, so the two are comparable"
+    assert_operator hard.abs, :<, normal.abs,
+                    "the harder cpu paddle is nearer the ball after the same frames"
+  end
+
+  # --- on the console ---
+
+  def test_the_title_menu_composites_on_real_hardware
+    require_emulator!
+    rom = Pong.build_rom(out: StringIO.new, err: StringIO.new)
+
+    still = assert_emulator_loads_rom(rom, frames: 6)
+
+    assert still.white?(column - 11, ROW_START + 1),
+           "the cursor sits beside START, drawn by the sprite hardware over the zooming backdrop"
+
+    moved = assert_emulator_loads_rom(rom, frames: 8, keys: RubyGBA::Constants::KEY_DOWN)
+
+    assert moved.white?(column - 11, ROW_MUSIC + 1), "and walks to the music row"
+  end
+
+  # The one column MUSIC: OFF reaches and MUSIC: ON does not — the last "F". A GLYPH
+  # there while the music is on means both sets of words are on screen at once, printed
+  # over each other, which is what a row showing every one of its labels looks like.
+  #
+  # "Is it black" is the wrong question of this screen: the title's backdrop is a
+  # checkerboard, so that column is a dark tile rather than nothing. The question is
+  # whether a LETTER is drawn on it, and a letter is one of the row's two colours.
+  def beyond_the_shorter_words
+    [column + (MUSIC_ON.length * Fonts.get(:default).cell_w), ROW_MUSIC]
+  end
+
+  def lettered?(verifier, at)
+    verifier.pixel_is?(*at, :white) || verifier.pixel_is?(*at, :gray)
+  end
+
+  def test_the_console_shows_one_set_of_words_and_not_both
+    require_emulator!
+    rom = Pong.build_rom(out: StringIO.new, err: StringIO.new)
+
+    on = assert_emulator_loads_rom(rom, frames: 6)
+
+    refute lettered?(on, beyond_the_shorter_words),
+           "MUSIC: ON is up, so no letter reaches the column only MUSIC: OFF fills"
+
+    # Down onto the music row, then A to turn it off — and now that column IS lettered.
+    walk = lambda do |frame|
+      next RubyGBA::Constants::KEY_DOWN if frame < 3
+      next 0 if frame < 6
+
+      RubyGBA::Constants::KEY_A
+    end
+    off = assert_emulator_loads_rom(rom, frames: 12, keys: walk)
+
+    assert lettered?(off, beyond_the_shorter_words), "and MUSIC: OFF reaches it"
+  end
+end

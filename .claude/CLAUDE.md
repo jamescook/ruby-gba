@@ -94,11 +94,18 @@ command every time. Reach for `rake test` ONLY to run one file or one test:
 
 ```bash
 rake test:parallel                                              # the suite (JOBS=8 to pick a count)
-rake test TEST=test/test_thing.rb                               # one file
-rake test TEST=test/test_thing.rb TESTOPTS="--name=/pattern/"   # one test
+rake test TEST=test/language/test_thing.rb                      # one file
+rake test TEST=test/language/test_thing.rb TESTOPTS="--name=/pattern/"  # one test
 ```
 
-See `.claude/rules/testing.md`.
+Test files live in five directories, by what the test is about: `test/language/`
+(the program's own logic), `test/console/` (what the machine shows and plays —
+`drawing/`, `sprites/`, `world/`, `audio/`), `test/guardrails/` (one known mistake
+each), `test/examples/` (a shipped program run end to end) and `test/toolchain/`
+(the framework's own machinery — `ir/`, `cost/`, `tools/`). They are NOT split by
+which backend a test asserts against; most files assert against both. The shared
+helpers stay at `test/` and are loaded by bare name. See `.claude/rules/testing.md`
+for the rule that decides a new file's home.
 
 The framework's largest consumer, a Wolfenstein 3D port, lives in its own repository at
 `~/open_source/ruby-wolf3d` and depends on this one as a gem. It has a suite of its own which
@@ -123,7 +130,7 @@ Test each layer the way a player experiences it, not by restating the code.
     `i = Reference.new.run(program); i.screen.pixel(x, y)` — or its variables (`i[:name]`).
     In-process, deterministic, no emulator. Assert a green pixel at (x, y), a
     marker whose position reveals a computed value, an edge that fires once, frame
-    by frame. `test/test_dsl_expression.rb` is the worked example.
+    by frame. `test/language/test_dsl_expression.rb` is the worked example.
   - **Hardware path: the emulator** runs the real ROM and reads real pixels/audio
     (`assert_emulator_loads_rom` → `Verifier`). Keep a couple per feature to confirm
     the lowering; they fail loudly when the emulator is absent.
@@ -139,9 +146,9 @@ Test each layer the way a player experiences it, not by restating the code.
     not the wording verbatim.
 
 - **IR backend level — opcodes and lowering are fair game.** Here the generated
-  code *is* the contract, so `test/test_ir_backend_gba.rb` may assert the two-pass
-  jump math, register conventions, or instruction shapes, and
-  `test/test_ir_backend_ruby.rb` asserts interpreter state. These build hand-made
+  code *is* the contract, so `test/toolchain/ir/test_ir_backend_gba.rb` may assert
+  the two-pass jump math, register conventions, or instruction shapes, and
+  `test/toolchain/ir/test_ir_backend_reference.rb` asserts interpreter state. These build hand-made
   `IR::Build` trees (not the DSL) because they test the backend, not the surface.
 
 - **Cross-backend:** a feature isn't done until it's tested on every backend it
@@ -202,7 +209,7 @@ Keep the IR **target-agnostic**: `IR::Node` describes *what the program does*, n
 
 **Cross-backend rule:** a hardware feature (sound, tiles, sprites, paged modes…) isn't *done* until it works on every backend that needs it — the GBA lowering **and** the Ruby interpreter. The moment a feature is on the radar, write down each backend's slice as its own piece of work — even before the details are known — so it can't be forgotten while you're heads-down on the feature elsewhere. Don't lean on this principle to remember; record it.
 
-**Conformance-fixture obligation:** a new IR feature (a `Node::CATEGORY` kind or a `binop` operator) isn't done until it's added to the kitchen-sink fixture in `test/conformance_fixture.rb`. That one program is run through every backend by `test/test_cross_backend_conformance.rb`; a backend missing a feature the fixture uses hits its "unsupported" branch and fails. The coverage test asserts the fixture touches every kind/operator, so a forgotten feature fails loudly — but only if you added it to the fixture. Hardware-only kinds (`raw` and `read_scanline` today) are exempt via `HARDWARE_ONLY_KINDS` and kept in an uncalled func. This guards *coverage*; the differential test (behavioral *agreement*) is separate.
+**Conformance-fixture obligation:** a new IR feature (a `Node::CATEGORY` kind or a `binop` operator) isn't done until it's added to the kitchen-sink fixture in `test/conformance_fixture.rb`. That one program is run through every backend by `test/toolchain/ir/test_cross_backend_conformance.rb`; a backend missing a feature the fixture uses hits its "unsupported" branch and fails. The coverage test asserts the fixture touches every kind/operator, so a forgotten feature fails loudly — but only if you added it to the fixture. Hardware-only kinds (`raw` and `read_scanline` today) are exempt via `HARDWARE_ONLY_KINDS` and kept in an uncalled func. This guards *coverage*; the differential test (behavioral *agreement*) is separate.
 
 ### Key Patterns
 

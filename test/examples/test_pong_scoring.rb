@@ -1,0 +1,144 @@
+# frozen_string_literal: true
+
+require "test_helper"
+require_relative "../../examples/pong"
+
+# The pong ball/paddle/scoring core — the focused integration test for the
+# collision fix. It isn't the whole game (that's examples/pong.rb); it's the part
+# that decides whether a ball bounces off a paddle or slips past it to score,
+# written in the DSL a person would actually use.
+#
+# The bug it guards against: a paddle collision that checks only the ball's x
+# position acts like a full-height wall, so the ball can never get past to an
+# edge and no one can ever score. The fix bounces only when the ball also
+# overlaps the paddle's vertical span. These tests drive the ball straight at a
+# paddle that is either lined up with it (bounce) or out of the way (score), and
+# read the scores back from the interpreter oracle.
+class TestPongScoring < Minitest::Test
+
+  # The example's field/paddle geometry (examples/pong.rb).
+  SCREEN_W  = 240
+  PADDLE_W  = 4
+  PADDLE_H  = 24
+  BALL_SIZE = 4
+  LEFT_X    = 8
+  RIGHT_X   = 228
+
+  # Send a ball horizontally across the field with the paddles parked at fixed
+  # heights, and run until someone scores or +frames+ pass. Vertical motion is
+  # left out on purpose: the ball holds its row so the test isolates the paddle's
+  # vertical-overlap gate — the exact thing the bug got wrong. Returns the
+  # finished interpreter run (read scores with r[:player_score] / r[:cpu_score]).
+  def run_rally(ball_x:, ball_dx:, ball_row:, player_paddle_y:, cpu_paddle_y:, frames:)
+    builder = Builder.new
+    builder.instance_eval do
+      screen :bitmap
+      bx     = var :ball_x, ball_x
+      by     = var :ball_y, ball_row
+      bdx    = var :ball_dx, ball_dx
+      ppad   = var :player_y, player_paddle_y
+      cpad   = var :cpu_y, cpu_paddle_y
+      pscore = var :player_score, 0
+      cscore = var :cpu_score, 0
+      fc     = var :frame, 0
+
+      game_loop do
+        bx.add! bdx
+
+        # Verbatim from the example: bounce only when the ball's rectangle overlaps
+        # a paddle's — the x-band AND the vertical span — via the overlaps? verb.
+        ball       = box(bx, by, BALL_SIZE, BALL_SIZE)
+        player_pad = box(LEFT_X, ppad, PADDLE_W, PADDLE_H)
+        cpu_pad    = box(RIGHT_X, cpad, PADDLE_W, PADDLE_H)
+        ball.overlaps?(player_pad).then { bdx.abs! }
+        ball.overlaps?(cpu_pad).then { bdx.negate_abs! }
+
+        # Off an edge: score and stop, so the count is exactly what happened.
+        (bx <= 0).then { cscore.add! 1; halt }
+        (bx >= SCREEN_W).then { pscore.add! 1; halt }
+
+        fc.add! 1
+        (fc >= frames).then { halt }
+      end
+    end
+    builder.emit_pending_functions
+    Reference.new.run(builder.program)
+  end
+
+  def test_ball_past_a_mispositioned_player_paddle_scores_for_the_cpu
+    # The player's paddle is up at the top (spans y 0..24) while the ball crosses
+    # at row 100 — a clean miss. It must reach the left edge and score.
+    r = run_rally(ball_x: 40, ball_dx: -2, ball_row: 100,
+                  player_paddle_y: 0, cpu_paddle_y: 0, frames: 60)
+    assert_equal 1, r[:cpu_score], "a ball that misses the paddle vertically scores"
+    assert_equal 0, r[:player_score]
+  end
+
+  def test_ball_into_a_lined_up_player_paddle_bounces_instead_of_scoring
+    # Now the paddle sits at y=90 (spans 86..114), overlapping the ball at row
+    # 100. The ball reaches the x-band, bounces, and never reaches the left edge.
+    r = run_rally(ball_x: 40, ball_dx: -2, ball_row: 100,
+                  player_paddle_y: 90, cpu_paddle_y: 0, frames: 30)
+    assert_equal 0, r[:cpu_score], "a lined-up paddle stops the ball"
+    assert_equal 2, r[:ball_dx],   "and sends it back to the right"
+  end
+
+  def test_ball_past_a_mispositioned_cpu_paddle_scores_for_the_player
+    # Symmetric case on the right edge: the CPU paddle is out of the way, so the
+    # ball crossing at row 100 slips past and the player scores.
+    r = run_rally(ball_x: 200, ball_dx: 2, ball_row: 100,
+                  player_paddle_y: 0, cpu_paddle_y: 0, frames: 60)
+    assert_equal 1, r[:player_score], "a ball past the CPU paddle scores for the player"
+    assert_equal 0, r[:cpu_score]
+  end
+
+  def test_ball_into_a_lined_up_cpu_paddle_bounces_instead_of_scoring
+    r = run_rally(ball_x: 200, ball_dx: 2, ball_row: 100,
+                  player_paddle_y: 0, cpu_paddle_y: 90, frames: 30)
+    assert_equal 0, r[:player_score], "a lined-up CPU paddle stops the ball"
+    assert_equal(-2, r[:ball_dx],     "and sends it back to the left")
+  end
+
+  # --- the red sting, in the real example ---
+  #
+  # The dashed center line is drawn plain gray every frame, so any red SHIFT in it (the
+  # red channel above the green) is the tint and nothing else. The frame numbers are
+  # where the CPU's first point actually lands with nobody touching the pad — if the
+  # ball or paddle speeds change, these move, and that is worth being told about. They
+  # also move whenever the title's own timing changes (the zoom-in on START runs for
+  # ZOOM_FRAMES before handing off to :playing) — they've moved twice now, first when
+  # the zoom was added and again when it was slowed down to be visible.
+
+  LINE_X = 120
+  LINE_Y = 6
+  THE_POINT = 393
+  JUST_AFTER_THE_POINT = 397
+  ONCE_IT_HAS_EASED_OFF = 411
+
+  # The center line's three channels, as red / green / blue.
+  def pong_line_at(frames)
+    i = Reference.new
+    i.input_each_frame { |f| f < 3 ? [:a] : [] } # choose START on the title menu, then hands off
+    i.run(Pong.program, frames: frames)
+    color = i.screen.pixel(LINE_X, LINE_Y)
+    [color & 0x1F, (color >> 5) & 0x1F, (color >> 10) & 0x1F]
+  end
+
+  # A flash is FULL on the frame it happens, which is the frame it exists for — so the
+  # gray line is nothing but red there, not a shade of it.
+  def test_the_screen_goes_fully_red_on_the_frame_the_cpu_scores
+    assert_equal [31, 0, 0], pong_line_at(THE_POINT)
+  end
+
+  def test_the_sting_is_still_running_a_few_frames_later
+    line = pong_line_at(JUST_AFTER_THE_POINT)
+
+    assert_operator line[0], :>, line[1], "the gray center line still reads red"
+  end
+
+  def test_the_sting_eases_back_off_by_itself
+    line = pong_line_at(ONCE_IT_HAS_EASED_OFF)
+
+    assert_equal line[0], line[1], "the center line is plain gray again"
+  end
+end
