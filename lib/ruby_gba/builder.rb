@@ -105,7 +105,7 @@ module RubyGBA
       @pictures = {}           # image name → its {IR::Assets::Image}, so `mirror` can turn one round
       @mirrored_images = {}    # image name → the name of its mirror, so mirroring one twice makes one picture
       @color_lists = {}        # `colors` name → its colours, see-through first, for a sprite told to draw with it
-      @tilesets = {}           # tileset name → { chars:, by_number:, tile_w:, tile_h:, solid_images: } — a tile-image map addressable by character or by number (a CSV cell)
+      @tilesets = {}           # tileset name → { by_key:, by_number:, tile_w:, tile_h:, solid_images: } — a tile-image map addressable by the tileset's own keys or by number (a sheet cell)
       @screen_mode = nil       # the current display mode (set by `screen`), so `sprite` picks its backend
       @sprites = []            # live software sprites, repainted after every wait_vblank
       @hw_sprites = []         # live hardware sprites, drawn (into the sprite table) after every wait_vblank

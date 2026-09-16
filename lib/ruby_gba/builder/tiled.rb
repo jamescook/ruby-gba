@@ -83,37 +83,37 @@ module RubyGBA
       # `blocked_by` it stops at them (see {HardwareSprite#blocked_by}).
       #
       # @param name [Symbol] the tileset's name, referenced by `background(tiles:)`
-      # @param char_map [Hash] one entry per tile: key => image name, or (with `from:`)
+      # @param tile_map [Hash] one entry per tile: key => image name, or (with `from:`)
       #   key => cell — or empty with `from:` to import the whole sheet as numbered
       #   tiles. Options `from:`/`tile:`/`transparent:`/`solid:`.
-      def tiles(name, char_map)
-        char_map = char_map.dup
-        solid = Array(char_map.delete(:solid)) # tiles that block movement: characters, or sheet tile numbers
-        from = char_map.delete(:from)          # a tile sheet to import the tiles from, if any
-        tile = char_map.delete(:tile)          # each tile's size in that sheet
-        transparent = char_map.delete(:transparent) { false }
+      def tiles(name, tile_map)
+        tile_map = tile_map.dup
+        solid = Array(tile_map.delete(:solid)) # tiles that block movement, named by their keys
+        from = tile_map.delete(:from)          # a tile sheet to import the tiles from, if any
+        tile = tile_map.delete(:tile)          # each tile's size in that sheet
+        transparent = tile_map.delete(:transparent) { false }
 
-        # A sheet with no character map: import EVERY cell as a numbered tile, ready
-        # for a CSV map that picks tiles by number.
-        return define_sheet_tileset(name, from, tile, transparent, solid) if from && char_map.empty?
+        # A sheet with no keys at all: import EVERY cell as a numbered tile, ready for a
+        # map that picks tiles by that number.
+        return define_sheet_tileset(name, from, tile, transparent, solid) if from && tile_map.empty?
 
-        raise ArgumentError, "tiles :#{name} needs at least one character => tile mapping" if char_map.empty?
+        raise ArgumentError, "tiles :#{name} needs at least one key => tile mapping" if tile_map.empty?
 
-        # With `from:`, each character named a cell; import those cells into images so
-        # the rest of this method sees the same character => image-name map as inline.
-        char_map = import_tile_cells(name, from, tile, transparent, char_map) if from
+        # With `from:`, each key named a cell; import those cells into images so the rest
+        # of this method sees the same key => image-name map as inline.
+        tile_map = import_tile_cells(name, from, tile, transparent, tile_map) if from
 
-        unknown = solid.reject { |ch| char_map.key?(ch) }
+        unknown = solid.reject { |key| tile_map.key?(key) }
         unless unknown.empty?
           raise ArgumentError,
                 "tiles :#{name}: solid #{unknown.map(&:inspect).join(', ')} " \
-                "#{unknown.one? ? 'is' : 'are'} not in the tileset. Mark as solid only its tiles: " \
-                "#{char_map.keys.map(&:inspect).join(', ')}."
+                "#{unknown.one? ? 'is' : 'are'} not in the tileset. Mark as solid only its tiles. " \
+                "#{tileset_tiles_in_words(tile_map.keys)}"
         end
 
-        sizes = char_map.map do |ch, img|
+        sizes = tile_map.map do |key, img|
           @images[img] || raise(ArgumentError,
-                                 "tiles :#{name}: tile #{ch.inspect} => :#{img} is not a defined image. " \
+                                 "tiles :#{name}: tile #{key.inspect} => :#{img} is not a defined image. " \
                                  "Define it first with `image :#{img}, ...`.")
         end
         unless sizes.uniq.size == 1
@@ -123,11 +123,11 @@ module RubyGBA
         end
 
         # Number the tiles 1, 2, 3… in the order they're listed, so this same tileset
-        # can also be drawn from a CSV map of numbers (not only from characters).
-        by_number = char_map.values.each_with_index.to_h { |img, i| [i + 1, img] }
-        @tilesets[name] = { chars: char_map.dup, by_number: by_number,
+        # can also be drawn from a CSV map of numbers (not only from its own keys).
+        by_number = tile_map.values.each_with_index.to_h { |img, i| [i + 1, img] }
+        @tilesets[name] = { by_key: tile_map.dup, by_number: by_number,
                             tile_w: sizes.first[0], tile_h: sizes.first[1],
-                            solid_images: solid.map { |ch| char_map[ch] }.uniq }
+                            solid_images: solid.map { |key| tile_map[key] }.uniq }
       end
 
       # Paint a tiled background: a tileset plus a map of which tile goes in each grid
@@ -308,14 +308,14 @@ module RubyGBA
 
       private
 
-      # WHICH OF A BACKGROUND'S OWN TILES EACH NAME MEANS, so `set_tile` can be written
-      # the way the map was — a tileset's own characters, or, for a sheet imported as
+      # WHICH OF A BACKGROUND'S OWN TILES EACH KEY MEANS, so `set_tile` can be written
+      # the way the map was — the tileset's own keys, or, for a sheet imported as
       # numbered tiles, those numbers. Every tile of the tileset is shipped whether the
       # map used it or not, so a door can be drawn in the tileset and only ever appear
       # once something opens it.
       def tile_lookup(set, index_of)
-        named = set[:chars].empty? ? (set[:by_number] || {}) : set[:chars]
-        named.to_h { |name, image| [name, index_of[image]] }.compact
+        named = set[:by_key].empty? ? (set[:by_number] || {}) : set[:by_key]
+        named.to_h { |key, image| [key, index_of[image]] }.compact
       end
 
       # Import a tileset from a sheet by CHARACTER: slice the file into cells of the
@@ -365,7 +365,7 @@ module RubyGBA
                 "The sheet holds tiles #{by_number.keys.min}..#{by_number.keys.max}."
         end
 
-        @tilesets[name] = { chars: {}, by_number: by_number, tile_w: tile_w, tile_h: tile_h,
+        @tilesets[name] = { by_key: {}, by_number: by_number, tile_w: tile_w, tile_h: tile_h,
                             solid_images: solid_numbers.map { |n| by_number[n] }.uniq }
       end
 
@@ -437,18 +437,19 @@ module RubyGBA
       # that convention belongs to the editors that export one, so it stays in
       # csv_image_grid rather than becoming a rule here.)
       def keyed_image_grid(name, tiles, set, map)
-        keys = tileset_keys(name, tiles, set, map)
+        rows = background_rows(name, map) # shape first: an empty or ragged map is that mistake, not this one
+        by_key = tiles_by_key(name, tiles, set, rows)
 
-        img_rows = background_rows(name, map).map do |row|
+        img_rows = rows.map do |row|
           row.map do |cell|
             next nil if cell.nil? || cell == " "
 
-            keys[cell] || raise(ArgumentError,
-                                "background :#{name}: #{cell.inspect} is not in tileset :#{tiles}. " \
-                                "#{tileset_tiles_in_words(keys.keys)}")
+            by_key[cell] || raise(ArgumentError,
+                                  "background :#{name}: #{cell.inspect} is not in tileset :#{tiles}. " \
+                                  "#{tileset_tiles_in_words(by_key.keys)}")
           end
         end
-        [img_rows, keys.values.uniq]
+        [img_rows, by_key.values.uniq]
       end
 
       # WHICH TILES A TILESET HAS, said in an error. A tileset somebody wrote out has a
@@ -467,18 +468,18 @@ module RubyGBA
         "It has #{keys.length} tiles. The first are #{first} and the last are #{last}."
       end
 
-      # What a `map:` cell selects by. A tileset written out by character is keyed by
-      # those characters; one imported whole from a sheet has none, and its keys are the
-      # tile numbers the sheet was sliced into.
+      # What a `map:` cell selects by. A tileset written out by hand is keyed by whatever
+      # its author wrote — characters, or tile numbers; one imported whole from a sheet
+      # has no keys of its own, and its keys are the numbers the sheet was sliced into.
       #
       # A CHARACTER map over that second kind is the one combination with no answer, and
       # it is worth its own error: the characters it is written in mean nothing there, so
       # every cell would be wrong rather than one of them.
-      def tileset_keys(name, tiles, set, map)
-        chars = set[:chars]
-        return chars unless chars.empty?
+      def tiles_by_key(name, tiles, set, rows)
+        by_key = set[:by_key]
+        return by_key unless by_key.empty?
 
-        if character_map?(map)
+        if character_map?(rows)
           raise ArgumentError,
                 "background :#{name}: tileset :#{tiles} was imported as numbered tiles, so it has no characters. " \
                 "A character map: cannot select its tiles. " \
@@ -487,11 +488,17 @@ module RubyGBA
         set[:by_number]
       end
 
-      # A map written as characters: a block of text, or rows of it.
-      def character_map?(map)
-        return true if map.is_a?(String)
-
-        map.is_a?(Array) && map.all?(String)
+      # A map written as CHARACTERS, judged on the cells rather than on the shape it
+      # arrived in — because the same mistake can be written either way. A block of text
+      # and rows of single-character strings are the same map, and so is an Array whose
+      # cells happen to be single characters, which is what somebody reaches for first
+      # after learning that a row may be an Array.
+      #
+      # Blanks do not count either way (they are a blank in any map), so a map of nothing
+      # but blanks is not characters — there is no character in it to have meant anything.
+      def character_map?(rows)
+        cells = rows.flatten(1).reject { |cell| cell.nil? || cell == " " }
+        !cells.empty? && cells.all? { |cell| cell.is_a?(String) && cell.length == 1 }
       end
 
       # Turn a CSV tilemap (a grid of tile numbers) into a grid of tile-image names. A

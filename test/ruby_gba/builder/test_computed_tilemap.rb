@@ -25,6 +25,14 @@ class TestComputedTilemap < Minitest::Test
     builder.image(name, "#" => color) { "####\n####\n####\n####" }
   end
 
+  # A tileset of +count+ tiles keyed 0, 1, 2… — bigger than any alphabet, which is the
+  # whole point of it. Each tile is its own shade so no two can be confused on screen.
+  def big_tileset(builder, count)
+    count.times { |n| solid_tile(builder, :"tile_#{n}", RubyGBA::Graphics::Color.rgb(n % 32, 0, 0)) }
+    keyed = (0...count).to_h { |n| [n, :"tile_#{n}"] }
+    builder.tiles(:many, keyed)
+  end
+
   # A tileset keyed by NUMBERS rather than characters — what a decoder hands over,
   # since the tile it read is a number and was never a character at all.
   def numbered_tileset(builder)
@@ -84,10 +92,8 @@ class TestComputedTilemap < Minitest::Test
       screen :bitmap
       clear_screen :black
     end
-    100.times { |n| solid_tile(b, :"tile_#{n}", RubyGBA::Graphics::Color.rgb(n % 32, 0, 0)) }
-    keyed = (0...100).to_h { |n| [n, :"tile_#{n}"] }
+    big_tileset(b, 100)
     b.instance_eval do
-      tiles :many, keyed
       background :field, tiles: :many, map: (0...10).map { |r| (0...10).map { |c| (r * 10) + c } }
     end
     b.emit_pending_functions
@@ -141,11 +147,33 @@ class TestComputedTilemap < Minitest::Test
     assert_match(/rows of its tile numbers/, err.message)
   end
 
+  # The same mistake written the NEW way. Somebody who has just learned a row may be an
+  # Array reaches for one of characters first, and that is the same map — so it earns
+  # the same targeted answer rather than falling through to "#" is not in tileset,
+  # which says nothing about why none of them ever could be.
+  def test_characters_in_an_array_row_on_a_numbered_tileset_get_the_same_answer
+    b = Builder.new
+    b.instance_eval { screen :tiled }
+    b.instance_eval { tiles :world, from: SHEET, tile: 8 }
+    err = assert_raises(ArgumentError) { b.background(:room, tiles: :world, map: [["#", "."]]) }
+    assert_match(/imported as numbered tiles/, err.message)
+  end
+
+  # An empty map is that mistake, not the numbered-tileset one — the shape of the map is
+  # settled before anything asks what its cells select.
+  def test_an_empty_map_on_a_numbered_tileset_says_it_is_empty
+    b = Builder.new
+    b.instance_eval { screen :tiled }
+    b.instance_eval { tiles :world, from: SHEET, tile: 8 }
+    err = assert_raises(ArgumentError) { b.background(:room, tiles: :world, map: []) }
+    assert_match(/empty map/, err.message)
+  end
+
   # `solid:` says which TILES block, and it never said how they were named — so it
   # takes the tileset's keys whatever they are, with nothing new to write. Worth
   # asserting rather than assuming: a wall that quietly stops blocking is a game you
   # can walk out of, and nothing on screen says so.
-  def test_a_computed_map_still_stops_a_mover_at_its_solid_tiles
+  def walled_room
     b = Builder.new
     solid8 = (["########"] * 8).join("\n")
     b.instance_eval do
@@ -165,9 +193,21 @@ class TestComputedTilemap < Minitest::Test
       end
     end
     b.emit_pending_functions
-    s = Reference.new.input_each_frame { [:right] }.run(b.program, max_steps: 3_000).screen
+    b.program
+  end
+
+  def test_a_computed_map_still_stops_a_mover_at_its_solid_tiles
+    # 8px to close at 2px a frame, so 20 frames is well past the wall if nothing stops it.
+    s = Reference.new.input_each_frame { [:right] }.run(walled_room, frames: 20).screen
     assert_equal Color.resolve(:red),  s.pixel(28, 20), "the hero rests flush against the wall"
     refute_equal Color.resolve(:red),  s.pixel(36, 20), "the hero never entered the wall cell"
+  end
+
+  def test_a_computed_map_stops_a_mover_on_the_console
+    v = assert_emulator_loads_rom(assemble_rom(walled_room, name: "COMPWALL"), frames: 30,
+                                  keys: RubyGBA::Cartridge::Constants::KEY_RIGHT)
+    assert v.red?(28, 20), "the hero stops flush against the wall"
+    refute v.red?(36, 20), "the hero never crossed into the wall"
   end
 
   # --- Friendly errors ---
@@ -187,9 +227,7 @@ class TestComputedTilemap < Minitest::Test
   # fact the reader came for.
   def test_a_big_tilesets_error_says_how_many_tiles_it_has_rather_than_naming_them_all
     b = Builder.new
-    100.times { |n| solid_tile(b, :"tile_#{n}", RubyGBA::Graphics::Color.rgb(n % 32, 0, 0)) }
-    keyed = (0...100).to_h { |n| [n, :"tile_#{n}"] }
-    b.instance_eval { tiles :many, keyed }
+    big_tileset(b, 100)
     err = assert_raises(ArgumentError) do
       b.instance_eval { background :oops, tiles: :many, map: [[500]] }
     end
@@ -221,7 +259,7 @@ class TestComputedTilemap < Minitest::Test
       halt
     end
     b.emit_pending_functions
-    rom = ROM.assemble(GBA.new.lower(b.program), title: "COMPUTED", code: "DCMP", maker: "01")
+    rom = assemble_rom(b.program, name: "COMPUTED")
     v = assert_emulator_loads_rom(rom, frames: 2)
     assert v.red?(1, 1),  "tile 0 renders in cell (0,0)"
     assert v.blue?(5, 1), "tile 1 renders in cell (1,0)"
