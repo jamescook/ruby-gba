@@ -154,12 +154,24 @@ module RubyGBA
           # a turning layer is always BG2 (that is where the console keeps the hardware)
           # however few plain layers sit beside it.
           BG_ENABLES = [BG0_ENABLE, BG1_ENABLE, BG2_ENABLE, BG3_ENABLE].freeze
-          def tiled_bg_enable_bits(used = @layout.backgrounds.each_value.map(&:bg).uniq)
-            used = [0] if used.empty?
+          def tiled_bg_enable_bits(used = whole_programs_layers)
             bits = used.reduce(0) { |on, layer| on | BG_ENABLES[layer] }
             # ...and the object window, for a program that keeps sprites out of a fade.
             bits |= OBJ_WINDOW_ENABLE if @layout.placed_fade.any?
             bits
+          end
+
+          # The layers a program that says nothing about scenes uses — every one its
+          # backgrounds landed on, and the first layer for a program with none, so a tiled
+          # screen always has one on.
+          #
+          # A SCENE that names none of them is a different thing and keeps its empty list:
+          # it draws no scenery, so it wants no layer, and handing it one anyway leaves that
+          # layer on with nobody to point it anywhere. A title screen of sprites and words
+          # showed the game's tile pictures as a grid behind them for exactly that reason.
+          def whole_programs_layers
+            used = @layout.backgrounds.each_value.map(&:bg).uniq
+            used.empty? ? [0] : used
           end
 
           # One-time boot for a program that switches the hardware per scene: put the
@@ -247,11 +259,18 @@ module RubyGBA
           # WHAT A SCENE TELLS THE DISPLAY AS IT TAKES OVER. Both halves are skipped by the
           # programs that do not need them, so a game with one screen and one set of layers
           # emits nothing here at all.
+          #
+          # SET UP, THEN SWITCH ON — the order matters and cannot be seen by reading the
+          # registers once a frame. Pointing a layer at its map is the long part (a map per
+          # layer, sent in one go) and the console draws the picture while it happens, so a
+          # layer switched on first draws the tile pictures as a grid for whatever is left of
+          # the frame. Switched on last, a layer either draws its own scenery or is not on
+          # yet, and not on yet is one frame of backdrop.
           def emit_scene_preamble(name)
             emit_scene_mode(name) if @layout.modes.switched_per_scene?
-            emit_scene_layers(name)
-            emit_scene_blend(name)
             emit_scene_scenery(name)
+            emit_scene_blend(name)
+            emit_scene_layers(name)
           end
 
           # WHICH LAYERS THIS SCENE BLENDS, for a game whose scenes want different answers.

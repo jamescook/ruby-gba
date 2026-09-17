@@ -2,6 +2,7 @@
 
 require "test_helper"
 require "differential"
+require "tmpdir"
 
 # A SCENE OWNS THE BACKGROUNDS DECLARED INSIDE IT, the way it already owns the sprites
 # and the HUD text declared there: they are on screen while that scene is the active
@@ -702,5 +703,121 @@ class TestSceneBackgrounds < Minitest::Test
 
   def test_the_two_backends_agree_while_a_scene_that_declares_nothing_runs
     assert_backends_agree(a_scene_that_declares_nothing, frames: 2)
+  end
+
+  # A SCENE WITH NO SCENERY OF ITS OWN HAS NO LAYER SWITCHED ON.
+  #
+  # The one above is a scene that declares nothing while the game's scenery belongs to the
+  # program, so every screen shows that scenery and every screen has a layer. This is the
+  # other shape, and it is the ordinary one: a title made of sprites and words handing over
+  # to a game that owns its rooms. That title's screen has no background at all, and a
+  # screen with no background used to be given one anyway — the layer numbering falls back
+  # to the first layer so that a tiled screen always has one on, which is right for a game
+  # that never mentions scenes and wrong for a scene that genuinely draws none.
+  #
+  # A layer switched on has to be pointed somewhere, and nobody ever points that one: its
+  # map base stays at nought, which is not "nowhere" but the very start of video memory,
+  # where the tile pictures are. So the title screen draws the game's art as though it were
+  # a grid, in front of the sprites, for as long as the title is up.
+  private def a_title_with_no_scenery_of_its_own
+    program do
+      screen :tiled
+      16.times do |n|
+        image :"art_#{n}", "#" => :white, "." => :black do
+          ((["#" * 8] * (n + 1)) + (["." * 8] * (7 - (n % 8)))).first(8).join("\n")
+        end
+      end
+      tiles :every, (0...16).to_h { |n| [n.to_s(16), :"art_#{n}"] }
+      layers :ground, :scenery, :panel
+
+      state = var :state, 0
+      waiting = var :waiting, SWITCH_AT
+
+      # Nothing but the countdown: no background, no sprite, no word of text.
+      scene :title do
+        waiting.sub! 1
+        (waiting == 0).then { state.set! 1 }
+      end
+
+      scene :play do
+        rows = Array.new(20) { "0123456789abcdef".chars.cycle.first(30).join }
+        layer(:ground)  { background :ground,  tiles: :every, map: rows }
+        layer(:scenery) { background :scenery, tiles: :every, map: rows }
+        layer(:panel)   { background :panel,   tiles: :every, map: rows }
+      end
+
+      game_loop do
+        case_var :state do
+          when_val 0, :title
+          when_val 1, :play
+        end
+      end
+    end
+  end
+
+  def test_a_scene_with_no_scenery_of_its_own_leaves_every_layer_off
+    v = assert_emulator_loads_rom(assemble_rom(a_title_with_no_scenery_of_its_own, name: "SCNBARE"), frames: 1)
+
+    3.times do |frame|
+      assert_empty layers_on(v.mem16(REG_DISPCNT)),
+                   "on frame #{frame + 1} the title has a layer on, and no map of its own to point it at"
+      v.step
+    end
+  end
+
+  # The interpreter has no layers to switch on, so its half of this is what the picture
+  # comes out as: a scene that draws no scenery draws none, and the console now agrees.
+  def test_the_two_backends_agree_while_a_scene_with_no_scenery_runs
+    assert_backends_agree(a_title_with_no_scenery_of_its_own, frames: 2)
+  end
+
+  # A LAYER IS POINTED AT ITS MAP BEFORE IT IS SWITCHED ON, NOT AFTER.
+  #
+  # Reading the registers once a frame cannot see this: both writes land in the same frame,
+  # so by the time anybody looks the layer is on AND pointed. What the display does in
+  # between is the whole question — the console draws the picture while the game is still
+  # setting up, and a scene taking over has a map per layer to send, which is the longest
+  # thing a game ever does in one go. Where that overruns the gap between pictures, a layer
+  # switched on first spends the rest of the frame drawing the tile pictures as a grid.
+  #
+  # So the writes are read in the order they happened, with the row of the screen each one
+  # landed on, off the console's own display log.
+  private def display_register_writes(prog, name:, frames:)
+    Dir.mktmpdir("scene-writes") do |dir|
+      path = File.join(dir, "#{name.downcase}.gba")
+      assemble_rom(prog, name: name).write(path)
+      probe = RubyGBA::Diagnostics::Emulator.probe(path)
+      begin
+        probe.watch_display
+        probe.step(frames)
+        return probe.display_writes.select { |w| w.kind == :register && WATCHED_REGISTERS.include?(w.address) }
+      ensure
+        probe.close
+      end
+    end
+  end
+
+  WATCHED_REGISTERS = ([RubyGBA::Cartridge::Constants::REG_DISPCNT] + BGCNT).freeze
+
+  # Which layers were told to draw before they were told where to draw from, walking the
+  # writes in the order the console saw them.
+  private def switched_on_before_pointed(writes)
+    pointed = []
+    early = []
+    writes.each do |write|
+      if write.address == REG_DISPCNT
+        early += (layers_on(write.value) - pointed).map { |layer| "layer #{layer} on at row #{write.row}" }
+      else
+        pointed |= [BGCNT.index(write.address)]
+      end
+    end
+    early
+  end
+
+  def test_a_scene_points_its_layers_at_their_maps_before_switching_them_on
+    writes = display_register_writes(a_title_with_no_scenery_of_its_own, name: "SCNORD", frames: SWITCH_AT + 3)
+
+    assert_empty switched_on_before_pointed(writes),
+                 "a layer was switched on with no map of its own yet"
   end
 end
