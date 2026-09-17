@@ -83,6 +83,17 @@ module RubyGBA
         def scrolling = scenery.reject(&:affine)
 
         def turning = scenery.select(&:affine)
+
+        # This screenful's turning scenery that is on the TILED screen — which is a
+        # different question from which of it turns. A machine may keep a screen of its own
+        # for turning a picture, and scenery up on that one is up at another moment
+        # entirely, so it costs the tiled screen nothing and does not decide how the tiled
+        # screen is arranged.
+        #
+        # Everything that decides that arrangement asks this one method. Two places asking
+        # it two ways is how a picture comes out right in the check that allows it and wrong
+        # in the code that draws it.
+        def turning_on_the_tiled_screen(modes) = modes.on_the_tiled_screen(turning)
       end
 
       # Every screenful a program has, the always-there one first. A program with no scenes

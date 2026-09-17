@@ -1510,7 +1510,7 @@ module RubyGBA
         # the arrangement that provides it leaves only the two below that one scrolling.
         def scrolling_slots(screenful)
           check = Guardrails::Checks::TooManyBackgroundLayers
-          most = if screenful.turning.any?
+          most = if screenful.turning_on_the_tiled_screen(@modes).any?
                    check::MAX_SCROLLING_LAYERS_BESIDE_TURNING
                  else
                    check::MAX_SCROLLING_LAYERS
@@ -1518,24 +1518,47 @@ module RubyGBA
           (0...most).to_a
         end
 
-        # WHICH LAYERS EACH SCENE HAS SWITCHED ON — and this is the half that has to happen
-        # while the game RUNS, where the numbering above is settled during the build.
+        # WHAT ONE SCENE NEEDS OF THE TILED SCREEN: which layers are switched on, and which
+        # of the console's two arrangements this screen is — four layers that scroll, or two
+        # that scroll beside one that turns and resizes.
+        SceneScreen = Data.define(:on, :turning)
+
+        # WHAT EACH SCENE TELLS THE DISPLAY — and this is the half that has to happen while
+        # the game RUNS, where the numbering above is settled during the build.
         #
-        # A layer is switched on once, for the whole program, from the layers the
-        # backgrounds landed on. That was right while every background had a layer of its
-        # own. Now that scenes share them, a scene that uses FEWER than the one before it
-        # leaves the extra ones switched on and still pointed at the last scene's maps — so
-        # walking out of a parallax field into a plain room would show the field's far
-        # layers through the room's floor. Each scene says which of the four it wants.
+        # Both were settled once for the whole program, from every background in it. That
+        # was right while every background had a layer of its own and one arrangement held
+        # the lot. Now that scenes share them, neither is:
         #
-        # Nothing is emitted for a program whose scenes all want the same ones, which is
+        #   A scene that uses FEWER layers than the one before it left the extra ones
+        #   switched on and still pointed at the last scene's maps, so walking out of a
+        #   parallax field into a plain room showed the field's far layers through the
+        #   room's floor.
+        #
+        #   A scene that turns nothing was still put in the arrangement that holds a turning
+        #   layer, because some other scene turned one — and that arrangement has only two
+        #   scrolling layers, so a game could not have a title screen with something flying
+        #   at the player AND a game played on four layers. The console is told which
+        #   arrangement it is in as each screen is set up, so this is simply what it is for.
+        #
+        # Nothing is emitted for a program whose scenes all want the same screen, which is
         # every program with no scene-owned scenery and most of those that have it.
         def scene_layers(slots)
           wanted = @screenfuls.reject { |s| s.scene.nil? }.to_h do |screenful|
-            [screenful.scene, screenful.scrolling.filter_map { |node| slots[node.name] }]
+            [screenful.scene, scene_screen(screenful, slots)]
           end
           wanted.select! { |scene, _| @modes.func_mode[scene] == IR::Modes::TILED }
           wanted.values.uniq.size > 1 ? wanted : {}
+        end
+
+        # A turning background is always on the layer the console keeps that hardware on,
+        # so it is switched on beside this screen's scrolling ones rather than taking one
+        # of their slots — which is also why it does not count against them.
+        def scene_screen(screenful, slots)
+          turning = screenful.turning_on_the_tiled_screen(@modes).any?
+          on = screenful.scrolling.filter_map { |node| slots[node.name] }
+          on += [AFFINE_BG] if turning
+          SceneScreen.new(on: on, turning: turning)
         end
 
         # DO THE DECLARED LAYERS FIT AN ARRANGEMENT THE CONSOLE HAS? A layer that did not

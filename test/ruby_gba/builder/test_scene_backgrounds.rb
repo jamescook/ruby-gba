@@ -450,6 +450,100 @@ class TestSceneBackgrounds < Minitest::Test
     assert_equal RED, v.pixel_gba(0, 0), "the console never brought the scenery back"
   end
 
+  # ONE SCENE THAT TURNS A BACKGROUND, BESIDE ONE THAT STACKS FOUR SCROLLING ONES.
+  #
+  # The console arranges its tile layers one of two ways — four that scroll, or two that
+  # scroll beside one that turns and resizes — and it is told which in one register, so it
+  # can be told again whenever the screen changes. A retail cartridge does exactly this: a
+  # title screen with something flying at the player, then a game played with nothing
+  # turning at all.
+  #
+  # So the arrangement belongs to the scene, not to the cartridge. Counted for the whole
+  # program, one turning background anywhere caps EVERY screen at two scrolling layers —
+  # which a game cannot trade away, because the four in its play screen are four different
+  # things at four different depths.
+  private def a_turning_title_and_a_scrolling_game
+    tile = SOLID_TILE
+    program do
+      screen :tiled
+      image(:sword_art, "#" => :white) { tile }
+      image(:ground_art, "#" => :red) { tile }
+      image(:letters_art, "#" => :blue) { tile }
+      tiles :sword, "#" => :sword_art
+      tiles :ground, "#" => :ground_art
+      tiles :letters, "#" => :letters_art
+      full = Array.new(16) { "#" * 16 }
+      # The play scene's four layers, the frontmost drawn in its own colour so which one
+      # shows says the whole stack landed.
+      spotty = Array.new(20) { |r| (0...30).map { |c| (r + c).even? ? "#" : " " }.join }
+      layers :rays, :name, :sword, :ground, :scenery, :panel, :letters
+      ratio = var :ratio, 1.0
+
+      scene :title do
+        layer(:rays) { background :rays, tiles: :ground, map: full }
+        layer(:name) { background :name, tiles: :ground, map: full }
+        layer(:sword) { background(:sword, tiles: :sword, map: full).scale(ratio) }
+      end
+
+      scene :play do
+        layer(:ground)  { background :ground,  tiles: :ground,  map: full }
+        layer(:scenery) { background :scenery, tiles: :ground,  map: full }
+        layer(:panel)   { background :panel,   tiles: :ground,  map: full }
+        layer(:letters) { background :letters, tiles: :letters, map: spotty }
+      end
+
+      state = var :state, 0
+      tick = var :tick, 0
+      game_loop do
+        tick.add! 1
+        (tick > SWITCH_AT).then { state.set! 1 }
+        case_var(:state) do
+          when_val 0, :title
+          when_val 1, :play
+        end
+      end
+    end
+  end
+
+  def test_a_turning_title_can_sit_beside_a_game_with_four_scrolling_layers
+    screen = Reference.new.run(a_turning_title_and_a_scrolling_game, frames: SWITCH_AT + 4).screen
+
+    assert_equal BLUE, screen.pixel(0, 0), "the play scene's frontmost layer is not drawn"
+  end
+
+  def test_the_console_holds_both_arrangements_in_one_cartridge
+    v = assert_emulator_loads_rom(
+      assemble_rom(a_turning_title_and_a_scrolling_game, name: "SCNARR"), frames: SWITCH_AT + 6
+    )
+
+    assert_equal BLUE, v.pixel_gba(0, 0), "the play scene's frontmost layer is not drawn"
+  end
+
+  # ...and the console is really told so, read off its own display register rather than
+  # inferred from the picture. Which arrangement is in force sits in the low three bits and
+  # which layers are switched on in the byte above, so this says in one reading that the
+  # console changed arrangement AND that the fourth layer is off in the one that has no
+  # fourth layer — a layer left switched on there means nothing to the hardware and is the
+  # half of this that a picture can hide.
+  include RubyGBA::Cartridge::Constants # REG_DISPCNT, and the bits below it
+
+  ARRANGEMENT = 0x7
+  private def layers_on(value) = (0..3).select { |bg| value.anybits?(1 << (8 + bg)) }
+
+  def test_the_console_is_told_a_different_arrangement_in_each_scene
+    v = assert_emulator_loads_rom(
+      assemble_rom(a_turning_title_and_a_scrolling_game, name: "SCNDSP"), frames: SWITCH_AT
+    )
+    title = v.mem16(REG_DISPCNT)
+    v.step(6)
+    play = v.mem16(REG_DISPCNT)
+
+    assert_equal [1, [0, 1, 2]], [title & ARRANGEMENT, layers_on(title)],
+                 "the title scene is not the arrangement that holds a turning layer"
+    assert_equal [0, [0, 1, 2, 3]], [play & ARRANGEMENT, layers_on(play)],
+                 "the play scene did not get all four scrolling layers"
+  end
+
   # Every pixel of the screen, not the two sampled above. A layer left switched on, or one
   # numbered differently by the two backends, shows up here and nowhere else — the pixels
   # picked by hand are the ones somebody already thought to look at.
@@ -467,5 +561,12 @@ class TestSceneBackgrounds < Minitest::Test
   def test_the_two_backends_draw_the_same_moving_and_changing_scene
     assert_backends_agree(scrolling_program(in_a_scene: true), frames: SCROLLED_FOR)
     assert_backends_agree(changing_program, frames: SCROLLED_FOR)
+  end
+
+  # ...and the same for the two arrangements in one cartridge, which is where a layer left
+  # switched on by the scene before would show — the mixed arrangement has no fourth layer,
+  # so one left on there means nothing to the hardware and everything to the picture.
+  def test_the_two_backends_draw_the_same_screen_in_both_arrangements
+    assert_backends_agree(a_turning_title_and_a_scrolling_game, frames: SWITCH_AT + 4)
   end
 end

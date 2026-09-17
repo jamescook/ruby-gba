@@ -144,6 +144,143 @@ class TestIRGuardrailBackgroundLayers < Minitest::Test
     assert report.ok?, "the title's turning layer is on a screen of its own"
   end
 
+  # ...AND SO DOES A TITLE THAT TURNS ON THE TILED SCREEN, which is the arrangement a real
+  # game wants: two scrolling layers with something flying at the player over them, handing
+  # over to a game played with four scrolling layers and nothing turning. Both are the tiled
+  # screen, so the test above does not cover it — that title is a screen of another kind.
+  #
+  # The console is told which arrangement it is in as each screen is set up, so what has to
+  # fit is one screen's worth. Counted for the whole program, one turning background
+  # anywhere capped every screen in the game at two scrolling layers.
+  def test_a_tiled_title_that_turns_does_not_cost_the_play_scene_its_layers
+    b = Builder.new
+    solid_tile(b, :i_blue)
+    map = filled_map(30, 20)
+    square = filled_map(32, 32)
+    b.instance_eval do
+      screen :tiled
+      var :state, 0
+      tiles :t, "#" => :i_blue
+      scene(:title) do
+        background :rays, tiles: :t, map: map
+        background :name, tiles: :t, map: map
+        background(:sword, tiles: :t, map: square).scale(1.0)
+      end
+      scene(:play) do
+        %i[ground scenery panel letters].each { |name| background name, tiles: :t, map: map }
+      end
+      game_loop do
+        wait_vblank
+        case_var(:state) do
+          when_val 0, :title
+          when_val 1, :play
+        end
+      end
+    end
+    b.emit_pending_functions
+
+    report = validator.run(b.program, autofix: false)
+
+    assert report.ok?, "the title's turning layer cost the play scene its four: #{messages(report)}"
+  end
+
+  # ...and the screen that DOES turn one is still held to what fits beside it. Said here
+  # because the change above loosens the count, and a loosened count that stopped refusing
+  # anything at all would be worse than the one it replaced.
+  def test_a_scene_that_turns_one_still_cannot_stack_three_beside_it
+    b = Builder.new
+    solid_tile(b, :i_blue)
+    map = filled_map(30, 20)
+    square = filled_map(32, 32)
+    b.instance_eval do
+      screen :tiled
+      var :state, 0
+      tiles :t, "#" => :i_blue
+      scene(:title) do
+        %i[one two three].each { |name| background name, tiles: :t, map: map }
+        background(:sword, tiles: :t, map: square).scale(1.0)
+      end
+      game_loop do
+        wait_vblank
+        case_var(:state) { when_val 0, :title }
+      end
+    end
+    b.emit_pending_functions
+
+    report = validator.run(b.program, autofix: false)
+
+    refute report.ok?, "three scrolling layers were allowed beside a turning one"
+    assert_match(/:title/, messages(report), "the refusal does not say which scene ran out")
+  end
+
+  # TWO SCENES CAN EACH TURN A BACKGROUND OF THEIR OWN. The console turns one at a time, and
+  # these two are never up at the same time — a title that zooms, handing over to a map
+  # screen that spins. Counted across the program they read as two turners and the game was
+  # refused outright.
+  def test_two_scenes_can_each_turn_a_background_of_their_own
+    b = Builder.new
+    solid_tile(b, :i_blue)
+    map = filled_map(30, 20)
+    square = filled_map(32, 32)
+    b.instance_eval do
+      screen :tiled
+      var :state, 0
+      tiles :t, "#" => :i_blue
+      scene(:title) do
+        background :backdrop, tiles: :t, map: map
+        background(:sword, tiles: :t, map: square).scale(1.0)
+      end
+      scene(:map_screen) do
+        background :paper, tiles: :t, map: map
+        background(:world, tiles: :t, map: square).scale(1.0)
+      end
+      game_loop do
+        wait_vblank
+        case_var(:state) do
+          when_val 0, :title
+          when_val 1, :map_screen
+        end
+      end
+    end
+    b.emit_pending_functions
+
+    report = validator.run(b.program, autofix: false)
+
+    assert report.ok?, "two scenes that never share a screen were counted together: #{messages(report)}"
+  end
+
+  # ...and ONE screen still cannot turn two, which is the fact about the console that the
+  # count above must not lose. The message names the scene and points at the turning
+  # background, not at a scrolling one — advice that pointed at the wrong layer could not be
+  # followed.
+  def test_one_scene_still_cannot_turn_two_backgrounds
+    b = Builder.new
+    solid_tile(b, :i_blue)
+    square = filled_map(32, 32)
+    b.instance_eval do
+      screen :tiled
+      var :state, 0
+      tiles :t, "#" => :i_blue
+      scene(:title) do
+        background(:sword, tiles: :t, map: square).scale(1.0)
+        background(:shield, tiles: :t, map: square).scale(1.0)
+      end
+      game_loop do
+        wait_vblank
+        case_var(:state) { when_val 0, :title }
+      end
+    end
+    b.emit_pending_functions
+
+    report = validator.run(b.program, autofix: false)
+
+    refute report.ok?, "one screen was allowed to turn two backgrounds"
+    assert_match(/:title/, messages(report), "the refusal does not say which scene ran out")
+    assert_match(/turns or resizes 2/, messages(report))
+  end
+
+  private def messages(report) = report.findings.map(&:message).join(" | ")
+
   # No false alarm: a program drawn entirely on a bitmap screen stamps each background
   # into its one picture where it is declared, so it has no layers to run out of. A
   # program that ALSO has a tiled scene is a different case, and its bitmap backgrounds

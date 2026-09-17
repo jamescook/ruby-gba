@@ -53,26 +53,17 @@ module RubyGBA
             # tile screen anywhere has no layers to run out of however many it writes.
             return [] unless Modes.draws_with_tiles?(program)
 
-            turning = Stacking.picture(program).scenery.select(&:affine)
-            return [refusal_of(turning.last, only_one_can_turn(turning))] if turning.size > MAX_TURNING_LAYERS
-
-            # COUNTED ONE SCREENFUL AT A TIME, never across the whole program. The console
-            # spends a layer while something is being DRAWN, so what has to fit is what can
-            # be on screen together — and two scenes that take turns never are. A game with
-            # four scrolling backgrounds in each of two scenes asks for four layers, twice,
-            # and fits. See IR::Stacking#screenfuls, which the lowering allocates from, so
-            # the two cannot disagree about which programs fit.
+            # EVERY COUNT HERE IS ONE SCREENFUL AT A TIME, never across the whole program.
+            # The console spends a layer while something is being DRAWN, so what has to fit
+            # is what can be on screen together — and two scenes that take turns never are.
+            # A game with four scrolling backgrounds in each of two scenes asks for four
+            # layers, twice, and fits; so do two scenes that each turn a background of their
+            # own. See IR::Stacking#screenfuls, which the lowering allocates from, so the
+            # two cannot disagree about which programs fit.
             modes = Modes.resolve(program)
-            sharing = modes.on_the_tiled_screen(turning)
-            room = room_beside(sharing)
             Stacking.screenfuls(program).each do |screenful|
-              scrolling = screenful.scrolling
-              next if scrolling.size <= room
-
-              # The layer blamed is the first one with nowhere to go, so the author is
-              # sent to a line that really is past the end rather than to the stack's
-              # first layer, which fits.
-              return [refusal_of(scrolling[room], no_room_to_stack(scrolling, sharing, screenful.scene))]
+              found = refusal_for(screenful, modes)
+              return [found] if found
             end
             []
           rescue Modes::Conflict
@@ -89,6 +80,31 @@ module RubyGBA
 
           private
 
+          # What is wrong with ONE screen, or nil when it fits.
+          #
+          # The two refusals are in the order that diagnoses best. A screen with two turning
+          # backgrounds AND too many scrolling ones is told about the second turner first:
+          # cutting a scrolling layer would not save it, and the arrangement it was counted
+          # against is not one the console has anyway.
+          def refusal_for(screenful, modes)
+            sharing = screenful.turning_on_the_tiled_screen(modes)
+            if sharing.size > MAX_TURNING_LAYERS
+              return refusal_of(sharing.last, only_one_can_turn(sharing, screenful.scene))
+            end
+
+            # HOW MANY SCROLLING ONES FIT depends on whether THIS screen holds a turning
+            # layer, because that is what decides which arrangement the console is put in as
+            # the screen is set up.
+            room = room_beside(sharing)
+            scrolling = screenful.scrolling
+            return nil if scrolling.size <= room
+
+            # The layer blamed is the first one with nowhere to go, so the author is sent to
+            # a line that really is past the end rather than to the stack's first layer,
+            # which fits.
+            refusal_of(scrolling[room], no_room_to_stack(scrolling, sharing, screenful.scene))
+          end
+
           def refusal_of(node, message)
             Finding.new(check: NAME, severity: :error, node: node, message: message)
           end
@@ -99,10 +115,22 @@ module RubyGBA
             sharing.empty? ? MAX_SCROLLING_LAYERS : MAX_SCROLLING_LAYERS_BESIDE_TURNING
           end
 
-          def only_one_can_turn(turning)
-            "This game turns or resizes #{turning.size} backgrounds (#{named(turning)}). The " \
-              "console can turn #{MAX_TURNING_LAYERS} background. To fix this, turn " \
-              "#{MAX_TURNING_LAYERS} background, and let the others scroll."
+          def only_one_can_turn(turning, scene)
+            "#{whose(scene)} turns or resizes #{turning.size} backgrounds at one time " \
+              "(#{named(turning)}). The console can turn #{MAX_TURNING_LAYERS} background at " \
+              "one time. To fix this, turn #{MAX_TURNING_LAYERS} background, and let the " \
+              "others scroll.#{move_the_turner(scene)}"
+          end
+
+          # The way out a game with scenes has: scenes take turns, so a background turned in
+          # one of them stops counting against the others. Said about the TURNING one here,
+          # where #move_them below is about a scrolling one — pointing at the wrong one is
+          # advice that cannot be followed.
+          def move_the_turner(scene)
+            return "" unless scene
+
+            " Each scene turns its own, so you can also move a background that turns into " \
+              "the scene that turns it."
           end
 
           def no_room_to_stack(scrolling, sharing, scene)
@@ -141,8 +169,8 @@ module RubyGBA
           def move_them(scene)
             return "" unless scene
 
-            " Each scene shows #{MAX_SCROLLING_LAYERS} of its own, so you can also move a " \
-              "background into a scene that has room."
+            " Each scene gets its own layers, so you can also move a background into a " \
+              "scene that has room."
           end
 
           def named(nodes) = nodes.map { |node| ":#{node.name}" }.join(", ")

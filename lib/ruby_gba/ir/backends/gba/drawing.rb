@@ -124,10 +124,13 @@ module RubyGBA
           # turning a background IS saying so. (The third arrangement, mode 2, is `screen
           # :rotozoom`: two turning layers and nothing else, and it keeps its own path.)
           # +on+ names the layers to switch on, for a scene that wants fewer than the whole
-          # program's; left out it is every layer a background landed on. The sprite layer
-          # is added by the callers, which all do it the same way for every screen.
-          def tiled_dispcnt(on = nil)
-            (turning_background? ? MODE_1 : MODE_0) | tiled_bg_enable_bits(*[on].compact)
+          # program's; left out it is every layer a background landed on. +turning+ says
+          # which arrangement THIS screen wants, for a program whose scenes differ; left out
+          # it is whether the program turns a background anywhere, which is the right answer
+          # for a program with one screen and the safe one for boot. The sprite layer is
+          # added by the callers, which all do it the same way for every screen.
+          def tiled_dispcnt(on = nil, turning: turning_background?)
+            (turning ? MODE_1 : MODE_0) | tiled_bg_enable_bits(*[on].compact)
           end
 
           def turning_background? = @layout.turning_layers.any?
@@ -318,7 +321,7 @@ module RubyGBA
             wanted = @layout.scene_layers[name]
             return unless wanted
 
-            value = tiled_dispcnt(wanted)
+            value = tiled_dispcnt(wanted.on, turning: wanted.turning)
             value |= OBJ_ENABLE | OBJ_1D_MAP if @layout.has_objects
             write_reg16(REG_DISPCNT, value)
           end
