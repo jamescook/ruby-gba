@@ -377,16 +377,20 @@ module RubyGBA
         return unless @affine
 
         raise ArgumentError,
-              "#{@name}.#{verb} scrolls a `screen :tiled` background. This one is `screen :rotozoom`, " \
-              "which turns and resizes instead of scrolling straight. Use #{@name}.rotate or " \
-              "#{@name}.scale here."
+              "#{@name}.#{verb} scrolls a background straight. Background :#{@name} turns and " \
+              "resizes instead. A layer that turns has no scroll of its own. To move it, use " \
+              "#{@name}.rotate or #{@name}.scale."
       end
 
       # Allocate (once) and cache this background's angle/scale variables. A friendly
       # error if the screen can't turn or resize a background at all (see
       # Builder::Tiled#make_background_affine).
       def affine_vars
-        @affine_vars ||= @builder.make_background_affine(@name)
+        return @affine_vars if @affine_vars
+
+        @affine_vars = @builder.make_background_affine(@name)
+        @affine = true # a layer that turns has no scroll of its own — see #ensure_not_affine!
+        @affine_vars
       end
 
       # The size variable as a fraction-carrying handle, the same way a sprite's does.

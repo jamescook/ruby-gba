@@ -17,8 +17,8 @@ module RubyGBA
       # tear_free: true` (which selects Mode 4 with an auto-built palette).
       SCREEN_MODES = {
         bitmap: MODE_3 | BG2_ENABLE, # 240x160 pixel canvas, 15-bit direct color
-        tiled:  MODE_0 | BG0_ENABLE, # 4 regular tile/sprite background layers (most games)
-        rotozoom: MODE_2 | BG2_ENABLE, # 2 rotatable/scalable background layers
+        tiled:  MODE_0 | BG0_ENABLE, # tile/sprite background layers (most games)
+        rotozoom: MODE_2 | BG2_ENABLE, # one background that turns and resizes, and no scrolling ones
       }.freeze
 
       # Choose what kind of screen you're drawing on.
@@ -27,7 +27,16 @@ module RubyGBA
       #
       # @example Friendly
       #   screen :bitmap          # a pixel canvas (MODE_3 | BG2_ENABLE)
-      #   screen :tiled           # tile/sprite layers (MODE_0 | BG0_ENABLE)
+      #   screen :tiled           # tile/sprite layers
+      #
+      # HOW MANY TILE LAYERS `screen :tiled` HAS IS NOT FIXED, and nothing in a program
+      # says which arrangement it wants. The console lays its tile layers out two ways:
+      # four that scroll, or two that scroll plus one that turns and resizes. A game gets
+      # the second exactly when it turns a background (`background(...).rotate` /
+      # `.scale`), because turning one IS asking for it — so the build reads the
+      # arrangement off what was declared rather than off a name written here. Declaring
+      # more scrolling layers than the arrangement holds is a friendly error naming both
+      # counts, never a layer quietly left undrawn. See {Backends::GBA::Drawing#tiled_dispcnt}.
       #
       # @example Raw (full control)
       #   screen MODE_3 | BG2_ENABLE | OBJ_ENABLE

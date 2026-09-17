@@ -1402,6 +1402,14 @@ module RubyGBA
         # layer's tiles and map go is handed out by {TileVram}, which owns the whole 64K
         # the scenery lives in and is the only thing that decides an address there.
         MAX_BG_LAYERS = 4
+
+        # ...and how many of them are left once one layer TURNS. The console arranges its
+        # tile layers one of two ways: four that scroll and none that turn, or two that
+        # scroll plus one that turns and resizes. So a game that turns a layer trades two
+        # scrolling ones for it. That is the console's own arithmetic, not a budget this
+        # framework invented, and nothing in a program chooses between the two — see
+        # Drawing#tiled_dispcnt.
+        MAX_BG_LAYERS_BESIDE_TURNING = 2
         SCREENBLOCK_BYTES = TileVram::SCREEN_BLOCK_BYTES
         CHAR_BLOCK_BYTES = TileVram::CHAR_BLOCK_BYTES
 
@@ -1454,11 +1462,7 @@ module RubyGBA
                   "resize on this console right now — keep one."
           end
 
-          if regular_nodes.size > MAX_BG_LAYERS
-            raise LoweringError,
-                  "#{regular_nodes.size} background layers were declared, but the console stacks #{MAX_BG_LAYERS} " \
-                  "tiled layers (BG0-BG3) — use at most #{MAX_BG_LAYERS} backgrounds"
-          end
+          check_layers_fit(regular_nodes, affine_nodes)
 
           banks, big = bank_the_tiles(regular_nodes, affine_nodes)
 
@@ -1475,6 +1479,44 @@ module RubyGBA
           @emit.data_blobs[BG_SHARED_PAL] = colors.pack("v*")
           @emit.data_blobs[BG_SHARED_CHAR] = @tiles.bytes
           @bg_shared = bank_tally(regular_nodes + affine_nodes, big, colors)
+        end
+
+        # DO THE DECLARED LAYERS FIT AN ARRANGEMENT THE CONSOLE HAS? Refusing here, by
+        # name, is the point: a layer that did not fit would simply not be drawn, and a
+        # picture missing one layer looks like a bug in the art rather than a budget.
+        def check_layers_fit(regular_nodes, affine_nodes)
+          most = mixed_arrangement?(affine_nodes) ? MAX_BG_LAYERS_BESIDE_TURNING : MAX_BG_LAYERS
+          return if regular_nodes.size <= most
+
+          raise LoweringError, too_many_layers(regular_nodes, turning_on_a_tiled_screen(affine_nodes))
+        end
+
+        # DOES THE TILED SCREEN ITSELF HOLD A TURNING LAYER? That is the question the
+        # arrangement turns on, and it is not the same as "is anything in this program
+        # turning" — because a program can put two screens on in turn.
+        #
+        # A background declared under `screen :rotozoom` is on a screen of its own, which
+        # the console is in only while that scene is up. Its layer costs the TILED screen
+        # nothing, because the two are never on at once: a title that zooms, handing over
+        # to a game with four scrolling layers, is two arrangements one after the other
+        # and fits. Only a turning background declared on the tiled screen itself shares
+        # that screen with the scrolling ones, and only then are there two of those
+        # instead of four.
+        def mixed_arrangement?(affine_nodes) = turning_on_a_tiled_screen(affine_nodes).any?
+
+        def turning_on_a_tiled_screen(affine_nodes) = @modes.on_the_tiled_screen(affine_nodes)
+
+        def too_many_layers(regular_nodes, affine_nodes)
+          named = regular_nodes.map { |node| ":#{node.name}" }.join(", ")
+          count = "This game declares #{regular_nodes.size} scrolling backgrounds (#{named})."
+          return "#{count} The console stacks #{MAX_BG_LAYERS} scrolling backgrounds. To fix this, " \
+                 "use #{MAX_BG_LAYERS} scrolling backgrounds." if affine_nodes.empty?
+
+          turning = ":#{affine_nodes.first.name}"
+          "Background #{turning} turns or resizes. Beside a background that turns, the console holds " \
+            "#{MAX_BG_LAYERS_BESIDE_TURNING} scrolling backgrounds. #{count} To fix this, use " \
+            "#{MAX_BG_LAYERS_BESIDE_TURNING} scrolling backgrounds. Or stop turning #{turning}, and " \
+            "then #{MAX_BG_LAYERS} scrolling backgrounds fit."
         end
 
         # SORT EVERY TILE OF EVERY LAYER INTO THE COLOR TABLE THEY ALL READ FROM.
@@ -1714,7 +1756,7 @@ module RubyGBA
                                 unit: BIG_TILE_BYTES, most: AFFINE_MAX_TILES)
           rescue LoweringError
             raise LoweringError,
-                  "background :#{name} is a rotozoom background (`screen :rotozoom`), so its map can only name " \
+                  "background :#{name} turns and resizes, so its map can only name " \
                   "#{AFFINE_MAX_TILES} tiles — one byte per cell, no room for more. It has #{tiles.size} of " \
                   "its own, and they must all sit inside one #{CHAR_BLOCK_BYTES}-byte stretch of video " \
                   "memory. Use fewer distinct tiles, or declare this background first."
@@ -1769,9 +1811,8 @@ module RubyGBA
           side = [cols, rows].max
           unless cols == rows
             raise LoweringError,
-                  "background :#{name} is a rotozoom background (`screen :rotozoom`), and that kind of " \
-                  "background turns about its middle, so its map must be square. This one is " \
-                  "#{cols}x#{rows} tiles. Make it #{side}x#{side}."
+                  "background :#{name} turns about its middle, so its map must be square. This one " \
+                  "is #{cols}x#{rows} tiles. Make it #{side}x#{side}."
           end
 
           AFFINE_MAP_SIZES.fetch(side) << MAP_SIZE_SHIFT

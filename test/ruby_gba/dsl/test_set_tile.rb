@@ -217,6 +217,8 @@ class TestSetTile < Minitest::Test
     builder.emit_pending_functions
     error = assert_raises(GBA::LoweringError) { GBA.new.lower(builder.program) }
     assert_match(/:room/, error.message)
-    assert_match(/screen :rotozoom/, error.message)
+    # Named by what the background DOES, not by the screen it sits on: a `screen :tiled`
+    # background that turns reaches this too, and it has no rotozoom to be told about.
+    assert_match(/turns and resizes/, error.message)
   end
 end

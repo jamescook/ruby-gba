@@ -50,7 +50,13 @@ module RubyGBA
           Layout = Data.define(:bitmaps, :objects, :placed_fade, :backgrounds, :bg_shared, :palette,
                                 :indexed_bitmaps, :blob_codecs, :blob_raw_bytes, :picture,
                                 :modes, :tiled, :has_objects, :obj_palette_blob, :obj_palette_units,
-                                :scene_art)
+                                :scene_art) do
+            # The backgrounds that turn AND sit on the tiled screen — the ones that decide
+            # which way the console arranges that screen's layers. A background that turns
+            # on `screen :rotozoom` is on a screen of its own, up at a different moment, so
+            # it does not (see GBA#mixed_arrangement?).
+            def turning_layers = modes.on_the_tiled_screen(picture.scenery.select(&:affine))
+          end
 
           # Fill the area itself, which is what clearing means when only part of the picture may
           # be painted: a row-at-a-time block fill over exactly those edges. It does not go
@@ -79,9 +85,11 @@ module RubyGBA
 
             mode = node.mode
             value = if mode == :tiled
-                      # Tile mode turns on exactly the background layers the program declared,
-                      # so a stack of two or three composites; a single background is just BG0.
-                      MODE_0 | tiled_bg_enable_bits
+                      # A single-mode program never runs #enter_tiled_mode (that's only for
+                      # per-scene mode switching), so a turning layer's one-time "no turn, no
+                      # resize yet" starting matrix is set here instead.
+                      reset_bg2_affine_if_needed
+                      tiled_dispcnt
                     elsif mode == :rotozoom
                       # The rotate/scale layer: this feature always lands the one affine
                       # background it supports on BG2 (see AFFINE_BG in gba.rb), so that's the
@@ -103,12 +111,33 @@ module RubyGBA
             @emitter.write_reg16(REG_DISPCNT, value)
           end
 
+          # WHICH OF THE CONSOLE'S TILE ARRANGEMENTS THIS PROGRAM NEEDS, and which layers
+          # to turn on — the whole display-control value for a tiled screen.
+          #
+          # The console arranges its tile layers two ways, and the difference is what the
+          # layers ARE rather than how many: mode 0 is four layers that scroll and nothing
+          # that turns; mode 1 is two that scroll plus one that turns and resizes. A game
+          # needs the second exactly when it turns a background — a title where something
+          # flies at the player over a backdrop, a map that spins inside a fixed frame, a
+          # road that banks under a sky — and nothing in a program says so, because
+          # turning a background IS saying so. (The third arrangement, mode 2, is `screen
+          # :rotozoom`: two turning layers and nothing else, and it keeps its own path.)
+          def tiled_dispcnt
+            (turning_background? ? MODE_1 : MODE_0) | tiled_bg_enable_bits
+          end
+
+          def turning_background? = @layout.turning_layers.any?
+
           # The DISPCNT enable bit per layer, and the OR of them for the layers this
-          # program declared — at least BG0, so a tiled screen always has one layer on.
+          # program's backgrounds actually landed on — at least BG0, so a tiled screen
+          # always has one layer on. Read off the placements rather than counted, because
+          # a turning layer is always BG2 (that is where the console keeps the hardware)
+          # however few plain layers sit beside it.
           BG_ENABLES = [BG0_ENABLE, BG1_ENABLE, BG2_ENABLE, BG3_ENABLE].freeze
           def tiled_bg_enable_bits
-            layers = [@layout.backgrounds.size, 1].max
-            bits = BG_ENABLES.first(layers).reduce(0, :|)
+            used = @layout.backgrounds.each_value.map(&:bg).uniq
+            used = [0] if used.empty?
+            bits = used.reduce(0) { |on, layer| on | BG_ENABLES[layer] }
             # ...and the object window, for a program that keeps sprites out of a fade.
             bits |= OBJ_WINDOW_ENABLE if @layout.placed_fade.any?
             bits
@@ -169,7 +198,7 @@ module RubyGBA
             emit_boot_backgrounds if @layout.tiled && !@layout.backgrounds.empty? # shared BG palette + tile pictures
             emit_boot_objects if @layout.has_objects                             # sprite palette + tiles, and clear OAM
             @layer_blend.emit_layer_blend_again if @layer_blend.see_through?     # ...and which one is see-through
-            value = MODE_0 | tiled_bg_enable_bits
+            value = tiled_dispcnt
             value |= OBJ_ENABLE | OBJ_1D_MAP if @layout.has_objects
             @emitter.write_reg16(REG_DISPCNT, value)
             @primitives.store_word_immediate(MODE_TILED, @primitives.var_addr(MODE_STATE))
@@ -793,9 +822,9 @@ module RubyGBA
           # else, so the framework has no way yet to change one cell of it while the game runs.
           def raise_no_cells_to_change(name)
             raise LoweringError,
-                  "The background :#{name} is on screen :rotozoom, so it can turn and resize. One " \
-                  "cell of it cannot be changed while the game runs. To fix this, put this background " \
-                  "on screen :tiled, or change the whole map with show_map."
+                  "The background :#{name} turns and resizes, so one cell of it cannot be changed " \
+                  "while the game runs. Its cells hold a tile number and nothing else. To fix this, " \
+                  "stop turning this background, or change the whole map with show_map."
           end
 
           # A cell settled while the program was written: the address is worked out here,

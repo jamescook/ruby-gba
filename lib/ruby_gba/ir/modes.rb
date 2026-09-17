@@ -101,6 +101,14 @@ module RubyGBA
         @func_mode.fetch(name, @default_mode)
       end
 
+      # Which of +nodes+ belong to a scene drawn on the tiled screen.
+      #
+      # A program can put two screens on in turn, so "this program declares such a thing
+      # somewhere" and "the tiled screen itself holds one" are different questions — and
+      # for anything the tiled screen has a fixed number of, only the second one counts.
+      # A thing on a screen that is up at a different moment costs this screen nothing.
+      def on_the_tiled_screen(nodes) = nodes.select { |node| mode_at(node) == TILED }
+
       # The screen mode in force where a statement sits: the mode of the scene that
       # owns it, or the boot mode for a statement in the main body. Asking it per
       # statement is what lets a bitmap title screen and a tiled play scene live in

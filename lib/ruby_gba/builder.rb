@@ -123,7 +123,9 @@ module RubyGBA
       @frame_boundaries = []   # each frame's wait node, the anchor the scroll writes are inserted after at finalize
       @scrolled_backgrounds = {} # name → [x var, y var] for every background the game scrolls
       @inline_scroll_nodes = []  # scroll nodes recorded at their call site, dropped once a frame boundary exists
-      @bg_affine_vars = {}       # name → [angle var, scale var] for every screen :rotozoom background ever turned/resized
+      @background_nodes = {}     # name → the `background` node, so a later `.rotate`/`.scale` can mark it as the layer that turns
+      @bent_backgrounds = []     # names given a per-row bend, which is a scroll — so turning one later is refused
+      @bg_affine_vars = {}       # name → [angle var, scale var] for every background ever turned/resized
       @affine_backgrounds = {}   # name → [angle var, scale var], the affine counterpart to @scrolled_backgrounds
       @inline_affine_nodes = []  # affine_background nodes recorded at their call site, moved to the frame boundary
       @swapped_backgrounds = {}  # name → [said var, live var] for every background handed a whole different map

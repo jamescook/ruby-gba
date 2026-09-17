@@ -210,7 +210,10 @@ class TestAffineBackground < Minitest::Test
         board.rotate(45)
       end
     end
-    assert_match(/screen :rotozoom/, err.message)
+    # A tile screen is what this needs, and there are two of those — a bitmap screen is
+    # the one that cannot turn a background at all, because it has none to turn.
+    assert_match(/has no background layer/, err.message)
+    assert_match(/screen :bitmap/, err.message, "it names the screen the program is actually on")
   end
 
   def test_scrolling_an_affine_background_is_a_friendly_error

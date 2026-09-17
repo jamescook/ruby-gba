@@ -38,6 +38,11 @@ module RubyGBA
     # and each can be scrolled independently (scroll a near and a far layer at different
     # speeds for parallax). See {Background}.
     module Tiled
+      # The screens that draw a background out of tiles at all, as opposed to painting
+      # its pixels into one picture (`screen :bitmap`) — the two a background can turn
+      # and resize on.
+      TILE_HARDWARE_SCREENS = %i[tiled rotozoom].freeze
+
       # Define a tileset. Two ways to author it:
       #
       # 1. BY CHARACTER — a map from a character to the tile {#image} it stands for.
@@ -222,10 +227,13 @@ module RubyGBA
         grids = drawn.map { |rows, _| rows.map { |row| row.map { |img| img && index_of[img] } } }
         check_maps_are_one_size!(name, map_names, grids)
 
-        record(Build.background(name, tiles: tile_names, map: grids.first,
-                                      maps: map_names.size > 1 ? grids : [],
-                                      tile_w: set[:tile_w], tile_h: set[:tile_h],
-                                      affine: @screen_mode == :rotozoom))
+        # Kept by name so `.rotate`/`.scale`, which come later on the handle, can mark
+        # this one as the layer that turns — see #make_background_affine.
+        @background_nodes[name] =
+          record(Build.background(name, tiles: tile_names, map: grids.first,
+                                        maps: map_names.size > 1 ? grids : [],
+                                        tile_w: set[:tile_w], tile_h: set[:tile_h],
+                                        affine: @screen_mode == :rotozoom))
 
         # The window's top-left, in pixels, tracked in two hidden variables (cleared at
         # boot since console RAM isn't zero at power-on). A background that never
@@ -252,28 +260,32 @@ module RubyGBA
       end
 
       # Make a background able to turn and resize as a whole (see {Background#rotate} /
-      # {Background#scale}): allocate its angle and size variables, boot them to upright
-      # and 1.0, and remember it needs its matrix written every frame. Idempotent — the
-      # first call wires it up, later ones reuse the same variables. An internal hook, not
-      # a DSL verb — `background(...).rotate` / `.scale` are the surface.
+      # {Background#scale}): mark it as the layer that turns, allocate its angle and size
+      # variables, boot them to upright and 1.0, and remember it needs its matrix written
+      # every frame. Idempotent — the first call wires it up, later ones reuse the same
+      # variables. An internal hook, not a DSL verb — `background(...).rotate` /
+      # `.scale` are the surface.
       #
-      # Only `screen :rotozoom` gives a background this hardware. `screen :tiled`'s regular
-      # layers can scroll but not turn or resize — that is the console's rotate/scale
-      # layers (BG2/BG3 in Mode 2, "affine" hardware internally), a different pair from
-      # the four `screen :tiled` scrolls on — and `screen :bitmap` has no background
-      # layer at all, only pixels you draw.
+      # TURNING IS A PROPERTY OF THE BACKGROUND, NOT OF THE SCREEN, and that is the whole
+      # reason this hook exists rather than a flag on `background`. The console has two
+      # arrangements of tile layers that matter here: four layers that scroll and none
+      # that turn, or two that scroll plus one that turns and resizes. Which one a game
+      # needs is decided by whether it ever turns a background — which is exactly this
+      # call — so nothing in a program ever names an arrangement. A background declared
+      # under `screen :rotozoom` is already one that turns (that screen has no other
+      # kind), so this only ever adds one.
+      #
+      # `screen :bitmap` has no background layer at all, only pixels you draw, so there is
+      # nothing there to turn.
       def make_background_affine(name)
         return @bg_affine_vars[name] if @bg_affine_vars.key?(name)
 
-        unless @screen_mode == :rotozoom
-          raise ArgumentError,
-                "#{name}.rotate and #{name}.scale turn and resize the whole background, so they need " \
-                "`screen :rotozoom`. You have `screen #{@screen_mode.inspect}`. A `screen :tiled` background " \
-                "can scroll but not turn or resize. A `screen :bitmap` screen has no background layer at " \
-                "all — it holds pixels you draw. To turn or resize this background, build it under " \
-                "`screen :rotozoom` instead."
-        end
+        refuse_turning_without_a_tile_screen!(name)
+        refuse_turning_a_scrolled_background!(name)
 
+        # fetch, not dig: this is only ever reached from a handle `background` handed back,
+        # so a name with no node is a bug here rather than something to shrug at.
+        @background_nodes.fetch(name).affine = true
         angle_var = :"__bg_#{name}_angle"
         scale_var = :"__bg_#{name}_scale"
         at_boot(Build.set(angle_var, Build.int(0)))
@@ -298,6 +310,17 @@ module RubyGBA
                 "or `blit`."
         end
 
+        # A bend gives each row its own sideways SCROLL, and a layer that turns has no
+        # scroll to give — it moves by turning. Before a tiled background could turn, the
+        # screen check above already covered this; now it has to be said.
+        if @bg_affine_vars.key?(name)
+          raise ArgumentError,
+                "#{name}.scroll_each_row bends a background row by row, and background :#{name} turns " \
+                "and resizes. A layer that turns has no scroll to bend. To fix this, bend a different " \
+                "background, or stop turning :#{name}."
+        end
+        @bent_backgrounds << name # ...and the other order: turning it later is refused too
+
         ensure_var(row_var)
         node = Build.scroll_rows(name, row: row_var, offset: Build.int(0))
         offset = nil
@@ -307,6 +330,45 @@ module RubyGBA
       end
 
       private
+
+      # A LAYER THAT TURNS CANNOT ALSO SCROLL, and a program can say the two in either
+      # order. Turning first and scrolling second is refused where the scroll is written
+      # (see {Background#ensure_not_affine!}); this is the other order, where the scroll
+      # is already recorded and turning the layer would quietly stop it working — the
+      # console pans this kind of layer by moving its whole matrix, and its own scroll
+      # registers do nothing at all.
+      def refuse_turning_a_scrolled_background!(name)
+        moves = if @scrolled_backgrounds.key?(name) then "scrolls"
+                elsif @bent_backgrounds.include?(name) then "bends the rows of"
+                end
+        return unless moves
+
+        raise ArgumentError,
+              "This program #{moves} background :#{name}, so :#{name} cannot also turn or resize. " \
+              "A layer that turns has no scroll of its own. It moves by turning instead. To fix " \
+              "this, stop moving :#{name} that way, or turn a different background."
+      end
+
+      # Which screens can turn a background at all, said as a message. The two that draw
+      # a background out of tiles can; a bitmap screen has no layer to turn, only pixels.
+      #
+      # A raw register value leaves the mode unnamed (see Drawing#screen), and so does a
+      # program that never wrote `screen` — so neither can be quoted back, and neither
+      # can be told what it holds.
+      def refuse_turning_without_a_tile_screen!(name)
+        return if TILE_HARDWARE_SCREENS.include?(@screen_mode)
+
+        have = if @screen_mode
+                 "You have `screen #{@screen_mode.inspect}`, which holds pixels you draw " \
+                 "and has no background layer"
+               else
+                 "This program names neither screen"
+               end
+        raise ArgumentError,
+              "#{name}.rotate and #{name}.scale turn and resize the whole background. A background " \
+              "can turn only on `screen :tiled` or `screen :rotozoom`. #{have}. To fix this, write " \
+              "`screen :tiled` above this background."
+      end
 
       # WHICH OF A BACKGROUND'S OWN TILES EACH KEY MEANS, so `set_tile` can be written
       # the way the map was — the tileset's own keys, or, for a sheet imported as
