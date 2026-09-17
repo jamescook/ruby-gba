@@ -260,7 +260,7 @@ class TestLayerTransparency < Minitest::Test
   # the water solid for the rest of the game with nothing anywhere to say why.
 
   # The same picture, with a fade held at a fixed amount. `hold` of 0 is a lifted fade.
-  def faded_program(kind, amount, hold)
+  def faded_program(kind, amount, hold, toward: :black)
     tile = SOLID_TILE
     program do
       screen :tiled
@@ -277,31 +277,60 @@ class TestLayerTransparency < Minitest::Test
           sprite :front, at: [64, 64]
         end
       end
-      game_loop { fade :black, hold }
+      game_loop { fade toward, hold }
     end
   end
 
   def faded_xy(kind) = kind == :scenery ? SCENERY_XY : SPRITE_XY
 
-  # A see-through layer under a fade shows exactly what a SOLID layer under the same fade
+  # A see-through layer under a fade does NOT show what a SOLID layer under the same fade
   # shows. Said that way round on purpose: it needs no number of its own, so it cannot be
   # satisfied by a wrong blend that happens to match a constant written beside it.
-  def test_while_a_fade_runs_the_layer_is_solid
+  def test_a_fade_leaves_the_layer_see_through
     %i[scenery sprite].each do |kind|
       solid = shown(faded_program(kind, 0, 25), *faded_xy(kind))
 
-      assert_equal solid, shown(faded_program(kind, 50, 25), *faded_xy(kind)),
-                   "the see-through #{kind} layer is not solid while a fade runs"
+      refute_equal solid, shown(faded_program(kind, 50, 25), *faded_xy(kind)),
+                   "the see-through #{kind} layer went solid while a fade ran"
     end
   end
 
-  def test_the_console_makes_the_layer_solid_while_a_fade_runs_too
+  def test_the_console_leaves_the_layer_see_through_under_a_fade_too
     %i[scenery sprite].each do |kind|
       solid = console(faded_program(kind, 0, 25), *faded_xy(kind), "FADSOL")
 
-      assert_equal solid, console(faded_program(kind, 50, 25), *faded_xy(kind), "FADSEE"),
-                   "the console leaves the see-through #{kind} layer blending under a fade"
+      refute_equal solid, console(faded_program(kind, 50, 25), *faded_xy(kind), "FADSEE"),
+                   "the console made the see-through #{kind} layer solid under a fade"
     end
+  end
+
+  # ...and both backends land on the SAME faded mix, which is the assertion that can
+  # catch a blend done in the wrong order. Darkening each color and then mixing them is
+  # not quite darkening the mix — the two truncate in different places — so this would
+  # fail by a step if either side moved its colors at the wrong moment.
+  def test_the_two_backends_agree_on_a_see_through_layer_under_a_fade
+    %i[scenery sprite].each do |kind|
+      assert_equal shown(faded_program(kind, 50, 25), *faded_xy(kind)),
+                   console(faded_program(kind, 50, 25), *faded_xy(kind), "FADMIX"),
+                   "the backends disagree about the #{kind} layer under a fade"
+    end
+  end
+
+  # FADING TO WHITE IS THE OTHER DIRECTION AND NOT A MIRROR OF THE FIRST. Toward white a
+  # channel adds a share of the headroom it has left; toward black it keeps a share of
+  # what it has, and the two truncate opposite ways — so one direction can be right while
+  # the other is a step out at every pixel. Both halves of the picture are asserted: the
+  # layer is still blending, and the two backends land on the same color.
+  def test_a_fade_to_white_leaves_the_layer_see_through_too
+    solid = shown(faded_program(:scenery, 0, 25, toward: :white), *SCENERY_XY)
+
+    refute_equal solid, shown(faded_program(:scenery, 50, 25, toward: :white), *SCENERY_XY),
+                 "the see-through layer went solid while a fade to white ran"
+  end
+
+  def test_the_console_agrees_about_a_fade_to_white
+    assert_equal shown(faded_program(:scenery, 50, 25, toward: :white), *SCENERY_XY),
+                 console(faded_program(:scenery, 50, 25, toward: :white), *SCENERY_XY, "FADWHT")
   end
 
   # ...and a fade of nothing is a lifted fade, not a fade of zero left in force.
@@ -568,17 +597,23 @@ class TestLayerTransparency < Minitest::Test
     refute_includes warnings(scenery_program(60)), :layer_invisible
   end
 
-  # The collision is worth saying out loud, because neither verb mentions the other and
-  # the picture that shows it is over in half a second.
-  def test_a_game_that_fades_and_sees_through_a_layer_is_told
+  # The collision that is LEFT is worth saying out loud, because neither verb mentions
+  # the other and the picture that shows it is over in half a second.
+  def test_a_game_that_places_a_fade_over_a_see_through_layer_is_told
     finding = RubyGBA::IR::Guardrails::Validator.new
-                                                .run(flashing_program(:scenery), autofix: false)
+                                                .run(placed_fade_program(50, 25), autofix: false)
                                                 .warnings
                                                 .find { |w| w.check == :layer_solid_while_fading }
 
-    assert finding, "a game that fades over a see-through layer was told nothing"
+    assert finding, "a game that places a fade over a see-through layer was told nothing"
     assert_includes finding.message, ":glass"
     assert_includes finding.message, "solid"
+    assert_includes finding.message, ":ui", "the message does not say which fade it is about"
+  end
+
+  # ...and the case it used to be about is gone, because the picture it described is gone.
+  def test_a_whole_screen_fade_over_a_see_through_layer_is_not_warned_about
+    refute_includes warnings(flashing_program(:scenery)), :layer_solid_while_fading
   end
 
   def test_a_see_through_layer_with_no_fade_is_not_warned_about
@@ -589,12 +624,19 @@ class TestLayerTransparency < Minitest::Test
     refute_includes warnings(faded_program(:scenery, 0, 50)), :layer_solid_while_fading
   end
 
-  def test_the_report_says_a_fade_takes_the_blend
-    assert_includes report_of(flashing_program(:scenery)), "while a fade runs"
+  def test_the_report_says_a_fade_walks_the_colours_and_keeps_the_layer
+    assert_includes report_of(flashing_program(:scenery)), "walks the colours"
   end
 
-  def test_the_report_leaves_that_out_when_nothing_fades
-    refute_includes report_of(scenery_program(40)), "while a fade runs"
+  def test_the_report_says_a_placed_fade_takes_the_blend
+    assert_includes report_of(placed_fade_program(50, 25)), "is solid until it lifts"
+  end
+
+  def test_the_report_leaves_both_out_when_nothing_fades
+    report = report_of(scenery_program(40))
+
+    refute_includes report, "walks the colours"
+    refute_includes report, "is solid until it lifts"
   end
 
   def test_the_report_says_which_layer_is_see_through

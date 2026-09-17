@@ -94,21 +94,31 @@ module RubyGBA
             @layout = value
           end
 
-          # Does this program tint a screen that draws through a color table, and does it
-          # fade at all? Both answers decide code that is emitted far from the tint
-          # itself — whether the tables have to stay readable in the cartridge, whether
-          # boot clears the state variable, whether a fade has to lift a tint that may be
-          # in force — so they are worked out once, before anything is emitted.
+          # Does this program move a color table at all, and does it fade at all? Both
+          # answers decide code that is emitted far from the tint itself — whether the
+          # tables have to stay readable in the cartridge, whether boot clears the state
+          # variable, whether a fade has to lift a tint that may be in force — so they are
+          # worked out once, before anything is emitted.
           #
-          # A build that never tints a table-drawn screen must come out byte for byte as
-          # it did before any of this existed, which is what every flag here is for.
-          def prepare_palette_tint(program)
+          # A table is moved by a `tint` on a screen that draws through one, and by a fade
+          # that walks the colors rather than taking the display's blend (see IR::Fading).
+          # Both land in the same tables and both are remembered in the same state word,
+          # which is the display's own "one whole-picture effect at a time" rule.
+          #
+          # A build that never moves a table must come out byte for byte as it did before
+          # any of this existed, which is what every flag here is for.
+          def prepare_palette_tint(program, fading:)
             @program_fades = program.walk.any? { |node| node.kind == :fade }
-            @palette_tint = program.walk.any? { |node| node.kind == :tint && palette_screen?(node) }
+            @palette_tint = program.walk.any? { |node| node.kind == :tint && palette_screen?(node) } ||
+                            fading.any_color_walk?
             keep_tint_originals_readable if @palette_tint
           end
 
-          def palette_tint?
+          # Does this build move a color table at all? Named for what it asks rather than
+          # for this class, because a fade asks it too now and "does it tint" would be the
+          # wrong question — what the callers want to know is whether the tables are
+          # rewritten while the game runs, whoever is rewriting them.
+          def moves_a_color_table?
             @palette_tint
           end
 
@@ -121,20 +131,26 @@ module RubyGBA
 
           # Mix a color into a picture drawn through a color table.
           #
+          # Asked for by what it needs rather than by which statement asked, because two
+          # statements do: a `tint` names its own color, and a fade that walks the colors
+          # is this same walk toward black or white (see Drawing#emit_fade). +color+ is
+          # already resolved, +amount+ is the 0-to-100 the author wrote or the game works
+          # out, and +mode+ is the screen whose tables are to be moved.
+          #
           # The guard comes first and is the whole reason this is affordable. A game
           # writes `tint :red, hurt` on every pass of its loop, and `hurt` is 0 for almost
           # all of them — so the common frame compares one variable, finds nothing has
           # moved, and jumps over the walk entirely.
-          def emit_palette_tint(node)
+          def emit_palette_tint(color:, amount:, mode:)
             # The tint and the fade are one effect: the display can only be told one
             # thing about the whole picture at a time, and the interpreter models the same
             # rule. So asking for a tint puts away whatever fade was in force.
             @emitter.write_reg16(REG_BLDY, 0) if @program_fades
 
             done = @emitter.gensym
-            emit_tint_state(node, done) # r0 = the steps, when the game works them out
-            emit_tint_shares(node)
-            tint_tables(@modes.mode_at(node)).each { |blob, dest, units| emit_tint_table(blob, dest, units) }
+            emit_tint_state(color, amount, done) # r0 = the steps, when the game works them out
+            emit_tint_shares(color, amount)
+            tint_tables(mode).each { |blob, dest, units| emit_tint_table(blob, dest, units) }
             @emitter.place_label(done)
           end
 
@@ -145,9 +161,8 @@ module RubyGBA
           # compare is against a plain number. One the game works out is turned into
           # sixteenths as it runs, and r0 carries those steps on to #emit_tint_shares
           # rather than being worked out twice.
-          def emit_tint_state(node, done)
-            color = Graphics::Color.resolve(node.color)
-            if (amount = @primitives.const_int(node.amount))
+          def emit_tint_state(color, amount_node, done)
+            if (amount = @primitives.const_int(amount_node))
               wanted = tint_state_word(color, @drawing.fade_steps(amount))
               @primitives.load_var(ACC, TINT_STATE)
               @emitter.emit(ASM.load_immediate(TMP, wanted))
@@ -158,7 +173,7 @@ module RubyGBA
               return
             end
 
-            @lowering.value(Build.binop(:/, Build.binop(:*, node.amount, Build.int(BLD_MAX)),
+            @lowering.value(Build.binop(:/, Build.binop(:*, amount_node, Build.int(BLD_MAX)),
                                    Build.int(100)))
             @drawing.emit_clamp_blend_steps
             @emitter.emit(ASM.mov_reg(TINT_STEPS, ACC))                      # kept while the state is compared
@@ -189,14 +204,13 @@ module RubyGBA
           # from the sum. Dropping it from each share first can land a whole step lower.
           #
           # r0 holds the steps on the way in.
-          def emit_tint_shares(node)
-            color = Graphics::Color.resolve(node.color)
+          def emit_tint_shares(color, amount_node)
             @emitter.emit(ASM.load_immediate(TINT_RB, RB_MASK))
             @emitter.emit(ASM.load_immediate(TINT_G, G_MASK))
             @emitter.emit(ASM.load_immediate(TINT_KEEP, BLD_MAX))
             @emitter.emit(ASM.sub_reg(TINT_KEEP, TINT_KEEP, ACC)) # 16 sixteenths, less the tint's
 
-            if (amount = @primitives.const_int(node.amount))
+            if (amount = @primitives.const_int(amount_node))
               steps = @drawing.fade_steps(amount)
               @emitter.emit(ASM.load_immediate(TINT_ADD, (color & RB_MASK) * steps))
               return @emitter.emit(ASM.load_immediate(TINT_ADD_G, (color & G_MASK) * steps))

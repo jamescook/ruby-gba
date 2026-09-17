@@ -170,13 +170,25 @@ module RubyGBA
                        "the display blends it for nothing"
           printer.puts "      ...and the amount is written to it on every frame"
         end
-        return unless program.each.any? { |n| n.kind == :fade }
+        fade_lines(program, node.transparent, printer)
+      end
 
-        # The one thing a reader cannot see anywhere else. A fade uses the same blend unit, so
-        # it takes that "for nothing" away for as long as it runs — and the two verbs are
-        # usually written nowhere near each other.
-        printer.puts "      ...except while a fade runs, which takes the same blend: " \
-                     ":#{node.transparent} is solid until it lifts"
+      # WHICH OF THE TWO WAYS OF FADING THIS BUILD GOT, which is the one thing about a fade a
+      # reader cannot see anywhere else. A fade over the whole screen walks the colours, which
+      # leaves the layer blending and costs what moving a colour table costs; a fade PLACED in
+      # the stack cannot, and takes the layer's blend for as long as it runs. Either way the
+      # two verbs are usually written nowhere near each other (see IR::Fading).
+      def fade_lines(program, layer, printer)
+        fading = IR::Fading.resolve(program)
+        if fading.any_color_walk?
+          printer.puts "      ...and a fade over the whole screen walks the colours rather than " \
+                       "taking that blend, so :#{layer} keeps showing what is behind it"
+          printer.puts "      ...which costs a blend per declared colour, on each frame a fade moves"
+        end
+        return if fading.blend_fades.empty?
+
+        printer.puts "      ...except while a fade placed in the stack runs, which takes the same " \
+                     "blend: :#{layer} is solid until it lifts"
       end
 
       # WHERE THE PICTURES WENT, and what the framework's own choice of storage bought back.

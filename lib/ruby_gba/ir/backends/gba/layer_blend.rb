@@ -23,11 +23,12 @@ module RubyGBA
         #   already writes, so it costs nothing and it picks out exactly the sprites in
         #   that layer.
         #
-        # NEITHER PATH SURVIVES A FADE, measured rather than assumed. The sprite's own bit
-        # frees it from the effect field, but a see-through sprite still has to be told
-        # WHAT it blends with — the far side of that same register — and a fade writes the
-        # register whole. So a fade takes the blend from both paths for as long as it runs,
-        # and both get it back when it lifts (see Drawing#emit_fade_sharing_the_blend).
+        # NEITHER PATH SURVIVES A FADE THAT USES THIS REGISTER, measured rather than
+        # assumed. The sprite's own bit frees it from the effect field, but a see-through
+        # sprite still has to be told WHAT it blends with — the far side of that same
+        # register — and a fade writes the register whole. So such a fade takes the blend
+        # from both paths for as long as it runs, and both get it back when it lifts (see
+        # Drawing#emit_fade_sharing_the_blend).
         #
         # Keeping the far side across a fade was tried, and the picture it gives is worse.
         # The sprite does go on blending — but the display then blends it with the darkened
@@ -35,6 +36,12 @@ module RubyGBA
         # leaves half-bright ghosts floating on a black screen. Letting the fade have the
         # whole register makes everything darken together, which is what a fade out is
         # supposed to look like, and it costs nothing to do.
+        #
+        # WHICH IS WHY A WHOLE-SCREEN FADE DOES NOT COME HERE AT ALL any more. A program
+        # that sees through a layer fades by walking its color table instead, which never
+        # touches this register and leaves both paths blending right through the fade (see
+        # IR::Fading, and Drawing#emit_fade_by_walking_the_colors). What still arrives here
+        # is a fade PLACED in the stack, which is the one thing only this register can do.
         #
         # An author writes the same keyword either way and never learns which they got.
         #

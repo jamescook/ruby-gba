@@ -815,6 +815,9 @@ module RubyGBA
           @has_objects = program.walk.any? { |node| node.kind == :object }
           prepare_effect_layers(program) # which sprites an effect placed in the stack must skip
           @layer_blend.prepare_layer_blend(program) # ...and which layer, if any, you can see through
+          # ...which is what decides whether a fade may use the display's blend at all, or
+          # has to walk the color table instead to leave that layer alone (see IR::Fading).
+          @fading = IR::Fading.resolve(program)
           prepare_objects(program) if @has_objects
           @uses_save = program.walk.any? { |node| node.kind == :save_init }
           prepare_palette(program) if @modes.any_buffered?
@@ -825,7 +828,7 @@ module RubyGBA
                                                           obj_palette_blob: @obj_palette_blob,
                                                           obj_palette_units: @obj_palette_units,
                                                           blob_codecs: @blob_codecs)
-          @palette_tint.prepare_palette_tint(program)
+          @palette_tint.prepare_palette_tint(program, fading: @fading)
           @uses_pressed = self.class.reads_button_edges?(program)
           # Everything the prepare passes above decided that Drawing/Buffered read, bundled
           # into one record rather than twenty keyword arguments (see Drawing's class
@@ -834,7 +837,7 @@ module RubyGBA
             bitmaps: @bitmaps, objects: @objects, placed_fade: @placed_fade, backgrounds: @backgrounds,
             bg_shared: @bg_shared, palette: @palette, indexed_bitmaps: @indexed_bitmaps,
             blob_codecs: @blob_codecs, blob_raw_bytes: @blob_raw_bytes,
-            picture: @picture, modes: @modes, tiled: @tiled, has_objects: @has_objects,
+            picture: @picture, modes: @modes, fading: @fading, tiled: @tiled, has_objects: @has_objects,
             obj_palette_blob: @obj_palette_blob, obj_palette_units: @obj_palette_units,
             scene_art: @scene_art || {},
           )
@@ -872,7 +875,7 @@ module RubyGBA
           # table rather than a picture — there is nothing here for a bitmap scene to
           # overwrite.
           emit_boot_row_bends if @raster.latches_row_bends?
-          emit_tint_state_init if @palette_tint.palette_tint? # the color tables start as they were drawn
+          emit_tint_state_init if @palette_tint.moves_a_color_table? # the tables start as they were drawn
           @lowering.in_mode(@modes.default_mode) do
             program.children.each { |stmt| @lowering.statement(stmt) }
           end
@@ -1037,7 +1040,7 @@ module RubyGBA
         def emit_music_tick = @audio.emit_music_tick
 
         # Forwards to @palette_tint (see {PaletteTint}).
-        def palette_tint? = @palette_tint.palette_tint?
+        def moves_a_color_table? = @palette_tint.moves_a_color_table?
         def emit_tint_state_init = @palette_tint.emit_tint_state_init
 
         # Forwards to @layer_blend (see {LayerBlend}).

@@ -49,8 +49,8 @@ module RubyGBA
           # copied out field by field.
           Layout = Data.define(:bitmaps, :objects, :placed_fade, :backgrounds, :bg_shared, :palette,
                                 :indexed_bitmaps, :blob_codecs, :blob_raw_bytes, :picture,
-                                :modes, :tiled, :has_objects, :obj_palette_blob, :obj_palette_units,
-                                :scene_art) do
+                                :modes, :fading, :tiled, :has_objects, :obj_palette_blob,
+                                :obj_palette_units, :scene_art) do
             # The backgrounds that turn AND sit on the tiled screen — the ones that decide
             # which way the console arranges that screen's layers. A background that turns
             # on `screen :rotozoom` is on a screen of its own, up at a different moment, so
@@ -174,7 +174,7 @@ module RubyGBA
             # to the tiled screen, that screen's own colors have been in this table since —
             # so put the originals back, which is also what makes the remembered tint true
             # again.
-            upload_palette if @palette_tint.palette_tint? && @layout.modes.mixed_display?
+            upload_palette if @palette_tint.moves_a_color_table? && @layout.modes.mixed_display?
           end
 
           # Switch the hardware into direct-color (Mode 3) and record it as live. Writing
@@ -1226,16 +1226,34 @@ module RubyGBA
           # number; an amount the game computes is scaled at run time, which is a
           # multiply and a divide once per call — nothing next to a frame.
           def emit_fade(node)
+            return emit_fade_by_walking_the_colors(node) if @layout.fading.walks_the_colors?(node)
+
             # On a screen drawn through a color table the two effects are separate pieces
             # of hardware, so nothing puts a tint away by itself. The display still holds
             # one whole-picture effect at a time — that is the rule the DSL states and the
             # interpreter models — so a fade puts the colors back. Only a program that
             # tints such a screen emits this, and the check inside is one compare.
-            @palette_tint.emit_lift_palette_tint(@layout.modes.mode_at(node)) if @palette_tint.palette_tint? &&
-                                                                                  @palette_tint.palette_screen?(node)
+            if @palette_tint.moves_a_color_table? && @palette_tint.palette_screen?(node)
+              @palette_tint.emit_lift_palette_tint(@layout.modes.mode_at(node))
+            end
             return emit_fade_sharing_the_blend(node) if @layer_blend.see_through?
 
             emit_fade_registers(node)
+          end
+
+          # A fade that moves the COLORS rather than asking the display to blend — which
+          # is how the games on this console fade, and the only way a see-through layer
+          # survives one (IR::Fading says which fades those are and why).
+          #
+          # Moving every entry of the color table a fraction of the way to black and
+          # moving the finished picture there are the same arithmetic on the same numbers,
+          # so this is the tint walk with black or white as the color. Nothing else here
+          # runs: the blend registers are never written, so the layer keeps the setup it
+          # was given at boot and there is nothing to hand back when the fade lifts.
+          def emit_fade_by_walking_the_colors(node)
+            @palette_tint.emit_palette_tint(color: Graphics::Color.resolve(node.toward),
+                                            amount: node.amount,
+                                            mode: @layout.modes.mode_at(node))
           end
 
           # Which layers the fade reaches and which way, then how far.
@@ -1343,7 +1361,11 @@ module RubyGBA
           # The weights are a pair that adds to sixteen: what is left of the picture,
           # and how much of the color has come in.
           def emit_tint(node)
-            return @palette_tint.emit_palette_tint(node) if @palette_tint.palette_screen?(node)
+            if @palette_tint.palette_screen?(node)
+              return @palette_tint.emit_palette_tint(color: Graphics::Color.resolve(node.color),
+                                                     amount: node.amount,
+                                                     mode: @layout.modes.mode_at(node))
+            end
 
             write_reg16(PALETTE_START, Graphics::Color.resolve(node.color)) # the backdrop IS the tint
             write_reg16(REG_BLDCNT, BLD_ALPHA | BLD_BG2 | (BLD_BACKDROP << BLD_SECOND_SHIFT))

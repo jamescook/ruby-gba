@@ -239,6 +239,10 @@ module RubyGBA
           # ends up over it — so the whole view is rebuilt each frame instead, the same
           # way a scrolling scene is.
           @picture = IR::Stacking.picture(node)
+          # Which part of the display each fade in this program uses. Settled here rather
+          # than asked per fade, because the answer is about the whole program (see
+          # IR::Fading) and a fade walked over frames runs on every one of them.
+          @fading = IR::Fading.resolve(node)
           @repaints ||= IR::Stacking.scenery_over_objects?(@picture.depths,
                                                            scenery: @picture.scenery,
                                                            objects: @picture.objects)
@@ -1176,9 +1180,8 @@ module RubyGBA
 
         # A fade, over the whole screen or placed in the stack.
         #
-        # Over the whole screen it stays what it has always been: a blend applied as the
-        # screen is READ, so nothing that was drawn changes and the picture comes back
-        # untouched when the fade lifts.
+        # Over the whole screen it is a blend applied as the screen is READ, so nothing
+        # that was drawn changes and the picture comes back untouched when the fade lifts.
         #
         # Placed under a layer it cannot be that, because the things in front of the line
         # have to come through unblended. So the blend is applied to each thing as the
@@ -1189,12 +1192,27 @@ module RubyGBA
           amount = eval_value(node.amount)
           was_fading = fading?
           @fade_placed = node.under && [node.under, node.toward, amount]
+          return walk_the_colors(node, amount) if @fading.walks_the_colors?(node)
+
           @screen.fade_to(node.toward, @fade_placed ? 0 : amount)
-          # A fade takes the see-through layer's blend while it runs and hands it back when
-          # it lifts (see #fading?), so the picture has to be built again at each of those
-          # two moments — the layer is drawn solid on one side of them and see-through on
-          # the other, and a fade is usually written after the frame is already composited.
+          # A fade that takes the see-through layer's blend hands it back when it lifts
+          # (see #fading?), so the picture has to be built again at each of those two
+          # moments — the layer is drawn solid on one side of them and see-through on the
+          # other, and a fade is usually written after the frame is already composited.
           composite_scrolled_frame if @fade_placed || (@see_through && fading? != was_fading)
+        end
+
+        # A fade that moves the COLORS instead of asking the display to blend (see
+        # IR::Fading for which fades those are and why).
+        #
+        # Moving every color toward black by a fraction and moving the finished picture
+        # there are the same arithmetic, so this is a tint toward black or white — right
+        # down to where the truncation falls, which is what lets one written-down color be
+        # asserted on both backends. What it buys is everything the tint already has: the
+        # display's blend unit is never told anything, so the see-through layer goes on
+        # blending and the mix darkens along with both sides of it.
+        def walk_the_colors(node, amount)
+          @screen.tint_to(Graphics::Color.resolve(node.toward), amount)
         end
 
         # A tint — the same idea as a whole-screen fade, toward a color a fade cannot
@@ -1246,11 +1264,16 @@ module RubyGBA
           node && node.layer == @see_through[0]
         end
 
-        # Is a fade in force? A see-through layer asks, because a display blends two layers
-        # together or moves the whole picture toward a color — it is one unit and it does
-        # one of them. While a fade runs the layer is solid and darkens with everything
-        # else, which is what a fade out looks like; when the fade lifts the layer comes
-        # back untouched. A fade placed under a layer is still a fade, so it counts too.
+        # Is a fade in force that takes the blend? A see-through layer asks, because a
+        # display blends two layers together or moves the whole picture toward a color —
+        # it is one unit and it does one of them. While such a fade runs the layer is
+        # solid and darkens with everything else, and it comes back untouched when the
+        # fade lifts.
+        #
+        # A fade that WALKS THE COLORS never gets here: it leaves the blend unit alone,
+        # so it sets no fade amount and there is nothing for this to find (see
+        # #walk_the_colors). What is left is a fade placed in the stack, which cannot take
+        # that route and does take the layer's blend.
         def fading?
           return @fade_placed[2].positive? if @fade_placed
 
