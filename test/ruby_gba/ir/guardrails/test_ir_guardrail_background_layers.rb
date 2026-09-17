@@ -66,7 +66,7 @@ class TestIRGuardrailBackgroundLayers < Minitest::Test
 
     refute report.ok?, "five scrolling backgrounds fit no arrangement the console has"
     message = report.errors.first.message
-    assert_match(/declares 5 scrolling backgrounds/, message, "it says how many were declared")
+    assert_match(/shows 5 scrolling backgrounds at one time/, message, "it says how many are on screen at once")
     assert_match(/:five/, message, "...and names them")
     assert_match(/4 scrolling backgrounds/, message, "...and how many the console stacks")
   end
@@ -79,8 +79,8 @@ class TestIRGuardrailBackgroundLayers < Minitest::Test
 
     refute report.ok?
     message = report.errors.first.message
-    assert_match(/declares 3 scrolling backgrounds/, message, "it says how many were declared")
-    assert_match(/holds 2 scrolling backgrounds/, message, "...and how many fit beside a turning one")
+    assert_match(/shows 3 scrolling backgrounds at one time/, message, "it says how many are on screen at once")
+    assert_match(/shows 2 scrolling backgrounds at one time/, message, "...and how many fit beside a turning one")
     assert_match(/:spin/, message, "...and which background costs the other two")
   end
 
@@ -226,7 +226,7 @@ class TestIRGuardrailBackgroundLayers < Minitest::Test
         game_loop { wait_vblank }
       end
     end
-    assert_match(/declares 5 scrolling backgrounds/, err.string)
+    assert_match(/shows 5 scrolling backgrounds at one time/, err.string)
     assert_match(/4 scrolling backgrounds/, err.string, "and says how many the console stacks")
   end
 end

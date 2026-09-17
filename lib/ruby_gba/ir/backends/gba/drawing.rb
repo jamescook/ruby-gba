@@ -50,7 +50,7 @@ module RubyGBA
           Layout = Data.define(:bitmaps, :objects, :placed_fade, :backgrounds, :bg_shared, :palette,
                                 :indexed_bitmaps, :blob_codecs, :blob_raw_bytes, :picture,
                                 :modes, :fading, :tiled, :has_objects, :obj_palette_blob,
-                                :obj_palette_units, :scene_art) do
+                                :obj_palette_units, :scene_art, :scene_layers) do
             # The backgrounds that turn AND sit on the tiled screen — the ones that decide
             # which way the console arranges that screen's layers. A background that turns
             # on `screen :rotozoom` is on a screen of its own, up at a different moment, so
@@ -123,8 +123,11 @@ module RubyGBA
           # road that banks under a sky — and nothing in a program says so, because
           # turning a background IS saying so. (The third arrangement, mode 2, is `screen
           # :rotozoom`: two turning layers and nothing else, and it keeps its own path.)
-          def tiled_dispcnt
-            (turning_background? ? MODE_1 : MODE_0) | tiled_bg_enable_bits
+          # +on+ names the layers to switch on, for a scene that wants fewer than the whole
+          # program's; left out it is every layer a background landed on. The sprite layer
+          # is added by the callers, which all do it the same way for every screen.
+          def tiled_dispcnt(on = nil)
+            (turning_background? ? MODE_1 : MODE_0) | tiled_bg_enable_bits(*[on].compact)
           end
 
           def turning_background? = @layout.turning_layers.any?
@@ -135,8 +138,7 @@ module RubyGBA
           # a turning layer is always BG2 (that is where the console keeps the hardware)
           # however few plain layers sit beside it.
           BG_ENABLES = [BG0_ENABLE, BG1_ENABLE, BG2_ENABLE, BG3_ENABLE].freeze
-          def tiled_bg_enable_bits
-            used = @layout.backgrounds.each_value.map(&:bg).uniq
+          def tiled_bg_enable_bits(used = @layout.backgrounds.each_value.map(&:bg).uniq)
             used = [0] if used.empty?
             bits = used.reduce(0) { |on, layer| on | BG_ENABLES[layer] }
             # ...and the object window, for a program that keeps sprites out of a fade.
@@ -226,7 +228,17 @@ module RubyGBA
           # scene: switch into this scene's mode, but only if it isn't already there (a
           # transition). Steady frames — the same scene running again — cost just the
           # compare, and a buffered scene's DISPCNT is left to the page flip.
+          # WHAT A SCENE TELLS THE DISPLAY AS IT TAKES OVER. Both halves are skipped by the
+          # programs that do not need them, so a game with one screen and one set of layers
+          # emits nothing here at all.
           def emit_scene_preamble(name)
+            emit_scene_mode(name) if @layout.modes.switched_per_scene?
+            emit_scene_layers(name)
+          end
+
+          # The screen this scene draws on, in a program whose scenes differ. One that does
+          # not leaves each `screen` node to write the display control inline.
+          def emit_scene_mode(name)
             mode = @layout.modes.func_mode[name]
             @primitives.load_var(ACC, MODE_STATE)
             @emitter.emit(ASM.cmp_imm(ACC, mode_state_marker(mode)))
@@ -234,6 +246,27 @@ module RubyGBA
             @emitter.emit_branch(:bcond, skip, cond: :eq) # already in this mode? nothing to do
             enter_mode(mode)
             @emitter.place_label(skip)
+          end
+
+          # SWITCH ON THE LAYERS THIS SCENE USES, AND ONLY THOSE.
+          #
+          # Scenes take turns, so they share the console's four layers rather than each
+          # having some of their own (see GBA#hardware_layers). A scene that uses fewer than
+          # the one before it would otherwise leave the extra ones switched on, still
+          # pointed at the last scene's maps, and they would show through wherever this
+          # scene's own scenery has a hole in it.
+          #
+          # It is written every pass rather than guarded by a compare, because it is one
+          # store of a number settled during the build — the guard would cost as much as the
+          # write. A program whose scenes all use the same layers has an empty table here
+          # and emits none of this.
+          def emit_scene_layers(name)
+            wanted = @layout.scene_layers[name]
+            return unless wanted
+
+            value = tiled_dispcnt(wanted)
+            value |= OBJ_ENABLE | OBJ_1D_MAP if @layout.has_objects
+            write_reg16(REG_DISPCNT, value)
           end
 
           # WHICH SCENE'S SPRITE PICTURES ARE IN MEMORY, so that a scene taking over sends

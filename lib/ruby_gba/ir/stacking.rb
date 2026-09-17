@@ -60,6 +60,55 @@ module RubyGBA
                     depths: depths(scenery: scenery, objects: objects, stack: stack))
       end
 
+      # --- one screenful at a time ---
+      #
+      # WHAT CAN BE ON SCREEN AT ONCE, which is a different question from what a program
+      # declares, and it is the one that decides every scarce thing about a picture.
+      #
+      # A machine that composites in hardware has a fixed, small number of places to put a
+      # layer, and a fixed, small number of depths to stack them at. Both are spent WHILE
+      # SOMETHING IS BEING DRAWN, so what has to fit is one screenful — never the whole
+      # program. A game whose scenes take turns shows one of them at a time, so two scenes
+      # of four backgrounds each need four places, not eight. That is already how the room
+      # for sprite pictures is reckoned, and it is what lets a game declare a room's
+      # scenery in the scene the room belongs to.
+      #
+      # A screenful is the scenery every screen shows, plus one scene's own. Scenery that
+      # named no scene is in EVERY screenful, and it comes first, because nothing re-points
+      # it as scenes come and go — it has to keep the same place throughout.
+      Screenful = Data.define(:scene, :scenery, :objects, :depths) do
+        # The scenery that PANS rather than turning. A machine may hold a different number
+        # of each — and may put the turning one somewhere of its own — so the two are
+        # counted apart wherever room is being found for them.
+        def scrolling = scenery.reject(&:affine)
+
+        def turning = scenery.select(&:affine)
+      end
+
+      # Every screenful a program has, the always-there one first. A program with no scenes
+      # has exactly one, holding everything — so a caller need not know whether scenes were
+      # used, and a program that uses none comes out exactly as it did.
+      def screenfuls(program)
+        whole = picture(program)
+        # Every scene that owns anything DRAWN, scenery and sprites alike. Both spend the
+        # depths, so a scene that owns only sprites is a screenful too — and leaving it out
+        # would put those sprites in no screenful at all.
+        scenes = (whole.scenery + whole.objects).filter_map(&:scene).uniq
+        return [screenful(whole, nil)] if scenes.empty?
+
+        scenes.map { |scene| screenful(whole, scene) }
+      end
+
+      # One screenful, read off the whole picture so the stack's order is already settled:
+      # the scenery every screen shows and +scene+'s own, in the order the whole picture
+      # puts them, with the depths worked out among just those.
+      def screenful(whole, scene)
+        scenery = whole.scenery.select { |node| node.scene.nil? || node.scene == scene }
+        objects = whole.objects.select { |node| node.scene.nil? || node.scene == scene }
+        Screenful.new(scene: scene, scenery: scenery, objects: objects,
+                      depths: depths(scenery: scenery, objects: objects, stack: whole.stack))
+      end
+
       # Every declared object, in the order a frame draws them (later = in front). The
       # frame's own draw list leads; an object that list never mentions — one in a
       # program with no frame to draw it — keeps its place in the tree, after the drawn

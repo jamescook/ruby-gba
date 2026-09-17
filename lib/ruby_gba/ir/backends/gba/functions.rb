@@ -50,10 +50,11 @@ module RubyGBA
             # entry point) also switches the hardware to that mode as it takes over.
             @lowering.in_mode(@modes.func_mode.fetch(name, @modes.default_mode)) do
               if @modes.scene_funcs.include?(name)
-                # ...a preamble that switches the display, in a program that switches it per
-                # scene. One that does not leaves each `screen` node to write DISPCNT inline,
-                # so a scene needs no preamble of its own.
-                @scene_preamble.call(name) if @modes.switched_per_scene?
+                # ...a preamble: what this scene has to tell the display as it takes over.
+                # That is the screen mode, in a program that switches it per scene, and the
+                # layers this scene uses, in one whose scenes use different ones. A program
+                # that needs neither emits nothing here.
+                @scene_preamble.call(name)
                 # ...and its own sprite pictures, which scenes share the room for, so a
                 # scene taking over sends its own and one already running sends nothing.
                 @scene_art.call(name)

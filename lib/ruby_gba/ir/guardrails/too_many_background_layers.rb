@@ -53,29 +53,28 @@ module RubyGBA
             # tile screen anywhere has no layers to run out of however many it writes.
             return [] unless Modes.draws_with_tiles?(program)
 
-            turning, scrolling = Stacking.picture(program).scenery.partition(&:affine)
+            turning = Stacking.picture(program).scenery.select(&:affine)
             return [refusal_of(turning.last, only_one_can_turn(turning))] if turning.size > MAX_TURNING_LAYERS
 
-            # WHICH SIDE IS COUNTED PER SCREEN. A program can put two screens on in turn
-            # and each holds its own layers, so a background that turns on `screen
-            # :rotozoom` is up at a different moment and costs the tiled screen nothing
-            # — a title that zooms handing over to a game with four scrolling layers is
-            # two arrangements one after the other, and it fits.
-            #
-            # The SCROLLING ones are counted across the whole program, because the build
-            # hands every declared background a hardware layer up front rather than per
-            # scene. So two tiled scenes of three layers each are counted as six. That is
-            # the lowering's arithmetic and this repeats it deliberately: the two must
-            # refuse the same programs, and loosening it here alone would let a build
-            # through that then has nowhere to put the layers.
-            sharing = Modes.resolve(program).on_the_tiled_screen(turning)
+            # COUNTED ONE SCREENFUL AT A TIME, never across the whole program. The console
+            # spends a layer while something is being DRAWN, so what has to fit is what can
+            # be on screen together — and two scenes that take turns never are. A game with
+            # four scrolling backgrounds in each of two scenes asks for four layers, twice,
+            # and fits. See IR::Stacking#screenfuls, which the lowering allocates from, so
+            # the two cannot disagree about which programs fit.
+            modes = Modes.resolve(program)
+            sharing = modes.on_the_tiled_screen(turning)
             room = room_beside(sharing)
-            return [] if scrolling.size <= room
+            Stacking.screenfuls(program).each do |screenful|
+              scrolling = screenful.scrolling
+              next if scrolling.size <= room
 
-            # The layer blamed is the first one with nowhere to go, so the author is
-            # sent to a line that really is past the end rather than to the stack's
-            # first layer, which fits.
-            [refusal_of(scrolling[room], no_room_to_stack(scrolling, sharing))]
+              # The layer blamed is the first one with nowhere to go, so the author is
+              # sent to a line that really is past the end rather than to the stack's
+              # first layer, which fits.
+              return [refusal_of(scrolling[room], no_room_to_stack(scrolling, sharing, screenful.scene))]
+            end
+            []
           rescue Modes::Conflict
             # One drawing routine reached from two screens. That error names it, and
             # until it is fixed there is no telling which screen a background is on.
@@ -106,27 +105,44 @@ module RubyGBA
               "#{MAX_TURNING_LAYERS} background, and let the others scroll."
           end
 
-          def no_room_to_stack(scrolling, sharing)
-            return nothing_turns(scrolling) if sharing.empty?
+          def no_room_to_stack(scrolling, sharing, scene)
+            return nothing_turns(scrolling, scene) if sharing.empty?
 
-            beside_a_turning_layer(scrolling, sharing.first)
+            beside_a_turning_layer(scrolling, sharing.first, scene)
           end
 
-          def nothing_turns(scrolling)
-            "#{how_many(scrolling)} The console stacks #{MAX_SCROLLING_LAYERS} scrolling " \
-              "backgrounds. To fix this, use #{MAX_SCROLLING_LAYERS} scrolling backgrounds."
+          def nothing_turns(scrolling, scene)
+            "#{how_many(scrolling, scene)} The console shows #{MAX_SCROLLING_LAYERS} scrolling " \
+              "backgrounds at one time. To fix this, show #{MAX_SCROLLING_LAYERS} scrolling " \
+              "backgrounds.#{move_them(scene)}"
           end
 
-          def beside_a_turning_layer(scrolling, turner)
+          def beside_a_turning_layer(scrolling, turner, scene)
             most = MAX_SCROLLING_LAYERS_BESIDE_TURNING
             "Background :#{turner.name} turns or resizes. Beside a background that turns, the " \
-              "console holds #{most} scrolling backgrounds. #{how_many(scrolling)} To fix this, " \
-              "use #{most} scrolling backgrounds. Or stop turning :#{turner.name}, and then " \
-              "#{MAX_SCROLLING_LAYERS} scrolling backgrounds fit."
+              "console shows #{most} scrolling backgrounds at one time. #{how_many(scrolling, scene)} " \
+              "To fix this, show #{most} scrolling backgrounds. Or stop turning :#{turner.name}. " \
+              "Then #{MAX_SCROLLING_LAYERS} scrolling backgrounds fit.#{move_them(scene)}"
           end
 
-          def how_many(scrolling)
-            "This game declares #{scrolling.size} scrolling backgrounds (#{named(scrolling)})."
+          # WHAT THE COUNT IS ABOUT, said plainly, because the number only makes sense
+          # beside it: a game can have many more backgrounds than this, as long as no one
+          # screen shows too many. A game that declares no scenes shows everything at once,
+          # so for that one the screenful IS the game and saying so would only puzzle.
+          def how_many(scrolling, scene)
+            "#{whose(scene)} shows #{scrolling.size} scrolling backgrounds at one time " \
+              "(#{named(scrolling)})."
+          end
+
+          def whose(scene) = scene ? "The scene :#{Modes.friendly_name(scene)}" : "This game"
+
+          # The way out a game with scenes has and a game without does not: scenes take
+          # turns, so scenery moved into one of them stops counting against the others.
+          def move_them(scene)
+            return "" unless scene
+
+            " Each scene shows #{MAX_SCROLLING_LAYERS} of its own, so you can also move a " \
+              "background into a scene that has room."
           end
 
           def named(nodes) = nodes.map { |node| ":#{node.name}" }.join(", ")

@@ -41,12 +41,18 @@ module RubyGBA
       # grid this background can be handed (the first of them being +map+), for a background
       # declared with several — a room per map, a floor per map — and empty for one declared
       # with a single map, which can never change. See ShowMap.
+      #
+      # +scene+ is the game state this belongs to, where it was declared inside one, and
+      # nil for scenery every screen shows. It carries the same fact an Object's +scene+
+      # does and for the same reason: a target with a finite number of places to put a
+      # layer needs to know which layers are wanted AT THE SAME TIME, and two scenes that
+      # take turns never are. See IR::Stacking#screenfuls.
       class Background
         include Node
         kind :background
         category :draw
         operands name: :name, tiles: :list, map: :list, maps: :list, tile_w: :int, tile_h: :int,
-                 layer: :name, affine: :flag
+                 layer: :name, scene: :name, affine: :flag
       end
 
       # A background's cells all become one of its other maps — a whole room at once, where

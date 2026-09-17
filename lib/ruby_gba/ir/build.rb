@@ -573,9 +573,11 @@ module RubyGBA
       # +maps+ is every grid this background can be handed, the first being +map+ (the one
       # showing when the program starts). Left empty for a background declared with one map,
       # whose cells only ever change one at a time (see #set_tile).
-      def background(name, tiles:, map:, tile_w:, tile_h:, maps: [], layer: nil, affine: false)
+      def background(name, tiles:, map:, tile_w:, tile_h:, maps: [], layer: nil, scene: nil,
+                     affine: false)
         Nodes.build(:background, name: name, tiles: tiles, map: map, maps: maps,
-                                 tile_w: tile_w, tile_h: tile_h, affine: affine, **in_layer(layer))
+                                 tile_w: tile_w, tile_h: tile_h, affine: affine, scene: scene,
+                                 **in_layer(layer))
       end
 
       # The named background's cells all become the map numbered +which+ — a whole room

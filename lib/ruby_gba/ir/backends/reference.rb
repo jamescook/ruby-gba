@@ -169,6 +169,7 @@ module RubyGBA
           @bg_nodes = []           # :background nodes, in order (the static scene under the objects)
           @bg_by_name = {}         # name -> :background node (for scrolling that background's window)
           @scene_fb = nil          # the settled scene (backdrop + backgrounds), built once, to restore under objects
+          @bg_scene = nil          # whose scenery is on screen: the scene that last drew one (see #take_the_screen_for)
           @obj_prev = {}           # object name -> [x, y] it was last drawn at (to erase before redrawing)
           @drawn = []              # ...and what this frame put on screen: which picture, where, whose
           @repaints = false        # must the whole view be rebuilt every frame? (decided in collect_definitions)
@@ -904,6 +905,8 @@ module RubyGBA
           # scene-owned background, is every frame the scene is active).
           return if @bg_affine.key?(node.name)
 
+          take_the_screen_for(node.scene)
+
           # A layer can put this background BEHIND one that is already on screen, and a
           # stamp only covers where it has solid pixels — so painting it now would leave
           # it in front. Painting the ones it belongs behind back over it settles the
@@ -913,6 +916,41 @@ module RubyGBA
           @bg_shown << node
           stamp_background(node)
           in_stack_order(over).each { |bg| stamp_background(bg) }
+        end
+
+        # A SCENE'S SCENERY REPLACES THE SCENE BEFORE'S, rather than being drawn over it.
+        #
+        # A background declared inside a scene is on screen while that scene is the active
+        # state, the same as a sprite or a line of HUD text declared there. That is what
+        # lets scenes SHARE the few layers a display has — which is the whole reason a game
+        # may declare four scrolling backgrounds in each of two scenes (see
+        # IR::Stacking#screenfuls).
+        #
+        # Left drawn, the scene before's scenery would show through wherever this scene's
+        # has a hole in it — the far layers of a parallax field showing through the floor
+        # of the plain room you just walked into. So the screen goes back to the backdrop
+        # and the scenery every screen shows, and this scene's own is stamped from there.
+        #
+        # Scenery that belongs to no scene is never dropped: nothing hands it over, and it
+        # is on screen throughout.
+        def take_the_screen_for(scene)
+          return if scene.nil? || scene == @bg_scene
+
+          @bg_scene = scene
+          kept = @bg_shown.select { |bg| bg.scene.nil? }
+          return if kept.length == @bg_shown.length
+
+          @bg_shown = kept
+          @scene_fb = nil
+          @screen.clear(0)
+          in_stack_order(kept).each { |bg| stamp_background(bg) }
+        end
+
+        # The scenery on screen right now: what every screen shows, plus the active scene's
+        # own. The three places that paint the picture all read this rather than the whole
+        # program's, so none of them can draw a scene that is not running.
+        def showing_scenery
+          @picture.scenery.select { |bg| bg.scene.nil? || bg.scene == @bg_scene }
         end
 
         # PUT A DIFFERENT TILE IN ONE CELL. The map a background was declared with is the
@@ -1161,7 +1199,7 @@ module RubyGBA
             # Scenery first, then the objects that share this level — an object is drawn
             # over the scenery it sits with, which is what lets a picture put scenery in
             # front of one object and behind another.
-            @picture.scenery.each do |bg|
+            showing_scenery.each do |bg|
               next unless levels[bg.name] == level
 
               paint_blend_for(bg.name, kept)
@@ -1461,7 +1499,7 @@ module RubyGBA
         def scene_framebuffer
           @scene_fb ||= begin
             fb = Framebuffer.new(fill: 0) # 0 = the backdrop the empty parts of the scene show
-            drawing_into(fb) { @picture.scenery.each { |bg| stamp_background(bg) } }
+            drawing_into(fb) { showing_scenery.each { |bg| stamp_background(bg) } }
             fb
           end
         end

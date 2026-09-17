@@ -792,6 +792,9 @@ module RubyGBA
           # slot, because both the background layers and the sprites read the same
           # answer and a slot handed out early cannot be taken back.
           @picture = IR::Stacking.picture(program)
+          # ...and the same picture cut into what can be on screen AT ONCE, which is what
+          # the console's four layers and four depths actually have to cover.
+          @screenfuls = IR::Stacking.screenfuls(program)
           @layer_blend.picture = @picture # built here, not at construction — see LayerBlend's class comment
           adopt_frame_body(program) # the game loop's body counts as a routine once it moves
           @mixer.prepare_direct_sound(program) # embed the program's samples as ROM data
@@ -838,6 +841,7 @@ module RubyGBA
             bg_shared: @bg_shared, palette: @palette, indexed_bitmaps: @indexed_bitmaps,
             blob_codecs: @blob_codecs, blob_raw_bytes: @blob_raw_bytes,
             picture: @picture, modes: @modes, fading: @fading, tiled: @tiled, has_objects: @has_objects,
+            scene_layers: @scene_layers || {},
             obj_palette_blob: @obj_palette_blob, obj_palette_units: @obj_palette_units,
             scene_art: @scene_art || {},
           )
@@ -1455,8 +1459,10 @@ module RubyGBA
 
           @vram = TileVram.new
           @tiles = BackgroundTiles.new(vram: @vram)
+          slots = hardware_layers
+          @scene_layers = scene_layers(slots)
           begin
-            regular_nodes.each_with_index { |node, layer| prepare_one_background(node, layer, banks, big) }
+            regular_nodes.each { |node| prepare_one_background(node, slots.fetch(node.name), banks, big) }
             affine_nodes.each { |node| prepare_affine_background(node, banks) }
           rescue TileVram::Full => e
             raise LoweringError, tiles_do_not_fit(e, regular_nodes + affine_nodes)
@@ -1466,6 +1472,70 @@ module RubyGBA
           @emit.data_blobs[BG_SHARED_PAL] = colors.pack("v*")
           @emit.data_blobs[BG_SHARED_CHAR] = @tiles.bytes
           @bg_shared = bank_tally(regular_nodes + affine_nodes, big, colors)
+        end
+
+        # WHICH OF THE CONSOLE'S FOUR SCROLLING LAYERS EACH BACKGROUND GETS.
+        #
+        # A layer is spent while something is being DRAWN, so the four have to cover one
+        # screenful and never the whole program: two scenes that take turns can have four
+        # backgrounds each, because the console is only ever holding one scene's.
+        #
+        # WHICH LAYER A BACKGROUND SITS ON IS NOT WHAT PUTS IT IN FRONT, and that is what
+        # makes this straightforward. Paint order is a separate field of the layer's own
+        # settings — its priority — so a slot is only a set of registers to use, free to be
+        # handed out in whatever order suits, while the picture's order is carried by the
+        # priority (see #hardware_priority, which reads the screenful's own depths).
+        #
+        # Scenery every screen shows is pinned the first time it is seen and keeps that
+        # slot throughout, because nothing re-points it as scenes come and go. Each scene's
+        # own backgrounds then take whatever is left, which is why a scene can have four
+        # only when there is no always-there scenery beside them.
+        #
+        # There is always a slot to hand out, because #check_layers_fit has already refused
+        # a screenful asking for more than there are. It runs first for that reason.
+        def hardware_layers
+          slots = {}
+          @screenfuls.each do |screenful|
+            free = scrolling_slots(screenful) - screenful.scrolling.filter_map { |node| slots[node.name] }
+            screenful.scrolling.each { |node| slots[node.name] ||= free.shift }
+          end
+          slots
+        end
+
+        # The slots a screenful has to hand out — the same counts the check above refuses
+        # against, read from the same place so the two cannot drift apart.
+        #
+        # A screen holding a background that TURNS has fewer, and they are not the same
+        # ones: the console gives its rotate hardware to a particular layer (AFFINE_BG) and
+        # the arrangement that provides it leaves only the two below that one scrolling.
+        def scrolling_slots(screenful)
+          check = Guardrails::Checks::TooManyBackgroundLayers
+          most = if screenful.turning.any?
+                   check::MAX_SCROLLING_LAYERS_BESIDE_TURNING
+                 else
+                   check::MAX_SCROLLING_LAYERS
+                 end
+          (0...most).to_a
+        end
+
+        # WHICH LAYERS EACH SCENE HAS SWITCHED ON — and this is the half that has to happen
+        # while the game RUNS, where the numbering above is settled during the build.
+        #
+        # A layer is switched on once, for the whole program, from the layers the
+        # backgrounds landed on. That was right while every background had a layer of its
+        # own. Now that scenes share them, a scene that uses FEWER than the one before it
+        # leaves the extra ones switched on and still pointed at the last scene's maps — so
+        # walking out of a parallax field into a plain room would show the field's far
+        # layers through the room's floor. Each scene says which of the four it wants.
+        #
+        # Nothing is emitted for a program whose scenes all want the same ones, which is
+        # every program with no scene-owned scenery and most of those that have it.
+        def scene_layers(slots)
+          wanted = @screenfuls.reject { |s| s.scene.nil? }.to_h do |screenful|
+            [screenful.scene, screenful.scrolling.filter_map { |node| slots[node.name] }]
+          end
+          wanted.select! { |scene, _| @modes.func_mode[scene] == IR::Modes::TILED }
+          wanted.values.uniq.size > 1 ? wanted : {}
         end
 
         # DO THE DECLARED LAYERS FIT AN ARRANGEMENT THE CONSOLE HAS? A layer that did not
@@ -1792,20 +1862,34 @@ module RubyGBA
         # behind every piece of it (which needs a level of its own, above the lot).
         MAX_LEVELS = 4
 
+        # ASKED ONE SCREENFUL AT A TIME, the same way the layers are (see #hardware_layers).
+        # A level is spent while something is being drawn, so what has to fit is what can be
+        # on screen together — and scenes that take turns never are. Counted across the
+        # whole program instead, a game that declared a stack and three backgrounds in each
+        # of two scenes passed the layer count and then died here at six levels.
         def guard_stack_fits
-          needed = @picture.depths.count
-          return if needed <= MAX_LEVELS || @picture.stack.empty?
+          return if @picture.stack.empty?
+
+          deepest = @screenfuls.max_by { |screenful| screenful.depths.count }
+          needed = deepest.depths.count
+          return if needed <= MAX_LEVELS
 
           raise LoweringError,
-                "This picture needs #{needed} levels of depth and the console stacks #{MAX_LEVELS}. " \
-                "#{stack_overflow_cause}\n" \
+                "#{whose_picture(deepest)} needs #{needed} levels of depth and the console " \
+                "stacks #{MAX_LEVELS} at one time. #{stack_overflow_cause(deepest)}\n" \
                 "The stack is #{@picture.stack.map { |name| ":#{name}" }.join(', ')}, back to front."
         end
 
+        def whose_picture(screenful)
+          return "This picture" unless screenful.scene
+
+          "The scene :#{IR::Modes.friendly_name(screenful.scene)}'s picture"
+        end
+
         # Which of the two ways it ran out, and what to do about that one.
-        def stack_overflow_cause
-          backmost = @picture.objects.select { |node| @picture.depths[node.name].zero? }
-          if backmost.any? && @picture.scenery.none? { |node| @picture.depths[node.name].zero? }
+        def stack_overflow_cause(screenful)
+          backmost = screenful.objects.select { |node| screenful.depths[node.name].zero? }
+          if backmost.any? && screenful.scenery.none? { |node| screenful.depths[node.name].zero? }
             behind = backmost.map(&:layer).uniq.compact
             "The sprites in #{behind.map { |name| ":#{name}" }.join(', ')} sit behind every background, " \
               "which takes a level of its own. To fix this, move that layer in front of one background, " \
@@ -1824,8 +1908,30 @@ module RubyGBA
         # which is the point — the console has more layers than it has priorities, and
         # it can already tell apart what shares one (a sprite is drawn over a background
         # of the same priority, and two sprites keep their table order).
+        #
+        # READ OFF ONE SCREENFUL, for the same reason the layer slots are: there are four
+        # of these too, and they are spent while something is being drawn. A game whose
+        # scenes take turns would otherwise run out of depths having never shown more than
+        # four things at once — and ask the console for a priority it does not have.
+        # THE FURTHEST BACK IT HAS TO BE ON ANY SCREEN, which matters for scenery every
+        # screen shows. Such a thing is drawn once, where it was declared, so it carries ONE
+        # priority — while the screens it appears on can hold different numbers of layers,
+        # and so place it differently.
+        #
+        # Taking the backmost of those is what keeps every screen right. A backdrop behind
+        # one layer in a quiet scene and behind three in a busy one has to be told the
+        # busier number, or the busy scene draws it in front of its own backmost layer.
+        # Measured before this said `max`: a backdrop beside scenes of one and three
+        # backgrounds came out in front of the three-background scene's back layer.
+        #
+        # Pushing it further back can never disturb the quiet screen, because there is
+        # nothing behind it there to get in the way of.
         def hardware_priority(name)
-          @picture.depths.count - 1 - @picture.depths[name]
+          @screenfuls.filter_map do |screenful|
+            next unless screenful.depths.of.key?(name)
+
+            screenful.depths.count - 1 - screenful.depths[name]
+          end.max
         end
 
         # This color's slot in the shared background palette, adding it if it's new.

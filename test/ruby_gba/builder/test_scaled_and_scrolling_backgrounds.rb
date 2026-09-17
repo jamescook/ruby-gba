@@ -219,8 +219,8 @@ class TestScaledAndScrollingBackgrounds < Minitest::Test
     end
     b.emit_pending_functions
     err = assert_raises(RubyGBA::IR::Backends::GBA::LoweringError) { assemble_rom(b.program, name: "TOOMANY") }
-    assert_match(/declares 3 scrolling backgrounds/, err.message, "it says how many were declared")
-    assert_match(/holds 2 scrolling backgrounds/, err.message, "...and how many fit beside a resizing one")
+    assert_match(/shows 3 scrolling backgrounds at one time/, err.message, "it says how many are on screen at once")
+    assert_match(/shows 2 scrolling backgrounds at one time/, err.message, "...and how many fit beside a resizing one")
     assert_match(/:spin/, err.message, "...and which background costs the other two")
   end
 

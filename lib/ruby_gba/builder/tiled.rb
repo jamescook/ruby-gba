@@ -268,6 +268,7 @@ module RubyGBA
           record(Build.background(name, tiles: tile_names, map: grids.first,
                                         maps: map_names.size > 1 ? grids : [],
                                         tile_w: set[:tile_w], tile_h: set[:tile_h],
+                                        scene: declaring_scene,
                                         affine: @screen_mode == :rotozoom))
 
         # The window's top-left, in pixels, tracked in two hidden variables (cleared at
