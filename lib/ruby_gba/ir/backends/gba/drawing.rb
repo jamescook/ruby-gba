@@ -50,7 +50,7 @@ module RubyGBA
           Layout = Data.define(:bitmaps, :objects, :placed_fade, :backgrounds, :bg_shared, :palette,
                                 :indexed_bitmaps, :blob_codecs, :blob_raw_bytes, :picture,
                                 :modes, :fading, :tiled, :has_objects, :obj_palette_blob,
-                                :obj_palette_units, :scene_art, :scene_layers) do
+                                :obj_palette_units, :scene_art, :scene_layers, :scene_blend) do
             # The backgrounds that turn AND sit on the tiled screen — the ones that decide
             # which way the console arranges that screen's layers. A background that turns
             # on `screen :rotozoom` is on a screen of its own, up at a different moment, so
@@ -237,7 +237,23 @@ module RubyGBA
           def emit_scene_preamble(name)
             emit_scene_mode(name) if @layout.modes.switched_per_scene?
             emit_scene_layers(name)
+            emit_scene_blend(name)
             emit_scene_scenery(name)
+          end
+
+          # WHICH LAYERS THIS SCENE BLENDS, for a game whose scenes want different answers.
+          #
+          # The blend unit is told which layers to mix by NUMBER, and scenes take turns with
+          # the console's layers — so the number the see-through layer sits on belongs to
+          # the scene rather than to the game. A scene that sees through nothing says so
+          # here too, which is what stops whichever background inherited that number being
+          # blended in its place.
+          #
+          # A game whose scenes all want the same thing has nothing here: boot's one write
+          # stands for the whole run (see LayerBlend#scene_blend).
+          def emit_scene_blend(name)
+            wanted = @layout.scene_blend[name]
+            write_reg16(REG_BLDCNT, wanted) if wanted
           end
 
           # WHICH SCENE'S SCENERY IS SET UP, so a scene taking over points its layers at its

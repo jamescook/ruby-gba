@@ -66,9 +66,18 @@ module RubyGBA
             @lowering = lowering
             @primitives = primitives
             @drawing = drawing
+            # Nothing has a layer until the backgrounds are given their slots, and a
+            # program with no tiled backgrounds never gives out any. A see-through layer of
+            # SPRITES is the case that arrives here — it names no background at all.
+            @hardware_layers = {}
           end
 
           attr_writer :picture
+
+          # Which of the console's layers each background landed on, and the picture cut
+          # into what can be on screen AT ONCE. Both are handed over once the backgrounds
+          # have their slots, for the same reason #picture= is (see the class comment).
+          attr_writer :hardware_layers, :screenfuls
 
           # Which layer this program can be seen through, and how much — read off the
           # stack the program declared. Nothing at all for a program that declares none,
@@ -153,9 +162,33 @@ module RubyGBA
             emit_blend_amount(node.amount) if @see_through
           end
 
+          # Turn the blend on for the screen this program starts with. A program whose
+          # screens all want the same thing is done here and writes nothing else ever
+          # again; one whose screens differ has each scene correct it as it takes over
+          # (see #scene_blend), before anything of that scene is drawn.
           def emit_blend_targets
-            mode = blends_scenery? ? BLD_ALPHA : BLD_OFF
-            @emitter.write_reg16(REG_BLDCNT, mode | near_side_bits | (far_side_bits << BLD_SECOND_SHIFT))
+            @emitter.write_reg16(REG_BLDCNT, blend_control(first_screen_that_blends))
+          end
+
+          # WHAT EACH SCENE HAS TO TELL THE BLEND UNIT, or nothing at all where every scene
+          # wants the same thing.
+          #
+          # The register names a layer by NUMBER, and scenes take turns with the console's
+          # layers — so the number the see-through layer sits on is a fact about the scene
+          # rather than about the program. A scene that sees through nothing has to say so
+          # too, or whichever background inherited that number is quietly blended in its
+          # place.
+          #
+          # Same shape, and the same rule, as GBA#scene_layers: where the scenes all agree
+          # this is empty and boot's one write stands, which is what keeps a game that has
+          # scenes but one screenful's worth of blending byte for byte what it was.
+          def scene_blend(modes)
+            return {} unless see_through?
+
+            wanted = @screenfuls.reject { |screenful| screenful.scene.nil? }
+                                .to_h { |screenful| [screenful.scene, blend_control(screenful)] }
+            wanted.select! { |scene, _| modes.func_mode[scene] == IR::Modes::TILED }
+            wanted.values.uniq.size > 1 ? wanted : {}
           end
 
           def emit_blend_amount(amount)
@@ -177,32 +210,69 @@ module RubyGBA
 
           private
 
-          # The scenery in the see-through layer, and the scenery behind it. Both are read
-          # off the picture rather than the stack, because what the register names is a
-          # hardware layer number and only the picture knows which background got which.
+          # WHAT THE BLEND REGISTER SAYS FOR ONE SCREENFUL: which layers are the near side
+          # of the blend, which are the far side, and which effect is running.
+          #
+          # A screen holding neither see-through scenery nor a see-through sprite turns the
+          # whole thing OFF rather than leaving the last screen's layers named. Those layer
+          # numbers belong to whatever is on screen now, so leaving them is not a harmless
+          # leftover — it blends the wrong picture.
+          def blend_control(screenful)
+            near = see_through_scenery_in(screenful)
+            return BLD_OFF if near.empty? && see_through_objects_in(screenful).empty?
+
+            mode = near.empty? ? BLD_OFF : BLD_ALPHA
+            mode | bits_for(near) | (far_side_bits(screenful) << BLD_SECOND_SHIFT)
+          end
+
+          # The screen boot sets the console up for: the first one that blends anything, so
+          # a program with no scenes gets its exact answer and one with scenes gets a real
+          # layer number rather than a placeholder.
+          def first_screen_that_blends
+            @screenfuls.find { |screenful| blend_control(screenful) != BLD_OFF } || @screenfuls.first
+          end
+
+          # The see-through layer's scenery, and its sprites, among what THIS screen shows.
+          # Both are read off the picture rather than off the stack, because what the
+          # register names is a hardware layer number and only the picture knows which
+          # background got which.
+          def see_through_scenery_in(screenful)
+            screenful.scenery.select { |node| node.layer == @see_through[:layer] }
+          end
+
+          def see_through_objects_in(screenful)
+            screenful.objects.select { |node| node.layer == @see_through[:layer] }
+          end
+
+          # The scenery in the see-through layer, over the whole program. Kept for the
+          # report and the guardrails, which ask about the program rather than a screen.
           def see_through_scenery
             @picture.scenery.select { |node| node.layer == @see_through[:layer] }
           end
 
-          def near_side_bits
-            bits_for(see_through_scenery)
-          end
-
-          # Everything BEHIND the see-through layer: the scenery below it, the sprites
-          # below it, and the backdrop, which is behind everything there is.
-          def far_side_bits
+          # Everything on this screen BEHIND the see-through layer: the scenery below it,
+          # the sprites below it, and the backdrop, which is behind everything there is.
+          def far_side_bits(screenful)
             kept = IR::Stacking.at_or_above(@picture, @see_through[:layer]).map(&:name)
-            behind = @picture.scenery.reject { |node| kept.include?(node.name) }
+            behind = screenful.scenery.reject { |node| kept.include?(node.name) }
             bits = BLD_BACKDROP | bits_for(behind)
-            bits |= BLD_OBJ if @picture.objects.any? { |node| !kept.include?(node.name) }
+            bits |= BLD_OBJ if screenful.objects.any? { |node| !kept.include?(node.name) }
             bits
           end
 
-          # The register bits naming these backgrounds. A background's place in the
-          # picture IS its hardware layer number (see #prepare_backgrounds), so the bit is
-          # that place counted up from the first one.
+          # The register bits naming these backgrounds, by the hardware layer each one
+          # really landed on. That is NOT where the background sits in the program's list
+          # of scenery: scenes take turns with the console's layers, so the second scene's
+          # first background is fifth in the program and first on the hardware.
+          #
+          # A background with no layer at all contributes nothing, because there is nothing
+          # for the register to name — a `background` on a bitmap screen is stamped into
+          # that screen's one picture where it is declared and is not a layer afterwards.
           def bits_for(nodes)
-            nodes.sum(0) { |node| BLD_BG0 << @picture.scenery.index(node) }
+            nodes.sum(0) do |node|
+              layer = @hardware_layers[node.name]
+              layer ? BLD_BG0 << layer : 0
+            end
           end
         end
       end

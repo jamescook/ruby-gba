@@ -796,6 +796,7 @@ module RubyGBA
           # the console's four layers and four depths actually have to cover.
           @screenfuls = IR::Stacking.screenfuls(program)
           @layer_blend.picture = @picture # built here, not at construction — see LayerBlend's class comment
+          @layer_blend.screenfuls = @screenfuls
           adopt_frame_body(program) # the game loop's body counts as a routine once it moves
           @mixer.prepare_direct_sound(program) # embed the program's samples as ROM data
           @audio.prepare_music(program) # number its tunes, and keep the mixer voices they play on
@@ -818,6 +819,7 @@ module RubyGBA
           @has_objects = program.walk.any? { |node| node.kind == :object }
           prepare_effect_layers(program) # which sprites an effect placed in the stack must skip
           @layer_blend.prepare_layer_blend(program) # ...and which layer, if any, you can see through
+          @scene_blend = @tiled ? @layer_blend.scene_blend(@modes) : {}
           # ...which is what decides whether a fade may use the display's blend at all, or
           # has to walk the color table instead to leave that layer alone (see IR::Fading).
           @fading = IR::Fading.resolve(program)
@@ -841,7 +843,7 @@ module RubyGBA
             bg_shared: @bg_shared, palette: @palette, indexed_bitmaps: @indexed_bitmaps,
             blob_codecs: @blob_codecs, blob_raw_bytes: @blob_raw_bytes,
             picture: @picture, modes: @modes, fading: @fading, tiled: @tiled, has_objects: @has_objects,
-            scene_layers: @scene_layers || {},
+            scene_layers: @scene_layers || {}, scene_blend: @scene_blend || {},
             obj_palette_blob: @obj_palette_blob, obj_palette_units: @obj_palette_units,
             scene_art: @scene_art || {},
           )
@@ -1467,6 +1469,12 @@ module RubyGBA
           rescue TileVram::Full => e
             raise LoweringError, tiles_do_not_fit(e, regular_nodes + affine_nodes)
           end
+
+          # Which layer each background ended up on, for everything that has to name one by
+          # number afterwards. The blend unit is the only such thing today, and it cannot
+          # work it out for itself: the number is not where the background sits in the
+          # program, it is what was free on the screen the background belongs to.
+          @layer_blend.hardware_layers = @backgrounds.transform_values(&:bg)
 
           colors = banks.entries
           @emit.data_blobs[BG_SHARED_PAL] = colors.pack("v*")

@@ -649,4 +649,82 @@ class TestLayerTransparency < Minitest::Test
   def test_the_report_says_seeing_through_a_layer_is_free
     assert_includes report_of(scenery_program(40)), "the display blends it as it draws, for nothing"
   end
+
+  # --- a see-through layer in a game that has SCENES ---
+  #
+  # The display is told which layers to blend by NUMBER, and scenes take turns with the
+  # console's layers — so the number a background sits on depends on which scene it was
+  # declared in, and a scene that sees through nothing must have the blend off rather than
+  # pointed at whatever background inherited that number.
+
+  SWITCH_AT = 6 # frames of the first scene before the game hands over to the second
+
+  # A banner scene that sees through nothing, handing over to a floor with a pane of glass
+  # over it. The pane is the SIXTH thing in the program's list of scenery and the SECOND on
+  # the hardware, which is the whole of what this is about.
+  private def scenes_that_take_turns
+    tile = SOLID_TILE
+    program do
+      screen :tiled
+      image(:back, "#" => :red) { tile }
+      image(:front, "#" => :white) { tile }
+      image(:other, "#" => :green) { tile }
+      tiles :backset, "#" => :back
+      tiles :frontset, "#" => :front
+      tiles :otherset, "#" => :other
+      full = Array.new(20) { "#" * 30 }
+      layers :banner, :sky, :deep, :glass
+      var :state, 0
+
+      scene :title do
+        layer(:banner) { background :banner, tiles: :otherset, map: full }
+        layer(:sky) { background :sky, tiles: :otherset, map: full }
+      end
+
+      scene :play do
+        layer(:deep) { background :floor, tiles: :backset, map: full }
+        layer(:glass, transparency: 50) { background :pane, tiles: :frontset, map: full }
+      end
+
+      tick = var :tick, 0
+      game_loop do
+        tick.add! 1
+        (tick > SWITCH_AT).then { set! :state, 1 }
+        case_var(:state) do
+          when_val 0, :title
+          when_val 1, :play
+        end
+      end
+    end
+  end
+
+  def test_a_scene_sees_through_its_own_layer
+    assert_equal HALF_WHITE_OVER_RED,
+                 shown(scenes_that_take_turns, *SCENERY_XY, frames: SWITCH_AT + 4),
+                 "the scene's pane does not show the floor under it"
+  end
+
+  # The half that was wrong: the console was told to blend a layer number the pane is not
+  # on, so it drew the pane solid and the floor under it simply was not there.
+  def test_the_console_sees_through_a_scenes_own_layer_the_same
+    assert_equal HALF_WHITE_OVER_RED,
+                 console(scenes_that_take_turns, *SCENERY_XY, "SCNBLD", frames: SWITCH_AT + 6),
+                 "the console drew the scene's pane solid"
+  end
+
+  def test_the_two_backends_draw_the_same_screen_when_a_scene_sees_through_a_layer
+    assert_backends_agree(scenes_that_take_turns, frames: SWITCH_AT + 4)
+  end
+
+  # ...and the scene BEFORE it, which sees through nothing, must not have picked up the
+  # blend. Its two backgrounds sit on the layers the dive's floor and pane later use, so a
+  # blend set up once at boot would quietly make the banner see-through.
+  def test_a_scene_that_sees_through_nothing_is_drawn_solid
+    green = RubyGBA::Graphics::Color.resolve(:green)
+
+    assert_equal green, shown(scenes_that_take_turns, *SCENERY_XY, frames: 2),
+                 "the banner scene is blended on the oracle"
+    assert_equal green, console(scenes_that_take_turns, *SCENERY_XY, "SCNSLD", frames: 3),
+                 "the banner scene is blended on the console"
+  end
 end
