@@ -38,6 +38,40 @@ module RubyGBA
     # and each can be scrolled independently (scroll a near and a far layer at different
     # speeds for parallax). See {Background}.
     module Tiled
+      # WHAT THE BUILD KNOWS ABOUT ONE BACKGROUND, from the line that declares it to the
+      # last pass before the tree is handed over.
+      #
+      # A background gathers its facts over a whole program. It is declared in one place,
+      # and then — on the handle, in another file, inside a scene — it is scrolled, turned,
+      # handed a different map, or has its rows bent. Each of those needs a write put in
+      # the gap between frames at the end of the build, and several of them are refused
+      # against each other: a layer that turns has no scroll of its own, so scrolling one
+      # and then turning it is a friendly error either way round.
+      #
+      # ONE RECORD PER BACKGROUND, rather than one collection per fact, because the facts
+      # are read together. "Can this background turn?" is three of them at once, and every
+      # rule that spans two would otherwise be a lookup in each, kept in step by hand —
+      # the exact failure `pool` exists to spare a game writing its own data.
+      #
+      # Every field but +node+, +scene_gate+ and +bends_rows+ holds the NAME of a hidden
+      # variable the build allocated, and is nil until the program does the thing that
+      # needs it. So a background that is never scrolled has no +scroll_x+, and asking
+      # #scrolls? is the same question as asking whether the game ever scrolled it.
+      DeclaredBackground = Struct.new(:node, :scroll_x, :scroll_y, :shown_map, :live_map,
+                                      :angle, :scale, :scene_gate, :bends_rows,
+                                      keyword_init: true) do
+        def scrolls? = !scroll_x.nil?
+        def swaps_maps? = !shown_map.nil?
+        def bends_rows? = !bends_rows.nil?
+
+        # Has the build wired this one up to turn — allocated its angle and size, and
+        # arranged for its matrix to be written every frame? Not the same question as
+        # whether it is a layer of the turning KIND, which a `screen :rotozoom`
+        # background is from the line that declares it and before anything turns it.
+        # That one is Builder#background_turns?, off the node's own flag.
+        def turns_each_frame? = !angle.nil?
+      end
+
       # Define a tileset. Two ways to author it:
       #
       # 1. BY CHARACTER — a map from a character to the tile {#image} it stands for.
@@ -222,9 +256,15 @@ module RubyGBA
         grids = drawn.map { |rows, _| rows.map { |row| row.map { |img| img && index_of[img] } } }
         check_maps_are_one_size!(name, map_names, grids)
 
-        # Kept by name so `.rotate`/`.scale`, which come later on the handle, can mark
-        # this one as the layer that turns — see #make_background_affine.
-        @background_nodes[name] =
+        # The line that makes the record every later fact about this background is written
+        # into. The node is kept in it so `.rotate`/`.scale`, which come later on the
+        # handle, can mark this one as the layer that turns — see #make_background_affine.
+        #
+        # A record already there is KEPT and given the new node, never replaced: a program
+        # that declares one name twice has already said things about the first one, and a
+        # fresh record would drop them — a scroll it forgot would stop being moved to the
+        # gap between frames and would tear where the author wrote it.
+        (@backgrounds[name] ||= DeclaredBackground.new).node =
           record(Build.background(name, tiles: tile_names, map: grids.first,
                                         maps: map_names.size > 1 ? grids : [],
                                         tile_w: set[:tile_w], tile_h: set[:tile_h],
@@ -242,7 +282,7 @@ module RubyGBA
         boot += [:"__bg_#{name}_map", :"__bg_#{name}_live"] if map_names.size > 1
         boot.each { |var| at_boot(Build.set(var, Build.int(0))); ensure_var(var) }
         DSL::Background.new(self, name: name, scroll_x: scroll_x, scroll_y: scroll_y,
-                             walls: wall_rects(img_rows, set), affine: @screen_mode == :rotozoom,
+                             walls: wall_rects(img_rows, set),
                              cells: [grids.first.map(&:length).max || 0, grids.first.length],
                              tile_index: tile_lookup(set, index_of),
                              bitmap: @screen_mode == :bitmap,
@@ -273,21 +313,20 @@ module RubyGBA
       # `screen :bitmap` has no background layer at all, only pixels you draw, so there is
       # nothing there to turn.
       def make_background_affine(name)
-        return @bg_affine_vars[name] if @bg_affine_vars.key?(name)
+        background = declared_background(name)
+        return [background.angle, background.scale] if background.turns_each_frame?
 
         refuse_turning_without_a_tile_screen!(name)
         refuse_turning_a_scrolled_background!(name)
 
-        # fetch, not dig: this is only ever reached from a handle `background` handed back,
-        # so a name with no node is a bug here rather than something to shrug at.
-        @background_nodes.fetch(name).affine = true
+        background.node.affine = true
         angle_var = :"__bg_#{name}_angle"
         scale_var = :"__bg_#{name}_scale"
         at_boot(Build.set(angle_var, Build.int(0)))
         ensure_var(angle_var)
         var(scale_var, 1.0)
         affine_each_frame(name, angle_var, scale_var)
-        @bg_affine_vars[name] = [angle_var, scale_var]
+        [angle_var, scale_var]
       end
 
       # Record a background's per-row bend (see {Background#scroll_each_row}). The block
@@ -308,13 +347,13 @@ module RubyGBA
         # A bend gives each row its own sideways SCROLL, and a layer that turns has no
         # scroll to give — it moves by turning. Before a tiled background could turn, the
         # screen check above already covered this; now it has to be said.
-        if @bg_affine_vars.key?(name)
+        if declared_background(name).turns_each_frame?
           raise ArgumentError,
                 "#{name}.scroll_each_row bends a background row by row, and background :#{name} turns " \
                 "and resizes. A layer that turns has no scroll to bend. To fix this, bend a different " \
                 "background, or stop turning :#{name}."
         end
-        @bent_backgrounds << name # ...and the other order: turning it later is refused too
+        declared_background(name).bends_rows = true # ...and the other order: turning it later is refused too
 
         ensure_var(row_var)
         node = Build.scroll_rows(name, row: row_var, offset: Build.int(0))
@@ -333,8 +372,9 @@ module RubyGBA
       # console pans this kind of layer by moving its whole matrix, and its own scroll
       # registers do nothing at all.
       def refuse_turning_a_scrolled_background!(name)
-        moves = if @scrolled_backgrounds.key?(name) then "scrolls"
-                elsif @bent_backgrounds.include?(name) then "bends the rows of"
+        background = declared_background(name)
+        moves = if background.scrolls? then "scrolls"
+                elsif background.bends_rows? then "bends the rows of"
                 end
         return unless moves
 

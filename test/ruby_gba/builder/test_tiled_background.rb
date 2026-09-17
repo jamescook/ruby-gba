@@ -50,6 +50,39 @@ class TestTiledBackground < Minitest::Test
     assert_equal red,  i.screen.pixel(4, 4), "cell (1,1) is the red tile"
   end
 
+  # DECLARING ONE NAME TWICE KEEPS WHAT THE PROGRAM ALREADY SAID ABOUT IT.
+  #
+  # A background gathers facts over a whole program — it is declared, and then scrolled,
+  # turned or handed another map, possibly from another file. The scroll is not written
+  # where the author asked for it: it is moved to the gap between frames, because the
+  # display re-reads a background's position for every line it draws and writing it
+  # mid-picture shifts only the lines below and tears the screen in half.
+  #
+  # So a second `background :same_name` that dropped what was already known would leave
+  # that scroll where it was written, and the game would tear. This asserts where the
+  # write sits rather than what the picture looks like, because both placements draw the
+  # same picture on a headless run — the difference is a race against the display.
+  def test_declaring_a_background_twice_keeps_its_scroll_in_the_gap_between_frames
+    b = Builder.new
+    b.instance_eval { screen :tiled }
+    solid_tile(b, :red_tile, :red)
+    map = Array.new(20) { "R" * 30 }
+    b.instance_eval do
+      tiles :set, "R" => :red_tile
+      field = background :field, tiles: :set, map: map
+      game_loop do
+        wait_vblank
+        field.scroll_by 1, 0
+      end
+      background :field, tiles: :set, map: map # the same name again
+    end
+    b.emit_pending_functions
+
+    body = b.program.walk.find { |node| node.kind == :loop }.children.map(&:kind)
+    assert_equal 1, body.index(:scroll_background),
+                 "the scroll is written right after the wait, not where it was called: #{body.inspect}"
+  end
+
   def test_a_blank_map_cell_leaves_the_background_showing
     b = Builder.new
     b.instance_eval do

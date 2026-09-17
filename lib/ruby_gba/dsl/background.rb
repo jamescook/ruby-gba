@@ -30,9 +30,6 @@ module RubyGBA
       # @param scroll_y [Symbol] the variable holding the window's top edge (in pixels)
       # @param walls [Array<Array(Integer,Integer,Integer,Integer)>] the solid-tile
       #   rectangles [x, y, w, h] in pixels, if the tileset marked any tiles `solid:`
-      # @param affine [Boolean] built under `screen :rotozoom` — the console's rotate/scale
-      #   layer, which pans by moving the whole matrix (see #rotate / #scale) rather than
-      #   the plain scroll registers a `screen :tiled` layer pans with
       # @param cells [Array(Integer, Integer)] how many cells across and down the map is
       # @param tile_index [Hash] each name the map was written in (a tileset character, or
       #   a number from an imported sheet) to the tile it means — what `set_tile` reads
@@ -41,7 +38,7 @@ module RubyGBA
       # @param map_names [Array<Object>] the maps this background was declared with, in
       #   order — what `show_map` names. One entry (the background's own name) for a
       #   background declared with a single map, which can never be handed another.
-      def initialize(builder, name:, scroll_x:, scroll_y:, walls: [], affine: false,
+      def initialize(builder, name:, scroll_x:, scroll_y:, walls: [],
                      cells: [0, 0], tile_index: {}, bitmap: false, map_names: nil,
                      solid_cells: [], tile_size: [8, 8])
         @builder = builder
@@ -51,7 +48,6 @@ module RubyGBA
         @walls = walls
         @solid_cells = solid_cells
         @tile_size = tile_size
-        @affine = affine
         @cells = cells
         @tile_index = tile_index
         @bitmap = bitmap
@@ -373,8 +369,12 @@ module RubyGBA
           "tiles are #{known}#{@tile_index.size > 8 ? ', and more' : ''} — the ones its tileset names."
       end
 
+      # Asked of the build rather than kept here — see Builder#background_turns? for why
+      # a copy on this handle was a second answer to keep in step.
+      def turning_layer? = @builder.background_turns?(@name)
+
       def ensure_not_affine!(verb)
-        return unless @affine
+        return unless turning_layer?
 
         raise ArgumentError,
               "#{@name}.#{verb} scrolls a background straight. Background :#{@name} turns and " \
@@ -382,15 +382,12 @@ module RubyGBA
               "#{@name}.rotate or #{@name}.scale."
       end
 
-      # Allocate (once) and cache this background's angle/scale variables. A friendly
-      # error if the screen can't turn or resize a background at all (see
-      # Builder::Tiled#make_background_affine).
+      # This background's angle and size variables, allocated the first time they are
+      # asked for. The build holds them, so asking again is a lookup rather than a second
+      # pair; a friendly error if the screen cannot turn or resize a background at all
+      # (see Builder::Tiled#make_background_affine).
       def affine_vars
-        return @affine_vars if @affine_vars
-
-        @affine_vars = @builder.make_background_affine(@name)
-        @affine = true # a layer that turns has no scroll of its own — see #ensure_not_affine!
-        @affine_vars
+        @builder.make_background_affine(@name)
       end
 
       # The size variable as a fraction-carrying handle, the same way a sprite's does.

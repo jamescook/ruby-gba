@@ -121,14 +121,9 @@ module RubyGBA
       @expressions = []        # every expression Value built; the unparented ones are orphans
       @present_nodes = []      # every frame's present-objects node, filled with the full object list at finalize
       @frame_boundaries = []   # each frame's wait node, the anchor the scroll writes are inserted after at finalize
-      @scrolled_backgrounds = {} # name → [x var, y var] for every background the game scrolls
+      @backgrounds = {}          # name → a DeclaredBackground, everything the build learns about one (see Builder::Tiled)
       @inline_scroll_nodes = []  # scroll nodes recorded at their call site, dropped once a frame boundary exists
-      @background_nodes = {}     # name → the `background` node, so a later `.rotate`/`.scale` can mark it as the layer that turns
-      @bent_backgrounds = []     # names given a per-row bend, which is a scroll — so turning one later is refused
-      @bg_affine_vars = {}       # name → [angle var, scale var] for every background ever turned/resized
-      @affine_backgrounds = {}   # name → [angle var, scale var], the affine counterpart to @scrolled_backgrounds
       @inline_affine_nodes = []  # affine_background nodes recorded at their call site, moved to the frame boundary
-      @swapped_backgrounds = {}  # name → [said var, live var] for every background handed a whole different map
       @inline_map_nodes = []     # show_map nodes recorded at their call site, dropped once a frame boundary exists
       @per_frame_routines = []   # func names `once_a_frame` declared, called at every frame boundary
       @each_frame_seq = 0        # counts once_a_frame bodies, to name each one's hidden routine
@@ -456,7 +451,8 @@ module RubyGBA
     # +node+ is the write recorded at the call site, which finalize drops once it
     # knows there is a frame boundary to move it to. A {Background} calls this.
     def scroll_each_frame(name, x_var, y_var, node)
-      @scrolled_backgrounds[name] = [x_var, y_var]
+      declared_background(name).scroll_x = x_var
+      declared_background(name).scroll_y = y_var
       @inline_scroll_nodes << node
     end
 
@@ -465,7 +461,8 @@ module RubyGBA
     # map it wants. +shown_var+ is what the game said; +live_var+ is what is really in the
     # background's cells. A {Background} calls this from `show_map`.
     def swap_maps_each_frame(name, shown_var, live_var, node)
-      @swapped_backgrounds[name] = [shown_var, live_var]
+      declared_background(name).shown_map = shown_var
+      declared_background(name).live_map = live_var
       @inline_map_nodes << node
     end
 
@@ -487,7 +484,19 @@ module RubyGBA
     # affine title screen would keep distorting a bitmap gameplay scene that never asked
     # for it.
     def affine_each_frame(name, angle_var, scale_var)
-      @affine_backgrounds[name] = [angle_var, scale_var, @current_scene_gate]
+      background = declared_background(name)
+      background.angle = angle_var
+      background.scale = scale_var
+      background.scene_gate = @current_scene_gate
+    end
+
+    # Does :+name+ turn and resize rather than scroll? True from the line that declares
+    # it on `screen :rotozoom`, where that is the only kind of layer there is, and from
+    # the first `.rotate`/`.scale` anywhere else. A {Background} handle asks this rather
+    # than keeping an answer of its own, because the fact is settled in two places at two
+    # moments and a copy on the handle was a second answer to keep in step.
+    def background_turns?(name)
+      declared_background(name).node.affine
     end
 
     # An affine_background write recorded at its call site (by {Background#rotate} /
@@ -766,17 +775,52 @@ module RubyGBA
     # A program with no frame boundary (no game loop) keeps the writes where they
     # were called — nothing is pacing it, so there is no gap to move them to.
     def finalize_background_scrolls
-      return if @scrolled_backgrounds.empty? || @frame_boundaries.empty?
+      write_between_frames(@inline_scroll_nodes, backgrounds_that(&:scrolls?)) do |name, background|
+        Build.scroll_background(name, x: Build.var_ref(background.scroll_x),
+                                      y: Build.var_ref(background.scroll_y))
+      end
+    end
 
-      @inline_scroll_nodes.each { |node| node.parent&.children&.delete(node) }
+    # Everything the build knows about the background called +name+ — the record
+    # {Tiled#background} made on the line that declared it.
+    #
+    # fetch, not a lookup that makes one: every caller but that verb is reached from a
+    # handle the verb already handed back, so a name with no record is a bug here rather
+    # than something to shrug at. Made silently, an empty record would be written into,
+    # walked at finalize, and emit a write for a background that does not exist.
+    def declared_background(name)
+      @backgrounds.fetch(name)
+    end
+
+    # The declared backgrounds the block says yes to, in declaration order —
+    # `backgrounds_that(&:scrolls?)`.
+    def backgrounds_that
+      @backgrounds.select { |_name, background| yield(background) }
+    end
+
+    # PUT A PER-BACKGROUND WRITE IN THE GAP BETWEEN FRAMES, at every frame boundary there
+    # is — the shared half of the three passes above and below, which differ only in which
+    # backgrounds they are about and what each one's write says.
+    #
+    # +inline_nodes+ are the writes recorded where the author called for them, dropped here
+    # because there is a better place to put them. A program with no frame boundary keeps
+    # them: nothing is pacing it, so there is no gap to move them to.
+    #
+    # The backgrounds are written back to front, because each write is inserted directly
+    # after the wait and so pushes the one before it further along — reversing puts them
+    # back in the order they were declared.
+    def write_between_frames(inline_nodes, backgrounds)
+      return if backgrounds.empty? || @frame_boundaries.empty?
+
+      inline_nodes.each { |node| node.parent&.children&.delete(node) }
 
       @frame_boundaries.each do |wait_node|
         container = wait_node.parent
         at = container&.children&.index(wait_node)
         next unless at
 
-        @scrolled_backgrounds.reverse_each do |name, (x_var, y_var)|
-          node = Build.scroll_background(name, x: Build.var_ref(x_var), y: Build.var_ref(y_var))
+        backgrounds.reverse_each do |name, background|
+          node = yield(name, background)
           container.children.insert(at + 1, node)
           node.parent = container
         end
@@ -799,22 +843,11 @@ module RubyGBA
     # SAID apart from what is really IN the cells turns that into one comparison: they
     # differ exactly on the frame the answer changed, which is the frame to copy on.
     def finalize_background_maps
-      return if @swapped_backgrounds.empty? || @frame_boundaries.empty?
-
-      @inline_map_nodes.each { |node| node.parent&.children&.delete(node) }
-
-      @frame_boundaries.each do |wait_node|
-        container = wait_node.parent
-        at = container&.children&.index(wait_node)
-        next unless at
-
-        @swapped_backgrounds.reverse_each do |name, (shown_var, live_var)|
-          node = Build.if_(Build.binop(:!=, Build.var_ref(shown_var), Build.var_ref(live_var)),
-                           Build.show_map(name, which: Build.var_ref(shown_var)),
-                           Build.set(live_var, Build.var_ref(shown_var)))
-          container.children.insert(at + 1, node)
-          node.parent = container
-        end
+      write_between_frames(@inline_map_nodes, backgrounds_that(&:swaps_maps?)) do |name, background|
+        # A fresh var_ref each time: no node is ever shared between two places in the tree.
+        Build.if_(Build.binop(:!=, Build.var_ref(background.shown_map), Build.var_ref(background.live_map)),
+                  Build.show_map(name, which: Build.var_ref(background.shown_map)),
+                  Build.set(background.live_map, Build.var_ref(background.shown_map)))
       end
     end
 
@@ -828,22 +861,11 @@ module RubyGBA
     # the same as a scene-owned sprite or HUD glyph — a background turned only inside one
     # scene must stop writing BG2's registers once that scene isn't the live one.
     def finalize_background_affine
-      return if @affine_backgrounds.empty? || @frame_boundaries.empty?
-
-      @inline_affine_nodes.each { |node| node.parent&.children&.delete(node) }
-
-      @frame_boundaries.each do |wait_node|
-        container = wait_node.parent
-        at = container&.children&.index(wait_node)
-        next unless at
-
-        @affine_backgrounds.reverse_each do |name, (angle_var, scale_var, gate)|
-          active = gate ? Build.binop(:==, Build.var_ref(gate[0]), Build.int(gate[1])) : Build.int(1)
-          node = Build.affine_background(name, angle: Build.var_ref(angle_var), scale: Build.var_ref(scale_var),
-                                                active: active)
-          container.children.insert(at + 1, node)
-          node.parent = container
-        end
+      write_between_frames(@inline_affine_nodes, backgrounds_that(&:turns_each_frame?)) do |name, background|
+        gate = background.scene_gate
+        active = gate ? Build.binop(:==, Build.var_ref(gate[0]), Build.int(gate[1])) : Build.int(1)
+        Build.affine_background(name, angle: Build.var_ref(background.angle),
+                                      scale: Build.var_ref(background.scale), active: active)
       end
     end
 
