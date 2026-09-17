@@ -774,10 +774,20 @@ module RubyGBA
     #
     # A program with no frame boundary (no game loop) keeps the writes where they
     # were called — nothing is pacing it, so there is no gap to move them to.
+    #
+    # Each write is gated to its owning scene, the same as a scene-owned sprite, HUD glyph
+    # or turning background (see #finalize_background_affine). WHERE A BACKGROUND SITS IS A
+    # PROPERTY OF THE LAYER rather than of the background, and scenes take turns with the
+    # layers — so two backgrounds that share one both write its position every frame, and
+    # the one declared later wins wherever they disagree. A title screen of drifting
+    # scenery handing over to a game that starts at the top of its map was pinned still by
+    # the game's nought, on a screen the game was not even on.
     def finalize_background_scrolls
       write_between_frames(@inline_scroll_nodes, backgrounds_that(&:scrolls?)) do |name, background|
-        Build.scroll_background(name, x: Build.var_ref(background.scroll_x),
-                                      y: Build.var_ref(background.scroll_y))
+        scroll = Build.scroll_background(name, x: Build.var_ref(background.scroll_x),
+                                               y: Build.var_ref(background.scroll_y))
+        gate = background.scene_gate
+        gate ? Build.if_(Build.binop(:==, Build.var_ref(gate[0]), Build.int(gate[1])), scroll) : scroll
       end
     end
 

@@ -264,12 +264,19 @@ module RubyGBA
         # that declares one name twice has already said things about the first one, and a
         # fresh record would drop them — a scroll it forgot would stop being moved to the
         # gap between frames and would tear where the author wrote it.
-        (@backgrounds[name] ||= DeclaredBackground.new).node =
+        declared = (@backgrounds[name] ||= DeclaredBackground.new)
+        declared.node =
           record(Build.background(name, tiles: tile_names, map: grids.first,
                                         maps: map_names.size > 1 ? grids : [],
                                         tile_w: set[:tile_w], tile_h: set[:tile_h],
                                         scene: declaring_scene,
                                         affine: @screen_mode == :rotozoom))
+        # WHICH SCENE THIS BACKGROUND BELONGS TO, so that everything written for it each
+        # frame is written only while that scene is the live one. Where a background sits
+        # is a property of the console's LAYER rather than of the background, and scenes
+        # take turns with the layers — so two backgrounds that share one would both write
+        # its position every frame, and whichever was declared later would win.
+        declared.scene_gate ||= @current_scene_gate
 
         # The window's top-left, in pixels, tracked in two hidden variables (cleared at
         # boot since console RAM isn't zero at power-on). A background that never

@@ -569,4 +569,67 @@ class TestSceneBackgrounds < Minitest::Test
   def test_the_two_backends_draw_the_same_screen_in_both_arrangements
     assert_backends_agree(a_turning_title_and_a_scrolling_game, frames: SWITCH_AT + 4)
   end
+
+  # A SCENE'S BACKGROUND MUST NOT MOVE ANOTHER SCENE'S LAYER.
+  #
+  # Where a background SITS is a property of the console's layer, not of the background —
+  # and scenes take turns with the layers. So a background belonging to a scene that is
+  # not on screen must leave the scroll registers alone: two backgrounds sharing a layer
+  # both write it every frame otherwise, and the second one declared wins. A title screen
+  # of drifting scenery handing over to a game that starts at the top of its map had the
+  # game's nought pinning the title still.
+  private def a_drifting_title_and_a_still_game
+    tile = SOLID_TILE
+    program do
+      screen :tiled
+      image(:red_art, "#" => :red) { tile }
+      image(:blue_art, "#" => :blue) { tile }
+      tiles :red_set, "#" => :red_art
+      tiles :both, "#" => :red_art, "o" => :blue_art
+      striped = Array.new(32) { (0...32).map { |c| (c % 4).zero? ? "o" : "#" }.join }
+      plain = Array.new(32) { "#" * 32 }
+      layers :drifting, :still
+      var :state, 0
+
+      scene :title do
+        drift = layer(:drifting) { background :drift, tiles: :both, map: striped }
+        drift.scroll_by 2, 0
+      end
+
+      # The game's own scenery follows how far into its map you have walked, which is
+      # nought at the start — and nought is what pinned the title still.
+      scene :play do
+        ground = layer(:still) { background :ground, tiles: :red_set, map: plain }
+        ground.scroll_to 0, 0
+      end
+
+      game_loop do
+        case_var(:state) do
+          when_val 0, :title
+          when_val 1, :play
+        end
+      end
+    end
+  end
+
+  # Read a row of the title, frame by frame: scenery that is drifting gives a different
+  # row each frame, and scenery pinned still gives the same one over and over.
+  private def rows_over_time(verifier, frames)
+    (0...frames).map do
+      row = (0...48).map { |x| verifier.pixel_gba(x, 8) }
+      verifier.step
+      row
+    end
+  end
+
+  def test_the_console_keeps_a_scenes_scenery_drifting
+    v = assert_emulator_loads_rom(assemble_rom(a_drifting_title_and_a_still_game, name: "SCNSCR"), frames: 3)
+
+    assert_operator rows_over_time(v, 6).uniq.length, :>=, 4,
+                    "the title's scenery is pinned still by a scene that is not on screen"
+  end
+
+  def test_the_two_backends_agree_about_a_scenes_drifting_scenery
+    assert_backends_agree(a_drifting_title_and_a_still_game, frames: 6)
+  end
 end
