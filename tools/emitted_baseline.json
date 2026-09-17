@@ -6,11 +6,11 @@
       "data": 0
     },
     "bird": {
-      "code": 7552,
+      "code": 7532,
       "data": 0
     },
     "breakout": {
-      "code": 82816,
+      "code": 82788,
       "data": 0
     },
     "buffered_bounce": {
@@ -18,7 +18,11 @@
       "data": 0
     },
     "corridor": {
-      "code": 8986,
+      "code": 8978,
+      "data": 0
+    },
+    "dive": {
+      "code": 28188,
       "data": 0
     },
     "floating_digits": {
@@ -38,11 +42,11 @@
       "data": 0
     },
     "hero": {
-      "code": 3036,
+      "code": 3016,
       "data": 0
     },
     "jukebox": {
-      "code": 47500,
+      "code": 65518,
       "data": 0
     },
     "lake": {
@@ -66,7 +70,7 @@
       "data": 0
     },
     "piano": {
-      "code": 21112,
+      "code": 28156,
       "data": 0
     },
     "pixels": {
@@ -74,15 +78,15 @@
       "data": 0
     },
     "pong": {
-      "code": 37102,
+      "code": 47678,
       "data": 0
     },
     "raycaster": {
-      "code": 7036,
+      "code": 7032,
       "data": 0
     },
     "rotozoom_bg": {
-      "code": 3700,
+      "code": 3728,
       "data": 0
     },
     "scroll": {
@@ -94,7 +98,7 @@
       "data": 0
     },
     "shmup": {
-      "code": 19444,
+      "code": 34952,
       "data": 0
     },
     "snake": {
