@@ -108,6 +108,13 @@ class TestDiveExample < Minitest::Test
     i.run(Dive.program, frames: frames)
   end
 
+  # A dive starts with the diver's head out of the water, taking a breath, so a test that
+  # wants them properly under has to swim them down.
+  private def swimming_down_for(frames)
+    i = Reference.new.input_each_frame { |f| f > START_AT ? %i[start down] : [] }
+    i.run(Dive.program, frames: frames)
+  end
+
   # The other arrangement, in the same cartridge: four layers that scroll and nothing
   # turning. Nothing in the game asks for either one — the title turns a background and
   # this screen does not, and the build reads the arrangement off that.
@@ -134,7 +141,7 @@ class TestDiveExample < Minitest::Test
   # into by accident, and the water is see-through, so both halves show at once: the diver
   # is visible, and it is visibly UNDER water rather than drawn plain over it.
   def test_the_diver_swims_behind_the_water_and_shows_through_it
-    i = dive_after(START_AT + 10)
+    i = swimming_down_for(START_AT + 30)
     drawn = i.sprites(:diver).first
     refute_nil drawn, "the diver is not being drawn at all"
 
@@ -172,6 +179,17 @@ class TestDiveExample < Minitest::Test
                  "the head is still being drawn through water"
     refute_equal Dive::Ink::SUIT, i.screen.pixel(drawn.x + SUIT_ACROSS, drawn.y + SUIT_DOWN),
                  "the whole diver came out — the body should still be under"
+  end
+
+  # Bubbles come off a diver who is under water, and stop at the top of the sea. Both are
+  # the same line of the game asking where the surface is, which is why neither one needs
+  # a picture to prove it: a bubble that is still there is still being drawn.
+  def test_no_bubbles_come_off_a_diver_whose_head_is_out
+    assert_empty surfaced.sprites(:bubble), "bubbles are still rising from a diver in the air"
+  end
+
+  def test_bubbles_rise_from_a_diver_under_water
+    refute_empty swimming_down_for(START_AT + 30).sprites(:bubble), "no bubbles come off the diver at all"
   end
 
   # ...and the console draws the same half-and-half diver, which is the half no oracle can
@@ -293,7 +311,7 @@ class TestDiveExample < Minitest::Test
   # stay exactly as drawn and only the colours move, which is why a shoal of six costs one
   # picture rather than six.
   def test_the_fish_wear_their_own_colours
-    i = dive_after(START_AT + 10)
+    i = swimming_down_for(START_AT + 30)
     seen = i.sprites(:fish).filter_map { |f| i.screen.pixel(f.x + FLANK_ACROSS, f.y + FLANK_DOWN) }
 
     assert_operator seen.length, :>=, SPECIES, "not every fish is being drawn"

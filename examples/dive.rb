@@ -154,7 +154,7 @@ module Dive
       sank.set! down.clamp(0, DEEPEST) - depth
       depth.set! down.clamp(0, DEEPEST)
       sea.follow(depth)
-      diver.update(down.clamp(-RISE, 0))
+      diver.update(down.clamp(-RISE, 0), sea.surface_on_screen(depth))
       fish.update(sank, sea.surface_on_screen(depth))
 
       gauge.spend 1

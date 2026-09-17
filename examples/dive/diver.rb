@@ -70,13 +70,15 @@ module Dive
 
     # +above_water+ is how far the diver has climbed past the top of the sea: 0 while
     # there is still water above them, and negative once they are breaking the surface.
-    def update(above_water)
+    # +surface+ is where the top of the sea is on screen, which is what the bubbles are
+    # measured against — they come off a diver who is under it and stop when they reach it.
+    def update(above_water, surface)
       @build.held(:left).then { @diver.move :left, by: SPEED }
       @build.held(:right).then { @diver.move :right, by: SPEED }
       @diver.y.set! above_water + RESTING_Y
       @diver.clamp_to_screen
-      breathe_out
-      rise
+      breathe_out(surface)
+      rise(surface)
     end
 
     def reset
@@ -86,20 +88,24 @@ module Dive
 
     private
 
-    # A bubble every so often, from the diver's tank. The pool quietly ignores a spawn it
-    # has no room for, so there is no test here for being full.
-    def breathe_out
+    # A bubble every so often, from the diver's tank — and only while the tank is under
+    # water, because a diver with their head in the air is breathing it rather than
+    # letting it go. The pool quietly ignores a spawn it has no room for, so there is no
+    # test here for being full.
+    def breathe_out(surface)
       @since_last.add! 1
-      (@since_last >= EVERY).then do
+      ((@since_last >= EVERY) & (@diver.y > surface)).then do
         @since_last.set! 0
         @bubbles.spawn x: @diver.x + FROM_BACK, y: @diver.y
       end
     end
 
-    def rise
+    # Up, and gone when they reach the top of the sea. Deep down the surface is somewhere
+    # overhead and this reads as the top of the screen, which is the same test.
+    def rise(surface)
       @bubbles.each do |bubble|
         bubble.y.sub! BUBBLE_RISE
-        bubble.above_top?.then { bubble.remove }
+        (bubble.y < surface).then { bubble.remove }
       end
     end
 
