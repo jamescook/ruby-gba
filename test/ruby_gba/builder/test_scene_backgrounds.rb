@@ -24,7 +24,7 @@ class TestSceneBackgrounds < Minitest::Test
   # The frame the game moves from the first scene to the second.
   SWITCH_AT = 4
 
-  def program(&block)
+  private def program(&block)
     b = Builder.new
     b.instance_eval(&block)
     b.emit_pending_functions
@@ -33,7 +33,7 @@ class TestSceneBackgrounds < Minitest::Test
 
   # Two scenes that take turns, +per_scene+ full-screen scrolling backgrounds in each.
   # The last one declared in a scene is the one in front, so it is the colour that shows.
-  def two_scenes(per_scene)
+  private def two_scenes(per_scene)
     tile = SOLID_TILE
     program do
       screen :tiled
@@ -57,9 +57,9 @@ class TestSceneBackgrounds < Minitest::Test
     end
   end
 
-  def shown(prog, frames) = Reference.new.run(prog, frames: frames).screen.pixel(*MIDDLE)
+  private def shown(prog, frames) = Reference.new.run(prog, frames: frames).screen.pixel(*MIDDLE)
 
-  def on_console(prog, name, frames)
+  private def on_console(prog, name, frames)
     assert_emulator_loads_rom(assemble_rom(prog, name: name), frames: frames).pixel_gba(*MIDDLE)
   end
 
@@ -79,7 +79,7 @@ class TestSceneBackgrounds < Minitest::Test
   # SCENERY EVERY SCREEN SHOWS IS IN EVERY SCREENFUL, so it is what each scene has left
   # that the scene's own has to fit in. A game with a backdrop up throughout and three
   # backgrounds in each of two scenes is four layers at a time, and fits exactly.
-  def a_backdrop_and_two_scenes(per_scene)
+  private def a_backdrop_and_two_scenes(per_scene)
     tile = SOLID_TILE
     program do
       screen :tiled
@@ -138,7 +138,7 @@ class TestSceneBackgrounds < Minitest::Test
   # order, while the scenes it appears over hold different numbers of layers — so an order
   # read off the quiet scene puts the backdrop in FRONT of the busy scene's back layer.
   # Read where only the busy scene's backmost layer draws.
-  def uneven_over_a_backdrop(first, second)
+  private def uneven_over_a_backdrop(first, second)
     tile = SOLID_TILE
     program do
       screen :tiled
@@ -208,7 +208,7 @@ class TestSceneBackgrounds < Minitest::Test
   # still switched on when the quiet one takes over, still pointed at the busy scene's
   # maps. A game walking from a parallax field into a plain room would show the field's
   # far layers through the room's floor.
-  def uneven_scenes(first, second)
+  private def uneven_scenes(first, second)
     tile = SOLID_TILE
     program do
       screen :tiled
@@ -272,6 +272,184 @@ class TestSceneBackgrounds < Minitest::Test
     assert_equal BLUE, on_console(two_scenes(1), "SCNBG4", SWITCH_AT + 6)
   end
 
+  # A SCENE'S BACKGROUND MOVES LIKE ANY OTHER. Scrolling one is what a room IS — a world
+  # bigger than the screen with a window over it — so scenery declared in the scene it
+  # belongs to has to scroll there, or declaring it where it belongs costs the game its
+  # movement.
+  #
+  # The same background twice, once at the top level and once inside a scene that runs
+  # every frame, each scrolled one pixel a frame. Said as "the two agree" rather than
+  # against a written-down offset, so no wrong-but-matching number can satisfy it.
+  private def scrolling_program(in_a_scene:)
+    tile = SOLID_TILE
+    program do
+      screen :tiled
+      image(:red_art, "#" => :red) { tile }
+      image(:blue_art, "#" => :blue) { tile }
+      tiles :set, "#" => :red_art, "." => :blue_art
+      # Stripes a tile wide, so a scroll of a few pixels is plain to see in one row.
+      striped = Array.new(20) { |r| (0...30).map { |c| (r + c).even? ? "#" : "." }.join }
+      if in_a_scene
+        scene(:play) do
+          field = background :field, tiles: :set, map: striped
+          field.scroll_by 1, 0
+        end
+        var :state, 0
+        game_loop { case_var(:state) { when_val 0, :play } }
+      else
+        field = background :field, tiles: :set, map: striped
+        game_loop { field.scroll_by 1, 0 }
+      end
+    end
+  end
+
+  # Three tiles of the top row, which is enough to see a scroll of a few pixels and short
+  # enough to read in a failure message. Either backend's reader answers to `pixel_gba`
+  # or `pixel`, so the block says which.
+  ACROSS_THREE_TILES = (0...24)
+
+  private def top_row(&pixel) = ACROSS_THREE_TILES.map(&pixel)
+
+  SCROLLED_FOR = 9
+
+  def test_a_background_declared_inside_a_scene_scrolls
+    at_top_level = Reference.new.run(scrolling_program(in_a_scene: false), frames: SCROLLED_FOR).screen
+    in_a_scene = Reference.new.run(scrolling_program(in_a_scene: true), frames: SCROLLED_FOR).screen
+
+    assert_equal top_row { |x| at_top_level.pixel(x, 0) }, top_row { |x| in_a_scene.pixel(x, 0) },
+                 "the scene's background did not scroll the way the same one at the top level did"
+  end
+
+  # The console is drawing while it boots and reaches its first pass a frame later than the
+  # interpreter does, so both runs are given that frame — the same offset the differential
+  # helper applies for a tiled screen, named here because this test does not use it.
+  CONSOLE_LAG = Differential::BOOT_FRAMES.fetch(:tiled)
+
+  def test_the_console_scrolls_a_scenes_background_too
+    at_top_level = assert_emulator_loads_rom(
+      assemble_rom(scrolling_program(in_a_scene: false), name: "SCNSC1"), frames: SCROLLED_FOR + CONSOLE_LAG
+    )
+    in_a_scene = assert_emulator_loads_rom(
+      assemble_rom(scrolling_program(in_a_scene: true), name: "SCNSC2"), frames: SCROLLED_FOR + CONSOLE_LAG
+    )
+
+    assert_equal top_row { |x| at_top_level.pixel_gba(x, 0) }, top_row { |x| in_a_scene.pixel_gba(x, 0) },
+                 "the console did not scroll the scene's background"
+  end
+
+  # A CELL CHANGED IN A SCENE'S BACKGROUND STAYS CHANGED. The other half of the same
+  # cause: putting a layer up sends its whole map again, so doing it every frame put back
+  # every cell the game had changed since. A door that opens, a pot that breaks, a heart
+  # that empties — each is one cell, and each was undone on the next frame.
+  #
+  # THE TWO BACKENDS DISAGREED ABOUT THIS ONE, which is the reason both halves are asserted
+  # rather than just the console's. The interpreter paints from its own copy of the map, so
+  # a changed cell was always painted back changed and this was already true there; the
+  # console re-sent the map and lost it. Measured before the fix: the interpreter kept the
+  # cell and the console put it back. So the interpreter was the right answer all along and
+  # the console now matches it.
+  private def changing_program
+    tile = SOLID_TILE
+    program do
+      screen :tiled
+      image(:red_art, "#" => :red) { tile }
+      image(:blue_art, "#" => :blue) { tile }
+      tiles :set, "#" => :red_art, "." => :blue_art
+      map = Array.new(20) { "#" * 30 }
+      tick = var :tick, 0
+      scene(:play) do
+        room = background :room, tiles: :set, map: map
+        # One cell turns blue on the second frame and must stay blue after that.
+        (tick == 2).then { room.set_tile 0, 0, "." }
+      end
+      var :state, 0
+      game_loop do
+        tick.add! 1
+        case_var(:state) { when_val 0, :play }
+      end
+    end
+  end
+
+  def test_a_cell_changed_in_a_scenes_background_stays_changed
+    seen = (2..8).map { |f| Reference.new.run(changing_program, frames: f).screen.pixel(0, 0) }
+
+    assert_equal [BLUE], seen.uniq, "the changed cell was put back by the next frame"
+  end
+
+  def test_the_console_keeps_the_changed_cell_too
+    v = assert_emulator_loads_rom(assemble_rom(changing_program, name: "SCNTIL"), frames: 10)
+
+    assert_equal BLUE, v.pixel_gba(0, 0), "the console put the changed cell back"
+  end
+
+  # A BACKGROUND THAT BELONGS TO NO SCENE IS NOT COVERED BY ANY OF THIS, and the two
+  # backends have to say so together. One declared in a plain routine that the frame calls
+  # is re-reached every pass exactly as a scene's was, and it is put up again every time —
+  # the cartridge has no way to know it is already up, so the interpreter must not pretend
+  # it does. What matters here is not which answer they give but that it is the same one:
+  # a picture that is right on the oracle and wrong on the console is the worst outcome
+  # there is, because a game's own tests would pass.
+  private def in_a_plain_routine
+    tile = SOLID_TILE
+    program do
+      screen :tiled
+      image(:red_art, "#" => :red) { tile }
+      image(:blue_art, "#" => :blue) { tile }
+      tiles :set, "#" => :red_art, "." => :blue_art
+      striped = Array.new(20) { |r| (0...30).map { |c| (r + c).even? ? "#" : "." }.join }
+      func(:put_it_up) do
+        field = background :field, tiles: :set, map: striped
+        field.scroll_by 1, 0
+      end
+      game_loop { call :put_it_up }
+    end
+  end
+
+  def test_the_backends_agree_about_a_background_in_a_plain_routine
+    assert_backends_agree(in_a_plain_routine, frames: SCROLLED_FOR)
+  end
+
+  # A TILED SCENE, AWAY TO A BITMAP SCREEN, AND BACK. The two kinds of screen share the
+  # console's video memory in ways that cannot both be live, so crossing between them wipes
+  # what was there — and the scenery has to be put up again on the way back rather than
+  # taken as still standing.
+  private def there_and_back
+    tile = SOLID_TILE
+    program do
+      image(:red_art, "#" => :red) { tile }
+      tiles :set, "#" => :red_art
+      screen :tiled
+      full = Array.new(20) { "#" * 30 }
+      scene(:tiled_one) { background :field, tiles: :set, map: full }
+      scene(:bitmap_one) do
+        screen :bitmap
+        clear_screen :black
+      end
+      state = var :state, 0
+      tick = var :tick, 0
+      game_loop do
+        tick.add! 1
+        (tick == 3).then { state.set! 1 } # away to the bitmap screen
+        (tick == 6).then { state.set! 0 } # ...and back
+        case_var(:state) do
+          when_val 0, :tiled_one
+          when_val 1, :bitmap_one
+        end
+      end
+    end
+  end
+
+  def test_a_scenes_background_comes_back_after_a_bitmap_screen
+    assert_equal RED, Reference.new.run(there_and_back, frames: 9).screen.pixel(0, 0),
+                 "the scenery never came back after the other kind of screen wiped it"
+  end
+
+  def test_the_console_brings_it_back_too
+    v = assert_emulator_loads_rom(assemble_rom(there_and_back, name: "SCNTHR"), frames: 10)
+
+    assert_equal RED, v.pixel_gba(0, 0), "the console never brought the scenery back"
+  end
+
   # Every pixel of the screen, not the two sampled above. A layer left switched on, or one
   # numbered differently by the two backends, shows up here and nowhere else — the pixels
   # picked by hand are the ones somebody already thought to look at.
@@ -279,5 +457,15 @@ class TestSceneBackgrounds < Minitest::Test
     assert_backends_agree(two_scenes(4), frames: SWITCH_AT + 4)
     assert_backends_agree(uneven_scenes(3, 1), frames: SWITCH_AT + 4)
     assert_backends_agree(a_backdrop_and_two_scenes(3), frames: SWITCH_AT + 4)
+  end
+
+  # ...and the same for a scene's background that MOVES and one whose cells CHANGE. Both
+  # halves above compare a backend against itself — the scene's picture against the top
+  # level's on the same backend — which a wrong-but-consistent answer would satisfy. This
+  # is the half that cannot: the two backends reached the changed cell by different routes
+  # and disagreed about it until now.
+  def test_the_two_backends_draw_the_same_moving_and_changing_scene
+    assert_backends_agree(scrolling_program(in_a_scene: true), frames: SCROLLED_FOR)
+    assert_backends_agree(changing_program, frames: SCROLLED_FOR)
   end
 end

@@ -234,6 +234,60 @@ module RubyGBA
           def emit_scene_preamble(name)
             emit_scene_mode(name) if @layout.modes.switched_per_scene?
             emit_scene_layers(name)
+            emit_scene_scenery(name)
+          end
+
+          # WHICH SCENE'S SCENERY IS SET UP, so a scene taking over points its layers at its
+          # own maps and a scene already running points them nowhere.
+          SCENE_SCENERY_STATE = :_scene_scenery
+
+          # PUT THIS SCENE'S BACKGROUNDS UP, ONCE, AS IT TAKES OVER.
+          #
+          # Pointing a layer at a background sends the whole map into video memory and puts
+          # the layer's scroll back to the top-left corner. That is right the first time and
+          # wrong every time after: a background declared inside a scene has its statement in
+          # that scene's own routine, which runs on every frame the scene is active, so doing
+          # it there undid the scroll the game had asked for and any cell it had changed.
+          #
+          # Guarded the same way a scene's sprite pictures are, and for the same reason:
+          # staying in a scene costs one compare a frame, changing scene costs the setup.
+          # A game whose scenery belongs to no scene emits none of this.
+          def emit_scene_scenery(name)
+            this_scenes_scenery = @layout.picture.scenery.select { |node| node.scene == name }
+            return if this_scenes_scenery.empty?
+
+            once_as_the_scene_takes_over(SCENE_SCENERY_STATE, scene_scenery_marker(name)) do
+              this_scenes_scenery.each { |node| emit_background_hardware(node) }
+            end
+          end
+
+          # Which scene's scenery is up, counting from 1 so that 0 means "none yet" — which
+          # is what boot writes, since the console makes no promise about its memory at
+          # power-on and a stale value here would leave the first scene's layers pointing
+          # nowhere.
+          def scene_scenery_marker(name)
+            @layout.picture.scenery.filter_map(&:scene).uniq.index(name) + 1
+          end
+
+          # DO THE BLOCK WHEN A SCENE TAKES OVER, AND NOT WHILE IT RUNS.
+          #
+          # A scene's own routine is reached on every frame it is active, so anything in it
+          # that sets the hardware UP rather than moving what is already there has to be
+          # guarded — sending a scene's sprite pictures, pointing its layers at its maps.
+          # Both are a copy, and both throw away whatever has happened since if repeated.
+          #
+          # +state+ is a variable naming whose turn it currently is and +marker+ this
+          # scene's number in it, counting from 1 so that the 0 boot writes means nobody's.
+          # The cost while a scene runs is the compare and the branch.
+          def once_as_the_scene_takes_over(state, marker)
+            @primitives.load_var(ACC, state)
+            @emitter.emit(ASM.cmp_imm(ACC, marker))
+            skip = @emitter.gensym
+            @emitter.emit_branch(:bcond, skip, cond: :eq) # already this scene's? nothing to do
+            yield
+            @emitter.emit(ASM.load_immediate(ACC, marker))
+            @primitives.store_var(ACC, state)
+            @emitter.place_label(skip)
           end
 
           # The screen this scene draws on, in a program whose scenes differ. One that does
@@ -293,15 +347,10 @@ module RubyGBA
             rooms = @layout.objects.each_value.select { |obj| obj.scene == name && obj.frames }
             return if sending.empty? && rooms.empty?
 
-            @primitives.load_var(ACC, SCENE_ART_STATE)
-            @emitter.emit(ASM.cmp_imm(ACC, @layout.scene_art.keys.index(name) + 1))
-            skip = @emitter.gensym
-            @emitter.emit_branch(:bcond, skip, cond: :eq) # already loaded? nothing to send
-            sending.each { |blob, at, units| emit_dma_blob(blob, OBJ_TILE_BASE + (at * 32), units * 16) }
-            forget_frames_in_rooms(rooms)
-            @emitter.emit(ASM.load_immediate(ACC, @layout.scene_art.keys.index(name) + 1))
-            @primitives.store_var(ACC, SCENE_ART_STATE)
-            @emitter.place_label(skip)
+            once_as_the_scene_takes_over(SCENE_ART_STATE, @layout.scene_art.keys.index(name) + 1) do
+              sending.each { |blob, at, units| emit_dma_blob(blob, OBJ_TILE_BASE + (at * 32), units * 16) }
+              forget_frames_in_rooms(rooms)
+            end
           end
 
           # A scene's resolved mode -> the marker stored in MODE_STATE, and the routine
@@ -776,7 +825,15 @@ module RubyGBA
           # In bitmap mode there's no tile hardware, so each cell is stamped with the
           # blit path instead — correct, just a copy per cell.
           def emit_background(node)
-            @layout.tiled ? emit_background_hardware(node) : emit_background_blits(node)
+            return emit_background_blits(node) unless @layout.tiled
+            # A background declared inside a scene is set up when that scene TAKES OVER
+            # (see #emit_scene_scenery), not here. Its statement sits in the scene's own
+            # routine, so here is once per frame — and setting a layer up again re-sends
+            # its map and puts its scroll back to the corner, throwing away everything that
+            # has happened to it since.
+            return if node.scene
+
+            emit_background_hardware(node)
           end
 
           # The per-layer control and scroll registers, indexed by BG number (0..3), so a
@@ -795,7 +852,15 @@ module RubyGBA
             emit_dma_blob(BG_SHARED_PAL, BG_PALETTE, @layout.bg_shared.palette_units)  # colors -> palette memory
             emit_dma_blob(BG_SHARED_CHAR, VRAM_START, @layout.bg_shared.tile_units)    # pictures -> video memory
             @palette_tint.emit_tint_state_reset # the table now holds the originals again
+            # No scene's scenery is up yet. Written rather than assumed: the console makes
+            # no promise about its memory at power-on, and a stale value would leave the
+            # first scene's layers pointing at nothing. Written again on each entry into a
+            # tiled screen too, which is right — the tiles have just been sent afresh, so
+            # whatever was up is not any more.
+            @primitives.store_word_immediate(0, @primitives.var_addr(SCENE_SCENERY_STATE)) if scene_scenery?
           end
+
+          def scene_scenery? = @layout.picture.scenery.any?(&:scene)
 
           # Point one layer's hardware at its data: DMA its map into its own screen block,
           # then set its control register (how its pixels are stored, where it counts its

@@ -600,7 +600,15 @@ module RubyGBA
             # bleed through under the new one. A switch that stays within the bitmap
             # family (single- vs double-buffered) keeps the same surface, so it doesn't
             # wipe — the existing per-scene bitmap-mode behavior is unchanged.
-            @screen.clear(0) if @screen_mode && tiled_mode?(node.mode) != tiled_mode?(@screen_mode)
+            if @screen_mode && tiled_mode?(node.mode) != tiled_mode?(@screen_mode)
+              @screen.clear(0)
+              # ...and nothing is up any more, so a scene's scenery is put up again when it
+              # comes back rather than being taken as still there. The wipe above is the
+              # whole point: the pixels are gone, and a background only stays put while
+              # nobody has cleared it (see #exec_background). The console reaches the same
+              # place by re-sending its tiles on the way back into the tiled screen.
+              forget_the_scenery_on_screen
+            end
             @screen_mode = node.mode
             @buffered = node.buffered || false
             @screen.paged = @buffered
@@ -907,6 +915,25 @@ module RubyGBA
 
           take_the_screen_for(node.scene)
 
+          # PUTTING A BACKGROUND UP IS A ONCE-PER-SCENE JOB, NOT A PER-FRAME ONE, and this
+          # is the whole of that here. A background declared inside a scene has its
+          # statement in that scene's own routine, so it is reached on every frame the
+          # scene is active — and stamping it again puts the picture back exactly as
+          # declared, which throws away everything that has happened to it since. It undid
+          # the scroll the game had asked for, and any cell the game had changed.
+          #
+          # It stays put once it is up, until the scene hands over or the display is wiped
+          # by a crossing to the other kind of screen; then it is stamped afresh.
+          #
+          # ONLY A BACKGROUND THAT BELONGS TO A SCENE, and the `node.scene` is the whole of
+          # why: it is the same question the lowering asks (see Drawing#emit_background), so
+          # the two agree about which statements are re-reached and which are not. Asking
+          # instead whether this background is already on screen would be a better rule and
+          # a DIFFERENT one — it would also cover a background declared in a plain routine
+          # that a frame calls — and the lowering has no way to ask it, so the two backends
+          # would draw different pictures for that game.
+          return if node.scene && @bg_shown.include?(node)
+
           # A layer can put this background BEHIND one that is already on screen, and a
           # stamp only covers where it has solid pixels — so painting it now would leave
           # it in front. Painting the ones it belongs behind back over it settles the
@@ -944,6 +971,15 @@ module RubyGBA
           @scene_fb = nil
           @screen.clear(0)
           in_stack_order(kept).each { |bg| stamp_background(bg) }
+        end
+
+        # NOTHING IS UP ANY MORE. Said when the display is wiped under everything — the one
+        # crossing between the two kinds of screen — so whatever comes back is put up again
+        # rather than taken as still standing.
+        def forget_the_scenery_on_screen
+          @bg_shown = []
+          @bg_scene = nil
+          @scene_fb = nil
         end
 
         # The scenery on screen right now: what every screen shows, plus the active scene's
