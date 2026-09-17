@@ -123,15 +123,28 @@ module RubyGBA
           # road that banks under a sky — and nothing in a program says so, because
           # turning a background IS saying so. (The third arrangement, mode 2, is `screen
           # :rotozoom`: two turning layers and nothing else, and it keeps its own path.)
-          # +on+ names the layers to switch on, for a scene that wants fewer than the whole
-          # program's; left out it is every layer a background landed on. +turning+ says
-          # which arrangement THIS screen wants, for a program whose scenes differ; left out
-          # it is whether the program turns a background anywhere, which is the right answer
-          # for a program with one screen and the safe one for boot. The sprite layer is
-          # added by the callers, which all do it the same way for every screen.
-          def tiled_dispcnt(on = nil, turning: turning_background?)
+          # +on+ names the layers to switch on and +turning+ which arrangement THIS screen
+          # wants. Given neither, this is the value for the screen the console is set up for
+          # BEFORE any scene has run — see #boot_screen. The sprite layer is added by the
+          # callers, which all do it the same way for every screen.
+          def tiled_dispcnt(on = nil, turning: nil)
+            boot = (on.nil? && turning.nil?) ? boot_screen : nil
+            on = boot.on if boot
+            turning = (boot ? boot.turning : turning_background?) if turning.nil?
             (turning ? MODE_1 : MODE_0) | tiled_bg_enable_bits(*[on].compact)
           end
+
+          # THE SCREEN THE CONSOLE IS SET UP FOR BEFORE ANY SCENE HAS RUN, or nothing at all
+          # for a game whose scenes all want the same one — there the whole program IS the
+          # screen and every layer in it belongs on.
+          #
+          # Where the scenes differ, boot names the FIRST scene's layers rather than the
+          # union of every background in the game. A layer switched on before its own scene
+          # has told it where its map is does not draw blank: nought points at the start of
+          # video memory, which is where the tile PICTURES are, so it draws the art as
+          # though it were a grid, in front of everything. Naming too FEW layers instead is
+          # a black frame, which is the safe way to be wrong for the one frame it lasts.
+          def boot_screen = @layout.scene_layers.values.first
 
           def turning_background? = @layout.turning_layers.any?
 

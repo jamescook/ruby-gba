@@ -632,4 +632,75 @@ class TestSceneBackgrounds < Minitest::Test
   def test_the_two_backends_agree_about_a_scenes_drifting_scenery
     assert_backends_agree(a_drifting_title_and_a_still_game, frames: 6)
   end
+
+  # A SCENE THAT DECLARES NOTHING IS STILL A SCREEN.
+  #
+  # A layer is switched on at boot for every background in the program, and a layer
+  # belonging to a scene that has not run yet has never been told where its map is. Nought
+  # is not "nowhere": it points at the very start of video memory, which is where the tile
+  # PICTURES live — so the layer draws the art as though it were a grid, in front of
+  # everything, and the blank tiles among it show the backdrop colour through the game.
+  #
+  # It lasts the whole run rather than one frame because a scene that declares no scenery
+  # and no sprites was not counted as a screen at all, so the per-scene layer work had one
+  # screen to look at, found nothing to disagree about, and wrote nothing.
+  BGCNT = [0x0400_0008, 0x0400_000A, 0x0400_000C, 0x0400_000E].freeze
+
+  # Enough distinct pictures to fill the bottom of tile memory. With one picture per
+  # background the art is all noughts down there, so the stray layer reads a grid of
+  # noughts, draws tile 0, and is invisible while being just as wrong.
+  private def a_scene_that_declares_nothing
+    program do
+      screen :tiled
+      16.times do |n|
+        image :"art_#{n}", "#" => :white, "." => :black do
+          ((["#" * 8] * (n + 1)) + (["." * 8] * (7 - (n % 8)))).first(8).join("\n")
+        end
+      end
+      tiles :every, (0...16).to_h { |n| [n.to_s(16), :"art_#{n}"] }
+      tiles :one, "#" => :art_0
+      layers :back, :panel
+
+      layer(:back) { background :back, tiles: :every, map: Array.new(20) { "0123456789abcdef".chars.cycle.first(30).join } }
+
+      state = var :state, 0
+      waiting = var :waiting, SWITCH_AT
+
+      scene :first do
+        waiting.sub! 1
+        (waiting == 0).then { state.set! 1 }
+      end
+
+      scene :second do
+        layer(:panel) { background :panel, tiles: :one, map: Array.new(20) { " " * 30 } }
+      end
+
+      game_loop do
+        case_var :state do
+          when_val 0, :first
+          when_val 1, :second
+        end
+      end
+    end
+  end
+
+  # From the VERY FIRST frame, not from the frame the scene's own setup catches up. A
+  # layer left on for one frame with no map of its own still draws the art as a grid, and
+  # one frame of that is what a player sees as the game flickering on.
+  def test_a_layer_of_a_scene_that_has_not_run_draws_nothing
+    v = assert_emulator_loads_rom(assemble_rom(a_scene_that_declares_nothing, name: "SCNOFF"), frames: 1)
+
+    3.times do |frame|
+      display = v.mem16(REG_DISPCNT)
+      (0..3).select { |bg| display.anybits?(1 << (8 + bg)) }.each do |bg|
+        refute_equal 0, v.mem16(BGCNT[bg]),
+                     "on frame #{frame + 1} layer #{bg} is on and has never been told where its map is"
+      end
+      v.step
+    end
+  end
+
+  def test_the_two_backends_agree_while_a_scene_that_declares_nothing_runs
+    assert_backends_agree(a_scene_that_declares_nothing, frames: 2)
+  end
 end

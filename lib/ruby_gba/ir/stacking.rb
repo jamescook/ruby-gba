@@ -101,13 +101,32 @@ module RubyGBA
       # used, and a program that uses none comes out exactly as it did.
       def screenfuls(program)
         whole = picture(program)
-        # Every scene that owns anything DRAWN, scenery and sprites alike. Both spend the
-        # depths, so a scene that owns only sprites is a screenful too — and leaving it out
-        # would put those sprites in no screenful at all.
-        scenes = (whole.scenery + whole.objects).filter_map(&:scene).uniq
+        scenes = every_scene(program, whole)
         return [screenful(whole, nil)] if scenes.empty?
 
         scenes.map { |scene| screenful(whole, scene) }
+      end
+
+      # EVERY SCENE THE PROGRAM CAN BE IN, and not only the ones that own something.
+      #
+      # A scene that declares nothing is still a screen: what is on it is the scenery that
+      # belongs to no scene, and nothing else. Left out, a program of one scene with
+      # backgrounds and one without reads as having a single screen — which always agrees
+      # with itself, so nothing is ever written per scene and the console keeps whatever
+      # boot set up. A layer belonging to the scene that has not run is then switched on
+      # with no map of its own, which is not blank: it reads its grid from the start of
+      # video memory, where the tile PICTURES are, and draws the art as a grid over the
+      # game.
+      #
+      # The scenes are taken from where the program dispatches to them, so one that
+      # declares nothing counts and one that is never reached does not. A scene that owns
+      # only sprites is here for the older reason too: sprites spend the depths, so leaving
+      # it out would put them in no screenful at all.
+      def every_scene(program, whole)
+        dispatched = program.walk.flat_map do |node|
+          node.kind == :case ? node.clauses.map(&:last) : []
+        end
+        (dispatched + (whole.scenery + whole.objects).filter_map(&:scene)).uniq
       end
 
       # One screenful, read off the whole picture so the stack's order is already settled:
