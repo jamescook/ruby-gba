@@ -807,7 +807,7 @@ module RubyGBA
           # rotate/scale rather than plain scroll) from `screen :tiled`'s four, but it
           # needs the same shared palette/character-block upload and background lowering,
           # so it counts here alongside :tiled.
-          @tiled = program.walk.any? { |node| node.kind == :screen && %i[tiled rotozoom].include?(node.mode) }
+          @tiled = Modes.draws_with_tiles?(program)
           guard_stack_fits if @tiled
           prepare_backgrounds(program) if @tiled
           @raster.register_row_bends(program) # which layers bend row by row (armed at boot, run per line)
@@ -1398,18 +1398,11 @@ module RubyGBA
         TILE_PX = 8
         MAP_CELLS = 32
 
-        # The four regular tiled layers the console can stack (BG0..BG3). Where each
-        # layer's tiles and map go is handed out by {TileVram}, which owns the whole 64K
+        # How many layers the console stacks, and how many are left once one of them
+        # turns, live with the rule that reads them — see
+        # Guardrails::Checks::TooManyBackgroundLayers. Where each layer's tiles and map
+        # GO is a different question, and that one is {TileVram}'s: it owns the whole 64K
         # the scenery lives in and is the only thing that decides an address there.
-        MAX_BG_LAYERS = 4
-
-        # ...and how many of them are left once one layer TURNS. The console arranges its
-        # tile layers one of two ways: four that scroll and none that turn, or two that
-        # scroll plus one that turns and resizes. So a game that turns a layer trades two
-        # scrolling ones for it. That is the console's own arithmetic, not a budget this
-        # framework invented, and nothing in a program chooses between the two — see
-        # Drawing#tiled_dispcnt.
-        MAX_BG_LAYERS_BESIDE_TURNING = 2
         SCREENBLOCK_BYTES = TileVram::SCREEN_BLOCK_BYTES
         CHAR_BLOCK_BYTES = TileVram::CHAR_BLOCK_BYTES
 
@@ -1452,17 +1445,8 @@ module RubyGBA
           # A `screen :rotozoom` background lives on its own rotate/scale layer (BG2) —
           # a different pair of hardware layers from the four `screen :tiled` scrolls on
           # — so it's set aside from the regular stack rather than counted against it.
-          nodes = @picture.scenery
-          affine_nodes, regular_nodes = nodes.partition(&:affine)
-
-          if affine_nodes.size > 1
-            raise LoweringError,
-                  "#{affine_nodes.size} affine backgrounds were declared " \
-                  "(#{affine_nodes.map { |n| ":#{n.name}" }.join(', ')}), but only one can turn or " \
-                  "resize on this console right now — keep one."
-          end
-
-          check_layers_fit(regular_nodes, affine_nodes)
+          check_layers_fit(program)
+          affine_nodes, regular_nodes = @picture.scenery.partition(&:affine)
 
           banks, big = bank_the_tiles(regular_nodes, affine_nodes)
 
@@ -1481,42 +1465,18 @@ module RubyGBA
           @bg_shared = bank_tally(regular_nodes + affine_nodes, big, colors)
         end
 
-        # DO THE DECLARED LAYERS FIT AN ARRANGEMENT THE CONSOLE HAS? Refusing here, by
-        # name, is the point: a layer that did not fit would simply not be drawn, and a
-        # picture missing one layer looks like a bug in the art rather than a budget.
-        def check_layers_fit(regular_nodes, affine_nodes)
-          most = mixed_arrangement?(affine_nodes) ? MAX_BG_LAYERS_BESIDE_TURNING : MAX_BG_LAYERS
-          return if regular_nodes.size <= most
-
-          raise LoweringError, too_many_layers(regular_nodes, turning_on_a_tiled_screen(affine_nodes))
-        end
-
-        # DOES THE TILED SCREEN ITSELF HOLD A TURNING LAYER? That is the question the
-        # arrangement turns on, and it is not the same as "is anything in this program
-        # turning" — because a program can put two screens on in turn.
+        # DO THE DECLARED LAYERS FIT AN ARRANGEMENT THE CONSOLE HAS? A layer that did not
+        # fit would simply not be drawn, and a picture missing one layer reads as a bug in
+        # the art rather than as a budget — so lowering stops rather than dropping it.
         #
-        # A background declared under `screen :rotozoom` is on a screen of its own, which
-        # the console is in only while that scene is up. Its layer costs the TILED screen
-        # nothing, because the two are never on at once: a title that zooms, handing over
-        # to a game with four scrolling layers, is two arrangements one after the other
-        # and fits. Only a turning background declared on the tiled screen itself shares
-        # that screen with the scrolling ones, and only then are there two of those
-        # instead of four.
-        def mixed_arrangement?(affine_nodes) = turning_on_a_tiled_screen(affine_nodes).any?
-
-        def turning_on_a_tiled_screen(affine_nodes) = @modes.on_the_tiled_screen(affine_nodes)
-
-        def too_many_layers(regular_nodes, affine_nodes)
-          named = regular_nodes.map { |node| ":#{node.name}" }.join(", ")
-          count = "This game declares #{regular_nodes.size} scrolling backgrounds (#{named})."
-          return "#{count} The console stacks #{MAX_BG_LAYERS} scrolling backgrounds. To fix this, " \
-                 "use #{MAX_BG_LAYERS} scrolling backgrounds." if affine_nodes.empty?
-
-          turning = ":#{affine_nodes.first.name}"
-          "Background #{turning} turns or resizes. Beside a background that turns, the console holds " \
-            "#{MAX_BG_LAYERS_BESIDE_TURNING} scrolling backgrounds. #{count} To fix this, use " \
-            "#{MAX_BG_LAYERS_BESIDE_TURNING} scrolling backgrounds. Or stop turning #{turning}, and " \
-            "then #{MAX_BG_LAYERS} scrolling backgrounds fit."
+        # The rule and its wording live with the guardrail of the same name, because the
+        # question is answerable from the program long before any of this runs and an
+        # author should hear it then. This stays as the lowering's own invariant: a
+        # program that reached a backend without passing the guardrails still cannot
+        # build a cartridge with a layer quietly missing from it.
+        def check_layers_fit(program)
+          refusal = Guardrails::Checks::TooManyBackgroundLayers.new.refusal(program)
+          raise LoweringError, refusal if refusal
         end
 
         # SORT EVERY TILE OF EVERY LAYER INTO THE COLOR TABLE THEY ALL READ FROM.

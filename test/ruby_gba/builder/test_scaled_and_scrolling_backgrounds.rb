@@ -334,7 +334,8 @@ class TestScaledAndScrollingBackgrounds < Minitest::Test
     end
     b.emit_pending_functions
     err = assert_raises(RubyGBA::IR::Backends::GBA::LoweringError) { assemble_rom(b.program, name: "TWOSPIN") }
-    assert_match(/only one can turn or resize/, err.message)
+    assert_match(/turns or resizes 2 backgrounds/, err.message, "it says how many were declared")
+    assert_match(/can turn 1 background/, err.message, "...and how many the console turns")
   end
 
   # --- Hardware: the console shows the same three layers ---

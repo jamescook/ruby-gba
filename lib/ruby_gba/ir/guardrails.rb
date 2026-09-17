@@ -302,6 +302,7 @@ require_relative "guardrails/layer_holds_nothing"
 require_relative "guardrails/layer_invisible"
 require_relative "guardrails/layer_solid_while_fading"
 require_relative "guardrails/stack_not_honored"
+require_relative "guardrails/too_many_background_layers"
 
 module RubyGBA
   module IR
@@ -335,6 +336,7 @@ module RubyGBA
         Checks::IwramBudget.new,
         Checks::LayerInvisible.new,
         Checks::LayerSolidWhileFading.new,
+        Checks::TooManyBackgroundLayers.new,
       ].freeze
     end
   end

@@ -54,7 +54,8 @@ module RubyGBA
             # The backgrounds that turn AND sit on the tiled screen — the ones that decide
             # which way the console arranges that screen's layers. A background that turns
             # on `screen :rotozoom` is on a screen of its own, up at a different moment, so
-            # it does not (see GBA#mixed_arrangement?).
+            # it does not (see Guardrails::Checks::TooManyBackgroundLayers, which asks the
+            # same question to work out how many scrolling layers are left).
             def turning_layers = modes.on_the_tiled_screen(picture.scenery.select(&:affine))
           end
 

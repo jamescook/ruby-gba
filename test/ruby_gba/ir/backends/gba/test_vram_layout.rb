@@ -22,6 +22,10 @@ class TestVramLayout < Minitest::Test
 
   SOLID8 = (["########"] * 8).join("\n")
 
+  # How many background layers the console stacks. The count and the rule that reads it
+  # live with the guardrail that explains them.
+  MOST_LAYERS = RubyGBA::IR::Guardrails::Checks::TooManyBackgroundLayers::MAX_SCROLLING_LAYERS
+
   # --- The layout itself ---
 
   # The invariant the whole design rests on: whatever the tiles took and whatever the
@@ -160,13 +164,13 @@ class TestVramLayout < Minitest::Test
       screen :tiled
       image(:t, "#" => :red) { SOLID8 }
       tiles :set, "R" => :t
-      (GBA::MAX_BG_LAYERS + 1).times { |i| background :"layer#{i}", tiles: :set, map: ["R"] }
+      (MOST_LAYERS + 1).times { |i| background :"layer#{i}", tiles: :set, map: ["R"] }
       game_loop {}
     end
     builder.emit_pending_functions
 
     error = assert_raises(GBA::LoweringError) { GBA.new.lower(builder.program) }
-    assert_match(/#{GBA::MAX_BG_LAYERS}/, error.message, "it names the limit")
+    assert_match(/#{MOST_LAYERS}/, error.message, "it names the limit")
     assert_match(/background/i, error.message)
   end
 

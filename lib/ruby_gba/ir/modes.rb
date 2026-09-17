@@ -33,8 +33,24 @@ module RubyGBA
       # deliberately count only them and leave tiled out.
       BITMAP_MODES = [DIRECT, BUFFERED].freeze
 
+      # The screens drawn out of TILES, spelled the way a `screen` node spells them
+      # rather than the way a resolved mode above does. Both are tile hardware —
+      # `:rotozoom` is a different pair of layers from `:tiled`'s four, not a
+      # different kind of picture — so anything asking whether a program draws out of
+      # tiles at all wants both, and anything asking whether a background can turn
+      # wants both as well. A `:bitmap` screen has pixels somebody painted instead.
+      TILE_SCREENS = %i[tiled rotozoom].freeze
+
       def self.resolve(program)
         new(program)
+      end
+
+      # Is any part of this program drawn out of TILES? Asked of the program rather
+      # than of a resolved mode, because it is a question about what was declared
+      # anywhere — a program with one tiled scene has tile layers to lay out and tile
+      # layers to run out of, whatever its other scenes do.
+      def self.draws_with_tiles?(program)
+        program.walk.any? { |node| node.kind == :screen && TILE_SCREENS.include?(node.mode) }
       end
 
       # Strip the internal `_scene_` prefix a scene's func carries, so a message or

@@ -38,11 +38,6 @@ module RubyGBA
     # and each can be scrolled independently (scroll a near and a far layer at different
     # speeds for parallax). See {Background}.
     module Tiled
-      # The screens that draw a background out of tiles at all, as opposed to painting
-      # its pixels into one picture (`screen :bitmap`) — the two a background can turn
-      # and resize on.
-      TILE_HARDWARE_SCREENS = %i[tiled rotozoom].freeze
-
       # Define a tileset. Two ways to author it:
       #
       # 1. BY CHARACTER — a map from a character to the tile {#image} it stands for.
@@ -356,7 +351,7 @@ module RubyGBA
       # program that never wrote `screen` — so neither can be quoted back, and neither
       # can be told what it holds.
       def refuse_turning_without_a_tile_screen!(name)
-        return if TILE_HARDWARE_SCREENS.include?(@screen_mode)
+        return if IR::Modes::TILE_SCREENS.include?(@screen_mode)
 
         have = if @screen_mode
                  "You have `screen #{@screen_mode.inspect}`, which holds pixels you draw " \

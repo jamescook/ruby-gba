@@ -232,6 +232,7 @@ module RubyGBA
           @over_budget = false
           @uses_frames = false # set once the program reaches its first vblank (advance_frame)
           collect_definitions(node)
+          refuse_more_layers_than_the_console_stacks(node)
           # How the picture stacks: what scenery and objects there are, in what order,
           # and how deep each sits. Scenery in FRONT of an object means the save-under
           # trick cannot hold — what was saved from under an object is no longer what
@@ -311,6 +312,23 @@ module RubyGBA
         end
 
         private
+
+        # REFUSE A PROGRAM THE CONSOLE COULD NOT SHOW, before drawing a frame of it.
+        #
+        # This interpreter is the answer key: a game's own tests run here because it is
+        # fast and needs no emulator, and what it says has to be what the console would
+        # say. Nothing stops it painting five background layers — it has no layers, only
+        # a picture — so without this a game got a green suite here and a failed build
+        # from the cartridge later, over a fact about the console that was knowable from
+        # the program all along.
+        #
+        # The rule and its words live with the guardrail of that name, which the build
+        # and the cartridge lowering both ask as well, so all three refuse the same
+        # programs in the same sentence.
+        def refuse_more_layers_than_the_console_stacks(node)
+          refusal = Guardrails::Checks::TooManyBackgroundLayers.new.refusal(node)
+          raise ProgramError, refusal if refusal
+        end
 
         # Register every definition in the tree up front — funcs, named sound
         # effects, and songs — so an op can refer to one defined later in the
