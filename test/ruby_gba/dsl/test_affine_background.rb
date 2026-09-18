@@ -197,6 +197,134 @@ class TestAffineBackground < Minitest::Test
     assert_backends_agree(board_program, frames: 4)
   end
 
+  # --- WHICH POINT THE PICTURE TURNS AROUND ---
+  #
+  # A turning background pivots on the middle of the screen unless the game says
+  # otherwise, and the middle of the screen is one game's answer rather than a general
+  # one. The Minish Cap's title screen turns its sword on the middle of the screen raised
+  # by eight pixels; at the size that animation starts — sixteen times magnified — eight
+  # pixels is most of a screen, so the sword flies in from off the edge instead of from
+  # the middle.
+  #
+  # Said once on the background, because a picture turns around one point however many
+  # times the game turns it: the display is given a single place the picture is pinned to,
+  # not one per turn.
+  # Zoomed 2x about (40, 80), the screen point 160 pixels right of that pivot samples a
+  # texture point only 80 right of it — column 15. The same zoom about the middle of the
+  # screen samples column 20, which is what test_scale_zooms_in_toward_the_center pins, so
+  # the two marks tell a moved pivot from an unmoved one.
+  private def a_board_zoomed_about(x, y)
+    map = marked_map({ [20, 10] => "#", [15, 10] => "$" })
+    builder = Builder.new
+    builder.instance_eval do
+      screen :rotozoom
+      image :white, "#" => :white do "########\n" * 8 end
+      image :red, "#" => :red do "########\n" * 8 end
+      tiles :t, "#" => :white, "$" => :red
+      background(:board, tiles: :t, map: map).turns_around(x, y).scale(2.0)
+      game_loop { wait_vblank }
+    end
+    builder.emit_pending_functions
+    builder.program
+  end
+
+  ZOOM_SAMPLED = [200, 80].freeze
+
+  def test_scale_zooms_toward_the_point_it_is_told_to_turn_around
+    i = Reference.new.run(a_board_zoomed_about(40, 80), frames: 4)
+
+    assert_equal Color.resolve(:red), i.screen.pixel(*ZOOM_SAMPLED),
+                 "the picture zoomed toward the middle of the screen, not toward the point it was given"
+  end
+
+  def test_the_console_turns_it_around_that_point_too
+    v = assert_emulator_loads_rom(assemble_rom(a_board_zoomed_about(40, 80), name: "AFFPIV"), frames: 4)
+
+    assert_equal Color.resolve(:red), v.pixel_gba(*ZOOM_SAMPLED),
+                 "the console zoomed toward the middle of the screen, not toward the point it was given"
+  end
+
+  # Every pixel rather than the one sampled above, and a pivot off both axes so a backend
+  # that had swapped or dropped one of the two numbers cannot pass.
+  def test_the_two_backends_agree_about_the_point_it_turns_around
+    assert_backends_agree(a_board_zoomed_about(40, 120), frames: 4)
+  end
+
+  # Nothing about the picture moves when only the pivot does: at its drawn size, upright,
+  # a background lands in exactly the same place whatever it is told to turn around. That
+  # is what makes this safe to say on a background whose animation has not started.
+  def test_an_unturned_picture_lands_in_the_same_place_whatever_it_turns_around
+    plain = marked_map({ [20, 10] => "#" })
+    picture = lambda do |pivot|
+      builder = Builder.new
+      builder.instance_eval do
+        screen :rotozoom
+        image :white, "#" => :white do "########\n" * 8 end
+        tiles :t, "#" => :white
+        board = background :board, tiles: :t, map: plain
+        board.turns_around(*pivot) if pivot
+        board.rotate(0)
+        game_loop { wait_vblank }
+      end
+      builder.emit_pending_functions
+      Reference.new.run(builder.program, frames: 4).screen
+    end
+
+    # Where the mark is drawn, untouched: column 20 of the map is screen pixels 160..167.
+    where_it_was_drawn = [164, 84]
+
+    assert_equal Color.resolve(:white), picture.call([17, 133]).pixel(*where_it_was_drawn),
+                 "naming a pivot moved a picture that is not turning"
+    assert_equal Color.resolve(:white), picture.call(nil).pixel(*where_it_was_drawn)
+  end
+
+  # A pivot named in the MIDDLE of a declaration must not break the line it is in: the
+  # size written after it is still the size the picture starts at, which a scene's body
+  # would otherwise put back on every frame it runs. Written as a scene because that is
+  # the only place the difference shows — the sword flying at the player is exactly this
+  # line, and it sticking is what sent this work here in the first place.
+  def test_a_pivot_between_the_declaration_and_its_size_leaves_the_size_free_to_ease
+    map = marked_map({ [20, 10] => "#" })
+    builder = Builder.new
+    builder.instance_eval do
+      screen :rotozoom
+      image :white, "#" => :white do "########\n" * 8 end
+      tiles :t, "#" => :white
+      var :state, 0
+      scene :title do
+        board = background(:board, tiles: :t, map: map).turns_around(40, 80).scale(4.0)
+        board.scale.approach! 1.0, 1.0
+      end
+      game_loop { case_var(:state) { when_val 0, :title } }
+    end
+    builder.emit_pending_functions
+    i = Reference.new.run(builder.program, frames: 8)
+
+    # Eased back to its drawn size, the mark is where it was drawn: column 20 of the map
+    # is screen pixels 160..167. Stuck partway, that pixel samples column 10, which is blank.
+    assert_equal Color.resolve(:white), i.screen.pixel(164, 84),
+                 "the size never eased back — naming the pivot broke the declaration it sits in"
+  end
+
+  # The point is settled while the program is written. A pivot the game worked out as it
+  # ran would be its own effect — a picture that turns around something that moves — and
+  # saying so plainly beats half-doing it.
+  def test_a_pivot_the_game_works_out_is_a_friendly_error
+    map = marked_map({})
+    err = assert_raises(ArgumentError) do
+      Builder.new.instance_eval do
+        screen :rotozoom
+        image :white, "#" => :white do "########\n" * 8 end
+        tiles :t, "#" => :white
+        aim = var :aim, 40
+        background(:board, tiles: :t, map: map).turns_around(aim, 80)
+      end
+    end
+
+    assert_match(/turns_around/, err.message)
+    assert_match(/whole number/, err.message, "it says what to write instead")
+  end
+
   # --- guardrails: the two footguns this feature makes plain-language errors ---
 
   def test_rotating_a_bitmap_background_is_a_friendly_error

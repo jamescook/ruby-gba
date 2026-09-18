@@ -595,9 +595,18 @@ module RubyGBA
       # Only a background declared under `screen :rotozoom` can carry this — the console's
       # rotate/scale hardware is a different pair of layers (BG2/BG3) from the ones a
       # `screen :tiled` background scrolls on.
-      def affine_background(name, angle:, scale:, active: int(1))
-        Nodes.build(:affine_background, name: name, angle: wrap(angle), scale: wrap(scale), active: wrap(active))
+      # +around+ is the point on the screen the picture turns around, in pixels, and the
+      # middle of the screen when the program says nothing — which is where a picture that
+      # swings or grows about nothing in particular belongs.
+      def affine_background(name, angle:, scale:, active: int(1), around: nil)
+        x, y = around || MIDDLE_OF_THE_SCREEN
+        Nodes.build(:affine_background, name: name, angle: wrap(angle), scale: wrap(scale),
+                                        active: wrap(active), around_x: x, around_y: y)
       end
+
+      # Where a picture turns around when nothing says otherwise. Read off the screen's own
+      # size rather than written out, so it is the middle of whatever screen a backend draws.
+      MIDDLE_OF_THE_SCREEN = [Screen::WIDTH / 2, Screen::HEIGHT / 2].freeze
 
       # Show the named background scrolled to the offset (+x+, +y+) in pixels — the
       # top-left of the visible window over the map. x/y are value operands (variables

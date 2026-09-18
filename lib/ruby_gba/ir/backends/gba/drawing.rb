@@ -1194,10 +1194,9 @@ module RubyGBA
           BG_AFFINE_PD = :_bg_affine_pd
           BG_AFFINE_SCALE_RECIP = :_bg_affine_scale_recip
 
-          # The screen's own middle, in pixels — half of 240x160. The pivot a `rotate` or
-          # `scale` turns the background about.
-          AFFINE_BG_CENTER_X = 120
-          AFFINE_BG_CENTER_Y = 80
+          # Where the picture turns around is the program's to name and rides on the
+          # statement that turns it (see IR::Nodes::AffineBackground); the middle of the
+          # screen is only what it holds when nothing said otherwise.
 
           # Turn/resize the affine background: work out this frame's rotate/scale matrix
           # and write it to BG2's registers, then move the reference point so the turn
@@ -1223,7 +1222,7 @@ module RubyGBA
             skip = gensym
             emit_branch(:bcond, skip, cond: :eq)
             emit_bg_affine_matrix(node)
-            emit_bg_affine_reference_point
+            emit_bg_affine_reference_point(node.around_x, node.around_y)
             place_label(skip)
           end
 
@@ -1282,36 +1281,42 @@ module RubyGBA
           end
 
           # The matrix pivots on the layer's own top-left corner by itself — turn or
-          # resize without this and the whole picture swings away from under the middle of
-          # the screen instead of turning in place. Moving the pivot to the screen's own
-          # center (120, 80) means telling the console the texture point that SHOULD land
+          # resize without this and the whole picture swings away from under the point it
+          # is meant to turn around instead of turning in place. Moving the pivot to
+          # (+px+, +py+) means telling the console the texture point that SHOULD land
           # there, worked backwards through the very matrix just written: for a screen
           # point this far from (0, 0), the matrix says how far that is from the
           # reference point in texture space, so read backwards, the reference point is
-          # the screen center's texture position minus that offset. One multiply-and-
-          # subtract per axis, the same shape a turned sprite gets for free by centering
-          # its drawing box (see #emit_draw_object_transformed) — a background has no box
-          # of its own to offset, so this stands in for it.
-          def emit_bg_affine_reference_point
+          # the pivot's texture position minus that offset. One multiply-and-subtract per
+          # axis whatever the pivot is, so naming one costs nothing; the same shape a
+          # turned sprite gets for free by centering its drawing box (see
+          # #emit_draw_object_transformed) — a background has no box of its own to offset,
+          # so this stands in for it.
+          #
+          # The point of the PICTURE that lands there is the same pair of numbers, which is
+          # what makes a pivot free of side effects: at its drawn size, upright, the matrix
+          # is the identity and the reference point comes out at nought wherever the pivot
+          # is, so a background that is not turning lands in exactly the same place.
+          def emit_bg_affine_reference_point(px, py)
             load_var(2, BG_AFFINE_PA)
-            emit(ASM.load_immediate(3, AFFINE_BG_CENTER_X))
-            emit(ASM.mul(4, 2, 3))                       # r4 = PA * center_x
+            emit(ASM.load_immediate(3, px))
+            emit(ASM.mul(4, 2, 3))                       # r4 = PA * px
             load_var(2, BG_AFFINE_PB)
-            emit(ASM.load_immediate(3, AFFINE_BG_CENTER_Y))
-            emit(ASM.mul(5, 2, 3))                       # r5 = PB * center_y
-            emit(ASM.add_reg(4, 4, 5))                   # r4 = PA*center_x + PB*center_y
-            emit(ASM.load_immediate(ACC, AFFINE_BG_CENTER_X * Affine::ONE_TH))
+            emit(ASM.load_immediate(3, py))
+            emit(ASM.mul(5, 2, 3))                       # r5 = PB * py
+            emit(ASM.add_reg(4, 4, 5))                   # r4 = PA*px + PB*py
+            emit(ASM.load_immediate(ACC, px * Affine::ONE_TH))
             emit(ASM.sub_reg(ACC, ACC, 4))
             store_word_acc(REG_BG2X)
 
             load_var(2, BG_AFFINE_PC)
-            emit(ASM.load_immediate(3, AFFINE_BG_CENTER_X))
-            emit(ASM.mul(4, 2, 3))                       # r4 = PC * center_x
+            emit(ASM.load_immediate(3, px))
+            emit(ASM.mul(4, 2, 3))                       # r4 = PC * px
             load_var(2, BG_AFFINE_PD)
-            emit(ASM.load_immediate(3, AFFINE_BG_CENTER_Y))
-            emit(ASM.mul(5, 2, 3))                       # r5 = PD * center_y
-            emit(ASM.add_reg(4, 4, 5))                   # r4 = PC*center_x + PD*center_y
-            emit(ASM.load_immediate(ACC, AFFINE_BG_CENTER_Y * Affine::ONE_TH))
+            emit(ASM.load_immediate(3, py))
+            emit(ASM.mul(5, 2, 3))                       # r5 = PD * py
+            emit(ASM.add_reg(4, 4, 5))                   # r4 = PC*px + PD*py
+            emit(ASM.load_immediate(ACC, py * Affine::ONE_TH))
             emit(ASM.sub_reg(ACC, ACC, 4))
             store_word_acc(REG_BG2Y)
           end

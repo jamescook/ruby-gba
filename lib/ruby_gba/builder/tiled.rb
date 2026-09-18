@@ -53,12 +53,12 @@ module RubyGBA
       # rule that spans two would otherwise be a lookup in each, kept in step by hand —
       # the exact failure `pool` exists to spare a game writing its own data.
       #
-      # Every field but +node+, +scene_gate+ and +bends_rows+ holds the NAME of a hidden
+      # Every field but +node+, +scene_gate+, +bends_rows+ and +pivot+ holds the NAME of a hidden
       # variable the build allocated, and is nil until the program does the thing that
       # needs it. So a background that is never scrolled has no +scroll_x+, and asking
       # #scrolls? is the same question as asking whether the game ever scrolled it.
       DeclaredBackground = Struct.new(:node, :scroll_x, :scroll_y, :shown_map, :live_map,
-                                      :angle, :scale, :scene_gate, :bends_rows,
+                                      :angle, :scale, :scene_gate, :bends_rows, :pivot,
                                       keyword_init: true) do
         def scrolls? = !scroll_x.nil?
         def swaps_maps? = !shown_map.nil?

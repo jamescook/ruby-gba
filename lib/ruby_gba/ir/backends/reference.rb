@@ -176,7 +176,7 @@ module RubyGBA
           @bg_scroll = {}          # background name -> [x, y] its window is currently offset to
           @bg_maps = {}            # ...and this run's own copy of its cells, once any of them has changed
           @row_bends = {}          # background name -> :scroll_rows node giving each row its own offset
-          @bg_affine = {}          # background name -> [angle degrees, scale in SCALE_ONE-ths] this frame
+          @bg_affine = {}          # background name -> the Turn it is being drawn under this frame
           @obj_layer = []          # sprites to composite over a scrolling scene, in draw order (later = in front)
           @fade_placed = nil       # [layer, toward, amount] while a fade sits under a layer rather than over everything
           @kept_out_of_the_fade = {} # layer -> the names a fade under it leaves alone
@@ -1082,6 +1082,12 @@ module RubyGBA
           composite_scrolled_frame
         end
 
+        # HOW A BACKGROUND IS BEING TURNED RIGHT NOW: the angle in degrees, the size in
+        # SCALE_ONE-ths, and the point on screen it turns around — which stays still while
+        # the rest of the picture swings or grows about it, and is the middle of the screen
+        # unless the program named one (see Background#turns_around).
+        Turn = Data.define(:angle, :size, :pivot_x, :pivot_y)
+
         # Turn/resize a background: record this frame's angle and size and recomposite —
         # the affine sibling of #exec_scroll_background. +angle+ wraps to 0..359 the same
         # way a hardware sprite's does, so a program that never wraps it itself (a fixed
@@ -1090,7 +1096,8 @@ module RubyGBA
           @bg_by_name.fetch(node.name) { raise ProgramError, "affine transform of undeclared background #{node.name.inspect}" }
           return unless eval_value(node.active) == 1
 
-          @bg_affine[node.name] = [eval_value(node.angle) % 360, eval_value(node.scale)]
+          @bg_affine[node.name] = Turn.new(angle: eval_value(node.angle) % 360, size: eval_value(node.scale),
+                                           pivot_x: node.around_x, pivot_y: node.around_y)
           composite_scrolled_frame
         end
 
@@ -1105,7 +1112,8 @@ module RubyGBA
         # painted as a run. A scrolling scene is repainted in full every frame, so this
         # inner loop is where a whole run's time goes.
         def paint_background_window(bg)
-          return paint_affine_background_window(bg, *@bg_affine[bg.name]) if @bg_affine.key?(bg.name)
+          turn = @bg_affine[bg.name]
+          return paint_affine_background_window(bg, turn) if turn
 
           tiles = bg.tiles
           map = map_of(bg)
@@ -1145,9 +1153,9 @@ module RubyGBA
           end
         end
 
-        # Repaint an affine background's window, turned +angle_deg+ degrees and sized
-        # +scale+ (SCALE_ONE-ths), pivoting on the middle of the screen — the affine
-        # sibling of #paint_background_window, which can only slide the window straight.
+        # Repaint an affine background's window under +turn+ (see Turn: an angle, a size and
+        # the point it all happens around) — the affine sibling of #paint_background_window,
+        # which can only slide the window straight.
         #
         # A plain scroll walks the screen a TILE at a time because every pixel in a run
         # comes from the same tile; a turn breaks that — two screen pixels side by side
@@ -1158,7 +1166,7 @@ module RubyGBA
         # down for a negative numerator exactly the way the console's shift-right would,
         # so the two backends land on the same map pixel without either one specially
         # asking for it.
-        def paint_affine_background_window(bg, angle_deg, scale)
+        def paint_affine_background_window(bg, turn)
           tiles = bg.tiles
           map = map_of(bg)
           tile_w = bg.tile_w
@@ -1167,18 +1175,18 @@ module RubyGBA
           map_w = cols * tile_w
           map_h = rows_of_cells * tile_h
           base_x, base_y = @bg_scroll[bg.name] || [0, 0]
-          cx = @screen.width / 2
-          cy = @screen.height / 2
-          pa, pb, pc, pd = Affine.matrix(angle_deg, scale)
+          pivot_x = turn.pivot_x
+          pivot_y = turn.pivot_y
+          pa, pb, pc, pd = Affine.matrix(turn.angle, turn.size)
 
           @screen.height.times do |py|
-            dy = py - cy
+            dy = py - pivot_y
             @screen.width.times do |px|
-              dx = px - cx
+              dx = px - pivot_x
               tex_dx = ((pa * dx) + (pb * dy)) / Affine::ONE_TH
               tex_dy = ((pc * dx) + (pd * dy)) / Affine::ONE_TH
-              mx = (base_x + cx + tex_dx) % map_w
-              my = (base_y + cy + tex_dy) % map_h
+              mx = (base_x + pivot_x + tex_dx) % map_w
+              my = (base_y + pivot_y + tex_dy) % map_h
               row = map[my / tile_h]
               next unless row
 

@@ -520,6 +520,14 @@ module RubyGBA
       at_boot(Build.set(var, Build.int(value)))
     end
 
+    # The point a background turns around, in screen pixels — kept with the background
+    # rather than with one turn, because a picture turns around one point however many
+    # times the game turns it (see {Background#turns_around}). Every write of that
+    # background's matrix carries it, so there is nowhere for a second answer to live.
+    def background_turns_around(name, x, y)
+      declared_background(name).pivot = [x, y]
+    end
+
     # The last statement recorded into the block being built, or nil where nothing has been
     # recorded into it yet. What it answers is whether a call CONTINUES a declaration or
     # comes after it — `background(...).scale(16.0)` is one line and one declaration, where
@@ -892,11 +900,20 @@ module RubyGBA
     # the same as a scene-owned sprite or HUD glyph — a background turned only inside one
     # scene must stop writing BG2's registers once that scene isn't the live one.
     def finalize_background_affine
+      # A pivot can be named after the turn that reads it (`.scale(2.0).turns_around(...)`),
+      # and a program with no frame boundary keeps the writes where the author put them —
+      # so the ones being kept are told now, when every line has been read.
+      @inline_affine_nodes.each do |node|
+        pivot = declared_background(node.name).pivot
+        node.around_x, node.around_y = pivot if pivot
+      end
+
       write_between_frames(@inline_affine_nodes, backgrounds_that(&:turns_each_frame?)) do |name, background|
         gate = background.scene_gate
         active = gate ? Build.binop(:==, Build.var_ref(gate[0]), Build.int(gate[1])) : Build.int(1)
         Build.affine_background(name, angle: Build.var_ref(background.angle),
-                                      scale: Build.var_ref(background.scale), active: active)
+                                      scale: Build.var_ref(background.scale), active: active,
+                                      around: background.pivot)
       end
     end
 

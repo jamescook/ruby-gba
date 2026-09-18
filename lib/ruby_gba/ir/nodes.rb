@@ -70,11 +70,18 @@ module RubyGBA
       # ScrollBackground, its sibling for plain panning). +angle+ is degrees clockwise,
       # +scale+ is in Build::SCALE_ONE-ths (1.0 = drawn size) — the same units a hardware
       # sprite's rotation/scale carry, so both go through the shared {IR::Affine} rules.
+      #
+      # +around_x+/+around_y+ are the point the picture turns around, in screen pixels —
+      # the one place that stays still while the rest swings or grows about it, and the
+      # place the same point of the picture keeps landing on. The middle of the screen
+      # unless the program says otherwise. They are settled while the program is written
+      # rather than worked out as it runs, so they are plain numbers on the statement.
       class AffineBackground
         include Node
         kind :affine_background
         category :draw
-        operands name: :name, angle: :value, scale: :value, active: :value
+        operands name: :name, angle: :value, scale: :value, active: :value,
+                 around_x: :int, around_y: :int
       end
 
       # One cell of a declared background becomes a different tile, while the game runs —

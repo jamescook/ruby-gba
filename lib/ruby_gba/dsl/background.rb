@@ -316,6 +316,33 @@ module RubyGBA
         Value.new(@builder, Build.var_ref(angle_var), name: angle_var)
       end
 
+      # WHICH POINT THE PICTURE TURNS AROUND — the one place on screen that stays still
+      # while the rest of the picture swings or grows about it.
+      #
+      #   background(:sword, tiles: :sword, map: grid).turns_around(120, 72).scale(16.0)
+      #
+      # The middle of the screen unless you say so, which is right for a picture that is
+      # the whole screen — a spinning map, a race track — and wrong for a picture that
+      # arrives at a particular spot. A title screen where something flies at the player
+      # pivots wherever that thing comes to rest, and the difference is not cosmetic: at
+      # sixteen times magnified only a sixteen-by-ten patch of the picture is on screen, so
+      # a pivot eight pixels off puts the whole thing outside the screen for the first half
+      # of its arrival. It flies in from nowhere.
+      #
+      # Say it ONCE, where the background is declared: a picture turns around one point
+      # however many times the game turns it. The display is given a single place the
+      # picture is pinned to, so two different answers could not both hold — and this is
+      # not a thing to change per frame, which is why it takes numbers you write rather
+      # than something the game works out.
+      #
+      # Nothing about the picture moves when only the pivot changes: at its drawn size,
+      # upright, a background lands in exactly the same place whatever it turns around.
+      def turns_around(x, y)
+        affine_vars # this background is one that turns — the same claim `rotate`/`scale` make
+        @builder.background_turns_around(@name, whole_pixel(x, "x"), whole_pixel(y, "y"))
+        self
+      end
+
       private
 
       # A plain scroll moves a `screen :tiled` layer's own pan registers, which a rotozoom
@@ -424,6 +451,18 @@ module RubyGBA
       # second one chained after it (`.scale(16.0).rotate(45)`) is part of it too.
       def keep_declaring
         @declaration_tail = @builder.last_statement
+      end
+
+      # The point is settled while the program is written, so it takes a number rather than
+      # something the game works out. A pivot that MOVED would be its own effect and a real
+      # one; refusing it here says so plainly instead of half-doing it.
+      def whole_pixel(value, axis)
+        return value if value.is_a?(Integer)
+
+        raise ArgumentError,
+              "#{@name}.turns_around takes numbers you write, not a value the game works out. " \
+              "You gave #{axis} = #{value.inspect}. The point a picture turns around is settled " \
+              "when you write the program. To fix this, write #{axis} as a whole number of pixels."
       end
 
       # A number written on the declaration line is what the background STARTS at, so it is
