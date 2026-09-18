@@ -282,13 +282,12 @@ module RubyGBA
           # each channel a fraction of the way to its limit. So a mid-fade picture keeps
           # its shape and loses its color, rather than every pixel jumping at once.
           #
-          # THE TWO DIRECTIONS ARE NOT MIRROR IMAGES, and where the truncation falls is
-          # the whole of the difference. Toward white, a channel ADDS a share of the
-          # headroom it has left, and that share is truncated on its own. Toward black it
-          # KEEPS a share of what it has — which is not the same as taking a truncated
-          # share away, because the two round in opposite directions. A channel at the top
-          # blended a quarter of the way to black keeps 23, where taking a quarter away
-          # would leave 24.
+          # BOTH DIRECTIONS MOVE BY A TRUNCATED SHARE, and the share is what the rounding
+          # falls on. Toward white a channel ADDS a share of the headroom it has left;
+          # toward black it TAKES AWAY a share of what it has. Neither one keeps a share
+          # instead, and that distinction is worth a sentence because the two round in
+          # opposite directions: a channel at the top taken a quarter of the way to black
+          # comes back 24, where keeping three quarters would leave 23.
           #
           # The fractions are in sixteenths and the arithmetic is whole-number, which is
           # what the display does. Matching it exactly is what lets a test name one
@@ -359,7 +358,7 @@ module RubyGBA
               if toward == :white
                 c + (((CHANNEL_MAX - c) * steps) / FADE_STEPS)
               else
-                (c * (FADE_STEPS - steps)) / FADE_STEPS
+                c - ((c * steps) / FADE_STEPS)
               end
             end
             blended[0] | (blended[1] << 5) | (blended[2] << 10)

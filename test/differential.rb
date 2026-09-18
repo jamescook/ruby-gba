@@ -54,19 +54,22 @@ module Differential
   # differently, which is why a uniform gray comes back from a fade with unequal
   # channels. It is a quirk of that renderer and says nothing about our lowering.
   #
+  # IT IS ALSO WHY THE SLACK GOES BOTH WAYS. Where the rounding lands decides whether a
+  # channel on its way to black loses a truncated share or keeps one, and those differ by
+  # a step — so the emulator's red does the first, its green and blue do the second, and
+  # one of them must read low whichever the display really does. A display has one blend
+  # unit and three identical channels and cannot do that, so the emulator is no answer
+  # key for this last step, in either direction.
+  #
   # The bound is PROVED, not sampled: test_emulator_blend.rb walks every 5-bit value
   # against every amount, for both fade directions and the tint, and asserts the emulator
-  # never reads low and never more than this far high — and that this number is tight, so
-  # it cannot quietly cover more than it was measured to.
-  #
-  # KEEPING IT ONE-SIDED IS THE POINT. The bug this was written alongside — the
-  # interpreter fading toward black by taking a truncated share away rather than keeping
-  # one — made the INTERPRETER read high, which is the side with no slack at all. A plain
-  # absolute difference would have hidden it. Do not "tidy" this into one.
+  # is never further out than this — and that this number is tight on each side, so it
+  # cannot quietly cover more than it was measured to.
   #
   # So this still proves an effect reached the right pixels. What it cannot prove is the
-  # last step of the arithmetic; that is what the exact per-color assertions against
-  # measured console values are for.
+  # last step of the arithmetic, and that is not left to it: the rule a fade follows is
+  # pinned exactly, at every one of its seventeen levels, on the channel the emulator
+  # does compute as written (test_fade.rb, "the rule a channel follows").
   EMULATOR_BLEND_SLACK = 1
 
   # A button name as the console's key bit, for holding buttons on both backends.
@@ -198,8 +201,8 @@ module Differential
   end
 
   # Every pixel the two disagree on, as [x, y, interpreter_color, console_color].
-  # +slack+ is how many steps the emulator is allowed to read HIGH in a channel; 0 means
-  # the colors have to be identical (see EMULATOR_BLEND_SLACK).
+  # +slack+ is how many steps the emulator is allowed to be out in a channel, either way;
+  # 0 means the colors have to be identical (see EMULATOR_BLEND_SLACK).
   def mismatched_pixels(oracle, console, slack: 0)
     (0...PIXELS).filter_map do |i|
       next if oracle[i] == console[i]
@@ -209,12 +212,11 @@ module Differential
     end
   end
 
-  # Is every channel of the emulator's color the interpreter's, or up to +slack+ above it?
-  # Never below — reading low is a real disagreement, whatever the slack.
+  # Is every channel of the emulator's color within +slack+ steps of the interpreter's?
   def within_slack?(want, got, slack)
     3.times.all? do |channel|
       shift = channel * 5
-      (0..slack).cover?(((got >> shift) & 0x1F) - ((want >> shift) & 0x1F))
+      (((got >> shift) & 0x1F) - ((want >> shift) & 0x1F)).abs <= slack
     end
   end
 

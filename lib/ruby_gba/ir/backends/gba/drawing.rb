@@ -1444,8 +1444,12 @@ module RubyGBA
           # survives one (IR::Fading says which fades those are and why).
           #
           # Moving every entry of the color table a fraction of the way to black and
-          # moving the finished picture there are the same arithmetic on the same numbers,
-          # so this is the tint walk with black or white as the color. Nothing else here
+          # moving the finished picture there come to the same picture, so this is the
+          # tint walk with black or white as the color. The last step is not quite the
+          # same one: a mix rounds the sum of two shares where the display's fade rounds
+          # the share it takes away, so a game on this route fades a step lighter than the
+          # same game on the display's blend. Two pieces of hardware rounding their own
+          # way — the interpreter models both, and says so. Nothing else here
           # runs: the blend registers are never written, so the layer keeps the setup it
           # was given at boot and there is nothing to hand back when the fade lifts.
           def emit_fade_by_walking_the_colors(node)

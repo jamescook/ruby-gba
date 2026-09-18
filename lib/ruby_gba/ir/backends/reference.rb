@@ -1334,9 +1334,19 @@ module RubyGBA
         # IR::Fading for which fades those are and why).
         #
         # Moving every color toward black by a fraction and moving the finished picture
-        # there are the same arithmetic, so this is a tint toward black or white — right
+        # there come to the same picture, so this is a tint toward black or white — right
         # down to where the truncation falls, which is what lets one written-down color be
-        # asserted on both backends. What it buys is everything the tint already has: the
+        # asserted on both backends.
+        #
+        # THE SAME PICTURE, NOT THE SAME LAST STEP. A mix takes a share of each side and
+        # rounds the sum; the display's own fade takes a share AWAY from what a channel
+        # has and rounds that. So a game that walks the colors fades a step lighter than
+        # the same game blended by the display, everywhere the share divides unevenly.
+        # That is two pieces of a console rounding their own way rather than a gap to
+        # close, and it is a step nobody can see — but it is the reason the two are
+        # written as two blends here instead of one shared with #blend.
+        #
+        # What it buys is everything the tint already has: the
         # display's blend unit is never told anything, so the see-through layer goes on
         # blending and the mix darkens along with both sides of it.
         def walk_the_colors(node, amount)

@@ -7,17 +7,22 @@ require "differential"
 # The slack the whole-screen comparison allows a blended pixel, PROVED over its whole
 # domain rather than sampled.
 #
-# The comparison lets the emulator read up to Differential::EMULATOR_BLEND_SLACK steps
-# HIGH on a blended channel, and never low. That is not a guess and it must not be
-# loosened casually: the bug that motivated the whole exercise (the interpreter fading
-# toward black by taking a truncated share away rather than keeping one) made the
-# INTERPRETER read high, which is the side with no slack at all. A symmetric tolerance
-# would have hidden it.
+# The comparison lets the emulator be up to Differential::EMULATOR_BLEND_SLACK steps out
+# on a blended channel, either way. Both directions are real and neither can be dropped:
+# the emulator evaluates one expression per channel, on the channel's own value for red
+# and on a shifted field for green and blue, which moves where the rounding falls — so
+# for one gray faded a quarter of the way to black it hands back 24, 23, 23. Whatever the
+# display really does, one of those reads low and the other reads high.
 #
 # So this walks every 5-bit channel value against every amount, comparing what the
 # console does with what the emulator's own arithmetic does, and asserts the bound holds
-# everywhere and is TIGHT — if a change makes it looser, this fails and says so instead
-# of the slack quietly covering more than it was measured to.
+# everywhere and is TIGHT ON EACH SIDE — if a change makes it looser, this fails and says
+# so instead of the slack quietly covering more than it was measured to.
+#
+# WHAT THE SLACK IS NOT FOR. It cannot tell one rounding rule from another, because a
+# rule change is exactly one step. The rule is pinned elsewhere and exactly:
+# test_fade.rb walks all seventeen levels on the console's red channel, which is the one
+# the emulator computes as written.
 class TestEmulatorBlend < Minitest::Test
   include Differential
 
@@ -93,11 +98,12 @@ class TestEmulatorBlend < Minitest::Test
     end
   end
 
-  def test_the_emulator_never_reads_below_the_console
+  def test_the_emulator_never_reads_further_below_than_the_slack_allows
     worst = each_deviation.min_by { |delta, _| delta }
 
-    assert_operator worst.first, :>=, 0,
-                    "the emulator read LOW at #{worst.last.inspect} — the one-sided slack is unsound"
+    assert_operator worst.first, :>=, -EMULATOR_BLEND_SLACK,
+                    "the emulator read #{worst.first} steps low at #{worst.last.inspect}, " \
+                    "past the slack of #{EMULATOR_BLEND_SLACK}"
   end
 
   def test_the_emulator_never_reads_further_above_than_the_slack_allows
@@ -108,19 +114,25 @@ class TestEmulatorBlend < Minitest::Test
                     "past the slack of #{EMULATOR_BLEND_SLACK}"
   end
 
-  # The slack is not larger than it needs to be. If this fails because the real worst
-  # case shrank, tighten EMULATOR_BLEND_SLACK to match — a slack wider than the
-  # measurement is coverage given away for nothing.
-  def test_the_slack_is_tight
-    worst = each_deviation.map(&:first).max
+  # The slack is not larger than it needs to be, on EITHER side. If this fails because a
+  # real worst case shrank, tighten EMULATOR_BLEND_SLACK to match — a slack wider than
+  # the measurement is coverage given away for nothing. If one side goes to nought, the
+  # slack has stopped being symmetric and the comparison can say so instead.
+  def test_the_slack_is_tight_in_both_directions
+    deltas = each_deviation.map(&:first)
 
-    assert_equal EMULATOR_BLEND_SLACK, worst,
-                 "the worst over-read is #{worst}, so the slack can be exactly that"
+    assert_equal [-EMULATOR_BLEND_SLACK, EMULATOR_BLEND_SLACK], [deltas.min, deltas.max],
+                 "the worst readings are #{deltas.min} and #{deltas.max}, so the slack can be exactly that"
   end
 
   # The quirk that causes all of this, pinned so it cannot change unnoticed: the emulator
   # divides the red channel on its raw byte and the other two on their shifted fields, so
   # a uniform gray comes back with unequal channels.
+  #
+  # The two answers are the two rules a fade could follow. 24 is a channel that LOST a
+  # truncated share, which is what the display does and what the interpreter now does;
+  # 23 is one that KEPT a truncated share. So this is not only where the slack comes
+  # from, it is why the emulator cannot settle the rule on its own.
   def test_the_emulator_treats_the_red_channel_differently
     y = EmulatorBlend.steps_of(25)
     per_channel = 3.times.map { |field| EmulatorBlend.darkened(31, y, field) }

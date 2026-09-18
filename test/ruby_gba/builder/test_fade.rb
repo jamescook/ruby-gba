@@ -63,30 +63,34 @@ class TestFade < Minitest::Test
     assert_equal WHITE, i.screen.pixel(10, 10)
   end
 
-  # Halfway on each channel, and the two directions land on DIFFERENT numbers because
-  # the truncation falls in different places. Going to black a channel keeps half of
-  # what it has — half of 31 is 15.5, kept as 15. Going to white it adds half of the
-  # headroom it has left.
+  # Halfway on each channel, in both directions. A fade MOVES a channel by a share and
+  # rounds the share, whichever way it is going: toward black it loses half of what it
+  # has, and half of 31 is 15.5, of which it loses 15 and keeps 16. Toward white it gains
+  # half of the headroom it has left. They are not mirror images — one lands on 16 where
+  # the other lands on 15 — because the part that rounds is the part that MOVES.
   #
-  # These are the console's own numbers, read off the emulator rather than derived: a
-  # green screen faded halfway to black comes back 0x01e0, which is 15. Asserting 16
-  # here (what taking a truncated half AWAY gives) is how the interpreter drifted a step
-  # darker than the console for as long as nothing compared the two.
+  # Every level of this, and the console beside it, is above under "the rule a channel
+  # follows".
   def test_a_half_fade_moves_each_channel_half_way
     dark = Reference.new.run(faded(:black, 50))
     light = Reference.new.run(faded(:white, 50))
 
-    assert_equal [15, 0, 0], channels(dark.screen.pixel(120, 80)), "red, half faded to black"
-    assert_equal [0, 0, 15], channels(dark.screen.pixel(10, 10)), "blue, half faded to black"
+    assert_equal [16, 0, 0], channels(dark.screen.pixel(120, 80)), "red, half faded to black"
+    assert_equal [0, 0, 16], channels(dark.screen.pixel(10, 10)), "blue, half faded to black"
     assert_equal [31, 15, 15], channels(light.screen.pixel(120, 80)), "red, half faded to white"
   end
 
   # ...and the console really does say so, for the same picture through the ROM.
+  #
+  # Read on the red block, not on the blue screen beside it. The emulator rounds a
+  # shifted channel a step differently from an unshifted one (see the console test
+  # above), so the blue here comes back 15 where the display's own rule says 16 — which
+  # is the one place in this file the emulator is not the answer.
   def test_the_console_shows_the_same_half_fade
     rom = assemble_rom(faded(:black, 50), name: "HALF")
     v = assert_emulator_loads_rom(rom, frames: 6)
 
-    assert_equal 15, v.pixel_gba(10, 10) >> 10, "blue, half faded to black"
+    assert_equal 16, v.pixel_gba(120, 80) & 0x1F, "red, half faded to black"
   end
 
   # The invariant that matters: a fade covers the picture, it does not destroy it.
@@ -212,6 +216,67 @@ class TestFade < Minitest::Test
 
   def test_a_game_that_never_fades_is_not_flagged
     assert_empty check.detect(program { screen :bitmap; clear_screen :blue; halt })
+  end
+
+  # --- the rule a channel follows, at every step there is ---
+
+  # A fade counts in sixteenths, so there are seventeen answers and no more. One
+  # percentage per distinct sixteenth walks all of them without a hundred percentages
+  # that collapse onto the same step.
+  EVERY_LEVEL = (0..16).map { |step| (step * 100.0 / 16).ceil }.freeze
+
+  # A channel at full strength on its way to black, one entry per sixteenth.
+  #
+  # WRITTEN OUT RATHER THAN WORKED OUT, on purpose: a formula here would be the same
+  # formula the code uses, so it would agree with a wrong one. This is the display's own
+  # rule, which takes a share AWAY — 31 less a ninth of itself is 31 less 17, which is
+  # 14 — and not the rule that keeps a share, which would say 13. Every entry is even
+  # because the share taken from 31 rounds down exactly half the time.
+  RED_FADED_TO_BLACK = [31, 30, 28, 26, 24, 22, 20, 18, 16, 14, 12, 10, 8, 6, 4, 2, 0].freeze
+
+  SOLID_TILE = (("#" * 8) + "\n").freeze * 8
+
+  # A screenful of one flat red tile, faded. Tiled rather than bitmap because that is
+  # where this was found, and because a tiled fade is the one the display does for
+  # nothing — the route this rule belongs to.
+  def a_red_wall_faded(amount)
+    tile = SOLID_TILE
+    program do
+      screen :tiled
+      image(:brick, "#" => :red) { tile }
+      tiles :wall, "#" => :brick
+      background :wall, tiles: :wall, map: Array.new(20) { "#" * 30 }
+      game_loop { fade :black, amount }
+    end
+  end
+
+  def test_a_fade_takes_a_share_away_at_every_level
+    EVERY_LEVEL.each_with_index do |percent, step|
+      shown = Reference.new.run(a_red_wall_faded(percent), frames: 2).screen.pixel(8, 8)
+
+      assert_equal RED_FADED_TO_BLACK[step], shown & 0x1F,
+                   "red #{percent}% of the way to black, which is #{step} sixteenths"
+    end
+  end
+
+  # ...and the console says the same, step for step.
+  #
+  # Read on the RED channel alone, which is not fussiness. The emulator evaluates one
+  # expression per channel and evaluates it on the channel's own value for red and on a
+  # shifted field for the other two, which moves where the rounding falls — so it hands
+  # back 24, 23, 23 for the three channels of one gray faded one quarter. A display has
+  # one blend unit and three identical channels and cannot do that, so the emulator is no
+  # answer key for the last step; red is the channel where it does the arithmetic as
+  # written. test_emulator_blend.rb proves the other two are never further out than one
+  # step.
+  def test_the_console_fades_a_channel_by_the_same_steps
+    EVERY_LEVEL.each_with_index do |percent, step|
+      rom = assemble_rom(a_red_wall_faded(percent), name: "FSTEP")
+      console = assert_emulator_loads_rom(rom, frames: 6).pixel_gba(8, 8)
+
+      assert_equal RED_FADED_TO_BLACK[step], console & 0x1F,
+                   "red #{percent}% of the way to black, which is #{step} sixteenths"
+    end
   end
 
   # --- on the console ---
