@@ -38,11 +38,15 @@ module RubyGBA
       # @param map_names [Array<Object>] the maps this background was declared with, in
       #   order — what `show_map` names. One entry (the background's own name) for a
       #   background declared with a single map, which can never be handed another.
+      # @param node [IR::Node] the statement that declared it, so a `rotate`/`scale` written
+      #   on the same line can tell that it is still part of declaring this background
+      #   rather than something the frame does to it (see {#part_of_the_declaration?})
       def initialize(builder, name:, scroll_x:, scroll_y:, walls: [],
                      cells: [0, 0], tile_index: {}, bitmap: false, map_names: nil,
-                     solid_cells: [], tile_size: [8, 8])
+                     solid_cells: [], tile_size: [8, 8], node: nil)
         @builder = builder
         @name = name
+        @declaration_tail = node
         @scroll_x = scroll_x
         @scroll_y = scroll_y
         @walls = walls
@@ -266,13 +270,15 @@ module RubyGBA
       def rotate(degrees)
         angle_var, = affine_vars
         fixed = Value.fixed_number(degrees)
+        declaring = !fixed.nil? && part_of_the_declaration?
         if fixed
-          record(Build.set(angle_var, Build.int(fixed % 360)))
+          write_turn(angle_var, fixed % 360, declaring)
         else
           angle.set!(degrees)
           wrap_angle
         end
         apply_affine
+        keep_declaring if declaring
         self
       end
 
@@ -290,8 +296,16 @@ module RubyGBA
                 "a background's size must be more than 0. You gave #{size.inspect}. " \
                 "1.0 is the size it was drawn at, 0.5 is half."
         end
-        affine_scale_value.set!(size)
+
+        declaring = size.is_a?(Numeric) && part_of_the_declaration?
+        if declaring
+          _, scale_var = affine_vars
+          write_turn(scale_var, Fraction.scale(size.to_f, Fraction::DEFAULT_BITS), true)
+        else
+          affine_scale_value.set!(size)
+        end
         apply_affine
+        keep_declaring if declaring
         self
       end
 
@@ -388,6 +402,37 @@ module RubyGBA
       # (see Builder::Tiled#make_background_affine).
       def affine_vars
         @builder.make_background_affine(@name)
+      end
+
+      # IS THIS TURN STILL PART OF DECLARING THE BACKGROUND, or something the frame does
+      # to it afterwards?
+      #
+      # `background(:sword, tiles: :t, map: grid).scale(16.0)` is one line, and the size in
+      # it says how big the picture starts. A `scale` written further down a scene is a
+      # different statement meaning a different thing — set the size, now, every time this
+      # runs — and the two have to run in different places, because a scene's body is
+      # reached on every frame that scene is up.
+      #
+      # The question is answered by where the build point is rather than by reading the
+      # author's line: nothing has been recorded since this background was declared, so
+      # this call is still on that line.
+      def part_of_the_declaration?
+        !@declaration_tail.nil? && @builder.last_statement.equal?(@declaration_tail)
+      end
+
+      # ...and a turn that WAS part of the declaration leaves the declaration open, so a
+      # second one chained after it (`.scale(16.0).rotate(45)`) is part of it too.
+      def keep_declaring
+        @declaration_tail = @builder.last_statement
+      end
+
+      # A number written on the declaration line is what the background STARTS at, so it is
+      # set once at power-on; the same number written anywhere else is a write this frame
+      # makes, and stays where the author put it.
+      def write_turn(var, value, declaring)
+        return @builder.background_starts_at(var, value) if declaring
+
+        record(Build.set(var, Build.int(value)))
       end
 
       # The size variable as a fraction-carrying handle, the same way a sprite's does.

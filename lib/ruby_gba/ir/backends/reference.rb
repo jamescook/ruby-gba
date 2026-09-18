@@ -905,14 +905,6 @@ module RubyGBA
         # composites stacked layers: the backmost paints first, and each layer in front
         # only covers where it has solid pixels, letting the layers behind fill its gaps.
         def exec_background(node)
-          # Once this background has ever been turned or resized, it's painted by the
-          # transformed path instead (see #exec_affine_background /
-          # #paint_background_window) — a plain, untransformed stamp here would
-          # overwrite that with the picture as originally drawn, throwing away the
-          # rotate/scale every time this node's own scene re-executes it (which, for a
-          # scene-owned background, is every frame the scene is active).
-          return if @bg_affine.key?(node.name)
-
           take_the_screen_for(node.scene)
 
           # PUTTING A BACKGROUND UP IS A ONCE-PER-SCENE JOB, NOT A PER-FRAME ONE, and this
@@ -941,6 +933,13 @@ module RubyGBA
           # order they were declared, which is every program that names no layers.
           over = @bg_shown.select { |bg| behind?(node, bg) }
           @bg_shown << node
+          # A background that has ever been turned or resized is painted through its
+          # matrix instead (see #paint_background_window) — a plain stamp here would put
+          # the picture back as originally drawn and throw the turn away. It still counts
+          # as up: being on screen is what says whose scene is showing, and a scene whose
+          # only scenery turns had nothing else to say it.
+          return composite_scrolled_frame if @bg_affine.key?(node.name)
+
           stamp_background(node)
           in_stack_order(over).each { |bg| stamp_background(bg) }
         end

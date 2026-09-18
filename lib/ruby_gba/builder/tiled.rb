@@ -295,6 +295,7 @@ module RubyGBA
                              tile_index: tile_lookup(set, index_of),
                              bitmap: @screen_mode == :bitmap,
                              map_names: map_names,
+                             node: declared.node,
                              # One grid of walls per map, in the order they were declared —
                              # so a mover is stopped by the walls of the room it is in
                              # rather than by the first room's, wherever it stands.

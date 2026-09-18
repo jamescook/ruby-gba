@@ -507,6 +507,27 @@ module RubyGBA
       @inline_affine_nodes << node
     end
 
+    # THE SIZE OR ANGLE A BACKGROUND IS DECLARED AT, which is a different thing from one
+    # written each frame and has to run in a different place.
+    #
+    # `background(:sword, ...).scale(16.0)` says how big the picture STARTS. At the top of
+    # a program that is also where it runs, because the top of a program runs once — but a
+    # scene's body is reached on every frame that scene is up, so the same line there put
+    # the size back at the top of every frame and whatever was easing it got one step and
+    # no more. So it goes to boot, which is the promise `var` already makes about the value
+    # it is declared with, wherever it is declared.
+    def background_starts_at(var, value)
+      at_boot(Build.set(var, Build.int(value)))
+    end
+
+    # The last statement recorded into the block being built, or nil where nothing has been
+    # recorded into it yet. What it answers is whether a call CONTINUES a declaration or
+    # comes after it — `background(...).scale(16.0)` is one line and one declaration, where
+    # a `scale` further down the same scene is a write that frame makes.
+    def last_statement
+      @container_stack.last.children.last
+    end
+
     # Remember this frame boundary, so the per-frame scroll writes can be inserted
     # just after it at finalize. Which backgrounds scroll isn't known yet — one may
     # be scrolled further down the loop body, or inside a scene built later — so the

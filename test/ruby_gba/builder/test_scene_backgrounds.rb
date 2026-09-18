@@ -820,4 +820,86 @@ class TestSceneBackgrounds < Minitest::Test
     assert_empty switched_on_before_pointed(writes),
                  "a layer was switched on with no map of its own yet"
   end
+
+  # THE SIZE A SCENE'S BACKGROUND IS DECLARED AT IS PART OF DECLARING IT.
+  #
+  # A turning background is what asks the console for the arrangement that holds one, and
+  # only the screen that wants that arrangement should be in it — so a title whose picture
+  # flies at the player declares that picture inside the title's own scene. It then has to
+  # be able to move: the whole animation is the size walking from magnified down to
+  # natural.
+  #
+  # A scene's body runs on every frame the scene is active, so the size it was declared at
+  # was put back at the top of every frame and whatever moved it got one step and no more.
+  # Declaring it is not something a scene does sixty times a second, any more than sending
+  # its map is.
+  #
+  # Judged on the picture, which is what the author sees. The map is blank but for two
+  # marks, one where a magnified picture samples the middle of the screen and one where a
+  # natural-sized picture samples the same point — so which colour shows at that one pixel
+  # says how big the picture is, with no matrix arithmetic restated in the test.
+  ZOOMED_IN = 16.0
+
+  private def a_sword_that_flies_at_the_player(turning: false)
+    marks = Array.new(32) { Array.new(32, " ") }
+    marks[10][15] = "n" # what the middle of the screen samples while it is magnified
+    marks[10][25] = "f" # ...and what it samples once the picture is its natural size
+    map = marks.map(&:join)
+
+    program do
+      screen :tiled
+      image(:near_art, "#" => :red) { SOLID_TILE }
+      image(:far_art, "#" => :blue) { SOLID_TILE }
+      tiles :marks, "n" => :near_art, "f" => :far_art
+      layers :sword
+
+      scene :title do
+        sword = layer(:sword) do
+          declared = background(:sword, tiles: :marks, map: map).scale(ZOOMED_IN)
+          turning ? declared.rotate(90) : declared
+        end
+        sword.scale.approach! 1.0, 1.0
+        sword.angle.approach! 0, 10 if turning
+      end
+
+      game_loop { case_var(:state) { when_val 0, :title } }
+      var :state, 0
+    end
+  end
+
+  # 80 pixels right of the middle, on the middle row: magnified it samples the near mark,
+  # natural-sized it samples the far one.
+  SAMPLED = [200, 80].freeze
+
+  def test_a_scene_owned_background_goes_on_easing_the_size_it_was_declared_at
+    screen = Reference.new.run(a_sword_that_flies_at_the_player, frames: 20).screen
+
+    assert_equal BLUE, screen.pixel(*SAMPLED),
+                 "the picture never eased down to its natural size — it is still magnified"
+  end
+
+  def test_the_console_eases_it_too
+    v = assert_emulator_loads_rom(assemble_rom(a_sword_that_flies_at_the_player, name: "SCNSWD"), frames: 22)
+
+    assert_equal BLUE, v.pixel_gba(*SAMPLED),
+                 "the console was never told the eased size — the picture is still magnified"
+  end
+
+  # Every pixel, and both ends of the easing: the frame the scene takes over, where the
+  # picture is magnified, and the frame it has arrived. Sampling one point says the size
+  # walked; this says the two backends draw the same magnified picture all the way down.
+  def test_the_two_backends_agree_while_the_picture_flies_at_the_player
+    assert_backends_agree(a_sword_that_flies_at_the_player, frames: 3)
+    assert_backends_agree(a_sword_that_flies_at_the_player, frames: 20)
+  end
+
+  # ...and a second turn written on the same line — `.scale(16.0).rotate(90)` — is part of
+  # declaring it too, so the angle can be eased the same way the size can. It is one line
+  # and it says one thing: this is how the picture starts.
+  def test_a_turn_chained_onto_the_declaration_starts_the_picture_too
+    screen = Reference.new.run(a_sword_that_flies_at_the_player(turning: true), frames: 20).screen
+
+    assert_equal BLUE, screen.pixel(*SAMPLED),
+                 "the picture never came upright — the angle it was declared at is put back every frame"
+  end
 end
