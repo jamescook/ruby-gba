@@ -59,10 +59,12 @@ module RubyGBA
       # #scrolls? is the same question as asking whether the game ever scrolled it.
       DeclaredBackground = Struct.new(:node, :scroll_x, :scroll_y, :shown_map, :live_map,
                                       :angle, :scale, :scene_gate, :bends_rows, :pivot,
+                                      :shown_colors, :live_colors,
                                       keyword_init: true) do
         def scrolls? = !scroll_x.nil?
         def swaps_maps? = !shown_map.nil?
         def bends_rows? = !bends_rows.nil?
+        def draws_with_colors? = !shown_colors.nil?
 
         # Has the build wired this one up to turn — allocated its angle and size, and
         # arranged for its matrix to be written every frame? Not the same question as
@@ -300,7 +302,8 @@ module RubyGBA
                              # so a mover is stopped by the walls of the room it is in
                              # rather than by the first room's, wherever it stands.
                              solid_cells: wall_grids(name, map_names, drawn, set, walls),
-                             tile_size: [set[:tile_w], set[:tile_h]])
+                             tile_size: [set[:tile_w], set[:tile_h]],
+                             tile_pictures: (set[:by_key].values + set[:by_number].values).uniq)
       end
 
       # Make a background able to turn and resize as a whole (see {Background#rotate} /
@@ -327,6 +330,7 @@ module RubyGBA
 
         refuse_turning_without_a_tile_screen!(name)
         refuse_turning_a_scrolled_background!(name)
+        refuse_turning_a_recolored_background!(name)
 
         background.node.affine = true
         angle_var = :"__bg_#{name}_angle"
@@ -380,6 +384,30 @@ module RubyGBA
       # is already recorded and turning the layer would quietly stop it working — the
       # console pans this kind of layer by moving its whole matrix, and its own scroll
       # registers do nothing at all.
+      # A LAYER THAT TURNS CANNOT ALSO BE GIVEN OTHER COLOURS, and the reason is where its
+      # colours are kept. A scrolling layer's cells each name a group of sixteen colours to
+      # draw from, and giving the layer another list means writing that group. A turning
+      # layer's cells hold a tile number and nothing else, so its tiles read the whole table
+      # instead — there is no group of its own to write, and writing the table would recolour
+      # everything on screen.
+      def refuse_coloring_a_turning_background!(name)
+        return unless background_turns?(name)
+
+        raise ArgumentError,
+              "This program turns or resizes background :#{name}, so :#{name} cannot also draw with " \
+              "other colors. A layer that turns reads all the colors in the game, not a list of its " \
+              "own. To fix this, give other colors to a background that does not turn."
+      end
+
+      def refuse_turning_a_recolored_background!(name)
+        return unless declared_background(name).draws_with_colors?
+
+        raise ArgumentError,
+              "This program draws background :#{name} with other colors, so :#{name} cannot also turn " \
+              "or resize. A layer that turns reads all the colors in the game, not a list of its own. " \
+              "To fix this, turn a different background, or stop giving :#{name} other colors."
+      end
+
       def refuse_turning_a_scrolled_background!(name)
         background = declared_background(name)
         moves = if background.scrolls? then "scrolls"

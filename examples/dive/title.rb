@@ -42,6 +42,25 @@ module Dive
     FAR_DRIFT = 1
     NEAR_DRIFT = 2
 
+    # THE NEAR SHAFTS SHIMMER, which is light on moving water and is one word to ask for:
+    # the layer is told to draw from a different list of colours, and the lists differ only
+    # in how bright the shafts are. Nothing is redrawn and no cell of the map changes — the
+    # console draws every pixel by looking a colour up in a table, so moving four entries of
+    # that table moves every pixel of the layer at once, however much of it is on screen.
+    #
+    # The FAR sheet holds still through all of it, though both sheets are drawn from the
+    # same tiles: a layer that can be recoloured is given colours nobody else reads, so the
+    # shimmer reaches this one and stops there.
+    #
+    # Each list is the tiles' own list with the two shaft colours moved, which is what says
+    # the water behind them holds still: a swap goes by PLACE, so an entry left as it was
+    # draws exactly as it did.
+    #
+    # The steps are named here so that the list of them and the counter that walks it cannot
+    # drift apart, and how long each is held is a SHIFT, so the counter is divided for free.
+    SHIMMER = %i[shimmer0 shimmer1 shimmer2 shimmer3].freeze
+    SHIMMER_HELD = 3 # eight frames a step
+
     # The far sheet: open water everywhere, with shafts of light leaning through it. It is
     # the backmost layer of this screen, so it has no holes — there is nothing behind it.
     FAR = (0...CELLS).map do |r|
@@ -69,6 +88,7 @@ module Dive
     def initialize(build)
       @build = build
       declare_tiles
+      declare_shimmer
 
       # The stack, back to front: the far shafts, the near ones, then the disc in front of
       # both. Only the disc turns, and only because `update` below turns it.
@@ -82,6 +102,7 @@ module Dive
       end
 
       @swelling = build.var(:swelling, 1) # 1 while the disc is growing, 0 while it shrinks
+      @shimmering = build.var(:shimmering, 0) # ...and how far through the shafts' cycle we are
     end
 
     def update
@@ -89,9 +110,18 @@ module Dive
       breathe
       @far.scroll_by FAR_DRIFT, 0
       @near.scroll_by NEAR_DRIFT, 0
+      shimmer
     end
 
     private
+
+    # Walk the near sheet through its four lists of colours, a new one every eight frames and
+    # round again. One counter, shifted to slow it and masked to wrap it — no test per step,
+    # and nothing to put back when it comes round.
+    def shimmer
+      @shimmering.add! 1
+      @near.draw_with(SHIMMER, showing: (@shimmering >> SHIMMER_HELD) & (SHIMMER.length - 1))
+    end
 
     # In and out, for ever: turn round at each end and ease toward the other one.
     def breathe
@@ -101,8 +131,26 @@ module Dive
                       .else { @sun.scale.approach! SMALLEST, BREATH }
     end
 
+    # The water's own colours, in the order the shimmer lists follow: a swap goes by PLACE,
+    # so every list below names these same places and changes only the two the shafts are
+    # drawn in. Both tiles of the sheet are given it, because a list is matched against the
+    # one list a layer's tiles share.
+    def water_colors = [:transparent, Ink::SURFACE, Ink::SURFACE_SPOT, Ink::SHAFT, Ink::SHAFT_EDGE]
+
+    # ...and the four the near sheet walks through: the shafts brightening and going back,
+    # with the water behind them left exactly as it was drawn.
+    def declare_shimmer
+      steps = [[Ink::SHAFT, Ink::SHAFT_EDGE],
+               [Ink::RGB.rgb(16, 24, 31), Ink::RGB.rgb(9, 17, 28)],
+               [Ink::RGB.rgb(19, 26, 31), Ink::RGB.rgb(11, 19, 29)],
+               [Ink::RGB.rgb(16, 24, 31), Ink::RGB.rgb(9, 17, 28)]]
+      SHIMMER.each_with_index do |name, step|
+        @build.colors name, water_colors.first(3) + steps[step]
+      end
+    end
+
     def declare_tiles
-      @build.image(:open_water, "." => Ink::SURFACE, "," => Ink::SURFACE_SPOT) do
+      @build.image(:open_water, "." => Ink::SURFACE, "," => Ink::SURFACE_SPOT, colors: water_colors) do
         <<~ART
           ........
           ...,....
@@ -116,7 +164,8 @@ module Dive
       end
       # A shaft has VERTICAL structure and a soft edge, so a sheet of them drifting
       # sideways reads as light moving rather than as a wall sliding.
-      @build.image(:light_shaft, "." => Ink::SURFACE, "|" => Ink::SHAFT, ":" => Ink::SHAFT_EDGE) do
+      @build.image(:light_shaft, "." => Ink::SURFACE, "|" => Ink::SHAFT, ":" => Ink::SHAFT_EDGE,
+                                 colors: water_colors) do
         <<~ART
           ..:||:..
           ..:||:..

@@ -47,12 +47,31 @@ module RubyGBA
       # does and for the same reason: a target with a finite number of places to put a
       # layer needs to know which layers are wanted AT THE SAME TIME, and two scenes that
       # take turns never are. See IR::Stacking#screenfuls.
+      #
+      # +recolors+ is every other list of colours this background's tiles can be drawn with,
+      # in the order BackgroundColors counts them, and empty for one that is only ever drawn
+      # in its own. See Object's operand of the same name, which means the same thing about
+      # one picture.
       class Background
         include Node
         kind :background
         category :draw
         operands name: :name, tiles: :list, map: :list, maps: :list, tile_w: :int, tile_h: :int,
-                 layer: :name, scene: :name, affine: :flag
+                 layer: :name, scene: :name, affine: :flag, recolors: :list
+      end
+
+      # A background's tiles all draw from a different list of colours — the whole layer at
+      # once, where an Object's +recolor+ says it about one picture. +which+ counts from 0
+      # through the lists the background was given, and may be worked out as the program
+      # runs; a number naming none of them is the background's own colours.
+      #
+      # Every pixel keeps the place it was drawn at and only the colour that place shows
+      # changes, which is what lets one set of tiles be a dozen times of day.
+      class BackgroundColors
+        include Node
+        kind :background_colors
+        category :draw
+        operands name: :name, which: :value
       end
 
       # A background's cells all become one of its other maps — a whole room at once, where

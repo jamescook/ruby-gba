@@ -186,7 +186,20 @@ module RubyGBA
         # map counts 1 and has nothing to step to.
         BackgroundPlacement = Data.define(:map, :map_units, :bg, :screen_block, :size,
                                           :priority, :affine, :small, :char_base,
-                                          :map_count, :map_bytes, :grid)
+                                          :map_count, :map_bytes, :grid, :colors)
+
+        # THE OTHER LISTS OF COLOURS A LAYER CAN BE DRAWN FROM, for a background that was
+        # told `draw_with`, and nil for every other one.
+        #
+        # +blob+ holds them end to end in the cartridge, a whole bank of sixteen each and
+        # the layer's OWN colours last — so picking one is arithmetic on a number rather
+        # than a test per list, and a number naming none of them can be answered by handing
+        # over the last one instead of by branching around the write. +bank+ is the group of
+        # sixteen the layer's tiles read, which the swap writes into; +count+ is how many
+        # lists there are besides its own. +at+ names the variable holding where the list it
+        # is showing NOW starts, which is what lets a tint put the swap back after walking
+        # the whole table over it.
+        BackgroundColorLists = Data.define(:blob, :bank, :count, :at)
 
         # A BACKGROUND'S GRID OF CELLS, for changing one of them while the game runs: how many
         # cells there are each way, and what to write into one to show a given tile. Nothing
@@ -409,6 +422,7 @@ module RubyGBA
             scroll_rows: Lowering::NOTHING, camera: @drawing.method(:emit_camera), fade: @drawing.method(:emit_fade),
             tint: @drawing.method(:emit_tint), see_through: @layer_blend.method(:emit_see_through),
             set_tile: @drawing.method(:emit_set_tile), show_map: @drawing.method(:emit_show_map),
+            background_colors: @drawing.method(:emit_background_colors),
             present_objects: @drawing.method(:emit_present_objects), save_region: @drawing.method(:emit_save_region),
             restore_region: @drawing.method(:emit_restore_region), enable_sound: @audio.method(:emit_enable_sound),
             define_sound: Lowering::NOTHING, song: Lowering::NOTHING, data: Lowering::NOTHING,
@@ -833,6 +847,11 @@ module RubyGBA
                                                           obj_palette_blob: @obj_palette_blob,
                                                           obj_palette_units: @obj_palette_units,
                                                           blob_codecs: @blob_codecs)
+          # ...and which groups of sixteen a layer is drawing from a list of its own, so a
+          # tint that walks the whole table can put those back rather than over.
+          @palette_tint.recolored_banks = @backgrounds.each_value.filter_map do |place|
+            [BG_PALETTE + (place.colors.bank * PaletteBanks::BANK_SIZE * 2), place.colors.at] if place.colors
+          end
           @palette_tint.prepare_palette_tint(program, fading: @fading)
           @uses_pressed = self.class.reads_button_edges?(program)
           # Everything the prepare passes above decided that Drawing/Buffered read, bundled
@@ -1637,9 +1656,14 @@ module RubyGBA
               colors = node.tiles.each_index.flat_map { |i| tile_colors(node, i) }.uniq
               PaletteBanks::Picture.new(key: node.name, colors: colors, authored: nil, wide: true)
             else
+              # A layer that can be drawn with other colours keeps its bank to itself: the
+              # swap writes into that bank, so anything else reading it would change colour
+              # along with the layer (see PaletteBanks::Picture#keeps_to).
+              keeps_to = node.recolors.empty? ? nil : node.name
               node.tiles.each_index.map do |i|
                 PaletteBanks::Picture.new(key: tile_key(node, i), colors: tile_colors(node, i),
-                                          authored: @bitmaps.fetch(node.tiles[i]).colors)
+                                          authored: @bitmaps.fetch(node.tiles[i]).colors,
+                                          keeps_to: keeps_to)
               end
             end
           end.flatten
@@ -1728,8 +1752,38 @@ module RubyGBA
             small: small,
             char_base: stored.char_base,
             map_count: grids.size, map_bytes: entries.size * 2,
-            grid: MapGrid.new(cols: cols, rows: rows, cells: cell_for)
+            grid: MapGrid.new(cols: cols, rows: rows, cells: cell_for),
+            colors: background_color_lists(node, banks, small)
           )
+        end
+
+        # Lay out the other lists of colours a background can be drawn from (see
+        # BackgroundColorLists), and say where in the display's table they are written.
+        def background_color_lists(node, banks, small)
+          return nil if node.recolors.empty?
+
+          raise LoweringError, too_many_colors_to_recolor(node) unless small
+
+          own = @bitmaps.fetch(node.tiles.first).colors
+          blob = :"__bg_colors_#{node.name}"
+          @emit.data_blobs[blob] = (node.recolors + [own]).flat_map { |list| whole_bank(list) }.pack("v*")
+          plain_blob!(blob) # picked out of by a number the game works out, so it stays where it is put
+          BackgroundColorLists.new(blob: blob, count: node.recolors.length,
+                                   bank: banks.placement(tile_key(node, 0)).bank,
+                                   at: :"__bg_#{node.name}_colors_at")
+        end
+
+        # A list as the display holds it: sixteen entries, the author's own order kept, and
+        # nothing in the places a shorter list does not reach.
+        def whole_bank(list)
+          list.first(PaletteBanks::BANK_SIZE) + ([0] * [PaletteBanks::BANK_SIZE - list.length, 0].max)
+        end
+
+        def too_many_colors_to_recolor(node)
+          "background :#{node.name} is told to draw with other colors, and its tiles are drawn from " \
+            "too many colors for that. A background can be given other colors only when its tiles " \
+            "are drawn from 16 colors or fewer between them. To fix this, draw its tiles from fewer " \
+            "colors, or do not give it other colors."
         end
 
         # Every grid a background can be handed, the one it was declared showing first. A
@@ -1847,7 +1901,8 @@ module RubyGBA
             small: false,
             char_base: stored.char_base,
             map_count: grids.size, map_bytes: entries.size,
-            grid: nil # its cells are one byte and hold a tile number alone: no grid of that shape
+            grid: nil, # its cells are one byte and hold a tile number alone: no grid of that shape
+            colors: nil # ...and its tiles read the whole table rather than a group of sixteen
           )
         end
 

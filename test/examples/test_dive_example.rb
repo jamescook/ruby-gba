@@ -95,6 +95,31 @@ class TestDiveExample < Minitest::Test
     refute_equal early_width, late_width, "the disc did not swell"
   end
 
+  # --- the shafts shimmer ---
+
+  # The near sheet of light shafts is drawn from the next of four lists of colours every
+  # eight frames, which is light moving on water. What makes it worth a test rather than a
+  # look is the second half of the promise: the colours that move are that layer's ALONE.
+  # Both sheets of shafts are drawn from the same tiles, so if the two shared one group of
+  # sixteen the far sheet would flicker in step with the near one, and nothing in the game
+  # would say why.
+  #
+  # Read off the console's own colour table rather than off the picture, because both sheets
+  # are also drifting: a pixel that changed could be the shimmer or could be a shaft that
+  # slid one across, and the table cannot be confused that way.
+  HELD_FOR = 8 # frames a step of the shimmer is held
+
+  def test_the_near_shafts_shimmer_and_no_other_colour_moves
+    v = console(frames: 4)
+    tables = Array.new(4) { v.palette.first(256).tap { v.step(HELD_FOR) } }
+    moved = (0...256).select { |slot| tables.map { |table| table[slot] }.uniq.length > 1 }
+
+    refute_empty moved, "no colour moved at all: the shafts are not shimmering"
+    assert_operator moved.length, :<=, 2, "more moved than the shafts' own two colours: #{moved.inspect}"
+    assert_equal 1, moved.map { |slot| slot / 16 }.uniq.length,
+                 "the colours that moved are spread over more than one layer's own group: #{moved.inspect}"
+  end
+
   # --- handing over to the dive ---
 
   # A title frame or two first, so the button really has an edge to be pressed on. Held

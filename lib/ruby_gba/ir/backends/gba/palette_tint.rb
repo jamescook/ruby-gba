@@ -151,6 +151,7 @@ module RubyGBA
             emit_tint_state(color, amount, done) # r0 = the steps, when the game works them out
             emit_tint_shares(color, amount)
             tint_tables(mode).each { |blob, dest, units| emit_tint_table(blob, dest, units) }
+            emit_recolored_banks # ...and put back what those walks wrote over
             @emitter.place_label(done)
           end
 
@@ -233,6 +234,13 @@ module RubyGBA
           # other, and neither can the sum) does two of them in one multiply.
           def emit_tint_table(blob_name, dest, units)
             @emitter.emit_load_data_address(TINT_SRC, blob_name)
+            emit_blend_run(dest, units)
+          end
+
+          # The walk itself, from wherever TINT_SRC has been pointed. Two things are read
+          # through it: the tables a screen draws through, and the list of colours a layer
+          # that can be recoloured is drawing from (see #emit_colors_into_bank).
+          def emit_blend_run(dest, units)
             @emitter.emit(ASM.load_immediate(TINT_DST, dest))
             @primitives.emit_add_const(TINT_END, TINT_SRC, units * 2, ACC)
 
@@ -255,6 +263,65 @@ module RubyGBA
             @emitter.emit(ASM.add_imm(TINT_DST, TINT_DST, 2))
             @emitter.emit(ASM.cmp_reg(TINT_SRC, TINT_END))
             @emitter.emit_branch(:bcond, top, cond: :ne)
+          end
+
+          # PUT A LAYER'S OTHER COLOURS INTO THE GROUP ITS TILES READ, through whatever tint
+          # is in force. ACC holds where the list starts on the way in; +dest+ is where that
+          # group of sixteen sits in the table.
+          #
+          # WHY IT GOES THROUGH THE TINT RATHER THAN STRAIGHT IN. Two things write this one
+          # table, and a game can do both: a tint moves every colour the game declared, and a
+          # layer told `draw_with` replaces sixteen of them. A plain copy would put full
+          # brightness back into the middle of a screen that is meant to be dark — one layer
+          # glowing through a fade. With no tint in force the arithmetic is the identity
+          # (keep all sixteen sixteenths, add nothing), so a game that never tints pays a few
+          # instructions on a frame where the colours changed and nothing else.
+          def emit_colors_into_bank(dest, units)
+            @emitter.emit(ASM.mov_reg(TINT_SRC, ACC))
+            emit_shares_from_the_tint_in_force
+            emit_blend_run(dest, units)
+          end
+
+          # ...and the other half of the same agreement: once a tint has walked the tables,
+          # the entries it has just written over a recoloured layer's group are the colours
+          # that layer was DRAWN in, which is not what it is being drawn with. So each such
+          # group is written again, from the list it is really showing.
+          #
+          # +recolored_banks+ is (where the group sits, the variable holding where its
+          # current list starts) — nought in that variable meaning the layer has never been
+          # told anything, where the tables already hold the right colours.
+          attr_writer :recolored_banks
+
+          def emit_recolored_banks
+            (@recolored_banks || []).each do |dest, source_var|
+              @primitives.load_var(TINT_SRC, source_var)
+              @emitter.emit(ASM.cmp_imm(TINT_SRC, 0))
+              past = @emitter.gensym
+              @emitter.emit_branch(:bcond, past, cond: :eq)
+              emit_blend_run(dest, COLORS_IN_A_BANK)
+              @emitter.place_label(past)
+            end
+          end
+
+          # A group of colours a layer's tiles draw from holds sixteen of them.
+          COLORS_IN_A_BANK = 16
+
+          # The shares (see #emit_tint_shares) worked out from the tint the table is already
+          # holding rather than from one being asked for now — for the caller that has no
+          # tint statement in front of it. The state packs the colour above the steps, and
+          # nought means the table holds the originals, which comes out as the identity.
+          def emit_shares_from_the_tint_in_force
+            @primitives.load_var(ACC, TINT_STATE)
+            @emitter.emit(ASM.lsr_imm(TINT_STEPS, ACC, TINT_COLOR_SHIFT))  # the colour
+            @emitter.emit(ASM.and_imm(ACC, ACC, (1 << TINT_COLOR_SHIFT) - 1)) # ...and the steps
+            @emitter.emit(ASM.load_immediate(TINT_RB, RB_MASK))
+            @emitter.emit(ASM.load_immediate(TINT_G, G_MASK))
+            @emitter.emit(ASM.load_immediate(TINT_KEEP, BLD_MAX))
+            @emitter.emit(ASM.sub_reg(TINT_KEEP, TINT_KEEP, ACC))
+            @emitter.emit(ASM.and_reg(TMP, TINT_STEPS, TINT_RB))
+            @emitter.emit(ASM.mul(TINT_ADD, TMP, ACC))
+            @emitter.emit(ASM.and_reg(TMP, TINT_STEPS, TINT_G))
+            @emitter.emit(ASM.mul(TINT_ADD_G, TMP, ACC))
           end
 
           # The color tables a screen draws through, as (blob, where the display reads it,

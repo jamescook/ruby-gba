@@ -90,6 +90,7 @@ module RubyGBA
         # neither is itself at one.
         set_tile: :free,
         show_map: :free,
+        background_colors: :free,
         affine_background: :free,
         scroll_rows: :free,
         blit_pose: :free,

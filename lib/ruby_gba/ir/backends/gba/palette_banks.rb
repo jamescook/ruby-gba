@@ -98,8 +98,17 @@ module RubyGBA
           # holds one byte a cell, with no room to name a bank — and then the two decisions
           # must agree: a picture stored half size under a layer read at full size draws
           # half a tile of nothing and the wrong colours for the rest.
-          Picture = Data.define(:key, :colors, :authored, :wide) do
-            def initialize(key:, colors:, authored: nil, wide: false) = super
+          # +keeps_to+ names a group of pictures that will not share a bank with anything
+          # else. Pictures naming the same one may share with each other and with nothing
+          # outside it; nil — every ordinary picture — shares with whatever fits.
+          #
+          # It exists because a bank is normally a saving nobody has to hear about, and
+          # becomes something the program can SEE the moment a layer is told to draw from
+          # another list of colours: that write lands in the bank, so anything else reading
+          # it changes colour too. A layer that can be recoloured therefore asks for a bank
+          # of its own, and the cost of asking is at most one bank of the sixteen.
+          Picture = Data.define(:key, :colors, :authored, :wide, :keeps_to) do
+            def initialize(key:, colors:, authored: nil, wide: false, keeps_to: nil) = super
 
             def authored? = !authored.nil?
           end
@@ -207,11 +216,12 @@ module RubyGBA
             return found if found
             return nil if first_free_bank + banks.size >= BANKS
 
-            banks << { colors: [], fixed: false }
+            banks << { colors: [], fixed: false, keeps_to: picture.keeps_to }
             banks.size - 1
           end
 
           def bank_takes?(bank, picture)
+            return false unless bank[:keeps_to] == picture.keeps_to
             return bank[:fixed] && bank[:colors] == picture.authored if picture.authored?
             return picture.colors.all? { |color| bank[:colors].include?(color) } if bank[:fixed]
 

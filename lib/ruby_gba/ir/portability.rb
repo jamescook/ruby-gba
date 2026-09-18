@@ -76,6 +76,9 @@ module RubyGBA
         # ...and the whole of it becomes another map — likewise: every backend holds the maps
         # a background was declared with, and can put a different one in its cells
         show_map: :portable,
+        # ...and the whole layer draws from another list of colours — a swap by place, which
+        # any backend that knows what colours a picture was drawn from can make
+        background_colors: :portable,
         # save/restore a screen patch — copying pixels to/from a buffer, any backend can
         save_region: :portable, restore_region: :portable,
 

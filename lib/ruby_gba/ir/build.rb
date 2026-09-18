@@ -574,8 +574,8 @@ module RubyGBA
       # showing when the program starts). Left empty for a background declared with one map,
       # whose cells only ever change one at a time (see #set_tile).
       def background(name, tiles:, map:, tile_w:, tile_h:, maps: [], layer: nil, scene: nil,
-                     affine: false)
-        Nodes.build(:background, name: name, tiles: tiles, map: map, maps: maps,
+                     affine: false, recolors: [])
+        Nodes.build(:background, name: name, tiles: tiles, map: map, maps: maps, recolors: recolors,
                                  tile_w: tile_w, tile_h: tile_h, affine: affine, scene: scene,
                                  **in_layer(layer))
       end
@@ -586,6 +586,14 @@ module RubyGBA
       # out which room it has walked into. The cells become that map exactly as declared.
       def show_map(name, which:)
         Nodes.build(:show_map, name: name, which: wrap(which))
+      end
+
+      # The named background's tiles all draw from the list of colours numbered +which+ —
+      # the whole layer at once, the way show_map hands over the whole grid. +which+ counts
+      # from 0 through the lists the background was given and is a value operand, so a game
+      # can walk through them on a counter; a number naming none of them is its own colours.
+      def background_colors(name, which:)
+        Nodes.build(:background_colors, name: name, which: wrap(which))
       end
 
       # Turn and resize the named background as a whole, this frame — the affine

@@ -41,11 +41,14 @@ module RubyGBA
       # @param node [IR::Node] the statement that declared it, so a `rotate`/`scale` written
       #   on the same line can tell that it is still part of declaring this background
       #   rather than something the frame does to it (see {#part_of_the_declaration?})
+      # @param tile_pictures [Array<Symbol>] the pictures its tileset draws, which is what
+      #   another list of colours is matched against — see {#draw_with}
       def initialize(builder, name:, scroll_x:, scroll_y:, walls: [],
                      cells: [0, 0], tile_index: {}, bitmap: false, map_names: nil,
-                     solid_cells: [], tile_size: [8, 8], node: nil)
+                     solid_cells: [], tile_size: [8, 8], node: nil, tile_pictures: [])
         @builder = builder
         @name = name
+        @tile_pictures = tile_pictures
         @declaration_tail = node
         @scroll_x = scroll_x
         @scroll_y = scroll_y
@@ -138,6 +141,36 @@ module RubyGBA
 
       # How many maps this background was declared with. 1 for the ordinary kind.
       def map_count = @map_names.length
+
+      # DRAW THE WHOLE LAYER FROM A DIFFERENT LIST OF COLOURS, from now until it is told
+      # otherwise. The lists are declared with `colors`, see-through first, and matched to
+      # the list the tiles were drawn from by PLACE — so every pixel keeps the place it was
+      # drawn at and only the colour that place shows changes. The scenery is not redrawn
+      # and not one cell of the map moves.
+      #
+      #   rays.draw_with :dusk                                    # one list
+      #   rays.draw_with [:s0, :s1, :s2, :s3], showing: step      # one of several, by a number
+      #   rays.draw_with :own                                     # back to the colours it was drawn in
+      #
+      # Shafts of light that shimmer, water that turns murky as you go down, a sky that
+      # walks from day to dusk: one set of tiles and a number, where the same picture drawn
+      # a dozen times would be a dozen times the tiles.
+      #
+      # A number outside the set draws the layer in its own colours, so a counter that has
+      # run off the end looks right rather than wrong. The change lands in the gap between
+      # frames, and only on a frame where the answer changed — the same bargain `show_map`
+      # makes about a map.
+      def draw_with(which, showing: nil)
+        refuse_on_a_bitmap_screen!("draw_with",
+                                   instead: "Draw the picture in the colors you want with `blit`")
+        recolors.draw_with(Value.new(@builder, Build.var_ref(colors_var), name: colors_var), which, showing)
+        # Recorded here as well as remembered, the same way `show_map` is: a program with no
+        # game loop has no gap between frames to hold the write for, and then it simply
+        # happens where it was asked for.
+        node = record(Build.background_colors(@name, which: Build.var_ref(colors_var)))
+        @builder.recolor_each_frame(@name, colors_var, live_colors_var, node)
+        self
+      end
 
       # How many cells across and down this background's map is — what a game needs to
       # walk it, and what `set_tile` holds a coordinate against.
@@ -398,6 +431,20 @@ module RubyGBA
       # one because that is what makes the copy happen exactly when the answer changes.
       def shown_map_var = :"__bg_#{@name}_map"
       def live_map_var = :"__bg_#{@name}_live"
+
+      # ...and the same pair for which list of colours the tiles are drawn from: what the
+      # game said, and what is really in the display's table.
+      def colors_var = :"__bg_#{@name}_colors"
+      def live_colors_var = :"__bg_#{@name}_live_colors"
+
+      # The other lists this background can be drawn with, made on the first `draw_with` and
+      # kept, so several calls in several branches count the same lists the same way. The
+      # tiles play the part a sprite's poses play: a list is matched to the one they were
+      # drawn from, place by place, so it is the tiles that say whether another list fits.
+      def recolors
+        @recolors ||= Recolors.new(@builder, subject: "The background :#{@name}", poses: @tile_pictures)
+                              .reads(@builder.recolorable_background(@name))
+      end
 
       def unknown_map_message(named)
         "background :#{@name} has no map #{named.inspect}. Its maps are " \

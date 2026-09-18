@@ -30,6 +30,13 @@ module ConformanceFixture
   # hardware-only, read from the portability classification rather than restated.
   HARDWARE_ONLY_KINDS = RubyGBA::IR::Portability.hardware_only_kinds.freeze
 
+  # The list the background's tiles are drawn from — see-through first, then a colour per
+  # place — and another list the whole layer can be drawn from instead. The two differ at
+  # every place that draws, so a backend that swapped the wrong way round, or not at all,
+  # cannot land on the same picture.
+  TILE_COLORS = [0x0000, 0x001F, 0x03E0].freeze
+  SHIMMER_COLORS = [0x0000, 0x7C00, 0x7FFF].freeze
+
   # Build the fixture fresh each call (nodes carry parent links, so callers get
   # their own tree). Structured so the interpreter, running top to bottom, reaches
   # every portable feature before halting.
@@ -62,10 +69,14 @@ module ConformanceFixture
                         transparent: 0x8000),
       B.bitmap(:pose_b, width: 2, height: 2, # a second same-size pose, for blit_pose
                         pixels: [0x7C00, 0x03E0, 0x001F, 0x7FFF].pack("v*"), transparent: nil),
-      B.bitmap(:tile_a, width: 2, height: 2, # two opaque tiles, for the background grid
-                        pixels: [0x001F, 0x001F, 0x001F, 0x001F].pack("v*"), transparent: nil),
+      # Two opaque tiles for the background grid, drawn from one list of colours they share
+      # — which is what lets the whole layer be drawn from another list further down.
+      B.bitmap(:tile_a, width: 2, height: 2,
+                        pixels: [0x001F, 0x001F, 0x001F, 0x001F].pack("v*"), transparent: nil,
+                        colors: TILE_COLORS),
       B.bitmap(:tile_b, width: 2, height: 2,
-                        pixels: [0x03E0, 0x03E0, 0x03E0, 0x03E0].pack("v*"), transparent: nil),
+                        pixels: [0x03E0, 0x03E0, 0x03E0, 0x03E0].pack("v*"), transparent: nil,
+                        colors: TILE_COLORS),
       B.bitmap(:obj8, width: 8, height: 8, # an 8x8 picture for a composited object (a valid sprite size)
                        pixels: Array.new(64, 0x03E0).pack("v*"), transparent: nil,
                        colors: [0x0000, 0x03E0]), # ...with its own list, so it can be drawn with another
@@ -197,7 +208,13 @@ module ConformanceFixture
                           # ...and a second grid it can be handed whole, the way a game with
                           # a lot of rooms walks into one
                           maps: [[[0, 1], [1, nil]], [[1, 0], [nil, 0]]],
+                          # ...and another list of colours the whole layer can be drawn from
+                          recolors: [SHIMMER_COLORS],
                           layer: :scenery),                   # ...at the back of the stack
+      # Draw it from that other list: each place of the tiles' own list shows the colour at
+      # the same place of this one, so a backend that ignored the swap, or read it by colour
+      # where the art recorded places, draws a different picture.
+      B.background_colors(:grid, which: B.int(0)),
       # Hand it that other map, at a number worked out from a variable — a backend that
       # copied the wrong map, or none, draws a different picture.
       B.show_map(:grid, which: B.var_ref(:x)),

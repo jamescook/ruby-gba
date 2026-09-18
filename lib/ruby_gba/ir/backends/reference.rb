@@ -177,6 +177,7 @@ module RubyGBA
           @bg_maps = {}            # ...and this run's own copy of its cells, once any of them has changed
           @row_bends = {}          # background name -> :scroll_rows node giving each row its own offset
           @bg_affine = {}          # background name -> the Turn it is being drawn under this frame
+          @bg_colors = {}          # ...and which of the lists of colours it was given is drawing it
           @obj_layer = []          # sprites to composite over a scrolling scene, in draw order (later = in front)
           @fade_placed = nil       # [layer, toward, amount] while a fade sits under a layer rather than over everything
           @kept_out_of_the_fade = {} # layer -> the names a fade under it leaves alone
@@ -643,6 +644,8 @@ module RubyGBA
             exec_scroll_background(node)
           when :affine_background
             exec_affine_background(node)
+          when :background_colors
+            exec_background_colors(node)
           when :scroll_rows
             # A standing declaration, gathered up front (collect_definitions) — the bend
             # is read while a row is painted, not where it was written. Reaching it inline
@@ -1035,12 +1038,13 @@ module RubyGBA
           tiles = node.tiles
           tile_w = node.tile_w
           tile_h = node.tile_h
+          swapped = background_swap(node)
           paint_through_for(node.name)
           map_of(node).each_with_index do |row, r|
             row.each_with_index do |index, c|
               next if index.nil?
 
-              stamp_tile(tiles, index, c * tile_w, r * tile_h, tile_w, tile_h)
+              stamp_tile(tiles, index, c * tile_w, r * tile_h, tile_w, tile_h, swapped)
             end
           end
           @screen.paint_through(0)
@@ -1062,10 +1066,10 @@ module RubyGBA
         # Paint one tile at (x0, y0), skipping its backdrop-colored (transparent) pixels
         # so whatever's already there shows through — the per-pixel form of a tile blit
         # that layering needs.
-        def stamp_tile(tiles, index, x0, y0, tile_w, tile_h)
+        def stamp_tile(tiles, index, x0, y0, tile_w, tile_h, swapped = nil)
           tile_h.times do |ty|
             tile_w.times do |tx|
-              color = background_pixel(tiles, index, tx, ty)
+              color = background_pixel(tiles, index, tx, ty, swapped)
               @screen.set_pixel(x0 + tx, y0 + ty, color) unless color.zero?
             end
           end
@@ -1117,6 +1121,7 @@ module RubyGBA
           map = map_of(bg)
           tile_w = bg.tile_w
           tile_h = bg.tile_h
+          swapped = background_swap(bg)
           # Wrap over the console's whole cell grid, not over the rows the author wrote
           # (see the note by IR::TileMap). Sampling a cell past those rows finds no tile
           # there, and an absent tile reads as the backdrop.
@@ -1145,7 +1150,10 @@ module RubyGBA
               index = row[mx / tile_w]
               # A tile's see-through pixels are nil in its decoded art, so they're left
               # alone and whatever is behind this layer keeps showing there.
-              @screen.paint_row(px, py, tile_colors(tiles[index]), from: (ty * tile_w) + tx, count: span) if index
+              if index
+                @screen.paint_row(px, py, tile_colors(tiles[index], swapped), from: (ty * tile_w) + tx,
+                                                                              count: span)
+              end
               px += span
             end
           end
@@ -1173,6 +1181,7 @@ module RubyGBA
           map_w = cols * tile_w
           map_h = rows_of_cells * tile_h
           base_x, base_y = @bg_scroll[bg.name] || [0, 0]
+          swapped = background_swap(bg)
           pivot_x = turn.pivot_x
           pivot_y = turn.pivot_y
           pa, pb, pc, pd = Affine.matrix(turn.angle, turn.size)
@@ -1188,7 +1197,7 @@ module RubyGBA
               row = map[my / tile_h]
               next unless row
 
-              color = background_pixel(tiles, row[mx / tile_w], mx % tile_w, my % tile_h)
+              color = background_pixel(tiles, row[mx / tile_w], mx % tile_w, my % tile_h, swapped)
               @screen.set_pixel(px, py, color) unless color.zero?
             end
           end
@@ -1214,14 +1223,54 @@ module RubyGBA
         # handful of them for every row of every frame, so each one is decoded once and
         # kept. That turns the packed bytes into colors a few dozen times instead of a
         # few million.
-        def tile_colors(name)
-          @tile_colors[name] ||= begin
+        # +swapped+ is another list of colours the tile is being drawn with this frame (see
+        # #background_swap), and nil for the colours it was drawn in. A swap goes by PLACE,
+        # so a see-through pixel stays see-through however the list is written: place 0
+        # means see-through in every list there is.
+        def tile_colors(name, swapped = nil)
+          @tile_colors[[name, swapped]] ||= begin
             bmp = @bitmaps.fetch(name)
+            recolor = swapped && tile_recolor(name, bmp, swapped)
             Array.new(bmp.width * bmp.height) do |i|
               color = bmp.color_at(i)
+              color = recolor.color_for(i, color) unless recolor.nil?
               color.zero? ? nil : color
             end
           end
+        end
+
+        # The same map from a picture's own colours to another list's that an object uses
+        # (see #object_recolor), kept in the same place: a tile IS a picture, and the two
+        # ways of reading one — by the place each pixel was drawn at, or by its colour where
+        # the art recorded no places — are the picture's business rather than the layer's.
+        def tile_recolor(name, bmp, swapped)
+          @recolor_maps[[name, swapped]] ||=
+            Recolor.new(places: bmp.places, by_place: swapped,
+                        by_color: bmp.places ? nil : by_color(bmp.colors, swapped))
+        end
+
+        # THE COLOURS A BACKGROUND'S TILES ARE DRAWN FROM THIS FRAME: the list the game last
+        # named, or nil for the one they were drawn in — which is also what a number naming
+        # none of the lists means, so a counter that has run off the end looks right.
+        def background_swap(bg)
+          lists = bg.recolors
+          return nil if lists.empty?
+
+          which = @bg_colors[bg.name] || Build::NO_RECOLOR
+          return nil unless which >= 0 && which < lists.length
+
+          lists[which]
+        end
+
+        # Draw this background's tiles from the list of colours numbered +which+ from now on
+        # — the whole layer at once. Nothing about the map or the pictures changes; the next
+        # repaint reads them through the swap.
+        def exec_background_colors(node)
+          @bg_by_name.fetch(node.name) do
+            raise ProgramError, "colors of undeclared background #{node.name.inspect}"
+          end
+          @bg_colors[node.name] = eval_value(node.which)
+          composite_scrolled_frame
         end
 
         # Rebuild the whole visible screen the way tile-and-sprite hardware does: paint
@@ -1380,13 +1429,10 @@ module RubyGBA
         # background-palette entry 0). A tile pixel marked transparent (bit 15 set) reads
         # as the backdrop (0) too — the tile hardware treats both as palette entry 0, so
         # both let a layer behind show through. Masking to 15 bits is how we match that.
-        def background_pixel(tiles, index, x, y)
+        def background_pixel(tiles, index, x, y, swapped = nil)
           return 0 if index.nil?
 
-          bmp = @bitmaps.fetch(tiles[index])
-          pixels = @data.fetch(tiles[index])
-          i = ((y * bmp.width) + x) * 2
-          (pixels.getbyte(i) | (pixels.getbyte(i + 1) << 8)) & 0x7FFF
+          tile_colors(tiles[index], swapped)[(y * @bitmaps.fetch(tiles[index]).width) + x] || 0
         end
 
         # Draw this frame's objects the way sprite hardware does: composite each one

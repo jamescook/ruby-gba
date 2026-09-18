@@ -125,6 +125,7 @@ module RubyGBA
       @inline_scroll_nodes = []  # scroll nodes recorded at their call site, dropped once a frame boundary exists
       @inline_affine_nodes = []  # affine_background nodes recorded at their call site, moved to the frame boundary
       @inline_map_nodes = []     # show_map nodes recorded at their call site, dropped once a frame boundary exists
+      @inline_color_nodes = []   # background_colors nodes, the same, for a layer drawn with other colours
       @per_frame_routines = []   # func names `once_a_frame` declared, called at every frame boundary
       @each_frame_seq = 0        # counts once_a_frame bodies, to name each one's hidden routine
       @scene_gates = {}        # scene func name → [state_var, value] it's dispatched on (from case_var), for gating its presentation
@@ -421,6 +422,7 @@ module RubyGBA
       finalize_present_lists
       finalize_background_scrolls
       finalize_background_maps
+      finalize_background_colors
       finalize_background_affine
       finalize_layer_blend
       finalize_per_frame_routines
@@ -464,6 +466,34 @@ module RubyGBA
       declared_background(name).shown_map = shown_var
       declared_background(name).live_map = live_var
       @inline_map_nodes << node
+    end
+
+    # A background that can be drawn with lists of colours other than the one its tiles were
+    # drawn from. Hands back the statement that declared it, which is what carries those
+    # lists to the backends — the same place an object carries its own. Called once, from the
+    # first `draw_with`; a {Background} keeps the answer.
+    # Two of its variables start out agreeing, both meaning "its own colours", so a
+    # background that is told nothing on a frame writes nothing at all — which is also the
+    # state the tiles are already in when the game starts. The third is a place for a backend
+    # to keep whatever it needs to say which list is showing; nought is "nothing has been
+    # said yet", and what goes there otherwise is that backend's business alone.
+    def recolorable_background(name)
+      refuse_coloring_a_turning_background!(name)
+      at_boot(Build.set(:"__bg_#{name}_colors", Build.int(IR::Build::NO_RECOLOR)))
+      at_boot(Build.set(:"__bg_#{name}_live_colors", Build.int(IR::Build::NO_RECOLOR)))
+      at_boot(Build.set(:"__bg_#{name}_colors_at", Build.int(0)))
+      [:"__bg_#{name}_colors", :"__bg_#{name}_live_colors", :"__bg_#{name}_colors_at"].each { |v| ensure_var(v) }
+      declared_background(name).node
+    end
+
+    # The colour counterpart to {#swap_maps_each_frame}: remember that +name+ can be handed a
+    # whole different list of colours, so the display's table is written once a frame in the
+    # gap between frames rather than wherever the game happened to say which list it wants.
+    # +shown_var+ is what the game said; +live_var+ is what is really in the table.
+    def recolor_each_frame(name, shown_var, live_var, node)
+      declared_background(name).shown_colors = shown_var
+      declared_background(name).live_colors = live_var
+      @inline_color_nodes << node
     end
 
     # The affine counterpart to {#scroll_each_frame}: remember that +name+ turns or
@@ -887,6 +917,21 @@ module RubyGBA
         Build.if_(Build.binop(:!=, Build.var_ref(background.shown_map), Build.var_ref(background.live_map)),
                   Build.show_map(name, which: Build.var_ref(background.shown_map)),
                   Build.set(background.live_map, Build.var_ref(background.shown_map)))
+      end
+    end
+
+    # WRITE A LAYER'S COLOURS INTO THE DISPLAY'S TABLE, in the gap between frames, and only
+    # on a frame where the answer changed — the colour twin of the map copy above, and held
+    # apart the same way and for the same reasons.
+    #
+    # The gap matters more here than the saving does. Every pixel on screen is drawn by
+    # looking its colour up in one shared table, so a table written while the display is
+    # reading shows the top of the screen in one set of colours and the bottom in another.
+    def finalize_background_colors
+      write_between_frames(@inline_color_nodes, backgrounds_that(&:draws_with_colors?)) do |name, background|
+        Build.if_(Build.binop(:!=, Build.var_ref(background.shown_colors), Build.var_ref(background.live_colors)),
+                  Build.background_colors(name, which: Build.var_ref(background.shown_colors)),
+                  Build.set(background.live_colors, Build.var_ref(background.shown_colors)))
       end
     end
 

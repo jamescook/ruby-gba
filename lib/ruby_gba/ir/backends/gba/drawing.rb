@@ -1130,6 +1130,55 @@ module RubyGBA
             end
           end
 
+          # DRAW A WHOLE LAYER FROM ANOTHER LIST OF COLOURS: put that list into the group of
+          # sixteen its tiles read.
+          #
+          # Nothing about the layer itself is touched — not a cell, not a tile, not a pixel.
+          # Every pixel on this console is a small NUMBER that picks a colour out of a shared
+          # table, so changing the sixteen entries the layer's numbers pick from changes
+          # every one of its pixels at once, and costs the same whatever is on screen. That
+          # is why shafts of light can shimmer for the price of one copy.
+          #
+          # WHY THE GROUP IS THE LAYER'S OWN: this write lands in the table, where anything
+          # else drawing from those sixteen would pick up the change too. The build gives a
+          # layer that can be recoloured a group nobody else reads (see
+          # PaletteBanks::Picture#keeps_to), so the write reaches this layer and nothing more.
+          #
+          # WHEN it happens is decided above this: the framework puts the copy in the gap
+          # between frames, on the frame the answer changed and no other (see
+          # Builder#finalize_background_colors). The whole screen is drawn through this table,
+          # so a write while the display is reading shows the top of the screen in one set of
+          # colours and the bottom in another.
+          #
+          # A number naming none of the lists hands over the layer's own colours, which sit
+          # last in the blob — so that case is a conditional move rather than a branch, and
+          # a counter that has run off the end looks right rather than wrong.
+          def emit_background_colors(node)
+            lists = @layout.backgrounds[node.name]&.colors
+            return if lists.nil? # no tiled layer here, or nothing else to draw it with
+
+            @lowering.value(node.which)
+            # One unsigned compare catches both ends: a negative number reads as a very large
+            # one, so anything outside 0...count fails the same test.
+            emit(ASM.cmp_imm(ACC, lists.count))
+            emit(ASM.mov_imm_cond(:hs, ACC, lists.count))
+            emit(ASM.lsl_imm(TMP, ACC, COLOR_LIST_SHIFT))
+            emit_load_data_address(ACC, lists.blob)
+            emit(ASM.add_reg(ACC, ACC, TMP))
+            # Remembered as well as written, because a tint walks the whole table from the
+            # cartridge and would otherwise put the colours the tiles were DRAWN in back over
+            # this group. See PaletteTint#emit_recolored_banks, which reads this.
+            store_var(ACC, lists.at)
+            @palette_tint.emit_colors_into_bank(BG_PALETTE + (lists.bank * COLOR_LIST_BYTES), COLOR_LIST_UNITS)
+          end
+
+          # A group is sixteen colours, and a colour is two bytes — so a list is 32 bytes and
+          # the list numbered N starts 32 * N along the blob, which is a shift rather than a
+          # multiply (the same arithmetic #emit_map_stride does for a map).
+          COLOR_LIST_UNITS = 16
+          COLOR_LIST_BYTES = COLOR_LIST_UNITS * 2
+          COLOR_LIST_SHIFT = 5
+
           # Where a background's cells live: its own screen block in video memory.
           def map_vram_address(bg) = VRAM_START + (bg.screen_block * SCREENBLOCK_BYTES)
 
