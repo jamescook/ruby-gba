@@ -2,6 +2,7 @@
 
 require "test_helper"
 require "differential"
+require "tmpdir"
 
 # Affine backgrounds: `screen :rotozoom` gives a background handle `rotate`/`scale`,
 # the same names and units a hardware sprite's `face_angle`/`scale` already use,
@@ -323,6 +324,156 @@ class TestAffineBackground < Minitest::Test
 
     assert_match(/turns_around/, err.message)
     assert_match(/whole number/, err.message, "it says what to write instead")
+  end
+
+  # --- THE TURN IS WRITTEN ONLY ON A FRAME WHERE IT CHANGED ---
+  #
+  # A picture that has stopped moving is told to hold still by being told nothing, and
+  # the console holds it: the six numbers that say how a layer is turned and where it is
+  # pinned stay where they were put. Writing them again every frame is not merely waste.
+  # The console reads where the layer is pinned as it draws, so a write that lands while
+  # the screen is being drawn moves the layer for the rest of the picture — one frame
+  # showing a jump, and then it snaps back. A frame that starts late is a frame whose
+  # writes land there, and every game has those.
+  #
+  # Nine other registers are written on those same late frames and none of them shows: a
+  # scroll written late is invisible. So this is not about a game being slow, it is about
+  # one write that must not happen while the display is drawing happening on a frame where
+  # the program asked for nothing at all.
+  #
+  # Which is also the bargain the framework already makes for a whole map and for a
+  # scroll, in the same place — the gap between frames — and for the same reason.
+  TURN_REGISTERS = [RubyGBA::Cartridge::Constants::REG_BG2PA,
+                    RubyGBA::Cartridge::Constants::REG_BG2PB,
+                    RubyGBA::Cartridge::Constants::REG_BG2PC,
+                    RubyGBA::Cartridge::Constants::REG_BG2PD,
+                    RubyGBA::Cartridge::Constants::REG_BG2X,
+                    RubyGBA::Cartridge::Constants::REG_BG2Y].freeze
+
+  # How many of those six the console was written on each frame, in order — read off its
+  # own log of what the cartridge wrote to the display, which is the only place the
+  # question can be asked: both backends draw the same picture either way, and what
+  # separates them is how often the hardware was told.
+  private def turn_writes_each_frame(prog, name:, frames:)
+    Dir.mktmpdir("affine-writes") do |dir|
+      path = File.join(dir, "#{name.downcase}.gba")
+      assemble_rom(prog, name: name).write(path)
+      probe = RubyGBA::Diagnostics::Emulator.probe(path)
+      begin
+        probe.watch_display
+        counted = 0
+        return Array.new(frames) do
+          probe.step(1)
+          seen = probe.display_writes.count { |w| w.kind == :register && TURN_REGISTERS.include?(w.address) }
+          (seen - counted).tap { counted = seen }
+        end
+      ensure
+        probe.close
+      end
+    end
+  end
+
+  # A picture zoomed in once, where it is declared, and never spoken to again — the
+  # simplest shape of a title screen whose animation has finished.
+  private def a_board_that_never_moves_again
+    map = marked_map({ [20, 10] => "#" })
+    builder = Builder.new
+    builder.instance_eval do
+      screen :rotozoom
+      image :white, "#" => :white do "########\n" * 8 end
+      tiles :t, "#" => :white
+      background(:board, tiles: :t, map: map).scale(2.0)
+      game_loop { wait_vblank }
+    end
+    builder.emit_pending_functions
+    builder.program
+  end
+
+  def test_a_turn_that_has_settled_is_not_written_again
+    each_frame = turn_writes_each_frame(a_board_that_never_moves_again, name: "AFFHELD", frames: 10)
+
+    assert_operator each_frame.first(2).sum, :>, 0,
+                    "the turn was never written at all, so the picture is not zoomed"
+    assert_equal [0] * 6, each_frame.last(6),
+                 "the picture stopped moving and the console is still being told about it every " \
+                 "frame: #{each_frame.inspect}"
+  end
+
+  # ...and the other half of it: a picture that IS moving is written on every frame it
+  # moves. Zoomed out a whole step a frame from four times the size, it takes three steps
+  # to arrive — and the display is told the size the pass BEFORE settled on, which is what
+  # every picture the framework draws for you does, so telling it takes one frame longer
+  # than moving it does. Five frames of writes, then nothing.
+  private def a_board_that_zooms_out_and_stops
+    map = marked_map({ [20, 10] => "#" })
+    builder = Builder.new
+    builder.instance_eval do
+      screen :rotozoom
+      image :white, "#" => :white do "########\n" * 8 end
+      tiles :t, "#" => :white
+      board = background(:board, tiles: :t, map: map).scale(4.0)
+      game_loop { board.scale.approach! 1.0, 1.0 }
+    end
+    builder.emit_pending_functions
+    builder.program
+  end
+
+  def test_a_turn_that_is_still_moving_is_written_on_every_frame_it_moves
+    each_frame = turn_writes_each_frame(a_board_that_zooms_out_and_stops, name: "AFFEASE", frames: 10)
+    moving, rested = each_frame.partition.with_index { |_, frame| frame < 5 }
+
+    assert_equal [6] * 5, moving,
+                 "the picture was easing out and the display was not told on every frame of it: " \
+                 "#{each_frame.inspect}"
+    assert_equal [0] * 5, rested, "it arrived and the writes carried on: #{each_frame.inspect}"
+  end
+
+  # A scene that turns a background, a scene that does not, and a game that goes back and
+  # forth between them. Leaving the turning one puts the display back to no-turn-no-zoom,
+  # because whatever comes next must not keep showing this scene's zoom — so coming back
+  # has to say the zoom again, though the program has not mentioned it since the line that
+  # declared it. Zoomed 2x the sampled point shows the red mark at column 20; left as
+  # drawn it shows the white one at column 25, so the two tell each other apart.
+  private def a_zoom_the_game_leaves_and_comes_back_to
+    map = marked_map({ [25, 10] => "#", [20, 10] => "$" })
+    blank = Array.new(32) { " " * 32 }
+    builder = Builder.new
+    builder.instance_eval do
+      screen :tiled
+      image :white, "#" => :white do "########\n" * 8 end
+      image :red, "#" => :red do "########\n" * 8 end
+      tiles :t, "#" => :white, "$" => :red
+      state = var :state, 0
+      waiting = var :waiting, VISIT
+
+      scene :zoomed do
+        background(:board, tiles: :t, map: map).scale(2.0)
+        waiting.sub! 1
+        (waiting == 0).then { state.set! 1 }
+        (state == 1).then { waiting.set! VISIT }
+      end
+
+      scene :away do
+        background :blank, tiles: :t, map: blank
+        waiting.sub! 1
+        (waiting == 0).then { state.set! 0 }
+      end
+
+      game_loop { case_var(:state) { when_val 0, :zoomed; when_val 1, :away } }
+    end
+    builder.emit_pending_functions
+    builder.program
+  end
+
+  VISIT = 4 # frames in each scene before the game moves to the other
+
+  def test_a_zoom_comes_back_with_the_scene_that_owns_it
+    v = assert_emulator_loads_rom(assemble_rom(a_zoom_the_game_leaves_and_comes_back_to, name: "AFFBACK"),
+                                  frames: 2 * VISIT + 3)
+
+    assert_equal Color.resolve(:red), v.pixel_gba(*ZOOM_SAMPLED),
+                 "the scene came back and the picture came back as drawn: the display was never told " \
+                 "the zoom again after another scene took the turning layer"
   end
 
   # --- guardrails: the two footguns this feature makes plain-language errors ---

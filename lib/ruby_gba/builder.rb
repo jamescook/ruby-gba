@@ -896,9 +896,10 @@ module RubyGBA
     # mid-frame would show two different pictures on one screen. See that method for the
     # rest of the reasoning; this is its `rotate`/`scale` sibling.
     #
-    # Each write is gated to its owning scene's `active` condition (see #affine_each_frame),
-    # the same as a scene-owned sprite or HUD glyph — a background turned only inside one
-    # scene must stop writing BG2's registers once that scene isn't the live one.
+    # Each write is gated to its owning scene (see #affine_each_frame), the same as a
+    # scene-owned sprite or HUD glyph — a background turned only inside one scene must stop
+    # writing BG2's registers once that scene isn't the live one — and gated again on the
+    # turn having actually moved, which is #turn_written_when_it_changed below.
     def finalize_background_affine
       # A pivot can be named after the turn that reads it (`.scale(2.0).turns_around(...)`),
       # and a program with no frame boundary keeps the writes where the author put them —
@@ -909,12 +910,65 @@ module RubyGBA
       end
 
       write_between_frames(@inline_affine_nodes, backgrounds_that(&:turns_each_frame?)) do |name, background|
-        gate = background.scene_gate
-        active = gate ? Build.binop(:==, Build.var_ref(gate[0]), Build.int(gate[1])) : Build.int(1)
-        Build.affine_background(name, angle: Build.var_ref(background.angle),
-                                      scale: Build.var_ref(background.scale), active: active,
-                                      around: background.pivot)
+        turn_written_when_it_changed(name, background)
       end
+    end
+
+    # WRITE THE TURN ONLY ON A FRAME WHERE IT CHANGED — the same two-variables trick
+    # {#finalize_background_maps} plays on a map, and here it buys something the map's
+    # version does not.
+    #
+    # A picture that has stopped moving is told to hold still by being told nothing, and
+    # the display holds it: the numbers that say how the layer is turned and where it is
+    # pinned stay where they were put. So writing them again every frame is not only work
+    # nobody asked for — a divide and two table lookups before the write itself — it is
+    # A RISK THE STILL PICTURE HAS NO REASON TO RUN. The display reads where the layer is
+    # pinned as it draws, so a write landing after the drawing has started moves the layer
+    # for the rest of that picture: one frame showing the layer somewhere else, and then it
+    # snaps back. Every game has frames that start late, and on those frames this write
+    # lands there. A scroll written late is invisible, which is why the scroll registers
+    # beside it have never needed this.
+    #
+    # Holding what the display was TOLD apart from what the program has SINCE SAID turns
+    # all of that into two comparisons: they differ exactly on the frame the answer moved,
+    # which is the frame worth writing on.
+    def turn_written_when_it_changed(name, background)
+      told_angle, told_size = turn_the_display_was_told(name)
+      changed = Build.binop(:or,
+                            Build.binop(:!=, Build.var_ref(background.angle), Build.var_ref(told_angle)),
+                            Build.binop(:!=, Build.var_ref(background.scale), Build.var_ref(told_size)))
+      write = Build.if_(changed,
+                        Build.affine_background(name, angle: Build.var_ref(background.angle),
+                                                      scale: Build.var_ref(background.scale),
+                                                      around: background.pivot),
+                        Build.set(told_angle, Build.var_ref(background.angle)),
+                        Build.set(told_size, Build.var_ref(background.scale)))
+
+      # A background turned inside one scene says nothing at all while another scene is up:
+      # the display has one turning layer and they share it, so a title screen's zoom must
+      # not go on distorting the game that took over from it.
+      gate = background.scene_gate
+      return write unless gate
+
+      Build.if_(Build.binop(:==, Build.var_ref(gate[0]), Build.int(gate[1])), write)
+    end
+
+    # The angle and the size the display was last told. They are declared here rather than
+    # beside the angle and the size themselves because this is the only thing that reads
+    # them: a program with no gap between frames writes where the author asked for it and
+    # pays for none of this.
+    #
+    # Both start at nought, which is what makes the first frame write whatever else is
+    # true — no background is a size of nought, the smallest one anybody can ask for being
+    # more than nothing. So the pair starts out disagreeing, and the frame that finds them
+    # disagreeing is the frame that puts the picture on screen.
+    def turn_the_display_was_told(name)
+      vars = [:"__bg_#{name}_told_angle", :"__bg_#{name}_told_size"]
+      vars.each do |var|
+        at_boot(Build.set(var, Build.int(0)))
+        ensure_var(var)
+      end
+      vars
     end
 
     # Tell the display again how see-through the see-through layer is, once per frame.

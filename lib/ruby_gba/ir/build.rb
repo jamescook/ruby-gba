@@ -598,10 +598,10 @@ module RubyGBA
       # +around+ is the point on the screen the picture turns around, in pixels, and the
       # middle of the screen when the program says nothing — which is where a picture that
       # swings or grows about nothing in particular belongs.
-      def affine_background(name, angle:, scale:, active: int(1), around: nil)
+      def affine_background(name, angle:, scale:, around: nil)
         x, y = around || MIDDLE_OF_THE_SCREEN
         Nodes.build(:affine_background, name: name, angle: wrap(angle), scale: wrap(scale),
-                                        active: wrap(active), around_x: x, around_y: y)
+                                        around_x: x, around_y: y)
       end
 
       # Where a picture turns around when nothing says otherwise. Read off the screen's own

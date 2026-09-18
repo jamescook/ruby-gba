@@ -80,7 +80,7 @@ module RubyGBA
         include Node
         kind :affine_background
         category :draw
-        operands name: :name, angle: :value, scale: :value, active: :value,
+        operands name: :name, angle: :value, scale: :value,
                  around_x: :int, around_y: :int
       end
 

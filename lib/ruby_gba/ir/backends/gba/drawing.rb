@@ -1212,18 +1212,13 @@ module RubyGBA
             # makes for a background outside tile mode.
             return unless @layout.backgrounds[node.name]&.affine
 
-            # A background turned only inside one scene (see Builder#affine_each_frame)
-            # carries an `active` condition the same shape a sprite's does — skip the
-            # write entirely on a frame where its scene isn't the live one, so a
-            # zoomed title screen can never keep distorting a bitmap gameplay scene
-            # that's since taken over BG2 for its own framebuffer.
-            @lowering.value(node.active)
-            emit(ASM.cmp_imm(ACC, 0))
-            skip = gensym
-            emit_branch(:bcond, skip, cond: :eq)
+            # WHEN this runs is decided above it, in the tree, rather than here: the
+            # statement sits inside a test for the turn having moved since the display was
+            # last told, itself inside a test for the owning scene being the live one (see
+            # Builder#turn_written_when_it_changed). So reaching this is already the answer
+            # to both questions, and what is left is the write.
             emit_bg_affine_matrix(node)
             emit_bg_affine_reference_point(node.around_x, node.around_y)
-            place_label(skip)
           end
 
           # The same numbers a turning hardware sprite reads (see
