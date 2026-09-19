@@ -864,7 +864,7 @@ module RubyGBA
             picture: @picture, modes: @modes, fading: @fading, tiled: @tiled, has_objects: @has_objects,
             scene_layers: @scene_layers || {}, scene_blend: @scene_blend || {},
             obj_palette_blob: @obj_palette_blob, obj_palette_units: @obj_palette_units,
-            scene_art: @scene_art || {},
+            scene_art: @scene_art || {}, movement: @movement || IR::Movement::EVERYTHING_MOVES,
           )
           @drawing.layout = layout
           @buffered.layout = layout
@@ -2162,6 +2162,32 @@ module RubyGBA
           end
           @objects = @obj_layout.sprites
           @scene_art = @obj_layout.scene_art
+          prepare_still_objects(program)
+        end
+
+        # WHICH SPRITES A FRAME NEED NOT WRITE AT ALL.
+        #
+        # The console composes its picture from a table it re-reads every frame, so a sprite
+        # stays exactly where the last write to that table put it. A sprite nothing in the
+        # program moves is therefore already right, on this frame and every frame after — and
+        # writing it again is a few dozen instructions producing the numbers already there.
+        # IR::Movement says which those are; what is left here is the two cases where THIS
+        # machine has to write the table anyway, whatever the program does:
+        #
+        #   A SPRITE THAT KEEPS ONE FRAME AT A TIME copies its pictures into its room as the
+        #   frame is drawn, and the scene it belongs to marks that room empty again as it
+        #   takes over — later in the same frame. Written once, the copy would be undone and
+        #   never made again, so the sprite would draw whatever tiles were left there.
+        #
+        #   A SPRITE KEPT OUT OF A PLACED FADE has a twin standing over it, and where the
+        #   fade sits in the stack is a number the game moves. The twin is filled in from the
+        #   sprite's own numbers on the way past, so it can only be written when the sprite
+        #   is.
+        def prepare_still_objects(program)
+          written_anyway = @objects.each_key.select { |name| @objects[name].frames || @placed_fade.twin_for(name) }
+          @movement = IR::Movement.of(program).except(written_anyway)
+          still = @movement.still
+          @functions.mint(Drawing::STILL_ROUTINE) { @drawing.write_object_table(still) } if still.any?
         end
 
         # A SPRITE WHOSE PICTURES DO NOT ALL FIT KEEPS ONE FRAME IN SPRITE MEMORY AT A TIME.

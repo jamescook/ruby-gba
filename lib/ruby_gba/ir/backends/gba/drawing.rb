@@ -50,7 +50,7 @@ module RubyGBA
           Layout = Data.define(:bitmaps, :objects, :placed_fade, :backgrounds, :bg_shared, :palette,
                                 :indexed_bitmaps, :blob_codecs, :blob_raw_bytes, :picture,
                                 :modes, :fading, :tiled, :has_objects, :obj_palette_blob,
-                                :obj_palette_units, :scene_art, :scene_layers, :scene_blend) do
+                                :obj_palette_units, :scene_art, :scene_layers, :scene_blend, :movement) do
             # The backgrounds that turn AND sit on the tiled screen — the ones that decide
             # which way the console arranges that screen's layers. A background that turns
             # on `screen :rotozoom` is on a screen of its own, up at a different moment, so
@@ -1719,6 +1719,10 @@ module RubyGBA
             # Nothing is loaded yet, and the console's memory is garbage at power-on — so
             # the first scene to take over has to find a number that is not its own.
             @primitives.store_word_immediate(0, @primitives.var_addr(SCENE_ART_STATE)) if @layout.scene_art.any?
+            # The table has just been wiped, so the sprites nobody moves are gone from it too
+            # and have to be written again. This runs on a change of screen as well as at
+            # boot, which is the case that would otherwise leave a title screen blank.
+            forget_still_objects
             emit_dma_blob(@layout.obj_palette_blob, OBJ_PALETTE, @layout.obj_palette_units) # the shared sprite palette, once
             @layout.objects.each_value do |obj|
               # A sprite showing the same pictures as one already uploaded points at
@@ -1757,13 +1761,81 @@ module RubyGBA
             store_word_immediate(@framebuffer.dma_fill_control(OAM_SIZE / 4), REG_DMA3CNT)
           end
 
+          # The routine that writes the sprites nothing moves, and the two things remembered
+          # about it: WHETHER those sprites are in the console's table at all, and what the
+          # variable that decides them held when they were put there.
+          #
+          # TWO WORDS AND NOT ONE, which looks like one too many and is not. A single word
+          # holding "the value we last wrote for" needs some reading of it to mean "nothing
+          # written yet", and every value a word can hold is one a program is free to number a
+          # scene with — a game whose first state is -1 would then find the table already
+          # right at power-on and leave its title screen blank for ever, with nothing in the
+          # program to point at. The separate yes-or-no cannot be confused with a scene, and
+          # costs one load and one compare on a frame.
+          STILL_ROUTINE = :__still_objects
+          STILL_UP = :__still_up
+          STILL_STATE = :__still_state
+
+          # What is remembered in a program with no scenes, which has no variable to watch
+          # because nothing at all can change once its sprites are up.
+          NOTHING_TO_WATCH = 0
+
           # Draw this frame's sprites: write each named object's current position and
           # visibility into its slot in the sprite table. Runs right after the vblank
           # (when changing the table is safe), so a moving sprite lands at its new spot
           # with no tearing. The console composites the sprites over the background for
           # free — there's nothing to erase, unlike a software sprite.
           def emit_present_objects(node)
-            node.names.each { |name| emit_present_object(@layout.objects.fetch(name), twin: placed_fade.twin_for(name)) }
+            write_object_table(node.names - @layout.movement.still)
+            emit_settle_still_objects
+          end
+
+          # Write these sprites' rows of the console's table. Called twice over: by the frame,
+          # for the sprites it moves, and by a routine of its own for the sprites nothing
+          # moves (see GBA#prepare_still_objects, and Functions#mint, which is what makes that
+          # routine).
+          #
+          # THE SPLIT IS THERE TO KEEP THE FRAME'S OWN CODE SMALL. The console re-reads this
+          # table every frame and a row of it stays exactly as it was last written, so a
+          # sprite the program never moves is already right — but the code to write it again
+          # is some forty instructions apiece, and it sits in the body the framework keeps in
+          # the console's quick memory. A picture too big for one of the console's objects is
+          # drawn as several, so a title screen's lettering is a dozen of them and more; the
+          # whole of that was code saying that nothing had changed.
+          def write_object_table(names)
+            names.each { |name| emit_present_object(@layout.objects.fetch(name), twin: placed_fade.twin_for(name)) }
+          end
+
+          # WRITE THE STILL SPRITES, ON THE FRAMES WHERE THAT CAN MATTER AND NO OTHERS.
+          #
+          # Everything about such a sprite is settled except whether it is SHOWN, and that is
+          # decided by one variable: the one the program picks its scenes with, since a sprite
+          # declared inside a scene is on screen exactly while that scene is. So the whole
+          # question "is the sprite table still right?" is "are they in it, and was it that
+          # variable's doing?" — a handful of instructions for every still sprite in the game
+          # together, against a table write each.
+          #
+          # A game with no scenes has no such variable, so it remembers a fixed number and the
+          # routine runs on the first frame and never again.
+          def emit_settle_still_objects
+            return if @layout.movement.still.empty?
+
+            watching = @layout.movement.watching
+            watching ? load_var(ACC, watching) : emit(ASM.load_immediate(ACC, NOTHING_TO_WATCH))
+            settled = gensym
+            write = gensym
+            load_var(TMP, STILL_STATE)
+            emit(ASM.cmp_reg(ACC, TMP))
+            emit_branch(:bcond, write, cond: :ne) # a different scene: they need writing again
+            load_var(TMP, STILL_UP)
+            emit(ASM.cmp_imm(TMP, 0))
+            emit_branch(:bcond, settled, cond: :ne) # ...and they are in the table already
+            place_label(write)
+            store_var(ACC, STILL_STATE)
+            emit(ASM.load_immediate(TMP, 1))
+            store_var(TMP, STILL_UP)
+            @lowering.statement(Build.call(STILL_ROUTINE))
+            place_label(settled)
           end
 
           # Write one sprite's table entries from its live x/y/active variables. A hidden
@@ -1856,6 +1928,12 @@ module RubyGBA
           # over — a screen change sends every picture again, and a scene taking over sends
           # its own over the room its sprites use — so the next draw copies its frame in.
           NO_FRAME = 0xFFFF_FFFF
+
+          def forget_still_objects
+            return if @layout.movement.still.empty?
+
+            @primitives.store_word_immediate(0, @primitives.var_addr(STILL_UP))
+          end
 
           def forget_frames_in_rooms(objects)
             objects.each { |obj| store_word_immediate(NO_FRAME, var_addr(frame_in_room(obj))) if obj.frames }

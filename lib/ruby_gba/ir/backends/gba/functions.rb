@@ -25,11 +25,27 @@ module RubyGBA
             @scene_art = scene_art
             @modes = nil
             @funcs = {}
+            @minted = {}
             @func_ranges = {}
           end
 
           attr_writer :modes
           attr_reader :funcs, :func_ranges
+
+          # A ROUTINE THIS BACKEND MADE UP FOR ITSELF, with a block for a body rather than
+          # statements of the program — because nothing in the program asked for it. Something
+          # the console needs done in one place rather than written out again at every point
+          # it is needed (see Drawing#write_object_table).
+          #
+          # It is a routine like any other from here on: emitted with the rest of the ones
+          # that stay in the cartridge, and reached by `call` under the same name. What it can
+          # never be is MOVED to the quick memory, and that follows from what it is — the
+          # chooser ranks routines by what a frame spends in each, which it reads off the
+          # program, and this one is not in there to be read.
+          def mint(name, &body)
+            @funcs[name] = Build.func(name)
+            @minted[name] = body
+          end
 
           def emit_functions
             cold = @funcs.reject { |name, _| @placement.fast_funcs.include?(name) }
@@ -46,9 +62,12 @@ module RubyGBA
             start = @emitter.pos
             @emitter.place_label(func_label(name))
             @emitter.emit(ASM.push(14))                          # push {lr}
+            minted = @minted[name]
             # Draws in this func lower in its resolved mode; a scene (a per-frame
             # entry point) also switches the hardware to that mode as it takes over.
             @lowering.in_mode(@modes.func_mode.fetch(name, @modes.default_mode)) do
+              next minted.call if minted
+
               if @modes.scene_funcs.include?(name)
                 # ...a preamble: what this scene has to tell the display as it takes over.
                 # That is the screen mode, in a program that switches it per scene, and the
