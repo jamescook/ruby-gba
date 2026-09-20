@@ -198,8 +198,27 @@ struct mgba_core {
     struct mCoreMemorySearchResults *search;
 };
 
-static struct mgba_core *s_logging_core = NULL;
-static struct mgba_core *s_watching_core = NULL;
+/* WHICH CARTRIDGE IS RUNNING RIGHT NOW, so the callbacks mGBA fires part-way through a
+ * frame can find their way back to it. mGBA takes one logger for the whole process and
+ * tells it nothing about who is running, so this has to be recorded on the way in.
+ *
+ * ONE PER THREAD, NOT ONE PER PROCESS, and that is what lets several cartridges run at
+ * once. Each is set just before the frame and cleared just after, on the thread making
+ * that call — so two cartridges running together each see their own, where a single
+ * process-wide pointer meant the last one to start owned it and the other's warnings
+ * landed in its log or were dropped.
+ *
+ * It cannot be Ruby's own per-Ractor storage: these callbacks run with Ruby's lock
+ * released, which is the whole reason cartridges can overlap, and nothing may call into
+ * Ruby from there. A thread-local costs a register and asks nothing of Ruby. */
+#if defined(_MSC_VER)
+#  define GEMBA_PER_THREAD __declspec(thread)
+#else
+#  define GEMBA_PER_THREAD __thread
+#endif
+
+static GEMBA_PER_THREAD struct mgba_core *s_logging_core = NULL;
+static GEMBA_PER_THREAD struct mgba_core *s_watching_core = NULL;
 
 static void
 install_core_callbacks(struct mgba_core *mc);
@@ -2678,13 +2697,17 @@ ra_peek(uint32_t ra_addr, uint32_t num_bytes, void *ud)
 /* Triggered-ID collection for do_frame.
  * rc_runtime_event_handler_t has no userdata parameter, so we stash
  * a pointer to frame-local storage in a static before each call and
- * clear it after.  Ruby's GVL ensures single-threaded execution here. */
+ * clear it after.  That static is per thread, so two cartridges checking
+ * at once each see their own. */
 typedef struct {
     uint32_t ids[256];
     int      count;
 } ra_frame_ctx_t;
 
-static ra_frame_ctx_t *s_ra_frame_ctx = NULL;
+/* Per thread, for the reason written out beside s_logging_core: two cartridges checking
+ * achievements at once would otherwise share this, and the comment above once said Ruby's
+ * lock kept everything to one at a time, which stopped being true. */
+static GEMBA_PER_THREAD ra_frame_ctx_t *s_ra_frame_ctx = NULL;
 
 static void
 ra_event_handler(const rc_runtime_event_t *event)
@@ -2921,8 +2944,22 @@ mgba_gba_bios_checksum(VALUE self, VALUE rb_bytes)
 void
 Init_ruby_gba_emulator_ext(void)
 {
+    /* THIS EXTENSION MAY BE CALLED FROM A RACTOR, so a game can verify several cartridges
+     * at once without one of them being able to disturb another.
+     *
+     * Ruby shuts extensions out of Ractors by default, and this line is the only way back
+     * in. It is an ASSERTION, not a check: once it is made Ruby stops protecting anything
+     * here, so what earns it is below and in the audit note beside build_gba_color_lut.
+     * Methods defined after this call are the ones it covers. */
+    rb_ext_ractor_safe(true);
+
     /* Install no-op logger before any mGBA calls */
     mLogSetDefaultLogger(&s_recording_logger);
+
+    /* Work the colour table out now rather than the first time a frame wants it. Two
+     * Ractors rendering at once would otherwise both find it unbuilt and both build it,
+     * over each other. It is 128KB and a few milliseconds, once. */
+    build_gba_color_lut();
 
     /* RubyGBAEmulator module */
     mRubyGBAEmulator = rb_define_module("RubyGBAEmulator");
