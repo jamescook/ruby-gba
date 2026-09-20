@@ -10,7 +10,6 @@ require "test_helper"
 class TestTiledCollision < Minitest::Test
   include RubyGBA::Cartridge::Constants
 
-  SOLID8 = (["########"] * 8).join("\n")
 
   # A 10x5-tile room, floor everywhere but one wall tile at cell (4, 2) -> px (32, 16).
   # A red 8x8 hero starts at +hero_at+; +body+ is the per-frame game-loop code.
@@ -18,9 +17,9 @@ class TestTiledCollision < Minitest::Test
     builder = Builder.new
     builder.instance_eval do
       screen :tiled
-      image(:wall_t,  "#" => :blue) { SOLID8 }
-      image(:floor_t, "#" => rgb(8, 8, 8)) { SOLID8 }
-      image(:hero_t,  "#" => :red) { SOLID8 }
+      image(:wall_t,  "#" => :blue) { SOLID_TILE }
+      image(:floor_t, "#" => rgb(8, 8, 8)) { SOLID_TILE }
+      image(:hero_t,  "#" => :red) { SOLID_TILE }
       tiles :dungeon, "#" => :wall_t, "." => :floor_t, solid: ["#"]
       wall_map = Array.new(5) { |r| (0...10).map { |c| r == 2 && c == 4 ? "#" : "." }.join }
       room = background :room, tiles: :dungeon, map: wall_map

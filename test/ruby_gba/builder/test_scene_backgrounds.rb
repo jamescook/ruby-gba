@@ -15,7 +15,6 @@ require "tmpdir"
 class TestSceneBackgrounds < Minitest::Test
   include Differential
 
-  SOLID_TILE = (("#" * 8) + "\n").freeze * 8
 
   RED = RubyGBA::Graphics::Color.resolve(:red)
   BLUE = RubyGBA::Graphics::Color.resolve(:blue)

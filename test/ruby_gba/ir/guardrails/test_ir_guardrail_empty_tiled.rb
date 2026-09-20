@@ -19,7 +19,6 @@ require "test_helper"
 class TestIRGuardrailEmptyTiled < Minitest::Test
   include RubyGBA::IR::Build
 
-  SOLID8 = (["########"] * 8).join("\n")
 
   # Points spread over the screen — corners, edges and center. A tile layer with no
   # data is uniformly blank, so sampling a spread (rather than one pixel) shows the
@@ -80,7 +79,7 @@ class TestIRGuardrailEmptyTiled < Minitest::Test
     builder = Builder.new
     builder.instance_eval do
       screen :tiled
-      image(:red_t, "#" => :red) { SOLID8 }
+      image(:red_t, "#" => :red) { SOLID_TILE }
       tiles :set, "R" => :red_t
       background :field, tiles: :set, map: Array.new(32) { "R" * 32 }
       game_loop do

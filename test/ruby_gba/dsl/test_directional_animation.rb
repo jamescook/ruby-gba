@@ -11,7 +11,6 @@ require "test_helper"
 class TestDirectionalAnimation < Minitest::Test
   include RubyGBA::Cartridge::Constants
 
-  SOLID8 = (["########"] * 8).join("\n")
 
   # A hero at (40, 40) facing +face+, with a two-frame walk cycle per direction over a
   # gray field: right cycles red -> green, down cycles blue -> white. Each direction is
@@ -22,16 +21,16 @@ class TestDirectionalAnimation < Minitest::Test
     builder.instance_eval do
       screen mode
       if mode == :tiled
-        image(:field, "#" => :gray) { SOLID8 }
+        image(:field, "#" => :gray) { SOLID_TILE }
         tiles :ground, "#" => :field
         background :bg, tiles: :ground, map: Array.new(20, "#" * 30)
       else
         clear_screen :gray
       end
-      image(:rt0, "#" => :red)   { SOLID8 }
-      image(:rt1, "#" => :green) { SOLID8 }
-      image(:dn0, "#" => :blue)  { SOLID8 }
-      image(:dn1, "#" => :white) { SOLID8 }
+      image(:rt0, "#" => :red)   { SOLID_TILE }
+      image(:rt1, "#" => :green) { SOLID_TILE }
+      image(:dn0, "#" => :blue)  { SOLID_TILE }
+      image(:dn1, "#" => :white) { SOLID_TILE }
       hero = sprite :hero, at: [40, 40],
                           facing: { right: %i[rt0 rt1], down: %i[dn0 dn1] }, rate: rate
       hero.face face # face once, at setup — it holds while the frame animates

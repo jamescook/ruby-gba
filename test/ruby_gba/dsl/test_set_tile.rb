@@ -17,15 +17,14 @@ require "differential"
 class TestSetTile < Minitest::Test
   include Differential
 
-  SOLID8 = (["########"] * 8).join("\n")
 
   # A little room with a door in it, and a variable saying whether the door is open.
   def room_program(open_at: 2, col: 3, row: 1)
     builder = Builder.new
     builder.instance_eval do
       screen :tiled
-      image(:wall, "#" => :red) { SOLID8 }
-      image(:floor, "#" => :blue) { SOLID8 }
+      image(:wall, "#" => :red) { SOLID_TILE }
+      image(:floor, "#" => :blue) { SOLID_TILE }
       tiles :dungeon, "#" => :wall, "." => :floor
       room = background :room, tiles: :dungeon, map: Array.new(6) { "######" }
       frames = var :frames, 0
@@ -62,8 +61,8 @@ class TestSetTile < Minitest::Test
     builder = Builder.new
     builder.instance_eval do
       screen :tiled
-      image(:wall, "#" => :red) { SOLID8 }
-      image(:floor, "#" => :blue) { SOLID8 }
+      image(:wall, "#" => :red) { SOLID_TILE }
+      image(:floor, "#" => :blue) { SOLID_TILE }
       tiles :dungeon, "#" => :wall, "." => :floor
       room = background :room, tiles: :dungeon, map: Array.new(6) { "######" }
       where = var :where, 0
@@ -96,8 +95,8 @@ class TestSetTile < Minitest::Test
     builder = Builder.new
     builder.instance_eval do
       screen :tiled
-      image(:wall, "#" => :red) { SOLID8 }
-      image(:floor, "#" => :blue) { SOLID8 }
+      image(:wall, "#" => :red) { SOLID_TILE }
+      image(:floor, "#" => :blue) { SOLID_TILE }
       tiles :dungeon, "#" => :wall, "." => :floor
       room = background :room, tiles: :dungeon, map: Array.new(6) { "######" }
       far = var :far, 900
@@ -125,8 +124,8 @@ class TestSetTile < Minitest::Test
     builder = Builder.new
     builder.instance_eval do
       screen :tiled
-      image(:wall, "#" => :red) { SOLID8 }
-      image(:floor, "#" => :blue) { SOLID8 }
+      image(:wall, "#" => :red) { SOLID_TILE }
+      image(:floor, "#" => :blue) { SOLID_TILE }
       tiles :dungeon, "#" => :wall, "." => :floor
       room = background :room, tiles: :dungeon, map: Array.new(32) { "#" * 64 }
       opened = var :opened, 0
@@ -157,7 +156,7 @@ class TestSetTile < Minitest::Test
       builder = Builder.new
       builder.instance_eval do
         screen :tiled
-        image(:wall, "#" => :red) { SOLID8 }
+        image(:wall, "#" => :red) { SOLID_TILE }
         tiles :dungeon, "#" => :wall
         room = background :room, tiles: :dungeon, map: ["##"]
         game_loop { wait_vblank; room.set_tile 0, 0, "?" }
@@ -175,8 +174,8 @@ class TestSetTile < Minitest::Test
     builder = Builder.new
     builder.instance_eval do
       screen :tiled
-      image(:wall, "#" => :red) { SOLID8 }
-      image(:floor, "#" => :blue) { SOLID8 }
+      image(:wall, "#" => :red) { SOLID_TILE }
+      image(:floor, "#" => :blue) { SOLID_TILE }
       tiles :dungeon, "#" => :wall, "." => :floor
       room = background :room, tiles: :dungeon, map: Array.new(6) { "######" } # no floor anywhere
       game_loop { wait_vblank; room.set_tile 1, 1, "." }
@@ -192,7 +191,7 @@ class TestSetTile < Minitest::Test
       builder = Builder.new
       builder.instance_eval do
         screen :bitmap
-        image(:wall, "#" => :red) { SOLID8 }
+        image(:wall, "#" => :red) { SOLID_TILE }
         tiles :dungeon, "#" => :wall
         room = background :room, tiles: :dungeon, map: ["##"]
         game_loop { wait_vblank; room.set_tile 0, 0, "#" }
@@ -209,7 +208,7 @@ class TestSetTile < Minitest::Test
     builder = Builder.new
     builder.instance_eval do
       screen :rotozoom
-      image(:wall, "#" => :red) { SOLID8 }
+      image(:wall, "#" => :red) { SOLID_TILE }
       tiles :dungeon, "#" => :wall
       room = background :room, tiles: :dungeon, map: ["##", "##"]
       game_loop { room.set_tile 0, 0, "#" }

@@ -128,6 +128,32 @@ class TestRactorSafety < Minitest::Test
     WHY
   end
 
+  # AND THE SAME QUESTION ASKED OF THE SUITE ITSELF, because a test file parks fixtures in
+  # constants exactly the way the library does and gets them wrong the same way: the tile art
+  # twenty-two files used to declare for themselves read `(("#" * 8) + "\\n").freeze * 8`,
+  # where the freeze lands on the inner string and the multiplication then makes a fresh
+  # unfrozen one. Nobody would spot that by looking.
+  #
+  # It runs in a process of its own, which is what makes it mean anything: a test can only
+  # see the test classes loaded beside it, and under `rake test:parallel` that is one shard's
+  # share of the suite. Asked from in here it would quietly cover a twelfth of what it claims
+  # to. The script loads every test file instead, and costs about four tenths of a second.
+  def test_a_worker_can_read_every_constant_the_suite_parks_in_a_test_class
+    census = File.expand_path("../support/constant_census.rb", __dir__)
+    found = IO.popen([RbConfig.ruby, census], &:read)
+
+    assert_empty found.strip, <<~WHY
+      These test constants hold something a worker Ractor cannot read:
+
+      #{found}
+      Nearly always this is already handled: test_helper freezes whatever a test class parks
+      in a constant, the moment it is declared. Something here refused — almost certainly a
+      block that reaches for a variable around it, which can never be shared. Build it in a
+      method instead, so each worker makes its own. A fixture several files want belongs in
+      SharedConstants in test/test_helper.rb.
+    WHY
+  end
+
   # THE ONE THAT ACTUALLY PROVES IT. The two censuses above are about what the library
   # holds; this one builds a whole cartridge inside a worker and compares it byte for byte
   # with the same build on the main Ractor. Anything still unreachable raises rather than

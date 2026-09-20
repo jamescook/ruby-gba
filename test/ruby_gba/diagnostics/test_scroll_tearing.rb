@@ -19,7 +19,6 @@ require "test_helper"
 # column means the picture sheared, and where it changes is where the write landed.
 class TestScrollTearing < Minitest::Test
 
-  SOLID8 = (["########"] * 8).join("\n")
 
   # A field of alternating 8px red and blue columns, scrolled 8px further every
   # frame — so any horizontal shift changes which color sits at a given x, and a
@@ -29,8 +28,8 @@ class TestScrollTearing < Minitest::Test
     builder = Builder.new
     builder.instance_eval do
       screen :tiled
-      image(:red_t, "#" => :red) { SOLID8 }
-      image(:blue_t, "#" => :blue) { SOLID8 }
+      image(:red_t, "#" => :red) { SOLID_TILE }
+      image(:blue_t, "#" => :blue) { SOLID_TILE }
       tiles :stripes, "R" => :red_t, "B" => :blue_t
       bg = background :field, tiles: :stripes,
                               map: Array.new(32) { (0...32).map { |c| c.even? ? "R" : "B" }.join }
@@ -76,8 +75,8 @@ class TestScrollTearing < Minitest::Test
     builder = Builder.new
     builder.instance_eval do
       screen :tiled
-      image(:blue_t, "#" => :blue) { SOLID8 }
-      image(:green_t, "#" => :green) { SOLID8 }
+      image(:blue_t, "#" => :blue) { SOLID_TILE }
+      image(:green_t, "#" => :green) { SOLID_TILE }
       tiles :field, "B" => :blue_t, "G" => :green_t
       map = Array.new(32) { |r| (0...32).map { |c| r == 5 && c == 5 ? "G" : "B" }.join }
       bg = background :world, tiles: :field, map: map

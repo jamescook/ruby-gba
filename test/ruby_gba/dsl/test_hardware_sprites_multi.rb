@@ -10,7 +10,6 @@ require "test_helper"
 class TestHardwareSpritesMulti < Minitest::Test
   include RubyGBA::Cartridge::Constants
 
-  SOLID8 = (["########"] * 8).join("\n") # a solid 8x8 tile of one color
   FLOOR_MAP = Array.new(20, "#" * 30).freeze # a white floor filling the screen
 
   def rom_for(program)
@@ -24,9 +23,9 @@ class TestHardwareSpritesMulti < Minitest::Test
     builder = Builder.new
     builder.instance_eval do
       screen :tiled
-      image(:floor, "#" => :white) { SOLID8 }
-      image(:red_guy,  "#" => :red)  { SOLID8 }
-      image(:blue_guy, "#" => :blue) { SOLID8 }
+      image(:floor, "#" => :white) { SOLID_TILE }
+      image(:red_guy,  "#" => :red)  { SOLID_TILE }
+      image(:blue_guy, "#" => :blue) { SOLID_TILE }
       tiles :ground, "#" => :floor
       background :field, tiles: :ground, map: FLOOR_MAP
       sprite :red_guy,  at: [40, 40] # declared first  -> behind
@@ -62,8 +61,8 @@ class TestHardwareSpritesMulti < Minitest::Test
     builder = Builder.new
     builder.instance_eval do
       screen :tiled
-      image(:floor, "#" => :white) { SOLID8 }
-      image(:guy,   "#" => :red)   { SOLID8 }
+      image(:floor, "#" => :white) { SOLID_TILE }
+      image(:guy,   "#" => :red)   { SOLID_TILE }
       tiles :ground, "#" => :floor
       background :field, tiles: :ground, map: FLOOR_MAP
       guy = sprite :guy, at: [40, 40], shown: shown

@@ -10,7 +10,6 @@ require "test_helper"
 class TestBackgroundLayers < Minitest::Test
   include RubyGBA::Cartridge::Constants
 
-  SOLID8 = (["########"] * 8).join("\n")
 
   # A FAR layer (backmost): a blue field with a GREEN landmark tile at cell (5,5) ->
   # px (40,40). A NEAR layer (front): transparent everywhere (spaces) except a RED
@@ -22,9 +21,9 @@ class TestBackgroundLayers < Minitest::Test
     builder = Builder.new
     builder.instance_eval do
       screen :tiled
-      image(:blue_t,  "#" => :blue)  { SOLID8 }
-      image(:green_t, "#" => :green) { SOLID8 }
-      image(:red_t,   "#" => :red)   { SOLID8 }
+      image(:blue_t,  "#" => :blue)  { SOLID_TILE }
+      image(:green_t, "#" => :green) { SOLID_TILE }
+      image(:red_t,   "#" => :red)   { SOLID_TILE }
       tiles :far_set,  "B" => :blue_t, "G" => :green_t
       tiles :near_set, "R" => :red_t
       far  = background :far,  tiles: :far_set,  map: far_map   # declared first -> backmost

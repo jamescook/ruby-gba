@@ -26,14 +26,13 @@ require "test_helper"
 # the half worth losing.
 class TestNamedSprites < Minitest::Test
 
-  EIGHT = (["########"] * 8).join("\n")
 
   # Two sprites, still, at places nothing else on screen shares.
   def two_sprites
     RubyGBA.game "CAST" do
       screen :tiled
-      image(:hero, "#" => :red)    { EIGHT }
-      image(:coin, "#" => :yellow) { EIGHT }
+      image(:hero, "#" => :red)    { SOLID_TILE }
+      image(:coin, "#" => :yellow) { SOLID_TILE }
       sprite :hero, at: [40, 40]
       sprite :coin, at: [100, 80]
       game_loop { wait_vblank }
@@ -80,8 +79,8 @@ class TestNamedSprites < Minitest::Test
   def test_a_hidden_sprite_is_absent
     game = RubyGBA.game "CAST" do
       screen :tiled
-      image(:hero, "#" => :red)    { EIGHT }
-      image(:coin, "#" => :yellow) { EIGHT }
+      image(:hero, "#" => :red)    { SOLID_TILE }
+      image(:coin, "#" => :yellow) { SOLID_TILE }
       sprite :hero, at: [40, 40]
       sprite :coin, at: [100, 80], shown: false
       game_loop { wait_vblank }
@@ -120,7 +119,7 @@ class TestNamedSprites < Minitest::Test
   def test_a_sprite_being_drawn_in_other_colours_is_still_found_by_name
     game = RubyGBA.game "HURT" do
       screen :tiled
-      image(:hero, colors: [:transparent, :red], "#" => :red) { EIGHT }
+      image(:hero, colors: [:transparent, :red], "#" => :red) { SOLID_TILE }
       colors :hurt, [:transparent, :white]
       hero = sprite :hero, at: [40, 40]
       game_loop { hero.draw_with :hurt }
@@ -139,7 +138,7 @@ class TestNamedSprites < Minitest::Test
   def test_a_pool_gives_back_the_instances_that_are_live
     game = RubyGBA.game "SWARM" do
       screen :tiled
-      image(:bullet, "#" => :white) { EIGHT }
+      image(:bullet, "#" => :white) { SOLID_TILE }
       shots = pool :shot, x: 0, y: 0, capacity: 8, image: :bullet
       fired = var :fired, 0
       game_loop do
@@ -162,7 +161,7 @@ class TestNamedSprites < Minitest::Test
   def hero_and_text
     RubyGBA.game "HUD" do
       screen :tiled
-      image(:hero, "#" => :red) { EIGHT }
+      image(:hero, "#" => :red) { SOLID_TILE }
       sprite :hero, at: [40, 40]
       draw_text "HI", 8, 8, :white
       game_loop { wait_vblank }
@@ -207,8 +206,8 @@ class TestNamedSprites < Minitest::Test
   def test_the_oracle_leaves_out_a_sprite_the_game_switched_off
     game = RubyGBA.game "CAST" do
       screen :tiled
-      image(:hero, "#" => :red)    { EIGHT }
-      image(:coin, "#" => :yellow) { EIGHT }
+      image(:hero, "#" => :red)    { SOLID_TILE }
+      image(:coin, "#" => :yellow) { SOLID_TILE }
       sprite :hero, at: [40, 40]
       sprite :coin, at: [100, 80], shown: false
       game_loop { wait_vblank }
@@ -225,7 +224,7 @@ class TestNamedSprites < Minitest::Test
   def test_the_oracle_gives_a_pool_the_instances_that_are_live
     game = RubyGBA.game "SWARM" do
       screen :tiled
-      image(:bullet, "#" => :white) { EIGHT }
+      image(:bullet, "#" => :white) { SOLID_TILE }
       shots = pool :shot, x: 0, y: 0, capacity: 8, image: :bullet
       fired = var :fired, 0
       game_loop do
@@ -248,8 +247,8 @@ class TestNamedSprites < Minitest::Test
   def test_the_oracle_says_which_picture_a_sprite_is_showing
     game = RubyGBA.game "WALK" do
       screen :tiled
-      image(:step_a, "#" => :red)   { EIGHT }
-      image(:step_b, "#" => :white) { EIGHT }
+      image(:step_a, "#" => :red)   { SOLID_TILE }
+      image(:step_b, "#" => :white) { SOLID_TILE }
       sprite :walker, at: [40, 40], frames: %i[step_a step_b], rate: 2
       game_loop { wait_vblank }
     end
@@ -283,7 +282,7 @@ class TestNamedSprites < Minitest::Test
       screen :tiled
       layers :actors, :fence
       image(:brick, "#" => :gray) { brick }
-      image(:hero, "#" => :red) { EIGHT }
+      image(:hero, "#" => :red) { SOLID_TILE }
       tiles :stone, "#" => :brick
       layer(:actors) { sprite :hero, at: [40, 40] }
       layer(:fence) { background :fence, tiles: :stone, map: wall }

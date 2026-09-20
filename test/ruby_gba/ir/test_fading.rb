@@ -11,7 +11,6 @@ require "test_helper"
 # rule: three decisions, one test each, in the words somebody would ask them in.
 class TestFading < Minitest::Test
 
-  TILE = (("#" * 8) + "\n").freeze * 8
 
   def program(&block)
     b = Builder.new
@@ -27,7 +26,7 @@ class TestFading < Minitest::Test
   # A red floor with a white pane over it, the pane's layer half see-through, and a fade
   # written either over the whole screen or placed under the badge on top.
   def see_through_program(under: nil, transparency: 50)
-    tile = TILE
+    tile = SOLID_TILE
     program do
       screen :tiled
       image(:back, "#" => :red) { tile }
@@ -50,7 +49,7 @@ class TestFading < Minitest::Test
 
   # The same tiled game with nothing see-through in it at all.
   def plain_tiled_program
-    tile = TILE
+    tile = SOLID_TILE
     program do
       screen :tiled
       image(:back, "#" => :red) { tile }

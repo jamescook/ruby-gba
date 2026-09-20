@@ -234,7 +234,6 @@ class TestFade < Minitest::Test
   # because the share taken from 31 rounds down exactly half the time.
   RED_FADED_TO_BLACK = [31, 30, 28, 26, 24, 22, 20, 18, 16, 14, 12, 10, 8, 6, 4, 2, 0].freeze
 
-  SOLID_TILE = (("#" * 8) + "\n").freeze * 8
 
   # A screenful of one flat red tile, faded. Tiled rather than bitmap because that is
   # where this was found, and because a tiled fade is the one the display does for

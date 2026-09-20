@@ -20,7 +20,6 @@ class TestDifferential < Minitest::Test
   include Differential
 
   # An 8x8 solid tile — the size the sprite and tile hardware wants.
-  TILE = (("#" * 8) + "\n") * 8
 
   # A full 32x32 checkerboard map — the whole grid the console gives a background.
   # test_a_small_scrolling_map_shows_the_backdrop_past_its_edge covers the other
@@ -211,11 +210,11 @@ class TestDifferential < Minitest::Test
   def test_a_tiled_background_and_sprite_compose_the_same_way
     assert_backends_agree(build do
       screen :tiled
-      image(:brick, "#" => :red) { TILE }
-      image(:floor, "#" => :blue) { TILE }
+      image(:brick, "#" => :red) { SOLID_TILE }
+      image(:floor, "#" => :blue) { SOLID_TILE }
       tiles :set, "#" => :brick, "." => :floor
       background :bg, tiles: :set, map: FULL_MAP
-      image(:hero, "#" => :white) { TILE }
+      image(:hero, "#" => :white) { SOLID_TILE }
       sprite :hero, at: [96, 64]
       game_loop { nil }
     end, name: "TILED")
@@ -226,8 +225,8 @@ class TestDifferential < Minitest::Test
   def test_a_scrolling_background_matches_at_every_offset
     prog = build do
       screen :tiled
-      image(:brick, "#" => :red) { TILE }
-      image(:floor, "#" => :blue) { TILE }
+      image(:brick, "#" => :red) { SOLID_TILE }
+      image(:floor, "#" => :blue) { SOLID_TILE }
       tiles :set, "#" => :brick, "." => :floor
       bg = background :bg, tiles: :set, map: FULL_MAP
       game_loop { bg.scroll_by 1, 1 }
@@ -244,8 +243,8 @@ class TestDifferential < Minitest::Test
   def test_a_small_scrolling_map_shows_the_backdrop_past_its_edge
     prog = build do
       screen :tiled
-      image(:brick, "#" => :red) { TILE }
-      image(:floor, "#" => :blue) { TILE }
+      image(:brick, "#" => :red) { SOLID_TILE }
+      image(:floor, "#" => :blue) { SOLID_TILE }
       tiles :set, "#" => :brick, "." => :floor
       bg = background :bg, tiles: :set, map: (["#.#.#.#.#."] * 6) # 80x48 px of a 256x256 grid
       game_loop { bg.scroll_by 1, 1 }
@@ -258,11 +257,11 @@ class TestDifferential < Minitest::Test
   def test_a_hardware_sprite_over_a_scrolling_background_matches
     prog = build do
       screen :tiled
-      image(:brick, "#" => :red) { TILE }
-      image(:floor, "#" => :blue) { TILE }
+      image(:brick, "#" => :red) { SOLID_TILE }
+      image(:floor, "#" => :blue) { SOLID_TILE }
       tiles :set, "#" => :brick, "." => :floor
       bg = background :bg, tiles: :set, map: FULL_MAP
-      image(:hero, "#" => :white) { TILE }
+      image(:hero, "#" => :white) { SOLID_TILE }
       s = sprite :hero, at: [40, 40]
       game_loop do
         bg.scroll_by 1, 0
@@ -282,11 +281,11 @@ class TestDifferential < Minitest::Test
     [0, 30, 45, 90, 135, 200, 315].each do |angle|
       assert_backends_agree(build do
         screen :tiled
-        image(:brick, "#" => :red) { TILE }
-        image(:floor, "#" => :blue) { TILE }
+        image(:brick, "#" => :red) { SOLID_TILE }
+        image(:floor, "#" => :blue) { SOLID_TILE }
         tiles :set, "#" => :brick, "." => :floor
         background :bg, tiles: :set, map: FULL_MAP
-        image(:ship, "#" => :white) { TILE }
+        image(:ship, "#" => :white) { SOLID_TILE }
         s = sprite :ship, at: [100, 60]
         s.face_angle angle
         game_loop { nil }
@@ -300,11 +299,11 @@ class TestDifferential < Minitest::Test
   def test_a_sprite_turning_every_frame_matches_frame_for_frame
     prog = build do
       screen :tiled
-      image(:brick, "#" => :red) { TILE }
-      image(:floor, "#" => :blue) { TILE }
+      image(:brick, "#" => :red) { SOLID_TILE }
+      image(:floor, "#" => :blue) { SOLID_TILE }
       tiles :set, "#" => :brick, "." => :floor
       background :bg, tiles: :set, map: FULL_MAP
-      image(:ship, "#" => :white) { TILE }
+      image(:ship, "#" => :white) { SOLID_TILE }
       s = sprite :ship, at: [100, 60]
       game_loop { s.turn 11 }
     end
@@ -378,8 +377,8 @@ class TestDifferential < Minitest::Test
     end
     tiled = build do
       screen :tiled
-      image(:brick, "#" => :red) { TILE }
-      image(:floor, "#" => :blue) { TILE }
+      image(:brick, "#" => :red) { SOLID_TILE }
+      image(:floor, "#" => :blue) { SOLID_TILE }
       tiles :set, "#" => :brick, "." => :floor
       bg = background :bg, tiles: :set, map: FULL_MAP
       game_loop { bg.scroll_by 1, 0 }
@@ -387,8 +386,8 @@ class TestDifferential < Minitest::Test
 
     turning = build do
       screen :rotozoom
-      image(:brick, "#" => :red) { TILE }
-      image(:floor, "#" => :blue) { TILE }
+      image(:brick, "#" => :red) { SOLID_TILE }
+      image(:floor, "#" => :blue) { SOLID_TILE }
       tiles :set, "#" => :brick, "." => :floor
       bg = background :bg, tiles: :set, map: FULL_MAP # square, which a turning map must be
       game_loop { bg.rotate bg.angle + 5 }
@@ -448,9 +447,9 @@ class TestDifferential < Minitest::Test
   def slow_to_boot
     build do
       screen :tiled
-      image(:brick, "#" => :red) { TILE }
-      image(:floor, "#" => :blue) { TILE }
-      image(:guy, "#" => :white) { TILE }
+      image(:brick, "#" => :red) { SOLID_TILE }
+      image(:floor, "#" => :blue) { SOLID_TILE }
+      image(:guy, "#" => :white) { SOLID_TILE }
       tiles :set, "#" => :brick, "." => :floor
       background :bg, tiles: :set, map: FULL_MAP
       guards = pool :guard, x: 0, y: 0, capacity: 32, image: :guy
@@ -502,8 +501,8 @@ class TestDifferential < Minitest::Test
       scene(:title) { clear_screen :blue }
       scene(:play) do
         screen :tiled
-        image(:brick, "#" => :red) { TILE }
-        image(:floor, "#" => :blue) { TILE }
+        image(:brick, "#" => :red) { SOLID_TILE }
+        image(:floor, "#" => :blue) { SOLID_TILE }
         tiles :set, "#" => :brick, "." => :floor
         background :bg, tiles: :set, map: FULL_MAP
       end

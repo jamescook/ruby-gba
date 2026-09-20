@@ -19,7 +19,6 @@ require "stringio"
 class TestLayerTransparency < Minitest::Test
   include Differential
 
-  SOLID_TILE = (("#" * 8) + "\n").freeze * 8
 
   RED = RubyGBA::Graphics::Color.resolve(:red)
   WHITE = RubyGBA::Graphics::Color.resolve(:white)

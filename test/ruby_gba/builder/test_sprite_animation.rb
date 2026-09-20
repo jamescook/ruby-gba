@@ -11,7 +11,6 @@ require "test_helper"
 class TestSpriteAnimation < Minitest::Test
   include RubyGBA::Cartridge::Constants
 
-  SOLID8 = (["########"] * 8).join("\n")
 
   # A blinker at (40, 40) that flips between a red frame and a blue frame every 4
   # frames, over a white field. It halts after +run+ frames so what's on screen is
@@ -21,14 +20,14 @@ class TestSpriteAnimation < Minitest::Test
     builder.instance_eval do
       screen mode
       if mode == :tiled
-        image(:field, "#" => :white) { SOLID8 }
+        image(:field, "#" => :white) { SOLID_TILE }
         tiles :ground, "#" => :field
         background :bg, tiles: :ground, map: Array.new(20, "#" * 30)
       else
         clear_screen :white
       end
-      image(:on,  "#" => :red)  { SOLID8 }
-      image(:off, "#" => :blue) { SOLID8 }
+      image(:on,  "#" => :red)  { SOLID_TILE }
+      image(:off, "#" => :blue) { SOLID_TILE }
       sprite :blink, at: [40, 40], frames: %i[on off], rate: rate
       f = var :f, 0
       game_loop do
@@ -85,7 +84,7 @@ class TestSpriteAnimation < Minitest::Test
     err = assert_raises(ArgumentError) do
       build_with do
         screen :bitmap
-        image(:only, "#" => :red) { SOLID8 }
+        image(:only, "#" => :red) { SOLID_TILE }
         sprite :s, at: [0, 0], frames: [:only], rate: 4
       end
     end
@@ -96,8 +95,8 @@ class TestSpriteAnimation < Minitest::Test
     err = assert_raises(ArgumentError) do
       build_with do
         screen :bitmap
-        image(:a, "#" => :red)  { SOLID8 }
-        image(:b, "#" => :blue) { SOLID8 }
+        image(:a, "#" => :red)  { SOLID_TILE }
+        image(:b, "#" => :blue) { SOLID_TILE }
         sprite :s, at: [0, 0], frames: %i[a b], rate: 0
       end
     end
@@ -108,8 +107,8 @@ class TestSpriteAnimation < Minitest::Test
     err = assert_raises(ArgumentError) do
       build_with do
         screen :bitmap
-        image(:a, "#" => :red)  { SOLID8 }
-        image(:b, "#" => :blue) { SOLID8 }
+        image(:a, "#" => :red)  { SOLID_TILE }
+        image(:b, "#" => :blue) { SOLID_TILE }
         sprite :s, at: [0, 0], facing: { left: :a, right: :b }, frames: %i[a b], rate: 4
       end
     end
@@ -120,7 +119,7 @@ class TestSpriteAnimation < Minitest::Test
     err = assert_raises(ArgumentError) do
       build_with do
         screen :bitmap
-        image(:a, "#" => :red) { SOLID8 }
+        image(:a, "#" => :red) { SOLID_TILE }
         sprite :s, at: [0, 0], frames: %i[a nope], rate: 4
       end
     end

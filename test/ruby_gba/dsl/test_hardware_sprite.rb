@@ -11,7 +11,6 @@ require "test_helper"
 class TestHardwareSprite < Minitest::Test
   include RubyGBA::Cartridge::Constants
 
-  EIGHT_BY_EIGHT = (["########"] * 8).join("\n") # a solid 8x8 tile of one color
 
   # A blue floor of 8x8 tiles filling the screen, and a red 8x8 hero sprite that
   # slides right by +step+ while :right is held, halting after +frames+ steps so its
@@ -23,8 +22,8 @@ class TestHardwareSprite < Minitest::Test
     builder = Builder.new
     builder.instance_eval do
       screen :tiled
-      image(:floor, "#" => :blue) { EIGHT_BY_EIGHT }
-      image(:hero,  "#" => :red)  { EIGHT_BY_EIGHT }
+      image(:floor, "#" => :blue) { SOLID_TILE }
+      image(:hero,  "#" => :red)  { SOLID_TILE }
       tiles :ground, "#" => :floor
       background :field, tiles: :ground, map: floor_map
       hero = sprite :hero, at: [start_x, start_y]

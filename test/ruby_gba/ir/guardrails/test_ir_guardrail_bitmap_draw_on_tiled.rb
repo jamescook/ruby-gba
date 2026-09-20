@@ -21,7 +21,6 @@ class TestIRGuardrailBitmapDrawOnTiled < Minitest::Test
 
   Check = RubyGBA::IR::Guardrails::Checks::BitmapDrawOnTiled
 
-  SOLID8 = (["########"] * 8).join("\n")
   FIELD = (["##############################"] * 20).freeze
 
   def program(&block)
@@ -36,7 +35,7 @@ class TestIRGuardrailBitmapDrawOnTiled < Minitest::Test
   def tiled_game_that_also_fills
     program do
       screen :tiled
-      image(:blue_t, "#" => :blue) { SOLID8 }
+      image(:blue_t, "#" => :blue) { SOLID_TILE }
       tiles :ground, "#" => :blue_t
       background :field, tiles: :ground, map: FIELD
       game_loop { fill_rect 100, 70, 40, 20, :red }
@@ -75,8 +74,8 @@ class TestIRGuardrailBitmapDrawOnTiled < Minitest::Test
   def test_it_names_the_authors_verb_not_the_internal_kind
     prog = program do
       screen :tiled
-      image(:blue_t, "#" => :blue) { SOLID8 }
-      image(:hero, "#" => :red) { SOLID8 }
+      image(:blue_t, "#" => :blue) { SOLID_TILE }
+      image(:hero, "#" => :red) { SOLID_TILE }
       tiles :ground, "#" => :blue_t
       background :field, tiles: :ground, map: FIELD
       game_loop { blit :hero, 10, 10 }
@@ -93,8 +92,8 @@ class TestIRGuardrailBitmapDrawOnTiled < Minitest::Test
   def test_a_tiled_hud_is_not_flagged
     prog = program do
       screen :tiled
-      image(:blue_t, "#" => :blue) { SOLID8 }
-      image(:hero, "#" => :red) { SOLID8 }
+      image(:blue_t, "#" => :blue) { SOLID_TILE }
+      image(:hero, "#" => :red) { SOLID_TILE }
       tiles :ground, "#" => :blue_t
       background :field, tiles: :ground, map: FIELD
       score = var :score, 0
@@ -114,7 +113,7 @@ class TestIRGuardrailBitmapDrawOnTiled < Minitest::Test
   def test_a_bitmap_scene_inside_a_tiled_game_is_not_flagged
     prog = program do
       screen :tiled
-      image(:blue_t, "#" => :blue) { SOLID8 }
+      image(:blue_t, "#" => :blue) { SOLID_TILE }
       tiles :ground, "#" => :blue_t
       background :field, tiles: :ground, map: FIELD
       var :state, 0
@@ -161,7 +160,7 @@ class TestIRGuardrailBitmapDrawOnTiled < Minitest::Test
     assert_raises(RubyGBA::ROMError) do
       RubyGBA.build("GAP", code: "BGAP", maker: "01", out: StringIO.new, err: err) do
         screen :tiled
-        image(:blue_t, "#" => :blue) { SOLID8 }
+        image(:blue_t, "#" => :blue) { SOLID_TILE }
         tiles :ground, "#" => :blue_t
         background :field, tiles: :ground, map: FIELD
         game_loop { fill_rect 100, 70, 40, 20, :red }

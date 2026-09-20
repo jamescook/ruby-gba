@@ -12,7 +12,6 @@ require "test_helper"
 class TestHardwareSpriteFacing < Minitest::Test
   include RubyGBA::Cartridge::Constants
 
-  SOLID8 = (["########"] * 8).join("\n")
   FLOOR_MAP = Array.new(20, "#" * 30).freeze
 
   # A sprite red when facing right, blue when facing left. It slides toward whichever
@@ -23,9 +22,9 @@ class TestHardwareSpriteFacing < Minitest::Test
     builder = Builder.new
     builder.instance_eval do
       screen :tiled
-      image(:floor,      "#" => :white) { SOLID8 }
-      image(:look_right, "#" => :red)   { SOLID8 }
-      image(:look_left,  "#" => :blue)  { SOLID8 }
+      image(:floor,      "#" => :white) { SOLID_TILE }
+      image(:look_right, "#" => :red)   { SOLID_TILE }
+      image(:look_left,  "#" => :blue)  { SOLID_TILE }
       tiles :ground, "#" => :floor
       background :field, tiles: :ground, map: FLOOR_MAP
       pac = sprite :pac, at: [100, 40], facing: { right: :look_right, left: :look_left }
@@ -69,8 +68,8 @@ class TestHardwareSpriteFacing < Minitest::Test
     b = Builder.new
     b.instance_eval do
       screen :tiled
-      image(:look_right, "#" => :red)  { SOLID8 }
-      image(:look_left,  "#" => :blue) { SOLID8 }
+      image(:look_right, "#" => :red)  { SOLID_TILE }
+      image(:look_left,  "#" => :blue) { SOLID_TILE }
     end
     pac = b.instance_eval { sprite :pac, at: [0, 0], facing: { right: :look_right, left: :look_left } }
     err = assert_raises(ArgumentError) { pac.face(:up) }
@@ -81,7 +80,7 @@ class TestHardwareSpriteFacing < Minitest::Test
     b = Builder.new
     b.instance_eval do
       screen :tiled
-      image(:small, "#" => :red)  { SOLID8 }                 # 8x8
+      image(:small, "#" => :red)  { SOLID_TILE }                 # 8x8
       image(:big,   "#" => :blue) { (["################"] * 16).join("\n") } # 16x16
     end
     err = assert_raises(ArgumentError) do

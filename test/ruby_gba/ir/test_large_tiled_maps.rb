@@ -23,7 +23,6 @@ require "differential"
 class TestLargeTiledMaps < Minitest::Test
   include Differential
 
-  SOLID8 = (["########"] * 8).join("\n")
 
   # A map of the given size, with a different colour in each quarter, so a cell landing in the
   # wrong block shows up as the wrong colour rather than as nothing.
@@ -34,7 +33,7 @@ class TestLargeTiledMaps < Minitest::Test
     builder = Builder.new
     builder.instance_eval do
       screen :tiled
-      QUARTERS.each_with_index { |color, i| image(:"q#{i}", "#" => color) { SOLID8 } }
+      QUARTERS.each_with_index { |color, i| image(:"q#{i}", "#" => color) { SOLID_TILE } }
       tiles :set, "0" => :q0, "1" => :q1, "2" => :q2, "3" => :q3
       map = Array.new(rows) do |r|
         Array.new(cols) { |c| ((r >= 32 ? 2 : 0) + (c >= 32 ? 1 : 0)).to_s }.join
@@ -107,7 +106,7 @@ class TestLargeTiledMaps < Minitest::Test
     builder = Builder.new
     builder.instance_eval do
       screen :tiled
-      image(:t, "#" => :red) { SOLID8 }
+      image(:t, "#" => :red) { SOLID_TILE }
       tiles :set, "#" => :t
       map = Array.new(64) { "#" * 64 }
       4.times { |i| background :"layer#{i}", tiles: :set, map: map }
@@ -129,7 +128,7 @@ class TestLargeTiledMaps < Minitest::Test
     builder = Builder.new
     builder.instance_eval do
       screen :tiled
-      image(:t, "#" => :red) { SOLID8 }
+      image(:t, "#" => :red) { SOLID_TILE }
       tiles :set, "#" => :t
       background :huge, tiles: :set, map: Array.new(65) { "#" * 65 }
       game_loop {}

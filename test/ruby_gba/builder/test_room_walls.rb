@@ -17,7 +17,6 @@ class TestRoomWalls < Minitest::Test
   include RubyGBA::Cartridge::Constants
   include Differential
 
-  SOLID8 = (["########"] * 8).join("\n")
 
   # Two rooms the same size. In the hall, cell (2, 1) is a wall; in the cave that same
   # cell is open floor. A hero starting at cell (1, 1) and walking right is stopped in
@@ -34,9 +33,9 @@ class TestRoomWalls < Minitest::Test
     builder = Builder.new
     builder.instance_eval do
       screen :tiled
-      image(:wall_t, "#" => :blue) { SOLID8 }
-      image(:floor_t, "#" => rgb(8, 8, 8)) { SOLID8 }
-      image(:hero_t, "#" => :red) { SOLID8 }
+      image(:wall_t, "#" => :blue) { SOLID_TILE }
+      image(:floor_t, "#" => rgb(8, 8, 8)) { SOLID_TILE }
+      image(:hero_t, "#" => :red) { SOLID_TILE }
       tiles :dungeon, "#" => :wall_t, "." => :floor_t, solid: solid
       room = background(:room, tiles: :dungeon, map: maps, walls: walls)
       hero = sprite :hero_t, at: start
@@ -138,9 +137,9 @@ class TestRoomWalls < Minitest::Test
     RubyGBA.build("ROOMS", code: "BRMS", maker: "01", validate: false,
                   out: StringIO.new, err: StringIO.new) do
       screen :tiled
-      image(:wall_t, "#" => :blue) { SOLID8 }
-      image(:floor_t, "#" => rgb(8, 8, 8)) { SOLID8 }
-      image(:hero_t, "#" => :red) { SOLID8 }
+      image(:wall_t, "#" => :blue) { SOLID_TILE }
+      image(:floor_t, "#" => rgb(8, 8, 8)) { SOLID_TILE }
+      image(:hero_t, "#" => :red) { SOLID_TILE }
       tiles :dungeon, "#" => :wall_t, "." => :floor_t, solid: ["#"]
       room = background :room, tiles: :dungeon, map: maps
       hero = sprite :hero_t, at: [16, 16]

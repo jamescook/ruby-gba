@@ -16,7 +16,6 @@ class TestFacingSheet < Minitest::Test
 
   Image = RubyGBA::Graphics::Image
 
-  SOLID8 = (["########"] * 8).join("\n")
 
   # A distinct color per cell, keyed [col, row]. Rows are down / left / right / up; the
   # two columns are frame 0 and frame 1. Reading the sprite's pixel says both which way
@@ -69,7 +68,7 @@ class TestFacingSheet < Minitest::Test
       builder.instance_eval do
         screen mode
         if mode == :tiled
-          image(:field, "#" => :black) { SOLID8 }
+          image(:field, "#" => :black) { SOLID_TILE }
           tiles :ground, "#" => :field
           background :bg, tiles: :ground, map: Array.new(20, "#" * 30)
         else

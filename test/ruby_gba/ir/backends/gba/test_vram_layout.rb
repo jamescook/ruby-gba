@@ -20,7 +20,6 @@ require "test_helper"
 class TestVramLayout < Minitest::Test
   include RubyGBA::IR::Build
 
-  SOLID8 = (["########"] * 8).join("\n")
 
   # How many background layers the console stacks. The count and the rule that reads it
   # live with the guardrail that explains them.
@@ -162,7 +161,7 @@ class TestVramLayout < Minitest::Test
     builder = Builder.new
     builder.instance_eval do
       screen :tiled
-      image(:t, "#" => :red) { SOLID8 }
+      image(:t, "#" => :red) { SOLID_TILE }
       tiles :set, "R" => :t
       (MOST_LAYERS + 1).times { |i| background :"layer#{i}", tiles: :set, map: ["R"] }
       game_loop {}
@@ -283,7 +282,7 @@ class TestVramLayout < Minitest::Test
     builder = Builder.new
     builder.instance_eval do
       screen :tiled
-      image(:brick, "#" => :red) { SOLID8 }
+      image(:brick, "#" => :red) { SOLID_TILE }
       4.times do |layer|
         tiles :"set#{layer}", "#" => :brick
         background :"layer#{layer}", tiles: :"set#{layer}", map: [(" " * layer) + "#"]
@@ -303,7 +302,7 @@ class TestVramLayout < Minitest::Test
     builder.instance_eval do
       screen :tiled
       marks.each_with_index do |(color, cell), layer|
-        image(:"tile#{layer}", "#" => color) { SOLID8 }
+        image(:"tile#{layer}", "#" => color) { SOLID_TILE }
         tiles :"set#{layer}", "#" => :"tile#{layer}"
         row = (" " * cell) + "#"
         background :"layer#{layer}", tiles: :"set#{layer}", map: [row]

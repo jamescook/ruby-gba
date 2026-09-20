@@ -205,7 +205,6 @@ class TestTint < Minitest::Test
   # A tiled screen: one solid background under one sprite, in different colors. The
   # scenery and the sprite draw from two different tables and BOTH have to move, which
   # is the thing the table mechanism buys over every other way of doing this.
-  SOLID_TILE = ("#" * 8 + "\n") * 8
 
   def tiled_tint(amount, extra_frames: 0)
     tile = SOLID_TILE

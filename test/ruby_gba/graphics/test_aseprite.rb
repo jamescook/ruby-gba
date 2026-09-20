@@ -15,7 +15,6 @@ class TestAseprite < Minitest::Test
 
   Aseprite = RubyGBA::Graphics::Aseprite
 
-  SOLID8 = (["########"] * 8).join("\n")
   # The committed fixtures. A JSON+PNG export and a native .aseprite binary, both a 4-frame
   # sheet of red, green, blue, white. The JSON one is tagged walk = 0..1 / blink = 2..3;
   # the binary one is tagged walk = 0..1 / idle = 2..3. And a real Aseprite file (the bird).
@@ -67,7 +66,7 @@ class TestAseprite < Minitest::Test
     builder.instance_eval do
       screen mode
       if mode == :tiled
-        image(:field, "#" => :black) { SOLID8 }
+        image(:field, "#" => :black) { SOLID_TILE }
         tiles :ground, "#" => :field
         background :bg, tiles: :ground, map: Array.new(20, "#" * 30)
       else
@@ -240,7 +239,7 @@ class TestAseprite < Minitest::Test
     err = assert_raises(ArgumentError) do
       builder.instance_eval do
         screen :bitmap
-        image(:dot, "#" => :red) { SOLID8 }
+        image(:dot, "#" => :red) { SOLID_TILE }
         sprite(:dot, at: [0, 0]).play(:walk)
       end
     end

@@ -9,7 +9,6 @@ require "test_helper"
 class TestBackgroundScroll < Minitest::Test
   include RubyGBA::Cartridge::Constants
 
-  SOLID8 = (["########"] * 8).join("\n")
 
   # A 32x32-tile world (256x256, bigger than the 240x160 screen and wrapping at 256).
   # It's blue, with a RED landmark tile at cell (10, 10) — map pixels (80, 80) — and a
@@ -21,9 +20,9 @@ class TestBackgroundScroll < Minitest::Test
     builder = Builder.new
     builder.instance_eval do
       screen :tiled
-      image(:red_t,   "#" => :red)   { SOLID8 }
-      image(:green_t, "#" => :green) { SOLID8 }
-      image(:blue_t,  "#" => :blue)  { SOLID8 }
+      image(:red_t,   "#" => :red)   { SOLID_TILE }
+      image(:green_t, "#" => :green) { SOLID_TILE }
+      image(:blue_t,  "#" => :blue)  { SOLID_TILE }
       tiles :terrain, "R" => :red_t, "G" => :green_t, "B" => :blue_t
       world = background :world, tiles: :terrain, map: map
       world.scroll_to sx, sy
@@ -77,9 +76,9 @@ class TestBackgroundScroll < Minitest::Test
     builder = Builder.new
     builder.instance_eval do
       screen :tiled
-      image(:red_t,  "#" => :red)   { SOLID8 }
-      image(:blue_t, "#" => :blue)  { SOLID8 }
-      image(:hero,   "#" => :green) { SOLID8 }
+      image(:red_t,  "#" => :red)   { SOLID_TILE }
+      image(:blue_t, "#" => :blue)  { SOLID_TILE }
+      image(:hero,   "#" => :green) { SOLID_TILE }
       tiles :terrain, "R" => :red_t, "B" => :blue_t
       world = background :world, tiles: :terrain, map: map
       sprite :hero, at: [100, 60]

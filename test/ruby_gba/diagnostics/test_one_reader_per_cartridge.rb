@@ -20,7 +20,6 @@ require "test_helper"
 # comes off the one object.
 class TestOneReaderPerCartridge < Minitest::Test
 
-  EIGHT = (["########"] * 8).join("\n")
 
   def running(game, frames: 4)
     assert_emulator_loads_rom(game.build_rom(out: nil, err: nil, profile: false), frames: frames)
@@ -31,7 +30,7 @@ class TestOneReaderPerCartridge < Minitest::Test
   def hurt_hero
     RubyGBA.game "HURT" do
       screen :tiled
-      image(:hero, colors: [:transparent, :red], "#" => :red) { EIGHT }
+      image(:hero, colors: [:transparent, :red], "#" => :red) { SOLID_TILE }
       colors :hurt, [:transparent, :white]
       hero = sprite :hero, at: [40, 40]
       game_loop { hero.draw_with :hurt }
@@ -49,7 +48,7 @@ class TestOneReaderPerCartridge < Minitest::Test
   def two_kinds_of_picture
     RubyGBA.game "TWOWAY" do
       screen :tiled
-      image(:hero, "#" => :red) { EIGHT }
+      image(:hero, "#" => :red) { SOLID_TILE }
       image :signpost, width: 8, height: 8, data: (0...64).map { |i| MANY[i % MANY.length] }
       sprite :hero, at: [40, 40]
       sprite :signpost, at: [80, 40]
@@ -132,7 +131,7 @@ class TestOneReaderPerCartridge < Minitest::Test
       screen :tiled
       layers :actors, :fence
       image(:brick, "#" => :gray) { brick }
-      image(:hero, "#" => :red) { EIGHT }
+      image(:hero, "#" => :red) { SOLID_TILE }
       tiles :stone, "#" => :brick
       layer(:actors) { sprite :hero, at: [40, 40] }
       layer(:fence) { background :fence, tiles: :stone, map: wall }

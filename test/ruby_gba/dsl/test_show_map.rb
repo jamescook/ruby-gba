@@ -16,7 +16,6 @@ require "differential"
 class TestShowMap < Minitest::Test
   include Differential
 
-  SOLID8 = (["########"] * 8).join("\n")
 
   # Two rooms over one tileset. HALL is all wall, CAVE all floor, so which one is showing is
   # readable off any pixel of the screen.
@@ -28,8 +27,8 @@ class TestShowMap < Minitest::Test
     builder = Builder.new
     builder.instance_eval do
       screen :tiled
-      image(:wall, "#" => :red) { SOLID8 }
-      image(:floor, "#" => :blue) { SOLID8 }
+      image(:wall, "#" => :red) { SOLID_TILE }
+      image(:floor, "#" => :blue) { SOLID_TILE }
       tiles :dungeon, "#" => :wall, "." => :floor
       rooms = background :rooms, tiles: :dungeon, map: { hall: HALL, cave: CAVE, mixed: MIXED }
       frames = var :frames, 0
@@ -139,8 +138,8 @@ class TestShowMap < Minitest::Test
     builder = Builder.new
     builder.instance_eval do
       screen :tiled
-      image(:wall, "#" => :red) { SOLID8 }
-      image(:floor, "#" => :blue) { SOLID8 }
+      image(:wall, "#" => :red) { SOLID_TILE }
+      image(:floor, "#" => :blue) { SOLID_TILE }
       tiles :dungeon, "#" => :wall, "." => :floor
       rooms = background :rooms, tiles: :dungeon, map: { hall: HALL, cave: CAVE }
       rooms.show_map :cave
@@ -191,7 +190,7 @@ class TestShowMap < Minitest::Test
     rooms = nil
     builder.instance_eval do
       screen :tiled
-      image(:wall, "#" => :red) { SOLID8 }
+      image(:wall, "#" => :red) { SOLID_TILE }
       tiles :dungeon, "#" => :wall
       rooms = background :rooms, tiles: :dungeon, map: { hall: HALL, cave: HALL, mixed: HALL }
     end
@@ -243,8 +242,8 @@ class TestShowMap < Minitest::Test
     builder = Builder.new
     builder.instance_eval do
       screen :tiled
-      image(:wall, "#" => :red) { SOLID8 }
-      image(:floor, "#" => :blue) { SOLID8 }
+      image(:wall, "#" => :red) { SOLID_TILE }
+      image(:floor, "#" => :blue) { SOLID_TILE }
       tiles :dungeon, "#" => :wall, "." => :floor
       left = Array.new(32) { ("#" * 32) + ("." * 32) }
       right = Array.new(32) { ("." * 32) + ("#" * 32) }
@@ -279,8 +278,8 @@ class TestShowMap < Minitest::Test
     builder = Builder.new
     builder.instance_eval do
       screen :tiled
-      image(:wall, "#" => :red) { SOLID8 }
-      image(:floor, "#" => :blue) { SOLID8 }
+      image(:wall, "#" => :red) { SOLID_TILE }
+      image(:floor, "#" => :blue) { SOLID_TILE }
       tiles :dungeon, "#" => :wall, "." => :floor
       # Room N has one floor cell, at a spot only room N puts it, so which room is showing is
       # readable off the screen and a neighbouring room looks different from the right one.
@@ -320,7 +319,7 @@ class TestShowMap < Minitest::Test
       builder = Builder.new
       builder.instance_eval do
         screen :tiled
-        image(:wall, "#" => :red) { SOLID8 }
+        image(:wall, "#" => :red) { SOLID_TILE }
         tiles :dungeon, "#" => :wall
         room = background :room, tiles: :dungeon, map: HALL
         game_loop { room.show_map :cave }
@@ -336,7 +335,7 @@ class TestShowMap < Minitest::Test
       builder = Builder.new
       builder.instance_eval do
         screen :tiled
-        image(:wall, "#" => :red) { SOLID8 }
+        image(:wall, "#" => :red) { SOLID_TILE }
         tiles :dungeon, "#" => :wall
         rooms = background :rooms, tiles: :dungeon, map: { hall: HALL, cave: HALL }
         game_loop { rooms.show_map :attic }
@@ -351,7 +350,7 @@ class TestShowMap < Minitest::Test
       builder = Builder.new
       builder.instance_eval do
         screen :tiled
-        image(:wall, "#" => :red) { SOLID8 }
+        image(:wall, "#" => :red) { SOLID_TILE }
         tiles :dungeon, "#" => :wall
         background :rooms, tiles: :dungeon, map: { hall: HALL, cave: Array.new(4) { "###" } }
       end
@@ -367,7 +366,7 @@ class TestShowMap < Minitest::Test
       builder = Builder.new
       builder.instance_eval do
         screen :bitmap
-        image(:wall, "#" => :red) { SOLID8 }
+        image(:wall, "#" => :red) { SOLID_TILE }
         tiles :dungeon, "#" => :wall
         rooms = background :rooms, tiles: :dungeon, map: { hall: HALL, cave: HALL }
         game_loop { rooms.show_map :cave }
@@ -385,8 +384,8 @@ class TestShowMap < Minitest::Test
     builder = Builder.new
     builder.instance_eval do
       screen :tiled
-      image(:wall, "#" => :red) { SOLID8 }
-      image(:hero, "#" => :white) { SOLID8 }
+      image(:wall, "#" => :red) { SOLID_TILE }
+      image(:hero, "#" => :white) { SOLID_TILE }
       tiles :dungeon, "#" => :wall, solid: ["#"]
       rooms = background :rooms, tiles: :dungeon, map: { hall: HALL, cave: HALL }
       sprite(:hero, at: [8, 8]).blocked_by(rooms)
@@ -400,7 +399,7 @@ class TestShowMap < Minitest::Test
       builder = Builder.new
       builder.instance_eval do
         screen :tiled
-        image(:wall, "#" => :red) { SOLID8 }
+        image(:wall, "#" => :red) { SOLID_TILE }
         tiles :dungeon, "#" => :wall
         background :rooms, tiles: :dungeon, map: {}
       end
