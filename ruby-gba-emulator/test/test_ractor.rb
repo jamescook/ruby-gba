@@ -36,11 +36,14 @@ class TestRactor < Minitest::Test
     end
   end
 
-  # A few spots spread over the screen, after a few frames.
+  # A few spots spread over the screen after a few frames, and how much work the console
+  # got through to reach them. The picture alone would not notice a cartridge being run
+  # slightly differently; the cycle count does.
   def self.reading(path)
     probe = RubyGBAEmulator.open(path)
     probe.step(6)
-    [[0, 0], [30, 30], [120, 80], [239, 159]].map { |x, y| probe.pixel(x, y) }
+    { pixels: [[0, 0], [30, 30], [120, 80], [239, 159]].map { |x, y| probe.pixel(x, y) },
+      cycles: probe.global_cycles }
   end
 
   def test_a_cartridge_runs_on_a_side_core_and_draws_the_same_picture
@@ -48,6 +51,7 @@ class TestRactor < Minitest::Test
     alone = TestRactor.reading(path)
     elsewhere = without_the_experimental_warning { Ractor.new(path) { |p| TestRactor.reading(p) }.value }
 
+    assert_operator alone[:cycles], :>, 0, "the console did some work, so comparing it means something"
     assert_equal alone, elsewhere
   end
 
