@@ -147,23 +147,13 @@ module RubyGBA
       game = load_game(game_file)
       rom = game.build_rom
       source = RubyGBA::IR::Dump.emit_class(rom.source_program, class_name: "#{constantize(game.title)}IR",
-                                            fonts: custom_fonts, **game.build_options)
+                                            **game.build_options)
       if options[:output]
         File.write(options[:output], source)
         say "Wrote #{options[:output]}"
       else
         Pager.new.page(source)
       end
-    end
-
-    # Fonts the game registered itself with `font :name do ... end` — everything
-    # BUT the two that ship built in, which the emitted class gets back for free
-    # just by requiring the library. {RubyGBA::Graphics::Fonts} is process-global (a font
-    # once registered stays registered), so by the time this runs (after
-    # load_game/build_rom evaluated the DSL block) it already holds whichever ones
-    # this game defined.
-    def custom_fonts
-      (RubyGBA::Graphics::Fonts.names - %i[default tiny]).to_h { |name| [name, RubyGBA::Graphics::Fonts.get(name)] }
     end
 
     # One line on what the build kept in the console's quick memory, for --stats. The

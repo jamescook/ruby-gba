@@ -77,7 +77,7 @@ module RubyGBA
 
           definition.instance_eval(&block)
         end
-        Graphics::Fonts.register(name, definition.to_font(spacing: spacing, fold: fold))
+        declare_font(name, definition.to_font(spacing: spacing, fold: fold))
         name
       end
 
@@ -130,7 +130,7 @@ module RubyGBA
                 "draw_number. Got #{text.inspect}."
         end
         colors = text_colors!(color, showing)
-        chosen = Graphics::Fonts.get(font) # fail early with a friendly error on an unknown font name
+        chosen = IR::FontTable.of(@program).get(font) # fail early with a friendly error on an unknown font name
         x = column_for(x, drawn_width(text, chosen), within, "draw_text")
 
         # A tiled screen has no framebuffer to paint into, so text is drawn as little
@@ -179,7 +179,7 @@ module RubyGBA
           raise ArgumentError, "draw_number needs a positive number of digits. Got #{digits.inspect}."
         end
 
-        chosen = Graphics::Fonts.get(font)
+        chosen = IR::FontTable.of(@program).get(font)
         x = column_for(x, (digits * chosen.cell_w) - chosen.spacing, within, "draw_number")
 
         # On a tiled screen, a number is drawn as sprite glyphs, declared once and
@@ -213,16 +213,32 @@ module RubyGBA
           raise ArgumentError, "text_width measures words (a String). Got #{text.inspect}."
         end
 
-        drawn_width(text, Graphics::Fonts.get(font))
+        drawn_width(text, IR::FontTable.of(@program).get(font))
       end
 
       # How tall one line of text is, in pixels — the other side of a box round it.
       #
       # @param font [Symbol] a font registered in {Fonts}
       # @return [Integer] pixels down
-      def text_height(font: :default) = Graphics::Fonts.get(font).height
+      def text_height(font: :default) = IR::FontTable.of(@program).get(font).height
 
       private
+
+      # Put a declared font in the tree, the same way a declared picture goes in, so it
+      # belongs to the game that wrote it.
+      #
+      # Declaring one name twice is a friendly error rather than a silent replacement: the
+      # second `font :hud` is a mistake somebody made, and what it draws with is the first
+      # one, which reads as the art being wrong rather than as the mistake it is.
+      def declare_font(name, font)
+        if IR::FontTable.of(@program).declared?(name)
+          raise ArgumentError,
+                "font :#{name} is declared twice. Each font needs its own name. " \
+                "To fix this, rename one of them."
+        end
+
+        record(Build.font(name, font))
+      end
 
       # The colours the text can be drawn in, always as a list. One colour needs nothing
       # to choose between; two need a test, so a pair without `showing:` is refused
@@ -326,7 +342,7 @@ module RubyGBA
       # column step is the chosen font's cell width, so a narrower font packs tighter.
       def draw_fixed_number(number, x, y, color, digits, font)
         text = number.to_s
-        col = [digits - text.length, 0].max * Graphics::Fonts.get(font).cell_w
+        col = [digits - text.length, 0].max * IR::FontTable.of(@program).get(font).cell_w
         record(Build.draw_text(text, x + col, y, color, font: font))
       end
 
@@ -347,7 +363,7 @@ module RubyGBA
         started = next_number_var
         set!(started, 0)
 
-        cell = Graphics::Fonts.get(font).cell_w
+        cell = IR::FontTable.of(@program).get(font).cell_w
         digits.times do |i|
           place = 10**(digits - 1 - i)
           set!(digit, digit_at(source, place))
@@ -427,7 +443,7 @@ module RubyGBA
       # not there, so a test is what this takes: a test is 0 or 1, and a pair has a
       # 0 and a 1.
       def draw_text_tiled(text, x, y, colors, font, showing)
-        f = Graphics::Fonts.get(font)
+        f = IR::FontTable.of(@program).get(font)
         pose = colors.length == 1 ? Build.int(0) : glyph_color_pose(showing)
         text.each_char.with_index do |ch, i|
           next if f.glyph_pixels(ch).zero? # a space, or a character the font lacks: nothing to draw
@@ -452,7 +468,7 @@ module RubyGBA
       # showing the matching glyph for its place in the value — recomputed every frame
       # from the variable, with leading zeros left blank so it reads naturally.
       def draw_number_tiled(value, x, y, color, digits, font)
-        cell = Graphics::Fonts.get(font).cell_w
+        cell = IR::FontTable.of(@program).get(font).cell_w
         fixed = DSL::Value.fixed_number(value)
         if fixed
           text = fixed.to_s
@@ -516,7 +532,7 @@ module RubyGBA
       # digit reused across columns (or a repeated letter) is built once.
       def glyph_image(font_name, char, color)
         @glyph_images[[font_name, char, color]] ||= begin
-          font = Graphics::Fonts.get(font_name)
+          font = IR::FontTable.of(@program).get(font_name)
           fits_a_glyph_tile!(font_name, font)
           data = Array.new(HUD_GLYPH_PX * HUD_GLYPH_PX, Images::TRANSPARENT_PIXEL)
           font.each_pixel(char.to_s) { |dx, dy| data[(dy * HUD_GLYPH_PX) + dx] = color }

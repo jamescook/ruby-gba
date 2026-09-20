@@ -2467,7 +2467,7 @@ module RubyGBA
             x, y = constant_ints!(node, x: node.x, y: node.y)
             @framebuffer.emit_text_color(node, ACC) { |color| Graphics::Color.resolve(color) }
 
-            Graphics::Fonts.get(node.font).each_pixel(node.text) do |dx, dy|
+            node.fonts.get(node.font).each_pixel(node.text) do |dx, dy|
               px = x + dx
               py = y + dy
               next unless @framebuffer.in_bounds?(px, py)
@@ -2494,7 +2494,7 @@ module RubyGBA
           # digit, exactly one of which draws. Each is a draw_text that clips per pixel
           # and honors the screen mode.
           def emit_draw_digit(node)
-            font = Graphics::Fonts.get(node.font)
+            font = node.fonts.get(node.font)
             x = const_int(node.x)
             y = const_int(node.y)
             digit_w = @framebuffer.uniform_digit_width(font)

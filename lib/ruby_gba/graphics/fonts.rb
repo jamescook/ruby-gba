@@ -15,29 +15,39 @@ module RubyGBA
       @registry = {}.freeze
 
       class << self
-        # Add (or replace) a named font. Returns the font.
+        # Add (or replace) a font every program in this process can draw with. Returns it.
         #
-        # The registry is replaced rather than changed in place, and the font is frozen on
-        # the way in. A registered font is shared by every build in the process, and a game
-        # may build from a Ractor — which can read a table like this one only when nothing
-        # in it can still change. Registering is a load-time act, so nothing is lost.
+        # THIS IS NOT WHERE A GAME'S OWN FONT GOES. A font a program declares with the
+        # `font` verb belongs to that program and rides on it — see Nodes::Program. What is
+        # in here is the two the framework ships, and anything a plugin pack adds as it
+        # loads: fonts that are genuinely everybody's.
+        #
+        # The table is replaced rather than changed in place, and the font is frozen on the
+        # way in, because a game may build on several cores at once and a worker can read a
+        # table like this one only while nothing in it can still change. That works because
+        # everything in here is registered as the library loads.
         def register(name, font)
           @registry = @registry.merge(name => Ractor.make_shareable(font)).freeze
           font
         end
 
-        # The font registered under +name+, or a friendly error naming the ones that
-        # exist (an unknown font is almost always a typo).
+        # One of the fonts that ship, by name, or nil.
+        #
+        # A GAME'S OWN FONT IS NOT IN HERE and is not found by either of these. A font a
+        # program declares belongs to that program and rides in its tree, so the thing that
+        # knows about both kinds is {IR::FontTable}, and that is what everything drawing
+        # text goes through. These two are about the fonts that ship.
+        def find(name) = @registry[name]
+
+        # The same, as a friendly error rather than a nil when there is no such font — for
+        # a caller naming one of the built-ins directly.
         def get(name)
-          @registry.fetch(name) do
-            raise ArgumentError, "unknown font #{name.inspect} — the fonts are #{names.join(', ')}"
-          end
+          find(name) ||
+            raise(ArgumentError, "unknown font #{name.inspect} — the fonts that ship are #{names.join(', ')}")
         end
 
-        # Every registered font name.
-        def names
-          @registry.keys
-        end
+        # Every font name that ships.
+        def names = @registry.keys
 
         # Drop every font registered at run time, back to the built-ins — the counterpart
         # of Effects.clear_registered! and Guardrails.clear_registered!, and for the same

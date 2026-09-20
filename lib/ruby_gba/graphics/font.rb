@@ -44,6 +44,17 @@ module RubyGBA
         { glyphs: @glyphs, widths: @widths, height: @height, spacing: @spacing, fold: @fold }
       end
 
+      # TWO FONTS ARE THE SAME FONT WHEN THEY DRAW THE SAME LETTERS. A font is a value —
+      # some pictures of characters and how they are spaced — so nothing about it depends
+      # on which one of them you happen to be holding. It is compared for real because a
+      # font now travels inside a program, and comparing two programs (which is how the
+      # dumped source is checked against the tree it came from) compares everything in them.
+      def ==(other) = other.is_a?(Font) && other.to_definition == to_definition
+
+      alias eql? ==
+
+      def hash = to_definition.hash
+
       # The widest glyph in the font. For a fixed-width font this is the one width
       # every glyph shares; it's the natural worst-case box for a run-time glyph.
       def width

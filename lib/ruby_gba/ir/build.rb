@@ -40,6 +40,12 @@ module RubyGBA
         Nodes.build(:program, children: statements)
       end
 
+      # A font the program declares for itself. Draws nothing; it is there to be named by
+      # something that draws, exactly as a `bitmap` is.
+      def font(name, font)
+        Nodes.build(:font, name: name, font: font)
+      end
+
       # --- variable operations ---
       # An operand may be a bare Integer/Symbol (coerced to a value node by
       # #wrap) or an already-built value node.

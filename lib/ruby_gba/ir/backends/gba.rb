@@ -427,6 +427,7 @@ module RubyGBA
             restore_region: @drawing.method(:emit_restore_region), enable_sound: @audio.method(:emit_enable_sound),
             define_sound: Lowering::NOTHING, song: Lowering::NOTHING, data: Lowering::NOTHING,
             bitmap: Lowering::NOTHING, backing_buffer: Lowering::NOTHING, object: Lowering::NOTHING,
+            font: Lowering::NOTHING,
             table: Lowering::NOTHING, layers: Lowering::NOTHING, beep: @audio.method(:emit_beep),
             noise: @audio.method(:emit_noise), wave: @audio.method(:emit_wave),
             stop_wave: @audio.method(:emit_stop_wave),

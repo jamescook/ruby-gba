@@ -634,6 +634,23 @@ module RubyGBA
         category :root
       end
 
+      # A FONT THE PROGRAM DECLARED, the same way a declared picture is a node: it draws
+      # nothing itself, it is there to be named by something that draws. `font :heavy do
+      # ... end` puts one of these in the tree and `draw_text ..., font: :heavy` names it.
+      #
+      # It belongs to the program for the reason a picture does — it is part of the game.
+      # Kept in one table shared by the whole process instead, the second game built in a
+      # session could draw with the first one's font, a name declared twice replaced
+      # quietly, and a game building on another core could not declare one at all. The two
+      # fonts the framework ships are not in here; those are everybody's, and live in
+      # Graphics::Fonts.
+      class Font
+        include Node
+        kind :font
+        category :data
+        operands name: :name, font: :font
+      end
+
       class Raw
         include Node
         kind :raw

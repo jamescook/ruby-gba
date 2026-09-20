@@ -200,6 +200,11 @@ module ConformanceFixture
                B.draw_column_at(:sprite, B.int(1), B.int(82), B.int(28), B.int(12)),
                B.dma_fill_rect(78, 28, 12, 8, :white)),
       B.draw_text("HI", 10, 10, :white),
+      # A font the program declared for itself, and a line drawn with it. Every backend has
+      # to find a font the program owns, not only the two that ship.
+      B.font(:fixture_face, RubyGBA::Graphics::Font.new(glyphs: { "I" => [0b1, 0b1, 0b1] },
+                                                        widths: { "I" => 1 }, height: 3)),
+      B.draw_text("I", 40, 10, :white, font: :fixture_face),
       B.draw_digit(B.var_ref(:x), 20, 10, :white), # one run-time digit glyph
       B.blit(:sprite, :x, :y),
       B.blit_pose([:sprite, :pose_b], B.var_ref(:x), :x, :y), # one pose of a same-size set, by index

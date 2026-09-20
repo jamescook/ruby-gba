@@ -68,22 +68,22 @@ class TestIRDump < Minitest::Test
     assert_equal GBA.new(fast_cartridge: true, fast_code: false).lower(ConformanceFixture.program), machine_code
   end
 
-  # A custom-registered font (`font :name do ... end`) lives in RubyGBA::Graphics::Fonts, a
-  # process-global registry OUTSIDE the IR tree — draw_text's `font:` operand only
-  # names it by symbol. A fresh process running the emitted class never ran that
-  # `font` DSL call, so without this the lookup fails there even though it worked
-  # in the process that built the ROM. `fonts:` is how emit_class hands it back.
-  def test_emit_class_carries_a_custom_font_the_tree_only_references_by_name
-    font = RubyGBA::Graphics::Font.new(glyphs: { "A" => [0b111, 0b101, 0b111] }, widths: { "A" => 3 }, height: 3)
-    tree = program(draw_text("A", 0, 0, :white, font: :dump_test_font), halt)
-    source = Dump.emit_class(tree, class_name: "LetteredIR", fast_cartridge: true, fast_code: true,
-                                   fonts: { dump_test_font: font })
+  # A font the game declared (`font :name do ... end`) is part of the program, so it comes
+  # back out with the tree and a fresh process running the emitted class can draw with it.
+  # It used to be handed over separately, because a declared font lived in a table the
+  # whole process shared rather than in the game that wrote it.
+  def test_emit_class_carries_a_font_the_game_declared
+    face = RubyGBA::Graphics::Font.new(glyphs: { "A" => [0b111, 0b101, 0b111] }, widths: { "A" => 3 }, height: 3)
+    tree = program(font(:dump_test_font, face), draw_text("A", 0, 0, :white, font: :dump_test_font), halt)
+    source = Dump.emit_class(tree, class_name: "LetteredIR", fast_cartridge: true, fast_code: true)
 
     scratch = Module.new
     scratch.module_eval(source, "generated_ir.rb", 1)
 
     assert scratch::LetteredIR.new.lower # doesn't raise looking up :dump_test_font
-    assert_equal font.to_definition, RubyGBA::Graphics::Fonts.get(:dump_test_font).to_definition
+    assert_equal face.to_definition, scratch::LetteredIR.new.program.fonts.get(:dump_test_font).to_definition
+    refute_includes RubyGBA::Graphics::Fonts.names, :dump_test_font,
+                    "a game's own font never reaches the fonts that ship"
   end
 
   # ---- shape: parse with Prism, assert specific AST nodes ----

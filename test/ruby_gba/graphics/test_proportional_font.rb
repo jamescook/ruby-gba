@@ -39,15 +39,12 @@ class TestProportionalFont < Minitest::Test
     end
   end
 
-  # Fonts register into a process-global registry; drop any this file defined so
-  # they can't leak into other tests, leaving the built-ins.
-  def teardown
-    Fonts.clear_registered!
-  end
-
+  # A font belongs to the program that declared it, so read it back off that program
+  # rather than from anywhere shared.
   def demo_font
-    define_demo_font(Builder.new)
-    Fonts.get(:vari)
+    builder = Builder.new
+    define_demo_font(builder)
+    builder.program.fonts.get(:vari)
   end
 
   # ---- the metrics are per-glyph ----
@@ -121,8 +118,8 @@ class TestProportionalFont < Minitest::Test
   # cells (11px) would think the box still reached x = 3 — on-screen — and stay
   # silent. The warning is proof the box summed the glyphs' own widths.
   def test_the_off_screen_guardrail_measures_the_proportional_width
-    define_demo_font(Builder.new) # register :vari
-    prog = RubyGBA::IR::Build.program(RubyGBA::IR::Build.draw_text("IM", -8, 40, :white, font: :vari))
+    prog = RubyGBA::IR::Build.program(RubyGBA::IR::Build.font(:vari, demo_font),
+                                      RubyGBA::IR::Build.draw_text("IM", -8, 40, :white, font: :vari))
     off = RubyGBA::IR::Guardrails::Validator.new.run(prog, autofix: false)
                                             .findings.select { |f| f.check == :off_screen_draw }
     assert_equal 1, off.size, "the 7px-wide 'IM' at x=-8 is entirely off the left edge"

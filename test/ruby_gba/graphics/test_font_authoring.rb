@@ -9,10 +9,13 @@ class TestFontAuthoring < Minitest::Test
 
   Fonts = RubyGBA::Graphics::Fonts
 
-  # Fonts register into a process-global registry (the backends look them up there),
-  # so drop any a test defined, leaving the built-ins.
-  def teardown
-    Fonts.clear_registered!
+  # Build a program and hand back the font it declared under +name+. A font belongs to the
+  # program that declared it, so there is nothing process-wide for a test to clean up after
+  # — which is the whole point of it living there.
+  def declared(name, &block)
+    b = Builder.new
+    b.instance_eval(&block)
+    b.program.fonts.get(name)
   end
 
   def interpret(&block)
@@ -42,28 +45,64 @@ class TestFontAuthoring < Minitest::Test
     assert_equal white, scr.pixel(11, 12), "bottom row"
   end
 
-  def test_the_font_is_registered_under_its_name
-    Builder.new.instance_eval do
+  def test_the_font_belongs_to_the_program_that_declared_it
+    b = Builder.new
+    b.instance_eval do
       screen :bitmap
       font(:mine) { glyph "Z", "#\n#\n#" }
     end
-    assert_includes Fonts.names, :mine
-    assert_equal 1, Fonts.get(:mine).width
-    assert_equal 3, Fonts.get(:mine).height
+
+    mine = b.program.fonts.get(:mine)
+    assert_equal 1, mine.width
+    assert_equal 3, mine.height
+  end
+
+  # THE REASON THE FONT BELONGS TO THE PROGRAM. A font used to go into one table shared by
+  # the whole process, so the second game built in a session could draw with the first
+  # game's font — and a name declared twice quietly replaced. Nothing said so, and the
+  # picture simply came out wrong in the second game.
+  def test_a_font_one_program_declares_is_not_there_for_the_next
+    Builder.new.instance_eval do
+      screen :bitmap
+      font(:borrowed) { glyph "Z", "#\n#\n#" }
+    end
+
+    err = assert_raises(ArgumentError) do
+      Builder.new.instance_eval do
+        screen :bitmap
+        draw_text "Z", 0, 0, :white, font: :borrowed
+      end
+    end
+    assert_match(/borrowed/, err.message, "it names the font that is not there")
+  end
+
+  # The two the framework ships are everybody's, and stay so.
+  def test_the_built_in_fonts_need_no_declaring
+    scr = interpret do
+      screen :bitmap
+      draw_text "A", 10, 10, :white
+      draw_text "1", 30, 10, :white, font: :tiny
+    end
+
+    drew = ->(x0) { (0...5).any? { |dx| (0...7).any? { |dy| scr.pixel(x0 + dx, 10 + dy) != 0 } } }
+
+    assert drew.call(10), "the default font drew"
+    assert drew.call(30), "and so did the tiny one"
   end
 
   # Glyphs may differ in width (that's a proportional font) but must share one
   # height, since every character sits on the same baseline.
   def test_glyphs_of_different_widths_are_allowed
-    Builder.new.instance_eval do
+    prop = declared(:prop) do
       font :prop do
         glyph "I", "#\n#\n#"       # 1 wide
         glyph "M", "###\n###\n###" # 3 wide
       end
     end
-    assert_equal 1, Fonts.get(:prop).glyph_width("I")
-    assert_equal 3, Fonts.get(:prop).glyph_width("M")
-    assert_equal 3, Fonts.get(:prop).width # the widest glyph
+
+    assert_equal 1, prop.glyph_width("I")
+    assert_equal 3, prop.glyph_width("M")
+    assert_equal 3, prop.width # the widest glyph
   end
 
   def test_glyphs_of_different_heights_are_a_friendly_error
@@ -113,18 +152,16 @@ class TestFontAuthoring < Minitest::Test
   # A pixel is lit when it is not the blank one, whatever value it holds — a font is
   # one colour, so which ink a picture used never matters.
   def test_a_picture_says_which_value_is_blank
-    Builder.new.instance_eval do
-      font :inked, glyphs: { "I" => [[7, 3], [3, 7]] }, blank: 3
-    end
-    assert_equal [0b10, 0b01], Fonts.get(:inked).glyph("I")
+    inked = declared(:inked) { font :inked, glyphs: { "I" => [[7, 3], [3, 7]] }, blank: 3 }
+
+    assert_equal [0b10, 0b01], inked.glyph("I")
   end
 
   def test_pictured_glyphs_keep_their_own_widths
-    Builder.new.instance_eval do
-      font :prop, glyphs: { "I" => [[1], [1]], "M" => [[1, 1, 1], [1, 0, 1]] }
-    end
-    assert_equal 1, Fonts.get(:prop).glyph_width("I")
-    assert_equal 3, Fonts.get(:prop).glyph_width("M")
+    prop = declared(:prop) { font :prop, glyphs: { "I" => [[1], [1]], "M" => [[1, 1, 1], [1, 0, 1]] } }
+
+    assert_equal 1, prop.glyph_width("I")
+    assert_equal 3, prop.glyph_width("M")
   end
 
   def test_pictured_glyphs_of_different_heights_are_a_friendly_error

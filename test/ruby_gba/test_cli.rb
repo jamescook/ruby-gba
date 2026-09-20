@@ -365,7 +365,9 @@ class TestCLI < Minitest::Test
 
       out, status = cli("build", "lettered.rb", "--format=ir", "-o", "lettered_ir.rb", dir: dir)
       assert status.success?, out
-      assert_match(/Fonts\.register\(:blocky, RubyGBA::Graphics::Font\.new/, File.read(File.join(dir, "lettered_ir.rb")))
+      assert_match(/:font, name: :blocky, font: RubyGBA::Graphics::Font\.new/,
+                   File.read(File.join(dir, "lettered_ir.rb")),
+                   "the game's own font comes back inside the tree, not as a separate registration")
 
       run_out, run_status = run_ruby(File.join(dir, "lettered_ir.rb"), dir: dir)
       assert run_status.success?, run_out

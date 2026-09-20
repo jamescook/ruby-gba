@@ -66,6 +66,7 @@ module RubyGBA
         when Array then "[#{value.map { |element| value_source(element, level) }.join(', ')}]"
         when String then string_source(value)
         when Data then record_source(value)
+        when Graphics::Font then font_source(value)
         else value.inspect
         end
       end
@@ -101,14 +102,12 @@ module RubyGBA
       # (`ruby` it), it lowers once and stops, so it is a plain way to reproduce
       # exactly what a build's codegen produced, e.g. to bisect a compiler change.
       #
-      # +fonts+ is {name => Font}, any custom fonts (`font :name do ... end`) the
-      # game registered — everything else a build needs lives in +program+ itself,
-      # but a font is process-local state {Fonts} holds OUTSIDE the tree, so it has
-      # to be handed back explicitly or lowering a `draw_text font: :whatever` fails
-      # in a fresh process the way it never would in the process that built the ROM.
-      # The built-in fonts need no entry here — re-requiring the library registers
-      # those itself.
-      def emit_class(program, class_name:, fast_cartridge:, fast_code:, fonts: {})
+      # Everything a build needs is in +program+, fonts included: a font the game declared
+      # rides on the program, so it comes back out with the tree. It used to be handed over
+      # separately, because a font lived in a table shared by the whole process rather than
+      # in the game that wrote it. The two fonts the framework ships need nothing here —
+      # requiring the library brings those.
+      def emit_class(program, class_name:, fast_cartridge:, fast_code:)
         body = source(program, level: 2)
         <<~RUBY
           # frozen_string_literal: true
@@ -121,7 +120,7 @@ module RubyGBA
           # the compiler.
 
           require "ruby_gba"
-          #{font_registrations(fonts)}
+
           class #{class_name}
             def program
               #{body}
@@ -135,13 +134,6 @@ module RubyGBA
 
           #{class_name}.new.lower if $PROGRAM_NAME == __FILE__
         RUBY
-      end
-
-      # `RubyGBA::Graphics::Fonts.register :name, RubyGBA::Graphics::Font.new(...)` for each of +fonts+,
-      # one call per line — empty when there are none, so a game with no custom
-      # fonts (the common case) gets no extra lines at all.
-      def font_registrations(fonts)
-        fonts.map { |name, font| "RubyGBA::Graphics::Fonts.register(#{name.inspect}, #{font_source(font)})\n" }.join
       end
 
       def font_source(font)

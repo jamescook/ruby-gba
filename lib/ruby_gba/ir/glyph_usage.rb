@@ -24,11 +24,12 @@ module RubyGBA
 
       # font name (Symbol) => sorted Array of the glyph keys it may draw.
       def reachable(program)
+        fonts = FontTable.of(program) # once for the whole walk, not once per draw
         usage = Hash.new { |hash, key| hash[key] = Set.new }
         program.walk do |node|
           case node.kind
-          when :draw_text then usage[node.font].merge(Graphics::Fonts.get(node.font).keys_used(node.text))
-          when :draw_digit then usage[node.font].merge(Graphics::Fonts.get(node.font).keys_used(DIGITS.join))
+          when :draw_text then usage[node.font].merge(fonts.get(node.font).keys_used(node.text))
+          when :draw_digit then usage[node.font].merge(fonts.get(node.font).keys_used(DIGITS.join))
           end
         end
         usage.transform_values { |set| set.to_a.sort }
@@ -42,7 +43,8 @@ module RubyGBA
       # of 41 glyphs").
       def footprint(program)
         reachable(program).map do |name, keys|
-          Footprint.new(font: name, drawn: keys.length, total: Graphics::Fonts.get(name).glyph_count, keys: keys)
+          Footprint.new(font: name, drawn: keys.length, keys: keys,
+                        total: FontTable.of(program).get(name).glyph_count)
         end
       end
     end

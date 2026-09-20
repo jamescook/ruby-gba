@@ -668,7 +668,7 @@ module RubyGBA
           when :enable_sound
             @audio << [:enabled]
           when :define_sound, :song, :song_list, :sound_effect_list, :sample, :data, :bitmap, :backing_buffer,
-               :object, :table
+               :object, :table, :font
             # Definitions: gathered up front, so reaching one inline does nothing
             # (just like a func body).
             nil
@@ -841,7 +841,7 @@ module RubyGBA
           x = eval_value(node.x)
           y = eval_value(node.y)
           color = resolve_color(node.picked && eval_value(node.showing) != 0 ? node.picked : node.color)
-          Graphics::Fonts.get(node.font).each_pixel(node.text) do |dx, dy|
+          node.fonts.get(node.font).each_pixel(node.text) do |dx, dy|
             @screen.set_pixel(x + dx, y + dy, color)
           end
         end
@@ -854,7 +854,7 @@ module RubyGBA
           return unless (0..9).cover?(digit)
 
           color = resolve_color(node.color)
-          Graphics::Fonts.get(node.font).each_pixel(digit.to_s) do |dx, dy|
+          node.fonts.get(node.font).each_pixel(digit.to_s) do |dx, dy|
             @screen.set_pixel(node.x + dx, node.y + dy, color)
           end
         end

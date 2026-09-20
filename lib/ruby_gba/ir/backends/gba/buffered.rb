@@ -625,7 +625,7 @@ module RubyGBA
             base = 6
             load_var(base, BACKBUF) # the hidden page base, held for the whole line
 
-            Graphics::Fonts.get(node.font).each_pixel(node.text) do |dx, dy|
+            node.fonts.get(node.font).each_pixel(node.text) do |dx, dy|
               px = x + dx
               py = y + dy
               next unless @framebuffer.in_bounds?(px, py)

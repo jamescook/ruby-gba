@@ -115,7 +115,7 @@ module RubyGBA
         layers: :portable,
 
         # embedded data
-        data: :portable, bitmap: :portable, backing_buffer: :portable,
+        data: :portable, bitmap: :portable, backing_buffer: :portable, font: :portable,
         sample: :portable, # embedded 8-bit PCM sound data
         table: :portable,  # a build-time array of numbers, read at a run-time index
 

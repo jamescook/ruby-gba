@@ -103,6 +103,27 @@ module RubyGBA
       end
 
       def kind = self.class.kind
+
+      # The program this node belongs to — the top of the tree it hangs from. A node not
+      # attached to anything answers with itself, which is what a hand-built fragment in a
+      # test is.
+      def root
+        node = self
+        node = node.parent while node.parent
+        node
+      end
+
+      # Which font a name means in this program — see {FontTable}. Worked out once for the
+      # whole tree and kept on the top of it, because finding the declared fonts means
+      # walking, and the two places that paint text ask for every line they draw.
+      #
+      # Kept AFTER the program is written, not while: the builder is the only thing that
+      # adds fonts, and it asks {FontTable} directly rather than through here.
+      def fonts = root.font_table
+
+      # This tree's own table. Read it through #fonts, which starts from the top whatever
+      # node you are holding.
+      def font_table = @font_table ||= FontTable.of(self)
       def category = self.class.category || :unknown
       def value? = category == :value
       def control? = category == :control

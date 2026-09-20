@@ -17,10 +17,6 @@ class TestGlyphUsage < Minitest::Test
     b.program
   end
 
-  def teardown
-    Fonts.clear_registered!
-  end
-
   def test_static_text_contributes_its_exact_characters
     prog = program { screen(:bitmap); draw_text("HI", 0, 0, :white); halt }
     assert_equal({ default: %w[H I] }, Usage.reachable(prog))

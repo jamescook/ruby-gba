@@ -35,12 +35,12 @@ class TestTextPlacement < Minitest::Test
     end
   end
 
-  # Fonts register into a process-global registry; drop any this file defined.
-  def teardown
-    Fonts.clear_registered!
-  end
+  # The program the last helper built. A font belongs to the program that declared it, so
+  # that is what an assertion asks which font a name means — there is nothing process-wide
+  # to set up or put back.
+  attr_reader :built
 
-  # Run a bitmap program with the demo font registered, and hand back its screen.
+  # Run a bitmap program that declares the demo font, and hand back its screen.
   def bitmap_screen(&block)
     b = Builder.new
     define_demo_font(b)
@@ -50,14 +50,15 @@ class TestTextPlacement < Minitest::Test
     end
     b.instance_eval(&block)
     b.emit_pending_functions
-    Reference.new.run(b.program).screen
+    @built = b.program
+    Reference.new.run(@built).screen
   end
 
   # Every lit pixel of +text+ is painted white with its top-left at (x, y) — an exact
   # position, so a line one pixel out fails.
   def assert_text_at(screen, text, x, y, font: :default)
     lit = []
-    Fonts.get(font).each_pixel(text) { |dx, dy| lit << [dx, dy] }
+    built.fonts.get(font).each_pixel(text) { |dx, dy| lit << [dx, dy] }
     refute_empty lit, "the font should light some pixels for #{text.inspect}"
     lit.each do |dx, dy|
       assert_equal WHITE, screen.pixel(x + dx, y + dy),
@@ -153,9 +154,10 @@ class TestTextPlacement < Minitest::Test
       game_loop { halt }
     end
     b.emit_pending_functions
-    s = Reference.new.run(b.program, max_steps: 500).screen
+    @built = b.program
+    s = Reference.new.run(@built, max_steps: 500).screen
 
-    cell = Fonts.get(:vari).cell_w
+    cell = built.fonts.get(:vari).cell_w
     left = (SCREEN - ((2 * cell) - 1)) / 2
     assert_equal 114, left, "the grid is 11 across, where the proportional line is 7"
     assert_text_at s, "I", left, Y, font: :vari

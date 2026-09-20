@@ -33,17 +33,20 @@ class TestRactorSafety < Minitest::Test
   module OneSmallGame
     module_function
 
-    # A spread rather than a minimal program: a variable, a comparison, a fill, and text
-    # (which reaches the font registry). Each was somewhere the library used to stop.
+    # A spread rather than a minimal program: a variable, a comparison, a fill, text in a
+    # font that ships, and a font the program declares for itself. Each was somewhere the
+    # library used to stop, and the declared font was the last of them.
     def cartridge
       RubyGBA.build("RACTOR", out: StringIO.new, err: StringIO.new) do
         screen :bitmap
         clear_screen :blue
+        font(:mine) { glyph "A", "###\n#.#\n###" }
         x = var :x, 0
         game_loop do
           x.add! 1
           fill_rect 10, 10, 20, 20, :red
           draw_text "HELLO", :center, 100, :white
+          draw_text "A", 10, 120, :white, font: :mine
           (x >= 3).then { halt }
         end
       end.buffer
