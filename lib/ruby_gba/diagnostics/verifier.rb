@@ -740,18 +740,23 @@ module RubyGBA
       # removing it when that object is collected, and a Verifier still alive at exit is
       # never collected — so a suite leaves behind exactly the ones garbage collection did
       # not get round to. Exit is the moment that always arrives.
-      def self.save_dir
-        @save_dir ||= begin
-          require "tmpdir"
-          require "fileutils"
-          dir = Dir.mktmpdir("verify-save")
-          at_exit { FileUtils.remove_entry(dir, true) }
-          # Frozen so that a census of what this library keeps on a module reads the same
-          # whichever tests ran first. Nothing else turns on it: the emulator refuses a
-          # non-main Ractor outright, so no worker reaches this at all.
-          dir.freeze
-        end
+      # MADE WHEN THIS FILE LOADS rather than the first time a cartridge saves, which reads
+      # as wasteful and is the only arrangement that works. Several cartridges can now be
+      # verified at once, on different cores, and a core may not write anything kept by a
+      # class — so whichever one got there first could not make this, and the run stopped.
+      # Made before there are any cores, it is only ever read.
+      #
+      # An empty directory and one entry in the list of things to tidy up at exit is what
+      # that costs somebody who only ever builds cartridges and never runs one.
+      SAVE_DIR = begin
+        require "tmpdir"
+        require "fileutils"
+        dir = Dir.mktmpdir("verify-save")
+        at_exit { FileUtils.remove_entry(dir, true) }
+        dir.freeze
       end
+
+      def self.save_dir = SAVE_DIR
 
       # The picture on screen right now — the frame the run stopped on. A run told to play no
       # frames has none, which is a friendly error rather than a crash on nothing: the console

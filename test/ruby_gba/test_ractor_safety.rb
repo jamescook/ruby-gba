@@ -75,19 +75,15 @@ class TestRactorSafety < Minitest::Test
     end
   end
 
-  # THE THREE A WORKER NEVER REACHES, each for its own reason and none of them a tidy-up
-  # somebody has been putting off. Both censuses skip them; the build at the bottom does not,
-  # so if a worker ever did reach one it would raise there rather than pass quietly.
+  # THE ONE A WORKER NEVER REACHES, and it is not a tidy-up somebody has been putting off.
+  # Both censuses skip it; the build at the bottom does not, so if a worker ever did reach it
+  # it would raise there rather than pass quietly.
   #
   #   @registered_games   a declared game keeps the author's own block so it can be built
   #                       later, and a block carries the surroundings it was written in —
   #                       which is the one thing a Ractor may never share. Declaring a game
   #                       is a top-level act in a script; what a worker does is build one.
-  #   @save_dir           a real temporary directory. Making it as the library loads would
-  #                       leave one behind for everybody who only ever builds cartridges,
-  #                       and it is reached only through the emulator, which refuses a
-  #                       worker outright.
-  MAIN_RACTOR_ONLY = %i[@registered_games @save_dir].freeze
+  MAIN_RACTOR_ONLY = %i[@registered_games].freeze
 
   def test_a_worker_can_read_every_constant_the_library_defines
     offenders = each_module.flat_map { |mod| unshareable_constants(mod) }
