@@ -152,10 +152,14 @@ module RubyGBA
                                 clamp: :clamp, approach: :approach }.freeze
       CHANGING_OPERATOR_WORDS = { add: :+, sub: :-, add_var: :+, sub_var: :- }.freeze
 
+      # Written out as source rather than made from a block, so another Ractor can call them —
+      # see {IR::Node.operands} for why a block-backed method cannot be.
       (CHANGING_HANDLE_WORDS.keys + CHANGING_OPERATOR_WORDS.keys + %i[set copy]).each do |verb|
-        define_method(verb) do |name = nil, *rest|
-          raise ArgumentError, changing_verb_message(verb, name, rest)
-        end
+        class_eval <<~REFUSAL, __FILE__, __LINE__ + 1
+          def #{verb}(name = nil, *rest)
+            raise ArgumentError, changing_verb_message(:#{verb}, name, rest)
+          end
+        REFUSAL
       end
 
       # Hold a variable inside a range: below +min_val+ it becomes min_val, above

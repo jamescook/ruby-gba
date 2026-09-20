@@ -746,7 +746,7 @@ module RubyGBA
           require "fileutils"
           dir = Dir.mktmpdir("verify-save")
           at_exit { FileUtils.remove_entry(dir, true) }
-          dir
+          dir.freeze # so a worker Ractor can read it; see test/ruby_gba/test_ractor_safety.rb
         end
       end
 

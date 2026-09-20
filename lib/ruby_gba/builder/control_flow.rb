@@ -343,18 +343,20 @@ module RubyGBA
         eq: :==, ne: :!=, gt: :>, lt: :<, ge: :>=, le: :<=,
       }.freeze
 
+      # if_eq, if_ne, if_gt, if_lt, if_ge, if_le. Written out as source rather than made from
+      # a block: a method made from a block carries the block's surroundings with it, and Ruby
+      # will not let another Ractor call one — so a game building from a Ractor could not use
+      # a verb defined that way. See {IR::Node.operands}, which says the same thing at length.
       %i[eq ne gt lt ge le].each do |cond|
-        # Define if_eq, if_ne, if_gt, if_lt, if_ge, if_le
-        define_method(:"if_#{cond}") do |var_name, operand, &block|
-          emit_conditional(cond, var_name, operand, &block)
-        end
-
-        # Define if_gte (alias for if_ge), if_lte (alias for if_le)
-        case cond
-        when :ge then define_method(:if_gte) { |v, o, &b| emit_conditional(:ge, v, o, &b) }
-        when :le then define_method(:if_lte) { |v, o, &b| emit_conditional(:le, v, o, &b) }
-        end
+        class_eval <<~VERB, __FILE__, __LINE__ + 1
+          def if_#{cond}(var_name, operand, &block)
+            emit_conditional(:#{cond}, var_name, operand, &block)
+          end
+        VERB
       end
+
+      alias_method :if_gte, :if_ge
+      alias_method :if_lte, :if_le
 
       private
 

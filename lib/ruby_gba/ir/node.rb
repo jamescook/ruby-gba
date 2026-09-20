@@ -69,9 +69,17 @@ module RubyGBA
             # navigable in both directions however it was assembled — a branch attached after
             # the node it hangs from, a sprite given an angle once something turns it. The
             # assignment maintains that, rather than whoever remembers to.
-            define_method(:"#{name}=") do |value|
-              put_operand(:"#{name}", value)
-            end
+            #
+            # WRITTEN OUT AS SOURCE rather than made from a block, and the reason is not
+            # style. A method made from a block carries the block's surroundings with it, and
+            # Ruby will not let another Ractor call one — so a game that builds from a Ractor
+            # stopped dead at the first operand it wrote. Generated from a string it is an
+            # ordinary method with nothing behind it, and a shade quicker to call besides.
+            class_eval <<~WRITER, __FILE__, __LINE__ + 1
+              def #{name}=(value)
+                put_operand(:#{name}, value)
+              end
+            WRITER
           end
         end
 
