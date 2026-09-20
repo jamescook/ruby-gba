@@ -99,7 +99,7 @@ module RubyGBA
 
         claim!(name, :inline)
         VERBS.define_method(name, &body)
-        @verbs[name] = :inline
+        @verbs = @verbs.merge(name => :inline).freeze
         name
       end
 
@@ -133,9 +133,9 @@ module RubyGBA
           VERBS.send(:private, name)
         end
 
-        verbs.each { |name| @verbs[name] = pack }
-        helpers.each { |name| @helpers[name] = pack }
-        @packs << pack
+        @verbs = @verbs.merge(verbs.to_h { |name| [name, pack] }).freeze
+        @helpers = @helpers.merge(helpers.to_h { |name| [name, pack] }).freeze
+        @packs = (@packs + [pack]).freeze
         pack_checks(pack).each { |check| IR::Guardrails.register(check) }
         pack
       end
@@ -157,7 +157,7 @@ module RubyGBA
         return false unless @verbs.key?(name)
 
         VERBS.send(:remove_method, name)
-        @verbs.delete(name)
+        @verbs = @verbs.except(name).freeze
         true
       end
 
@@ -170,10 +170,10 @@ module RubyGBA
           pack.public_instance_methods(false).each { |name| unregister(name) }
           pack.private_instance_methods(false).each do |name|
             VERBS.send(:remove_method, name) if @helpers[name] == pack
-            @helpers.delete(name)
+            @helpers = @helpers.except(name).freeze
           end
         end
-        @packs.select! { |pack| DEFAULT_PACKS.include?(pack) }
+        @packs = @packs.select { |pack| DEFAULT_PACKS.include?(pack) }.freeze
         (@verbs.keys - default_verb_names).each { |name| unregister(name) }
         self
       end
@@ -208,9 +208,12 @@ module RubyGBA
       end
     end
 
-    @verbs = {}
-    @helpers = {}
-    @packs = []
+    # Replaced rather than changed in place wherever they are written, so a worker Ractor can
+    # read them: a list kept on a module is readable from one only while nothing in it can
+    # still change. Registering a pack is a load-time act, so nothing is lost by that.
+    @verbs = {}.freeze
+    @helpers = {}.freeze
+    @packs = [].freeze
 
     # The packs that ship with ruby-gba and are on in every build — the same idea
     # as Guardrails::BUILTIN_CHECKS, and visible data for the same reason. A game

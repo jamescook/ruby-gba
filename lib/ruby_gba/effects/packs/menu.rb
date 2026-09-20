@@ -244,9 +244,7 @@ module RubyGBA
 
         # The guardrail this pack brings with it — the same footgun the other effects
         # have, for the same reason, so it reads the same way.
-        def self.checks
-          @checks ||= [NeedsGameLoop.new]
-        end
+        def self.checks = CHECKS
 
         # A menu with no frames to happen on.
         #
@@ -536,6 +534,10 @@ module RubyGBA
 
           starts_on
         end
+
+        # Built here rather than beside `self.checks` above, because the check
+        # classes it names are declared further down this file.
+        CHECKS = Ractor.make_shareable([NeedsGameLoop.new])
       end
     end
   end

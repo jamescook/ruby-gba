@@ -67,9 +67,7 @@ module RubyGBA
         # There is no "needs a game loop" check here, unlike the screen fade's: a music fade is
         # only heard through a song, and a song in a game with no frames is already told so
         # (Guardrails::Checks::SongNeedsFrames). Saying it twice would be noise.
-        def self.checks
-          @checks ||= [FadedOutNeverIn.new]
-        end
+        def self.checks = CHECKS
 
         # Music faded out and never brought back.
         #
@@ -186,6 +184,10 @@ module RubyGBA
 
           (duration * Builder::ControlFlow::FRAMES_PER_SECOND).round
         end
+
+        # Built here rather than beside `self.checks` above, because the check
+        # classes it names are declared further down this file.
+        CHECKS = Ractor.make_shareable([FadedOutNeverIn.new])
       end
     end
   end

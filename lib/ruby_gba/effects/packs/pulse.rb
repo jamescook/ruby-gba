@@ -64,9 +64,7 @@ module RubyGBA
 
         # The guardrails this pack brings with it — the same footgun the shake has, for
         # the same reason, so it reads the same way.
-        def self.checks
-          @checks ||= [NeedsGameLoop.new]
-        end
+        def self.checks = CHECKS
 
         # A pulse that has no frames to happen on.
         #
@@ -165,6 +163,10 @@ module RubyGBA
                 "a pulse needs two different sizes to move between, but `from:` and `to:` " \
                 "are both #{to.inspect}. Give `to:` a different size."
         end
+
+        # Built here rather than beside `self.checks` above, because the check
+        # classes it names are declared further down this file.
+        CHECKS = Ractor.make_shareable([NeedsGameLoop.new])
       end
     end
   end

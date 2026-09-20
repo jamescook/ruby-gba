@@ -18,8 +18,7 @@ class TestGlyphUsage < Minitest::Test
   end
 
   def teardown
-    reg = Fonts.instance_variable_get(:@registry)
-    (reg.keys - %i[default tiny]).each { |k| reg.delete(k) }
+    Fonts.clear_registered!
   end
 
   def test_static_text_contributes_its_exact_characters

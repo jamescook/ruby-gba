@@ -159,9 +159,7 @@ module RubyGBA
 
         # The guardrails this pack brings with it, forwarded to the guardrail registry by
         # Effects.register_pack — so they only ever report on a build that has these verbs.
-        def self.checks
-          @checks ||= [NeedsGameLoop.new, FadedOutNeverIn.new]
-        end
+        def self.checks = CHECKS
 
         # A fade with no frames to happen on.
         #
@@ -397,6 +395,10 @@ module RubyGBA
                 "To fix this, fade to :black or :white, or drop `under:` from every fade " \
                 "in this game."
         end
+
+        # Built here rather than beside `self.checks` above, because the check
+        # classes it names are declared further down this file.
+        CHECKS = Ractor.make_shareable([NeedsGameLoop.new, FadedOutNeverIn.new])
       end
     end
   end

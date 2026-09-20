@@ -96,13 +96,15 @@ module RubyGBA
 
           # The periods that meet both conditions, and that the 16-bit counter can reach with
           # no prescaler (past 65536 cycles it cannot, which puts a floor of 256Hz on all this).
-          def self.sample_clock_periods
-            @sample_clock_periods ||= begin
+          SAMPLE_CLOCK_PERIODS = Ractor.make_shareable(
+            begin
               whole = FRAME_CYCLES / DMA_SAMPLES_A_LOT
               (1..Integer.sqrt(whole)).flat_map { |d| (whole % d).zero? ? [d, whole / d] : [] }
-                                      .select { |d| d <= 65_536 }.sort.freeze
+                                      .select { |d| d <= 65_536 }.sort
             end
-          end
+          )
+
+          def self.sample_clock_periods = SAMPLE_CLOCK_PERIODS
 
           def initialize(emitter:)
             @emitter = emitter

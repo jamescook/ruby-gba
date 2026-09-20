@@ -42,8 +42,7 @@ class TestProportionalFont < Minitest::Test
   # Fonts register into a process-global registry; drop any this file defined so
   # they can't leak into other tests, leaving the built-ins.
   def teardown
-    reg = Fonts.instance_variable_get(:@registry)
-    (reg.keys - %i[default tiny]).each { |k| reg.delete(k) }
+    Fonts.clear_registered!
   end
 
   def demo_font

@@ -147,13 +147,16 @@ module RubyGBA
       # never drawn, an asset referenced but never defined). Cheap argument checks
       # (a rate of 0, an unknown color) belong inline in the verb as an immediate
       # error, not here.
-      @registered_checks = []
+      @registered_checks = [].freeze
 
       class << self
         # Register a whole-program check so it runs in every validation pass from
         # now on. Idempotent for the same check instance. Returns the check.
+        # The list is replaced rather than added to, so what it holds can never change under
+        # a reader. That is what lets a game build from a Ractor: a worker may read a list
+        # kept on a module only while nothing in it can still change.
         def register(check)
-          @registered_checks << check unless @registered_checks.include?(check)
+          @registered_checks = (@registered_checks + [check]).freeze unless @registered_checks.include?(check)
           check
         end
 
@@ -191,7 +194,10 @@ module RubyGBA
         # Stop running a registered check — what unloading a pack does with the
         # checks it brought. Returns true if the check was registered.
         def unregister(check)
-          !@registered_checks.delete(check).nil?
+          return false unless @registered_checks.include?(check)
+
+          @registered_checks = (@registered_checks - [check]).freeze
+          true
         end
 
         # Drop every registered check, back to builtins only. For tests, so one
@@ -202,7 +208,7 @@ module RubyGBA
         # same hook. Restore them by re-registering the pack, or snapshot
         # registered_checks first and put them back.
         def clear_registered!
-          @registered_checks = []
+          @registered_checks = [].freeze
         end
       end
 

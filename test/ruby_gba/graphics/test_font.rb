@@ -80,7 +80,7 @@ class TestFont < Minitest::Test
     Fonts.register(:test_custom, mine)
     assert_same mine, Fonts.get(:test_custom)
   ensure
-    Fonts.instance_variable_get(:@registry).delete(:test_custom)
+    Fonts.clear_registered!
   end
 
   # ---- the tiny font is genuinely smaller ----

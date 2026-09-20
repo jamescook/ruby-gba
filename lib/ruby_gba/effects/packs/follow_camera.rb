@@ -89,9 +89,7 @@ module RubyGBA
 
         # The guardrail this pack brings with it — the same footgun the other effects have,
         # for the same reason, so it reads the same way.
-        def self.checks
-          @checks ||= [NeedsGameLoop.new]
-        end
+        def self.checks = CHECKS
 
         # A follow camera with no frames to happen on.
         #
@@ -170,6 +168,10 @@ module RubyGBA
                 "this game already follows another sprite. One camera can follow one " \
                 "character. To fix this, call camera_follows once."
         end
+
+        # Built here rather than beside `self.checks` above, because the check
+        # classes it names are declared further down this file.
+        CHECKS = Ractor.make_shareable([NeedsGameLoop.new])
       end
     end
   end

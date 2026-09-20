@@ -12,8 +12,7 @@ class TestFontAuthoring < Minitest::Test
   # Fonts register into a process-global registry (the backends look them up there),
   # so drop any a test defined, leaving the built-ins.
   def teardown
-    reg = Fonts.instance_variable_get(:@registry)
-    (reg.keys - %i[default tiny]).each { |k| reg.delete(k) }
+    Fonts.clear_registered!
   end
 
   def interpret(&block)

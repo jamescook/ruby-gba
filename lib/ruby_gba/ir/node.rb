@@ -61,7 +61,7 @@ module RubyGBA
         # settled while authoring or one the game works out as it runs. Every other tag names
         # an author-time literal of a stated type.
         def operands(**tags)
-          @tags = tags
+          @tags = Ractor.make_shareable(tags)
           tags.each_key do |name|
             attr_reader name
 

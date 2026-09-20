@@ -131,9 +131,7 @@ module RubyGBA
         end
 
         # The guardrails this pack brings with it.
-        def self.checks
-          @checks ||= [NeverDrawn.new]
-        end
+        def self.checks = CHECKS
 
         # A picture that is declared and told when it changes, but never drawn.
         #
@@ -182,6 +180,10 @@ module RubyGBA
               "in the drawing order."
           end
         end
+
+        # Built here rather than beside `self.checks` above, because the check
+        # classes it names are declared further down this file.
+        CHECKS = Ractor.make_shareable([NeverDrawn.new])
       end
     end
   end

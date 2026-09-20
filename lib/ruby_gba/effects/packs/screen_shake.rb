@@ -62,9 +62,7 @@ module RubyGBA
         # The guardrails this pack brings with it. Effects.register_pack forwards them
         # to the guardrail registry, so the footgun below is only ever reported for a
         # build that loaded this pack.
-        def self.checks
-          @checks ||= [NeedsGameLoop.new]
-        end
+        def self.checks = CHECKS
 
         # A screen shake that has no frames to happen on.
         #
@@ -170,6 +168,10 @@ module RubyGBA
           end
           frames
         end
+
+        # Built here rather than beside `self.checks` above, because the check
+        # classes it names are declared further down this file.
+        CHECKS = Ractor.make_shareable([NeedsGameLoop.new])
       end
     end
   end

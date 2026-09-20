@@ -873,9 +873,10 @@ module RubyGBA
 
       # Every kind, by its name. Derived from the classes above rather than kept alongside
       # them, so it cannot fall behind: a class that exists is in here.
-      def self.by_kind
-        @by_kind ||= constants.map { |name| const_get(name) }.to_h { |type| [type.kind, type] }
-      end
+      BY_KIND = Ractor.make_shareable(constants.map { |name| const_get(name) }
+                                               .to_h { |type| [type.kind, type] })
+
+      def self.by_kind = BY_KIND
 
       # Build a node of the named kind. The one place a kind SYMBOL becomes a class, for
       # callers that have the name rather than the type.

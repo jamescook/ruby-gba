@@ -37,8 +37,7 @@ class TestTextPlacement < Minitest::Test
 
   # Fonts register into a process-global registry; drop any this file defined.
   def teardown
-    reg = Fonts.instance_variable_get(:@registry)
-    (reg.keys - %i[default tiny]).each { |k| reg.delete(k) }
+    Fonts.clear_registered!
   end
 
   # Run a bitmap program with the demo font registered, and hand back its screen.
