@@ -4,6 +4,7 @@ require "test_helper"
 
 require "stringio"
 require "prism"
+require "conformance_fixture"
 
 # CAN A GAME CALL THIS LIBRARY FROM A RACTOR?
 #
@@ -27,6 +28,27 @@ require "prism"
 # difference that matters here: the count grew between the day it was first taken and the day
 # it was fixed, and a test naming the ones it knew about would have passed through both.
 class TestRactorSafety < Minitest::Test
+  # How many builds race each other, and how many times over. Eight is more than the cores
+  # most machines have, which is the point — workers waiting to be let on a core interleave
+  # differently each round, and a shared thing being written wants that to find it.
+  AT_ONCE = 8
+  ROUNDS = 3
+
+  # The program the cross-backend tests already run, written to touch every kind of thing a
+  # program can hold. In a module, like the small game below, because a Ractor's block runs
+  # with a self of its own and cannot see a test's methods.
+  module Everything
+    module_function
+
+    def cartridge = RubyGBA::IR::Backends::GBA.new.lower(ConformanceFixture.program)
+
+    # The picture it draws on the fake console — what it SHOWS rather than what it stored,
+    # since a fade or the camera changes the picture without touching a drawn pixel.
+    def picture
+      RubyGBA::IR::Backends::Reference.new.run(ConformanceFixture.program, frames: 2).screen.shown
+    end
+  end
+
   # The program the two builds share. It lives in a module rather than in a test method
   # because a Ractor's block runs with a self of its own — a test's instance methods are
   # not reachable from inside one, but a constant is.
@@ -178,6 +200,52 @@ class TestRactorSafety < Minitest::Test
 
     assert_equal on_main, in_worker,
                  "the same program built on two Ractors must produce the same cartridge"
+  end
+
+  # THE SAME, OVER A PROGRAM THAT USES EVERYTHING. The cartridge above is six verbs, chosen
+  # to cross the places the library used to stop. This one is the fixture the cross-backend
+  # tests already run, written to touch every kind of thing a program can hold — so a
+  # feature that quietly needs something shared is caught here rather than whenever somebody
+  # next happens to use it.
+  def test_the_program_that_uses_everything_builds_the_same_in_a_worker
+    on_main = Everything.cartridge
+    in_worker = without_the_experimental_warning { Ractor.new { Everything.cartridge }.value }
+
+    assert_equal on_main, in_worker
+  end
+
+  # THE OTHER WAY OF RUNNING A GAME. Turning a program into cartridge bytes is one; playing
+  # it on the fake console the tests measure against is a different body of code, and until
+  # now nothing had asked whether that one works off the main Ractor either.
+  def test_the_program_that_uses_everything_plays_the_same_in_a_worker
+    on_main = Everything.picture
+    in_worker = without_the_experimental_warning { Ractor.new { Everything.picture }.value }
+
+    assert_equal on_main, in_worker, "the same program played on two Ractors must draw the same picture"
+  end
+
+  # THE ONE THAT FINDS WHAT THE OTHERS CANNOT, and it is worth saying why it is separate.
+  # Every test above runs one build at a time, so it can only find something a build READS
+  # that it should not. Something a build CHANGES — a counter, a scratch buffer, a running
+  # total — is invisible while there is nobody to collide with: one build trips over it only
+  # when a second is in the same place at the same moment. It also catches a build that is
+  # not reproducible, which is the same failure from the reader's side.
+  #
+  # So: build the same program in eight workers at once, several times over, and hold every
+  # one of them against the answer built quietly on its own. Something shared being written
+  # shows up as a cartridge that is subtly wrong rather than as anything raising.
+  def test_eight_builds_at_once_all_agree_with_one_built_alone
+    alone = Everything.cartridge
+
+    without_the_experimental_warning do
+      ROUNDS.times do
+        together = Array.new(AT_ONCE) { Ractor.new { Everything.cartridge } }.map(&:value)
+        disagreed = together.count { |one| one != alone }
+
+        assert_equal 0, disagreed,
+                     "#{disagreed} of #{AT_ONCE} builds run together disagreed with the one run alone"
+      end
+    end
   end
 
   # Ractors announce that they are experimental every time one is made. The library does
