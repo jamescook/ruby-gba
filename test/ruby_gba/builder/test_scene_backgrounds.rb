@@ -15,7 +15,6 @@ require "tmpdir"
 class TestSceneBackgrounds < Minitest::Test
   include Differential
 
-
   RED = RubyGBA::Graphics::Color.resolve(:red)
   BLUE = RubyGBA::Graphics::Color.resolve(:blue)
 

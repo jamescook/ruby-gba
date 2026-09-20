@@ -10,7 +10,6 @@ require "test_helper"
 class TestBackgroundLayers < Minitest::Test
   include RubyGBA::Cartridge::Constants
 
-
   # A FAR layer (backmost): a blue field with a GREEN landmark tile at cell (5,5) ->
   # px (40,40). A NEAR layer (front): transparent everywhere (spaces) except a RED
   # landmark tile at cell (10,5) -> px (80,40). Where near is transparent, far shows.

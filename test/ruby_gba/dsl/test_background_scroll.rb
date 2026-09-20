@@ -9,7 +9,6 @@ require "test_helper"
 class TestBackgroundScroll < Minitest::Test
   include RubyGBA::Cartridge::Constants
 
-
   # A 32x32-tile world (256x256, bigger than the 240x160 screen and wrapping at 256).
   # It's blue, with a RED landmark tile at cell (10, 10) — map pixels (80, 80) — and a
   # GREEN one at cell (0, 0), so a wrap brings green in from the map's left edge.

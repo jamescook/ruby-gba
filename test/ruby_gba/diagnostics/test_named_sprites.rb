@@ -26,7 +26,6 @@ require "test_helper"
 # the half worth losing.
 class TestNamedSprites < Minitest::Test
 
-
   # Two sprites, still, at places nothing else on screen shares.
   def two_sprites
     RubyGBA.game "CAST" do

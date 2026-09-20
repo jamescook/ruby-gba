@@ -16,7 +16,6 @@ require "differential"
 class TestShowMap < Minitest::Test
   include Differential
 
-
   # Two rooms over one tileset. HALL is all wall, CAVE all floor, so which one is showing is
   # readable off any pixel of the screen.
   HALL = Array.new(6) { "######" }

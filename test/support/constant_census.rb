@@ -15,16 +15,19 @@
 # NOT NAMED test_*.rb, and that matters: the suite is collected by globbing for that, so a
 # name like it would be loaded as a test file — and this one leaves through exit!, which
 # would end that shard's run early and silently.
+#
+# It declares no constants of its own either. It loads every test file in the suite, so any
+# name it put at the top level could collide with one of theirs.
 
-TEST_DIR = File.expand_path("..", __dir__)
-$LOAD_PATH.unshift TEST_DIR
+tests = File.expand_path("..", __dir__)
+$LOAD_PATH.unshift tests
 
 require "test_helper"
 
-Dir[File.join(TEST_DIR, "**", "test_*.rb")].sort.each do |path|
+Dir[File.join(tests, "**", "test_*.rb")].sort.each do |path|
   require path
 rescue StandardError, ScriptError => e
-  warn "could not load #{path.delete_prefix("#{TEST_DIR}/")}: #{e.class}: #{e.message.lines.first}"
+  warn "could not load #{path.delete_prefix("#{tests}/")}: #{e.class}: #{e.message.lines.first}"
 end
 
 # Minitest's own classes are in the list, and three of their constants cannot be read from a

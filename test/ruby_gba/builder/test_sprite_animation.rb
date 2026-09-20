@@ -11,7 +11,6 @@ require "test_helper"
 class TestSpriteAnimation < Minitest::Test
   include RubyGBA::Cartridge::Constants
 
-
   # A blinker at (40, 40) that flips between a red frame and a blue frame every 4
   # frames, over a white field. It halts after +run+ frames so what's on screen is
   # deterministic: it shows red for the first 4 frames, then blue for the next 4.

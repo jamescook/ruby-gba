@@ -10,7 +10,6 @@ require "test_helper"
 class TestTiledCollision < Minitest::Test
   include RubyGBA::Cartridge::Constants
 
-
   # A 10x5-tile room, floor everywhere but one wall tile at cell (4, 2) -> px (32, 16).
   # A red 8x8 hero starts at +hero_at+; +body+ is the per-frame game-loop code.
   def scene(hero_at:, &body)

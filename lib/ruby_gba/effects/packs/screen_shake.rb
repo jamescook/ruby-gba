@@ -169,8 +169,7 @@ module RubyGBA
           frames
         end
 
-        # Built here rather than beside `self.checks` above, because the check
-        # classes it names are declared further down this file.
+        # Down here because the check classes it names are declared above it.
         CHECKS = Ractor.make_shareable([NeedsGameLoop.new])
       end
     end

@@ -38,7 +38,7 @@ module SharedConstants
   ROM = RubyGBA::Cartridge::ROM
 
   # A solid 8x8 tile of one color — the piece of art a tiled test needs before it can say
-  # anything about scrolling, layers, collision or sprites. Twenty-two files had written it
+  # anything about scrolling, layers, collision or sprites. Twenty-six files had written it
   # out for themselves, under five different names and in two spellings that differed by a
   # trailing newline, so a test reading two of them was comparing things that were not quite
   # the same. It is here once now.
@@ -142,29 +142,35 @@ class Minitest::Test # rubocop:disable Style/ClassAndModuleChildren
   # using several cores at once: a worker may read a constant only when nothing in it can
   # change.
   #
-  # Doing it by hand did not work, and the evidence is in the tree it replaced. Twenty-two
+  # Doing it by hand did not work, and the evidence is in the tree it replaced. Twenty-six
   # files had written out the same tile of art, and four of them wrote
   # `(("#" * 8) + "\n").freeze * 8` — where the freeze lands on the inner string and the
   # multiplication then makes a fresh unfrozen one. The intent was there and the result was
   # not, in four files, for years.
   #
-  # A nested module or class is skipped: that is code, not a fixture. Anything that refuses
-  # to freeze — a block that reaches for something around it, which is the one thing that can
-  # never be shared — is left exactly as it was, and named by
-  # test/ruby_gba/test_ractor_safety.rb rather than passing quietly.
+  # TWO THINGS ARE LEFT ALONE. A nested module or class, because that is code rather than a
+  # fixture. And a STREAM — a file, a socket, $stdout — because freezing one of those works,
+  # and then nothing can write to it again: a test that parked $stdout in a constant would
+  # take the whole run down, from here, with an error pointing somewhere else entirely.
+  #
+  # Anything that refuses to freeze is left exactly as it was and named by
+  # test/ruby_gba/test_ractor_safety.rb rather than passing quietly. Only one thing does
+  # refuse: a block that reaches for a variable around it, which can never be shared.
+  # That is the one error caught here — anything else raising is a mistake in this method
+  # and should be heard.
   #
   # Freezing a block hands back a new one rather than changing the old, so that case has to
   # put the constant back. That re-enters here, and stops on the first line.
   def self.const_added(name)
     value = const_get(name, false)
-    return if value.is_a?(Module) || Ractor.shareable?(value)
+    return if value.is_a?(Module) || value.is_a?(IO) || Ractor.shareable?(value)
 
     shareable = Ractor.make_shareable(value)
     return if shareable.equal?(value)
 
     remove_const(name)
     const_set(name, shareable)
-  rescue StandardError
+  rescue Ractor::IsolationError
     nil
   end
 end

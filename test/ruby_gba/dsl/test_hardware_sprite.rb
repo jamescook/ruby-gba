@@ -11,7 +11,6 @@ require "test_helper"
 class TestHardwareSprite < Minitest::Test
   include RubyGBA::Cartridge::Constants
 
-
   # A blue floor of 8x8 tiles filling the screen, and a red 8x8 hero sprite that
   # slides right by +step+ while :right is held, halting after +frames+ steps so its
   # resting place is deterministic. The hero is drawn each frame by the framework —

@@ -20,7 +20,6 @@ require "test_helper"
 class TestVramLayout < Minitest::Test
   include RubyGBA::IR::Build
 
-
   # How many background layers the console stacks. The count and the rule that reads it
   # live with the guardrail that explains them.
   MOST_LAYERS = RubyGBA::IR::Guardrails::Checks::TooManyBackgroundLayers::MAX_SCROLLING_LAYERS
@@ -252,7 +251,6 @@ class TestVramLayout < Minitest::Test
       halt,
     )
   end
-
 
   # A flat 8x8 tile picture in one 15-bit color.
   def tile_bitmap(name, color)

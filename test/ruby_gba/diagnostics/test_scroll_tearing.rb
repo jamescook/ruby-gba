@@ -19,7 +19,6 @@ require "test_helper"
 # column means the picture sheared, and where it changes is where the write landed.
 class TestScrollTearing < Minitest::Test
 
-
   # A field of alternating 8px red and blue columns, scrolled 8px further every
   # frame — so any horizontal shift changes which color sits at a given x, and a
   # shear shows as one column of screen holding two colors. +work+ is busywork done

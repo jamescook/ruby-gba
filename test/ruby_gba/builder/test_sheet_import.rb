@@ -33,13 +33,7 @@ class TestSheetImport < Minitest::Test
   # Run a block with +fake+ standing in as the default image adapter, so the verbs
   # (which don't take an adapter) import through it and need no ImageMagick. An
   # absolute image path skips the on-disk lookup, so the fake path never has to exist.
-  def with_default_adapter(fake)
-    saved = Image.instance_variable_get(:@default_adapter)
-    Image.instance_variable_set(:@default_adapter, fake)
-    yield
-  ensure
-    Image.instance_variable_set(:@default_adapter, saved)
-  end
+  def with_default_adapter(fake, &block) = Image.with_adapter(fake, &block)
 
   # A 16x8 opaque sheet: an 8x8 solid-red cell, then an 8x8 solid-blue cell.
   def two_tile_rgb

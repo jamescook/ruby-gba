@@ -19,7 +19,6 @@ require "stringio"
 class TestLayerTransparency < Minitest::Test
   include Differential
 
-
   RED = RubyGBA::Graphics::Color.resolve(:red)
   WHITE = RubyGBA::Graphics::Color.resolve(:white)
   GREEN = RubyGBA::Graphics::Color.resolve(:green)

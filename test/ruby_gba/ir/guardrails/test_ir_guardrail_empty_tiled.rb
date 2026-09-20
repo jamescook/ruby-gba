@@ -19,7 +19,6 @@ require "test_helper"
 class TestIRGuardrailEmptyTiled < Minitest::Test
   include RubyGBA::IR::Build
 
-
   # Points spread over the screen — corners, edges and center. A tile layer with no
   # data is uniformly blank, so sampling a spread (rather than one pixel) shows the
   # whole frame is dark, not just the spot we happened to look at.

@@ -185,8 +185,7 @@ module RubyGBA
           (duration * Builder::ControlFlow::FRAMES_PER_SECOND).round
         end
 
-        # Built here rather than beside `self.checks` above, because the check
-        # classes it names are declared further down this file.
+        # Down here because the check classes it names are declared above it.
         CHECKS = Ractor.make_shareable([FadedOutNeverIn.new])
       end
     end

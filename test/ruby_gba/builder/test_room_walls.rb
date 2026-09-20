@@ -17,7 +17,6 @@ class TestRoomWalls < Minitest::Test
   include RubyGBA::Cartridge::Constants
   include Differential
 
-
   # Two rooms the same size. In the hall, cell (2, 1) is a wall; in the cave that same
   # cell is open floor. A hero starting at cell (1, 1) and walking right is stopped in
   # one room and walks on in the other — from the same program, at the same spot.

@@ -16,7 +16,6 @@ class TestFacingSheet < Minitest::Test
 
   Image = RubyGBA::Graphics::Image
 
-
   # A distinct color per cell, keyed [col, row]. Rows are down / left / right / up; the
   # two columns are frame 0 and frame 1. Reading the sprite's pixel says both which way
   # it faces (the row) and which frame is up (the column).
@@ -51,13 +50,7 @@ class TestFacingSheet < Minitest::Test
     def rgba_pixels(_path, **) = nil
   end
 
-  def with_adapter(cols)
-    saved = Image.instance_variable_get(:@default_adapter)
-    Image.instance_variable_set(:@default_adapter, SheetAdapter.new(cols))
-    yield
-  ensure
-    Image.instance_variable_set(:@default_adapter, saved)
-  end
+  def with_adapter(cols, &block) = Image.with_adapter(SheetAdapter.new(cols), &block)
 
   # A hero at (40, 40) whose four-way art is imported from a +cols+-column sheet, facing
   # +face+, run +run+ frames then halted (so the screen is deterministic). An absolute

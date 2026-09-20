@@ -11,7 +11,6 @@ require "test_helper"
 class TestDirectionalAnimation < Minitest::Test
   include RubyGBA::Cartridge::Constants
 
-
   # A hero at (40, 40) facing +face+, with a two-frame walk cycle per direction over a
   # gray field: right cycles red -> green, down cycles blue -> white. Each direction is
   # its own pair of colors, so the pixel at the hero says both which way it faces and

@@ -746,7 +746,10 @@ module RubyGBA
           require "fileutils"
           dir = Dir.mktmpdir("verify-save")
           at_exit { FileUtils.remove_entry(dir, true) }
-          dir.freeze # so a worker Ractor can read it; see test/ruby_gba/test_ractor_safety.rb
+          # Frozen so that a census of what this library keeps on a module reads the same
+          # whichever tests ran first. Nothing else turns on it: the emulator refuses a
+          # non-main Ractor outright, so no worker reaches this at all.
+          dir.freeze
         end
       end
 

@@ -17,7 +17,6 @@ require "differential"
 class TestSetTile < Minitest::Test
   include Differential
 
-
   # A little room with a door in it, and a variable saying whether the door is open.
   def room_program(open_at: 2, col: 3, row: 1)
     builder = Builder.new

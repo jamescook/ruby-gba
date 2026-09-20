@@ -228,10 +228,26 @@ module RubyGBA
                      "The adapter returned #{bytes.bytesize} bytes."
       end
 
-      # The adapter used when a caller doesn't name one. A single shared instance
-      # is fine — it holds no per-image state, just the resolved tool.
+      # The adapter used when a caller doesn't name one.
+      #
+      # ONE PER RACTOR, not one per process, and that is what makes importing art work when
+      # a game builds on several cores at once. The adapter remembers which image tool this
+      # machine has, which costs a subprocess to find out, so it is worth keeping — but kept
+      # on the module it is state a worker may neither write nor read, and the import stopped
+      # dead there. Ruby gives each Ractor a store of its own; a worker fills in its own
+      # adapter, pays that subprocess once, and nothing is shared.
       def default_adapter
-        @default_adapter ||= Adapters::ImageMagick.new
+        Ractor.current[:ruby_gba_image_adapter] ||= Adapters::ImageMagick.new
+      end
+
+      # Import through +adapter+ for the duration of the block — how a test imports art with
+      # no image tool installed. Restores whatever was in use, including nothing.
+      def with_adapter(adapter)
+        was = Ractor.current[:ruby_gba_image_adapter]
+        Ractor.current[:ruby_gba_image_adapter] = adapter
+        yield
+      ensure
+        Ractor.current[:ruby_gba_image_adapter] = was
       end
     end
   end

@@ -23,7 +23,6 @@ require "differential"
 class TestLargeTiledMaps < Minitest::Test
   include Differential
 
-
   # A map of the given size, with a different colour in each quarter, so a cell landing in the
   # wrong block shows up as the wrong colour rather than as nothing.
   QUARTERS = %i[red green blue yellow].freeze

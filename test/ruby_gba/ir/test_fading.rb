@@ -11,7 +11,6 @@ require "test_helper"
 # rule: three decisions, one test each, in the words somebody would ask them in.
 class TestFading < Minitest::Test
 
-
   def program(&block)
     b = Builder.new
     b.instance_eval(&block)

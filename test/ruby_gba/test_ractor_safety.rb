@@ -23,9 +23,9 @@ require "prism"
 # redesign; only a mutable value, or a write that happens after the workers exist, is fatal.
 #
 # THESE ARE CENSUSES, NOT EXAMPLES. Each walks everything the library defines and names
-# whatever is new, because this is drift: twenty-five unshareable constants on the day they
-# were first counted, twenty-eight six days later. A test that froze three constants it knew
-# about would have passed through both.
+# whatever is new, rather than checking the constants somebody once wrote down. That is the
+# difference that matters here: the count grew between the day it was first taken and the day
+# it was fixed, and a test naming the ones it knew about would have passed through both.
 class TestRactorSafety < Minitest::Test
   # The program the two builds share. It lives in a module rather than in a test method
   # because a Ractor's block runs with a self of its own — a test's instance methods are
@@ -62,9 +62,7 @@ class TestRactorSafety < Minitest::Test
   #                       leave one behind for everybody who only ever builds cartridges,
   #                       and it is reached only through the emulator, which refuses a
   #                       worker outright.
-  #   @default_adapter    finding the image tool on this machine costs a subprocess, so it
-  #                       is put off until something actually reads a picture file.
-  MAIN_RACTOR_ONLY = %i[@registered_games @save_dir @default_adapter].freeze
+  MAIN_RACTOR_ONLY = %i[@registered_games @save_dir].freeze
 
   def test_a_worker_can_read_every_constant_the_library_defines
     offenders = each_module.flat_map { |mod| unshareable_constants(mod) }
@@ -129,15 +127,16 @@ class TestRactorSafety < Minitest::Test
   end
 
   # AND THE SAME QUESTION ASKED OF THE SUITE ITSELF, because a test file parks fixtures in
-  # constants exactly the way the library does and gets them wrong the same way: the tile art
-  # twenty-two files used to declare for themselves read `(("#" * 8) + "\\n").freeze * 8`,
-  # where the freeze lands on the inner string and the multiplication then makes a fresh
-  # unfrozen one. Nobody would spot that by looking.
+  # constants exactly the way the library does and gets them wrong the same way: of the
+  # twenty-six files that used to declare the shared tile art for themselves, four wrote
+  # `(("#" * 8) + "\\n").freeze * 8`, where the freeze lands on the inner string and the
+  # multiplication then makes a fresh unfrozen one. Nobody would spot that by looking.
   #
   # It runs in a process of its own, which is what makes it mean anything: a test can only
   # see the test classes loaded beside it, and under `rake test:parallel` that is one shard's
-  # share of the suite. Asked from in here it would quietly cover a twelfth of what it claims
-  # to. The script loads every test file instead, and costs about four tenths of a second.
+  # share of the suite — so asked from in here it would quietly cover a fraction of what it
+  # claims to, and which fraction would depend on how many workers ran. The script loads
+  # every test file instead.
   def test_a_worker_can_read_every_constant_the_suite_parks_in_a_test_class
     census = File.expand_path("../support/constant_census.rb", __dir__)
     found = IO.popen([RbConfig.ruby, census], &:read)
@@ -152,6 +151,18 @@ class TestRactorSafety < Minitest::Test
       method instead, so each worker makes its own. A fixture several files want belongs in
       SharedConstants in test/test_helper.rb.
     WHY
+  end
+
+  # THE ONE THING THE AUTOMATIC FREEZE MUST NOT TOUCH. Freezing a stream works — Ruby does
+  # not refuse it — and afterwards nothing can write to that stream again. A test class that
+  # parked $stdout in a constant would take the whole run down from inside test_helper, with
+  # an error pointing at whatever tried to print next. So streams are left alone, and this
+  # says so out loud rather than leaving it to be rediscovered.
+  def test_a_stream_parked_in_a_constant_is_left_alone
+    holder = Class.new(Minitest::Test)
+    holder.const_set(:SOMEWHERE_TO_WRITE, $stdout)
+
+    refute_predicate $stdout, :frozen?, "freezing this would break every later write"
   end
 
   # THE ONE THAT ACTUALLY PROVES IT. The two censuses above are about what the library

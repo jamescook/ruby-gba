@@ -20,7 +20,6 @@ require "test_helper"
 # comes off the one object.
 class TestOneReaderPerCartridge < Minitest::Test
 
-
   def running(game, frames: 4)
     assert_emulator_loads_rom(game.build_rom(out: nil, err: nil, profile: false), frames: frames)
   end
