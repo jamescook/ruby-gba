@@ -1,5 +1,14 @@
 # frozen_string_literal: true
 
+# REQUIRED HERE AND NOT WHERE THEY ARE USED, which is the opposite of the usual advice about
+# a cost you may not pay. Asking for a file reads the list of places Ruby looks for one, and
+# that list is a global — which a worker may not read at all. So a `require` reached while a
+# cartridge is being verified stops the run, and these are on that path: a verified ROM goes
+# through a temporary file every time.
+require "tempfile"
+require "tmpdir"
+require "fileutils"
+
 module RubyGBA
   module Diagnostics
     # Loads a ROM in mGBA and reads back actual rendered pixels.
@@ -749,8 +758,6 @@ module RubyGBA
       # An empty directory and one entry in the list of things to tidy up at exit is what
       # that costs somebody who only ever builds cartridges and never runs one.
       SAVE_DIR = begin
-        require "tmpdir"
-        require "fileutils"
         dir = Dir.mktmpdir("verify-save")
         at_exit { FileUtils.remove_entry(dir, true) }
         dir.freeze
@@ -773,7 +780,7 @@ module RubyGBA
 
         # Write ROM to a temp file, open the emulator on it, and play the frames the run was
         # built with.
-        require "tempfile"
+        #
         # Keep the emulator (and its ROM file) alive on the instance rather than tearing them
         # down here: memory reads (#mem32 / #var) run against the same console after the frames,
         # at the final frame boundary. Both are released when this Verifier is garbage-collected.

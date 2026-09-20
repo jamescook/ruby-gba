@@ -26,10 +26,40 @@ module RubyGBA
       # sibling directory. Convenient, and it is the arrangement that hid the problem for years —
       # a vendored path always resolves, so nobody found out that nothing was ever building this
       # for anyone else.
-      def load!
+      # TRIED ONCE, WHEN THIS FILE LOADS, and remembered — rather than each time somebody
+      # asks. Asking for a file reads the list of places Ruby looks for one, and looking in
+      # the sibling checkout WRITES that list; both are globals, which a worker Ractor may
+      # not touch at all. Since several cartridges can now be verified at once on different
+      # cores, a load left until first use stopped every one of them.
+      #
+      # It costs somebody who only builds cartridges the attempt and nothing else: the gem
+      # is absent, the attempt fails, and that is remembered too. Somebody who has it in
+      # their bundle wanted it.
+      FOUND = begin
         require "ruby_gba_emulator"
+        true
       rescue LoadError
-        load_from_checkout!
+        begin
+          checkout = File.expand_path("../../../ruby-gba-emulator/lib", __dir__)
+          if File.directory?(checkout)
+            $LOAD_PATH.unshift(checkout) unless $LOAD_PATH.include?(checkout)
+            require "ruby_gba_emulator"
+            true
+          else
+            false
+          end
+        rescue LoadError
+          false
+        end
+      end
+
+      # Make sure the emulator backend is here. Raises a clear, actionable error when it is
+      # not — it is required rather than optional, so a missing build is a real error and
+      # never a quiet skip.
+      def load!
+        return true if FOUND
+
+        load_from_checkout! # for the error it raises, which says what to do about it
       end
 
       # The sibling checkout, for a clone with no bundle. Raises with what to do about it.
