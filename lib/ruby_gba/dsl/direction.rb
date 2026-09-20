@@ -13,10 +13,10 @@ module RubyGBA
     # hand-writing the arithmetic.
     module Direction
       # name -> [dx, dy] unit step. Screen coordinates, so "up" decreases y.
-      UNIT = {
+      UNIT = Ractor.make_shareable({
         up:    [0, -1], down:  [0,  1], left: [-1, 0], right: [1, 0],
         up_left: [-1, -1], up_right: [1, -1], down_left: [-1, 1], down_right: [1, 1]
-      }.freeze
+      })
 
       module_function
 

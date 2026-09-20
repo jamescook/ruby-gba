@@ -249,11 +249,11 @@ module RubyGBA
 
         # Comparison operator → the ARM condition that is TRUE for it and the
         # condition under which it is FALSE (used to skip setting the result to 1).
-        COMPARISONS = {
+        COMPARISONS = Ractor.make_shareable({
           :>  => %i[gt le], :<  => %i[lt ge],
           :>= => %i[ge lt], :<= => %i[le gt],
           :== => %i[eq ne], :!= => %i[ne eq],
-        }.freeze
+        })
 
         attr_reader :lowering
 
@@ -1371,7 +1371,7 @@ module RubyGBA
         # writes that many bytes little-endian. Packing signed keeps negatives as two's
         # complement; pack takes the low bytes, so the same directive serves an unsigned
         # table too (the read, ldrb/ldrh vs ldrsb/ldrsh, is what restores the sign).
-        TABLE_ELEM = { byte: [1, "c*"], half: [2, "s<*"], word: [4, "l<*"] }.freeze
+        TABLE_ELEM = Ractor.make_shareable({ byte: [1, "c*"], half: [2, "s<*"], word: [4, "l<*"] })
 
         # Embed a table's values as a ROM blob and remember its shape, so a table_get
         # can index it. A power-of-two length lets the read wrap with a cheap mask.
@@ -1804,7 +1804,8 @@ module RubyGBA
         # BGxCNT bits 14-15: which of the four grid sizes this layer scrolls over. The
         # framework picks the smallest that holds what the author drew; nothing in the DSL
         # names one.
-        REGULAR_MAP_SIZES = { [32, 32] => 0, [64, 32] => 1, [32, 64] => 2, [64, 64] => 3 }.freeze
+        REGULAR_MAP_SIZES =
+          Ractor.make_shareable({ [32, 32] => 0, [64, 32] => 1, [32, 64] => 2, [64, 64] => 3 })
         MAP_SIZE_SHIFT = 14
 
         def regular_map_size(cols, rows) = REGULAR_MAP_SIZES.fetch([cols, rows]) << MAP_SIZE_SHIFT

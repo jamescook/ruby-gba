@@ -25,7 +25,7 @@ module RubyGBA
         def tty? = false
       end
 
-      QUIET = Quiet.new
+      QUIET = Quiet.new.freeze
 
       attr_reader :out, :err
 

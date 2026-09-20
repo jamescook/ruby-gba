@@ -33,7 +33,7 @@ module RubyGBA
           # The string a flashcart / emulator scans the ROM for to decide there IS a
           # save chip and map it in. Without it, writes to SRAM go nowhere. The trailing
           # digits are a version the detector ignores; padded to a word so it stays aligned.
-          SRAM_SIGNATURE = "SRAM_V123\x00\x00\x00".b
+          SRAM_SIGNATURE = "SRAM_V123\x00\x00\x00".b.freeze
 
           def initialize(emitter:, primitives:)
             @emitter = emitter

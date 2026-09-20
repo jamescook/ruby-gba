@@ -307,7 +307,7 @@ module RubyGBA
           # A PART WITH NOTHING IN IT, for a lane being silenced when a tune changes. Silence is
           # a rest, and a rest names no pitch — so a part's tone, its fade and its rattle are all
           # unread, and a part that says nothing answers every one of them.
-          SILENCE = RubyGBA::Audio::Music::Part.new(events: [])
+          SILENCE = Ractor.make_shareable(RubyGBA::Audio::Music::Part.new(events: []))
 
           # Number the tunes the program plays, pick the lanes they need, and keep the mixer
           # voices their recorded parts will use. A tune that is written but never played costs

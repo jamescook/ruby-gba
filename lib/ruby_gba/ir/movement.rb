@@ -50,7 +50,7 @@ module RubyGBA
         end
       end
 
-      EVERYTHING_MOVES = Answer.new(still: [], watching: nil)
+      EVERYTHING_MOVES = Ractor.make_shareable(Answer.new(still: [], watching: nil))
 
       # The three ways of saying a number that can be read through. Anything else — an
       # element of a list, a timer's count, a table read — is refused rather than understood,
@@ -61,7 +61,9 @@ module RubyGBA
       # treated as one it may write, which sweeps in plenty of names that are not variables
       # at all (a picture, a font, a layer). That is deliberate: a name swept in by mistake
       # costs a thing its stillness, and a name missed costs a picture.
-      ONLY_READ = { var_ref: %i[name], case: %i[var], copy: %i[src], save_store: %i[var] }.freeze
+      ONLY_READ = Ractor.make_shareable(
+        { var_ref: %i[name], case: %i[var], copy: %i[src], save_store: %i[var] }
+      )
 
       def of(program)
         frame = program.children.find { |node| node.kind == :loop }

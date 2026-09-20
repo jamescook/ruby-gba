@@ -311,7 +311,7 @@ module RubyGBA
       # plain frozen list so it's visible data, not hidden behind a method.
       # Guardrails.default_checks appends whatever's been registered on top of
       # these; instantiate a Validator with your own list to run a different set.
-      BUILTIN_CHECKS = [
+      BUILTIN_CHECKS = Ractor.make_shareable([
         Checks::ScreenModeSet.new,
         Checks::EmptyTiledScreen.new,
         Checks::BitmapDrawOnTiled.new,
@@ -337,7 +337,7 @@ module RubyGBA
         Checks::LayerInvisible.new,
         Checks::LayerSolidWhileFading.new,
         Checks::TooManyBackgroundLayers.new,
-      ].freeze
+      ])
     end
   end
 end

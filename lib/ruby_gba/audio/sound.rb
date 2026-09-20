@@ -79,14 +79,14 @@ module RubyGBA
       # `noise :explosion` and gets a rumble; the numbers are the framework's job.
       # +pitch+ is how high the hiss sits (:low rumble … :high hiss), +decay+ how
       # fast it fades, +metallic+ a tighter, more tonal rattle (for a snare/hat).
-      NOISE_PRESETS = {
+      NOISE_PRESETS = Ractor.make_shareable({
         hit:       { pitch: :mid,  decay: :fast,   volume: 12, metallic: false },
         kick:      { pitch: :low,  decay: :medium, volume: 15, metallic: false },
         snare:     { pitch: :mid,  decay: :fast,   volume: 13, metallic: true },
         hat:       { pitch: :high, decay: :fast,   volume: 8,  metallic: true },
         explosion: { pitch: :low,  decay: :slow,   volume: 15, metallic: false },
         zap:       { pitch: :high, decay: :medium, volume: 12, metallic: false },
-      }.freeze
+      })
 
       # What an unnamed noise hit defaults to.
       NOISE_DEFAULT = :hit

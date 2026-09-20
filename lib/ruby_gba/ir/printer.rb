@@ -83,7 +83,7 @@ module RubyGBA
       COLORS = { bad: RED }.freeze
 
       # The unpriced banner is bold red on its own (no per-line severity).
-      EMPHASIS = { banner: "#{BOLD}#{RED}" }.freeze
+      EMPHASIS = Ractor.make_shareable({ banner: "#{BOLD}#{RED}" })
 
       # A MEANING NOBODY GAVE A COLOUR LEAVES THE LINE ALONE, and that is deliberate rather
       # than lax. Asking for a colour that is not there used to raise, and the lines that

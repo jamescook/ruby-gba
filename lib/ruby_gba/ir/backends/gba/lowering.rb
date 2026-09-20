@@ -46,7 +46,7 @@ module RubyGBA
           # An explicit "this kind is collected during the definitions pass and emits
           # nothing at statement time" — a real table entry, not a hole a missing kind
           # would also leave, so the coverage lock can't mistake one for the other.
-          NOTHING = ->(_node) {}
+          NOTHING = Ractor.make_shareable(->(_node) {})
 
           def value(node)
             @attribution.around(node) { @values.fetch(node.kind) { unknown_value(node) }.call(node) }

@@ -21,7 +21,7 @@ module RubyGBA
 
           # Each voice a part can play on: how many of that kind a song may have, and what the
           # message calls it. Kept together so a message and a limit cannot drift apart.
-          LIMITS = {
+          LIMITS = Ractor.make_shareable({
             square: [Audio::Music::MAX_SQUARE_PARTS, "play the square wave",
                      "the console has %<limit>d square-wave voices"],
             wave: [Audio::Music::MAX_WAVE_PARTS, "play the wave voice",
@@ -30,7 +30,7 @@ module RubyGBA
                     "the console has %<limit>d noise voice"],
             recorded: [Audio::Sound::MIXER_VOICES, "play an instrument",
                        "the mixer plays %<limit>d recordings at once"],
-          }.freeze
+          })
 
           def detect(program)
             program.walk.select { |node| node.kind == :song }.flat_map do |song|

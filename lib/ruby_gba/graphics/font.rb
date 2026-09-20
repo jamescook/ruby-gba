@@ -237,7 +237,7 @@ module RubyGBA
       # rubocop:disable Layout/ExtraSpacing
       # The built-in 5x7 uppercase glyphs. Each row is 5 bits: bit 4 (0x10) = leftmost
       # column, bit 0 = rightmost, so 0b10101 lights columns 0, 2, 4.
-      DEFAULT_GLYPHS = {
+      DEFAULT_GLYPHS = Ractor.make_shareable({
         "A" => [0x0E, 0x11, 0x11, 0x1F, 0x11, 0x11, 0x11],
         "B" => [0x1E, 0x11, 0x11, 0x1E, 0x11, 0x11, 0x1E],
         "C" => [0x0E, 0x11, 0x10, 0x10, 0x10, 0x11, 0x0E],
@@ -283,12 +283,12 @@ module RubyGBA
         # text, and ">" is also what a menu points at its picked row with.
         ">" => [0x00, 0x10, 0x08, 0x04, 0x08, 0x10, 0x00],
         "<" => [0x00, 0x01, 0x02, 0x04, 0x02, 0x01, 0x00],
-      }.freeze
+      })
 
       # A compact 3x5 numeric font — half the footprint, for a tight HUD. Each row is
       # 3 bits (bit 2 = leftmost). Digits only; a different SIZE than the default, so
       # picking it visibly changes a number's box (and its draw cost).
-      TINY_GLYPHS = {
+      TINY_GLYPHS = Ractor.make_shareable({
         "0" => [0b111, 0b101, 0b101, 0b101, 0b111],
         "1" => [0b010, 0b110, 0b010, 0b010, 0b111],
         "2" => [0b111, 0b001, 0b111, 0b100, 0b111],
@@ -300,7 +300,7 @@ module RubyGBA
         "8" => [0b111, 0b101, 0b111, 0b101, 0b111],
         "9" => [0b111, 0b101, 0b111, 0b001, 0b111],
         " " => [0b000, 0b000, 0b000, 0b000, 0b000],
-      }.freeze
+      })
       # rubocop:enable Layout/ExtraSpacing
     end
   end

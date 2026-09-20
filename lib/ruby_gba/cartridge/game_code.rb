@@ -39,13 +39,13 @@ module RubyGBA
       OUR_LETTER = "H"
 
       # What the other three characters are drawn from.
-      ALPHABET = ("0".."9").to_a.concat(("A".."Z").to_a).freeze
+      ALPHABET = Ractor.make_shareable(("0".."9").to_a.concat(("A".."Z").to_a))
 
       # "01" is Nintendo's, and it is what the usual homebrew tools write by default.
       # A game built here is nobody's licensee, so it says so.
       NO_PUBLISHER = "00"
 
-      DATA_FILE = File.expand_path("../data/known_game_codes.txt", __dir__)
+      DATA_FILE = File.expand_path("../data/known_game_codes.txt", __dir__).freeze
 
       # The codes of every real Game Boy Advance cartridge an emulator's catalogue knows
       # — the ones that were sold, and the prototypes and kiosk builds that got out too,

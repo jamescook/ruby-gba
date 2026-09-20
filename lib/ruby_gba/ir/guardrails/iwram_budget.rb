@@ -25,7 +25,7 @@ module RubyGBA
         # is, and the biggest users so the fix is obvious.
         class IwramBudget
           NAME = :iwram_budget
-          PLAIN_NAME = "the #{Messages::PlainWords::QUICK_MEMORY} budget"
+          PLAIN_NAME = "the #{Messages::PlainWords::QUICK_MEMORY} budget".freeze
 
           # The GBA's fast RAM is 32KB, but not all of it is free for the program's data:
           # the call stack lives at the top and the framework keeps a little scratch of its
@@ -131,13 +131,13 @@ module RubyGBA
           # The kinds that name a variable, and which of their attributes hold the name(s).
           # Every variable that reserves a word is reached by one of these — a read
           # (var_ref), a write (set/add/…), or a loop/timer's hidden counter.
-          VARIABLES_OF = {
+          VARIABLES_OF = Ractor.make_shareable({
             set: ->(n) { [n.var] }, add: ->(n) { [n.var] }, sub: ->(n) { [n.var] },
             negate: ->(n) { [n.var] }, abs: ->(n) { [n.var] }, negate_abs: ->(n) { [n.var] },
             clamp: ->(n) { [n.var] }, copy: ->(n) { [n.dest, n.src] },
             var_ref: ->(n) { [n.name] }, repeat: ->(n) { [n.index] },
             every: ->(n) { [n.counter] }, after: ->(n) { [n.counter] }
-          }.freeze
+          })
 
           # The distinct variable names the program uses — each is one word of IWRAM.
           def variable_names(program)

@@ -18,7 +18,7 @@ module RubyGBA
     # will carry a developer-declared `chars:` subset, and without one the whole font
     # is reachable. No such draw exists yet, so today every text is knowable exactly.
     module GlyphUsage
-      DIGITS = ("0".."9").to_a.freeze
+      DIGITS = Ractor.make_shareable(("0".."9").to_a)
 
       module_function
 

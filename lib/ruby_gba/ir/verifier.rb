@@ -42,7 +42,7 @@ module RubyGBA
       # author-time literals. `nil` is allowed for any structural slot, so optional
       # fields (a bitmap's transparency, a beep's overrides, an if's else) need no
       # special marking.
-      TYPES = {
+      TYPES = Ractor.make_shareable({
         name:    ->(v) { v.is_a?(Symbol) },                    # a variable / asset / func name
         option:  ->(v) { v.is_a?(Symbol) },                    # an enum choice (:front, :quarter, :left)
         int:     ->(v) { v.is_a?(Integer) },                   # a size, count, fixed coord, literal
@@ -58,7 +58,7 @@ module RubyGBA
         branch:  ->(v) { v.is_a?(Node) && v.kind == :else },   # an if's else-branch node
         flag:    ->(v) { v == true || v == false },            # an on/off switch (e.g. double buffering)
         shape:   ->(v) { v.is_a?(Audio::Envelope) },                  # how a note starts and how it ends
-      }.freeze
+      })
 
       # Verify a whole program tree. Returns the node on success; raises
       # {InvariantError} on the first problem.

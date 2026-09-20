@@ -35,8 +35,10 @@ module RubyGBA
       # WHAT IT MUST NEVER BE CALLED, so a test can fail when one of these turns up in something a
       # build prints. Comments are exempt and deliberately so — a comment teaches the hardware and
       # may name IWRAM outright; this is about what a PERSON RUNNING A BUILD reads.
-      NOT_CALLED = { QUICK_MEMORY => [/\bfast RAM\b/i, /\bquick RAM\b/i, /\bfast memory\b/i,
-                                      /\bIWRAM\b/, /\bfast on-chip\b/i] }.freeze
+      NOT_CALLED = Ractor.make_shareable(
+        { QUICK_MEMORY => [/\bfast RAM\b/i, /\bquick RAM\b/i, /\bfast memory\b/i,
+                           /\bIWRAM\b/, /\bfast on-chip\b/i] }
+      )
 
       # THE TWO ROUTINES THE AUTHOR NEVER WROTE. A game loop's body is statements rather than a
       # routine, and nobody types the routine the console jumps into when the display or a timer

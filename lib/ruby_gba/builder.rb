@@ -1122,7 +1122,7 @@ module RubyGBA
     # This gem's own source directory. Frames of the call stack under here are
     # framework internals; the first frame outside it is the user's script — which
     # is where a relative image path should be resolved from (see #resolve_asset_path).
-    SOURCE_ROOT = __dir__
+    SOURCE_ROOT = __dir__.freeze
 
     # Turn an image path the user wrote into a real file path. An absolute path is
     # taken as-is. A relative one is resolved *next to the script that named it* —

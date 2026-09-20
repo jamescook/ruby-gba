@@ -29,7 +29,7 @@ module RubyGBA
 
           # [control bits, clock divisor], finest resolution first — we pick the finest
           # prescaler whose overflow period still fits the 16-bit counter.
-          PRESCALERS = [[0x0000, 1], [0x0001, 64], [0x0002, 256], [0x0003, 1024]].freeze
+          PRESCALERS = Ractor.make_shareable([[0x0000, 1], [0x0001, 64], [0x0002, 256], [0x0003, 1024]])
 
           # The prescaler bits for counting every CPU cycle — what a sample clock always uses,
           # since #frame_periods keeps only the periods the 16-bit counter reaches unaided.

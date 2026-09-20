@@ -39,8 +39,10 @@ module RubyGBA
       # The last phase is over. Anything holding a line open closes it here.
       def done = nil
 
-      # The one that says nothing, shared — it has no state to keep apart.
-      SILENT = new
+      # The one that says nothing, shared — it has no state to keep apart. Frozen because a
+      # game may build from a Ractor, and a Ractor may only reach a frozen object; this one
+      # holds nothing at all, so freezing it costs nothing.
+      SILENT = new.freeze
 
       def self.silent = SILENT
 
