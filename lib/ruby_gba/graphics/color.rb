@@ -22,6 +22,11 @@ module RubyGBA
         gray:    0x2D6B,  # r=11, g=11, b=11
       }.freeze
 
+      # The same table read the other way, for {name_for}. Built here rather than the first
+      # time a message needs it, so a game building from a Ractor can read it — a worker may
+      # not write to a module, and building a table on first use is a write.
+      NAMES = Ractor.make_shareable(PRESETS.to_h { |name, resolved| [resolved, name.inspect] })
+
       module_function
 
       # Pack RGB channels (0-31 each) into a 15-bit GBA color.
@@ -107,8 +112,7 @@ module RubyGBA
       # the raw value where there is not. For messages: an author reading about a color
       # in their own art wants the word they typed, not a number they never saw.
       def name_for(value)
-        @names ||= PRESETS.to_h { |name, resolved| [resolved, name.inspect] }
-        @names.fetch(value) { format("#%04X", value) }
+        NAMES.fetch(value) { format("#%04X", value) }
       end
     end
   end

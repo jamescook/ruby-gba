@@ -11,10 +11,12 @@ module RubyGBA
     module Fields
       module_function
 
-      # Every kind's operands, by kind name.
-      def by_kind
-        @by_kind ||= Nodes.by_kind.transform_values(&:tags).freeze
-      end
+      # Every kind's operands, by kind name. Built as the file loads rather than the first
+      # time somebody asks, so a game building from a Ractor can read it — a worker may not
+      # write to a module, and working a table out on first use is a write.
+      BY_KIND = Ractor.make_shareable(Nodes.by_kind.transform_values(&:tags))
+
+      def by_kind = BY_KIND
 
       # Whether this kind is one the model has been taught.
       def known?(kind)

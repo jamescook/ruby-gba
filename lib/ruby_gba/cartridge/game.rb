@@ -113,12 +113,24 @@ module RubyGBA
     end
   end
 
+  # Started here rather than the first time somebody asks, and replaced rather than added
+  # to. A list built on first use is built by whoever asks first, and a worker Ractor may
+  # not write to a module at all — so merely READING this used to be refused. Now it is a
+  # read, and only declaring a game is a write. That suits how it is used: a game is
+  # declared at the top level of a script, which is the main Ractor by construction.
+  @registered_games = [].freeze
+
   class << self
     # Every game declared while this process ran, in declaration order (usually one
     # per file). The `ruby-gba` command loads a game file and reads the game it
     # declared from here.
-    def registered_games
-      @registered_games ||= []
+    attr_reader :registered_games
+
+    # Forget every game declared so far. The `ruby-gba` command does this before loading a
+    # game file, so that whatever the file adds is the game it asked for.
+    def forget_registered_games!
+      @registered_games = [].freeze
+      self
     end
 
     # Declare a game: record its DSL block for later building and return a Game
@@ -131,7 +143,7 @@ module RubyGBA
 
       handle = Cartridge::Game.new(title, code: code, maker: maker, block: block, frame_sync: frame_sync,
                         fast_cartridge: fast_cartridge, fast_code: fast_code)
-      registered_games << handle
+      @registered_games = (@registered_games + [handle]).freeze
       handle
     end
   end

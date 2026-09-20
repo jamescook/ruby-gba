@@ -3,6 +3,7 @@
 require "test_helper"
 
 require "stringio"
+require "prism"
 
 # CAN A GAME CALL THIS LIBRARY FROM A RACTOR?
 #
@@ -49,12 +50,21 @@ class TestRactorSafety < Minitest::Test
     end
   end
 
-  # The one cache that cannot be made shareable, and the reason is not a tidy-up anybody has
-  # been putting off. A declared game holds the author's own block so it can be built later,
-  # and a block carries the surroundings it was written in — which is exactly the thing a
-  # Ractor may not share. Declaring a game is a top-level act in a script, on the main Ractor,
-  # so nothing is lost: what a worker does is BUILD a game, not declare one.
-  KEPT_ON_THE_MAIN_RACTOR = [[RubyGBA, :@registered_games]].freeze
+  # THE THREE A WORKER NEVER REACHES, each for its own reason and none of them a tidy-up
+  # somebody has been putting off. Both censuses skip them; the build at the bottom does not,
+  # so if a worker ever did reach one it would raise there rather than pass quietly.
+  #
+  #   @registered_games   a declared game keeps the author's own block so it can be built
+  #                       later, and a block carries the surroundings it was written in —
+  #                       which is the one thing a Ractor may never share. Declaring a game
+  #                       is a top-level act in a script; what a worker does is build one.
+  #   @save_dir           a real temporary directory. Making it as the library loads would
+  #                       leave one behind for everybody who only ever builds cartridges,
+  #                       and it is reached only through the emulator, which refuses a
+  #                       worker outright.
+  #   @default_adapter    finding the image tool on this machine costs a subprocess, so it
+  #                       is put off until something actually reads a picture file.
+  MAIN_RACTOR_ONLY = %i[@registered_games @save_dir @default_adapter].freeze
 
   def test_a_worker_can_read_every_constant_the_library_defines
     offenders = each_module.flat_map { |mod| unshareable_constants(mod) }
@@ -75,8 +85,8 @@ class TestRactorSafety < Minitest::Test
   # is only ever read.
   #
   # WHAT THIS ONE CANNOT SEE is a lazy cache nothing has asked for yet: there is no value to
-  # look at, so it reads as clean. That is why it is not the whole answer — the build below
-  # is, since it runs the real thing and whatever it touches has to be reachable.
+  # look at, so it reads as clean, and whether it reads as clean depends on which other tests
+  # happened to share the process. The source check below is the one that always sees it.
   def test_a_worker_can_read_every_cache_the_library_keeps_on_a_module
     offenders = each_module.flat_map { |mod| unshareable_module_state(mod) }
 
@@ -88,6 +98,33 @@ class TestRactorSafety < Minitest::Test
       Build the table while the file loads and freeze it, rather than the first time somebody
       asks for it. A worker that asks first would otherwise be writing to a module, which
       Ruby refuses whatever the value is.
+    WHY
+  end
+
+  # The same question asked of the SOURCE rather than of the loaded library, which is the only
+  # way to see a cache nothing has built yet.
+  #
+  # WHAT IT LOOKS FOR is `||=` on something kept by a class or module — which is exactly how
+  # "work it out the first time somebody asks" is spelled, and is the shape that breaks. A
+  # plain assignment in a method whose job is to change the registry is a different thing: a
+  # game registering a font or a pack is configuring the library, which happens on the main
+  # Ractor, and a worker only ever reads what it left. So this is narrow on purpose.
+  #
+  # It is parsed rather than searched for, because what decides it is whether the write
+  # happens with a class or module as self — inside a `def self.x`, or under `class << self`.
+  def test_the_library_never_works_a_cache_out_the_first_time_somebody_asks
+    sources = Dir[File.expand_path("../../lib/**/*.rb", __dir__)].sort
+    refute_empty sources, "the library should be where this test looks for it"
+    offenders = sources.flat_map { |path| lazy_module_caches(path) }
+
+    assert_empty offenders, <<~WHY
+      These lines work something out the first time somebody asks and keep it on a class or
+      module:
+
+      #{list(offenders)}
+
+      Whichever Ractor asked first would be the one writing it, and a worker may not write to
+      a module at all, whatever the value. Build it while the file loads instead.
     WHY
   end
 
@@ -135,12 +172,77 @@ class TestRactorSafety < Minitest::Test
 
   private def unshareable_module_state(mod)
     mod.instance_variables.filter_map do |name|
-      next if KEPT_ON_THE_MAIN_RACTOR.include?([mod, name])
+      next if MAIN_RACTOR_ONLY.include?(name)
 
       value = mod.instance_variable_get(name)
       ["#{mod.name} #{name}", value.class] unless Ractor.shareable?(value)
     end
   end
 
+  private def lazy_module_caches(path)
+    finder = LazyModuleCaches.new(path.delete_prefix("#{File.expand_path('../..', __dir__)}/"))
+    Prism.parse_file(path).value.accept(finder)
+    finder.found.reject { |_where, name| MAIN_RACTOR_ONLY.include?(name) }
+  end
+
   private def list(offenders) = offenders.map { |what, kind| "  #{what}  (#{kind})" }.join("\n")
+
+  # Somewhere a class or module works a value out the first time it is asked for and keeps it.
+  class LazyModuleCaches < Prism::Visitor
+    attr_reader :found
+
+    def initialize(path)
+      super()
+      @path = path
+      @found = []
+      @singleton = 0 # how deep inside `def self.x` / `class << self` we are
+      @module_function = false
+    end
+
+    def visit_def_node(node)
+      was = @singleton
+      @singleton += 1 if node.receiver || @module_function
+      super
+      @singleton = was
+    end
+
+    def visit_singleton_class_node(node)
+      @singleton += 1
+      super
+      @singleton -= 1
+    end
+
+    # `module_function` and `extend self` turn the plain `def`s that follow them into
+    # methods on the module, so those count too. Each applies to one module body, so the
+    # flag is put back on the way out of a nested one.
+    def visit_call_node(node)
+      @module_function = true if module_level_from_here?(node)
+      super
+    end
+
+    def visit_module_node(node) = in_a_fresh_body { super }
+    def visit_class_node(node) = in_a_fresh_body { super }
+
+    private def in_a_fresh_body
+      was = @module_function
+      @module_function = false
+      yield
+      @module_function = was
+      nil
+    end
+
+    private def module_level_from_here?(node)
+      return true if node.name == :module_function && node.arguments.nil?
+
+      node.name == :extend && node.arguments&.arguments&.first.is_a?(Prism::SelfNode)
+    end
+
+    def visit_instance_variable_or_write_node(node) = record(node)
+    def visit_instance_variable_operator_write_node(node) = record(node)
+
+    private def record(node)
+      @found << ["#{@path}:#{node.location.start_line}", node.name] if @singleton.positive?
+      nil
+    end
+  end
 end

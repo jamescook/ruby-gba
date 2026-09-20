@@ -204,7 +204,7 @@ module RubyGBA
       path = File.expand_path(game_file)
       raise Thor::Error, "I cannot find the game file #{game_file}." unless File.file?(path)
 
-      RubyGBA.registered_games.clear
+      RubyGBA.forget_registered_games!
       load path
       RubyGBA.registered_games.last || raise(Thor::Error, <<~MSG.chomp)
         #{game_file} does not declare a game. Add:
