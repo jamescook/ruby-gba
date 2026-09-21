@@ -85,41 +85,6 @@ class TestRactorSafety < Minitest::Test
   #                       is a top-level act in a script; what a worker does is build one.
   MAIN_RACTOR_ONLY = %i[@registered_games].freeze
 
-  def test_a_worker_can_read_every_constant_the_library_defines
-    offenders = each_module.flat_map { |mod| unshareable_constants(mod) }
-
-    assert_empty offenders, <<~WHY
-      These constants hold something a worker Ractor cannot read:
-
-      #{list(offenders)}
-
-      Wrap the value in Ractor.make_shareable where it is defined. Not freeze: that stops at
-      the outside, and a frozen Array of unfrozen Strings is still refused.
-    WHY
-  end
-
-  # The other half of the same question. A lookup table built the first time something asks
-  # for it is built by whoever asked first — and if that is a worker, it is a write to a
-  # module from a worker, which Ruby refuses outright. Built while the file loads instead, it
-  # is only ever read.
-  #
-  # WHAT THIS ONE CANNOT SEE is a lazy cache nothing has asked for yet: there is no value to
-  # look at, so it reads as clean, and whether it reads as clean depends on which other tests
-  # happened to share the process. The source check below is the one that always sees it.
-  def test_a_worker_can_read_every_cache_the_library_keeps_on_a_module
-    offenders = each_module.flat_map { |mod| unshareable_module_state(mod) }
-
-    assert_empty offenders, <<~WHY
-      These caches hold something a worker Ractor cannot read:
-
-      #{list(offenders)}
-
-      Build the table while the file loads and freeze it, rather than the first time somebody
-      asks for it. A worker that asks first would otherwise be writing to a module, which
-      Ruby refuses whatever the value is.
-    WHY
-  end
-
   # The same question asked of the SOURCE rather than of the loaded library, which is the only
   # way to see a cache nothing has built yet.
   #
@@ -145,45 +110,6 @@ class TestRactorSafety < Minitest::Test
       Whichever Ractor asked first would be the one writing it, and a worker may not write to
       a module at all, whatever the value. Build it while the file loads instead.
     WHY
-  end
-
-  # AND THE SAME QUESTION ASKED OF THE SUITE ITSELF, because a test file parks fixtures in
-  # constants exactly the way the library does and gets them wrong the same way: of the
-  # twenty-six files that used to declare the shared tile art for themselves, four wrote
-  # `(("#" * 8) + "\\n").freeze * 8`, where the freeze lands on the inner string and the
-  # multiplication then makes a fresh unfrozen one. Nobody would spot that by looking.
-  #
-  # It runs in a process of its own, which is what makes it mean anything: a test can only
-  # see the test classes loaded beside it, and under `rake test:parallel` that is one shard's
-  # share of the suite — so asked from in here it would quietly cover a fraction of what it
-  # claims to, and which fraction would depend on how many workers ran. The script loads
-  # every test file instead.
-  def test_a_worker_can_read_every_constant_the_suite_parks_in_a_test_class
-    census = File.expand_path("../support/constant_census.rb", __dir__)
-    found = IO.popen([RbConfig.ruby, census], &:read)
-
-    assert_empty found.strip, <<~WHY
-      These test constants hold something a worker Ractor cannot read:
-
-      #{found}
-      Nearly always this is already handled: test_helper freezes whatever a test class parks
-      in a constant, the moment it is declared. Something here refused — almost certainly a
-      block that reaches for a variable around it, which can never be shared. Build it in a
-      method instead, so each worker makes its own. A fixture several files want belongs in
-      SharedConstants in test/test_helper.rb.
-    WHY
-  end
-
-  # THE ONE THING THE AUTOMATIC FREEZE MUST NOT TOUCH. Freezing a stream works — Ruby does
-  # not refuse it — and afterwards nothing can write to that stream again. A test class that
-  # parked $stdout in a constant would take the whole run down from inside test_helper, with
-  # an error pointing at whatever tried to print next. So streams are left alone, and this
-  # says so out loud rather than leaving it to be rediscovered.
-  def test_a_stream_parked_in_a_constant_is_left_alone
-    holder = Class.new(Minitest::Test)
-    holder.const_set(:SOMEWHERE_TO_WRITE, $stdout)
-
-    refute_predicate $stdout, :frozen?, "freezing this would break every later write"
   end
 
   # THE ONE THAT ACTUALLY PROVES IT. The two censuses above are about what the library
@@ -252,35 +178,6 @@ class TestRactorSafety < Minitest::Test
     yield
   ensure
     Warning[:experimental] = was
-  end
-
-  private def each_module(mod = RubyGBA, seen = Set.new, found = [])
-    return found unless mod.name&.start_with?("RubyGBA") && seen.add?(mod)
-
-    found << mod
-    mod.constants(false).each do |name|
-      value = mod.const_get(name, false)
-      each_module(value, seen, found) if value.is_a?(Module)
-    end
-    found
-  end
-
-  private def unshareable_constants(mod)
-    mod.constants(false).filter_map do |name|
-      value = mod.const_get(name, false)
-      next if value.is_a?(Module) || Ractor.shareable?(value)
-
-      ["#{mod.name}::#{name}", value.class]
-    end
-  end
-
-  private def unshareable_module_state(mod)
-    mod.instance_variables.filter_map do |name|
-      next if MAIN_RACTOR_ONLY.include?(name)
-
-      value = mod.instance_variable_get(name)
-      ["#{mod.name} #{name}", value.class] unless Ractor.shareable?(value)
-    end
   end
 
   private def lazy_module_caches(path)

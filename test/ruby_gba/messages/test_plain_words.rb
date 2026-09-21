@@ -1,7 +1,6 @@
 # frozen_string_literal: true
 
 require "test_helper"
-require "ripper"
 require "stringio"
 
 # ONE THING, ONE NAME.
@@ -15,45 +14,29 @@ require "stringio"
 # So the English lives in {RubyGBA::Messages::PlainWords} and this fails when a second name for one
 # thing turns up. Two shapes of drift, and they need different tests:
 #
-#   A WORD COMES BACK. Nothing stops somebody typing "fast RAM" into a new message, and no
-#   other test would notice — the message would read fine on its own. So every string a build
-#   can print is scanned for the names this thing must NOT be given. Comments are left alone
-#   on purpose: a comment teaches the hardware and may name IWRAM outright.
+#   A WORD COMES BACK. Nothing stops somebody typing a hardware word into a new message, and
+#   no other test would notice — the message would read fine on its own. That one is a lint
+#   over the source rather than a test: `rake plain_words`, run by the commit hook.
 #
 #   A SECOND COPY APPEARS. A reader that stopped asking PlainWords would drift the moment
 #   somebody reworded one and not the other, and until then nothing would show. So the name
 #   is replaced and both readers are made to say the new one — which they can only do if
 #   they really are reading the one place.
 class TestPlainWords < Minitest::Test
+  # Swaps a word the library says for a different one, to prove both readers really ask it
+  # rather than keeping copies. That is a change to the whole process while it is in force,
+  # so it runs before the pool starts rather than beside it. See test_helper.
+  runs_on_the_main_ractor!
+
   PlainWords = RubyGBA::Messages::PlainWords
   Placement = RubyGBA::IR::Backends::GBA::Placement
 
-  LIB = File.expand_path("../../../lib", __dir__)
-
   # --- a word that came back ---
 
-  def test_the_quick_memory_is_called_that_and_nothing_else
-    banned = PlainWords::NOT_CALLED.fetch(PlainWords::QUICK_MEMORY)
-    found = string_literals_in_lib.select { |s| banned.any? { |pattern| s[:text].match?(pattern) } }
-
-    assert_empty found.map { |s| "#{s[:file]}:#{s[:line]}  #{s[:text].strip}" },
-                 "a build says #{PlainWords::QUICK_MEMORY.inspect} and nothing else — write " \
-                 "PlainWords::QUICK_MEMORY, or say it in a comment where the hardware can be named"
-  end
-
-  # A scan that read nothing would pass in silence, which is the one way a test like the last
-  # one is worse than no test at all. So make it show its work: a body of strings, the right
-  # name among them, and a wrong one it really would catch.
-  def test_the_scan_reads_the_whole_framework
-    literals = string_literals_in_lib
-
-    assert_operator literals.length, :>, 1000, "the string scan found almost nothing — is it reading lib/?"
-    assert(literals.any? { |s| s[:text].include?(PlainWords::QUICK_MEMORY) },
-           "the right name should turn up in the strings the scan reads")
-    assert_match(PlainWords::NOT_CALLED.fetch(PlainWords::QUICK_MEMORY).first,
-                 "This program reserves about 40KB of fast RAM.",
-                 "...and a wrong one should match a pattern")
-  end
+  # WHAT A BUILD IS ALLOWED TO CALL THE QUICK MEMORY is checked too, and not here: it asks a
+  # question about the source on disk rather than about anything the library does when it
+  # runs, so it is a lint. `rake plain_words`, run by the commit hook — see
+  # tools/plain_words_scan.rb.
 
   # --- a second copy of a name ---
 
@@ -181,35 +164,26 @@ class TestPlainWords < Minitest::Test
   # Give PlainWords a different answer for the length of the block. A reader that really asks
   # it says the new word; one that kept a copy of its own carries on saying the old one, which
   # is the drift this file exists to catch.
+  # PUT BACK BY NAME, not by handing the old method back to be defined again. A method
+  # defined from a block or from another method's handle carries that block with it, and
+  # Ruby will not let a method like that be called from another core — so restoring it that
+  # way left the real one permanently unusable, for the whole run, in every other file that
+  # builds anything. Keeping the original under a second name and aliasing it back leaves a
+  # real method behind.
   def while_it_says(method, said)
-    was = PlainWords.method(method)
-    in_place_of(method, ->(_) { said })
+    kept = :"__real_#{method}"
+    PlainWords.singleton_class.alias_method(kept, method)
+    PlainWords.singleton_class.remove_method(method)
+    PlainWords.define_singleton_method(method, ->(_) { said })
     yield
   ensure
-    in_place_of(method, was)
-  end
-
-  # Take the definition out before putting one in, so swapping a name back and forth does not
-  # fill the run with "method redefined" on a file that is only doing what it says.
-  def in_place_of(method, body)
     PlainWords.singleton_class.remove_method(method)
-    PlainWords.define_singleton_method(method, body)
+    PlainWords.singleton_class.alias_method(method, kept)
+    PlainWords.singleton_class.remove_method(kept)
   end
 
   def checks
     RubyGBA::IR::Guardrails.default_checks
-  end
-
-  # Every string literal under lib/, with where it was written. Ripper rather than a grep so a
-  # comment cannot be mistaken for something a person is shown — the difference is the whole
-  # point of the scan. Interpolation is not string content, so a message built from
-  # PlainWords::QUICK_MEMORY reads as the hole between two literals and never matches.
-  def string_literals_in_lib
-    Dir["#{LIB}/**/*.rb"].sort.flat_map do |path|
-      Ripper.lex(File.read(path)).filter_map do |(line, _col), type, text, _state|
-        { file: path.delete_prefix("#{LIB}/"), line: line, text: text } if type == :on_tstring_content
-      end
-    end
   end
 
   # A game with enough per-frame work that the build finds a routine worth moving, so both the

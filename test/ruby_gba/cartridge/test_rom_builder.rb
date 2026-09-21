@@ -3,20 +3,22 @@
 require "test_helper"
 
 require "tempfile"
+require "stringio"
 
 class TestRomBuilder < Minitest::Test
 
   def test_debug_halt_truncates_the_rom
     # Everything up to debug_halt lowers and runs; everything after is dropped,
     # so the lowered ROM stops there. The blue clear runs, the red one never does.
-    rom = nil
-    capture_io do # swallow the debug_halt reminder warning
-      rom = RubyGBA.build("DBGHLT", code: "BDBG", maker: "01", validate: false) do
-        screen :bitmap
-        clear_screen :blue
-        debug_halt
-        clear_screen :red # never reached
-      end
+    # The build's own streams take the debug_halt reminder, rather than catching it off the
+    # process. Where a build prints is a thing you pass it, so there is no need to reach for
+    # the process's own output — and reaching for it is something a worker may not do.
+    rom = RubyGBA.build("DBGHLT", code: "BDBG", maker: "01", validate: false,
+                        out: StringIO.new, err: StringIO.new) do
+      screen :bitmap
+      clear_screen :blue
+      debug_halt
+      clear_screen :red # never reached
     end
 
     v = assert_emulator_loads_rom(rom, frames: 5)

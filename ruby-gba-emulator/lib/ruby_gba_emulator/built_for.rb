@@ -16,5 +16,7 @@ module RubyGBAEmulator
   #
   # A gem install never sees this. RubyGems builds the extension itself, per ABI, and puts it
   # on a load path of its own.
-  BUILT_FOR = "#{RUBY_VERSION}-#{RbConfig::CONFIG['arch']}"
+  # Frozen because a piece of text built by interpolation is not, whatever the magic comment
+  # says — and a core may read a constant only when nothing in it can still change.
+  BUILT_FOR = "#{RUBY_VERSION}-#{RbConfig::CONFIG['arch']}".freeze
 end

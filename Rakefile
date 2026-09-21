@@ -1,8 +1,11 @@
 # frozen_string_literal: true
 
+# So a bare `rake` sees what the Gemfile declares, the way `bundle exec rake` does. Without
+# it the test runner — declared there, not in the gemspec — is not on the load path.
+require "bundler/setup"
+
 require "rake/testtask"
 require "rbconfig"
-require_relative "tools/parallel_test"
 require_relative "ruby-gba-emulator/lib/ruby_gba_emulator/built_for"
 
 # The emulator's built extension and the sources it comes from. The emulator-backed tests run
@@ -36,7 +39,7 @@ desc "Build the emulator's C extension if its sources changed (required for the 
 task compile_emulator: EMULATOR_BINARY
 
 # SimpleCov merges every result it finds in coverage/.resultset.json that is younger
-# than its merge timeout, and each parallel shard files its slice under a name of its
+# than its merge timeout, and each run files its slice under a name of its
 # own — so without this a second run within a few minutes reports the UNION of both
 # runs, and a line that stopped being covered still reads as covered. Every slice this
 # run produces is written after this point, so clearing here loses nothing and keeps
@@ -50,32 +53,13 @@ Rake::TestTask.new(test: %i[compile_emulator clear_coverage]) do |t|
   t.test_files = FileList["test/**/test_*.rb"]
   # `test` on the load path is what lets every test file open with the one line
   # `require "test_helper"` and get the library, minitest, and the shared names.
-  t.description = 'Run ONE file or test in one process (rake test TEST=test/test_foo.rb ' \
-                  'TESTOPTS="--name=/pattern/") — for the whole suite use rake test:parallel'
-end
-
-# Each rake test:parallel shard is its own process and only records its own
-# slice of coverage (see test/test_helper.rb); this stitches every slice back
-# into the one merged report a serial `COVERAGE=1 rake test` would have
-# produced directly. Required lazily so plain `rake test:parallel` never loads
-# simplecov at all.
-def collate_coverage
-  require "simplecov"
-  require_relative "test/support/coverage"
-  SimpleCov.collate(Dir["coverage/.resultset.json"], &Coverage::FILTERS)
+  # Appended, not assigned, so TESTOPTS still works.
+  t.options = "--ractor #{ENV.fetch('TESTOPTS', '')}".strip
+  t.description = 'Run the suite (one file with TEST=test/test_foo.rb, one test with ' \
+                  'TESTOPTS="--name=/pattern/")'
 end
 
 namespace :test do
-  # The same files as `rake test`, split across processes. Kept separate rather
-  # than made the default because serial output is what you want the moment
-  # something fails — and because the compile above has to finish before any
-  # worker starts, which the dependency here guarantees.
-  desc "Run the suite across processes (rake test:parallel JOBS=8)"
-  task parallel: %i[compile_emulator clear_coverage] do
-    ParallelTest.run(FileList["test/**/test_*.rb"].to_a)
-    collate_coverage if ENV["COVERAGE"] == "1"
-  end
-
   # The emulator gem has its OWN test suite (its C extension + probe, tested in isolation) —
   # kept out of the main `test` glob above. Delegate to its Rakefile, which compiles first.
   desc "Compile and test the emulator itself (the headless libmgba verification core)"
@@ -127,6 +111,12 @@ task :ua do
     abort "There is no codebase map at .ua/knowledge-graph.json. To make one, run /understand in Claude Code."
   end
   sh "npx", "--yes", UA_VIEWER, "."
+end
+
+desc "Check nothing a build PRINTS calls the quick memory anything else (comments are exempt)"
+task :plain_words do
+  require_relative "tools/plain_words_scan"
+  abort unless PlainWordsScan.run
 end
 
 desc "Lint with RuboCop (performance cops only)"

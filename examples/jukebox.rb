@@ -40,7 +40,7 @@ module Jukebox
   # The bobbing "it's playing" blocks along the bottom: five 8x8 blocks that
   # bounce between BAR_TOP and BAR_BOTTOM at their own speeds, so they dance a
   # little out of step. Each is [x, start_y, speed].
-  BARS       = [[84, 124, 2], [100, 148, 3], [116, 132, 2], [132, 146, 3], [148, 128, 2]].freeze
+  BARS       = Ractor.make_shareable([[84, 124, 2], [100, 148, 3], [116, 132, 2], [132, 146, 3], [148, 128, 2]])
   BAR_TOP    = 124
   BAR_BOTTOM = 148
 
@@ -49,12 +49,12 @@ module Jukebox
 
   # Each song gets an accent color, so moving the cursor recolors the screen as
   # well as changing the tune.
-  SONGS = [
+  SONGS = Ractor.make_shareable([
     { name: :ode_to_joy, label: "ODE TO JOY",   color: :yellow },
     { name: :fur_elise,  label: "FUR ELISE",    color: :cyan },
     { name: :minuet,     label: "MINUET IN G",  color: :magenta },
     { name: :chorale,    label: "PIANO CHORDS", color: :green },
-  ].freeze
+  ])
 
   Score = RubyGBA::Audio::Score
   Part = Score::Part
@@ -64,26 +64,26 @@ module Jukebox
   # chord of four notes, the second a big one of sixteen — as many notes as the mixer has
   # voices, so while it sounds there is not one to spare. Each note is its own part, since a
   # part plays one note at a time. At 120 beats a minute a measure is 96 ticks, two seconds.
-  SMALL_CHORD = %i[C3 E3 G3 C4].freeze
-  BIG_CHORD = SMALL_CHORD + %i[C2 G2 E4 G4 C5 D5 E5 G5 A4 B4 D4 C6]
+  SMALL_CHORD = Ractor.make_shareable(%i[C3 E3 G3 C4])
+  BIG_CHORD = Ractor.make_shareable(SMALL_CHORD + %i[C2 G2 E4 G4 C5 D5 E5 G5 A4 B4 D4 C6])
   MEASURE = 96
 
-  CHORALE = Score.new(tempo: 120, priority: 40, length: MEASURE * 2, parts: BIG_CHORD.each_with_index.map do |key, n|
+  CHORALE = Ractor.make_shareable(Score.new(tempo: 120, priority: 40, length: MEASURE * 2, parts: BIG_CHORD.each_with_index.map do |key, n|
     small = n < SMALL_CHORD.size ? [Note.new(at: 0, key: key, length: MEASURE)] : []
     Part.new(plays: :piano, volume: 4, notes: small + [Note.new(at: MEASURE, key: key, length: MEASURE)])
-  end)
+  end))
 
   # The two sound effects, on the same piano. HOORAY is a rising figure ranked above the tune,
   # so it is heard even on the big chord; BLIP is two quick notes ranked below it, so on the big
   # chord there is no voice for it.
-  HOORAY = Score.new(tempo: 120, priority: 68, parts: [Part.new(plays: :piano, volume: 15, notes: %i[C5 E5 G5 C6].each_with_index.map do |key, n|
+  HOORAY = Ractor.make_shareable(Score.new(tempo: 120, priority: 68, parts: [Part.new(plays: :piano, volume: 15, notes: %i[C5 E5 G5 C6].each_with_index.map do |key, n|
     Note.new(at: n * 8, key: key, length: 8)
-  end)])
-  BLIP = Score.new(tempo: 120, priority: 20, parts: [Part.new(plays: :piano, volume: 12, notes: [
+  end)]))
+  BLIP = Ractor.make_shareable(Score.new(tempo: 120, priority: 20, parts: [Part.new(plays: :piano, volume: 12, notes: [
     Note.new(at: 0, key: :G5, length: 4), Note.new(at: 4, key: :C6, length: 4),
-  ])])
+  ])]))
 
-  GAME = RubyGBA.game("JUKEBOX") do
+  GAME = Ractor.make_shareable(RubyGBA.game("JUKEBOX") do
     # Double-buffered so the full repaint each frame can't tear: we draw the whole
     # menu to a hidden screen and show it all at once.
     screen :bitmap, tear_free: true
@@ -233,7 +233,7 @@ module Jukebox
       draw_text "A HOORAY", 64, EFFECTS_ROW, [:gray, :white], showing: asked == 1
       draw_text "B BLIP", 136, EFFECTS_ROW, [:gray, :white], showing: asked == 2
     end
-  end
+  end)
 
   def self.program = GAME.program
   def self.build_rom(**kwargs) = GAME.build_rom(**kwargs)

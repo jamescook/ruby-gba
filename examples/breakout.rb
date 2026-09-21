@@ -112,7 +112,7 @@ module Breakout
   # position, colour, points, and the name of the on/off flag that tracks whether
   # it's still there. Generating it in Ruby up front keeps the game code below a
   # short loop instead of 32 copy-pasted bricks.
-  BRICKS = ROWS.times.flat_map do |r|
+  BRICKS = Ractor.make_shareable(ROWS.times.flat_map do |r|
     COLS.times.map do |c|
       { name:   :"brick_#{r}_#{c}",
         x:      c * BRICK_CELL_W,
@@ -120,7 +120,7 @@ module Breakout
         color:  ROW_COLORS[r],
         points: ROW_POINTS[r] }
     end
-  end.freeze
+  end)
 
   GAME = RubyGBA.game("BREAKOUT") do
     screen :bitmap, tear_free: true # draw to a hidden page, flip when done — no tearing

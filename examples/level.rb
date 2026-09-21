@@ -28,7 +28,7 @@ module Level
 
   TILES = "assets/tiles.png" # a 2-cell tile sheet (brick is tile 1, floor is tile 2)
   HERO  = "assets/hero.png"  # a 4-frame walk-cycle sprite sheet
-  MAP   = "assets/level.csv" # a 30x20 tilemap exported as CSV (1 = brick, 2 = floor)
+  MAP   = Ractor.make_shareable("assets/level.csv") # a 30x20 tilemap exported as CSV (1 = brick, 2 = floor)
 
   GAME = RubyGBA.game("LEVEL") do
     screen :tiled # tile mode: a background room + a hardware sprite over it

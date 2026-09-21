@@ -33,9 +33,13 @@ require "rbconfig"
 # that only makes the build faster correctly reports "identical" here; for compiler
 # speed, reach for a profiler.
 module Emitted
-  ROOT = File.expand_path("..", __dir__)
-  PROBE = File.join(__dir__, "emitted_probe.rb")
-  EXAMPLES = File.join(ROOT, "examples")
+  ROOT = Ractor.make_shareable(File.expand_path("..", __dir__))
+  PROBE = File.join(__dir__, "emitted_probe.rb").freeze
+
+  # Which Ruby to launch, asked once. Asking reads Ruby's own table of how it was built,
+  # which a worker Ractor may not touch.
+  RUBY = RbConfig.ruby.freeze
+  EXAMPLES = Ractor.make_shareable(File.join(ROOT, "examples"))
 
   # Every ARM instruction the backend emits is four bytes, so code is reported in
   # instructions — the unit a lowering change is thought about in.
@@ -153,7 +157,7 @@ module Emitted
   def probe(lib_root, path, detail: false)
     args = [lib_root, ROOT, path]
     args << "detail" if detail
-    stdout, stderr, status = Open3.capture3(RbConfig.ruby, PROBE, *args, chdir: ROOT)
+    stdout, stderr, status = Open3.capture3(RUBY, PROBE, *args, chdir: ROOT)
     measurement(File.basename(path, ".rb"), stdout, stderr, status)
   end
 
@@ -229,11 +233,11 @@ module Emitted
 
     # Kinds first: it is the axis that explains. Funcs next, the structural unit.
     # Lines last, exact but longest.
-    SECTIONS = [
+    SECTIONS = Ractor.make_shareable([
       [:kinds, "by operation", "what the lowering did differently"],
       [:funcs, "by func", "where in the program's structure"],
       [:lines, "by line", "where in the game's own source"],
-    ].freeze
+    ])
 
     def initialize(before:, after:)
       @before = before || {}

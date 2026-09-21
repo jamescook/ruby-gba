@@ -92,19 +92,45 @@ which points `Color` at the printer's palette).
 Narrower helpers stay **opt-in**, so their names appear only where used:
 `include Differential`, `include CostArith`, `include RubyGBA::IR::Build`.
 
-Running them. **The suite is `rake test:parallel`** — it spreads the files over processes and
-finishes in a fraction of the time. Bare `rake test` runs the lot in one process, so use it
-only to name ONE file or one test:
+Running them. **The suite is `rake test`** — one process, with each test given a core of its
+own (see "Ractors" below). `TEST=` names one file, `TESTOPTS=` one test:
 
 ```bash
-rake test:parallel                                              # the suite (JOBS=8 to pick a count)
+rake test                                                       # the suite
 rake test TEST=test/ruby_gba/dsl/test_thing.rb                  # one file
 rake test TEST=test/ruby_gba/dsl/test_thing.rb TESTOPTS="--name=/pattern/"  # one test; -n /pat/ trips shell quoting
-ruby -Itest test/ruby_gba/dsl/test_thing.rb                     # one file, no rake
+bundle exec ruby -Itest test/ruby_gba/dsl/test_thing.rb         # one file, no rake (plain minitest)
 ```
 
-The Wolfenstein port (`~/open_source/ruby-wolf3d`) has the same pair for its own suite, which
-this one does not run and does not know about.
+The last one needs `bundle exec`, because the runner is a gem.
+
+The Wolfenstein port (`~/open_source/ruby-wolf3d`) has a suite of its own, which this one does
+not run and does not know about.
+
+## Ractors — fix what the runner reports
+
+`rake test` runs the suite through **minitest-ractor**
+(`github.com/jamescook/minitest-ractor`, taken from git until it is released). It gives each
+test a Ractor of its own — Ruby's way of using several cores in one process — and reports
+every test that reached state the whole process shares.
+
+**Those findings are bugs, not noise, and they are not the runner being fussy.** A global, a
+class variable, a module's own registry, a fixture one test can change and the next reads
+changed: each is an order-dependent fault that simply stays invisible while everything runs
+one after another. Make the code Ractor-friendly rather than silencing the report.
+
+- something read from a global or a class variable while the test runs → read it once when
+  the file loads, into a constant
+- a module's registry, or a lazy `@thing ||= …` cache → keep one per Ractor:
+  `Ractor.current[:key] ||= …`, or `Ractor.store_if_absent(:key) { … }`
+- a fixture in a constant → nothing to do. `test_helper.rb` freezes every constant a test
+  class declares, all the way down, the moment it is declared.
+
+The one honest way out is a test that **changes the whole process on purpose** — registering a
+font or a guardrail, swapping a library method for a stub, declaring a class, asserting about
+the process's own output. That class says `runs_on_the_main_ractor!` at the top, **with a line
+saying why**, and runs before the pool starts. It is not somewhere to park a test nobody has
+looked at.
 
 ## Asserting what something COSTS
 
@@ -438,7 +464,7 @@ exact wording (which is free to improve). See the guardrail tests for the shape.
 
 - Don't name a test helper `run` — it shadows `Minitest::Test#run`. The blit
   tests use `interpret`/`assert_same_pixels`/domain names instead.
-- `rake test:parallel` runs everything; a single file is `ruby -Itest test/the_file.rb`.
+- `rake test` runs everything; a single file is `rake test TEST=test/the_file.rb`.
 - Integration tests **fail loudly** without the emulator rather than skipping — it is
   required, not optional, so a missing build is a real error and not a quiet pass with the
   coverage gutted.

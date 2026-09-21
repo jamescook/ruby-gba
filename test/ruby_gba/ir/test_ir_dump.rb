@@ -19,6 +19,10 @@ require_relative "../../conformance_fixture"
 #   description of the source can drift out of sync with a purely cosmetic
 #   reformatting; an AST assertion can't be fooled by one.
 class TestIRDump < Minitest::Test
+  # Runs the Ruby it generated, which defines classes and asks which script Ruby was
+  # started with — changes to the whole process, so on the main Ractor. See test_helper.
+  runs_on_the_main_ractor!
+
   include RubyGBA::IR::Build
 
   Dump = RubyGBA::IR::Dump

@@ -26,10 +26,29 @@ module RubyGBA
         @title = title
         @code = code
         @maker = maker
-        @block = block
+        @block = shareable_or_not(block)
         @frame_sync = frame_sync
         @fast_cartridge = fast_cartridge
         @fast_code = fast_code
+        freeze
+      end
+
+      # A GAME CAN BE BUILT ON ANY CORE, so long as its block reaches for nothing around it.
+      #
+      # The handle keeps the author's block so the game can be built later, and a block
+      # normally carries the scope it was written in — which is the one thing two cores may
+      # never share. A block that captures nothing can be cut loose from that scope, and one
+      # written inside `module Pong` is exactly that: it names constants and methods, never a
+      # variable from outside.
+      #
+      # A game declared at the top LEVEL of a file cannot be, because a block written there
+      # belongs to Ruby's own main object and that is not shareable either. Such a game still
+      # builds perfectly well — on the core that declared it, which is where it was going to
+      # be built anyway. So this tries, and keeps what it was given when it cannot.
+      private def shareable_or_not(block)
+        Ractor.make_shareable(block)
+      rescue Ractor::IsolationError
+        block
       end
 
       # The op-tree the DSL block builds — what the headless interpreter runs in tests.
@@ -100,38 +119,50 @@ module RubyGBA
       private
 
       # This game's block, run — the tree and what the run learned besides.
+      #
+      # REMEMBERED PER CORE rather than on the handle, because the handle is frozen so that
+      # it can cross to another core at all. Each core that asks runs the block once and
+      # keeps the answer; running a block is cheap next to lowering it, and a core that
+      # never asks pays nothing.
       def evaluated
-        @evaluated ||= EvaluatedGame.new(@block, frame_sync: @frame_sync)
+        seen = (Ractor.current[:ruby_gba_evaluated_games] ||= {})
+        seen[self] ||= EvaluatedGame.new(@block, frame_sync: @frame_sync)
       end
 
       # Is +path+ the very script Ruby was told to run? Compared as full paths so a
       # relative "examples/bird.rb" and an absolute run path still match.
+      # Read when this file loads. It never changes while a process runs, and a worker
+      # Ractor may not read a global at all.
+      MAIN_SCRIPT = $PROGRAM_NAME
+
       def main_script?(path)
-        program = $PROGRAM_NAME
+        program = MAIN_SCRIPT
         !program.nil? && File.expand_path(path) == File.expand_path(program)
       end
     end
   end
 
-  # Started here rather than the first time somebody asks, and replaced rather than added
-  # to. A list built on first use is built by whoever asks first, and a worker Ractor may
-  # not write to a module at all — so merely READING this used to be refused. Now it is a
-  # read, and only declaring a game is a write. That suits how it is used: a game is
-  # declared at the top level of a script, which is the main Ractor by construction.
-  @registered_games = [].freeze
-
   class << self
-    # Every game declared while this process ran, in declaration order (usually one
-    # per file). The `ruby-gba` command loads a game file and reads the game it
-    # declared from here.
-    attr_reader :registered_games
+    # Every game declared here, in declaration order (usually one per file). The `ruby-gba`
+    # command loads a game file and reads the game it declared from here.
+    #
+    # KEPT PER RACTOR rather than for the whole process. A declared game holds the author's
+    # own block so it can be built later, and a block carries the surroundings it was
+    # written in — the one thing Ruby will not let two cores share. Kept on the module this
+    # could be neither written nor read from a worker, and a worker builds games.
+    #
+    # Nothing is lost by it being per core: whoever declares a game is whoever wants it
+    # back. The command-line tool declares and reads on the main one.
+    def registered_games = Ractor.current[:ruby_gba_registered_games] || EMPTY
 
     # Forget every game declared so far. The `ruby-gba` command does this before loading a
     # game file, so that whatever the file adds is the game it asked for.
     def forget_registered_games!
-      @registered_games = [].freeze
+      Ractor.current[:ruby_gba_registered_games] = nil
       self
     end
+
+    EMPTY = [].freeze
 
     # Declare a game: record its DSL block for later building and return a Game
     # handle. Building and writing are left to the caller — see Game — except for the
@@ -143,7 +174,7 @@ module RubyGBA
 
       handle = Cartridge::Game.new(title, code: code, maker: maker, block: block, frame_sync: frame_sync,
                         fast_cartridge: fast_cartridge, fast_code: fast_code)
-      @registered_games = (@registered_games + [handle]).freeze
+      Ractor.current[:ruby_gba_registered_games] = registered_games + [handle]
       handle
     end
   end

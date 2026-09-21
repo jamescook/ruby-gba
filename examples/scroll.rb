@@ -38,14 +38,14 @@ module Scroll
   SIDE = 64
   LAKES = [[10..14, 12..19], [42..48, 38..50]].freeze
 
-  MAP = (0...SIDE).map do |r|
+  MAP = Ractor.make_shareable((0...SIDE).map do |r|
     (0...SIDE).map do |c|
       if LAKES.any? { |rows, cols| rows.cover?(r) && cols.cover?(c) } then "~"
       elsif ((r * 3) + (c * 5)) % 11 == 0                             then "T" # scattered trees
       else "."                                                                 # grass
       end
     end.join
-  end.freeze
+  end)
 
   GAME = RubyGBA.game("SCROLL") do
     screen :tiled # tile mode: one big background layer we slide the window over

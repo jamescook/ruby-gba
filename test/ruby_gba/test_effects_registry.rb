@@ -12,6 +12,10 @@ require "stringio"
 # tests build real programs through the DSL and read the screen, rather than
 # checking that a method got defined.
 class TestEffectsRegistry < Minitest::Test
+  # Registers into the library itself, which changes the whole process — so on the
+  # main Ractor, not in the pool. See test_helper.
+  runs_on_the_main_ractor!
+
   Effects = RubyGBA::Effects
   Guardrails = RubyGBA::IR::Guardrails
 

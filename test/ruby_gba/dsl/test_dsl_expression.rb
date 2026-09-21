@@ -134,13 +134,18 @@ class TestDSLExpression < Minitest::Test
   end
 
   # ...and the same words without it say so rather than changing anything.
+  #
+  # Written out as source rather than made from a block, because a test made from a block
+  # cannot be called from a worker, and these tests run in a pool of them.
   [%i[set 5], %i[add 1], %i[sub 1]].each do |word, amount|
-    define_method(:"test_a_variables_#{word}_without_its_bang_is_a_friendly_error") do
-      err = assert_raises(ArgumentError) { tree { var(:v, 0).public_send(word, amount) } }
+    class_eval <<~TEST, __FILE__, __LINE__ + 1
+      def test_a_variables_#{word}_without_its_bang_is_a_friendly_error
+        err = assert_raises(ArgumentError) { tree { var(:v, 0).public_send(:#{word}, #{amount}) } }
 
-      assert_match(/`v\.#{word}` does not change a variable/, err.message)
-      assert_match(/write `v\.#{word}!`/, err.message)
-    end
+        assert_match(/`v\\.#{word}` does not change a variable/, err.message)
+        assert_match(/write `v\\.#{word}!`/, err.message)
+      end
+    TEST
   end
 
   def test_a_flat_verb_without_its_bang_is_a_friendly_error

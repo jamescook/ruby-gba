@@ -30,7 +30,7 @@ require_relative "../lib/ruby_gba"
 
 module Corridor
   MAP_W = 8 # an 8x8 maze: a solid border ring with a few inner walls
-  MAP = [
+  MAP = Ractor.make_shareable([
     1, 1, 1, 1, 1, 1, 1, 1,
     1, 0, 0, 0, 0, 0, 0, 1,
     1, 0, 1, 1, 0, 0, 0, 1,
@@ -39,7 +39,7 @@ module Corridor
     1, 0, 0, 1, 0, 0, 0, 1,
     1, 0, 0, 0, 0, 0, 0, 1,
     1, 1, 1, 1, 1, 1, 1, 1
-  ].freeze
+  ])
 
   # The cells holding gold, as map indices. Walk onto one to take it.
   GOLD = [17, 22, 41, 46, 51, 54].freeze
@@ -61,7 +61,7 @@ module Corridor
   # a quarter turn (128) later.
   TURN = 512
   QUARTER = TURN / 4
-  SIN = (0...TURN).map { |a| Math.sin(a * 2 * Math::PI / TURN) }
+  SIN = Ractor.make_shareable((0...TURN).map { |a| Math.sin(a * 2 * Math::PI / TURN) })
 
   # How tall a wall one cell away stands in the view. The band keeps a wall you are
   # nose-to-nose with from filling the world, and one at the far end from vanishing.
@@ -71,11 +71,11 @@ module Corridor
   MIN_H = 6
   USUAL_H = 31 # about how tall a wall stands on a normal frame, measured. See `estimate:`.
 
-  SKY = RubyGBA::Graphics::Color.rgb(4, 6, 11)
+  SKY = Ractor.make_shareable(RubyGBA::Graphics::Color.rgb(4, 6, 11))
   FLOOR = RubyGBA::Graphics::Color.rgb(10, 7, 4)
-  NEAR = RubyGBA::Graphics::Color.rgb(29, 26, 20)
+  NEAR = Ractor.make_shareable(RubyGBA::Graphics::Color.rgb(29, 26, 20))
   MID = RubyGBA::Graphics::Color.rgb(19, 17, 13)
-  FAR = RubyGBA::Graphics::Color.rgb(10, 9, 8)
+  FAR = Ractor.make_shareable(RubyGBA::Graphics::Color.rgb(10, 9, 8))
   BAR = RubyGBA::Graphics::Color.rgb(2, 2, 4)
   GOLD_C = RubyGBA::Graphics::Color.rgb(31, 27, 6)
   WALL_SHADES = [NEAR, MID, FAR].freeze
@@ -217,10 +217,14 @@ module Corridor
     end
   end
 
-  GAME = game
+  # The default corridor, built once per core rather than kept in a constant. `game` above
+  # takes how many columns and how wide, so its block reaches for those — and a block that
+  # reaches for anything around it belongs to the core that made it and cannot be shared.
+  # One per core costs a build each and can be used from anywhere.
+  def self.default = Ractor.store_if_absent(:corridor_game) { game }
 
-  def self.program = GAME.program
-  def self.build_rom(**kwargs) = GAME.build_rom(**kwargs)
+  def self.program = default.program
+  def self.build_rom(**kwargs) = default.build_rom(**kwargs)
 end
 
-Corridor::GAME.write_if_main
+Corridor.default.write_if_main

@@ -43,12 +43,12 @@ module Piano
 
   # "Mary Had a Little Lamb" as [note, frames-to-hold]. 24 frames ~= a quarter note
   # at 60fps; 48 a half, 96 the final long note.
-  MELODY = [
+  MELODY = Ractor.make_shareable([
     [:E, 24], [:D, 24], [:C, 24], [:D, 24], [:E, 24], [:E, 24], [:E, 48],
     [:D, 24], [:D, 24], [:D, 48], [:E, 24], [:G, 24], [:G, 48],
     [:E, 24], [:D, 24], [:C, 24], [:D, 24], [:E, 24], [:E, 24], [:E, 24], [:E, 24],
     [:D, 24], [:D, 24], [:E, 24], [:D, 24], [:C, 96]
-  ].freeze
+  ])
 
   # Left hand: a two-note block chord (root + fifth), its outer two fingers pressing
   # keys 1 and 4 together, struck on each measure's downbeat.

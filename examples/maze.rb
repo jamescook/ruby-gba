@@ -27,7 +27,7 @@ module Maze
 
   # A 30x20-tile room (240x160, the whole screen): a wall border with a grid of thick
   # pillars, leaving wide corridors between them. "#" is a wall, "." is floor.
-  ROOM = [
+  ROOM = Ractor.make_shareable([
     "##############################",
     "#............................#",
     "#...####....####....####.....#",
@@ -48,7 +48,7 @@ module Maze
     "#............................#",
     "#............................#",
     "##############################",
-  ].freeze
+  ])
 
   GAME = RubyGBA.game("MAZE") do
     screen :tiled # tile mode: a background room + a hardware sprite over it

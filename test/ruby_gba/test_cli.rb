@@ -12,19 +12,23 @@ require "json"
 # its dependency) stays out of every other test. Everything else builds ROMs through
 # the library (RubyGBA.game / RubyGBA.build) with no CLI involved.
 class TestCLI < Minitest::Test
+  # Which Ruby to launch, asked once here. Asking reads Ruby's own table of how it was
+  # built, which is not something a worker may touch — and these tests run in a pool.
+  RUBY = RbConfig.ruby.freeze
+
   BIN = File.expand_path("../../bin/ruby-gba", __dir__)
   LIB = File.expand_path("../../lib", __dir__)
 
   # Run the CLI in +dir+ and return [combined_output, Process::Status].
   def cli(*args, dir:)
-    Open3.capture2e(RbConfig.ruby, BIN, *args, chdir: dir)
+    Open3.capture2e(RUBY, BIN, *args, chdir: dir)
   end
 
   # Run an arbitrary Ruby file (e.g. something `build --format=ir` wrote) as its own
   # process, with the checkout's lib/ on its load path — the way a user who cloned
   # the repo, rather than installed the gem, would run it.
   def run_ruby(path, dir:)
-    Open3.capture2e(RbConfig.ruby, "-I", LIB, path, chdir: dir)
+    Open3.capture2e(RUBY, "-I", LIB, path, chdir: dir)
   end
 
   def test_new_scaffolds_a_game_that_builds_and_runs
@@ -221,7 +225,7 @@ class TestCLI < Minitest::Test
   def test_profile_format_json_prints_one_parseable_document
     Dir.mktmpdir do |dir|
       cli("new", "demo", dir: dir)
-      out, err, status = Open3.capture3(RbConfig.ruby, BIN, "profile", "demo.rb", "--format=json", chdir: dir)
+      out, err, status = Open3.capture3(RUBY, BIN, "profile", "demo.rb", "--format=json", chdir: dir)
       assert status.success?, out + err
       data = JSON.parse(out)
       assert_operator data["frames"], :>, 0

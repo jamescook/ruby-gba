@@ -22,11 +22,11 @@ module Dive
     # How long one bar of air lasts at rest, and so how long a full tank does: ten
     # seconds of easy breathing, and half that as deep as you can go.
     PER_BAR = 60
-    FULL = BARS * PER_BAR
+    FULL = Ractor.make_shareable(BARS * PER_BAR)
 
     # The panel: a blank sheet with a casing round a row of bars. Everything outside it is
     # a blank cell, so the water and the dive show through the rest of the screen.
-    PANEL = (0...CELLS).map do |r|
+    PANEL = Ractor.make_shareable((0...CELLS).map do |r|
       (0...CELLS).map do |c|
         next "#" if (r == ROW - 1 || r == ROW + 1) && c.between?(COL - 1, COL + BARS)
         next "#" if r == ROW && (c == COL - 1 || c == COL + BARS)
@@ -34,7 +34,7 @@ module Dive
 
         " "
       end.join
-    end.freeze
+    end)
 
     def initialize(build)
       @build = build

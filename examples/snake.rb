@@ -92,7 +92,7 @@ module Snake
   # The snake starts as a short horizontal run in the middle, heading right. The
   # body is ordered tail-first, so the last cell is the head.
   START_ROW   = (MIN_ROW + MAX_ROW) / 2
-  START_CELLS = [[5, START_ROW], [6, START_ROW], [7, START_ROW], [8, START_ROW]].freeze
+  START_CELLS = Ractor.make_shareable([[5, START_ROW], [6, START_ROW], [7, START_ROW], [8, START_ROW]])
 
   FOOD_TRIES = 8               # random cells to try when placing food off the snake
 

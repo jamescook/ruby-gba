@@ -9,6 +9,10 @@ require "test_helper"
 # would push M five pixels further right; asserting M's left edge lands at x+2 is
 # what distinguishes the two. Checked on the interpreter and on real hardware.
 class TestProportionalFont < Minitest::Test
+  # Registers into the library itself, which changes the whole process — so on the
+  # main Ractor, not in the pool. See test_helper.
+  runs_on_the_main_ractor!
+
 
   Fonts = RubyGBA::Graphics::Fonts
 

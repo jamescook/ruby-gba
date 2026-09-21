@@ -28,7 +28,7 @@ module Emitted
   # weights are re-measured from the emulator now and then, so it would churn for
   # reasons that have nothing to do with the emitted code this file is guarding.
   module Baseline
-    PATH = File.join(ROOT, "tools", "emitted_baseline.json")
+    PATH = Ractor.make_shareable(File.join(ROOT, "tools", "emitted_baseline.json"))
     VERSION = 1
     ACCEPT = "rake emitted:record"
 

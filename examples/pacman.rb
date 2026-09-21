@@ -44,7 +44,7 @@ module Pacman
   # 8..151 down). Pac and the pellets are kept within it.
   FLOOR_X = (8..(240 - 8 - SIZE)).freeze
   FLOOR_Y = (8..(160 - 8 - SIZE)).freeze
-  PELLET_SPOTS = [[112, 40], [48, 40], [184, 40], [48, 112], [184, 112]].freeze
+  PELLET_SPOTS = Ractor.make_shareable([[112, 40], [48, 40], [184, 40], [48, 112], [184, 112]])
   START = [(240 - SIZE) / 2, (160 - SIZE) / 2].freeze
   GHOST_START = [24, 24].freeze
 
@@ -54,7 +54,7 @@ module Pacman
   HUD_GAP = 6
 
   # A bordered room that fills the screen: a wall around the edge, floor inside.
-  ROOM = (["#" * 30] + Array.new(18, "##{'.' * 28}#") + ["#" * 30]).freeze
+  ROOM = Ractor.make_shareable((["#" * 30] + Array.new(18, "##{'.' * 28}#") + ["#" * 30]))
 
   # Pac-Man facing +dir+, as ASCII art: 'Y' is a lit (yellow) body pixel, '.' is
   # transparent. He's the disc of radius R. With his mouth open, a triangular wedge —

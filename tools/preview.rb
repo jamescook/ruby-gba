@@ -106,7 +106,7 @@ module Preview
     "data:image/png;base64,#{[png(frame)].pack('m0')}"
   end
 
-  PNG_SIGNATURE = [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A].pack("C*")
+  PNG_SIGNATURE = Ractor.make_shareable([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A].pack("C*"))
 
   # Encode a frame as a PNG image (8-bit truecolor RGB). Each 15-bit BGR555 color is
   # expanded to 8-bit-per-channel RGB; the scanlines (each prefixed with a "no filter"
@@ -153,7 +153,7 @@ module Preview
 
   # --- command line: `ruby tools/preview.rb EXAMPLE [options]` ---
 
-  EXAMPLES_DIR = File.expand_path("../examples", __dir__)
+  EXAMPLES_DIR = Ractor.make_shareable(File.expand_path("../examples", __dir__))
 
   # Load examples/NAME.rb and return its module (Parallax, SnakeBuffered, ...). The
   # module name is the file name camel-cased; it must expose `.program`.

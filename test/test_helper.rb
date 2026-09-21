@@ -1,21 +1,16 @@
 # frozen_string_literal: true
 
-# Coverage measurement is opt-in (COVERAGE=1 rake test) — plain `rake test`
-# pays nothing for it. `rake test:parallel` runs the suite as several
-# processes with no shared memory, so each one only records its own slice
-# (SimpleCov.result, no report) and skips the HTML report; the Rakefile
-# collates every shard's slice into one report once they've all exited.
+# Coverage measurement is opt-in (COVERAGE=1 rake test) — a plain run pays nothing for it.
+# The whole suite is one process now, so there is one result and nothing to stitch together.
 if ENV["COVERAGE"] == "1"
   require "simplecov"
   require_relative "support/coverage"
 
-  sharded = ENV.key?("SHARD_FILES")
-  SimpleCov.command_name "shard-#{Process.pid}" if sharded
   SimpleCov.start(&Coverage::FILTERS)
-  SimpleCov.at_exit { SimpleCov.result } if sharded
 end
 
 require "minitest/autorun"
+require "minitest/ractor"
 require_relative "../lib/ruby_gba"
 
 # The one require a test file needs. It pulls in minitest and the library, and
@@ -131,6 +126,30 @@ end
 class Minitest::Test # rubocop:disable Style/ClassAndModuleChildren
   include SharedConstants
   include EmulatorSupport
+
+  # Hand every test to the pool. Minitest runs a class serially until the class asks not to.
+  parallelize_me!
+
+  # ...and back out again, for a file whose tests CONFIGURE THE LIBRARY — registering an
+  # effect pack, a font, a guardrail. Those change the whole process by design, which is the
+  # thing a worker may not do, and it is what the test is about rather than a fault in it.
+  # Such a class says so, and runs on the main Ractor before the pool starts.
+  #
+  # A STOPGAP, and it is pinned to minitest's own internals: the two methods below are
+  # minitest's, overridden to undo what asking for the pool did, and the body of the second
+  # is copied from it because the parallel module has already replaced it on the base class.
+  # That belongs in the runner, which owns the override and can simply not apply it. This
+  # comes out the day minitest-ractor grows an opt-out of its own.
+  def self.runs_on_the_main_ractor!
+    class << self
+      def run_order = :random # anything but :parallel; :random is minitest's own default
+
+      def run(klass, method_name, reporter)
+        reporter.prerecord klass, method_name
+        reporter.record klass.new(method_name).run
+      end
+    end
+  end
 
   # EVERY FIXTURE A TEST CLASS PARKS IN A CONSTANT IS FROZEN, ALL THE WAY DOWN, the moment it
   # is declared. Ruby tells a class when a constant is added to it, so there is nothing to

@@ -1,0 +1,23 @@
+#!/bin/sh
+# Checks that ask a question about the SOURCE ON DISK rather than about anything the
+# library does when it runs. Those do not belong in the test suite: the suite proves
+# behaviour, and it now runs each test on one of several cores, where reading files and
+# lexing them is neither possible nor the point.
+#
+# This repo sets core.hooksPath to .githooks, so this file is the whole pre-commit hook.
+#
+# 1. What a build is allowed to call the console's quick memory. Nothing it PRINTS may
+#    fall back on the hardware's own words; comments may, and are exempt. See
+#    tools/plain_words_scan.rb, which explains why it reads the source through Ruby's
+#    lexer rather than grepping it.
+
+set -e
+
+# Only when something under lib/ is being committed — nothing else can change the answer.
+if git diff --cached --name-only --diff-filter=ACM | grep -q '^lib/.*\.rb$'; then
+  bundle exec ruby tools/plain_words_scan.rb || {
+    echo
+    echo "Commit stopped. Run 'rake plain_words' to see it again."
+    exit 1
+  }
+fi

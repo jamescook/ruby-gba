@@ -44,7 +44,7 @@ module Dive
     SEE_THROUGH = 58
 
     # How fast the water itself slides sideways, which is the current.
-    DRIFT = 1
+    DRIFT = Ractor.make_shareable(1)
 
     # Which quarter of the sun this cell is, or nil for plain sky.
     def self.sun_quarter(row, col)
@@ -57,13 +57,13 @@ module Dive
 
     # The far cliff: a dark face with paler flecks, opaque everywhere because nothing is
     # behind it, and the same all the way down so its wrap never shows.
-    CLIFF = (0...DOWN).map do |r|
+    CLIFF = Ractor.make_shareable((0...DOWN).map do |r|
       (0...ACROSS).map { |c| ((r * 5) + (c * 3)) % 9 == 0 ? "o" : "." }.join
-    end.freeze
+    end)
 
     # The reef: sky with the sun in it above the waterline, then rock and kelp with gaps
     # the cliff shows through.
-    REEF = (0...DOWN).map do |r|
+    REEF = Ractor.make_shareable((0...DOWN).map do |r|
       (0...ACROSS).map do |c|
         next(sun_quarter(r, c) || ".") if r < SURFACE_ROW
         next "k" if (c % 7).zero? && (r % 11) > 3 # a stand of kelp
@@ -71,18 +71,18 @@ module Dive
 
         " "
       end.join
-    end.freeze
+    end)
 
     # The water: empty above the surface, the surface itself, then open water. The empty
     # cells are what lets a diver's head come out.
-    WATER = (0...DOWN).map do |r|
+    WATER = Ractor.make_shareable((0...DOWN).map do |r|
       (0...ACROSS).map do |c|
         next " " if r < SURFACE_ROW
         next "=" if r == SURFACE_ROW
 
         ((r * 2) + c) % 5 == 0 ? "~" : "-"
       end.join
-    end.freeze
+    end)
 
     private_class_method :sun_quarter
 

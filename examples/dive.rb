@@ -28,51 +28,51 @@ module Dive
   module Ink
     RGB = RubyGBA::Graphics::Color
 
-    SURFACE      = RGB.rgb(3, 9, 20)    # open water up near the top
-    SURFACE_SPOT = RGB.rgb(4, 11, 23)
-    SHAFT        = RGB.rgb(13, 21, 31)  # a shaft of sunlight falling through it
-    SHAFT_EDGE   = RGB.rgb(7, 15, 26)
-    SUN          = RGB.rgb(31, 30, 16)  # the disc itself
-    SUN_WEDGE    = RGB.rgb(27, 21, 6)   # ...and the darker segments that show it turning
+    SURFACE      = Ractor.make_shareable(RGB.rgb(3, 9, 20))    # open water up near the top
+    SURFACE_SPOT = Ractor.make_shareable(RGB.rgb(4, 11, 23))
+    SHAFT        = Ractor.make_shareable(RGB.rgb(13, 21, 31))  # a shaft of sunlight falling through it
+    SHAFT_EDGE   = Ractor.make_shareable(RGB.rgb(7, 15, 26))
+    SUN          = Ractor.make_shareable(RGB.rgb(31, 30, 16))  # the disc itself
+    SUN_WEDGE    = Ractor.make_shareable(RGB.rgb(27, 21, 6))   # ...and the darker segments that show it turning
 
-    SKY          = RGB.rgb(16, 24, 31)  # the air above the sea
-    SKY_HIGH     = RGB.rgb(21, 27, 31)
-    WALL         = RGB.rgb(2, 5, 11)    # the far cliff, almost out of the light
-    WALL_FLECK   = RGB.rgb(3, 7, 14)
-    ROCK         = RGB.rgb(5, 8, 12)    # the near rocks
-    ROCK_LIT     = RGB.rgb(8, 12, 16)
-    KELP         = RGB.rgb(3, 16, 9)    # and the kelp standing in them
-    KELP_DARK    = RGB.rgb(1, 10, 6)
-    WATER        = RGB.rgb(4, 11, 25)   # the sheet the diver swims behind
-    WATER_LIT    = RGB.rgb(7, 15, 29)
-    WATER_SKIN   = RGB.rgb(19, 28, 31)  # the line where the air stops
+    SKY          = Ractor.make_shareable(RGB.rgb(16, 24, 31))  # the air above the sea
+    SKY_HIGH     = Ractor.make_shareable(RGB.rgb(21, 27, 31))
+    WALL         = Ractor.make_shareable(RGB.rgb(2, 5, 11))    # the far cliff, almost out of the light
+    WALL_FLECK   = Ractor.make_shareable(RGB.rgb(3, 7, 14))
+    ROCK         = Ractor.make_shareable(RGB.rgb(5, 8, 12))    # the near rocks
+    ROCK_LIT     = Ractor.make_shareable(RGB.rgb(8, 12, 16))
+    KELP         = Ractor.make_shareable(RGB.rgb(3, 16, 9))    # and the kelp standing in them
+    KELP_DARK    = Ractor.make_shareable(RGB.rgb(1, 10, 6))
+    WATER        = Ractor.make_shareable(RGB.rgb(4, 11, 25))   # the sheet the diver swims behind
+    WATER_LIT    = Ractor.make_shareable(RGB.rgb(7, 15, 29))
+    WATER_SKIN   = Ractor.make_shareable(RGB.rgb(19, 28, 31))  # the line where the air stops
 
-    FISH_BODY    = RGB.rgb(22, 22, 26)  # the fish as drawn, before a species recolours it
-    FISH_EYE     = RGB.rgb(31, 31, 31)
+    FISH_BODY    = Ractor.make_shareable(RGB.rgb(22, 22, 26))  # the fish as drawn, before a species recolours it
+    FISH_EYE     = Ractor.make_shareable(RGB.rgb(31, 31, 31))
 
     # The six species, each a body colour and an eye colour. One picture is drawn with
     # each of these in turn, so a shoal costs the art of a single fish.
-    SHOAL = {
+    SHOAL = Ractor.make_shareable({
       perch: [RGB.rgb(24, 18, 8), RGB.rgb(31, 28, 18)],
       gold: [RGB.rgb(31, 23, 4), RGB.rgb(31, 31, 20)],
       ember: [RGB.rgb(29, 9, 3), RGB.rgb(31, 22, 12)],
       slate: [RGB.rgb(9, 15, 22), RGB.rgb(22, 27, 31)],
       plum: [RGB.rgb(19, 6, 22), RGB.rgb(30, 20, 31)],
       moss: [RGB.rgb(6, 20, 11), RGB.rgb(22, 31, 24)],
-    }.freeze
+    })
 
-    SUIT         = RGB.rgb(30, 5, 4)    # the diver's wetsuit
-    MASK         = RGB.rgb(24, 30, 31)  # the glass of their mask
-    TANK         = RGB.rgb(21, 21, 24)  # the air on their back
-    BUBBLE       = RGB.rgb(17, 26, 31)  # and what comes off it
-    BUBBLE_LIT   = RGB.rgb(29, 31, 31)
+    SUIT         = Ractor.make_shareable(RGB.rgb(30, 5, 4))    # the diver's wetsuit
+    MASK         = Ractor.make_shareable(RGB.rgb(24, 30, 31))  # the glass of their mask
+    TANK         = Ractor.make_shareable(RGB.rgb(21, 21, 24))  # the air on their back
+    BUBBLE       = Ractor.make_shareable(RGB.rgb(17, 26, 31))  # and what comes off it
+    BUBBLE_LIT   = Ractor.make_shareable(RGB.rgb(29, 31, 31))
 
-    PANEL        = RGB.rgb(11, 11, 14)  # the gauge's casing
-    PANEL_LIT    = RGB.rgb(17, 17, 20)
-    AIR          = RGB.rgb(2, 29, 10)   # a bar of air still in the tank
-    AIR_DARK     = RGB.rgb(1, 18, 6)
-    SPENT        = RGB.rgb(7, 6, 6)     # ...and one used up
-    SPENT_DARK   = RGB.rgb(4, 3, 3)
+    PANEL        = Ractor.make_shareable(RGB.rgb(11, 11, 14))  # the gauge's casing
+    PANEL_LIT    = Ractor.make_shareable(RGB.rgb(17, 17, 20))
+    AIR          = Ractor.make_shareable(RGB.rgb(2, 29, 10))   # a bar of air still in the tank
+    AIR_DARK     = Ractor.make_shareable(RGB.rgb(1, 18, 6))
+    SPENT        = Ractor.make_shareable(RGB.rgb(7, 6, 6))     # ...and one used up
+    SPENT_DARK   = Ractor.make_shareable(RGB.rgb(4, 3, 3))
   end
 
   TITLE = 0
@@ -93,13 +93,13 @@ module Dive
 
   # Past halfway down you are breathing twice as hard, which is what makes the bottom
   # somewhere you visit rather than somewhere you sit.
-  HARD_WORK = DEEPEST / 2
+  HARD_WORK = Ractor.make_shareable(DEEPEST / 2)
 
   # With your head out the tank fills faster than any depth empties it, so getting back up
   # is always worth it.
   BREATH = 6
 
-  GAME = RubyGBA.game("DIVE") do
+  GAME = Ractor.make_shareable(RubyGBA.game("DIVE") do
     screen :tiled
 
     # The stack, back to front. One line saying what is in front of what, for a picture
@@ -206,7 +206,7 @@ module Dive
         when_val OVER, :over
       end
     end
-  end
+  end)
 
   def self.program = GAME.program
   def self.build_rom(**kwargs) = GAME.build_rom(**kwargs)

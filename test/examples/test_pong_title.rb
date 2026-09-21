@@ -148,9 +148,16 @@ class TestPongTitle < Minitest::Test
   # That game, played once for every test that reads it: it is most of this file's running
   # time. Returns the interpreter, how much had sounded when the game ended, and how much when
   # START left the end screen.
+  # KEPT PER WORKER, not per class. Three tests read this one game and it is most of this
+  # file's running time, so it is worth playing once rather than three times — but a worker
+  # may not keep anything on a class, and the tests that read it may land on three different
+  # workers. Each keeps its own.
+  #
+  # That is three plays where it used to be one, and it costs no more waiting: the three run
+  # at the same moment on three cores, so the wall clock is one play either way. What it
+  # spends is work, which there is plenty of.
   def finished_game
-    self.class.instance_variable_get(:@finished_game) ||
-      self.class.instance_variable_set(:@finished_game, play_to_the_next_game)
+    Ractor.store_if_absent(:pong_finished_game) { play_to_the_next_game }
   end
 
   def play_to_the_next_game

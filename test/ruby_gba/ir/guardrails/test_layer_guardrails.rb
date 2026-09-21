@@ -214,30 +214,36 @@ class TestLayerGuardrails < Minitest::Test
   # writes it. Asking instead what the body DECLARED lets every one of them through,
   # because a per-frame body is behavior and puts nothing in the picture.
 
+  # Written as the source of the call rather than as a block that makes it. A block carries
+  # the scope it was written in, which cannot cross to another core, and these tests run in a
+  # pool of them — so the line goes straight into the test that is generated below.
   EFFECTS_IN_A_LAYER = {
-    "pulse" => ->(sprite, _bg) { pulse sprite, to: 1.5 },
-    "camera_follows" => ->(sprite, bg) { camera_follows sprite, across: bg },
-    "fade_out" => ->(_sprite, _bg) { fade_out frames: 10 },
-    "shake_screen" => ->(_sprite, _bg) { shake_screen intensity: 3, frames: 8 },
+    "pulse" => "pulse hero, to: 1.5",
+    "camera_follows" => "camera_follows hero, across: world",
+    "fade_out" => "fade_out frames: 10",
+    "shake_screen" => "shake_screen intensity: 3, frames: 8",
   }.freeze
 
   EFFECTS_IN_A_LAYER.each do |verb, effect|
-    define_method(:"test_#{verb}_still_works_inside_a_layer") do
-      program, = built do
-        screen :tiled
-        image(:tile, "#" => :green) { (["#" * 8] * 8).join("\n") }
-        tiles :set, "#" => :tile
-        layers :world, :actors
-        world = layer(:world) { background :bg, tiles: :set, map: (0...20).map { "#" * 30 } }
-        layer(:actors) do
-          hero = sprite :red_guy, at: [100, 60]
-          instance_exec(hero, world, &effect)
+    class_eval <<~TEST, __FILE__, __LINE__ + 1
+      def test_#{verb}_still_works_inside_a_layer
+        program, = built do
+          screen :tiled
+          image(:tile, "#" => :green) { (["#" * 8] * 8).join("\\n") }
+          tiles :set, "#" => :tile
+          layers :world, :actors
+          world = layer(:world) { background :bg, tiles: :set, map: (0...20).map { "#" * 30 } }
+          layer(:actors) do
+            hero = sprite :red_guy, at: [100, 60]
+            _ = [hero, world] # both are named by one effect or another
+            #{effect}
+          end
+          game_loop { fade_in }
         end
-        game_loop { fade_in }
-      end
 
-      assert_equal [:actors], program.walk.filter_map { |node| node.layer if node.kind == :object }
-    end
+        assert_equal [:actors], program.walk.filter_map { |node| node.layer if node.kind == :object }
+      end
+    TEST
   end
 
   # And a plain routine that declares nothing with a depth can live beside the sprite it
@@ -276,28 +282,31 @@ class TestLayerGuardrails < Minitest::Test
 
   # Each of these paints into the picture at the moment it is called, so no ordering
   # applied later can reach back and change where it landed.
+  # Source rather than blocks, for the reason written above EFFECTS_IN_A_LAYER.
   PAINTING = {
-    "pixel" => -> { pixel 10, 10, :red },
-    "fill_rect" => -> { fill_rect 0, 0, 10, 10, :red },
-    "dma_fill_rect" => -> { dma_fill_rect 0, 0, 10, 10, :red },
-    "draw_rect_at" => -> { draw_rect_at 0, 0, 10, 10, :red },
-    "clear_screen" => -> { clear_screen :red },
-    "blit" => -> { blit :red_guy, 4, 4 },
+    "pixel" => "pixel 10, 10, :red",
+    "fill_rect" => "fill_rect 0, 0, 10, 10, :red",
+    "dma_fill_rect" => "dma_fill_rect 0, 0, 10, 10, :red",
+    "draw_rect_at" => "draw_rect_at 0, 0, 10, 10, :red",
+    "clear_screen" => "clear_screen :red",
+    "blit" => "blit :red_guy, 4, 4",
   }.freeze
 
   PAINTING.each do |verb, body|
-    define_method(:"test_#{verb}_inside_a_layer_is_refused") do
-      error = assert_raises(ArgumentError) do
-        built do
-          screen :bitmap
-          layers :world
-          layer(:world) { instance_exec(&body) }
+    class_eval <<~TEST, __FILE__, __LINE__ + 1
+      def test_#{verb}_inside_a_layer_is_refused
+        error = assert_raises(ArgumentError) do
+          built do
+            screen :bitmap
+            layers :world
+            layer(:world) { #{body} }
+          end
         end
-      end
 
-      assert_match(/`#{verb}` paints where you call it/, error.message)
-      assert_match(/To fix this/, error.message)
-    end
+        assert_match(/`#{verb}` paints where you call it/, error.message)
+        assert_match(/To fix this/, error.message)
+      end
+    TEST
   end
 
   # Text is the one verb whose nature changes with the screen, so its error has to say

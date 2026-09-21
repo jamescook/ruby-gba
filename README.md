@@ -77,7 +77,7 @@ Build it and run it in any GBA emulator:
 ```bash
 ruby examples/snake.rb             # => writes snake.gba
 ruby-gba build examples/snake.rb   # the same, via the CLI (adds -o / --profile / --stats)
-rake test:parallel                 # unit + emulator integration tests (builds the emulator first)
+rake test                          # unit + emulator integration tests (builds the emulator first)
 ```
 
 ---

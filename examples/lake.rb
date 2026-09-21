@@ -71,13 +71,13 @@ module Lake
   SCREEN_W = 240
   JELLY_SIZE = 16
   SEE_THROUGH = 55   # how much of the water shows through a bell, 0 solid to 100 invisible
-  DRIFT = [[20, 96, 1],    # x it starts at, the depth it rests at, pixels a frame
+  DRIFT = Ractor.make_shareable([[20, 96, 1],    # x it starts at, the depth it rests at, pixels a frame
            [110, 124, 2],
-           [190, 108, 1]].freeze
+           [190, 108, 1]])
 
   # The scene above the water: sky, a sun, and hills standing on the shoreline. Opaque
   # everywhere, because it is the backmost layer and nothing shows behind it.
-  SCENE = (0...CELLS).map do |r|
+  SCENE = Ractor.make_shareable((0...CELLS).map do |r|
     (0...CELLS).map do |c|
       if    r >= HORIZON then "~"                  # below the shoreline (the water covers it)
       elsif r == HORIZON - 1 then "="              # the shoreline itself
@@ -86,13 +86,13 @@ module Lake
       else "."                                     # sky
       end
     end.join
-  end.freeze
+  end)
 
   # The water: see-through above the shoreline so the scene shows, then water below. The
   # hills' reflection sits just under the shore, and the sun's is a bright pillar running
   # all the way down the column the sun is in — the part of the picture the ripple shows
   # off best, because a vertical streak shifted sideways is impossible to miss.
-  WATER = (0...CELLS).map do |r|
+  WATER = Ractor.make_shareable((0...CELLS).map do |r|
     (0...CELLS).map do |c|
       if    r < HORIZON then " "                   # see-through — the scene above shows here
       elsif c == SUN_COL then "|"                  # the sun's reflection, a bright pillar
@@ -100,9 +100,9 @@ module Lake
       else "~"                                     # open water
       end
     end.join
-  end.freeze
+  end)
 
-  GAME = RubyGBA.game("LAKE") do
+  GAME = Ractor.make_shareable(RubyGBA.game("LAKE") do
     screen :tiled # tile mode: two background layers the console composites for us
 
     # --- the scene above the water ---
@@ -265,7 +265,7 @@ module Lake
         jelly.y.set!(ripple[(jelly.x + phase) % WAVE_ROWS] + depth)
       end
     end
-  end
+  end)
 
   def self.program = GAME.program
   def self.build_rom(**kwargs) = GAME.build_rom(**kwargs)

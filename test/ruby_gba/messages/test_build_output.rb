@@ -19,6 +19,10 @@ require "pathname"
 # give would fail at the worst possible moment — the build that finally has something to
 # say would be the build that cannot say it.
 class TestBuildOutput < Minitest::Test
+  # Asserts that nothing reaches the PROCESS's own output, which is the whole point of it.
+  # That is a fact about the process, so on the main Ractor. See test_helper.
+  runs_on_the_main_ractor!
+
 
   # A game that gives the guardrails something to report. Writing the wait for the
   # screen by hand is harmless and the build says so, which is all this needs: a

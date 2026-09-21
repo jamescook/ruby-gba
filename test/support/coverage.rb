@@ -1,10 +1,8 @@
 # frozen_string_literal: true
 
-# The SimpleCov setup shared by `test/test_helper.rb` (which starts measuring,
-# in both `rake test` and each `rake test:parallel` shard) and the Rakefile
-# (which renders the parallel run's merged report, after every shard has
-# exited). Kept in one place so the two never drift into disagreement about
-# what counts as coverable.
+# The SimpleCov setup `test/test_helper.rb` starts measuring with, under
+# COVERAGE=1. The whole suite is one process, so there is one result and
+# nothing to merge.
 module Coverage
   FILTERS = proc do
     add_filter "/test/"

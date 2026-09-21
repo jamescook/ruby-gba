@@ -951,10 +951,13 @@ module RubyGBAEmulator
 
     # What each kind is called where a person reads it: the word they wrote, and the word for
     # one of the things.
-    PARTS = {
+    # Shareable all the way down, not just frozen: several cartridges can be verified at
+    # once on different cores, and a core may read a constant only when nothing in it can
+    # still change. A frozen Hash of unfrozen Hashes is still refused.
+    PARTS = Ractor.make_shareable({
       video: { verb: "showing", what: "layer" },
       audio: { verb: "hearing", what: "sound channel" }
-    }.freeze
+    })
 
     # Switch the named parts the way +only:+ / +without:+ asks, run the block if there is one,
     # and put everything back the way it was found.

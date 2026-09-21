@@ -69,301 +69,309 @@ DIFFICULTY     = "DIFFICULTY" # the title row that opens the screen below
 NORMAL         = "NORMAL"     # ...and its two rows
 HARD           = "HARD"
 
-Pong = RubyGBA.game("PONG") do
-  screen :bitmap
-  enable_sound
+# The game lives in a module so its block belongs to that module rather than to the file's
+# top level. A block written at the top level belongs to Ruby's own main object, which two
+# cores may never share — and that would stop this game being built anywhere but where it
+# was declared. Every other example is shaped this way already.
+module PongGame
+  GAME = RubyGBA.game("PONG") do
+    screen :bitmap
+    enable_sound
 
-  # --- Sound presets ---
-  define_sound :paddle_hit, frequency: 880, duty: :quarter, decay: :fast
-  define_sound :wall_bounce, frequency: 440, duty: :quarter, decay: :fast
-  define_sound :point, frequency: 220, duty: :half, decay: :medium
+    # --- Sound presets ---
+    define_sound :paddle_hit, frequency: 880, duty: :quarter, decay: :fast
+    define_sound :wall_bounce, frequency: 440, duty: :quarter, decay: :fast
+    define_sound :point, frequency: 220, duty: :half, decay: :medium
 
-  # --- Music ---
-  song :gameplay do
-    tempo 140
-    duty :quarter
+    # --- Music ---
+    song :gameplay do
+      tempo 140
+      duty :quarter
 
-    # Ascending arpeggio
-    note :C4, :eighth
-    note :E4, :eighth
-    note :G4, :eighth
-    note :C5, :quarter
-    rest :eighth
+      # Ascending arpeggio
+      note :C4, :eighth
+      note :E4, :eighth
+      note :G4, :eighth
+      note :C5, :quarter
+      rest :eighth
 
-    # Descending
-    note :G4, :eighth
-    note :E4, :eighth
-    note :C4, :quarter
-    rest :eighth
+      # Descending
+      note :G4, :eighth
+      note :E4, :eighth
+      note :C4, :quarter
+      rest :eighth
 
-    # Variation
-    note :D4, :eighth
-    note :F4, :eighth
-    note :A4, :quarter
-    rest :eighth
+      # Variation
+      note :D4, :eighth
+      note :F4, :eighth
+      note :A4, :quarter
+      rest :eighth
 
-    # Resolve
-    note :F4, :eighth
-    note :D4, :eighth
-    note :C4, :quarter
-    rest :quarter
-  end
-
-  # --- RAM variables ---
-  # Each `var` returns a handle we compare and mutate with the expression DSL.
-  ball_x       = var :ball_x, 118
-  ball_y       = var :ball_y, 78
-  ball_dx      = var :ball_dx, BALL_SPEED
-  ball_dy      = var :ball_dy, BALL_SPEED
-  player_y     = var :player_y, 68
-  # The cpu paddle holds a fraction, so its two speeds can differ by less than a pixel a
-  # frame. Everything that reads it as a place on screen asks for the whole number.
-  cpu_y        = var :cpu_y, 68.0
-  player_score = var :player_score, 0
-  cpu_score    = var :cpu_score, 0
-  state        = var :state, 0    # 0=title, 1=playing, 2=player_wins, 3=cpu_wins, 4=difficulty
-  music_on     = var :music_on, 1 # 1=play the gameplay music, 0=don't (set from the title menu)
-  # How hard the game is, which is the cpu paddle's speed and nothing else. It starts on
-  # the harder of the two, which is the row the difficulty screen's cursor opens on.
-  cpu_speed    = var :cpu_speed, CPU_HARD
-  zoom_timer   = var :zoom_timer, 0 # 0=idle; counting up while the title zooms in on START
-
-  # --- Subroutines ---
-
-  func :reset_ball do
-    ball_x.set! 118
-    ball_y.set! 78
-    ball_dx.flip! # reverse horizontal direction
-  end
-
-  func :reset_game do
-    player_score.set! 0
-    cpu_score.set! 0
-    player_y.set! 68
-    cpu_y.set! 68.0
-    ball_dx.set! BALL_SPEED
-    ball_dy.set! BALL_SPEED
-    ball_x.set! 118
-    ball_y.set! 78
-    zoom_timer.set! 0 # so the title starts unzoomed the next time it shows
-    fade_music_in     # the last game faded its music out; this one brings it up again
-    state.set! 1
-  end
-
-  func :update_cpu do
-    # Simple AI: slide the paddle's center toward the ball at up to the difficulty's
-    # speed per frame, then keep it on-screen. approach moves cpu_y toward the target
-    # without overshooting, so the paddle settles when it lines up instead of
-    # jittering. The target is the ball's y minus half a paddle, so the paddle's
-    # center — not its top — is what tracks the ball. The step is a variable rather
-    # than a number, which is the whole of the difficulty setting.
-    cpu_y.approach! (ball_y - PADDLE_H / 2).to_f, cpu_speed
-    cpu_y.clamp! 0, SCREEN_H - PADDLE_H
-  end
-
-  func :update_ball do
-    # Move ball
-    ball_x.add! ball_dx
-    ball_y.add! ball_dy
-
-    # Bounce off top wall
-    (ball_y <= 0).then do
-      ball_dy.abs!
-      beep :wall_bounce
+      # Resolve
+      note :F4, :eighth
+      note :D4, :eighth
+      note :C4, :quarter
+      rest :quarter
     end
 
-    # Bounce off bottom wall
-    (ball_y >= SCREEN_H - BALL_SIZE).then do
-      ball_dy.negate_abs!
-      beep :wall_bounce
+    # --- RAM variables ---
+    # Each `var` returns a handle we compare and mutate with the expression DSL.
+    ball_x       = var :ball_x, 118
+    ball_y       = var :ball_y, 78
+    ball_dx      = var :ball_dx, BALL_SPEED
+    ball_dy      = var :ball_dy, BALL_SPEED
+    player_y     = var :player_y, 68
+    # The cpu paddle holds a fraction, so its two speeds can differ by less than a pixel a
+    # frame. Everything that reads it as a place on screen asks for the whole number.
+    cpu_y        = var :cpu_y, 68.0
+    player_score = var :player_score, 0
+    cpu_score    = var :cpu_score, 0
+    state        = var :state, 0    # 0=title, 1=playing, 2=player_wins, 3=cpu_wins, 4=difficulty
+    music_on     = var :music_on, 1 # 1=play the gameplay music, 0=don't (set from the title menu)
+    # How hard the game is, which is the cpu paddle's speed and nothing else. It starts on
+    # the harder of the two, which is the row the difficulty screen's cursor opens on.
+    cpu_speed    = var :cpu_speed, CPU_HARD
+    zoom_timer   = var :zoom_timer, 0 # 0=idle; counting up while the title zooms in on START
+
+    # --- Subroutines ---
+
+    func :reset_ball do
+      ball_x.set! 118
+      ball_y.set! 78
+      ball_dx.flip! # reverse horizontal direction
     end
 
-    # Paddle collisions. The ball bounces only when its rectangle truly overlaps a
-    # paddle's — the horizontal band AND the vertical span. The vertical test is
-    # what makes the game winnable: without it a paddle behaves like a full-height
-    # wall, so the ball could never slip past it to score. The ball and paddles are
-    # plain rectangles here (not sprites), so describe each as a `box` — a corner and
-    # a size — and ask whether they touch with `overlaps?`.
-    ball       = box(ball_x, ball_y, BALL_SIZE, BALL_SIZE)
-    player_pad = box(LEFT_X, player_y, PADDLE_W, PADDLE_H)
-    cpu_pad    = box(RIGHT_X, cpu_y.to_i, PADDLE_W, PADDLE_H)
-
-    ball.overlaps?(player_pad).then do
-      ball_dx.abs! # bounce right
-      beep :paddle_hit
+    func :reset_game do
+      player_score.set! 0
+      cpu_score.set! 0
+      player_y.set! 68
+      cpu_y.set! 68.0
+      ball_dx.set! BALL_SPEED
+      ball_dy.set! BALL_SPEED
+      ball_x.set! 118
+      ball_y.set! 78
+      zoom_timer.set! 0 # so the title starts unzoomed the next time it shows
+      fade_music_in     # the last game faded its music out; this one brings it up again
+      state.set! 1
     end
 
-    # The CPU tops out at CPU_SPEED, slower than the ball, so a fast diagonal can
-    # leave it behind and let the player score.
-    ball.overlaps?(cpu_pad).then do
-      ball_dx.negate_abs! # bounce left
-      beep :paddle_hit
+    func :update_cpu do
+      # Simple AI: slide the paddle's center toward the ball at up to the difficulty's
+      # speed per frame, then keep it on-screen. approach moves cpu_y toward the target
+      # without overshooting, so the paddle settles when it lines up instead of
+      # jittering. The target is the ball's y minus half a paddle, so the paddle's
+      # center — not its top — is what tracks the ball. The step is a variable rather
+      # than a number, which is the whole of the difficulty setting.
+      cpu_y.approach! (ball_y - PADDLE_H / 2).to_f, cpu_speed
+      cpu_y.clamp! 0, SCREEN_H - PADDLE_H
     end
 
-    # Score: ball went off left edge — you just let one past, so the screen stings red.
-    (ball_x <= 0).then do
-      cpu_score.add! 1
-      (cpu_score >= WIN_SCORE).then do
-        state.set! 3
-        fade_music_out
+    func :update_ball do
+      # Move ball
+      ball_x.add! ball_dx
+      ball_y.add! ball_dy
+
+      # Bounce off top wall
+      (ball_y <= 0).then do
+        ball_dy.abs!
+        beep :wall_bounce
       end
-      beep :point
-      flash_screen :red, frames: STING_FRAMES
-      call :reset_ball
-    end
 
-    # Score: ball went off right edge
-    (ball_x >= SCREEN_W).then do
-      player_score.add! 1
-      (player_score >= WIN_SCORE).then do
-        state.set! 2
-        fade_music_out
+      # Bounce off bottom wall
+      (ball_y >= SCREEN_H - BALL_SIZE).then do
+        ball_dy.negate_abs!
+        beep :wall_bounce
       end
-      beep :point
-      call :reset_ball
+
+      # Paddle collisions. The ball bounces only when its rectangle truly overlaps a
+      # paddle's — the horizontal band AND the vertical span. The vertical test is
+      # what makes the game winnable: without it a paddle behaves like a full-height
+      # wall, so the ball could never slip past it to score. The ball and paddles are
+      # plain rectangles here (not sprites), so describe each as a `box` — a corner and
+      # a size — and ask whether they touch with `overlaps?`.
+      ball       = box(ball_x, ball_y, BALL_SIZE, BALL_SIZE)
+      player_pad = box(LEFT_X, player_y, PADDLE_W, PADDLE_H)
+      cpu_pad    = box(RIGHT_X, cpu_y.to_i, PADDLE_W, PADDLE_H)
+
+      ball.overlaps?(player_pad).then do
+        ball_dx.abs! # bounce right
+        beep :paddle_hit
+      end
+
+      # The CPU tops out at CPU_SPEED, slower than the ball, so a fast diagonal can
+      # leave it behind and let the player score.
+      ball.overlaps?(cpu_pad).then do
+        ball_dx.negate_abs! # bounce left
+        beep :paddle_hit
+      end
+
+      # Score: ball went off left edge — you just let one past, so the screen stings red.
+      (ball_x <= 0).then do
+        cpu_score.add! 1
+        (cpu_score >= WIN_SCORE).then do
+          state.set! 3
+          fade_music_out
+        end
+        beep :point
+        flash_screen :red, frames: STING_FRAMES
+        call :reset_ball
+      end
+
+      # Score: ball went off right edge
+      (ball_x >= SCREEN_W).then do
+        player_score.add! 1
+        (player_score >= WIN_SCORE).then do
+          state.set! 2
+          fade_music_out
+        end
+        beep :point
+        call :reset_ball
+      end
     end
-  end
 
-  func :draw_field do
-    # Dashed center line
-    8.times do |i|
-      dma_fill_rect 119, i * 20 + 2, 2, 12, :gray
-    end
-  end
-
-  # --- Scenes ---
-
-  scene :title do
-    # The title is its own display mode: the console's rotate/scale background
-    # layer (`background(...).rotate` / `.scale` — see the DSL reference), not
-    # the plain framebuffer `:playing` draws into below. Crossing back and forth
-    # is what per-scene display mode is for — the framework reconfigures the
-    # hardware on the transition, so nothing here has to know `:playing` exists,
-    # and nothing there has to know this scene used BG2 for something else.
-    screen :rotozoom
-
-    image :dark, "#" => :black do "########\n" * 8 end
-    image :light, "#" => rgb(2, 2, 2) do "########\n" * 8 end
-    tiles :backdrop, "#" => :dark, "$" => :light
-    checker = (0...32).map { |r| (0...32).map { |c| (r + c).even? ? "#" : "$" }.join }
-    title_board = background :title_board, tiles: :backdrop, map: checker
-
-    draw_text "PONG", :center, 40, :white
-
-    # The menu. Ask the font how wide its longest row comes out and centre the column on
-    # that, so the rows share a left edge for the cursor to line up under and nothing
-    # here is a number counted by eye.
-    menu_x = (SCREEN_W - [MUSIC_OFF, DIFFICULTY].map { |row| text_width(row) }.max) / 2
-    menu :title, at: [menu_x, 90], spacing: 16, color: :gray, picked: :white do |m|
-      m.item("START") { zoom_timer.set! 1 }
-      # A row whose words follow the setting. `1 - music_on` is the toggle: 1 becomes 0
-      # and 0 becomes 1.
-      m.item([MUSIC_OFF, MUSIC_ON], showing: music_on) { music_on.set! 1 - music_on }
-      # ...and a row that opens a screen of its own, below.
-      m.item(DIFFICULTY) { state.set! 4 }
+    func :draw_field do
+      # Dashed center line
+      8.times do |i|
+        dma_fill_rect 119, i * 20 + 2, 2, 12, :gray
+      end
     end
 
-    # Zoom the backdrop in once START is chosen, then hand off to :playing when the zoom
-    # finishes — the same pace `fade_out`/`fade_in` walk a level over frames at.
-    (zoom_timer == 0).then { title_board.scale(1.0) } # idle: hold it at the size it was drawn
-    (zoom_timer > 0).then do
-      title_board.scale.approach! 4.0, ZOOM_PER_FRAME
-      zoom_timer.add! 1
-      (zoom_timer > ZOOM_FRAMES).then { call :reset_game }
+    # --- Scenes ---
+
+    scene :title do
+      # The title is its own display mode: the console's rotate/scale background
+      # layer (`background(...).rotate` / `.scale` — see the DSL reference), not
+      # the plain framebuffer `:playing` draws into below. Crossing back and forth
+      # is what per-scene display mode is for — the framework reconfigures the
+      # hardware on the transition, so nothing here has to know `:playing` exists,
+      # and nothing there has to know this scene used BG2 for something else.
+      screen :rotozoom
+
+      image :dark, "#" => :black do "########\n" * 8 end
+      image :light, "#" => rgb(2, 2, 2) do "########\n" * 8 end
+      tiles :backdrop, "#" => :dark, "$" => :light
+      checker = (0...32).map { |r| (0...32).map { |c| (r + c).even? ? "#" : "$" }.join }
+      title_board = background :title_board, tiles: :backdrop, map: checker
+
+      draw_text "PONG", :center, 40, :white
+
+      # The menu. Ask the font how wide its longest row comes out and centre the column on
+      # that, so the rows share a left edge for the cursor to line up under and nothing
+      # here is a number counted by eye.
+      menu_x = (SCREEN_W - [MUSIC_OFF, DIFFICULTY].map { |row| text_width(row) }.max) / 2
+      menu :title, at: [menu_x, 90], spacing: 16, color: :gray, picked: :white do |m|
+        m.item("START") { zoom_timer.set! 1 }
+        # A row whose words follow the setting. `1 - music_on` is the toggle: 1 becomes 0
+        # and 0 becomes 1.
+        m.item([MUSIC_OFF, MUSIC_ON], showing: music_on) { music_on.set! 1 - music_on }
+        # ...and a row that opens a screen of its own, below.
+        m.item(DIFFICULTY) { state.set! 4 }
+      end
+
+      # Zoom the backdrop in once START is chosen, then hand off to :playing when the zoom
+      # finishes — the same pace `fade_out`/`fade_in` walk a level over frames at.
+      (zoom_timer == 0).then { title_board.scale(1.0) } # idle: hold it at the size it was drawn
+      (zoom_timer > 0).then do
+        title_board.scale.approach! 4.0, ZOOM_PER_FRAME
+        zoom_timer.add! 1
+        (zoom_timer > ZOOM_FRAMES).then { call :reset_game }
+      end
     end
-  end
 
-  scene :playing do
-    clear_screen :black
+    scene :playing do
+      clear_screen :black
 
-    # Input
-    held(:up).then   { player_y.sub! PADDLE_SPEED }
-    held(:down).then { player_y.add! PADDLE_SPEED }
-    player_y.clamp! 0, SCREEN_H - PADDLE_H
+      # Input
+      held(:up).then   { player_y.sub! PADDLE_SPEED }
+      held(:down).then { player_y.add! PADDLE_SPEED }
+      player_y.clamp! 0, SCREEN_H - PADDLE_H
 
-    # Update
-    call :update_cpu
-    call :update_ball
+      # Update
+      call :update_cpu
+      call :update_ball
 
-    # Draw
-    call :draw_field
-    draw_rect_at LEFT_X, :player_y, PADDLE_W, PADDLE_H, :white
-    draw_rect_at RIGHT_X, cpu_y.to_i, PADDLE_W, PADDLE_H, :white
-    draw_rect_at :ball_x, :ball_y, BALL_SIZE, BALL_SIZE, :white
+      # Draw
+      call :draw_field
+      draw_rect_at LEFT_X, :player_y, PADDLE_W, PADDLE_H, :white
+      draw_rect_at RIGHT_X, cpu_y.to_i, PADDLE_W, PADDLE_H, :white
+      draw_rect_at :ball_x, :ball_y, BALL_SIZE, BALL_SIZE, :white
 
-    # Live score, one digit each side of the center line (first to WIN_SCORE). Each is
-    # pushed up against the net from its own half, so the two sit symmetrically whatever
-    # the font is — no pair of numbers to keep in step by hand.
-    draw_number player_score, :right, 8, :white, digits: 1, within: 0..(NET_X - SCORE_GAP)
-    draw_number cpu_score, :left, 8, :white, digits: 1, within: (NET_X + SCORE_GAP)...SCREEN_W
+      # Live score, one digit each side of the center line (first to WIN_SCORE). Each is
+      # pushed up against the net from its own half, so the two sit symmetrically whatever
+      # the font is — no pair of numbers to keep in step by hand.
+      draw_number player_score, :right, 8, :white, digits: 1, within: 0..(NET_X - SCORE_GAP)
+      draw_number cpu_score, :left, 8, :white, digits: 1, within: (NET_X + SCORE_GAP)...SCREEN_W
 
-    # Background music, unless it was turned off on the title screen.
-    (music_on == 1).then { play_song :gameplay }.else { stop_music }
-  end
-
-  # How hard the game is, on a screen of its own. Two rows and a cursor that opens on the
-  # SECOND of them, which is the point of `starts_on:`: a difficulty screen recommends a
-  # setting, and a player who presses the button straight through should get the game the
-  # author meant rather than the gentlest one. Writing the rows the other way round would
-  # say it too, and would then lie about which is harder — so the recommendation is a
-  # number the menu is given instead of an order the rows are forced into.
-  #
-  # It inherits the top-level `screen :bitmap`, so its rows are painted into the picture;
-  # the title's are composited by the console. Nothing here says which, and the verb is
-  # written the same way on both.
-  scene :difficulty do
-    clear_screen :black
-    draw_text DIFFICULTY, :center, 40, :white
-
-    diff_x = (SCREEN_W - text_width(NORMAL)) / 2
-    menu :difficulty, at: [diff_x, 80], spacing: 16, color: :gray, picked: :white,
-                      starts_on: 1 do |m|
-      m.item(NORMAL) { cpu_speed.set! CPU_NORMAL; state.set! 0 }
-      m.item(HARD)   { cpu_speed.set! CPU_HARD;   state.set! 0 }
+      # Background music, unless it was turned off on the title screen.
+      (music_on == 1).then { play_song :gameplay }.else { stop_music }
     end
-  end
 
-  # The two end screens. The music started fading the moment the last point was scored, and
-  # each screen stops the song once nobody can hear it, because a song plays until something
-  # says otherwise: the tune belongs to the rally, and left alone it carries straight on
-  # through GAME OVER and back onto the title, which sounds like the game never finished.
-  # Said every frame the screen is up, which costs reading the volume and a comparison —
-  # `stop_music` with nothing playing does nothing at all.
-  scene :player_wins do
-    clear_screen :black
-    (music_volume == 0).then { stop_music }
-    draw_text "YOU WIN!", :center, 60, :white
-    draw_text "PRESS START", :center, 100, :gray
+    # How hard the game is, on a screen of its own. Two rows and a cursor that opens on the
+    # SECOND of them, which is the point of `starts_on:`: a difficulty screen recommends a
+    # setting, and a player who presses the button straight through should get the game the
+    # author meant rather than the gentlest one. Writing the rows the other way round would
+    # say it too, and would then lie about which is harder — so the recommendation is a
+    # number the menu is given instead of an order the rows are forced into.
+    #
+    # It inherits the top-level `screen :bitmap`, so its rows are painted into the picture;
+    # the title's are composited by the console. Nothing here says which, and the verb is
+    # written the same way on both.
+    scene :difficulty do
+      clear_screen :black
+      draw_text DIFFICULTY, :center, 40, :white
 
-    # Leaving before the fade is over stops the song there, so the next game starts it again.
-    pressed(:start).then do
-      stop_music
-      state.set! 0
+      diff_x = (SCREEN_W - text_width(NORMAL)) / 2
+      menu :difficulty, at: [diff_x, 80], spacing: 16, color: :gray, picked: :white,
+                        starts_on: 1 do |m|
+        m.item(NORMAL) { cpu_speed.set! CPU_NORMAL; state.set! 0 }
+        m.item(HARD)   { cpu_speed.set! CPU_HARD;   state.set! 0 }
+      end
     end
-  end
 
-  scene :cpu_wins do
-    clear_screen :black
-    (music_volume == 0).then { stop_music }
-    draw_text "GAME OVER", :center, 60, :white
-    draw_text "PRESS START", :center, 100, :gray
+    # The two end screens. The music started fading the moment the last point was scored, and
+    # each screen stops the song once nobody can hear it, because a song plays until something
+    # says otherwise: the tune belongs to the rally, and left alone it carries straight on
+    # through GAME OVER and back onto the title, which sounds like the game never finished.
+    # Said every frame the screen is up, which costs reading the volume and a comparison —
+    # `stop_music` with nothing playing does nothing at all.
+    scene :player_wins do
+      clear_screen :black
+      (music_volume == 0).then { stop_music }
+      draw_text "YOU WIN!", :center, 60, :white
+      draw_text "PRESS START", :center, 100, :gray
 
-    pressed(:start).then do
-      stop_music
-      state.set! 0
+      # Leaving before the fade is over stops the song there, so the next game starts it again.
+      pressed(:start).then do
+        stop_music
+        state.set! 0
+      end
     end
-  end
 
-  # --- Main loop ---
-  game_loop do
-    case_var :state do
-      when_val 0, :title
-      when_val 1, :playing
-      when_val 2, :player_wins
-      when_val 3, :cpu_wins
-      when_val 4, :difficulty
+    scene :cpu_wins do
+      clear_screen :black
+      (music_volume == 0).then { stop_music }
+      draw_text "GAME OVER", :center, 60, :white
+      draw_text "PRESS START", :center, 100, :gray
+
+      pressed(:start).then do
+        stop_music
+        state.set! 0
+      end
+    end
+
+    # --- Main loop ---
+    game_loop do
+      case_var :state do
+        when_val 0, :title
+        when_val 1, :playing
+        when_val 2, :player_wins
+        when_val 3, :cpu_wins
+        when_val 4, :difficulty
+      end
     end
   end
 end
+
+Pong = PongGame::GAME
 
 Pong.write_if_main

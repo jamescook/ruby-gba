@@ -23,18 +23,18 @@ module Dive
     # The lists the fish are drawn with, laid out like the picture's own: see-through
     # first, then the body, then the eye. A fish whose `kind` names none of these would be
     # drawn in its own colours, so a number that ran off the end looks ordinary.
-    SPECIES = %i[perch gold ember slate plum moss].freeze
+    SPECIES = Ractor.make_shareable(%i[perch gold ember slate plum moss])
 
     # Where each one swims, how fast, and which species it is. Negative is leftward, and
     # `face` below turns the picture round to match. Every one of them starts UNDER the
     # surface, because a fish in the sky is a fish.
-    SHOAL_AT = [[20, 58, 1], [180, 74, -1], [60, 100, 2],
-                [210, 126, -1], [120, 64, -2], [8, 142, 1]].freeze
+    SHOAL_AT = Ractor.make_shareable([[20, 58, 1], [180, 74, -1], [60, 100, 2],
+                [210, 126, -1], [120, 64, -2], [8, 142, 1]])
 
     SCREEN_W = 240
     SCREEN_H = 160
 
-    BODY = <<~ART
+    BODY = Ractor.make_shareable(<<~ART)
       ................
       ......########..
       ..#..##########.

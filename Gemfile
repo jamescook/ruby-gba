@@ -35,3 +35,6 @@ gemspec
 #     gem "ruby-gba-emulator"
 #   end
 gem "ruby-gba-emulator", path: "ruby-gba-emulator"
+
+# Runs the suite. From git until it is released as a gem.
+gem "minitest-ractor", git: "https://github.com/jamescook/minitest-ractor.git", group: :test

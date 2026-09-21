@@ -10,6 +10,10 @@ require "stringio"
 # command loads. These assert the handle behaves, and that just declaring a game is
 # side-effect free (no cartridge written) so tests and the CLI stay in control.
 class TestGame < Minitest::Test
+  # Asserts that declaring a game writes nothing to the process's own output, which is a
+  # fact about the process. Main Ractor. See test_helper.
+  runs_on_the_main_ractor!
+
 
   def test_it_returns_a_handle_carrying_the_title_and_codes
     g = RubyGBA.game("MYGAME", code: "BMYG", maker: "01") { screen :bitmap }
@@ -87,6 +91,9 @@ class TestGame < Minitest::Test
   def test_main_script_guard_matches_only_the_running_script
     g = RubyGBA.game("GUARD", code: "BGRD", maker: "01") { screen :bitmap }
     refute g.send(:main_script?, "/nowhere/not_the_runner.rb"), "a foreign file is not the main script"
-    assert g.send(:main_script?, $PROGRAM_NAME), "the running script matches itself"
+    # The library's own record of it, read once when it loaded — asking Ruby directly is
+    # reading a global, which a worker may not do, and these tests run in a pool.
+    assert g.send(:main_script?, RubyGBA::Cartridge::Game::MAIN_SCRIPT),
+           "the running script matches itself"
   end
 end

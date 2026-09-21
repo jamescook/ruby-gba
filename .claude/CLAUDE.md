@@ -31,7 +31,7 @@ or newlines in a single invocation, and do not bundle a file-writing heredoc
 (`cat > f <<EOF …`) with the command that consumes it.
 
 Why this is non-negotiable here: the operator reads each command before allowing it, and the
-permission allow/denylist matches on recognizable prefixes (`git commit`, `rake test:parallel`).
+permission allow/denylist matches on recognizable prefixes (`git commit`, `rake test`).
 A blob like `cat > msg <<EOF … EOF; git add .; git commit -F msg; git show` is unreadable,
 can't be allowlisted, and can't be denied granularly.
 
@@ -88,12 +88,12 @@ needs a C compiler and a system libmgba (`brew install mgba` / `apt install libm
 
 ## Running Tests
 
-**`rake test:parallel` is how the suite is run.** It runs across processes and is several times
-faster; bare `rake test` runs everything in one process and is slow enough to be the wrong
-command every time. Reach for `rake test` ONLY to run one file or one test:
+**`rake test` is how the suite is run.** One process, with each test given a core of its own —
+and a test that reaches state the whole process shares is reported rather than tolerated. See
+"Ractors" in `.claude/rules/testing.md`: fix what it reports, never work around it.
 
 ```bash
-rake test:parallel                                              # the suite (JOBS=8 to pick a count)
+rake test                                                       # the suite
 rake test TEST=test/ruby_gba/dsl/test_thing.rb                  # one file
 rake test TEST=test/ruby_gba/dsl/test_thing.rb TESTOPTS="--name=/pattern/"  # one test
 ```

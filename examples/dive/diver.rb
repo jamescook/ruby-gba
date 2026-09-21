@@ -24,7 +24,7 @@ module Dive
     # Where the diver sits on screen while there is water above them. Swimming up and down
     # moves the WORLD past this point; it is only at the very top, where the world has run
     # out of sea to show, that the diver climbs off it and breaks the surface.
-    STARTS_AT = [112, 72].freeze
+    STARTS_AT = Ractor.make_shareable([112, 72])
     RESTING_Y = 72
 
     BUBBLES = 12      # at once
@@ -32,7 +32,7 @@ module Dive
     EVERY = 14        # frames between one bubble and the next
     FROM_BACK = 2     # where on the diver they come off
 
-    SUIT = <<~ART
+    SUIT = Ractor.make_shareable(<<~ART)
       ................
       .............oo.
       ...........#oo#.

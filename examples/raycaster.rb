@@ -38,7 +38,7 @@ require_relative "../lib/ruby_gba"
 
 module Raycaster
   MAP_W = 8 # an 8x8 maze: a solid border ring with a few inner walls
-  MAP = [
+  MAP = Ractor.make_shareable([
     1, 1, 1, 1, 1, 1, 1, 1,
     1, 0, 0, 0, 0, 0, 0, 1,
     1, 0, 1, 1, 0, 0, 0, 1,
@@ -47,7 +47,7 @@ module Raycaster
     1, 0, 0, 1, 0, 0, 0, 1,
     1, 0, 0, 0, 0, 0, 0, 1,
     1, 1, 1, 1, 1, 1, 1, 1
-  ].freeze
+  ])
 
   NUM_COLS = 30 # screen strips: 30 columns x 8px = 240px wide
   COL_W = 8
@@ -61,7 +61,7 @@ module Raycaster
   # a quarter turn (128) later.
   TURN = 512
   QUARTER = TURN / 4
-  SIN = (0...TURN).map { |a| Math.sin(a * 2 * Math::PI / TURN) }
+  SIN = Ractor.make_shareable((0...TURN).map { |a| Math.sin(a * 2 * Math::PI / TURN) })
 
   # How tall a wall one cell away stands on screen. Everything closer is taller and
   # everything further is shorter, in proportion — that is the perspective divide below.
@@ -74,11 +74,11 @@ module Raycaster
 
   # The palette. Sky and floor bracket the eye line, and the three wall shades are the
   # depth cue: a near wall catches the light, a far one falls into the gloom.
-  SKY = RubyGBA::Graphics::Color.rgb(5, 7, 12)
+  SKY = Ractor.make_shareable(RubyGBA::Graphics::Color.rgb(5, 7, 12))
   FLOOR = RubyGBA::Graphics::Color.rgb(11, 8, 5)
-  NEAR = RubyGBA::Graphics::Color.rgb(29, 27, 23)
+  NEAR = Ractor.make_shareable(RubyGBA::Graphics::Color.rgb(29, 27, 23))
   MID = RubyGBA::Graphics::Color.rgb(20, 18, 15)
-  FAR = RubyGBA::Graphics::Color.rgb(11, 10, 9)
+  FAR = Ractor.make_shareable(RubyGBA::Graphics::Color.rgb(11, 10, 9))
   WALL_SHADES = [NEAR, MID, FAR].freeze
 
   GAME = RubyGBA.game("RAYCAST") do

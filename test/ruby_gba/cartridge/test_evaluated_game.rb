@@ -8,6 +8,11 @@ require "stringio"
 # something asks a Game what it is — held against each other. They were written out twice
 # and drifted, so what these tests pin is that there is one answer and not two.
 class TestEvaluatedGame < Minitest::Test
+  # Catches a reminder the DSL prints while a game is declared. Nothing is passed a stream
+  # on that path, so the only way to catch it is off the process — main Ractor. See
+  # test_helper.
+  runs_on_the_main_ractor!
+
   Progress = RubyGBA::Messages::Progress
 
   # A game that stops half way through itself. The blue clear is in the program; the red

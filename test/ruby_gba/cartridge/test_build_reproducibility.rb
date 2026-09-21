@@ -36,15 +36,21 @@ require_relative "../../../examples/snake_buffered"
 # twice was measured at several seconds and gets slower with each one added, while
 # finding nothing these don't.
 class TestBuildReproducibility < Minitest::Test
+  # Registers into the library itself, which changes the whole process — so on the
+  # main Ractor, not in the pool. See test_helper.
+  runs_on_the_main_ractor!
+
   Effects = RubyGBA::Effects
   Guardrails = RubyGBA::IR::Guardrails
 
   # What each one is here to cover, so a future reader knows what would be lost by
   # dropping it.
+  # Named as source rather than as blocks that fetch them: a block carries the scope it was
+  # written in and cannot cross to another core, and these tests run in a pool of them.
   SUBJECTS = {
-    "a direct-color screen, sound and scenes" => -> { Pong },
-    "a tiled screen, hardware sprites and art sliced from an image file" => -> { Pacman::GAME },
-    "double buffering, which builds a palette" => -> { BufferedSnake::GAME },
+    "a direct-color screen, sound and scenes" => "Pong",
+    "a tiled screen, hardware sprites and art sliced from an image file" => "Pacman::GAME",
+    "double buffering, which builds a palette" => "BufferedSnake::GAME",
   }.freeze
 
   def setup
@@ -89,10 +95,12 @@ class TestBuildReproducibility < Minitest::Test
     (0...first.bytesize).find { |i| first.getbyte(i) != second.getbyte(i) }
   end
 
-  SUBJECTS.each do |what, handle|
-    define_method(:"test_#{what.gsub(/[^a-z]+/, '_')}_builds_the_same_twice") do
-      assert_same_build handle.call, what
-    end
+  SUBJECTS.each do |what, game|
+    class_eval <<~TEST, __FILE__, __LINE__ + 1
+      def test_#{what.gsub(/[^a-z]+/, '_')}_builds_the_same_twice
+        assert_same_build #{game}, #{what.inspect}
+      end
+    TEST
   end
 
   # Lowering the SAME tree twice, rather than rebuilding it — so a failure here says

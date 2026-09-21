@@ -52,7 +52,7 @@ class TestCorridorExample < Minitest::Test
   # itself most of what this file tested.
   def test_it_is_heavy_and_still_fits
     require_emulator!
-    spare = idle_share_of(Corridor::GAME)
+    spare = idle_share_of(Corridor.default)
 
     assert_operator spare, :<, 0.45, "a witness near the line has to be near it: #{spare}"
     assert_operator spare, :>, 0.0, "...and an example that ships must still fit: #{spare}"
