@@ -180,8 +180,19 @@ module RubyGBA
       end
 
       # Write the ROM to a file.
+      #
+      # With syswrite, not File.binwrite, because a cartridge can be shared between Ractors and
+      # written by several at the same moment. Ruby 4.0's ordinary write, the first time it is
+      # handed a frozen string that owns its memory, gives that memory to a temporary string and
+      # re-points the original at it. Two Ractors doing that at once leave two temporaries owning
+      # the same memory; collecting the one the string no longer points at frees the cartridge's
+      # bytes while everyone still holds it, and freeing the other later aborts Ruby. syswrite
+      # only reads the string.
       def write(path)
-        File.binwrite(path, @buffer)
+        File.open(path, "wb") do |file|
+          written = file.syswrite(@buffer)
+          written += file.syswrite(@buffer.byteslice(written..)) while written < @buffer.bytesize
+        end
       end
 
       # ROM size in bytes.

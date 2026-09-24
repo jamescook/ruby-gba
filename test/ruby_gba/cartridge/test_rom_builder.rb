@@ -3,6 +3,7 @@
 require "test_helper"
 
 require "tempfile"
+require "tmpdir"
 require "stringio"
 
 class TestRomBuilder < Minitest::Test
@@ -102,6 +103,37 @@ class TestRomBuilder < Minitest::Test
       assert_equal rom.buffer, written
       assert_operator written.bytesize, :>=, 512
     end
+  end
+
+  # A cartridge shared between Ractors can be written by several of them at the same moment,
+  # and none of those writes may cost it its bytes. Ruby's ordinary file write re-points a
+  # frozen string at a temporary copy of itself the first time it is written; two Ractors
+  # doing that at once leave two owners of the same memory, and collecting the loser frees
+  # the cartridge out from under everyone still holding it.
+  def test_writing_one_shared_cartridge_from_several_ractors_at_once_keeps_its_bytes
+    rom = ROM.assemble(Random.bytes(300_000), title: "RACE", validate: false)
+    want = rom.buffer.dup
+    copies = Array.new(100) { Ractor.make_shareable(rom, copy: true) }
+
+    Dir.mktmpdir("rom-race") do |dir|
+      copies.each do |copy|
+        go = Process.clock_gettime(Process::CLOCK_MONOTONIC) + 0.01
+        writers = Array.new(8) do |n|
+          Ractor.new(copy, File.join(dir, "#{n}.gba"), go) do |cart, path, at|
+            Thread.pass until Process.clock_gettime(Process::CLOCK_MONOTONIC) >= at
+            cart.write(path)
+          end
+        end
+        writers.each(&:join)
+        # Memory freed too early still reads correctly until something else is given it, so
+        # collect, then hand out memory the size of a cartridge.
+        GC.start
+        Array.new(4) { "\xAA".b * want.bytesize }
+      end
+    end
+
+    damaged = copies.count { |copy| copy.buffer != want }
+    assert_equal 0, damaged, "cartridges whose bytes were freed while shared"
   end
 
   def test_title_truncated_to_12_chars
