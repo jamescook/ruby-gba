@@ -267,9 +267,11 @@ module RubyGBA
         # fresh record would drop them — a scroll it forgot would stop being moved to the
         # gap between frames and would tear where the author wrote it.
         declared = (@backgrounds[name] ||= DeclaredBackground.new)
+        # Which map the game says is showing, and which one is really in the cells.
+        choice = map_names.size > 1 ? [:"__bg_#{name}_map", :"__bg_#{name}_live"] : []
         declared.node =
           record(Build.background(name, tiles: tile_names, map: grids.first,
-                                        maps: map_names.size > 1 ? grids : [],
+                                        maps: map_names.size > 1 ? grids : [], choice: choice,
                                         tile_w: set[:tile_w], tile_h: set[:tile_h],
                                         scene: declaring_scene,
                                         affine: @screen_mode == :rotozoom))
@@ -289,7 +291,7 @@ module RubyGBA
         # ...and, for a background with several maps, which one the game says is showing and
         # which one is really in its cells. Both start at 0 — the first map, the one the
         # build already stamped — so nothing is copied until the game asks for another.
-        boot += [:"__bg_#{name}_map", :"__bg_#{name}_live"] if map_names.size > 1
+        boot += choice
         boot.each { |var| at_boot(Build.set(var, Build.int(0))); ensure_var(var) }
         DSL::Background.new(self, name: name, scroll_x: scroll_x, scroll_y: scroll_y,
                              walls: wall_rects(img_rows, set),

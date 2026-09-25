@@ -52,12 +52,18 @@ module RubyGBA
       # in the order BackgroundColors counts them, and empty for one that is only ever drawn
       # in its own. See Object's operand of the same name, which means the same thing about
       # one picture.
+      #
+      # +choice+ names the variables that say which of +maps+ is showing, empty where there is
+      # only one. A background that belongs to a scene is put up as declared each time that
+      # scene takes over, so every one of them goes back to 0, the first map, at that moment:
+      # left alone they would name the map chosen on the last visit while the cells hold the
+      # first, and choosing that map again would be taken as already done.
       class Background
         include Node
         kind :background
         category :draw
-        operands name: :name, tiles: :list, map: :list, maps: :list, tile_w: :int, tile_h: :int,
-                 layer: :name, scene: :name, affine: :flag, recolors: :list
+        operands name: :name, tiles: :list, map: :list, maps: :list, choice: :list, tile_w: :int,
+                 tile_h: :int, layer: :name, scene: :name, affine: :flag, recolors: :list
       end
 
       # A background's tiles all draw from a different list of colours — the whole layer at

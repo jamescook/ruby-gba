@@ -308,7 +308,13 @@ module RubyGBA
             return if this_scenes_scenery.empty?
 
             once_as_the_scene_takes_over(SCENE_SCENERY_STATE, scene_scenery_marker(name)) do
-              this_scenes_scenery.each { |node| emit_background_hardware(node) }
+              this_scenes_scenery.each do |node|
+                emit_background_hardware(node)
+                # The map just sent is the first one declared, so what says which map is
+                # showing goes back to the first as well. Left alone it names the map from the
+                # last visit, and choosing that one again is taken as already done.
+                node.choice.each { |var| @primitives.store_word_immediate(0, @primitives.var_addr(var)) }
+              end
             end
           end
 

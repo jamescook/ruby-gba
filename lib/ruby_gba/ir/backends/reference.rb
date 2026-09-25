@@ -929,6 +929,17 @@ module RubyGBA
           # would draw different pictures for that game.
           return if node.scene && @bg_shown.include?(node)
 
+          # A scene's background goes up AS DECLARED each time the scene takes over: a cell
+          # changed with set_tile, or a map chosen with show_map, is left behind with the
+          # visit that changed it. That is the console's answer too — putting a layer up
+          # sends the map it was declared with — and a game that remembers an opened door
+          # opens it again on the way in. What says which map is showing goes back to the
+          # first with it, or it would name the map from the last visit.
+          if node.scene
+            @bg_maps.delete(node.name)
+            node.choice.each { |var| @vars[var] = 0 }
+          end
+
           # A layer can put this background BEHIND one that is already on screen, and a
           # stamp only covers where it has solid pixels — so painting it now would leave
           # it in front. Painting the ones it belongs behind back over it settles the

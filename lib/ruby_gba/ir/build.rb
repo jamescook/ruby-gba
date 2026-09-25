@@ -578,10 +578,12 @@ module RubyGBA
       # but the picture is the same.
       # +maps+ is every grid this background can be handed, the first being +map+ (the one
       # showing when the program starts). Left empty for a background declared with one map,
-      # whose cells only ever change one at a time (see #set_tile).
-      def background(name, tiles:, map:, tile_w:, tile_h:, maps: [], layer: nil, scene: nil,
+      # whose cells only ever change one at a time (see #set_tile). +choice+ is the variables
+      # that say which of them is showing (see Nodes::Background).
+      def background(name, tiles:, map:, tile_w:, tile_h:, maps: [], choice: [], layer: nil, scene: nil,
                      affine: false, recolors: [])
-        Nodes.build(:background, name: name, tiles: tiles, map: map, maps: maps, recolors: recolors,
+        Nodes.build(:background, name: name, tiles: tiles, map: map, maps: maps, choice: choice,
+                                 recolors: recolors,
                                  tile_w: tile_w, tile_h: tile_h, affine: affine, scene: scene,
                                  **in_layer(layer))
       end

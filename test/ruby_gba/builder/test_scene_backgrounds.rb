@@ -381,6 +381,110 @@ class TestSceneBackgrounds < Minitest::Test
     assert_equal BLUE, v.pixel_gba(0, 0), "the console put the changed cell back"
   end
 
+  # ...BUT ONLY WHILE THE SCENE STAYS UP. Leave it and come back and the scene is put up as
+  # it was declared, the changed cell with it, the same promise show_map makes about a map
+  # chosen again. A game that remembers an opened door opens it again on the way in. The
+  # console did that already, because putting a scene up sends its map; the interpreter
+  # kept painting its own changed copy, so a game's tests saw the door open and the
+  # cartridge showed it shut.
+  private def leaving_and_coming_back
+    tile = SOLID_TILE
+    program do
+      screen :tiled
+      image(:red_art, "#" => :red) { tile }
+      image(:blue_art, "#" => :blue) { tile }
+      tiles :set, "#" => :red_art, "." => :blue_art
+      map = Array.new(20) { "#" * 30 }
+      tick = var :tick, 0
+      state = var :state, 0
+      scene(:play) do
+        room = background :room, tiles: :set, map: map
+        (tick == 2).then { room.set_tile 0, 0, "." }
+      end
+      scene(:away) { background :elsewhere, tiles: :set, map: map }
+      game_loop do
+        tick.add! 1
+        (tick == 4).then { state.set! 1 } # away...
+        (tick == 7).then { state.set! 0 } # ...and back
+        case_var(:state) do
+          when_val 0, :play
+          when_val 1, :away
+        end
+      end
+    end
+  end
+
+  def test_coming_back_to_a_scene_puts_its_background_up_as_declared
+    screen = Reference.new.run(leaving_and_coming_back, frames: 10).screen
+
+    assert_equal RED, screen.pixel(0, 0), "the cell changed before leaving was still changed on return"
+  end
+
+  def test_the_console_puts_it_up_as_declared_too
+    v = assert_emulator_loads_rom(assemble_rom(leaving_and_coming_back, name: "SCNBAK"), frames: 11)
+
+    assert_equal RED, v.pixel_gba(0, 0), "the console kept the changed cell across leaving the scene"
+  end
+
+  # THE SAME FOR A MAP CHOSEN WITH show_map: coming back shows the first map declared, and
+  # the background says so. The half that went wrong on the console was the second one —
+  # it put the first map up but still remembered choosing the other, so choosing that one
+  # again was taken as already done and the picture never changed.
+  private def choosing_a_map_and_coming_back
+    tile = SOLID_TILE
+    program do
+      screen :tiled
+      image(:red_art, "#" => :red) { tile }
+      image(:blue_art, "#" => :blue) { tile }
+      tiles :set, "#" => :red_art, "." => :blue_art
+      tick = var :tick, 0
+      state = var :state, 0
+      seen = var :seen, 0
+      scene(:play) do
+        rooms = background :rooms, tiles: :set,
+                                   map: { hall: Array.new(20) { "#" * 30 }, cave: Array.new(20) { "." * 30 } }
+        (tick == 2).then { rooms.show_map :cave }
+        (tick == 12).then { rooms.show_map :cave } # the same map again, after coming back
+        seen.set! rooms.showing
+      end
+      scene(:away) { background :elsewhere, tiles: :set, map: Array.new(20) { "#" * 30 } }
+      game_loop do
+        tick.add! 1
+        (tick == 4).then { state.set! 1 } # away...
+        (tick == 7).then { state.set! 0 } # ...and back
+        case_var(:state) do
+          when_val 0, :play
+          when_val 1, :away
+        end
+      end
+    end
+  end
+
+  def test_coming_back_shows_the_first_map_and_can_choose_again
+    before = Reference.new.run(choosing_a_map_and_coming_back, frames: 4)
+    assert_equal 1, before[:seen], "the other map was never chosen, so nothing below means anything"
+
+    back = Reference.new.run(choosing_a_map_and_coming_back, frames: 10)
+    assert_equal RED, back.screen.pixel(0, 0), "the map chosen before leaving was still showing"
+    assert_equal 0, back[:seen], "the background still said the other map was showing"
+
+    again = Reference.new.run(choosing_a_map_and_coming_back, frames: 15)
+    assert_equal BLUE, again.screen.pixel(0, 0), "choosing the map again after coming back did nothing"
+  end
+
+  def test_the_console_shows_the_first_map_and_can_choose_again
+    rom = assemble_rom(choosing_a_map_and_coming_back, name: "SCNMAP")
+    v = assert_emulator_loads_rom(rom, frames: 5, vars: rom.var_addresses)
+    assert_equal 1, v.var(:seen), "the other map was never chosen, so nothing below means anything"
+
+    v.step(6)
+    assert_equal RED, v.pixel_gba(0, 0), "the console kept the map chosen before leaving"
+    assert_equal 0, v.var(:seen), "the console still said the other map was showing"
+
+    v.step(5)
+    assert_equal BLUE, v.pixel_gba(0, 0), "choosing the map again after coming back did nothing"
+  end
+
   # A BACKGROUND THAT BELONGS TO NO SCENE IS NOT COVERED BY ANY OF THIS, and the two
   # backends have to say so together. One declared in a plain routine that the frame calls
   # is re-reached every pass exactly as a scene's was, and it is put up again every time —
@@ -559,6 +663,9 @@ class TestSceneBackgrounds < Minitest::Test
   # and disagreed about it until now.
   def test_the_two_backends_draw_the_same_moving_and_changing_scene
     assert_backends_agree(scrolling_program(in_a_scene: true), frames: SCROLLED_FOR)
+    assert_backends_agree(leaving_and_coming_back, frames: 10)
+    assert_backends_agree(choosing_a_map_and_coming_back, frames: 10)
+    assert_backends_agree(choosing_a_map_and_coming_back, frames: 15)
     assert_backends_agree(changing_program, frames: SCROLLED_FOR)
   end
 
