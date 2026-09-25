@@ -85,11 +85,13 @@ module RubyGBA
           # counts down only when nothing reads its index anywhere — not just in its body,
           # because a routine the body calls can be handed the index by a Ruby block that
           # captured it. A name that turns up in any field of any other node counts as read.
+          # Only the fields that hold a name are read at all, so a game's data tables — every
+          # number in them — are passed over (see IR::Node#named_operands).
           def unread_indexes(program)
             indexes = []
             named = Set.new
             program.walk do |node|
-              node.attrs.each do |field, value|
+              node.named_operands.each do |field, value|
                 next indexes << value if node.kind == :repeat && field == :index
 
                 named.merge(names_in(value))

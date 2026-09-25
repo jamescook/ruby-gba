@@ -226,10 +226,13 @@ module RubyGBA
       # For anything that has to CHANGE a program to learn about it — measuring a frame rate
       # means adding a counter to count frames with — so the program it was handed is still
       # the program afterwards.
+      #
+      # An operand that leads to no node is plain data held frozen (see #survey), so the copy
+      # shares it rather than copying a game's data table number by number.
       def copy
         self.class.new(source: source,
                        children: @children.map(&:copy),
-                       **attrs.transform_values { |value| copy_operand(value) })
+                       **attrs.to_h { |name, value| [name, node_fields.include?(name) ? copy_operand(value) : value] })
       end
 
       # A plain nested Hash of the whole node — for asserting structure in tests
@@ -238,7 +241,8 @@ module RubyGBA
       def to_h
         carried = attrs
         result = { kind: kind }
-        result[:attrs] = carried.transform_values { |v| hashify(v) } unless carried.empty?
+        # Only an operand that leads to a node needs turning into hashes; plain data is itself.
+        result[:attrs] = carried.to_h { |name, v| [name, node_fields.include?(name) ? hashify(v) : v] } unless carried.empty?
         result[:children] = @children.map(&:to_h) unless @children.empty?
         result
       end
@@ -251,6 +255,11 @@ module RubyGBA
       alias eql? ==
 
       def hash = to_h.hash
+
+      # Each operand of this node that holds a name somewhere in it, with what it holds — for
+      # a pass looking for where a name is used, which then never reads a game's data. Settled
+      # as each operand is written, the way a walk's route is.
+      def named_operands = name_fields.map { |field| [field, public_send(field)] }
 
       def inspect
         parts = [kind.inspect]
@@ -277,21 +286,27 @@ module RubyGBA
       end
 
       # The one door into an operand: hold it still, store it, wire a nested node's parent
-      # back, and settle whether a walk has to come this way again.
+      # back, and settle whether a walk has to come this way again — and whether a pass
+      # looking for names does.
       def put_operand(name, value)
-        freeze_lists_in(value)
+        leads, named = survey(value)
         instance_variable_set(:"@#{name}", value)
         value.parent = self if value.is_a?(Node)
 
-        leads = leads_to_a_node?(value)
-        return value if leads == node_fields.include?(name)
-
-        # In the order the kind DECLARES its operands, not the order they were written in,
-        # so a pass that collects as it walks — the colours a program draws in, the routines
-        # it can reach — gets them in the order the kind reads in.
-        wanted = leads ? node_fields + [name] : node_fields - [name]
-        @node_fields = self.class.tags.each_key.select { |declared| wanted.include?(declared) }
+        @node_fields = settled(node_fields, name, leads)
+        @name_fields = settled(name_fields, name, named)
         value
+      end
+
+      # +fields+ with +name+ in it or out of it, as +wanted+ says. In the order the kind
+      # DECLARES its operands, not the order they were written in, so a pass that collects as
+      # it walks — the colours a program draws in, the routines it can reach — gets them in the
+      # order the kind reads in.
+      def settled(fields, name, wanted)
+        return fields if wanted == fields.include?(name)
+
+        keep = wanted ? fields + [name] : fields - [name]
+        self.class.tags.each_key.select { |declared| keep.include?(declared) }
       end
 
       # The operands of THIS node that lead to a node. Every other one holds a name, a
@@ -299,26 +314,42 @@ module RubyGBA
       # inside one.
       def node_fields = @node_fields ||= []
 
-      # A list an operand holds belongs to the node from here on. That is what makes one
-      # answer enough below: a list nothing can add to cannot come to hold a node that a
-      # walk would then never reach, and an attempt to add one fails at the line making it.
-      # Anything that is not a list cannot become one, so there is nothing else to hold.
-      def freeze_lists_in(value)
-        return unless value.is_a?(Array)
+      # ...and the ones that hold a name. A table's values, a map, a picture's pixels are
+      # numbers, and hold none.
+      def name_fields = @name_fields ||= []
 
-        value.each { |element| freeze_lists_in(element) }
-        value.freeze
-      end
-
-      # Whether a walk has to come back to this operand — the same question a walk itself
-      # would ask, put to the same object. Nothing is taken on trust from what the field is
-      # DECLARED to hold, so a list that really does hold nodes, like a case statement's
-      # clauses, answers yes.
-      def leads_to_a_node?(value)
+      # ONE READ OF AN OPERAND, answering two questions and holding it still.
+      #
+      # Whether a walk has to come back to it: a node, or a list with one in it. Nothing is
+      # taken on trust from what the field is DECLARED to hold, so a list that really does
+      # hold nodes, like a case statement's clauses, answers yes.
+      #
+      # Whether it holds a name anywhere: a variable, a routine, a picture, the index a loop
+      # hands its body. A node nested in it answers for itself when a walk reaches it, so it
+      # is not looked inside here.
+      #
+      # And a list it holds belongs to the node from here on, frozen. That is what makes one
+      # answer enough: a list nothing can add to cannot come to hold a node that a walk would
+      # then never reach, or a name nobody looked for, and an attempt to add one fails at the
+      # line making it.
+      #
+      # One read rather than three, because an operand can be a game's whole data table.
+      def survey(value)
         case value
-        when Node then true
-        when Array then value.any? { |element| leads_to_a_node?(element) }
-        else false
+        when Node then [true, false]
+        when Symbol then [false, true]
+        when Array
+          leads = named = false
+          value.each do |element|
+            l, n = survey(element)
+            leads ||= l
+            named ||= n
+          end
+          value.freeze
+          [leads, named]
+        when Hash
+          [false, value.any? { |key, element| survey(key)[1] || survey(element)[1] }]
+        else [false, false]
         end
       end
 

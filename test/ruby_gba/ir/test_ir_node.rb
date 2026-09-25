@@ -154,6 +154,24 @@ class TestIRNode < Minitest::Test
     assert_equal 0, values.tally.reads, "the walk read a list that cannot hold a node"
   end
 
+  # ...and a pass looking for where a name is used gets the same bargain: it is handed the
+  # operands that hold a name, and a table's numbers are not among them. Every build asks it,
+  # once per node, of a program whose tables can hold a million numbers.
+  def test_a_search_for_names_does_not_read_the_numbers_in_a_table
+    values = CountingList.new([1, 2, 3])
+    node = Table.new(name: :sines, values: values)
+    values.tally.reads = 0 # the one read that settles the answer is not the one under test
+
+    assert_equal [[:name, :sines]], node.named_operands
+    assert_equal 0, values.tally.reads, "the search read a list that holds no name"
+  end
+
+  def test_a_list_that_holds_names_is_searched
+    node = Case.new(clauses: [:title, :playing])
+
+    assert_equal [[:clauses, %i[title playing]]], node.named_operands
+  end
+
   # What makes it safe to remember the answer: the list cannot be changed behind the node's
   # back afterwards, so the answer cannot go stale.
   def test_a_list_put_into_a_node_cannot_be_changed_afterwards
