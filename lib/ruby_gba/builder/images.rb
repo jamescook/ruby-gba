@@ -295,7 +295,9 @@ module RubyGBA
         raise ArgumentError,
               "#{subject} was told to draw_with other colors, but its pictures have no `colors:` list. " \
               "Another list of colors swaps the sprite's own colors by their places in its list. " \
-              "To fix this, give each picture it shows the same `colors:` list with `image ..., colors:`."
+              "To fix this, give each picture it shows the same `colors:` list with `image ..., colors:`. " \
+              "If its pictures come from frames_from:, facing_from: or from_aseprite:, give the sprite " \
+              "the list instead: `sprite ..., colors: [...]`."
       end
 
       # A list declared with `colors`, as a picture's own list: its first entry still means

@@ -362,7 +362,8 @@ module RubyGBA
         @recolors ||= begin
           @colors_var = :"#{@object_name}_colors"
           @builder.make_object_recolorable(@object_node, @colors_var)
-          Recolors.new(@builder, subject: "The sprite showing :#{@poses.first}", poses: @poses).reads(@object_node)
+          Recolors.new(@builder, subject: "The sprite :#{@object_node.declared || @poses.first}", poses: @poses)
+                   .reads(@object_node)
         end
         @recolors.draw_with(Value.new(@builder, Build.var_ref(@colors_var), name: @colors_var), which, showing)
         self

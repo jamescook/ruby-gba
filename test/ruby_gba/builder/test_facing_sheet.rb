@@ -126,6 +126,37 @@ class TestFacingSheet < Minitest::Test
 
   # --- friendly errors ---
 
+  # --- a four-way sprite from a sheet can be drawn with other colours ---
+  #
+  # Every picture the sheet is cut into is drawn from the list given, so another list swaps
+  # them by place: the right-facing yellow is the list's third colour, drawn in the third of
+  # the other list.
+  def a_recolored_walker
+    builder = Builder.new
+    with_adapter(1) do
+      builder.instance_eval do
+        screen :tiled
+        colors :hurt, %i[transparent orange orange cyan gray]
+        hero = sprite :hero, at: [40, 40], facing_from: "/walk.png", tile: 8, dirs: DIRS,
+                             colors: %i[transparent red blue yellow magenta]
+        hero.face :right
+        game_loop { hero.draw_with :hurt }
+      end
+      builder.emit_pending_functions
+    end
+    builder.program
+  end
+
+  def test_a_sprite_from_a_directional_sheet_can_be_drawn_with_other_colors
+    assert_equal Color.resolve(:cyan), Reference.new.run(a_recolored_walker, frames: 3).screen.pixel(44, 44)
+  end
+
+  def test_the_console_draws_it_with_the_other_colors_too
+    v = assert_emulator_loads_rom(assemble_rom(a_recolored_walker, name: "FACECOL"), frames: 4)
+
+    assert_equal Color.resolve(:cyan), v.pixel_gba(44, 44)
+  end
+
   def sprite_error(cols, &block)
     b = Builder.new
     with_adapter(cols) { assert_raises(ArgumentError) { b.instance_eval(&block) } }

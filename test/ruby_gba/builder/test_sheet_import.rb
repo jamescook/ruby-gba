@@ -148,6 +148,70 @@ class TestSheetImport < Minitest::Test
                  "the first imported frame drew the sprite red"
   end
 
+  # A sprite sliced from a sheet takes a list of colours for every frame it makes, which is
+  # what lets it be drawn with another list: a character flashing warm while it cannot be hit
+  # is no different for being cut out of a sheet.
+  def a_sheet_sprite_drawn_with_other_colors
+    with_default_adapter(two_tile_fake) do
+      builder = RubyGBA::Builder.new
+      builder.instance_eval do
+        screen :tiled
+        colors :hurt, %i[transparent yellow white]
+        hero = sprite :hero, at: [10, 10], frames_from: "/sheet/walk.png", tile: 8, rate: 1000,
+                             colors: %i[transparent red blue]
+        game_loop { hero.draw_with :hurt }
+      end
+      builder.emit_pending_functions
+      builder.program
+    end
+  end
+
+  def test_a_sprite_from_a_sheet_can_be_drawn_with_other_colors
+    assert_equal Color.resolve(:yellow), Reference.new.run(a_sheet_sprite_drawn_with_other_colors, frames: 3)
+                                                  .screen.pixel(12, 12),
+                 "the first frame's red was not drawn with the other list's first colour"
+  end
+
+  def test_the_console_draws_a_sheet_sprite_with_other_colors_too
+    v = assert_emulator_loads_rom(assemble_rom(a_sheet_sprite_drawn_with_other_colors, name: "SHTCOL"), frames: 4)
+
+    assert_equal Color.resolve(:yellow), v.pixel_gba(12, 12)
+  end
+
+  # The list can be one declared with `colors`, by its name.
+  def test_a_sheet_sprite_can_take_a_list_by_name
+    program = with_default_adapter(two_tile_fake) do
+      builder = RubyGBA::Builder.new
+      builder.instance_eval do
+        screen :tiled
+        colors :own_art, %i[transparent red blue]
+        colors :hurt, %i[transparent yellow white]
+        hero = sprite :hero, at: [10, 10], frames_from: "/sheet/walk.png", tile: 8, rate: 1000, colors: :own_art
+        game_loop { hero.draw_with :hurt }
+      end
+      builder.emit_pending_functions
+      builder.program
+    end
+
+    assert_equal Color.resolve(:yellow), Reference.new.run(program, frames: 3).screen.pixel(12, 12)
+  end
+
+  # Pictures the game declared carry their own list, so colors: on a sprite drawn from them
+  # has nowhere to go, and says where the list belongs instead.
+  def test_colors_on_a_sprite_that_imports_nothing_says_where_the_list_goes
+    builder = RubyGBA::Builder.new
+    err = assert_raises(ArgumentError) do
+      builder.instance_eval do
+        screen :tiled
+        image(:dot, "#" => :red) { SOLID_TILE }
+        sprite :dot, at: [0, 0], colors: %i[transparent red]
+      end
+    end
+
+    assert_match(/sprite :dot was given colors:/, err.message)
+    assert_match(/image \.\.\., colors:/, err.message)
+  end
+
   def test_frames_from_and_frames_together_are_rejected
     builder = RubyGBA::Builder.new
     err = assert_raises(ArgumentError) do

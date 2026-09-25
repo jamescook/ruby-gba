@@ -7,18 +7,32 @@ module RubyGBA
     module SpriteImport
       private
 
+      # The list of colours every picture a sprite imports is drawn from, or nil. A name is a
+      # list declared with `colors`. Given to a sprite that imports nothing, it has no pictures
+      # to go to: those pictures were declared with `image`, which takes its own.
+      def imported_colors(name, colors, imports:)
+        return nil if colors.nil?
+        unless imports
+          raise ArgumentError,
+                "sprite :#{name} was given colors:, but its pictures are not imported from a file. " \
+                "colors: goes with frames_from:, facing_from: or from_aseprite:. To give pictures " \
+                "you declared a list of colors, write it on each: `image ..., colors: [...]`."
+        end
+        colors.is_a?(Symbol) ? declared_list(name, colors) : colors
+      end
+
       # Import a sprite sheet into animation frames: slice the file into cells of the
       # given size and define each as an image, in row-major order. Returns the list
       # of frame image names, ready for the flipbook path — so `frames_from:` needs no
       # naming or numbering, just "cut it up and cycle the pieces."
-      def import_frames(name:, path:, tile:, transparent:)
+      def import_frames(name:, path:, tile:, transparent:, colors: nil)
         tile_w, tile_h = sheet_tile_size("sprite :#{name}", tile)
         sheet = Graphics::Image.slice(resolve_asset_path(path), tile_w: tile_w, tile_h: tile_h, transparent: transparent)
         (0...(sheet.cols * sheet.rows)).map do |i|
           bmp = sheet.cell(i % sheet.cols, i / sheet.cols)
           frame = :"__frame_#{name}_#{i}"
           define_pixel_image(frame, width: bmp.width, height: bmp.height, data: bmp.data,
-                                    transparent: bmp.transparent)
+                                    transparent: bmp.transparent, colors: colors)
           frame
         end
       end
@@ -29,7 +43,7 @@ module RubyGBA
       # (a plain facing: sprite), and a several-column sheet gives a per-direction
       # animation (a walk cycle each way it faces). Returns the facing: hash the normal
       # sprite path then handles — a single image per direction, or a list of frames.
-      def import_facing(name:, path:, tile:, dirs:, transparent:)
+      def import_facing(name:, path:, tile:, dirs:, transparent:, colors: nil)
         unless dirs.is_a?(Array) && dirs.any? && dirs.all? { |d| d.is_a?(Symbol) }
           raise ArgumentError,
                 "sprite :#{name} facing_from: needs dirs: — the direction of each row of the sheet, " \
@@ -48,7 +62,8 @@ module RubyGBA
           frames = (0...sheet.cols).map do |col|
             bmp = sheet.cell(col, row)
             img = :"__face_#{name}_#{dir}_#{col}"
-            define_pixel_image(img, width: bmp.width, height: bmp.height, data: bmp.data, transparent: bmp.transparent)
+            define_pixel_image(img, width: bmp.width, height: bmp.height, data: bmp.data, transparent: bmp.transparent,
+                                    colors: colors)
             img
           end
           # One column: a still pose per direction. Several: this direction's frame list.
@@ -64,11 +79,12 @@ module RubyGBA
       # animation name to { off:, len: } (its first frame and its length) and durations is
       # each frame's own hold, in game frames — so a frame can be held longer than another.
       # A sheet with no tags becomes one clip named :all.
-      def import_aseprite(name, file_path, transparent)
+      def import_aseprite(name, file_path, transparent, colors = nil)
         frames, tags = load_aseprite(name, resolve_asset_path(file_path), transparent)
         poses = frames.each_with_index.map do |frame, i|
           img = :"__ase_#{name}_#{i}"
-          define_pixel_image(img, width: frame.width, height: frame.height, data: frame.data, transparent: frame.transparent)
+          define_pixel_image(img, width: frame.width, height: frame.height, data: frame.data,
+                                  transparent: frame.transparent, colors: colors)
           img
         end
         _poses, width, height = same_size_images!(name, "Aseprite frame", poses)

@@ -72,6 +72,12 @@ module RubyGBA
       # +facing:+, +frames:+, and +frames_from:+ all supply the sprite's pictures, so
       # a sprite takes exactly one of them.
       #
+      # +colors:+ is the list of colours every picture imported from a file is drawn from,
+      # the same as `image ..., colors:` gives one picture — a list, or the name of one declared
+      # with `colors`. It is what lets such a sprite be drawn with another list (`draw_with`).
+      # Pictures you declared yourself carry their own, so it goes only with +frames_from:+,
+      # +facing_from:+ and +from_aseprite:+.
+      #
       # @param name [Symbol] a defined image (its size becomes the sprite's size), or
       #   just the sprite's identity when the poses come from +facing:+/+frames:+/+frames_from:+
       # @param at [Array(Integer, Integer)] the sprite's starting [x, y]
@@ -84,10 +90,12 @@ module RubyGBA
       # @param shown [Boolean] draw it now (true, default), or start hidden until `show`
       # @return [Sprite, HardwareSprite] a handle: x / y / move / move_to (and, in bitmap mode, face / hide / show)
       def sprite(name, at:, facing: nil, frames: nil, frames_from: nil, facing_from: nil,
-                 from_aseprite: nil, dirs: nil, tile: nil, transparent: false, rate: nil, shown: true, hitbox: nil)
+                 from_aseprite: nil, dirs: nil, tile: nil, transparent: false, rate: nil, shown: true, hitbox: nil,
+                 colors: nil)
+        colors = imported_colors(name, colors, imports: from_aseprite || facing_from || frames_from)
         if from_aseprite
           reject_other_pose_sources!(name, facing: facing, frames: frames, frames_from: frames_from, facing_from: facing_from)
-          poses, clips, width, height, durations = import_aseprite(name, from_aseprite, transparent)
+          poses, clips, width, height, durations = import_aseprite(name, from_aseprite, transparent, colors)
           return clip_hardware_sprite(name, at: at, poses: poses, clips: clips, durations: durations, width: width, height: height, shown: shown, hitbox: hitbox) \
             if @screen_mode == :tiled
 
@@ -98,12 +106,13 @@ module RubyGBA
           raise ArgumentError, "sprite :#{name} has both facing_from: and frames:. They both set the sprite's pose. Use only one." if frames
           raise ArgumentError, "sprite :#{name} has both facing_from: and frames_from:. They both slice a sheet for the pose. Use only one." if frames_from
 
-          facing = import_facing(name: name, path: facing_from, tile: tile, dirs: dirs, transparent: transparent)
+          facing = import_facing(name: name, path: facing_from, tile: tile, dirs: dirs, transparent: transparent,
+                                 colors: colors)
         end
         if frames_from
           raise ArgumentError, "sprite :#{name} has both frames: and frames_from:. They both supply the frames. Use only one." if frames
 
-          frames = import_frames(name: name, path: frames_from, tile: tile, transparent: transparent)
+          frames = import_frames(name: name, path: frames_from, tile: tile, transparent: transparent, colors: colors)
         end
         validate_animation!(name, facing, frames, rate, frames_from: frames_from)
         return hardware_sprite(name, at: at, facing: facing, frames: frames, rate: rate, shown: shown, hitbox: hitbox) \

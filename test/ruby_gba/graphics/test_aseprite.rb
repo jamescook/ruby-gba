@@ -223,6 +223,31 @@ class TestAseprite < Minitest::Test
     assert_match(/no animation :sprint/, err.message)
   end
 
+  # --- drawn with other colours: every frame the file is cut into takes the list given ---
+
+  def an_aseprite_sprite_drawn_with_other_colors
+    builder = Builder.new
+    builder.instance_eval do
+      screen :tiled
+      colors :hurt, %i[transparent cyan yellow magenta gray]
+      hero = sprite :hero, at: [40, 40], from_aseprite: FIXTURE, colors: %i[transparent red green blue white]
+      game_loop { hero.draw_with :hurt }
+    end
+    builder.emit_pending_functions
+    builder.program
+  end
+
+  def test_a_sprite_from_aseprite_can_be_drawn_with_other_colors
+    assert_equal Color.resolve(:cyan), Reference.new.run(an_aseprite_sprite_drawn_with_other_colors, frames: 3)
+                                                .screen.pixel(44, 44), "walk's red, drawn in the other list's first colour"
+  end
+
+  def test_the_console_draws_an_aseprite_sprite_with_other_colors_too
+    v = assert_emulator_loads_rom(assemble_rom(an_aseprite_sprite_drawn_with_other_colors, name: "ASECOL"), frames: 4)
+
+    assert_equal Color.resolve(:cyan), v.pixel_gba(44, 44)
+  end
+
   def test_from_aseprite_with_another_pose_source_is_a_friendly_error
     builder = Builder.new
     err = assert_raises(ArgumentError) do
