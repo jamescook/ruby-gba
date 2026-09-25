@@ -50,7 +50,8 @@ module RubyGBA
           Layout = Data.define(:bitmaps, :objects, :placed_fade, :backgrounds, :bg_shared, :palette,
                                 :indexed_bitmaps, :blob_codecs, :blob_raw_bytes, :picture,
                                 :modes, :fading, :tiled, :has_objects, :obj_palette_blob,
-                                :obj_palette_units, :scene_art, :scene_layers, :scene_blend, :movement) do
+                                :obj_palette_units, :scene_art, :scene_layers, :scene_blend, :movement,
+                                :waits_for_frames) do
             # The backgrounds that turn AND sit on the tiled screen — the ones that decide
             # which way the console arranges that screen's layers. A background that turns
             # on `screen :rotozoom` is on a screen of its own, up at a different moment, so
@@ -109,7 +110,40 @@ module RubyGBA
             # Turn the sprite layer on alongside the chosen mode when the program has
             # sprites, and pick the simple 1D tile arrangement they're packed for.
             value |= OBJ_ENABLE | OBJ_1D_MAP if @layout.has_objects
-            @emitter.write_reg16(REG_DISPCNT, value)
+            @emitter.write_reg16(REG_DISPCNT, value | held_until_the_first_frame)
+          end
+
+          # KEEP THE PICTURE SWITCHED OFF UNTIL THE FIRST FRAME HAS BEEN SET UP.
+          #
+          # Everything a game says before its loop — a screen painted, a flash it opens on — is
+          # carried onto the screen by work done between frames: the effect a routine writes
+          # there, the sprites placed there. Switching the picture on where the screen is
+          # declared shows it before any of that has happened, and when setting up runs past the
+          # end of a frame, which painting the whole screen does, that frame goes out as the
+          # bare picture: a game opening on a white flash shows its first picture at full
+          # brightness first.
+          #
+          # So the screen is declared with the picture held off, and the first wait for the gap
+          # between frames switches it on (#emit_show_the_picture). That gap is the one moment
+          # nothing is drawn, and the work between frames runs in it too, so the first line
+          # the display draws has all of it in force whichever of them comes first. A game that
+          # sets up inside one frame loses nothing: the gap it waits for is the one it would
+          # have been shown after anyway. A program that never waits for a frame has no gap to
+          # switch it on in, so it is shown as soon as it is declared, as before.
+          #
+          # What a console shows while its picture is held off is plain white.
+          def held_until_the_first_frame = @layout.waits_for_frames ? FORCED_BLANK : 0
+
+          # Switch the picture on, at the gap between frames. Every frame rather than the
+          # first alone, because it is three instructions where remembering whether it was
+          # the first would cost the same; on every frame after the first it changes nothing.
+          def emit_show_the_picture
+            return unless @layout.waits_for_frames
+
+            emit(ASM.load_immediate(TMP, REG_DISPCNT))
+            emit(ASM.load_halfword(ACC, TMP))
+            emit(ASM.bic_imm(ACC, ACC, FORCED_BLANK))
+            emit(ASM.store_halfword(ACC, TMP))
           end
 
           # WHICH OF THE CONSOLE'S TILE ARRANGEMENTS THIS PROGRAM NEEDS, and which layers
@@ -181,23 +215,29 @@ module RubyGBA
           # layers and sprites; a direct default is the plain Mode 3 write.
           def emit_boot_screen
             upload_palette if @layout.modes.any_buffered? # the palette exists only for the buffered path
+            # Held off until the first frame is set up, as a single-screen game's is (see
+            # #held_until_the_first_frame). Only here: a scene changing the screen later is
+            # changing a picture already showing, and must not switch it off.
+            held = held_until_the_first_frame
             case @layout.modes.default_mode
-            when :tiled then enter_tiled_mode
-            when :affine then enter_affine_mode
-            when :buffered then enter_buffered_mode
-            else enter_direct_mode
+            when :tiled then enter_tiled_mode(held)
+            when :affine then enter_affine_mode(held)
+            when :buffered then enter_buffered_mode(held)
+            else enter_direct_mode(held)
             end
           end
 
           # Switch the hardware into double-buffered (Mode 4): remember the live DISPCNT
           # so a flip is a cheap bit-toggle, draw into page 1 first, show page 0, and
           # record that buffered is now the live mode.
-          def enter_buffered_mode
+          # +held+, here and in the three below, is the bit that keeps the picture switched off,
+          # given only by the boot (see #emit_boot_screen).
+          def enter_buffered_mode(held = 0)
             reset_bg2_affine_if_needed
             base = MODE_4 | BG2_ENABLE
             @primitives.store_word_immediate(base, @primitives.var_addr(DISPCNT_STATE))
             @primitives.store_word_immediate(PAGE1, @primitives.var_addr(BACKBUF))
-            @emitter.write_reg16(REG_DISPCNT, base)
+            @emitter.write_reg16(REG_DISPCNT, base | held)
             @primitives.store_word_immediate(MODE_BUFFERED, @primitives.var_addr(MODE_STATE))
             # A scene that tints leaves its color table blended, and one that remembers a
             # tint has to be able to trust what is in the table. In a program that crosses
@@ -211,9 +251,9 @@ module RubyGBA
           # the whole register also turns the tile and sprite layers off, so nothing a
           # tiled scene left on screen bleeds under the bitmap one — only BG2 (the
           # framebuffer) shows, which the bitmap scene redraws.
-          def enter_direct_mode
+          def enter_direct_mode(held = 0)
             reset_bg2_affine_if_needed
-            @emitter.write_reg16(REG_DISPCNT, MODE_3 | BG2_ENABLE)
+            @emitter.write_reg16(REG_DISPCNT, MODE_3 | BG2_ENABLE | held)
             @primitives.store_word_immediate(MODE_DIRECT, @primitives.var_addr(MODE_STATE))
           end
 
@@ -224,14 +264,14 @@ module RubyGBA
           # layers (plus the sprite layer if the game has sprites) and record it live.
           # Each background's map and control register are re-set by its own node in the
           # scene body, which runs right after this preamble.
-          def enter_tiled_mode
+          def enter_tiled_mode(held = 0)
             reset_bg2_affine_if_needed
             emit_boot_backgrounds if @layout.tiled && !@layout.backgrounds.empty? # shared BG palette + tile pictures
             emit_boot_objects if @layout.has_objects                             # sprite palette + tiles, and clear OAM
             @layer_blend.emit_layer_blend_again if @layer_blend.see_through?     # ...and which one is see-through
             value = tiled_dispcnt
             value |= OBJ_ENABLE | OBJ_1D_MAP if @layout.has_objects
-            @emitter.write_reg16(REG_DISPCNT, value)
+            @emitter.write_reg16(REG_DISPCNT, value | held)
             @primitives.store_word_immediate(MODE_TILED, @primitives.var_addr(MODE_STATE))
           end
 
@@ -241,14 +281,14 @@ module RubyGBA
           # background's tiles need. Its own map/matrix are re-set right after this by
           # the background's own node in the scene body (see #emit_background_hardware),
           # the same as a regular tiled layer's.
-          def enter_affine_mode
+          def enter_affine_mode(held = 0)
             reset_bg2_affine_matrix # the one-time "no turn, no resize yet" starting matrix
             emit_boot_backgrounds if @layout.tiled && !@layout.backgrounds.empty?
             emit_boot_objects if @layout.has_objects
             @layer_blend.emit_layer_blend_again if @layer_blend.see_through?
             value = MODE_2 | BG2_ENABLE
             value |= OBJ_ENABLE | OBJ_1D_MAP if @layout.has_objects
-            @emitter.write_reg16(REG_DISPCNT, value)
+            @emitter.write_reg16(REG_DISPCNT, value | held)
             @primitives.store_word_immediate(MODE_AFFINE, @primitives.var_addr(MODE_STATE))
           end
 

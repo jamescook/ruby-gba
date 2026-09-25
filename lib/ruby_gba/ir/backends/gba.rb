@@ -280,6 +280,10 @@ module RubyGBA
         # public: an explicit-receiver call ignores privacy on the DEFINING class, not
         # on whatever the receiver happens to evaluate to.
         def emit_flip_if_buffered = @drawing.emit_flip_if_buffered
+        def emit_show_the_picture = @drawing.emit_show_the_picture
+        # Where the game loop starts (see Frames#emit_start_counting), and only where the
+        # screen's interrupt counts frames at all.
+        def emit_start_counting_frames = @uses_vblank && @frames.emit_start_counting
         def fade_steps(percent) = @drawing.fade_steps(percent)
         def fade_steps_value(amount) = @drawing.fade_steps_value(amount)
         def emit_clamp_blend_steps = @drawing.emit_clamp_blend_steps
@@ -866,6 +870,7 @@ module RubyGBA
             scene_layers: @scene_layers || {}, scene_blend: @scene_blend || {},
             obj_palette_blob: @obj_palette_blob, obj_palette_units: @obj_palette_units,
             scene_art: @scene_art || {}, movement: @movement || IR::Movement::EVERYTHING_MOVES,
+            waits_for_frames: @uses_vblank,
           )
           @drawing.layout = layout
           @buffered.layout = layout

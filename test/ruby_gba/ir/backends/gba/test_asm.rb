@@ -221,6 +221,19 @@ class TestASM < Minitest::Test
   end
 
   # ========================================================================
+  # BIC
+  # ========================================================================
+
+  def test_bic_imm
+    inst = unpack(A.bic_imm(0, 1, 0x80))
+    assert_equal 0, rd(inst)
+    assert_equal 1, rn(inst)
+    assert_equal 0x80, decode_imm(inst)
+    assert_equal 0xE, (inst >> 21) & 0xF  # BIC opcode
+    assert_equal 1, (inst >> 25) & 1      # an immediate, not a register
+  end
+
+  # ========================================================================
   # ORR
   # ========================================================================
 

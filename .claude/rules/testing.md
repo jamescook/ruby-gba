@@ -269,6 +269,12 @@ here and that is deliberate: the console has 128 places to put a sprite in and t
 has none, and naming a place was the thing worth getting rid of. Prefer this to building a ROM
 whenever the question is where something was drawn.
 
+**A program with a game loop shows white until its first frame is set up**, on both backends:
+the picture is held off while the game sets up, which is the console's own forced blank. So
+`run(program, frames: 0)` reads white everywhere for such a program, and so does the console
+for however many frames setting up takes. Read from `frames: 1`, or on the console step until
+the picture stops being white. A program with no loop is shown as it is drawn.
+
 Screen default fill is `0` (black). For clip/overwrite tests, `clear_screen` to a
 **distinct** background first so "clipped/absent" reads as that colour, and the
 two backends agree on it.

@@ -214,6 +214,13 @@ module RubyGBA
             [0xE3800000 | (rn << 16) | (rd << 12) | encoding].pack("V")
           end
 
+          # BIC rd, rn, #imm — rn with the bits of imm cleared
+          def bic_imm(rd, rn, imm)
+            encoding = encode_rotated_immediate(imm)
+            raise ArgumentError, "immediate #{imm} cannot be encoded as rotated 8-bit" unless encoding
+            [0xE3C00000 | (rn << 16) | (rd << 12) | encoding].pack("V")
+          end
+
           # ORR rd, rn, rm
           def orr_reg(rd, rn, rm)
             [0xE1800000 | (rn << 16) | (rd << 12) | rm].pack("V")

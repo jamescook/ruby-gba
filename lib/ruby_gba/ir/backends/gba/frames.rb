@@ -49,6 +49,18 @@ module RubyGBA
             @primitives.store_var(ACC, COUNT)
           end
 
+          # START COUNTING FROM HERE, which is where the game loop begins. The frames that went by
+          # before it were spent setting up — writing video memory, painting the first picture
+          # — and they are not frames the game missed. Counted as missed, the first pass ran
+          # every routine that keeps real time that many times over before anything was shown,
+          # so a game that opens on a flash lost the flash's brightest frame to the setting up.
+          # Marked here, the first wait wakes at the next frame and the first pass is one frame,
+          # the same as on every backend that has no setting up to count.
+          def emit_start_counting
+            @primitives.load_var(ACC, COUNT)
+            @primitives.store_var(ACC, SEEN)
+          end
+
           # ...and read at the top of each pass: the difference since last time, held between one
           # and MOST, left where anything that needs it can read it.
           #

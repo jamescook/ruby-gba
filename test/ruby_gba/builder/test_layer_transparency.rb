@@ -209,10 +209,16 @@ class TestLayerTransparency < Minitest::Test
   # BEFORE the first frame boundary has even run, the layer is already at the amount its
   # variable starts at — boot writes that rather than waiting to be told. A game whose fog
   # starts clear must not flash solid on the way in.
+  #
+  # The first frame SHOWN, which is not a fixed number: the picture is held off, white, until
+  # the game's first frame is set up, and how long setting up takes is the game's own affair.
   def test_the_first_frame_shows_the_amount_the_game_starts_at
     rom = assemble_rom(clearing_program, name: "FOGBOO")
+    v = assert_emulator_loads_rom(rom, frames: 1)
+    # A few frames at most: a layer that came up solid is white too, and would never stop.
+    CONSOLE_LAG.times { v.step if v.pixel_gba(*SCENERY_XY) == WHITE }
 
-    assert_equal RED, assert_emulator_loads_rom(rom, frames: CONSOLE_LAG).pixel_gba(*SCENERY_XY)
+    assert_equal RED, v.pixel_gba(*SCENERY_XY)
   end
 
   # An amount is a VALUE, not only a variable — so it can be worked out from the game's

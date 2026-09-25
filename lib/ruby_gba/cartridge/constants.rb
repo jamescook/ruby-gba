@@ -118,6 +118,10 @@ module RubyGBA
       WIN1_ENABLE     = 0x4000  # Enable window 1
       OBJ_WIN_ENABLE  = 0x8000  # Enable object window (sprite-shaped clipping)
 
+      # Switch the picture off: the display draws nothing but white, and video memory can be
+      # written at full speed. The console powers on with this set.
+      FORCED_BLANK    = 0x0080  # DISPCNT bit 7
+
       # ========================================================================
       # Background Registers
       #

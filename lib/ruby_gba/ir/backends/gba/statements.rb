@@ -148,6 +148,7 @@ module RubyGBA
           end
 
           def emit_loop(node)
+            @placement.emit_start_counting_frames # the setting up before this is not play
             top = @emitter.gensym
             @emitter.place_label(top)
             if @placement.fast_funcs.include?(Placement::FRAME_ROUTINE)

@@ -252,6 +252,12 @@ module RubyGBA
           # front alone, so it has to be applied while the picture is built rather than
           # over the finished one. That is the rebuild path too.
           @repaints ||= node.walk.any? { |child| child.kind == :fade && child.under }
+          # A program that waits for frames shows nothing until the first one has been set up:
+          # everything said before the game loop reaches the screen by work done between
+          # frames, so the picture is held off until then — the console does the same (see
+          # Backends::GBA::Drawing#held_until_the_first_frame). A program that never waits has
+          # no first frame to wait for, and shows what it draws as it draws it.
+          @screen.held = node.walk.any? { |child| child.kind == :wait_vblank }
           catch(:halt) { exec(node) }
           self
         end
@@ -741,6 +747,7 @@ module RubyGBA
           @steps = 0 if @frames_limit
 
           @uses_frames = true
+          @screen.held = false # the first frame is set up, so the picture goes on
           @prev_held = @held
           @frame += 1
           took = frames_this_pass

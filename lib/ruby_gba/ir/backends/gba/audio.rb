@@ -989,6 +989,10 @@ module RubyGBA
             # keys become "previous", and we latch this frame's keys as "current".
             @expressions.snapshot_keys if @uses_pressed.call
 
+            # The picture was held off while the game set up, and nothing is being drawn now, so
+            # it goes on here — see Drawing#held_until_the_first_frame.
+            @drawing.emit_show_the_picture
+
             # This is the safe moment to swap pages when a buffered scene is live:
             # show the frame just drawn and hand the program the other page. Which mode
             # is live can change frame to frame, so the flip is decided at run time.

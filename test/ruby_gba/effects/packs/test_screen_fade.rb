@@ -340,4 +340,64 @@ class TestScreenFade < Minitest::Test
     assert assert_emulator_loads_rom(rom, frames: 30).green?(120, 80),
            "and really does leave it as it was drawn"
   end
+
+  # AN EFFECT SET BEFORE THE GAME LOOP IS IN FORCE ON THE FIRST FRAME SHOWN. A game that opens
+  # on a flash and lets it fall away must never show the picture without it first. The flash is
+  # carried by a routine that runs between frames, so the screen stays switched off until that
+  # routine has run once; a screen switched on as soon as the build set it up showed one frame of
+  # the plain picture whenever setting up ran past the first frame. Painting the whole screen is
+  # enough to make it run past.
+  #
+  # Black over red, because a screen the console has switched off shows white: white on the
+  # console means "not on yet" and says nothing either way, and only red is the fault.
+  #
+  # A tiled screen is set up by sending its tiles and maps, which is what makes a real game's
+  # setting up long, so it is asked too; there a whole screenful of scenery stands in for the
+  # painted screen.
+  def opening_on(screen_kind, &effect)
+    tile = (["#" * 8] * 8).join("\n")
+    program do
+      screen screen_kind
+      if screen_kind == :tiled
+        image(:red_art, "#" => :red) { tile }
+        tiles :set, "#" => :red_art
+        background :field, tiles: :set, map: Array.new(20) { "#" * 30 }
+      else
+        clear_screen :red
+      end
+      instance_exec(&effect)
+      game_loop { nil }
+    end
+  end
+
+  OPENINGS = {
+    flash: -> { flash_screen :black, frames: 30 },
+    fade: -> { fade :black },
+  }.freeze
+
+  def test_the_first_frame_of_a_game_that_opens_on_an_effect_has_the_effect
+    OPENINGS.each do |name, effect|
+      %i[bitmap tiled].each do |kind|
+        assert_equal BLACK, Reference.new.run(opening_on(kind, &effect), frames: 1).screen.pixel(120, 80),
+                     "the first frame of a #{kind} game opening on a #{name} showed the picture without it"
+      end
+    end
+  end
+
+  def test_the_console_never_shows_the_picture_before_the_effect
+    OPENINGS.each do |name, effect|
+      %i[bitmap tiled].each do |kind|
+        v = assert_emulator_loads_rom(assemble_rom(opening_on(kind, &effect), name: "OPEN#{kind.to_s[0]}"), frames: 1)
+        shown = 6.times.map do
+          pixel = v.pixel_gba(120, 80)
+          v.step
+          pixel
+        end
+        frames = shown.map { |p| format("%04x", p) }.join(" ")
+
+        refute_includes shown, RED, "a #{kind} game opening on a #{name} showed the picture without it (#{frames})"
+        assert_includes shown, BLACK, "a #{kind} game opening on a #{name} never showed it at full (#{frames})"
+      end
+    end
+  end
 end

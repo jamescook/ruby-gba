@@ -174,9 +174,17 @@ module RubyGBA
           # there.
           def pixel(x, y)
             return nil unless in_bounds?(x, y)
+            return HELD_OFF if @held
 
             faded(shown_pixel(x + @camera_x, y + @camera_y) || @fill)
           end
+
+          # Whether the picture is switched off — true until a program that waits for frames
+          # has set its first one up. What is drawn meanwhile is kept; it is only not shown.
+          attr_writer :held
+
+          # What a display with its picture switched off shows: plain white.
+          HELD_OFF = Graphics::Color.resolve(:white)
 
           # The color stored at (x, y), ignoring where the window sits. This is what the
           # drawing engine reads — saving the pixels under a sprite has to see what is
@@ -271,7 +279,7 @@ module RubyGBA
           # Nothing between what is stored and what is shown: the window at the origin and
           # no effect in force. The common case, and worth not walking the screen for.
           def plain?
-            @camera_x.zero? && @camera_y.zero? && @tint_color.nil? && fade_steps.zero?
+            !@held && @camera_x.zero? && @camera_y.zero? && @tint_color.nil? && fade_steps.zero?
           end
 
           private
