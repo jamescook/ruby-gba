@@ -191,15 +191,20 @@ module RubyGBA
         # THE OTHER LISTS OF COLOURS A LAYER CAN BE DRAWN FROM, for a background that was
         # told `draw_with`, and nil for every other one.
         #
-        # +blob+ holds them end to end in the cartridge, a whole bank of sixteen each and
-        # the layer's OWN colours last — so picking one is arithmetic on a number rather
+        # +blob+ holds them end to end in the cartridge, a whole bank of sixteen for each list
+        # and the layer's OWN colours last — so picking one is arithmetic on a number rather
         # than a test per list, and a number naming none of them can be answered by handing
-        # over the last one instead of by branching around the write. +bank+ is the group of
-        # sixteen the layer's tiles read, which the swap writes into; +count+ is how many
-        # lists there are besides its own. +at+ names the variable holding where the list it
-        # is showing NOW starts, which is what lets a tint put the swap back after walking
-        # the whole table over it.
-        BackgroundColorLists = Data.define(:blob, :bank, :count, :at)
+        # over the last one instead of by branching around the write.
+        #
+        # A layer's tiles can be drawn from several lists, each in a group of sixteen of its
+        # own, and then one version of the layer is a list for EACH: those sit side by side
+        # in the blob, one version after another. +banks+ is the group each of the layer's
+        # lists is in, in that order, which the swap writes into; +shift+ is how far apart two
+        # versions are, as a power of two, so finding one is a shift rather than a multiply —
+        # three lists take the room of four. +count+ is how many versions there are besides
+        # its own. +at+ names the variable holding where the version it is showing NOW starts,
+        # which is what lets a tint put the swap back after walking the whole table over it.
+        BackgroundColorLists = Data.define(:blob, :banks, :count, :at, :shift)
 
         # A BACKGROUND'S GRID OF CELLS, for changing one of them while the game runs: how many
         # cells there are each way, and what to write into one to show a given tile. Nothing
@@ -854,8 +859,12 @@ module RubyGBA
                                                           blob_codecs: @blob_codecs)
           # ...and which groups of sixteen a layer is drawing from a list of its own, so a
           # tint that walks the whole table can put those back rather than over.
-          @palette_tint.recolored_banks = @backgrounds.each_value.filter_map do |place|
-            [BG_PALETTE + (place.colors.bank * PaletteBanks::BANK_SIZE * 2), place.colors.at] if place.colors
+          @palette_tint.recolored_banks = @backgrounds.each_value.flat_map do |place|
+            next [] unless place.colors
+
+            place.colors.banks.each_with_index.map do |bank, at|
+              [BG_PALETTE + (bank * PaletteBanks::BANK_SIZE * 2), place.colors.at, at * Drawing::COLOR_LIST_BYTES]
+            end
           end
           @palette_tint.prepare_palette_tint(program, fading: @fading)
           @uses_pressed = self.class.reads_button_edges?(program)
@@ -1770,13 +1779,23 @@ module RubyGBA
 
           raise LoweringError, too_many_colors_to_recolor(node) unless small
 
-          own = @bitmaps.fetch(node.tiles.first).colors
+          room = 1 << (node.palettes.length - 1).bit_length # lists a version takes, rounded up to a power of two
           blob = :"__bg_colors_#{node.name}"
-          @emit.data_blobs[blob] = (node.recolors + [own]).flat_map { |list| whole_bank(list) }.pack("v*")
+          @emit.data_blobs[blob] = (node.recolors + [node.palettes]).flat_map do |version|
+            version.flat_map { |list| whole_bank(list) } + ([0] * (PaletteBanks::BANK_SIZE * (room - version.length)))
+          end.pack("v*")
           plain_blob!(blob) # picked out of by a number the game works out, so it stays where it is put
           BackgroundColorLists.new(blob: blob, count: node.recolors.length,
-                                   bank: banks.placement(tile_key(node, 0)).bank,
-                                   at: :"__bg_#{node.name}_colors_at")
+                                   banks: node.palettes.map { |list| bank_drawn_from(node, list, banks) },
+                                   at: :"__bg_#{node.name}_colors_at",
+                                   shift: Drawing::COLOR_LIST_SHIFT + room.bit_length - 1)
+        end
+
+        # The group of sixteen a layer's tiles drawn from +list+ read. Every such tile reads the
+        # same one: a list someone wrote down shares a group only with that very list.
+        def bank_drawn_from(node, list, banks)
+          tile = node.tiles.index { |image| @bitmaps.fetch(image).colors == list }
+          banks.placement(tile_key(node, tile)).bank
         end
 
         # A list as the display holds it: sixteen entries, the author's own order kept, and

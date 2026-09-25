@@ -228,4 +228,157 @@ class TestBackgroundDrawsWith < Minitest::Test
     assert_match(/draws background :rays with other colors/, err.message)
     assert_match(/turn or resize/, err.message)
   end
+
+  # --- A LAYER DRAWN FROM SEVERAL LISTS, EVERY ONE OF THEM SWAPPED AT ONCE ---
+  #
+  # A backdrop with more colours in it than one list holds has its tiles drawn from several,
+  # each tile from one. Animating it means stepping every one of those lists to the same
+  # version together, by one number, which is what a hash of the layer's own lists says: each
+  # list the tiles were drawn from, named, with the versions it walks through.
+  #
+  # Two tile kinds here, one drawn from :sea and one from :sky, a column of each, so each list
+  # shows at a known place.
+  SEA = %i[transparent red green].freeze
+  SKY = %i[transparent blue white].freeze
+  SEA_STEPS = [%i[transparent orange yellow], %i[transparent magenta cyan]].freeze
+  SKY_STEPS = [%i[transparent yellow orange], %i[transparent cyan magenta]].freeze
+
+  private def a_backdrop_drawn_from_two_lists
+    sea_steps = SEA_STEPS
+    sky_steps = SKY_STEPS
+    builder = Builder.new
+    builder.instance_eval do
+      screen :tiled
+      colors :sea, SEA
+      colors :sky, SKY
+      sea_steps.each_with_index { |list, i| colors :"sea#{i}", list }
+      sky_steps.each_with_index { |list, i| colors :"sky#{i}", list }
+      image :water, width: 8, height: 8, data: BAR, colors: :sea
+      image :cloud, width: 8, height: 8, data: BAR.map { |c| c == :red ? :blue : :white }, colors: :sky
+      tiles :scene, "~" => :water, "o" => :cloud
+      backdrop = background :backdrop, tiles: :scene, map: Array.new(20) { ("~" * 15) + ("o" * 15) }
+      step = var :step, 0
+      game_loop do
+        backdrop.draw_with({ sea: %i[sea0 sea1], sky: %i[sky0 sky1] }, showing: step)
+        step.add! 1
+      end
+    end
+    builder.emit_pending_functions
+    builder.program
+  end
+
+  SEA_AT = [1, 1].freeze   # the first place of a :sea tile
+  SKY_AT = [121, 1].freeze # the first place of a :sky tile
+
+  def test_one_number_steps_every_list_of_the_layer_together
+    prog = a_backdrop_drawn_from_two_lists
+    seen = ->(frames) { Reference.new.run(prog, frames: frames).screen.then { |s| [s.pixel(*SEA_AT), s.pixel(*SKY_AT)] } }
+
+    assert_equal [Color.resolve(:red), Color.resolve(:blue)], seen.call(1), "nothing said yet: as drawn"
+    assert_equal [Color.resolve(:orange), Color.resolve(:yellow)], seen.call(2), "version 0 of both"
+    assert_equal [Color.resolve(:magenta), Color.resolve(:cyan)], seen.call(3), "version 1 of both"
+    assert_equal [Color.resolve(:red), Color.resolve(:blue)], seen.call(4), "past the end: both as drawn"
+  end
+
+  def test_the_console_steps_every_list_together_too
+    prog = a_backdrop_drawn_from_two_lists
+    (1..4).each { |frames| assert_backends_agree(prog, frames: frames) }
+  end
+
+  # A tint walks the whole table and then writes each recoloured group back from the list it
+  # is really showing — every group of this layer, not only the first.
+  private def a_backdrop_that_steps_while_the_screen_reddens
+    sea_steps = SEA_STEPS
+    sky_steps = SKY_STEPS
+    builder = Builder.new
+    builder.instance_eval do
+      screen :tiled
+      colors :sea, SEA
+      colors :sky, SKY
+      sea_steps.each_with_index { |list, i| colors :"sea#{i}", list }
+      sky_steps.each_with_index { |list, i| colors :"sky#{i}", list }
+      image :water, width: 8, height: 8, data: BAR, colors: :sea
+      image :cloud, width: 8, height: 8, data: BAR.map { |c| c == :red ? :blue : :white }, colors: :sky
+      tiles :scene, "~" => :water, "o" => :cloud
+      backdrop = background :backdrop, tiles: :scene, map: Array.new(20) { ("~" * 15) + ("o" * 15) }
+      step = var :step, 0
+      hurt = var :hurt, 0
+      game_loop do
+        backdrop.draw_with({ sea: %i[sea0 sea1], sky: %i[sky0 sky1] }, showing: step)
+        step.add! 1
+        hurt.approach! 60, 20 # it moves every frame, so the table is rewritten every frame
+        tint :red, hurt
+      end
+    end
+    builder.emit_pending_functions
+    builder.program
+  end
+
+  def test_a_tint_moves_every_list_the_layer_is_drawn_with
+    prog = a_backdrop_that_steps_while_the_screen_reddens
+    (2..4).each { |frames| assert_backends_agree(prog, frames: frames) }
+  end
+
+  # One step of each, with no number: the lists named, and the layer drawn with them from then on.
+  def test_each_list_can_be_given_one_other_list
+    builder = Builder.new
+    builder.instance_eval do
+      screen :tiled
+      colors :sea, SEA
+      colors :sky, SKY
+      colors :sea_dusk, SEA_STEPS[1]
+      image :water, width: 8, height: 8, data: BAR, colors: :sea
+      image :cloud, width: 8, height: 8, data: BAR.map { |c| c == :red ? :blue : :white }, colors: :sky
+      tiles :scene, "~" => :water, "o" => :cloud
+      backdrop = background :backdrop, tiles: :scene, map: Array.new(20) { ("~" * 15) + ("o" * 15) }
+      game_loop { backdrop.draw_with({ sea: :sea_dusk }) }
+    end
+    builder.emit_pending_functions
+    prog = builder.program
+    screen = Reference.new.run(prog, frames: 2).screen
+
+    assert_equal Color.resolve(:magenta), screen.pixel(*SEA_AT), "the list named is drawn with its other list"
+    assert_equal Color.resolve(:blue), screen.pixel(*SKY_AT), "a list the hash leaves out stays as drawn"
+    assert_backends_agree(prog, frames: 2)
+  end
+
+  # --- what can go wrong with several lists ---
+
+  private def two_list_backdrop_told(&told)
+    Builder.new.instance_eval do
+      screen :tiled
+      colors :sea, SEA
+      colors :sky, SKY
+      colors :sea0, SEA_STEPS[0]
+      colors :sea1, SEA_STEPS[1]
+      colors :sky0, SKY_STEPS[0]
+      image :water, width: 8, height: 8, data: BAR, colors: :sea
+      image :cloud, width: 8, height: 8, data: BAR.map { |c| c == :red ? :blue : :white }, colors: :sky
+      tiles :scene, "~" => :water, "o" => :cloud
+      backdrop = background :backdrop, tiles: :scene, map: [("~" * 15) + ("o" * 15)]
+      instance_exec(backdrop, &told)
+    end
+  end
+
+  def test_one_list_for_a_layer_drawn_from_several_says_to_name_each
+    err = assert_raises(ArgumentError) { two_list_backdrop_told { |bg| bg.draw_with :sea0 } }
+
+    assert_match(/drawn from 2 lists of colors/, err.message)
+    assert_match(/sea: \.\.\., sky: \.\.\./, err.message)
+  end
+
+  def test_a_list_none_of_the_tiles_is_drawn_from_is_refused
+    err = assert_raises(ArgumentError) { two_list_backdrop_told { |bg| bg.draw_with({ sea0: :sea1 }) } }
+
+    assert_match(/none of its tiles is drawn from :sea0/, err.message)
+    assert_match(/:sea, :sky/, err.message)
+  end
+
+  def test_lists_with_different_numbers_of_steps_are_refused
+    err = assert_raises(ArgumentError) do
+      two_list_backdrop_told { |bg| bg.draw_with({ sea: %i[sea0 sea1], sky: %i[sky0] }, showing: 0) }
+    end
+
+    assert_match(/the same number of lists of colors/, err.message)
+  end
 end

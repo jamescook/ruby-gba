@@ -287,17 +287,19 @@ module RubyGBA
           # that layer was DRAWN in, which is not what it is being drawn with. So each such
           # group is written again, from the list it is really showing.
           #
-          # +recolored_banks+ is (where the group sits, the variable holding where its
-          # current list starts) — nought in that variable meaning the layer has never been
-          # told anything, where the tables already hold the right colours.
+          # +recolored_banks+ is (where the group sits, the variable holding where its layer's
+          # current version starts, how far along that version this group's list is) — nought
+          # in that variable meaning the layer has never been told anything, where the tables
+          # already hold the right colours.
           attr_writer :recolored_banks
 
           def emit_recolored_banks
-            (@recolored_banks || []).each do |dest, source_var|
+            (@recolored_banks || []).each do |dest, source_var, along|
               @primitives.load_var(TINT_SRC, source_var)
               @emitter.emit(ASM.cmp_imm(TINT_SRC, 0))
               past = @emitter.gensym
               @emitter.emit_branch(:bcond, past, cond: :eq)
+              @emitter.emit(ASM.add_imm(TINT_SRC, TINT_SRC, along)) unless along.zero?
               emit_blend_run(dest, COLORS_IN_A_BANK)
               @emitter.place_label(past)
             end

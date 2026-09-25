@@ -160,10 +160,22 @@ module RubyGBA
       # run off the end looks right rather than wrong. The change lands in the gap between
       # frames, and only on a frame where the answer changed — the same bargain `show_map`
       # makes about a map.
+      #
+      # A LAYER DRAWN FROM SEVERAL LISTS — a backdrop with more colours than one list holds,
+      # each tile drawn from one of them — is recoloured by stepping every list together. Name
+      # the lists its tiles were drawn from (`image ..., colors: :sea`) and say what each walks
+      # through; one number picks the same step of all of them:
+      #
+      #   backdrop.draw_with({ sea: %i[sea0 sea1 sea2], sky: %i[sky0 sky1 sky2] }, showing: step)
+      #   backdrop.draw_with({ sea: :sea_dusk, sky: :sky_dusk })   # one of each, no number
+      #
+      # A list the tiles use that the hash leaves out stays as drawn, and a number outside the
+      # steps draws every list as drawn.
       def draw_with(which, showing: nil)
         refuse_on_a_bitmap_screen!("draw_with",
                                    instead: "Draw the picture in the colors you want with `blit`")
-        recolors.draw_with(Value.new(@builder, Build.var_ref(colors_var), name: colors_var), which, showing)
+        choice = Value.new(@builder, Build.var_ref(colors_var), name: colors_var)
+        recolors.draw_named(choice, steps_named(which, showing), showing)
         # Recorded here as well as remembered, the same way `show_map` is: a program with no
         # game loop has no gap between frames to hold the write for, and then it simply
         # happens where it was asked for.
@@ -441,10 +453,90 @@ module RubyGBA
       # kept, so several calls in several branches count the same lists the same way. The
       # tiles play the part a sprite's poses play: a list is matched to the one they were
       # drawn from, place by place, so it is the tiles that say whether another list fits.
+      # A background's other colours are STEPS rather than single lists: each step one list for
+      # every list its tiles were drawn from, in the order of #palettes, nil where a list stays as
+      # drawn. A layer drawn from one list has steps of one, which is today's swap exactly.
       def recolors
-        @recolors ||= Recolors.new(@builder, subject: "The background :#{@name}", poses: @tile_pictures)
-                              .reads(@builder.recolorable_background(@name))
+        @recolors ||= begin
+          node = @builder.recolorable_background(@name)
+          node.palettes = palettes
+          Recolors.new(@builder, subject: subject, poses: @tile_pictures,
+                                 colors_for: ->(steps) { steps.map { |step| colors_of_step(step) } }).reads(node)
+        end
       end
+
+      def subject = "The background :#{@name}"
+
+      # The lists this layer's tiles were drawn from, each once, in the order first met.
+      def palettes = @palettes ||= @builder.lists_drawn_from(@tile_pictures, subject: subject)
+
+      # One step's colours, a list per palette, each checked against the tiles drawn from it.
+      def colors_of_step(step)
+        step.each_with_index.map do |name, at|
+          own = palettes[at]
+          next own if name.nil?
+
+          drawn_from_it = @tile_pictures.select { |pose| @builder.list_drawn_from(pose) == own }
+          @builder.colors_to_draw_with([name], poses: drawn_from_it, subject: subject).first
+        end
+      end
+
+      # What a call to draw_with named, as steps (see #recolors), or nil for the own colours.
+      def steps_named(which, showing)
+        return steps_of_each_list(which, showing) if which.is_a?(Hash)
+
+        names = recolors.group(which, showing)
+        return nil if names.nil?
+
+        unless palettes.length == 1
+          raise ArgumentError,
+                "#{subject} was told to draw_with #{which.inspect}, but its tiles are drawn from " \
+                "#{palettes.length} lists of colors. Say what each of them is drawn with, by the name it " \
+                "was given: draw_with({ #{palette_names.join(': ..., ')}: ... }#{showing ? ', showing: ...' : ''})."
+        end
+        names.map { |name| [name] }
+      end
+
+      # A hash of the layer's own lists to what each is drawn with: one list each, or the same
+      # number of lists each when a number picks between them.
+      def steps_of_each_list(named, showing)
+        at = named.keys.to_h { |list| [list, palette_at!(list)] }
+        each_list = named.transform_values { |value| showing.nil? ? [value] : value }
+        unless each_list.values.all? { |lists| lists.is_a?(Array) && !lists.empty? && lists.all?(Symbol) }
+          raise ArgumentError, uneven_steps(named, showing)
+        end
+        count = each_list.values.first.length
+        raise ArgumentError, uneven_steps(named, showing) unless each_list.values.all? { |lists| lists.length == count }
+
+        (0...count).map do |step|
+          Array.new(palettes.length) { |palette| (list = at.key(palette)) && each_list.fetch(list)[step] }
+        end
+      end
+
+      def palette_at!(list)
+        colors = @builder.declared_colors(list)
+        at = colors && palettes.index(colors)
+        return at if at
+
+        raise ArgumentError,
+              "#{subject} was told to draw :#{list} with other colors, but none of its tiles is drawn " \
+              "from :#{list}. Name a list its tiles were given with `image ..., colors: :name`" \
+              "#{palette_names.empty? ? '' : " — #{palette_names.map { |n| ":#{n}" }.join(', ')}"}."
+      end
+
+      def uneven_steps(named, showing)
+        if showing.nil?
+          "#{subject} was told to draw_with #{named.inspect}. With no showing:, give each list one list " \
+            "of colors by name, like draw_with({ sea: :sea_dusk })."
+        else
+          "#{subject} was told to draw_with #{named.inspect}, showing: .... showing: picks the same step of " \
+            "every list, so give each list the same number of lists of colors, like " \
+            "draw_with({ sea: [:sea0, :sea1], sky: [:sky0, :sky1] }, showing: step)."
+        end
+      end
+
+      # The names this layer's lists were declared under, where they were.
+      def palette_names = palettes.filter_map { |colors| @builder.name_of_colors(colors) }
 
       def unknown_map_message(named)
         "background :#{@name} has no map #{named.inspect}. Its maps are " \

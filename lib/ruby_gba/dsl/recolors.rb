@@ -16,10 +16,15 @@ module RubyGBA
       # What `draw_with` is told for a sprite's own colours.
       OWN = :own
 
-      def initialize(builder, subject:, poses:)
+      # +colors_for+ turns names into the colours they stand for, checked against what is being
+      # drawn. Left out it is a sprite's: each name one list, matched by place to the list its
+      # pictures were drawn from. A background drawn from several lists hands in its own, where
+      # a name is one version of every list at once (see Background#draw_with).
+      def initialize(builder, subject:, poses:, colors_for: nil)
         @builder = builder
         @subject = subject # what the sprite is called in an error
         @poses = poses
+        @colors_for = colors_for || ->(names) { @builder.colors_to_draw_with(names, poses: @poses, subject: @subject) }
         @names = []
         @lists = []   # the colours of each of those, checked against the sprite as it was named
         @objects = []
@@ -35,7 +40,11 @@ module RubyGBA
       # Record the write that makes +choice+ (anything with a +set!+) name what +which+ says:
       # one list, one of a set picked by +showing+, or the sprite's own colours.
       def draw_with(choice, which, showing)
-        names = group(which, showing)
+        draw_named(choice, group(which, showing), showing)
+      end
+
+      # The same, for names already checked: nil for the own colours, or the names in order.
+      def draw_named(choice, names, showing)
         return choice.set!(IR::Build::NO_RECOLOR) if names.nil?
 
         start = place(names)
@@ -43,8 +52,6 @@ module RubyGBA
 
         pick(choice, count: names.length, start: start, showing: showing)
       end
-
-      private
 
       # Which lists a call named, checked before anything is written. nil is the own colours.
       def group(which, showing)
@@ -74,13 +81,15 @@ module RubyGBA
               "between them. Say which one with showing:, like draw_with [:#{which.first}, ...], showing: step."
       end
 
+      private
+
       # Where +names+ sit side by side among the lists, adding them at the end when they do not.
       def place(names)
         found = (0..(@names.length - names.length)).find { |at| @names[at, names.length] == names }
         return found if found
 
         at = @names.length
-        @lists += @builder.colors_to_draw_with(names, poses: @poses, subject: @subject)
+        @lists += @colors_for.call(names)
         @names.concat(names)
         @objects.each { |node| node.recolors = @lists }
         at

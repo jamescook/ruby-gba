@@ -48,10 +48,12 @@ module RubyGBA
       # layer needs to know which layers are wanted AT THE SAME TIME, and two scenes that
       # take turns never are. See IR::Stacking#screenfuls.
       #
-      # +recolors+ is every other list of colours this background's tiles can be drawn with,
-      # in the order BackgroundColors counts them, and empty for one that is only ever drawn
-      # in its own. See Object's operand of the same name, which means the same thing about
-      # one picture.
+      # +palettes+ is every list of colours this background's tiles were drawn from, each once,
+      # and +recolors+ the other ways they can be drawn, in the order BackgroundColors counts
+      # them: each one a list for every entry of +palettes+, at the same place, which that
+      # list's tiles are then drawn from instead. Both are empty for a background only ever
+      # drawn in its own colours. A tile keeps its own places whichever list it reads, the
+      # way Object's operand of the same name works for one picture.
       #
       # +choice+ names the variables that say which of +maps+ is showing, empty where there is
       # only one. A background that belongs to a scene is put up as declared each time that
@@ -63,7 +65,7 @@ module RubyGBA
         kind :background
         category :draw
         operands name: :name, tiles: :list, map: :list, maps: :list, choice: :list, tile_w: :int,
-                 tile_h: :int, layer: :name, scene: :name, affine: :flag, recolors: :list
+                 tile_h: :int, layer: :name, scene: :name, affine: :flag, recolors: :list, palettes: :list
       end
 
       # A background's tiles all draw from a different list of colours — the whole layer at

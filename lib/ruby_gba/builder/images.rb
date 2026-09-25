@@ -67,8 +67,13 @@ module RubyGBA
       #
       # Place 0 means see-through. The picture then remembers which place each pixel came
       # from, so a list that holds one color twice still tells its two places apart.
+      #
+      # The list can also be one declared with `colors`, by its name — `colors: :sea` — which is
+      # what a layer drawn from several lists needs, so `draw_with` can say which of them is
+      # which (see Background#draw_with).
       def image(name, opts = {}, &block)
         one_source_of_pixels!(name, opts, block)
+        opts = opts.merge(colors: declared_list(name, opts[:colors])) if opts[:colors].is_a?(Symbol)
         if block
           define_ascii_image(name, opts, &block)
         elsif opts[:places]
@@ -211,6 +216,32 @@ module RubyGBA
         end
       end
 
+      # The lists a background's tiles were drawn from, each once, in the order first met — what
+      # its other colours are matched against, list by list. Every tile has to have been given
+      # one, for the same reason a sprite's pictures do (see #own_list_to_swap).
+      def lists_drawn_from(poses, subject:)
+        lists = poses.map { |pose| list_drawn_from(pose) }
+        return lists.uniq unless lists.include?(nil)
+
+        raise ArgumentError,
+              "#{subject} was told to draw_with other colors, but some of its tiles have no `colors:` list. " \
+              "Other colors swap a tile's own colors by their places in its list. To fix this, give each " \
+              "tile a `colors:` list with `image ..., colors:`."
+      end
+
+      # The list one picture was drawn from, or nil where the framework worked it out.
+      def list_drawn_from(pose) = @pictures.fetch(pose).colors
+
+      # A list declared with `colors`, as a picture given it by name holds it: see-through first.
+      # nil for a name nothing declared.
+      def declared_colors(name)
+        list = @color_lists[name]
+        list && [0x0000, *list.drop(1)]
+      end
+
+      # The name a picture's list was declared under, where it was one.
+      def name_of_colors(colors) = @color_lists.keys.find { |name| declared_colors(name) == colors }
+
       private
 
       # A LIST THAT HOLDS ONE COLOUR TWICE, SWAPPED ONTO ART THAT RECORDED NO PLACES.
@@ -265,6 +296,17 @@ module RubyGBA
               "#{subject} was told to draw_with other colors, but its pictures have no `colors:` list. " \
               "Another list of colors swaps the sprite's own colors by their places in its list. " \
               "To fix this, give each picture it shows the same `colors:` list with `image ..., colors:`."
+      end
+
+      # A list declared with `colors`, as a picture's own list: its first entry still means
+      # see-through, whatever colour it was written as.
+      def declared_list(picture, name)
+        list = @color_lists.fetch(name) do
+          raise ArgumentError,
+                "image :#{picture} is given colors: :#{name}, which is not a list of colors. " \
+                "Declare it first with `colors :#{name}, [:transparent, ...]`."
+        end
+        [:transparent, *list.drop(1)]
       end
 
       def color_list_name!(name)

@@ -166,6 +166,7 @@ module RubyGBA
           @backing = {}            # name -> { width:, height:, pixels: } (saved patch under a moving object)
           @objects = {}            # name -> :object node (a composited moving picture)
           @recolor_maps = {}       # [a picture, a list it is drawn with] -> a Recolor
+          @bg_swaps = {}           # [a background, which of its steps] -> each own list's colours in that step
           @bg_nodes = []           # :background nodes, in order (the static scene under the objects)
           @bg_by_name = {}         # name -> :background node (for scrolling that background's window)
           @scene_fb = nil          # the settled scene (backdrop + backgrounds), built once, to restore under objects
@@ -1245,7 +1246,11 @@ module RubyGBA
         # #background_swap), and nil for the colours it was drawn in. A swap goes by PLACE,
         # so a see-through pixel stays see-through however the list is written: place 0
         # means see-through in every list there is.
-        def tile_colors(name, swapped = nil)
+        #
+        # +swaps+ is the list each of the layer's own lists is drawn with this frame, by own list
+        # (see #background_swap); the tile takes the one for the list it was drawn from.
+        def tile_colors(name, swaps = nil)
+          swapped = swaps && swaps[@bitmaps.fetch(name).colors]
           @tile_colors[[name, swapped]] ||= begin
             bmp = @bitmaps.fetch(name)
             recolor = swapped && tile_recolor(name, bmp, swapped)
@@ -1267,9 +1272,10 @@ module RubyGBA
                         by_color: bmp.places ? nil : by_color(bmp.colors, swapped))
         end
 
-        # THE COLOURS A BACKGROUND'S TILES ARE DRAWN FROM THIS FRAME: the list the game last
-        # named, or nil for the one they were drawn in — which is also what a number naming
-        # none of the lists means, so a counter that has run off the end looks right.
+        # THE COLOURS A BACKGROUND'S TILES ARE DRAWN FROM THIS FRAME: the step the game last
+        # named, as each of the layer's own lists to the list it is drawn with instead — or nil
+        # for the ones they were drawn in, which is also what a number naming no step means, so
+        # a counter that has run off the end looks right.
         def background_swap(bg)
           lists = bg.recolors
           return nil if lists.empty?
@@ -1277,7 +1283,7 @@ module RubyGBA
           which = @bg_colors[bg.name] || Build::NO_RECOLOR
           return nil unless which >= 0 && which < lists.length
 
-          lists[which]
+          @bg_swaps[[bg.name, which]] ||= bg.palettes.zip(lists[which]).to_h
         end
 
         # Draw this background's tiles from the list of colours numbered +which+ from now on

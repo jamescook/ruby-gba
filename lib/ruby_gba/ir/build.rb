@@ -581,9 +581,9 @@ module RubyGBA
       # whose cells only ever change one at a time (see #set_tile). +choice+ is the variables
       # that say which of them is showing (see Nodes::Background).
       def background(name, tiles:, map:, tile_w:, tile_h:, maps: [], choice: [], layer: nil, scene: nil,
-                     affine: false, recolors: [])
+                     affine: false, recolors: [], palettes: [])
         Nodes.build(:background, name: name, tiles: tiles, map: map, maps: maps, choice: choice,
-                                 recolors: recolors,
+                                 recolors: recolors, palettes: palettes,
                                  tile_w: tile_w, tile_h: tile_h, affine: affine, scene: scene,
                                  **in_layer(layer))
       end

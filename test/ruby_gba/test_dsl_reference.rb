@@ -40,11 +40,14 @@ class TestDslReference < Minitest::Test
   # The three recolouring ones are the hooks behind `draw_with` on a sprite and on a pool
   # instance: checking the lists named against the sprite's own, and giving a sprite or a
   # pool somewhere to keep its choice. The cheat-sheet documents `colors` and `draw_with`.
+  # The four list lookups are what a background drawn from several lists asks while it works
+  # out which list is which, behind `draw_with` on a background.
   SKIP = %i[variables var_address debug_halted? make_object_rotatable make_object_scalable
             record_row_bend make_background_affine screen_pages keep_showing_pictures
             tile_collision_routine play_from_list play_sound_effect
             declare_instance_routine note_pool_walk pool_walk_scratch_var
-            colors_to_draw_with make_object_recolorable make_pool_recolorable].freeze
+            colors_to_draw_with make_object_recolorable make_pool_recolorable
+            lists_drawn_from list_drawn_from declared_colors name_of_colors].freeze
 
   # …plus the verbs the loaded effect packs contribute. A pack's verb is an ordinary
   # DSL verb at the call site, so it has to be looked up in the same place.

@@ -1208,14 +1208,22 @@ module RubyGBA
             # one, so anything outside 0...count fails the same test.
             emit(ASM.cmp_imm(ACC, lists.count))
             emit(ASM.mov_imm_cond(:hs, ACC, lists.count))
-            emit(ASM.lsl_imm(TMP, ACC, COLOR_LIST_SHIFT))
+            emit(ASM.lsl_imm(TMP, ACC, lists.shift))
             emit_load_data_address(ACC, lists.blob)
             emit(ASM.add_reg(ACC, ACC, TMP))
             # Remembered as well as written, because a tint walks the whole table from the
             # cartridge and would otherwise put the colours the tiles were DRAWN in back over
-            # this group. See PaletteTint#emit_recolored_banks, which reads this.
+            # these groups. See PaletteTint#emit_recolored_banks, which reads this.
             store_var(ACC, lists.at)
-            @palette_tint.emit_colors_into_bank(BG_PALETTE + (lists.bank * COLOR_LIST_BYTES), COLOR_LIST_UNITS)
+            # One list into each group the layer's tiles read, side by side in the version. The
+            # groups themselves need not be side by side, so each is a copy of its own.
+            lists.banks.each_with_index do |bank, at|
+              unless at.zero?
+                load_var(ACC, lists.at)
+                emit(ASM.add_imm(ACC, ACC, at * COLOR_LIST_BYTES))
+              end
+              @palette_tint.emit_colors_into_bank(BG_PALETTE + (bank * COLOR_LIST_BYTES), COLOR_LIST_UNITS)
+            end
           end
 
           # A group is sixteen colours, and a colour is two bytes — so a list is 32 bytes and
