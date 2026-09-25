@@ -11,7 +11,7 @@ module RubyGBA
         # column, and the run-time digit glyph loop. Neither screen owns this; it is
         # the shape a framebuffer has, whichever one is live.
         class Framebuffer
-          include Cartridge::Constants
+          include Console::Hardware
 
           # HOW A PICTURE ROW BECOMES A SCREEN ROW, which is a divide by the picture's own
           # height: a stretch that covers rows 8 to 15 of a 64-row picture covers the eighth

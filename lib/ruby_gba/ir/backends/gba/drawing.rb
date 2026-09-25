@@ -21,7 +21,7 @@ module RubyGBA
         # dispatch table, which would otherwise have to pick one of two handlers per
         # kind instead of one.
         class Drawing
-          include Cartridge::Constants
+          include Console::Hardware
 
           def initialize(emitter:, primitives:, lowering:, divide:, framebuffer:, raster:, palette_tint:,
                           layer_blend:, buffered:, backing_info:, call_cold_routine:)
@@ -1531,7 +1531,7 @@ module RubyGBA
           # is not in the tree to be found — the lowering builds it. Handed a number, it
           # answers the shape, which is what the estimate wants to price.
           def self.fade_steps_value(amount)
-            Build.binop(:/, Build.binop(:*, amount, Build.int(Cartridge::Constants::BLD_MAX)), Build.int(100))
+            Build.binop(:/, Build.binop(:*, amount, Build.int(Console::Hardware::BLD_MAX)), Build.int(100))
           end
 
           def fade_steps_value(amount) = Drawing.fade_steps_value(amount)

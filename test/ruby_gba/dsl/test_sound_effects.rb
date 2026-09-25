@@ -569,8 +569,8 @@ class TestSoundEffects < Minitest::Test
   # told from the song's by being quieter and thinner.
   SETTING = 0xF0C0
 
-  SQUARE_1 = RubyGBA::Cartridge::Constants::REG_SOUND1CNT_H
-  NOISE = RubyGBA::Cartridge::Constants::REG_SOUND4CNT_L
+  SQUARE_1 = RubyGBA::Console::Hardware::REG_SOUND1CNT_H
+  NOISE = RubyGBA::Console::Hardware::REG_SOUND4CNT_L
 
   # How a voice was set on the console: [frames since it first sounded, setting] for each change.
   def console_changes(program, register, frames:)
@@ -621,7 +621,7 @@ class TestSoundEffects < Minitest::Test
     runs.map { |setting, frame| [frame - runs.first.last, setting] }
   end
 
-  REGISTERS = { 1 => SQUARE_1, 2 => RubyGBA::Cartridge::Constants::REG_SOUND2CNT_L, 3 => RubyGBA::Cartridge::Constants::REG_SOUND3CNT_H,
+  REGISTERS = { 1 => SQUARE_1, 2 => RubyGBA::Console::Hardware::REG_SOUND2CNT_L, 3 => RubyGBA::Console::Hardware::REG_SOUND3CNT_H,
                 4 => NOISE }.freeze
 
   # The two backends agree about when a voice changed and what it changed to, from the first sound
@@ -739,7 +739,7 @@ class TestSoundEffects < Minitest::Test
   # ...and from the console, reading wave RAM once a frame from the frame the voice first sounds.
   def console_waveforms(program, frames:)
     readings = console_readings(program, frames: frames) do |probe|
-      ram = (0...4).sum { |word| probe.read32(RubyGBA::Cartridge::Constants::REG_WAVE_RAM + (word * 4)) << (32 * word) }
+      ram = (0...4).sum { |word| probe.read32(RubyGBA::Console::Hardware::REG_WAVE_RAM + (word * 4)) << (32 * word) }
       [probe.read32(REGISTERS.fetch(3)) & SETTING, ram]
     end
     changes(readings.drop_while { |setting, _| setting.zero? }.map(&:last))

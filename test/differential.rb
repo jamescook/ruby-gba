@@ -74,7 +74,7 @@ module Differential
 
   # A button name as the console's key bit, for holding buttons on both backends.
   KEY_BITS = RubyGBA::IR::Buttons::NAMES.to_h do |name|
-    [name, RubyGBA::Cartridge::Constants.const_get(:"KEY_#{name.to_s.upcase}")]
+    [name, RubyGBA::Console::Hardware.const_get(:"KEY_#{name.to_s.upcase}")]
   end.freeze
 
   class OverBudget < StandardError; end

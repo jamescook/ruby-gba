@@ -15,7 +15,7 @@ module RubyGBA
         # program facts settled elsewhere in the same lowering, read through a callable
         # since they aren't known yet when this object is built.
         class Audio
-          include Cartridge::Constants
+          include Console::Hardware
 
           #
           # Each op resolves to a short list of sound-register writes via the shared

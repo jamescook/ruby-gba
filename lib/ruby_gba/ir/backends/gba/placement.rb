@@ -1,6 +1,6 @@
 # frozen_string_literal: true
 
-require_relative "../../../cartridge/constants" # the register addresses this reads, a leaf both sides sit on
+require_relative "../../../console/hardware" # the register addresses this reads, a leaf both sides sit on
 
 module RubyGBA
   module IR
@@ -46,7 +46,7 @@ module RubyGBA
         # and since the moved routines are copied as ONE block their distances from each
         # other are preserved, so they call each other exactly as they did before.
         module Placement
-          include Cartridge::Constants
+          include Console::Hardware
 
           # The block of moved routines sits between these two labels in the cartridge,
           # which is where boot copies it from.

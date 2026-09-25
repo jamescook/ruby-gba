@@ -13,7 +13,7 @@ require_relative "../../examples/dive"
 # blending. Each of those is a thing the framework only had tests for; here it is a game.
 class TestDiveExample < Minitest::Test
   include Differential
-  include RubyGBA::Cartridge::Constants # REG_DISPCNT
+  include RubyGBA::Console::Hardware # REG_DISPCNT
 
   # Which of the console's arrangements is in force sits in the low three bits of its
   # display register, and which background layers are switched on in the byte above.

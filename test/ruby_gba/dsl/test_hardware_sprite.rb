@@ -9,7 +9,7 @@ require "test_helper"
 # moves, and the friendly guardrails — on the interpreter oracle and on real
 # hardware. The dev never touches OAM, tile indices, or object memory.
 class TestHardwareSprite < Minitest::Test
-  include RubyGBA::Cartridge::Constants
+  include RubyGBA::Console::Hardware
 
   # A blue floor of 8x8 tiles filling the screen, and a red 8x8 hero sprite that
   # slides right by +step+ while :right is held, halting after +frames+ steps so its

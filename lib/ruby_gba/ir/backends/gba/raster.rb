@@ -85,7 +85,7 @@ module RubyGBA
         # this object is built (tiled backgrounds are prepared first), so only bg_number,
         # called at emission time, ever actually reads it.
         class Raster
-          include Cartridge::Constants
+          include Console::Hardware
 
           # The lines the picture is drawn on. The display counts on past the bottom of the
           # picture (through 227) while nothing is being drawn, so a line at or past this

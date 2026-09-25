@@ -163,7 +163,7 @@ class TestIRBackendGBA < Minitest::Test
     assert v.black?(10, 10)
   end
 
-  KEY_START = RubyGBA::Cartridge::Constants::KEY_START
+  KEY_START = RubyGBA::Console::Hardware::KEY_START
 
   def test_pressed_program_lowers_to_a_valid_rom
     rom = lower(program(

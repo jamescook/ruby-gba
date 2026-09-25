@@ -628,7 +628,7 @@ class TestSceneBackgrounds < Minitest::Test
   # console changed arrangement AND that the fourth layer is off in the one that has no
   # fourth layer — a layer left switched on there means nothing to the hardware and is the
   # half of this that a picture can hide.
-  include RubyGBA::Cartridge::Constants # REG_DISPCNT, and the bits below it
+  include RubyGBA::Console::Hardware # REG_DISPCNT, and the bits below it
 
   ARRANGEMENT = 0x7
   private def layers_on(value) = (0..3).select { |bg| value.anybits?(1 << (8 + bg)) }
@@ -902,7 +902,7 @@ class TestSceneBackgrounds < Minitest::Test
     end
   end
 
-  WATCHED_REGISTERS = ([RubyGBA::Cartridge::Constants::REG_DISPCNT] + BGCNT).freeze
+  WATCHED_REGISTERS = ([RubyGBA::Console::Hardware::REG_DISPCNT] + BGCNT).freeze
 
   # Which layers were told to draw before they were told where to draw from, walking the
   # writes in the order the console saw them.

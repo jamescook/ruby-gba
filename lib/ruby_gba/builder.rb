@@ -45,7 +45,7 @@ module RubyGBA
   #     halt
   #   end
   class Builder
-    include Cartridge::Constants
+    include Console::Hardware
 
     include Randomness # seed, randomize, roll, rand, chance
     include Sound      # enable_sound, define_sound, beep

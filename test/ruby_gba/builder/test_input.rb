@@ -3,7 +3,7 @@
 require "test_helper"
 
 class TestInput < Minitest::Test
-  include RubyGBA::Cartridge::Constants
+  include RubyGBA::Console::Hardware
 
   def build(validate: false, &block)
     RubyGBA.build("INPTEST", validate: validate, &block)

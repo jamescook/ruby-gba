@@ -42,7 +42,7 @@ module RubyGBA
         # object before its own @drawing exists, so it hands in `self` and the call
         # resolves once @drawing does (see gba.rb#initialize).
         class PaletteTint
-          include Cartridge::Constants
+          include Console::Hardware
 
           # The last tint written into the color table, so a tint that has not moved can
           # be skipped. It packs the color and how far, because both have to match for the

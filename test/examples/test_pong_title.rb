@@ -302,7 +302,7 @@ class TestPongTitle < Minitest::Test
     assert still.white?(column - 11, ROW_START + 1),
            "the cursor sits beside START, drawn by the sprite hardware over the zooming backdrop"
 
-    moved = assert_emulator_loads_rom(rom, frames: 8, keys: RubyGBA::Cartridge::Constants::KEY_DOWN)
+    moved = assert_emulator_loads_rom(rom, frames: 8, keys: RubyGBA::Console::Hardware::KEY_DOWN)
 
     assert moved.white?(column - 11, ROW_MUSIC + 1), "and walks to the music row"
   end
@@ -333,10 +333,10 @@ class TestPongTitle < Minitest::Test
 
     # Down onto the music row, then A to turn it off — and now that column IS lettered.
     walk = lambda do |frame|
-      next RubyGBA::Cartridge::Constants::KEY_DOWN if frame < 3
+      next RubyGBA::Console::Hardware::KEY_DOWN if frame < 3
       next 0 if frame < 6
 
-      RubyGBA::Cartridge::Constants::KEY_A
+      RubyGBA::Console::Hardware::KEY_A
     end
     off = assert_emulator_loads_rom(rom, frames: 12, keys: walk)
 

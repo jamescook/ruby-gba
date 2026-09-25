@@ -9,7 +9,7 @@ require "test_helper"
 # real proof is the differential test at the bottom: the loop advances exactly once
 # per frame on the interpreter AND on real hardware (a hang would miss the count).
 class TestGameLoop < Minitest::Test
-  include RubyGBA::Cartridge::Constants
+  include RubyGBA::Console::Hardware
 
   # ARM SWI with comment 0x05 in the top byte -> VBlankIntrWait.
   VBLANK_INTR_WAIT = 0xEF000000 | (0x05 << 16)

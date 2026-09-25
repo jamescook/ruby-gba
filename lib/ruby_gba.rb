@@ -1,23 +1,22 @@
 # frozen_string_literal: true
 
 require_relative "ruby_gba/version"
-# THE WHOLE LIBRARY, IN ELEVEN LINES, and this is the only place that says so. Each one loads a
+# THE WHOLE LIBRARY, IN TWELVE LINES, and this is the only place that says so. Each one loads a
 # module through a front door of its own (or, for version and pager, a single file); what is
 # inside a module is that module's business and is listed in its own front door.
 #
 # THE ORDER IS NOT ALPHABETICAL AND CANNOT BE. It is what each piece needs to have been defined
 # before its own class bodies run, and every step of it is a dependency worth knowing about:
 #
-#   audio, builder and diagnostics all need CARTRIDGE first — not for a cartridge, but for
-#     Cartridge::Constants, the table of hardware register addresses. Three modules that have
-#     nothing to do with the bytes on a card reach into the one that does, purely to name an
-#     address. That table is filed in the wrong place; moving it is its own piece of work.
+#   cartridge, audio, builder, diagnostics and ir all need CONSOLE first, the table of the
+#     hardware's addresses and flags. It needs nothing itself, so it goes at the top.
 #   ir needs AUDIO, because a backend sizes its music player from what a tune is.
 #   dsl needs IR, because a handle a game holds is a way of building a node.
 #   effects needs BUILDER, because an effect pack adds verbs to it.
 #
 # Everything else is free to move. Adding a require here means a new module, not a new file —
 # a file goes in its own module's front door.
+require_relative "ruby_gba/console" # the hardware's addresses and flags, named
 require_relative "ruby_gba/messages" # what a build says to the person running it, while it builds
 require_relative "ruby_gba/cartridge" # the bytes on the card, and the card itself
 require_relative "ruby_gba/graphics" # what a picture is made of

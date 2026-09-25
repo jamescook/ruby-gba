@@ -31,7 +31,7 @@ module RubyGBA
         # the mix itself. @samples / @plays_samples are this object's own state, not
         # handed in — nothing outside sampled audio ever reads them.
         class Mixer
-          include Cartridge::Constants
+          include Console::Hardware
 
           # How many samples can sound at once — read from {Sound}, where the two backends
           # keep the promises they make to each other, rather than written down again here.

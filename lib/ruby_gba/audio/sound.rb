@@ -200,7 +200,7 @@ module RubyGBA
       # Each method returns a list of [register_address, 16-bit value] pairs in the
       # order they must be written; a backend just stores each one.
       module Registers
-        include RubyGBA::Cartridge::Constants
+        include RubyGBA::Console::Hardware
         module_function
 
         # Wave shape → the 2-bit duty field the hardware wants.

@@ -27,7 +27,7 @@ module RubyGBA
         # anything to encapsulate. Takes emitter: and primitives: purely to reach load_var/
         # store_var/emit/etc without going through GBA's shared self.
         class Frames
-          include Cartridge::Constants
+          include Console::Hardware
 
           # The names and the cap are the same on every backend, so they live with the IR.
           COUNT = IR::Frames::COUNT

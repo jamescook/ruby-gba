@@ -353,11 +353,11 @@ class TestScaledAndScrollingBackgrounds < Minitest::Test
   # other way, and the whole change is which arrangement the build picks.
   def test_the_console_is_put_in_the_arrangement_that_holds_a_turning_layer
     mixed = assert_emulator_loads_rom(assemble_rom(three_layer_program, name: "MIXEDBG4"), frames: 4)
-    assert_equal 1, mixed.mem16(RubyGBA::Cartridge::Constants::REG_DISPCNT) & DISPLAY_MODE,
+    assert_equal 1, mixed.mem16(RubyGBA::Console::Hardware::REG_DISPCNT) & DISPLAY_MODE,
                  "two scrolling layers and one that turns is the console's second arrangement"
 
     plain = assert_emulator_loads_rom(assemble_rom(scrolling_only_program, name: "PLAINBG4"), frames: 4)
-    assert_equal 0, plain.mem16(RubyGBA::Cartridge::Constants::REG_DISPCNT) & DISPLAY_MODE,
+    assert_equal 0, plain.mem16(RubyGBA::Console::Hardware::REG_DISPCNT) & DISPLAY_MODE,
                  "a game that turns nothing keeps the arrangement with four scrolling layers"
   end
 

@@ -42,7 +42,7 @@ module RubyGBA
     module Tearing
       # Where the picture lives on a direct-color bitmap screen, and how big it is. Each
       # pixel is one 16-bit color, rows top to bottom, and the display shows exactly this.
-      FRAMEBUFFER = Cartridge::Constants::VRAM_START
+      FRAMEBUFFER = Console::Hardware::VRAM_START
       WIDTH = IR::Screen::WIDTH
       HEIGHT = IR::Screen::HEIGHT
 

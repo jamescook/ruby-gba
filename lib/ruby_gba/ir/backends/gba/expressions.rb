@@ -6,7 +6,7 @@ module RubyGBA
       class GBA
         # Evaluating value nodes (arithmetic, comparisons, data, input reads).
         class Expressions
-          include Cartridge::Constants
+          include Console::Hardware
 
           def initialize(emitter:, primitives:, lowering:, divide:, tables:)
             @emitter = emitter

@@ -482,7 +482,7 @@ module RubyGBA
       def self.where_of(span)
         return :unknown if span.nil?
 
-        (span.begin & 0xFF00_0000) == Cartridge::Constants::IWRAM_START ? :quick_memory : :cartridge
+        (span.begin & 0xFF00_0000) == Console::Hardware::IWRAM_START ? :quick_memory : :cartridge
       end
 
       def self.in_temp_rom(rom)

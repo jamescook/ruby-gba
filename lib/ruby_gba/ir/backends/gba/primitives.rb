@@ -6,7 +6,7 @@ module RubyGBA
       class GBA
         # Small shared primitives: variable addresses, stores, constant folding.
         class Primitives
-          include Cartridge::Constants
+          include Console::Hardware
 
           def initialize(emitter:, memory:)
             @emitter = emitter

@@ -8,7 +8,7 @@ require "test_helper"
 # delta), so it behaves the same on every backend; these tests assert the value
 # it lands on, both in the interpreter and on real hardware.
 class TestApproach < Minitest::Test
-  include RubyGBA::Cartridge::Constants
+  include RubyGBA::Console::Hardware
 
   # Build through the DSL and run on the reference backend, returning the
   # interpreter (read a variable's final value with i[:name]).

@@ -30,7 +30,7 @@ module RubyGBA
         # pays for a branch. A step is then just a compare, a subtract that only happens
         # if it fits, and a doubling that slides the compare's yes-or-no into the answer.
         class Divide
-          include Cartridge::Constants
+          include Console::Hardware
 
           # Room reserved in fast internal memory for each routine, which is copied there
           # at boot. The build fails if one ever outgrows its room.

@@ -9,7 +9,7 @@ require "test_helper"
 # actually changes over time — on the interpreter oracle and on real hardware — by
 # reading the sprite's color a few frames apart.
 class TestSpriteAnimation < Minitest::Test
-  include RubyGBA::Cartridge::Constants
+  include RubyGBA::Console::Hardware
 
   # A blinker at (40, 40) that flips between a red frame and a blue frame every 4
   # frames, over a white field. It halts after +run+ frames so what's on screen is

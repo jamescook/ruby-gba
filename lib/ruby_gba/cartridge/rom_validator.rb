@@ -16,7 +16,8 @@ module RubyGBA
     #   result = RubyGBA::Cartridge::ROMValidator.check(rom)
     #   result.ok? # => true if no errors
     class ROMValidator
-      include Constants
+      include Console::Hardware
+      include Header
 
       Result = Data.define(:errors, :warnings) do
         def ok?

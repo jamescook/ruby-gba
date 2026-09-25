@@ -8,7 +8,7 @@ require "test_helper"
 # there. Scrolled at different speeds, near-and-far layers give parallax. Asserted on
 # the interpreter oracle and on real hardware; the dev only writes two `background`s.
 class TestBackgroundLayers < Minitest::Test
-  include RubyGBA::Cartridge::Constants
+  include RubyGBA::Console::Hardware
 
   # A FAR layer (backmost): a blue field with a GREEN landmark tile at cell (5,5) ->
   # px (40,40). A NEAR layer (front): transparent everywhere (spaces) except a RED

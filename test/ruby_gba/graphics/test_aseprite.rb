@@ -11,7 +11,7 @@ require "tempfile"
 # frames' durations set the speed. This is the metadata-driven complement to the blind
 # grid slice of frames_from: / facing_from:.
 class TestAseprite < Minitest::Test
-  include RubyGBA::Cartridge::Constants
+  include RubyGBA::Console::Hardware
 
   Aseprite = RubyGBA::Graphics::Aseprite
 

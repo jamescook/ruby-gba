@@ -5,7 +5,7 @@ require "test_helper"
 require "tempfile"
 
 class TestMusic < Minitest::Test
-  include RubyGBA::Cartridge::Constants
+  include RubyGBA::Console::Hardware
 
   def build(validate: false, &block)
     RubyGBA.build("MUSTEST", code: "BMUS", maker: "01", validate: validate, &block)

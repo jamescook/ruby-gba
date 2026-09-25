@@ -202,7 +202,7 @@ class TestTextTwoColors < Minitest::Test
 
     assert dull.pixel_is?(*pixel, :gray), "the label starts in the first colour"
 
-    bright = assert_emulator_loads_rom(rom, frames: 6, keys: RubyGBA::Cartridge::Constants::KEY_A)
+    bright = assert_emulator_loads_rom(rom, frames: 6, keys: RubyGBA::Console::Hardware::KEY_A)
 
     assert bright.white?(*pixel), "and the console swaps it for the second when the test holds"
   end

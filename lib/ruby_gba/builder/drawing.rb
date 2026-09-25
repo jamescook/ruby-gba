@@ -6,11 +6,11 @@ module RubyGBA
     # single pixels, filled rectangles (fixed or run-time positioned), a whole-screen
     # clear. A concern of {Builder}, mixed in so these stay flat DSL verbs.
     #
-    # It includes Constants for the hardware register values behind the friendly
+    # It includes Console::Hardware for the hardware register values behind the friendly
     # names — the MODE_*/BG*_ENABLE bits in SCREEN_MODES and the SCREEN_* bounds in
-    # validate_coords! (a concern doesn't inherit Builder's own Constants include).
+    # validate_coords! (a concern doesn't inherit Builder's own Console::Hardware include).
     module Drawing
-      include Cartridge::Constants
+      include Console::Hardware
 
       # Friendly screen mode presets — the names {#screen} accepts. The tear-proof
       # double-buffered screen isn't a separate name here: it's `screen :bitmap,

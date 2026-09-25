@@ -15,7 +15,7 @@ require "differential"
 # it took its share of that memory from a routine that really does run every frame.
 class TestStillObjects < Minitest::Test
   include Differential
-  include RubyGBA::Cartridge::Constants
+  include RubyGBA::Console::Hardware
 
   YELLOW = RubyGBA::Graphics::Color.rgb(31, 31, 0)
   RED = RubyGBA::Graphics::Color.rgb(31, 0, 0)

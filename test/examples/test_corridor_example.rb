@@ -12,7 +12,7 @@ require_relative "../../examples/corridor"
 # it is a real game that draws a real picture, and it is heavy enough that a change which
 # pushed it over would be caught here.
 class TestCorridorExample < Minitest::Test
-  include RubyGBA::Cartridge::Constants
+  include RubyGBA::Console::Hardware
 
   # RubyGBA.build runs the guardrails and the ROM-image validation, so a clean build IS
   # the check.

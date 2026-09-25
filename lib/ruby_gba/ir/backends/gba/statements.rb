@@ -27,7 +27,7 @@ module RubyGBA
 
         # Statement lowering: variable ops and control flow.
         class Statements
-          include Cartridge::Constants
+          include Console::Hardware
 
           def initialize(emitter:, primitives:, lowering:, placement:, functions:)
             @emitter = emitter

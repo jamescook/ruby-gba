@@ -36,7 +36,7 @@ module RubyGBA
     #   v.all_black?                        # => false (we drew a pixel)
     #   v.region_color?(80, 50, 80, 60, :blue)  # all blue in rect?
     class Verifier
-      include Cartridge::Constants
+      include Console::Hardware
 
       # @param rom [RubyGBA::Cartridge::ROM] a finalized ROM
       # @param frames [Integer] how many frames to run before reading pixels (default: 2)

@@ -128,7 +128,7 @@ class TestJukeboxExample < Minitest::Test
   # ...and the console dips too: loud, a stretch of quiet as the cursor moves, then loud again.
   def test_the_console_dips_between_tunes
     rom = Jukebox.build_rom(out: StringIO.new, err: StringIO.new)
-    down = ->(frame) { (40..41).cover?(frame) ? RubyGBA::Cartridge::Constants::KEY_DOWN : 0 }
+    down = ->(frame) { (40..41).cover?(frame) ? RubyGBA::Console::Hardware::KEY_DOWN : 0 }
     energy = assert_emulator_loads_rom(rom, frames: 110, keys: down).audio_energy_by_frame
     loud = energy.max / 4
 

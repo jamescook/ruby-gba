@@ -21,7 +21,7 @@ module RubyGBA
         # count of it, ahead of anything the program named, go through #reserve! (see
         # Mixer#prepare_mixer) rather than touching @next_hw_timer directly.
         class Timers
-          include Cartridge::Constants
+          include Console::Hardware
 
           # The GBA CPU clock: ~16.78 MHz (2**24 Hz). A timer at prescaler P ticks this
           # many times a second divided by P.

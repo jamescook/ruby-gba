@@ -4,13 +4,14 @@ module RubyGBA
   module Cartridge
     # Manages a raw GBA ROM byte buffer and writes the cartridge header.
     #
-    # All offsets reference constants from {RubyGBA::Cartridge::Constants} — no magic
+    # All offsets reference constants from {RubyGBA::Console::Hardware} — no magic
     # numbers in the logic. This makes it easy to sanity-check header writes
     # and catch offset mistakes early.
     #
     # Reference: https://problemkaputt.de/gbatek-gba-cartridge-header.htm
     class ROM
-      include Constants
+      include Console::Hardware
+      include Header
 
       HEADER_SIZE  = 0xC0
       ENTRY_OFFSET = HEADER_SIZE  # code starts after the full header

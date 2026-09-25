@@ -17,7 +17,7 @@ class TestAddressRegister < Minitest::Test
   AddressRegister = RubyGBA::IR::Backends::GBA::AddressRegister
   ADDR = RubyGBA::IR::Backends::GBA::ADDR
   LIST_ADDR = RubyGBA::IR::Backends::GBA::LIST_ADDR
-  BASE = RubyGBA::Cartridge::Constants::IWRAM_START
+  BASE = RubyGBA::Console::Hardware::IWRAM_START
   # The one instruction this whole change is about: the base put in the address register.
   BASE_LOAD = A.load_immediate(ADDR, BASE)
 

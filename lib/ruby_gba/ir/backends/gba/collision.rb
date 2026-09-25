@@ -22,7 +22,7 @@ module RubyGBA
         # themselves value nodes, evaluated through the {Lowering} this class is handed
         # rather than through whatever else happens to own value evaluation.
         class Collision
-          include Cartridge::Constants
+          include Console::Hardware
 
           # The hidden variables the routine works in (IWRAM scratch, reused each call —
           # a collision test never runs nested inside another).

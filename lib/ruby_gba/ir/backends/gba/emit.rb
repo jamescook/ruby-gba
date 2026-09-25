@@ -17,7 +17,7 @@ module RubyGBA
         # knowing their names — the two kinds it does own (:data_addr, :label_addr) and
         # a plain branch are resolved directly.
         class Emit
-          include Cartridge::Constants
+          include Console::Hardware
 
           # A PLACEHOLDER WAITING FOR AN ANSWER — the note the first pass leaves itself about a
           # number it cannot know yet, because the thing it refers to has not been placed.

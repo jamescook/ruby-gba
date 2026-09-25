@@ -11,7 +11,7 @@ module RubyGBA
     # @example From a ROM object
     #   RubyGBA::Diagnostics::Inspector.from_rom(rom).report
     class Inspector
-      include Cartridge::Constants
+      include Console::Hardware
 
       attr_reader :buffer
 
@@ -75,15 +75,15 @@ module RubyGBA
       end
 
       def title
-        @buffer[HEADER_TITLE, 12].delete("\x00")
+        @buffer[Cartridge::Header::HEADER_TITLE, 12].delete("\x00")
       end
 
       def game_code
-        @buffer[HEADER_CODE, 4]
+        @buffer[Cartridge::Header::HEADER_CODE, 4]
       end
 
       def maker_code
-        @buffer[HEADER_MAKER, 2]
+        @buffer[Cartridge::Header::HEADER_MAKER, 2]
       end
 
       def entry_branch
@@ -98,15 +98,15 @@ module RubyGBA
       end
 
       def fixed_byte
-        @buffer.getbyte(HEADER_FIXED)
+        @buffer.getbyte(Cartridge::Header::HEADER_FIXED)
       end
 
       def checksum
-        @buffer.getbyte(HEADER_CHECKSUM)
+        @buffer.getbyte(Cartridge::Header::HEADER_CHECKSUM)
       end
 
       def checksum_valid?
-        sum = (HEADER_TITLE..0xBC).sum { |i| @buffer.getbyte(i) }
+        sum = (Cartridge::Header::HEADER_TITLE..0xBC).sum { |i| @buffer.getbyte(i) }
         expected = (-(sum + 0x19)) & 0xFF
         checksum == expected
       end

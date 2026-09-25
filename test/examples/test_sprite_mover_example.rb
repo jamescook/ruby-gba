@@ -10,7 +10,7 @@ require_relative "../../examples/sprite_mover"
 # everything pattern is gone from the loop — and that it still renders and steers,
 # on the interpreter and on the emulator.
 class TestSpriteMoverExample < Minitest::Test
-  include RubyGBA::Cartridge::Constants
+  include RubyGBA::Console::Hardware
 
   FIELD = RubyGBA::Graphics::Color.rgb(4, 6, 14)
   START = [(SpriteMover::SCREEN_W - SpriteMover::SPRITE_W) / 2,

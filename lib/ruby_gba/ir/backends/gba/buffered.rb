@@ -20,8 +20,8 @@ module RubyGBA
         # rather than through Drawing itself — the two screens share how they work,
         # not an object.
         class Buffered
-          include Cartridge::Constants
-          extend Cartridge::Constants # the screen's size, for the class-level rules the estimate asks
+          include Console::Hardware
+          extend Console::Hardware # the screen's size, for the class-level rules the estimate asks
 
           def initialize(emitter:, primitives:, lowering:, framebuffer:, call_cold_routine:)
             @emitter = emitter

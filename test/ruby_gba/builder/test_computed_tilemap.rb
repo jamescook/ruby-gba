@@ -205,7 +205,7 @@ class TestComputedTilemap < Minitest::Test
 
   def test_a_computed_map_stops_a_mover_on_the_console
     v = assert_emulator_loads_rom(assemble_rom(walled_room, name: "COMPWALL"), frames: 30,
-                                  keys: RubyGBA::Cartridge::Constants::KEY_RIGHT)
+                                  keys: RubyGBA::Console::Hardware::KEY_RIGHT)
     assert v.red?(28, 20), "the hero stops flush against the wall"
     refute v.red?(36, 20), "the hero never crossed into the wall"
   end

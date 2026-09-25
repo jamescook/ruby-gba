@@ -365,7 +365,7 @@ class TestSpritePieces < Minitest::Test
 
     refute_nil objects
     assert_operator objects.used, :>, 1
-    assert_equal RubyGBA::Cartridge::Constants::MAX_SPRITES, objects.capacity
+    assert_equal RubyGBA::Console::Hardware::MAX_SPRITES, objects.capacity
     assert_equal [[:big, objects.used]], objects.big
   end
 

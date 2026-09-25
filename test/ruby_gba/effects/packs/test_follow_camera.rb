@@ -230,7 +230,7 @@ class TestFollowCamera < Minitest::Test
     rom = RubyGBA::Cartridge::ROM.assemble(GBA.new.lower(prog), title: "FOLLOW", code: "BFLW", maker: "01")
 
     at_rest = assert_emulator_loads_rom(rom, frames: 4)
-    walked = assert_emulator_loads_rom(rom, frames: 30, keys: RubyGBA::Cartridge::Constants::KEY_RIGHT)
+    walked = assert_emulator_loads_rom(rom, frames: 30, keys: RubyGBA::Console::Hardware::KEY_RIGHT)
 
     assert at_rest.red?(120, 80), "the character renders in the middle of the screen"
     assert walked.red?(120, 80), "and is still there after walking — the console moved the world"

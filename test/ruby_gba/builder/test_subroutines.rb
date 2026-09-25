@@ -3,7 +3,7 @@
 require "test_helper"
 
 class TestSubroutines < Minitest::Test
-  include RubyGBA::Cartridge::Constants
+  include RubyGBA::Console::Hardware
 
   def build(validate: false, &block)
     RubyGBA.build("SUBTEST", code: "BSUB", maker: "01", validate: validate, &block)

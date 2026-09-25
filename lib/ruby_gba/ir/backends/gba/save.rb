@@ -25,7 +25,7 @@ module RubyGBA
         # number each time. Takes emitter: and primitives: purely to reach load_var/
         # store_var/emit/etc without going through GBA's shared self.
         class Save
-          include Cartridge::Constants
+          include Console::Hardware
 
           # The 4-byte header (the marker) that sits before the saved values.
           SAVE_HEADER_BYTES = 4

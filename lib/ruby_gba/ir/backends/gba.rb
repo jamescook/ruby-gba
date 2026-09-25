@@ -89,7 +89,7 @@ module RubyGBA
       # touched alternately all through a pool walk, and sharing one would leave each
       # evicting the other every time.
       class GBA
-        include RubyGBA::Cartridge::Constants
+        include RubyGBA::Console::Hardware
         include Placement
 
         class LoweringError < StandardError; end

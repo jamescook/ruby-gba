@@ -84,7 +84,7 @@ class TestRomBuilder < Minitest::Test
 
     # Pinned against the canonical Nintendo logo hash — a single wrong byte
     # fails the GBA BIOS boot check on real hardware. This is deliberately
-    # independent of Constants::HEADER_LOGO_BYTES so it catches a bad constant.
+    # independent of Header::HEADER_LOGO_BYTES so it catches a bad constant.
     assert_equal "17daa0fec02fc33c0f6abb549a8b80b6613b48ee",
                  Digest::SHA1.hexdigest(logo), "logo must match the canonical Nintendo logo"
 

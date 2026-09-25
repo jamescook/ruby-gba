@@ -343,12 +343,12 @@ class TestAffineBackground < Minitest::Test
   #
   # Which is also the bargain the framework already makes for a whole map and for a
   # scroll, in the same place — the gap between frames — and for the same reason.
-  TURN_REGISTERS = [RubyGBA::Cartridge::Constants::REG_BG2PA,
-                    RubyGBA::Cartridge::Constants::REG_BG2PB,
-                    RubyGBA::Cartridge::Constants::REG_BG2PC,
-                    RubyGBA::Cartridge::Constants::REG_BG2PD,
-                    RubyGBA::Cartridge::Constants::REG_BG2X,
-                    RubyGBA::Cartridge::Constants::REG_BG2Y].freeze
+  TURN_REGISTERS = [RubyGBA::Console::Hardware::REG_BG2PA,
+                    RubyGBA::Console::Hardware::REG_BG2PB,
+                    RubyGBA::Console::Hardware::REG_BG2PC,
+                    RubyGBA::Console::Hardware::REG_BG2PD,
+                    RubyGBA::Console::Hardware::REG_BG2X,
+                    RubyGBA::Console::Hardware::REG_BG2Y].freeze
 
   # How many of those six the console was written on each frame, in order — read off its
   # own log of what the cartridge wrote to the display, which is the only place the

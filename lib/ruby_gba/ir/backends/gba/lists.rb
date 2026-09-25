@@ -31,7 +31,7 @@ module RubyGBA
         # IWRAM allocation story — a name registered once, a layout looked up
         # afterward — not because it's a list; see #register_backing/#backing_info.
         class Lists
-          include Cartridge::Constants
+          include Console::Hardware
 
           def initialize(memory:, primitives:, emitter:, lowering:)
             @memory = memory
