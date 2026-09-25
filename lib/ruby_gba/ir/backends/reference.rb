@@ -81,7 +81,7 @@ module RubyGBA
         # does. Which size a map gets is {IR::TileMap}'s answer, shared with every other
         # backend so they cannot disagree about where a background comes round.
 
-        attr_reader :vars, :screen, :log, :frame, :screen_mode, :buffered, :audio, :save
+        attr_reader :vars, :log, :frame, :screen_mode, :buffered, :audio, :save
 
         # WHAT THE RUN MADE A NOISE ABOUT, read back through the mixer that kept it. The
         # interpreter holds no audio state of its own: {Mixer} keeps the voices and {Player}
@@ -259,8 +259,17 @@ module RubyGBA
           # Backends::GBA::Drawing#held_until_the_first_frame). A program that never waits has
           # no first frame to wait for, and shows what it draws as it draws it.
           @screen.held = node.walk.any? { |child| child.kind == :wait_vblank }
+          # Whether a repaint can be owed rather than done (see #composite_scrolled_frame): not
+          # where the picture reads variables as it is painted.
+          @picture_can_wait = @row_bends.empty? && (@see_through.nil? || @see_through[1].kind == :int)
           catch(:halt) { exec(node) }
           self
+        end
+
+        # The picture, painted up to date first if a repaint is owed (see #composite_scrolled_frame).
+        def screen
+          settle_the_picture
+          @screen
         end
 
         # Read a variable's current value (0 if it was never written).
@@ -472,6 +481,7 @@ module RubyGBA
                   "the reference backend can't run #{node.kind.inspect} — it's a hardware-only op the " \
                   "interpreter can't model; keep it out of code you run headlessly"
           end
+          settle_the_picture if @picture_owed && !leaves_the_picture_owed?(node)
 
           case node.kind
           when :program
@@ -727,7 +737,10 @@ module RubyGBA
           # screen, so it happens FIRST — before either stop below. The frame whose
           # drawing just finished is the one being published, and a run that stops here
           # has to stop with that frame on screen rather than with the one before it.
-          @screen.flip_pages if @buffered
+          if @buffered
+            settle_the_picture # the page being published has to be the finished one
+            @screen.flip_pages
+          end
 
           # This is a frame boundary: if we're past the budget, stop HERE — the frame just
           # drawn is complete, and the next one's clear/draws haven't started, so the screen
@@ -916,6 +929,10 @@ module RubyGBA
         # composites stacked layers: the backmost paints first, and each layer in front
         # only covers where it has solid pixels, letting the layers behind fill its gaps.
         def exec_background(node)
+          # Reached every frame its scene runs, and nearly always already up — which changes
+          # nothing, so an owed repaint can go on being owed (see #leaves_the_picture_owed?).
+          already_up = node.scene && node.scene == @bg_scene && @bg_shown.include?(node)
+          settle_the_picture unless already_up
           take_the_screen_for(node.scene)
 
           # PUTTING A BACKGROUND UP IS A ONCE-PER-SCENE JOB, NOT A PER-FRAME ONE, and this
@@ -1304,7 +1321,51 @@ module RubyGBA
         # sprites vanish with it — no save-under needed. Both scroll_background and
         # present_objects call this, so whichever runs last in a frame leaves the
         # settled, correct image regardless of their order.
+        # A REPAINT IS OWED RATHER THAN DONE, where it can be. Repainting the whole view is most
+        # of what a frame costs here, it is asked for several times a frame (every scroll, and
+        # again as the frame is presented), and a test that only reads variables never looks at
+        # any of it. So asking marks it owed, and it is painted when something needs it: the
+        # picture is read (#screen), something is drawn onto it or changes what it is built from
+        # (#exec), or the pages of a tear-free screen trade places (#advance_frame).
+        #
+        # The picture that comes out is the one painting at once would have made, because
+        # nothing it is built from can change while it is owed: a statement that does settles
+        # it first, and a statement that repaints anyway simply takes its place. The one input
+        # a statement cannot be seen changing is a VARIABLE, which a bending background's block
+        # and a see-through amount the game works out both read — and a bending block also
+        # writes them. So a program with either paints at once, as it always did (see #run).
         def composite_scrolled_frame
+          return @picture_owed = true if @picture_can_wait
+
+          paint_the_scrolled_frame
+        end
+
+        def settle_the_picture
+          return unless @picture_owed
+
+          @picture_owed = false
+          paint_the_scrolled_frame
+        end
+
+        # Statements that cannot change the picture or anything it is built from, so a repaint
+        # owed across them is still the right one: values, variables, lists, sound, a
+        # declaration reached while running (gathered before the run, so it does nothing), and
+        # the control flow whose own children are asked one at a time.
+        LEAVE_THE_PICTURE_OWED = %i[var list sound value data].freeze
+        STEERING = %i[if else case repeat loop call call_one_of every after on_timer timer_start timer_stop
+                      func wait_vblank object].freeze
+        # ...and the ones that change what the picture is built from and then always repaint, so
+        # an owed repaint is replaced rather than painted — plus `background`, which settles one
+        # itself when it has anything to put up (see #exec_background).
+        REPAINTING = %i[scroll_background show_map set_tile background_colors see_through present_objects
+                        background].freeze
+
+        def leaves_the_picture_owed?(node)
+          STEERING.include?(node.kind) || REPAINTING.include?(node.kind) ||
+            LEAVE_THE_PICTURE_OWED.include?(node.category)
+        end
+
+        def paint_the_scrolled_frame
           kept = @fade_placed ? kept_out_of_the_fade : nil
           paint_blend_for(nil, kept)      # the backdrop is behind everything, so it blends
           @screen.clear(0)                # the backdrop the layers' transparent pixels reveal

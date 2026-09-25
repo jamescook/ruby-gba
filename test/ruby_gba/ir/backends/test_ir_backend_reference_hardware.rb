@@ -237,4 +237,53 @@ class TestIRBackendReferenceHardware < Minitest::Test
     ))
     assert_equal [[:vblank, 1], [:vblank, 2], [:halt]], i.log
   end
+
+  # ---- a repaint is owed until something looks ----
+  #
+  # Repainting a scrolled view is most of what a frame costs here, and a test that reads only
+  # variables never looks at it, so the repaint waits until something does. What that must never
+  # change is the picture: read at the end of a run, it is the one a watcher reading every frame
+  # saw at that moment. A scene that scrolls, changes a tile, changes its colours and moves a
+  # sprite, so every kind of repaint is owed and settled somewhere in it.
+  def a_scene_that_changes_every_way
+    tile = (["#" * 8] * 8).join("\n")
+    builder = RubyGBA::Builder.new
+    builder.instance_eval do
+      screen :tiled
+      colors :day, %i[transparent red]
+      colors :dusk, %i[transparent blue]
+      image(:brick, "#" => :red, colors: :day) { tile }
+      image(:ghost, "#" => :white) { tile }
+      tiles :set, "#" => :brick, "." => :brick
+      field = background :field, tiles: :set, map: Array.new(20) { |r| (r.even? ? "#." : ".#") * 15 }
+      ghost = sprite :ghost, at: [10, 10]
+      tick = var :tick, 0
+      game_loop do
+        tick.add! 1
+        field.scroll_by 3, 1
+        ghost.move 2, 1
+        (tick == 3).then { field.set_tile 1, 1, "#" }
+        (tick == 5).then { field.draw_with :dusk }
+      end
+    end
+    builder.emit_pending_functions
+    builder.program
+  end
+
+  def test_a_picture_read_after_a_run_is_the_one_watched_at_that_moment
+    watched = {}
+    watcher = Reference.new
+    watcher.each_vblank { |call| watched[call] = watcher.screen.shown }
+    watcher.run(a_scene_that_changes_every_way, frames: 10)
+
+    # ...and the pictures are really painted, not merely equally stale: the view scrolls every
+    # frame, and the colour change arrives.
+    assert_equal watched.size, watched.values.uniq.size, "a frame showed the same picture as another"
+    assert_includes watched.fetch(10), Color.resolve(:blue), "the layer never drew with its other colours"
+    (1..8).each do |frames|
+      ended = Reference.new.run(a_scene_that_changes_every_way, frames: frames).screen.shown
+      # A run of N frames stops at the boundary the watcher is called at for the N+1th time.
+      assert ended == watched.fetch(frames + 1), "the picture read after #{frames} frames is not the one watched"
+    end
+  end
 end
