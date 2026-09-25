@@ -396,11 +396,11 @@ class TestTint < Minitest::Test
   # what is drawn — so the difference between them is the walk and nothing else.
   TINT_COST_COLORS = 200
 
-  def tint_cost_program(moving:, tinting: true)
+  def tint_cost_program(moving:, tinting: true, tear_free: true)
     colors = TINT_COST_COLORS
     b = RubyGBA::Builder.new
     b.instance_eval do
-      screen :bitmap, tear_free: true
+      screen :bitmap, tear_free: tear_free
       level = var :level, 100
       colors.times { |i| pixel i, 0, i + 1 } # one pixel per color, painted once at boot
       game_loop do
@@ -435,6 +435,18 @@ class TestTint < Minitest::Test
     assert_operator moving / held, :>, 5.0,
                     "expected a held tint to be far cheaper than a moving one, got " \
                     "#{format('%.2fx', moving / held)} (#{held} -> #{moving})"
+  end
+
+  # THE PLAIN BITMAP SCREEN IS THE ONE WHERE A TINT IS FREE. It holds a whole colour in every
+  # pixel, so there is no table to walk and the display's own blend does the mixing: moving
+  # the tint every frame costs what holding it does. The two bitmap screens are one word apart
+  # in a program, and the tear-free one above is the dear one.
+  def test_a_moving_tint_costs_nothing_more_on_the_plain_bitmap_screen
+    held = frame_scanlines(tint_cost_program(moving: false, tear_free: false), "TINTP1")
+    moving = frame_scanlines(tint_cost_program(moving: true, tear_free: false), "TINTP2")
+
+    assert_in_delta held, moving, HELD_TINT_SLACK,
+                    "a moving tint on the plain bitmap screen should cost what a held one does (#{held} -> #{moving})"
   end
 
   # How many of a frame's scanlines the CPU was busy for, read off the console.

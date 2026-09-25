@@ -39,9 +39,10 @@ module RubyGBA
     #   places its fade and also sees through a layer still trades one for the other.
     #
     #   NEITHER BITMAP SCREEN CHANGES AT ALL. Seeing through a layer needs a tiled
-    #   screen, so there is never anything on a bitmap one for a fade to protect — and
-    #   the plain bitmap screen holds a whole color in every pixel and has no table to
-    #   walk in the first place. The screen is asked anyway rather than assumed, because
+    #   screen, so there is never anything on a bitmap one for a fade to protect. That
+    #   is the whole reason for the tear-free one, which does draw through a table and
+    #   could walk it; the plain one holds a whole color in every pixel and has no table
+    #   to walk in the first place. The screen is asked anyway rather than assumed, because
     #   one game can put a bitmap scene and a tiled scene side by side.
     module Fading
       def self.resolve(program) = Answer.new(program)

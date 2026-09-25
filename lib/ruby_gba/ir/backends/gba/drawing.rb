@@ -1562,9 +1562,10 @@ module RubyGBA
           #
           # This works because on the direct-color screen the picture is one layer of
           # its own colors, so the backdrop is free to be anything and nothing else in
-          # the picture reads it. The screens that draw through a shared color table
-          # cannot do it this way, and the DSL refuses them where the author writes it
-          # (Builder::Drawing#check_tint_screen!).
+          # the picture reads it. The screens that draw through a shared color table —
+          # the tiled one and the tear-free bitmap one — cannot do it this way, because
+          # the backdrop is the first color of that table and the picture reads it. They
+          # move the table instead, which is the branch at the top of this method.
           #
           # The weights are a pair that adds to sixteen: what is left of the picture,
           # and how much of the color has come in.
