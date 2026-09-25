@@ -188,6 +188,9 @@ module RubyGBA
       # the same memory; collecting the one the string no longer points at frees the cartridge's
       # bytes while everyone still holds it, and freeing the other later aborts Ruby. syswrite
       # only reads the string.
+      #
+      # Ruby's bug: https://bugs.ruby-lang.org/issues/22382. Once a release with the fix is the
+      # oldest Ruby this supports, File.binwrite is safe again.
       def write(path)
         File.open(path, "wb") do |file|
           written = file.syswrite(@buffer)
