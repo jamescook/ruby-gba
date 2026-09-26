@@ -81,6 +81,45 @@ class TestMeasuredPlacement < Minitest::Test
     end
   end
 
+  # A ROUTINE ON EVERY SCREEN OUTRANKS ONE ON A SINGLE SCREEN THAT DOES LESS IN ALL. The game
+  # loop runs on every frame the player ever sees; a menu's routine runs on one screen they see
+  # for a moment. Ranking each by its busiest screen weighed the two as though both ran on one,
+  # and a file-select screen seen once took the quick memory from the game loop.
+  #
+  # Here :everywhere does 300 steps on each of four screens and :one_screen 800 on one: less
+  # than it on the one screen, and far more than it across the game.
+  def game_with_a_routine_on_every_screen
+    RubyGBA.game("MPL3", maker: "01") do
+      screen :bitmap
+      clear_screen :black
+      var :state, 0
+      var :x, 0
+      func(:everywhere) { repeat(300) { add! :x, 1 } }
+      func(:one_screen) { repeat(800) { add! :x, 1 } }
+      scene(:logos) { add! :x, 1 }
+      scene(:title) { add! :x, 1 }
+      scene(:files) { call :one_screen }
+      scene(:playing) { add! :x, 1 }
+      game_loop do
+        call :everywhere
+        case_var(:state) do
+          when_val 0, :logos
+          when_val 1, :title
+          when_val 2, :files
+          when_val 3, :playing
+        end
+      end
+    end
+  end
+
+  def test_a_routine_on_every_screen_outranks_one_on_a_single_screen
+    rom = game_with_a_routine_on_every_screen.build_rom(out: StringIO.new, err: StringIO.new, profile: false)
+    work = RubyGBA::Diagnostics::Profiler.every_scene(rom, frames: 10).work
+    ranked = RubyGBA::Diagnostics::RoutineProfile.from_work(work).rank(%i[one_screen everywhere])
+
+    assert_equal %i[everywhere one_screen], ranked, "measured: #{work.slice(:everywhere, :one_screen)}"
+  end
+
   # --- a measurement saved and read back ---
 
   def test_a_saved_measurement_decides_the_next_build

@@ -373,12 +373,19 @@ module RubyGBA
       # game first. A game keeps which screen it is on in a variable; the build knows where that
       # variable lives; so each scene is entered by writing it and then profiled.
       #
-      # THE SHARES ARE COMBINED BY TAKING THE LARGEST, not by averaging. What is being decided
-      # is which routines are worth the console's quick memory, and a routine that is most of
-      # the frame in ONE scene has earned its place whatever it does in the others — a game is
-      # only ever in one scene at a time, and the one that matters is the one that is busiest.
-      # An average would rank a routine carrying a whole scene below one that idles in all of
-      # them.
+      # THE SCENES ARE ADDED UP, each counted once. What is being decided is which routines are
+      # worth the console's quick memory, and what a routine is worth is the work it does over
+      # the whole game — so one that runs on every screen counts once for each of them, and one
+      # that carries a single screen counts that screen in full.
+      #
+      # Taking each routine's BUSIEST scene, which is what this did before, weighed the game
+      # loop — on every frame the player ever sees — as though it ran on one screen, the same
+      # as a file-select screen seen once. On a real cartridge that screen's sprite routine
+      # outranked a game loop doing about two thirds as much on each of five screens, and the
+      # loop was the one left in the cartridge.
+      #
+      # An average would come out in the same order and read as a smaller number than any
+      # routine really runs, so it is a sum.
       #
       # A game with no scenes at all is measured as it boots, which is the whole of it.
       #
@@ -396,7 +403,7 @@ module RubyGBA
           [name, run(rom, frames: frames, keys: keys, picture: false,
                      enter: { address: address, value: value })]
         end
-        Survey.new(work: busiest_of(measured.values), scenes: measured)
+        Survey.new(work: across_scenes(measured.values), scenes: measured)
       end
 
       # WHAT A WHOLE GAME MEASURED, scene by scene. +work+ is what the placement is decided
@@ -410,10 +417,9 @@ module RubyGBA
                                .sort_by { |_, r| r.fps }
       end
 
-      def self.busiest_of(results)
-        results.map { |r| work_in(r) }.reduce(Hash.new(0)) do |busiest, scene|
-          scene.each { |name, work| busiest[name] = [busiest[name], work].max }
-          busiest
+      def self.across_scenes(results)
+        results.map { |r| work_in(r) }.reduce({}) do |total, scene|
+          total.merge(scene) { |_, a, b| a + b }
         end
       end
 

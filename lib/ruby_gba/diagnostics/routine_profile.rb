@@ -60,7 +60,7 @@ module RubyGBA
       end
 
       # ...and from what {Profiler.every_scene} answers, which is already instructions a frame
-      # per routine, taken at each routine's busiest scene.
+      # per routine, added up over every scene it runs in.
       def self.from_work(work, game: nil)
         new(work: work, game: game, measured_at: Time.now.utc.iso8601)
       end
