@@ -48,13 +48,22 @@ task :clear_coverage do
   rm_f "coverage/.resultset.json" if ENV["COVERAGE"] == "1"
 end
 
+# EVERY TEST IN A RACTOR OF ITS OWN, however the suite is started. The flag goes into TESTOPTS
+# itself rather than into the task's options, because rake reads TESTOPTS INSTEAD of those when
+# it is set: naming one test with `TESTOPTS="--name=/x/"` used to drop the flag and run that
+# test on plain threads, where something the suite refuses passes. It is matched as a whole
+# word, so a pattern that happens to say "ractor" is not taken for it, and `--no-ractor` is
+# left to mean what it says.
+testopts = ENV.fetch("TESTOPTS", "")
+unless testopts.split.intersect?(%w[--ractor --no-ractor])
+  ENV["TESTOPTS"] = "--ractor #{testopts}".strip
+end
+
 Rake::TestTask.new(test: %i[compile_emulator clear_coverage]) do |t|
   t.libs << "test" << "lib"
   t.test_files = FileList["test/**/test_*.rb"]
   # `test` on the load path is what lets every test file open with the one line
   # `require "test_helper"` and get the library, minitest, and the shared names.
-  # Appended, not assigned, so TESTOPTS still works.
-  t.options = "--ractor #{ENV.fetch('TESTOPTS', '')}".strip
   t.description = 'Run the suite (one file with TEST=test/test_foo.rb, one test with ' \
                   'TESTOPTS="--name=/pattern/")'
 end
