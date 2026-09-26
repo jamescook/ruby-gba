@@ -19,9 +19,11 @@
 #   * COLLISION — Pac, the pellets, and the ghost are all sprites, so each knows its
 #     own rectangle: `pac.overlaps?(pellet)` and `ghost.overlaps?(pac)` need no boxes.
 #   * SOUND — a waka when Pac eats, a buzz when the ghost catches him.
+#   * RECOLOURING — Pac, imported from a sheet, blinks white after he is caught by
+#     being drawn with a different list of colours (`draw_with`); the art is not redrawn.
 #
 # Run into a pellet to eat it (it reappears elsewhere and the SCORE climbs); let the
-# ghost touch you and Pac jumps back to the middle. The room is open — Pac is kept
+# ghost touch you and Pac jumps back to the middle, blinking. The room is open — Pac is kept
 # inside its walls. (Corridor mazes with wall collision are a tiled feature still
 # ahead; this example grows as they land.)
 #
@@ -165,11 +167,18 @@ module Pacman
     # so Pac chomps whichever way he faces: this is the way a real game brings in art,
     # from a file rather than typed inline. (Re-run the generator if you change the
     # formula.)
+    #
+    # `colors:` is the list the sheet was drawn from, see-through first. Saying it is what
+    # lets Pac be drawn with a different list later: a swap goes by place, so the second
+    # colour of this list becomes the second colour of that one. He flashes white for a
+    # moment after the ghost catches him (see the loop), and the sheet is drawn once.
+    colors :flash, %i[transparent white]
     pac = layer(:actors) do
       sprite :pac, at: START, rate: 6,
                    facing_from: "assets/pacman_sheet.png", tile: SIZE,
-                   dirs: DIRS, transparent: true
+                   dirs: DIRS, transparent: true, colors: %i[transparent yellow]
     end
+    stunned = var :stunned, 0 # frames left of the flash after being caught
 
     # --- the pellets: a sprite each, scattered on the floor ---
     image(:pellet, "." => :transparent, "o" => :white) { PELLET_ART }
@@ -226,6 +235,17 @@ module Pacman
         caught.add! 1
         pac.move_to(*START)
         ghost.move_to(*GHOST_START)
+        stunned.set! 48
+      end
+
+      # Just caught: Pac blinks, white for four frames and yellow for four, until the
+      # count runs out. `showing:` picks from the list by number, and 1 is past its end,
+      # which draws him in his own colours.
+      (stunned > 0).then do
+        stunned.sub! 1
+        pac.draw_with [:flash], showing: (stunned >> 2) & 1
+      end.else do
+        pac.draw_with :own
       end
     end
   end

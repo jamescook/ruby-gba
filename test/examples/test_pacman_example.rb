@@ -3,6 +3,7 @@
 require "test_helper"
 
 require "stringio"
+require "differential"
 require_relative "../../examples/pacman"
 
 # The Pac-Man example (examples/pacman.rb): the tiled-mode flagship. Pac, the
@@ -12,6 +13,7 @@ require_relative "../../examples/pacman"
 # hardware. (Facing correctness itself is pinned in test_hardware_sprite_facing.rb.)
 class TestPacmanExample < Minitest::Test
   include RubyGBA::Console::Hardware
+  include Differential
 
   START_X, START_Y = Pacman::START
 
@@ -59,7 +61,26 @@ class TestPacmanExample < Minitest::Test
     assert_operator r[:caught], :>=, 1, "the chasing ghost should catch a still Pac"
   end
 
+  # Caught, Pac blinks: drawn white from a second list of colours for a moment, then his own
+  # yellow again. Left alone, the ghost reaches him a little after frame 70.
+  CAUGHT_AND_WHITE = 80
+  BLINK_OVER = 130
+
+  def pac_centre(screen) = screen.pixel(START_X + 8, START_Y + 8)
+
+  def test_a_caught_pac_blinks_white_then_is_yellow_again
+    assert_equal Color.resolve(:white), pac_centre(Reference.new.run(Pacman.program, frames: CAUGHT_AND_WHITE).screen)
+    assert_equal Color.resolve(:yellow), pac_centre(Reference.new.run(Pacman.program, frames: BLINK_OVER).screen)
+  end
+
   # --- Hardware (the emulator): it renders and steers on the console ---
+
+  def test_the_console_blinks_him_white_too
+    oracle, console, = backend_pictures(Pacman.program, frames: CAUGHT_AND_WHITE)
+
+    assert_equal Color.resolve(:white), console[((START_Y + 8) * 240) + START_X + 8]
+    assert_empty mismatched_pixels(oracle, console)
+  end
 
   def test_it_renders_and_steers_on_hardware
     rom = ROM.assemble(GBA.new.lower(Pacman.program), title: "PACMAN", code: "BPAC", maker: "01")
