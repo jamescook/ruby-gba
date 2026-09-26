@@ -236,6 +236,7 @@ module RubyGBA
           @uses_frames = false # set once the program reaches its first vblank (advance_frame)
           collect_definitions(node)
           refuse_more_layers_than_the_console_stacks(node)
+          refuse_more_sprites_than_the_console_has(node)
           # How the picture stacks: what scenery and objects there are, in what order,
           # and how deep each sits. Scenery in FRONT of an object means the save-under
           # trick cannot hold — what was saved from under an object is no longer what
@@ -349,6 +350,13 @@ module RubyGBA
         # programs in the same sentence.
         def refuse_more_layers_than_the_console_stacks(node)
           refusal = Guardrails::Checks::TooManyBackgroundLayers.new.refusal(node)
+          raise ProgramError, refusal if refusal
+        end
+
+        # The same answer about sprites: this picture has room for any number of them, and
+        # the console has 128 places. See Guardrails::Checks::TooManySprites.
+        def refuse_more_sprites_than_the_console_has(node)
+          refusal = Guardrails::Checks::TooManySprites.new.refusal(node)
           raise ProgramError, refusal if refusal
         end
 

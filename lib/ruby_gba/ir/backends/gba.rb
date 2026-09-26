@@ -2143,10 +2143,10 @@ module RubyGBA
         # about which sprite is on top.
         def prepare_objects(program)
           nodes = @picture.objects
-          if nodes.size > MAX_SPRITES
-            raise LoweringError,
-                  "#{nodes.size} sprites declared, but the console draws at most #{MAX_SPRITES} at once"
-          end
+          # The guardrail of the same name has the rule and the words; this is the lowering's
+          # own invariant, for a program that reached it without passing the guardrails.
+          refusal = Guardrails::Checks::TooManySprites.new.refusal(program)
+          raise LoweringError, refusal if refusal
           build_shared_object_palette(nodes)
           # EVERY SPRITE'S PICTURES, cut into the rectangles the console draws and encoded,
           # before any of them is given a place: a picture the console can draw in one go is
