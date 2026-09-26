@@ -559,7 +559,11 @@ module RubyGBA
         drawn.each do |value|
           next if transparent && value == transparent
 
-          slot = table.index(value & 0x7FFF)
+          # A cartridge's palette keeps a real colour in its see-through slot, and its art can
+          # draw that colour from a later place — which is where the pixel is drawn from. Only a
+          # colour held at place 0 and nowhere else has nothing to be drawn with.
+          slot = table.index.with_index { |entry, place| place.positive? && entry == (value & 0x7FFF) }
+          slot ||= table.index(value & 0x7FFF)
           raise ArgumentError, unlisted_color(name, value & 0x7FFF) if slot.nil?
           next unless slot.zero?
 

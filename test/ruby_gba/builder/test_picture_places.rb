@@ -262,6 +262,52 @@ class TestPicturePlaces < Minitest::Test
     assert_operator rom.size, :>, 0
   end
 
+  # A cartridge's palette keeps a real colour in its see-through slot, and the art often draws
+  # that same colour from a later place. A pixel of that colour is drawn from the later place,
+  # so the list goes in exactly as the cartridge had it.
+  RAW_FIRST = [0x001F, 0x7FFF, 0x001F].freeze
+
+  def raw_first_program
+    builder = Builder.new
+    builder.instance_eval do
+      screen :tiled
+      image :ship, width: 8, height: 8, data: COLORS, colors: RAW_FIRST
+      colors :hurt, [0x0000, 0x7FFF, 0x7C00]
+      plain = sprite :ship, at: [40, 40]
+      hurt = sprite :hurt_ship, at: [80, 40], facing: { right: :ship }
+      game_loop { hurt.draw_with :hurt; plain.show }
+    end
+    builder.emit_pending_functions
+    builder.program
+  end
+
+  def test_a_list_whose_first_entry_the_art_also_draws_later_draws_it_from_the_later_place
+    i = Reference.new.run(raw_first_program, frames: 2)
+
+    assert_equal 0x001F, i.screen.pixel(41, 41), "red, drawn"
+    assert_equal 0x7C00, i.screen.pixel(81, 41), "from place 2, which the other list makes blue"
+  end
+
+  def test_the_console_draws_it_from_the_later_place_too
+    oracle, console, = backend_pictures(raw_first_program, frames: 2)
+
+    assert_equal 0x001F, console[(41 * 240) + 41]
+    assert_equal 0x7C00, console[(41 * 240) + 81]
+    assert_empty mismatched_pixels(oracle, console)
+  end
+
+  # A colour the list holds only in its see-through slot has no place to be drawn from.
+  def test_a_colour_held_only_first_is_still_a_friendly_error
+    error = refused do
+      screen :tiled
+      image :ship, width: 8, height: 8, data: COLORS, colors: [0x001F, 0x7FFF]
+      sprite :ship, at: [40, 40]
+      game_loop {}
+    end
+
+    assert_match(/first in its list of colors/, error.message)
+  end
+
   # --- friendly errors on the places themselves ---
 
   def test_places_without_a_list_of_colors_is_a_friendly_error
