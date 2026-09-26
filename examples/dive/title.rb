@@ -61,6 +61,19 @@ module Dive
     SHIMMER = Ractor.make_shareable(%i[shimmer0 shimmer1 shimmer2 shimmer3])
     SHIMMER_HELD = 3 # eight frames a step
 
+    # ...AND THEY ARE LIGHT, AND LIGHT ADDS. The near sheet is see-through, but not the way
+    # glass is: glass shows some of itself and the rest of what is behind, the two adding
+    # to a whole. Light shows ALL of what is behind and some of itself on top, so where a
+    # near shaft crosses the far water the water is brighter than either sheet alone, and
+    # where it crosses a far shaft the two run up to full brightness and stop there. That
+    # is two amounts rather than one, and they add to more than 100.
+    #
+    # The dive below has its own see-through layer, the water you look up through. A screen
+    # can blend one layer with what is behind it, and a game can have one on each screen:
+    # this one is the title's, and the two are never on screen together.
+    NEAR_SHOWS = 75
+    NEAR_SHOWS_BEHIND = 100
+
     # The far sheet: open water everywhere, with shafts of light leaning through it. It is
     # the backmost layer of this screen, so it has no holes — there is nothing behind it.
     FAR = Ractor.make_shareable((0...CELLS).map do |r|
@@ -93,7 +106,9 @@ module Dive
       # The stack, back to front: the far shafts, the near ones, then the disc in front of
       # both. Only the disc turns, and only because `update` below turns it.
       @far = build.layer(:shafts_far) { build.background :shafts_far, tiles: :shafts, map: FAR }
-      @near = build.layer(:shafts_near) { build.background :shafts_near, tiles: :shafts, map: NEAR }
+      @near = build.layer(:shafts_near, shows: NEAR_SHOWS, shows_behind: NEAR_SHOWS_BEHIND) do
+        build.background :shafts_near, tiles: :shafts, map: NEAR
+      end
       @sun = build.layer(:sun) { build.background :sun, tiles: :disc, map: SUN }
 
       build.layer(:name) do

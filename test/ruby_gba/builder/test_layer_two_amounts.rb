@@ -212,6 +212,49 @@ class TestLayerTwoAmounts < Minitest::Test
     assert_equal message, error.message
   end
 
+  # --- friendly errors ---
+
+  def refused(**amounts)
+    assert_raises(ArgumentError) do
+      program do
+        screen :tiled
+        layers :glass
+        layer(:glass, **amounts) { nil }
+      end
+    end
+  end
+
+  def test_one_amount_without_the_other_is_a_friendly_error
+    error = refused(shows: 94)
+
+    assert_match(/`shows:` but not `shows_behind:`/, error.message)
+    assert_match(/give both/, error.message)
+  end
+
+  def test_two_amounts_beside_transparency_is_a_friendly_error
+    assert_match(/two ways to say one thing/, refused(transparency: 40, shows: 94, shows_behind: 63).message)
+  end
+
+  def test_an_amount_past_100_is_a_friendly_error
+    assert_match(/shows_behind: 120` is outside 0 to 100/, refused(shows: 50, shows_behind: 120).message)
+  end
+
+  # A layer whose own share rounds to nothing is drawn and cannot be seen — the warning
+  # `transparency: 100` already gets.
+  def test_showing_too_little_of_itself_to_see_is_a_friendly_warning
+    err = StringIO.new
+    RubyGBA.build("FAINT", out: StringIO.new, err: err) do
+      screen :tiled
+      image(:pane, "#" => :white) { "########\n" * 8 }
+      tiles :panes, "#" => :pane
+      layers :glass
+      layer(:glass, shows: 2, shows_behind: 100) { background :pane, tiles: :panes, map: ["#"] }
+      game_loop { wait_vblank }
+    end
+
+    assert_match(/shows 2 of itself\. That rounds to nothing/, err.string)
+  end
+
   def test_the_console_mixes_them_the_same_way
     oracle, console, = backend_pictures(pane_program(shows: 94, behind: 63), frames: 2)
 

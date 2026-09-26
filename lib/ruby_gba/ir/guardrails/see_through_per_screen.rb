@@ -58,8 +58,8 @@ module RubyGBA
             screen = scene ? "The scene :#{Modes.friendly_name(scene)} shows" : "This game shows"
             "#{screen} two see-through layers, #{names}. The console blends one layer with " \
               "what is behind it, so a screen can have one see-through layer. Each scene can " \
-              "have its own. To fix this, make one of the layers solid on this screen, or " \
-              "put each see-through layer in a scene of its own."
+              "have its own. To fix this, make one of the two layers solid, or put each " \
+              "see-through layer in a different scene."
           end
         end
       end

@@ -120,6 +120,26 @@ class TestDiveExample < Minitest::Test
                  "the colours that moved are spread over more than one layer's own group: #{moved.inspect}"
   end
 
+  # THE NEAR SHAFTS ADD LIGHT. They show all of what is behind them and three quarters of
+  # themselves on top, so where they cross the far sheet the water comes out brighter than
+  # any colour the shafts are drawn in — which no layer drawn solid, and no glass that
+  # splits one whole between itself and what is behind, can give. Read from the band above
+  # the sun, where nothing but the two sheets is drawn, over the title's first half second:
+  # the sheets drift, and how bright the band gets depends on where they cross.
+  BRIGHTEST_SHAFT = 19 + 26 + 31 # the shimmer's brightest step, the brightest colour a shaft is drawn in
+
+  def test_the_near_shafts_brighten_the_water_behind_them
+    brightest = 0
+    i = Reference.new
+    i.each_vblank do
+      band = (0...40).flat_map { |y| (0...240).map { |x| brightness(i.screen.pixel(x, y)) } }
+      brightest = [brightest, band.max].max
+    end
+    i.run(Dive.program, frames: LATE)
+
+    assert_operator brightest, :>, BRIGHTEST_SHAFT
+  end
+
   # --- handing over to the dive ---
 
   # A title frame or two first, so the button really has an edge to be pressed on. Held

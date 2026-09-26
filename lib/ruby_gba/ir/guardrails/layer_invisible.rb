@@ -49,10 +49,10 @@ module RubyGBA
                      "solid and 100 is invisible — or remove the layer."
             end
 
-            "The layer :#{layer.name} shows #{DSL::Value.fixed_number(layer.shows)} of itself, which " \
-              "is too little to see, so none of it shows. The game still draws it and still holds " \
-              "its art. To fix this, use a bigger `shows:` — 0 is none of the layer and 100 is all " \
-              "of it — or remove the layer."
+            "The layer :#{layer.name} shows #{DSL::Value.fixed_number(layer.shows)} of itself. That " \
+              "rounds to nothing, so none of the layer shows. The game still draws it and still " \
+              "holds its art. To fix this, use a bigger `shows:`, or remove the layer. 0 is none " \
+              "of the layer and 100 is all of it."
           end
         end
       end
