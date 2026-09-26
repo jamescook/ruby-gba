@@ -279,6 +279,27 @@ module RubyGBA
           @vars[name]
         end
 
+        # Read a list: everything in it now, oldest first, under the name the game declared.
+        # An Array, so a test asks for an item, the length, or the whole thing as it likes.
+        def list(name)
+          found = @lists[name] or raise ArgumentError, no_such("list", name, declared_lists)
+          found.to_a
+        end
+
+        # Read one field of a pool: an entry per slot, the value where an instance is live and
+        # nil where the slot is free, so a test can ask about the one it spawned first.
+        #
+        # A pool keeps each field as a list of its own, beside a column saying which slots are
+        # live. Those are named after the pool, and nothing a game writes should have to know
+        # how — so this is asked by pool and field, the two names the game used.
+        def pool(name, field)
+          live = @lists[pool_list(name, :active)] or raise ArgumentError, no_such("pool", name, pools)
+          values = @lists[pool_list(name, field)] unless POOL_BOOKKEEPING.include?(field)
+          raise ArgumentError, no_such("field", field, pool_fields(name), of: " in pool :#{name}") if values.nil?
+
+          values.to_a.zip(live.to_a).map { |value, up| value if up.to_i.nonzero? }
+        end
+
         # True if run() stopped because it hit the step budget rather than a
         # `halt` or the natural end — i.e. it was still looping when we cut it off.
         def stopped_at_budget?
@@ -2021,6 +2042,38 @@ module RubyGBA
             raise(ProgramError,
                   "list #{name.inspect} was used before it was created — " \
                   "create it first with `list #{name.inspect}, capacity: N`")
+        end
+
+        # --- reading collections back, for #list and #pool ---
+
+        # The lists a pool keeps for itself beside its fields: which slots are live, which are
+        # free, how old each is, which way each faces and where it is in its cycle, and which
+        # colours it draws with. Not fields, so not offered as fields.
+        POOL_BOOKKEEPING = %i[active free born facing frame colors].freeze
+
+        def pool_list(pool, field) = :"__pool_#{pool}_#{field}"
+
+        # The lists the game declared itself; the framework's own are named with two
+        # underscores in front.
+        def declared_lists = @lists.keys.grep_v(/\A__/)
+
+        def pools = @lists.keys.filter_map { |key| key[/\A__pool_(.+)_active\z/, 1]&.to_sym }
+
+        # A pool's field lists, leaving out its bookkeeping and the lists of any pool whose
+        # name starts with this one's (`:enemy` beside `:enemy_shot`).
+        def pool_fields(pool)
+          longer = pools.select { |other| other.to_s.start_with?("#{pool}_") }
+          @lists.keys.filter_map do |key|
+            next if longer.any? { |other| key.to_s.start_with?("__pool_#{other}_") }
+
+            field = key[/\A__pool_#{Regexp.escape(pool.to_s)}_(.+)\z/, 1]&.to_sym
+            field unless field.nil? || POOL_BOOKKEEPING.include?(field)
+          end
+        end
+
+        def no_such(what, name, there, of: "")
+          listed = there.empty? ? "There are none." : "There #{there.size == 1 ? 'is' : 'are'} #{there.map { |n| ":#{n}" }.join(', ')}."
+          "There is no #{what} :#{name}#{of}. #{listed}"
         end
 
         def exec_list_push(node)

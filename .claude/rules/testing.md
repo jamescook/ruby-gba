@@ -226,6 +226,8 @@ i = Reference.new.run(program)          # returns self; 20 frames of a game loop
 i = Reference.new.run(program, frames: 400)  # play this far in — every frame, however heavy
 i.screen.pixel(x, y)               # colour at (x, y); nil if off-screen; 0 = unwritten (black)
 i[:varname]                        # a variable's final value (0 if never written)
+i.list(:trail)                     # a list's items now, oldest first, as an Array
+i.pool(:guard, :x)                 # a pool field, one entry per slot: the value, or nil where the slot is free
 i.screen_mode                      # e.g. :bitmap
 i.audio                            # the audio/register log
 i.stopped_at_budget?               # true if it was still looping when cut off

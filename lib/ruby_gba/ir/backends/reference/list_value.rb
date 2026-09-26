@@ -59,6 +59,9 @@ module RubyGBA
             @items[index]
           end
 
+          # Everything in it, oldest first — a copy, so a reader cannot change the list.
+          def to_a = @items.dup
+
           # Overwrite the value at an index (caller ensures the index is in range).
           def set(index, value)
             @items[index] = fit(value)
