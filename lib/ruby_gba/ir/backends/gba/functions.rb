@@ -37,11 +37,11 @@ module RubyGBA
           # the console needs done in one place rather than written out again at every point
           # it is needed (see Drawing#write_object_table).
           #
-          # It is a routine like any other from here on: emitted with the rest of the ones
-          # that stay in the cartridge, and reached by `call` under the same name. What it can
-          # never be is MOVED to the quick memory, and that follows from what it is — the
-          # chooser ranks routines by what a frame spends in each, which it reads off the
-          # program, and this one is not in there to be read.
+          # It is a routine like any other from here on: emitted with the rest, and reached by
+          # `call` under the same name. The chooser ranks routines by what a frame spends in
+          # each, which it reads off the program, and this one is not in there to be read — so
+          # it stays in the cartridge unless the chooser is told about it by name, which it is
+          # for each scene's moving sprites (see Placement#sprite_routines).
           def mint(name, &body)
             @funcs[name] = Build.func(name)
             @minted[name] = body

@@ -268,6 +268,19 @@ module RubyGBA
         # Each func's byte span in @code (for dump_func) — lives on @functions.
         def func_ranges = @functions.func_ranges
 
+        # The routines this build made for its scenes' moving sprites, each with the scene it
+        # writes for. Read by the placement, which weighs them like routines somebody wrote.
+        def scene_sprite_routines
+          (@scene_sprites || []).to_h { |group| [Drawing.sprites_routine(group.scene), group.scene] }
+        end
+
+        # How many routines the frame's own body calls that the program never wrote: the
+        # scenes' sprite writers and the still sprites'. Each is a call that grows if the
+        # frame moves to the quick memory and the routine does not.
+        def frame_calls_to_made_routines
+          (@scene_sprites || []).length + (@movement&.still&.any? ? 1 : 0)
+        end
+
         # The emitted machine code / the label table / where each embedded blob landed
         # — read straight from @emit, which is where they actually live (see {Emit}).
         def code = @emit.code
@@ -880,6 +893,7 @@ module RubyGBA
             scene_layers: @scene_layers || {}, scene_blend: @scene_blend || {},
             obj_palette_blob: @obj_palette_blob, obj_palette_units: @obj_palette_units,
             scene_art: @scene_art || {}, movement: @movement || IR::Movement::EVERYTHING_MOVES,
+            scene_sprites: @scene_sprites || [],
             waits_for_frames: @uses_vblank,
           )
           @drawing.layout = layout
@@ -2216,6 +2230,29 @@ module RubyGBA
           @movement = IR::Movement.of(program).except(written_anyway)
           still = @movement.still
           @functions.mint(Drawing::STILL_ROUTINE) { @drawing.write_object_table(still) } if still.any?
+          prepare_scene_sprites(program, still)
+        end
+
+        # WHICH SPRITES ARE WRITTEN BY THEIR SCENE'S OWN ROUTINE rather than by the frame's.
+        #
+        # A sprite declared inside a scene is on screen only while that scene is, so the rows
+        # of the ones that move need writing only on that scene's frames. Written from the
+        # frame's own body they were code in the routine the framework keeps in the quick
+        # memory FIRST, for every scene the game has — so a file-select screen shown once took
+        # that memory from the scene the player spends the game in. Written by a routine per
+        # scene, each is placed like any other routine: by what a frame spends in it.
+        #
+        # They are still written in the gap after the picture, where every sprite is written, so
+        # nothing about which frame's numbers a sprite is drawn from changes (see
+        # Drawing#emit_scene_sprites).
+        def prepare_scene_sprites(program, still)
+          @scene_sprites = IR::Movement.by_scene(program).filter_map do |things|
+            moving = things.names.select { |name| @objects.key?(name) } - still
+            things.with(names: moving) if moving.any?
+          end
+          @scene_sprites.each do |group|
+            @functions.mint(Drawing.sprites_routine(group.scene)) { @drawing.write_object_table(group.names) }
+          end
         end
 
         # A SPRITE WHOSE PICTURES DO NOT ALL FIT KEEPS ONE FRAME IN SPRITE MEMORY AT A TIME.

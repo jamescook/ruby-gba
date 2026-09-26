@@ -78,6 +78,24 @@ module RubyGBA
         Answer.new(still: still.map(&:name), watching: (states.first if still.any?))
       end
 
+      # THE THINGS SHOWN ONLY WHILE ONE SCENE IS, by scene: for each, the variable and value
+      # that put that scene up, and the names of what it shows. A thing whose visibility does
+      # not carry its scene's test in the shape the builder puts there is left out, and so is
+      # one outside every scene — both are drawn on every frame, as everything used to be.
+      #
+      # Unlike the still things this is about SHOWING and not about moving, so a program with
+      # its own instructions in it, or two variables picking scenes, loses nothing here.
+      SceneThings = Data.define(:scene, :state, :value, :names)
+
+      def by_scene(program)
+        gates = scene_gates(program)
+        shown = program.walk.select { |node| node.kind == :object && node.scene && own_visibility(node, gates) }
+        shown.group_by(&:scene).map do |scene, nodes|
+          state, value = gates.fetch(scene)
+          SceneThings.new(scene: scene, state: state, value: value, names: nodes.map(&:name))
+        end
+      end
+
       # Every variable name written by anything that can run more than once.
       #
       # What is spared is the plain statements a program runs before its frame loop: those go

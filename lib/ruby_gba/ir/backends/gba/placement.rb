@@ -183,7 +183,10 @@ module RubyGBA
             @progress.step("measuring the routines")
             probe = self.class.new(fast_cartridge: @fast_cartridge, progress: @progress)
             probe.lower(program, fast_funcs: Set.new) # measure the program with nothing moved
-            sizes = moved_sizes(program, probe.func_sizes)
+            # The routines the build makes for each scene's moving sprites are nowhere in the
+            # program, so the probe is the one that knows them.
+            @sprite_routines = probe.scene_sprite_routines
+            sizes = moved_sizes(program, probe.func_sizes, made_calls: probe.frame_calls_to_made_routines)
             # Every allocation is rounded up to a whole word, so the gap the probe leaves is
             # the gap there really is — there is no alignment slop to keep back for.
             room = probe.iwram_free
@@ -447,12 +450,17 @@ module RubyGBA
             node.walk.select { |child| child.kind == :case }.sum { |child| child.clauses.length }
           end
 
-          def moved_sizes(program, measured)
+          #
+          # A THIRD KIND is the frame's calls to routines the build made for itself — each
+          # scene's moving sprites, and the sprites nothing moves — which the frame makes in the
+          # gap after the picture, where no node of the tree says so. +made_calls+ is how many.
+          def moved_sizes(program, measured, made_calls: 0)
             calls = Hash.new(0)
             program.walk.each do |node|
               name = node.kind == :loop ? FRAME_ROUTINE : (node.name if node.kind == :func)
               calls[name] = crossing_calls_in(node) if name
             end
+            calls[FRAME_ROUTINE] += made_calls
             calls[IRQ_ROUTINE] = irq_bodies(program).sum { |node| crossing_calls_in(node) }
             measured.to_h do |name, size|
               [name, size + (calls[name] * CROSS_CALL_GROWTH) + ROUTINE_WRAPPER]
@@ -494,6 +502,8 @@ module RubyGBA
           # stopping the fill — a small routine after a large one still gets its chance.
           def place_by_frame_cost(program, sizes, room, chosen)
             forbidden = funcs_marked(program, false)
+            # A scene the author kept out of the quick memory keeps its sprites out with it.
+            forbidden += sprite_routines.filter_map { |routine, scene| routine if forbidden.include?(scene) }
             ranked = ranked_by_frame_cost(program, sizes)
             ranked.each_with_index do |name, n|
               # Say which routine is being weighed, in the words an author would use. The
@@ -566,7 +576,21 @@ module RubyGBA
             named = program.walk.select { |node| node.kind == :func }.map(&:name)
             named << FRAME_ROUTINE if sizes.key?(FRAME_ROUTINE)
             named << IRQ_ROUTINE if sizes.key?(IRQ_ROUTINE)
+            named.concat(sprite_routines.keys)
             named.select { |name| sizes[name].to_i.positive? }
+          end
+
+          # Each scene's sprite-writing routine, by name, with the scene it writes for. Empty
+          # until the measuring pass has run.
+          def sprite_routines = @sprite_routines || {}
+
+          # A SCENE'S SPRITES GO RIGHT AFTER THE SCENE, when nothing has been measured. The
+          # frame calls that routine on exactly the frames the scene runs, so it is worth what
+          # the scene is worth, and nothing in the tree reaches it for the walk below to find.
+          def with_scene_sprites(order, candidates)
+            of_scene = sprite_routines.select { |routine, _| candidates.include?(routine) }
+                                      .group_by { |_, scene| scene }
+            order.flat_map { |name| [name, *of_scene.fetch(name, []).map(&:first)] }
           end
 
           # THE ORDER TO TRY WHEN NOTHING HAS BEEN MEASURED. The frame's own body first, since
@@ -584,7 +608,8 @@ module RubyGBA
             order << FRAME_ROUTINE if candidates.include?(FRAME_ROUTINE) && frame_does_work?(program)
             order << IRQ_ROUTINE if candidates.include?(IRQ_ROUTINE) && interrupts_often?(program)
 
-            order + calls_outward_from(program, frame_body(program), candidates - order.to_set)
+            reached = calls_outward_from(program, frame_body(program), candidates - order.to_set)
+            with_scene_sprites(order + reached, candidates)
           end
 
           # DOES THE CONSOLE INTERRUPT OFTEN ENOUGH FOR THAT ROUTINE TO BE WORTH THE ROOM? Both

@@ -51,7 +51,7 @@ module RubyGBA
                                 :indexed_bitmaps, :blob_codecs, :blob_raw_bytes, :picture,
                                 :modes, :fading, :tiled, :has_objects, :obj_palette_blob,
                                 :obj_palette_units, :scene_art, :scene_layers, :scene_blend, :movement,
-                                :waits_for_frames) do
+                                :scene_sprites, :waits_for_frames) do
             # The backgrounds that turn AND sit on the tiled screen — the ones that decide
             # which way the console arranges that screen's layers. A background that turns
             # on `screen :rotozoom` is on a screen of its own, up at a different moment, so
@@ -1842,8 +1842,42 @@ module RubyGBA
           # with no tearing. The console composites the sprites over the background for
           # free — there's nothing to erase, unlike a software sprite.
           def emit_present_objects(node)
-            write_object_table(node.names - @layout.movement.still)
+            by_scene = @layout.scene_sprites
+            write_object_table(node.names - @layout.movement.still - by_scene.flat_map(&:names))
+            by_scene.each { |group| emit_scene_sprites(group) }
             emit_settle_still_objects
+          end
+
+          # The routine that writes one scene's moving sprites (see GBA#prepare_scene_sprites).
+          # Named for the scene, so a report and a measured profile can say whose it is.
+          def self.sprites_routine(scene) = :"__sprites_scene_#{Modes.friendly_name(scene)}"
+
+          # Whether that routine last wrote its sprites as SHOWN — its scene up.
+          def self.sprites_shown(scene) = :"#{sprites_routine(scene)}_up"
+
+          # WRITE ONE SCENE'S MOVING SPRITES, on its frames and on the one frame after it goes.
+          #
+          # While the scene is up its sprites are written every frame, as they always were. The
+          # frame it goes they are written once more, and each finds its scene no longer up and
+          # hides itself, exactly as it did when the frame wrote it. After that nothing writes
+          # them, and nothing needs to: a row stays as it was last written, and hidden is what it
+          # has to be until the scene comes back. So the frame asks one question per scene —
+          # "is it up, or was it up last time?" — and calls the routine only when either holds.
+          #
+          # Remembering "was it up" can never leave a sprite showing: it is set to no only by the
+          # write that hid them. At power-on it can hold anything, and the worst a stray yes does
+          # is hide sprites that were already hidden, since the table has just been cleared.
+          def emit_scene_sprites(group)
+            shown = self.class.sprites_shown(group.scene)
+            skip = gensym
+            @lowering.value(Build.binop(:==, Build.var_ref(group.state), Build.int(group.value))) # r0 = up now
+            load_var(TMP, shown)
+            emit(ASM.orr_reg(TMP, TMP, ACC))
+            emit(ASM.cmp_imm(TMP, 0))
+            emit_branch(:bcond, skip, cond: :eq) # not up, and hidden already
+            store_var(ACC, shown)
+            @lowering.statement(Build.call(self.class.sprites_routine(group.scene)))
+            place_label(skip)
           end
 
           # Write these sprites' rows of the console's table. Called twice over: by the frame,

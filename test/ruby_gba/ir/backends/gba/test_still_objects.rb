@@ -21,6 +21,7 @@ class TestStillObjects < Minitest::Test
   RED = RubyGBA::Graphics::Color.rgb(31, 0, 0)
 
   FRAME = RubyGBA::Cartridge::BuildRecord::FRAME_ROUTINE
+  TITLE_SPRITES = :__sprites_scene_title
 
   private def built(&block)
     builder = Builder.new
@@ -71,14 +72,18 @@ class TestStillObjects < Minitest::Test
   end
 
   # ...and a sprite the game DOES move is written every frame, as it must be. Without this
-  # the test above passes by never writing anything at all.
+  # the test above passes by never writing anything at all. Being the title's, it is written
+  # by the title's own sprite routine (see test_scene_sprite_writes.rb).
   def test_a_sprite_the_game_moves_is_written_every_frame
-    still = frame_bytes(title_screen(letters: 4))
-    moving = frame_bytes(title_screen(letters: 4, moving: true))
+    still = sizes(title_screen(letters: 4))
+    moving = sizes(title_screen(letters: 4, moving: true))
 
-    assert_operator moving, :>, still + 100,
-                    "moving one of the four must put its whole write back in the frame"
+    refute still.key?(TITLE_SPRITES), "with nothing on the title moving, there is nothing to write each frame"
+    assert_operator moving[TITLE_SPRITES].to_i, :>, 100,
+                    "moving one of the four must put its whole write back in a routine the frame calls"
   end
+
+  private def sizes(program) = assemble_rom(program, name: "STILL").built.placement.sizes
 
   # Written once and left there is only right if it is really still there, frame after frame
   # — so the whole picture is compared against the oracle, which draws every sprite every

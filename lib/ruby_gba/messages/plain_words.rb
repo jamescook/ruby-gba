@@ -67,10 +67,16 @@ module RubyGBA
       # which is `draw_number`.
       DIGIT_ROUTINE = /\A__digit_routine_(?:buffered_)?(?<font>.+)\z/
 
+      # One per scene whose sprites move, made by the lowering so that a scene's sprites are
+      # written by code placed for that scene rather than by the game loop.
+      SPRITES_ROUTINE = /\A__sprites_scene_(?<scene>.+)\z/
+
       def self.routine(name)
         ROUTINES.fetch(name) do
           if (font = DIGIT_ROUTINE.match(name.to_s))
             "drawing a draw_number's digits (:#{font[:font]})"
+          elsif (scene = SPRITES_ROUTINE.match(name.to_s))
+            "moving the sprites of scene :#{scene[:scene]}"
           else
             "func :#{name}"
           end
