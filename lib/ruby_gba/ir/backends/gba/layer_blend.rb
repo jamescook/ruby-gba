@@ -45,7 +45,7 @@ module RubyGBA
         #
         # An author writes the same keyword either way and never learns which they got.
         #
-        # Owns @see_through — which layer this program can be seen through, if any, and
+        # Owns @layers — which layers this program can be seen through, if any, and
         # how much. Reads the picture (IR::Stacking's answer for how the scenery and
         # sprites stack), handed over through #picture= once it exists, since building it
         # is IR::Stacking's job and happens after this object does (the same shape
@@ -79,27 +79,37 @@ module RubyGBA
           # have their slots, for the same reason #picture= is (see the class comment).
           attr_writer :hardware_layers, :screenfuls
 
-          # Which layer this program can be seen through, and how much — read off the
+          # WHICH OF A SEE-THROUGH LAYER'S SCREENS IS UP. A game with a see-through layer on
+          # more than one screen writes, as each scene takes over, which of its layers that
+          # screen shows — counting from 1, so the 0 nothing has written means none. The
+          # frame boundary reads it to tell the display that layer's amounts and no other's.
+          SCREEN_STATE = :_see_through_screen
+
+          # Which layers this program can be seen through, and how much — read off the
           # stack the program declared. Nothing at all for a program that declares none,
           # which is what keeps such a program byte for byte as it was.
           def prepare_layer_blend(program)
-            node = IR::SeeThrough.layers(program).first
-            return @see_through = nil unless node
-
+            @layers = IR::SeeThrough.layers(program)
             # An amount the program works out has no number here. What boot writes is what
             # its variable starts at, so the first frame is already right rather than right
             # one frame later.
-            shows, behind = [node.shows, node.behind].map do |amount|
-              @primitives.const_int(amount) || starting_amount(program, amount)
+            @starting = @layers.to_h do |node|
+              shows, behind = [node.shows, node.behind].map do |amount|
+                @primitives.const_int(amount) || starting_amount(program, amount)
+              end
+              [node.name, IR::SeeThrough.weights(node, shows, behind)]
             end
-            @see_through = { layer: node.name, node: node,
-                             weights: IR::SeeThrough.weights(node, shows, behind) }
           end
 
           # Does this program see through any layer at all?
           def see_through?
-            !@see_through.nil?
+            !@layers.nil? && !@layers.empty?
           end
+
+          # Is there a see-through layer on more than one screen? Then which one the display
+          # mixes changes as the screens take turns, and a game with only one pays nothing
+          # for the bookkeeping.
+          def several? = @layers.size > 1
 
           # What an amount the game works out starts at: the initial value of the variable
           # it reads, when it is one plain variable. An amount worked out from more than
@@ -116,13 +126,13 @@ module RubyGBA
           # Does this program see through a layer of SCENERY? Only that half touches the
           # blend-control register, and only that half has to be set up at boot.
           def blends_scenery?
-            @see_through && see_through_scenery.any?
+            see_through? && @picture.scenery.any? { |node| see_through_name?(node.layer) }
           end
 
-          # Is this sprite in the see-through layer? Asked once per sprite while its table
+          # Is this sprite in a see-through layer? Asked once per sprite while its table
           # entry is being worked out, so the per-frame draw carries the bit for free.
           def see_through_object?(node)
-            @see_through && node.layer == @see_through[:layer]
+            see_through? && see_through_name?(node.layer)
           end
 
           # Turn the blend on, once, at boot. The near side is the see-through scenery;
@@ -138,7 +148,9 @@ module RubyGBA
           # entering a display mode, and a fade lifting.
           def emit_boot_layer_blend
             emit_blend_targets
-            @emitter.write_reg16(REG_BLDALPHA, halfword(@see_through[:weights]))
+            first = layer_on(first_screen_that_blends) || @layers.first
+            @emitter.write_reg16(REG_BLDALPHA, halfword(@starting.fetch(first.name)))
+            store_screen(first) if several?
           end
 
           # PUT THE BLEND BACK, for whatever took it — entering a display mode, and a fade
@@ -150,17 +162,30 @@ module RubyGBA
           # then and now are the same number.
           def emit_layer_blend_again
             emit_blend_targets
-            emit_blend_amounts(@see_through[:node])
+            @layers.each { |layer| emit_amounts_if_on_screen(layer) }
           end
 
-          # HOW SEE-THROUGH THE LAYER IS, NOW. A picture whose amounts the program works out
+          # HOW SEE-THROUGH A LAYER IS, NOW. A picture whose amounts the program works out
           # gets one of these at every frame boundary, so the display is told again before
-          # the frame it applies to is drawn.
+          # the frame it applies to is drawn — and a game with a see-through layer on more
+          # than one screen gets one for each, of which only the one on screen writes.
           #
-          # It writes the weights and nothing else: which layers blend with which was
-          # settled at boot and does not change, so the per-frame part is one register.
-          def emit_see_through(_node)
-            emit_blend_amounts(@see_through[:node]) if @see_through
+          # It writes the weights and nothing else: which layers blend with which is settled
+          # at boot, or as each scene takes over, so the per-frame part is one register.
+          def emit_see_through(node)
+            return unless see_through?
+
+            emit_amounts_if_on_screen(@layers.find { |layer| layer.name == node.layer })
+          end
+
+          # WHICH SEE-THROUGH LAYER THIS SCENE'S SCREEN SHOWS, written as the scene runs so
+          # the frame boundary tells the display that one's amounts. Nothing for a game with
+          # one see-through layer, which never has to ask.
+          def emit_screen_marker(scene)
+            return unless see_through? && several?
+
+            screenful = @screenfuls.find { |each| each.scene == scene }
+            store_screen(screenful && layer_on(screenful))
           end
 
           # Turn the blend on for the screen this program starts with. A program whose
@@ -182,14 +207,15 @@ module RubyGBA
           #
           # Same shape, and the same rule, as GBA#scene_layers: where the scenes all agree
           # this is empty and boot's one write stands, which is what keeps a game that has
-          # scenes but one screenful's worth of blending byte for byte what it was.
+          # scenes but one screenful's worth of blending byte for byte what it was. A game
+          # with a see-through layer on more than one screen always has each scene say it.
           def scene_blend(modes)
             return {} unless see_through?
 
             wanted = @screenfuls.reject { |screenful| screenful.scene.nil? }
                                 .to_h { |screenful| [screenful.scene, blend_control(screenful)] }
             wanted.select! { |scene, _| modes.func_mode[scene] == IR::Modes::TILED }
-            wanted.values.uniq.size > 1 ? wanted : {}
+            several? || wanted.values.uniq.size > 1 ? wanted : {}
           end
 
           # Tell the display the two shares of +layer+ (a SeeThroughLayer). Numbers the
@@ -221,6 +247,32 @@ module RubyGBA
 
           private
 
+          # Tell the display +layer+'s amounts — where the game has a see-through layer on
+          # more than one screen, only while +layer+'s screen is the one up.
+          def emit_amounts_if_on_screen(layer)
+            return emit_blend_amounts(layer) unless several?
+
+            @primitives.load_var(ACC, SCREEN_STATE)
+            @emitter.emit(ASM.cmp_imm(ACC, screen_number(layer)))
+            skip = @emitter.gensym
+            @emitter.emit_branch(:bcond, skip, cond: :ne)
+            emit_blend_amounts(layer)
+            @emitter.place_label(skip)
+          end
+
+          def store_screen(layer)
+            @primitives.store_word_immediate(screen_number(layer), @primitives.var_addr(SCREEN_STATE))
+          end
+
+          # +layer+'s number in SCREEN_STATE, or 0 for none.
+          def screen_number(layer) = layer ? @layers.index(layer) + 1 : 0
+
+          def see_through_name?(name) = @layers.any? { |layer| layer.name == name }
+
+          # The see-through layer +screenful+ shows, or nil. It shows one at most — two is
+          # refused before this runs (see Guardrails::Checks::SeeThroughPerScreen).
+          def layer_on(screenful) = IR::SeeThrough.on_screen(screenful, @layers).first
+
           # WHAT THE BLEND REGISTER SAYS FOR ONE SCREENFUL: which layers are the near side
           # of the blend, which are the far side, and which effect is running.
           #
@@ -229,11 +281,12 @@ module RubyGBA
           # numbers belong to whatever is on screen now, so leaving them is not a harmless
           # leftover — it blends the wrong picture.
           def blend_control(screenful)
-            near = see_through_scenery_in(screenful)
-            return BLD_OFF if near.empty? && see_through_objects_in(screenful).empty?
+            layer = layer_on(screenful)
+            return BLD_OFF unless layer
 
+            near = screenful.scenery.select { |node| node.layer == layer.name }
             mode = near.empty? ? BLD_OFF : BLD_ALPHA
-            mode | bits_for(near) | (far_side_bits(screenful) << BLD_SECOND_SHIFT)
+            mode | bits_for(near) | (far_side_bits(screenful, layer.name) << BLD_SECOND_SHIFT)
           end
 
           # The screen boot sets the console up for: the first one that blends anything, so
@@ -243,28 +296,13 @@ module RubyGBA
             @screenfuls.find { |screenful| blend_control(screenful) != BLD_OFF } || @screenfuls.first
           end
 
-          # The see-through layer's scenery, and its sprites, among what THIS screen shows.
-          # Both are read off the picture rather than off the stack, because what the
-          # register names is a hardware layer number and only the picture knows which
-          # background got which.
-          def see_through_scenery_in(screenful)
-            screenful.scenery.select { |node| node.layer == @see_through[:layer] }
-          end
-
-          def see_through_objects_in(screenful)
-            screenful.objects.select { |node| node.layer == @see_through[:layer] }
-          end
-
-          # The scenery in the see-through layer, over the whole program. Kept for the
-          # report and the guardrails, which ask about the program rather than a screen.
-          def see_through_scenery
-            @picture.scenery.select { |node| node.layer == @see_through[:layer] }
-          end
-
           # Everything on this screen BEHIND the see-through layer: the scenery below it,
           # the sprites below it, and the backdrop, which is behind everything there is.
-          def far_side_bits(screenful)
-            kept = IR::Stacking.at_or_above(@picture, @see_through[:layer]).map(&:name)
+          # The scenery is read off the picture rather than off the stack, because what the
+          # register names is a hardware layer number and only the picture knows which
+          # background got which.
+          def far_side_bits(screenful, layer)
+            kept = IR::Stacking.at_or_above(@picture, layer).map(&:name)
             behind = screenful.scenery.reject { |node| kept.include?(node.name) }
             bits = BLD_BACKDROP | bits_for(behind)
             bits |= BLD_OBJ if screenful.objects.any? { |node| !kept.include?(node.name) }

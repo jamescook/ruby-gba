@@ -310,6 +310,7 @@ require_relative "guardrails/layer_solid_while_fading"
 require_relative "guardrails/stack_not_honored"
 require_relative "guardrails/too_many_background_layers"
 require_relative "guardrails/too_many_sprites"
+require_relative "guardrails/see_through_per_screen"
 
 module RubyGBA
   module IR
@@ -345,6 +346,7 @@ module RubyGBA
         Checks::LayerSolidWhileFading.new,
         Checks::TooManyBackgroundLayers.new,
         Checks::TooManySprites.new,
+        Checks::SeeThroughPerScreen.new,
       ])
     end
   end

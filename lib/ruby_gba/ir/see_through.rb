@@ -28,6 +28,13 @@ module RubyGBA
         layers(program).find { |node| node.name == name }
       end
 
+      # The see-through layers +screenful+ (an IR::Stacking screenful) shows something of.
+      # A screen can show one; a game can have one on each of its screens.
+      def on_screen(screenful, layers)
+        held = (screenful.scenery + screenful.objects).map(&:layer)
+        layers.select { |layer| held.include?(layer.name) }
+      end
+
       # The two shares, in steps, for a layer whose amounts are +shows+ and +behind+
       # (numbers, 0 to 100): [how much of the layer, how much of what is behind].
       #

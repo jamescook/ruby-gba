@@ -1029,7 +1029,11 @@ module RubyGBA
     def finalize_layer_blend
       return if @frame_boundaries.empty? || @layers_node.nil?
 
-      told = @layers_node.see_through.reject { |layer| told_once?(layer) }
+      # With a see-through layer on more than one screen, which of them the display is
+      # mixing changes as the screens take turns, so every one is told again at every
+      # boundary and each backend tells only the one on screen.
+      layers = @layers_node.see_through
+      told = layers.size > 1 ? layers : layers.reject { |layer| told_once?(layer) }
       return if told.empty?
 
       @frame_boundaries.each do |wait_node|

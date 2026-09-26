@@ -326,6 +326,7 @@ module RubyGBA
           def emit_scene_blend(name)
             wanted = @layout.scene_blend[name]
             write_reg16(REG_BLDCNT, wanted) if wanted
+            @layer_blend.emit_screen_marker(name)
           end
 
           # WHICH SCENE'S SCENERY IS SET UP, so a scene taking over points its layers at its

@@ -541,22 +541,25 @@ class TestLayerTransparency < Minitest::Test
     assert_includes error.message, "screen :tiled"
   end
 
-  # A game has one see-through layer, and the message names the one it already has.
-  def test_a_second_see_through_layer_is_refused
+  # A SCREEN has one see-through layer, and the message names both. Two on different
+  # screens are fine (see test_layer_two_amounts.rb); these two are on the same one.
+  def test_a_second_see_through_layer_on_the_same_screen_is_refused
     tile = SOLID_TILE
-    error = assert_raises(ArgumentError) do
-      program do
+    err = StringIO.new
+    assert_raises(RubyGBA::ROMError) do
+      RubyGBA.build("LAYERS", out: StringIO.new, err: err) do
         screen :tiled
         image(:art, "#" => :white) { tile }
         layers :water, :jellyfish
         layer(:water, transparency: 40) { sprite :art, at: [0, 0] }
         layer(:jellyfish, transparency: 40) { sprite :art, at: [8, 8] }
+        game_loop { wait_vblank }
       end
     end
 
-    assert_includes error.message, ":water"
-    assert_includes error.message, ":jellyfish"
-    assert_includes error.message, "one see-through layer"
+    assert_includes err.string, ":water"
+    assert_includes err.string, ":jellyfish"
+    assert_includes err.string, "one see-through layer"
   end
 
   # Two blocks for the same layer that disagree about the amount. Saying the SAME amount

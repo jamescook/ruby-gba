@@ -1614,7 +1614,8 @@ module RubyGBA
         # program that reached a backend without passing the guardrails still cannot
         # build a cartridge with a layer quietly missing from it.
         def check_layers_fit(program)
-          refusal = Guardrails::Checks::TooManyBackgroundLayers.new.refusal(program)
+          refusal = Guardrails::Checks::TooManyBackgroundLayers.new.refusal(program) ||
+                    Guardrails::Checks::SeeThroughPerScreen.new.refusal(program)
           raise LoweringError, refusal if refusal
         end
 

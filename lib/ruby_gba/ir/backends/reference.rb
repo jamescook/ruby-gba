@@ -237,6 +237,7 @@ module RubyGBA
           collect_definitions(node)
           refuse_more_layers_than_the_console_stacks(node)
           refuse_more_sprites_than_the_console_has(node)
+          refuse_two_see_through_layers_on_one_screen(node)
           # How the picture stacks: what scenery and objects there are, in what order,
           # and how deep each sits. Scenery in FRONT of an object means the save-under
           # trick cannot hold — what was saved from under an object is no longer what
@@ -357,6 +358,13 @@ module RubyGBA
         # the console has 128 places. See Guardrails::Checks::TooManySprites.
         def refuse_more_sprites_than_the_console_has(node)
           refusal = Guardrails::Checks::TooManySprites.new.refusal(node)
+          raise ProgramError, refusal if refusal
+        end
+
+        # ...and about see-through layers: this picture could blend any number at once, and
+        # the console blends one a screen. See Guardrails::Checks::SeeThroughPerScreen.
+        def refuse_two_see_through_layers_on_one_screen(node)
+          refusal = Guardrails::Checks::SeeThroughPerScreen.new.refusal(node)
           raise ProgramError, refusal if refusal
         end
 

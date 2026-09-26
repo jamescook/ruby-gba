@@ -182,8 +182,10 @@ module RubyGBA
       # works out. `transparency: t` is the same as the two adding to 100, and keeps the
       # rounding it always had.
       #
-      # A game has ONE see-through layer, and it says the amount one time — every example
-      # opens a layer block exactly once, so that is the natural place. Needs
+      # A SCREEN has one see-through layer, and a layer says its amounts one time — every
+      # example opens a layer block exactly once, so that is the natural place. A game can
+      # have one on each of its screens: a title whose light rays shimmer and a menu whose
+      # window glows over its backdrop, in two scenes that never show together. Needs
       # `screen :tiled`: a bitmap screen paints its whole picture into one place before
       # the display sees it, so by then there is nothing left to see through.
       #
@@ -278,18 +280,15 @@ module RubyGBA
       # Record that this layer is see-through, and refuse every way of asking for one the
       # console cannot show.
       #
-      # ONE SEE-THROUGH LAYER PER GAME, and the honest reason is not that the console
-      # cannot do two. It shares the AMOUNT rather than the layer, so two layers at the
-      # same number would work on hardware. It is that a see-through layer sitting
-      # directly over another one gives two different pictures: the console blends the
-      # top two things at a pixel, and the reference interpreter paints back to front and
-      # would blend all three. One rule keeps the two honest, and a rule the author can
-      # hold in their head beats one that holds until their layers happen to touch.
+      # A game can have several, one to a screen — which is checked once the whole game is
+      # built, since only then is it known which screen a layer's things are on (see
+      # Guardrails::Checks::SeeThroughPerScreen).
       #
       # +amounts+ is what #see_through_amounts made of the words the author wrote.
       def make_layer_transparent(name, amounts)
         check_transparency_screen!(name, amounts.word)
-        check_one_transparent_layer!(name, amounts)
+        @transparency_written ||= {}
+        return if said_before?(name, amounts)
 
         layer = if amounts.split
                   Build.see_through_split(name, DSL::Value.node_for(amounts.behind))
@@ -297,8 +296,8 @@ module RubyGBA
                   Build.see_through_layer(name, shows: DSL::Value.node_for(amounts.shows),
                                                 behind: DSL::Value.node_for(amounts.behind))
                 end
-        @layers_node.see_through = [layer]
-        @transparency_written = amounts
+        @layers_node.see_through = @layers_node.see_through + [layer]
+        @transparency_written[name] = amounts
         [amounts.shows, amounts.behind].compact.each { |amount| ensure_var(amount) }
       end
 
@@ -368,11 +367,10 @@ module RubyGBA
 
       # How see-through the layer was asked to be, as the author wrote it — a number, or
       # the name of what the game works it out from. For a message about it.
-      def transparency_as_written
-        return as_written(@transparency_written.behind) + " see-through" if @transparency_written.split
+      def transparency_as_written(words)
+        return "#{as_written(words.behind)} see-through" if words.split
 
-        "showing #{as_written(@transparency_written.shows)} of itself and " \
-          "#{as_written(@transparency_written.behind)} of what is behind"
+        "showing #{as_written(words.shows)} of itself and #{as_written(words.behind)} of what is behind"
       end
 
       def as_written(amount) = (DSL::Value.fixed_number(amount) || amount.inspect).to_s
@@ -391,24 +389,19 @@ module RubyGBA
               "draw the see-through art into the picture yourself."
       end
 
-      def check_one_transparent_layer!(name, amounts)
-        already = @layers_node.see_through.first&.name
-        return if already.nil?
-        # The same thing said twice is one fact said twice. Compared as the author wrote
-        # it, since two reads of the same variable build two equal-but-distinct nodes.
-        return if already == name && said_the_same?(@transparency_written, amounts)
 
-        if already == name
-          raise ArgumentError,
-                "The layer :#{name} is already #{transparency_as_written}, and now asks for " \
-                "something else. A layer says how see-through it is one time. To fix this, say " \
-                "it on one of the `layer :#{name}` blocks."
-        end
+      # Has this layer already said how see-through it is? The same thing said twice is one
+      # fact said twice, and is let through. Compared as the author wrote it, since two
+      # reads of the same variable build two equal-but-distinct nodes.
+      def said_before?(name, amounts)
+        was = @transparency_written[name]
+        return false unless was
+        return true if said_the_same?(was, amounts)
 
         raise ArgumentError,
-              "This game already makes :#{already} see-through, and now asks for :#{name}. A game " \
-              "has one see-through layer. The console blends one layer with what is behind it. " \
-              "To fix this, remove `transparency:` from one of them."
+              "The layer :#{name} is already #{transparency_as_written(was)}, and now asks for " \
+              "something else. A layer says how see-through it is one time. To fix this, say " \
+              "it on one of the `layer :#{name}` blocks."
       end
 
       def said_the_same?(was, now)
