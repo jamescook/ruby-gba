@@ -1028,17 +1028,26 @@ module RubyGBA
     # go, so the frame that is about to be drawn is drawn at the amount this frame has.
     def finalize_layer_blend
       return if @frame_boundaries.empty? || @layers_node.nil?
-      return if DSL::Value.fixed_number(@layers_node.transparency) # a number needs telling once
+
+      told = @layers_node.see_through.reject { |layer| told_once?(layer) }
+      return if told.empty?
 
       @frame_boundaries.each do |wait_node|
         container = wait_node.parent
         at = container&.children&.index(wait_node)
         next unless at
 
-        node = Build.see_through(@layers_node.transparency.copy)
-        container.children.insert(at + 1, node)
-        node.parent = container
+        told.each_with_index do |layer, i|
+          node = Build.see_through(layer.name)
+          container.children.insert(at + 1 + i, node)
+          node.parent = container
+        end
       end
+    end
+
+    # A layer whose amounts are both numbers the author wrote is told once, at boot.
+    def told_once?(layer)
+      [layer.shows, layer.behind].all? { |amount| DSL::Value.fixed_number(amount) }
     end
 
     # Run every per-frame routine at each frame boundary — ONCE PER FRAME THAT REALLY

@@ -156,21 +156,24 @@ module RubyGBA
       # draws — so seeing through a layer costs the same as drawing it solid. Without the line
       # a reader has no way to tell a stack that blends from one that does not.
       def transparency_line(program, printer)
-        node = program.each.find { |n| n.kind == :layers && n.transparent }
-        return unless node
+        layers = IR::SeeThrough.layers(program)
+        layers.each { |layer| see_through_line(layer, printer) }
+        fade_lines(program, layers.first.name, printer) unless layers.empty?
+      end
 
-        fixed = DSL::Value.fixed_number(node.transparency)
-        if fixed
-          printer.puts "    :#{node.transparent} is #{fixed} see-through — " \
-                       "the display blends it as it draws, for nothing"
+      def see_through_line(layer, printer)
+        shows = DSL::Value.fixed_number(layer.shows)
+        behind = DSL::Value.fixed_number(layer.behind)
+        if shows && behind
+          amount = layer.split ? "is #{behind} see-through" : "shows #{shows} of itself and #{behind} of what is behind"
+          printer.puts "    :#{layer.name} #{amount} — the display blends it as it draws, for nothing"
         else
           # The one arrangement where it is not free — and only half of it: the blending is
           # still the display's, and it is the TELLING that costs.
-          printer.puts "    :#{node.transparent} is as see-through as the game works out — " \
+          printer.puts "    :#{layer.name} is as see-through as the game works out — " \
                        "the display blends it for nothing"
           printer.puts "      ...and the amount is written to it on every frame"
         end
-        fade_lines(program, node.transparent, printer)
       end
 
       # WHICH OF THE TWO WAYS OF FADING THIS BUILD GOT, which is the one thing about a fade a

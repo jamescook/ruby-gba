@@ -25,17 +25,22 @@ class TestLakeExample < Minitest::Test
   # How far the blend goes, in the sixteenths the display counts in.
   STEPS = (Lake::SEE_THROUGH * 16) / 100
 
-  # One colour mixed over another, the way the display does it: each channel takes its
-  # share of each side, the two are added, and the sixteenth is dropped once.
+  # One colour mixed over another, the way the emulator does it: each channel is widened to
+  # eight bits (the top bits repeated underneath), takes its share of each side, the two
+  # are added, the sixteenth is dropped once, and the result goes back to five bits. The
+  # same mix in five bits is a step lower here, and that colour is not on the console's
+  # screen at all.
   def self.blend(top, bottom)
     keep = 16 - STEPS
     (0..2).sum do |channel|
       shift = channel * 5
-      a = (top >> shift) & 0x1F
-      b = (bottom >> shift) & 0x1F
-      (((a * keep) + (b * STEPS)) / 16) << shift
+      a = widened((top >> shift) & 0x1F)
+      b = widened((bottom >> shift) & 0x1F)
+      ((((a * keep) + (b * STEPS)) / 16) >> 3) << shift
     end
   end
+
+  def self.widened(channel) = (channel << 3) | (channel >> 2)
 
   BELL_OVER_WATER = blend(BELL, WATER)
   BELL_OVER_GLINT = blend(BELL, GLINT)

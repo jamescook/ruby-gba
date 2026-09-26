@@ -86,7 +86,7 @@ module ConformanceFixture
       # The stack of depths, backmost first (the background and the object below sit in
       # it), with the front one see-through — so every backend has to blend the object
       # with the scenery behind it rather than draw it solid.
-      B.layers(%i[scenery actors], transparent: :actors, transparency: 50),
+      B.layers(%i[scenery actors], see_through: [B.see_through_layer(:actors, shows: 50, behind: 50)]),
       B.func(:helper, B.set(:h, 1), B.add(:h, 2), B.wait_vblank),
       B.func(:scene_a, B.set(:picked, 10)),
       B.func(:scene_b, B.set(:picked, 20)),
@@ -256,7 +256,7 @@ module ConformanceFixture
       # whose amount the game works out does on every frame. The amount here is the one
       # the stack was declared with, so the picture does not change and what this pins is
       # that every backend can be told the amount again at all.
-      B.see_through(B.int(50)),
+      B.see_through(:actors),
       B.object(:hero_obj, poses: [:obj8], pose: B.int(0), # a composited object (one pose, held at index 0)
                           x: B.var_ref(:x), y: B.var_ref(:y), active: B.int(1),
                           # Turned 45 degrees and drawn at half again its size — the two

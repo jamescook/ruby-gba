@@ -556,17 +556,28 @@ module RubyGBA
       # Declare the program's stack: +names+ in order, backmost first. A thing that
       # names a layer sits at that layer's place in this list, and two things in the
       # same layer keep the order they were declared in.
-      # A stack that names no see-through layer is 0 see-through, which is the truth and
-      # also what keeps the slot filled: a value operand is always there to be read.
-      def layers(names, transparent: nil, transparency: nil)
-        Nodes.build(:layers, names: names, transparent: transparent,
-                             transparency: wrap(transparency || 0))
+      # +see_through+ lists the layers you can see through (see #see_through_layer).
+      def layers(names, see_through: [])
+        Nodes.build(:layers, names: names, see_through: see_through)
       end
 
-      # Say again how see-through the see-through layer is — for a picture whose amount
-      # the program works out, where it has to be told before every frame.
-      def see_through(amount)
-        Nodes.build(:see_through, amount: wrap(amount))
+      # Layer +name+ can be seen through: +shows+ of itself and +behind+ of what is behind
+      # it, each 0 to 100.
+      def see_through_layer(name, shows:, behind:)
+        Nodes.build(:see_through_layer, name: name, shows: wrap(shows), behind: wrap(behind), split: false)
+      end
+
+      # The one-number form: +behind+ of what is behind layer +name+ shows through it, and
+      # the layer shows the rest.
+      def see_through_split(name, behind)
+        amount = wrap(behind)
+        rest = amount.kind == :int ? int(100 - amount.value) : binop(:-, int(100), amount.copy)
+        Nodes.build(:see_through_layer, name: name, shows: rest, behind: amount, split: true)
+      end
+
+      # Say again how see-through +layer+ is, just before a frame is drawn.
+      def see_through(layer)
+        Nodes.build(:see_through, layer: layer)
       end
 
       # A tiled background: a whole grid drawn from a small set of reusable tiles.

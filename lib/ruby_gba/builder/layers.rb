@@ -167,6 +167,21 @@ module RubyGBA
       # where an amount that can change has to be sent again before every frame. That is
       # one register write, and nothing is redrawn either way.
       #
+      # TWO AMOUNTS INSTEAD OF ONE, when the layer and what is behind it should not share a
+      # whole: `shows:` is how much of the layer itself shows and `shows_behind:` how much
+      # of what is behind it, each 0 to 100.
+      #
+      #   layer :window, shows: 94, shows_behind: 63 do
+      #     background :box, tiles: :frame, map: BOX
+      #   end
+      #
+      # Past 100 together, the mix is brighter than either side and stops at full
+      # brightness — a window that glows over its backdrop, a shaft of light that lifts
+      # the forest under it. The display mixes in sixteenths, so each amount is taken to
+      # the nearest one (94 is 15 of them, 63 is 10). Either can be something the game
+      # works out. `transparency: t` is the same as the two adding to 100, and keeps the
+      # rounding it always had.
+      #
       # A game has ONE see-through layer, and it says the amount one time — every example
       # opens a layer block exactly once, so that is the natural place. Needs
       # `screen :tiled`: a bitmap screen paints its whole picture into one place before
@@ -175,12 +190,15 @@ module RubyGBA
       # @param name [Symbol] a layer named in {#layers}
       # @param transparency [Integer, Symbol, Value, nil] how much of what is behind shows
       #   through, 0 to 100 — a number, or something the game works out
+      # @param shows [Integer, Symbol, Value, nil] how much of the layer itself shows
+      # @param shows_behind [Integer, Symbol, Value, nil] how much of what is behind shows
       # @return [Object] the block's value
-      def layer(name, transparency: nil, &block)
+      def layer(name, transparency: nil, shows: nil, shows_behind: nil, &block)
         raise ArgumentError, "`layer :#{name}` needs a block: `layer :#{name} do ... end`." unless block
 
         check_layer_can_open!(name)
-        make_layer_transparent(name, transparency) unless transparency.nil?
+        amounts = see_through_amounts(name, transparency, shows, shows_behind)
+        make_layer_transparent(name, amounts) if amounts
 
         @current_layer = name
         begin
@@ -267,32 +285,81 @@ module RubyGBA
       # top two things at a pixel, and the reference interpreter paints back to front and
       # would blend all three. One rule keeps the two honest, and a rule the author can
       # hold in their head beats one that holds until their layers happen to touch.
-      def make_layer_transparent(name, amount)
-        check_transparency_amount!(name, amount)
-        check_transparency_screen!(name)
-        check_one_transparent_layer!(name, amount)
+      #
+      # +amounts+ is what #see_through_amounts made of the words the author wrote.
+      def make_layer_transparent(name, amounts)
+        check_transparency_screen!(name, amounts.word)
+        check_one_transparent_layer!(name, amounts)
 
-        @layers_node.transparent = name
-        @layers_node.transparency = DSL::Value.node_for(amount)
-        @transparency_written = amount
-        ensure_var(amount)
+        layer = if amounts.split
+                  Build.see_through_split(name, DSL::Value.node_for(amounts.behind))
+                else
+                  Build.see_through_layer(name, shows: DSL::Value.node_for(amounts.shows),
+                                                behind: DSL::Value.node_for(amounts.behind))
+                end
+        @layers_node.see_through = [layer]
+        @transparency_written = amounts
+        [amounts.shows, amounts.behind].compact.each { |amount| ensure_var(amount) }
       end
 
-      def check_transparency_amount!(name, amount)
+      # What the author wrote about how see-through a layer is, as they wrote it: +word+ is
+      # the keyword to name in a message, and +split+ is the one-number form.
+      SeeThroughWords = Data.define(:word, :shows, :behind, :split)
+
+      # The amounts a `layer` block was given, checked, or nil for a layer that is not
+      # see-through. One number, or two that go together, and never both.
+      def see_through_amounts(name, transparency, shows, behind)
+        return nil if transparency.nil? && shows.nil? && behind.nil?
+
+        unless transparency.nil?
+          two_words_and_transparency!(name) unless shows.nil? && behind.nil?
+          check_transparency_amount!(name, "transparency", transparency)
+          return SeeThroughWords.new(word: "transparency", shows: nil, behind: transparency, split: true)
+        end
+
+        one_of_two_amounts!(name, shows.nil? ? "shows_behind" : "shows") if shows.nil? || behind.nil?
+        check_transparency_amount!(name, "shows", shows)
+        check_transparency_amount!(name, "shows_behind", behind)
+        SeeThroughWords.new(word: "shows", shows: shows, behind: behind, split: false)
+      end
+
+      def two_words_and_transparency!(name)
+        raise ArgumentError,
+              "`layer :#{name}` was given `transparency:` and `shows:` or `shows_behind:`. They " \
+              "are two ways to say one thing. To fix this, use `transparency:` alone, or use " \
+              "`shows:` and `shows_behind:` together."
+      end
+
+      def one_of_two_amounts!(name, given)
+        missing = given == "shows" ? "shows_behind" : "shows"
+        raise ArgumentError,
+              "`layer :#{name}` was given `#{given}:` but not `#{missing}:`. The two go " \
+              "together: `shows:` is how much of the layer shows, and `shows_behind:` is how " \
+              "much of what is behind it shows. To fix this, give both. If they add to 100, " \
+              "`transparency:` alone says the same thing."
+      end
+
+      def check_transparency_amount!(name, word, amount)
         fixed = DSL::Value.fixed_number(amount)
         return if fixed.nil? && value_like?(amount) # the game works it out — checked as it runs
         return if fixed && (0..100).cover?(fixed)
 
         unless fixed
           raise ArgumentError,
-                "`layer :#{name}, transparency:` takes a whole number from 0 to 100, or " \
+                "`layer :#{name}, #{word}:` takes a whole number from 0 to 100, or " \
                 "something the game works out (a variable, or a sum of them). You gave " \
                 "#{amount.inspect}."
         end
 
-        raise ArgumentError,
-              "`layer :#{name}, transparency: #{fixed}` is outside 0 to 100. 0 is solid and " \
-              "100 lets everything behind show through."
+        raise ArgumentError, "`layer :#{name}, #{word}: #{fixed}` is outside 0 to 100. #{range_of(word)}"
+      end
+
+      def range_of(word)
+        case word
+        when "transparency" then "0 is solid and 100 lets everything behind show through."
+        when "shows" then "0 is none of the layer and 100 is all of it."
+        else "0 is none of what is behind and 100 is all of it."
+        end
       end
 
       def value_like?(amount)
@@ -302,41 +369,50 @@ module RubyGBA
       # How see-through the layer was asked to be, as the author wrote it — a number, or
       # the name of what the game works it out from. For a message about it.
       def transparency_as_written
-        DSL::Value.fixed_number(@transparency_written) || @transparency_written.inspect
+        return as_written(@transparency_written.behind) + " see-through" if @transparency_written.split
+
+        "showing #{as_written(@transparency_written.shows)} of itself and " \
+          "#{as_written(@transparency_written.behind)} of what is behind"
       end
+
+      def as_written(amount) = (DSL::Value.fixed_number(amount) || amount.inspect).to_s
 
       # A bitmap screen paints its scenery, its sprites and its text into ONE picture
       # before the display ever sees it. By the time an effect could apply there is
       # nothing left to tell apart, so there is nothing to see through. Same shape of
       # answer as `fade ... under:` already gives.
-      def check_transparency_screen!(name)
+      def check_transparency_screen!(name, word)
         return if @screen_mode == :tiled
 
         raise ArgumentError,
-              "`layer :#{name}, transparency:` needs `screen :tiled`. On a bitmap screen the " \
+              "`layer :#{name}, #{word}:` needs `screen :tiled`. On a bitmap screen the " \
               "whole picture is painted into one place before the display sees it, so there is " \
               "nothing left behind a layer to see through. To fix this, use `screen :tiled`, or " \
               "draw the see-through art into the picture yourself."
       end
 
-      def check_one_transparent_layer!(name, amount)
-        already = @layers_node.transparent
+      def check_one_transparent_layer!(name, amounts)
+        already = @layers_node.see_through.first&.name
         return if already.nil?
         # The same thing said twice is one fact said twice. Compared as the author wrote
         # it, since two reads of the same variable build two equal-but-distinct nodes.
-        return if already == name && @transparency_written.equal?(amount)
+        return if already == name && said_the_same?(@transparency_written, amounts)
 
         if already == name
           raise ArgumentError,
-                "The layer :#{name} is already #{transparency_as_written} see-through, and now " \
-                "asks for #{amount.inspect}. A layer says how see-through it is one time. To fix " \
-                "this, say `transparency:` on one of the `layer :#{name}` blocks."
+                "The layer :#{name} is already #{transparency_as_written}, and now asks for " \
+                "something else. A layer says how see-through it is one time. To fix this, say " \
+                "it on one of the `layer :#{name}` blocks."
         end
 
         raise ArgumentError,
               "This game already makes :#{already} see-through, and now asks for :#{name}. A game " \
               "has one see-through layer. The console blends one layer with what is behind it. " \
               "To fix this, remove `transparency:` from one of them."
+      end
+
+      def said_the_same?(was, now)
+        was.split == now.split && was.shows.equal?(now.shows) && was.behind.equal?(now.behind)
       end
 
       def check_stack_not_declared!

@@ -18,28 +18,41 @@ module RubyGBA
           NAME = :layer_invisible
           PLAIN_NAME = "a layer too see-through to see"
 
-          # The amount at which nothing of the layer survives. Below it something does,
-          # and a very faint layer is a style choice rather than a mistake.
-          INVISIBLE = 100
-
           # Nothing is said about an amount the game works out — the same silence
           # FadeNeverLifted and TintNeverLifted keep, and for the same reason: a variable
           # that reaches 100 for one frame of a thickening fog is the effect working.
+          #
+          # What counts is what the display is told — no share of the layer at all — so a
+          # `shows:` small enough to round to nothing is said too. A very faint layer is a
+          # style choice rather than a mistake, and is left alone.
           def detect(program)
-            node = program.each.find do |n|
-              n.kind == :layers && DSL::Value.fixed_number(n.transparency) == INVISIBLE
-            end
-            return [] unless node
+            layer = SeeThrough.layers(program).find { |node| invisible?(node) }
+            return [] unless layer
 
-            [Finding.new(check: NAME, severity: :warning, message: message(node.transparent), node: node)]
+            [Finding.new(check: NAME, severity: :warning, message: message(layer), node: layer)]
           end
 
           private
 
+          def invisible?(layer)
+            shows = DSL::Value.fixed_number(layer.shows)
+            behind = DSL::Value.fixed_number(layer.behind)
+            return false if shows.nil? || behind.nil?
+
+            SeeThrough.weights(layer, shows, behind).first.zero?
+          end
+
           def message(layer)
-            "The layer :#{layer} is 100 see-through, so none of it shows. The game still " \
-              "draws it and still holds its art. To fix this, use a smaller number — 0 is " \
-              "solid and 100 is invisible — or remove the layer."
+            if layer.split
+              return "The layer :#{layer.name} is 100 see-through, so none of it shows. The game still " \
+                     "draws it and still holds its art. To fix this, use a smaller number — 0 is " \
+                     "solid and 100 is invisible — or remove the layer."
+            end
+
+            "The layer :#{layer.name} shows #{DSL::Value.fixed_number(layer.shows)} of itself, which " \
+              "is too little to see, so none of it shows. The game still draws it and still holds " \
+              "its art. To fix this, use a bigger `shows:` — 0 is none of the layer and 100 is all " \
+              "of it — or remove the layer."
           end
         end
       end

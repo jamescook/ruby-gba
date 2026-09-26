@@ -113,6 +113,7 @@ module RubyGBA
         # the stack of depths a picture is built from — an order any backend can honor,
         # whether it stacks in hardware or just paints back-to-front
         layers: :portable,
+        see_through_layer: :portable,
 
         # embedded data
         data: :portable, bitmap: :portable, backing_buffer: :portable, font: :portable,

@@ -47,19 +47,26 @@ module RubyGBA
     module Fading
       def self.resolve(program) = Answer.new(program)
 
-      # IS THERE ANYTHING FOR A FADE TO KEEP in this declared stack? A layer NAMED as
-      # see-through is not enough — one fixed at 0 is solid already, so walking the colors
-      # for it would buy a picture nobody can tell from the free fade. An amount the game
-      # works out is counted, since it is not 0 for long if it was worth writing.
+      # IS THERE ANYTHING FOR A FADE TO KEEP in this see-through layer (a SeeThroughLayer)?
+      # A layer NAMED as see-through is not enough — one fixed to show all of itself and
+      # none of what is behind is solid already, so walking the colors for it would buy a
+      # picture nobody can tell from the free fade. An amount the game works out is
+      # counted, since it is not solid for long if it was worth writing.
       #
       # Public because the guardrail asks it too, and the two must agree: a game warned
       # about a trade it is not making, or making one it is not warned about, is exactly
       # the confusion this whole rule exists to remove.
-      def self.can_be_seen_through?(layers_node)
-        return false unless layers_node.transparency
+      def self.can_be_seen_through?(layer)
+        shows = DSL::Value.fixed_number(layer.shows)
+        behind = DSL::Value.fixed_number(layer.behind)
+        return true if shows.nil? || behind.nil?
 
-        fixed = DSL::Value.fixed_number(layers_node.transparency)
-        fixed.nil? || fixed.positive?
+        SeeThrough.weights(layer, shows, behind) != [SeeThrough::STEPS, 0]
+      end
+
+      # The first see-through layer of +program+ a fade has something to keep in, or nil.
+      def self.kept_layer(program)
+        SeeThrough.layers(program).find { |layer| can_be_seen_through?(layer) }
       end
 
       # Worked out once for a whole program, because every fade in it is decided by the
@@ -112,7 +119,7 @@ module RubyGBA
         end
 
         def sees_through_a_layer?(program)
-          program.walk.any? { |node| node.kind == :layers && Fading.can_be_seen_through?(node) }
+          !Fading.kept_layer(program).nil?
         end
       end
     end

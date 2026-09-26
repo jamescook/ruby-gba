@@ -440,33 +440,49 @@ module RubyGBA
         operands value: :int
       end
 
-      # The stack of layers a picture is built from, backmost first — and which one of
-      # them, if any, you can see through. A stack holds at most one see-through layer,
-      # so it is named here rather than being a property of each layer: `transparent` is
-      # the layer's name and `transparency` is how much of what is behind it shows, 0
-      # (solid) to 100 (invisible).
-      #
-      # The amount is a value rather than a number, because a picture can go on changing
-      # it — fog that thickens, water that gets murkier the deeper you swim. A number
-      # settled while authoring is written once and never again; one the program works out
-      # is re-read every frame (see SeeThrough).
+      # The stack of layers a picture is built from, backmost first — and which of them
+      # you can see through (+see_through+, a list of SeeThroughLayer). A screen shows at
+      # most one of those at a time, so a game has one for each screen that wants one.
       class Layers
         include Node
         kind :layers
         category :data
-        operands names: :list, transparent: :name, transparency: :value
+        operands names: :list, see_through: :list
       end
 
-      # How see-through the see-through layer is, RIGHT NOW.
+      # One layer you can see through, and by how much: +shows+ is how much of the layer
+      # itself shows and +behind+ how much of what is behind it, each 0 to 100. They need
+      # not add to 100 — past it the mix is brighter than either side and stops at full
+      # brightness, which is how a glow or a shaft of light looks.
       #
-      # Only a picture whose amount is worked out as it runs carries this: the framework
-      # puts one at each frame boundary so the display is told again before the frame is
-      # drawn. Which layer it means is on the Layers node — a picture has one.
+      # +split+ marks the one-number form, where the author said how much of what is
+      # behind shows and the layer takes the rest. The two forms round differently, so
+      # it is carried rather than inferred: the rest is what is LEFT of a whole once the
+      # far side is counted, where two amounts are each taken to the nearest step.
+      #
+      # The amounts are values rather than numbers, because a picture can go on changing
+      # them — fog that thickens, water that gets murkier the deeper you swim. A number
+      # settled while authoring is written once and never again; one the program works out
+      # is read again every frame (see SeeThrough).
+      class SeeThroughLayer
+        include Node
+        kind :see_through_layer
+        category :data
+        operands name: :name, shows: :value, behind: :value, split: :flag
+      end
+
+      # How see-through +layer+ is, RIGHT NOW.
+      #
+      # The framework puts one at each frame boundary for a layer whose amounts are worked
+      # out as the game runs, so the display is told again before the frame is drawn — and
+      # for every see-through layer in a game with more than one, since which of them is
+      # on screen changes as the screens take turns. The amounts are on the layer's own
+      # SeeThroughLayer.
       class SeeThrough
         include Node
         kind :see_through
         category :draw
-        operands amount: :value
+        operands layer: :name
       end
 
       class ListDrop

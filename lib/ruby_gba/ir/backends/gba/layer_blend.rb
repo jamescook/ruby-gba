@@ -83,16 +83,17 @@ module RubyGBA
           # stack the program declared. Nothing at all for a program that declares none,
           # which is what keeps such a program byte for byte as it was.
           def prepare_layer_blend(program)
-            node = program.walk.find { |n| n.kind == :layers && n.transparent }
+            node = IR::SeeThrough.layers(program).first
             return @see_through = nil unless node
 
-            fixed = @primitives.const_int(node.transparency)
-            @see_through = { layer: node.transparent,
-                             amount: node.transparency,
-                             # An amount the program works out has no number here. What boot
-                             # writes is what its variable starts at, so the first frame is
-                             # already right rather than right one frame later.
-                             steps: @drawing.fade_steps(fixed || starting_amount(program, node.transparency)) }
+            # An amount the program works out has no number here. What boot writes is what
+            # its variable starts at, so the first frame is already right rather than right
+            # one frame later.
+            shows, behind = [node.shows, node.behind].map do |amount|
+              @primitives.const_int(amount) || starting_amount(program, amount)
+            end
+            @see_through = { layer: node.name, node: node,
+                             weights: IR::SeeThrough.weights(node, shows, behind) }
           end
 
           # Does this program see through any layer at all?
@@ -137,7 +138,7 @@ module RubyGBA
           # entering a display mode, and a fade lifting.
           def emit_boot_layer_blend
             emit_blend_targets
-            @emitter.write_reg16(REG_BLDALPHA, blend_weights(@see_through[:steps]))
+            @emitter.write_reg16(REG_BLDALPHA, halfword(@see_through[:weights]))
           end
 
           # PUT THE BLEND BACK, for whatever took it — entering a display mode, and a fade
@@ -149,17 +150,17 @@ module RubyGBA
           # then and now are the same number.
           def emit_layer_blend_again
             emit_blend_targets
-            emit_blend_amount(@see_through[:amount])
+            emit_blend_amounts(@see_through[:node])
           end
 
-          # HOW SEE-THROUGH THE LAYER IS, NOW. A picture whose amount the program works out
+          # HOW SEE-THROUGH THE LAYER IS, NOW. A picture whose amounts the program works out
           # gets one of these at every frame boundary, so the display is told again before
           # the frame it applies to is drawn.
           #
           # It writes the weights and nothing else: which layers blend with which was
           # settled at boot and does not change, so the per-frame part is one register.
-          def emit_see_through(node)
-            emit_blend_amount(node.amount) if @see_through
+          def emit_see_through(_node)
+            emit_blend_amounts(@see_through[:node]) if @see_through
           end
 
           # Turn the blend on for the screen this program starts with. A program whose
@@ -191,11 +192,23 @@ module RubyGBA
             wanted.values.uniq.size > 1 ? wanted : {}
           end
 
-          def emit_blend_amount(amount)
-            if (fixed = @primitives.const_int(amount))
-              return @emitter.write_reg16(REG_BLDALPHA, blend_weights(@drawing.fade_steps(fixed)))
+          # Tell the display the two shares of +layer+ (a SeeThroughLayer). Numbers the
+          # author wrote are one write of a number settled here.
+          def emit_blend_amounts(layer)
+            shows = @primitives.const_int(layer.shows)
+            behind = @primitives.const_int(layer.behind)
+            if shows && behind
+              return @emitter.write_reg16(REG_BLDALPHA, halfword(IR::SeeThrough.weights(layer, shows, behind)))
             end
+            return emit_split_amount(layer.behind) if layer.split
 
+            @lowering.value(IR::SeeThrough.weights_value(layer))
+            @primitives.store_halfword_acc(REG_BLDALPHA)
+          end
+
+          # The one-number form worked out as the game runs: what is behind is the amount's
+          # share, and the layer takes what is left of a whole.
+          def emit_split_amount(amount)
             @lowering.value(@drawing.fade_steps_value(amount))
             @drawing.emit_clamp_blend_steps
             @drawing.emit_blend_weights_from_acc
@@ -204,9 +217,7 @@ module RubyGBA
           # The weight pair as one halfword: how much of the layer itself survives in the
           # low byte, how much of what is behind comes through above it. The same shape
           # the tint's weights take, because it is the same blend unit.
-          def blend_weights(steps)
-            (BLD_MAX - steps) | (steps << 8)
-          end
+          def halfword((near, far)) = near | (far << 8)
 
           private
 

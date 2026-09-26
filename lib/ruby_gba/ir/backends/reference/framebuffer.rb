@@ -42,7 +42,7 @@ module RubyGBA
             @tint_amount = 0
             @paint_toward = nil
             @paint_steps = 0
-            @through_steps = 0
+            @through = nil
             @blending = false
             @area = nil
           end
@@ -152,8 +152,9 @@ module RubyGBA
             @blending = blending?
           end
 
-          # Blend everything painted FROM HERE ON with what is already in the cell, by
-          # +amount+ (0 to 100) — a see-through layer.
+          # Blend everything painted FROM HERE ON with what is already in the cell — a
+          # see-through layer. +weights+ is [how much of what is painted, how much of what is
+          # already there], in steps, or nil for no blend.
           #
           # This is the one blend that needs the DESTINATION, which is why it cannot be
           # #paint_faded with a different color: a fade mixes toward a color that is the
@@ -162,8 +163,8 @@ module RubyGBA
           # front — "blend with whatever is already there" and the display's own "blend
           # with the layer directly beneath" are then the same rule, so nothing about the
           # stack has to be modelled a second time.
-          def paint_through(amount)
-            @through_steps = steps_of(amount)
+          def paint_through(weights)
+            @through = weights
             @blending = blending?
           end
 
@@ -339,10 +340,36 @@ module RubyGBA
           # Untouched when neither is on, which is the usual case.
           def laid(at, color)
             color = painted(color)
-            return color if @through_steps.zero?
+            return color unless @through
 
-            mixed(color, @pixels[at], @through_steps)
+            through(color, @pixels[at], *@through)
           end
+
+          # A see-through layer's color over what is under it: +near+ steps of the one and
+          # +far+ of the other, added channel by channel, and only then is the sixteenth
+          # dropped. The two shares need not add to a whole, and past one a channel stops at
+          # its brightest, as the display's does.
+          #
+          # EACH CHANNEL IS WIDENED TO EIGHT BITS FIRST, the way the emulator this is checked
+          # against mixes: five bits become eight by repeating the top ones underneath
+          # (31 becomes 255, 16 becomes 132), the mix is taken there, and the result goes
+          # back to five. Mixed in five bits the answer is a step lower on some pixels — for
+          # a window drawn at 15 and 10 sixteenths, most of them — and picori measured the
+          # widened mix matching a retail cartridge's pixels every one. The console's own
+          # documentation describes the five-bit mix; what the picture is checked against
+          # is the widened one.
+          def through(color, under, near, far)
+            packed = 0
+            3.times do |channel|
+              shift = channel * 5
+              have = widened((color >> shift) & CHANNEL_MAX)
+              below = widened((under >> shift) & CHANNEL_MAX)
+              packed |= ([((have * near) + (below * far)) / FADE_STEPS, 255].min >> 3) << shift
+            end
+            packed
+          end
+
+          def widened(channel) = (channel << 3) | (channel >> 2)
 
           # One color with the blend a placed fade asks for, or the color untouched when
           # no fade is placed. The same arithmetic as #faded, so a picture blended while
@@ -355,7 +382,7 @@ module RubyGBA
           # flag rather than two questions, because it is asked once per pixel on the path
           # that repaints a whole scrolling scene.
           def blending?
-            !@paint_toward.nil? || @through_steps.positive?
+            !@paint_toward.nil? || !@through.nil?
           end
 
           def blend(color, toward, steps)

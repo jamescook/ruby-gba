@@ -262,7 +262,7 @@ module RubyGBA
           @screen.held = node.walk.any? { |child| child.kind == :wait_vblank }
           # Whether a repaint can be owed rather than done (see #composite_scrolled_frame): not
           # where the picture reads variables as it is painted.
-          @picture_can_wait = @row_bends.empty? && (@see_through.nil? || @see_through[1].kind == :int)
+          @picture_can_wait = @row_bends.empty? && (@see_through.nil? || @see_through.values.all? { |layer| told_once?(layer) })
           catch(:halt) { exec(node) }
           self
         end
@@ -402,7 +402,7 @@ module RubyGBA
               # name a layer that puts it behind one declared earlier, and the painting
               # has to know that when it starts rather than halfway through.
               @layer_stack = n.names
-              @see_through = n.transparent && [n.transparent, n.transparency]
+              @see_through = n.see_through.to_h { |layer| [layer.name, layer] } unless n.see_through.empty?
             when :background
               # Remember every background so present_objects can redraw them under the
               # objects each frame (that clean redraw is what erases the previous frame),
@@ -1091,7 +1091,7 @@ module RubyGBA
               stamp_tile(tiles, index, c * tile_w, r * tile_h, tile_w, tile_h, swapped)
             end
           end
-          @screen.paint_through(0)
+          @screen.paint_through(nil)
         end
 
         # +nodes+ in the order the declared stack asks for (see IR::Stacking).
@@ -1396,7 +1396,7 @@ module RubyGBA
             end
           end
           @screen.paint_faded(nil, nil)
-          @screen.paint_through(0)
+          @screen.paint_through(nil)
         end
 
         # A fade, over the whole screen or placed in the stack.
@@ -1469,30 +1469,42 @@ module RubyGBA
         # already in the buffer" is the display's own "blend with the layer directly
         # beneath" — the stack does not have to be consulted a second time.
         def paint_through_for(name)
-          @screen.paint_through(see_through?(name) && !fading? ? see_through_amount : 0)
+          layer = see_through_layer_of(name)
+          @screen.paint_through(layer && !fading? ? see_through_weights(layer) : nil)
         end
 
-        # How see-through the layer is right now. Read here rather than remembered, so a
-        # picture whose amount the program works out — fog that thickens — is painted at
-        # the amount it has at the moment it is painted.
-        def see_through_amount = eval_value(@see_through[1])
+        # How much of a see-through layer and of what is behind it the display takes right
+        # now, in steps. Read here rather than remembered, so a picture whose amounts the
+        # program works out — fog that thickens — is painted at the amounts it has at the
+        # moment it is painted.
+        def see_through_weights(layer)
+          SeeThrough.weights(layer, eval_value(layer.shows), eval_value(layer.behind))
+        end
 
-        # The amount has been worked out again for the frame about to be drawn. Nothing to
-        # store: the paint above reads it. What this owes is the picture, since a scene
-        # that neither moves nor scrolls would otherwise keep the one it was painted with.
+        # The amounts have been worked out again for the frame about to be drawn. Nothing
+        # to store: the paint above reads them. What this owes is the picture, since a
+        # scene that neither moves nor scrolls would otherwise keep the one it was painted
+        # with.
         def exec_see_through(node)
-          amount = eval_value(node.amount)
-          return if amount == @see_through_shown
+          weights = see_through_weights(@see_through.fetch(node.layer))
+          @see_through_shown ||= {}
+          return if weights == @see_through_shown[node.layer]
 
-          @see_through_shown = amount
+          @see_through_shown[node.layer] = weights
           composite_scrolled_frame
         end
 
-        def see_through?(name)
-          return false unless @see_through && name
+        # A layer whose amounts are both numbers the author wrote, which never change.
+        def told_once?(layer)
+          layer.shows.kind == :int && layer.behind.kind == :int
+        end
+
+        # The see-through layer the thing called +name+ is in, or nil.
+        def see_through_layer_of(name)
+          return nil unless @see_through && name
 
           node = @bg_by_name[name] || @objects[name]
-          node && node.layer == @see_through[0]
+          node && @see_through[node.layer]
         end
 
         # Is a fade in force that takes the blend? A see-through layer asks, because a
@@ -1603,7 +1615,7 @@ module RubyGBA
           else
             blit_image(image, x, y, recolor: recolor)
           end
-          @screen.paint_through(0)
+          @screen.paint_through(nil)
         end
 
         # THE COLOURS AN OBJECT IS DRAWN IN THIS FRAME, when it is told to draw with another
