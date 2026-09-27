@@ -244,6 +244,124 @@ class TestSaveData < Minitest::Test
     assert_equal written.map { |at| store[:bytes][at] }, written.map { |at| v.mem8(SRAM_START + at) }
   end
 
+  # A FILE-SELECT SCREEN SHOWS EACH FILE'S NAME, which is a list: read it item by item from the
+  # copy, with the game's own list left alone.
+  def test_a_kept_list_can_be_read_from_a_copy_without_loading_it
+    store = {}
+    files_after(store, :up, :a) # copy 1 holds the name [1]
+    program = built do
+      screen :tiled
+      hearts = var :hearts, 3
+      name = list :name, capacity: 3, width: :byte
+      files = save_data(:file, copies: 3) { keep hearts, name }
+      first = var :first, 0
+      length = var :length, 0
+      none = var :none, 0
+      game_loop do
+        first.set! files[1].peek(name)[0]
+        length.set! files[1].peek(name).length
+        none.set! files[2].peek(name).length
+      end
+    end
+    run = play(program, store)
+
+    assert_equal [1, 1, 0], [run[:first], run[:length], run[:none]]
+    assert_empty run.list(:name)
+  end
+
+  # A SAVE SAYS WHETHER IT WORKED. On this chip a save is finished before the next line runs,
+  # so `saving?` is over by then; `failed?` holds when what was written did not read back.
+  def test_a_save_says_it_worked
+    run = files_after({}, :a)
+    outcome = built do
+      screen :tiled
+      hearts = var :hearts, 3
+      files = save_data(:file) { keep hearts }
+      worked = var :worked, 0
+      busy = var :busy, 0
+      files[0].save
+      files.failed?.then { worked.set! 2 }.else { worked.set! 1 }
+      files.saving?.then { busy.set! 1 }
+      game_loop { wait_vblank }
+    end
+    after = play(outcome, {})
+
+    assert_equal 1, after[:worked]
+    assert_equal 0, after[:busy]
+    assert_equal 10, run[:hearts]
+  end
+
+  # A WHOLE GAME'S PROGRESS: three files of 1204 bytes each — a thousand and more flags packed
+  # into a list — beside a small settings record of its own. A saves file 2 and the settings,
+  # B scrambles the flags, L loads file 2 back.
+  private def full_size
+    built do
+      screen :tiled
+      flags = list :flags, capacity: 1196, width: :byte
+      hearts = var :hearts, 3
+      speed = var :speed, 1
+      files = save_data(:file, copies: 3) { keep hearts, flags }
+      settings = save_data(:settings) { keep speed }
+      checked = var :checked, 0
+      settings[0].load
+      game_loop do
+        pressed(:a).then do
+          repeat(1196) { |i| flags.push i & 0x7F }
+          hearts.set! 20
+          speed.set! 3
+          files[2].save
+          settings[0].save
+        end
+        pressed(:b).then { repeat(1196) { |i| flags[i] = 0 } }
+        pressed(:l).then do
+          files[2].load
+          checked.set! flags[1195] + flags[5] + hearts
+        end
+      end
+    end
+  end
+
+  def test_three_full_size_files_and_settings_on_both_backends
+    store = {}
+    play(full_size, store, pressing: { 2 => :a, 4 => :b, 6 => :l }, frames: 8)
+    back = play(full_size, store, pressing: { 2 => :l }, frames: 4)
+    assert_equal 3, back[:speed], "the settings record is kept apart from the files"
+    assert_equal (1195 & 0x7F) + 5 + 20, back[:checked]
+
+    schedule = { 2 => KEY_A, 4 => KEY_B, 6 => KEY_L }
+    rom = assemble_rom(full_size, name: "FULLSIZE")
+    v = assert_emulator_loads_rom(rom, frames: 12, keys: ->(f) { schedule.fetch(f, 0) }, vars: rom.var_addresses)
+    assert_equal (1195 & 0x7F) + 5 + 20, v.var(:checked)
+  end
+
+  # --- friendly errors ---
+
+  private def refused(&block)
+    assert_raises(ArgumentError) { built { screen :tiled; instance_eval(&block) } }.message
+  end
+
+  def test_what_a_record_cannot_keep_is_a_friendly_error
+    assert_match(/a number worked out from other things/, refused { hearts = var :hearts, 3; save_data(:f) { keep hearts + 1 } })
+    assert_match(/`var` and `list`/, refused { save_data(:f) { keep 5 } })
+    assert_match(/is a `save_var`/, refused { best = save_var :best, 0; save_data(:f) { keep best } })
+    assert_match(/save_data :g keeps it too|keeps it\s+too/,
+                 refused { h = var :h, 0; save_data(:f) { keep h }; save_data(:g) { keep h } })
+  end
+
+  def test_a_record_that_does_not_fit_is_a_friendly_error
+    message = refused { big = list :big, capacity: 5000; save_data(:f, copies: 3) { keep big } }
+    assert_match(/does not fit in save memory/, message)
+    assert_match(/use fewer copies/, message)
+  end
+
+  def test_a_copy_the_record_does_not_have_is_a_friendly_error
+    assert_match(/has 3 copies, counted from 0, so it has no copy 3/,
+                 refused { h = var :h, 0; save_data(:f, copies: 3) { keep h }[3].save })
+    assert_match(/`copies: 0`/, refused { h = var :h, 0; save_data(:f, copies: 0) { keep h } })
+    assert_match(/does not keep :lives/,
+                 refused { h = var :h, 0; lives = var :lives, 3; save_data(:f) { keep h }[0].peek(lives) })
+  end
+
   # The two lay save memory out byte for byte alike, which is what lets a test that cuts the
   # power on the interpreter speak for the console.
   def test_the_console_writes_the_same_bytes_as_the_interpreter

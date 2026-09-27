@@ -97,7 +97,7 @@ module RubyGBA
           at_boot(Build.list_new(layout.directory(what), layout.copies, width: what == :seq ? :word : :byte))
           layout.copies.times { at_boot(Build.list_push(layout.directory(what), Build.int(0))) }
         end
-        %i[copy from source at at0 at1 v0 v1 s0 s1 started winner].each { |what| ensure_var(layout.scratch(what)) }
+        %i[copy from source at at0 at1 v0 v1 s0 s1 started winner failed busy].each { |what| ensure_var(layout.scratch(what)) }
         layout.copies.times do |copy|
           at_boot(Build.set(layout.scratch(:copy), Build.int(copy)))
           at_boot(Build.call(layout.routine(:scan)))
@@ -233,7 +233,8 @@ module RubyGBA
       def save_data_write(layout, kind)
         copy = sd_var(layout.scratch(:copy))
         sd_when(sd_in_range(layout, copy)) do
-          older = Build.binop(:*, sd_eq(sd_directory(layout, :half, copy), sd_int(0)), sd_int(1))
+          record(Build.set(layout.scratch(:busy), sd_int(1)))
+          older =Build.binop(:*, sd_eq(sd_directory(layout, :half, copy), sd_int(0)), sd_int(1))
           record(Build.set(layout.scratch(:at), sd_half_at(layout, copy, older)))
           here = sd_var(layout.scratch(:at))
           body = sd_add(here, sd_int(IR::SaveLayout::HEADER))
@@ -248,7 +249,12 @@ module RubyGBA
           last.each { |field, value| record(Build.save_write(sd_add(here, sd_int(IR::SaveLayout.const_get(field))), value)) }
           record(Build.save_write(sd_add(here, sd_int(IR::SaveLayout::CHECKSUM_AT)),
                                   Build.save_sum(body, sd_int(layout.body))))
+          # Looking the copy over again is also the read-back: a job that worked leaves the
+          # copy saved (or erased), and anything else means the chip did not keep it.
           record(Build.call(layout.routine(:scan)))
+          expected = IR::SaveLayout::STATES.index(kind == IR::SaveLayout::ERASED ? :erased : :good)
+          record(Build.set(layout.scratch(:failed), Build.binop(:!=, sd_directory(layout, :state, copy), sd_int(expected))))
+          record(Build.set(layout.scratch(:busy), sd_int(0)))
         end
       end
 
@@ -354,21 +360,41 @@ module RubyGBA
         Build.binop(:*, within, sd_directory(layout, :state, index))
       end
 
-      # A saved variable, read from copy +copy+ without loading it: 0 unless the copy is good.
-      def save_data_peek(layout, copy, name)
+      # The thing a record keeps under +name+, or a friendly error saying what it does keep.
+      def save_data_kept(layout, name)
         item = layout.kept.find { |one| one.name == name }
-        unless item&.kind == :var
-          kept = layout.kept.map { |one| ":#{one.name}" }.join(", ")
-          raise ArgumentError, "save_data :#{layout.name} does not keep a variable :#{name}, so a copy " \
-                               "cannot be read for it. It keeps #{kept}."
-        end
+        return item if item
 
-        index = Build.clamped(copy, sd_int(0), sd_int(layout.copies - 1))
-        good = sd_eq(save_data_state(layout, copy), sd_int(IR::SaveLayout::STATES.index(:good)))
-        at = sd_add(sd_half_at(layout, index, sd_directory(layout, :half, index)),
-                    sd_int(IR::SaveLayout::HEADER + item.at))
-        Build.binop(:*, good, sd_read(at))
+        kept = layout.kept.map { |one| ":#{one.name}" }.join(", ")
+        raise ArgumentError, "save_data :#{layout.name} does not keep :#{name}, so a copy cannot be read " \
+                             "for it. It keeps #{kept}."
       end
+
+      # A kept variable — or, with +index+, one item of a kept list, or with +length+ how many it
+      # holds — read from copy +copy+ without loading it. 0 unless the copy is good, and 0 for an
+      # item past the list's end.
+      def save_data_peek(layout, copy, item, index: nil, length: false)
+        which = Build.clamped(copy, sd_int(0), sd_int(layout.copies - 1))
+        good = sd_eq(save_data_state(layout, copy), sd_int(IR::SaveLayout::STATES.index(:good)))
+        at = sd_add(sd_half_at(layout, which, sd_directory(layout, :half, which)),
+                    sd_int(IR::SaveLayout::HEADER + item.at))
+        return Build.binop(:*, good, sd_read(at)) if item.kind == :var || length
+
+        saved = Build.clamped(sd_read(at), sd_int(0), sd_int(item.count))
+        inside = sd_and(Build.binop(:>=, index, sd_int(0)), Build.binop(:<, index, saved))
+        slot = Build.clamped(index, sd_int(0), sd_int(item.count - 1))
+        bytes = WIDTH_BYTES.fetch(item.width)
+        place = sd_add(sd_add(at, sd_int(4)), Build.binop(:*, slot, sd_int(bytes)))
+        Build.binop(:*, sd_and(good, inside), sd_read(place, item.width))
+      end
+
+      # Whether the last job this record ran did not read back as it should have.
+      def save_data_failed(layout) = sd_eq(sd_var(layout.scratch(:failed)), sd_int(1))
+
+      # Whether a job is running now. On the battery-backed chip a job is finished before the
+      # next line of the game runs, so this reads false wherever the game can ask it; it is
+      # there so a game that shows "saving" keeps working on a chip that takes frames.
+      def save_data_saving(layout) = sd_eq(sd_var(layout.scratch(:busy)), sd_int(1))
 
       private :save_data_item_of, :save_data_not_state!
     end
