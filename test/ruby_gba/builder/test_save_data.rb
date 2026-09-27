@@ -362,6 +362,8 @@ class TestSaveData < Minitest::Test
           files[0].save
           state[:hearts].set! 43
           files[1].save if copies > 1
+          state[:hearts].set! 44
+          files[2].save if copies > 2
           state[:speed].set! 7
           settings_record[0].save
         end
@@ -399,6 +401,50 @@ class TestSaveData < Minitest::Test
     back = play(version(copies: 1), saved_by_the_first_build)
 
     assert_equal [42, 7], [back[:shown0], back[:kept_speed]]
+  end
+
+  # A copy one build dropped is gone: a later build that has that copy again finds it empty,
+  # not holding what was saved there before it was dropped.
+  def test_a_copy_given_back_after_it_was_dropped_is_empty
+    store = {}
+    play(version(copies: 3), store, pressing: { 2 => :a })
+    play(version(copies: 2), store)
+    back = play(version(copies: 3), store)
+
+    assert_equal [42, 43, 0], [back[:shown0], back[:shown1], back[:shown2]]
+  end
+
+  # A record that takes over another's room does not find that record's saves in it: here the
+  # renamed record keeps the same things, so an old save left there would pass every check.
+  def test_room_a_dropped_record_leaves_holds_nothing_for_the_next
+    store = {}
+    play(journal_kept_as(:journal), store, pressing: { 2 => :a })
+    back = play(journal_kept_as(:diary), store)
+
+    assert_equal [1, 0], [back[:was_empty], back[:first_page]]
+  end
+
+  # A game that keeps a big journal in a record named +record+; A writes a page and saves it.
+  # The journal takes most of save memory, so a record renamed in a later build can only go
+  # where the old one was.
+  private def journal_kept_as(record)
+    built do
+      screen :tiled
+      speed = var :speed, 1
+      journal = list :journal, capacity: 12_000, width: :byte
+      save_data(:settings) { keep speed }
+      pages = save_data(record) { keep journal }
+      was_empty = var :was_empty, 0
+      first_page = var :first_page, 0
+      game_loop do
+        pressed(:a).then do
+          journal.push 9
+          pages[0].save
+        end
+        pages[0].empty?.then { was_empty.set! 1 }
+        first_page.set! pages[0].peek(journal)[0]
+      end
+    end
   end
 
   # The power going off while the new build moves the files into their bigger place: at every
@@ -445,6 +491,30 @@ class TestSaveData < Minitest::Test
     v = assert_emulator_loads_rom(rom, frames: 4, save: store[:bytes], vars: rom.var_addresses)
 
     assert_equal [42, 43, 0, 0], (0..3).map { |n| v.var(:"shown#{n}") }
+  end
+
+  # The console, powered on with what the first build saved, finds the records the second build
+  # declared in another order, and one that only fits once the others are slid together — and
+  # leaves save memory byte for byte as the interpreter does. Sliding records together is the
+  # slow one: the console takes eight frames over it at power-on, once, so the run is given
+  # twelve.
+  def test_the_console_reorders_and_slides_records_the_way_the_interpreter_does
+    first = version(order: %i[settings north file south], extra: { north: 5000, south: 5000 })
+    [version(order: %i[file settings]),
+     version(order: %i[settings file atlas], extra: { atlas: 10_000 })].each_with_index do |second, n|
+      store = {}
+      play(first, store, pressing: { 2 => :a })
+      before = store[:bytes].dup
+      oracle = play(second, store)
+      rom = assemble_rom(second, name: "SLIDE#{n}")
+      v = assert_emulator_loads_rom(rom, frames: 12, save: before, vars: rom.var_addresses)
+      shown = %i[shown0 shown1 kept_speed]
+
+      assert_equal [42, 43, 7], shown.map { |name| v.var(name) }
+      assert_equal shown.map { |name| oracle[name] }, shown.map { |name| v.var(name) }
+      written = store[:bytes].keys.sort
+      assert_equal written.map { |at| store[:bytes][at] }, written.map { |at| v.mem8(SRAM_START + at) }
+    end
   end
 
   # --- friendly errors ---

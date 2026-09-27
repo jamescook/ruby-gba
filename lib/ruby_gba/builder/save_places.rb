@@ -32,9 +32,11 @@ module RubyGBA
     # THE POWER GOING OFF while this runs loses nothing, with one exception. Moving a record's
     # copies writes them into room the table says is free, and the table is written the moment
     # they are in — so until then the table still points at the old place, which nothing has
-    # touched. The exception is sliding records together, the last resort when save memory is
-    # nearly full and the free room is in pieces: a record slid by less than its own size
-    # overwrites itself as it goes, and a cut half way through leaves it damaged.
+    # touched. The exception is the last resort, when save memory is nearly full and the free
+    # room is in pieces: the records are slid down together, and then, for a record given more
+    # copies, the ones above it are lifted to let it grow. A record slid or lifted by less than
+    # its own size overwrites itself as it goes, so a cut half way through either leaves that
+    # record damaged. It is also the one slow step — a few frames at power-on, once.
     #
     # All of it is ordinary program built from the three save-memory steps, like the records'
     # own routines, so the interpreter and the console cannot disagree about any of it.
@@ -42,7 +44,7 @@ module RubyGBA
       ROWS = IR::SaveLayout::TABLE_ROWS
 
       SCRATCH = %i[changed key half copies need room found row fits probe skip cursor pick
-                   low limit from to length up extra place].freeze
+                   low limit from to length up extra place first].freeze
 
       private
 
@@ -70,7 +72,7 @@ module RubyGBA
         declare_save_data_lists(@save_table)
         declare_save_data_routines(@save_table, %i[scan save load])
         SCRATCH.each { |what| ensure_var(places_scratch(what)) }
-        %i[all one room fits reclaim compact grow move commit].each do |job|
+        %i[all one room fits reclaim compact grow move clear commit].each do |job|
           declare_func(:"__save_places_#{job}") { send(:"save_places_#{job}") }
         end
         at_boot(Build.call(:__save_places_all))
@@ -148,6 +150,8 @@ module RubyGBA
           set_cell(column, sp(:row), value)
         end
         sp_set(:found, sp(:row))
+        sp_set(:first, 0)
+        sp_call(:clear)
         sp_set(:changed, 1)
       end
 
@@ -166,6 +170,7 @@ module RubyGBA
       # it grows.
       def save_places_grow
         found = sp(:found)
+        sp_set(:first, cell(:copies, found))
         sp_set(:probe, cell(:at, found))
         sp_set(:skip, found)
         sp_call(:fits)
@@ -186,7 +191,27 @@ module RubyGBA
           end
         end
         set_cell(:copies, found, sp(:copies))
+        sp_call(:clear)
         sp_set(:changed, 1)
+      end
+
+      # WIPE WHAT A RECORD HAS JUST BEEN GIVEN: the copies from the first scratch up to the
+      # copies scratch, of the record in the found row. Room a record did not own a moment ago
+      # can hold anything — a copy a build before this one dropped, or another record's save
+      # that keeps the same things — and a half there with the right marker, shape and
+      # checksum would read as a real save. So each half's marker is written over, which makes
+      # it read as never saved. It runs before the table is written, into room the table on
+      # the chip does not give to anything, so the power going off here costs nothing.
+      def save_places_clear
+        place = cell(:at, sp(:found))
+        count = sp_op(:-, sp(:copies), sp(:first))
+        repeat(DSL::Value.new(self, count)) do |k|
+          copy_at = sd_add(place, sp_op(:*, sd_add(sp(:first), k.node), sp_op(:*, sp(:half), sd_int(2))))
+          2.times do |half|
+            marker = sd_add(copy_at, sd_add(sp_op(:*, sp(:half), sd_int(half)), sd_int(IR::SaveLayout::MARKER_AT)))
+            record(Build.save_write(marker, sd_int(0)))
+          end
+        end
       end
 
       # Lift every record above +row+ by how much it grows, the highest first so none is
