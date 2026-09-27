@@ -40,8 +40,22 @@
 # display blends the two layers as it draws each line, so nothing is redrawn however thick
 # the fog gets; the only per-frame cost is telling it the new amount, which is one write.
 #
-# What you never touch: object memory, tile numbers, palettes, the sprite table,
-# or a single scroll register. A tile is an `image`, the world is a `background`,
+# And there are SAVE FILES. The game opens on a file screen with three of them, each saying
+# how far its walk got. Pick one with LEFT and RIGHT; NEW GAME starts a walk in it, START
+# saves the walk while you are out walking, and SELECT comes back to the file screen, where
+# CONTINUE puts you back exactly where you saved — even after the console was switched off.
+# A walk you never saved is gone when the power goes, which is what a save file is for.
+#
+#     files = save_data :file, copies: 3 do keep px, py, mist, steps end
+#     files[slot].save        files[slot].load        files[n].peek(steps)
+#
+# CONTINUE, COPY TO NEXT and ERASE are grey while the picked file is empty: a menu row can
+# ask a question the game works out, `enabled: files[slot].good?`, and it is asked every
+# frame. A save cut off by the power going out keeps the last good one — each file is kept
+# twice — and none of that is anything the game says.
+#
+# What you never touch: object memory, tile numbers, palettes, the sprite table, save
+# memory, or a single scroll register. A tile is an `image`, the world is a `background`,
 # and the hero is a `sprite`.
 #
 # Its companion, examples/scroll.rb, pans the same kind of world with no hero —
@@ -59,6 +73,14 @@ module Hero
   # step, so a second or so of walking takes you from clear air into a whiteout.
   MIST_PER_STEP = 2
   THICKEST = 90 # never quite solid — you can always see where you are going
+
+  # The two screens: the file screen the game opens on, and the walk.
+  FILE_SCREEN = 0
+  WALKING = 1
+
+  # Where a new game starts in the world: standing by a corner of the pond.
+  START_X = 120
+  START_Y = 80
 
   # A pond of water tiles, a few cells across, dropped into the grass as a landmark
   # you can watch slide by as you walk (and walk back around to, since the world wraps).
@@ -138,8 +160,9 @@ module Hero
     # arrangement a picture cannot fall into by accident — normally scenery is behind
     # everything that moves. Saying it here is the whole of it; once one background is in
     # front of a sprite, every background and sprite has to say where it sits, which is why
-    # the world and the hero get blocks of their own below.
-    layers :ground, :actors, :air
+    # the world and the hero get blocks of their own below. The file screen's words go on
+    # top of everything, mist included.
+    layers :ground, :actors, :air, :words
 
     world = layer(:ground) { background :world, tiles: :terrain, map: MAP }
 
@@ -186,25 +209,107 @@ module Hero
     # ...and the camera follows them. From here the hero is an ordinary sprite you move
     # with `move`, and the world slides underneath instead: every frame the framework
     # sees how far they walked, scrolls the world by exactly that, and puts them back.
-    camera_follows hero, across: world, at: [120, 80] # standing by a corner of the pond
+    camera_follows hero, across: world, at: [START_X, START_Y] # standing by a corner of the pond
 
-    game_loop do
+    # --- SAVE FILES ---
+    #
+    # Three files, each a walk kept in the cartridge's save memory: where the hero stands in
+    # the world, how thick the mist is there, and how many steps it took to get there.
+    # Nothing is saved until the player presses START, so a walk the console is switched off
+    # in the middle of comes back as it was at the last save — which is what a save file is.
+    #
+    # Where the hero stands in the WORLD is the game's own to keep. The follow camera keeps
+    # the hero in one place on the screen and slides the world instead, so the hero's own
+    # position never says how far they walked; these two do, moved by the same steps.
+    px = var :px, START_X
+    py = var :py, START_Y
+    steps = var :steps, 0
+    files = save_data(:file, copies: 3) { keep px, py, mist, steps }
+
+    slot = var :slot, 0     # which file LEFT and RIGHT have picked on the file screen
+    saved = var :saved, 0   # frames left of "SAVED" after START
+    mode = var :mode, FILE_SCREEN
+    shown = Array.new(3) { |n| var :"shown#{n}", 0 } # each file's steps, for the file screen
+
+    # Put the world back around the hero at the place a file says. The window's corner sits
+    # as far back from the hero's world position as the hero sits into the screen.
+    place_hero = -> { world.scroll_to px - hero.x, py - hero.y }
+
+    # THE FILE SCREEN: the three files and how far each got, read out of the save without
+    # loading it, and what can be done with the picked one. CONTINUE, COPY and ERASE are
+    # grey while the picked file is empty — the menu reads `files[slot].good?` every frame.
+    scene :files do
+      hero.hide
+      pressed(:left).then { slot.set! (slot + 2) % 3 }
+      pressed(:right).then { slot.set! (slot + 1) % 3 }
+      layer(:words) do
+        3.times do |n|
+          row = 16 + (n * 12)
+          shown[n].set! files[n].peek(steps)
+          draw_text "FILE #{n + 1}", 40, row, %i[gray yellow], showing: slot == n
+          files[n].good?.then { draw_number shown[n], 120, row, :white, digits: 5 }
+                        .else { draw_text "EMPTY", 120, row, :gray }
+        end
+        menu :file, at: [64, 72], starts_on: 1 do |m|
+          m.item("CONTINUE", enabled: files[slot].good?) do
+            files[slot].load
+            place_hero.call
+            mode.set! WALKING
+          end
+          m.item("NEW GAME") do
+            files.reset
+            place_hero.call
+            mode.set! WALKING
+          end
+          m.item("COPY TO NEXT", enabled: files[slot].good?) { files.copy slot, to: (slot + 1) % 3 }
+          m.item("ERASE", enabled: files[slot].good?) { files[slot].erase }
+        end
+      end
+    end
+
+    scene :walking do
+      hero.show
       # Hold a direction to walk. This is the same `move` any sprite takes — nothing
       # here knows the world is bigger than the screen. The world is a torus, so there's
       # no edge to bump into: keep going and it wraps.
-      held(:left).then  { hero.move :left,  by: SPEED }
-      held(:right).then { hero.move :right, by: SPEED }
+      held(:left).then do
+        hero.move :left, by: SPEED
+        px.sub! SPEED
+      end
+      held(:right).then do
+        hero.move :right, by: SPEED
+        px.add! SPEED
+      end
       # Walking north takes you into the mist and south brings you back out of it. The
       # layer is see-through by whatever this holds, so the weather is one variable.
       held(:up).then do
         hero.move :up, by: SPEED
+        py.sub! SPEED
         mist.add! MIST_PER_STEP
       end
       held(:down).then do
         hero.move :down, by: SPEED
+        py.add! SPEED
         mist.sub! MIST_PER_STEP
       end
       mist.clamp! 0, THICKEST
+      (held(:left) | held(:right) | held(:up) | held(:down)).then { steps.add! 1 }
+
+      # START saves the walk into the picked file; SELECT goes back to the file screen.
+      pressed(:start).then do
+        files[slot].save
+        saved.set! 60
+      end
+      pressed(:select).then { mode.set! FILE_SCREEN }
+      (saved > 0).then { saved.sub! 1 }
+      layer(:words) { (saved > 0).then { draw_text "SAVED", :center, 16, :white } }
+    end
+
+    game_loop do
+      case_var(:mode) do
+        when_val FILE_SCREEN, :files
+        when_val WALKING, :walking
+      end
     end
   end
 
