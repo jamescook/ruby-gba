@@ -66,7 +66,7 @@ module RubyGBA
       def declare_save_places
         kept = IR::SaveLayout::TABLE_COLUMNS.map do |column|
           at_boot(Build.list_new(table_list(column), ROWS, width: :word))
-          SaveData::Kept.new(kind: :list, name: table_list(column), at: 0, width: :word, count: ROWS)
+          SaveRecords::Kept.new(kind: :list, name: table_list(column), at: 0, width: :word, count: ROWS)
         end
         @save_table = lay_out_save_data(:__table, 1, kept, place: IR::SaveLayout::TABLE_AT)
         declare_save_data_lists(@save_table)
@@ -85,7 +85,7 @@ module RubyGBA
         # A table never written, or written with fewer rows, is filled out with empty ones.
         IR::SaveLayout::TABLE_COLUMNS.each do |column|
           short = sp_op(:-, sd_int(ROWS), Build.list_len(table_list(column)))
-          repeat(DSL::Value.new(self, short)) { |_| record(Build.list_push(table_list(column), sd_int(0))) }
+          repeat(DSL::Value.new(handle, short)) { |_| record(Build.list_push(table_list(column), sd_int(0))) }
         end
         sp_set(:changed, 0)
         repeat(ROWS) { |i| save_places_settle_row(i.node) }
@@ -210,7 +210,7 @@ module RubyGBA
       def save_places_clear
         place = cell(:at, sp(:found))
         count = sp_op(:-, sp(:copies), sp(:first))
-        repeat(DSL::Value.new(self, count)) do |k|
+        repeat(DSL::Value.new(handle, count)) do |k|
           copy_at = sd_add(place, sp_op(:*, sd_add(sp(:first), k.node), sp_op(:*, sp(:half), sd_int(2))))
           2.times do |half|
             marker = sd_add(copy_at, sd_add(sp_op(:*, sp(:half), sd_int(half)), sd_int(IR::SaveLayout::MARKER_AT)))
@@ -322,7 +322,7 @@ module RubyGBA
         sp_set(:from, cell(:at, row))
         sp_set(:length, row_size(row))
         sp_set(:up, sp_op(:>, sp(:to), sp(:from)))
-        repeat(DSL::Value.new(self, sp(:length))) do |k|
+        repeat(DSL::Value.new(handle, sp(:length))) do |k|
           back = sp_op(:-, sp_op(:-, sp(:length), sd_int(1)), sp_op(:*, k.node, sd_int(2)))
           j = sd_add(k.node, sp_op(:*, sp(:up), back))
           record(Build.save_write(sd_add(sp(:to), j), sd_read(sd_add(sp(:from), j), :byte), width: :byte))

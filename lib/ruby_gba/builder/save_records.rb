@@ -20,7 +20,7 @@ module RubyGBA
     # console cannot disagree about the rules that keep a save safe. Each is written once: two
     # halves per copy and the newer one wins (#save_data_scan), the order a half is written in
     # with its checksum last (SaveHalf), and where each kept thing sits in a body (Kept).
-    module SaveData
+    module SaveRecords
       # One thing a record keeps, and where in its body it sits — the one place that says how a
       # kept thing is laid out. A variable is a word at +at+. A list is its length, a word at
       # +at+, and then +count+ slots of +width+ each, the first right after the length.
@@ -29,7 +29,7 @@ module RubyGBA
       # memory, or the snapshot a background save copies the kept things into first.
       Kept = Data.define(:kind, :name, :at, :width, :count) do
         def bytes = kind == :var ? WORD : WORD + (count * slot_bytes)
-        def slot_bytes = SaveData::WIDTH_BYTES.fetch(width)
+        def slot_bytes = SaveRecords::WIDTH_BYTES.fetch(width)
 
         # Where the variable, or the list's length, sits.
         def value_at(base) = IR::Build.binop(:+, base, IR::Build.int(at))
@@ -48,7 +48,7 @@ module RubyGBA
       # Declare a record of the game's state, kept in save memory in +copies+ numbered
       # copies. The block names what it keeps, with `keep`. Returns a handle: `files[n]` is
       # one copy, and a copy saves, loads, erases and says whether it is good.
-      def save_data(name, copies: 1, when_busy: :wait, &block)
+      def declare(name, copies:, when_busy:, &block)
         name = name.to_sym
         check_save_data_name!(name, copies, block)
         check_save_data_when_busy!(name, when_busy)
@@ -73,7 +73,7 @@ module RubyGBA
           declare_func(record_layout.routine(job)) { save_job_ask(record_layout, kind) }
         end
         declare_func(record_layout.routine(:step)) { save_job_step(record_layout) }
-        DSL::SaveData.new(self, record_layout)
+        DSL::SaveData.new(handle, self, record_layout)
       end
 
       # Everything the routines need to know about one record, worked out once. +place+ is
@@ -177,7 +177,7 @@ module RubyGBA
       def sd_eq(lhs, rhs) = Build.binop(:==, lhs, rhs)
       def sd_and(lhs, rhs) = Build.binop(:&, lhs, rhs)
       def sd_read(at, width = :word) = Build.save_read(at, width: width)
-      def sd_when(test, &block) = DSL::Condition.new(self, test).then(&block)
+      def sd_when(test, &block) = DSL::Condition.new(handle, test).then(&block)
 
       # Where one half of copy +copy+ starts: the record's place, two halves a copy.
       def sd_half_at(layout, copy, half)
@@ -254,10 +254,10 @@ module RubyGBA
       # A NEW GAME: each kept variable set to what it was declared with, each kept list emptied.
       def save_data_reset(layout)
         layout.kept.each do |item|
-          next repeat(DSL::Value.new(self, Build.list_len(item.name))) { |_| record(Build.list_drop(item.name, from: :back)) } if item.kind == :list
+          next repeat(DSL::Value.new(handle, Build.list_len(item.name))) { |_| record(Build.list_drop(item.name, from: :back)) } if item.kind == :list
 
-          start = @boot_inits.find { |node| node.kind == :set && node.var == item.name }
-          record(Build.set(item.name, start ? start.value.copy : sd_int(0)))
+          start = start_value(item.name)
+          record(Build.set(item.name, start ? start.copy : sd_int(0)))
         end
       end
 
@@ -280,7 +280,7 @@ module RubyGBA
         return record(Build.save_write(item.value_at(body), sd_var(item.name))) if item.kind == :var
 
         record(Build.save_write(item.value_at(body), Build.list_len(item.name)))
-        repeat(DSL::Value.new(self, Build.list_len(item.name))) do |i|
+        repeat(DSL::Value.new(handle, Build.list_len(item.name))) do |i|
           record(Build.save_write(item.slot_at(body, i.node), Build.list_get(item.name, i.node), width: item.width))
         end
       end
@@ -302,9 +302,9 @@ module RubyGBA
       def save_data_take(item, body)
         return record(Build.set(item.name, sd_read(item.value_at(body)))) if item.kind == :var
 
-        repeat(DSL::Value.new(self, Build.list_len(item.name))) { |_| record(Build.list_drop(item.name, from: :back)) }
+        repeat(DSL::Value.new(handle, Build.list_len(item.name))) { |_| record(Build.list_drop(item.name, from: :back)) }
         count = Build.clamped(sd_read(item.value_at(body)), sd_int(0), sd_int(item.count))
-        repeat(DSL::Value.new(self, count)) do |i|
+        repeat(DSL::Value.new(handle, count)) do |i|
           record(Build.list_push(item.name, sd_read(item.slot_at(body, i.node), item.width)))
         end
       end
@@ -319,7 +319,7 @@ module RubyGBA
           raise ArgumentError, "save_data :#{record} keeps :#{item.name}, and save_data :#{owner} keeps it " \
                                "too. To fix this, keep it in one of them."
         end
-        if persisted?(item.name)
+        if save_var?(item.name)
           raise ArgumentError, "save_data :#{record} keeps :#{item.name}, which is a `save_var`. A save_var " \
                                "saves itself each time it changes. To fix this, declare it with `var`, " \
                                "or leave it out of the record."
@@ -332,7 +332,7 @@ module RubyGBA
       def save_data_item_of(record, thing)
         case thing
         when DSL::List
-          made = @program.walk.find { |node| node.kind == :list_new && node.name == thing.name }
+          made = list_made(thing.name)
           Kept.new(kind: :list, name: thing.name, at: 0, width: made.width || :word,
                    count: made.capacity)
         when DSL::Value

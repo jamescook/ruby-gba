@@ -18,7 +18,7 @@ module RubyGBA
     #      back: a half that does not come back as it should means the chip did not keep it.
     #
     # Two things write halves, and they are why this is its own piece: the table of places,
-    # written whole at power-on (SaveData#save_data_write), and a record's saves, written a
+    # written whole at power-on (SaveRecords#save_data_write), and a record's saves, written a
     # piece each pass while the game runs (SaveJobs). Both open and close here; what goes
     # between is theirs.
     module SaveHalf

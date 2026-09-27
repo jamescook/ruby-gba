@@ -66,7 +66,7 @@ module RubyGBA
         %i[tick step finish ask end].each do |job|
           declare_func(jobs_name(job)) { send(:"save_jobs_#{job}") }
         end
-        @per_pass_routines << jobs_name(:tick)
+        run_each_pass(jobs_name(:tick))
       end
 
       # What each record needs of its own: two snapshots' worth of buffer, kept in the roomy
@@ -99,7 +99,7 @@ module RubyGBA
       def save_jobs_finish
         jv_set(:hold, jv(:serial))
         done = sd_or(sd_eq(jv(:run_rec), sd_int(0)), job_op(:!=, jv(:serial), jv(:hold)))
-        repeat(IR::SaveLayout::SIZE, stop_when: DSL::Condition.new(self, done)) do |_|
+        repeat(IR::SaveLayout::SIZE, stop_when: DSL::Condition.new(handle, done)) do |_|
           record(Build.call(jobs_name(:step)))
         end
       end
@@ -199,10 +199,10 @@ module RubyGBA
             record(Build.list_set(stage, sd_add(offset, sd_int(b)), byte))
           end
         end
-        return put.call(item.value_at(base), sd_var(item.name), SaveData::WORD) if item.kind == :var
+        return put.call(item.value_at(base), sd_var(item.name), SaveRecords::WORD) if item.kind == :var
 
-        put.call(item.value_at(base), Build.list_len(item.name), SaveData::WORD)
-        repeat(DSL::Value.new(self, Build.list_len(item.name))) do |i|
+        put.call(item.value_at(base), Build.list_len(item.name), SaveRecords::WORD)
+        repeat(DSL::Value.new(handle, Build.list_len(item.name))) do |i|
           put.call(item.slot_at(base, i.node), Build.list_get(item.name, i.node), item.slot_bytes)
         end
       end
@@ -248,7 +248,7 @@ module RubyGBA
         sd_when(job_op(:!=, jv(:run_kind), sd_int(ERASE))) do
           body = sd_add(jv(:run_at), sd_int(IR::SaveLayout::HEADER))
           base = job_op(:*, jv(:run_slot), sd_int(layout.body))
-          repeat(DSL::Value.new(self, jv(:pieces))) do |i|
+          repeat(DSL::Value.new(handle, jv(:pieces))) do |i|
             j = sd_add(jv(:run_done), i.node)
             from_buffer = Build.list_get(layout.scratch(:stage), sd_add(base, j))
             from_copy = sd_read(sd_add(jv(:run_from), j), :byte)
@@ -274,7 +274,7 @@ module RubyGBA
       # EVERY JOB OF +layout+ STILL IN HAND, finished now — before anything reads the record.
       def finish_save_jobs_of(layout)
         mine = sd_or(sd_eq(jv(:run_rec), sd_int(layout.number)), sd_eq(jv(:wait_rec), sd_int(layout.number)))
-        repeat(2, stop_when: DSL::Condition.new(self, sd_eq(mine, sd_int(0)))) do |_|
+        repeat(2, stop_when: DSL::Condition.new(handle, sd_eq(mine, sd_int(0)))) do |_|
           record(Build.call(jobs_name(:finish)))
         end
       end
