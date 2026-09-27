@@ -244,6 +244,7 @@ module RubyGBA
           # ends up over it — so the whole view is rebuilt each frame instead, the same
           # way a scrolling scene is.
           @picture = IR::Stacking.picture(node)
+          @handover = IR::SceneHandover.of(@picture)
           # Which part of the display each fade in this program uses. Settled here rather
           # than asked per fade, because the answer is about the whole program (see
           # IR::Fading) and a fade walked over frames runs on every one of them.
@@ -657,22 +658,13 @@ module RubyGBA
             # lands on one of the two, so a program that adds to what is already there
             # puts half its additions on each page. See Framebuffer#paged=.
             #
-            # Crossing between the bitmap display (a linear framebuffer) and the tiled
-            # display (a tilemap plus hardware sprites) is different: the two reuse the
-            # same video memory in incompatible ways, so the console shows one surface
-            # or the other, never both. A bitmap title handing off to a tiled game means
-            # the title's pixels stop being shown the instant the mode flips. Model that
-            # by wiping the picture on the crossing, so a previous scene's mode can't
-            # bleed through under the new one. A switch that stays within the bitmap
-            # family (single- vs double-buffered) keeps the same surface, so it doesn't
-            # wipe — the existing per-scene bitmap-mode behavior is unchanged.
-            if @screen_mode && tiled_mode?(node.mode) != tiled_mode?(@screen_mode)
+            # Handing over to another KIND of screen replaces the whole display (see
+            # IR::SceneHandover), so the old picture is wiped and nothing is up any more: a
+            # scene's scenery is put up again when it comes back rather than taken as still
+            # there. A switch between single- and double-buffered bitmap keeps the same
+            # surface, so it wipes nothing.
+            if IR::SceneHandover.crossing?(@screen_mode, node.mode)
               @screen.clear(0)
-              # ...and nothing is up any more, so a scene's scenery is put up again when it
-              # comes back rather than being taken as still there. The wipe above is the
-              # whole point: the pixels are gone, and a background only stays put while
-              # nobody has cleared it (see #exec_background). The console reaches the same
-              # place by re-sending its tiles on the way back into the tiled screen.
               forget_the_scenery_on_screen
             end
             @screen_mode = node.mode
@@ -894,15 +886,6 @@ module RubyGBA
           end
         end
 
-        # Whether a display mode uses the tiled system (a tilemap plus hardware
-        # sprites) rather than the bitmap one (a linear framebuffer). This is the
-        # boundary that flips which surface the console shows — the same test the DSL
-        # uses to decide whether a scene's sprites are hardware or software — so the
-        # two agree on when a scene crosses from one display system to the other.
-        def tiled_mode?(mode)
-          mode == :tiled
-        end
-
         # Render a string with the built-in bitmap font: each set pixel of each
         # glyph becomes one painted cell, offset from the text's top-left origin.
         # Off-screen cells clip away in set_pixel, just as they do on hardware.
@@ -993,36 +976,17 @@ module RubyGBA
         def exec_background(node)
           # Reached every frame its scene runs, and nearly always already up — which changes
           # nothing, so an owed repaint can go on being owed (see #leaves_the_picture_owed?).
-          already_up = node.scene && node.scene == @bg_scene && @bg_shown.include?(node)
+          arrives = @handover.on_arrival?(node)
+          already_up = arrives && node.scene == @bg_scene && @bg_shown.include?(node)
           settle_the_picture unless already_up
           take_the_screen_for(node.scene)
 
-          # PUTTING A BACKGROUND UP IS A ONCE-PER-SCENE JOB, NOT A PER-FRAME ONE, and this
-          # is the whole of that here. A background declared inside a scene has its
-          # statement in that scene's own routine, so it is reached on every frame the
-          # scene is active — and stamping it again puts the picture back exactly as
-          # declared, which throws away everything that has happened to it since. It undid
-          # the scroll the game had asked for, and any cell the game had changed.
-          #
-          # It stays put once it is up, until the scene hands over or the display is wiped
-          # by a crossing to the other kind of screen; then it is stamped afresh.
-          #
-          # ONLY A BACKGROUND THAT BELONGS TO A SCENE, and the `node.scene` is the whole of
-          # why: it is the same question the lowering asks (see Drawing#emit_background), so
-          # the two agree about which statements are re-reached and which are not. Asking
-          # instead whether this background is already on screen would be a better rule and
-          # a DIFFERENT one — it would also cover a background declared in a plain routine
-          # that a frame calls — and the lowering has no way to ask it, so the two backends
-          # would draw different pictures for that game.
-          return if node.scene && @bg_shown.include?(node)
+          # A scene's own scenery goes up once, as the scene takes over, and as declared (see
+          # IR::SceneHandover). Its statement is reached every frame the scene runs; once it
+          # is up, that changes nothing until the scene hands over or the display is wiped.
+          return if arrives && @bg_shown.include?(node)
 
-          # A scene's background goes up AS DECLARED each time the scene takes over: a cell
-          # changed with set_tile, or a map chosen with show_map, is left behind with the
-          # visit that changed it. That is the console's answer too — putting a layer up
-          # sends the map it was declared with — and a game that remembers an opened door
-          # opens it again on the way in. What says which map is showing goes back to the
-          # first with it, or it would name the map from the last visit.
-          if node.scene
+          if arrives
             @bg_maps.delete(node.name)
             node.choice.each { |var| @vars[var] = 0 }
           end
@@ -1049,26 +1013,15 @@ module RubyGBA
           in_stack_order(over).each { |bg| stamp_background(bg) }
         end
 
-        # A SCENE'S SCENERY REPLACES THE SCENE BEFORE'S, rather than being drawn over it.
-        #
-        # A background declared inside a scene is on screen while that scene is the active
-        # state, the same as a sprite or a line of HUD text declared there. That is what
-        # lets scenes SHARE the few layers a display has — which is the whole reason a game
-        # may declare four scrolling backgrounds in each of two scenes (see
-        # IR::Stacking#screenfuls).
-        #
-        # Left drawn, the scene before's scenery would show through wherever this scene's
-        # has a hole in it — the far layers of a parallax field showing through the floor
-        # of the plain room you just walked into. So the screen goes back to the backdrop
-        # and the scenery every screen shows, and this scene's own is stamped from there.
-        #
-        # Scenery that belongs to no scene is never dropped: nothing hands it over, and it
-        # is on screen throughout.
+        # A SCENE'S SCENERY REPLACES THE SCENE BEFORE'S, rather than being drawn over it (see
+        # IR::SceneHandover). A painted screen has no layers to switch off, so the picture
+        # goes back to the backdrop and the scenery every screen shows, and this scene's own
+        # is stamped from there.
         def take_the_screen_for(scene)
           return if scene.nil? || scene == @bg_scene
 
           @bg_scene = scene
-          kept = @bg_shown.select { |bg| bg.scene.nil? }
+          kept = @bg_shown.reject { |bg| @handover.on_arrival?(bg) }
           return if kept.length == @bg_shown.length
 
           @bg_shown = kept
@@ -1090,7 +1043,7 @@ module RubyGBA
         # own. The three places that paint the picture all read this rather than the whole
         # program's, so none of them can draw a scene that is not running.
         def showing_scenery
-          @picture.scenery.select { |bg| bg.scene.nil? || bg.scene == @bg_scene }
+          @handover.showing(@bg_scene)
         end
 
         # PUT A DIFFERENT TILE IN ONE CELL. The map a background was declared with is the

@@ -345,19 +345,19 @@ module RubyGBA
           # staying in a scene costs one compare a frame, changing scene costs the setup.
           # A game whose scenery belongs to no scene emits none of this.
           def emit_scene_scenery(name)
-            this_scenes_scenery = @layout.picture.scenery.select { |node| node.scene == name }
-            return if this_scenes_scenery.empty?
+            arriving = handover.arriving(name)
+            return if arriving.empty?
 
             once_as_the_scene_takes_over(SCENE_SCENERY_STATE, scene_scenery_marker(name)) do
-              this_scenes_scenery.each do |node|
-                emit_background_hardware(node)
-                # The map just sent is the first one declared, so what says which map is
-                # showing goes back to the first as well. Left alone it names the map from the
-                # last visit, and choosing that one again is taken as already done.
-                node.choice.each { |var| @primitives.store_word_immediate(0, @primitives.var_addr(var)) }
-              end
+              arriving.each { |node| emit_background_hardware(node) }
+              # The maps just sent are the first ones declared, so what says which map is
+              # showing goes back to the first as well (see IR::SceneHandover).
+              handover.resets(name).each { |var| @primitives.store_word_immediate(0, @primitives.var_addr(var)) }
             end
           end
+
+          # What a scene does to the screen as it takes over, said once for both backends.
+          def handover = IR::SceneHandover.of(@layout.picture)
 
           # Which scene's scenery is up, counting from 1 so that 0 means "none yet" — which
           # is what boot writes, since the console makes no promise about its memory at
@@ -924,12 +924,9 @@ module RubyGBA
           # blit path instead — correct, just a copy per cell.
           def emit_background(node)
             return emit_background_blits(node) unless @layout.tiled
-            # A background declared inside a scene is set up when that scene TAKES OVER
-            # (see #emit_scene_scenery), not here. Its statement sits in the scene's own
-            # routine, so here is once per frame — and setting a layer up again re-sends
-            # its map and puts its scroll back to the corner, throwing away everything that
-            # has happened to it since.
-            return if node.scene
+            # A background a scene owns goes up as that scene takes over (see
+            # #emit_scene_scenery and IR::SceneHandover), not where it is written.
+            return if handover.on_arrival?(node)
 
             emit_background_hardware(node)
           end

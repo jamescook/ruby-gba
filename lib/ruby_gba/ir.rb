@@ -17,6 +17,7 @@ require_relative "ir/parity"
 require_relative "ir/affine"
 require_relative "ir/modes"
 require_relative "ir/stacking" # the one rule turning declared layers into a drawing order
+require_relative "ir/scene_handover" # what a scene does to the screen as it takes over
 require_relative "ir/movement" # ...and which of the things it stacks move, so the rest need not be redrawn
 require_relative "ir/see_through" # the layers a program can be seen through, and their mix
 require_relative "ir/fading" # ...and the one rule saying which part of the display a fade uses
