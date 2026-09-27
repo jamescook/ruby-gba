@@ -71,12 +71,29 @@ module RubyGBA
       # written by code placed for that scene rather than by the game loop.
       SPRITES_ROUTINE = /\A__sprites_scene_(?<scene>.+)\z/
 
+      # What a `save_data` record is built into: a routine per job for each record, the table
+      # that says where each record lives (kept the way a record is), and the routines that read
+      # that table at power-on. A save that costs a frame is worth seeing in a profile, so each
+      # is said in terms of the record the author declared.
+      SAVE_PLACES_ROUTINE = /\A__save_places_/
+      SAVE_TABLE_ROUTINE = /\A__save___table_/
+      SAVE_ROUTINE = /\A__save_(?<record>.+)_(?<job>scan|save|load|erase|copy|reset)\z/
+      SAVE_JOBS = { scan: "looking a copy of save_data :%s over", save: "saving save_data :%s",
+                    load: "loading save_data :%s", erase: "erasing a copy of save_data :%s",
+                    copy: "copying one copy of save_data :%s over another",
+                    reset: "putting save_data :%s's things back as declared" }.freeze
+
       def self.routine(name)
         ROUTINES.fetch(name) do
-          if (font = DIGIT_ROUTINE.match(name.to_s))
+          said = name.to_s
+          if (font = DIGIT_ROUTINE.match(said))
             "drawing a draw_number's digits (:#{font[:font]})"
-          elsif (scene = SPRITES_ROUTINE.match(name.to_s))
+          elsif (scene = SPRITES_ROUTINE.match(said))
             "moving the sprites of scene :#{scene[:scene]}"
+          elsif SAVE_PLACES_ROUTINE.match?(said) || SAVE_TABLE_ROUTINE.match?(said)
+            "finding where each save_data record lives in save memory"
+          elsif (save = SAVE_ROUTINE.match(said))
+            format(SAVE_JOBS.fetch(save[:job].to_sym), save[:record])
           else
             "func :#{name}"
           end

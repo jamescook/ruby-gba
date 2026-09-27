@@ -94,6 +94,34 @@ class TestPlainWords < Minitest::Test
     end
   end
 
+  # The routines a `save_data` record is built into — saving, loading, looking a copy over, and
+  # finding at power-on where each record lives — are named from the record the author declared,
+  # so a profile that shows a save costing a frame says which record, and says it is a save.
+  def test_the_routines_a_save_data_record_gets_are_named_from_the_record
+    rom = RubyGBA.build("SAVEWORDS") do
+      screen :bitmap
+      hearts = var :hearts, 3
+      files = save_data(:file, copies: 3) { keep hearts }
+      game_loop do
+        pressed(:a).then { files[0].save }
+        pressed(:b).then { files[0].load }
+        pressed(:l).then { files[0].erase }
+        pressed(:r).then { files.copy 0, to: 1 }
+        pressed(:select).then { files.reset }
+      end
+    end
+
+    made_up = rom.built.routines.keys.grep(/\A__save_/)
+    refute_empty made_up, "a game with a save_data record gets routines to save it with"
+    made_up.each do |name|
+      said = PlainWords.routine(name)
+      refute_match(/\Afunc /, said, "#{name} is not reported as a func the author wrote")
+      assert_match(/save/, said, "#{name} says it is about saving")
+    end
+    assert_equal "saving save_data :file", PlainWords.routine(:__save_file_save)
+    assert_equal "loading save_data :file", PlainWords.routine(:__save_file_load)
+  end
+
   # The verb an author typed. A `draw_number` becomes a `draw_digit` node and a `sprite` becomes
   # a `blit_pose`, so a message naming the kind names something nobody wrote. Two messages have
   # to get this right — a guardrail's, and the builder's refusal to put paint in a layer.
