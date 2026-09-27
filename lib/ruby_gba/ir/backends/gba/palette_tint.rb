@@ -76,10 +76,16 @@ module RubyGBA
           TINT_COLOR_SHIFT = 5 # the steps (0..16) sit below the color in the state word
 
           # The palette layout this object reads, handed over once the prepare passes that
-          # decide it have all run (see #palette=): the color table a buffered scene draws
-          # through, the shared background table, the sprite table's blob and size, and the
-          # codec map a tint marks so its tables stay readable in the cartridge.
-          Layout = Data.define(:palette, :bg_shared, :obj_palette_blob, :obj_palette_units, :blob_codecs)
+          # decide it have all run (see #layout=): the color table a buffered scene draws
+          # through, the screen's layout ({ScreenLayout}, which made the shared background
+          # table and the sprite table), and the codec map a tint marks so its tables stay
+          # readable in the cartridge.
+          Layout = Data.define(:palette, :screen, :blob_codecs) do
+            def bg_shared = screen.bg_shared
+            def obj_palette_blob = screen.obj_palette_blob
+            def obj_palette_units = screen.obj_palette_units
+            def recolored_banks = screen.recolored_banks
+          end
 
           def initialize(emitter:, primitives:, lowering:, drawing:)
             @emitter = emitter
@@ -287,14 +293,12 @@ module RubyGBA
           # that layer was DRAWN in, which is not what it is being drawn with. So each such
           # group is written again, from the list it is really showing.
           #
-          # +recolored_banks+ is (where the group sits, the variable holding where its layer's
-          # current version starts, how far along that version this group's list is) — nought
-          # in that variable meaning the layer has never been told anything, where the tables
-          # already hold the right colours.
-          attr_writer :recolored_banks
-
+          # The layout's +recolored_banks+ are (where the group sits, the variable holding
+          # where its layer's current version starts, how far along that version this group's
+          # list is) — nought in that variable meaning the layer has never been told anything,
+          # where the tables already hold the right colours.
           def emit_recolored_banks
-            (@recolored_banks || []).each do |dest, source_var, along|
+            @layout.recolored_banks.each do |dest, source_var, along|
               @primitives.load_var(TINT_SRC, source_var)
               @emitter.emit(ASM.cmp_imm(TINT_SRC, 0))
               past = @emitter.gensym

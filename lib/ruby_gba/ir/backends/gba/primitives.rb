@@ -117,10 +117,12 @@ module RubyGBA
           # same question the surface asks, so the two cannot disagree about what counts as
           # fixed; what this adds is the console's own arithmetic, where a number is signed
           # and thirty-two bits wide.
-          def const_int(node)
+          def self.const_int(node)
             fixed = DSL::Value.fixed_number(node)
             Int32.wrap(fixed) if fixed
           end
+
+          def const_int(node) = self.class.const_int(node)
 
           # Each named operand as a number settled while building, in the order given. The
           # caller passes the values along with what to call them, because the name is only

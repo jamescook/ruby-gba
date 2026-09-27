@@ -6,9 +6,9 @@ module RubyGBA
       class GBA
         # Direct-color (Mode 3) drawing, and the screen-mode/page management around it.
         #
-        # What the prepare passes in gba.rb decide about a program — which images,
-        # objects, and backgrounds it has, the shared palette, the picture, the mode
-        # facts — arrives as one record, `layout`, handed over through `layout=` once
+        # What the prepare passes decide about a program — which images it has, where every
+        # background and sprite went ({ScreenLayout}), the shared palette, the mode facts —
+        # arrives as one record, `layout`, handed over through `layout=` once
         # those passes finish (the same shape Functions#modes= is set in: none of it
         # exists yet when this object is built). Clip/column/digit-glyph work shared
         # with the tear-free screen lives in {Framebuffer}; the tear-free screen's own
@@ -44,14 +44,26 @@ module RubyGBA
           # The prepare-pass results this file reads, bundled into one record and handed
           # over through #layout= once every pass that decides them has run.
           # Where a background's cells are and what to write into one is on its own placement
-          # record (see GBA::MapGrid), which is what a run-time tile change reads. Which screen
+          # record (see ScreenLayout::MapGrid), which is what a run-time tile change reads. Which screen
           # mode each scene draws in is on +modes+ (see IR::Modes), which is asked rather than
           # copied out field by field.
-          Layout = Data.define(:bitmaps, :objects, :placed_fade, :backgrounds, :bg_shared, :palette,
-                                :indexed_bitmaps, :blob_codecs, :blob_raw_bytes, :picture,
-                                :modes, :fading, :tiled, :has_objects, :obj_palette_blob,
-                                :obj_palette_units, :scene_art, :scene_layers, :scene_blend, :movement,
+          #
+          # Where every background and sprite went is the +screen+ ({ScreenLayout}) itself,
+          # read through it rather than copied out, so a thing the layout decides has one
+          # home.
+          Layout = Data.define(:screen, :bitmaps, :palette, :indexed_bitmaps, :blob_codecs, :blob_raw_bytes,
+                                :modes, :fading, :tiled, :has_objects, :scene_blend, :movement,
                                 :scene_sprites, :waits_for_frames) do
+            def objects = screen.objects
+            def placed_fade = screen.placed_fade
+            def backgrounds = screen.backgrounds
+            def bg_shared = screen.bg_shared
+            def obj_palette_blob = screen.obj_palette_blob
+            def obj_palette_units = screen.obj_palette_units
+            def scene_art = screen.scene_art
+            def scene_layers = screen.scene_layers
+            def picture = screen.picture
+
             # The backgrounds that turn AND sit on the tiled screen — the ones that decide
             # which way the console arranges that screen's layers. A background that turns
             # on `screen :rotozoom` is on a screen of its own, up at a different moment, so
@@ -1934,7 +1946,7 @@ module RubyGBA
           # one. It stands exactly where the sprite stands and holds exactly the pose the
           # sprite holds, so it is filled in from the SAME numbers on the way past rather
           # than worked out again — a copy of each attribute as it is written, and one test
-          # of where the fade is sitting. See GBA#prepare_object_windows.
+          # of where the fade is sitting. See PlacedFade.
           #
           # A picture too big for one object is drawn as SEVERAL, standing shoulder to
           # shoulder — so this walks the pieces, and a sprite the console can draw in one

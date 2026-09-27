@@ -123,7 +123,7 @@ module RubyGBA
         held_by = picture.stack.to_h { |layer| [layer, picture.in_layer(layer)] }
         return if held_by.each_value.all?(&:empty?)
 
-        levels = IR::Backends::GBA::MAX_LEVELS
+        levels = IR::Backends::GBA::ScreenLayout::MAX_LEVELS
         printer.puts "  the stack, back to front (the console keeps #{levels} levels):"
         held_by.each do |layer, held|
           next if held.empty?

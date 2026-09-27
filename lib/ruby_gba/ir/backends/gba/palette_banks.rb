@@ -66,7 +66,7 @@ module RubyGBA
         #
         # The bit depth is per SPRITE and per BG LAYER, never per tile — which is why a
         # layer with one greedy tile goes wide as a whole, and why all of a sprite's poses
-        # share one setting. See #build_shared_object_palette and #bank_the_tiles in gba.rb
+        # share one setting. See #build_shared_object_palette and #bank_the_tiles in ScreenLayout
         # for the two callers.
         # ---------------------------------------------------------------------------
         class PaletteBanks

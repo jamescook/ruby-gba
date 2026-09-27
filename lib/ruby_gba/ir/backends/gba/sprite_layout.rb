@@ -38,8 +38,8 @@ module RubyGBA
           # frame at a time this time round, and +blobs+ where a kept-to-one-frame sprite's
           # frames go in the cartridge. The block is given a sprite's pictures and where they
           # landed, and gives back the record the drawing reads.
-          def initialize(data_blobs:, nodes:, pictures:, one_frame:, blobs:, &record)
-            @art = ObjectArt.new(data_blobs)
+          def initialize(nodes:, pictures:, one_frame:, blobs:, &record)
+            @art = ObjectArt.new(blobs.data_blobs)
             @pictures = pictures
             @one_frame = one_frame
             @blobs = blobs

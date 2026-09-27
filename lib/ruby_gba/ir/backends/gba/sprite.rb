@@ -7,11 +7,11 @@ module RubyGBA
         # EVERYTHING THE BUILD WORKED OUT ABOUT ONE SPRITE, for the drawing to read every frame.
         #
         # The console calls these OBJECTS, and so does the code around here (`@objects`, `obj`,
-        # `prepare_one_object`) — the record is named for what the author wrote instead, because
+        # `object_record`) — the record is named for what the author wrote instead, because
         # `Object` is a name Ruby already has and shadowing it inside a namespace is a trap
         # nobody needs.
         #
-        # It is built once, in GBA#prepare_one_object, and read in two files: this backend's own
+        # It is built once, in ScreenLayout#object_record, and read in two files: this backend's own
         # sizing and error messages, and the drawing that emits the per-frame writes. Named
         # fields rather than a Hash because it has twenty-eight of them, most nil in the
         # ordinary case — the shape where a misspelling reads as nil and turns up as a black

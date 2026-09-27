@@ -170,52 +170,6 @@ module RubyGBA
         # is wrapped (one instruction) or clamped against both ends.
         TableLayout = Data.define(:count, :elem_bytes, :signed, :pow2)
 
-        # A background, once given hardware to live in: where its map sits, which of the
-        # console's layers draws it, and how far forward that layer is. +affine+ marks a
-        # `screen :rotozoom` background — its map is one byte per cell (a plain tile
-        # number, no flip bits), and it lives on the console's rotate/scale layer (BG2)
-        # rather than a plain scrolling one. +small+ marks a layer whose tiles are stored
-        # half a byte a pixel, each naming its own bank of sixteen colors — worked out
-        # from the colors in its art, never asked for. +size+ is the grid it scrolls over,
-        # already shifted into place for the layer's own settings.
-        # +char_base+ is which of the four 16K places this layer counts its tile numbers
-        # from, so two layers can each name a full run of tiles out of different parts of
-        # the same memory.
-        # +map_count+ is how many maps this background can be handed and +map_bytes+ how far
-        # apart two of them sit in that blob: they are all the same size and laid end to
-        # end, so the map numbered N starts N of these along. A background declared with one
-        # map counts 1 and has nothing to step to.
-        BackgroundPlacement = Data.define(:map, :map_units, :bg, :screen_block, :size,
-                                          :priority, :affine, :small, :char_base,
-                                          :map_count, :map_bytes, :grid, :colors)
-
-        # THE OTHER LISTS OF COLOURS A LAYER CAN BE DRAWN FROM, for a background that was
-        # told `draw_with`, and nil for every other one.
-        #
-        # +blob+ holds them end to end in the cartridge, a whole bank of sixteen for each list
-        # and the layer's OWN colours last — so picking one is arithmetic on a number rather
-        # than a test per list, and a number naming none of them can be answered by handing
-        # over the last one instead of by branching around the write.
-        #
-        # A layer's tiles can be drawn from several lists, each in a group of sixteen of its
-        # own, and then one version of the layer is a list for EACH: those sit side by side
-        # in the blob, one version after another. +banks+ is the group each of the layer's
-        # lists is in, in that order, which the swap writes into; +shift+ is how far apart two
-        # versions are, as a power of two, so finding one is a shift rather than a multiply —
-        # three lists take the room of four. +count+ is how many versions there are besides
-        # its own. +at+ names the variable holding where the version it is showing NOW starts,
-        # which is what lets a tint put the swap back after walking the whole table over it.
-        BackgroundColorLists = Data.define(:blob, :banks, :count, :at, :shift)
-
-        # A BACKGROUND'S GRID OF CELLS, for changing one of them while the game runs: how many
-        # cells there are each way, and what to write into one to show a given tile. Nothing
-        # else needs either, and a background that turns and resizes has no grid of this shape
-        # at all — its cells hold a tile number and nothing else, so it is nil there.
-        MapGrid = Data.define(:cols, :rows, :cells) do
-          def holds?(col, row) = col >= 0 && col < cols && row >= 0 && row < rows
-          def cell_for(tile) = cells.fetch(tile)
-        end
-
         # Two more scratch registers, live only inside one arithmetic expression and
         # never across a statement. A 64-bit multiply needs both of them, because its
         # answer does not fit in one register.
@@ -518,123 +472,28 @@ module RubyGBA
                                    timer_handlers: timer_handler_addresses,
                                    voices: voice_table,
                                    sound_drops: drop_table,
-                                   video_memory: video_memory_report,
+                                   video_memory: @screen.video_memory_report,
                                    roomy_memory: roomy_memory_report,
-                                   sprite_slots: sprite_slots,
-                                   sprite_offsets: sprite_offsets,
+                                   sprite_slots: @screen.sprite_slots,
+                                   sprite_offsets: @screen.sprite_offsets,
                                    sprite_pose_in_room: sprite_pose_in_room,
                                    build_options: { fast_cartridge: @fast_cartridge, fast_code: @fast_code })
         end
 
-        # WHICH OF THE CONSOLE'S 128 PLACES EACH DECLARED SPRITE WAS GIVEN.
-        #
-        # The console composes the picture from a table of 128 sprites, and each row of it says
-        # which place it is — a number the build handed out and the author never saw. So a
-        # cartridge that did not carry this can be asked where its sprites are and cannot say
-        # which of the answers is the hero.
-        #
-        # Several places under one name is the ordinary case twice over. A picture too large
-        # for the console to draw in one go is cut up, and the pieces stand shoulder to
-        # shoulder from its first place; and every slot of a pool is a sprite of its own, all
-        # of them the one thing the author declared. Both come back as the whole run of places
-        # under that name, which is what somebody asking where a thing is wants.
-        #
-        # Keyed on the name the AUTHOR wrote. The program's own names for these are handed out
-        # as it is built, so they say nothing to anybody, and a sprite drawn for something the
-        # author named nothing (a letter of text) is left out rather than given one.
-        def sprite_slots
-          each_built_sprite.each_with_object({}) do |(node, sprite), places|
-            next unless node.declared
-
-            (places[node.declared] ||= []).concat((sprite.slot...(sprite.slot + sprite.pieces)).to_a)
-          end
-        end
-
-        # Every sprite the picture declares, paired with the record the build made of it — what
-        # the three reports below all walk. Nothing at all for a program that draws no picture.
-        def each_built_sprite
-          return to_enum(:each_built_sprite) unless block_given?
-          return if @picture.nil?
-
-          @picture.objects.each { |node| yield node, @screen.objects[node.name] }
-        end
-
-        # HOW FAR ALONG THE BUILD MOVED EACH OF A SPRITE'S STORED POSES.
-        #
-        # A pose is kept trimmed to the part of its canvas that actually draws something, and
-        # the sprite is told to stand that much further along so the picture does not move (see
-        # PoseCutter#pose_box). A pose drawn BACKWARDS is trimmed from the other side, so it
-        # stands a different amount further along again. Both are this backend's own doing, so
-        # a place read back off the console is that much past the corner of the picture — right
-        # for a sprite facing one way and wrong for the same sprite facing the other, which is
-        # the worst way for a number to be wrong.
-        #
-        # Keyed by the PLACE in the console's table — which is the one thing a row of that table
-        # says about itself that is its own — and then by whatever tells that place's poses apart
-        # (see #pose_key, which is where the two answers to that are).
-        #
-        # The place has to be the outer key rather than the sprite's name, because a picture
-        # cut into pieces can hold the same tiles in more than one of them (a wide plain wall
-        # is the easy case) and those pieces stand at different distances.
-        def sprite_offsets
-          each_built_sprite.each_with_object({}) do |(_node, sprite), moved|
-            sprite.pieces.times { |piece| moved[sprite.slot + piece] = pose_offsets(sprite, piece) }
-          end
-        end
 
         # WHERE A KEPT-TO-ONE-FRAME SPRITE SAYS WHICH POSE IT IS SHOWING: the address of the
         # variable the cartridge writes as it copies a frame into the sprite's room. Keyed by
-        # the place in the console's table, the same as #sprite_offsets, and a slot in here is
+        # the place in the console's table, the same as ScreenLayout#sprite_offsets, and a slot in here is
         # what says that the offsets for that slot are counted by pose rather than looked up by
         # what the row says. Empty for a game whose sprites all keep every picture they can show.
         def sprite_pose_in_room
-          each_built_sprite.each_with_object({}) do |(_node, sprite), where|
+          @screen.each_built_sprite.each_with_object({}) do |(_node, sprite), where|
             next unless sprite.frames
 
             address = var_addr(sprite.frame_in_room_var)
             sprite.pieces.times { |piece| where[sprite.slot + piece] = address }
           end
         end
-
-        # One piece's poses, as the map above. A sprite whose poses all trimmed alike was moved one
-        # distance whatever it is showing and carries no words at all; one whose poses differ
-        # carries a word each, with the distance in there among the rest of what changes (see
-        # #object_pose_table).
-        def pose_offsets(sprite, piece)
-          words = sprite.pose_words&.slice(piece * sprite.pose_count, sprite.pose_count)
-          alike = [sprite.offset_x, sprite.offset_y]
-          (0...sprite.pose_count).to_h do |pose|
-            word = words&.at(pose)
-            [pose_key(sprite, pose, word), word ? pose_moved(word) : alike]
-          end
-        end
-
-        # WHAT TELLS ONE POSE FROM ANOTHER once the cartridge is built, which has two answers.
-        #
-        # For nearly every sprite it is what the console's own row says — the first tile it draws
-        # and whether it is drawn backwards — because every pose has a place in sprite memory of
-        # its own: poses that trimmed alike sit an even stride apart, so the tile is worked out,
-        # and poses that differ carry their tile in their word. Two poses in one place answering
-        # to the same tile and the same direction are the same stored picture and were moved the
-        # same distance, so nothing is lost where those collapse together.
-        #
-        # A sprite KEPT TO ONE FRAME at a time has no such place, and that is the whole of what
-        # this used to get wrong. Every pose of one is copied into the same room, so the row says
-        # that one tile whichever pose is in it and all of them collapsed onto a single entry —
-        # every pose then answered to whichever trim was written down last, and the position read
-        # back was out by the difference for all the others. Right on most frames of a cycle and
-        # wrong on a few, which is the worst way for a number to be wrong. So it is known by its
-        # pose NUMBER instead; #sprite_pose_in_room says where that number is read from.
-        def pose_key(sprite, pose, word)
-          return pose if sprite.frames
-          return pose_shown(word) if word
-
-          [sprite.tile_index + (pose * sprite.per_pose), false]
-        end
-
-        def pose_shown(word) = [word & 0x3FF, word.anybits?(POSE_MIRRORED)]
-
-        def pose_moved(word) = [(word >> 14) & 0xFF, (word >> 22) & 0xFF]
 
         # WHAT WENT IN THE OTHER MEMORY, and how much of it is left.
         #
@@ -649,78 +508,6 @@ module RubyGBA
 
           Roomy::Usage.new(used: @memory.roomy_used, free: @memory.roomy_free,
                            collections: placed)
-        end
-
-        # WHAT THE PICTURES COST IN VIDEO MEMORY, and what storing them the small way saved.
-        #
-        # The console keeps sprite pictures in 32K and background tiles in a block of their
-        # own, and a game that outgrows either gets a build error rather than a slow frame. So
-        # what is worth reporting is the room left — and, since the framework chose the
-        # storage without being asked, how much of that room the choice bought back. A build
-        # with no sprites and no tiles has nothing to say and reports nothing.
-        def video_memory_report
-          return nil if @screen.objects.empty? && @screen.backgrounds.empty?
-
-          RubyGBA::Diagnostics::VideoMemory.new(sprites: sprite_memory_report, tiles: tile_memory_report,
-                                   objects: object_count_report)
-        end
-
-        # What the sprites cost out of the 128 the console draws at once. Worth a line only
-        # where it is not simply one each: a picture too big for a single object is drawn as
-        # several, and a fade placed in the stack shadows a sprite with a window per object.
-        def object_count_report
-          return nil if @screen.objects.empty?
-
-          big = @picture.objects.filter_map do |node|
-            pieces = @screen.objects[node.name].pieces
-            [node.poses.first, pieces] if pieces > 1
-          end
-          twins = @screen.twin_object_count
-          return nil if big.empty? && twins.zero?
-
-          RubyGBA::Diagnostics::VideoMemory::Objects.new(used: @screen.object_count(@picture.objects) + twins,
-                                            capacity: MAX_SPRITES, big: big, twins: twins)
-        end
-
-        def sprite_memory_report
-          return nil if @screen.objects.empty?
-
-          small = @screen.objects.count { |name, _obj| @screen.obj_pictures.fetch(name).place.narrow? }
-          # A sprite that stores no pictures of its own is either showing another sprite's or
-          # keeping one frame here at a time, and those are different savings to report.
-          one_frame = @screen.objects.count { |_name, obj| obj.frames }
-          shared = @screen.objects.count { |_name, obj| obj.tiles.nil? && obj.frames.nil? }
-          RubyGBA::Diagnostics::VideoMemory::Area.new(used: @screen.sprite_art.bytes, capacity: OBJ_TILE_CAPACITY,
-                                         small: small, big: @screen.objects.size - small,
-                                         saved: sprite_memory_saved, shared: shared,
-                                         one_frame: one_frame, repeats: @screen.sprite_art.repeats)
-        end
-
-        # What the same pictures would have cost stored the old way: a small one is exactly
-        # half the size, so the saving is its own size again. A sprite sharing another's
-        # pictures costs nothing either way and is not counted twice — what sharing saved
-        # is its own number.
-        def sprite_memory_saved
-          @screen.objects.sum do |name, obj|
-            # A sprite showing another's pictures costs nothing either way. One keeping a
-            # frame at a time does take room here, and its room is half the size too.
-            next 0 if (obj.tiles.nil? && obj.frames.nil?) || !@screen.obj_pictures.fetch(name).place.narrow?
-
-            obj.tile_units * 32
-          end
-        end
-
-        # The tiles' half of the scenery's memory. What is LEFT is the number that matters
-        # and it is not a fixed budget any more: the maps come down from the top of the
-        # same 64K, so what a tileset has is what the maps did not take.
-        def tile_memory_report
-          return nil if @screen.bg_shared.nil?
-
-          used = @screen.bg_shared.tile_bytes
-          RubyGBA::Diagnostics::VideoMemory::Area.new(used: used, capacity: used + @screen.vram.free_bytes,
-                                         small: @screen.bg_shared.small, big: @screen.bg_shared.big,
-                                         saved: @screen.bg_shared.saved, shared: @screen.bg_shared.shared,
-                                         skipped: @screen.bg_shared.skipped)
         end
 
         # WHERE EACH ROUTINE ENDED UP, as the span of addresses it really occupies while the
@@ -824,16 +611,6 @@ module RubyGBA
           reserve_divide_routine if needs_divide_routine?(program)
           reserve_divide_fix_routine if needs_divide_fix_routine?(program)
           collect_definitions(program)
-          # How the picture stacks: which scenery and sprites there are, in what order,
-          # and how deep each sits. Worked out once, before anything is given a hardware
-          # slot, because both the background layers and the sprites read the same
-          # answer and a slot handed out early cannot be taken back.
-          @picture = IR::Stacking.picture(program)
-          # ...and the same picture cut into what can be on screen AT ONCE, which is what
-          # the console's four layers and four depths actually have to cover.
-          @screenfuls = IR::Stacking.screenfuls(program)
-          @layer_blend.picture = @picture # built here, not at construction — see LayerBlend's class comment
-          @layer_blend.screenfuls = @screenfuls
           adopt_frame_body(program) # the game loop's body counts as a routine once it moves
           @mixer.prepare_direct_sound(program) # embed the program's samples as ROM data
           @audio.prepare_music(program) # number its tunes, and keep the mixer voices they play on
@@ -850,11 +627,10 @@ module RubyGBA
           # so it counts here alongside :tiled.
           @tiled = Modes.draws_with_tiles?(program)
           # Where every background and sprite goes, and the cartridge data that says so.
-          @screen = ScreenLayout.plan(program, bitmaps: @bitmaps, modes: @modes, picture: @picture,
-                                               screenfuls: @screenfuls)
+          @screen = ScreenLayout.plan(program, bitmaps: @bitmaps, modes: @modes)
           @emit.data_blobs.merge!(@screen.blobs)
           @blob_codecs.merge!(@screen.codecs)
-          @layer_blend.hardware_layers = @screen.hardware_layers
+          @layer_blend.screen = @screen # built here, not at construction — see LayerBlend's class comment
           @raster.register_row_bends(program) # which layers bend row by row (armed at boot, run per line)
           @raster.prepare_row_bends(program, layers: @screen.hardware_layers)
           @has_objects = program.walk.any? { |node| node.kind == :object }
@@ -868,35 +644,19 @@ module RubyGBA
           # saved number does.
           @uses_save = program.walk.any? { |node| %i[save_init save_write save_read].include?(node.kind) }
           prepare_palette(program) if @modes.any_buffered?
-          # The palette layout: settled by now, across several prepare passes above —
-          # handed to PaletteTint as one record rather than five ivars (see its class
-          # comment).
-          @palette_tint.layout = PaletteTint::Layout.new(palette: @palette, bg_shared: @screen.bg_shared,
-                                                          obj_palette_blob: @screen.obj_palette_blob,
-                                                          obj_palette_units: @screen.obj_palette_units,
-                                                          blob_codecs: @blob_codecs)
-          # ...and which groups of sixteen a layer is drawing from a list of its own, so a
-          # tint that walks the whole table can put those back rather than over.
-          @palette_tint.recolored_banks = @screen.backgrounds.each_value.flat_map do |place|
-            next [] unless place.colors
-
-            place.colors.banks.each_with_index.map do |bank, at|
-              [BG_PALETTE + (bank * PaletteBanks::BANK_SIZE * 2), place.colors.at, at * Drawing::COLOR_LIST_BYTES]
-            end
-          end
+          # The colour tables a tint walks: the tear-free screen's, and the ones the layout
+          # made for the scenery and the sprites (see PaletteTint's class comment).
+          @palette_tint.layout = PaletteTint::Layout.new(palette: @palette, screen: @screen, blob_codecs: @blob_codecs)
           @palette_tint.prepare_palette_tint(program, fading: @fading)
           @uses_pressed = self.class.reads_button_edges?(program)
           # Everything the prepare passes above decided that Drawing/Buffered read, bundled
           # into one record rather than twenty keyword arguments (see Drawing's class
           # comment) — settled now, so handed over right before the first thing that emits.
           layout = Drawing::Layout.new(
-            bitmaps: @bitmaps, objects: @screen.objects, placed_fade: @screen.placed_fade, backgrounds: @screen.backgrounds,
-            bg_shared: @screen.bg_shared, palette: @palette, indexed_bitmaps: @indexed_bitmaps,
+            screen: @screen, bitmaps: @bitmaps, palette: @palette, indexed_bitmaps: @indexed_bitmaps,
             blob_codecs: @blob_codecs, blob_raw_bytes: @blob_raw_bytes,
-            picture: @picture, modes: @modes, fading: @fading, tiled: @tiled, has_objects: @has_objects,
-            scene_layers: @screen.scene_layers, scene_blend: @scene_blend || {},
-            obj_palette_blob: @screen.obj_palette_blob, obj_palette_units: @screen.obj_palette_units,
-            scene_art: @screen.scene_art, movement: @movement || IR::Movement::EVERYTHING_MOVES,
+            modes: @modes, fading: @fading, tiled: @tiled, has_objects: @has_objects,
+            scene_blend: @scene_blend || {}, movement: @movement || IR::Movement::EVERYTHING_MOVES,
             scene_sprites: @scene_sprites || [],
             waits_for_frames: @uses_vblank,
           )
@@ -918,16 +678,16 @@ module RubyGBA
           emit_mixer_boot if @mixer.plays_samples? # start the sound DMA + clock; voices added by `play`
           emit_irq_setup if uses_irq? # arm the interrupts the program needs (VBlank and/or timers)
           emit_input_init if @uses_pressed
-          emit_boot_screen if @modes.switched_per_scene? # set the boot mode (+ palette for buffered)
+          @drawing.emit_boot_screen if @modes.switched_per_scene? # set the boot mode (+ palette for buffered)
           # Upload the tiled assets once at boot only when the program stays in tiled
           # mode. When it crosses the bitmap/tiled boundary, a bitmap scene overwrites
           # the video memory the tiles live in, so the assets are (re)uploaded on each
           # entry into a tiled scene instead (enter_tiled_mode) — always current, and
           # only paid on the actual switch.
           unless @modes.switched_per_scene?
-            emit_boot_backgrounds if @tiled && !@screen.backgrounds.empty? # shared BG palette + tiles
-            emit_boot_objects if @has_objects # sprite tiles/colors + clear the sprite table
-            emit_boot_layer_blend if @layer_blend.see_through? # ...and which layer you can see through
+            @drawing.emit_boot_backgrounds if @tiled && !@screen.backgrounds.empty? # shared BG palette + tiles
+            @drawing.emit_boot_objects if @has_objects # sprite tiles/colors + clear the sprite table
+            @layer_blend.emit_boot_layer_blend if @layer_blend.see_through? # ...and which layer you can see through
           end
           # Clear each bending layer's table of row offsets, and start the engine that feeds
           # it to the display. Set up wherever the program starts out, since a bend is fed a
@@ -1102,15 +862,8 @@ module RubyGBA
         def moves_a_color_table? = @palette_tint.moves_a_color_table?
         def emit_tint_state_init = @palette_tint.emit_tint_state_init
 
-        # Forwards to @layer_blend (see {LayerBlend}).
-        def see_through_object?(node) = @layer_blend.see_through_object?(node)
-        def emit_boot_layer_blend = @layer_blend.emit_boot_layer_blend
-
-        # Forwards to @drawing (see {Drawing}) — the boot/frame/IRQ entry points #lower
-        # and #emit_irq_handler call directly, rather than through the Lowering table.
-        def emit_boot_screen = @drawing.emit_boot_screen
-        def emit_boot_backgrounds = @drawing.emit_boot_backgrounds
-        def emit_boot_objects = @drawing.emit_boot_objects
+        # Forwards to @drawing (see {Drawing}) — the scene entry points Functions is handed
+        # before @drawing exists, so it is given these instead.
         def emit_scene_preamble(name) = @drawing.emit_scene_preamble(name)
         def emit_scene_art_upload(name) = @drawing.emit_scene_art_upload(name)
 
@@ -1495,11 +1248,6 @@ module RubyGBA
         BG_SHARED_CHAR = :__bg_shared_char # every layer's tile pictures, uploaded as one piece
 
 
-        # WHAT ONE SCENE NEEDS OF THE TILED SCREEN: which layers are switched on, and which
-        # of the console's two arrangements this screen is — four layers that scroll, or two
-        # that scroll beside one that turns and resizes.
-        SceneScreen = Data.define(:on, :turning)
-
         # A background tile has no see-through marker of its own the way a sprite picture
         # does. Instead the BACKDROP color — what the screen shows where nothing was
         # drawn — is what "nothing here" looks like in a tile, so a layer in front of
@@ -1528,22 +1276,11 @@ module RubyGBA
         # this layer's map has to be square, which every other kind of background does not.
         AFFINE_MAP_SIZES = { 16 => 0, 32 => 1, 64 => 2, 128 => 3 }.freeze
 
-        AFFINE_MAX_TILES = 256
-
-        # The console keeps four levels of depth, and a picture can ask for more of them
-        # than that. Say so in the author's own layer names — the number this refuses is
-        # a hardware fact, but "BG2" is not a thing anybody wrote.
-        #
-        # There are only two ways to run out, so the message names the one that happened
-        # rather than listing both: too much scenery, or a layer of sprites sitting
-        # behind every piece of it (which needs a level of its own, above the lot).
-        MAX_LEVELS = 4
-
         # attr0 bit 13 (8bpp): this sprite's pixels are whole bytes, so it reads across the
         # console's whole 256-color sprite table. Left clear (4bpp) a pixel is half a byte
         # and the sprite draws from one bank of sixteen — half the memory for the same
         # picture. Which one a sprite gets is worked out from the colors in its art (see
-        # #build_shared_object_palette); nothing in the DSL says. See {PaletteBanks}, whose
+        # ScreenLayout#build_shared_object_palette); nothing in the DSL says. See {PaletteBanks}, whose
         # comment maps the framework's words onto this console's.
         OBJ_256_COLOR = 0x2000
 
@@ -1564,15 +1301,6 @@ module RubyGBA
         # without spending a number on each.
         OBJ_PRIORITY_SHIFT = 10
 
-        # Sprite tile memory: 32KB, holding all the sprites' tile pictures at once.
-        OBJ_TILE_CAPACITY = 0x8000
-
-        # Turning sprites (see #prepare_affine). The console applies a rotation to a
-        # sprite through one of 32 shared "affine" parameter groups, so at most 32
-        # sprites can turn at once. To rotate, a sprite points at a group; each frame we
-        # fill that group with a rotation matrix built from the angle.
-        MAX_AFFINE_GROUPS = 32
-
         # A sine lookup table baked into ROM, so the matrix math costs a memory read
         # rather than a per-frame sine. Entry d is sin(d°) in 8.8 fixed point (256 =
         # 1.0). It runs to 449°, not 359°, so cosine — sin(angle + 90) — is a straight
@@ -1580,28 +1308,16 @@ module RubyGBA
         OBJ_SINE_BLOB = :__obj_sine
         OBJ_SINE_ENTRIES = 450
 
-
         # WHICH SPRITES A FRAME NEED NOT WRITE AT ALL.
         #
         # The console composes its picture from a table it re-reads every frame, so a sprite
         # stays exactly where the last write to that table put it. A sprite nothing in the
         # program moves is therefore already right, on this frame and every frame after — and
         # writing it again is a few dozen instructions producing the numbers already there.
-        # IR::Movement says which those are; what is left here is the two cases where THIS
-        # machine has to write the table anyway, whatever the program does:
-        #
-        #   A SPRITE THAT KEEPS ONE FRAME AT A TIME copies its pictures into its room as the
-        #   frame is drawn, and the scene it belongs to marks that room empty again as it
-        #   takes over — later in the same frame. Written once, the copy would be undone and
-        #   never made again, so the sprite would draw whatever tiles were left there.
-        #
-        #   A SPRITE KEPT OUT OF A PLACED FADE has a twin standing over it, and where the
-        #   fade sits in the stack is a number the game moves. The twin is filled in from the
-        #   sprite's own numbers on the way past, so it can only be written when the sprite
-        #   is.
+        # IR::Movement says which those are, less the ones the layout has to write every frame
+        # whatever the program does (see ScreenLayout#written_every_frame).
         def prepare_still_objects(program)
-          written_anyway = @screen.objects.each_key.select { |name| @screen.objects[name].frames || @screen.placed_fade.twin_for(name) }
-          @movement = IR::Movement.of(program).except(written_anyway)
+          @movement = IR::Movement.of(program).except(@screen.written_every_frame)
           still = @movement.still
           @functions.mint(Drawing::STILL_ROUTINE) { @drawing.write_object_table(still) } if still.any?
           prepare_scene_sprites(program, still)
@@ -1654,35 +1370,6 @@ module RubyGBA
         EFFECT_LINE = :__effect_line # where in the stack the fade now in force is sitting
         OBJ_WINDOW_MODE = 0x0800     # attr0 bits 10-11 = 2: a window rather than a picture
         OBJ_WINDOW_ENABLE = 0x8000   # DISPCNT bit 15: the object window is on
-
-        # Where a sprite's banks are kept, and which entry is its own colours.
-        RecolorBanks = Data.define(:table, :own)
-
-        # EVERYTHING THAT CHANGES BETWEEN POSES THAT ARE NOT INTERCHANGEABLE, one word
-        # each, read by the per-frame draw.
-        #
-        # A uniform sprite needs none of this: its size is the same every frame, so it
-        # sits in the sprite's own entry and the pose is a stride. Once the poses differ
-        # in size, four things move with the pose — which tiles, what shape, what size,
-        # and how far along to draw it so the picture does not shift. A pose that is
-        # another one MIRRORED breaks the stride too, since its tiles are the pose it
-        # mirrors, and adds a fifth. All five fit in one word: one read a frame and some
-        # shifting, against storing every pose at the biggest one's size and every mirror
-        # a second time.
-        #
-        #   bits  0..9   the piece's first tile
-        #        10..11  shape          12..13  size
-        #        14..21  how far right   22..29  how far down (both a whole number of tiles)
-        #           30   draw it mirrored
-        #
-        # ONE WORD PER PIECE PER POSE, laid out PIECE FIRST: a picture too big for one
-        # object is drawn as several, and each of them reads its own row of this. Piece
-        # first is what keeps the read cheap — the game's pose number is scaled by four and
-        # the piece's row is a constant the build already knows, so a piece costs the same
-        # one read whether it is the first or the fourth.
-        POSE_MIRRORED = 1 << 30
-
-        BLANK_PIECE = [0, 0, TILE_PX, TILE_PX].freeze
       end
     end
   end

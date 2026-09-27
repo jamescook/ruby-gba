@@ -46,13 +46,13 @@ module RubyGBA
         # An author writes the same keyword either way and never learns which they got.
         #
         # Owns @layers — which layers this program can be seen through, if any, and
-        # how much. Reads the picture (IR::Stacking's answer for how the scenery and
-        # sprites stack), handed over through #picture= once it exists, since building it
-        # is IR::Stacking's job and happens after this object does (the same shape
-        # Functions#modes= is set in). `drawing:` reaches Drawing for the fade/blend
-        # arithmetic it shares with a tint and a fade — GBA builds this object before
-        # its own @drawing exists, so it hands in `self` and the call resolves once
-        # @drawing does (see gba.rb#initialize).
+        # how much. Reads the screen's layout ({ScreenLayout}: how the scenery and sprites
+        # stack, and which of the console's layers each background landed on), handed over
+        # through #screen= once it exists, since it is worked out from the program after this
+        # object is built (the same shape Functions#modes= is set in). `drawing:` reaches
+        # Drawing for the fade/blend arithmetic it shares with a tint and a fade — GBA builds
+        # this object before its own @drawing exists, so it hands in `self` and the call
+        # resolves once @drawing does (see gba.rb#initialize).
         class LayerBlend
           include Console::Hardware
 
@@ -72,12 +72,13 @@ module RubyGBA
             @hardware_layers = {}
           end
 
-          attr_writer :picture
-
-          # Which of the console's layers each background landed on, and the picture cut
-          # into what can be on screen AT ONCE. Both are handed over once the backgrounds
-          # have their slots, for the same reason #picture= is (see the class comment).
-          attr_writer :hardware_layers, :screenfuls
+          # The screen's layout: how the picture stacks, the same picture cut into what can be
+          # on screen AT ONCE, and which of the console's layers each background landed on.
+          def screen=(layout)
+            @picture = layout.picture
+            @screenfuls = layout.screenfuls
+            @hardware_layers = layout.hardware_layers
+          end
 
           # WHICH OF A SEE-THROUGH LAYER'S SCREENS IS UP. A game with a see-through layer on
           # more than one screen writes, as each scene takes over, which of its layers that
@@ -127,12 +128,6 @@ module RubyGBA
           # blend-control register, and only that half has to be set up at boot.
           def blends_scenery?
             see_through? && @picture.scenery.any? { |node| see_through_name?(node.layer) }
-          end
-
-          # Is this sprite in a see-through layer? Asked once per sprite while its table
-          # entry is being worked out, so the per-frame draw carries the bit for free.
-          def see_through_object?(node)
-            see_through? && see_through_name?(node.layer)
           end
 
           # Turn the blend on, once, at boot. The near side is the see-through scenery;
