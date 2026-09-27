@@ -38,9 +38,16 @@ module RubyGBA
       ERASE = 2
       COPY = 3
 
-      SCRATCH = %i[run_rec run_copy run_kind run_slot run_src run_phase run_done run_at run_from serial
-                   wait_rec wait_copy wait_kind wait_slot wait_src hold ask_rec ask_copy ask_kind ask_slot ask_src
-                   pieces].freeze
+      # WHAT A JOB IS: whose record, which copy, save / erase / copy, which of the record's two
+      # buffers holds its snapshot, and the copy a copy reads from. A job is in one of three
+      # places — just asked for, running, or waiting behind the running one — and moves between
+      # them whole (see #move_job).
+      JOB = %i[rec copy kind slot src].freeze
+      PLACES = %i[ask run wait].freeze
+
+      # The rest: how far the running job has got, and the queue's own bookkeeping.
+      SCRATCH = (PLACES.product(JOB).map { |place, field| :"#{place}_#{field}" } +
+                 %i[run_phase run_done run_at run_from serial hold pieces]).freeze
 
       private
 
@@ -48,6 +55,9 @@ module RubyGBA
       def jv(what) = sd_var(jobs_name(what))
       def jv_set(what, value) = record(Build.set(jobs_name(what), value.is_a?(Integer) ? sd_int(value) : value))
       def job_op(op, lhs, rhs) = Build.binop(op, lhs, rhs)
+
+      # Move the whole job in place +from+ into place +to+.
+      def move_job(to:, from:) = JOB.each { |field| jv_set(:"#{to}_#{field}", jv(:"#{from}_#{field}")) }
 
       # Declared with the first record: the variables the jobs are kept in, and the routines
       # that run them.
@@ -107,11 +117,11 @@ module RubyGBA
       # The job the ask scratch names is snapshotted, if it wanted one: it goes in line.
       def save_jobs_queue
         sd_when(sd_eq(jv(:run_rec), sd_int(0))) do
-          %i[rec copy kind slot src].each { |what| jv_set(:"run_#{what}", jv(:"ask_#{what}")) }
+          move_job(to: :run, from: :ask)
           jv_set(:run_phase, 0)
           jv_set(:serial, sd_add(jv(:serial), sd_int(1)))
         end.else do
-          %i[rec copy kind slot src].each { |what| jv_set(:"wait_#{what}", jv(:"ask_#{what}")) }
+          move_job(to: :wait, from: :ask)
         end
       end
 
@@ -119,7 +129,7 @@ module RubyGBA
       def save_jobs_end
         jv_set(:run_rec, 0)
         sd_when(job_op(:!=, jv(:wait_rec), sd_int(0))) do
-          %i[rec copy kind slot src].each { |what| jv_set(:"run_#{what}", jv(:"wait_#{what}")) }
+          move_job(to: :run, from: :wait)
           jv_set(:wait_rec, 0)
           jv_set(:run_phase, 0)
           jv_set(:serial, sd_add(jv(:serial), sd_int(1)))
