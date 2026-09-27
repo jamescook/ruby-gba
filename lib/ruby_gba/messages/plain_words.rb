@@ -75,10 +75,10 @@ module RubyGBA
       # that says where each record lives (kept the way a record is), and the routines that read
       # that table at power-on. A save that costs a frame is worth seeing in a profile, so each
       # is said in terms of the record the author declared.
-      SAVE_PLACES_ROUTINE = /\A__save_places_/
-      SAVE_TABLE_ROUTINE = /\A__save___table_/
-      SAVE_QUEUE_ROUTINE = /\A__save_jobs_/
-      SAVE_ROUTINE = /\A__save_(?<record>.+)_(?<job>scan|save|load|erase|copy|reset|step)\z/
+      SAVE_PLACES_ROUTINE = /\A__save__places_/
+      SAVE_TABLE_ROUTINE = /\A__save___table__/
+      SAVE_QUEUE_ROUTINE = /\A__save__jobs_/
+      SAVE_ROUTINE = /\A__save_(?<record>[^_].*?)__(?<job>scan|save|load|erase|copy|reset|step)\z/
       SAVE_JOBS = { scan: "looking a copy of save_data :%s over", save: "saving save_data :%s",
                     step: "writing save_data :%s a piece at a time",
                     load: "loading save_data :%s", erase: "erasing a copy of save_data :%s",

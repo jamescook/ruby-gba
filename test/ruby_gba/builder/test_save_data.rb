@@ -707,6 +707,49 @@ class TestSaveData < Minitest::Test
     end
   end
 
+  # A RECORD NAMED LIKE THE FRAMEWORK'S OWN SAVE MACHINERY — the table saying where each
+  # record lives (:table, and the :places it works them out in) and the queue that writes
+  # saves a piece at a time (:jobs) — is a record like any other. Each keeps a number of its
+  # own, with a plain record before and after them, and every one has to come back holding
+  # its own number after the power goes off.
+  NAMED_LIKE_THE_FRAMEWORK = %i[first places jobs table last].freeze
+
+  private def records_named_like_the_framework
+    built do
+      screen :tiled
+      records = NAMED_LIKE_THE_FRAMEWORK.each_with_index.map do |name, n|
+        kept = var :"kept_#{name}", 0
+        [kept, save_data(name) { keep kept }, 10 + n]
+      end
+      records.each { |_kept, record, _number| record[0].load }
+      game_loop do
+        pressed(:a).then do
+          records.each do |kept, record, number|
+            kept.set! number
+            record[0].save
+          end
+        end
+      end
+    end
+  end
+
+  def test_records_named_like_the_framework_keep_their_own_saves
+    store = {}
+    play(records_named_like_the_framework, store, pressing: { 2 => :a }, frames: 12)
+    back = play(records_named_like_the_framework, store)
+
+    assert_equal [10, 11, 12, 13, 14], NAMED_LIKE_THE_FRAMEWORK.map { |name| back[:"kept_#{name}"] }
+  end
+
+  def test_the_console_keeps_records_named_like_the_framework_apart
+    store = {}
+    play(records_named_like_the_framework, store, pressing: { 2 => :a }, frames: 12)
+    rom = assemble_rom(records_named_like_the_framework, name: "NAMES")
+    v = assert_emulator_loads_rom(rom, frames: 4, save: store[:bytes], vars: rom.var_addresses)
+
+    assert_equal [10, 11, 12, 13, 14], NAMED_LIKE_THE_FRAMEWORK.map { |name| v.var(:"kept_#{name}") }
+  end
+
   # --- friendly errors ---
 
   private def refused(&block)
@@ -725,6 +768,16 @@ class TestSaveData < Minitest::Test
     message = refused { big = list :big, capacity: 5000; save_data(:f, copies: 3) { keep big } }
     assert_match(/does not fit in save memory/, message)
     assert_match(/use fewer copies/, message)
+  end
+
+  # A name that could run into the framework's own names, or into another record's, is
+  # refused rather than quietly sharing a place with them.
+  def test_a_name_that_cannot_name_a_record_is_a_friendly_error
+    [:_hidden, :"two__words", :trailing_, :"has space", :"9lives"].each do |name|
+      message = refused { h = var :h, 0; save_data(name) { keep h } }
+      assert_match(/cannot name a record/, message, name.inspect)
+      assert_match(/:high_scores/, message, "it shows a name that works")
+    end
   end
 
   def test_an_unknown_when_busy_is_a_friendly_error

@@ -42,7 +42,7 @@ module RubyGBA
           declare_save_places
           declare_save_jobs
         end
-        record_layout = lay_out_save_data(name, copies, kept, place: :"__save_#{name}_place",
+        record_layout = lay_out_save_data(name, copies, kept, place: :"__save_#{name}__place",
                                                               number: @save_data.size + 1,
                                                               when_busy: when_busy)
         check_save_data_room!(record_layout)
@@ -67,16 +67,31 @@ module RubyGBA
       # counts the records from 1 in the order they were declared, which is how a job says
       # whose it is; the table of places, which is written without jobs, is 0.
       Layout = Data.define(:name, :copies, :kept, :body, :half, :place, :shape, :key, :number, :when_busy) do
-        def routine(job) = :"__save_#{name}_#{job}"
-        def scratch(what) = :"__save_#{name}_#{what}"
-        def directory(what) = :"__save_#{name}_#{what}_of"
+        def routine(job) = :"__save_#{name}__#{job}"
+        def scratch(what) = :"__save_#{name}__#{what}"
+        def directory(what) = :"__save_#{name}__#{what}_of"
         def region = half * 2 * copies
         def place_node = place.is_a?(Integer) ? Build.int(place) : Build.var_ref(place)
       end
 
       private
 
+      # WHAT A RECORD CAN BE CALLED: letters and digits, with one underscore between words.
+      #
+      # Every routine and variable a record needs is named from the record's name and the
+      # piece, joined by TWO underscores, and the framework's own save machinery — the table
+      # of places, the job queue — is named under a prefix that starts with one. Held to this
+      # shape, a record's name can never run into the piece after it or into another
+      # record's, and can never start the framework's prefix, so `save_data :jobs` is a record
+      # like any other rather than a second copy of the queue.
+      RECORD_NAME = /\A[A-Za-z][A-Za-z0-9]*(?:_[A-Za-z0-9]+)*\z/
+
       def check_save_data_name!(name, copies, block)
+        unless RECORD_NAME.match?(name)
+          raise ArgumentError, "save_data #{name.inspect}: this name cannot name a record. A record name is " \
+                               "letters and digits, with one underscore between words (for example " \
+                               ":file or :high_scores). Use a name of that form."
+        end
         raise ArgumentError, "save_data :#{name} needs a block that says what it keeps: " \
                              "`save_data :#{name} do keep hearts, name end`." unless block
         if @save_data.key?(name)
@@ -424,7 +439,7 @@ module RubyGBA
 
       # Whether one of this record's jobs is still in hand — running, or waiting its turn.
       def save_data_saving(layout)
-        mine = ->(which) { sd_eq(sd_var(:"__save_jobs_#{which}_rec"), sd_int(layout.number)) }
+        mine = ->(which) { sd_eq(jv(:"#{which}_rec"), sd_int(layout.number)) }
         Build.binop(:|, mine.call(:run), mine.call(:wait))
       end
 

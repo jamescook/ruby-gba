@@ -118,8 +118,10 @@ class TestPlainWords < Minitest::Test
       refute_match(/\Afunc /, said, "#{name} is not reported as a func the author wrote")
       assert_match(/save/, said, "#{name} says it is about saving")
     end
-    assert_equal "saving save_data :file", PlainWords.routine(:__save_file_save)
-    assert_equal "loading save_data :file", PlainWords.routine(:__save_file_load)
+    assert_equal "saving save_data :file", PlainWords.routine(:__save_file__save)
+    assert_equal "loading save_data :file", PlainWords.routine(:__save_file__load)
+    assert_equal "saving save_data :jobs", PlainWords.routine(:__save_jobs__save),
+                 "a record named like the job queue is a record, not the queue"
   end
 
   # The verb an author typed. A `draw_number` becomes a `draw_digit` node and a `sprite` becomes

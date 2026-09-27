@@ -44,7 +44,7 @@ module RubyGBA
 
       private
 
-      def job_var(what) = :"__save_jobs_#{what}"
+      def job_var(what) = :"__save__jobs_#{what}"
       def jv(what) = sd_var(job_var(what))
       def jv_set(what, value) = record(Build.set(job_var(what), value.is_a?(Integer) ? sd_int(value) : value))
       def job_op(op, lhs, rhs) = Build.binop(op, lhs, rhs)
@@ -54,9 +54,9 @@ module RubyGBA
       def declare_save_jobs
         SCRATCH.each { |what| ensure_var(job_var(what)) }
         %i[tick step finish ask end].each do |job|
-          declare_func(:"__save_jobs_#{job}") { send(:"save_jobs_#{job}") }
+          declare_func(:"__save__jobs_#{job}") { send(:"save_jobs_#{job}") }
         end
-        @per_pass_routines << :__save_jobs_tick
+        @per_pass_routines << :__save__jobs_tick
       end
 
       # What each record needs of its own: two snapshots' worth of buffer, kept in the roomy
@@ -74,7 +74,7 @@ module RubyGBA
       # ONCE A PASS: last pass's "just finished" is over, and the running job moves on a piece.
       def save_jobs_tick
         @save_data.each_value { |layout| record(Build.set(layout.scratch(:finished), sd_int(0))) }
-        record(Build.call(:__save_jobs_step))
+        record(Build.call(:__save__jobs_step))
       end
 
       # One piece of the running job, whichever record it belongs to.
@@ -90,7 +90,7 @@ module RubyGBA
         jv_set(:hold, jv(:serial))
         done = sd_or(sd_eq(jv(:run_rec), sd_int(0)), job_op(:!=, jv(:serial), jv(:hold)))
         repeat(IR::SaveLayout::SIZE, stop_when: DSL::Condition.new(self, done)) do |_|
-          record(Build.call(:__save_jobs_step))
+          record(Build.call(:__save__jobs_step))
         end
       end
 
@@ -98,7 +98,7 @@ module RubyGBA
       # Make room first (see the module comment), and say which of its record's two buffers a
       # snapshot goes in.
       def save_jobs_ask
-        sd_when(job_op(:!=, jv(:wait_rec), sd_int(0))) { record(Build.call(:__save_jobs_finish)) }
+        sd_when(job_op(:!=, jv(:wait_rec), sd_int(0))) { record(Build.call(:__save__jobs_finish)) }
         same_record = sd_eq(jv(:run_rec), jv(:ask_rec))
         jv_set(:ask_slot, sd_int(0))
         sd_when(same_record) { jv_set(:ask_slot, job_op(:-, sd_int(1), jv(:run_slot))) }
@@ -166,7 +166,7 @@ module RubyGBA
 
       # The job the ask scratch names, into line: room made, snapshot taken, queued.
       def save_job_take(layout, kind)
-        record(Build.call(:__save_jobs_ask))
+        record(Build.call(:__save__jobs_ask))
         save_job_snapshot_all(layout, kind)
         save_jobs_queue
       end
@@ -226,7 +226,7 @@ module RubyGBA
         wanted = sd_and(sd_in_range(layout, copy), sd_or(not_a_copy, source_good))
         jv_set(:run_from, sd_add(sd_half_at(layout, from, sd_directory(layout, :half, from)),
                                  sd_int(IR::SaveLayout::HEADER)))
-        sd_when(sd_eq(wanted, sd_int(0))) { record(Build.call(:__save_jobs_end)) }.else do
+        sd_when(sd_eq(wanted, sd_int(0))) { record(Build.call(:__save__jobs_end)) }.else do
           older = sd_eq(sd_directory(layout, :half, copy), sd_int(0))
           jv_set(:run_at, sd_half_at(layout, copy, older))
           { MARKER_AT: sd_int(IR::SaveLayout::MARKER), SHAPE_AT: sd_int(layout.shape) }.each do |field, value|
@@ -275,14 +275,14 @@ module RubyGBA
         expected = sd_add(good, job_op(:*, erase, job_op(:-, erased, good)))
         record(Build.set(layout.scratch(:failed), job_op(:!=, sd_directory(layout, :state, copy), expected)))
         record(Build.set(layout.scratch(:finished), sd_int(1)))
-        record(Build.call(:__save_jobs_end))
+        record(Build.call(:__save__jobs_end))
       end
 
       # EVERY JOB OF +layout+ STILL IN HAND, finished now — before anything reads the record.
       def finish_save_jobs_of(layout)
         mine = sd_or(sd_eq(jv(:run_rec), sd_int(layout.number)), sd_eq(jv(:wait_rec), sd_int(layout.number)))
         repeat(2, stop_when: DSL::Condition.new(self, sd_eq(mine, sd_int(0)))) do |_|
-          record(Build.call(:__save_jobs_finish))
+          record(Build.call(:__save__jobs_finish))
         end
       end
     end
