@@ -41,9 +41,9 @@
 # the fog gets; the only per-frame cost is telling it the new amount, which is one write.
 #
 # And there are SAVE FILES. The game opens on a file screen with three of them, each saying
-# how far its walk got. Pick one with LEFT and RIGHT; NEW GAME starts a walk in it, START
-# saves the walk while you are out walking, and SELECT comes back to the file screen, where
-# CONTINUE puts you back exactly where you saved — even after the console was switched off.
+# how far its walk got. Pick one, then NEW GAME starts a walk in it, START saves the walk
+# while you are out walking, and SELECT comes back to the file screen, where CONTINUE puts
+# you back exactly where you saved — even after the console was switched off.
 # A walk you never saved is gone when the power goes, which is what a save file is for.
 #
 #     files = save_data :file, copies: 3 do keep px, py, mist, steps end
@@ -226,43 +226,89 @@ module Hero
     steps = var :steps, 0
     files = save_data(:file, copies: 3) { keep px, py, mist, steps }
 
-    slot = var :slot, 0     # which file LEFT and RIGHT have picked on the file screen
+    slot = var :slot, 0     # the file picked on the file screen, and the one START saves to
     saved = var :saved, 0   # frames left of "SAVED" after START
     mode = var :mode, FILE_SCREEN
     shown = Array.new(3) { |n| var :"shown#{n}", 0 } # each file's steps, for the file screen
+    number = var :number, 1 # the picked file's number, as the second step shows it
+
+    # The file screen is two steps: pick a file, then say what to do with it. Which step is
+    # on screen changes at the top of a frame, never part way through one — both menus read
+    # the A button, and a press that opened the second step must not also choose in it.
+    choosing = var :choosing, 0
+    next_choosing = var :next_choosing, 0
 
     # Put the world back around the hero at the place a file says. The window's corner sits
     # as far back from the hero's world position as the hero sits into the screen.
     place_hero = -> { world.scroll_to px - hero.x, py - hero.y }
 
-    # THE FILE SCREEN: the three files and how far each got, read out of the save without
-    # loading it, and what can be done with the picked one. CONTINUE, COPY and ERASE are
-    # grey while the picked file is empty — the menu reads `files[slot].good?` every frame.
+    # A plain backdrop for the file screen, so its words are not read over scenery.
+    image :panel, "#" => rgb(2, 4, 12) do
+      "########\n" * 8
+    end
+    tiles :panels, "#" => :panel
+
+    # THE FILE SCREEN. First the three files, each with how far its walk got — read out of
+    # the save without loading it — or EMPTY. Pick one, and then what to do with it:
+    # CONTINUE, COPY TO NEXT and ERASE are grey while it is empty, because the menu reads
+    # `files[slot].good?` every frame.
     scene :files do
       hero.hide
-      pressed(:left).then { slot.set! (slot + 2) % 3 }
-      pressed(:right).then { slot.set! (slot + 1) % 3 }
+      choosing.set! next_choosing
+      number.set! slot + 1
       layer(:words) do
-        3.times do |n|
-          row = 16 + (n * 12)
-          shown[n].set! files[n].peek(steps)
-          draw_text "FILE #{n + 1}", 40, row, %i[gray yellow], showing: slot == n
-          files[n].good?.then { draw_number shown[n], 120, row, :white, digits: 5 }
-                        .else { draw_text "EMPTY", 120, row, :gray }
+        background :backdrop, tiles: :panels, map: Array.new(20) { "#" * 30 }
+
+        # Second step, written first: on the frame a file is picked this menu is not yet up,
+        # so the press that picked the file is not taken as a choice here too.
+        actions = nil
+        (choosing == 1).then do
+          draw_text "FILE", 72, 32, :yellow
+          draw_number number, 104, 32, :yellow, digits: 1
+          actions = menu :actions, at: [72, 60], starts_on: 1 do |m|
+            m.item("CONTINUE", enabled: files[slot].good?) do
+              files[slot].load
+              place_hero.call
+              mode.set! WALKING
+            end
+            m.item("NEW GAME") do
+              files.reset
+              place_hero.call
+              mode.set! WALKING
+            end
+            m.item("COPY TO NEXT", enabled: files[slot].good?) do
+              files.copy slot, to: (slot + 1) % 3
+              next_choosing.set! 0
+            end
+            m.item("ERASE", enabled: files[slot].good?) do
+              files[slot].erase
+              next_choosing.set! 0
+            end
+            m.item("BACK") { next_choosing.set! 0 }
+          end
         end
-        menu :file, at: [64, 72], starts_on: 1 do |m|
-          m.item("CONTINUE", enabled: files[slot].good?) do
-            files[slot].load
-            place_hero.call
-            mode.set! WALKING
+
+        # EVERY LETTER ON THIS SCREEN IS A SPRITE, and a game has 128 of those for all its
+        # screens together — so the words here are kept short. A row that greys itself is
+        # drawn both ways, and costs its letters twice.
+        (choosing == 0).then do
+          3.times do |n|
+            row = 60 + (n * 16)
+            shown[n].set! files[n].peek(steps)
+            files[n].good?.then { draw_number shown[n], 136, row, :white, digits: 4 }
+                          .else { draw_text "NEW", 136, row, :gray }
           end
-          m.item("NEW GAME") do
-            files.reset
-            place_hero.call
-            mode.set! WALKING
+          menu :files, at: [64, 60], spacing: 16 do |m|
+            3.times do |n|
+              m.item("FILE #{n + 1}") do
+                slot.set! n
+                # The cursor opens on CONTINUE for a file there is something in, and on NEW
+                # GAME for an empty one.
+                files[n].good?.then { actions.picked.set! 0 }.else { actions.picked.set! 1 }
+                next_choosing.set! 1
+              end
+            end
           end
-          m.item("COPY TO NEXT", enabled: files[slot].good?) { files.copy slot, to: (slot + 1) % 3 }
-          m.item("ERASE", enabled: files[slot].good?) { files[slot].erase }
         end
       end
     end
@@ -300,7 +346,10 @@ module Hero
         files[slot].save
         saved.set! 60
       end
-      pressed(:select).then { mode.set! FILE_SCREEN }
+      pressed(:select).then do
+        next_choosing.set! 0
+        mode.set! FILE_SCREEN
+      end
       (saved > 0).then { saved.sub! 1 }
       layer(:words) { (saved > 0).then { draw_text "SAVED", :center, 16, :white } }
     end
