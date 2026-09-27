@@ -48,11 +48,11 @@ module RubyGBA
 
       private
 
-      def table_list(column) = :"__save__table_#{column}"
-      def places_scratch(what) = :"__save__places_#{what}"
-      def sp(what) = sd_var(places_scratch(what))
-      def sp_set(what, value) = record(Build.set(places_scratch(what), value.is_a?(Integer) ? sd_int(value) : value))
-      def sp_call(what) = record(Build.call(:"__save__places_#{what}"))
+      def table_list(column) = Messages::MadeNames.make(:save_table, column: column)
+      def places_name(what) = Messages::MadeNames.make(:save_places, piece: what)
+      def sp(what) = sd_var(places_name(what))
+      def sp_set(what, value) = record(Build.set(places_name(what), value.is_a?(Integer) ? sd_int(value) : value))
+      def sp_call(what) = record(Build.call(places_name(what)))
       def sp_op(op, lhs, rhs) = Build.binop(op, lhs, rhs)
 
       def cell(column, row) = Build.list_get(table_list(column), row)
@@ -71,11 +71,11 @@ module RubyGBA
         @save_table = lay_out_save_data(:__table, 1, kept, place: IR::SaveLayout::TABLE_AT)
         declare_save_data_lists(@save_table)
         declare_save_data_routines(@save_table, %i[scan save load])
-        SCRATCH.each { |what| ensure_var(places_scratch(what)) }
+        SCRATCH.each { |what| ensure_var(places_name(what)) }
         %i[all one room fits reclaim compact grow move clear commit].each do |job|
-          declare_func(:"__save__places_#{job}") { send(:"save_places_#{job}") }
+          declare_func(places_name(job)) { send(:"save_places_#{job}") }
         end
-        at_boot(Build.call(:__save__places_all))
+        at_boot(Build.call(places_name(:all)))
       end
 
       def save_places_all

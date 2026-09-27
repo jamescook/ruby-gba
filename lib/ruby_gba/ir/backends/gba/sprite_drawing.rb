@@ -117,7 +117,7 @@ module RubyGBA
           # right at power-on and leave its title screen blank for ever, with nothing in the
           # program to point at. The separate yes-or-no cannot be confused with a scene, and
           # costs one load and one compare on a frame.
-          STILL_ROUTINE = :__still_objects
+          STILL_ROUTINE = Messages::MadeNames.make(:still_sprites)
           STILL_UP = :__still_up
           STILL_STATE = :__still_state
 
@@ -139,10 +139,10 @@ module RubyGBA
 
           # The routine that writes one scene's moving sprites (see GBA#prepare_scene_sprites).
           # Named for the scene, so a report and a measured profile can say whose it is.
-          def self.sprites_routine(scene) = :"__sprites_scene_#{Modes.friendly_name(scene)}"
+          def self.sprites_routine(scene) = Messages::MadeNames.make(:scene_sprites, scene: Modes.friendly_name(scene))
 
           # Whether that routine last wrote its sprites as SHOWN — its scene up.
-          def self.sprites_shown(scene) = :"#{sprites_routine(scene)}_up"
+          def self.sprites_shown(scene) = Messages::MadeNames.make(:scene_sprites_shown, scene: Modes.friendly_name(scene))
 
           # WRITE ONE SCENE'S MOVING SPRITES, on its frames and on the one frame after it goes.
           #

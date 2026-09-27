@@ -156,7 +156,7 @@ class TestMeasuredPlacement < Minitest::Test
   def test_a_routine_the_build_made_is_not_reported_as_drift
     Dir.mktmpdir do |dir|
       path = File.join(dir, "built.profile.json")
-      RubyGBA::Diagnostics::RoutineProfile.from_work({ __digit_routine_default: 5000 }).write(path)
+      RubyGBA::Diagnostics::RoutineProfile.from_work({ RubyGBA::Messages::MadeNames.make(:digit_routine, font: :default) => 5000 }).write(path)
 
       err = StringIO.new
       game_with_work_in_a_later_scene.build_rom(out: StringIO.new, err: err, profile: path)

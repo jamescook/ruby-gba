@@ -21,7 +21,7 @@ class TestStillObjects < Minitest::Test
   RED = RubyGBA::Graphics::Color.rgb(31, 0, 0)
 
   FRAME = RubyGBA::Cartridge::BuildRecord::FRAME_ROUTINE
-  TITLE_SPRITES = :__sprites_scene_title
+  TITLE_SPRITES = RubyGBA::Messages::MadeNames.make(:scene_sprites, scene: :title)
 
   private def built(&block)
     builder = Builder.new

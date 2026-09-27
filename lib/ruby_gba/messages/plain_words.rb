@@ -61,47 +61,11 @@ module RubyGBA
                    __divide_fix_routine: "dividing numbers that hold a fraction",
                    __mix_routine: "mixing the sound that is playing" }.freeze
 
-      # One routine per font, made by the lowering so that a number worked out as the game runs
-      # is DRAWN by a call rather than by the same code emitted again at every place a number
-      # appears. Nobody wrote it, so it needs saying in terms of what an author did write —
-      # which is `draw_number`.
-      DIGIT_ROUTINE = /\A__digit_routine_(?:buffered_)?(?<font>.+)\z/
-
-      # One per scene whose sprites move, made by the lowering so that a scene's sprites are
-      # written by code placed for that scene rather than by the game loop.
-      SPRITES_ROUTINE = /\A__sprites_scene_(?<scene>.+)\z/
-
-      # What a `save_data` record is built into: a routine per job for each record, the table
-      # that says where each record lives (kept the way a record is), and the routines that read
-      # that table at power-on. A save that costs a frame is worth seeing in a profile, so each
-      # is said in terms of the record the author declared.
-      SAVE_PLACES_ROUTINE = /\A__save__places_/
-      SAVE_TABLE_ROUTINE = /\A__save___table__/
-      SAVE_QUEUE_ROUTINE = /\A__save__jobs_/
-      SAVE_ROUTINE = /\A__save_(?<record>[^_].*?)__(?<job>scan|save|load|erase|copy|reset|step)\z/
-      SAVE_JOBS = { scan: "looking a copy of save_data :%s over", save: "saving save_data :%s",
-                    step: "writing save_data :%s a piece at a time",
-                    load: "loading save_data :%s", erase: "erasing a copy of save_data :%s",
-                    copy: "copying one copy of save_data :%s over another",
-                    reset: "putting save_data :%s's things back as declared" }.freeze
-
+      # Everything else the build made up — a record's save routines, a font's digit routine, a
+      # scene's sprite routine — is said in terms of what the author declared, by the table that
+      # made the name (see MadeNames). What is left is a routine the author wrote and named.
       def self.routine(name)
-        ROUTINES.fetch(name) do
-          said = name.to_s
-          if (font = DIGIT_ROUTINE.match(said))
-            "drawing a draw_number's digits (:#{font[:font]})"
-          elsif (scene = SPRITES_ROUTINE.match(said))
-            "moving the sprites of scene :#{scene[:scene]}"
-          elsif SAVE_PLACES_ROUTINE.match?(said) || SAVE_TABLE_ROUTINE.match?(said)
-            "finding where each save_data record lives in save memory"
-          elsif SAVE_QUEUE_ROUTINE.match?(said)
-            "keeping the save_data saves in line"
-          elsif (save = SAVE_ROUTINE.match(said))
-            format(SAVE_JOBS.fetch(save[:job].to_sym), save[:record])
-          else
-            "func :#{name}"
-          end
-        end
+        ROUTINES.fetch(name) { MadeNames.said(name) || "func :#{name}" }
       end
 
       # THE VERB AN AUTHOR TYPED, for the few node kinds whose internal name is not that verb. A

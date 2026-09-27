@@ -21,8 +21,8 @@ class TestSceneSpriteWrites < Minitest::Test
   GREEN = RubyGBA::Graphics::Color.rgb(0, 31, 0)
 
   FRAME = RubyGBA::Cartridge::BuildRecord::FRAME_ROUTINE
-  PLAYING_SPRITES = :__sprites_scene_playing
-  FILES_SPRITES = :__sprites_scene_files
+  PLAYING_SPRITES = RubyGBA::Messages::MadeNames.make(:scene_sprites, scene: :playing)
+  FILES_SPRITES = RubyGBA::Messages::MadeNames.make(:scene_sprites, scene: :files)
 
   private def built(&block)
     builder = Builder.new

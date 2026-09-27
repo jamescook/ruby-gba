@@ -662,7 +662,7 @@ module RubyGBA
             @digit_routines[font_name] ||= begin
               @pending_digit_routines ||= []
               @pending_digit_routines << [font_name, font, width]
-              :"__digit_routine_buffered_#{font_name}"
+              Messages::MadeNames.make(:buffered_digit_routine, font: font_name)
             end
           end
 
@@ -682,7 +682,7 @@ module RubyGBA
 
             @pending_digit_routines.each do |font_name, font, width|
               emit(ASM.loop_forever) # fall-through guard: only ever entered by the call above
-              place_label(:"__digit_routine_buffered_#{font_name}")
+              place_label(Messages::MadeNames.make(:buffered_digit_routine, font: font_name))
               emit(ASM.push(14))
               emit(ASM.mov_reg(10, 1)) # r10 = x, held across the routine
               emit(ASM.mov_reg(11, 2)) # r11 = y
@@ -697,7 +697,7 @@ module RubyGBA
               # Where it ends, so a profile of the finished game can say how much of a frame
               # went into drawing digits. A routine the LOWERING makes has no other record of
               # its span — func_ranges only knows routines somebody wrote.
-              place_label(:"__digit_routine_buffered_#{font_name}_end")
+              place_label(:"#{Messages::MadeNames.make(:buffered_digit_routine, font: font_name)}_end")
             end
           end
 

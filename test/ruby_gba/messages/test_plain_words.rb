@@ -28,6 +28,8 @@ class TestPlainWords < Minitest::Test
   # so it runs before the pool starts rather than beside it. See test_helper.
   runs_on_the_main_ractor!
 
+  private def made(kind, **parts) = RubyGBA::Messages::MadeNames.make(kind, **parts)
+
   PlainWords = RubyGBA::Messages::PlainWords
   Placement = RubyGBA::IR::Backends::GBA::Placement
 
@@ -118,9 +120,9 @@ class TestPlainWords < Minitest::Test
       refute_match(/\Afunc /, said, "#{name} is not reported as a func the author wrote")
       assert_match(/save/, said, "#{name} says it is about saving")
     end
-    assert_equal "saving save_data :file", PlainWords.routine(:__save_file__save)
-    assert_equal "loading save_data :file", PlainWords.routine(:__save_file__load)
-    assert_equal "saving save_data :jobs", PlainWords.routine(:__save_jobs__save),
+    assert_equal "saving save_data :file", PlainWords.routine(made(:save_record, record: :file, piece: :save))
+    assert_equal "loading save_data :file", PlainWords.routine(made(:save_record, record: :file, piece: :load))
+    assert_equal "saving save_data :jobs", PlainWords.routine(made(:save_record, record: :jobs, piece: :save)),
                  "a record named like the job queue is a record, not the queue"
   end
 

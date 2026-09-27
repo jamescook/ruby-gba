@@ -5,6 +5,7 @@
 # own file to blame. None of it needs a cartridge to exist, which is what separates it from
 # Diagnostics, the part that reads a finished or running one back.
 
+require_relative "messages/made_names" # the names the build makes up for what nobody wrote, made and read back in one place
 require_relative "messages/plain_words" # what a person calls this — the English a build says out loud
 require_relative "messages/progress" # what a build says it is doing while it does it
 require_relative "messages/build_output" # where a build prints, however the caller said it
