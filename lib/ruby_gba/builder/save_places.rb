@@ -130,12 +130,18 @@ module RubyGBA
       end
 
       # A record with no row: a free row, and room for all its copies.
+      #
+      # The row is kept in the found scratch, which is this record's row from here on. Not in
+      # the row scratch it is found in: sliding the records together to make room moves each
+      # one by naming it there, so a row left in it would be the last record slid, and the new
+      # record would be written over that record's row.
       def save_places_new_row
         save_places_free_row
         sd_when(sd_eq(sp(:row), sd_int(-1))) do
           sp_call(:reclaim)
           save_places_free_row
         end
+        sp_set(:found, sp(:row))
         sp_set(:skip, -1)
         sp_call(:room)
         sd_when(sd_eq(sp(:room), sd_int(-1))) do
@@ -147,9 +153,8 @@ module RubyGBA
           sp_set(:room, sp(:cursor))
         end
         { key: sp(:key), at: sp(:room), half: sp(:half), copies: sp(:copies) }.each do |column, value|
-          set_cell(column, sp(:row), value)
+          set_cell(column, sp(:found), value)
         end
-        sp_set(:found, sp(:row))
         sp_set(:first, 0)
         sp_call(:clear)
         sp_set(:changed, 1)

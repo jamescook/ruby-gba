@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+require "zlib"
+
 module RubyGBA
   module IR
     # WHERE SAVE DATA LIVES IN SAVE MEMORY, and how a copy of it says whether it is good.
@@ -83,9 +85,82 @@ module RubyGBA
       # starts, how many bytes one half of a copy takes, and how many copies it has.
       TABLE_COLUMNS = %i[key at half copies].freeze
 
-      # Where records can go: past both halves of the table. Each column is kept as a list,
-      # its length and then a word a row.
-      DATA_START = TABLE_AT + (2 * half_bytes(TABLE_COLUMNS.length * (4 + (TABLE_ROWS * 4))))
+      # How many bytes the table's body takes: each column is kept as a list, its length and
+      # then a word a row.
+      TABLE_BODY = TABLE_COLUMNS.length * (4 + (TABLE_ROWS * 4))
+
+      # Where records can go: past both halves of the table.
+      DATA_START = TABLE_AT + (2 * half_bytes(TABLE_BODY))
+
+      # A record's name as a number, which is how its row in the table is found. Never 0, which
+      # marks a row nothing uses.
+      def record_key(name)
+        key = Int32.wrap(Zlib.crc32("save_data:#{name}"))
+        key.zero? ? 1 : key
+      end
+
+      # A record's shape: a number worked out from what it keeps, in order — each thing's kind,
+      # name, width and count — so a record that keeps something else reads the last build's
+      # saves as someone else's.
+      def shape(items)
+        Int32.wrap(Zlib.crc32(items.map { |kind, name, width, count| [kind, name, width, count].join(":") }.join(";")))
+      end
+
+      # THE TABLE OF PLACES AS BYTES, in plain Ruby: what an earlier build left in save memory,
+      # written or read without running a game. The build writes the table through the same
+      # routines a record uses; this is the same layout said directly, for a test that wants to
+      # start a game from a table it chose and see where each record ended up.
+      module Table
+        # One row: the record's key (see SaveLayout.record_key), where it starts, how many
+        # bytes one half of a copy takes, and how many copies it has.
+        Row = Data.define(:key, :at, :half, :copies)
+
+        module_function
+
+        # The table's own shape — it is kept the way a record keeping four lists is.
+        def shape
+          SaveLayout.shape(TABLE_COLUMNS.map do |column|
+            [:list, Messages::MadeNames.make(:save_table, column: column), :word, TABLE_ROWS]
+          end)
+        end
+
+        # Write +rows+ (at most TABLE_ROWS) into +bytes+ — a save store's bytes, address to
+        # byte — as a good first half with sequence +sequence+.
+        def write(bytes, rows, sequence: 1)
+          words = TABLE_COLUMNS.flat_map do |column|
+            values = rows.map { |row| row.public_send(column) }
+            [TABLE_ROWS, *values, *Array.new(TABLE_ROWS - values.size, 0)]
+          end
+          body = words.flat_map { |word| le_bytes(word) }
+          header = [MARKER, shape, sequence, SAVED, SaveLayout.checksum(body)]
+          (header.flat_map { |word| le_bytes(word) } + body).each_with_index { |byte, i| bytes[TABLE_AT + i] = byte }
+          bytes
+        end
+
+        # The rows in use in the table +bytes+ hold, read from its newer good half, or nil when
+        # neither half is good.
+        def read(bytes)
+          halves = [TABLE_AT, TABLE_AT + SaveLayout.half_bytes(TABLE_BODY)].filter_map do |at|
+            body = (0...TABLE_BODY).map { |i| bytes.fetch(at + HEADER + i, 0) }
+            good = word(bytes, at + MARKER_AT) == MARKER && word(bytes, at + SHAPE_AT) == shape &&
+                   word(bytes, at + CHECKSUM_AT) == SaveLayout.checksum(body)
+            [word(bytes, at + SEQUENCE_AT), body] if good
+          end
+          _, body = halves.max_by(&:first)
+          return nil unless body
+
+          columns = TABLE_COLUMNS.each_with_index.to_h do |column, c|
+            start = c * (4 + (TABLE_ROWS * 4))
+            [column, (0...TABLE_ROWS).map { |r| Int32.wrap(le_word(body, start + 4 + (r * 4))) }]
+          end
+          (0...TABLE_ROWS).map { |r| Row.new(**columns.transform_values { |values| values[r] }) }
+                          .reject { |row| row.key.zero? }
+        end
+
+        def le_bytes(word) = (0...4).map { |i| (word >> (8 * i)) & 0xFF }
+        def le_word(bytes, at) = (0...4).sum { |i| bytes.fetch(at + i) << (8 * i) }
+        def word(bytes, at) = Int32.wrap((0...4).sum { |i| bytes.fetch(at + i, 0) << (8 * i) })
+      end
     end
   end
 end

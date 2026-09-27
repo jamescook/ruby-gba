@@ -1,7 +1,5 @@
 # frozen_string_literal: true
 
-require "zlib"
-
 module RubyGBA
   class Builder
     # SAVE DATA: a group of the game's own state — variables and lists — kept in the
@@ -128,17 +126,10 @@ module RubyGBA
       def lay_out_save_data(name, copies, kept, place:, number: 0, when_busy: :wait)
         at = 0
         placed = kept.map { |item| item.with(at: at).tap { |one| at += one.bytes } }
-        shape = Zlib.crc32(placed.map { |item| [item.kind, item.name, item.width, item.count].join(":") }.join(";"))
+        shape = IR::SaveLayout.shape(placed.map { |item| [item.kind, item.name, item.width, item.count] })
         Layout.new(name: name, copies: copies, kept: placed, body: at, half: IR::SaveLayout.half_bytes(at),
-                   place: place, shape: IR::Int32.wrap(shape), key: save_data_key(name), number: number,
+                   place: place, shape: shape, key: IR::SaveLayout.record_key(name), number: number,
                    when_busy: when_busy)
-      end
-
-      # The record's name as a number, which is how its row in the table of places is found.
-      # Never 0, which marks a row nothing uses.
-      def save_data_key(name)
-        key = IR::Int32.wrap(Zlib.crc32("save_data:#{name}"))
-        key.zero? ? 1 : key
       end
 
       def check_save_data_room!(layout)
