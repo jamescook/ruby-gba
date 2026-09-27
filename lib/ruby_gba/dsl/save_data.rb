@@ -38,10 +38,14 @@ module RubyGBA
       # not keep it. It holds until the next one.
       def failed? = Condition.new(@builder, @builder.save_data_failed(@layout))
 
-      # Whether a save, erase or copy is still being written. On the battery-backed chip every
-      # job is finished before the next line runs, so this is false wherever the game asks; a
-      # game that shows "saving" while it is true keeps working on a chip that takes frames.
+      # Whether a save, erase or copy of this record is still in hand. Saves are written a piece
+      # a pass while the game goes on, so this holds for a few passes after one is asked for:
+      # the time to show that the game is saving, however the game likes to show it.
       def saving? = Condition.new(@builder, @builder.save_data_saving(@layout))
+
+      # Whether a save, erase or copy of this record has just been written: true for the one
+      # pass after, so a game can say "Saved!" there without keeping count of anything.
+      def finished? = Condition.new(@builder, @builder.save_data_finished(@layout))
     end
 
     # One copy of a record: save the game into it, load it into the game, erase it, and ask

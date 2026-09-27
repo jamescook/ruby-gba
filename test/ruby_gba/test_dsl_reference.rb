@@ -52,7 +52,7 @@ class TestDslReference < Minitest::Test
             colors_to_draw_with make_object_recolorable make_pool_recolorable
             lists_drawn_from list_drawn_from declared_colors name_of_colors
             save_data_item run_save_data run_save_data_copy save_data_state save_data_peek
-            save_data_kept save_data_failed save_data_saving].freeze
+            save_data_kept save_data_failed save_data_saving save_data_finished].freeze
 
   # …plus the verbs the loaded effect packs contribute. A pack's verb is an ordinary
   # DSL verb at the call site, so it has to be looked up in the same place.

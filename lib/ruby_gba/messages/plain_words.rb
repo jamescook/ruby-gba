@@ -77,8 +77,10 @@ module RubyGBA
       # is said in terms of the record the author declared.
       SAVE_PLACES_ROUTINE = /\A__save_places_/
       SAVE_TABLE_ROUTINE = /\A__save___table_/
-      SAVE_ROUTINE = /\A__save_(?<record>.+)_(?<job>scan|save|load|erase|copy|reset)\z/
+      SAVE_QUEUE_ROUTINE = /\A__save_jobs_/
+      SAVE_ROUTINE = /\A__save_(?<record>.+)_(?<job>scan|save|load|erase|copy|reset|step)\z/
       SAVE_JOBS = { scan: "looking a copy of save_data :%s over", save: "saving save_data :%s",
+                    step: "writing save_data :%s a piece at a time",
                     load: "loading save_data :%s", erase: "erasing a copy of save_data :%s",
                     copy: "copying one copy of save_data :%s over another",
                     reset: "putting save_data :%s's things back as declared" }.freeze
@@ -92,6 +94,8 @@ module RubyGBA
             "moving the sprites of scene :#{scene[:scene]}"
           elsif SAVE_PLACES_ROUTINE.match?(said) || SAVE_TABLE_ROUTINE.match?(said)
             "finding where each save_data record lives in save memory"
+          elsif SAVE_QUEUE_ROUTINE.match?(said)
+            "keeping the save_data saves in line"
           elsif (save = SAVE_ROUTINE.match(said))
             format(SAVE_JOBS.fetch(save[:job].to_sym), save[:record])
           else

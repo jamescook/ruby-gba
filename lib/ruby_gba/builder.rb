@@ -24,6 +24,7 @@ require_relative "builder/layers"
 require_relative "builder/settings"
 require_relative "builder/save_data"
 require_relative "builder/save_places"
+require_relative "builder/save_jobs"
 require_relative "builder/debug" # the probe-only verbs, defined but deliberately not mixed in
 
 module RubyGBA
@@ -71,6 +72,7 @@ module RubyGBA
     include Settings   # setting (what this build was told: which floors, which screen it boots on)
     include SaveData   # save_data (records of the game's state, saved when the game says so)
     include SavePlaces # where each save_data record lives, read from save memory at power-on
+    include SaveJobs   # saves, erases and copies written a piece a pass, in the background
 
     # Shorthand for the IR node constructors, so DSL methods can build tree
     # nodes as terse Build.set(...) calls.
@@ -136,6 +138,7 @@ module RubyGBA
       @inline_map_nodes = []     # show_map nodes recorded at their call site, dropped once a frame boundary exists
       @inline_color_nodes = []   # background_colors nodes, the same, for a layer drawn with other colours
       @per_frame_routines = []   # func names `once_a_frame` declared, called at every frame boundary
+      @per_pass_routines = []    # func names the framework calls once a pass, after the frame boundary
       @each_frame_seq = 0        # counts once_a_frame bodies, to name each one's hidden routine
       @scene_gates = {}        # scene func name → [state_var, value] it's dispatched on (from case_var), for gating its presentation
       @current_scene_gate = nil # while a scene func's body is being built: the [state_var, value] its declarations belong to
@@ -444,6 +447,7 @@ module RubyGBA
       finalize_background_affine
       finalize_layer_blend
       finalize_per_frame_routines
+      finalize_per_pass_routines
       finalize_name_dispatches
       finalize_pool_walks
       finalize_pool_colors
@@ -1112,6 +1116,27 @@ module RubyGBA
         node = Build.repeat(Build.var_ref(IR::Frames::STEP), index, *calls)
         container.children.insert(at + 1, node)
         node.parent = container
+      end
+    end
+
+    # ROUTINES CALLED ONCE A PASS, straight after each frame boundary: work the framework spreads
+    # over a game's passes, such as writing a save a piece at a time. Once a PASS and not once a
+    # frame like the ones above, because what they leave for the game to read — a save that has
+    # just finished — has to hold for one whole pass of the game's own code, and a late pass
+    # that replayed them would clear it again before the game got to look.
+    def finalize_per_pass_routines
+      return if @per_pass_routines.empty?
+
+      @frame_boundaries.each do |wait_node|
+        container = wait_node.parent
+        at = container&.children&.index(wait_node)
+        next unless at
+
+        @per_pass_routines.reverse_each do |name|
+          node = Build.call(name)
+          container.children.insert(at + 1, node)
+          node.parent = container
+        end
       end
     end
 

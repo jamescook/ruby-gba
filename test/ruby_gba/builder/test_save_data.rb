@@ -269,8 +269,8 @@ class TestSaveData < Minitest::Test
     assert_empty run.list(:name)
   end
 
-  # A SAVE SAYS WHETHER IT WORKED. On this chip a save is finished before the next line runs,
-  # so `saving?` is over by then; `failed?` holds when what was written did not read back.
+  # A SAVE SAYS WHETHER IT WORKED. `saving?` holds from the moment one is asked for until it is
+  # written, and then `failed?` holds when what was written did not read back.
   def test_a_save_says_it_worked
     run = files_after({}, :a)
     outcome = built do
@@ -278,16 +278,18 @@ class TestSaveData < Minitest::Test
       hearts = var :hearts, 3
       files = save_data(:file) { keep hearts }
       worked = var :worked, 0
+      busy_at_first = var :busy_at_first, 0
       busy = var :busy, 0
       files[0].save
-      files.failed?.then { worked.set! 2 }.else { worked.set! 1 }
-      files.saving?.then { busy.set! 1 }
-      game_loop { wait_vblank }
+      files.saving?.then { busy_at_first.set! 1 }
+      game_loop do
+        files.saving?.then { busy.set! 1 }.else { busy.set! 0 }
+        files.failed?.then { worked.set! 2 }.else { worked.set! 1 }
+      end
     end
     after = play(outcome, {})
 
-    assert_equal 1, after[:worked]
-    assert_equal 0, after[:busy]
+    assert_equal [1, 0, 1], [after[:busy_at_first], after[:busy], after[:worked]]
     assert_equal 10, run[:hearts]
   end
 
@@ -323,15 +325,203 @@ class TestSaveData < Minitest::Test
 
   def test_three_full_size_files_and_settings_on_both_backends
     store = {}
-    play(full_size, store, pressing: { 2 => :a, 4 => :b, 6 => :l }, frames: 8)
+    play(full_size, store, pressing: { 2 => :a, 4 => :b, 6 => :l }, frames: 16)
     back = play(full_size, store, pressing: { 2 => :l }, frames: 4)
     assert_equal 3, back[:speed], "the settings record is kept apart from the files"
     assert_equal (1195 & 0x7F) + 5 + 20, back[:checked]
 
-    schedule = { 2 => KEY_A, 4 => KEY_B, 6 => KEY_L }
+    # Three files' buffers are filled as the console starts, so it is given a few frames first.
+    schedule = { 4 => KEY_A, 6 => KEY_B, 8 => KEY_L }
     rom = assemble_rom(full_size, name: "FULLSIZE")
-    v = assert_emulator_loads_rom(rom, frames: 12, keys: ->(f) { schedule.fetch(f, 0) }, vars: rom.var_addresses)
+    v = assert_emulator_loads_rom(rom, frames: 14, keys: ->(f) { schedule.fetch(f, 0) }, vars: rom.var_addresses)
     assert_equal (1195 & 0x7F) + 5 + 20, v.var(:checked)
+  end
+
+  # A SAVE RUNS IN THE BACKGROUND. A full-size file is written a piece at a time over several
+  # passes of the game loop, so the game never stands still for it, and `saving?` holds from
+  # the moment it is asked for until the last piece is in. A copy made good at power-on shows
+  # the save arrived whole.
+  private def a_big_save
+    built do
+      screen :bitmap
+      flags = list :flags, capacity: 1196, width: :byte
+      files = save_data(:file) { keep flags }
+      was_good = var :was_good, 0
+      saving_passes = var :saving_passes, 0
+      files[0].good?.then { was_good.set! 1 }
+      files[0].load
+      game_loop do
+        pressed(:a).then do
+          repeat(1196) { |i| flags.push i & 0x7F }
+          files[0].save
+        end
+        files.saving?.then { saving_passes.add! 1 }
+      end
+    end
+  end
+
+  def test_a_big_save_runs_over_several_passes_while_the_game_goes_on
+    store = {}
+    run = play(a_big_save, store, pressing: { 2 => :a }, frames: 30)
+    assert_includes 3..10, run[:saving_passes], "the save spreads over a handful of passes"
+
+    back = play(a_big_save, store, frames: 2)
+    assert_equal 1, back[:was_good], "and arrives whole"
+    assert_equal [1195 & 0x7F, 1196], [back.list(:flags).last, back.list(:flags).length]
+  end
+
+  # THE SAVE HOLDS THE MOMENT IT WAS ASKED FOR. The game goes on while a big save is written,
+  # and what it changes on the passes after — hearts down, a flag cleared — is not in the save.
+  private def changes_while_saving
+    built do
+      screen :bitmap
+      flags = list :flags, capacity: 1196, width: :byte
+      hearts = var :hearts, 3
+      files = save_data(:file) { keep hearts, flags }
+      files[0].load
+      game_loop do
+        pressed(:a).then do
+          repeat(1196) { |i| flags.push 5 }
+          hearts.set! 12
+          files[0].save
+        end
+        files.saving?.then do
+          hearts.sub! 1
+          flags[1195] = 0
+        end
+      end
+    end
+  end
+
+  def test_a_save_holds_the_moment_it_was_asked_for
+    store = {}
+    run = play(changes_while_saving, store, pressing: { 2 => :a }, frames: 20)
+    assert_operator run[:hearts], :<, 12, "the game went on changing things while it saved"
+
+    back = play(changes_while_saving, store, frames: 2)
+    assert_equal [12, 5], [back[:hearts], back.list(:flags).last]
+  end
+
+  # READING A COPY FINISHES ITS SAVE FIRST. A peek on the line after a save — a file screen
+  # shown straight after saving — reads what was just saved, not what was there before.
+  def test_reading_a_copy_straight_after_saving_it_reads_the_save
+    program = built do
+      screen :bitmap
+      flags = list :flags, capacity: 1196, width: :byte
+      hearts = var :hearts, 3
+      files = save_data(:file) { keep hearts, flags }
+      seen = var :seen, 0
+      game_loop do
+        pressed(:a).then do
+          hearts.set! 12
+          files[0].save
+          seen.set! files[0].peek(hearts)
+        end
+      end
+    end
+    assert_equal 12, play(program, {}, pressing: { 2 => :a })[:seen]
+  end
+
+  # THE POWER GOING OFF BETWEEN TWO PASSES OF A SAVE. A big save of 99 over a good save of 12
+  # is cut after every so many bytes, across the passes it is written over: each time, the next
+  # power-on finds the copy either as it was or as it was saved — never damaged, never a mix.
+  def test_a_save_cut_off_between_passes_keeps_the_last_good_one
+    before = {}
+    play(changes_while_saving, before, pressing: { 2 => :a }, frames: 20)
+    resave = built do
+      screen :bitmap
+      flags = list :flags, capacity: 1196, width: :byte
+      hearts = var :hearts, 3
+      files = save_data(:file) { keep hearts, flags }
+      files[0].load
+      game_loop do
+        pressed(:a).then do
+          hearts.set! 99
+          files[0].save
+        end
+      end
+    end
+    (0..1300).step(37) do |cut|
+      store = before.merge(bytes: before[:bytes].dup)
+      Reference.new(save: store).cut_power_after_saving(cut)
+               .input_each_frame { |f| f == 2 ? [:a] : [] }.run(resave, frames: 20)
+      back = play(changes_while_saving, store, frames: 2)
+
+      assert_includes [12, 99], back[:hearts], "cut after #{cut} bytes"
+    end
+  end
+
+  # WHAT A SAVE ASKED FOR WHILE ANOTHER IS IN HAND DOES, which the record says with `when_busy:`.
+  # A saves 10 and then 20 into the same copy, in one pass, and counts the passes `saving?` held.
+  private def two_saves(when_busy)
+    built do
+      screen :bitmap
+      flags = list :flags, capacity: 1196, width: :byte
+      hearts = var :hearts, 3
+      files = save_data(:file, when_busy: when_busy) { keep hearts, flags }
+      saving_passes = var :saving_passes, 0
+      refused = var :refused, 0
+      files[0].load
+      game_loop do
+        pressed(:a).then do
+          hearts.set! 10
+          files[0].save
+          hearts.set! 20
+          files[0].save
+          files.failed?.then { refused.set! 1 }
+        end
+        files.saving?.then { saving_passes.add! 1 }
+      end
+    end
+  end
+
+  private def after_two_saves(when_busy)
+    store = {}
+    run = play(two_saves(when_busy), store, pressing: { 2 => :a }, frames: 30)
+    [run, play(two_saves(when_busy), store, frames: 2)]
+  end
+
+  def test_a_second_save_waits_its_turn_by_default
+    run, back = after_two_saves(:wait)
+    assert_equal [20, 0], [back[:hearts], run[:refused]]
+  end
+
+  def test_a_newer_save_can_replace_the_one_not_yet_written
+    waited, = after_two_saves(:wait)
+    run, back = after_two_saves(:replace)
+    assert_equal 20, back[:hearts]
+    assert_operator run[:saving_passes], :<, waited[:saving_passes], "only one save was written"
+  end
+
+  # `finished?` holds for the one pass after a job of the record is written — once a save, so a
+  # game can show "Saved!" on it — and never while one is still being written.
+  def test_a_record_says_on_one_pass_that_its_save_just_finished
+    program = built do
+      screen :bitmap
+      flags = list :flags, capacity: 1196, width: :byte
+      files = save_data(:file) { keep flags }
+      finished_passes = var :finished_passes, 0
+      overlap = var :overlap, 0
+      game_loop do
+        pressed(:a).then { files[0].save }
+        pressed(:b).then do
+          files[0].save
+          files[0].erase
+        end
+        files.finished?.then { finished_passes.add! 1 }
+        (files.finished? & files.saving?).then { overlap.set! 1 }
+      end
+    end
+    once = play(program, {}, pressing: { 2 => :a }, frames: 20)
+    twice = play(program, {}, pressing: { 2 => :b }, frames: 30)
+
+    assert_equal [1, 0], [once[:finished_passes], once[:overlap]]
+    assert_equal 2, twice[:finished_passes], "each of two jobs says so when it is written"
+  end
+
+  def test_a_save_asked_for_while_busy_can_be_refused
+    run, back = after_two_saves(:refuse)
+    assert_equal [10, 1], [back[:hearts], run[:refused]]
   end
 
   # A RECORD KEEPS ITS PLACE WHEN THE GAME CHANGES AROUND IT. A game that ships and is then
@@ -374,7 +564,7 @@ class TestSaveData < Minitest::Test
   end
 
   private def saved_by_the_first_build
-    {}.tap { |store| play(version, store, pressing: { 2 => :a }) }
+    {}.tap { |store| play(version, store, pressing: { 2 => :a }, frames: 12) }
   end
 
   def test_a_record_keeps_its_saves_when_one_declared_before_it_grows
@@ -407,7 +597,7 @@ class TestSaveData < Minitest::Test
   # not holding what was saved there before it was dropped.
   def test_a_copy_given_back_after_it_was_dropped_is_empty
     store = {}
-    play(version(copies: 3), store, pressing: { 2 => :a })
+    play(version(copies: 3), store, pressing: { 2 => :a }, frames: 12)
     play(version(copies: 2), store)
     back = play(version(copies: 3), store)
 
@@ -418,7 +608,7 @@ class TestSaveData < Minitest::Test
   # renamed record keeps the same things, so an old save left there would pass every check.
   def test_room_a_dropped_record_leaves_holds_nothing_for_the_next
     store = {}
-    play(journal_kept_as(:journal), store, pressing: { 2 => :a })
+    play(journal_kept_as(:journal), store, pressing: { 2 => :a }, frames: 12)
     back = play(journal_kept_as(:diary), store)
 
     assert_equal [1, 0], [back[:was_empty], back[:first_page]]
@@ -466,7 +656,7 @@ class TestSaveData < Minitest::Test
   # build's atlas fits only in the room the journal leaves.
   def test_a_record_no_longer_declared_gives_its_room_to_a_new_one
     store = {}
-    play(version(order: %i[settings journal file], extra: { journal: 12_000 }), store, pressing: { 2 => :a })
+    play(version(order: %i[settings journal file], extra: { journal: 12_000 }), store, pressing: { 2 => :a }, frames: 12)
     back = play(version(order: %i[settings file atlas], extra: { atlas: 12_000 }), store)
 
     assert_equal [42, 43, 7], [back[:shown0], back[:shown1], back[:kept_speed]]
@@ -477,7 +667,7 @@ class TestSaveData < Minitest::Test
   def test_records_are_moved_together_when_the_free_room_is_in_pieces
     store = {}
     first = version(order: %i[settings north file south], extra: { north: 5000, south: 5000 })
-    play(first, store, pressing: { 2 => :a })
+    play(first, store, pressing: { 2 => :a }, frames: 12)
     back = play(version(order: %i[settings file atlas], extra: { atlas: 10_000 }), store)
 
     assert_equal [42, 43, 7], [back[:shown0], back[:shown1], back[:kept_speed]]
@@ -503,7 +693,7 @@ class TestSaveData < Minitest::Test
     [version(order: %i[file settings]),
      version(order: %i[settings file atlas], extra: { atlas: 10_000 })].each_with_index do |second, n|
       store = {}
-      play(first, store, pressing: { 2 => :a })
+      play(first, store, pressing: { 2 => :a }, frames: 12)
       before = store[:bytes].dup
       oracle = play(second, store)
       rom = assemble_rom(second, name: "SLIDE#{n}")
@@ -535,6 +725,12 @@ class TestSaveData < Minitest::Test
     message = refused { big = list :big, capacity: 5000; save_data(:f, copies: 3) { keep big } }
     assert_match(/does not fit in save memory/, message)
     assert_match(/use fewer copies/, message)
+  end
+
+  def test_an_unknown_when_busy_is_a_friendly_error
+    message = refused { h = var :h, 0; save_data(:f, when_busy: :queue) { keep h } }
+    assert_match(/`when_busy: :queue`/, message)
+    assert_match(/:wait \(the default/, message)
   end
 
   def test_more_records_than_the_table_has_rows_for_is_a_friendly_error

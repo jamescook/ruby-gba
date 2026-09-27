@@ -33,27 +33,40 @@ module RubyGBA
       # Declare a record of the game's state, kept in save memory in +copies+ numbered
       # copies. The block names what it keeps, with `keep`. Returns a handle: `files[n]` is
       # one copy, and a copy saves, loads, erases and says whether it is good.
-      def save_data(name, copies: 1, &block)
+      def save_data(name, copies: 1, when_busy: :wait, &block)
         name = name.to_sym
         check_save_data_name!(name, copies, block)
+        check_save_data_when_busy!(name, when_busy)
         kept = SaveDataKeeping.new(self, name).tap { |keeping| keeping.instance_eval(&block) }.kept
-        declare_save_places if @save_data.empty?
-        record_layout = lay_out_save_data(name, copies, kept, place: :"__save_#{name}_place")
+        if @save_data.empty?
+          declare_save_places
+          declare_save_jobs
+        end
+        record_layout = lay_out_save_data(name, copies, kept, place: :"__save_#{name}_place",
+                                                              number: @save_data.size + 1,
+                                                              when_busy: when_busy)
         check_save_data_room!(record_layout)
         @save_data[name] = record_layout
         declare_save_data_lists(record_layout)
+        declare_save_job_state(record_layout)
         record_layout.copies.times do |copy|
           at_boot(Build.set(record_layout.scratch(:copy), Build.int(copy)))
           at_boot(Build.call(record_layout.routine(:scan)))
         end
-        declare_save_data_routines(record_layout)
+        declare_save_data_routines(record_layout, %i[scan load reset])
+        { save: SaveJobs::SAVE, erase: SaveJobs::ERASE, copy: SaveJobs::COPY }.each do |job, kind|
+          declare_func(record_layout.routine(job)) { save_job_ask(record_layout, kind) }
+        end
+        declare_func(record_layout.routine(:step)) { save_job_step(record_layout) }
         DSL::SaveData.new(self, record_layout)
       end
 
       # Everything the routines need to know about one record, worked out once. +place+ is
       # where it starts in save memory: a number for the table of places, which never moves,
-      # and for a record the name of a variable, set at power-on from that table.
-      Layout = Data.define(:name, :copies, :kept, :body, :half, :place, :shape, :key) do
+      # and for a record the name of a variable, set at power-on from that table. +number+
+      # counts the records from 1 in the order they were declared, which is how a job says
+      # whose it is; the table of places, which is written without jobs, is 0.
+      Layout = Data.define(:name, :copies, :kept, :body, :half, :place, :shape, :key, :number, :when_busy) do
         def routine(job) = :"__save_#{name}_#{job}"
         def scratch(what) = :"__save_#{name}_#{what}"
         def directory(what) = :"__save_#{name}_#{what}_of"
@@ -75,15 +88,28 @@ module RubyGBA
                              "It must be a whole number, 1 or more."
       end
 
+      # What a save, erase or copy of this record does when one of the record's is already in
+      # hand. Waiting is the default because it is the one that loses nothing.
+      WHEN_BUSY = %i[wait replace refuse].freeze
+
+      def check_save_data_when_busy!(name, when_busy)
+        return if WHEN_BUSY.include?(when_busy)
+
+        raise ArgumentError, "save_data :#{name} was given `when_busy: #{when_busy.inspect}`. It must be " \
+                             ":wait (the default: it waits its turn), :replace (it takes the place of the " \
+                             "one not yet written) or :refuse (it does nothing and failed? holds)."
+      end
+
       # Where each kept thing sits in the body, and what the record's shape and key are. Where
       # the record sits in save memory is not decided here: the table of places says, at
       # power-on (see SavePlaces).
-      def lay_out_save_data(name, copies, kept, place:)
+      def lay_out_save_data(name, copies, kept, place:, number: 0, when_busy: :wait)
         at = 0
         placed = kept.map { |item| item.with(at: at).tap { |one| at += one.bytes } }
         shape = Zlib.crc32(placed.map { |item| [item.kind, item.name, item.width, item.count].join(":") }.join(";"))
         Layout.new(name: name, copies: copies, kept: placed, body: at, half: IR::SaveLayout.half_bytes(at),
-                   place: place, shape: IR::Int32.wrap(shape), key: save_data_key(name))
+                   place: place, shape: IR::Int32.wrap(shape), key: save_data_key(name), number: number,
+                   when_busy: when_busy)
       end
 
       # The record's name as a number, which is how its row in the table of places is found.
@@ -122,7 +148,7 @@ module RubyGBA
           at_boot(Build.list_new(layout.directory(what), layout.copies, width: what == :seq ? :word : :byte))
           layout.copies.times { at_boot(Build.list_push(layout.directory(what), Build.int(0))) }
         end
-        %i[copy from source at at0 at1 v0 v1 s0 s1 started winner failed busy].each { |what| ensure_var(layout.scratch(what)) }
+        %i[copy from at at0 at1 v0 v1 s0 s1 started winner failed].each { |what| ensure_var(layout.scratch(what)) }
         ensure_var(layout.place) unless layout.place.is_a?(Integer)
       end
 
@@ -201,37 +227,14 @@ module RubyGBA
         end
       end
 
-      # SAVE THE GAME'S STATE INTO A COPY: its body into the older half, then the header, the
-      # checksum last of all — until that is written the half cannot pass for good, so a save
-      # cut off anywhere leaves the other half as the copy. Then the copy is looked over again,
-      # which is also what finds a save that did not read back.
+      # SAVE THE TABLE OF PLACES in one go (see SavePlaces): its body into the older half, then
+      # the header, the checksum last of all — until that is written the half cannot pass for
+      # good, so a save cut off anywhere leaves the other half as the table. The game's own
+      # records are written the same way, but a piece a pass (see SaveJobs); the table is written
+      # only at power-on, before the game has anything to show, so it is written whole.
       def save_data_save(layout)
         save_data_write(layout, IR::SaveLayout::SAVED) do |body|
           layout.kept.each { |item| save_data_put(item, body) }
-        end
-      end
-
-      def save_data_erase(layout)
-        save_data_write(layout, IR::SaveLayout::ERASED) { |_body| nil }
-      end
-
-      # COPY ONE COPY OVER ANOTHER, byte for byte, when the one copied from is good and is not
-      # the one written over. Where it reads from is worked out before anything is written, so
-      # writing cannot move it.
-      def save_data_copy(layout)
-        from = sd_var(layout.scratch(:from))
-        good = sd_eq(sd_directory(layout, :state, Build.clamped(from, sd_int(0), sd_int(layout.copies - 1))),
-                     sd_int(IR::SaveLayout::STATES.index(:good)))
-        sd_when(sd_and(sd_and(sd_in_range(layout, from), good),
-                       Build.binop(:!=, from, sd_var(layout.scratch(:copy))))) do
-          source = sd_add(sd_half_at(layout, from, sd_directory(layout, :half, from)), sd_int(IR::SaveLayout::HEADER))
-          record(Build.set(layout.scratch(:source), source))
-          save_data_write(layout, IR::SaveLayout::SAVED) do |body|
-            repeat(layout.body) do |i|
-              record(Build.save_write(sd_add(body, i.node),
-                                      sd_read(sd_add(sd_var(layout.scratch(:source)), i.node), :byte), width: :byte))
-            end
-          end
         end
       end
 
@@ -250,7 +253,6 @@ module RubyGBA
       def save_data_write(layout, kind)
         copy = sd_var(layout.scratch(:copy))
         sd_when(sd_in_range(layout, copy)) do
-          record(Build.set(layout.scratch(:busy), sd_int(1)))
           older =Build.binop(:*, sd_eq(sd_directory(layout, :half, copy), sd_int(0)), sd_int(1))
           record(Build.set(layout.scratch(:at), sd_half_at(layout, copy, older)))
           here = sd_var(layout.scratch(:at))
@@ -271,7 +273,6 @@ module RubyGBA
           record(Build.call(layout.routine(:scan)))
           expected = IR::SaveLayout::STATES.index(kind == IR::SaveLayout::ERASED ? :erased : :good)
           record(Build.set(layout.scratch(:failed), Build.binop(:!=, sd_directory(layout, :state, copy), sd_int(expected))))
-          record(Build.set(layout.scratch(:busy), sd_int(0)))
         end
       end
 
@@ -358,8 +359,11 @@ module RubyGBA
 
       # --- what the handles call ---
 
-      # Run one of a record's routines for copy +copy+ (a node).
+      # Run one of a record's routines for copy +copy+ (a node). A save, an erase or a copy only
+      # asks for a job (see SaveJobs); a load reads save memory, so the record's jobs are
+      # finished first.
       def run_save_data(layout, job, copy)
+        finish_save_jobs_of(layout) if job == :load
         record(Build.set(layout.scratch(:copy), copy))
         record(Build.call(layout.routine(job)))
       end
@@ -370,8 +374,14 @@ module RubyGBA
       end
 
       # What copy +copy+ is, as a number counting into IR::SaveLayout::STATES; a copy the record
-      # does not have reads as empty.
+      # does not have reads as empty. It is read from save memory, so the record's jobs are
+      # finished first, just before the line that asks.
       def save_data_state(layout, copy)
+        finish_save_jobs_of(layout)
+        save_data_state_now(layout, copy)
+      end
+
+      def save_data_state_now(layout, copy)
         within = sd_in_range(layout, copy)
         index = Build.clamped(copy, sd_int(0), sd_int(layout.copies - 1))
         Build.binop(:*, within, sd_directory(layout, :state, index))
@@ -391,8 +401,9 @@ module RubyGBA
       # holds — read from copy +copy+ without loading it. 0 unless the copy is good, and 0 for an
       # item past the list's end.
       def save_data_peek(layout, copy, item, index: nil, length: false)
+        finish_save_jobs_of(layout)
         which = Build.clamped(copy, sd_int(0), sd_int(layout.copies - 1))
-        good = sd_eq(save_data_state(layout, copy), sd_int(IR::SaveLayout::STATES.index(:good)))
+        good = sd_eq(save_data_state_now(layout, copy), sd_int(IR::SaveLayout::STATES.index(:good)))
         at = sd_add(sd_half_at(layout, which, sd_directory(layout, :half, which)),
                     sd_int(IR::SaveLayout::HEADER + item.at))
         return Build.binop(:*, good, sd_read(at)) if item.kind == :var || length
@@ -408,12 +419,16 @@ module RubyGBA
       # Whether the last job this record ran did not read back as it should have.
       def save_data_failed(layout) = sd_eq(sd_var(layout.scratch(:failed)), sd_int(1))
 
-      # Whether a job is running now. On the battery-backed chip a job is finished before the
-      # next line of the game runs, so this reads false wherever the game can ask it; it is
-      # there so a game that shows "saving" keeps working on a chip that takes frames.
-      def save_data_saving(layout) = sd_eq(sd_var(layout.scratch(:busy)), sd_int(1))
+      # Whether one of this record's jobs was written on the pass that just ended.
+      def save_data_finished(layout) = sd_eq(sd_var(layout.scratch(:finished)), sd_int(1))
 
-      private :save_data_item_of, :save_data_not_state!
+      # Whether one of this record's jobs is still in hand — running, or waiting its turn.
+      def save_data_saving(layout)
+        mine = ->(which) { sd_eq(sd_var(:"__save_jobs_#{which}_rec"), sd_int(layout.number)) }
+        Build.binop(:|, mine.call(:run), mine.call(:wait))
+      end
+
+      private :save_data_item_of, :save_data_not_state!, :save_data_state_now
     end
 
     # What `keep` inside a `save_data` block collects: the variables and lists the record
