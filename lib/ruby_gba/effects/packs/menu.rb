@@ -76,17 +76,25 @@ module RubyGBA
           # `draw_text` of the value beside it, the value would sit outside the row and
           # stay whatever colour it was drawn in.
           #
+          # A ROW THAT CAN BE PICKED ONLY SOME OF THE TIME — Continue while there is a save,
+          # Resume while a game is running — takes a test the game works out, or a variable
+          # that holds 0 or 1, instead of true or false:
+          #
+          #   m.item("CONTINUE", enabled: files[0].good?) { files[0].load }
+          #
           # @param label [String, Array<String>] what the row says, or all it can say
-          # @param enabled [Boolean] false for a row that is there but cannot be picked
+          # @param enabled [Boolean, Condition, Value] whether the row can be picked: always,
+          #   never, or while a test holds
           # @param color [Symbol, String, Integer, nil] this row's own unpicked colour
           # @param picked [Symbol, String, Integer, nil] this row's own picked colour
           # @param showing [Value, Symbol, nil] which of several labels is on screen
           def item(label, enabled: true, color: nil, picked: nil, showing: nil, &action)
             labels = words_of(label, showing)
-            unless [true, false].include?(enabled)
+            unless [true, false].include?(enabled) || enabled.is_a?(DSL::Condition) || enabled.is_a?(DSL::Value)
               raise ArgumentError,
-                    "`enabled:` says whether a row can be picked right now: true or false. " \
-                    "Got #{enabled.inspect}."
+                    "`enabled:` says whether a row can be picked: true, false, or a test the " \
+                    "game works out, like `enabled: files[0].good?`. A variable that holds 0 or " \
+                    "1 works too. Got #{enabled.inspect}."
             end
 
             @list << Item.new(labels: labels, enabled: enabled, color: color, picked: picked,
@@ -307,7 +315,31 @@ module RubyGBA
         # those are is settled as the program is built, so each one costs a single test:
         # land on it, and go straight on to the next row that can be picked. A menu with
         # nothing disabled emits none of these tests at all.
+        #
+        # A ROW THE GAME OPENS AND SHUTS cannot be settled that way, because which rows can
+        # be picked is only known as the game runs. Then the step is a walk: move one row,
+        # and keep moving while the row landed on cannot be picked — never more than once
+        # round the list, so a menu whose every row is shut right now leaves the cursor
+        # where the walk ends rather than hunting for ever. Only a menu with such a row pays
+        # for the walk.
         def menu_step(items, pick, direction)
+          menu_wrap(items, pick, direction)
+          if items.any? { |item| menu_changes?(item) }
+            repeat(items.length - 1, stop_when: menu_pickable_here(items, pick)) do
+              menu_wrap(items, pick, direction)
+            end
+            return
+          end
+
+          items.each_index do |i|
+            next if items[i].enabled
+
+            (pick == i).then { pick.set! menu_next_pickable(items, i, direction) }
+          end
+        end
+
+        # Move the cursor one row, wrapping at the end it walked off.
+        def menu_wrap(items, pick, direction)
           last = items.length - 1
           if direction.positive?
             pick.add! 1
@@ -316,12 +348,18 @@ module RubyGBA
             pick.sub! 1
             (pick < 0).then { pick.set! last }
           end
+        end
 
-          items.each_index do |i|
-            next if items[i].enabled
+        # A test: the row the cursor is on can be picked right now.
+        def menu_pickable_here(items, pick)
+          tests = items.each_index.filter_map do |i|
+            item = items[i]
+            next if item.enabled.equal?(false)
 
-            (pick == i).then { pick.set! menu_next_pickable(items, i, direction) }
+            here = (pick == i)
+            menu_changes?(item) ? here & menu_can_pick(item) : here
           end
+          tests.reduce { |either, test| either | test }
         end
 
         # The next row that can be picked, walking from +from+ in +direction+ and
@@ -346,7 +384,10 @@ module RubyGBA
 
               # `.call` rather than instance_exec: the block keeps the `self` it was
               # written with, so a game split across files still sees its own object.
-              (pick == i).then { item.action.call }
+              # A row the game has shut does nothing, even with the cursor on it.
+              here = (pick == i)
+              here &= menu_can_pick(item) if menu_changes?(item)
+              here.then { item.action.call }
             end
           end
         end
@@ -388,12 +429,24 @@ module RubyGBA
         # screen, where two draws would be two sprites for every character with one of
         # them always hidden. The cursor is still a test, because it is shown or not
         # shown rather than recoloured.
+        #
+        # A row the game opens and shuts is drawn both ways, under its test: dim while it is
+        # shut, and the usual pair of colours while it is open.
         def menu_draw_row(item, words:, row:, style:, picked_when:)
+          if menu_changes?(item)
+            menu_can_pick(item).then { menu_draw_open_row(item, words: words, row: row, style: style, picked_when: picked_when) }
+                               .else { draw_text words, style.x, row, style.disabled, font: style.font }
+            return
+          end
           unless item.enabled
             draw_text words, style.x, row, style.disabled, font: style.font
             return
           end
 
+          menu_draw_open_row(item, words: words, row: row, style: style, picked_when: picked_when)
+        end
+
+        def menu_draw_open_row(item, words:, row:, style:, picked_when:)
           bright = item.picked || style.picked
           draw_text words, style.x, row, [item.color || style.color, bright],
                     font: style.font, showing: picked_when.call
@@ -420,14 +473,35 @@ module RubyGBA
             raise ArgumentError,
                   "menu :#{name} has no rows. Add one with `m.item(\"NEW GAME\") { ... }`."
           end
-          unless items.any?(&:enabled)
+          if items.all? { |item| item.enabled.equal?(false) }
             raise ArgumentError,
                   "Every row of menu :#{name} is `enabled: false`, so the cursor has nowhere " \
                   "to go. To fix this, remove `enabled: false` from one row."
           end
 
-          items.map { |item| item.showing ? item.with(showing: menu_deciding_value!(item)) : item }
+          items.each_with_index.map do |item, i|
+            item = item.with(showing: menu_deciding_value!(item)) if item.showing
+            item.with(enabled: menu_enabled_value(name, i, item.enabled))
+          end
         end
+
+        # What `enabled:` said, kept as true, false, or a VARIABLE that is 1 while the row can
+        # be picked. A test is turned into one here, at the top of the menu's frame: it is asked
+        # in several places — stepping, choosing, drawing — and a test belongs to one place in
+        # the program, where a variable can be read as often as anybody likes.
+        def menu_enabled_value(name, row, enabled)
+          return enabled unless enabled.is_a?(DSL::Condition)
+
+          open = var :"__menu_#{name}_open_#{row}", 0
+          enabled.then { open.set! 1 }.else { open.set! 0 }
+          open
+        end
+
+        # Whether a row's `enabled:` is decided as the game runs, rather than true or false.
+        def menu_changes?(item) = item.enabled.is_a?(DSL::Value)
+
+        # A fresh test for a row that can be picked only while the game says so.
+        def menu_can_pick(item) = (item.enabled != 0)
 
         # The value that says which of a row's several labels is on screen. A Symbol names
         # a variable, the way a Symbol does everywhere else in the DSL.
@@ -512,7 +586,7 @@ module RubyGBA
         # rows those are is settled while the program is built, so a start that lands on
         # one is a mistake in the program — and moving the cursor for you would hide it.
         def menu_first_row!(name, items, starts_on)
-          return items.index(&:enabled) if starts_on.nil?
+          return items.index { |item| !item.enabled.equal?(false) } if starts_on.nil?
 
           unless starts_on.is_a?(Integer)
             raise ArgumentError,
@@ -525,7 +599,7 @@ module RubyGBA
                   "rows, and `starts_on: #{starts_on}` names none of them. Rows count from " \
                   "0, so the last one is row #{items.length - 1}."
           end
-          unless items[starts_on].enabled
+          if items[starts_on].enabled.equal?(false)
             raise ArgumentError,
                   "menu :#{name} cannot start on row #{starts_on}, because that row is " \
                   "`enabled: false`. The cursor never lands on a row that cannot be picked. " \

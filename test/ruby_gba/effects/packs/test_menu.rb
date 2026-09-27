@@ -789,4 +789,101 @@ class TestMenu < Minitest::Test
   def test_both_backends_draw_the_same_menu
     assert_backends_agree(menu_program, frames: 3)
   end
+
+  # ---- a row that can be picked only while the game says so ----
+  #
+  # A Continue row greyed until there is a save; Resume greyed unless a game is running.
+  # Row TWO can be picked while `open` is 1 (said as a test), row THREE while `open` is not
+  # 0 (said as the variable itself). L opens and closes both.
+
+  def changing_menu(on: :bitmap, opens_at: nil, repeat_every: nil)
+    build_program do
+      screen on
+      var :chose, 0
+      open = var :open, 0
+      t = var :t, 0
+      game_loop do
+        clear_screen :black if on == :bitmap
+        t.add! 1
+        pressed(:l).then { open.set! 1 - open }
+        (t == opens_at).then { open.set! 1 } if opens_at
+        options = { at: [X, Y], spacing: SPACING, color: :gray, picked: :white, disabled: :red }
+        options[:repeat_every] = repeat_every if repeat_every
+        menu(:main, **options) do |rows|
+          rows.item("ONE") { set! :chose, 1 }
+          rows.item("TWO", enabled: open == 1) { set! :chose, 2 }
+          rows.item("THREE", enabled: open) { set! :chose, 3 }
+          rows.item("FOUR") { set! :chose, 4 }
+        end
+      end
+    end
+  end
+
+  def test_a_row_that_is_shut_now_is_stepped_over_and_drawn_dim
+    i = walk(changing_menu, frames: 3) { |f| f == 1 ? [:down] : [] }
+
+    assert_equal 3, cursor_row(i), "down steps over both rows while they are shut"
+    assert_equal DIMMED, row_color(i, 1)
+    assert_equal DIMMED, row_color(i, 2)
+  end
+
+  def test_the_same_row_can_be_picked_once_the_game_opens_it
+    i = walk(changing_menu, frames: 5) { |f| { 1 => [:l], 3 => [:down] }.fetch(f, []) }
+
+    assert_equal 1, cursor_row(i)
+    assert_equal PICKED, row_color(i, 1)
+    assert_equal PLAIN, row_color(i, 2)
+  end
+
+  def test_up_wraps_and_steps_over_shut_rows_too
+    i = walk(changing_menu, frames: 6) { |f| { 1 => [:up], 4 => [:up] }.fetch(f, []) }
+
+    assert_equal 0, cursor_row(i), "up to FOUR, then up over THREE and TWO to ONE"
+  end
+
+  # The cursor is on a row when the game shuts it: the row goes dim, and the button does
+  # nothing there.
+  def test_a_row_shut_under_the_cursor_does_not_run
+    i = walk(changing_menu, frames: 9) { |f| { 1 => [:l], 3 => [:down], 5 => [:l], 7 => [:a] }.fetch(f, []) }
+
+    assert_equal 0, i[:chose]
+    assert_equal DIMMED, row_color(i, 1)
+  end
+
+  def test_enabled_that_is_not_a_test_or_a_variable_is_a_friendly_error
+    error = assert_raises(ArgumentError) do
+      build_program do
+        screen :bitmap
+        game_loop { menu(:m, at: [X, Y]) { |rows| rows.item("ONE", enabled: "yes") } }
+      end
+    end
+
+    assert_match(/enabled:/, error.message)
+    assert_match(/a test/, error.message)
+  end
+
+  # A menu whose every row can be shut is allowed, because the game can open them; while
+  # all of them are shut the cursor stays where it is rather than hunting for ever.
+  def test_a_menu_whose_rows_are_all_shut_holds_still
+    program = build_program do
+      screen :bitmap
+      open = var :open, 0
+      game_loop do
+        clear_screen :black
+        menu(:m, at: [X, Y], spacing: SPACING) do |rows|
+          rows.item("ONE", enabled: open)
+          rows.item("TWO", enabled: open)
+        end
+      end
+    end
+
+    walk(program, frames: 4) { |f| f == 1 ? [:down] : [] }
+  end
+
+  # The console, walking the list while the rows open part way through, draws what the
+  # interpreter draws — on both screens.
+  def test_both_backends_step_over_the_same_shut_rows
+    assert_backends_agree(changing_menu(opens_at: 8, repeat_every: 3), frames: 14, keys: [:down])
+    assert_backends_agree(changing_menu(on: :tiled, opens_at: 8, repeat_every: 3), frames: 14, keys: [:down])
+  end
 end
