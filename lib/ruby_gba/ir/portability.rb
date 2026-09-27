@@ -36,122 +36,20 @@ module RubyGBA
       # +:hardware_only+ dominates +:portable+.
       TIERS = %i[hardware_only portable].freeze
 
-      # Every kind's tier — the single source of truth, coverage-locked against the declared
-      # kinds so a new one can't be added without a conscious choice. Grouped by category.
-      # Today only +raw+ is hardware-only; the framebuffer
-      # draws, text, and PSG sound are all portable (a canvas / web-audio backend can
-      # realize them), as are vars, arithmetic, control flow, lists, and embedded data.
-      TIER = {
-        program: :portable,
+      # Every kind's tier, read off the kind's own declaration (see Node::Declarations#tier)
+      # rather than listed here. A kind is portable unless it says otherwise, where it is
+      # declared, and that is not a promise made by default: every portable kind has to be one
+      # the interpreter runs and the console lowers, which a coverage test holds them to — so a
+      # new kind neither backend can run fails there until it is given handlers or says it is
+      # hardware-only.
+      TIER = Ractor.make_shareable(Nodes.by_kind.transform_values(&:tier))
 
-        # variable operations
-        set: :portable, add: :portable, sub: :portable, copy: :portable,
-        negate: :portable, abs: :portable, negate_abs: :portable, clamp: :portable,
-        # persistence — remembering values across power-off. Portable intent: the
-        # interpreter models it against an in-memory save store, the GBA lowers it to
-        # battery-backed save memory, a web backend could use localStorage.
-        save_init: :portable, save_store: :portable,
-        # ...and the three places save data is built from: a numbered byte of a store that
-        # outlives the program is something every backend can have.
-        save_read: :portable, save_write: :portable, save_sum: :portable,
-
-        # drawing / screen — framebuffer draws and text are portable; `screen`
-        # selects a rendering model a backend can honor (the raw-register form and
-        # GBA-only modes like affine are a per-argument nuance for when a web backend
-        # exists to care — a per-kind tag can't express them).
-        screen: :portable, pixel: :portable, fill_rect: :portable, clear_screen: :portable,
-        draw_rect_at: :portable, draw_column_at: :portable, draw_text: :portable,
-        dma_fill_rect: :portable, blit: :portable,
-        draw_digit: :portable, # index a font by a run-time digit — any backend can
-        blit_pose: :portable,  # pick one of a set of images by a run-time index — any backend can
-        background: :portable, # stamp a grid of tiles — pixels or tile hardware, any backend can
-        scroll_background: :portable, # move the window over a map — re-render or nudge scroll regs
-        affine_background: :portable, # turn/resize a whole background — sample it transformed, or hand it to rotate/scale hardware
-        scroll_rows: :portable,       # a sideways offset per row — read it per row, or per scanline
-        camera: :portable,            # offset the whole picture — a display offset anywhere
-        fade: :portable,              # blend the whole picture toward a color — any backend can
-        tint: :portable,              # ...and toward any color at all — likewise
-        see_through: :portable,       # how much of what is behind a layer shows — any backend can
-        # a composited moving picture — software compositing or sprite hardware, any backend can
-        object: :portable, present_objects: :portable,
-        # one cell of the scenery becomes a different tile — every backend has a map to change
-        set_tile: :portable,
-        # ...and the whole of it becomes another map — likewise: every backend holds the maps
-        # a background was declared with, and can put a different one in its cells
-        show_map: :portable,
-        # ...and the whole layer draws from another list of colours — a swap by place, which
-        # any backend that knows what colours a picture was drawn from can make
-        background_colors: :portable,
-        # save/restore a screen patch — copying pixels to/from a buffer, any backend can
-        save_region: :portable, restore_region: :portable,
-
-        # audio — square-wave PSG, noise, and wavetables a web-audio backend can synthesize
-        enable_sound: :portable, define_sound: :portable, beep: :portable, noise: :portable,
-        wave: :portable, stop_wave: :portable,
-        song: :portable, play_song: :portable, stop_music: :portable,
-        # ...and songs picked by a number from a list — every backend holds the list
-        song_list: :portable, play_from_list: :portable,
-        # ...and songs played once over the tune, sharing voices by a number any backend compares
-        sound_effect_list: :portable, play_sound_effect: :portable,
-        # sampled PCM audio — recorded sound any backend with a mixer can play back
-        play_sample: :portable, stop_sample: :portable,
-
-        # control flow
-        if: :portable, else: :portable, loop: :portable, repeat: :portable, inside: :portable,
-        func: :portable, call: :portable, case: :portable, wait_vblank: :portable, halt: :portable,
-        call_one_of: :portable, # a routine picked by number — every backend holds the list
-        every: :portable, after: :portable, # timed triggers: plain counter logic any backend can run
-        # hardware timers: the node carries a rate in Hz (portable intent) — a backend
-        # realizes it however it likes (GBA timer registers, or a frame-clock model).
-        # on_timer's handler body runs once per overflow — plain repetition any backend models.
-        timer_start: :portable, timer_stop: :portable, on_timer: :portable,
-
-        # the opaque escape hatch — pre-assembled native bytes no backend can model
-        raw: :hardware_only,
-
-        # reading the live scanline (VCOUNT): only a real console is drawing one, so
-        # the headless interpreter (which has no real timing) can't model it
-        read_scanline: :hardware_only,
-
-        # the stack of depths a picture is built from — an order any backend can honor,
-        # whether it stacks in hardware or just paints back-to-front
-        layers: :portable,
-        see_through_layer: :portable,
-
-        # embedded data
-        data: :portable, bitmap: :portable, backing_buffer: :portable, font: :portable,
-        sample: :portable, # embedded 8-bit PCM sound data
-        table: :portable,  # a build-time array of numbers, read at a run-time index
-
-        # lists
-        list_new: :portable, list_push: :portable, list_drop: :portable, list_set: :portable,
-
-        # expression values
-        int: :portable, var_ref: :portable, binop: :portable, neg: :portable,
-        bit_not: :portable, # Int32.bit_not defines the answer — two's complement, any backend
-        absolute: :portable, clamped: :portable,
-        # a multiply whose product is formed at full width — the answer is defined by
-        # Int32.mul_fix, which any backend can compute; only HOW differs
-        mul_fix: :portable,
-        div_fix: :portable, # likewise Int32.div_fix defines the answer
-        shift_right: :portable, # Int32.shift_right defines the answer, rounding down
-        data_byte: :portable, list_get: :portable, list_len: :portable,
-        table_get: :portable, # read a ROM table at a run-time index — any backend can
-        timer_ticks: :portable, # elapsed timer overflows — a plain counter any backend can model
-        held: :portable, pressed: :portable,
-        chance: :portable, # a random draw compared to a threshold — plain arithmetic
-        pixels_overlap: :portable, # reads each sprite's picture; any backend with the images can test it
-      }.freeze
-
-      # The tier of a kind (a Symbol) or a Node. Raises on an unclassified kind —
-      # a new primitive with no tag is drift, caught here rather than silently
-      # assumed portable (which would falsely promise it runs on the web).
+      # The tier of a kind (a Symbol) or a Node. Raises on a name that is no kind.
       def of(node_or_kind)
         kind = node_or_kind.is_a?(Node) ? node_or_kind.kind : node_or_kind
         TIER.fetch(kind) do
           raise ArgumentError,
-                "no portability tag for IR kind #{kind.inspect} — add it to Portability::TIER " \
-                "(:portable or :hardware_only)"
+                "no IR kind #{kind.inspect}, so it has no portability tier"
         end
       end
 

@@ -16,8 +16,8 @@ require "test_helper"
 # interpreter legitimately can't run (there's no ARM CPU behind it). It lives in
 # an UNCALLED func here: present in the tree (so the GBA backend lowers it and
 # coverage sees it), but never reached during interpretation. Which kinds are
-# exempt comes straight from the portability tags (Portability::TIER), the single
-# source of truth — not a list hardcoded here.
+# exempt comes straight from each kind's own tier (see Node::Declarations#tier) —
+# not a list hardcoded here.
 module ConformanceFixture
   B = RubyGBA::IR::Build
 

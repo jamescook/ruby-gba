@@ -4,28 +4,19 @@ require "test_helper"
 
 # Portability tiers: every IR node kind is tagged portable or hardware-only, so a
 # preflight/lint can tell a program apart that runs anywhere from one pinned to
-# the GBA. These tests lock the classification to the node model (no kind may go
-# untagged) and exercise the queries a lint consumes.
+# the GBA. Each kind says its tier where it is declared; these tests check the tiers
+# and exercise the queries a lint consumes.
 class TestIRPortability < Minitest::Test
   include RubyGBA::IR::Build
 
   Node = RubyGBA::IR::Node
   Portability = RubyGBA::IR::Portability
 
-  # ---- the coverage lock: no kind may go untagged ----
+  # ---- every kind says its tier where it is declared ----
 
-  def test_every_node_kind_has_a_tier
-    missing = RubyGBA::IR::Nodes.by_kind.keys - Portability::TIER.keys
-    assert_empty missing, "these kinds have no portability tag (a new kind must be classified): #{missing}"
-  end
-
-  def test_the_tier_table_has_no_rows_for_unknown_kinds
-    stray = Portability::TIER.keys - RubyGBA::IR::Nodes.by_kind.keys
-    assert_empty stray, "these TIER rows name kinds that have no class in IR::Nodes: #{stray}"
-  end
-
-  def test_every_tag_is_a_known_tier
-    Portability::TIER.each do |kind, tier|
+  def test_every_kind_has_a_known_tier
+    RubyGBA::IR::Nodes.by_kind.each do |kind, type|
+      tier = type.tier
       assert_includes Portability::TIERS, tier, "#{kind} has an unknown tier #{tier.inspect}"
     end
   end
@@ -57,10 +48,9 @@ class TestIRPortability < Minitest::Test
     assert_equal :hardware_only, Portability.of(raw("\x00\x00\x00\x00".b))
   end
 
-  def test_an_untagged_kind_raises
-    # Drift backstop: an unclassified kind is refused, not silently called portable.
+  def test_a_name_that_is_no_kind_raises
     err = assert_raises(ArgumentError) { Portability.of(:frobnicate) }
-    assert_match(/no portability tag for IR kind :frobnicate/, err.message)
+    assert_match(/no IR kind :frobnicate/, err.message)
   end
 
   # ---- a program's tier is the floor over its nodes ----

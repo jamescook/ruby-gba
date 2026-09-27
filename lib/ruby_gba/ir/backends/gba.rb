@@ -387,10 +387,14 @@ module RubyGBA
             read_scanline: @expressions.method(:eval_read_scanline), timer_ticks: method(:eval_timer_ticks),
           )
           # Every statement kind's handler, registered once in one place — see {Lowering}.
-          # The definition kinds are collected during the definitions pass, earlier in
-          # #lower, and emit nothing here — Lowering::NOTHING says so explicitly.
+          # A declaration is collected during the definitions pass, earlier in #lower, and emits
+          # nothing where it is written — every kind that says it is one (see Nodes.of_role)
+          # gets Lowering::NOTHING, rather than a list of them kept here. The two below that
+          # are not declarations but emit nothing here either are this backend's own business:
+          # a row bend and a timer handler are armed from the definitions pass.
+          @lowering.statements(**IR::Nodes.of_role(:declaration).to_h { |kind| [kind, Lowering::NOTHING] })
           @lowering.statements(
-            func: Lowering::NOTHING, set: @statements.method(:emit_set), add: @statements.method(:emit_add),
+            set: @statements.method(:emit_set), add: @statements.method(:emit_add),
             sub: @statements.method(:emit_sub), copy: @statements.method(:emit_copy),
             negate: @statements.method(:emit_negate), abs: @statements.method(:emit_abs),
             negate_abs: @statements.method(:emit_negate_abs), clamp: @statements.method(:emit_clamp),
@@ -418,18 +422,14 @@ module RubyGBA
             background_colors: @background_drawing.method(:emit_background_colors),
             present_objects: @sprite_drawing.method(:emit_present_objects), save_region: @drawing.method(:emit_save_region),
             restore_region: @drawing.method(:emit_restore_region), enable_sound: @audio.method(:emit_enable_sound),
-            define_sound: Lowering::NOTHING, song: Lowering::NOTHING, data: Lowering::NOTHING,
-            bitmap: Lowering::NOTHING, backing_buffer: Lowering::NOTHING, object: Lowering::NOTHING,
-            font: Lowering::NOTHING,
-            table: Lowering::NOTHING, layers: Lowering::NOTHING, see_through_layer: Lowering::NOTHING,
             beep: @audio.method(:emit_beep),
             noise: @audio.method(:emit_noise), wave: @audio.method(:emit_wave),
             stop_wave: @audio.method(:emit_stop_wave),
             play_song: @audio.method(:emit_play_song), stop_music: @audio.method(:emit_stop_music),
-            song_list: Lowering::NOTHING, play_from_list: @audio.method(:emit_play_from_list),
-            sound_effect_list: Lowering::NOTHING, play_sound_effect: @audio.method(:emit_play_sound_effect),
+            play_from_list: @audio.method(:emit_play_from_list),
+            play_sound_effect: @audio.method(:emit_play_sound_effect),
             timer_start: method(:emit_timer_start), timer_stop: method(:emit_timer_stop),
-            on_timer: Lowering::NOTHING, sample: Lowering::NOTHING, play_sample: @mixer.method(:emit_play_sample),
+            on_timer: Lowering::NOTHING, play_sample: @mixer.method(:emit_play_sample),
             stop_sample: @mixer.method(:emit_stop_sample),
           )
           @layer_stack = []      # the layers the program declared, backmost first
@@ -1104,10 +1104,7 @@ module RubyGBA
             when :func
               @functions.funcs[node.name] = node
             when :define_sound
-              @defined_sounds[node.name] = RubyGBA::Audio::Sound::Effect.new(
-                frequency: node.frequency, duty: node.duty,
-                decay: node.decay, volume: node.volume,
-              )
+              @defined_sounds[node.name] = node.effect
             when :song
               @songs[node.name] = node
             when :table

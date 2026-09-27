@@ -41,7 +41,10 @@ module RubyGBA
 
 
       # What a kind declares about itself. Three lines at the top of each class: its name on
-      # the wire, the section it belongs to, and its operands.
+      # the wire, the section it belongs to, and its operands — and a fourth for a kind that
+      # is not an ordinary statement every backend runs: `tier :hardware_only`,
+      # `declaration!` or `part!`. Portability and both backends read these rather than
+      # keeping lists of kinds of their own (see Nodes.of_role).
       module Declarations
         # This kind's name — the symbol the tree, the reports and the tests speak in.
         def kind(name = nil)
@@ -51,6 +54,38 @@ module RubyGBA
         # Which section of a frame's work this kind belongs to (see CATEGORIES).
         def category(name = nil)
           name ? @category = name : @category
+        end
+
+        # Whether every backend can run this kind (:portable, the default) or only real
+        # hardware can (:hardware_only) — opaque bytes, or a reading of the display nothing
+        # else has. See Portability.
+        def tier(name = nil)
+          name ? @tier = name : (@tier || :portable)
+        end
+
+        # A DECLARATION: something gathered from the whole program before it runs — a
+        # picture, a tune, a routine's body — so reaching one where it is written does
+        # nothing, on every backend.
+        def declaration!
+          @declaration = true
+        end
+
+        # PART OF ANOTHER KIND'S SHAPE, never run on its own: whatever it hangs from walks its
+        # children itself.
+        def part!
+          @part = true
+        end
+
+        # What part this kind plays where it sits in the tree: :value, an operand some other
+        # node reads; :declaration (see #declaration!); :part (see #part!); :root, the program
+        # itself; or :statement, something that happens where it is written.
+        def role
+          return :value if category == :value
+          return :declaration if @declaration
+          return :part if @part
+          return :root if category == :root
+
+          :statement
         end
 
         # The operands this kind carries, each with what it must hold. The names become real

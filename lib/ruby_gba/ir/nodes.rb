@@ -125,6 +125,7 @@ module RubyGBA
       class BackingBuffer
         include Node
         kind :backing_buffer
+        declaration!
         category :data
         operands name: :name, width: :int, height: :int
       end
@@ -174,6 +175,7 @@ module RubyGBA
       class Bitmap
         include Node
         kind :bitmap
+        declaration!
         category :data
         operands name: :name, width: :int, height: :int, pixels: :text, transparent: :int,
                  colors: :list, places: :text
@@ -266,6 +268,7 @@ module RubyGBA
       class Data
         include Node
         kind :data
+        declaration!
         category :data
         operands name: :name, bytes: :text
       end
@@ -280,8 +283,12 @@ module RubyGBA
       class DefineSound
         include Node
         kind :define_sound
+        declaration!
         category :sound
         operands name: :name, frequency: :int, duty: :option, decay: :option, volume: :int
+
+        # The sound this declares, as every backend plays it.
+        def effect = RubyGBA::Audio::Sound::Effect.new(frequency: frequency, duty: duty, decay: decay, volume: volume)
       end
 
       class DivFix
@@ -353,6 +360,7 @@ module RubyGBA
       class Else
         include Node
         kind :else
+        part!
         category :control
       end
 
@@ -386,6 +394,7 @@ module RubyGBA
       class Func
         include Node
         kind :func
+        declaration!
         category :control
         operands name: :name, fast: :flag
       end
@@ -446,6 +455,7 @@ module RubyGBA
       class Layers
         include Node
         kind :layers
+        declaration!
         category :data
         operands names: :list, see_through: :list
       end
@@ -467,6 +477,7 @@ module RubyGBA
       class SeeThroughLayer
         include Node
         kind :see_through_layer
+        declaration!
         category :data
         operands name: :name, shows: :value, behind: :value, split: :flag
       end
@@ -577,6 +588,7 @@ module RubyGBA
       class Object
         include Node
         kind :object
+        declaration!
         category :draw
         # +scene+ is the game state this thing belongs to, where it was declared inside
         # one. It is on screen only while that state is active, which the +active+
@@ -671,6 +683,7 @@ module RubyGBA
       class Font
         include Node
         kind :font
+        declaration!
         category :data
         operands name: :name, font: :font
       end
@@ -678,6 +691,7 @@ module RubyGBA
       class Raw
         include Node
         kind :raw
+        tier :hardware_only
         category :control
         operands bytes: :text
       end
@@ -685,6 +699,7 @@ module RubyGBA
       class ReadScanline
         include Node
         kind :read_scanline
+        tier :hardware_only
         category :value
       end
 
@@ -713,6 +728,7 @@ module RubyGBA
       class Sample
         include Node
         kind :sample
+        declaration!
         category :data
         operands name: :name, bytes: :text, rate: :int, note: :option,
                  envelope: :shape, holds_from: :int
@@ -811,6 +827,7 @@ module RubyGBA
       class Song
         include Node
         kind :song
+        declaration!
         category :sound
         operands name: :name, voices: :score, total_frames: :int, loop_frame: :int, priority: :int,
                  group: :name
@@ -822,6 +839,7 @@ module RubyGBA
       class SoundEffectList
         include Node
         kind :sound_effect_list
+        declaration!
         category :sound
         operands name: :name, effects: :list
       end
@@ -841,6 +859,7 @@ module RubyGBA
       class SongList
         include Node
         kind :song_list
+        declaration!
         category :sound
         operands name: :name, songs: :list
       end
@@ -884,6 +903,7 @@ module RubyGBA
       class Table
         include Node
         kind :table
+        declaration!
         category :data
         operands name: :name, values: :list, width: :option, signed: :flag
       end
@@ -949,6 +969,13 @@ module RubyGBA
                                                .to_h { |type| [type.kind, type] })
 
       def self.by_kind = BY_KIND
+
+      # Every kind playing +role+ (see Node::Declarations#role), by name — what a backend's
+      # handler table has to cover.
+      BY_ROLE = Ractor.make_shareable(BY_KIND.group_by { |_kind, type| type.role }
+                                             .transform_values { |pairs| pairs.map(&:first) })
+
+      def self.of_role(role) = BY_ROLE.fetch(role, [])
 
       # Build a node of the named kind. The one place a kind SYMBOL becomes a class, for
       # callers that have the name rather than the type.

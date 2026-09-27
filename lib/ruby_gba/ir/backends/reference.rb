@@ -409,10 +409,7 @@ module RubyGBA
             when :func
               @funcs[n.name] = n
             when :define_sound
-              @defined_sounds[n.name] = Audio::Sound::Effect.new(
-                frequency: n.frequency, duty: n.duty,
-                decay: n.decay, volume: n.volume,
-              )
+              @defined_sounds[n.name] = n.effect
             when :song
               @player.declare(n)
             when :song_list
@@ -515,6 +512,80 @@ module RubyGBA
             "one frame."
         end
 
+        # WHAT EACH KIND OF STATEMENT DOES, one method per kind, looked up by the kind's name —
+        # the same shape as the console's table (Backends::GBA::Lowering), and read by the
+        # coverage test that holds both backends to every kind. A declaration is gathered before
+        # the program runs, so its row is #run_declaration, which does nothing — every kind that
+        # says it is one gets that row, rather than a list of them kept here.
+        STATEMENTS = {
+          program: :run_program,
+          set: :run_set,
+          add: :run_add,
+          sub: :run_sub,
+          copy: :run_copy,
+          negate: :run_negate,
+          abs: :run_abs,
+          negate_abs: :run_negate_abs,
+          clamp: :run_clamp,
+          save_init: :exec_save_init,
+          save_store: :exec_save_store,
+          save_write: :exec_save_write,
+          if: :run_if,
+          loop: :run_loop,
+          inside: :run_inside,
+          repeat: :run_repeat,
+          every: :run_every,
+          after: :run_after,
+          list_new: :run_list_new,
+          list_push: :exec_list_push,
+          list_drop: :exec_list_drop,
+          list_set: :exec_list_set,
+          blit: :exec_blit,
+          blit_pose: :exec_blit_pose,
+          save_region: :exec_save_region,
+          restore_region: :exec_restore_region,
+          call: :run_call,
+          call_one_of: :exec_call_one_of,
+          case: :exec_case,
+          halt: :run_halt,
+          wait_vblank: :run_wait_vblank,
+          screen: :run_screen,
+          clear_screen: :run_clear_screen,
+          pixel: :run_pixel,
+          fill_rect: :run_fill_rect,
+          dma_fill_rect: :run_dma_fill_rect,
+          draw_rect_at: :run_draw_rect_at,
+          draw_column_at: :exec_draw_column_at,
+          draw_text: :exec_draw_text,
+          draw_digit: :exec_draw_digit,
+          background: :exec_background,
+          scroll_background: :exec_scroll_background,
+          affine_background: :exec_affine_background,
+          background_colors: :exec_background_colors,
+          scroll_rows: :run_scroll_rows,
+          camera: :run_camera,
+          fade: :exec_fade,
+          tint: :exec_tint,
+          see_through: :exec_see_through,
+          present_objects: :exec_present_objects,
+          set_tile: :exec_set_tile,
+          show_map: :exec_show_map,
+          enable_sound: :run_enable_sound,
+          beep: :run_beep,
+          noise: :run_noise,
+          wave: :run_wave,
+          stop_wave: :run_stop_wave,
+          play_song: :run_play_song,
+          play_from_list: :run_play_from_list,
+          play_sound_effect: :run_play_sound_effect,
+          stop_music: :run_stop_music,
+          play_sample: :run_play_sample,
+          stop_sample: :run_stop_sample,
+          timer_start: :run_timer_start,
+          timer_stop: :run_timer_stop,
+          on_timer: :run_on_timer,
+        }.merge(Nodes.of_role(:declaration).to_h { |kind| [kind, :run_declaration] }).freeze
+
         def exec(node)
           tick!
           # The interpreter is a portable-only backend: it faithfully models every
@@ -530,243 +601,269 @@ module RubyGBA
           end
           settle_the_picture if @picture_owed && !leaves_the_picture_owed?(node)
 
-          case node.kind
-          when :program
-            node.children.each { |child| exec(child) }
-          when :func
-            # A func body runs only when something `call`s it, never inline here.
-            nil
-          when :set
-            @vars[node.var] = eval_value(node.value)
-          when :add
-            @vars[node.var] = Int32.add(@vars[node.var], eval_value(node.operand))
-          when :sub
-            @vars[node.var] = Int32.sub(@vars[node.var], eval_value(node.operand))
-          when :copy
-            @vars[node.dest] = @vars[node.src]
-          when :negate
-            @vars[node.var] = Int32.neg(@vars[node.var])
-          when :abs
-            # |v|: flip it only when it's negative.
-            v = @vars[node.var]
-            @vars[node.var] = v.negative? ? Int32.neg(v) : v
-          when :negate_abs
-            # -|v|: flip it only when it's positive.
-            v = @vars[node.var]
-            @vars[node.var] = v.positive? ? Int32.neg(v) : v
-          when :clamp
-            @vars[node.var] = clamp_value(@vars[node.var], eval_value(node.min),
-                                            eval_value(node.max))
-          when :save_init
-            exec_save_init(node)
-          when :save_store
-            exec_save_store(node)
-          when :save_write
-            exec_save_write(node)
-          when :if
-            if eval_value(node.cond).zero?
-              node.else&.children&.each { |child| exec(child) }
-            else
-              node.children.each { |child| exec(child) }
-            end
-          when :loop
-            loop { node.children.each { |child| exec(child) } }
-          when :inside
-            # Hold every cell the children paint inside these edges. The screen answers that
-            # question once, for everything, which is why the interpreter needs no per-shape
-            # arithmetic here and the other backend does.
-            # ...and give back whatever area was in force before, not "anywhere": a routine
-            # with an area of its own may be called from inside another's, and the caller's
-            # edges still hold for what it draws after the call — as they do on the console,
-            # where they are baked into every shape there.
-            outer = @screen.area
-            @screen.draw_inside(node.x, node.y, node.w, node.h)
-            begin
-              node.children.each { |child| exec(child) }
-            ensure
-              @screen.draw_within(outer)
-            end
-          when :repeat
-            # A counted loop: the index counts 0..count-1. Evaluate count once,
-            # like a for-loop bound. tick! guards the step budget even when the
-            # body is empty.
-            count = eval_value(node.count)
-            i = 0
-            while i < count
-              tick!
-              @vars[node.index] = i
-              # Checked BEFORE the body, so a loop that is already finished on its first pass
-              # runs the body no times at all — the same reading on both backends.
-              break if node.stop_when && !eval_value(node.stop_when).zero?
-
-              node.children.each { |child| exec(child) }
-              i += 1
-            end
-          when :every
-            # A repeating timer, counted in FRAMES rather than in times this code ran: a pass of
-            # the game loop is one frame on a program that keeps up and more on one that does
-            # not, and a beat given in seconds has to be that many seconds either way. Taking
-            # the period off rather than clearing to nought keeps the remainder, so a beat that
-            # overshoots does not drift further every time.
-            @vars[node.counter] = Int32.add(@vars[node.counter], frame_step)
-            if @vars[node.counter] >= node.period
-              @vars[node.counter] = Int32.sub(@vars[node.counter], node.period)
-              node.children.each { |child| exec(child) }
-            end
-          when :after
-            # A one-shot timer, likewise — and the test is REACHED rather than LANDED ON,
-            # because a pass worth two frames can step over the frame it was waiting for.
-            if @vars[node.counter] < node.frames
-              @vars[node.counter] = Int32.add(@vars[node.counter], frame_step)
-              node.children.each { |child| exec(child) } if @vars[node.counter] >= node.frames
-            end
-          when :layers
-            nil # a declaration, gathered up front (collect_definitions) — nothing to run
-          when :list_new
-            # Create (or reset) the named list, empty, at its capacity and element width.
-            @lists[node.name] = ListValue.new(node.capacity, width: node.width || :word)
-          when :list_push
-            exec_list_push(node)
-          when :list_drop
-            exec_list_drop(node)
-          when :list_set
-            exec_list_set(node)
-          when :blit
-            exec_blit(node)
-          when :blit_pose
-            exec_blit_pose(node)
-          when :save_region
-            exec_save_region(node)
-          when :restore_region
-            exec_restore_region(node)
-          when :call
-            exec_call(node.target)
-          when :call_one_of
-            exec_call_one_of(node)
-          when :case
-            exec_case(node)
-          when :halt
-            @log << [:halt]
-            throw :halt
-          when :wait_vblank
-            advance_frame
-          when :screen
-            # Remember the chosen mode; the fake screen already models the bitmap the
-            # draw ops assume. Double buffering (node.buffered) asks it for a second
-            # page: the display shows one picture while the program draws into the other,
-            # and they trade places at the frame boundary. A frame's drawing therefore
-            # lands on one of the two, so a program that adds to what is already there
-            # puts half its additions on each page. See Framebuffer#paged=.
-            #
-            # Handing over to another KIND of screen replaces the whole display (see
-            # IR::SceneHandover), so the old picture is wiped and nothing is up any more: a
-            # scene's scenery is put up again when it comes back rather than taken as still
-            # there. A switch between single- and double-buffered bitmap keeps the same
-            # surface, so it wipes nothing.
-            if IR::SceneHandover.crossing?(@screen_mode, node.mode)
-              @screen.clear(0)
-              forget_the_scenery_on_screen
-            end
-            @screen_mode = node.mode
-            @buffered = node.buffered || false
-            @screen.paged = @buffered
-          when :clear_screen
-            @screen.clear(resolve_color(node.color))
-          when :pixel
-            @screen.set_pixel(eval_value(node.x), eval_value(node.y), resolve_color(node.color))
-          when :fill_rect
-            @screen.fill_rect(eval_value(node.x), eval_value(node.y),
-                              eval_value(node.w), eval_value(node.h),
-                              resolve_color(node.color))
-          when :dma_fill_rect
-            # Same picture as fill_rect — the "DMA" is only how a console fills it
-            # fast; the pixels that land are identical.
-            @screen.fill_rect(eval_value(node.x), eval_value(node.y),
-                              eval_value(node.w), eval_value(node.h),
-                              resolve_color(node.color))
-          when :draw_rect_at
-            # A rectangle whose position and size are all computed at run time. A width
-            # or height of zero or less covers no pixels, so nothing is drawn.
-            @screen.fill_rect(eval_value(node.x), eval_value(node.y),
-                              eval_value(node.w), eval_value(node.h), resolve_color(node.color))
-          when :draw_column_at
-            exec_draw_column_at(node)
-          when :draw_text
-            exec_draw_text(node)
-          when :draw_digit
-            exec_draw_digit(node)
-          when :background
-            exec_background(node)
-          when :scroll_background
-            exec_scroll_background(node)
-          when :affine_background
-            exec_affine_background(node)
-          when :background_colors
-            exec_background_colors(node)
-          when :scroll_rows
-            # A standing declaration, gathered up front (collect_definitions) — the bend
-            # is read while a row is painted, not where it was written. Reaching it inline
-            # repaints, so a program that only bends still shows the bend.
-            composite_scrolled_frame
-          when :camera
-            @screen.camera_to(eval_value(node.x), eval_value(node.y))
-          when :fade
-            exec_fade(node)
-          when :tint
-            exec_tint(node)
-          when :see_through
-            exec_see_through(node)
-          when :present_objects
-            exec_present_objects(node)
-          when :set_tile
-            exec_set_tile(node)
-          when :show_map
-            exec_show_map(node)
-          when :enable_sound
-            @audio << [:enabled]
-          when :define_sound, :song, :song_list, :sound_effect_list, :sample, :data, :bitmap, :backing_buffer,
-               :object, :table, :font
-            # Definitions: gathered up front, so reaching one inline does nothing
-            # (just like a func body).
-            nil
-          when :beep
-            @audio << [:beep, resolve_effect(node)]
-          when :noise
-            @audio << [:noise, resolve_noise(node)]
-          when :wave
-            @audio << [:wave, { shape: node.shape, frequency: node.frequency, volume: node.volume }]
-          when :stop_wave
-            @audio << [:stop_wave]
-          when :play_song
-            # Names the tune; the player takes it up at the next frame (see Player#advance).
-            @player.wants(node.name)
-          when :play_from_list
-            # The number is worked out HERE and handed over: which song a game picks can be an
-            # expression, and evaluating one is the interpreter's business, not the player's.
-            @player.wants_number(node.name, eval_value(node.which))
-          when :play_sound_effect
-            @player.wants_effect(node.name, eval_value(node.which))
-          when :stop_music
-            @player.stop
-          when :play_sample
-            @mixer.start(node)
-          when :stop_sample
-            @mixer.stop(node.name)
-          when :timer_start
-            # Start (or restart) a timer: it now runs at hz overflows/sec, its elapsed
-            # count reset to zero (advance_frame accrues the overflows each frame).
-            @timers[node.name] = { hz: node.hz, running: true, overflows: 0.0 }
-          when :timer_stop
-            @timers[node.name]&.[]=(:running, false)
-          when :on_timer
-            # Arm the handler: its body runs on each of the timer's overflows, which
-            # advance_frame drives as the timer accrues them.
-            @timer_handlers[node.timer] = node
-          else
+          handler = STATEMENTS.fetch(node.kind) do
             raise ProgramError,
                   "the reference backend cannot execute #{node.kind.inspect} " \
                   "(#{node.category}) yet"
           end
+          send(handler, node)
+        end
+
+        def run_program(node)
+          node.children.each { |child| exec(child) }
+        end
+
+        # A declaration: gathered before the program runs (see #collect_definitions), so nothing
+        # happens where it is written, just as a func body runs only when something calls it.
+        def run_declaration(_node) = nil
+
+        def run_set(node)
+          @vars[node.var] = eval_value(node.value)
+        end
+
+        def run_add(node)
+          @vars[node.var] = Int32.add(@vars[node.var], eval_value(node.operand))
+        end
+
+        def run_sub(node)
+          @vars[node.var] = Int32.sub(@vars[node.var], eval_value(node.operand))
+        end
+
+        def run_copy(node)
+          @vars[node.dest] = @vars[node.src]
+        end
+
+        def run_negate(node)
+          @vars[node.var] = Int32.neg(@vars[node.var])
+        end
+
+        def run_abs(node)
+          # |v|: flip it only when it's negative.
+          v = @vars[node.var]
+          @vars[node.var] = v.negative? ? Int32.neg(v) : v
+        end
+
+        def run_negate_abs(node)
+          # -|v|: flip it only when it's positive.
+          v = @vars[node.var]
+          @vars[node.var] = v.positive? ? Int32.neg(v) : v
+        end
+
+        def run_clamp(node)
+          @vars[node.var] = clamp_value(@vars[node.var], eval_value(node.min),
+                                          eval_value(node.max))
+        end
+
+        def run_if(node)
+          if eval_value(node.cond).zero?
+            node.else&.children&.each { |child| exec(child) }
+          else
+            node.children.each { |child| exec(child) }
+          end
+        end
+
+        def run_loop(node)
+          loop { node.children.each { |child| exec(child) } }
+        end
+
+        def run_inside(node)
+          # Hold every cell the children paint inside these edges. The screen answers that
+          # question once, for everything, which is why the interpreter needs no per-shape
+          # arithmetic here and the other backend does.
+          # ...and give back whatever area was in force before, not "anywhere": a routine
+          # with an area of its own may be called from inside another's, and the caller's
+          # edges still hold for what it draws after the call — as they do on the console,
+          # where they are baked into every shape there.
+          outer = @screen.area
+          @screen.draw_inside(node.x, node.y, node.w, node.h)
+          begin
+            node.children.each { |child| exec(child) }
+          ensure
+            @screen.draw_within(outer)
+          end
+        end
+
+        def run_repeat(node)
+          # A counted loop: the index counts 0..count-1. Evaluate count once,
+          # like a for-loop bound. tick! guards the step budget even when the
+          # body is empty.
+          count = eval_value(node.count)
+          i = 0
+          while i < count
+            tick!
+            @vars[node.index] = i
+            # Checked BEFORE the body, so a loop that is already finished on its first pass
+            # runs the body no times at all — the same reading on both backends.
+            break if node.stop_when && !eval_value(node.stop_when).zero?
+
+            node.children.each { |child| exec(child) }
+            i += 1
+          end
+        end
+
+        def run_every(node)
+          # A repeating timer, counted in FRAMES rather than in times this code ran: a pass of
+          # the game loop is one frame on a program that keeps up and more on one that does
+          # not, and a beat given in seconds has to be that many seconds either way. Taking
+          # the period off rather than clearing to nought keeps the remainder, so a beat that
+          # overshoots does not drift further every time.
+          @vars[node.counter] = Int32.add(@vars[node.counter], frame_step)
+          if @vars[node.counter] >= node.period
+            @vars[node.counter] = Int32.sub(@vars[node.counter], node.period)
+            node.children.each { |child| exec(child) }
+          end
+        end
+
+        def run_after(node)
+          # A one-shot timer, likewise — and the test is REACHED rather than LANDED ON,
+          # because a pass worth two frames can step over the frame it was waiting for.
+          if @vars[node.counter] < node.frames
+            @vars[node.counter] = Int32.add(@vars[node.counter], frame_step)
+            node.children.each { |child| exec(child) } if @vars[node.counter] >= node.frames
+          end
+        end
+
+        def run_list_new(node)
+          # Create (or reset) the named list, empty, at its capacity and element width.
+          @lists[node.name] = ListValue.new(node.capacity, width: node.width || :word)
+        end
+
+        def run_call(node)
+          exec_call(node.target)
+        end
+
+        def run_halt(node)
+          @log << [:halt]
+          throw :halt
+        end
+
+        def run_wait_vblank(node)
+          advance_frame
+        end
+
+        def run_screen(node)
+          # Remember the chosen mode; the fake screen already models the bitmap the
+          # draw ops assume. Double buffering (node.buffered) asks it for a second
+          # page: the display shows one picture while the program draws into the other,
+          # and they trade places at the frame boundary. A frame's drawing therefore
+          # lands on one of the two, so a program that adds to what is already there
+          # puts half its additions on each page. See Framebuffer#paged=.
+          #
+          # Handing over to another KIND of screen replaces the whole display (see
+          # IR::SceneHandover), so the old picture is wiped and nothing is up any more: a
+          # scene's scenery is put up again when it comes back rather than taken as still
+          # there. A switch between single- and double-buffered bitmap keeps the same
+          # surface, so it wipes nothing.
+          if IR::SceneHandover.crossing?(@screen_mode, node.mode)
+            @screen.clear(0)
+            forget_the_scenery_on_screen
+          end
+          @screen_mode = node.mode
+          @buffered = node.buffered || false
+          @screen.paged = @buffered
+        end
+
+        def run_clear_screen(node)
+          @screen.clear(resolve_color(node.color))
+        end
+
+        def run_pixel(node)
+          @screen.set_pixel(eval_value(node.x), eval_value(node.y), resolve_color(node.color))
+        end
+
+        def run_fill_rect(node)
+          @screen.fill_rect(eval_value(node.x), eval_value(node.y),
+                            eval_value(node.w), eval_value(node.h),
+                            resolve_color(node.color))
+        end
+
+        def run_dma_fill_rect(node)
+          # Same picture as fill_rect — the "DMA" is only how a console fills it
+          # fast; the pixels that land are identical.
+          @screen.fill_rect(eval_value(node.x), eval_value(node.y),
+                            eval_value(node.w), eval_value(node.h),
+                            resolve_color(node.color))
+        end
+
+        def run_draw_rect_at(node)
+          # A rectangle whose position and size are all computed at run time. A width
+          # or height of zero or less covers no pixels, so nothing is drawn.
+          @screen.fill_rect(eval_value(node.x), eval_value(node.y),
+                            eval_value(node.w), eval_value(node.h), resolve_color(node.color))
+        end
+
+        def run_scroll_rows(node)
+          # A standing declaration, gathered up front (collect_definitions) — the bend
+          # is read while a row is painted, not where it was written. Reaching it inline
+          # repaints, so a program that only bends still shows the bend.
+          composite_scrolled_frame
+        end
+
+        def run_camera(node)
+          @screen.camera_to(eval_value(node.x), eval_value(node.y))
+        end
+
+        def run_enable_sound(node)
+          @audio << [:enabled]
+        end
+
+        def run_beep(node)
+          @audio << [:beep, resolve_effect(node)]
+        end
+
+        def run_noise(node)
+          @audio << [:noise, resolve_noise(node)]
+        end
+
+        def run_wave(node)
+          @audio << [:wave, { shape: node.shape, frequency: node.frequency, volume: node.volume }]
+        end
+
+        def run_stop_wave(node)
+          @audio << [:stop_wave]
+        end
+
+        def run_play_song(node)
+          # Names the tune; the player takes it up at the next frame (see Player#advance).
+          @player.wants(node.name)
+        end
+
+        def run_play_from_list(node)
+          # The number is worked out HERE and handed over: which song a game picks can be an
+          # expression, and evaluating one is the interpreter's business, not the player's.
+          @player.wants_number(node.name, eval_value(node.which))
+        end
+
+        def run_play_sound_effect(node)
+          @player.wants_effect(node.name, eval_value(node.which))
+        end
+
+        def run_stop_music(node)
+          @player.stop
+        end
+
+        def run_play_sample(node)
+          @mixer.start(node)
+        end
+
+        def run_stop_sample(node)
+          @mixer.stop(node.name)
+        end
+
+        def run_timer_start(node)
+          # Start (or restart) a timer: it now runs at hz overflows/sec, its elapsed
+          # count reset to zero (advance_frame accrues the overflows each frame).
+          @timers[node.name] = { hz: node.hz, running: true, overflows: 0.0 }
+        end
+
+        def run_timer_stop(node)
+          @timers[node.name]&.[]=(:running, false)
+        end
+
+        def run_on_timer(node)
+          # Arm the handler: its body runs on each of the timer's overflows, which
+          # advance_frame drives as the timer accrues them.
+          @timer_handlers[node.timer] = node
         end
 
         # One vblank: snapshot the current buttons as "previous" (so an edge can
@@ -2163,6 +2260,31 @@ module RubyGBA
 
         # Evaluate an operand to a signed 32-bit integer. Operands are normally
         # value nodes; a bare Integer or Symbol is accepted too for convenience.
+        # WHAT EACH KIND OF VALUE COMES TO, one method per kind — the value half of STATEMENTS.
+        VALUES = {
+          int: :value_of_int,
+          var_ref: :value_of_var_ref,
+          neg: :value_of_neg,
+          bit_not: :value_of_bit_not,
+          absolute: :value_of_absolute,
+          clamped: :value_of_clamped,
+          binop: :value_of_binop,
+          mul_fix: :value_of_mul_fix,
+          div_fix: :value_of_div_fix,
+          shift_right: :value_of_shift_right,
+          held: :value_of_held,
+          pressed: :value_of_pressed,
+          chance: :value_of_chance,
+          pixels_overlap: :value_of_pixels_overlap,
+          data_byte: :value_of_data_byte,
+          table_get: :eval_table_get,
+          list_get: :eval_list_get,
+          list_len: :value_of_list_len,
+          save_read: :eval_save_read,
+          save_sum: :eval_save_sum,
+          timer_ticks: :value_of_timer_ticks,
+        }.freeze
+
         def eval_value(operand)
           case operand
           when Integer then Int32.wrap(operand)
@@ -2183,38 +2305,81 @@ module RubyGBA
                   "interpreter can't model; it only means something on real hardware"
           end
 
-          case node.kind
-          when :int then Int32.wrap(node.value)
-          when :var_ref then @vars[node.name]
-          when :neg then Int32.neg(eval_value(node.operand))
-          when :bit_not then Int32.bit_not(eval_value(node.operand))
-          when :absolute
-            v = eval_value(node.operand)
-            v.negative? ? Int32.neg(v) : v
-          when :clamped
-            v = eval_value(node.operand)
-            clamp_value(v, eval_value(node.min), eval_value(node.max))
-          when :binop then eval_binop(node.op, eval_value(node.lhs), eval_value(node.rhs))
-          when :mul_fix
-            Int32.mul_fix(eval_value(node.lhs), eval_value(node.rhs), node.fraction_bits)
-          when :div_fix
-            Int32.div_fix(eval_value(node.lhs), eval_value(node.rhs), node.fraction_bits)
-          when :shift_right
-            Int32.shift_right(eval_value(node.operand), node.bits)
-          when :held then bool(button_held?(node.button))
-          when :pressed then bool(button_pressed?(node.button))
-          # A chance holds when the random draw lands below the threshold.
-          when :chance then bool(eval_value(node.draw) < node.percent)
-          when :pixels_overlap then bool(pixels_overlap?(node))
-          when :data_byte then data_byte(node.name, node.index)
-          when :table_get then eval_table_get(node)
-          when :list_get then eval_list_get(node)
-          when :list_len then list_for(node.name).length
-          when :save_read then eval_save_read(node)
-          when :save_sum then eval_save_sum(node)
-          when :timer_ticks then timer_ticks(node.name)
-          else raise ProgramError, "not a value node: #{node.kind.inspect}"
+          handler = VALUES.fetch(node.kind) do
+            raise ProgramError, "not a value node: #{node.kind.inspect}"
           end
+          send(handler, node)
+        end
+
+        def value_of_int(node)
+          Int32.wrap(node.value)
+        end
+
+        def value_of_var_ref(node)
+          @vars[node.name]
+        end
+
+        def value_of_neg(node)
+          Int32.neg(eval_value(node.operand))
+        end
+
+        def value_of_bit_not(node)
+          Int32.bit_not(eval_value(node.operand))
+        end
+
+        def value_of_absolute(node)
+          v = eval_value(node.operand)
+          v.negative? ? Int32.neg(v) : v
+        end
+
+        def value_of_clamped(node)
+          v = eval_value(node.operand)
+          clamp_value(v, eval_value(node.min), eval_value(node.max))
+        end
+
+        def value_of_binop(node)
+          eval_binop(node.op, eval_value(node.lhs), eval_value(node.rhs))
+        end
+
+        def value_of_mul_fix(node)
+          Int32.mul_fix(eval_value(node.lhs), eval_value(node.rhs), node.fraction_bits)
+        end
+
+        def value_of_div_fix(node)
+          Int32.div_fix(eval_value(node.lhs), eval_value(node.rhs), node.fraction_bits)
+        end
+
+        def value_of_shift_right(node)
+          Int32.shift_right(eval_value(node.operand), node.bits)
+        end
+
+        def value_of_held(node)
+          bool(button_held?(node.button))
+        end
+
+        def value_of_pressed(node)
+          bool(button_pressed?(node.button))
+        end
+
+        # A chance holds when the random draw lands below the threshold.
+        def value_of_chance(node)
+          bool(eval_value(node.draw) < node.percent)
+        end
+
+        def value_of_pixels_overlap(node)
+          bool(pixels_overlap?(node))
+        end
+
+        def value_of_data_byte(node)
+          data_byte(node.name, node.index)
+        end
+
+        def value_of_list_len(node)
+          list_for(node.name).length
+        end
+
+        def value_of_timer_ticks(node)
+          timer_ticks(node.name)
         end
 
         # One byte (0..255) of a named embedded blob, read straight from the
