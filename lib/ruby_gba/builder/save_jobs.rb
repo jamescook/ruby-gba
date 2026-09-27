@@ -183,20 +183,17 @@ module RubyGBA
       # first.
       def save_job_snapshot(item, base, layout)
         stage = layout.scratch(:stage)
-        at = sd_add(base, sd_int(item.at))
         put = lambda do |offset, value, bytes|
           bytes.times do |b|
             byte = job_op(:&, job_op(:>>, value, sd_int(8 * b)), sd_int(0xFF))
             record(Build.list_set(stage, sd_add(offset, sd_int(b)), byte))
           end
         end
-        return put.call(at, sd_var(item.name), 4) if item.kind == :var
+        return put.call(item.value_at(base), sd_var(item.name), SaveData::WORD) if item.kind == :var
 
-        put.call(at, Build.list_len(item.name), 4)
-        bytes = SaveData::WIDTH_BYTES.fetch(item.width)
+        put.call(item.value_at(base), Build.list_len(item.name), SaveData::WORD)
         repeat(DSL::Value.new(self, Build.list_len(item.name))) do |i|
-          slot = sd_add(sd_add(at, sd_int(4)), job_op(:*, i.node, sd_int(bytes)))
-          put.call(slot, Build.list_get(item.name, i.node), bytes)
+          put.call(item.slot_at(base, i.node), Build.list_get(item.name, i.node), item.slot_bytes)
         end
       end
 
@@ -227,11 +224,8 @@ module RubyGBA
         jv_set(:run_from, sd_add(sd_half_at(layout, from, sd_directory(layout, :half, from)),
                                  sd_int(IR::SaveLayout::HEADER)))
         sd_when(sd_eq(wanted, sd_int(0))) { record(Build.call(jobs_name(:end))) }.else do
-          older = sd_eq(sd_directory(layout, :half, copy), sd_int(0))
-          jv_set(:run_at, sd_half_at(layout, copy, older))
-          { MARKER_AT: sd_int(IR::SaveLayout::MARKER), SHAPE_AT: sd_int(layout.shape) }.each do |field, value|
-            record(Build.save_write(sd_add(jv(:run_at), sd_int(IR::SaveLayout.const_get(field))), value))
-          end
+          jv_set(:run_at, half_to_write(layout, copy))
+          open_half(layout, jv(:run_at))
           jv_set(:run_done, 0)
           jv_set(:run_phase, 1)
           sd_when(sd_eq(jv(:run_kind), sd_int(ERASE))) { jv_set(:run_done, layout.body) }
@@ -259,21 +253,10 @@ module RubyGBA
 
       def save_job_commit(layout)
         copy = jv(:run_copy)
-        here = jv(:run_at)
-        body = sd_add(here, sd_int(IR::SaveLayout::HEADER))
         erase = sd_eq(jv(:run_kind), sd_int(ERASE))
         kind = sd_add(sd_int(IR::SaveLayout::SAVED), job_op(:*, erase, sd_int(IR::SaveLayout::ERASED - IR::SaveLayout::SAVED)))
-        record(Build.save_write(sd_add(here, sd_int(IR::SaveLayout::SEQUENCE_AT)),
-                                sd_add(sd_directory(layout, :seq, copy), sd_int(1))))
-        record(Build.save_write(sd_add(here, sd_int(IR::SaveLayout::KIND_AT)), kind))
-        record(Build.save_write(sd_add(here, sd_int(IR::SaveLayout::CHECKSUM_AT)),
-                                Build.save_sum(body, sd_int(layout.body))))
         record(Build.set(layout.scratch(:copy), copy))
-        record(Build.call(layout.routine(:scan)))
-        good = sd_int(IR::SaveLayout::STATES.index(:good))
-        erased = sd_int(IR::SaveLayout::STATES.index(:erased))
-        expected = sd_add(good, job_op(:*, erase, job_op(:-, erased, good)))
-        record(Build.set(layout.scratch(:failed), job_op(:!=, sd_directory(layout, :state, copy), expected)))
+        close_half(layout, jv(:run_at), copy, kind)
         record(Build.set(layout.scratch(:finished), sd_int(1)))
         record(Build.call(jobs_name(:end)))
       end

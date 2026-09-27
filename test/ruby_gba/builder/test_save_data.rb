@@ -750,6 +750,95 @@ class TestSaveData < Minitest::Test
     assert_equal [10, 11, 12, 13, 14], NAMED_LIKE_THE_FRAMEWORK.map { |name| v.var(:"kept_#{name}") }
   end
 
+  # --- what a save puts in save memory, byte by byte ---
+  #
+  # Everything above asks the game whether its saves came back. These read save memory itself,
+  # because what keeps a save safe is WHERE each part goes and in WHAT ORDER it is written, and
+  # a mistake in either can still read back right until the power goes off at the wrong moment.
+
+  Layout = RubyGBA::IR::SaveLayout
+
+  # A record of a variable and a list of half-words, saved with A.
+  private def header_and_body
+    built do
+      screen :tiled
+      hearts = var :hearts, 0
+      items = list :items, capacity: 3, width: :half
+      file = save_data(:file) { keep hearts, items }
+      game_loop do
+        pressed(:a).then do
+          hearts.set! 7
+          items.push 300
+          items.push(-2)
+          file[0].save
+        end
+      end
+    end
+  end
+
+  # The body is a word for the hearts, then the list: its length in a word and three half-word
+  # slots — 4 + 4 + 6 bytes.
+  HEADER_AND_BODY_BODY = 14
+
+  private def word(store, at) = (0...4).sum { |i| store[:bytes].fetch(at + i, 0) << (8 * i) }
+
+  # Where the first half holding a marker starts, at or after +from+.
+  private def half_with_marker(store, from)
+    (from...(Layout::START + Layout::SIZE)).step(4).find { |at| word(store, at) == Layout::MARKER } or
+      flunk("no half with the marker after #{from}")
+  end
+
+  private def saved_bytes(store, at, count) = (0...count).map { |i| store[:bytes].fetch(at + i, 0) }
+
+  def test_a_saved_half_holds_its_header_and_body_where_the_layout_says
+    store = {}
+    play(header_and_body, store, pressing: { 2 => :a }, frames: 12)
+    half = half_with_marker(store, Layout::DATA_START)
+    body = saved_bytes(store, half + Layout::HEADER, HEADER_AND_BODY_BODY)
+
+    assert_equal 1, word(store, half + Layout::SEQUENCE_AT), "the first save of a copy"
+    assert_equal Layout::SAVED, word(store, half + Layout::KIND_AT)
+    assert_equal Layout.checksum(body) & 0xFFFF_FFFF, word(store, half + Layout::CHECKSUM_AT)
+    assert_equal [7, 0, 0, 0], body[0, 4], "the hearts, first, as a word"
+    assert_equal [2, 0, 0, 0], body[4, 4], "then the list's length"
+    assert_equal [300 & 0xFF, 300 >> 8, 0xFE, 0xFF], body[8, 4], "then its items, a half-word each"
+  end
+
+  # The table of places is written the other way — whole, at power-on — and holds to the
+  # same header.
+  def test_the_table_of_places_holds_the_same_header
+    store = {}
+    play(header_and_body, store)
+    table = Layout::TABLE_AT
+    body_bytes = Layout::TABLE_COLUMNS.length * (4 + (Layout::TABLE_ROWS * 4))
+
+    assert_equal Layout::MARKER, word(store, table)
+    assert_equal Layout::SAVED, word(store, table + Layout::KIND_AT)
+    assert_equal Layout.checksum(saved_bytes(store, table + Layout::HEADER, body_bytes)) & 0xFFFF_FFFF,
+                 word(store, table + Layout::CHECKSUM_AT)
+  end
+
+  # THE ORDER, read off a power cut at each step: the marker and the shape first, then the body,
+  # then the sequence and the kind, and the checksum last of all — so until that last word is
+  # in, the half cannot pass for good.
+  def test_a_save_is_written_marker_first_and_checksum_last
+    fresh = {}
+    play(header_and_body, fresh) # the table of places is written at the first power-on
+    steps = { 8 => :opened, 8 + HEADER_AND_BODY_BODY => :body, 8 + HEADER_AND_BODY_BODY + 8 => :stamped }
+    steps.each do |cut, step|
+      store = Marshal.load(Marshal.dump(fresh))
+      Reference.new(save: store).cut_power_after_saving(cut)
+               .input_each_frame { |f| f == 2 ? [:a] : [] }.run(header_and_body, frames: 12)
+      half = half_with_marker(store, Layout::DATA_START)
+      body = saved_bytes(store, half + Layout::HEADER, HEADER_AND_BODY_BODY)
+
+      refute_equal 0, word(store, half + Layout::SHAPE_AT), "#{step}: the shape goes in with the marker"
+      assert_equal step == :opened ? [0, 0, 0, 0] : [7, 0, 0, 0], body[0, 4], "#{step}: the body"
+      assert_equal step == :stamped ? 1 : 0, word(store, half + Layout::SEQUENCE_AT), "#{step}: the sequence"
+      assert_equal 0, word(store, half + Layout::CHECKSUM_AT), "#{step}: no checksum yet"
+    end
+  end
+
   # --- friendly errors ---
 
   private def refused(&block)

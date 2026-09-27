@@ -18,15 +18,32 @@ module RubyGBA
     #
     # WHAT IS BUILT is ordinary program: a routine per record for saving, loading, erasing,
     # copying and looking a copy over, each made of the three save-memory steps (see
-    # IR::SaveLayout) and the arithmetic every backend already runs. So the rules that keep a
-    # save safe — two halves per copy, the newer one wins, a checksum written last — are
-    # written once, here, and the interpreter and the console cannot disagree about them.
+    # IR::SaveLayout) and the arithmetic every backend already runs, so the interpreter and the
+    # console cannot disagree about the rules that keep a save safe. Each is written once: two
+    # halves per copy and the newer one wins (#save_data_scan), the order a half is written in
+    # with its checksum last (SaveHalf), and where each kept thing sits in a body (Kept).
     module SaveData
-      # One thing a record keeps, and where in its body it sits. +bytes+ is how much of the
-      # body it takes; +width+ is how each of its numbers is stored.
+      # One thing a record keeps, and where in its body it sits — the one place that says how a
+      # kept thing is laid out. A variable is a word at +at+. A list is its length, a word at
+      # +at+, and then +count+ slots of +width+ each, the first right after the length.
+      #
+      # +base+ below is where the body starts, as the program works it out: a half in save
+      # memory, or the snapshot a background save copies the kept things into first.
       Kept = Data.define(:kind, :name, :at, :width, :count) do
-        def bytes = kind == :var ? 4 : 4 + (count * SaveData::WIDTH_BYTES.fetch(width))
+        def bytes = kind == :var ? WORD : WORD + (count * slot_bytes)
+        def slot_bytes = SaveData::WIDTH_BYTES.fetch(width)
+
+        # Where the variable, or the list's length, sits.
+        def value_at(base) = IR::Build.binop(:+, base, IR::Build.int(at))
+
+        # Where slot +index+ of the list sits.
+        def slot_at(base, index)
+          IR::Build.binop(:+, IR::Build.binop(:+, value_at(base), IR::Build.int(WORD)),
+                          IR::Build.binop(:*, index, IR::Build.int(slot_bytes)))
+        end
       end
+
+      WORD = 4
 
       WIDTH_BYTES = { byte: 1, half: 2, word: 4 }.freeze
 
@@ -253,45 +270,27 @@ module RubyGBA
         end
       end
 
-      # The half a job writes is the one that is NOT the copy now — the older one, or the first
-      # when neither is good — and it goes one past the copy's sequence number.
+      # A whole half written in one go, in the safe order (see SaveHalf): opened, the body the
+      # block writes, closed.
       def save_data_write(layout, kind)
         copy = sd_var(layout.scratch(:copy))
         sd_when(sd_in_range(layout, copy)) do
-          older =Build.binop(:*, sd_eq(sd_directory(layout, :half, copy), sd_int(0)), sd_int(1))
-          record(Build.set(layout.scratch(:at), sd_half_at(layout, copy, older)))
+          record(Build.set(layout.scratch(:at), half_to_write(layout, copy)))
           here = sd_var(layout.scratch(:at))
-          body = sd_add(here, sd_int(IR::SaveLayout::HEADER))
-          # The marker and the shape go FIRST, so a save cut off at any point after them is
-          # known to have been started: a copy that had no good save before then reads as
-          # damaged rather than as never saved. They cannot make the half pass for good on their
-          # own — only the checksum, written last, does that.
-          first = { MARKER_AT: sd_int(IR::SaveLayout::MARKER), SHAPE_AT: sd_int(layout.shape) }
-          last = { SEQUENCE_AT: sd_add(sd_directory(layout, :seq, copy), sd_int(1)), KIND_AT: sd_int(kind) }
-          first.each { |field, value| record(Build.save_write(sd_add(here, sd_int(IR::SaveLayout.const_get(field))), value)) }
-          yield body
-          last.each { |field, value| record(Build.save_write(sd_add(here, sd_int(IR::SaveLayout.const_get(field))), value)) }
-          record(Build.save_write(sd_add(here, sd_int(IR::SaveLayout::CHECKSUM_AT)),
-                                  Build.save_sum(body, sd_int(layout.body))))
-          # Looking the copy over again is also the read-back: a job that worked leaves the
-          # copy saved (or erased), and anything else means the chip did not keep it.
-          record(Build.call(layout.routine(:scan)))
-          expected = IR::SaveLayout::STATES.index(kind == IR::SaveLayout::ERASED ? :erased : :good)
-          record(Build.set(layout.scratch(:failed), Build.binop(:!=, sd_directory(layout, :state, copy), sd_int(expected))))
+          open_half(layout, here)
+          yield sd_add(here, sd_int(IR::SaveLayout::HEADER))
+          close_half(layout, here, copy, kind)
         end
       end
 
       # One kept thing into the body: a variable as a word; a list as its length and then its
       # items, at the width the list keeps them.
       def save_data_put(item, body)
-        at = sd_add(body, sd_int(item.at))
-        return record(Build.save_write(at, sd_var(item.name))) if item.kind == :var
+        return record(Build.save_write(item.value_at(body), sd_var(item.name))) if item.kind == :var
 
-        record(Build.save_write(at, Build.list_len(item.name)))
-        bytes = WIDTH_BYTES.fetch(item.width)
+        record(Build.save_write(item.value_at(body), Build.list_len(item.name)))
         repeat(DSL::Value.new(self, Build.list_len(item.name))) do |i|
-          slot = sd_add(sd_add(at, sd_int(4)), Build.binop(:*, i.node, sd_int(bytes)))
-          record(Build.save_write(slot, Build.list_get(item.name, i.node), width: item.width))
+          record(Build.save_write(item.slot_at(body, i.node), Build.list_get(item.name, i.node), width: item.width))
         end
       end
 
@@ -310,15 +309,12 @@ module RubyGBA
       end
 
       def save_data_take(item, body)
-        at = sd_add(body, sd_int(item.at))
-        return record(Build.set(item.name, sd_read(at))) if item.kind == :var
+        return record(Build.set(item.name, sd_read(item.value_at(body)))) if item.kind == :var
 
         repeat(DSL::Value.new(self, Build.list_len(item.name))) { |_| record(Build.list_drop(item.name, from: :back)) }
-        count = Build.clamped(sd_read(at), sd_int(0), sd_int(item.count))
-        bytes = WIDTH_BYTES.fetch(item.width)
+        count = Build.clamped(sd_read(item.value_at(body)), sd_int(0), sd_int(item.count))
         repeat(DSL::Value.new(self, count)) do |i|
-          slot = sd_add(sd_add(at, sd_int(4)), Build.binop(:*, i.node, sd_int(bytes)))
-          record(Build.list_push(item.name, sd_read(slot, item.width)))
+          record(Build.list_push(item.name, sd_read(item.slot_at(body, i.node), item.width)))
         end
       end
 
@@ -409,16 +405,13 @@ module RubyGBA
         finish_save_jobs_of(layout)
         which = Build.clamped(copy, sd_int(0), sd_int(layout.copies - 1))
         good = sd_eq(save_data_state_now(layout, copy), sd_int(IR::SaveLayout::STATES.index(:good)))
-        at = sd_add(sd_half_at(layout, which, sd_directory(layout, :half, which)),
-                    sd_int(IR::SaveLayout::HEADER + item.at))
-        return Build.binop(:*, good, sd_read(at)) if item.kind == :var || length
+        body = sd_add(sd_half_at(layout, which, sd_directory(layout, :half, which)), sd_int(IR::SaveLayout::HEADER))
+        return Build.binop(:*, good, sd_read(item.value_at(body))) if item.kind == :var || length
 
-        saved = Build.clamped(sd_read(at), sd_int(0), sd_int(item.count))
+        saved = Build.clamped(sd_read(item.value_at(body)), sd_int(0), sd_int(item.count))
         inside = sd_and(Build.binop(:>=, index, sd_int(0)), Build.binop(:<, index, saved))
         slot = Build.clamped(index, sd_int(0), sd_int(item.count - 1))
-        bytes = WIDTH_BYTES.fetch(item.width)
-        place = sd_add(sd_add(at, sd_int(4)), Build.binop(:*, slot, sd_int(bytes)))
-        Build.binop(:*, sd_and(good, inside), sd_read(place, item.width))
+        Build.binop(:*, sd_and(good, inside), sd_read(item.slot_at(body, slot), item.width))
       end
 
       # Whether the last job this record ran did not read back as it should have.
