@@ -403,7 +403,7 @@ module RubyGBA
           # SWITCH ON THE LAYERS THIS SCENE USES, AND ONLY THOSE.
           #
           # Scenes take turns, so they share the console's four layers rather than each
-          # having some of their own (see GBA#hardware_layers). A scene that uses fewer than
+          # having some of their own (see ScreenLayout#layer_slots). A scene that uses fewer than
           # the one before it would otherwise leave the extra ones switched on, still
           # pointed at the last scene's maps, and they would show through wherever this
           # scene's own scenery has a hole in it.
@@ -1526,7 +1526,7 @@ module RubyGBA
             mode = node.toward == :white ? BLD_BRIGHTEN : BLD_DARKEN
             write_reg16(REG_BLDCNT, mode | placed_fade.targets(node.under))
             # Where this fade sits in the stack, for the window twins to read. Only a
-            # program that has twins writes it (see GBA#prepare_effect_layers).
+            # program that has twins writes it (see ScreenLayout, which makes the PlacedFade).
             store_word_immediate(placed_fade.line(node.under), var_addr(EFFECT_LINE)) if placed_fade.any?
           end
 
@@ -2006,7 +2006,7 @@ module RubyGBA
           end
 
           # Which pose's pictures are sitting in a sprite's room right now, for a sprite that
-          # keeps one frame at a time (see GBA#set_to_keep_to_one_frame). The sprite names its
+          # keeps one frame at a time (see ScreenLayout#set_to_keep_to_one_frame). The sprite names its
           # own variable, so that anything reading a finished cartridge back looks in the same
           # place this writes (see Sprite#frame_in_room_var, and GBA#sprite_pose_in_room).
           def frame_in_room(obj) = obj.frame_in_room_var
@@ -2078,7 +2078,7 @@ module RubyGBA
 
           # A sprite whose poses came out DIFFERENT sizes. Four things then move with the
           # pose — which tiles, what shape, what size, and how far along to draw it — so
-          # they are read together out of one word (see GBA#object_pose_table) instead of
+          # they are read together out of one word (see ScreenLayout#object_pose_table) instead of
           # being worked out from a stride that no longer exists.
           #
           # Registers: r4 holds the word for the whole of this sprite's draw, because

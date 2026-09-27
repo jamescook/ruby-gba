@@ -27,9 +27,9 @@ module RubyGBA
         class SpriteLayout
           # Where a sprite's frames go in the cartridge, kept as they are rather than packed
           # (see SpriteLayout#one_frame_placement).
-          Blobs = Data.define(:emit, :keep_plain) do
+          Blobs = Data.define(:data_blobs, :keep_plain) do
             def plain(name, bytes)
-              emit.data_blobs[name] = bytes
+              data_blobs[name] = bytes
               keep_plain.call(name)
             end
           end
@@ -38,8 +38,8 @@ module RubyGBA
           # frame at a time this time round, and +blobs+ where a kept-to-one-frame sprite's
           # frames go in the cartridge. The block is given a sprite's pictures and where they
           # landed, and gives back the record the drawing reads.
-          def initialize(emit:, nodes:, pictures:, one_frame:, blobs:, &record)
-            @art = ObjectArt.new(emit)
+          def initialize(data_blobs:, nodes:, pictures:, one_frame:, blobs:, &record)
+            @art = ObjectArt.new(data_blobs)
             @pictures = pictures
             @one_frame = one_frame
             @blobs = blobs

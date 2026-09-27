@@ -78,7 +78,7 @@ module RubyGBA
           # them back in — so its picture is half the size for the same pixels. (In this
           # console's own words: 4bpp, low nibble first. A 4bpp OBJ tile is 32 bytes and an
           # 8bpp one 64, but OBJ tile NUMBERS count in 32s either way — which is why a wide
-          # sprite has to start on an even one, see GBA#prepare_objects.)
+          # sprite has to start on an even one, see ScreenLayout#prepare_objects.)
           def encode(bmp, placement, box = nil)
             width = bmp.width
             height = bmp.height

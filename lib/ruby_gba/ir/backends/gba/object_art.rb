@@ -25,8 +25,8 @@ module RubyGBA
         # leaves is at most 32 bytes and only ever appears where a small picture is
         # followed by a big one.
         class ObjectArt
-          def initialize(emit)
-            @emit = emit
+          def initialize(data_blobs)
+            @data_blobs = data_blobs # where each picture goes in the cartridge, by name
             @units = 0        # how far the pictures have grown, in 32-byte units
             @at = {}          # encoded bytes -> the unit they were stored at
             @saved = 0        # ...and what not storing them twice came to
@@ -94,7 +94,7 @@ module RubyGBA
             @units += tiles.bytesize / 32
             @at[tiles] = at
             blob = :"__obj_tiles_#{name}"
-            @emit.data_blobs[blob] = tiles
+            @data_blobs[blob] = tiles
             @scene_blobs&.push([blob, at, tiles.bytesize / 32])
             [blob, at]
           end

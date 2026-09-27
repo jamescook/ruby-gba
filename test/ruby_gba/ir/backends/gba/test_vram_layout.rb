@@ -30,22 +30,20 @@ class TestVramLayout < Minitest::Test
   # maps took, together they are inside the memory there is. Held against a program
   # that uses every layer the console has.
   def test_the_tiles_and_the_maps_are_inside_the_memory_there_is
-    backend = GBA.new
-    backend.lower(four_layer_program)
+    layout = GBA::ScreenLayout.plan(four_layer_program)
 
-    tile_end = backend.bg_shared.tile_bytes
-    first_map = backend.backgrounds.values.map(&:screen_block).min * GBA::SCREENBLOCK_BYTES
+    tile_end = layout.bg_shared.tile_bytes
+    first_map = layout.backgrounds.values.map(&:screen_block).min * GBA::SCREENBLOCK_BYTES
     assert_operator tile_end, :<=, first_map, "tile pictures must stop before the first map"
-    assert_operator backend.backgrounds.values.map(&:screen_block).max, :<,
+    assert_operator layout.backgrounds.values.map(&:screen_block).max, :<,
                     GBA::TileVram::SCREEN_BLOCKS, "and the last map inside the memory"
   end
 
   # Every map gets a screen block of its own, and one map is exactly one screen block
   # — so no two layers' maps can land on each other.
   def test_each_layer_gets_its_own_screen_block
-    backend = GBA.new
-    backend.lower(four_layer_program)
-    backgrounds = backend.backgrounds
+    layout = GBA::ScreenLayout.plan(four_layer_program)
+    backgrounds = layout.backgrounds
 
     blocks = backgrounds.values.map(&:screen_block)
     assert_equal blocks.uniq, blocks, "two layers must never share a screen block"
@@ -74,9 +72,8 @@ class TestVramLayout < Minitest::Test
       halt,
     )
 
-    backend = GBA.new
-    backend.lower(prog)
-    assert_equal 1000 * GBA::SMALL_TILE_BYTES, backend.bg_shared.tile_bytes - GBA::BIG_TILE_BYTES
+    layout = GBA::ScreenLayout.plan(prog)
+    assert_equal 1000 * GBA::SMALL_TILE_BYTES, layout.bg_shared.tile_bytes - GBA::BIG_TILE_BYTES
   end
 
   # EACH LAYER COUNTS ITS TILE NUMBERS FROM ITS OWN STARTING POINT, which is what makes
@@ -85,10 +82,9 @@ class TestVramLayout < Minitest::Test
   # rest. So a game can hold more distinct tiles than either layer could name alone —
   # 1600 here, where a single layer stops at about a thousand.
   def test_two_layers_hold_more_tiles_than_one_can_name
-    backend = GBA.new
-    backend.lower(two_big_tilesets_program(900, 700))
+    layout = GBA::ScreenLayout.plan(two_big_tilesets_program(900, 700))
 
-    bases = backend.backgrounds.values.map(&:char_base)
+    bases = layout.backgrounds.values.map(&:char_base)
     assert_equal [0], [bases.first], "the first layer still counts from the bottom"
     refute_equal 0, bases.last, "the second one counts from a place of its own"
   end
@@ -115,22 +111,20 @@ class TestVramLayout < Minitest::Test
   # and on a real one that is a large fraction — a wall's interior repeats in every
   # variation of that wall.
   def test_identical_tiles_are_stored_once
-    backend = GBA.new
-    backend.lower(repeated_tiles_program)
+    layout = GBA::ScreenLayout.plan(repeated_tiles_program)
 
     # The blank tile every empty cell points at (stored the big way so either kind of
     # layer can read it), plus the ONE picture the four tilesets all drew.
-    assert_equal GBA::BIG_TILE_BYTES + GBA::SMALL_TILE_BYTES, backend.bg_shared.tile_bytes
+    assert_equal GBA::BIG_TILE_BYTES + GBA::SMALL_TILE_BYTES, layout.bg_shared.tile_bytes
   end
 
   def test_tiles_that_differ_are_not_shared
-    backend = GBA.new
-    backend.lower(four_layer_program)
+    layout = GBA::ScreenLayout.plan(four_layer_program)
 
     # The blank tile (stored the big way so either kind of layer can read it) and the
     # four landmark tiles, each a different color.
     assert_equal GBA::BIG_TILE_BYTES + (4 * GBA::SMALL_TILE_BYTES),
-                 backend.bg_shared.tile_bytes
+                 layout.bg_shared.tile_bytes
   end
 
   # Every tiled layer draws from one table of colors, so a game whose tiles name

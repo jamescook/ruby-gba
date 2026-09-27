@@ -96,12 +96,12 @@ module RubyGBA
 
           attr_reader :row_bends # name -> :scroll_rows node (Drawing reads this to skip a bending layer's own scroll)
 
-          def initialize(emitter:, primitives:, memory:, lowering:, backgrounds:, framebuffer:)
+          def initialize(emitter:, primitives:, memory:, lowering:, framebuffer:)
             @emitter = emitter
             @primitives = primitives
             @memory = memory
             @lowering = lowering
-            @backgrounds = backgrounds
+            @layers = {} # background name -> which of the console's layers draws it (see #prepare_row_bends)
             # dma_fill_control lives on Framebuffer, alongside the other shared clip/fill
             # machinery a bend's boot table also needs.
             @framebuffer = framebuffer
@@ -147,7 +147,10 @@ module RubyGBA
             node ? node.x : Build.int(0)
           end
 
-          def prepare_row_bends(program)
+          # +layers+ says which of the console's layers draws each background, which is what a
+          # bend writes the offsets of.
+          def prepare_row_bends(program, layers:)
+            @layers = layers
             @row_bends.each_key { |name| @row_bend_base[name] = row_bend_base(program, name) }
             @copies_row_bends = BendForm.copier?(program)
             return unless BendForm.latched?(program)
@@ -281,7 +284,7 @@ module RubyGBA
           # none, and the scroll registers do nothing — the same harmless fallback a plain
           # scroll takes.
           def bg_number(name)
-            @backgrounds[name]&.bg || 0
+            @layers[name] || 0
           end
 
           # The per-line handler, run from the interrupt dispatcher.

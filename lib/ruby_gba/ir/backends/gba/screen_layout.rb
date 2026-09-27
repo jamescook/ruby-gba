@@ -1,0 +1,1159 @@
+# frozen_string_literal: true
+
+module RubyGBA
+  module IR
+    module Backends
+      class GBA
+        # WHERE EVERYTHING THE CONSOLE DRAWS FOR YOU GOES, worked out once from the program
+        # before a single instruction is emitted.
+        #
+        # A tiled screen is not painted by the game. The console composes it on its own,
+        # every frame, out of things set up in its video memory: up to four background
+        # layers, each a grid of references to 8x8 tiles, and a table of 128 sprites, each
+        # pointing at pictures kept in 32K of sprite memory. Both are fixed, small budgets,
+        # and deciding who gets what is the whole job here:
+        #
+        #   * which of the four layers each background uses, per screen (a scene that
+        #     takes over can reuse the layers the last one had);
+        #   * how every tile is stored — half a byte a pixel when it draws from sixteen
+        #     colours or fewer, a byte otherwise — and which group of sixteen it reads;
+        #   * where each layer's tiles and map land in video memory;
+        #   * how each sprite's pictures are cut into rectangles the console can draw, where
+        #     they sit in sprite memory, and which slots in the table each sprite takes.
+        #
+        # What comes back is a finished plan plus the cartridge data it needs (the colour
+        # tables, the tile pictures, the maps). Nothing here emits code, so the plan can be
+        # asked about directly — which layer a background landed on, how a sprite was cut
+        # up — without building a cartridge or running one. The code generator reads the
+        # plan; a mistake in the plan is a mistake here and nowhere else.
+        #
+        # A program that breaks one of the budgets is refused with a friendly error naming
+        # what did not fit, raised as the plan is made.
+        class ScreenLayout
+          include Console::Hardware
+
+          # Plan the screen for +program+. Everything it needs is worked out from the
+          # program itself; a caller that has already worked out the pictures, the display
+          # modes or how the picture stacks can pass them in rather than have them worked
+          # out twice.
+          def self.plan(program, bitmaps: nil, modes: nil, picture: nil, screenfuls: nil)
+            new(program,
+                bitmaps: bitmaps || bitmaps_of(program),
+                modes: modes || IR::Modes.resolve(program),
+                picture: picture || IR::Stacking.picture(program),
+                screenfuls: screenfuls || IR::Stacking.screenfuls(program))
+          end
+
+          # Every picture the program declares, by name.
+          def self.bitmaps_of(program)
+            program.walk.select { |node| node.kind == :bitmap }.to_h { |node| [node.name, Assets::Image.of(node)] }
+          end
+
+          # Does this sprite turn or change size? It does unless BOTH its angle and its size
+          # are still the constants they default to. Either one being a variable (or any
+          # other constant) means it goes through one of the console's rotation groups; both
+          # at their defaults draws upright at its drawn size, for free.
+          def self.transformed?(node) = rotates?(node) || scales?(node)
+
+          def self.rotates?(node)
+            value = const_int(node.angle)
+            value.nil? || !value.zero?
+          end
+
+          def self.scales?(node) = const_int(node.scale) != Build::SCALE_ONE
+
+          # A number settled while the program was built, or nil for one worked out as it runs.
+          def self.const_int(node)
+            fixed = DSL::Value.fixed_number(node)
+            Int32.wrap(fixed) if fixed
+          end
+
+          def initialize(program, bitmaps:, modes:, picture:, screenfuls:)
+            @bitmaps = bitmaps
+            @modes = modes
+            @picture = picture
+            @screenfuls = screenfuls
+            @blobs = {}           # cartridge data by name: colour tables, tile pictures, maps
+            @codecs = {}          # names of the data that must stay unpacked in the cartridge
+            @backgrounds = {}     # name -> where a background landed (see #prepare_one_background)
+            @hardware_layers = {} # name -> which of the console's layers it uses
+            @scene_layers = {}    # scene -> which layers it switches on, when scenes differ
+            @bg_shared = nil      # the one colour table and tile run every layer shares
+            @objects = {}         # name -> where a sprite landed (see #object_record)
+            @obj_pictures = {}    # name -> its pictures, cut and encoded
+            @scene_art = {}       # scene -> the sprite pictures it sends when it takes over
+            @placed_fade = PlacedFade.new(@picture, program)
+            @see_through = IR::SeeThrough.layers(program).map(&:name) # the layers a sprite blends in
+            if Modes.draws_with_tiles?(program)
+              guard_stack_fits
+              prepare_backgrounds(program)
+            end
+            prepare_objects(program) if program.walk.any? { |node| node.kind == :object }
+          end
+
+          attr_reader :backgrounds, :hardware_layers, :scene_layers, :bg_shared, :vram,
+                      :objects, :obj_pictures, :sprite_art, :scene_art, :placed_fade,
+                      :obj_palette_blob, :obj_palette_units, :blobs, :codecs
+
+          # How many of the console's 128 sprite places +nodes+ take between them. Usually
+          # one each; a sprite whose picture is bigger than one object takes one per piece.
+          def object_count(nodes) = nodes.sum { |node| @obj_pictures.fetch(node.name).pieces }
+
+          # ...and how many more the twins holding a placed fade off some of them take.
+          def twin_object_count = @placed_fade.places_spent { |name| @obj_pictures.fetch(name).pieces }
+
+          private
+
+          def const_int(node) = self.class.const_int(node)
+          def object_transformed?(node) = self.class.transformed?(node)
+          def object_scales?(node) = self.class.scales?(node)
+
+          # Is this sprite in a layer the program sees through? Then its own table entry
+          # says so, and the display blends it with what is behind it.
+          def see_through_object?(node) = @see_through.include?(node.layer)
+
+          # Turn the tiled backgrounds into the data tile hardware reads — one shared color
+          # palette, the tile pictures, and a map per layer — and stash them as ROM blobs
+          # uploaded at startup. Done up front (after every tile image is collected) so the
+          # addresses exist before the code refers to them. emit_background (in Drawing) is
+          # the run-time half.
+          def prepare_backgrounds(program)
+            # Back to front. A layer can put a background behind one declared before it,
+            # and this order becomes the hardware layer number, which IS the paint order —
+            # so it has to be settled here, before any layer is given a number.
+            #
+            # A `screen :rotozoom` background lives on its own rotate/scale layer (BG2) —
+            # a different pair of hardware layers from the four `screen :tiled` scrolls on
+            # — so it's set aside from the regular stack rather than counted against it.
+            check_layers_fit(program)
+            affine_nodes, regular_nodes = @picture.scenery.partition(&:affine)
+
+            banks, big = bank_the_tiles(regular_nodes, affine_nodes)
+
+            @vram = TileVram.new
+            @tiles = BackgroundTiles.new(vram: @vram)
+            slots = layer_slots
+            @scene_layers = scene_layers_for(slots)
+            begin
+              regular_nodes.each { |node| prepare_one_background(node, slots.fetch(node.name), banks, big) }
+              affine_nodes.each { |node| prepare_affine_background(node, banks) }
+            rescue TileVram::Full => e
+              raise LoweringError, tiles_do_not_fit(e, regular_nodes + affine_nodes)
+            end
+
+            # Which layer each background ended up on, for everything that has to name one by
+            # number afterwards. The blend unit is the only such thing today, and it cannot
+            # work it out for itself: the number is not where the background sits in the
+            # program, it is what was free on the screen the background belongs to.
+            @hardware_layers = @backgrounds.transform_values(&:bg)
+
+            colors = banks.entries
+            @blobs[BG_SHARED_PAL] = colors.pack("v*")
+            @blobs[BG_SHARED_CHAR] = @tiles.bytes
+            @bg_shared = bank_tally(regular_nodes + affine_nodes, big, colors)
+          end
+
+          # WHICH OF THE CONSOLE'S FOUR SCROLLING LAYERS EACH BACKGROUND GETS.
+          #
+          # A layer is spent while something is being DRAWN, so the four have to cover one
+          # screenful and never the whole program: two scenes that take turns can have four
+          # backgrounds each, because the console is only ever holding one scene's.
+          #
+          # WHICH LAYER A BACKGROUND SITS ON IS NOT WHAT PUTS IT IN FRONT, and that is what
+          # makes this straightforward. Paint order is a separate field of the layer's own
+          # settings — its priority — so a slot is only a set of registers to use, free to be
+          # handed out in whatever order suits, while the picture's order is carried by the
+          # priority (see #hardware_priority, which reads the screenful's own depths).
+          #
+          # Scenery every screen shows is pinned the first time it is seen and keeps that
+          # slot throughout, because nothing re-points it as scenes come and go. Each scene's
+          # own backgrounds then take whatever is left, which is why a scene can have four
+          # only when there is no always-there scenery beside them.
+          #
+          # There is always a slot to hand out, because #check_layers_fit has already refused
+          # a screenful asking for more than there are. It runs first for that reason.
+          def layer_slots
+            slots = {}
+            @screenfuls.each do |screenful|
+              free = scrolling_slots(screenful) - screenful.scrolling.filter_map { |node| slots[node.name] }
+              screenful.scrolling.each { |node| slots[node.name] ||= free.shift }
+            end
+            slots
+          end
+
+          # The slots a screenful has to hand out — the same counts the check above refuses
+          # against, read from the same place so the two cannot drift apart.
+          #
+          # A screen holding a background that TURNS has fewer, and they are not the same
+          # ones: the console gives its rotate hardware to a particular layer (AFFINE_BG) and
+          # the arrangement that provides it leaves only the two below that one scrolling.
+          def scrolling_slots(screenful)
+            check = Guardrails::Checks::TooManyBackgroundLayers
+            most = if screenful.turning_on_the_tiled_screen(@modes).any?
+                     check::MAX_SCROLLING_LAYERS_BESIDE_TURNING
+                   else
+                     check::MAX_SCROLLING_LAYERS
+                   end
+            (0...most).to_a
+          end
+
+          # WHAT EACH SCENE TELLS THE DISPLAY — and this is the half that has to happen while
+          # the game RUNS, where the numbering above is settled during the build.
+          #
+          # Both were settled once for the whole program, from every background in it. That
+          # was right while every background had a layer of its own and one arrangement held
+          # the lot. Now that scenes share them, neither is:
+          #
+          #   A scene that uses FEWER layers than the one before it left the extra ones
+          #   switched on and still pointed at the last scene's maps, so walking out of a
+          #   parallax field into a plain room showed the field's far layers through the
+          #   room's floor.
+          #
+          #   A scene that turns nothing was still put in the arrangement that holds a turning
+          #   layer, because some other scene turned one — and that arrangement has only two
+          #   scrolling layers, so a game could not have a title screen with something flying
+          #   at the player AND a game played on four layers. The console is told which
+          #   arrangement it is in as each screen is set up, so this is simply what it is for.
+          #
+          # Nothing is emitted for a program whose scenes all want the same screen, which is
+          # every program with no scene-owned scenery and most of those that have it.
+          def scene_layers_for(slots)
+            wanted = @screenfuls.reject { |s| s.scene.nil? }.to_h do |screenful|
+              [screenful.scene, scene_screen(screenful, slots)]
+            end
+            wanted.select! { |scene, _| @modes.func_mode[scene] == IR::Modes::TILED }
+            wanted.values.uniq.size > 1 ? wanted : {}
+          end
+
+          # A turning background is always on the layer the console keeps that hardware on,
+          # so it is switched on beside this screen's scrolling ones rather than taking one
+          # of their slots — which is also why it does not count against them.
+          def scene_screen(screenful, slots)
+            turning = screenful.turning_on_the_tiled_screen(@modes).any?
+            on = screenful.scrolling.filter_map { |node| slots[node.name] }
+            on += [AFFINE_BG] if turning
+            SceneScreen.new(on: on, turning: turning)
+          end
+
+          # DO THE DECLARED LAYERS FIT AN ARRANGEMENT THE CONSOLE HAS? A layer that did not
+          # fit would simply not be drawn, and a picture missing one layer reads as a bug in
+          # the art rather than as a budget — so lowering stops rather than dropping it.
+          #
+          # The rule and its wording live with the guardrail of the same name, because the
+          # question is answerable from the program long before any of this runs and an
+          # author should hear it then. This stays as the lowering's own invariant: a
+          # program that reached a backend without passing the guardrails still cannot
+          # build a cartridge with a layer quietly missing from it.
+          def check_layers_fit(program)
+            refusal = Guardrails::Checks::TooManyBackgroundLayers.new.refusal(program) ||
+                      Guardrails::Checks::SeeThroughPerScreen.new.refusal(program)
+            raise LoweringError, refusal if refusal
+          end
+
+          # SORT EVERY TILE OF EVERY LAYER INTO THE COLOR TABLE THEY ALL READ FROM.
+          #
+          # A layer is stored one way or the other as a WHOLE — that is one bit in the
+          # layer's own settings — but within a small-storage layer each TILE says which
+          # bank of sixteen it draws from. So a tileset of hundreds of colors still stores
+          # small, as long as no single 8x8 tile needs more than fifteen at once, which is
+          # almost always true and is why this is worth doing.
+          #
+          # A layer with even one tile past that keeps the big storage, and then all of its
+          # tiles read across the whole table together — so it is handed in as one picture
+          # rather than as its tiles.
+          #
+          # A `screen :rotozoom` layer is always big: its map is one byte a cell, with no
+          # room to name a bank. That is the console, not a choice.
+          def bank_the_tiles(regular_nodes, affine_nodes)
+            nodes = regular_nodes + affine_nodes
+            nodes.each { |node| validate_tile_sizes!(node.name, node.tiles) }
+            big = affine_nodes + regular_nodes.reject { |node| every_tile_small?(node) }
+
+            loop do
+              banks = PaletteBanks.new(bank_pictures(nodes, big))
+              spilled = (regular_nodes - big).reject do |node|
+                node.tiles.each_index.all? { |i| banks.placement(tile_key(node, i)).narrow? }
+              end
+              return [banks, big] if spilled.empty?
+
+              big += spilled
+            end
+          rescue PaletteBanks::Overflow
+            raise LoweringError,
+                  "The tiled backgrounds use more colors between them than the console's background table " \
+                  "holds (#{PaletteBanks::CAPACITY}). Draw the tiles from fewer different colors."
+          end
+
+          def every_tile_small?(node)
+            node.tiles.each_index.all? { |i| tile_colors(node, i).size <= PaletteBanks::BANK_COLORS }
+          end
+
+          # One picture per tile for a layer stored the small way, and one picture for the
+          # whole of a layer stored the big way (its tiles share the table, so they share
+          # an entry).
+          #
+          # A layer stored the big way is read a whole byte a pixel, so it is handed over as
+          # +wide+ — its colours must run across the whole table, however few of them there
+          # are. A layer that went big because one greedy tile has too many colours is wide
+          # on the count alone; a TURNING layer is the one that needs saying, because the
+          # console gives it no other way to be read (its map holds one byte a cell, with no
+          # room to name a bank) and it can still be drawn from a handful of colours.
+          def bank_pictures(nodes, big)
+            nodes.map do |node|
+              if big.include?(node)
+                colors = node.tiles.each_index.flat_map { |i| tile_colors(node, i) }.uniq
+                PaletteBanks::Picture.new(key: node.name, colors: colors, authored: nil, wide: true)
+              else
+                # A layer that can be drawn with other colours keeps its bank to itself: the
+                # swap writes into that bank, so anything else reading it would change colour
+                # along with the layer (see PaletteBanks::Picture#keeps_to).
+                keeps_to = node.recolors.empty? ? nil : node.name
+                node.tiles.each_index.map do |i|
+                  PaletteBanks::Picture.new(key: tile_key(node, i), colors: tile_colors(node, i),
+                                            authored: @bitmaps.fetch(node.tiles[i]).colors,
+                                            keeps_to: keeps_to)
+                end
+              end
+            end.flatten
+          end
+
+          def tile_key(node, index) = [node.name, index]
+
+          # A tile's distinct colors, first-seen order, without the see-through one.
+          def tile_colors(node, index)
+            bmp = @bitmaps.fetch(node.tiles[index])
+            seen = {}
+            (TILE_PX * TILE_PX).times do |i|
+              color = bmp.color_at(i)
+              seen[color] = true unless color == BG_SEE_THROUGH
+            end
+            seen.keys
+          end
+
+          # What every layer shares, once they are all stored: the one color table and the
+          # one run of tile pictures, with how many TILES got each storage and what the small
+          # ones saved. Those two are counted off the layers rather than off the banks, since
+          # a layer stored the big way is one picture there however many tiles it has.
+          def bank_tally(nodes, big, colors)
+            small = nodes.reject { |node| big.include?(node) }.sum { |node| node.tiles.size }
+            SharedScenery.new(palette_units: colors.size, tile_units: @tiles.bytes.bytesize / 2,
+                              small: small, big: nodes.sum { |node| node.tiles.size } - small,
+                              saved: small * SMALL_TILE_BYTES,
+                              shared: @tiles.shared, skipped: @tiles.skipped)
+          end
+
+          # The tiles and the maps grow toward each other and met. Name the biggest tileset,
+          # since "out of room" with no name attached is the least useful thing a build can
+          # say — and say what each half took, because which one to shrink is the decision.
+          def tiles_do_not_fit(full, nodes)
+            worst = nodes.max_by { |node| node.tiles.size }
+            "The scenery does not fit in the #{TileVram::TOTAL_BYTES} bytes the console keeps it in. " \
+              "Its tile pictures take #{full.tile_bytes} bytes, and its #{full.map_blocks} maps take " \
+              "#{full.map_blocks * SCREENBLOCK_BYTES} more. The background with the most tiles is " \
+              ":#{worst.name} (#{worst.tiles.size}). Use fewer different tiles, or draw fewer layers " \
+              "at once."
+          end
+
+          # Put one layer's tiles in video memory and build its map. +layer+ is its place in
+          # the stack, which is also its hardware layer number (BG0, BG1, ...). What decides
+          # its paint order is the priority below.
+          def prepare_one_background(node, layer, banks, big)
+            name = node.name
+            validate_map_fits!(name, node.map)
+            small = !big.include?(node)
+            stored = @tiles.add(name, tile_pictures(node, banks),
+                                unit: small ? SMALL_TILE_BYTES : BIG_TILE_BYTES)
+
+            # The map: one 16-bit entry per cell, holding the tile to draw there and — for a
+            # layer stored the small way — which bank of sixteen that tile reads from. Cells
+            # outside the authored map, and blank cells, get this layer's blank tile: every
+            # pixel see-through, so a layer behind shows through. Which number that is
+            # depends on where the layer counts from, and it is 0 for a layer counting from
+            # the bottom, which is nearly all of them.
+            cols, rows = IR::TileMap.grid(node.map)
+            cell_for = node.tiles.each_index.to_h do |index|
+              bank = small ? banks.placement(tile_key(node, index)).bank : 0
+              [index, stored.number(index) | (bank << BG_BANK_SHIFT)]
+            end
+            entries = map_entries(node.map, cols, rows, stored.blank) { |index| cell_for.fetch(index) }
+
+            grids = every_map(node)
+            map_blob = :"__bg_map_#{name}"
+            @blobs[map_blob] =
+              grids.map { |map| map_entries(map, cols, rows, stored.blank) { |i| cell_for.fetch(i) }.pack("v*") }
+                   .join
+            plain_blob!(map_blob) if grids.size > 1
+            @backgrounds[name] = BackgroundPlacement.new(
+              map: map_blob, map_units: entries.size,
+              bg: layer,                           # hardware layer (BG0..BG3), in stack order
+              screen_block: @vram.take_map(entries.size / MAP_ENTRIES_A_BLOCK),
+              size: regular_map_size(cols, rows),
+              priority: hardware_priority(name),
+              affine: false,
+              small: small,
+              char_base: stored.char_base,
+              map_count: grids.size, map_bytes: entries.size * 2,
+              grid: MapGrid.new(cols: cols, rows: rows, cells: cell_for),
+              colors: background_color_lists(node, banks, small)
+            )
+          end
+
+          # Lay out the other lists of colours a background can be drawn from (see
+          # BackgroundColorLists), and say where in the display's table they are written.
+          def background_color_lists(node, banks, small)
+            return nil if node.recolors.empty?
+
+            raise LoweringError, too_many_colors_to_recolor(node) unless small
+
+            room = 1 << (node.palettes.length - 1).bit_length # lists a version takes, rounded up to a power of two
+            blob = :"__bg_colors_#{node.name}"
+            @blobs[blob] = (node.recolors + [node.palettes]).flat_map do |version|
+              version.flat_map { |list| whole_bank(list) } + ([0] * (PaletteBanks::BANK_SIZE * (room - version.length)))
+            end.pack("v*")
+            plain_blob!(blob) # picked out of by a number the game works out, so it stays where it is put
+            BackgroundColorLists.new(blob: blob, count: node.recolors.length,
+                                     banks: node.palettes.map { |list| bank_drawn_from(node, list, banks) },
+                                     at: :"__bg_#{node.name}_colors_at",
+                                     shift: Drawing::COLOR_LIST_SHIFT + room.bit_length - 1)
+          end
+
+          # The group of sixteen a layer's tiles drawn from +list+ read. Every such tile reads the
+          # same one: a list someone wrote down shares a group only with that very list.
+          def bank_drawn_from(node, list, banks)
+            tile = node.tiles.index { |image| @bitmaps.fetch(image).colors == list }
+            banks.placement(tile_key(node, tile)).bank
+          end
+
+          # A list as the display holds it: sixteen entries, the author's own order kept, and
+          # nothing in the places a shorter list does not reach.
+          def whole_bank(list)
+            list.first(PaletteBanks::BANK_SIZE) + ([0] * [PaletteBanks::BANK_SIZE - list.length, 0].max)
+          end
+
+          def too_many_colors_to_recolor(node)
+            "background :#{node.name} is told to draw with other colors, and its tiles are drawn from " \
+              "too many colors for that. A background can be given other colors only when its tiles " \
+              "are drawn from 16 colors or fewer between them. To fix this, draw its tiles from fewer " \
+              "colors, or do not give it other colors."
+          end
+
+          # Every grid a background can be handed, the one it was declared showing first. A
+          # background declared with a single map has just that one.
+          def every_map(node) = node.maps&.any? ? node.maps : [node.map]
+
+          # KEEP A BLOB OUT OF THE PACKER. A background's maps are laid end to end so the map
+          # numbered N can be found by counting N strides along from the first — arithmetic
+          # the game does as it runs, and which packing the lot into one compressed stream
+          # would destroy. Registering the codec here is what stops the first upload packing
+          # it (see Drawing#pack_blob, which asks this table before doing anything).
+          def plain_blob!(name) = @codecs[name] = :none
+
+          def regular_map_size(cols, rows) = REGULAR_MAP_SIZES.fetch([cols, rows]) << MAP_SIZE_SHIFT
+
+          # A MAP WIDER OR TALLER THAN ONE BLOCK IS SEVERAL BLOCKS, and the console reads
+          # them in a fixed order: the left half first, then the right, and for a tall map
+          # the top pair before the bottom pair. So a 64x64 map is four 32x32 squares laid
+          # out top-left, top-right, bottom-left, bottom-right — not 64 rows of 64.
+          #
+          # That is why this cannot simply walk the authored rows: a cell's place in the
+          # blob depends on which quarter of the map it is in. The blocks are consecutive in
+          # memory (TileVram hands out a run), so the whole thing still uploads as one copy.
+          def map_entries(map, cols, rows, blank = 0)
+            entries = Array.new(cols * rows, blank)
+            map.each_with_index do |row, r|
+              next if r >= rows
+
+              row.each_with_index do |index, c|
+                next if c >= cols || index.nil?
+
+                entries[map_offset(c, r, cols)] = yield(index)
+              end
+            end
+            entries
+          end
+
+          def map_offset(col, row, cols)
+            quarter = ((row / MAP_CELLS) * (cols / MAP_CELLS)) + (col / MAP_CELLS)
+            (quarter * MAP_ENTRIES_A_BLOCK) + ((row % MAP_CELLS) * MAP_CELLS) + (col % MAP_CELLS)
+          end
+
+          # A layer's tiles as {BackgroundTiles} takes them: each the picture it was drawn
+          # from, and where that tile's colors sit — its own bank if the layer is stored the
+          # small way, else the whole table the layer shares.
+          def tile_pictures(node, banks)
+            node.tiles.each_index.map do |index|
+              key = tile_key(node, index)
+              [@bitmaps.fetch(node.tiles[index]), banks.placement(banks.known?(key) ? key : node.name)]
+            end
+          end
+
+          # Fold an affine background's tiles into the shared character block (same as a
+          # regular one) but build its MAP differently: one byte per cell, not two, because
+          # the console's rotate/scale layer reads a plain tile number with no flip bits —
+          # so it can name only 256 tiles, not the 1024 a regular layer's map can.
+          #
+          # That one byte is also why this layer is always stored the big way: with no room
+          # in a map entry to name a bank of sixteen, its tiles have nothing to draw from
+          # but the whole table.
+          def prepare_affine_background(node, banks)
+            name = node.name
+            tiles = node.tiles
+            validate_map_fits!(name, node.map)
+
+            # The same shared sine table a turning sprite reads (see #prepare_affine) —
+            # baked in here too, since a program can turn a background without ever
+            # turning a sprite.
+            @blobs[OBJ_SINE_BLOB] ||= build_sine_table
+
+            begin
+              stored = @tiles.add(name, tile_pictures(node, banks),
+                                  unit: BIG_TILE_BYTES, most: AFFINE_MAX_TILES)
+            rescue LoweringError
+              raise LoweringError,
+                    "background :#{name} turns and resizes, so its map can only name " \
+                    "#{AFFINE_MAX_TILES} tiles — one byte per cell, no room for more. It has #{tiles.size} of " \
+                    "its own, and they must all sit inside one #{CHAR_BLOCK_BYTES}-byte stretch of video " \
+                    "memory. Use fewer distinct tiles, or declare this background first."
+            end
+
+            # A rotate/scale layer's map is one BYTE per cell and is laid out as plain rows
+            # of the whole grid — not as squares of 32x32 the way a regular layer's is. So a
+            # bigger one of these needs no re-arranging, only more room.
+            cols, rows = IR::TileMap.grid(node.map)
+            grids = every_map(node).map { |map| affine_map_entries(map, cols, rows, stored) }
+            entries = grids.first
+
+            map_blob = :"__bg_map_#{name}"
+            @blobs[map_blob] = grids.map { |one| one.pack("C*") }.join
+            plain_blob!(map_blob) if grids.size > 1
+            blocks = ((entries.size + SCREENBLOCK_BYTES - 1) / SCREENBLOCK_BYTES)
+            @backgrounds[name] = BackgroundPlacement.new(
+              map: map_blob, map_units: entries.size / 2, # DMA copies halfwords, so a byte map is half as many
+              bg: AFFINE_BG,
+              screen_block: @vram.take_map(blocks),
+              size: affine_map_size(cols, rows, name),
+              priority: hardware_priority(name),
+              affine: true,
+              small: false,
+              char_base: stored.char_base,
+              map_count: grids.size, map_bytes: entries.size,
+              grid: nil, # its cells are one byte and hold a tile number alone: no grid of that shape
+              colors: nil # ...and its tiles read the whole table rather than a group of sixteen
+            )
+          end
+
+          # One rotate/scale map's cells, plain rows of the whole grid, one byte each.
+          def affine_map_entries(map, cols, rows, stored)
+            entries = Array.new(cols * rows, stored.blank)
+            map.each_with_index do |row, r|
+              next if r >= rows
+
+              row.each_with_index do |index, c|
+                next if c >= cols || index.nil?
+
+                entries[(r * cols) + c] = stored.number(index)
+              end
+            end
+            entries
+          end
+
+          def affine_map_size(cols, rows, name)
+            side = [cols, rows].max
+            unless cols == rows
+              raise LoweringError,
+                    "background :#{name} turns about its middle, so its map must be square. This one " \
+                    "is #{cols}x#{rows} tiles. Make it #{side}x#{side}."
+            end
+
+            AFFINE_MAP_SIZES.fetch(side) << MAP_SIZE_SHIFT
+          end
+
+          # ASKED ONE SCREENFUL AT A TIME, the same way the layers are (see #layer_slots).
+          # A level is spent while something is being drawn, so what has to fit is what can be
+          # on screen together — and scenes that take turns never are. Counted across the
+          # whole program instead, a game that declared a stack and three backgrounds in each
+          # of two scenes passed the layer count and then died here at six levels.
+          def guard_stack_fits
+            return if @picture.stack.empty?
+
+            deepest = @screenfuls.max_by { |screenful| screenful.depths.count }
+            needed = deepest.depths.count
+            return if needed <= MAX_LEVELS
+
+            raise LoweringError,
+                  "#{whose_picture(deepest)} needs #{needed} levels of depth and the console " \
+                  "stacks #{MAX_LEVELS} at one time. #{stack_overflow_cause(deepest)}\n" \
+                  "The stack is #{@picture.stack.map { |name| ":#{name}" }.join(', ')}, back to front."
+          end
+
+          def whose_picture(screenful)
+            return "This picture" unless screenful.scene
+
+            "The scene :#{IR::Modes.friendly_name(screenful.scene)}'s picture"
+          end
+
+          # Which of the two ways it ran out, and what to do about that one.
+          def stack_overflow_cause(screenful)
+            backmost = screenful.objects.select { |node| screenful.depths[node.name].zero? }
+            if backmost.any? && screenful.scenery.none? { |node| screenful.depths[node.name].zero? }
+              behind = backmost.map(&:layer).uniq.compact
+              "The sprites in #{behind.map { |name| ":#{name}" }.join(', ')} sit behind every background, " \
+                "which takes a level of its own. To fix this, move that layer in front of one background, " \
+                "or use one background less."
+            else
+              "Each background takes a level, and the sprites in front of it share that level. " \
+                "To fix this, use fewer backgrounds."
+            end
+          end
+
+          # What the console's stacking hardware is told about how deep a thing sits.
+          #
+          # It counts the other way round from the picture: 0 is the FRONT and 3 the back,
+          # and there are only four of them. So the levels the picture needs are flipped
+          # onto that scale, deepest first. Several named layers can land on one number,
+          # which is the point — the console has more layers than it has priorities, and
+          # it can already tell apart what shares one (a sprite is drawn over a background
+          # of the same priority, and two sprites keep their table order).
+          #
+          # READ OFF ONE SCREENFUL, for the same reason the layer slots are: there are four
+          # of these too, and they are spent while something is being drawn. A game whose
+          # scenes take turns would otherwise run out of depths having never shown more than
+          # four things at once — and ask the console for a priority it does not have.
+          # THE FURTHEST BACK IT HAS TO BE ON ANY SCREEN, which matters for scenery every
+          # screen shows. Such a thing is drawn once, where it was declared, so it carries ONE
+          # priority — while the screens it appears on can hold different numbers of layers,
+          # and so place it differently.
+          #
+          # Taking the backmost of those is what keeps every screen right. A backdrop behind
+          # one layer in a quiet scene and behind three in a busy one has to be told the
+          # busier number, or the busy scene draws it in front of its own backmost layer.
+          # Measured before this said `max`: a backdrop beside scenes of one and three
+          # backgrounds came out in front of the three-background scene's back layer.
+          #
+          # Pushing it further back can never disturb the quiet screen, because there is
+          # nothing behind it there to get in the way of.
+          def hardware_priority(name)
+            @screenfuls.filter_map do |screenful|
+              next unless screenful.depths.of.key?(name)
+
+              screenful.depths.count - 1 - screenful.depths[name]
+            end.max
+          end
+
+          # This color's slot in the shared background palette, adding it if it's new.
+          #
+          # Every tiled layer draws from one 256-color palette, and a tile pixel is a
+          # single byte holding an index into it. So the 257th distinct color has no
+          # index that fits in a pixel. The check belongs here, at the moment a color is
+          # added, because the very next thing the caller does is pack the index into a
+          # byte — past 255 that is a raw range error from deep inside the packing, which
+          # tells the developer nothing.
+          # A tiled background scrolls over a grid that comes in fixed sizes, and the biggest
+          # is 64x64 tiles — 512x512 pixels, four screenfuls. Past that a level has to be
+          # split, and saying so is better than a silently cropped one.
+          def validate_map_fits!(name, map)
+            return if IR::TileMap.fits?(map)
+
+            cols = map.map(&:length).max || 0
+            most = IR::TileMap.most
+            raise LoweringError,
+                  "background :#{name} is #{cols}x#{map.length} tiles, and a tiled background is at most " \
+                  "#{most}x#{most} tiles (#{most * TILE_PX}x#{most * TILE_PX} pixels, which is four " \
+                  "screenfuls and scrolls and wraps). Use a smaller map, or split the level."
+          end
+
+          def validate_tile_sizes!(name, tiles)
+            tiles.each do |tile|
+              bmp = @bitmaps.fetch(tile) do
+                raise LoweringError, "background :#{name} references undefined tile image #{tile.inspect}"
+              end
+              next if bmp.width == TILE_PX && bmp.height == TILE_PX
+
+              raise LoweringError,
+                    "screen :tiled needs #{TILE_PX}x#{TILE_PX} tiles, but tile #{tile.inspect} is " \
+                    "#{bmp.width}x#{bmp.height} — resize it, or draw this background under screen :bitmap"
+            end
+          end
+          # Lay all the declared sprites out: one shared color table every sprite indexes
+          # into, then each sprite's picture as tiles and its place in the sprite table.
+          # Done up front so the addresses exist before the per-frame draw refers to them;
+          # the boot upload (emit_boot_objects) and the per-frame draw
+          # (emit_present_objects) are the run-time halves.
+          #
+          # Slots run backwards: the sprite drawn last takes the lowest table slot, and a
+          # lower slot draws in front — so the last one in the frame's draw order sits on
+          # top, the same front-to-back order the interpreter and the software sprites
+          # use. That ordering is fixed at build time, which is what lets hardware sprites
+          # hold a stable stack (one reliably in front of another) that software
+          # save-under sprites can't.
+          #
+          # The order comes from the frame's own draw list, not from where the sprites
+          # happen to sit in the tree. The two are usually the same and are not always:
+          # a HUD is drawn after the game whatever order it was written in, and a layer
+          # can put a sprite in front of one declared later. Reading the list the frame
+          # actually draws is what keeps this console agreeing with every other backend
+          # about which sprite is on top.
+          def prepare_objects(program)
+            nodes = @picture.objects
+            # The guardrail of the same name has the rule and the words; this is the lowering's
+            # own invariant, for a program that reached it without passing the guardrails.
+            refusal = Guardrails::Checks::TooManySprites.new.refusal(program)
+            raise LoweringError, refusal if refusal
+            build_shared_object_palette(nodes)
+            # EVERY SPRITE'S PICTURES, cut into the rectangles the console draws and encoded,
+            # before any of them is given a place: a picture the console can draw in one go is
+            # one object, and a bigger one is several (see PoseCutter), so the places are handed
+            # out in runs rather than one apiece. None of this changes while the pictures are
+            # fitted into memory below, so it is done once.
+            cutter = PoseCutter.new(@bitmaps)
+            @obj_pictures = nodes.to_h { |node| [node.name, sprite_pictures(node, cutter)] }
+            guard_objects_fit(nodes)
+            guard_window_twins_fit(nodes)
+
+            # The window twins take the front slots and every real sprite moves back by as
+            # many, which changes nothing about what is in front of what (a twin paints
+            # nothing, and the sprites keep their order among themselves). It has to be
+            # this way round: a twin only holds the effect off a sprite that is BEHIND it.
+            front = @placed_fade.place_twins { |name| @obj_pictures.fetch(name).pieces }
+            slot_of = {}
+            nodes.reverse_each do |node| # last declared is in front, so it takes the front slots
+              slot_of[node.name] = front
+              front += @obj_pictures.fetch(node.name).pieces
+            end
+            affine_of = affine_slots(nodes) # ...and which rotation group each turning sprite uses
+            prepare_affine(nodes)
+
+            sets = @obj_pictures.values.group_by(&:stored).values.map { |sprites| PictureSet.new(sprites: sprites) }
+            one_frame = Set.new # the names of the sprites kept to one frame at a time
+            blobs = SpriteLayout::Blobs.new(data_blobs: @blobs, keep_plain: method(:plain_blob!))
+            loop do
+              @sprite_art = SpriteLayout.new(data_blobs: @blobs, nodes: nodes, pictures: @obj_pictures,
+                                             one_frame: one_frame, blobs: blobs) do |pictures, placed|
+                object_record(pictures, slot: slot_of.fetch(pictures.name),
+                                        affine_slot: affine_of[pictures.name], **placed)
+              end
+              break if @sprite_art.fits?(OBJ_TILE_CAPACITY)
+
+              set = set_to_keep_to_one_frame(sets, one_frame) or raise LoweringError, sprite_art_does_not_fit(nodes)
+              set.names.each { |name| @blobs.delete(:"__obj_tiles_#{name}") }
+              one_frame.merge(set.names)
+            end
+            @objects = @sprite_art.sprites
+            @scene_art = @sprite_art.scene_art
+          end
+
+          # A SPRITE WHOSE PICTURES DO NOT ALL FIT KEEPS ONE FRAME IN SPRITE MEMORY AT A TIME.
+          #
+          # Every picture a sprite can show normally sits in the console's 32K of sprite memory
+          # from the moment its scene starts, so a character costs every frame of every
+          # animation it has, all the time. That is the fast arrangement — showing another
+          # frame is pointing at different tiles — and it is what every sprite gets while the
+          # pictures fit.
+          #
+          # When they do not, the sprite with the most to give back is given room for ONE frame
+          # instead, and whenever the frame it is showing changes, that frame's pictures are
+          # copied into the room out of the cartridge before the sprite is drawn. It is how the
+          # console's own retail games put a full cast on screen: The Minish Cap gives each
+          # character a slot of sixteen tiles and copies a frame into it when the frame changes.
+          # More are given room this way until the pictures fit, and when nothing left would
+          # give anything back, that is the friendly error.
+          #
+          # What it costs is the copy, and only on a frame where the pose changed: a sprite
+          # holding still copies nothing, and one animating copies one frame's worth of tiles
+          # each time it steps. The cartridge holds every frame at the same stride, blank room
+          # included, so finding a frame is one multiply.
+          #
+          # What is weighed is a SET OF PICTURES and every sprite showing it (see PictureSet),
+          # because a set is stored once however many sprites show it — so it gives nothing back
+          # until all of them are kept to one frame, and then each costs a frame's room. A pool is
+          # the usual case, and is often worth more kept whole. What has to give back is what is
+          # over: the pictures every screen shows and the fullest scene's.
+          def set_to_keep_to_one_frame(sets, one_frame)
+            scene = @sprite_art.fullest_scene
+            best = sets.reject { |set| one_frame.include?(set.names.first) }
+                       .select(&:can_keep_to_one_frame?)
+                       .max_by { |set| set.gives_back(scene) }
+            best if best&.gives_back(scene)&.positive?
+          end
+
+          # Out of room for sprite pictures. Name the greediest, since the fix is nearly
+          # always one piece of art rather than "fewer sprites" — and say what sharing
+          # already saved, because a reader's first question is whether it is doing
+          # anything.
+          def sprite_art_does_not_fit(nodes)
+            scene = @sprite_art.fullest_scene
+            sprites = @sprite_art.sprites
+            worst = nodes.select { |node| node.scene.nil? || node.scene == scene }
+                         .max_by(3) { |node| sprites[node.name].tile_units }
+            # Name the PICTURES rather than the sprites: an author named the pictures, and a
+            # sprite's own name is the framework's.
+            named = worst.map { |node| ":#{node.poses.first} (#{sprites[node.name].tile_units * 32})" }
+            "The sprites' pictures need #{@sprite_art.bytes} bytes at once, and the console keeps them in " \
+              "#{OBJ_TILE_CAPACITY}. Only one scene's are needed at a time. #{fullest_is(scene)}, " \
+              "and its biggest pictures are #{named.uniq.join(', ')}. When that makes room, a sprite that " \
+              "animates keeps only one frame at a time in this memory, and that was not enough. To fix " \
+              "this, use fewer pictures there, or smaller ones." \
+              "#{" Sharing already saved #{@sprite_art.saved} bytes." if @sprite_art.saved.positive?}"
+          end
+
+          # A scene is a routine named after the state it draws, with a prefix of the
+          # framework's in front. The author wrote the state.
+          def fullest_is(scene)
+            return "The fullest is what every screen shows" if scene.nil?
+
+            "The fullest is the :#{scene.to_s.delete_prefix('_scene_')} scene"
+          end
+
+          # WHICH ROTATION GROUP EACH TURNING SPRITE USES. The console draws a sprite that turns
+          # or changes size through one of 32 parameter groups (its "affine slot"); a sprite that
+          # does neither keeps its default upright, drawn-size settings, gets no group, and costs
+          # nothing. More than 32 is a friendly error — the hardware simply has no more.
+          #
+          # Worked out here, beside the sprites' places and before any of them is built, because
+          # it is the same kind of fact: something the build hands the sprite. It used to be
+          # written into each sprite AFTER it was built, which left the drawing reading a field
+          # nothing in the construction mentioned.
+          def affine_slots(nodes)
+            turning = nodes.select { |node| object_transformed?(node) }
+            if turning.size > MAX_AFFINE_GROUPS
+              raise LoweringError,
+                    "#{turning.size} sprites turn or change size, but the console can do that to at " \
+                    "most #{MAX_AFFINE_GROUPS} at once. Turn or resize fewer sprites at the same time."
+            end
+            turning.each_with_index.to_h { |node, group| [node.name, group] }
+          end
+
+          # The sine table every turning sprite reads, baked into ROM once. A game with nothing
+          # that turns or resizes has no table at all.
+          def prepare_affine(nodes)
+            return if nodes.none? { |node| object_transformed?(node) }
+
+            @blobs[OBJ_SINE_BLOB] = build_sine_table
+          end
+
+          # The sine lookup table as ROM bytes: sin(d°) in 8.8 fixed point for d in
+          # 0..449, each a signed 16-bit little-endian value (256 = 1.0, -256 = -1.0).
+          # Built from the same helper the reference interpreter reads, so the two cannot
+          # turn a sprite through different numbers.
+          def build_sine_table
+            (0...OBJ_SINE_ENTRIES).map { |degrees| Affine.sine(degrees) }.pack("s<*")
+          end
+
+          def guard_window_twins_fit(nodes)
+            spent = object_count(nodes)
+            total = spent + twin_object_count
+            return if total <= MAX_SPRITES
+
+            raise LoweringError,
+                  "#{@placed_fade.count} sprites are kept out of a fade, and each one needs a second " \
+                  "slot in the sprite table to hold the fade off it. That is #{total} slots with the " \
+                  "#{spent} sprites themselves, and the console draws #{MAX_SPRITES} at once. " \
+                  "To fix this, keep fewer sprites out of the fade, or use fewer sprites."
+          end
+
+          # Out of places in the console's sprite table. A game whose sprites are one object
+          # each gets the plain count; one with a picture too big for a single object gets
+          # told which sprites are spending several, since that is the part nobody wrote.
+          def guard_objects_fit(nodes)
+            spent = object_count(nodes)
+            return if spent <= MAX_SPRITES
+
+            raise LoweringError,
+                  "This game needs #{spent} sprites at once. The console draws #{MAX_SPRITES} at most." \
+                  "#{big_sprites_sentence(nodes)}"
+          end
+
+          # Which sprites are drawn as more than one object, said in the author's own names
+          # — the pictures, since a sprite's own name is the framework's.
+          def big_sprites_sentence(nodes)
+            big = nodes.select { |node| @obj_pictures.fetch(node.name).pieces > 1 }
+            return " To fix this, use fewer sprites." if big.empty?
+
+            named = big.map { |node| ":#{node.poses.first} (#{@obj_pictures.fetch(node.name).pieces} each)" }
+            " A picture bigger than #{OBJ_MAX_SIDE}x#{OBJ_MAX_SIDE} is drawn as several sprites at once. " \
+              "These pictures spend more than one: #{named.uniq.join(', ')}. To fix this, draw them " \
+              "smaller, or use fewer sprites."
+          end
+
+          # Sort the sprites' colors into the table they all read from.
+          #
+          # A sprite that draws from few enough colors is stored half a byte a pixel and
+          # reads one BANK of that table — sixteen colors of its own, shared with nothing
+          # unless it happens to use the same ones. It costs half the sprite memory of the
+          # same picture stored the old way, and nothing about the program says so: the
+          # count of colors in the art decides it. A sprite with more colors than a bank
+          # holds keeps the whole-byte storage and reads across the whole table, exactly
+          # as every sprite did before this.
+          #
+          # The unit is the SPRITE, not the picture, because which way the console reads a
+          # sprite is one bit in that sprite's own table entry — so all of its poses are
+          # stored the same way, out of one bank.
+          def build_shared_object_palette(nodes)
+            pictures = nodes.map do |node|
+              colors = []
+              node.poses.each do |image|
+                bmp = @bitmaps.fetch(image) do
+                  raise LoweringError,
+                        "sprite object #{node.name.inspect} references undefined image #{image.inspect}"
+                end
+                scan_object_colors(bmp, colors)
+              end
+              PaletteBanks::Picture.new(key: node.name, colors: colors, authored: authored_palette(node))
+            end
+            pictures += recolor_pictures(nodes)
+
+            @obj_banks = begin
+              PaletteBanks.new(pictures)
+            rescue PaletteBanks::Overflow
+              raise LoweringError, too_many_object_colors(pictures)
+            end
+            nodes.each { |node| recolor_banks_fit!(node) }
+
+            colors = @obj_banks.entries
+            @obj_palette_blob = :__obj_palette
+            @obj_palette_units = colors.size
+            @blobs[@obj_palette_blob] = colors.pack("v*")
+          end
+
+          # THE OTHER LISTS A SPRITE CAN BE DRAWN WITH, each a bank of its own.
+          #
+          # Which colours a sprite's pixels show is the bank named in its table entry, and
+          # nothing else — the pixels themselves are places in a bank. So drawing a sprite with
+          # another list is naming another bank, laid out the way the sprite's own is: each list
+          # goes in as a table no picture draws from, pinned as written, and two sprites (or the
+          # thirty slots of a pool) that name the same list share its bank.
+          def recolor_pictures(nodes)
+            nodes.flat_map do |node|
+              node.recolors.each_with_index.map do |list, index|
+                PaletteBanks::Picture.new(key: [:recolor, node.name, index], colors: [], authored: list)
+              end
+            end
+          end
+
+          # A sprite drawn with other lists has to be stored the small way, and so does every
+          # list — a bank is the only thing its table entry can name. When the banks ran out,
+          # one of them was stored the big way instead, and that is a friendly error.
+          def recolor_banks_fit!(node)
+            return if node.recolors.empty?
+
+            keys = [node.name, *node.recolors.each_index.map { |index| [:recolor, node.name, index] }]
+            return if keys.all? { |key| @obj_banks.placement(key).narrow? }
+
+            raise LoweringError,
+                  "The sprites and the lists of colors they draw with need more than the " \
+                  "#{PaletteBanks::BANKS} groups of colors the console holds for sprites. Each different list " \
+                  "takes one group, and so does each sprite with different colors. To fix this, tell sprites " \
+                  "to draw_with fewer different lists, or give more sprites the same `colors:` list."
+          end
+
+          # The bank each of a sprite's other lists landed in, in the order the program counts
+          # them, then its own. nil for a sprite never drawn with another list.
+          #
+          # The draw reads it as a table of the bank already shifted to where the table entry
+          # carries it, one word each, so a frame picks one with a single read. Sprites whose
+          # lists landed in the same banks — every slot of a pool — share the one table.
+          def recolor_banks(node)
+            return nil if node.recolors.empty?
+
+            banks = [*node.recolors.each_index.map { |index| @obj_banks.placement([:recolor, node.name, index]).bank },
+                     @obj_banks.placement(node.name).bank]
+            blob = :"__recolor_banks_#{banks.join('_')}"
+            @blobs[blob] = banks.map { |bank| bank << OBJ_BANK_SHIFT }.pack("V*")
+            plain_blob!(blob) # read from the middle, by the list the game picked
+            RecolorBanks.new(table: blob, own: banks.length - 1)
+          end
+
+          # The table a sprite's art came with, where its poses all name the same one.
+          # Art made somewhere else on this console arrives as numbers picking out of its
+          # own sixteen, so the order is the whole point and the framework must not
+          # rearrange it. Poses that disagree is a friendly error rather than a silent
+          # choice of one of them.
+          def authored_palette(node)
+            by_table = node.poses.group_by { |image| @bitmaps.fetch(image).colors }
+            return by_table.keys.first if by_table.size == 1
+
+            named = by_table.values.map { |images| ":#{images.first}" }.first(3).join(" and ")
+            raise LoweringError,
+                  "The pictures one sprite shows were given different `colors:` lists (#{named}). All the " \
+                  "pictures a sprite shows are drawn from one table of colors. So give them all the same " \
+                  "list, or give none of them a list and the framework works the table out."
+          end
+
+          # Every non-see-through color in a sprite picture, first-seen order, deduped.
+          def scan_object_colors(bmp, colors)
+            seen = colors.to_h { |color| [color, true] }
+            (bmp.width * bmp.height).times do |i|
+              next unless bmp.drawn_at?(i)
+
+              color = bmp.color_at(i)
+              next if seen[color]
+
+              seen[color] = true
+              colors << color
+            end
+          end
+
+          # Nothing fits: even stored the big way, the sprites name more colors than the
+          # console's sprite table holds. Name the greediest pictures, since "255 colors"
+          # on its own leaves the author hunting through their own art.
+          def too_many_object_colors(pictures)
+            worst = pictures.max_by(3) { |picture| picture.colors.size }
+            named = worst.map { |picture| ":#{picture.key} (#{picture.colors.size})" }.join(", ")
+            "The sprites use more colors between them than the console's sprite table holds " \
+              "(#{PaletteBanks::CAPACITY}, one of which means see-through). The sprites with the most colors " \
+              "are #{named}. Draw them from fewer colors, or use fewer sprites at once."
+          end
+
+          # ONE SPRITE'S PICTURES, encoded once for the whole build (see SpritePictures).
+          #
+          # Where each pose's tiles begin, in the 32-byte units a tile number counts in —
+          # taken from the bytes already written rather than from a tile count, since a
+          # picture stored the big way is two units to the tile. One number per piece, and
+          # a mirrored pose adds nothing and points back at the pose it mirrors.
+          #
+          # A PIECE THAT HOLDS TILES ALREADY WRITTEN IS NOT WRITTEN AGAIN, and this is the
+          # one saving a game written straight against the console cannot have. An object
+          # reads a CONTIGUOUS run of tiles, so by hand every frame of an animation has to
+          # be its own run and a part that did not move between two frames is kept twice.
+          # A pose built as a table of PIECES is under no such rule — each piece names its
+          # own first tile — so the head and the still arm of a walk cycle are stored once
+          # and every frame points at them. Judged on the encoded bytes, which say the
+          # pixels and the size of the box together, so two pieces match only when they
+          # would draw the same thing.
+          def sprite_pictures(node, cutter)
+            cut = cutter.cut(node, transformed: object_transformed?(node))
+            mirrors = cut[:mirrors]
+            boxes = cut[:boxes]
+            pieces = boxes.map(&:size).max
+            place = @obj_banks.placement(node.name)
+            encoded = node.poses.each_with_index.map do |image, k|
+              boxes[k].map { |box| cutter.encode(@bitmaps.fetch(image), place, box) } unless mirrors[k]
+            end
+            stored = +"".b
+            starts = []
+            repeats = 0
+            written = {} # the bytes of every run so far -> the unit it starts at
+            node.poses.each_index do |k|
+              if mirrors[k]
+                starts << starts[mirrors[k]].dup # point it at the pose it mirrors and store nothing
+                next
+              end
+              starts << encoded[k].map do |bytes|
+                at = written[bytes]
+                if at
+                  repeats += bytes.bytesize # already written: point at it, and say so
+                else
+                  at = written[bytes] = stored.bytesize / 32
+                  stored << bytes
+                end
+                at
+              end
+            end
+            pad_object_pieces(boxes, starts, stored, place, pieces)
+            SpritePictures.new(node: node, place: place, boxes: boxes, mirrors: mirrors, encoded: encoded,
+                               stored: stored, starts: starts, repeats: repeats,
+                               width: cut[:width], height: cut[:height],
+                               animates: const_int(node.pose).nil? && node.poses.length > 1)
+          end
+
+          # The record the drawing reads, from what either layout worked out. +starts+ is where
+          # each pose's pieces begin, counted from +tile_index+, for the pose table of a sprite
+          # whose poses are not alike.
+          def object_record(pictures, slot:, affine_slot:, starts:, alike:, per_pose:, tiles:, tile_units:,
+                            tile_index:, frames: nil, frame_bytes: nil)
+            node = pictures.node
+            name = node.name
+            place = pictures.place
+            boxes = pictures.boxes
+            mirrors = pictures.mirrors
+            # Poses that trimmed alike carry their one size in the sprite's own entry. Poses
+            # that differ carry NOTHING here — the size and shape come out of the table with
+            # the rest of what changes, so these bases must not also hold the canvas's.
+            shape, size = alike ? OBJ_SIZES.fetch(boxes.first.first.last(2)) : [0, 0]
+            Sprite.new(
+              slot: slot,
+              pieces: pictures.pieces, # how many of the console's 128 places this one sprite takes
+              tiles: tiles, tile_units: tile_units, # sprite memory counts in 32-byte units
+              scene: node.scene, # sent when that scene takes over, rather than at boot
+              tile_index: tile_index, # this sprite's base tile number
+              frames: frames, frame_bytes: frame_bytes, # every frame in the cartridge, for one kept to one frame
+              per_pose: per_pose,    # stride to the next pose's tiles
+              pose: node.pose,     # the run-time pose selector (which pose to show)
+              pose_count: node.poses.length, # how long one piece's row of the pose table is
+              # Every pose trimmed the same way is the ordinary case — a walk cycle drawn
+              # inside one outline — and it keeps the plain draw: one size in the sprite's
+              # own entry, one stride between poses. Poses that came out DIFFERENT sizes, or
+              # that are another pose mirrored, carry a table instead (#object_pose_table),
+              # read once a frame.
+              alike: alike,
+              mirrors: mirrors, # which poses are drawn backwards, so the draw knows to say so
+              pose_table: alike ? nil : :"__poses_#{name}",
+              pose_words: alike ? nil : object_pose_table(name, boxes, starts, mirrors, tile_index,
+                                                          pictures.pieces),
+              # Where the first pose sits inside the canvas it was drawn on. The sprite is
+              # drawn that much further along so the picture does not move; for poses that
+              # differ it comes out of the table instead.
+              offset_x: boxes.first.first[0], offset_y: boxes.first.first[1],
+              width: pictures.width, height: pictures.height,
+              x: node.x, y: node.y, active: node.active, # the live position/visibility operands
+              angle: node.angle,   # the rotation operand (a constant 0 unless the sprite turns)
+              scale: node.scale,   # the size operand (the "as drawn" constant unless it resizes)
+              transformed: object_transformed?(node), # draw it through an affine group rather than upright?
+              scales: object_scales?(node),           # ...and does that group need a size worked out?
+              affine_slot: affine_slot,               # ...which group, or nothing for an upright one
+              # A sprite in the see-through layer carries the blend in its own entry, so it
+              # rides here rather than costing anything at draw time.
+              attr0_base: (place.narrow? ? 0 : OBJ_256_COLOR) | (shape << 14) |
+                (see_through_object?(node) ? LayerBlend::OBJ_SEMI_TRANSPARENT : 0),
+              attr1_base: size << 14,
+              # attr2's top bits carry how deep the sprite sits, and — for a sprite stored
+              # the small way — which bank of sixteen colors it draws from. The depth stays
+              # 0 (the front) in every picture where the sprites are over all the scenery,
+              # which is every picture that names no layers.
+              attr2_base: (hardware_priority(name) << OBJ_PRIORITY_SHIFT) |
+                (place.narrow? && node.recolors.empty? ? place.bank << OBJ_BANK_SHIFT : 0),
+              recolor: node.recolor, recolor_banks: recolor_banks(node),
+            )
+          end
+
+          def object_pose_table(name, boxes, starts, mirrors, tile_unit, pieces)
+            blob = :"__poses_#{name}"
+            words = (0...pieces).flat_map do |piece|
+              boxes.each_with_index.map do |list, k|
+                x0, y0, w, h = list[piece]
+                shape, size = OBJ_SIZES.fetch([w, h])
+                (tile_unit + starts[k][piece]) | (shape << 10) | (size << 12) | (x0 << 14) | (y0 << 22) |
+                  (mirrors[k] ? POSE_MIRRORED : 0)
+              end
+            end
+            @blobs[blob] = words.pack("V*")
+            # Kept unpacked: the draw reads one word straight out of the middle of this,
+            # picked by the pose the game is showing, and there is no seeking into a
+            # compressed stream.
+            plain_blob!(blob)
+            words
+          end
+
+          # A POSE THAT DRAWS LESS THAN ANOTHER HAS FEWER PIECES TO DRAW IT WITH, and the
+          # frame must not have to test how many. So the short poses are filled out with a
+          # piece that draws NOTHING: one blank tile the whole sprite shares, sitting in the
+          # table like any other piece and composited by the console as nothing at all. That
+          # costs one tile of picture memory once, against a test on every piece of every
+          # frame — and it means the draw is the same code for every piece.
+          def pad_object_pieces(boxes, starts, tiles, place, pieces)
+            return unless boxes.any? { |list| list.size < pieces }
+
+            blank = tiles.bytesize / 32
+            tiles << ("\0" * (place.narrow? ? 32 : 64)).b
+            boxes.each_with_index do |list, k|
+              (pieces - list.size).times do
+                list << BLANK_PIECE
+                starts[k] << blank
+              end
+            end
+          end
+        end
+      end
+    end
+  end
+end

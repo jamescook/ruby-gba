@@ -205,7 +205,7 @@ module RubyGBA
           # too, or whichever background inherited that number is quietly blended in its
           # place.
           #
-          # Same shape, and the same rule, as GBA#scene_layers: where the scenes all agree
+          # Same shape, and the same rule, as ScreenLayout#scene_layers_for: where the scenes all agree
           # this is empty and boot's one write stands, which is what keeps a game that has
           # scenes but one screenful's worth of blending byte for byte what it was. A game
           # with a see-through layer on more than one screen always has each scene say it.

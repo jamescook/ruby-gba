@@ -84,18 +84,16 @@ class TestLargeTiledMaps < Minitest::Test
   # A map that fills no more than the old size must still land in one block and draw the same,
   # so nothing that worked before moved.
   def test_a_small_map_still_uses_one_block
-    backend = GBA.new
-    backend.lower(quartered_program(32, 32))
-    bg = backend.backgrounds.fetch(:field)
+    layout = GBA::ScreenLayout.plan(quartered_program(32, 32))
+    bg = layout.backgrounds.fetch(:field)
 
     assert_equal GBA::MAP_ENTRIES_A_BLOCK, bg.map_units, "one screen block, as before"
     assert_equal 0, bg.size, "and the smallest of the console's grid sizes"
   end
 
   def test_the_biggest_map_takes_four_blocks
-    backend = GBA.new
-    backend.lower(quartered_program(64, 64))
-    bg = backend.backgrounds.fetch(:field)
+    layout = GBA::ScreenLayout.plan(quartered_program(64, 64))
+    bg = layout.backgrounds.fetch(:field)
 
     assert_equal 4 * GBA::MAP_ENTRIES_A_BLOCK, bg.map_units
   end
@@ -113,9 +111,8 @@ class TestLargeTiledMaps < Minitest::Test
     end
     builder.emit_pending_functions
 
-    backend = GBA.new
-    backend.lower(builder.program)
-    spans = backend.backgrounds.values.map { |bg| bg.screen_block...(bg.screen_block + 4) }
+    layout = GBA::ScreenLayout.plan(builder.program)
+    spans = layout.backgrounds.values.map { |bg| bg.screen_block...(bg.screen_block + 4) }
     spans.combination(2).each do |a, b|
       assert (a.to_a & b.to_a).empty?, "two maps share screen blocks: #{a} and #{b}"
     end
