@@ -757,11 +757,18 @@ module RubyGBA
       #
       # An empty directory and one entry in the list of things to tidy up at exit is what
       # that costs somebody who only ever builds cartridges and never runs one.
-      SAVE_DIR = begin
-        dir = Dir.mktmpdir("verify-save")
-        at_exit { FileUtils.remove_entry(dir, true) }
-        dir.freeze
-      end
+      #
+      # TAKEN AWAY AFTER EVERY at_exit HOOK, not by one. A test suite commonly runs its tests
+      # FROM an at_exit hook — minitest does — and Ruby runs those hooks newest first, so a
+      # hook registered here, after the test runner's, ran before a single test and took the
+      # directory away. The emulator quietly made it again the first time it opened a
+      # cartridge, which hid this until a test wanted to put a save in it beforehand. What
+      # Ruby does after the last at_exit hook is finish the objects still alive, so the
+      # directory goes when this constant's keeper is finished.
+      SAVE_DIR = Dir.mktmpdir("verify-save").freeze
+      SAVE_DIR_KEEPER = Object.new.tap do |keeper|
+        ObjectSpace.define_finalizer(keeper, ->(_) { FileUtils.remove_entry(SAVE_DIR, true) })
+      end.freeze
 
       def self.save_dir = SAVE_DIR
 
