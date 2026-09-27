@@ -178,29 +178,15 @@ class TestVerifier < Minitest::Test
       end
     end
 
-    in_a_temp_directory_of_its_own do |dir|
-      v = RubyGBA::Diagnostics::Verifier.new(rom, frames: 6)
-      v.pixel(0, 0) # force the render, which is what opens the emulator
+    # The temp directory is shared with every other test running at the same moment, so this
+    # reads it rather than pointing it somewhere of its own: the temp directory is the whole
+    # process's, and moving it moved every other core's temp files into a directory this test
+    # was about to remove. A save a Verifier dropped there would be named after its ROM.
+    loose = -> { Dir.glob(File.join(Dir.tmpdir, "verify*.sav")) }
+    before = loose.call
+    v = RubyGBA::Diagnostics::Verifier.new(rom, frames: 6)
+    v.pixel(0, 0) # force the render, which is what opens the emulator
 
-      loose = Dir.children(dir).grep(/\.sav\z/)
-      assert_empty loose, "verifying a ROM dropped a save file next to it in the temp directory"
-    end
-  end
-
-  private
-
-  # Run the block with the temp directory pointed at an empty one, so what a Verifier
-  # leaves behind can be read off it directly.
-  def in_a_temp_directory_of_its_own
-    require "tmpdir"
-    Dir.mktmpdir("verify-check") do |dir|
-      was = ENV["TMPDIR"]
-      ENV["TMPDIR"] = dir
-      begin
-        yield dir
-      ensure
-        ENV["TMPDIR"] = was
-      end
-    end
+    assert_empty loose.call - before, "verifying a ROM dropped a save file next to it in the temp directory"
   end
 end
