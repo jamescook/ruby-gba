@@ -75,6 +75,40 @@ class TestSceneBackgrounds < Minitest::Test
     assert_equal BLUE, on_console(two_scenes(4), "SCNBG2", SWITCH_AT + 6)
   end
 
+  # A SCENE WITH NO SCENERY OF ITS OWN still takes the screen from the one before: the first
+  # scene's backdrop goes, and what every screen shows is what is left. A file screen's plain
+  # backdrop must not stay up over the game it hands over to.
+  private def a_backdrop_then_a_bare_scene
+    tile = SOLID_TILE
+    program do
+      screen :tiled
+      image(:red_art, "#" => :red) { tile }
+      image(:blue_art, "#" => :blue) { tile }
+      tiles :red_set, "#" => :red_art
+      tiles :blue_set, "#" => :blue_art
+      map = Array.new(20) { "#" * 30 }
+      background :world, tiles: :red_set, map: map
+      scene(:menu) { background :backdrop, tiles: :blue_set, map: map }
+      scene(:walk) { nil }
+      state = var :state, 0
+      tick = var :tick, 0
+      game_loop do
+        tick.add! 1
+        (tick > SWITCH_AT).then { state.set! 1 }
+        case_var(:state) do
+          when_val 0, :menu
+          when_val 1, :walk
+        end
+      end
+    end
+  end
+
+  def test_a_scene_with_no_scenery_of_its_own_takes_down_the_last_ones
+    assert_equal BLUE, shown(a_backdrop_then_a_bare_scene, SWITCH_AT)
+    assert_equal RED, shown(a_backdrop_then_a_bare_scene, SWITCH_AT + 4)
+    assert_equal RED, on_console(a_backdrop_then_a_bare_scene, "SCNBG0", SWITCH_AT + 6)
+  end
+
   # SCENERY EVERY SCREEN SHOWS IS IN EVERY SCREENFUL, so it is what each scene has left
   # that the scene's own has to fit in. A game with a backdrop up throughout and three
   # backgrounds in each of two scenes is four layers at a time, and fits exactly.

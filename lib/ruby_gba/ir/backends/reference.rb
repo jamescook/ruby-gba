@@ -954,8 +954,22 @@ module RubyGBA
         def exec_case(node)
           value = @vars[node.var]
           node.clauses.each do |clause_value, target|
-            exec_call(target) if value == clause_value
+            next unless value == clause_value
+
+            hand_the_screen_to(target)
+            exec_call(target)
           end
+        end
+
+        # A SCENE TAKES THE SCREEN AS IT STARTS, whether or not it has scenery of its own —
+        # the console tells the display which layers are up as each scene takes over. Waiting
+        # for the new scene's first background to say so left the scene before's scenery up
+        # over a scene that has none: a file screen's backdrop over the game it handed to.
+        def hand_the_screen_to(scene)
+          return if scene == @bg_scene || @bg_shown.none?(&:scene)
+
+          settle_the_picture
+          take_the_screen_for(scene)
         end
 
         # The routine at position +which+ of the list. A number below 0 or past the end names
