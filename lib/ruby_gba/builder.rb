@@ -397,6 +397,7 @@ module RubyGBA
     # call and case target names a function that exists. Called automatically by
     # RubyGBA.build after the DSL block.
     def emit_pending_functions
+      scenes_picked_by_name # `call mode` over scene names is a case_var over them
       @scene_gates = scan_scene_gates # which state value each scene is shown for (from case_var)
 
       # The program's default display mode — whatever the top-level `screen` left set.
@@ -1121,6 +1122,46 @@ module RubyGBA
     # known yet. By here every body has been built and the set cannot grow again.
     def finalize_name_dispatches
       @name_dispatches.each { |node, held| node.targets = held.names }
+    end
+
+    # A NAME THAT PICKS A SCENE. `call mode` runs the routine its variable names, and when
+    # those names are scenes it is exactly a `case_var` over them — so it is made one, here,
+    # before any scene's body is built. Everything that asks which scene a thing belongs to
+    # reads case dispatches (a scene's text, sprites and scenery are shown only while it
+    # runs; the display is told its layers as it takes over), and it all then works for
+    # scenes picked by name with nothing else knowing the difference.
+    #
+    # EVERY SCENE THE GAME DECLARES IS GIVEN A NUMBER NOW. A name normally gets one the first
+    # time it is used, and a scene first named deep inside another scene's body — the walk
+    # a menu hands over to — would get one only as that body is built, after this dispatch
+    # was fixed. Numbering them all first costs nothing: a number the variable never holds
+    # simply never runs its scene.
+    def scenes_picked_by_name
+      scenes = @functions.keys.filter_map { |name| name.to_s.delete_prefix("_scene_").to_sym if name.to_s.start_with?("_scene_") }
+      @name_dispatches.reject! do |node, held|
+        next false unless node.which.kind == :var_ref && held.names.intersect?(scenes)
+
+        refuse_names_that_are_scenes_and_routines!(held.names)
+        scenes.each { |scene| held.number_for(scene) }
+        clauses = held.names.each_with_index.map { |name, number| [number, :"_scene_#{name}"] }
+        swap_node(node, Build.case_(node.which.name, clauses))
+        true
+      end
+    end
+
+    def refuse_names_that_are_scenes_and_routines!(names)
+      both = names.find { |name| @functions.key?(name) && @functions.key?(:"_scene_#{name}") }
+      return unless both
+
+      raise ArgumentError, "`call` was given a variable that holds :#{both}, and :#{both} is both a scene " \
+                           "and a func, so it cannot tell which to run. To fix this, rename one of them."
+    end
+
+    # Put +replacement+ where +node+ sits in the tree.
+    def swap_node(node, replacement)
+      siblings = node.parent.children
+      siblings[siblings.index { |child| child.equal?(node) }] = replacement
+      replacement.parent = node.parent
     end
 
     # Look up a variable's IWRAM address, raising if not declared.

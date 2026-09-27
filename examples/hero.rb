@@ -74,10 +74,6 @@ module Hero
   MIST_PER_STEP = 2
   THICKEST = 90 # never quite solid — you can always see where you are going
 
-  # The two screens: the file screen the game opens on, and the walk.
-  FILE_SCREEN = 0
-  WALKING = 1
-
   # Where a new game starts in the world: standing by a corner of the pond.
   START_X = 120
   START_Y = 80
@@ -228,7 +224,7 @@ module Hero
 
     slot = var :slot, 0     # the file picked on the file screen, and the one START saves to
     saved = var :saved, 0   # frames left of "SAVED" after START
-    mode = var :mode, FILE_SCREEN
+    mode = var :mode, :files
     shown = Array.new(3) { |n| var :"shown#{n}", 0 } # each file's steps, for the file screen
     number = var :number, 1 # the picked file's number, as the second step shows it
 
@@ -269,12 +265,12 @@ module Hero
             m.item("CONTINUE", enabled: files[slot].good?) do
               files[slot].load
               place_hero.call
-              mode.set! WALKING
+              mode.set! :walking
             end
             m.item("NEW GAME") do
               files.reset
               place_hero.call
-              mode.set! WALKING
+              mode.set! :walking
             end
             m.item("COPY TO NEXT", enabled: files[slot].good?) do
               files.copy slot, to: (slot + 1) % 3
@@ -348,18 +344,14 @@ module Hero
       end
       pressed(:select).then do
         next_choosing.set! 0
-        mode.set! FILE_SCREEN
+        mode.set! :files
       end
       (saved > 0).then { saved.sub! 1 }
       layer(:words) { (saved > 0).then { draw_text "SAVED", :center, 16, :white } }
     end
 
-    game_loop do
-      case_var(:mode) do
-        when_val FILE_SCREEN, :files
-        when_val WALKING, :walking
-      end
-    end
+    # Whichever screen `mode` names runs this frame, and owns what it shows while it runs.
+    game_loop { call mode }
   end
 
   def self.program = GAME.program

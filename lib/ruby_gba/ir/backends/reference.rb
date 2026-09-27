@@ -1034,6 +1034,10 @@ module RubyGBA
           # order they were declared, which is every program that names no layers.
           over = @bg_shown.select { |bg| behind?(node, bg) }
           @bg_shown << node
+          # The scenery sprites are repainted over has changed, so the copy of it kept for
+          # that is out of date — left, a sprite over a scene's own backdrop would carry the
+          # scenery from before the backdrop went up around it.
+          @scene_fb = nil
           # A background that has ever been turned or resized is painted through its
           # matrix instead (see #paint_background_window) — a plain stamp here would put
           # the picture back as originally drawn and throw the turn away. It still counts
