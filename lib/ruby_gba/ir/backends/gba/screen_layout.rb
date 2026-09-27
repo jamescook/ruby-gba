@@ -194,7 +194,7 @@ module RubyGBA
               next [] unless place.colors
 
               place.colors.banks.each_with_index.map do |bank, at|
-                [BG_PALETTE + (bank * PaletteBanks::BANK_SIZE * 2), place.colors.at, at * Drawing::COLOR_LIST_BYTES]
+                [BG_PALETTE + (bank * PaletteBanks::BANK_SIZE * 2), place.colors.at, at * BackgroundDrawing::COLOR_LIST_BYTES]
               end
             end
           end
@@ -633,7 +633,7 @@ module RubyGBA
             BackgroundColorLists.new(blob: blob, count: node.recolors.length,
                                      banks: node.palettes.map { |list| bank_drawn_from(node, list, banks) },
                                      at: :"__bg_#{node.name}_colors_at",
-                                     shift: Drawing::COLOR_LIST_SHIFT + room.bit_length - 1)
+                                     shift: BackgroundDrawing::COLOR_LIST_SHIFT + room.bit_length - 1)
           end
 
           # The group of sixteen a layer's tiles drawn from +list+ read. Every such tile reads the
@@ -664,7 +664,7 @@ module RubyGBA
           # numbered N can be found by counting N strides along from the first — arithmetic
           # the game does as it runs, and which packing the lot into one compressed stream
           # would destroy. Registering the codec here is what stops the first upload packing
-          # it (see Drawing#pack_blob, which asks this table before doing anything).
+          # it (see BlobUpload#pack_blob, which asks this table before doing anything).
           def plain_blob!(name) = @codecs[name] = :none
 
           def regular_map_size(cols, rows) = REGULAR_MAP_SIZES.fetch([cols, rows]) << MAP_SIZE_SHIFT

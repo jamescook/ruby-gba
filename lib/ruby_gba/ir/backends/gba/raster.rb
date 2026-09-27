@@ -197,7 +197,7 @@ module RubyGBA
               @primitives.store_word_immediate(@framebuffer.dma_fill_control(TABLE_BYTES / 4), REG_DMA3CNT)
               next unless copies_row_bends?
 
-              @primitives.store_word_immediate(Drawing::BG_HOFS_REGS[bg_number(name)], COPIER_DAD[engine_for(name)])
+              @primitives.store_word_immediate(BackgroundDrawing::BG_HOFS_REGS[bg_number(name)], COPIER_DAD[engine_for(name)])
             end
             emit_rearm_row_bend_copiers if copies_row_bends?
           end
@@ -243,13 +243,13 @@ module RubyGBA
           # whatever feeds the rest only starts moving numbers at the end of line 0. Nothing
           # else writes that register for a bending layer — a `scroll_by` on one leaves it
           # alone, because the layer's scroll is already in every entry of the table (see
-          # Drawing#emit_scroll_background).
+          # BackgroundDrawing#emit_scroll_background).
           def emit_first_row_bend(node)
             @primitives.store_word_immediate(0, @primitives.var_addr(node.row))
             emit_row_offset(node)
             @emitter.emit(ASM.load_immediate(ADDR, @row_bend_table.fetch(node.name)))
             @emitter.emit(ASM.store_halfword(ACC, ADDR))
-            @primitives.store_halfword_acc(Drawing::BG_HOFS_REGS[bg_number(node.name)])
+            @primitives.store_halfword_acc(BackgroundDrawing::BG_HOFS_REGS[bg_number(node.name)])
           end
 
           # ...and the rest of that layer's rows, 1 up. The loop keeps its count in the
@@ -321,7 +321,7 @@ module RubyGBA
             @emitter.emit(ASM.load_immediate(ADDR, @row_bend_table.fetch(node.name)))
             @emitter.emit(ASM.add_reg(ADDR, ADDR, SPARE))
             @emitter.emit(ASM.load_halfword(ACC, ADDR))
-            @primitives.store_halfword_acc(Drawing::BG_HOFS_REGS[bg_number(node.name)])
+            @primitives.store_halfword_acc(BackgroundDrawing::BG_HOFS_REGS[bg_number(node.name)])
           end
 
           # One background's offset for this line, worked out here and now: run whatever the
@@ -331,7 +331,7 @@ module RubyGBA
           def emit_one_row_bend(node)
             node.children.each { |child| @lowering.statement(child) }
             @lowering.value(Build.binop(:+, node.offset, @row_bend_base[node.name]))
-            @primitives.store_halfword_acc(Drawing::BG_HOFS_REGS[bg_number(node.name)])
+            @primitives.store_halfword_acc(BackgroundDrawing::BG_HOFS_REGS[bg_number(node.name)])
           end
         end
       end

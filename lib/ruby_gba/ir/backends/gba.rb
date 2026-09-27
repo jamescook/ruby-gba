@@ -18,6 +18,11 @@ require_relative "gba/bend_form" # ...and which way a row-by-row bend is lowered
 require_relative "gba/statements"
 require_relative "gba/lists"
 require_relative "gba/functions"
+require_relative "gba/emitter_calls" # the bare-name calls every file that writes drawing code makes
+require_relative "gba/blob_upload" # copying data out of the cartridge into video memory
+require_relative "gba/screen_effects" # the camera, fades and tints: the whole picture, not what is in it
+require_relative "gba/sprite_drawing" # writing the rows of the console's sprite table
+require_relative "gba/background_drawing" # putting background layers up, and changing them as the game runs
 require_relative "gba/framebuffer"
 require_relative "gba/drawing"
 require_relative "gba/placement"
@@ -226,7 +231,7 @@ module RubyGBA
         # The routines this build made for its scenes' moving sprites, each with the scene it
         # writes for. Read by the placement, which weighs them like routines somebody wrote.
         def scene_sprite_routines
-          (@scene_sprites || []).to_h { |group| [Drawing.sprites_routine(group.scene), group.scene] }
+          (@scene_sprites || []).to_h { |group| [SpriteDrawing.sprites_routine(group.scene), group.scene] }
         end
 
         # How many routines the frame's own body calls that the program never wrote: the
@@ -255,11 +260,11 @@ module RubyGBA
         # Where the game loop starts (see Frames#emit_start_counting), and only where the
         # screen's interrupt counts frames at all.
         def emit_start_counting_frames = @uses_vblank && @frames.emit_start_counting
-        def fade_steps(percent) = @drawing.fade_steps(percent)
-        def fade_steps_value(amount) = @drawing.fade_steps_value(amount)
-        def emit_clamp_blend_steps = @drawing.emit_clamp_blend_steps
-        def emit_blend_weights_from_acc = @drawing.emit_blend_weights_from_acc
-        def emit_plain_dma_blob(blob_name, dest, units) = @drawing.emit_plain_dma_blob(blob_name, dest, units)
+        def fade_steps(percent) = @effects.fade_steps(percent)
+        def fade_steps_value(amount) = @effects.fade_steps_value(amount)
+        def emit_clamp_blend_steps = @effects.emit_clamp_blend_steps
+        def emit_blend_weights_from_acc = @effects.emit_blend_weights_from_acc
+        def emit_plain_dma_blob(blob_name, dest, units) = @uploads.emit_plain_dma_blob(blob_name, dest, units)
         def mix_buf0 = @mixer.mix_buf0
         def mix_buf1 = @mixer.mix_buf1
         def voice_base = @mixer.voice_base
@@ -350,10 +355,21 @@ module RubyGBA
                                         drawing: self)
           @buffered = Buffered.new(emitter: @emit, primitives: @primitives, lowering: @lowering,
                                    framebuffer: @framebuffer, call_cold_routine: method(:emit_call_cold_routine))
+          @uploads = BlobUpload.new(emitter: @emit, primitives: @primitives,
+                                    codecs: @blob_codecs, raw_bytes: @blob_raw_bytes)
+          @effects = ScreenEffects.new(emitter: @emit, primitives: @primitives, lowering: @lowering,
+                                       palette_tint: @palette_tint, layer_blend: @layer_blend)
+          @sprite_drawing = SpriteDrawing.new(emitter: @emit, primitives: @primitives, lowering: @lowering,
+                                              divide: @divide, framebuffer: @framebuffer,
+                                              palette_tint: @palette_tint, uploads: @uploads)
+          @background_drawing = BackgroundDrawing.new(emitter: @emit, primitives: @primitives, lowering: @lowering,
+                                                      divide: @divide, raster: @raster,
+                                                      palette_tint: @palette_tint, uploads: @uploads)
           @drawing = Drawing.new(emitter: @emit, primitives: @primitives, lowering: @lowering,
                                  divide: @divide, framebuffer: @framebuffer, raster: @raster,
                                  palette_tint: @palette_tint, layer_blend: @layer_blend, buffered: @buffered,
-                                 backing_info: method(:backing_info),
+                                 uploads: @uploads, sprite_drawing: @sprite_drawing,
+                                 background_drawing: @background_drawing, backing_info: method(:backing_info),
                                  call_cold_routine: method(:emit_call_cold_routine))
           # Every value kind's handler, registered once in one place — see {Lowering}.
           @lowering.values(
@@ -394,13 +410,13 @@ module RubyGBA
             draw_rect_at: @drawing.method(:emit_draw_rect_at), draw_column_at: @drawing.method(:emit_draw_column_at),
             draw_text: @drawing.method(:emit_draw_text), draw_digit: @drawing.method(:emit_draw_digit),
             blit: @drawing.method(:emit_blit), blit_pose: @drawing.method(:emit_blit_pose),
-            background: @drawing.method(:emit_background), scroll_background: @drawing.method(:emit_scroll_background),
-            affine_background: @drawing.method(:emit_affine_background),
-            scroll_rows: Lowering::NOTHING, camera: @drawing.method(:emit_camera), fade: @drawing.method(:emit_fade),
-            tint: @drawing.method(:emit_tint), see_through: @layer_blend.method(:emit_see_through),
-            set_tile: @drawing.method(:emit_set_tile), show_map: @drawing.method(:emit_show_map),
-            background_colors: @drawing.method(:emit_background_colors),
-            present_objects: @drawing.method(:emit_present_objects), save_region: @drawing.method(:emit_save_region),
+            background: @drawing.method(:emit_background), scroll_background: @background_drawing.method(:emit_scroll_background),
+            affine_background: @background_drawing.method(:emit_affine_background),
+            scroll_rows: Lowering::NOTHING, camera: @effects.method(:emit_camera), fade: @effects.method(:emit_fade),
+            tint: @effects.method(:emit_tint), see_through: @layer_blend.method(:emit_see_through),
+            set_tile: @background_drawing.method(:emit_set_tile), show_map: @background_drawing.method(:emit_show_map),
+            background_colors: @background_drawing.method(:emit_background_colors),
+            present_objects: @sprite_drawing.method(:emit_present_objects), save_region: @drawing.method(:emit_save_region),
             restore_region: @drawing.method(:emit_restore_region), enable_sound: @audio.method(:emit_enable_sound),
             define_sound: Lowering::NOTHING, song: Lowering::NOTHING, data: Lowering::NOTHING,
             bitmap: Lowering::NOTHING, backing_buffer: Lowering::NOTHING, object: Lowering::NOTHING,
@@ -662,6 +678,9 @@ module RubyGBA
           )
           @drawing.layout = layout
           @buffered.layout = layout
+          @effects.layout = layout
+          @sprite_drawing.layout = layout
+          @background_drawing.layout = layout
           # Fast ROM + prefetch, first, unless it's all raw or the caller asked to keep
           # the console's cautious power-on timing.
           emit_waitcnt_setup if @fast_cartridge && !raw_escape_hatch?(program)
@@ -685,8 +704,8 @@ module RubyGBA
           # entry into a tiled scene instead (enter_tiled_mode) — always current, and
           # only paid on the actual switch.
           unless @modes.switched_per_scene?
-            @drawing.emit_boot_backgrounds if @tiled && !@screen.backgrounds.empty? # shared BG palette + tiles
-            @drawing.emit_boot_objects if @has_objects # sprite tiles/colors + clear the sprite table
+            @background_drawing.emit_boot_backgrounds if @tiled && !@screen.backgrounds.empty? # shared BG palette + tiles
+            @sprite_drawing.emit_boot_objects if @has_objects # sprite tiles/colors + clear the sprite table
             @layer_blend.emit_boot_layer_blend if @layer_blend.see_through? # ...and which layer you can see through
           end
           # Clear each bending layer's table of row offsets, and start the engine that feeds
@@ -1271,6 +1290,11 @@ module RubyGBA
         # them (see the "only one affine background" check above).
         AFFINE_BG = 2
 
+        # The scale/rotate matrix that means "no scaling, no rotation" — 1.0 in the
+        # console's 8-fraction-bit fixed point. A turning background and the camera both
+        # set it on that layer.
+        FIXED_ONE = 0x0100
+
         # BG2CNT bits 14-15 on a rotate/scale layer mean a SQUARE grid — 16, 32, 64 or 128
         # tiles a side — rather than the four rectangles a regular layer picks between. So
         # this layer's map has to be square, which every other kind of background does not.
@@ -1319,7 +1343,7 @@ module RubyGBA
         def prepare_still_objects(program)
           @movement = IR::Movement.of(program).except(@screen.written_every_frame)
           still = @movement.still
-          @functions.mint(Drawing::STILL_ROUTINE) { @drawing.write_object_table(still) } if still.any?
+          @functions.mint(SpriteDrawing::STILL_ROUTINE) { @sprite_drawing.write_object_table(still) } if still.any?
           prepare_scene_sprites(program, still)
         end
 
@@ -1334,14 +1358,14 @@ module RubyGBA
         #
         # They are still written in the gap after the picture, where every sprite is written, so
         # nothing about which frame's numbers a sprite is drawn from changes (see
-        # Drawing#emit_scene_sprites).
+        # SpriteDrawing#emit_scene_sprites).
         def prepare_scene_sprites(program, still)
           @scene_sprites = IR::Movement.by_scene(program).filter_map do |things|
             moving = things.names.select { |name| @screen.objects.key?(name) } - still
             things.with(names: moving) if moving.any?
           end
           @scene_sprites.each do |group|
-            @functions.mint(Drawing.sprites_routine(group.scene)) { @drawing.write_object_table(group.names) }
+            @functions.mint(SpriteDrawing.sprites_routine(group.scene)) { @sprite_drawing.write_object_table(group.names) }
           end
         end
 

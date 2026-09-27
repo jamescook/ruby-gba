@@ -130,7 +130,7 @@ module RubyGBA
 
           # Is the statement on a screen that draws through a color table? The tear-free
           # bitmap screen and the tiled screen both do; the direct-color screen does not,
-          # and tints through the display's blend unit instead (Drawing#emit_tint).
+          # and tints through the display's blend unit instead (ScreenEffects#emit_tint).
           def palette_screen?(node)
             @modes.mode_at(node) != IR::Modes::DIRECT
           end
@@ -139,7 +139,7 @@ module RubyGBA
           #
           # Asked for by what it needs rather than by which statement asked, because two
           # statements do: a `tint` names its own color, and a fade that walks the colors
-          # is this same walk toward black or white (see Drawing#emit_fade). +color+ is
+          # is this same walk toward black or white (see ScreenEffects#emit_fade). +color+ is
           # already resolved, +amount+ is the 0-to-100 the author wrote or the game works
           # out, and +mode+ is the screen whose tables are to be moved.
           #
@@ -381,7 +381,7 @@ module RubyGBA
           # A packed table cannot be read entry by entry, so a build that tints keeps its
           # color tables as plain halfwords in the cartridge. Marking them here, before
           # anything uploads them, is what stops the packer touching them (see
-          # Drawing#pack_blob, which packs a blob the first time it is uploaded and
+          # BlobUpload#pack_blob, which packs a blob the first time it is uploaded and
           # remembers the answer). Only a build that tints pays the few bytes.
           def keep_tint_originals_readable
             all_tint_tables.each { |blob, _dest, _units| @layout.blob_codecs[blob] = :none }

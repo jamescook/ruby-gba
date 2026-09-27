@@ -29,7 +29,7 @@ module RubyGBA
         # A twin is a RIDER on its sprite rather than a second sprite to work out. Where it
         # is, which pose it holds and how big it is are all the same numbers, so the frame
         # writes them once and drops a copy into the twin's slot on the way past (see
-        # Drawing#emit_present_object) — which is what keeps a HUD held out of a fade from
+        # SpriteDrawing#emit_present_object) — which is what keeps a HUD held out of a fade from
         # costing as much again as the HUD.
         #
         # Its gate is where the fade in force is sitting: EFFECT_LINE against this sprite's

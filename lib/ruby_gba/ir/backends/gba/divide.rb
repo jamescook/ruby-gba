@@ -100,7 +100,7 @@ module RubyGBA
           #
           # A sprite that changes size counts too, even though the program never wrote a
           # division: drawing at a size means dividing BY it, and the framework does that
-          # for the author every frame (see Drawing#emit_object_scale_reciprocal).
+          # for the author every frame (see SpriteDrawing#emit_object_scale_reciprocal).
           def needs_divide_routine?(program)
             program.walk.any? do |node|
               case node.kind
@@ -111,7 +111,7 @@ module RubyGBA
               # that height is only known as the game runs.
               when :draw_column_at then true
               # An affine background always works out one over its current size (see
-              # Drawing#emit_bg_affine_scale_reciprocal), even the frame it only turns —
+              # BackgroundDrawing#emit_bg_affine_scale_reciprocal), even the frame it only turns —
               # rotate and scale share one pair of variables, so there's no "never resizes"
               # case to skip the divide the way a sprite's does.
               when :affine_background then true
