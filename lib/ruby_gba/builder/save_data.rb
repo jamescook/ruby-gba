@@ -97,7 +97,7 @@ module RubyGBA
           at_boot(Build.list_new(layout.directory(what), layout.copies, width: what == :seq ? :word : :byte))
           layout.copies.times { at_boot(Build.list_push(layout.directory(what), Build.int(0))) }
         end
-        %i[copy from at at0 at1 v0 v1 s0 s1 started winner].each { |what| ensure_var(layout.scratch(what)) }
+        %i[copy from source at at0 at1 v0 v1 s0 s1 started winner].each { |what| ensure_var(layout.scratch(what)) }
         layout.copies.times do |copy|
           at_boot(Build.set(layout.scratch(:copy), Build.int(copy)))
           at_boot(Build.call(layout.routine(:scan)))
@@ -109,6 +109,8 @@ module RubyGBA
         declare_func(layout.routine(:save)) { save_data_save(layout) }
         declare_func(layout.routine(:load)) { save_data_load(layout) }
         declare_func(layout.routine(:erase)) { save_data_erase(layout) }
+        declare_func(layout.routine(:copy)) { save_data_copy(layout) }
+        declare_func(layout.routine(:reset)) { save_data_reset(layout) }
       end
 
       # --- the routines' bodies, run while the routines are built ---
@@ -196,6 +198,36 @@ module RubyGBA
         save_data_write(layout, IR::SaveLayout::ERASED) { |_body| nil }
       end
 
+      # COPY ONE COPY OVER ANOTHER, byte for byte, when the one copied from is good and is not
+      # the one written over. Where it reads from is worked out before anything is written, so
+      # writing cannot move it.
+      def save_data_copy(layout)
+        from = sd_var(layout.scratch(:from))
+        good = sd_eq(sd_directory(layout, :state, Build.clamped(from, sd_int(0), sd_int(layout.copies - 1))),
+                     sd_int(IR::SaveLayout::STATES.index(:good)))
+        sd_when(sd_and(sd_and(sd_in_range(layout, from), good),
+                       Build.binop(:!=, from, sd_var(layout.scratch(:copy))))) do
+          source = sd_add(sd_half_at(layout, from, sd_directory(layout, :half, from)), sd_int(IR::SaveLayout::HEADER))
+          record(Build.set(layout.scratch(:source), source))
+          save_data_write(layout, IR::SaveLayout::SAVED) do |body|
+            repeat(layout.body) do |i|
+              record(Build.save_write(sd_add(body, i.node),
+                                      sd_read(sd_add(sd_var(layout.scratch(:source)), i.node), :byte), width: :byte))
+            end
+          end
+        end
+      end
+
+      # A NEW GAME: each kept variable set to what it was declared with, each kept list emptied.
+      def save_data_reset(layout)
+        layout.kept.each do |item|
+          next repeat(DSL::Value.new(self, Build.list_len(item.name))) { |_| record(Build.list_drop(item.name, from: :back)) } if item.kind == :list
+
+          start = @boot_inits.find { |node| node.kind == :set && node.var == item.name }
+          record(Build.set(item.name, start ? start.value.copy : sd_int(0)))
+        end
+      end
+
       # The half a job writes is the one that is NOT the copy now — the older one, or the first
       # when neither is good — and it goes one past the copy's sequence number.
       def save_data_write(layout, kind)
@@ -205,10 +237,15 @@ module RubyGBA
           record(Build.set(layout.scratch(:at), sd_half_at(layout, copy, older)))
           here = sd_var(layout.scratch(:at))
           body = sd_add(here, sd_int(IR::SaveLayout::HEADER))
+          # The marker and the shape go FIRST, so a save cut off at any point after them is
+          # known to have been started: a copy that had no good save before then reads as
+          # damaged rather than as never saved. They cannot make the half pass for good on their
+          # own — only the checksum, written last, does that.
+          first = { MARKER_AT: sd_int(IR::SaveLayout::MARKER), SHAPE_AT: sd_int(layout.shape) }
+          last = { SEQUENCE_AT: sd_add(sd_directory(layout, :seq, copy), sd_int(1)), KIND_AT: sd_int(kind) }
+          first.each { |field, value| record(Build.save_write(sd_add(here, sd_int(IR::SaveLayout.const_get(field))), value)) }
           yield body
-          header = { MARKER_AT: sd_int(IR::SaveLayout::MARKER), SHAPE_AT: sd_int(layout.shape),
-                     SEQUENCE_AT: sd_add(sd_directory(layout, :seq, copy), sd_int(1)), KIND_AT: sd_int(kind) }
-          header.each { |field, value| record(Build.save_write(sd_add(here, sd_int(IR::SaveLayout.const_get(field))), value)) }
+          last.each { |field, value| record(Build.save_write(sd_add(here, sd_int(IR::SaveLayout.const_get(field))), value)) }
           record(Build.save_write(sd_add(here, sd_int(IR::SaveLayout::CHECKSUM_AT)),
                                   Build.save_sum(body, sd_int(layout.body))))
           record(Build.call(layout.routine(:scan)))
@@ -302,6 +339,11 @@ module RubyGBA
       def run_save_data(layout, job, copy)
         record(Build.set(layout.scratch(:copy), copy))
         record(Build.call(layout.routine(job)))
+      end
+
+      def run_save_data_copy(layout, from, to)
+        record(Build.set(layout.scratch(:from), from))
+        run_save_data(layout, :copy, to)
       end
 
       # What copy +copy+ is, as a number counting into IR::SaveLayout::STATES; a copy the record

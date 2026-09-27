@@ -323,6 +323,15 @@ module RubyGBA
           self
         end
 
+        # TURN THE POWER OFF part way through a save: once this run has written +bytes+ bytes
+        # of save data, it stops where it stands, with whatever it had written kept and nothing
+        # after. Handing the same save store to another run is then turning the console on
+        # again. Returns self.
+        def cut_power_after_saving(bytes)
+          @power_left = bytes
+          self
+        end
+
         # Watch a run frame by frame: the block is called at each vblank with the frame
         # number, with #screen holding the image that just settled — for capturing a run
         # to preview it (turn a sequence of frames into a picture or animation). Purely an
@@ -2003,7 +2012,11 @@ module RubyGBA
         def exec_save_write(node)
           at = eval_value(node.at)
           value = eval_value(node.value)
-          SAVE_WIDTHS.fetch(node.width).times { |i| save_bytes[at + i] = (value >> (8 * i)) & 0xFF }
+          SAVE_WIDTHS.fetch(node.width).times do |i|
+            throw(:halt) if @power_left&.zero? # the power went off before this byte
+            @power_left -= 1 if @power_left
+            save_bytes[at + i] = (value >> (8 * i)) & 0xFF
+          end
         end
 
         def eval_save_read(node)

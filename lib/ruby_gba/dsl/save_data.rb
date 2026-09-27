@@ -22,6 +22,17 @@ module RubyGBA
 
         SaveDataCopy.new(@builder, @layout, Value.node_for(copy))
       end
+
+      # Copy one copy over another — the file screen's "copy". Only a good copy is copied, and
+      # the one written over keeps its last good save until the whole of the new one is in.
+      def copy(from, to:)
+        [from, to].each { |copy| self[copy] if copy.is_a?(Integer) } # the written-number check
+        @builder.run_save_data_copy(@layout, Value.node_for(from), Value.node_for(to))
+      end
+
+      # Put every kept thing back as it was declared — a new game. Only the game's state
+      # changes; nothing in save memory does.
+      def reset = @builder.run_save_data(@layout, :reset, IR::Build.int(0))
     end
 
     # One copy of a record: save the game into it, load it into the game, erase it, and ask
