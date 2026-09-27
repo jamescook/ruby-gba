@@ -334,6 +334,119 @@ class TestSaveData < Minitest::Test
     assert_equal (1195 & 0x7F) + 5 + 20, v.var(:checked)
   end
 
+  # A RECORD KEEPS ITS PLACE WHEN THE GAME CHANGES AROUND IT. A game that ships and is then
+  # updated — a setting added, the records declared in another order, a fourth file — must
+  # find the player's saves where the last build left them. Only a record whose own contents
+  # changed reads as empty.
+  #
+  # Each build below keeps :settings and :file; A saves 42 and 43 into files 0 and 1 and 7
+  # into the settings. What each build finds is read without loading.
+  private def version(settings: %i[speed], order: %i[settings file], copies: 2, extra: {})
+    built do
+      screen :tiled
+      state = { speed: var(:speed, 1), volume: var(:volume, 5), hearts: var(:hearts, 3) }
+      extra.each { |name, capacity| state[name] = list(name, capacity: capacity, width: :byte) }
+      declare = {
+        settings: -> { save_data(:settings) { keep(*settings.map { |name| state.fetch(name) }) } },
+        file: -> { save_data(:file, copies: copies) { keep state[:hearts] } }
+      }
+      extra.each_key { |name| declare[name] = -> { save_data(name) { keep state.fetch(name) } } }
+      records = order.to_h { |name| [name, declare.fetch(name).call] }
+      files = records.fetch(:file)
+      settings_record = records.fetch(:settings)
+      shown = Array.new(4) { |n| var :"shown#{n}", -1 }
+      kept_speed = var :kept_speed, -1
+      game_loop do
+        pressed(:a).then do
+          state[:hearts].set! 42
+          files[0].save
+          state[:hearts].set! 43
+          files[1].save if copies > 1
+          state[:speed].set! 7
+          settings_record[0].save
+        end
+        copies.times { |n| shown[n].set! files[n].peek(state[:hearts]) }
+        kept_speed.set! settings_record[0].peek(state[:speed])
+      end
+    end
+  end
+
+  private def saved_by_the_first_build
+    {}.tap { |store| play(version, store, pressing: { 2 => :a }) }
+  end
+
+  def test_a_record_keeps_its_saves_when_one_declared_before_it_grows
+    back = play(version(settings: %i[speed volume]), saved_by_the_first_build)
+
+    assert_equal [42, 43], [back[:shown0], back[:shown1]], "the files are where they were"
+    assert_equal 0, back[:kept_speed], "the settings changed, so their old save reads as empty"
+  end
+
+  def test_records_declared_in_another_order_keep_their_saves
+    back = play(version(order: %i[file settings]), saved_by_the_first_build)
+
+    assert_equal [42, 43, 7], [back[:shown0], back[:shown1], back[:kept_speed]]
+  end
+
+  def test_a_record_given_more_copies_keeps_the_ones_it_had
+    back = play(version(copies: 4), saved_by_the_first_build)
+
+    assert_equal [42, 43, 0, 0], (0..3).map { |n| back[:"shown#{n}"] }
+    assert_equal 7, back[:kept_speed]
+  end
+
+  def test_a_record_given_fewer_copies_keeps_the_ones_that_are_left
+    back = play(version(copies: 1), saved_by_the_first_build)
+
+    assert_equal [42, 7], [back[:shown0], back[:kept_speed]]
+  end
+
+  # The power going off while the new build moves the files into their bigger place: at every
+  # point, the next power-on still finds both files.
+  def test_moving_a_record_cut_off_at_any_point_loses_nothing
+    before = saved_by_the_first_build
+    bigger = version(copies: 4)
+    (0..400).step(3) do |cut|
+      store = before.merge(bytes: before[:bytes].dup)
+      Reference.new(save: store).cut_power_after_saving(cut).run(bigger, frames: 2)
+      back = play(bigger, store)
+
+      assert_equal [42, 43, 7], [back[:shown0], back[:shown1], back[:kept_speed]], "cut after #{cut} bytes"
+    end
+  end
+
+  # A record the game no longer declares keeps its place until the room is wanted, and then
+  # gives it up: here the first build's journal takes most of save memory, and the second
+  # build's atlas fits only in the room the journal leaves.
+  def test_a_record_no_longer_declared_gives_its_room_to_a_new_one
+    store = {}
+    play(version(order: %i[settings journal file], extra: { journal: 12_000 }), store, pressing: { 2 => :a })
+    back = play(version(order: %i[settings file atlas], extra: { atlas: 12_000 }), store)
+
+    assert_equal [42, 43, 7], [back[:shown0], back[:shown1], back[:kept_speed]]
+  end
+
+  # Room that is free in two pieces, neither big enough on its own: the records that stay are
+  # moved together to make one piece, and keep their saves.
+  def test_records_are_moved_together_when_the_free_room_is_in_pieces
+    store = {}
+    first = version(order: %i[settings north file south], extra: { north: 5000, south: 5000 })
+    play(first, store, pressing: { 2 => :a })
+    back = play(version(order: %i[settings file atlas], extra: { atlas: 10_000 }), store)
+
+    assert_equal [42, 43, 7], [back[:shown0], back[:shown1], back[:kept_speed]]
+  end
+
+  # The console, powered on with the save memory the first build left: the second build finds
+  # the files where the interpreter says it will.
+  def test_the_console_finds_a_record_that_kept_its_place
+    store = saved_by_the_first_build
+    rom = assemble_rom(version(settings: %i[speed volume], copies: 4), name: "MOVED")
+    v = assert_emulator_loads_rom(rom, frames: 4, save: store[:bytes], vars: rom.var_addresses)
+
+    assert_equal [42, 43, 0, 0], (0..3).map { |n| v.var(:"shown#{n}") }
+  end
+
   # --- friendly errors ---
 
   private def refused(&block)
@@ -352,6 +465,11 @@ class TestSaveData < Minitest::Test
     message = refused { big = list :big, capacity: 5000; save_data(:f, copies: 3) { keep big } }
     assert_match(/does not fit in save memory/, message)
     assert_match(/use fewer copies/, message)
+  end
+
+  def test_more_records_than_the_table_has_rows_for_is_a_friendly_error
+    message = refused { 17.times { |n| h = var :"h#{n}", 0; save_data(:"r#{n}") { keep h } } }
+    assert_match(/is record 17, and a game can have 16/, message)
   end
 
   def test_a_copy_the_record_does_not_have_is_a_friendly_error

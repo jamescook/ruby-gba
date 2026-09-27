@@ -37,18 +37,28 @@ module RubyGBA
         name = name.to_sym
         check_save_data_name!(name, copies, block)
         kept = SaveDataKeeping.new(self, name).tap { |keeping| keeping.instance_eval(&block) }.kept
-        record_layout = lay_out_save_data(name, copies, kept)
+        declare_save_places if @save_data.empty?
+        record_layout = lay_out_save_data(name, copies, kept, place: :"__save_#{name}_place")
+        check_save_data_room!(record_layout)
         @save_data[name] = record_layout
-        declare_save_data_state(record_layout)
+        declare_save_data_lists(record_layout)
+        record_layout.copies.times do |copy|
+          at_boot(Build.set(record_layout.scratch(:copy), Build.int(copy)))
+          at_boot(Build.call(record_layout.routine(:scan)))
+        end
         declare_save_data_routines(record_layout)
         DSL::SaveData.new(self, record_layout)
       end
 
-      # Everything the routines need to know about one record, worked out once.
-      Layout = Data.define(:name, :copies, :kept, :body, :half, :start, :shape) do
+      # Everything the routines need to know about one record, worked out once. +place+ is
+      # where it starts in save memory: a number for the table of places, which never moves,
+      # and for a record the name of a variable, set at power-on from that table.
+      Layout = Data.define(:name, :copies, :kept, :body, :half, :place, :shape, :key) do
         def routine(job) = :"__save_#{name}_#{job}"
         def scratch(what) = :"__save_#{name}_#{what}"
         def directory(what) = :"__save_#{name}_#{what}_of"
+        def region = half * 2 * copies
+        def place_node = place.is_a?(Integer) ? Build.int(place) : Build.var_ref(place)
       end
 
       private
@@ -65,52 +75,59 @@ module RubyGBA
                              "It must be a whole number, 1 or more."
       end
 
-      # Where each kept thing sits in the body, and where the record's copies sit in save
-      # memory: after every record declared before it, so declaring another one later moves
-      # nothing that was already saved.
-      def lay_out_save_data(name, copies, kept)
+      # Where each kept thing sits in the body, and what the record's shape and key are. Where
+      # the record sits in save memory is not decided here: the table of places says, at
+      # power-on (see SavePlaces).
+      def lay_out_save_data(name, copies, kept, place:)
         at = 0
         placed = kept.map { |item| item.with(at: at).tap { |one| at += one.bytes } }
-        half = IR::SaveLayout.half_bytes(at)
-        start = IR::SaveLayout::START + @save_data.each_value.sum { |other| other.half * 2 * other.copies }
-        check_save_data_fits!(name, start + (half * 2 * copies))
         shape = Zlib.crc32(placed.map { |item| [item.kind, item.name, item.width, item.count].join(":") }.join(";"))
-        Layout.new(name: name, copies: copies, kept: placed, body: at, half: half, start: start,
-                   shape: IR::Int32.wrap(shape))
+        Layout.new(name: name, copies: copies, kept: placed, body: at, half: IR::SaveLayout.half_bytes(at),
+                   place: place, shape: IR::Int32.wrap(shape), key: save_data_key(name))
       end
 
-      def check_save_data_fits!(name, ends_at)
-        return if ends_at <= IR::SaveLayout::SIZE
+      # The record's name as a number, which is how its row in the table of places is found.
+      # Never 0, which marks a row nothing uses.
+      def save_data_key(name)
+        key = IR::Int32.wrap(Zlib.crc32("save_data:#{name}"))
+        key.zero? ? 1 : key
+      end
 
-        sizes = @save_data.each_value.map { |other| ":#{other.name} #{other.half * 2 * other.copies}" }
-        raise ArgumentError, "save_data :#{name} does not fit in save memory. It ends #{ends_at} bytes in, " \
-                             "and there are #{IR::SaveLayout::SIZE}. Each copy is kept twice, so a save " \
-                             "cut off half way cannot lose it. The records before it take #{sizes.join(', ')} " \
+      def check_save_data_room!(layout)
+        records = [*@save_data.each_value, layout]
+        if records.length > IR::SaveLayout::TABLE_ROWS
+          raise ArgumentError, "save_data :#{layout.name} is record #{records.length}, and a game can have " \
+                               "#{IR::SaveLayout::TABLE_ROWS}. To fix this, keep more in fewer records."
+        end
+        if (same = @save_data.each_value.find { |other| other.key == layout.key })
+          raise ArgumentError, "save_data :#{layout.name} and save_data :#{same.name} have names the save " \
+                               "memory cannot tell apart. To fix this, rename one of them."
+        end
+        room = IR::SaveLayout::SIZE - IR::SaveLayout::DATA_START
+        needed = records.sum(&:region)
+        return if needed <= room
+
+        sizes = records.map { |one| ":#{one.name} #{one.region}" }
+        raise ArgumentError, "save_data :#{layout.name} does not fit in save memory. The records need " \
+                             "#{needed} bytes, and there are #{room}. Each copy is kept twice, so a save " \
+                             "cut off half way cannot lose it. The records take #{sizes.join(', ')} " \
                              "bytes. To fix this, keep less in each record, or use fewer copies."
       end
 
       # What the game can ask about each copy without reading save memory: whether it is
       # good, which of its two halves is the newer, and that half's sequence number. Worked
       # out at power-on, and again after each job.
-      def declare_save_data_state(layout)
+      def declare_save_data_lists(layout)
         %i[state half seq].each do |what|
           at_boot(Build.list_new(layout.directory(what), layout.copies, width: what == :seq ? :word : :byte))
           layout.copies.times { at_boot(Build.list_push(layout.directory(what), Build.int(0))) }
         end
         %i[copy from source at at0 at1 v0 v1 s0 s1 started winner failed busy].each { |what| ensure_var(layout.scratch(what)) }
-        layout.copies.times do |copy|
-          at_boot(Build.set(layout.scratch(:copy), Build.int(copy)))
-          at_boot(Build.call(layout.routine(:scan)))
-        end
+        ensure_var(layout.place) unless layout.place.is_a?(Integer)
       end
 
-      def declare_save_data_routines(layout)
-        declare_func(layout.routine(:scan)) { save_data_scan(layout) }
-        declare_func(layout.routine(:save)) { save_data_save(layout) }
-        declare_func(layout.routine(:load)) { save_data_load(layout) }
-        declare_func(layout.routine(:erase)) { save_data_erase(layout) }
-        declare_func(layout.routine(:copy)) { save_data_copy(layout) }
-        declare_func(layout.routine(:reset)) { save_data_reset(layout) }
+      def declare_save_data_routines(layout, jobs = %i[scan save load erase copy reset])
+        jobs.each { |job| declare_func(layout.routine(job)) { send(:"save_data_#{job}", layout) } }
       end
 
       # --- the routines' bodies, run while the routines are built ---
@@ -123,9 +140,9 @@ module RubyGBA
       def sd_read(at, width = :word) = Build.save_read(at, width: width)
       def sd_when(test, &block) = DSL::Condition.new(self, test).then(&block)
 
-      # Where one half of copy +copy+ starts: the record's start, two halves a copy.
+      # Where one half of copy +copy+ starts: the record's place, two halves a copy.
       def sd_half_at(layout, copy, half)
-        sd_add(sd_int(layout.start),
+        sd_add(layout.place_node,
                sd_add(Build.binop(:*, copy, sd_int(layout.half * 2)), Build.binop(:*, half, sd_int(layout.half))))
       end
 

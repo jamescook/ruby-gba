@@ -13,6 +13,15 @@ module RubyGBA
     # number. Save data starts after it, at a place nothing a game adds can move — so a game
     # that grows another `save_var` still finds last week's save files where it left them.
     #
+    # THEN A TABLE OF PLACES: one row per record, saying where in save memory it lives, how
+    # big a half of it is and how many copies it has, found by a number worked out from the
+    # record's name. A record's place is read from here at power-on rather than worked out
+    # from the records declared before it, so a game updated after it shipped — a record
+    # added, grown, dropped or declared in another order — leaves every record it did not
+    # change where the player's saves are. The table is kept exactly the way a record is (two
+    # halves, the newer one wins, a checksum last), so the power going off while it is being
+    # written leaves the last good one.
+    #
     # EVERY COPY IS KEPT TWICE. A save goes into the older of the two, and only once the whole
     # of it is written does its header say it is newer. So a save cut off half way — the
     # power going off, the cartridge pulled — leaves the other one as it was, and the copy is
@@ -63,6 +72,20 @@ module RubyGBA
         end
         Int32.wrap((high << 16) | low)
       end
+
+      # The table of places sits where save data starts, and records after it.
+      TABLE_AT = START
+
+      # How many records the table has rows for.
+      TABLE_ROWS = 16
+
+      # What a row says, each a column of its own: the record's name as a number, where it
+      # starts, how many bytes one half of a copy takes, and how many copies it has.
+      TABLE_COLUMNS = %i[key at half copies].freeze
+
+      # Where records can go: past both halves of the table. Each column is kept as a list,
+      # its length and then a word a row.
+      DATA_START = TABLE_AT + (2 * half_bytes(TABLE_COLUMNS.length * (4 + (TABLE_ROWS * 4))))
     end
   end
 end

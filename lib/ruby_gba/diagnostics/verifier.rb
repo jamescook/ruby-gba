@@ -48,8 +48,13 @@ module RubyGBA
       #   variable's value back from memory after the run.
       # @param count_passes [Boolean] count how many times round the game loop the console
       #   got, readable afterwards as {#passes}. Off by default because it is not free.
-      def initialize(rom, frames: 2, keys: nil, vars: nil, count_passes: false)
+      # @param save [Hash{Integer=>Integer}, nil] what the cartridge's save memory holds when the
+      #   console is turned on, byte by byte from its start — the same shape the interpreter's
+      #   save store keeps under :bytes, so a save one backend wrote can be handed to the other.
+      #   A byte not named holds 0xFF, as a fresh chip does. nil is a fresh chip.
+      def initialize(rom, frames: 2, keys: nil, vars: nil, count_passes: false, save: nil)
         @rom = rom
+        @save = save
         @frames = frames
         @keys = keys
         @var_addresses = vars
@@ -772,6 +777,18 @@ module RubyGBA
 
       def self.save_dir = SAVE_DIR
 
+      # How much save memory the cartridge's battery-backed chip holds.
+      SAVE_SIZE = 0x8000
+
+      # Fill the chip before the console is turned on. The emulator looks for it as a file
+      # named after the ROM, in the save directory, and reads it in as the chip's contents.
+      def write_save_memory
+        chip = Array.new(SAVE_SIZE, 0xFF)
+        @save.each { |at, byte| chip[at] = byte }
+        path = File.join(self.class.save_dir, "#{File.basename(@tempfile.path, '.gba')}.sav")
+        File.binwrite(path, chip.pack("C*"))
+      end
+
       # The picture on screen right now — the frame the run stopped on. A run told to play no
       # frames has none, which is a friendly error rather than a crash on nothing: the console
       # draws when it is run, so there is nothing to read until it has been.
@@ -795,6 +812,7 @@ module RubyGBA
         @tempfile.binmode
         @rom.write(@tempfile.path)
         @tempfile.flush
+        write_save_memory if @save
         @probe = Emulator.probe(@tempfile.path, save_dir: self.class.save_dir)
         @rendered = true
         count_the_passes if @count_passes

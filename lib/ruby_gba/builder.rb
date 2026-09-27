@@ -23,6 +23,7 @@ require_relative "builder/sampled_audio"
 require_relative "builder/layers"
 require_relative "builder/settings"
 require_relative "builder/save_data"
+require_relative "builder/save_places"
 require_relative "builder/debug" # the probe-only verbs, defined but deliberately not mixed in
 
 module RubyGBA
@@ -69,6 +70,7 @@ module RubyGBA
     include Layers     # layers, layer (a named place in the stack: what sits in front of what)
     include Settings   # setting (what this build was told: which floors, which screen it boots on)
     include SaveData   # save_data (records of the game's state, saved when the game says so)
+    include SavePlaces # where each save_data record lives, read from save memory at power-on
 
     # Shorthand for the IR node constructors, so DSL methods can build tree
     # nodes as terse Build.set(...) calls.
