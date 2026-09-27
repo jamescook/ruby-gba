@@ -51,6 +51,9 @@ module RubyGBA
         # interpreter models it against an in-memory save store, the GBA lowers it to
         # battery-backed save memory, a web backend could use localStorage.
         save_init: :portable, save_store: :portable,
+        # ...and the three places save data is built from: a numbered byte of a store that
+        # outlives the program is something every backend can have.
+        save_read: :portable, save_write: :portable, save_sum: :portable,
 
         # drawing / screen — framebuffer draws and text are portable; `screen`
         # selects a rendering model a backend can honor (the raw-register form and

@@ -106,6 +106,13 @@ module ConformanceFixture
       B.save_init(vars: [RubyGBA::IR::SavedVar.new(name: :hi_score, default: 0, slot: 0)],
                   magic: 0x53415631),
       B.save_store(:hi_score, 0),
+      # ...and the three steps save data is built from: write a word and a byte, read them
+      # back, and total them into a checksum.
+      B.save_write(B.int(0x1000), B.var_ref(:x)),
+      B.save_write(B.int(0x1004), B.int(200), width: :byte),
+      B.set(:acc, B.save_read(B.int(0x1000))),
+      B.set(:acc, B.save_read(B.int(0x1004), width: :byte)),
+      B.set(:acc, B.save_sum(B.int(0x1000), B.int(5))),
 
       # --- every value-operand kind and every operator ---
       *OPERATORS.map { |op| B.set(:acc, B.binop(op, B.var_ref(:x), B.int(2))) },

@@ -345,7 +345,6 @@ module RubyGBA
           @divide = Divide.new(emitter: @emit, memory: @memory, primitives: @primitives,
                                scales_objects: method(:object_scales?))
           @frames = Frames.new(emitter: @emit, primitives: @primitives)
-          @save = Save.new(emitter: @emit, primitives: @primitives)
           # The kind-keyed dispatch that replaces eval_value's case. Every statement in the
           # program goes through it, which also makes it the one place that can say how far
           # this pass has got — and the one place that can count what each part of the
@@ -353,6 +352,7 @@ module RubyGBA
           @attribution = Attribution.new(@emit)
           @lowering = Lowering.new(progress: progress, emitted: @emit.method(:pos),
                                    attribution: @attribution)
+          @save = Save.new(emitter: @emit, primitives: @primitives, lowering: @lowering)
           @defined_sounds = {}   # name -> musical params (from define_sound)
           @songs = {}            # name -> :song node (from song)
           @blob_codecs = {}      # name -> :lz77/:rle/:none (how a VRAM blob was packed, if at all)
@@ -414,6 +414,7 @@ module RubyGBA
             pixels_overlap: @collision.method(:eval_pixels_overlap),
             data_byte: @expressions.method(:eval_data_byte), table_get: @expressions.method(:eval_table_get),
             list_get: @lists.method(:eval_list_get), list_len: @lists.method(:eval_list_len),
+            save_read: @save.method(:eval_save_read), save_sum: @save.method(:eval_save_sum),
             read_scanline: @expressions.method(:eval_read_scanline), timer_ticks: method(:eval_timer_ticks),
           )
           # Every statement kind's handler, registered once in one place — see {Lowering}.
@@ -425,6 +426,7 @@ module RubyGBA
             negate: @statements.method(:emit_negate), abs: @statements.method(:emit_abs),
             negate_abs: @statements.method(:emit_negate_abs), clamp: @statements.method(:emit_clamp),
             save_init: method(:emit_save_init), save_store: method(:emit_save_store),
+            save_write: @save.method(:emit_save_write),
             if: @statements.method(:emit_if), loop: @statements.method(:emit_loop),
             repeat: @statements.method(:emit_repeat), inside: @statements.method(:emit_inside),
             every: @statements.method(:emit_every), after: @statements.method(:emit_after),
@@ -862,7 +864,9 @@ module RubyGBA
           # has to walk the color table instead to leave that layer alone (see IR::Fading).
           @fading = IR::Fading.resolve(program)
           prepare_objects(program) if @has_objects
-          @uses_save = program.walk.any? { |node| node.kind == :save_init }
+          # Save data reaches the chip too, so it needs the marker that maps it as much as a
+          # saved number does.
+          @uses_save = program.walk.any? { |node| %i[save_init save_write save_read].include?(node.kind) }
           prepare_palette(program) if @modes.any_buffered?
           # The palette layout: settled by now, across several prepare passes above —
           # handed to PaletteTint as one record rather than five ivars (see its class

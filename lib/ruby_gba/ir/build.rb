@@ -111,6 +111,20 @@ module RubyGBA
         Nodes.build(:save_store, var: name, slot: slot)
       end
 
+      # A byte, a half or a word of save memory +at+ bytes in (see Nodes::SaveRead).
+      def save_read(at, width: :word)
+        Nodes.build(:save_read, at: at, width: width)
+      end
+
+      def save_write(at, value, width: :word)
+        Nodes.build(:save_write, at: at, value: value, width: width)
+      end
+
+      # The checksum of +length+ bytes of save memory from +at+ (see Nodes::SaveSum).
+      def save_sum(at, length)
+        Nodes.build(:save_sum, at: at, length: length)
+      end
+
       # --- drawing / screen operations ---
 
       # Pick a screen mode. +buffered+ opts a bitmap mode into double

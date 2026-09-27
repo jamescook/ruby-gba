@@ -35,9 +35,10 @@ module RubyGBA
           # digits are a version the detector ignores; padded to a word so it stays aligned.
           SRAM_SIGNATURE = "SRAM_V123\x00\x00\x00".b.freeze
 
-          def initialize(emitter:, primitives:)
+          def initialize(emitter:, primitives:, lowering:)
             @emitter = emitter
             @primitives = primitives
+            @lowering = lowering
           end
 
           # The byte offset of a variable's 4-byte slot within save memory.
@@ -87,6 +88,67 @@ module RubyGBA
             end
           end
 
+          # --- the three ways into save memory that save data is built from ---
+          #
+          # A place in save memory is a count of bytes from its start, so each of these turns
+          # one into an address by adding where the chip sits. The chip is read and written a
+          # byte at a time — its bus is eight bits wide — so a word is four bytes put together
+          # lowest first, the same order the interpreter keeps.
+
+          SAVE_WIDTH_BYTES = { byte: 1, half: 2, word: 4 }.freeze
+
+          # r0 = the byte, half or word at node.at.
+          def eval_save_read(node)
+            emit_save_address(node.at)                             # r1 = where it is
+            emit_read_bytes(ACC, TMP, SAVE_WIDTH_BYTES.fetch(node.width), scratch: 2)
+          end
+
+          def emit_save_write(node)
+            emit_save_address(node.at)
+            @emitter.emit(ASM.push(TMP))
+            @lowering.value(node.value)                            # r0 = what to write
+            @emitter.emit(ASM.pop(TMP))                            # r1 = where
+            SAVE_WIDTH_BYTES.fetch(node.width).times do |i|
+              if i.zero?
+                @emitter.emit(ASM.strb_offset(ACC, TMP, 0))
+              else
+                @emitter.emit(ASM.lsr_imm(2, ACC, 8 * i))
+                @emitter.emit(ASM.strb_offset(2, TMP, i))
+              end
+            end
+          end
+
+          # r0 = the checksum of node.length bytes from node.at: two running totals, the bytes
+          # and the totals so far, the second in the top half (see IR::SaveLayout.checksum).
+          # Only the low sixteen bits of each are kept at the end, which is the same answer as
+          # keeping them to sixteen bits all the way.
+          def eval_save_sum(node)
+            low = 2
+            high = 3
+            emit_save_address(node.at)
+            @emitter.emit(ASM.push(TMP))
+            @lowering.value(node.length)                           # r0 = how many bytes are left
+            @emitter.emit(ASM.pop(TMP))                            # r1 = the next byte
+            @emitter.emit(ASM.load_immediate(low, 0))
+            @emitter.emit(ASM.load_immediate(high, 0))
+            again = @emitter.gensym
+            done = @emitter.gensym
+            @emitter.place_label(again)
+            @emitter.emit(ASM.cmp_imm(ACC, 0))
+            @emitter.emit_branch(:bcond, done, cond: :le)
+            @emitter.emit(ASM.ldrb_offset(ADDR, TMP, 0))
+            @emitter.emit(ASM.add_imm(TMP, TMP, 1))
+            @emitter.emit(ASM.add_reg(low, low, ADDR))
+            @emitter.emit(ASM.add_reg(high, high, low))
+            @emitter.emit(ASM.sub_imm(ACC, ACC, 1))
+            @emitter.emit_branch(:b, again)
+            @emitter.place_label(done)
+            @emitter.emit(ASM.lsl_imm(low, low, 16))
+            @emitter.emit(ASM.lsr_imm(low, low, 16))
+            @emitter.emit(ASM.lsl_imm(ACC, high, 16))
+            @emitter.emit(ASM.orr_reg(ACC, ACC, low))
+          end
+
           # Append the save-type marker so a flashcart / emulator maps the save chip.
           # It's plain data placed after all the code, never executed; word-aligned so
           # the scanner (which steps a word at a time) can find it.
@@ -96,6 +158,24 @@ module RubyGBA
           end
 
           private
+
+          # r1 = the address of the place in save memory +at+ says (a value node).
+          def emit_save_address(at)
+            @lowering.value(at)
+            @emitter.emit(ASM.load_immediate(TMP, SRAM_START))
+            @emitter.emit(ASM.add_reg(TMP, TMP, ACC))
+          end
+
+          # +count+ bytes from the address in +base+, lowest first, into +dest+ — the bytes that
+          # make up a byte, a half or a word. A word is the whole signed number; the narrower
+          # two stay unsigned, as they are stored.
+          def emit_read_bytes(dest, base, count, scratch:)
+            @emitter.emit(ASM.ldrb_offset(dest, base, 0))
+            (1...count).each do |i|
+              @emitter.emit(ASM.ldrb_offset(scratch, base, i))
+              @emitter.emit(ASM.orr_reg_lsl(dest, dest, scratch, 8 * i))
+            end
+          end
 
           # Read four consecutive bytes of save memory (little-endian) into +dest+,
           # rebuilding the 32-bit value. +base+ points at the start of save memory;

@@ -725,6 +725,37 @@ module RubyGBA
         operands vars: :save, magic: :int
       end
 
+      # THE THREE WAYS INTO SAVE MEMORY that save data is built from (see Builder::SaveData):
+      # read a byte, a half or a word at a place in it, write one, and total a run of bytes
+      # into a checksum. A place is a count of bytes from the start of save memory, and what
+      # save memory IS — a chip, a file, a Ruby hash — is each backend's business.
+      #
+      # A read is unsigned for a byte and a half and a whole signed word for a word, so a
+      # narrow list slot comes back the way the list itself reads a number too big for it.
+      class SaveRead
+        include Node
+        kind :save_read
+        category :value
+        operands at: :value, width: :option
+      end
+
+      class SaveWrite
+        include Node
+        kind :save_write
+        category :var
+        operands at: :value, value: :value, width: :option
+      end
+
+      # The checksum of +length+ bytes from +at+: two running totals, the bytes and the totals
+      # of the bytes, each kept to sixteen bits — the second is what makes it notice two bytes
+      # swapped — with the second in the top half of the word. See IR::SaveLayout.checksum.
+      class SaveSum
+        include Node
+        kind :save_sum
+        category :value
+        operands at: :value, length: :value
+      end
+
       class SaveRegion
         include Node
         kind :save_region

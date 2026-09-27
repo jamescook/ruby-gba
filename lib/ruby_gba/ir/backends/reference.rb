@@ -551,6 +551,8 @@ module RubyGBA
             exec_save_init(node)
           when :save_store
             exec_save_store(node)
+          when :save_write
+            exec_save_write(node)
           when :if
             if eval_value(node.cond).zero?
               node.else&.children&.each { |child| exec(child) }
@@ -1987,6 +1989,36 @@ module RubyGBA
           @save[node.slot] = @vars[node.var]
         end
 
+        # --- save memory as bytes, for save data (see IR::SaveLayout) ---
+        #
+        # The store a test hands in keeps them under :bytes, one entry per byte written, so
+        # the same store given to a second run is the same cartridge powered on again. A byte
+        # nothing ever wrote reads as 0xFF, which is what a fresh chip holds.
+
+        SAVE_WIDTHS = { byte: 1, half: 2, word: 4 }.freeze
+        FRESH_BYTE = 0xFF
+
+        def save_bytes = (@save[:bytes] ||= {})
+
+        def exec_save_write(node)
+          at = eval_value(node.at)
+          value = eval_value(node.value)
+          SAVE_WIDTHS.fetch(node.width).times { |i| save_bytes[at + i] = (value >> (8 * i)) & 0xFF }
+        end
+
+        def eval_save_read(node)
+          at = eval_value(node.at)
+          width = SAVE_WIDTHS.fetch(node.width)
+          raw = width.times.sum { |i| save_bytes.fetch(at + i, FRESH_BYTE) << (8 * i) }
+          width == 4 ? Int32.wrap(raw) : raw
+        end
+
+        def eval_save_sum(node)
+          at = eval_value(node.at)
+          length = eval_value(node.length)
+          SaveLayout.checksum(length.times.map { |i| save_bytes.fetch(at + i, FRESH_BYTE) })
+        end
+
         def exec_save_region(node)
           buf = backing_for(node.buffer)
           x = eval_value(node.x)
@@ -2194,6 +2226,8 @@ module RubyGBA
           when :table_get then eval_table_get(node)
           when :list_get then eval_list_get(node)
           when :list_len then list_for(node.name).length
+          when :save_read then eval_save_read(node)
+          when :save_sum then eval_save_sum(node)
           when :timer_ticks then timer_ticks(node.name)
           else raise ProgramError, "not a value node: #{node.kind.inspect}"
           end

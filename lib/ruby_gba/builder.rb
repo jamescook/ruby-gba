@@ -22,6 +22,7 @@ require_relative "builder/timers"
 require_relative "builder/sampled_audio"
 require_relative "builder/layers"
 require_relative "builder/settings"
+require_relative "builder/save_data"
 require_relative "builder/debug" # the probe-only verbs, defined but deliberately not mixed in
 
 module RubyGBA
@@ -67,6 +68,7 @@ module RubyGBA
     include SampledAudio # sample (a recorded PCM sound, played via Direct Sound)
     include Layers     # layers, layer (a named place in the stack: what sits in front of what)
     include Settings   # setting (what this build was told: which floors, which screen it boots on)
+    include SaveData   # save_data (records of the game's state, saved when the game says so)
 
     # Shorthand for the IR node constructors, so DSL methods can build tree
     # nodes as terse Build.set(...) calls.
@@ -154,6 +156,8 @@ module RubyGBA
       # { name:, default:, slot: }, the slot being its place in save memory. Drives
       # the one boot-time save_init and the auto-save after each change.
       @persisted = []
+      @save_data = {}          # record name → its SaveData::Layout, in declaration order
+      @save_data_kept = {}     # a kept variable or list → the record that keeps it
     end
 
     # The IR tree built so far (the whole program). Lets tests assert the DSL
