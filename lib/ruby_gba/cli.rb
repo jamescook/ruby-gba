@@ -42,6 +42,8 @@ module RubyGBA
                    desc: "With --profile, measure this scene, holding the game there"
     option :keys, type: :array, banner: "BUTTON", default: [],
                   desc: "With --profile, hold these buttons while measuring"
+    option :set, type: :array, banner: "NAME=VALUE", default: [],
+                 desc: "Tell the game a setting it reads with `setting` (for example --set floors=1)"
     def build(game_file)
       case options[:format]
       when "game" then build_cartridge(game_file)
@@ -49,6 +51,9 @@ module RubyGBA
       else
         raise Thor::Error, "#{options[:format].inspect} is not a build format. The formats are: game, ir."
       end
+    rescue ArgumentError => e
+      # A setting the game does not ask for, or one it cannot read: say why, not a backtrace.
+      raise Thor::Error, e.message
     end
 
     desc "profile GAME_FILE", "Report what the build made of the game, and what it cost when it ran"
@@ -91,13 +96,15 @@ module RubyGBA
                    desc: "Measure this scene, holding the game there (default: measure it as it boots)"
     option :from, banner: "PATH",
                   desc: "Measure a saved moment: an emulator save state, made by playing to it once"
+    option :set, type: :array, banner: "NAME=VALUE", default: [],
+                 desc: "Tell the game a setting it reads with `setting` (for example --set floors=1)"
     def profile(game_file)
       format = { "human" => :human, "json" => :json }[options[:format]] or
         raise Thor::Error, "#{options[:format].inspect} is not a profile format. The formats are: human, json."
       game = load_game(game_file)
       # Built the same way `build` builds it — measured placement included — so this reports on
       # the cartridge somebody would actually ship, not a differently-placed one.
-      game.build_rom.profile(format: format, frames: options[:frames],
+      game.build_rom(settings: given_settings).profile(format: format, frames: options[:frames],
                              settle: options[:settle], scene: options[:scene],
                              from: options[:from], keys: held_buttons || [])
     rescue ArgumentError => e
@@ -129,7 +136,7 @@ module RubyGBA
     def build_cartridge(game_file)
       game = load_game(game_file)
       # Somebody is sitting there waiting for this, so it says what it is doing.
-      rom = game.build_rom(progress: RubyGBA::Messages::Progress.to($stderr))
+      rom = game.build_rom(progress: RubyGBA::Messages::Progress.to($stderr), settings: given_settings)
       path = options[:output] || File.join(File.dirname(File.expand_path(game_file)), game.default_filename)
       rom.write(path)
       say "Built #{File.basename(path)} (#{rom.size} bytes)"
@@ -145,7 +152,7 @@ module RubyGBA
     # ROM bytes themselves are simply not written anywhere.
     def build_ir(game_file)
       game = load_game(game_file)
-      rom = game.build_rom
+      rom = game.build_rom(settings: given_settings)
       source = RubyGBA::IR::Dump.emit_class(rom.source_program, class_name: "#{constantize(game.title)}IR",
                                             **game.build_options)
       if options[:output]
@@ -186,6 +193,19 @@ module RubyGBA
                            "#{RubyGBA::IR::Buttons::NAMES.join(', ')}."
       end
       buttons
+    end
+
+    # The settings --set named, as text: the game's own `setting` line reads each as the kind
+    # of thing its default is.
+    def given_settings
+      options[:set].to_h do |pair|
+        name, value = pair.split("=", 2)
+        if value.nil? || name.empty?
+          raise Thor::Error, "--set #{pair} does not say a value. Write it as NAME=VALUE, for example --set floors=1."
+        end
+
+        [name.to_sym, value]
+      end
     end
 
     # The file only declares its game (RubyGBA.game records without building), so clear

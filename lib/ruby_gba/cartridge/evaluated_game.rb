@@ -27,14 +27,18 @@ module RubyGBA
       # the Builder so that anything running inside the game's own block — the game itself, an
       # effect pack's verb — can say what it is doing too. The default says nothing, which is
       # the right answer for anything that is not a person waiting at a terminal.
-      def initialize(block, frame_sync: :auto, progress: Messages::Progress.silent)
-        @builder = Builder.new(frame_sync: frame_sync, progress: progress)
+      #
+      # +settings+ is what this one build was told, which the game reads with `setting`.
+      def initialize(block, frame_sync: :auto, progress: Messages::Progress.silent, settings: {})
+        @builder = Builder.new(frame_sync: frame_sync, progress: progress, settings: settings)
         # `debug_halt` throws rather than returns, because it stops the game's block where it
         # stands and there is no other way out of somebody else's code. Catching it here is
         # what makes a truncated build a build like any other: everything above the call is
         # in the tree, everything below it never happened, and the tree that comes back is a
         # real (short) program rather than an exception.
         catch(:debug_halt) { @builder.instance_eval(&block) }
+        # ...and a setting the block never reached may simply be below the halt.
+        @builder.check_settings_were_asked! unless @builder.debug_halted?
         # Finalizing the tree is also what paces it: `game_loop` runs once per frame and the
         # builder writes that wait itself, so nothing downstream has to think about it.
         @builder.emit_pending_functions

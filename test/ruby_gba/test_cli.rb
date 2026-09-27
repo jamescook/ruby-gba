@@ -67,6 +67,33 @@ class TestCLI < Minitest::Test
     end
   end
 
+  # --set tells the game a setting, as text that its own `setting` line reads. A game whose
+  # setting has no default only builds when --set gives it, and one given under the wrong name
+  # is a friendly error naming both. (With no default there is no kind of thing to read the
+  # text as, so the game reads it itself.)
+  NEEDS_A_SETTING = <<~RUBY
+    require "ruby_gba"
+    RubyGBA.game "SETS" do
+      screen :bitmap
+      var :floors, Integer(setting(:floors))
+      game_loop { wait_vblank }
+    end
+  RUBY
+
+  def test_set_tells_the_game_a_setting
+    Dir.mktmpdir do |dir|
+      File.write(File.join(dir, "sets.rb"), NEEDS_A_SETTING)
+
+      out, status = cli("build", "sets.rb", "--set", "floors=1", dir: dir)
+      assert status.success?, out
+
+      out, status = cli("build", "sets.rb", "--set", "flors=1", dir: dir)
+      refute status.success?
+      assert_match(/:floors has no default, and this build did not give it\. This build gave :flors/, out)
+      refute_match(/\.rb:\d+:in/, out, "should not leak a backtrace")
+    end
+  end
+
   def test_inspect_reports_the_header_of_a_built_rom
     Dir.mktmpdir do |dir|
       cli("new", "demo", dir: dir)

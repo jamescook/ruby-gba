@@ -21,6 +21,7 @@ require_relative "builder/composition"
 require_relative "builder/timers"
 require_relative "builder/sampled_audio"
 require_relative "builder/layers"
+require_relative "builder/settings"
 require_relative "builder/debug" # the probe-only verbs, defined but deliberately not mixed in
 
 module RubyGBA
@@ -65,6 +66,7 @@ module RubyGBA
     include Timers     # timer (a hardware counter running at a chosen rate)
     include SampledAudio # sample (a recorded PCM sound, played via Direct Sound)
     include Layers     # layers, layer (a named place in the stack: what sits in front of what)
+    include Settings   # setting (what this build was told: which floors, which screen it boots on)
 
     # Shorthand for the IR node constructors, so DSL methods can build tree
     # nodes as terse Build.set(...) calls.
@@ -73,12 +75,15 @@ module RubyGBA
     # @param frame_sync [Symbol] :auto (the framework paces each game_loop) or
     #   :manual (the developer places `wait_vblank` themselves)
     # @param progress [RubyGBA::Messages::Progress] what a build says it is doing (see {#progress})
-    def initialize(frame_sync: :auto, progress: Messages::Progress.silent)
+    # @param settings [Hash] what this build was told, read by the game with `setting` (see {Settings})
+    def initialize(frame_sync: :auto, progress: Messages::Progress.silent, settings: {})
       unless %i[auto manual].include?(frame_sync)
         raise ArgumentError, "frame_sync must be :auto or :manual, got #{frame_sync.inspect}"
       end
 
       @frame_sync = frame_sync
+      @settings = settings.to_h.transform_keys(&:to_sym)
+      @asked_settings = Set.new
       @progress = progress
       @has_paced_loop = false  # set once a game_loop is pacing the program
       @dropped_syncs = 0       # `wait_vblank` calls the game loop already covers
@@ -377,6 +382,12 @@ module RubyGBA
     end
 
     # --- Finalize (RubyGBA.build calls this once, after the DSL block) ---
+
+    # Refuse a setting the build was given that the game never asked for (see {Settings}).
+    def check_settings_were_asked!
+      problem = unasked_setting_error
+      raise ArgumentError, problem if problem
+    end
 
     # Build the IR node for every deferred function body, then check that every
     # call and case target names a function that exists. Called automatically by

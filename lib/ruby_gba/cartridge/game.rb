@@ -65,8 +65,12 @@ module RubyGBA
       # The game's own progress reporting is OFF here, deliberately: this path is a test or
       # a tool asking what the game is, and nobody is watching a tree being built. A person
       # waiting on a build gets it through {#build_rom}, which takes a +progress+.
-      def program
-        evaluated.program
+      #
+      # +settings+ are what this build is told, read by the game with `setting` — which floors,
+      # which screen it boots on. A test builds a variant by passing a value here, and nothing
+      # anybody else is building changes. Remembered per set of settings.
+      def program(settings: {})
+        evaluated(settings).program
       end
 
       # The finished ROM. Where the build prints is injectable, so a test (or the CLI) captures
@@ -83,12 +87,14 @@ module RubyGBA
       # Pass `profile: false` to skip it — a quicker build, and one that depends on nothing but
       # the source. Pass a path or a {RoutineProfile} to use a measurement taken by hand, for a
       # moment the automatic one cannot reach.
+      #
+      # +settings+ are what this build is told, as for #program.
       def build_rom(out: $stdout, err: $stderr, validate: true, progress: Messages::Progress.silent,
-                    profile: true)
+                    profile: true, settings: {})
         RubyGBA.build(@title, code: @code, maker: @maker, validate: validate,
                       frame_sync: @frame_sync, fast_cartridge: @fast_cartridge,
                       fast_code: @fast_code, out: out, err: err, progress: progress,
-                      profile: profile, &@block)
+                      profile: profile, settings: settings, &@block)
       end
 
       # A friendly output filename from the title: "BIRD" -> "bird.gba".
@@ -102,14 +108,18 @@ module RubyGBA
       # last line of a game file so a plain run produces a cartridge, while requiring the
       # file (a test) or loading it (the `ruby-gba` command) stays silent and writes
       # nothing. Returns self.
-      def write_if_main
+      #
+      # +settings+ are what this build is told. This line is the command line's edge, so it is
+      # the one place a game reads the environment if it wants to:
+      # `write_if_main(settings: { floors: ENV.fetch("FLOORS", "60") })`.
+      def write_if_main(settings: {})
         caller_path = caller_locations(1, 1)&.first&.path
         return self unless caller_path && main_script?(caller_path)
 
         # SAY WHAT IT IS DOING, because this path is by definition somebody who ran a build by
         # hand and is now waiting for it. A build reached any other way — a test, a tool, a
         # library call — stays silent, which is what the default does.
-        rom = build_rom(progress: Messages::Progress.to($stderr))
+        rom = build_rom(progress: Messages::Progress.to($stderr), settings: settings)
         path = File.join(File.dirname(File.expand_path(caller_path)), default_filename)
         rom.write(path)
         $stdout.puts "Built #{File.basename(path)} (#{rom.size} bytes)"
@@ -124,9 +134,9 @@ module RubyGBA
       # it can cross to another core at all. Each core that asks runs the block once and
       # keeps the answer; running a block is cheap next to lowering it, and a core that
       # never asks pays nothing.
-      def evaluated
+      def evaluated(settings)
         seen = (Ractor.current[:ruby_gba_evaluated_games] ||= {})
-        seen[self] ||= EvaluatedGame.new(@block, frame_sync: @frame_sync)
+        seen[[self, settings]] ||= EvaluatedGame.new(@block, frame_sync: @frame_sync, settings: settings)
       end
 
       # Is +path+ the very script Ruby was told to run? Compared as full paths so a

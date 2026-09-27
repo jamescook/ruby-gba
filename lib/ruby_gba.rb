@@ -78,9 +78,12 @@ module RubyGBA
   # by, and the two that name a publisher. Leave them out: the framework works a free code
   # out from the title (see {GameCode}), and a code a released cartridge already carries is
   # refused rather than quietly shipped.
+  # +settings+ are what this one build is told, read by the game with `setting` (see
+  # {Builder::Settings}) — so a variant is a value handed to one build, not something changed
+  # for every build in the process.
   def self.build(title, code: nil, maker: nil, validate: true, frame_sync: :auto, fast_cartridge: true,
                  fast_code: true, out: $stdout, err: $stderr, progress: Messages::Progress.silent,
-                 profile: false, &block)
+                 profile: false, settings: {}, &block)
     # Settle where this build prints BEFORE anything is read or checked, so a caller
     # that named somewhere the build cannot write is told on every build rather than on
     # the one build that finally has a warning to give (see {Messages::BuildOutput}).
@@ -91,11 +94,12 @@ module RubyGBA
     if profile == true
       return build_measured(title, code: code, maker: maker, validate: validate,
                             frame_sync: frame_sync, fast_cartridge: fast_cartridge,
-                            fast_code: fast_code, out: out, err: err, progress: progress, &block)
+                            fast_code: fast_code, out: out, err: err, progress: progress,
+                            settings: settings, &block)
     end
 
     progress.step("reading the game")
-    evaluated = Cartridge::EvaluatedGame.new(block, frame_sync: frame_sync, progress: progress)
+    evaluated = Cartridge::EvaluatedGame.new(block, frame_sync: frame_sync, progress: progress, settings: settings)
     program = evaluated.program
 
     # First prove the tree is well-formed — every value operand is a value node,
