@@ -176,6 +176,8 @@ module RubyGBA
             @objects = {}         # name -> where a sprite landed (see #object_record)
             @obj_pictures = {}    # name -> its pictures, cut and encoded
             @scene_art = {}       # scene -> the sprite pictures it sends when it takes over
+            @scene_tiles = {}     # scene -> the tile pictures it sends when it takes over
+            @scene_screens = {}   # tiled scene -> the layers it has on, whether or not scenes differ
             @placed_fade = PlacedFade.new(@picture, program)
             @see_through = IR::SeeThrough.layers(program).map(&:name) # the layers a sprite blends in
             if Modes.draws_with_tiles?(program)
@@ -202,7 +204,9 @@ module RubyGBA
           attr_reader :picture, :screenfuls # how the picture stacks, whole and one screen at a time
           attr_reader :backgrounds, :hardware_layers, :scene_layers, :bg_shared, :vram,
                       :objects, :obj_pictures, :sprite_art, :scene_art, :placed_fade,
-                      :obj_palette_blob, :obj_palette_units, :blobs, :codecs
+                      :obj_palette_blob, :obj_palette_units, :blobs, :codecs,
+                      :scene_tiles, # scene -> its own tile pictures, sent as it takes over (see #place_each_scene)
+                      :scene_screens
 
           # How many of the console's 128 sprite places +nodes+ take between them. Usually
           # one each; a sprite whose picture is bigger than one object takes one per piece.
@@ -349,16 +353,10 @@ module RubyGBA
 
             banks, big = bank_the_tiles(regular_nodes, affine_nodes)
 
-            @vram = TileVram.new
-            @tiles = BackgroundTiles.new(vram: @vram)
             slots = layer_slots
             @scene_layers = scene_layers_for(slots)
-            begin
-              regular_nodes.each { |node| prepare_one_background(node, slots.fetch(node.name), banks, big) }
-              affine_nodes.each { |node| prepare_affine_background(node, banks) }
-            rescue TileVram::Full => e
-              raise LoweringError, tiles_do_not_fit(e, regular_nodes + affine_nodes)
-            end
+            everywhere = place_everywhere(slots, banks, big)
+            fullest = place_each_scene(everywhere, slots, banks, big)
 
             # Which layer each background ended up on, for everything that has to name one by
             # number afterwards. The blend unit is the only such thing today, and it cannot
@@ -368,8 +366,66 @@ module RubyGBA
 
             colors = banks.entries
             @blobs[BG_SHARED_PAL] = colors.pack("v*")
-            @blobs[BG_SHARED_CHAR] = @tiles.bytes
-            @bg_shared = bank_tally(regular_nodes + affine_nodes, big, colors)
+            @blobs[BG_SHARED_CHAR] = everywhere.bytes
+            @tiles = fullest
+            @vram = fullest.vram # what the report reads the room left out of
+            @bg_shared = bank_tally(regular_nodes + affine_nodes, big, colors, boot: everywhere)
+          end
+
+          # WHERE A SCENE'S OWN TILE PICTURES ARE SENT AS IT TAKES OVER: the blob holding them,
+          # how far into video memory they go, and how many halfwords that is. Only scenes
+          # with pictures of their own are here.
+          SceneTiles = Data.define(:blob, :offset, :units)
+
+          # THE SCENERY EVERY SCREEN SHOWS GOES IN FIRST, and stays for the whole game: its
+          # pictures are sent at boot and its maps are set up once. What it takes is what
+          # each scene has left.
+          def place_everywhere(slots, banks, big)
+            @vram = TileVram.new
+            @tiles = BackgroundTiles.new(vram: @vram)
+            place_scenery(@picture.scenery.reject(&:scene), slots, banks, big)
+            @tiles
+          end
+
+          # THEN EACH SCENE'S OWN, IN THE SAME ROOM AS EVERY OTHER SCENE'S.
+          #
+          # This is what makes the budget one scene's rather than the whole game's, the way
+          # it already is for sprite pictures. Two scenes are never on screen together, so
+          # each goes on from what every screen shows and puts its pictures and maps in the
+          # same place the others put theirs — and sends its pictures in as it takes over
+          # (see Drawing#emit_scene_scenery), which is also when its maps are sent. A picture
+          # every screen already has is shared rather than sent again, since that part of the
+          # memory never changes hands.
+          #
+          # Returns the tile run of the screen that holds the most, which is what the report
+          # has to say about: that one is the budget.
+          def place_each_scene(everywhere, slots, banks, big)
+            @scene_tiles = {}
+            shared = everywhere.bytes.bytesize
+            fullest = everywhere
+            @picture.scenery.filter_map(&:scene).uniq.each_with_index do |scene, index|
+              @tiles = everywhere.dup
+              @vram = @tiles.vram
+              place_scenery(@picture.scenery.select { |node| node.scene == scene }, slots, banks, big, scene: scene)
+              own = @tiles.bytes.byteslice(shared..)
+              unless own.empty?
+                blob = :"__bg_scene_tiles_#{index}"
+                @blobs[blob] = own
+                @scene_tiles[scene] = SceneTiles.new(blob: blob, offset: shared, units: own.bytesize / 2)
+              end
+              fullest = @tiles if @vram.free_bytes < fullest.vram.free_bytes
+            end
+            fullest
+          end
+
+          # Put +nodes+ in video memory, the scrolling ones before any that turn. A screen
+          # whose scenery does not fit is refused naming its scene, and counting what every
+          # screen shows with it, since that is part of what the scene has to fit beside.
+          def place_scenery(nodes, slots, banks, big, scene: nil)
+            nodes.reject(&:affine).each { |node| prepare_one_background(node, slots.fetch(node.name), banks, big) }
+            nodes.select(&:affine).each { |node| prepare_affine_background(node, banks) }
+          rescue TileVram::Full => e
+            raise LoweringError, tiles_do_not_fit(e, @picture.scenery.reject(&:scene) + nodes, scene)
           end
 
           # WHICH OF THE CONSOLE'S FOUR SCROLLING LAYERS EACH BACKGROUND GETS.
@@ -441,6 +497,7 @@ module RubyGBA
               [screenful.scene, scene_screen(screenful, slots)]
             end
             wanted.select! { |scene, _| @modes.func_mode[scene] == IR::Modes::TILED }
+            @scene_screens = wanted
             wanted.values.uniq.size > 1 ? wanted : {}
           end
 
@@ -553,9 +610,10 @@ module RubyGBA
           # one run of tile pictures, with how many TILES got each storage and what the small
           # ones saved. Those two are counted off the layers rather than off the banks, since
           # a layer stored the big way is one picture there however many tiles it has.
-          def bank_tally(nodes, big, colors)
+          def bank_tally(nodes, big, colors, boot:)
             small = nodes.reject { |node| big.include?(node) }.sum { |node| node.tiles.size }
-            SharedScenery.new(palette_units: colors.size, tile_units: @tiles.bytes.bytesize / 2,
+            SharedScenery.new(palette_units: colors.size, tile_units: boot.bytes.bytesize / 2,
+                              tile_bytes: @tiles.bytes.bytesize,
                               small: small, big: nodes.sum { |node| node.tiles.size } - small,
                               saved: small * SMALL_TILE_BYTES,
                               shared: @tiles.shared, skipped: @tiles.skipped)
@@ -564,13 +622,18 @@ module RubyGBA
           # The tiles and the maps grow toward each other and met. Name the biggest tileset,
           # since "out of room" with no name attached is the least useful thing a build can
           # say — and say what each half took, because which one to shrink is the decision.
-          def tiles_do_not_fit(full, nodes)
+          #
+          # A scene is only ever measured against the room it has on its own screen, so a scene
+          # that ran out is named — "the scenery" would send the author adding up the whole game.
+          def tiles_do_not_fit(full, nodes, scene = nil)
             worst = nodes.max_by { |node| node.tiles.size }
-            "The scenery does not fit in the #{TileVram::TOTAL_BYTES} bytes the console keeps it in. " \
+            whose = scene ? "The scenery of the scene :#{IR::Modes.friendly_name(scene)}" : "The scenery"
+            everywhere = scene && @picture.scenery.any? { |node| node.scene.nil? }
+            "#{whose} does not fit in the #{TileVram::TOTAL_BYTES} bytes the console keeps it in. " \
               "Its tile pictures take #{full.tile_bytes} bytes, and its #{full.map_blocks} maps take " \
-              "#{full.map_blocks * SCREENBLOCK_BYTES} more. The background with the most tiles is " \
-              ":#{worst.name} (#{worst.tiles.size}). Use fewer different tiles, or draw fewer layers " \
-              "at once."
+              "#{full.map_blocks * SCREENBLOCK_BYTES} more.#{' This includes the scenery that every scene shows.' if everywhere} " \
+              "The background with the most tiles is :#{worst.name} (#{worst.tiles.size}). Use fewer " \
+              "different tiles, or draw fewer layers #{scene ? 'in this scene' : 'at once'}."
           end
 
           # Put one layer's tiles in video memory and build its map. +layer+ is its place in

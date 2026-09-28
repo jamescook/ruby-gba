@@ -1041,4 +1041,55 @@ class TestSceneBackgrounds < Minitest::Test
     assert_equal BLUE, screen.pixel(*SAMPLED),
                  "the picture never came upright — the angle it was declared at is put back every frame"
   end
+
+  # THE SCENERY'S MEMORY TAKES TURNS TOO, the way its layers do. The console keeps every
+  # tile picture and every map a screen shows in 64K, and scenes that take turns never
+  # need theirs there at the same time — so what has to fit is the busiest scene, not the
+  # whole game. Four of the largest maps are 32K; two scenes of them are all 64K, which no
+  # game could fit if both were counted at once.
+  #
+  # Each scene draws from a tile of its own colour, so going back to the first scene after
+  # the second has had the memory shows whether the first scene's pictures were sent again.
+  # Each switch sends a whole scene of the largest maps, which takes the console several
+  # frames; the backdrop shows meanwhile. So every reading is taken well after one.
+  SECOND_SCENE_AT = 10
+  FIRST_SCENE_AGAIN_AT = 25
+
+  private def two_scenes_that_fill_the_memory_each
+    tile = SOLID_TILE
+    program do
+      screen :tiled
+      image(:red_art, "#" => :red) { tile }
+      image(:blue_art, "#" => :blue) { tile }
+      tiles :red_set, "#" => :red_art
+      tiles :blue_set, "#" => :blue_art
+      map = Array.new(64) { "#" * 64 }
+      scene(:one) { 4.times { |i| background :"one_#{i}", tiles: :red_set, map: map } }
+      scene(:two) { 4.times { |i| background :"two_#{i}", tiles: :blue_set, map: map } }
+      state = var :state, 0
+      tick = var :tick, 0
+      game_loop do
+        tick.add! 1
+        (tick > SECOND_SCENE_AT).then { state.set! 1 }
+        (tick > FIRST_SCENE_AGAIN_AT).then { state.set! 0 }
+        case_var(:state) do
+          when_val 0, :one
+          when_val 1, :two
+        end
+      end
+    end
+  end
+
+  def test_two_scenes_can_each_fill_the_scenery_memory
+    prog = two_scenes_that_fill_the_memory_each
+
+    assert_equal [RED, BLUE, RED], [SECOND_SCENE_AT, FIRST_SCENE_AGAIN_AT, FIRST_SCENE_AGAIN_AT + 15].map { |at| shown(prog, at) }
+  end
+
+  def test_the_console_holds_each_scenes_scenery_in_turn
+    prog = two_scenes_that_fill_the_memory_each
+
+    assert_equal [RED, BLUE, RED],
+                 [[SECOND_SCENE_AT, "SCNMEM1"], [FIRST_SCENE_AGAIN_AT, "SCNMEM2"], [FIRST_SCENE_AGAIN_AT + 15, "SCNMEM3"]].map { |at, name| on_console(prog, name, at) }
+  end
 end

@@ -166,6 +166,27 @@ class TestVramLayout < Minitest::Test
     assert_match(/background/i, error.message)
   end
 
+  # A SCENE IS MEASURED ON ITS OWN, because scenes take turns with the memory — so a scene
+  # that runs out is named. "The scenery does not fit" would send the author adding up every
+  # scene in the game, when only this one is too big. The small scene beside it is fine.
+  def test_a_scene_whose_scenery_does_not_fit_is_named
+    # Four of the largest maps are half the memory, and 1023 small tiles one tile past the rest.
+    names = (0...1023).map { |i| :"t#{i}" }
+    whole = Array.new(64) { Array.new(64, 0) }
+    prog = program(
+      screen(:tiled),
+      *names.each_with_index.map { |n, i| striped_tile(n, i) },
+      background(:small_room, tiles: names.first(1), map: [[0]], tile_w: 8, tile_h: 8, scene: :hall),
+      *(0...4).map { |i| background(:"cave#{i}", tiles: names, map: whole, tile_w: 8, tile_h: 8, scene: :cave) },
+      halt,
+    )
+
+    error = assert_raises(GBA::LoweringError) { GBA::ScreenLayout.plan(prog) }
+    assert_match(/scene :cave/, error.message, "it names the scene that ran out")
+    refute_match(/hall/, error.message)
+    assert_match(/fewer/i, error.message, "and says what to do about it")
+  end
+
   # --- The proof on hardware ---
 
   # The worst case the layout has to survive: every layer the console has, stacked

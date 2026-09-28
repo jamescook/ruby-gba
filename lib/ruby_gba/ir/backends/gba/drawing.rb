@@ -77,6 +77,8 @@ module RubyGBA
             def obj_palette_units = screen.obj_palette_units
             def scene_art = screen.scene_art
             def scene_layers = screen.scene_layers
+            def scene_screens = screen.scene_screens
+            def scene_tiles = screen.scene_tiles
             def picture = screen.picture
 
             # The backgrounds that turn AND sit on the tiled screen — the ones that decide
@@ -376,11 +378,48 @@ module RubyGBA
             return if arriving.empty?
 
             once_as_the_scene_takes_over(SCENE_SCENERY_STATE, scene_scenery_marker(name)) do
-              arriving.each { |node| @background_drawing.emit_background_hardware(node) }
+              with_the_layers_off(name) do
+                tiles = @layout.scene_tiles[name]
+                @uploads.emit_dma_blob(tiles.blob, VRAM_START + tiles.offset, tiles.units) if tiles
+                arriving.each { |node| @background_drawing.emit_background_hardware(node) }
+              end
               # The maps just sent are the first ones declared, so what says which map is
               # showing goes back to the first as well (see IR::SceneHandover).
               handover.resets(name).each { |var| @primitives.store_word_immediate(0, @primitives.var_addr(var)) }
             end
+          end
+
+          # SWITCH THE LAYERS OFF WHILE A SCENE'S SCENERY IS SENT, AND ON AGAIN AFTER.
+          #
+          # Scenes that take turns put their pictures and maps in the same room (see
+          # ScreenLayout#place_each_scene), so sending this scene's writes over what the last
+          # scene's layers are still pointed at. The console goes on drawing while the copy
+          # runs, and a layer left on would show the last scene's maps drawn out of this
+          # scene's pictures — garbage — for whatever is left of the frame. Off, it shows the
+          # backdrop, which is the safe way to be wrong for part of one frame; the frame after
+          # is this scene's scenery, whole.
+          #
+          # Only the background layers are touched: the sprites, the arrangement and the rest
+          # of the display's settings stay as they were. A scene not drawn from tiles has no
+          # layers to switch, and is left alone.
+          BG_ENABLE_MASK = BG0_ENABLE | BG1_ENABLE | BG2_ENABLE | BG3_ENABLE
+
+          def with_the_layers_off(name)
+            screen = @layout.scene_screens[name]
+            return yield unless screen
+
+            change_display_control { emit(ASM.bic_imm(ACC, ACC, BG_ENABLE_MASK)) }
+            yield
+            on = screen.on.reduce(0) { |bits, layer| bits | BG_ENABLES[layer] }
+            change_display_control { emit(ASM.orr_imm(ACC, ACC, on)) } unless on.zero?
+          end
+
+          # Read the display's settings into ACC, let the block change them, write them back.
+          def change_display_control
+            emit(ASM.load_immediate(TMP, REG_DISPCNT))
+            emit(ASM.load_halfword(ACC, TMP))
+            yield
+            emit(ASM.store_halfword(ACC, TMP))
           end
 
           # What a scene does to the screen as it takes over, said once for both backends.

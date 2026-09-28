@@ -13,12 +13,14 @@ module RubyGBA
           def char_base = base / CHAR_BLOCK_BYTES
         end
 
-        # WHAT EVERY BACKGROUND LAYER SHARES: one colour table and one run of tile pictures,
-        # each uploaded whole at boot. +units+ are what a copy moves (halfwords), which is
-        # what the upload wants; the rest is for the report.
-        SharedScenery = Data.define(:palette_units, :tile_units, :small, :big, :saved, :shared, :skipped) do
-          def tile_bytes = tile_units * 2
-        end
+        # WHAT EVERY BACKGROUND LAYER SHARES: one colour table, uploaded whole at boot, and the
+        # tile pictures of the scenery every screen shows, uploaded with it. +units+ are what a
+        # copy moves (halfwords), which is what the upload wants; the rest is for the report.
+        #
+        # +tile_bytes+ is the busiest screen's pictures, which is not what boot sends: a scene's
+        # own pictures go in as it takes over, into room the other scenes use too, so what has
+        # to fit — and what is worth reporting — is the one screen that holds the most.
+        SharedScenery = Data.define(:palette_units, :tile_units, :tile_bytes, :small, :big, :saved, :shared, :skipped)
 
         # EVERY TILE OF EVERY BACKGROUND, STORED ONCE EACH, as the one run of bytes the
         # console reads them out of. A layer is added to this and gets back the numbers its
@@ -53,9 +55,29 @@ module RubyGBA
             @skipped = 0
           end
 
+          # A COPY TO GO ON FROM, for scenery that takes turns. Two scenes that are never on
+          # screen together can put their pictures in the same room, so each goes on from
+          # what every scene shares and neither sees the other's. The copy has room of its
+          # own to hand out as well as pictures, since that is the half that is shared.
+          def initialize_copy(from)
+            super
+            @vram = from.vram.dup
+            @bytes = from.bytes.dup
+            @stored = from.stored.transform_values(&:dup)
+          end
+
           # The whole run, as it is uploaded; how many tiles turned out to be repeats; and
           # how many bytes nothing draws from (see #choose_base).
           attr_reader :bytes, :shared, :skipped
+
+          # The room this run is laid out in, which the maps are handed out of as well.
+          attr_reader :vram
+
+          protected
+
+          attr_reader :stored
+
+          public
 
           # Put one layer's tiles in, and say how its map can name them. +drawn+ is the
           # layer's tiles in order, each the picture it was drawn from and where its colours
