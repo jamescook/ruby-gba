@@ -540,11 +540,15 @@ run_frame_nogvl(void *arg)
     return NULL;
 }
 
+static void redraw_everything(struct mgba_core *mc);
+
+/* Every frame draws every row, as the console does (see redraw_everything). */
 static VALUE
 mgba_core_run_frame(VALUE self)
 {
     struct mgba_core *mc = get_mgba_core(self);
     struct run_frame_args args = { .core = mc->core, .debugger = mc->debugger };
+    redraw_everything(mc);
     s_logging_core = mc;
     if (mc->debugger) s_watching_core = mc;
     rb_thread_call_without_gvl(run_frame_nogvl, &args, RUBY_UBF_IO, NULL);
@@ -1835,6 +1839,15 @@ drawing_renderer(struct mgba_core *mc)
 /* renderer's own cache is asked for. It reaches past the     */
 /* public renderer to the software one, which is the only one */
 /* this binding ever builds.                                  */
+/*                                                            */
+/* Done before EVERY frame, not only when a layer is hidden:  */
+/* the cache also goes wrong on its own. A write to the       */
+/* display settings landing part-way through a row can leave  */
+/* that row's saved settings looking unchanged, and the row   */
+/* is then never drawn again — a cartridge that switched the  */
+/* picture off for its first frame kept one white row for the */
+/* rest of the run. The console itself draws every row of     */
+/* every frame, so this is the emulator doing the same.       */
 /* --------------------------------------------------------- */
 static void
 redraw_everything(struct mgba_core *mc)

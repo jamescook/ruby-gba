@@ -73,7 +73,7 @@ class TestRubyGBAEmulatorProbe < Minitest::Test
 
   def test_changed_pixels_is_zero_on_a_static_screen
     with_probe(red_rom) do |probe|
-      probe.step(2)
+      probe.step(3) # the picture is held off (white) until the game's first frame is set up
       probe.step(1) # nothing moves
       assert_equal 0, probe.changed_pixels
     end
