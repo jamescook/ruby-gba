@@ -411,6 +411,7 @@ module RubyGBA
               unless own.empty?
                 blob = :"__bg_scene_tiles_#{index}"
                 @blobs[blob] = own
+                sent_as_a_scene_takes_over!(blob)
                 @scene_tiles[scene] = SceneTiles.new(blob: blob, offset: shared, units: own.bytesize / 2)
               end
               fullest = @tiles if @vram.free_bytes < fullest.vram.free_bytes
@@ -665,6 +666,7 @@ module RubyGBA
               grids.map { |map| map_entries(map, cols, rows, stored.blank) { |i| cell_for.fetch(i) }.pack("v*") }
                    .join
             plain_blob!(map_blob) if grids.size > 1
+            sent_as_a_scene_takes_over!(map_blob) if node.scene
             @backgrounds[name] = BackgroundPlacement.new(
               map: map_blob, map_units: entries.size,
               bg: layer,                           # hardware layer (BG0..BG3), in stack order
@@ -729,6 +731,16 @@ module RubyGBA
           # would destroy. Registering the codec here is what stops the first upload packing
           # it (see BlobUpload#pack_blob, which asks this table before doing anything).
           def plain_blob!(name) = @codecs[name] = :none
+
+          # KEEP WHAT A SCENE SENDS AS IT TAKES OVER UNPACKED, too, for a different reason:
+          # time. Packed data is unpacked by the console's own built-in routine, a few bytes at
+          # a time, and a scene's art is sent inside the pass that switches to it — so a big
+          # scene unpacking its tiles and maps made that pass run three frames long, and the
+          # game lost those frames of its logic on the console alone (the interpreter spends no
+          # time copying). A plain copy is the console's copying engine, which moves the
+          # largest scene's scenery in a fraction of a frame. What it costs is cartridge space,
+          # which a game has far more of than frames. Art sent once at power-on still packs.
+          def sent_as_a_scene_takes_over!(name) = plain_blob!(name)
 
           def regular_map_size(cols, rows) = REGULAR_MAP_SIZES.fetch([cols, rows]) << MAP_SIZE_SHIFT
 
@@ -808,6 +820,7 @@ module RubyGBA
             map_blob = :"__bg_map_#{name}"
             @blobs[map_blob] = grids.map { |one| one.pack("C*") }.join
             plain_blob!(map_blob) if grids.size > 1
+            sent_as_a_scene_takes_over!(map_blob) if node.scene
             blocks = ((entries.size + SCREENBLOCK_BYTES - 1) / SCREENBLOCK_BYTES)
             @backgrounds[name] = BackgroundPlacement.new(
               map: map_blob, map_units: entries.size / 2, # DMA copies halfwords, so a byte map is half as many
@@ -1022,6 +1035,7 @@ module RubyGBA
             end
             @objects = @sprite_art.sprites
             @scene_art = @sprite_art.scene_art
+            @scene_art.each_value { |sent| sent.each { |blob, *| sent_as_a_scene_takes_over!(blob) } }
           end
 
           # A SPRITE WHOSE PICTURES DO NOT ALL FIT KEEPS ONE FRAME IN SPRITE MEMORY AT A TIME.

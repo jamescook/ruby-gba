@@ -937,7 +937,6 @@ class TestSceneBackgrounds < Minitest::Test
   end
 
   WATCHED_REGISTERS = ([RubyGBA::Console::Hardware::REG_DISPCNT] + BGCNT).freeze
-
   # Which layers were told to draw before they were told where to draw from, walking the
   # writes in the order the console saw them.
   private def switched_on_before_pointed(writes)
@@ -1050,8 +1049,9 @@ class TestSceneBackgrounds < Minitest::Test
   #
   # Each scene draws from a tile of its own colour, so going back to the first scene after
   # the second has had the memory shows whether the first scene's pictures were sent again.
-  # Each switch sends a whole scene of the largest maps, which takes the console several
-  # frames; the backdrop shows meanwhile. So every reading is taken well after one.
+  # When the scene changes, and when it changes back. Each reading is taken after the change has
+  # settled, since what this asks is whose art is in the memory, not how soon it arrived (that is
+  # the test of a scene's logic running from the frame it arrives, below).
   SECOND_SCENE_AT = 10
   FIRST_SCENE_AGAIN_AT = 25
 
@@ -1084,6 +1084,60 @@ class TestSceneBackgrounds < Minitest::Test
     prog = two_scenes_that_fill_the_memory_each
 
     assert_equal [RED, BLUE, RED], [SECOND_SCENE_AT, FIRST_SCENE_AGAIN_AT, FIRST_SCENE_AGAIN_AT + 15].map { |at| shown(prog, at) }
+  end
+
+  # A SCENE'S LOGIC RUNS ON EVERY FRAME, THE ONE IT ARRIVES ON INCLUDED, however much art it
+  # brings. Sending that art is the console's work and the interpreter's is instant, so a copy
+  # that ran long would take frames of game logic away on the console alone — a cursor that
+  # waits a measured number of frames would wait longer, and the two backends would stop
+  # agreeing. Counted here as how many times the scene has run by each frame, across a scene
+  # change and at power-on, for a scene of the largest maps there are.
+  private def a_scene_that_counts_its_frames(first:)
+    tile = SOLID_TILE
+    program do
+      screen :tiled
+      image(:red_art, "#" => :red) { tile }
+      image(:blue_art, "#" => :blue) { tile }
+      tiles :red_set, "#" => :red_art
+      tiles :blue_set, "#" => :blue_art
+      big = Array.new(64) { "#" * 64 }
+      runs = var :runs, 0
+      scene(:small) { background :little, tiles: :red_set, map: ["#"] }
+      scene(:big) do
+        4.times { |i| background :"big_#{i}", tiles: :blue_set, map: big }
+        runs.add! 1
+      end
+      state = var :state, first
+      tick = var :tick, 0
+      game_loop do
+        tick.add! 1
+        (tick > SWITCH_AT).then { state.set! 1 }
+        case_var(:state) do
+          when_val 0, :small
+          when_val 1, :big
+        end
+      end
+    end
+  end
+
+  private def runs_frame_by_frame(prog, name)
+    rom = assemble_rom(prog, name: name)
+    v = assert_emulator_loads_rom(rom, frames: Differential::BOOT_FRAMES[:tiled], vars: rom.var_addresses)
+    console = Array.new(16) { v.step; v.var(:runs) }
+    oracle = (1..16).map { |frames| Reference.new.run(prog, frames: frames)[:runs] }
+    [oracle, console]
+  end
+
+  def test_a_scene_that_brings_a_lot_of_art_runs_from_the_frame_it_arrives
+    oracle, console = runs_frame_by_frame(a_scene_that_counts_its_frames(first: 0), "SCNRUN1")
+
+    assert_equal oracle, console, "the console lost frames of the scene's logic while its art was sent"
+  end
+
+  def test_the_first_scene_brings_its_art_without_losing_a_frame_either
+    oracle, console = runs_frame_by_frame(a_scene_that_counts_its_frames(first: 1), "SCNRUN2")
+
+    assert_equal oracle, console, "the console lost frames of the first scene's logic at power-on"
   end
 
   def test_the_console_holds_each_scenes_scenery_in_turn
