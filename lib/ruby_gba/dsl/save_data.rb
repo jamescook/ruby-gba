@@ -24,6 +24,16 @@ module RubyGBA
         SaveDataCopy.new(@builder, @saves, @layout, Value.node_for(copy))
       end
 
+      # Add to what the record keeps: variables and lists, after the ones it already keeps.
+      # Written by the code that owns them, anywhere in the program — so a file screen can be
+      # declared first and use the record, and the gameplay declared after it says what goes in.
+      # The order things are kept in is the record's shape, and a save made with another shape
+      # reads as empty.
+      def keep(*things)
+        @saves.save_data_keep(@layout.name, things)
+        self
+      end
+
       # Copy one copy over another — the file screen's "copy". Only a good copy is copied, and
       # the one written over keeps its last good save until the whole of the new one is in.
       def copy(from, to:)
@@ -92,11 +102,12 @@ module RubyGBA
       #
       # A kept LIST reads the same way, item by item: `files[n].peek(name)[i]` and
       # `files[n].peek(name).length`. An item past what the copy holds reads as 0.
+      #
+      # The thing can be named before the record keeps it — `peek(:hearts)` on a file screen
+      # declared ahead of the gameplay that keeps the hearts — and is checked once the whole
+      # program is declared.
       def peek(thing)
-        item = @saves.save_data_kept(@layout, thing.respond_to?(:name) ? thing.name : thing)
-        return SaveDataListPeek.new(@builder, @saves, @layout, @copy, item) if item.kind == :list
-
-        Value.new(@builder, @saves.save_data_peek(@layout, @copy, item))
+        SaveDataPeek.new(@builder, @saves, @layout, @copy, thing.is_a?(Symbol) ? thing : thing.name)
       end
 
       private
@@ -107,22 +118,31 @@ module RubyGBA
       end
     end
 
-    # A kept list as one copy holds it: its items and how many there are, read from save
-    # memory, with the game's own list left alone.
-    class SaveDataListPeek
-      def initialize(builder, saves, layout, copy, item)
-        @builder = builder
+    # A kept thing as one copy holds it, read from save memory with the game's own state left
+    # alone. A kept variable is this number; a kept list is read through it, item by item and
+    # its length. Which of the two the thing is may not be known yet where the game reads it,
+    # so it is both, and a reading of the wrong one is a friendly error once it is known.
+    class SaveDataPeek < Value
+      def initialize(builder, saves, layout, copy, name)
         @saves = saves
         @layout = layout
         @copy = copy
-        @item = item
+        @kept_name = name
+        super(builder, saves.save_data_peek_site(layout, copy, name, :number))
       end
 
-      def [](index)
-        Value.new(@builder, @saves.save_data_peek(@layout, @copy, @item, index: Value.node_for(index)))
-      end
+      def [](index) = list_reading(:item, index: Value.node_for(index))
 
-      def length = Value.new(@builder, @saves.save_data_peek(@layout, @copy, @item, length: true))
+      def length = list_reading(:length)
+
+      private
+
+      # Read as a list, the number this stands for is not the reading, so it is no expression
+      # somebody forgot to keep.
+      def list_reading(shape, index: nil)
+        @builder.expressions.delete(self) if @builder.respond_to?(:expressions)
+        Value.new(@builder, @saves.save_data_peek_site(@layout, @copy, @kept_name, shape, index: index))
+      end
     end
   end
 end

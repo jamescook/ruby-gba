@@ -59,10 +59,15 @@ module RubyGBA
       # Move the whole job in place +from+ into place +to+.
       def move_job(to:, from:) = JOB.each { |field| jv_set(:"#{to}_#{field}", jv(:"#{from}_#{field}")) }
 
-      # Declared with the first record: the variables the jobs are kept in, and the routines
-      # that run them.
+      # Declared with the first record: the variables the jobs are kept in, which a line asking
+      # whether a record is saving names before any record is laid out.
       def declare_save_jobs
         SCRATCH.each { |what| ensure_var(jobs_name(what)) }
+      end
+
+      # Declared once the records are laid out: the routines that run the jobs, which walk
+      # every record.
+      def declare_save_job_routines
         %i[tick step finish ask end].each do |job|
           declare_func(jobs_name(job)) { send(:"save_jobs_#{job}") }
         end

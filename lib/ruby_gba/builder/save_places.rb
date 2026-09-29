@@ -61,14 +61,15 @@ module RubyGBA
       def row_size(row) = sp_op(:*, cell(:half, row), sp_op(:*, cell(:copies, row), sd_int(2)))
       def row_end(row) = sd_add(cell(:at, row), row_size(row))
 
-      # Declared with the first record: the table itself, kept the way a record is, and the
-      # routine that places every record, run at power-on before any record is looked at.
+      # Declared once the records are laid out: the table itself, kept the way a record is, and
+      # the routine that places every record, run at power-on before any record is looked at.
       def declare_save_places
         kept = IR::SaveLayout::TABLE_COLUMNS.map do |column|
           at_boot(Build.list_new(table_list(column), ROWS, width: :word))
           SaveRecords::Kept.new(kind: :list, name: table_list(column), at: 0, width: :word, count: ROWS)
         end
         @save_table = lay_out_save_data(:__table, 1, kept, place: IR::SaveLayout::TABLE_AT)
+        declare_save_data_vars(@save_table)
         declare_save_data_lists(@save_table)
         declare_save_data_routines(@save_table, %i[scan save load])
         SCRATCH.each { |what| ensure_var(places_name(what)) }

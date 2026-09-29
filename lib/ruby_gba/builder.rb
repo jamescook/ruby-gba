@@ -411,11 +411,40 @@ module RubyGBA
       # lets `sprite`/`draw_text`/`draw_number` pick software vs hardware per scene.
       default_screen_mode = @screen_mode
 
+      emitted = {}
+      emit_bodies(emitted, default_screen_mode)
+      # Every routine the game wrote is built, so nothing more can be kept in a save_data
+      # record: the records are laid out now, and the routines that read them built after.
+      settle_save_data
+      emit_bodies(emitted, default_screen_mode)
+
+      finalize_present_lists
+      finalize_background_scrolls
+      finalize_background_maps
+      finalize_background_colors
+      finalize_background_affine
+      finalize_layer_blend
+      finalize_per_frame_routines
+      finalize_per_pass_routines
+      finalize_name_dispatches
+      finalize_pool_walks
+      finalize_pool_colors
+      verify_targets_defined!
+      verify_instance_routines!
+      verify_stack_fits!
+      initialize_rng_stream
+      register_save_init
+      emit_boot_inits
+      resolve_save_data_peeks
+    end
+
+    # Build every routine body not built yet (+emitted+ says which are), each into a func
+    # node of its own.
+    def emit_bodies(emitted, default_screen_mode)
       # Drain rather than iterate: building one body can declare another routine — a
       # verb reached from inside a scene may declare a `once_a_frame` of its own — and
       # walking the hash directly would either miss it or raise for growing mid-loop.
       # Emitting until nothing new is pending covers however deep that goes.
-      emitted = {}
       until (pending = @functions.reject { |name, _| emitted.key?(name) }).empty?
         pending.each do |name, block|
           emitted[name] = true
@@ -438,25 +467,8 @@ module RubyGBA
           @deferred_layer = nil
         end
       end
-
-      finalize_present_lists
-      finalize_background_scrolls
-      finalize_background_maps
-      finalize_background_colors
-      finalize_background_affine
-      finalize_layer_blend
-      finalize_per_frame_routines
-      finalize_per_pass_routines
-      finalize_name_dispatches
-      finalize_pool_walks
-      finalize_pool_colors
-      verify_targets_defined!
-      verify_instance_routines!
-      verify_stack_fits!
-      initialize_rng_stream
-      register_save_init
-      emit_boot_inits
     end
+    private :emit_bodies
 
     # How many `wait_vblank` calls the game loop already covered. Read by
     # RubyGBA.build so Checks::DroppedFrameSync can report them.

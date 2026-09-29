@@ -28,9 +28,12 @@ module RubyGBA
 
       def initialize(port)
         @port = port
-        @save_data = {}      # record name → its SaveRecords::Layout, in declaration order
-        @save_data_kept = {} # a kept variable or list → the record that keeps it
-        @save_table = nil    # the table of places' own layout, made with the first record
+        @save_data = {}          # record name → its SaveRecords::Layout, in declaration order
+        @save_data_keeping = {}  # record name → what it keeps so far, in the order kept
+        @save_data_kept = {}     # a kept variable or list → the record that keeps it
+        @save_data_peeks = {}    # a peek's stand-in → the SaveRecords::PeekSite it stands for
+        @save_data_settled = false # true once the records are laid out, and nothing more can be kept
+        @save_table = nil        # the table of places' own layout, made when the records are laid out
       end
 
       private
@@ -56,13 +59,21 @@ module RubyGBA
     # The verb: `save_data`. Everything behind it is the Saves object this Builder holds.
     module SaveData
       # Declare a record of the game's state, kept in save memory in +copies+ numbered copies.
-      # The block names what it keeps, with `keep`. Returns a handle: `files[n]` is one copy,
-      # and a copy saves, loads, erases and says whether it is good. See Saves.
+      # The block, if given, names what it keeps with `keep`, and the handle's `keep` adds more
+      # later. Returns a handle: `files[n]` is one copy, and a copy saves, loads, erases and
+      # says whether it is good. See Saves.
       def save_data(name, copies: 1, when_busy: :wait, &block)
         saves.declare(name, copies: copies, when_busy: when_busy, &block)
       end
 
       private
+
+      # Lay the records out, now that every routine the game wrote is built (see
+      # SaveRecords#settle_save_data). Nothing to do for a game with no records.
+      def settle_save_data = @saves&.settle_save_data
+
+      # Put each peek's reading where the game wrote it, once the whole program is built.
+      def resolve_save_data_peeks = @saves&.resolve_save_data_peeks(@program)
 
       def saves
         @saves ||= Saves.new(Saves::Port.new(

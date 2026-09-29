@@ -269,6 +269,106 @@ class TestSaveData < Minitest::Test
     assert_empty run.list(:name)
   end
 
+  # A FILE SCREEN DECLARED BEFORE THE GAMEPLAY IT SAVES. The record is declared with nothing in
+  # it and used straight away — saved, loaded, erased, copied, peeked at by name — and what it
+  # keeps is added later, by the code that owns it: the hearts and the name each by a routine
+  # of its own, whose body is built after the screen's. The buttons are three_files' buttons,
+  # so the two games are played the same way and must come out the same.
+  private def file_screen_first
+    built do
+      screen :tiled
+      files = save_data :file, copies: 3
+      slot = var :slot, 0
+      shown = Array.new(3) { |n| var :"shown#{n}", 0 }
+      states = Array.new(3) { |n| var :"state#{n}", 0 }
+      lengths = Array.new(3) { |n| var :"length#{n}", 0 }
+      firsts = Array.new(3) { |n| var :"first#{n}", 0 }
+      name = list :name, capacity: 3, width: :byte # a list is made where it is written
+      game_loop do
+        pressed(:up).then { slot.add! 1 }
+        pressed(:down).then { slot.sub! 1 }
+        pressed(:a).then do
+          call :play
+          files[slot].save
+        end
+        pressed(:b).then { files[slot].erase }
+        pressed(:l).then { files[slot].load }
+        pressed(:r).then { files.copy 0, to: slot }
+        pressed(:select).then { files.reset }
+        3.times do |n|
+          shown[n].set! files[n].peek(:hearts)
+          lengths[n].set! files[n].peek(:name).length
+          firsts[n].set! files[n].peek(:name)[0]
+          files[n].good?.then { states[n].set! 2 }
+          files[n].erased?.then { states[n].set! 1 }
+        end
+      end
+      func :play do
+        hearts = var :hearts, 3
+        files.keep hearts
+        hearts.set! slot + 10
+        call :name_it
+      end
+      func :name_it do
+        files.keep name
+        name.push slot
+      end
+    end
+  end
+
+  private def screen_first_after(store, *buttons)
+    play(file_screen_first, store, pressing: presses(*buttons), frames: (buttons.length * 2) + 4)
+  end
+
+  def test_a_record_declared_before_what_it_keeps_saves_loads_and_peeks
+    store = {}
+    screen_first_after(store, :a, :up, :a)
+    back = screen_first_after(store)
+
+    assert_equal [10, 11, 0], (0..2).map { |n| back[:"shown#{n}"] }
+    assert_equal [1, 2, 0], (0..2).map { |n| back[:"length#{n}"] }
+    assert_equal [0, 0, 0], (0..2).map { |n| back[:"first#{n}"] }
+    assert_equal [2, 2, 0], (0..2).map { |n| back[:"state#{n}"] }
+
+    loaded = screen_first_after(store, :up, :l)
+    assert_equal 11, loaded[:hearts]
+    assert_equal [0, 1], loaded.list(:name)
+  end
+
+  def test_a_record_declared_before_what_it_keeps_erases_copies_and_resets
+    store = {}
+    screen_first_after(store, :a, :up, :up, :r, :down, :b)
+    back = screen_first_after(store)
+
+    assert_equal [10, 0, 10], (0..2).map { |n| back[:"shown#{n}"] }
+    assert_equal [2, 1, 2], (0..2).map { |n| back[:"state#{n}"] }
+    assert_equal 3, screen_first_after({}, :a, :select)[:hearts]
+  end
+
+  # Keeping the same things in the same order, a record filled in later is the same record as
+  # one written with a block — so saves made by either build load in the other.
+  def test_a_record_filled_in_later_reads_saves_the_block_form_made
+    store = {}
+    files_after(store, :a, :up, :a)
+    back = screen_first_after(store)
+
+    assert_equal [10, 11, 0], (0..2).map { |n| back[:"shown#{n}"] }
+  end
+
+  def test_the_console_runs_a_record_declared_before_what_it_keeps
+    buttons = %i[a up a up up r down b]
+    oracle = screen_first_after({}, *buttons)
+    keys = { a: KEY_A, b: KEY_B, up: KEY_UP, down: KEY_DOWN, r: KEY_R }
+    schedule = presses(*buttons).transform_values { |button| keys.fetch(button) }
+    rom = assemble_rom(file_screen_first, name: "FILESFIRST")
+    v = assert_emulator_loads_rom(rom, frames: (buttons.length * 2) + 8, keys: ->(f) { schedule.fetch(f, 0) },
+                                       vars: rom.var_addresses)
+
+    %i[shown0 shown1 shown2 state0 state1 state2 length0 length1 length2 first1 hearts].each do |name|
+      assert_equal oracle[name], v.var(name), name.to_s
+    end
+  end
+
   # A SAVE SAYS WHETHER IT WORKED. `saving?` holds from the moment one is asked for until it is
   # written, and then `failed?` holds when what was written did not read back.
   def test_a_save_says_it_worked
@@ -886,6 +986,64 @@ class TestSaveData < Minitest::Test
     assert_match(/`copies: 0`/, refused { h = var :h, 0; save_data(:f, copies: 0) { keep h } })
     assert_match(/does not keep :lives/,
                  refused { h = var :h, 0; lives = var :lives, 3; save_data(:f) { keep h }[0].peek(lives) })
+  end
+
+  def test_a_record_that_ends_the_build_keeping_nothing_is_a_friendly_error
+    message = refused { files = save_data :file; game_loop { files[0].save } }
+    assert_match(/save_data :file keeps nothing/, message)
+    assert_match(/`files.keep hearts`|\.keep/, message)
+  end
+
+  # A peek written before the record says what it keeps is checked once it does.
+  def test_a_peek_at_something_never_kept_is_a_friendly_error
+    message = refused do
+      files = save_data :file
+      shown = var :shown, 0
+      game_loop { shown.set! files[0].peek(:lives) }
+      h = var :h, 0
+      files.keep h
+    end
+    assert_match(/does not keep :lives/, message)
+    assert_match(/It keeps :h/, message)
+  end
+
+  def test_a_peek_read_the_wrong_way_for_what_is_kept_is_a_friendly_error
+    as_number = refused do
+      files = save_data :file
+      shown = var :shown, 0
+      game_loop { shown.set! files[0].peek(:name) }
+      files.keep list(:name, capacity: 3)
+    end
+    assert_match(/keeps :name as a list/, as_number)
+    assert_match(/peek\(:name\)\[i\]/, as_number)
+
+    as_list = refused do
+      files = save_data :file
+      shown = var :shown, 0
+      game_loop { shown.set! files[0].peek(:hearts).length }
+      files.keep var(:hearts, 3)
+    end
+    assert_match(/keeps :hearts as a variable/, as_list)
+  end
+
+  def test_keeping_after_the_build_is_settled_is_a_friendly_error
+    builder = Builder.new
+    files = nil
+    builder.instance_eval do
+      screen :tiled
+      hearts = var :hearts, 3
+      files = save_data(:file) { keep hearts }
+    end
+    builder.emit_pending_functions
+    lives = builder.instance_eval { var :lives, 3 }
+    message = assert_raises(ArgumentError) { files.keep lives }.message
+    assert_match(/save_data :file is already laid out/, message)
+  end
+
+  def test_what_a_record_cannot_keep_is_refused_when_kept_later_too
+    assert_match(/is a `save_var`/, refused { files = save_data(:f); files.keep save_var(:best, 0) })
+    assert_match(/keeps it\s+too/,
+                 refused { h = var :h, 0; save_data(:f).keep h; save_data(:g) { keep h } })
   end
 
   # The two lay save memory out byte for byte alike, which is what lets a test that cuts the

@@ -46,34 +46,57 @@ module RubyGBA
       WIDTH_BYTES = { byte: 1, half: 2, word: 4 }.freeze
 
       # Declare a record of the game's state, kept in save memory in +copies+ numbered
-      # copies. The block names what it keeps, with `keep`. Returns a handle: `files[n]` is
+      # copies. The block, if there is one, names what it keeps with `keep`; the handle's own
+      # `keep` adds more later, from anywhere in the program. Returns a handle: `files[n]` is
       # one copy, and a copy saves, loads, erases and says whether it is good.
+      #
+      # THE RECORD IS USABLE AT ONCE AND LAID OUT AT THE END. A file-select screen comes first
+      # in a game and has to save and peek at the record, while what the record keeps belongs
+      # to the gameplay declared after it. So nothing here depends on what is kept: the handle
+      # knows the record's name, its copies and its variables, which is all a save, a load or a
+      # state test names where it is written. Where each kept thing sits, how big a copy is and
+      # whether the records fit are worked out once the whole program is declared
+      # (#settle_save_data), and every routine that reads them is built then.
       def declare(name, copies:, when_busy:, &block)
         name = name.to_sym
-        check_save_data_name!(name, copies, block)
+        check_save_data_name!(name, copies)
         check_save_data_when_busy!(name, when_busy)
-        kept = SaveDataKeeping.new(self, name).tap { |keeping| keeping.instance_eval(&block) }.kept
-        if @save_data.empty?
-          declare_save_places
-          declare_save_jobs
-        end
+        declare_save_jobs if @save_data.empty?
         place = Messages::MadeNames.make(:save_record, record: name, piece: :place)
-        record_layout = lay_out_save_data(name, copies, kept, place: place, number: @save_data.size + 1,
-                                                              when_busy: when_busy)
-        check_save_data_room!(record_layout)
+        record_layout = Layout.new(name: name, copies: copies, kept: nil, body: nil, half: nil, place: place,
+                                   shape: nil, key: IR::SaveLayout.record_key(name),
+                                   number: @save_data.size + 1, when_busy: when_busy)
+        check_save_data_count!(record_layout)
         @save_data[name] = record_layout
-        declare_save_data_lists(record_layout)
-        declare_save_job_state(record_layout)
-        record_layout.copies.times do |copy|
-          at_boot(Build.set(record_layout.scratch(:copy), Build.int(copy)))
-          at_boot(Build.call(record_layout.routine(:scan)))
-        end
-        declare_save_data_routines(record_layout, %i[scan load reset])
-        { save: SaveJobs::SAVE, erase: SaveJobs::ERASE, copy: SaveJobs::COPY }.each do |job, kind|
-          declare_func(record_layout.routine(job)) { save_job_ask(record_layout, kind) }
-        end
-        declare_func(record_layout.routine(:step)) { save_job_step(record_layout) }
+        @save_data_keeping[name] = []
+        declare_save_data_vars(record_layout)
+        SaveDataKeeping.new(self, name).instance_eval(&block) if block
         DSL::SaveData.new(handle, self, record_layout)
+      end
+
+      # Add +things+ to what record +name+ keeps, after the ones already kept.
+      def save_data_keep(name, things)
+        if @save_data_settled
+          raise ArgumentError, "save_data :#{name} is already laid out in save memory, so it cannot keep more. " \
+                               "To fix this, call `keep` while the program is declared."
+        end
+        things.each { |thing| @save_data_keeping.fetch(name) << save_data_item(name, thing) }
+      end
+
+      # LAY EVERY RECORD OUT, once the whole program is declared: where each kept thing sits,
+      # how big a copy is, whether the records fit in save memory, and every routine that
+      # reads or writes them — the table of places, the job queue, each record's own. The
+      # Builder calls this after building every routine the game wrote, which is the last
+      # place a `keep` can come from, and builds the routines declared here after it.
+      def settle_save_data
+        return if @save_data.empty? || @save_data_settled
+
+        @save_data_settled = true
+        @save_data.transform_values! { |layout| settled_layout(layout) }
+        check_save_data_room!
+        declare_save_places
+        declare_save_job_routines
+        @save_data.each_value { |layout| declare_save_data_record(layout) }
       end
 
       # Everything the routines need to know about one record, worked out once. +place+ is
@@ -81,6 +104,9 @@ module RubyGBA
       # and for a record the name of a variable, set at power-on from that table. +number+
       # counts the records from 1 in the order they were declared, which is how a job says
       # whose it is; the table of places, which is written without jobs, is 0.
+      #
+      # Until the program is fully declared a record's +kept+, +body+, +half+ and +shape+ are
+      # nil (see #declare), so anything that reads them too early fails where it reads.
       Layout = Data.define(:name, :copies, :kept, :body, :half, :place, :shape, :key, :number, :when_busy) do
         def routine(job) = Messages::MadeNames.make(:save_record, record: name, piece: job)
         def scratch(what) = Messages::MadeNames.make(:save_record, record: name, piece: what)
@@ -91,14 +117,12 @@ module RubyGBA
 
       private
 
-      def check_save_data_name!(name, copies, block)
+      def check_save_data_name!(name, copies)
         unless Messages::MadeNames::RECORD_NAME.match?(name)
           raise ArgumentError, "save_data #{name.inspect}: this name cannot name a record. A record name is " \
                                "letters and digits, with one underscore between words (for example " \
                                ":file or :high_scores). Use a name of that form."
         end
-        raise ArgumentError, "save_data :#{name} needs a block that says what it keeps: " \
-                             "`save_data :#{name} do keep hearts, name end`." unless block
         if @save_data.key?(name)
           raise ArgumentError, "save_data :#{name} is declared twice. To fix this, give each one its own name."
         end
@@ -132,25 +156,69 @@ module RubyGBA
                    when_busy: when_busy)
       end
 
-      def check_save_data_room!(layout)
+      def check_save_data_count!(layout)
         records = [*@save_data.each_value, layout]
         if records.length > IR::SaveLayout::TABLE_ROWS
           raise ArgumentError, "save_data :#{layout.name} is record #{records.length}, and a game can have " \
                                "#{IR::SaveLayout::TABLE_ROWS}. To fix this, keep more in fewer records."
         end
-        if (same = @save_data.each_value.find { |other| other.key == layout.key })
-          raise ArgumentError, "save_data :#{layout.name} and save_data :#{same.name} have names the save " \
-                               "memory cannot tell apart. To fix this, rename one of them."
-        end
-        room = IR::SaveLayout::SIZE - IR::SaveLayout::DATA_START
-        needed = records.sum(&:region)
-        return if needed <= room
+        return unless (same = @save_data.each_value.find { |other| other.key == layout.key })
 
+        raise ArgumentError, "save_data :#{layout.name} and save_data :#{same.name} have names the save " \
+                             "memory cannot tell apart. To fix this, rename one of them."
+      end
+
+      # The records in the order they were declared, each with what it keeps laid out. The
+      # first that does not fit beside the ones before it is the one named.
+      def check_save_data_room!
+        room = IR::SaveLayout::SIZE - IR::SaveLayout::DATA_START
+        records = @save_data.values
+        over = records.each_index.find { |i| records[0..i].sum(&:region) > room }
+        return unless over
+
+        needed = records.sum(&:region)
         sizes = records.map { |one| ":#{one.name} #{one.region}" }
-        raise ArgumentError, "save_data :#{layout.name} does not fit in save memory. The records need " \
+        raise ArgumentError, "save_data :#{records[over].name} does not fit in save memory. The records need " \
                              "#{needed} bytes, and there are #{room}. Each copy is kept twice, so a save " \
                              "cut off half way cannot lose it. The records take #{sizes.join(', ')} " \
                              "bytes. To fix this, keep less in each record, or use fewer copies."
+      end
+
+      # +layout+ with what it keeps laid out — or a friendly error for a record that keeps
+      # nothing, which would save an empty copy and load nothing back.
+      def settled_layout(layout)
+        kept = @save_data_keeping.fetch(layout.name)
+        if kept.empty?
+          raise ArgumentError, "save_data :#{layout.name} keeps nothing, so a save of it has nothing to save. " \
+                               "To fix this, name what it keeps: `files.keep hearts`, or " \
+                               "`save_data :#{layout.name} do keep hearts end`."
+        end
+
+        lay_out_save_data(layout.name, layout.copies, kept, place: layout.place, number: layout.number,
+                                                            when_busy: layout.when_busy)
+      end
+
+      # One record's lists, buffer, power-on scans and routines, once it is laid out.
+      def declare_save_data_record(layout)
+        declare_save_data_lists(layout)
+        declare_save_job_state(layout)
+        layout.copies.times do |copy|
+          at_boot(Build.set(layout.scratch(:copy), Build.int(copy)))
+          at_boot(Build.call(layout.routine(:scan)))
+        end
+        declare_save_data_routines(layout, %i[scan load reset])
+        { save: SaveJobs::SAVE, erase: SaveJobs::ERASE, copy: SaveJobs::COPY }.each do |job, kind|
+          declare_func(layout.routine(job)) { save_job_ask(layout, kind) }
+        end
+        declare_func(layout.routine(:step)) { save_job_step(layout) }
+      end
+
+      # The variables a record's routines work in, and the one its place in save memory is
+      # kept in. Named where the record is declared, because the lines that save it or ask
+      # about it name them before the record is laid out.
+      def declare_save_data_vars(layout)
+        %i[copy from at at0 at1 v0 v1 s0 s1 started winner failed].each { |what| ensure_var(layout.scratch(what)) }
+        ensure_var(layout.place) unless layout.place.is_a?(Integer)
       end
 
       # What the game can ask about each copy without reading save memory: whether it is
@@ -161,8 +229,6 @@ module RubyGBA
           at_boot(Build.list_new(layout.directory(what), layout.copies, width: what == :seq ? :word : :byte))
           layout.copies.times { at_boot(Build.list_push(layout.directory(what), Build.int(0))) }
         end
-        %i[copy from at at0 at1 v0 v1 s0 s1 started winner failed].each { |what| ensure_var(layout.scratch(what)) }
-        ensure_var(layout.place) unless layout.place.is_a?(Integer)
       end
 
       def declare_save_data_routines(layout, jobs = %i[scan save load erase copy reset])
@@ -379,6 +445,42 @@ module RubyGBA
         Build.binop(:*, within, sd_directory(layout, :state, index))
       end
 
+      # ONE PEEK AT A COPY, written wherever the game reads it — which on a file-select screen
+      # is before the record says what it keeps, so where the thing sits in a copy is not known
+      # yet. The line gets a stand-in for the number, named after the record, and
+      # #resolve_save_data_peeks puts the real reading in its place once every record is laid
+      # out. What the reading does is fixed here: the record's jobs are finished first, just
+      # before the line that asks, because the reading is of save memory.
+      #
+      # +shape+ is how the game read it: :number for a variable, :item (with +index+) for one
+      # item of a list, :length for how many a list holds.
+      PeekSite = Data.define(:record, :name, :copy, :shape, :index)
+
+      def save_data_peek_site(layout, copy, name, shape, index: nil)
+        finish_save_jobs_of(layout)
+        stand_in = Messages::MadeNames.make(:save_record, record: layout.name, piece: :"peek#{@save_data_peeks.size}")
+        @save_data_peeks[stand_in] = PeekSite.new(record: layout.name, name: name, copy: copy, shape: shape,
+                                                  index: index)
+        Build.var_ref(stand_in)
+      end
+
+      # EVERY PEEK'S STAND-IN REPLACED BY ITS READING, wherever in +program+ it ended up — a
+      # stand-in copied along with a condition is replaced where the copy went, too. Called
+      # once the whole program is built. A peek at something its record never kept is a
+      # friendly error whether or not the game used it; one read the wrong way for what is
+      # kept (a list as one number, a variable item by item) is one where it is read.
+      def resolve_save_data_peeks(program)
+        return if @save_data_peeks.empty?
+
+        @save_data_peeks.each_value { |site| save_data_kept(@save_data.fetch(site.record), site.name) }
+        holders = program.walk.select { |node| node.attrs.each_value.any? { |value| holds_peek?(value) } }
+        holders.each do |node|
+          node.attrs.each do |field, value|
+            node.public_send(:"#{field}=", with_peeks(value)) if holds_peek?(value)
+          end
+        end
+      end
+
       # The thing a record keeps under +name+, or a friendly error saying what it does keep.
       def save_data_kept(layout, name)
         item = layout.kept.find { |one| one.name == name }
@@ -389,11 +491,50 @@ module RubyGBA
                              "for it. It keeps #{kept}."
       end
 
+      private
+
+      def holds_peek?(value)
+        case value
+        when IR::Node then value.kind == :var_ref && @save_data_peeks.key?(value.name)
+        when Array then value.any? { |element| holds_peek?(element) }
+        else false
+        end
+      end
+
+      def with_peeks(value)
+        case value
+        when Array then value.map { |element| with_peeks(element) }
+        when IR::Node then holds_peek?(value) ? peek_reading(@save_data_peeks.fetch(value.name)) : value
+        else value
+        end
+      end
+
+      # The reading one stand-in stands for, built fresh for each place it is used, since a
+      # node belongs to one place in the tree.
+      def peek_reading(site)
+        layout = @save_data.fetch(site.record)
+        item = save_data_kept(layout, site.name)
+        check_peek_shape!(layout, item, site.shape)
+        save_data_peek(layout, site.copy.copy, item, index: site.index&.copy, length: site.shape == :length)
+      end
+
+      def check_peek_shape!(layout, item, shape)
+        if item.kind == :list && shape == :number
+          raise ArgumentError, "save_data :#{layout.name} keeps :#{item.name} as a list, so peek(:#{item.name}) " \
+                               "is not one number. To read it, use peek(:#{item.name})[i] for one item, or " \
+                               "peek(:#{item.name}).length for how many items it holds."
+        end
+        return unless item.kind == :var && shape != :number
+
+        raise ArgumentError, "save_data :#{layout.name} keeps :#{item.name} as a variable, so " \
+                             "peek(:#{item.name}) has no items and no length. To read it, use " \
+                             "peek(:#{item.name}) as a number."
+      end
+
       # A kept variable — or, with +index+, one item of a kept list, or with +length+ how many it
       # holds — read from copy +copy+ without loading it. 0 unless the copy is good, and 0 for an
       # item past the list's end.
       def save_data_peek(layout, copy, item, index: nil, length: false)
-        finish_save_jobs_of(layout)
         which = Build.clamped(copy, sd_int(0), sd_int(layout.copies - 1))
         good = sd_eq(save_data_state_now(layout, copy), sd_int(IR::SaveLayout::STATES.index(:good)))
         body = sd_add(sd_half_at(layout, which, sd_directory(layout, :half, which)), sd_int(IR::SaveLayout::HEADER))
@@ -404,6 +545,8 @@ module RubyGBA
         slot = Build.clamped(index, sd_int(0), sd_int(item.count - 1))
         Build.binop(:*, sd_and(good, inside), sd_read(item.slot_at(body, slot), item.width))
       end
+
+      public
 
       # Whether the last job this record ran did not read back as it should have.
       def save_data_failed(layout) = sd_eq(sd_var(layout.scratch(:failed)), sd_int(1))
@@ -420,20 +563,14 @@ module RubyGBA
       private :save_data_item_of, :save_data_not_state!, :save_data_state_now
     end
 
-    # What `keep` inside a `save_data` block collects: the variables and lists the record
-    # keeps, checked as they are named.
+    # What `keep` inside a `save_data` block means: the same as the handle's own `keep`.
     class SaveDataKeeping
-      attr_reader :kept
-
-      def initialize(builder, record)
-        @builder = builder
+      def initialize(saves, record)
+        @saves = saves
         @record = record
-        @kept = []
       end
 
-      def keep(*things)
-        things.each { |thing| @kept << @builder.save_data_item(@record, thing) }
-      end
+      def keep(*things) = @saves.save_data_keep(@record, things)
     end
   end
 end
