@@ -55,6 +55,7 @@ end
 # word, so a pattern that happens to say "ractor" is not taken for it, and `--no-ractor` is
 # left to mean what it says.
 testopts = ENV.fetch("TESTOPTS", "")
+GIVEN_TESTOPTS = testopts # as the caller wrote them, for a suite that is not run on Ractors
 unless testopts.split.intersect?(%w[--ractor --no-ractor])
   ENV["TESTOPTS"] = "--ractor #{testopts}".strip
 end
@@ -71,9 +72,13 @@ end
 namespace :test do
   # The emulator gem has its OWN test suite (its C extension + probe, tested in isolation) —
   # kept out of the main `test` glob above. Delegate to its Rakefile, which compiles first.
+  #
+  # It is handed the test options as the caller wrote them, not with the `--ractor` added
+  # above: that flag belongs to this suite's runner, and the gem's is plain minitest, which
+  # refused it and ran nothing — so this task failed before a single test of the emulator ran.
   desc "Compile and test the emulator itself (the headless libmgba verification core)"
   task :emulator do
-    Dir.chdir(EMULATOR_DIR) { sh "rake", "test" }
+    Dir.chdir(EMULATOR_DIR) { sh({ "TESTOPTS" => GIVEN_TESTOPTS }, "rake", "test") }
   end
 end
 
