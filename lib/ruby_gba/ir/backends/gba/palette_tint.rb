@@ -84,7 +84,40 @@ module RubyGBA
             def bg_shared = screen.bg_shared
             def obj_palette_blob = screen.obj_palette_blob
             def obj_palette_units = screen.obj_palette_units
+            def scene_obj_palettes = screen.scene_obj_palettes
             def recolored_banks = screen.recolored_banks
+          end
+
+          # WHERE THE SPRITE COLOURS ON SCREEN NOW CAME FROM, in a game whose scenes each send
+          # a table of their own (see ScreenLayout#build_shared_object_palette). A walk has to
+          # start from the originals of the table the console is really holding, and which one
+          # that is changes as the game runs, so it is kept in a variable rather than named.
+          OBJ_TABLE_AT = :_obj_table_at
+
+          # Does the sprite table this build walks change as scenes take over?
+          def scene_obj_tables? = @layout.scene_obj_palettes.any?
+
+          # Say which sprite table is in the console now, at power-on or on a change of screen,
+          # where the one every screen shows has just been sent. Nothing for a build that never
+          # walks a table, or has only the one.
+          def emit_obj_table_is(blob)
+            return unless @palette_tint && scene_obj_tables?
+
+            @emitter.emit_load_data_address(ACC, blob)
+            @primitives.store_var(ACC, OBJ_TABLE_AT)
+          end
+
+          # SEND A SCENE'S SPRITE COLOURS AS IT TAKES OVER. A plain copy, unless this build moves
+          # its colour tables — then the table goes in through whatever tint or fade is in force,
+          # the same way a layer's other colours do (see #emit_colors_into_bank), because a
+          # plain copy into a screen that is meant to be dark would bring this scene's sprites
+          # in at full brightness. It also says this table is the one to walk from now on.
+          def emit_obj_table_arrives(blob, units)
+            return @drawing.emit_plain_dma_blob(blob, OBJ_PALETTE, units) unless @palette_tint
+
+            @emitter.emit_load_data_address(ACC, blob)
+            @primitives.store_var(ACC, OBJ_TABLE_AT)
+            emit_colors_into_bank(OBJ_PALETTE, units)
           end
 
           def initialize(emitter:, primitives:, lowering:, drawing:)
@@ -239,8 +272,18 @@ module RubyGBA
           # together (they sit far enough apart that a multiply cannot run one into the
           # other, and neither can the sum) does two of them in one multiply.
           def emit_tint_table(blob_name, dest, units)
-            @emitter.emit_load_data_address(TINT_SRC, blob_name)
+            emit_table_source(TINT_SRC, blob_name)
             emit_blend_run(dest, units)
+          end
+
+          # Point +reg+ at a table's originals: the sprite table the console is holding now,
+          # when scenes take turns with it, and otherwise the one table there is.
+          def emit_table_source(reg, blob_name)
+            if blob_name == @layout.obj_palette_blob && scene_obj_tables?
+              @primitives.load_var(reg, OBJ_TABLE_AT)
+            else
+              @emitter.emit_load_data_address(reg, blob_name)
+            end
           end
 
           # The walk itself, from wherever TINT_SRC has been pointed. Two things are read
@@ -374,8 +417,19 @@ module RubyGBA
             @emitter.emit_branch(:bcond, skip, cond: :eq)
             @emitter.emit(ASM.load_immediate(ACC, 0))
             @primitives.store_var(ACC, TINT_STATE)
-            tint_tables(mode).each { |blob, dest, units| @drawing.emit_plain_dma_blob(blob, dest, units) }
+            tint_tables(mode).each { |blob, dest, units| emit_copy_back(blob, dest, units) }
             @emitter.place_label(skip)
+          end
+
+          # Copy a table's originals back into place, from wherever #emit_table_source says they are.
+          def emit_copy_back(blob, dest, units)
+            return @drawing.emit_plain_dma_blob(blob, dest, units) unless blob == @layout.obj_palette_blob && scene_obj_tables?
+
+            emit_table_source(ACC, blob)
+            @emitter.emit(ASM.load_immediate(TMP, REG_DMA3SAD))
+            @emitter.emit(ASM.str(ACC, TMP))
+            @primitives.store_word_immediate(dest, REG_DMA3DAD)
+            @primitives.store_word_immediate(units | DMA_ENABLE, REG_DMA3CNT)
           end
 
           # A packed table cannot be read entry by entry, so a build that tints keeps its

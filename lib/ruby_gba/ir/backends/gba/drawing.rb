@@ -79,6 +79,7 @@ module RubyGBA
             def scene_layers = screen.scene_layers
             def scene_screens = screen.scene_screens
             def scene_tiles = screen.scene_tiles
+            def scene_obj_palettes = screen.scene_obj_palettes
             def picture = screen.picture
 
             # The backgrounds that turn AND sit on the tiled screen — the ones that decide
@@ -509,9 +510,13 @@ module RubyGBA
           def emit_scene_art_upload(name)
             sending = @layout.scene_art[name] || []
             rooms = @layout.objects.each_value.select { |obj| obj.scene == name && obj.frames }
-            return if sending.empty? && rooms.empty?
+            colors = @layout.scene_obj_palettes[name]
+            return if sending.empty? && rooms.empty? && colors.nil?
 
             once_as_the_scene_takes_over(SCENE_ART_STATE, @layout.scene_art.keys.index(name) + 1) do
+              # Its colours first: the groups its sprites name are this scene's now (see
+              # ScreenLayout#build_shared_object_palette).
+              @palette_tint.emit_obj_table_arrives(colors, @layout.obj_palette_units) if colors
               sending.each { |blob, at, units| @uploads.emit_dma_blob(blob, SpriteDrawing::OBJ_TILE_BASE + (at * 32), units * 16) }
               @sprite_drawing.forget_frames_in_rooms(rooms)
             end

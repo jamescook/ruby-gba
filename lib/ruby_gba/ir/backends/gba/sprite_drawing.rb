@@ -69,6 +69,7 @@ module RubyGBA
             # boot, which is the case that would otherwise leave a title screen blank.
             forget_still_objects
             @uploads.emit_dma_blob(@layout.obj_palette_blob, OBJ_PALETTE, @layout.obj_palette_units) # the shared sprite palette, once
+            @palette_tint.emit_obj_table_is(@layout.obj_palette_blob) # ...which is the one a tint walks until a scene sends its own
             @layout.objects.each_value do |obj|
               # A sprite showing the same pictures as one already uploaded points at
               # those, so there is nothing of its own to send. A sprite that belongs to a

@@ -178,6 +178,7 @@ module RubyGBA
             @scene_art = {}       # scene -> the sprite pictures it sends when it takes over
             @scene_tiles = {}     # scene -> the tile pictures it sends when it takes over
             @scene_screens = {}   # tiled scene -> the layers it has on, whether or not scenes differ
+            @scene_obj_palettes = {} # scene -> the sprite colour table it sends when it takes over
             @placed_fade = PlacedFade.new(@picture, program)
             @see_through = IR::SeeThrough.layers(program).map(&:name) # the layers a sprite blends in
             if Modes.draws_with_tiles?(program)
@@ -206,7 +207,8 @@ module RubyGBA
                       :objects, :obj_pictures, :sprite_art, :scene_art, :placed_fade,
                       :obj_palette_blob, :obj_palette_units, :blobs, :codecs,
                       :scene_tiles, # scene -> its own tile pictures, sent as it takes over (see #place_each_scene)
-                      :scene_screens
+                      :scene_screens,
+                      :scene_obj_palettes # scene -> the blob of its sprite colour table (see #build_shared_object_palette)
 
           # How many of the console's 128 sprite places +nodes+ take between them. Usually
           # one each; a sprite whose picture is bigger than one object takes one per piece.
@@ -1184,7 +1186,40 @@ module RubyGBA
           # The unit is the SPRITE, not the picture, because which way the console reads a
           # sprite is one bit in that sprite's own table entry — so all of its poses are
           # stored the same way, out of one bank.
+          #
+          # THE SIXTEEN GROUPS TAKE TURNS BY SCENE, the way the pictures do. The sprites every
+          # screen shows are laid out first and keep their groups throughout; each scene's own
+          # go on from that into the same groups as every other scene's (see
+          # PaletteBanks#allocate_after), and that scene's table is sent as it takes over (see
+          # Drawing#emit_scene_art_upload). So the budget is one screen's, not the game's. A game
+          # whose sprites belong to no scene has the one table, exactly as before.
           def build_shared_object_palette(nodes)
+            everywhere = nodes.reject(&:scene)
+            @obj_banks = { nil => object_banks(everywhere) }
+            @scene_obj_palettes = {}
+            nodes.filter_map(&:scene).uniq.each_with_index do |scene, index|
+              in_scene = nodes.select { |node| node.scene == scene }
+              @obj_banks[scene] = object_banks(in_scene, after: @obj_banks[nil], scene: scene)
+              @scene_obj_palettes[scene] = :"__obj_palette_scene_#{index}"
+            end
+            nodes.each { |node| recolor_banks_fit!(node) }
+
+            # Every table the same length, so walking the one on screen (a tint, a fade that moves
+            # the colours) is the same walk whichever it is.
+            tables = @obj_banks.transform_values(&:entries)
+            units = tables.values.map(&:size).max
+            tables.transform_values! { |colors| colors + ([0] * (units - colors.size)) }
+            @obj_palette_blob = :__obj_palette
+            @obj_palette_units = units
+            @blobs[@obj_palette_blob] = tables.fetch(nil).pack("v*")
+            @scene_obj_palettes.each do |scene, blob|
+              @blobs[blob] = tables.fetch(scene).pack("v*")
+              sent_as_a_scene_takes_over!(blob)
+            end
+          end
+
+          # The colour table +nodes+ draw from, going on from +after+ for a scene's own.
+          def object_banks(nodes, after: nil, scene: nil)
             pictures = nodes.map do |node|
               colors = []
               node.poses.each do |image|
@@ -1197,19 +1232,13 @@ module RubyGBA
               PaletteBanks::Picture.new(key: node.name, colors: colors, authored: authored_palette(node))
             end
             pictures += recolor_pictures(nodes)
-
-            @obj_banks = begin
-              PaletteBanks.new(pictures)
-            rescue PaletteBanks::Overflow
-              raise LoweringError, too_many_object_colors(pictures)
-            end
-            nodes.each { |node| recolor_banks_fit!(node) }
-
-            colors = @obj_banks.entries
-            @obj_palette_blob = :__obj_palette
-            @obj_palette_units = colors.size
-            @blobs[@obj_palette_blob] = colors.pack("v*")
+            PaletteBanks.new(pictures, after: after)
+          rescue PaletteBanks::Overflow
+            raise LoweringError, too_many_object_colors(pictures, scene)
           end
+
+          # The table a sprite's colours are in: its scene's, or the one every screen shows.
+          def obj_banks_for(node) = @obj_banks.fetch(node.scene)
 
           # THE OTHER LISTS A SPRITE CAN BE DRAWN WITH, each a bank of its own.
           #
@@ -1233,13 +1262,28 @@ module RubyGBA
             return if node.recolors.empty?
 
             keys = [node.name, *node.recolors.each_index.map { |index| [:recolor, node.name, index] }]
-            return if keys.all? { |key| @obj_banks.placement(key).narrow? }
+            return if keys.all? { |key| obj_banks_for(node).placement(key).narrow? }
 
             raise LoweringError,
-                  "The sprites and the lists of colors they draw with need more than the " \
+                  "#{whose_sprites(node.scene)} and the lists of colors they draw with need more than the " \
                   "#{PaletteBanks::BANKS} groups of colors the console holds for sprites. Each different list " \
-                  "takes one group, and so does each sprite with different colors. To fix this, tell sprites " \
-                  "to draw_with fewer different lists, or give more sprites the same `colors:` list."
+                  "takes one group, and so does each sprite with different colors.#{shared_groups(node.scene)} " \
+                  "To fix this, tell sprites to draw_with fewer different lists, or give more sprites the same " \
+                  "`colors:` list."
+          end
+
+          # Which sprites ran out. Only one scene's sprites are on screen at a time, so a scene
+          # is measured on its own and named — "the sprites" would send the author counting
+          # every sprite in the game.
+          def whose_sprites(scene)
+            scene ? "The sprites of the scene :#{IR::Modes.friendly_name(scene)}" : "The sprites"
+          end
+
+          # ...and that a scene's count includes the sprites every scene shows, when there are any.
+          def shared_groups(scene)
+            return "" unless scene && @picture.objects.any? { |node| node.scene.nil? }
+
+            " This count includes the sprites that every scene shows."
           end
 
           # The bank each of a sprite's other lists landed in, in the order the program counts
@@ -1251,8 +1295,8 @@ module RubyGBA
           def recolor_banks(node)
             return nil if node.recolors.empty?
 
-            banks = [*node.recolors.each_index.map { |index| @obj_banks.placement([:recolor, node.name, index]).bank },
-                     @obj_banks.placement(node.name).bank]
+            banks = [*node.recolors.each_index.map { |index| obj_banks_for(node).placement([:recolor, node.name, index]).bank },
+                     obj_banks_for(node).placement(node.name).bank]
             blob = :"__recolor_banks_#{banks.join('_')}"
             @blobs[blob] = banks.map { |bank| bank << OBJ_BANK_SHIFT }.pack("V*")
             plain_blob!(blob) # read from the middle, by the list the game picked
@@ -1292,12 +1336,12 @@ module RubyGBA
           # Nothing fits: even stored the big way, the sprites name more colors than the
           # console's sprite table holds. Name the greediest pictures, since "255 colors"
           # on its own leaves the author hunting through their own art.
-          def too_many_object_colors(pictures)
+          def too_many_object_colors(pictures, scene = nil)
             worst = pictures.max_by(3) { |picture| picture.colors.size }
             named = worst.map { |picture| ":#{picture.key} (#{picture.colors.size})" }.join(", ")
-            "The sprites use more colors between them than the console's sprite table holds " \
-              "(#{PaletteBanks::CAPACITY}, one of which means see-through). The sprites with the most colors " \
-              "are #{named}. Draw them from fewer colors, or use fewer sprites at once."
+            "#{whose_sprites(scene)} use more colors between them than the console's sprite table holds " \
+              "(#{PaletteBanks::CAPACITY}, one of which means see-through).#{shared_groups(scene)} The sprites " \
+              "with the most colors are #{named}. Draw them from fewer colors, or use fewer sprites at once."
           end
 
           # ONE SPRITE'S PICTURES, encoded once for the whole build (see SpritePictures).
@@ -1321,7 +1365,7 @@ module RubyGBA
             mirrors = cut[:mirrors]
             boxes = cut[:boxes]
             pieces = boxes.map(&:size).max
-            place = @obj_banks.placement(node.name)
+            place = obj_banks_for(node).placement(node.name)
             encoded = node.poses.each_with_index.map do |image, k|
               boxes[k].map { |box| cutter.encode(@bitmaps.fetch(image), place, box) } unless mirrors[k]
             end

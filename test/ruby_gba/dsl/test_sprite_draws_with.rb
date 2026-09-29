@@ -366,4 +366,135 @@ class TestSpriteDrawsWith < Minitest::Test
 
     assert_match(/groups of colors/, error.message)
   end
+
+  # --- scenes take turns with the groups ---
+
+  # THE SIXTEEN GROUPS ARE ONE SCENE'S, NOT THE WHOLE GAME'S, the way a scene's pictures and
+  # scenery already are: two scenes are never on screen together, so each can have the groups
+  # to itself. Here each scene's ship draws with one of nine lists besides its own — ten groups
+  # a scene, twenty for the game. The ship shows the last list, so a group another scene took
+  # over shows up as the wrong colour, and coming back to the first scene is read too.
+  TURNS = 9
+  PICKED = TURNS - 1
+  SECOND_SCENE_AT = 6
+  FIRST_SCENE_AGAIN_AT = 12
+
+  def shade(scene, n) = scene == :one ? RubyGBA::Graphics::Color.rgb(n + 1, 0, 0) : RubyGBA::Graphics::Color.rgb(0, n + 1, 0)
+
+  def two_scenes_of_many_lists
+    turns = TURNS
+    shades = %i[one two].to_h { |scene| [scene, (0...turns).map { |n| shade(scene, n) }] }
+    builder = Builder.new
+    builder.instance_eval do
+      screen :tiled
+      image :ship, width: 8, height: 8, data: SHIP, colors: OWN
+      step = var :step, PICKED
+      %i[one two].each do |scene_name|
+        scene(scene_name) do
+          names = shades[scene_name].each_with_index.map { |c, n| colors :"#{scene_name}_#{n}", [:transparent, c, :white] }
+          ship = sprite :ship, at: [40, 40]
+          ship.draw_with names, showing: step
+        end
+      end
+      state = var :state, 0
+      tick = var :tick, 0
+      game_loop do
+        tick.add! 1
+        (tick > SECOND_SCENE_AT).then { state.set! 1 }
+        (tick > FIRST_SCENE_AGAIN_AT).then { state.set! 0 }
+        case_var(:state) do
+          when_val 0, :one
+          when_val 1, :two
+        end
+      end
+    end
+    builder.emit_pending_functions
+    builder.program
+  end
+
+  def test_each_scene_has_the_sixteen_groups_to_itself
+    prog = two_scenes_of_many_lists
+    seen = [SECOND_SCENE_AT, FIRST_SCENE_AGAIN_AT, FIRST_SCENE_AGAIN_AT + 6].map do |frames|
+      Reference.new.run(prog, frames: frames).screen.pixel(41, 41)
+    end
+
+    assert_equal [shade(:one, PICKED), shade(:two, PICKED), shade(:one, PICKED)], seen
+  end
+
+  # ...UNDER A TINT, and beside a sprite every scene shows. A tiled screen tints by moving the
+  # colour tables themselves, and a tint held steady is not walked again — so a scene's colours
+  # sent as it takes over have to go in already tinted, or its sprites arrive at full colour in
+  # the middle of a red screen. The badge belongs to no scene and has to keep its colours
+  # whichever scene's groups are in.
+  def tinted_scenes
+    turns = TURNS
+    shades = %i[one two].to_h { |scene| [scene, (0...turns).map { |n| shade(scene, n) }] }
+    builder = Builder.new
+    builder.instance_eval do
+      screen :tiled
+      image :ship, width: 8, height: 8, data: SHIP, colors: OWN
+      image :badge, width: 8, height: 8, data: Array.new(64, :blue), colors: %i[transparent blue]
+      sprite :badge, at: [100, 40]
+      step = var :step, PICKED
+      %i[one two].each do |scene_name|
+        scene(scene_name) do
+          names = shades[scene_name].each_with_index.map { |c, n| colors :"#{scene_name}_#{n}", [:transparent, c, :white] }
+          ship = sprite :ship, at: [40, 40]
+          ship.draw_with names, showing: step
+        end
+      end
+      state = var :state, 0
+      tick = var :tick, 0
+      game_loop do
+        tint :red, 50
+        tick.add! 1
+        (tick > SECOND_SCENE_AT).then { state.set! 1 }
+        (tick > FIRST_SCENE_AGAIN_AT).then { state.set! 0 }
+        case_var(:state) do
+          when_val 0, :one
+          when_val 1, :two
+        end
+      end
+    end
+    builder.emit_pending_functions
+    builder.program
+  end
+
+  def test_a_scene_arriving_under_a_tint_is_tinted_and_the_badge_keeps_its_colors
+    [SECOND_SCENE_AT, FIRST_SCENE_AGAIN_AT, FIRST_SCENE_AGAIN_AT + 6].each do |frames|
+      assert_backends_agree(tinted_scenes, frames: frames)
+    end
+  end
+
+  # A SCENE THAT RUNS OUT ON ITS OWN IS NAMED, since it is measured on its own. The small scene
+  # beside it is fine and is not mentioned.
+  def test_a_scene_with_more_lists_than_groups_is_named
+    error = refused(GBA::LoweringError) do
+      screen :tiled
+      image :ship, width: 8, height: 8, data: SHIP, colors: OWN
+      step = var :step, 0
+      scene(:calm) { sprite :ship, at: [40, 40] }
+      scene(:busy) do
+        names = (1..16).map { |n| colors :"pulse#{n}", [:transparent, RubyGBA::Graphics::Color.rgb(n, 0, 0), :white] }
+        sprite(:ship, at: [40, 40]).draw_with names, showing: step
+      end
+      state = var :state, 0
+      game_loop do
+        case_var(:state) do
+          when_val 0, :calm
+          when_val 1, :busy
+        end
+      end
+    end
+
+    assert_match(/scene :busy/, error.message, "it names the scene that ran out")
+    refute_match(/calm/, error.message)
+  end
+
+  def test_the_console_gives_each_scene_the_groups_in_turn
+    prog = two_scenes_of_many_lists
+    [SECOND_SCENE_AT, FIRST_SCENE_AGAIN_AT, FIRST_SCENE_AGAIN_AT + 6].each do |frames|
+      assert_backends_agree(prog, frames: frames)
+    end
+  end
 end

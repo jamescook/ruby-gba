@@ -122,11 +122,19 @@ module RubyGBA
 
           # +pictures+ is a list of Picture. Everything is decided here, in the
           # constructor, so the result is a value the caller can read from freely.
-          def initialize(pictures)
+          #
+          # +after+ is a table already laid out that this one GOES ON FROM, for pictures that
+          # take turns with each other: every picture it placed keeps exactly the place it
+          # had, and these go in the room it left (see #allocate_after). Without it, this is
+          # the whole table.
+          def initialize(pictures, after: nil)
             @pictures = pictures
             @placements = {}
             @entries = [0x0000] # slot 0: the see-through slot every picture shares
-            allocate
+            @wide_slots = {}    # a wide colour -> the slot it sits in
+            @laid = []          # the banks, as laid, for a table that goes on from this one
+            @bank_base = 0      # ...and the group the first of them sits in
+            after ? allocate_after(after) : allocate
           end
 
           # The colour table to upload, slot by slot.
@@ -141,7 +149,92 @@ module RubyGBA
           def narrow_count = @placements.count { |_key, place| place.narrow? }
           def wide_count = @placements.count { |_key, place| !place.narrow? }
 
+          protected
+
+          # What a table going on from this one needs to know about it.
+          attr_reader :placements, :wide_slots, :laid, :bank_base
+
+          # The first group of sixteen nothing here uses.
+          def next_bank = (@entries.size + BANK_SIZE - 1) / BANK_SIZE
+
           private
+
+          # GO ON FROM A TABLE ALREADY LAID OUT, leaving every place in it where it is.
+          #
+          # This is how pictures that are never on screen together share the table: what every
+          # screen shows is laid out once, and each screen's own pictures go on from it into the
+          # same room as every other screen's, which is sent in as that screen takes over. What
+          # was there before cannot move, because something that stays on screen across the
+          # change is drawing from it.
+          #
+          # A picture here can read a group that is already there when every colour it needs is
+          # in it, and never adds a colour to one — that group is being read by what was laid out
+          # first, on every screen. Its own groups go in the next ones up. A picture read across
+          # the whole table uses a slot already holding its colour where the first layout put
+          # one, and takes whole groups from the TOP of the table for the rest: its colours can
+          # sit anywhere, where a group has to be sixteen in a row, so the top is where they are
+          # least in the way.
+          def allocate_after(base)
+            wide = @pictures.reject { |picture| fits_a_bank?(picture) }
+            loop do
+              spilled = try_allocation_after(base, wide)
+              break if spilled.empty?
+
+              wide += spilled
+            end
+          end
+
+          def try_allocation_after(base, wide)
+            @placements = base.placements.dup
+            @entries = base.entries
+            wide_banks = place_wide_after(base, wide)
+            room = BANKS - wide_banks
+
+            banks = []
+            spilled = []
+            first_own = base.next_bank
+            (@pictures - wide).sort_by { |picture| -picture.colors.size }.each do |picture|
+              shared = base.laid.index { |bank| reads_from?(bank, picture) }
+              next place_reading(picture, base.laid[shared], base.bank_base + shared) if shared
+
+              bank = bank_for(picture, banks, first: first_own, room: room)
+              next spilled << picture if bank.nil?
+
+              place_narrow(picture, bank, banks, first: first_own)
+            end
+            return spilled unless spilled.empty?
+
+            write_banks(banks, first: first_own)
+            []
+          end
+
+          # The wide pictures' colours: the slot one already has in the table gone on from, else
+          # a new one in the groups at the top. Returns how many groups that took.
+          def place_wide_after(base, wide)
+            fresh = wide.flat_map(&:colors).uniq.reject { |color| base.wide_slots.key?(color) }
+            groups = (fresh.size + BANK_SIZE - 1) / BANK_SIZE
+            raise Overflow, "#{fresh.size} more colours" if base.next_bank + groups > BANKS
+
+            slots = base.wide_slots.merge(fresh.each_with_index.to_h { |color, i| [color, ((BANKS - groups) * BANK_SIZE) + i] })
+            fresh.each { |color| @entries[slots.fetch(color)] = color }
+            wide.each do |picture|
+              @placements[picture.key] = Placement.new(bank: nil, indices: picture.colors.to_h { |c| [c, slots.fetch(c)] })
+            end
+            groups
+          end
+
+          # Can +picture+ read an existing group without changing it?
+          def reads_from?(bank, picture)
+            return false unless bank[:keeps_to] == picture.keeps_to
+            return bank[:fixed] && bank[:colors] == picture.authored if picture.authored?
+
+            picture.colors.all? { |color| bank[:colors].include?(color) }
+          end
+
+          def place_reading(picture, bank, slot)
+            indices = picture.colors.to_h { |color| [color, slot_in(bank, color)] }
+            @placements[picture.key] = Placement.new(bank: slot, indices: indices)
+          end
 
           # Wide first, then banks — and a picture that cannot get a bank becomes wide,
           # which changes where the banks start, so this settles rather than computes.
@@ -202,6 +295,7 @@ module RubyGBA
             end
             raise Overflow, "#{@entries.size} colours" if @entries.size > CAPACITY
 
+            @wide_slots = slots
             wide.each do |picture|
               indices = picture.colors.to_h { |color| [color, slots.fetch(color)] }
               @placements[picture.key] = Placement.new(bank: nil, indices: indices)
@@ -211,10 +305,10 @@ module RubyGBA
           # Which bank this picture can draw from: one it already fits in, or a new one
           # if there is room for another. An authored picture will only share with a
           # bank holding exactly its table, since its numbers are pinned.
-          def bank_for(picture, banks)
+          def bank_for(picture, banks, first: first_free_bank, room: BANKS)
             found = banks.index { |bank| bank_takes?(bank, picture) }
             return found if found
-            return nil if first_free_bank + banks.size >= BANKS
+            return nil if first + banks.size >= room
 
             banks << { colors: [], fixed: false, keeps_to: picture.keeps_to }
             banks.size - 1
@@ -228,7 +322,7 @@ module RubyGBA
             (bank[:colors] | picture.colors).size <= BANK_COLORS
           end
 
-          def place_narrow(picture, index, banks)
+          def place_narrow(picture, index, banks, first: first_free_bank)
             bank = banks[index]
             if picture.authored?
               bank[:colors] = picture.authored
@@ -237,7 +331,7 @@ module RubyGBA
               bank[:colors] |= picture.colors
             end
 
-            slot = first_free_bank + index
+            slot = first + index
             indices = picture.colors.to_h { |color| [color, slot_in(bank, color)] }
             @placements[picture.key] = Placement.new(bank: slot, indices: indices)
           end
@@ -273,8 +367,10 @@ module RubyGBA
           # Lay the banks into the table. Each starts on its own group of sixteen, so
           # anything between the wide colours and the first bank is padding nobody
           # draws.
-          def write_banks(banks)
-            base = first_free_bank
+          def write_banks(banks, first: first_free_bank)
+            @laid = banks
+            @bank_base = first
+            base = first
             banks.each_with_index do |bank, index|
               start = (base + index) * BANK_SIZE
               @entries[start, BANK_SIZE] = Array.new(BANK_SIZE, 0x0000)
