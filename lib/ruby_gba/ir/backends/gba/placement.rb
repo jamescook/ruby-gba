@@ -486,10 +486,12 @@ module RubyGBA
 
           # The routines the author asked for by name, placed before anything the
           # framework picked and not held to its share of the room. Answers what is left.
+          #
+          # A scene insisted on takes the routine that writes its sprites with it.
           def place_insisted(program, insisted, sizes, room, chosen)
-            movable = program.walk.select { |node| node.kind == :func && insisted.include?(node.name) }
-            movable.each do |node|
-              name = node.name
+            movable = program.walk.select { |node| node.kind == :func && insisted.include?(node.name) }.map(&:name)
+            movable += sprite_routines.filter_map { |routine, scene| routine if insisted.include?(scene) && sizes[routine] }
+            movable.each do |name|
               guard_insisted_fits!(name, sizes[name], room)
               chosen << name
               room -= sizes[name]
@@ -705,16 +707,25 @@ module RubyGBA
           def guard_insisted_fits!(name, size, room)
             if size.nil?
               raise LoweringError,
-                    "`func :#{name}, fast: true` asks to keep that routine in the console's quick " \
+                    "#{insisted_words(name)} asks to keep that routine in the console's quick " \
                     "memory, but nothing calls it, so it is never built. To fix this, call it or " \
                     "remove the routine."
             end
             return if size <= room
 
             raise LoweringError,
-                  "`func :#{name}, fast: true` asks to keep that routine in the console's quick " \
+                  "#{insisted_words(name)} asks to keep that routine in the console's quick " \
                   "memory, but it needs #{size} bytes and only #{[room, 0].max} are free. To fix " \
                   "this, make the routine smaller, or use fewer variables and lists."
+          end
+
+          # What the author wrote to insist on +name+: a scene's own word for the scene and for
+          # the routine that writes its sprites, a func's for anything else.
+          def insisted_words(name)
+            scene = sprite_routines.fetch(name, name).to_s
+            return "`func :#{name}, fast: true`" unless scene.start_with?("_scene_")
+
+            "`scene :#{scene.delete_prefix('_scene_')}, fast: true`"
           end
 
           # A routine holding raw pre-assembled bytes stays where it is, whatever anyone

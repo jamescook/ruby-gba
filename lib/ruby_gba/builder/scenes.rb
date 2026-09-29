@@ -89,10 +89,15 @@ module RubyGBA
       # Define a scene (named subroutine for a game state).
       # Internally prefixed with `_scene_` to avoid clashing with func names.
       #
+      # +fast:+ is `func`'s word, and it carries the routine the build makes to write the
+      # scene's moving sprites with it: `fast: false` keeps both in the cartridge, `fast: true`
+      # insists on both. A menu shown for seconds is measured for as long as the scene the game
+      # is played in, so without it a busy menu can take the quick memory ahead of the game.
+      #
       # @param name [Symbol] scene name
-      def scene(name, &block)
+      def scene(name, fast: nil, &block)
         refuse_scene_in_layer!
-        declare_func(:"_scene_#{name}", &block)
+        declare_func(:"_scene_#{name}", fast: fast, &block)
       end
 
       # Dispatch to a scene based on a variable's value.

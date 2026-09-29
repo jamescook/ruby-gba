@@ -216,6 +216,72 @@ class TestFastCodePlacement < Minitest::Test
     RubyGBA::Diagnostics::Profiler.run(rom, frames: 30, picture: false)
   end
 
+  # --- a scene says it too ---
+
+  # A menu and a game, each with a sprite that moves, so each scene has code of its own and a
+  # routine the build makes to write its sprites. The menu is up first unless +up+ says the
+  # game; START goes from the menu to the game. Small enough that everything fits, so
+  # whatever stays out was kept out.
+  def two_scenes(menu_fast: nil, up: 0)
+    builder = Builder.new
+    builder.instance_eval do
+      screen :tiled
+      %i[cursor hero].each do |name|
+        image name, "#" => :white do
+          "########\n" * 8
+        end
+      end
+      state = var :state, up
+      scene :menu, fast: menu_fast do
+        cursor = sprite :cursor, at: [20, 20]
+        cursor.move :right
+        pressed(:start).then { state.set! 1 }
+      end
+      scene :playing do
+        hero = sprite :hero, at: [100, 60]
+        hero.move :down
+      end
+      game_loop do
+        case_var(:state) do
+          when_val 0, :menu
+          when_val 1, :playing
+        end
+      end
+    end
+    builder.emit_pending_functions
+    builder.program
+  end
+
+  def menu_sprites = RubyGBA::IR::Backends::GBA::SpriteDrawing.sprites_routine(:_scene_menu)
+
+  def test_both_scenes_and_their_sprites_move_when_nothing_is_said
+    funcs = placement_of(two_scenes).funcs
+    assert_includes funcs, :_scene_menu
+    assert_includes funcs, menu_sprites
+  end
+
+  # A menu the player sees for seconds is measured as long as the game they play, so it can
+  # take the quick memory ahead of the game. Saying so keeps it out, and its sprites with it.
+  def test_a_scene_kept_out_keeps_its_sprites_out_with_it
+    funcs = placement_of(two_scenes(menu_fast: false)).funcs
+    refute_includes funcs, :_scene_menu
+    refute_includes funcs, menu_sprites
+    assert_includes funcs, :_scene_playing
+  end
+
+  def test_a_scene_insisted_on_takes_its_sprites_with_it
+    funcs = placement_of(two_scenes(menu_fast: true), fast_code: false).funcs
+    assert_includes funcs, :_scene_menu
+    assert_includes funcs, menu_sprites
+  end
+
+  # Where its code sits is all that changes: the menu, and the game beside it, draw the same
+  # picture on the interpreter and on the console.
+  def test_a_scene_kept_out_still_draws_the_same_picture
+    assert_backends_agree(two_scenes(menu_fast: false), frames: 3)
+    assert_backends_agree(two_scenes(menu_fast: false, up: 1), frames: 3)
+  end
+
   # --- the routine the console interrupts into ---
 
   # A background bending row by row is answered after every line the display draws, 228
