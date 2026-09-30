@@ -322,6 +322,129 @@ class TestSaveData < Minitest::Test
     assert_match(/save_data :g keeps the random numbers, and save_data :f keeps them too/, message)
   end
 
+  # A POOL IS PART OF A SAVE: every guard, where it was, how hurt, and which slots were free,
+  # so a load puts the same guards back in the same slots and the next one spawned lands where
+  # it would have. A spawns three and removes the middle one, then saves; B hurts them all,
+  # spawns one and removes another; L loads; R spawns one more; SELECT starts a new game.
+  # `signature` sums each live guard by its slot, so two pools read the same only when every
+  # guard is in the same slot with the same numbers.
+  private def guards_saved(keeping: :pool)
+    built do
+      screen :tiled
+      guards = pool :guard, x: 0, hp: 0, capacity: 4
+      signature = var :signature, 0
+      files = save_data(:file)
+      keeping == :pool ? files.keep(guards) : files.keep(guards.field(:hp))
+      game_loop do
+        pressed(:a).then do
+          [[1, 5], [2, 6], [3, 7]].each { |x, hp| guards.spawn(x: x, hp: hp) }
+          guards.each { |g| (g.x == 2).then { g.remove } }
+          files[0].save
+        end
+        pressed(:b).then do
+          guards.each { |g| g.hp.add! 10 }
+          guards.spawn(x: 9, hp: 9)
+          guards.each { |g| (g.x == 1).then { g.remove } }
+        end
+        pressed(:l).then { files[0].load }
+        pressed(:r).then { guards.spawn(x: 4, hp: 8) }
+        pressed(:select).then { files.reset }
+        signature.set! 0
+        guards.each { |g| signature.add!((g.index + 1) * ((g.x * 100) + g.hp)) }
+      end
+    end
+  end
+
+  private def guards_after(*buttons, keeping: :pool)
+    play(guards_saved(keeping: keeping), {}, pressing: presses(*buttons), frames: (buttons.length * 2) + 6)
+  end
+
+  private def guards_of(run) = [run.pool(:guard, :x), run.pool(:guard, :hp), run[:guard_count]]
+
+  def test_a_load_puts_a_pool_back_slot_for_slot
+    undisturbed = guards_after(:a, :r)
+    loaded = guards_after(:a, :b, :l, :r)
+
+    assert_equal undisturbed.pool(:guard, :x), loaded.pool(:guard, :x)
+    assert_equal undisturbed.pool(:guard, :hp), loaded.pool(:guard, :hp)
+    assert_equal 3, loaded.pool(:guard, :x).compact.length
+    assert_equal undisturbed[:signature], loaded[:signature]
+  end
+
+  def test_the_console_puts_a_pool_back_the_way_the_interpreter_does
+    buttons = %i[a b l r]
+    oracle = guards_after(*buttons)
+    keys = { a: KEY_A, b: KEY_B, l: KEY_L, r: KEY_R }
+    schedule = presses(*buttons).transform_values { |button| keys.fetch(button) }
+    rom = assemble_rom(guards_saved, name: "GUARDS")
+    v = assert_emulator_loads_rom(rom, frames: (buttons.length * 2) + 10, keys: ->(f) { schedule.fetch(f, 0) },
+                                       vars: rom.var_addresses)
+    assert_equal oracle[:signature], v.var(:signature)
+  end
+
+  # A new game empties the pool, and the pool still works afterwards.
+  def test_a_reset_empties_a_kept_pool_and_it_still_spawns
+    run = guards_after(:a, :select, :r)
+    assert_equal [4], run.pool(:guard, :x).compact
+    assert_equal [8], run.pool(:guard, :hp).compact
+  end
+
+  # One field kept on its own comes back; the rest of the pool is left as the game has it.
+  def test_one_field_of_a_pool_can_be_kept_on_its_own
+    run = guards_after(:a, :b, :l, keeping: :field)
+    hurt_again = guards_after(:a, :b, keeping: :field)
+
+    assert_equal hurt_again.pool(:guard, :x), run.pool(:guard, :x), "where they stand is not kept"
+    saved_hp = guards_after(:a, keeping: :field).pool(:guard, :hp)
+    live = run.pool(:guard, :x).each_index.select { |slot| saved_hp[slot] && run.pool(:guard, :x)[slot] }
+    assert_equal live.map { |slot| saved_hp[slot] }, live.map { |slot| run.pool(:guard, :hp)[slot] }
+  end
+
+  # A pool whose instances face and flap keeps which way each one faces: A faces the guard
+  # left and saves, B faces it right, L loads — and it is drawn facing left again, in the same
+  # picture as a game that never pressed B. The flap is slow enough not to step in the run,
+  # since a load rightly puts the flap back where the save found it too.
+  private def facing_guards
+    built do
+      screen :tiled
+      %i[l1 l2 r1 r2].each { |pose| image(pose, "#" => :white) { "########\n" * 8 } }
+      guards = pool :guard, x: 0, y: 0, capacity: 2, rate: 60, facing: { left: %i[l1 l2], right: %i[r1 r2] }
+      files = save_data(:file)
+      files.keep guards
+      guards.spawn(x: 20, y: 20)
+      game_loop do
+        pressed(:a).then do
+          guards.each { |g| g.face :left }
+          files[0].save
+        end
+        pressed(:b).then { guards.each { |g| g.face :right } }
+        pressed(:l).then { files[0].load }
+      end
+    end
+  end
+
+  def test_a_load_puts_back_which_way_each_pooled_thing_faces
+    undisturbed = play(facing_guards, {}, pressing: presses(:a), frames: 11)
+    loaded = play(facing_guards, {}, pressing: presses(:a, :b, :l), frames: 11)
+
+    assert_equal undisturbed.sprites(:guard).map(&:picture), loaded.sprites(:guard).map(&:picture)
+    assert_equal :l1, loaded.sprites(:guard).first.picture
+  end
+
+  def test_a_pool_kept_twice_is_a_friendly_error
+    message = refused { g = pool :guard, hp: 0, capacity: 4; save_data(:f).keep(g); save_data(:h).keep(g) }
+    assert_match(/save_data :h keeps pool :guard, and save_data :f keeps it too/, message)
+
+    message = refused { g = pool :guard, hp: 0, capacity: 4; save_data(:f).keep(g); save_data(:h).keep(g.field(:hp)) }
+    assert_match(/save_data :h keeps field :hp of pool :guard, and save_data :f keeps it too/, message)
+  end
+
+  def test_a_field_a_pool_does_not_have_is_a_friendly_error
+    message = refused { g = pool :guard, hp: 0, capacity: 4; save_data(:f).keep(g.field(:armour)) }
+    assert_match(/pool :guard has no field :armour/, message)
+    assert_match(/It has :hp/, message)
+  end
+
   # A FILE SCREEN DECLARED BEFORE THE GAMEPLAY IT SAVES. The record is declared with nothing in
   # it and used straight away — saved, loaded, erased, copied, peeked at by name — and what it
   # keeps is added later, by the code that owns it: the hearts and the name each by a routine

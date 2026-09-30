@@ -194,6 +194,43 @@ module RubyGBA
         color_resets.each { |node| node.parent&.children&.delete(node) }
       end
 
+      # Whether any instance was ever told to draw with other colours, so the pool keeps a
+      # colours column (see #colors_list).
+      def recolorable? = !@recolors.nil?
+
+      # ONE FIELD OF THE POOL, every slot's, as a thing a save_data record can keep on its
+      # own: `keep guards.field(:hp)` keeps how hurt each guard is and nothing else about it.
+      # A field the pool does not have is a friendly error.
+      Column = Data.define(:pool, :field) do
+        def inspect = "field :#{field} of pool :#{pool.name}"
+      end
+
+      def field(name)
+        return Column.new(pool: self, field: name) if field?(name)
+
+        raise ArgumentError, "pool :#{@name} has no field :#{name}. It has " \
+                             "#{field_names.map { |one| ":#{one}" }.join(', ')}. To fix this, use one of those."
+      end
+
+      # EVERYTHING THAT MAKES THIS POOL WHAT IT IS, for a save_data record to keep the whole of
+      # it: the lists — every field, which slots are live, the free slots, and each slot's
+      # facing, place in its cycle, age and colours where the pool keeps them — and then the
+      # variables — how many are live, the spawn counter an oldest-first pool stamps ages with,
+      # and the step counter of one that animates. Asked once the program is built, since a
+      # pool keeps its colours column only once something has told it to draw with others.
+      # What slot a walk is on is not here: nothing is being walked while a save or a load runs.
+      def whole_state
+        lists = [*field_names.map { |one| field_list(one) }, active_list, free_list, *pose_lists]
+        lists << born_list if recycle_oldest?
+        lists << colors_list if recolorable?
+        vars = [count_var]
+        vars << seq_var if recycle_oldest?
+        vars << tick_var if @art&.animates?
+        [lists, vars]
+      end
+
+      def inspect = "pool :#{@name}"
+
       # The field names, in declaration order.
       def field_names = @fields.keys
 

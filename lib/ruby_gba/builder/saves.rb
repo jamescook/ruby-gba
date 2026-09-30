@@ -19,7 +19,7 @@ module RubyGBA
       # conditions (DSL::Value, DSL::Condition) the saves hand back to a game — those build
       # program through it.
       Port = Data.define(:handle, :record, :repeat, :at_boot, :ensure_var, :declare_func, :run_each_pass,
-                         :start_value, :list_made, :save_var)
+                         :start_value, :list_made, :save_var, :pool_refill)
 
       include SaveRecords
       include SavePlaces
@@ -54,6 +54,9 @@ module RubyGBA
 
       # Whether +name+ is a `save_var`, which saves itself.
       def save_var?(name) = @port.save_var.call(name)
+
+      # Statements that put +pool+ back as power-on leaves it.
+      def pool_refill(pool) = @port.pool_refill.call(pool)
     end
 
     # The verb: `save_data`. Everything behind it is the Saves object this Builder holds.
@@ -81,8 +84,14 @@ module RubyGBA
           ensure_var: method(:ensure_var), declare_func: method(:declare_func),
           run_each_pass: ->(name) { @per_pass_routines << name },
           start_value: ->(name) { @boot_inits.find { |node| node.kind == :set && node.var == name }&.value },
-          list_made: ->(name) { @program.walk.find { |node| node.kind == :list_new && node.name == name } },
+          # A list made where it is written is in the program; one the framework makes for
+          # itself at power-on — a pool's columns — is still waiting among the power-on lines.
+          list_made: lambda do |name|
+            made = ->(node) { node.kind == :list_new && node.name == name }
+            @program.walk.find(&made) || @boot_inits.flat_map { |node| node.walk.to_a }.find(&made)
+          end,
           save_var: method(:persisted?),
+          pool_refill: method(:pool_refill_nodes),
         ))
       end
     end

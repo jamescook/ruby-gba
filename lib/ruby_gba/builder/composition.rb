@@ -442,8 +442,32 @@ module RubyGBA
           ensure_var(pool.seq_var)
           at_boot(Build.set(pool.seq_var, Build.int(0))) # the monotonic spawn counter starts at 0
         end
-        at_boot(build_pool_fill(pool, capacity, fields))
+        at_boot(build_pool_fill(pool, capacity))
       end
+
+      public
+
+      # THE POOL AS POWER-ON LEAVES IT, as statements run where they are recorded: every list
+      # of it emptied and filled again the way #setup_pool_storage fills it, and its counters
+      # back at nought. A save_data record's `reset` runs this for a pool it keeps, since
+      # emptying a pool's lists the way a kept list is emptied would leave it with no slots.
+      def pool_refill_nodes(pool)
+        lists, vars = pool.whole_state
+        index = :"__pool_#{pool.name}_refill"
+        ensure_var(index)
+        emptied = lists.map do |list|
+          Build.repeat(Build.list_len(list), index, Build.list_drop(list, from: :back))
+        end
+        colors = if pool.recolorable?
+                   [Build.repeat(Build.int(pool.capacity), index,
+                                 Build.list_push(pool.colors_list, Build.int(Build::NO_RECOLOR)))]
+                 else
+                   []
+                 end
+        [*emptied, build_pool_fill(pool, pool.capacity), *colors, *vars.map { |var| Build.set(var, Build.int(0)) }]
+      end
+
+      private
 
       # How wide a slot NUMBER has to be for a pool of this size — the free stack holds one
       # per entry, and the largest it ever holds is one less than the capacity.
@@ -457,10 +481,10 @@ module RubyGBA
       # A boot loop that pushes one slot per iteration: 0 into every field and the active
       # column, and the slot's own index onto the free stack — so all `capacity` slots
       # exist (length == capacity, every index addressable) and every slot starts free.
-      def build_pool_fill(pool, capacity, fields)
+      def build_pool_fill(pool, capacity)
         index = :"__pool_#{pool.name}_fill"
         ensure_var(index)
-        body = fields.keys.map { |f| Build.list_push(pool.field_list(f), Build.int(0)) }
+        body = pool.field_names.map { |f| Build.list_push(pool.field_list(f), Build.int(0)) }
         body << Build.list_push(pool.active_list, Build.int(0))
         pool.pose_lists.each { |list| body << Build.list_push(list, Build.int(0)) }
         body << Build.list_push(pool.born_list, Build.int(0)) if pool.recycle_oldest?

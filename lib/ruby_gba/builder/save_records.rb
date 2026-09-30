@@ -65,7 +65,7 @@ module RubyGBA
         place = Messages::MadeNames.make(:save_record, record: name, piece: :place)
         record_layout = Layout.new(name: name, copies: copies, kept: nil, body: nil, half: nil, place: place,
                                    shape: nil, key: IR::SaveLayout.record_key(name),
-                                   number: @save_data.size + 1, when_busy: when_busy)
+                                   number: @save_data.size + 1, when_busy: when_busy, pools: nil)
         check_save_data_count!(record_layout)
         @save_data[name] = record_layout
         @save_data_keeping[name] = []
@@ -80,7 +80,44 @@ module RubyGBA
           raise ArgumentError, "save_data :#{name} is already laid out in save memory, so it cannot keep more. " \
                                "To fix this, call `keep` while the program is declared."
         end
-        things.each { |thing| @save_data_keeping.fetch(name) << save_data_item(name, thing) }
+        things.each do |thing|
+          next @save_data_keeping.fetch(name) << keep_pool_part(name, thing) if pool_part?(thing)
+
+          @save_data_keeping.fetch(name) << save_data_item(name, thing)
+        end
+      end
+
+      # A POOL, OR ONE FIELD OF ONE, is kept as the lists and variables it is made of, which
+      # are only all known once the program is built (see DSL::Pool#whole_state) — so it is
+      # held as it is until the record is laid out. Kept twice is refused here, where the
+      # game wrote it: a whole pool claims each of its fields, so a field kept elsewhere
+      # clashes with it too.
+      def pool_part?(thing) = thing.is_a?(DSL::Pool) || thing.is_a?(DSL::Pool::Column)
+
+      def keep_pool_part(record, thing)
+        pool = thing.is_a?(DSL::Pool) ? thing : thing.pool
+        names = thing.is_a?(DSL::Pool) ? pool.field_names.map { |one| pool.field_list(one) } : [pool.field_list(thing.field)]
+        names.each do |name|
+          if (owner = @save_data_kept[name])
+            raise ArgumentError, "save_data :#{record} keeps #{thing.inspect}, and save_data :#{owner} keeps it " \
+                                 "too. To fix this, keep it in one of them."
+          end
+        end
+        names.each { |name| @save_data_kept[name] = record }
+        thing
+      end
+
+      # What a pool, or one field of one, is kept as, now that the program is built: each list
+      # at the width and length it was made with, and each variable as a word.
+      def pool_items(thing)
+        lists, vars = thing.is_a?(DSL::Pool) ? thing.whole_state : [[thing.pool.field_list(thing.field)], []]
+        lists.map { |name| kept_list(name) } +
+          vars.map { |name| Kept.new(kind: :var, name: name, at: 0, width: :word, count: 1) }
+      end
+
+      def kept_list(name)
+        made = list_made(name)
+        Kept.new(kind: :list, name: name, at: 0, width: made.width || :word, count: made.capacity)
       end
 
       # LAY EVERY RECORD OUT, once the whole program is declared: where each kept thing sits,
@@ -105,9 +142,14 @@ module RubyGBA
       # counts the records from 1 in the order they were declared, which is how a job says
       # whose it is; the table of places, which is written without jobs, is 0.
       #
-      # Until the program is fully declared a record's +kept+, +body+, +half+ and +shape+ are
-      # nil (see #declare), so anything that reads them too early fails where it reads.
-      Layout = Data.define(:name, :copies, :kept, :body, :half, :place, :shape, :key, :number, :when_busy) do
+      # +pools+ is each pool, and each field of one, the record keeps (their lists and variables
+      # are in +kept+ too), for the reset that has to put a pool back rather than empty it.
+      #
+      # Until the program is fully declared a record's +kept+, +body+, +half+, +shape+ and
+      # +pools+ are nil (see #declare), so anything that reads them too early fails where it
+      # reads.
+      Layout = Data.define(:name, :copies, :kept, :body, :half, :place, :shape, :key, :number, :when_busy,
+                           :pools) do
         def routine(job) = Messages::MadeNames.make(:save_record, record: name, piece: job)
         def scratch(what) = Messages::MadeNames.make(:save_record, record: name, piece: what)
         def directory(what) = Messages::MadeNames.make(:save_directory, record: name, kept: what)
@@ -147,13 +189,13 @@ module RubyGBA
       # Where each kept thing sits in the body, and what the record's shape and key are. Where
       # the record sits in save memory is not decided here: the table of places says, at
       # power-on (see SavePlaces).
-      def lay_out_save_data(name, copies, kept, place:, number: 0, when_busy: :wait)
+      def lay_out_save_data(name, copies, kept, place:, number: 0, when_busy: :wait, pools: [])
         at = 0
         placed = kept.map { |item| item.with(at: at).tap { |one| at += one.bytes } }
         shape = IR::SaveLayout.shape(placed.map { |item| [item.kind, item.name, item.width, item.count] })
         Layout.new(name: name, copies: copies, kept: placed, body: at, half: IR::SaveLayout.half_bytes(at),
                    place: place, shape: shape, key: IR::SaveLayout.record_key(name), number: number,
-                   when_busy: when_busy)
+                   when_busy: when_busy, pools: pools)
       end
 
       def check_save_data_count!(layout)
@@ -187,7 +229,9 @@ module RubyGBA
       # +layout+ with what it keeps laid out — or a friendly error for a record that keeps
       # nothing, which would save an empty copy and load nothing back.
       def settled_layout(layout)
-        kept = @save_data_keeping.fetch(layout.name)
+        keeping = @save_data_keeping.fetch(layout.name)
+        pools = keeping.select { |one| pool_part?(one) }
+        kept = keeping.flat_map { |one| pool_part?(one) ? pool_items(one) : [one] }
         if kept.empty?
           raise ArgumentError, "save_data :#{layout.name} keeps nothing, so a save of it has nothing to save. " \
                                "To fix this, name what it keeps: `files.keep hearts`, or " \
@@ -195,7 +239,7 @@ module RubyGBA
         end
 
         lay_out_save_data(layout.name, layout.copies, kept, place: layout.place, number: layout.number,
-                                                            when_busy: layout.when_busy)
+                                                            when_busy: layout.when_busy, pools: pools)
       end
 
       # One record's lists, buffer, power-on scans and routines, once it is laid out.
@@ -320,14 +364,28 @@ module RubyGBA
       # A NEW GAME: each kept variable set to what it was declared with, each kept list emptied.
       # The random numbers roll on: a new game that started them where power-on does would
       # play the same rolls as every new game before it.
+      #
+      # A kept pool is put back as power-on leaves it — every slot there and free — rather than
+      # emptied the way a kept list is, which would leave it with no slots at all. A field kept
+      # on its own is nought in every slot.
       def save_data_reset(layout)
+        pooled = layout.pools.flat_map { |part| pool_items(part).map(&:name) }
+        layout.pools.each { |part| reset_pool_part(part, layout.pools) }
         layout.kept.each do |item|
-          next if random_numbers?(item.name)
+          next if random_numbers?(item.name) || pooled.include?(item.name)
           next repeat(DSL::Value.new(handle, Build.list_len(item.name))) { |_| record(Build.list_drop(item.name, from: :back)) } if item.kind == :list
 
           start = start_value(item.name)
           record(Build.set(item.name, start ? start.copy : sd_int(0)))
         end
+      end
+
+      def reset_pool_part(part, parts)
+        return pool_refill(part).each { |node| record(node) } if part.is_a?(DSL::Pool)
+        return if parts.include?(part.pool) # the whole pool's refill puts this field back too
+
+        list = part.pool.field_list(part.field)
+        repeat(part.pool.capacity) { |i| record(Build.list_set(list, i.node, sd_int(0))) }
       end
 
       # A whole half written in one go, in the safe order (see SaveHalf): opened, the body the
