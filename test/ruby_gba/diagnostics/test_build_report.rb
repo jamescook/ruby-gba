@@ -97,6 +97,47 @@ class TestBuildReport < Minitest::Test
     refute_match(/\bfits\b/, text)
   end
 
+  # --- how fine a fade goes ---
+
+  # A tiled game that fades out over +frames+, placed under a HUD when +under+ says so.
+  def fading_game(frames, under: nil)
+    tile = SOLID_TILE
+    RubyGBA.build("BRFD") do
+      screen :tiled
+      image(:red_art, "#" => :red) { tile }
+      image(:badge, "#" => :green) { tile }
+      tiles :set, "#" => :red_art
+      layers :world, :ui
+      layer(:world) { background :field, tiles: :set, map: Array.new(20) { "#" * 30 } }
+      layer(:ui) { sprite :badge, at: [200, 8] }
+      game_loop do
+        pressed(:a).then { fade_out frames: frames, under: under }
+        pressed(:b).then { fade_in }
+      end
+    end
+  end
+
+  # The one place the author sees the price of a long fade: the colors are walked on each
+  # frame it moves, where the display's own fade is free.
+  def test_a_long_fade_is_said_to_walk_the_colors_in_33_levels
+    text = report_for(fading_game(33))
+
+    assert_match(/33 levels/, text)
+    assert_match(/each frame it moves/, text)
+  end
+
+  def test_a_short_fade_is_not_mentioned
+    refute_match(/33 levels|17 levels/, report_for(fading_game(12)))
+  end
+
+  # A placed fade cannot walk the colors, so a long one is told what it gives up.
+  def test_a_long_placed_fade_is_said_to_keep_17_levels
+    text = report_for(fading_game(33, under: :ui))
+
+    assert_match(/17 levels/, text)
+    refute_match(/33 levels/, text)
+  end
+
   # --- it rides along with the measured half ---
 
   def test_a_profile_prints_the_build_facts_above_the_measured_ones

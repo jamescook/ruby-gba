@@ -53,7 +53,10 @@ module RubyGBA
           # as it runs.
           def amount_of(node)
             value = node.amount
-            value.is_a?(Node) && value.kind == :int ? value.value : nil
+            return nil unless value.is_a?(Node) && value.kind == :int
+
+            # A fraction is still a percentage.
+            node.fraction_bits ? value.value.fdiv(1 << node.fraction_bits) : value.value
           end
         end
       end

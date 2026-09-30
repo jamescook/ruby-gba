@@ -699,8 +699,13 @@ module RubyGBA
       # everything in that layer and in front of it is left alone while everything
       # behind it blends. Left out, the effect is under the whole picture, which is
       # every picture that names no layers.
-      def fade(toward:, amount:, under: nil)
-        Nodes.build(:fade, toward: toward, amount: wrap(amount), **under_layer(under))
+      #
+      # +fraction_bits+ says the amount carries a fraction with that many bits, and nil a
+      # whole percentage. A fraction is also a request for finer steps than a hundredth can
+      # give over a long fade (see IR::Fading).
+      def fade(toward:, amount:, under: nil, fraction_bits: nil)
+        Nodes.build(:fade, toward: toward, amount: wrap(amount), **under_layer(under),
+                           **amount_fraction(fraction_bits))
       end
 
       # Blend the whole displayed picture toward any color, not only black or white.
@@ -713,9 +718,13 @@ module RubyGBA
       # picture, while moving it toward an arbitrary color means mixing that color IN.
       # The two therefore reach the screen by different means and round differently, so
       # they stay separate rather than one growing a color argument.
-      def tint(color:, amount:)
-        Nodes.build(:tint, color: color, amount: wrap(amount))
+      def tint(color:, amount:, fraction_bits: nil)
+        Nodes.build(:tint, color: color, amount: wrap(amount), **amount_fraction(fraction_bits))
       end
+
+      # An operand given only when there is one, so a whole-percentage fade is the node it
+      # always was.
+      def amount_fraction(bits) = bits ? { fraction_bits: bits } : {}
 
       # --- display objects (a moving picture the display composites over the scene) ---
       #

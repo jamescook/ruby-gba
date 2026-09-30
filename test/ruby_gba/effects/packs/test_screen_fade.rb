@@ -430,4 +430,89 @@ class TestScreenFade < Minitest::Test
       end
     end
   end
+
+  # --- a long fade steps every frame ---
+
+  # A red screen that fades up to white over 33 frames from frame 2, and back from frame
+  # 50. Red toward white leaves the red channel alone and walks green and blue from 0 to
+  # 31, which is 32 levels: a new picture on every frame of the fade but its first.
+  def long_fade(screen_kind, frames: 33, toward: :white, color: :red)
+    tile = (["#" * 8] * 8).join("\n")
+    program do
+      screen screen_kind
+      if screen_kind == :tiled
+        image(:red_art, "#" => color) { tile }
+        tiles :set, "#" => :red_art
+        background :field, tiles: :set, map: Array.new(20) { "#" * 30 }
+      end
+      frame = var :frame, 0
+      game_loop do
+        clear_screen color unless screen_kind == :tiled
+        frame.add! 1
+        (frame == 2).then { fade_out toward, frames: frames }
+        (frame == 50).then { fade_in }
+      end
+    end
+  end
+
+  def test_a_long_fade_shows_a_new_picture_on_every_frame
+    seen = ramp(long_fade(:tiled), 90)
+
+    assert_equal 32, seen.uniq.size, "red, then a new picture on each frame of the way up"
+  end
+
+  # The display's own fade counts in sixteenths, so a plain bitmap screen, which has no
+  # colour table to walk, keeps the old steps. It is the yardstick for the one below.
+  def test_a_long_fade_on_a_plain_bitmap_screen_keeps_seventeen_steps
+    assert_equal 17, ramp(long_fade(:bitmap), 50).uniq.size
+  end
+
+  # Finer steps, and not a different fade: the screen is white on the same frames, and red
+  # again on the same frames, as the display's own fade makes it.
+  def test_a_long_fade_is_white_and_back_on_the_same_frames
+    tiled = ramp(long_fade(:tiled), 90)
+    plain = ramp(long_fade(:bitmap), 90)
+
+    assert_equal plain.each_index.select { |n| plain[n] == WHITE },
+                 tiled.each_index.select { |n| tiled[n] == WHITE }
+    assert_equal plain.rindex { |px| px != RED }, tiled.rindex { |px| px != RED }
+  end
+
+  # ...and toward black on a dark picture, which is where the rounding shows: a channel of 4
+  # a thirty-second of the way back from black is nothing if it keeps its share and one if a
+  # share is taken away. The display takes one away, so the picture is back on this frame
+  # rather than the next.
+  DUSK = RubyGBA::Graphics::Color.rgb(4, 6, 8)
+
+  def test_a_long_fade_to_black_is_black_and_back_on_the_same_frames
+    tiled = ramp(long_fade(:tiled, toward: :black, color: DUSK), 90)
+    plain = ramp(long_fade(:bitmap, toward: :black, color: DUSK), 90)
+
+    assert_equal plain.each_index.select { |n| plain[n] == BLACK },
+                 tiled.each_index.select { |n| tiled[n] == BLACK }
+    assert_equal plain.rindex { |px| px != DUSK }, tiled.rindex { |px| px != DUSK }
+  end
+
+  # A short fade has no more than seventeen levels to show, so it keeps the display's
+  # fade, which costs nothing. It cannot tell the two apart, and nor can the player.
+  def test_a_short_fade_draws_what_the_display_would
+    tiled = ramp(long_fade(:tiled, frames: 17), 50)
+    plain = ramp(long_fade(:bitmap, frames: 17), 50)
+
+    assert_equal plain, tiled
+  end
+
+  def test_the_console_steps_a_long_fade_every_frame
+    v = assert_emulator_loads_rom(assemble_rom(long_fade(:tiled), name: "LONGF"), frames: 1)
+    shown = 90.times.map do
+      pixel = v.pixel_gba(120, 80)
+      v.step
+      pixel
+    end
+    interpreted = ramp(long_fade(:tiled), 90)
+
+    assert_equal interpreted.chunk_while { |a, b| a == b }.map(&:first),
+                 shown.chunk_while { |a, b| a == b }.map(&:first).drop_while { |px| px != RED },
+                 "the console walks through the same pictures in the same order"
+  end
 end

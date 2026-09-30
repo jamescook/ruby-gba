@@ -19,13 +19,15 @@ module RubyGBA
           WIDTH = Screen::WIDTH
           HEIGHT = Screen::HEIGHT
 
-          attr_reader :width, :height, :camera_x, :camera_y, :fade_toward, :fade_amount,
-                      :tint_color, :tint_amount
+          attr_reader :width, :height, :camera_x, :camera_y, :fade_toward, :fade_steps,
+                      :tint_color, :tint_steps
 
           # A color channel runs 0..31, and a full fade is 16 steps. Both come from the
           # display contract every backend blends against, so the two agree step for step.
           CHANNEL_MAX = 31
-          FADE_STEPS = 16
+          FADE_STEPS = IR::Fading::DISPLAY_STEPS
+          # A tint counts in thirty-seconds (see #tint_steps_to).
+          TINT_STEPS = IR::Fading::WALK_STEPS
 
           # @param fill [Integer] the color every cell starts as (0 reads as black)
           def initialize(width: WIDTH, height: HEIGHT, fill: 0)
@@ -37,9 +39,9 @@ module RubyGBA
             @camera_x = 0
             @camera_y = 0
             @fade_toward = :black
-            @fade_amount = 0
+            @fade_steps = 0
             @tint_color = nil
-            @tint_amount = 0
+            @tint_steps = 0
             @paint_toward = nil
             @paint_steps = 0
             @through = nil
@@ -117,8 +119,13 @@ module RubyGBA
           # 100. Like the camera, this changes what you SEE and not what is stored, so a
           # fade costs no redrawing and the picture is still all there underneath.
           def fade_to(toward, amount)
+            fade_steps_to(toward, IR::Fading.steps(amount, fraction_bits: nil, walked: false))
+          end
+
+          # The same, said in the sixteenths the display counts in.
+          def fade_steps_to(toward, steps)
             @fade_toward = toward
-            @fade_amount = amount
+            @fade_steps = steps
             @tint_color = nil # a display holds one of these at a time — see #tint_to
           end
 
@@ -132,12 +139,25 @@ module RubyGBA
           # rule rather than a simplification here, and modelling it is what stops a
           # program looking right on one backend and wrong on another.
           def tint_to(color, amount)
-            @tint_color = color
-            @tint_amount = amount
-            @fade_amount = 0
+            tint_steps_to(color, IR::Fading.steps(amount, fraction_bits: nil, walked: true))
           end
 
-          # Blend everything painted FROM HERE ON toward +toward+ by +amount+ (0 to 100),
+          # The same, said in thirty-seconds. A tint is counted that finely because a fade
+          # that walks the colors is a tint toward black or white, and a walk can go as fine
+          # as a channel does (see IR::Fading); a tint counted in sixteenths is the even
+          # thirty-seconds, and the same picture.
+          #
+          # +color+ may also be :black or :white, for a fade that walks the colors: the same
+          # effect as a tint, counted as finely, but rounded the way the display's own fade
+          # rounds — so the picture comes back from black on the same frame whichever way
+          # the fade went (see IR::Backends::GBA::PaletteTint::DARKEN).
+          def tint_steps_to(color, steps)
+            @tint_color = color
+            @tint_steps = steps
+            @fade_steps = 0
+          end
+
+          # Blend everything painted FROM HERE ON toward +toward+ by +steps+ sixteenths,
           # or paint colors as they are when +toward+ is nil.
           #
           # This is the other half of fade_to, and the two are not interchangeable. A fade
@@ -146,9 +166,9 @@ module RubyGBA
           # it and leave what is in front of it alone — so the compositor turns this on
           # while it paints the things behind the line and off before the things in front,
           # and the finished picture already carries the blend.
-          def paint_faded(toward, amount)
+          def paint_faded(toward, steps)
             @paint_toward = toward
-            @paint_steps = toward.nil? ? 0 : steps_of(amount)
+            @paint_steps = toward.nil? ? 0 : steps
             @blending = blending?
           end
 
@@ -302,14 +322,15 @@ module RubyGBA
           # what the display does. Matching it exactly is what lets a test name one
           # expected color and assert it on both backends.
           def faded(color)
-            return mixed(color, @tint_color, steps_of(@tint_amount)) if @tint_color
+            return blend(color, @tint_color, @tint_steps, TINT_STEPS) if @tint_color.is_a?(Symbol)
+            return mixed(color, @tint_color, @tint_steps) if @tint_color
 
-            blend(color, @fade_toward, fade_steps)
+            blend(color, @fade_toward, @fade_steps)
           end
 
           # One color mixed toward another, the way a display's blend unit does it: each
           # channel takes its share of the picture and its share of the other color, the
-          # two are ADDED, and only then is the sixteenth dropped.
+          # two are ADDED, and only then is the fraction dropped.
           #
           # WHERE THE TRUNCATION FALLS IS THE WHOLE OF IT, and it is not the same as the
           # brightness blend below. Truncating each share on its own and adding them can
@@ -319,18 +340,20 @@ module RubyGBA
           # rounding is decided; matching it exactly is what lets a test name one
           # expected color and assert it on both backends.
           #
-          # The two shares are in sixteenths and always add to sixteen, so no channel can
-          # come out above its limit and there is nothing to clamp.
+          # The two shares are in thirty-seconds and always add to thirty-two, so no channel
+          # can come out above its limit and there is nothing to clamp. The display's blend
+          # counts in sixteenths, and those are the even thirty-seconds: halving both shares
+          # and the whole leaves every answer as it was.
           def mixed(color, toward, steps)
             return color if steps.zero?
 
-            keep = FADE_STEPS - steps
+            keep = TINT_STEPS - steps
             packed = 0
             3.times do |channel|
               shift = channel * 5
               have = (color >> shift) & CHANNEL_MAX
               want = (toward >> shift) & CHANNEL_MAX
-              packed |= (((have * keep) + (want * steps)) / FADE_STEPS) << shift
+              packed |= (((have * keep) + (want * steps)) / TINT_STEPS) << shift
             end
             packed
           end
@@ -385,28 +408,18 @@ module RubyGBA
             !@paint_toward.nil? || !@through.nil?
           end
 
-          def blend(color, toward, steps)
+          def blend(color, toward, steps, out_of = FADE_STEPS)
             return color if steps.zero?
 
             channels = [color & 0x1F, (color >> 5) & 0x1F, (color >> 10) & 0x1F]
             blended = channels.map do |c|
               if toward == :white
-                c + (((CHANNEL_MAX - c) * steps) / FADE_STEPS)
+                c + (((CHANNEL_MAX - c) * steps) / out_of)
               else
-                c - ((c * steps) / FADE_STEPS)
+                c - ((c * steps) / out_of)
               end
             end
             blended[0] | (blended[1] << 5) | (blended[2] << 10)
-          end
-
-          # How far the fade goes, in sixteenths. Out-of-range amounts settle at the
-          # ends rather than wrapping or raising, the same as the hardware.
-          def fade_steps
-            steps_of(@fade_amount)
-          end
-
-          def steps_of(amount)
-            ((amount * FADE_STEPS) / 100).clamp(0, FADE_STEPS)
           end
 
           def in_bounds?(x, y)

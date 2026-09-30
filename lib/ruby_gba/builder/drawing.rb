@@ -226,21 +226,17 @@ module RubyGBA
       #   fade :black, 100, under: :ui
       #
       # @param toward [Symbol] :black or :white
-      # @param amount [Symbol, Integer, Value] how far, 0 to 100
+      # @param amount [Symbol, Integer, Float, Value] how far, 0 to 100 (a fraction asks for finer steps)
       # @param under [Symbol, nil] a layer this fade sits under, or nil for the whole screen
       def fade(toward, amount = 100, under: nil)
         unless FADE_COLORS.include?(toward)
           raise ArgumentError,
                 "fade goes to :black or :white. You gave #{toward.inspect}."
         end
-        fixed = DSL::Value.fixed_number(amount)
-        if fixed && !(0..100).cover?(fixed)
-          raise ArgumentError,
-                "fade's amount is how far to go, from 0 to 100. You gave #{fixed}."
-        end
+        node, bits = effect_amount(:fade, amount)
         check_effect_layer!(:fade, under) if under
 
-        record(Build.fade(toward: toward, amount: DSL::Value.node_for(amount), under: under))
+        record(Build.fade(toward: toward, amount: node, under: under, fraction_bits: bits))
         ensure_var(amount)
       end
 
@@ -265,15 +261,10 @@ module RubyGBA
       #   end
       #
       # @param color [Symbol, String, Integer] the color to move the picture toward
-      # @param amount [Symbol, Integer, Value] how far, 0 to 100
+      # @param amount [Symbol, Integer, Float, Value] how far, 0 to 100 (a fraction asks for finer steps)
       def tint(color, amount = 100)
-        fixed = DSL::Value.fixed_number(amount)
-        if fixed && !(0..100).cover?(fixed)
-          raise ArgumentError,
-                "tint's amount is how far to go, from 0 to 100. You gave #{fixed}."
-        end
-
-        record(Build.tint(color: Graphics::Color.resolve(color), amount: DSL::Value.node_for(amount)))
+        node, bits = effect_amount(:tint, amount)
+        record(Build.tint(color: Graphics::Color.resolve(color), amount: node, fraction_bits: bits))
         ensure_var(amount)
       end
 
@@ -386,6 +377,24 @@ module RubyGBA
       end
 
       private
+
+      # A fade's or a tint's amount for the tree, and how many bits of fraction it carries
+      # (nil for a whole percentage). An amount with a fraction — a Float, or a value that
+      # holds one — is a percentage all the same, kept finer, and a long fade walked by it
+      # moves a step on every frame rather than every other (see IR::Fading).
+      def effect_amount(verb, amount)
+        bits = DSL::Fraction.bits_of(amount)
+        written = amount.is_a?(Float)
+        node = written ? Build.int(DSL::Fraction.scale(amount, bits)) : DSL::Value.node_for(amount)
+        fixed = written ? amount : DSL::Value.fixed_number(amount)
+        fixed = fixed.fdiv(1 << bits) if fixed && bits && !written
+        if fixed && !(0..100).cover?(fixed)
+          raise ArgumentError,
+                "#{verb}'s amount is how far to go, from 0 to 100. You gave #{fixed}."
+        end
+
+        [node, bits]
+      end
 
       # What `estimate: { usually: N }` said about how tall this shape normally is — a stretched
       # column or a rectangle, which take the hint for the same reason and refuse it for the

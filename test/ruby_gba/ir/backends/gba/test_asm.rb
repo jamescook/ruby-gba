@@ -627,6 +627,15 @@ class TestASM < Minitest::Test
     assert_equal 0x2, unpack(A.sub_reg_cond(:hs, 1, 1, 0)) >> 28
     assert_equal 0xB, unpack(A.rsb_imm_cond(:lt, 0, 0, 0)) >> 28
     assert_equal 0x3, unpack(A.mov_reg_cond(:lo, 10, 7)) >> 28 # unsigned lower
+    assert_equal 0x1, unpack(A.add_reg_cond(:ne, 8, 8, 6)) >> 28
+  end
+
+  # The register form is the plain ADD with a condition: the same fields, the same opcode.
+  def test_add_reg_cond_is_add_reg_with_a_condition
+    plain = unpack(A.add_reg(8, 8, 6))
+    predicated = unpack(A.add_reg_cond(:ne, 8, 8, 6))
+
+    assert_equal plain & 0x0FFF_FFFF, predicated & 0x0FFF_FFFF
   end
 
   def test_mov_reg_lsl_cond_shifts_on_the_way

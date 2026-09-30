@@ -100,16 +100,16 @@ module RubyGBA
           #
           # Moving every entry of the color table a fraction of the way to black and
           # moving the finished picture there come to the same picture, so this is the
-          # tint walk with black or white as the color. The last step is not quite the
-          # same one: a mix rounds the sum of two shares where the display's fade rounds
-          # the share it takes away, so a game on this route fades a step lighter than the
-          # same game on the display's blend. Two pieces of hardware rounding their own
-          # way — the interpreter models both, and says so. Nothing else here
-          # runs: the blend registers are never written, so the layer keeps the setup it
-          # was given at boot and there is nothing to hand back when the fade lifts.
+          # tint walk with black or white as the color — rounded the way the display's own
+          # fade rounds, so a fade in shows the picture on the same frame either way (see
+          # PaletteTint::DARKEN). Nothing else here runs: the blend registers are never
+          # written, so the layer keeps the setup it was given at boot and there is nothing
+          # to hand back when the fade lifts.
           def emit_fade_by_walking_the_colors(node)
-            @palette_tint.emit_palette_tint(color: Graphics::Color.resolve(node.toward),
+            toward = node.toward == :black ? PaletteTint::DARKEN : Graphics::Color.resolve(node.toward)
+            @palette_tint.emit_palette_tint(color: toward,
                                             amount: node.amount,
+                                            fraction_bits: node.fraction_bits,
                                             mode: @layout.modes.mode_at(node))
           end
 
@@ -117,10 +117,10 @@ module RubyGBA
           def emit_fade_registers(node)
             emit_fade_control(node)
 
-            if (amount = const_int(node.amount))
-              write_reg16(REG_BLDY, fade_steps(amount))
+            if (steps = display_steps(node))
+              write_reg16(REG_BLDY, steps)
             else
-              @lowering.value(fade_steps_value(node.amount))
+              @lowering.value(display_steps_value(node))
               store_halfword_acc(REG_BLDY)
             end
           end
@@ -166,8 +166,8 @@ module RubyGBA
           # the game works out is a compare and a branch, which is what a fade walked over
           # frames arrives as.
           def emit_fade_sharing_the_blend(node)
-            if (amount = const_int(node.amount))
-              return @layer_blend.emit_layer_blend_again if fade_steps(amount).zero?
+            if (steps = display_steps(node))
+              return @layer_blend.emit_layer_blend_again if steps.zero?
 
               return emit_fade_registers(node)
             end
@@ -178,7 +178,7 @@ module RubyGBA
           def emit_fade_or_hand_back(node)
             hand_back = gensym
             done = gensym
-            @lowering.value(fade_steps_value(node.amount))
+            @lowering.value(display_steps_value(node))
             emit(ASM.mov_reg(FADE_HELD, ACC))
             emit(ASM.cmp_imm(FADE_HELD, 0))
             emit_branch(:bcond, hand_back, cond: :eq)
@@ -194,6 +194,19 @@ module RubyGBA
           # A percentage of the way there, in the sixteenths the hardware counts in.
           def fade_steps(percent)
             ((percent * BLD_MAX) / 100).clamp(0, BLD_MAX)
+          end
+
+          # How far a fade or a tint goes in those sixteenths, when its amount is written in
+          # the program — whole or with a fraction (see IR::Fading) — and nil when the game
+          # works it out.
+          def display_steps(node)
+            amount = const_int(node.amount)
+            amount && IR::Fading.steps(amount, fraction_bits: node.fraction_bits, walked: false)
+          end
+
+          # ...and the same for an amount the game works out, as a value to lower.
+          def display_steps_value(node)
+            IR::Fading.steps_value(node.amount, fraction_bits: node.fraction_bits, walked: false)
           end
 
           # Mix a color INTO the whole picture, which is a different piece of the display
@@ -222,17 +235,17 @@ module RubyGBA
             if @palette_tint.palette_screen?(node)
               return @palette_tint.emit_palette_tint(color: Graphics::Color.resolve(node.color),
                                                      amount: node.amount,
+                                                     fraction_bits: node.fraction_bits,
                                                      mode: @layout.modes.mode_at(node))
             end
 
             write_reg16(PALETTE_START, Graphics::Color.resolve(node.color)) # the backdrop IS the tint
             write_reg16(REG_BLDCNT, BLD_ALPHA | BLD_BG2 | (BLD_BACKDROP << BLD_SECOND_SHIFT))
 
-            if (amount = const_int(node.amount))
-              write_reg16(REG_BLDALPHA, tint_weights(fade_steps(amount)))
+            if (steps = display_steps(node))
+              write_reg16(REG_BLDALPHA, tint_weights(steps))
             else
-              @lowering.value(Build.binop(:/, Build.binop(:*, node.amount, Build.int(BLD_MAX)),
-                                     Build.int(100)))
+              @lowering.value(display_steps_value(node))
               emit_blend_weights_from_acc
             end
           end
@@ -260,11 +273,13 @@ module RubyGBA
           # same as the interpreter does. Where the weights go into a register the display
           # itself clamps this is free, but a share worked out here can be more than all of
           # it — and that takes a picture somewhere no color goes.
-          def emit_clamp_blend_steps
+          #
+          # +most+ is the far end: the display's sixteen, or a walk's thirty-two.
+          def emit_clamp_blend_steps(most = BLD_MAX)
             emit(ASM.cmp_imm(ACC, 0))
             emit(ASM.mov_imm_cond(:lt, ACC, 0))
-            emit(ASM.cmp_imm(ACC, BLD_MAX))
-            emit(ASM.mov_imm_cond(:gt, ACC, BLD_MAX))
+            emit(ASM.cmp_imm(ACC, most))
+            emit(ASM.mov_imm_cond(:gt, ACC, most))
           end
         end
       end

@@ -262,7 +262,7 @@ module RubyGBA
         def emit_start_counting_frames = @uses_vblank && @frames.emit_start_counting
         def fade_steps(percent) = @effects.fade_steps(percent)
         def fade_steps_value(amount) = @effects.fade_steps_value(amount)
-        def emit_clamp_blend_steps = @effects.emit_clamp_blend_steps
+        def emit_clamp_blend_steps(most = Console::Hardware::BLD_MAX) = @effects.emit_clamp_blend_steps(most)
         def emit_blend_weights_from_acc = @effects.emit_blend_weights_from_acc
         def emit_plain_dma_blob(blob_name, dest, units) = @uploads.emit_plain_dma_blob(blob_name, dest, units)
         def mix_buf0 = @mixer.mix_buf0

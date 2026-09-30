@@ -381,7 +381,7 @@ module RubyGBA
         include Node
         kind :fade
         category :draw
-        operands toward: :option, amount: :value, under: :name
+        operands toward: :option, amount: :value, under: :name, fraction_bits: :int
       end
 
       class FillRect
@@ -940,7 +940,7 @@ module RubyGBA
         include Node
         kind :tint
         category :draw
-        operands color: :color, amount: :value
+        operands color: :color, amount: :value, fraction_bits: :int
       end
 
       class VarRef

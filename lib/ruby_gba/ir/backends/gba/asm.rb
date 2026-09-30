@@ -535,6 +535,11 @@ module RubyGBA
             [(resolve_cond(cond) << 28) | 0x02800000 | (rn << 16) | (rd << 12) | imm12].pack("V")
           end
 
+          # ADD{cond} rd, rn, rm — the register form of the predicated add above.
+          def add_reg_cond(cond, rd, rn, rm)
+            [(resolve_cond(cond) << 28) | 0x00800000 | (rn << 16) | (rd << 12) | rm].pack("V")
+          end
+
           # SUB{cond} rd, rn, rm — a predicated subtract. Flags are left alone, so a compare
           # before it still decides a later instruction.
           def sub_reg_cond(cond, rd, rn, rm)

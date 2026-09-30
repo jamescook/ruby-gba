@@ -47,6 +47,7 @@ module RubyGBA
         program = built.source_program
 
         stack_lines(program, printer)
+        fade_steps_lines(program, printer)
         video_memory_lines(built.video_memory, printer)
         quick_memory_lines(built.placement, program, printer)
         roomy_memory_lines(built.roomy_memory, printer)
@@ -192,6 +193,28 @@ module RubyGBA
 
         printer.puts "      ...except while a fade placed in the stack runs, which takes the same " \
                      "blend: :#{layer} is solid until it lifts"
+      end
+
+      # HOW FINE THE GAME'S FADES GO, which nothing in the program says. A long fade walks the
+      # colours in 33 levels where the display's own fade has 17 and costs nothing, so its
+      # price is worth a line; a long fade placed in the stack cannot, and the line says what
+      # it gives up. A game whose fades are all short hears nothing (see IR::Fading).
+      def fade_steps_lines(program, printer)
+        fading = IR::Fading.resolve(program)
+        return unless fading.fine_walk? || fading.coarse_placed.any?
+
+        levels = IR::Fading::WALK_STEPS + 1
+        display = IR::Fading::DISPLAY_STEPS + 1
+        printer.puts "  fading:"
+        if fading.fine_walk?
+          printer.puts "    a long fade changes the colours themselves, in #{levels} levels. " \
+                       "The display's own fade has #{display}."
+          printer.puts "      ...which costs a blend per declared colour, on each frame it moves"
+        end
+        return if fading.coarse_placed.empty?
+
+        printer.puts "    a fade placed in the stack keeps the display's #{display} levels. " \
+                     "A long one changes the picture every other frame."
       end
 
       # WHERE THE PICTURES WENT, and what the framework's own choice of storage bought back.

@@ -8,7 +8,7 @@ require "test_helper"
 # them, decided here rather than in either backend, so the ROM and the headless
 # interpreter cannot drift apart about it. What the two LOOK like is asserted where the
 # picture is — `test/ruby_gba/builder/test_layer_transparency.rb`. This file is the
-# rule: three decisions, one test each, in the words somebody would ask them in.
+# rule: four decisions, each in the words somebody would ask them in.
 class TestFading < Minitest::Test
 
   def program(&block)
@@ -144,5 +144,57 @@ class TestFading < Minitest::Test
 
   def test_a_whole_screen_fade_leaves_nothing_to_warn_about
     assert_empty fading(see_through_program).blend_fades
+  end
+
+  # DECISION FOUR: a fade that asks for finer steps walks the colours wherever there is a
+  # table to walk.
+  #
+  # An amount with a fraction is the asking. The display counts in sixteenths, so a long
+  # fade on it changes every other frame; a walk counts in thirty-seconds. Nothing about a
+  # see-through layer comes into this one.
+  def finely_faded(screen_kind, tear_free: false, under: nil)
+    tile = SOLID_TILE
+    program do
+      screen_kind == :tiled ? screen(:tiled) : screen(:bitmap, tear_free: tear_free)
+      if screen_kind == :tiled
+        image(:back, "#" => :red) { tile }
+        image(:badge, "#" => :green) { tile }
+        tiles :backset, "#" => :back
+        layers :world, :ui
+        layer(:world) { background :floor, tiles: :backset, map: Array.new(20) { "#" * 30 } }
+        layer(:ui) { sprite :badge, at: [200, 8] }
+      else
+        clear_screen :red
+      end
+      level = var :level, 60.0
+      game_loop { fade :black, level, under: under }
+    end
+  end
+
+  def test_a_fraction_walks_the_colours_on_a_tiled_screen
+    prog = finely_faded(:tiled)
+
+    assert fading(prog).walks_the_colors?(fades(prog).first)
+    assert_predicate fading(prog), :fine_walk?
+  end
+
+  def test_a_fraction_walks_the_colours_on_the_tear_free_screen
+    prog = finely_faded(:bitmap, tear_free: true)
+
+    assert fading(prog).walks_the_colors?(fades(prog).first)
+  end
+
+  def test_a_fraction_keeps_the_display_fade_on_the_plain_bitmap_screen
+    prog = finely_faded(:bitmap)
+
+    refute fading(prog).walks_the_colors?(fades(prog).first)
+    refute_predicate fading(prog), :fine_walk?
+  end
+
+  def test_a_placed_fade_keeps_the_display_steps_and_is_named
+    prog = finely_faded(:tiled, under: :ui)
+
+    refute fading(prog).walks_the_colors?(fades(prog).first)
+    assert_equal fades(prog), fading(prog).coarse_placed
   end
 end

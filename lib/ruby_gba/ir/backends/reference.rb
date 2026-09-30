@@ -1522,10 +1522,12 @@ module RubyGBA
         def exec_fade(node)
           amount = eval_value(node.amount)
           was_fading = fading?
-          @fade_placed = node.under && [node.under, node.toward, amount]
-          return walk_the_colors(node, amount) if @fading.walks_the_colors?(node)
+          walked = @fading.walks_the_colors?(node)
+          steps = IR::Fading.steps(amount, fraction_bits: node.fraction_bits, walked: walked)
+          @fade_placed = node.under && [node.under, node.toward, steps]
+          return walk_the_colors(node, steps) if walked
 
-          @screen.fade_to(node.toward, @fade_placed ? 0 : amount)
+          @screen.fade_steps_to(node.toward, @fade_placed ? 0 : steps)
           # A fade that takes the see-through layer's blend hands it back when it lifts
           # (see #fading?), so the picture has to be built again at each of those two
           # moments — the layer is drawn solid on one side of them and see-through on the
@@ -1537,30 +1539,34 @@ module RubyGBA
         # IR::Fading for which fades those are and why).
         #
         # Moving every color toward black by a fraction and moving the finished picture
-        # there come to the same picture, so this is a tint toward black or white — right
-        # down to where the truncation falls, which is what lets one written-down color be
-        # asserted on both backends.
+        # there come to the same picture, so this is a tint toward black or white, counted
+        # in thirty-seconds.
         #
-        # THE SAME PICTURE, NOT THE SAME LAST STEP. A mix takes a share of each side and
-        # rounds the sum; the display's own fade takes a share AWAY from what a channel
-        # has and rounds that. So a game that walks the colors fades a step lighter than
-        # the same game blended by the display, everywhere the share divides unevenly.
-        # That is two pieces of a console rounding their own way rather than a gap to
-        # close, and it is a step nobody can see — but it is the reason the two are
-        # written as two blends here instead of one shared with #blend.
+        # ROUNDED THE WAY THE DISPLAY'S FADE IS, not the way a mix is. A mix keeps a share
+        # of each channel and rounds that down; the display's fade takes a share AWAY and
+        # rounds the share down, which leaves the channel rounded up. On a dark picture that
+        # is a whole frame at the end of a fade in, flat black on one and the picture on the
+        # other, so the console's walk adds the rounding back (PaletteTint::DARKEN) and this
+        # blends with the display's own rule. Toward white the two rules agree anyway.
         #
         # What it buys is everything the tint already has: the
         # display's blend unit is never told anything, so the see-through layer goes on
         # blending and the mix darkens along with both sides of it.
-        def walk_the_colors(node, amount)
-          @screen.tint_to(Graphics::Color.resolve(node.toward), amount)
+        def walk_the_colors(node, steps)
+          @screen.tint_steps_to(node.toward, steps)
         end
 
         # A tint — the same idea as a whole-screen fade, toward a color a fade cannot
         # reach. Applied as the screen is read, so nothing drawn changes and the picture
         # is all still there when the amount returns to 0.
+        #
+        # Counted in thirty-seconds whichever way it reaches the screen. Where the display
+        # blends it, the amount is a whole percentage or is counted in sixteenths, and a
+        # sixteenth is two thirty-seconds.
         def exec_tint(node)
-          @screen.tint_to(Graphics::Color.resolve(node.color), eval_value(node.amount))
+          walked = @fading.walks_the_colors?(node)
+          steps = IR::Fading.steps(eval_value(node.amount), fraction_bits: node.fraction_bits, walked: walked)
+          @screen.tint_steps_to(Graphics::Color.resolve(node.color), walked ? steps : steps * 2)
         end
 
         # Turn the blend on or off for the thing about to be painted: on for anything the
@@ -1630,7 +1636,7 @@ module RubyGBA
         def fading?
           return @fade_placed[2].positive? if @fade_placed
 
-          @screen.fade_amount.positive?
+          @screen.fade_steps.positive?
         end
 
         # The names the fade in force leaves alone — its layer and everything in front.

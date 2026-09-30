@@ -44,8 +44,57 @@ module RubyGBA
     #   could walk it; the plain one holds a whole color in every pixel and has no table
     #   to walk in the first place. The screen is asked anyway rather than assumed, because
     #   one game can put a bitmap scene and a tiled scene side by side.
+    #
+    # HOW FINE A FADE GOES is the third thing this settles, and it is the other reason to
+    # walk the colors. The display's fade counts in sixteenths, so it has seventeen levels
+    # from the picture to the color, and a fade longer than sixteen frames shows each of
+    # them twice — the picture changes every other frame. A channel of a color has 32
+    # levels, so a walk can move in thirty-seconds instead, one a frame over a fade twice
+    # as long. The games on this console do exactly that.
+    #
+    # So a fade whose amount holds a FRACTION asks for the finer steps, and a fade that asks
+    # for them walks the colors wherever there is a table to walk: on either screen drawn
+    # through one, and not placed in the stack. A whole-number amount keeps the sixteenths
+    # it always had, on every route, so asking for nothing changes nothing. The screen fade
+    # verbs ask for the finer steps when a fade of the game is longer than the display's
+    # seventeen levels can show (see Effects::Packs::ScreenFade).
+    #
+    # A placed fade cannot have them, for the reason above: only the display can place one,
+    # and the display counts in sixteenths.
     module Fading
+      # How many steps each of the two ways counts from the picture to the color.
+      DISPLAY_STEPS = 16
+      WALK_STEPS = 32
+
       def self.resolve(program) = Answer.new(program)
+
+      # How far +amount+ is, in steps of one of the two ways (+walked+ picks the walk's
+      # thirty-seconds). +fraction_bits+ is how many bits of fraction the amount carries, or
+      # nil for a whole percentage.
+      #
+      # A whole percentage is counted in sixteenths whichever way it goes, and a walk takes
+      # two of its steps for each: 2/32 and 1/16 are the same share of the way, so the
+      # picture is the same one to the last bit and only the counting is finer.
+      def self.steps(amount, fraction_bits:, walked:)
+        levels = walked ? WALK_STEPS : DISPLAY_STEPS
+        unless fraction_bits
+          return ((amount * DISPLAY_STEPS) / 100).clamp(0, DISPLAY_STEPS) * (levels / DISPLAY_STEPS)
+        end
+
+        ((amount * levels) / (100 << fraction_bits)).clamp(0, levels)
+      end
+
+      # The same conversion as a value to work out as the game runs, for a backend that
+      # compiles rather than interprets. It leaves the ends unclamped; see #steps for them.
+      def self.steps_value(amount, fraction_bits:, walked:)
+        levels = walked ? WALK_STEPS : DISPLAY_STEPS
+        unless fraction_bits
+          sixteenths = Build.binop(:/, Build.binop(:*, amount, Build.int(DISPLAY_STEPS)), Build.int(100))
+          return walked ? Build.binop(:*, sixteenths, Build.int(levels / DISPLAY_STEPS)) : sixteenths
+        end
+
+        Build.binop(:/, Build.binop(:*, amount, Build.int(levels)), Build.int(100 << fraction_bits))
+      end
 
       # IS THERE ANYTHING FOR A FADE TO KEEP in this see-through layer (a SeeThroughLayer)?
       # A layer NAMED as see-through is not enough — one fixed to show all of itself and
@@ -79,15 +128,27 @@ module RubyGBA
           # two scenes can be on different screens.
           @walking = {}.compare_by_identity
           @blend_fades = []
+          @coarse_placed = []
+          @fine = false
           sort_the_fades(program)
         end
 
-        # Does this fade move the color table rather than the display's own blend?
+        # Does this fade move the color table rather than the display's own blend? Asked of
+        # a tint, which moves the table wherever there is one: is it counted in the walk's
+        # thirty-seconds?
         def walks_the_colors?(node) = @walking.key?(node)
+
+        # Does any fade walk the colors for the finer steps, whether or not a layer is seen
+        # through? The build report says what that costs.
+        def fine_walk? = @fine
+
+        # The fades that asked for the finer steps and cannot have them, being placed in the
+        # stack — seventeen levels, so a long one changes the picture every other frame.
+        attr_reader :coarse_placed
 
         # Does any fade in this program? The color tables have to be kept readable in the
         # cartridge for one that does, and the build report names the mechanism it got.
-        def any_color_walk? = !@walking.empty?
+        def any_color_walk? = @walking.each_key.any? { |node| node.kind == :fade }
 
         # The fades that still take the display's blend on the screen a layer can be seen
         # through — the ones that leave that layer solid while they run, which is the only
@@ -97,10 +158,16 @@ module RubyGBA
         private
 
         def sort_the_fades(program)
-          return unless sees_through_a_layer?(program)
+          fades = program.walk.select { |node| node.kind == :fade }
+          tints = program.walk.select { |node| node.kind == :tint && node.fraction_bits }
+          return if fades.empty? && tints.empty?
 
           modes = Modes.resolve(program)
-          fades_on_the_tiled_screen(program, modes).each do |node|
+          sort_the_fine_ones(fades, modes)
+          sort_the_fine_tints(tints, modes)
+          return unless sees_through_a_layer?(program)
+
+          fades.select { |node| modes.mode_at(node) == Modes::TILED }.each do |node|
             node.under ? @blend_fades << node : @walking[node] = true
           end
         rescue Modes::Conflict
@@ -109,13 +176,31 @@ module RubyGBA
           # so both of these go back to empty however far the walk above had got.
           @walking.clear
           @blend_fades.clear
+          @coarse_placed.clear
+          @fine = false
         end
 
-        # Only a fade on the tiled screen is in this at all. A game can put a bitmap scene
-        # beside a tiled one, and a fade written in the bitmap scene reaches neither the
-        # see-through layer nor a color table it is drawn from.
-        def fades_on_the_tiled_screen(program, modes)
-          program.walk.select { |node| node.kind == :fade && modes.mode_at(node) == Modes::TILED }
+        # A fade that asks for the finer steps walks the colors on a screen drawn through a
+        # table. On the plain bitmap screen there is no table, and a placed fade has to be
+        # the display's, so both of those keep the sixteenths — and the placed ones are
+        # remembered, because that is a trade worth telling the author about.
+        def sort_the_fine_ones(fades, modes)
+          fades.select(&:fraction_bits).each do |node|
+            next if modes.mode_at(node) == Modes::DIRECT
+            next @coarse_placed << node if node.under
+
+            @walking[node] = true
+            @fine = true
+          end
+        end
+
+        # A tint on a screen drawn through a table always walks it, so for a tint the only
+        # question is the steps: a fraction counts in thirty-seconds there, and the display
+        # blends a tint on the plain bitmap screen in sixteenths whatever it is given.
+        def sort_the_fine_tints(tints, modes)
+          tints.each do |node|
+            @walking[node] = true unless modes.mode_at(node) == Modes::DIRECT
+          end
         end
 
         def sees_through_a_layer?(program)

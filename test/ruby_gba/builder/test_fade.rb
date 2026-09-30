@@ -308,4 +308,53 @@ class TestFade < Minitest::Test
     refute_equal BLACK, console, "half way is not all the way"
     refute_equal BLUE, console, "and it is not nothing either"
   end
+
+  # --- an amount that holds a fraction ---
+
+  # A fraction is a percentage like any other: half of a hundred is half way, however the
+  # number is kept.
+  def test_an_amount_that_holds_a_fraction_is_read_as_a_percentage
+    halved = program do
+      screen :bitmap
+      clear_screen :blue
+      fill_rect 100, 70, 40, 20, :red
+      level = var :level, 50.0
+      fade :black, level
+      halt
+    end
+
+    assert_equal Reference.new.run(faded(:black, 50)).screen.pixel(120, 80),
+                 Reference.new.run(halved).screen.pixel(120, 80)
+  end
+
+  # Thirty-two steps rather than sixteen: one for each thirty-second of the way, which is
+  # as fine as a five-bit channel can go. A percentage for each.
+  EVERY_FINE_LEVEL = (0..32).map { |step| step * 100.0 / 32 }.freeze
+
+  # Written out, for the reason RED_FADED_TO_BLACK is, and by the same rule: a share is taken
+  # AWAY. A thirty-second of 31 is less than one, so the first step takes nothing; after that
+  # it drops one a step and reaches nought only on the last. That is the display's own rounding
+  # and not a mix's, which would keep a share and reach nought a step early — and on a dark
+  # picture show flat black for a frame longer at the end of a fade in.
+  RED_FADED_FINELY = [31, 31, 30, 29, 28, 27, 26, 25, 24, 23, 22, 21, 20, 19, 18, 17,
+                      16, 15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 0].freeze
+
+  def test_a_fraction_on_a_tiled_screen_fades_in_thirty_two_steps
+    EVERY_FINE_LEVEL.each_with_index do |percent, step|
+      shown = Reference.new.run(a_red_wall_faded(percent), frames: 2).screen.pixel(8, 8)
+
+      assert_equal RED_FADED_FINELY[step], shown & 0x1F, "red #{percent}% of the way to black"
+    end
+  end
+
+  # The colours are written into the console's colour table rather than blended by the
+  # display, so there is no emulator rounding to allow for: every step is exact.
+  def test_the_console_fades_a_fraction_in_the_same_thirty_two_steps
+    EVERY_FINE_LEVEL.each_with_index do |percent, step|
+      rom = assemble_rom(a_red_wall_faded(percent), name: "FFINE")
+      console = assert_emulator_loads_rom(rom, frames: 6).pixel_gba(8, 8)
+
+      assert_equal RED_FADED_FINELY[step], console & 0x1F, "red #{percent}% of the way to black"
+    end
+  end
 end

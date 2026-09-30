@@ -268,6 +268,8 @@ module RubyGBA
           state[:target].set! target
           if frames || duration
             state[:step].set! FULL / fade_ramp_frames(frames, duration, default)
+          else
+            @fade_without_length = true
           end
           state[:active].set! 1
           nil
@@ -297,11 +299,12 @@ module RubyGBA
             # The body is built once the game is written, not here — so by the time it
             # runs, every color the game asked for is known and each has its branch.
             once_a_frame(ROUTINE) do
+              shown = fade_amount(level)
               (active == 1).then do
-                (color == BLACK).then { fade :black, level.to_i, under: @fade_place }
-                (color == WHITE).then { fade :white, level.to_i, under: @fade_place }
+                (color == BLACK).then { fade :black, shown, under: @fade_place }
+                (color == WHITE).then { fade :white, shown, under: @fade_place }
                 fade_tint_colors.each_with_index do |tint_color, i|
-                  (color == FIRST_TINT + i).then { tint tint_color, level.to_i }
+                  (color == FIRST_TINT + i).then { tint tint_color, shown }
                 end
                 (level == target).then { active.set! 0 }
                                  .else { level.approach! target, step }
@@ -310,6 +313,41 @@ module RubyGBA
 
             { level: level, target: target, step: step, color: color, active: active }
           end
+        end
+
+        # WHAT THE RAMP HANDS TO `fade`: the level with its fraction, when the game has a
+        # fade too long for the display's own steps, and the whole percentage otherwise.
+        #
+        # The display fades in seventeen levels, so a fade over more frames than that shows
+        # some of them twice and the picture changes every other frame. Handed the fraction,
+        # `fade` walks the colors instead, one of 33 levels a frame (see IR::Fading). That
+        # costs a blend per declared color on each frame the fade moves, so a game whose
+        # fades are all short keeps the display's fade, which costs nothing.
+        #
+        # Asked when the routine's body is built, after the whole game is written, so every
+        # fade the game asks for is counted. A fade_in that gives no length takes the speed
+        # of the one before it, and that one was counted.
+        def fade_amount(level)
+          fade_longest > DISPLAY_LEVELS ? level : level.to_i
+        end
+
+        # How many frames the display's own fade can step through without showing a level
+        # twice: one for each of its seventeen levels.
+        DISPLAY_LEVELS = IR::Fading::DISPLAY_STEPS + 1
+
+        # The most frames any fade in this game takes.
+        #
+        # A fade said with no length keeps the speed of the one before it, which is one of
+        # the lengths counted here. Only a game where no fade says a length ever runs at the
+        # default speed, so that is the only game the default is counted for.
+        def fade_longest
+          return @fade_longest if @fade_longest
+
+          @fade_without_length ? DEFAULT_FRAMES : 0
+        end
+
+        def note_fade_length(count)
+          @fade_longest = [@fade_longest || 0, count].max
         end
 
         # How many frames the ramp is shown over, counting the first and the last. One
@@ -329,6 +367,7 @@ module RubyGBA
                   "a fade needs a positive whole number of frames. You gave #{(frames || duration).inspect}."
           end
 
+          note_fade_length(count)
           [count - 1, 1].max.to_f
         end
 

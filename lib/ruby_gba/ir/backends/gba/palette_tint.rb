@@ -58,22 +58,43 @@ module RubyGBA
           RB_MASK = 0x7C1F
           G_MASK = 0x03E0
 
-          # A blend counts in sixteenths, so dividing by 16 is a shift of 4.
-          BLEND_SHIFT = 4
+          # A walk counts in thirty-seconds, as fine as a channel goes, so dividing by 32 is a
+          # shift of 5 (see IR::Fading). The display's blend counts in sixteenths, and a
+          # sixteenth is two thirty-seconds, so a tint asked for in sixteenths walks to the
+          # same colors it always did.
+          #
+          # Why no finer: red and blue are blended in one multiply, and red times 32 still
+          # fits in the ten bits below blue. Times 64 would run into it.
+          WALK_STEPS = IR::Fading::WALK_STEPS
+          BLEND_SHIFT = 5
 
           # Registers held across the walk. It runs as a whole statement, so every
           # register but the variable-address scratch is free.
           TINT_SRC = 2   # where the originals are being read from (the cartridge)
           TINT_DST = 3   # where the blended entries are being written (the color table)
           TINT_END = 4   # one past the last original, which is what ends the walk
-          TINT_KEEP = 5  # how much of the original survives, in sixteenths
+          TINT_KEEP = 5  # how much of the original survives, in thirty-seconds
           TINT_RB = 6    # the red/blue mask, held rather than rebuilt per entry
           TINT_G = 7     # the green mask, likewise
           TINT_ADD = 8   # the color's own red and blue share — the same for every entry
           TINT_ADD_G = 9 # ...and its green one
           TINT_STEPS = 10 # where the steps wait while the remembered tint is compared
 
-          TINT_COLOR_SHIFT = 5 # the steps (0..16) sit below the color in the state word
+          TINT_COLOR_SHIFT = 6 # the steps (0..32) sit below the color in the state word
+
+          # A FADE TOWARD BLACK, which is not quite a tint toward black. A mix KEEPS a share of
+          # each channel and drops the fraction, so it rounds down; the display's own fade takes
+          # a share AWAY and drops the fraction of that, so it rounds up. On a dark picture the
+          # two are a whole frame apart at the end of a fade in — the mix is still flat black
+          # on a frame where the display's fade already shows the picture. So a walked fade
+          # rounds the way the display does: nearly one whole step (31 thirty-seconds) is added
+          # to each channel before the fraction is dropped. Toward white the two rules are
+          # already the same one.
+          #
+          # It is said as a color no picture can have — the bit above a 15-bit color — so it
+          # rides in the state word like any color, tells a fade to black from `tint :black`,
+          # and contributes nothing to the shares but the rounding.
+          DARKEN = 0x8000
 
           # The palette layout this object reads, handed over once the prepare passes that
           # decide it have all run (see #layout=): the color table a buffered scene draws
@@ -150,6 +171,9 @@ module RubyGBA
             @program_fades = program.walk.any? { |node| node.kind == :fade }
             @palette_tint = program.walk.any? { |node| node.kind == :tint && palette_screen?(node) } ||
                             fading.any_color_walk?
+            @darkens = program.walk.any? do |node|
+              node.kind == :fade && node.toward == :black && fading.walks_the_colors?(node)
+            end
             keep_tint_originals_readable if @palette_tint
           end
 
@@ -180,15 +204,18 @@ module RubyGBA
           # writes `tint :red, hurt` on every pass of its loop, and `hurt` is 0 for almost
           # all of them — so the common frame compares one variable, finds nothing has
           # moved, and jumps over the walk entirely.
-          def emit_palette_tint(color:, amount:, mode:)
+          def emit_palette_tint(color:, amount:, mode:, fraction_bits: nil)
             # The tint and the fade are one effect: the display can only be told one
             # thing about the whole picture at a time, and the interpreter models the same
             # rule. So asking for a tint puts away whatever fade was in force.
             @emitter.write_reg16(REG_BLDY, 0) if @program_fades
 
             done = @emitter.gensym
-            emit_tint_state(color, amount, done) # r0 = the steps, when the game works them out
-            emit_tint_shares(color, amount)
+            written = @primitives.const_int(amount)
+            steps = written && IR::Fading.steps(written, fraction_bits: fraction_bits, walked: true)
+            asked = steps || IR::Fading.steps_value(amount, fraction_bits: fraction_bits, walked: true)
+            emit_tint_state(color, asked, done) # r0 = the steps, when the game works them out
+            emit_tint_shares(color, steps)
             tint_tables(mode).each { |blob, dest, units| emit_tint_table(blob, dest, units) }
             emit_recolored_banks # ...and put back what those walks wrote over
             @emitter.place_label(done)
@@ -197,25 +224,23 @@ module RubyGBA
           # Put the tint the game is asking for beside the one already in the table, and
           # jump to +done+ when they are the same.
           #
-          # A tint the author wrote down settles to one number while building, so the
-          # compare is against a plain number. One the game works out is turned into
-          # sixteenths as it runs, and r0 carries those steps on to #emit_tint_shares
-          # rather than being worked out twice.
-          def emit_tint_state(color, amount_node, done)
-            if (amount = @primitives.const_int(amount_node))
-              wanted = tint_state_word(color, @drawing.fade_steps(amount))
+          # A tint the author wrote down settles to a number of steps while building, so the
+          # compare is against a plain number. One the game works out arrives as the value
+          # that turns it into thirty-seconds as it runs, and r0 carries those steps on to
+          # #emit_tint_shares rather than their being worked out twice.
+          def emit_tint_state(color, steps, done)
+            if steps.is_a?(Integer)
               @primitives.load_var(ACC, TINT_STATE)
-              @emitter.emit(ASM.load_immediate(TMP, wanted))
+              @emitter.emit(ASM.load_immediate(TMP, tint_state_word(color, steps)))
               @emitter.emit(ASM.cmp_reg(ACC, TMP))
               @emitter.emit_branch(:bcond, done, cond: :eq)
               @primitives.store_var(TMP, TINT_STATE)
-              @emitter.emit(ASM.load_immediate(ACC, @drawing.fade_steps(amount)))
+              @emitter.emit(ASM.load_immediate(ACC, steps))
               return
             end
 
-            @lowering.value(Build.binop(:/, Build.binop(:*, amount_node, Build.int(BLD_MAX)),
-                                   Build.int(100)))
-            @drawing.emit_clamp_blend_steps
+            @lowering.value(steps)
+            @drawing.emit_clamp_blend_steps(WALK_STEPS)
             @emitter.emit(ASM.mov_reg(TINT_STEPS, ACC))                      # kept while the state is compared
             @emitter.emit(ASM.load_immediate(TMP, color << TINT_COLOR_SHIFT))
             @emitter.emit(ASM.orr_reg(TMP, TMP, ACC))                        # r1 = the state asked for
@@ -240,26 +265,31 @@ module RubyGBA
           # table is being walked, so neither does what it contributes.
           #
           # It is kept UNSHIFTED, still multiplied up, because that is what makes the
-          # rounding right: the display adds the two shares and drops the sixteenth once,
+          # rounding right: the display adds the two shares and drops the fraction once,
           # from the sum. Dropping it from each share first can land a whole step lower.
           #
-          # r0 holds the steps on the way in.
-          def emit_tint_shares(color, amount_node)
+          # r0 holds the steps on the way in; +steps+ is them again when they were written
+          # down, and nil when the game works them out.
+          def emit_tint_shares(color, steps)
             @emitter.emit(ASM.load_immediate(TINT_RB, RB_MASK))
             @emitter.emit(ASM.load_immediate(TINT_G, G_MASK))
-            @emitter.emit(ASM.load_immediate(TINT_KEEP, BLD_MAX))
-            @emitter.emit(ASM.sub_reg(TINT_KEEP, TINT_KEEP, ACC)) # 16 sixteenths, less the tint's
+            @emitter.emit(ASM.load_immediate(TINT_KEEP, WALK_STEPS))
+            @emitter.emit(ASM.sub_reg(TINT_KEEP, TINT_KEEP, ACC)) # 32 thirty-seconds, less the tint's
 
-            if (amount = @primitives.const_int(amount_node))
-              steps = @drawing.fade_steps(amount)
-              @emitter.emit(ASM.load_immediate(TINT_ADD, (color & RB_MASK) * steps))
-              return @emitter.emit(ASM.load_immediate(TINT_ADD_G, (color & G_MASK) * steps))
+            darken = color == DARKEN
+            if steps
+              @emitter.emit(ASM.load_immediate(TINT_ADD, ((color & RB_MASK) * steps) + (darken ? RB_MASK : 0)))
+              return @emitter.emit(ASM.load_immediate(TINT_ADD_G, ((color & G_MASK) * steps) + (darken ? G_MASK : 0)))
             end
 
             @emitter.emit(ASM.load_immediate(TMP, color & RB_MASK))
             @emitter.emit(ASM.mul(TINT_ADD, TMP, ACC))
             @emitter.emit(ASM.load_immediate(TMP, color & G_MASK))
             @emitter.emit(ASM.mul(TINT_ADD_G, TMP, ACC))
+            return unless darken
+
+            @emitter.emit(ASM.add_reg(TINT_ADD, TINT_ADD, TINT_RB))   # ...rounded the display's way
+            @emitter.emit(ASM.add_reg(TINT_ADD_G, TINT_ADD_G, TINT_G))
           end
 
           # Walk one color table: read each original from the cartridge, blend it, write
@@ -267,7 +297,7 @@ module RubyGBA
           #
           # The blend is the same arithmetic the display's own unit does, and the same the
           # interpreter does — each channel takes its share of the original and its share
-          # of the color, the two are ADDED, and only then is the sixteenth dropped.
+          # of the color, the two are ADDED, and only then is the fraction dropped.
           # Doing it channel by channel would be three times this; masking red and blue
           # together (they sit far enough apart that a multiply cannot run one into the
           # other, and neither can the sum) does two of them in one multiply.
@@ -323,7 +353,7 @@ module RubyGBA
           # layer told `draw_with` replaces sixteen of them. A plain copy would put full
           # brightness back into the middle of a screen that is meant to be dark — one layer
           # glowing through a fade. With no tint in force the arithmetic is the identity
-          # (keep all sixteen sixteenths, add nothing), so a game that never tints pays a few
+          # (keep all thirty-two thirty-seconds, add nothing), so a game that never tints pays a few
           # instructions on a frame where the colours changed and nothing else.
           def emit_colors_into_bank(dest, units)
             @emitter.emit(ASM.mov_reg(TINT_SRC, ACC))
@@ -365,12 +395,19 @@ module RubyGBA
             @emitter.emit(ASM.and_imm(ACC, ACC, (1 << TINT_COLOR_SHIFT) - 1)) # ...and the steps
             @emitter.emit(ASM.load_immediate(TINT_RB, RB_MASK))
             @emitter.emit(ASM.load_immediate(TINT_G, G_MASK))
-            @emitter.emit(ASM.load_immediate(TINT_KEEP, BLD_MAX))
+            @emitter.emit(ASM.load_immediate(TINT_KEEP, WALK_STEPS))
             @emitter.emit(ASM.sub_reg(TINT_KEEP, TINT_KEEP, ACC))
             @emitter.emit(ASM.and_reg(TMP, TINT_STEPS, TINT_RB))
             @emitter.emit(ASM.mul(TINT_ADD, TMP, ACC))
             @emitter.emit(ASM.and_reg(TMP, TINT_STEPS, TINT_G))
             @emitter.emit(ASM.mul(TINT_ADD_G, TMP, ACC))
+            return unless @darkens
+
+            # A fade toward black in force rounds the display's way (see DARKEN). Only a build
+            # that walks one pays the three instructions.
+            @emitter.emit(ASM.tst_imm(TINT_STEPS, DARKEN))
+            @emitter.emit(ASM.add_reg_cond(:ne, TINT_ADD, TINT_ADD, TINT_RB))
+            @emitter.emit(ASM.add_reg_cond(:ne, TINT_ADD_G, TINT_ADD_G, TINT_G))
           end
 
           # The color tables a screen draws through, as (blob, where the display reads it,
