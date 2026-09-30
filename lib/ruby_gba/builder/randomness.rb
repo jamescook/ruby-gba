@@ -76,6 +76,14 @@ module RubyGBA
         churn_rng
       end
 
+      # The stream itself, for a save_data record to keep: `keep hearts, random_numbers`.
+      # A load then puts the stream back where the save found it, so the rolls after a load
+      # are the rolls there would have been. See DSL::RandomNumbers.
+      def random_numbers
+        use_rng!
+        DSL::RandomNumbers.new(RNG_STATE)
+      end
+
       # Draw a random whole number in +range+ into the variable +name+, churning the
       # stream. +range+ is an ordinary Ruby range:
       #

@@ -269,6 +269,59 @@ class TestSaveData < Minitest::Test
     assert_empty run.list(:name)
   end
 
+  # THE RANDOM NUMBERS ARE PART OF A SAVE. A game that saves mid-level and loads again must
+  # roll what it would have rolled from there — the guard that was going to miss still misses.
+  # UP churns the numbers, A saves, B rolls into `rolled`, L loads. Rolled once after the save,
+  # churned again, loaded, rolled again: the two rolls are the same number.
+  private def rolling_after_a_load
+    built do
+      screen :tiled
+      hearts = var :hearts, 3
+      rolled = var :rolled, 0
+      first = var :first, 0
+      files = save_data(:file) { keep hearts, random_numbers }
+      game_loop do
+        pressed(:up).then { roll :churned, 1..1000 }
+        pressed(:a).then { files[0].save }
+        pressed(:b).then do
+          rolled.set! rand(1..1000)
+          (first == 0).then { first.set! rolled }
+        end
+        pressed(:l).then { files[0].load }
+        pressed(:select).then { files.reset }
+      end
+    end
+  end
+
+  ROLLING = %i[up up up a b up up l b].freeze
+
+  def test_a_load_puts_the_random_numbers_back_on_both_backends
+    oracle = play(rolling_after_a_load, {}, pressing: presses(*ROLLING), frames: (ROLLING.length * 2) + 4)
+    refute_equal 0, oracle[:first]
+    assert_equal oracle[:first], oracle[:rolled], "the roll after the load is the roll after the save"
+
+    keys = { a: KEY_A, b: KEY_B, up: KEY_UP, l: KEY_L }
+    schedule = presses(*ROLLING).transform_values { |button| keys.fetch(button) }
+    rom = assemble_rom(rolling_after_a_load, name: "ROLLBACK")
+    v = assert_emulator_loads_rom(rom, frames: (ROLLING.length * 2) + 8, keys: ->(f) { schedule.fetch(f, 0) },
+                                       vars: rom.var_addresses)
+    assert_equal [oracle[:first], oracle[:rolled]], [v.var(:first), v.var(:rolled)]
+  end
+
+  # A new game is not a replay: putting the kept things back leaves the numbers rolling on.
+  def test_a_reset_leaves_the_random_numbers_rolling_on
+    run = play(rolling_after_a_load, {}, pressing: presses(:b, :select, :b), frames: 10)
+    refute_equal run[:first], run[:rolled]
+  end
+
+  def test_keeping_the_random_numbers_in_two_records_is_a_friendly_error
+    message = refused do
+      save_data(:f) { keep random_numbers }
+      save_data(:g) { keep random_numbers }
+    end
+    assert_match(/save_data :g keeps the random numbers, and save_data :f keeps them too/, message)
+  end
+
   # A FILE SCREEN DECLARED BEFORE THE GAMEPLAY IT SAVES. The record is declared with nothing in
   # it and used straight away — saved, loaded, erased, copied, peeked at by name — and what it
   # keeps is added later, by the code that owns it: the hearts and the name each by a routine

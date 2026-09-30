@@ -17,6 +17,7 @@ require_relative "dsl/pixel_bounds"
 require_relative "dsl/box"
 require_relative "dsl/list"
 require_relative "dsl/save_data"
+require_relative "dsl/random_numbers" # the random-number stream, for a save_data record to keep
 require_relative "dsl/table"
 require_relative "dsl/field_ref"
 require_relative "dsl/pool"

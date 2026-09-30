@@ -318,8 +318,11 @@ module RubyGBA
       end
 
       # A NEW GAME: each kept variable set to what it was declared with, each kept list emptied.
+      # The random numbers roll on: a new game that started them where power-on does would
+      # play the same rolls as every new game before it.
       def save_data_reset(layout)
         layout.kept.each do |item|
+          next if random_numbers?(item.name)
           next repeat(DSL::Value.new(handle, Build.list_len(item.name))) { |_| record(Build.list_drop(item.name, from: :back)) } if item.kind == :list
 
           start = start_value(item.name)
@@ -382,8 +385,9 @@ module RubyGBA
       def save_data_item(record, thing)
         item = save_data_item_of(record, thing)
         if (owner = @save_data_kept[item.name])
-          raise ArgumentError, "save_data :#{record} keeps :#{item.name}, and save_data :#{owner} keeps it " \
-                               "too. To fix this, keep it in one of them."
+          them = random_numbers?(item.name) ? "them" : "it"
+          raise ArgumentError, "save_data :#{record} keeps #{kept_words(item.name)}, and save_data :#{owner} " \
+                               "keeps #{them} too. To fix this, keep #{them} in one of them."
         end
         if save_var?(item.name)
           raise ArgumentError, "save_data :#{record} keeps :#{item.name}, which is a `save_var`. A save_var " \
@@ -397,6 +401,8 @@ module RubyGBA
 
       def save_data_item_of(record, thing)
         case thing
+        when DSL::RandomNumbers
+          Kept.new(kind: :var, name: thing.name, at: 0, width: :word, count: 1)
         when DSL::List
           made = list_made(thing.name)
           Kept.new(kind: :list, name: thing.name, at: 0, width: made.width || :word,
@@ -486,10 +492,19 @@ module RubyGBA
         item = layout.kept.find { |one| one.name == name }
         return item if item
 
-        kept = layout.kept.map { |one| ":#{one.name}" }.join(", ")
+        kept = layout.kept.map { |one| kept_words(one.name) }.join(", ")
         raise ArgumentError, "save_data :#{layout.name} does not keep :#{name}, so a copy cannot be read " \
                              "for it. It keeps #{kept}."
       end
+
+      # A kept thing as a message names it: the random numbers in words, since their variable
+      # is the framework's and not a name the game wrote; anything else by its name.
+      def kept_words(name) = random_numbers?(name) ? "the random numbers" : ":#{name}"
+
+      def random_numbers?(name) = name == Randomness::RNG_STATE
+
+      # The stream of random numbers, for `keep` inside a record's block (see SaveDataKeeping).
+      def random_numbers = handle.random_numbers
 
       private
 
@@ -571,6 +586,10 @@ module RubyGBA
       end
 
       def keep(*things) = @saves.save_data_keep(@record, things)
+
+      # The one verb a block may need besides the game's own handles: the stream of random
+      # numbers, which a game holds no handle to until it asks.
+      def random_numbers = @saves.random_numbers
     end
   end
 end
