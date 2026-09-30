@@ -131,6 +131,35 @@ class TestInput < Minitest::Test
     assert has_beq, "expected BEQ (skip block if button not newly pressed)"
   end
 
+  # A BUTTON HELD WHILE THE POWER COMES ON IS ONE PRESS. Nothing was down before the game
+  # started, so the first frame that finds it down is its press edge — the same one press a
+  # button held for any other stretch is, however long it stays down. The console starts with
+  # nothing down; the interpreter used to count the button as already down before the first
+  # frame, and so never saw the press at all. A press asked about before the first frame
+  # (setting up, above the loop) is never one: no frame has read the buttons yet.
+  private def counting_presses
+    builder = Builder.new
+    builder.instance_eval do
+      screen :tiled
+      presses = var :presses, 0
+      before_the_loop = var :before_the_loop, 0
+      pressed(:start).then { before_the_loop.set! 1 }
+      game_loop { pressed(:start).then { presses.add! 1 } }
+    end
+    builder.emit_pending_functions
+    builder.program
+  end
+
+  def test_a_button_held_from_power_on_is_one_press_on_both_backends
+    program = counting_presses
+    oracle = RubyGBA::IR::Backends::Reference.new.hold(:start).run(program, frames: 6)
+    assert_equal [1, 0], [oracle[:presses], oracle[:before_the_loop]]
+
+    rom = assemble_rom(program, name: "HELDPOWER")
+    v = assert_emulator_loads_rom(rom, frames: 7, keys: KEY_START, vars: rom.var_addresses)
+    assert_equal [1, 0], [v.var(:presses), v.var(:before_the_loop)]
+  end
+
   # ========================================================================
   # Integration: runs in mGBA
   # ========================================================================

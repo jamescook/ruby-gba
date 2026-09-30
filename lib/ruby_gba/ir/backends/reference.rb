@@ -152,7 +152,8 @@ module RubyGBA
           @funcs = {}              # name -> :func node
           @screen = Framebuffer.new # the fake bitmap screen the draw ops write into
           @held = Set.new          # buttons down right now
-          @prev_held = Set.new     # buttons down at the previous vblank (for edges)
+          @latched = Set.new       # buttons down as of the last vblank (for edges)
+          @prev_held = Set.new     # buttons down as of the vblank before that
           @input_script = nil      # optional ->(frame) { buttons } to drive input over time
           @frames_script = nil     # optional ->(pass) { frames } to say a pass ran late
           @frame = 0               # vblanks elapsed
@@ -899,7 +900,7 @@ module RubyGBA
 
           @uses_frames = true
           @screen.held = false # the first frame is set up, so the picture goes on
-          @prev_held = @held
+          @prev_held = @latched
           @frame += 1
           took = frames_this_pass
           # A running timer overflows hz times a second, so it accrues hz/FRAME_RATE
@@ -919,6 +920,7 @@ module RubyGBA
             @mixer.age_music
           end
           @held = to_button_set(Array(@input_script.call(@frame))) if @input_script
+          @latched = @held
           @log << [:vblank, @frame]
           @on_vblank&.call(@frame)
           count_the_frame(took)
@@ -2403,13 +2405,18 @@ module RubyGBA
         # the first frame it goes down, i.e. down now but up at the last vblank.
         # That edge is what a game uses to fire once per tap instead of every
         # frame the button is held.
+        #
+        # The edge is read from the buttons as they stood at the last two vblanks, the way
+        # the console reads it, and nothing was down before the first one. So a button held
+        # while the power comes on is one press on the first frame, and before any frame has
+        # been reached — the setting up above a game loop — nothing is pressed yet.
         def button_held?(button)
           @held.include?(check_button!(button))
         end
 
         def button_pressed?(button)
           button = check_button!(button)
-          @held.include?(button) && !@prev_held.include?(button)
+          @latched.include?(button) && !@prev_held.include?(button)
         end
 
         def to_button_set(buttons)
