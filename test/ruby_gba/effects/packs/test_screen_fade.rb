@@ -264,6 +264,36 @@ class TestScreenFade < Minitest::Test
     refute_includes warnings(prog), :faded_out_never_in
   end
 
+  # A fade in down the other branch of a test still brings the picture back.
+  def test_a_fade_out_brought_back_in_an_else_branch_is_not_flagged
+    prog = program do
+      screen :bitmap
+      over = var :over, 0
+      game_loop do
+        clear_screen :red
+        (over == 1).then { fade_out }.else { fade_in }
+      end
+    end
+
+    refute_includes warnings(prog), :faded_out_never_in
+  end
+
+  # The warning points at the line that faded, even when that line is down an else branch.
+  def test_a_fade_with_no_game_loop_points_at_a_fade_written_in_an_else_branch
+    prog = program do
+      screen :bitmap
+      over = var :over, 0
+      (over == 1).then { clear_screen :red }.else { fade_out }
+      halt
+    end
+    finding = RubyGBA::IR::Guardrails::Validator.new.run(prog, autofix: false).warnings
+                                                     .find { |one| one.check == :fade_needs_game_loop }
+
+    refute_nil finding
+    # fade_out aims the fade at full; the fade's own setup aims it below nothing, "never faded".
+    assert_operator finding.node.value.value, :>, 0, "the finding names the fade_out, not the fade's setup"
+  end
+
   # A flash brings the picture back by itself, so a game that only flashes has nothing
   # left un-lifted and must not be nagged.
   def test_a_game_that_only_flashes_is_not_flagged

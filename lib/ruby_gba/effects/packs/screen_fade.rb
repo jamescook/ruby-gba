@@ -188,18 +188,24 @@ module RubyGBA
 
           private
 
+          # Each of these walks the whole tree, not only the statements under each other: an
+          # `if` keeps its else branch beside it rather than under it, so a fade written down
+          # an else branch is reached only that way.
           def declared?(program)
-            program.each.any? { |node| node.kind == :func && node.name == ROUTINE }
+            program.walk.any? { |node| node.kind == :func && node.name == ROUTINE }
           end
 
           def called?(program)
-            program.each.any? { |node| node.kind == :call && node.target == ROUTINE }
+            program.walk.any? { |node| node.kind == :call && node.target == ROUTINE }
           end
 
           # Where the author wrote the fade. The routine is the framework's and carries no
-          # line, but the target it set was recorded at the call site.
+          # line, but the target it set was recorded at the call site — every write of it
+          # but the declaration's, NEVER_FADED, the one below nothing.
           def trigger(program)
-            program.each.find { |node| node.kind == :set && node.var == TARGET }
+            program.walk.find do |node|
+              node.kind == :set && node.var == TARGET && !(node.value.kind == :int && node.value.value.negative?)
+            end
           end
         end
 
@@ -228,7 +234,8 @@ module RubyGBA
             "screen must come back."
 
           def detect(program)
-            targets = program.each.select { |node| node.kind == :set && node.var == TARGET }
+            # The whole tree, so a fade_in down an else branch is seen (see NeedsGameLoop).
+            targets = program.walk.select { |node| node.kind == :set && node.var == TARGET }
             return [] if targets.empty?
             return [] if targets.any? { |node| returns_the_picture?(node) }
 
