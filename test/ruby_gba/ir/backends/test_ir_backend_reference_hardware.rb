@@ -344,9 +344,9 @@ class TestIRBackendReferenceHardware < Minitest::Test
     assert_each_ending_is_the_one_watched(title_and_plain_screen(bends: false), frames: 12)
   end
 
-  # Counts each time the interpreter paints the whole picture, for the test below. Painting is
-  # the one thing that test is about, and nothing a game does shows it — the picture comes
-  # out the same either way — so it is counted where it happens.
+  # Counts each time the interpreter paints the whole picture, for the tests below. Painting is
+  # the one thing they are about, and nothing a game does shows it — the picture comes out the
+  # same either way — so it is counted where it happens.
   COUNTS_PAINTS = Module.new do
     def paint_the_scrolled_frame
       @paints = @paints.to_i + 1
@@ -356,24 +356,32 @@ class TestIRBackendReferenceHardware < Minitest::Test
     def paints = @paints.to_i
   end
 
+  # How many whole pictures a run of +program+ had painted by each frame, with nothing
+  # reading the picture.
+  def paints_by_frame(program, frames:)
+    run = Reference.new
+    run.singleton_class.prepend(COUNTS_PAINTS)
+    paints = []
+    run.each_vblank { |_| paints << run.paints }
+    run.run(program, frames: frames)
+    paints
+  end
+
   # What waiting is for: a plain screen paints nothing while nobody looks, whatever another
   # screen in the game does. Painting every frame — what a title that bends used to cost the
   # whole game — is a paint or more on every frame of it.
   def test_a_plain_screen_does_not_paint_while_nobody_looks_beside_a_screen_that_bends
-    run = Reference.new
-    run.singleton_class.prepend(COUNTS_PAINTS)
-    paints_by_frame = []
-    run.each_vblank { |_| paints_by_frame << run.paints }
-    run.run(title_and_plain_screen(comes_back: false), frames: 40)
+    paints = paints_by_frame(title_and_plain_screen(comes_back: false), frames: 40)
 
-    on_the_plain_screen = paints_by_frame.last - paints_by_frame[10] # it takes over on the fourth
+    on_the_plain_screen = paints.last - paints[10] # it takes over on the fourth
     assert_equal 0, on_the_plain_screen, "the plain screen painted while nobody looked"
-    assert_operator paints_by_frame[3], :>=, 3, "the title that bends paints every frame"
+    assert_operator paints[3], :>=, 3, "the title that bends paints every frame"
   end
 
-  # A screen that scrolls every frame, with a strip of scenery in front of it, and whatever
+  # A screen with a strip of scenery in front of a field, the field scrolling every frame unless
+  # told not to, a background that turns and changes size every frame if asked for, and whatever
   # +each_frame+ adds to the game loop (handed the frame count).
-  def a_scrolling_screen(see_through: false, &each_frame)
+  def a_screen(see_through: false, scrolls: true, turns: false, &each_frame)
     tile = (["#." * 4, ".#" * 4] * 4).join("\n")
     builder = RubyGBA::Builder.new
     builder.instance_eval do
@@ -384,36 +392,33 @@ class TestIRBackendReferenceHardware < Minitest::Test
       grid = Array.new(20) { |r| (r.even? ? "# " : " #") * 15 }
       tick = var :tick, 0
       field = layer(:back) { background :field, tiles: :set, map: grid }
+      sword = layer(:back) { background :sword, tiles: :set, map: Array.new(16) { |r| (r < 8 ? "#" : " ") * 16 } } if turns
       layer(:front, **(see_through ? { transparency: 40 } : {})) { background :strip, tiles: :set, map: ["#" * 30] * 3 }
       game_loop do
         tick.add! 1
-        field.scroll_by 3, 1
-        instance_exec(tick, &each_frame)
+        field.scroll_by 3, 1 if scrolls
+        if turns
+          sword.rotate tick * 7
+          sword.scale 1.0 + (tick % 8).to_f / 8
+        end
+        instance_exec(tick, &each_frame) if each_frame
       end
     end
     builder.emit_pending_functions
     builder.program
   end
 
-  # How many whole pictures a run of +program+ painted from its fourth frame on, while
-  # nothing read the picture.
-  def paints_while_nobody_looks(program, frames:)
-    run = Reference.new
-    run.singleton_class.prepend(COUNTS_PAINTS)
-    paints_by_frame = []
-    run.each_vblank { |_| paints_by_frame << run.paints }
-    run.run(program, frames: frames)
-    paints_by_frame.last - paints_by_frame[3]
-  end
-
+  # Nothing painted from the fourth frame on, while nobody read the picture, and each picture
+  # read at the end of a run is the one a watcher saw.
   def assert_effect_paints_only_when_looked_at(program, frames: 30)
-    assert_equal 0, paints_while_nobody_looks(program, frames: frames), "the effect painted while nobody looked"
+    paints = paints_by_frame(program, frames: frames)
+    assert_equal 0, paints.last - paints[3], "the effect painted while nobody looked"
     assert_each_ending_is_the_one_watched(program, frames: frames)
   end
 
   def test_a_fade_over_the_whole_screen_paints_nothing_while_nobody_looks
     %i[white black].each do |color|
-      assert_effect_paints_only_when_looked_at(a_scrolling_screen do |tick|
+      assert_effect_paints_only_when_looked_at(a_screen do |tick|
         (tick == 4).then { fade_out color, frames: 8 }
         (tick == 16).then { fade_in }
       end)
@@ -422,14 +427,14 @@ class TestIRBackendReferenceHardware < Minitest::Test
 
   # Longer than the display's own seventeen steps, so the colors are walked instead.
   def test_a_walked_fade_paints_nothing_while_nobody_looks
-    assert_effect_paints_only_when_looked_at(a_scrolling_screen do |tick|
+    assert_effect_paints_only_when_looked_at(a_screen do |tick|
       (tick == 4).then { fade_out :black, frames: 24 }
       (tick == 30).then { fade_in }
     end, frames: 60)
   end
 
   def test_a_tinted_flash_paints_nothing_while_nobody_looks
-    assert_effect_paints_only_when_looked_at(a_scrolling_screen do |tick|
+    assert_effect_paints_only_when_looked_at(a_screen do |tick|
       ((tick % 10) == 4).then { flash_screen :red }
     end)
   end
@@ -438,7 +443,7 @@ class TestIRBackendReferenceHardware < Minitest::Test
   # frame it is told, which is the one that has to show it, never on a frame nobody reads.
   def test_a_placed_fade_paints_nothing_while_nobody_looks
     [false, true].each do |see_through|
-      assert_effect_paints_only_when_looked_at(a_scrolling_screen(see_through: see_through) do |tick|
+      assert_effect_paints_only_when_looked_at(a_screen(see_through: see_through) do |tick|
         (tick == 4).then { fade_out frames: 8, under: :front }
         (tick == 16).then { fade_in }
       end)
@@ -446,23 +451,21 @@ class TestIRBackendReferenceHardware < Minitest::Test
   end
 
   def test_a_background_that_turns_paints_nothing_while_nobody_looks
-    tile = (["#." * 4, ".#" * 4] * 4).join("\n")
-    builder = RubyGBA::Builder.new
-    builder.instance_eval do
-      screen :tiled
-      image(:brick, "#" => :red, "." => :blue) { tile }
-      tiles :set, "#" => :brick
-      tick = var :tick, 0
-      field = background :field, tiles: :set, map: Array.new(20) { |r| (r.even? ? "# " : " #") * 15 }
-      sword = background :sword, tiles: :set, map: Array.new(16) { |r| r < 8 ? "#" * 16 : " " * 16 }
-      game_loop do
-        tick.add! 1
-        field.scroll_by 1, 0
-        sword.rotate tick * 7
-        sword.scale 1.0 + (tick % 8).to_f / 8
-      end
+    assert_effect_paints_only_when_looked_at(a_screen(turns: true), frames: 20)
+  end
+
+  # A placed fade is painted into the picture and a fade over the whole screen is not, so the
+  # one taking the other's place has to paint the placed one out — even on a still screen
+  # somebody is watching, where nothing else would.
+  def test_a_whole_screen_fade_taking_a_placed_ones_place_leaves_none_of_it_in_the_picture
+    placed_then_lifted = a_screen(scrolls: false) do |tick|
+      (tick == 4).then { fade :black, 50, under: :front }
+      (tick == 8).then { fade :black, 0 }
     end
-    builder.emit_pending_functions
-    assert_effect_paints_only_when_looked_at(builder.program, frames: 20)
+    never_faded = Reference.new.run(a_screen(scrolls: false), frames: 12).screen.shown
+    watcher = Reference.new
+    watcher.each_vblank { |_| watcher.screen.shown }
+    assert watcher.run(placed_then_lifted, frames: 12).screen.shown == never_faded,
+           "the placed fade was still in the picture after a whole-screen fade took its place"
   end
 end

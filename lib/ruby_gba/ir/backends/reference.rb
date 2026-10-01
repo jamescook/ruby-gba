@@ -1537,9 +1537,9 @@ module RubyGBA
         # itself when it has anything to put up (see #exec_background).
         REPAINTING = %i[scroll_background show_map set_tile background_colors see_through present_objects
                         background affine_background].freeze
-        # ...and the ones whose effect is laid over the picture as the screen is read rather than
-        # painted into it, and which repaint themselves when they do reach into the painting
-        # (see #exec_fade).
+        # ...and the ones that are mostly laid over the picture as the screen is read, and that
+        # owe the picture again themselves on the occasions they change what is painted (see
+        # #exec_fade).
         READ_OVER_THE_PICTURE = %i[fade tint].freeze
 
         def leaves_the_picture_owed?(node)
@@ -1580,26 +1580,30 @@ module RubyGBA
         #
         # Placed under a layer it cannot be that, because the things in front of the line
         # have to come through unblended. So the blend is applied to each thing as the
-        # picture is BUILT, and the picture is rebuilt right here — a fade is usually
+        # picture is BUILT, and the picture is owed again right here — a fade is usually
         # written after the frame has already been composited, and the frame that asked
-        # for it is the frame that has to show it.
+        # for it is the frame that has to show it. The same goes for the fade that takes a
+        # placed one's place, which has to take it back out of the picture.
         #
-        # A repaint owed when the fade comes along is left owed, since the fade is laid over the
-        # picture as it is read — and a placed one is painted with the picture it was told on.
+        # Any other fade leaves an owed repaint owed (see #composite_scrolled_frame), since
+        # nothing the paint reads has changed.
         def exec_fade(node)
           amount = eval_value(node.amount)
           was_fading = fading?
+          was_placed = @fade_placed
           walked = @fading.walks_the_colors?(node)
           steps = FadeSteps.steps(amount, fraction_bits: node.fraction_bits, walked: walked)
           @fade_placed = node.under && [node.under, node.toward, steps]
-          return walk_the_colors(node, steps) if walked
-
-          @screen.fade_steps_to(node.toward, @fade_placed ? 0 : steps)
+          if walked
+            walk_the_colors(node, steps)
+          else
+            @screen.fade_steps_to(node.toward, @fade_placed ? 0 : steps)
+          end
           # A fade that takes the see-through layer's blend hands it back when it lifts
           # (see #fading?), so the picture has to be built again at each of those two
           # moments — the layer is drawn solid on one side of them and see-through on the
-          # other, and a fade is usually written after the frame is already composited.
-          composite_scrolled_frame if @fade_placed || (@see_through && fading? != was_fading)
+          # other.
+          composite_scrolled_frame if was_placed || @fade_placed || (@see_through && fading? != was_fading)
         end
 
         # A fade that moves the COLORS instead of asking the display to blend (see
