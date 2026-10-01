@@ -270,28 +270,34 @@ class TestIRBackendReferenceHardware < Minitest::Test
     builder.program
   end
 
-  def test_a_picture_read_after_a_run_is_the_one_watched_at_that_moment
+  # Every frame's picture as a watcher reading it each frame saw it, and the picture read at
+  # the end of a run of each length up to +frames+ - 1, which must be the watched one.
+  def assert_each_ending_is_the_one_watched(program, frames:)
     watched = {}
     watcher = Reference.new
     watcher.each_vblank { |call| watched[call] = watcher.screen.shown }
-    watcher.run(a_scene_that_changes_every_way, frames: 10)
+    watcher.run(program, frames: frames)
+    (1...frames - 1).each do |ran|
+      ended = Reference.new.run(program, frames: ran).screen.shown
+      # A run of N frames stops at the boundary the watcher is called at for the N+1th time.
+      assert ended == watched.fetch(ran + 1), "the picture read after #{ran} frames is not the one watched"
+    end
+    watched
+  end
+
+  def test_a_picture_read_after_a_run_is_the_one_watched_at_that_moment
+    watched = assert_each_ending_is_the_one_watched(a_scene_that_changes_every_way, frames: 10)
 
     # ...and the pictures are really painted, not merely equally stale: the view scrolls every
     # frame, and the colour change arrives.
     assert_equal watched.size, watched.values.uniq.size, "a frame showed the same picture as another"
     assert_includes watched.fetch(10), Color.resolve(:blue), "the layer never drew with its other colours"
-    (1..8).each do |frames|
-      ended = Reference.new.run(a_scene_that_changes_every_way, frames: frames).screen.shown
-      # A run of N frames stops at the boundary the watcher is called at for the N+1th time.
-      assert ended == watched.fetch(frames + 1), "the picture read after #{frames} frames is not the one watched"
-    end
   end
 
   # A picture whose painting reads variables — a background bent row by row, or a see-through
-  # amount the game works out — has to be painted at once. That is a fact about the screen
-  # showing it, not about the game: here a title bends its backdrop and fades a see-through
-  # layer, hands over to a plain screen that scrolls, and comes back. The plain screen waits
-  # to paint and the title does not, and the picture is the watched one either way.
+  # amount the game works out — is a fact about the screen showing it, not about the game:
+  # here a title bends its backdrop and works out how see-through its rays are, hands over to
+  # a plain screen that scrolls, and (unless told otherwise) comes back.
   def title_and_plain_screen(bends: true, comes_back: true)
     tile = (["#" * 8] * 8).join("\n")
     builder = RubyGBA::Builder.new
@@ -318,7 +324,11 @@ class TestIRBackendReferenceHardware < Minitest::Test
       end
       game_loop do
         tick.add! 1
-        comes_back ? state.set!((tick / 4) % 2) : (tick == 4).then { state.set! 1 }
+        if comes_back
+          state.set!((tick / 4) % 2)
+        else
+          (tick == 4).then { state.set! 1 }
+        end
         case_var(:state) do
           when_val 0, :title
           when_val 1, :plain
@@ -329,34 +339,35 @@ class TestIRBackendReferenceHardware < Minitest::Test
     builder.program
   end
 
-  def test_a_screen_that_bends_paints_at_once_and_one_that_does_not_waits
-    watched = {}
-    watcher = Reference.new
-    watcher.each_vblank { |call| watched[call] = watcher.screen.shown }
-    watcher.run(title_and_plain_screen, frames: 12)
-
-    (1..11).each do |frames|
-      ended = Reference.new.run(title_and_plain_screen, frames: frames).screen.shown
-      assert ended == watched.fetch(frames + 1), "the picture read after #{frames} frames is not the one watched"
-    end
+  def test_painting_later_shows_what_painting_at_once_showed_across_screens_that_bend_and_do_not
+    assert_each_ending_is_the_one_watched(title_and_plain_screen, frames: 12)
+    assert_each_ending_is_the_one_watched(title_and_plain_screen(bends: false), frames: 12)
   end
 
-  # What waiting is for: a plain screen costs what it costs whatever another screen in the
-  # game does. Only the plain screen's frames are timed — the title that bends really does
-  # paint every frame — and they are measured as a ratio against the same game with nothing
-  # bending, which cancels out how fast the machine running the test is. Painting every frame
-  # made it many times slower, where waiting makes the two about the same.
-  def test_a_plain_screen_is_not_slowed_by_a_screen_that_bends
-    plain_screen_time = lambda do |bends|
-      run = Reference.new
-      stamps = []
-      run.each_vblank { |_| stamps << Process.clock_gettime(Process::CLOCK_MONOTONIC) }
-      run.run(title_and_plain_screen(bends: bends, comes_back: false), frames: 200)
-      stamps.last - stamps[10] # the title hands over on the fourth frame
+  # Counts each time the interpreter paints the whole picture, for the test below. Painting is
+  # the one thing that test is about, and nothing a game does shows it — the picture comes
+  # out the same either way — so it is counted where it happens.
+  COUNTS_PAINTS = Module.new do
+    def paint_the_scrolled_frame
+      @paints = @paints.to_i + 1
+      super
     end
-    plain_screen_time.(false) # warm up, so the first run timed is not the one paying for it
-    ratio = plain_screen_time.(true) / plain_screen_time.(false)
 
-    assert_operator ratio, :<, 4, "the plain screen painted every frame because the title bends"
+    def paints = @paints.to_i
+  end
+
+  # What waiting is for: a plain screen paints nothing while nobody looks, whatever another
+  # screen in the game does. Painting every frame — what a title that bends used to cost the
+  # whole game — is a paint or more on every frame of it.
+  def test_a_plain_screen_does_not_paint_while_nobody_looks_beside_a_screen_that_bends
+    run = Reference.new
+    run.singleton_class.prepend(COUNTS_PAINTS)
+    paints_by_frame = []
+    run.each_vblank { |_| paints_by_frame << run.paints }
+    run.run(title_and_plain_screen(comes_back: false), frames: 40)
+
+    on_the_plain_screen = paints_by_frame.last - paints_by_frame[10] # it takes over on the fourth
+    assert_equal 0, on_the_plain_screen, "the plain screen painted while nobody looked"
+    assert_operator paints_by_frame[3], :>=, 3, "the title that bends paints every frame"
   end
 end

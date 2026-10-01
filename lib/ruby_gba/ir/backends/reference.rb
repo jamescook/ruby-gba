@@ -1494,17 +1494,35 @@ module RubyGBA
           return paint_the_scrolled_frame if showing_scenery.any? { |bg| @row_bends.key?(bg.name) }
 
           @picture_owed = true
-          @owed_weights = @see_through&.transform_values { |layer| live_see_through_weights(layer) }
+          @owed_weights = worked_out_weights
         end
 
         def settle_the_picture
           return unless @picture_owed
 
           @picture_owed = false
-          @painting_owed = true
           paint_the_scrolled_frame
-        ensure
-          @painting_owed = false
+          @owed_weights = nil
+        end
+
+        # The amounts of each see-through layer the game works out and that has something in it
+        # on screen, as they stand now. A layer whose amounts are numbers written in the program
+        # never changes, and one with nothing on screen is never painted, so neither is worked
+        # out here — working one out can fail (a divide by a number that is still 0), and only
+        # the amounts painting would read may do that.
+        def worked_out_weights
+          return nil unless @see_through
+
+          @see_through.each_value.with_object({}) do |layer, weights|
+            weights[layer.name] = live_see_through_weights(layer) unless told_once?(layer) || !in_the_picture?(layer)
+          end
+        end
+
+        # Whether anything that could be on screen now is in see-through +layer+: a background
+        # showing now, or a sprite anywhere, since whether a sprite is shown is a variable too.
+        def in_the_picture?(layer)
+          showing_scenery.any? { |bg| bg.layer == layer.name } ||
+            @objects.each_value.any? { |object| object.layer == layer.name }
         end
 
         # Statements that cannot change the picture or anything it is built from, so a repaint
@@ -1636,9 +1654,7 @@ module RubyGBA
         # was owed (see #composite_scrolled_frame), or as they are, so a picture whose amounts
         # the program works out — fog that thickens — is painted at the amounts it had then.
         def see_through_weights(layer)
-          return @owed_weights.fetch(layer.name) if @painting_owed
-
-          live_see_through_weights(layer)
+          @owed_weights&.[](layer.name) || live_see_through_weights(layer)
         end
 
         def live_see_through_weights(layer)
@@ -1650,7 +1666,7 @@ module RubyGBA
         # scene that neither moves nor scrolls would otherwise keep the one it was painted
         # with.
         def exec_see_through(node)
-          weights = see_through_weights(@see_through.fetch(node.layer))
+          weights = live_see_through_weights(@see_through.fetch(node.layer))
           @see_through_shown ||= {}
           return if weights == @see_through_shown[node.layer]
 
