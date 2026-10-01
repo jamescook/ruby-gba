@@ -228,6 +228,7 @@ i.screen.pixel(x, y)               # colour at (x, y); nil if off-screen; 0 = un
 i[:varname]                        # a variable's final value (0 if never written)
 i.list(:trail)                     # a list's items now, oldest first, as an Array
 i.pool(:guard, :x)                 # a pool field, one entry per slot: the value, or nil where the slot is free
+i.game_state                       # { vars:, lists:, pools: } — all of the game's own state; compare two with ==
 i.screen_mode                      # e.g. :bitmap
 i.audio                            # the audio/register log
 i.stopped_at_budget?               # true if it was still looping when cut off

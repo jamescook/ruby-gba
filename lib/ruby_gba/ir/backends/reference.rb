@@ -303,6 +303,21 @@ module RubyGBA
           values.to_a.zip(live.to_a).map { |value, up| value if up.to_i.nonzero? }
         end
 
+        # Everything the game declared, as it stands now: each variable's value, each list
+        # read the way #list reads it, and each pool field the way #pool reads it —
+        #
+        #   { vars: { hearts: 3 }, lists: { trail: [3, 3] }, pools: { guard: { x: [nil, 10] } } }
+        #
+        # Plain Hashes, so two of them compare with == and a test that compares two moments
+        # compares the whole game, including whatever it declares after the test is written.
+        # What the framework keeps for itself is named with two underscores and left out: it
+        # is how the game is run, not what the game is.
+        def game_state
+          { vars: @vars.reject { |name, _| framework_own?(name) },
+            lists: declared_lists.to_h { |name| [name, list(name)] },
+            pools: pools.to_h { |name| [name, pool_fields(name).to_h { |field| [field, pool(name, field)] }] } }
+        end
+
         # True if run() stopped because it hit the step budget rather than a
         # `halt` or the natural end — i.e. it was still looping when we cut it off.
         def stopped_at_budget?
@@ -2195,7 +2210,9 @@ module RubyGBA
 
         # The lists the game declared itself; the framework's own are named with two
         # underscores in front.
-        def declared_lists = @lists.keys.grep_v(/\A__/)
+        def declared_lists = @lists.keys.reject { |name| framework_own?(name) }
+
+        def framework_own?(name) = name.start_with?("__")
 
         def pools = @lists.keys.filter_map { |key| key[/\A__pool_(.+)_active\z/, 1]&.to_sym }
 

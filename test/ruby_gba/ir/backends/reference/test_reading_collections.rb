@@ -84,4 +84,43 @@ class TestReadingCollections < Minitest::Test
     assert_match(/:hp/, field)
     refute_match(/:active|:free/, field, "the pool's own bookkeeping is not a field")
   end
+
+  # THE WHOLE OF A GAME'S OWN STATE IN ONE READING, so a test comparing two moments compares
+  # all of it — and a list the game gains later is compared too, with nothing to add to the
+  # test. What the framework keeps for itself (a sprite's place, a fade, a loop's counter) is
+  # not the game's, and is left out.
+  def test_the_game_state_holds_every_variable_list_and_pool_the_game_declared
+    run = ran(frames: 2) do
+      screen :tiled
+      image :hero, width: 8, height: 8, data: [1] * 64
+      hearts = var :hearts, 3
+      trail = list :trail, capacity: 4
+      guards = pool :guard, x: 0, hp: 3, capacity: 2
+      guards.spawn(x: 10)
+      hero = sprite :hero, at: [10, 10]
+      game_loop do
+        trail.push hearts
+        hero.move :left
+        fade :black, 50
+      end
+    end
+
+    assert_equal({ vars: { hearts: 3 },
+                   lists: { trail: [3, 3] },
+                   pools: { guard: { x: [nil, 10], hp: [nil, 3] } } }, run.game_state)
+  end
+
+  def test_two_moments_compare_equal_only_when_every_part_matches
+    moment = lambda do |pushes|
+      ran(frames: 1) do
+        var :hearts, 3
+        trail = list :trail, capacity: 4
+        pushes.times { trail.push 1 }
+        game_loop { wait_vblank }
+      end.game_state
+    end
+
+    assert_equal moment.call(1), moment.call(1)
+    refute_equal moment.call(1), moment.call(2), "a list that differs makes the states differ"
+  end
 end
