@@ -370,4 +370,99 @@ class TestIRBackendReferenceHardware < Minitest::Test
     assert_equal 0, on_the_plain_screen, "the plain screen painted while nobody looked"
     assert_operator paints_by_frame[3], :>=, 3, "the title that bends paints every frame"
   end
+
+  # A screen that scrolls every frame, with a strip of scenery in front of it, and whatever
+  # +each_frame+ adds to the game loop (handed the frame count).
+  def a_scrolling_screen(see_through: false, &each_frame)
+    tile = (["#." * 4, ".#" * 4] * 4).join("\n")
+    builder = RubyGBA::Builder.new
+    builder.instance_eval do
+      screen :tiled
+      layers :back, :front
+      image(:brick, "#" => :red, "." => :blue) { tile }
+      tiles :set, "#" => :brick
+      grid = Array.new(20) { |r| (r.even? ? "# " : " #") * 15 }
+      tick = var :tick, 0
+      field = layer(:back) { background :field, tiles: :set, map: grid }
+      layer(:front, **(see_through ? { transparency: 40 } : {})) { background :strip, tiles: :set, map: ["#" * 30] * 3 }
+      game_loop do
+        tick.add! 1
+        field.scroll_by 3, 1
+        instance_exec(tick, &each_frame)
+      end
+    end
+    builder.emit_pending_functions
+    builder.program
+  end
+
+  # How many whole pictures a run of +program+ painted from its fourth frame on, while
+  # nothing read the picture.
+  def paints_while_nobody_looks(program, frames:)
+    run = Reference.new
+    run.singleton_class.prepend(COUNTS_PAINTS)
+    paints_by_frame = []
+    run.each_vblank { |_| paints_by_frame << run.paints }
+    run.run(program, frames: frames)
+    paints_by_frame.last - paints_by_frame[3]
+  end
+
+  def assert_effect_paints_only_when_looked_at(program, frames: 30)
+    assert_equal 0, paints_while_nobody_looks(program, frames: frames), "the effect painted while nobody looked"
+    assert_each_ending_is_the_one_watched(program, frames: frames)
+  end
+
+  def test_a_fade_over_the_whole_screen_paints_nothing_while_nobody_looks
+    %i[white black].each do |color|
+      assert_effect_paints_only_when_looked_at(a_scrolling_screen do |tick|
+        (tick == 4).then { fade_out color, frames: 8 }
+        (tick == 16).then { fade_in }
+      end)
+    end
+  end
+
+  # Longer than the display's own seventeen steps, so the colors are walked instead.
+  def test_a_walked_fade_paints_nothing_while_nobody_looks
+    assert_effect_paints_only_when_looked_at(a_scrolling_screen do |tick|
+      (tick == 4).then { fade_out :black, frames: 24 }
+      (tick == 30).then { fade_in }
+    end, frames: 60)
+  end
+
+  def test_a_tinted_flash_paints_nothing_while_nobody_looks
+    assert_effect_paints_only_when_looked_at(a_scrolling_screen do |tick|
+      ((tick % 10) == 4).then { flash_screen :red }
+    end)
+  end
+
+  # A placed fade is painted into the picture, so it is the one fade that repaints — on the
+  # frame it is told, which is the one that has to show it, never on a frame nobody reads.
+  def test_a_placed_fade_paints_nothing_while_nobody_looks
+    [false, true].each do |see_through|
+      assert_effect_paints_only_when_looked_at(a_scrolling_screen(see_through: see_through) do |tick|
+        (tick == 4).then { fade_out frames: 8, under: :front }
+        (tick == 16).then { fade_in }
+      end)
+    end
+  end
+
+  def test_a_background_that_turns_paints_nothing_while_nobody_looks
+    tile = (["#." * 4, ".#" * 4] * 4).join("\n")
+    builder = RubyGBA::Builder.new
+    builder.instance_eval do
+      screen :tiled
+      image(:brick, "#" => :red, "." => :blue) { tile }
+      tiles :set, "#" => :brick
+      tick = var :tick, 0
+      field = background :field, tiles: :set, map: Array.new(20) { |r| (r.even? ? "# " : " #") * 15 }
+      sword = background :sword, tiles: :set, map: Array.new(16) { |r| r < 8 ? "#" * 16 : " " * 16 }
+      game_loop do
+        tick.add! 1
+        field.scroll_by 1, 0
+        sword.rotate tick * 7
+        sword.scale 1.0 + (tick % 8).to_f / 8
+      end
+    end
+    builder.emit_pending_functions
+    assert_effect_paints_only_when_looked_at(builder.program, frames: 20)
+  end
 end

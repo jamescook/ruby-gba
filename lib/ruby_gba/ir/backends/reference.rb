@@ -1536,11 +1536,15 @@ module RubyGBA
         # an owed repaint is replaced rather than painted — plus `background`, which settles one
         # itself when it has anything to put up (see #exec_background).
         REPAINTING = %i[scroll_background show_map set_tile background_colors see_through present_objects
-                        background].freeze
+                        background affine_background].freeze
+        # ...and the ones whose effect is laid over the picture as the screen is read rather than
+        # painted into it, and which repaint themselves when they do reach into the painting
+        # (see #exec_fade).
+        READ_OVER_THE_PICTURE = %i[fade tint].freeze
 
         def leaves_the_picture_owed?(node)
           STEERING.include?(node.kind) || REPAINTING.include?(node.kind) ||
-            LEAVE_THE_PICTURE_OWED.include?(node.category)
+            READ_OVER_THE_PICTURE.include?(node.kind) || LEAVE_THE_PICTURE_OWED.include?(node.category)
         end
 
         def paint_the_scrolled_frame
@@ -1579,6 +1583,9 @@ module RubyGBA
         # picture is BUILT, and the picture is rebuilt right here — a fade is usually
         # written after the frame has already been composited, and the frame that asked
         # for it is the frame that has to show it.
+        #
+        # A repaint owed when the fade comes along is left owed, since the fade is laid over the
+        # picture as it is read — and a placed one is painted with the picture it was told on.
         def exec_fade(node)
           amount = eval_value(node.amount)
           was_fading = fading?
