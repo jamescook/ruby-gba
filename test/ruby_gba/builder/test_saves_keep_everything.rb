@@ -100,6 +100,32 @@ class TestSavesKeepEverything < Minitest::Test
       saves_keep_everything except: [:_scratch]
     end
     assert_match(/starts with _/, scratch)
+
+    saves_itself = refused do
+      save_var :best, 0
+      hearts = var :hearts, 3
+      save_data(:file) { keep hearts }
+      saves_keep_everything except: [:best]
+    end
+    assert_match(/:best is a `save_var`, which saves itself/, saves_itself)
+
+    no_rolls = refused do
+      hearts = var :hearts, 3
+      save_data(:file) { keep hearts }
+      saves_keep_everything except: [:random_numbers]
+    end
+    assert_match(/rolls no random numbers/, no_rolls)
+  end
+
+  def test_leaving_out_something_that_is_not_a_name_is_a_friendly_error
+    message = refused do
+      mode = var :mode, :title
+      hearts = var :hearts, 3
+      save_data(:file) { keep hearts }
+      saves_keep_everything except: [mode]
+    end
+    assert_match(/takes names in except:/, message)
+    assert_match(/To fix this/, message)
   end
 
   def test_leaving_out_a_thing_a_record_keeps_is_a_friendly_error

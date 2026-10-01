@@ -41,14 +41,14 @@ module RubyGBA
       # Which record keeps each thing, by the name the game declared it with: a variable, a
       # list, a pool kept whole, and :random_numbers for the stream. A pool kept a field at a
       # time is not here, because a load of it leaves which slots are live as they were.
-      def keepers
-        @save_data_keeping.each_with_object({}) do |(record, things), keepers|
+      def which_record_keeps
+        @save_data_keeping.each_with_object({}) do |(record, things), kept_by|
           things.each do |thing|
             name = case thing
                    when SaveRecords::Kept then random_numbers?(thing.name) ? :random_numbers : thing.name
                    when DSL::Pool then thing.name
                    end
-            keepers[name] = record if name
+            kept_by[name] = record if name
           end
         end
       end
@@ -107,8 +107,9 @@ module RubyGBA
         end
         left_out = Array(except)
         unless left_out.all?(Symbol)
-          raise ArgumentError, "saves_keep_everything takes names in except:, like `except: [:mode, :cursor]`. " \
-                               "It was given #{except.inspect}."
+          raise ArgumentError, "saves_keep_everything takes names in except:, and it was given " \
+                               "#{except.inspect}. To fix this, write each name with a colon, like " \
+                               "`except: [:mode]`."
         end
 
         @saves_keep_everything = left_out
@@ -129,9 +130,9 @@ module RubyGBA
         end
 
         state = declared_state
-        keepers = @saves.keepers
-        left_out.each { |name| check_left_out!(name, state, keepers) }
-        missing = state.keys - keepers.keys - left_out
+        kept_by = @saves.which_record_keeps
+        left_out.each { |name| check_left_out!(name, state, kept_by) }
+        missing = state.keys - kept_by.keys - left_out
         return if missing.empty?
 
         things = missing.map { |name| state.fetch(name) }
@@ -141,16 +142,24 @@ module RubyGBA
                              "to except:."
       end
 
-      def check_left_out!(name, state, keepers)
-        if (record = keepers[name])
+      def check_left_out!(name, state, kept_by)
+        if (record = kept_by[name])
           raise ArgumentError, "saves_keep_everything leaves out :#{name}, but save_data :#{record} keeps it. " \
                                "To fix this, remove :#{name} from except:."
         end
         return if state.key?(name)
 
-        scratch = name.start_with?("_") ? " A name that starts with _ is scratch, and is never needed." : ""
-        raise ArgumentError, "saves_keep_everything leaves out :#{name}, but the game declares no variable, " \
-                             "list or pool with that name.#{scratch} To fix this, remove :#{name} from except:."
+        raise ArgumentError, "saves_keep_everything leaves out :#{name}, but #{never_needed(name)} " \
+                             "To fix this, remove :#{name} from except:."
+      end
+
+      # Why a name left out is not one the check would ever ask for.
+      def never_needed(name)
+        if scratch?(name) then "a name that starts with _ is scratch, and is never needed."
+        elsif persisted?(name) then ":#{name} is a `save_var`, which saves itself."
+        elsif name == :random_numbers then "the game rolls no random numbers."
+        else "the game declares no variable, list or pool with that name."
+        end
       end
 
       # The game's own state, each name with the words that say what it is.
