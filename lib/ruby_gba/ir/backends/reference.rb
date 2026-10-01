@@ -264,9 +264,6 @@ module RubyGBA
           # Backends::GBA::Drawing#held_until_the_first_frame). A program that never waits has
           # no first frame to wait for, and shows what it draws as it draws it.
           @screen.held = node.walk.any? { |child| child.kind == :wait_vblank }
-          # Whether a repaint can be owed rather than done (see #composite_scrolled_frame): not
-          # where the picture reads variables as it is painted.
-          @picture_can_wait = @row_bends.empty? && (@see_through.nil? || @see_through.values.all? { |layer| told_once?(layer) })
           catch(:halt) { exec(node) }
           self
         end
@@ -1483,20 +1480,31 @@ module RubyGBA
         # The picture that comes out is the one painting at once would have made, because
         # nothing it is built from can change while it is owed: a statement that does settles
         # it first, and a statement that repaints anyway simply takes its place. The one input
-        # a statement cannot be seen changing is a VARIABLE, which a bending background's block
-        # and a see-through amount the game works out both read — and a bending block also
-        # writes them. So a program with either paints at once, as it always did (see #run).
+        # a statement cannot be seen changing is a VARIABLE. A see-through amount the game works
+        # out reads them, so the amounts are read when the repaint is owed and the later paint
+        # uses those — the numbers painting then would have used. A bending background's block
+        # reads them too, and also writes them, so reading it early would change the game; a
+        # picture with one of those showing paints at once, as it always did.
+        #
+        # That is asked of the picture as it stands, not of the whole program: a title that
+        # bends its backdrop is no reason for the file screen after it to paint every frame.
+        # What is showing only changes through a statement that settles an owed repaint first,
+        # so the answer cannot go stale while a repaint is owed.
         def composite_scrolled_frame
-          return @picture_owed = true if @picture_can_wait
+          return paint_the_scrolled_frame if showing_scenery.any? { |bg| @row_bends.key?(bg.name) }
 
-          paint_the_scrolled_frame
+          @picture_owed = true
+          @owed_weights = @see_through&.transform_values { |layer| live_see_through_weights(layer) }
         end
 
         def settle_the_picture
           return unless @picture_owed
 
           @picture_owed = false
+          @painting_owed = true
           paint_the_scrolled_frame
+        ensure
+          @painting_owed = false
         end
 
         # Statements that cannot change the picture or anything it is built from, so a repaint
@@ -1623,11 +1631,17 @@ module RubyGBA
           @screen.paint_through(layer && !fading? ? see_through_weights(layer) : nil)
         end
 
-        # How much of a see-through layer and of what is behind it the display takes right
-        # now, in steps. Read here rather than remembered, so a picture whose amounts the
-        # program works out — fog that thickens — is painted at the amounts it has at the
-        # moment it is painted.
+        # How much of a see-through layer and of what is behind it the display takes, in steps,
+        # for the picture being painted: the amounts as they were when a repaint painted now
+        # was owed (see #composite_scrolled_frame), or as they are, so a picture whose amounts
+        # the program works out — fog that thickens — is painted at the amounts it had then.
         def see_through_weights(layer)
+          return @owed_weights.fetch(layer.name) if @painting_owed
+
+          live_see_through_weights(layer)
+        end
+
+        def live_see_through_weights(layer)
           SeeThrough.weights(layer, eval_value(layer.shows), eval_value(layer.behind))
         end
 

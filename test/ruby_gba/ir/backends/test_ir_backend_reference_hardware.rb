@@ -286,4 +286,77 @@ class TestIRBackendReferenceHardware < Minitest::Test
       assert ended == watched.fetch(frames + 1), "the picture read after #{frames} frames is not the one watched"
     end
   end
+
+  # A picture whose painting reads variables — a background bent row by row, or a see-through
+  # amount the game works out — has to be painted at once. That is a fact about the screen
+  # showing it, not about the game: here a title bends its backdrop and fades a see-through
+  # layer, hands over to a plain screen that scrolls, and comes back. The plain screen waits
+  # to paint and the title does not, and the picture is the watched one either way.
+  def title_and_plain_screen(bends: true, comes_back: true)
+    tile = (["#" * 8] * 8).join("\n")
+    builder = RubyGBA::Builder.new
+    builder.instance_eval do
+      screen :tiled
+      layers :back, :rays
+      image(:brick, "#" => :red) { tile }
+      image(:light, "#" => :yellow) { tile }
+      tiles :set, "#" => :brick, "." => :brick
+      tiles :glow, "#" => :light
+      grid = Array.new(20) { |r| (r.even? ? "#." : ".#") * 15 }
+      tick = var :tick, 0
+      state = var :state, 0
+      scene :title do
+        layer(:back) do
+          sky = background :sky, tiles: :set, map: grid
+          sky.scroll_each_row { |row| (row + tick) % 5 } if bends
+        end
+        layer(:rays, transparency: 40 + (tick % 4)) { background :rays, tiles: :glow, map: ["#" * 30] * 4 }
+      end
+      scene :plain do
+        field = layer(:back) { background :field, tiles: :set, map: grid }
+        field.scroll_by 3, 1
+      end
+      game_loop do
+        tick.add! 1
+        comes_back ? state.set!((tick / 4) % 2) : (tick == 4).then { state.set! 1 }
+        case_var(:state) do
+          when_val 0, :title
+          when_val 1, :plain
+        end
+      end
+    end
+    builder.emit_pending_functions
+    builder.program
+  end
+
+  def test_a_screen_that_bends_paints_at_once_and_one_that_does_not_waits
+    watched = {}
+    watcher = Reference.new
+    watcher.each_vblank { |call| watched[call] = watcher.screen.shown }
+    watcher.run(title_and_plain_screen, frames: 12)
+
+    (1..11).each do |frames|
+      ended = Reference.new.run(title_and_plain_screen, frames: frames).screen.shown
+      assert ended == watched.fetch(frames + 1), "the picture read after #{frames} frames is not the one watched"
+    end
+  end
+
+  # What waiting is for: a plain screen costs what it costs whatever another screen in the
+  # game does. Only the plain screen's frames are timed — the title that bends really does
+  # paint every frame — and they are measured as a ratio against the same game with nothing
+  # bending, which cancels out how fast the machine running the test is. Painting every frame
+  # made it many times slower, where waiting makes the two about the same.
+  def test_a_plain_screen_is_not_slowed_by_a_screen_that_bends
+    plain_screen_time = lambda do |bends|
+      run = Reference.new
+      stamps = []
+      run.each_vblank { |_| stamps << Process.clock_gettime(Process::CLOCK_MONOTONIC) }
+      run.run(title_and_plain_screen(bends: bends, comes_back: false), frames: 200)
+      stamps.last - stamps[10] # the title hands over on the fourth frame
+    end
+    plain_screen_time.(false) # warm up, so the first run timed is not the one paying for it
+    ratio = plain_screen_time.(true) / plain_screen_time.(false)
+
+    assert_operator ratio, :<, 4, "the plain screen painted every frame because the title bends"
+  end
 end
