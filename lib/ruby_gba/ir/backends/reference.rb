@@ -152,8 +152,9 @@ module RubyGBA
           @funcs = {}              # name -> :func node
           @screen = Framebuffer.new # the fake bitmap screen the draw ops write into
           @held = Set.new          # buttons down right now
-          @latched = Set.new       # buttons down as of the last vblank (for edges)
-          @prev_held = Set.new     # buttons down as of the vblank before that
+          @seen = Set.new          # buttons down at the last frame the screen showed
+          @pressed = Set.new       # buttons that went down since the last pass took its presses
+          @screen_frame = 0        # frames the screen has shown, which a pass may span several of
           @input_script = nil      # optional ->(frame) { buttons } to drive input over time
           @frames_script = nil     # optional ->(pass) { frames } to say a pass ran late
           @frame = 0               # vblanks elapsed
@@ -316,10 +317,12 @@ module RubyGBA
           self
         end
 
-        # Drive input that changes over time. The block is called at each vblank
-        # with the frame number (1, 2, 3, …) and returns the buttons held for
+        # Drive input that changes over time. The block is called for each frame the
+        # screen shows, with its number (1, 2, 3, …), and returns the buttons held for
         # that frame — the headless equivalent of a player working the pad frame
-        # by frame. Needed to observe edges (see `pressed`). Returns self.
+        # by frame. Needed to observe edges (see `pressed`). A pass said to take several
+        # frames (#frames_each_pass) calls it once for each of them, so a tap can start
+        # and end inside one slow pass. Returns self.
         def input_each_frame(&block)
           @input_script = block
           self
@@ -357,9 +360,10 @@ module RubyGBA
         #
         # WHAT IT MOVES, and it is only this: how many frames the pass just ended answers
         # for. A `once_a_frame` body runs that many times, a beat in frames counts that
-        # many, a one-shot's counter jumps that far, and a song moves on that many frames.
-        # It does NOT make the interpreter slow — a timer still accrues a pass's worth, the
-        # input script is still called once a pass, and `frames:` still counts passes.
+        # many, a one-shot's counter jumps that far, a song moves on that many frames, and
+        # the buttons are read that many times (the input script is called once for each).
+        # It does NOT make the interpreter slow — a timer still accrues a pass's worth, and
+        # `frames:` still counts passes.
         # Nothing here pretends to be a clock; it pins what a program MEANS when the console
         # tells it the truth. Returns self.
         def frames_each_pass(&block)
@@ -900,7 +904,6 @@ module RubyGBA
 
           @uses_frames = true
           @screen.held = false # the first frame is set up, so the picture goes on
-          @prev_held = @latched
           @frame += 1
           took = frames_this_pass
           # A running timer overflows hz times a second, so it accrues hz/FRAME_RATE
@@ -919,12 +922,28 @@ module RubyGBA
             @mixer.step_envelopes
             @mixer.age_music
           end
-          @held = to_button_set(Array(@input_script.call(@frame))) if @input_script
-          @latched = @held
+          read_the_buttons(took)
           @log << [:vblank, @frame]
           @on_vblank&.call(@frame)
           count_the_frame(took)
           repaint_bent_backgrounds
+        end
+
+        # THE BUTTONS ARE READ ON EVERY FRAME THE SCREEN SHOWED, not once a pass — the console
+        # reads them from the screen's own interrupt, which keeps real time whatever the game
+        # is doing. A pass that took +took+ frames reads them that many times, asking the
+        # input script for each frame by its number on the screen, and every button that went
+        # down on any of them is a press for the pass about to start. So a tap shorter than a
+        # slow pass is still one press, and a press held across the whole pass is still one.
+        # A program that keeps up reads once a pass, which is what it always did.
+        def read_the_buttons(took)
+          @pressed = Set.new
+          took.times do
+            @screen_frame += 1
+            @held = to_button_set(Array(@input_script.call(@screen_frame))) if @input_script
+            @pressed |= @held - @seen
+            @seen = @held
+          end
         end
 
         # HOW MANY FRAMES THIS PASS TOOK, kept where the other backend keeps it so that a
@@ -2412,17 +2431,17 @@ module RubyGBA
         # That edge is what a game uses to fire once per tap instead of every
         # frame the button is held.
         #
-        # The edge is read from the buttons as they stood at the last two vblanks, the way
-        # the console reads it, and nothing was down before the first one. So a button held
-        # while the power comes on is one press on the first frame, and before any frame has
-        # been reached — the setting up above a game loop — nothing is pressed yet.
+        # A press is any button that went down on a frame the screen showed since the last
+        # pass took its presses (see #read_the_buttons), the way the console collects them,
+        # and nothing was down before the first frame. So a button held while the power comes
+        # on is one press on the first frame, and before any frame has been reached — the
+        # setting up above a game loop — nothing is pressed yet.
         def button_held?(button)
           @held.include?(check_button!(button))
         end
 
         def button_pressed?(button)
-          button = check_button!(button)
-          @latched.include?(button) && !@prev_held.include?(button)
+          @pressed.include?(check_button!(button))
         end
 
         def to_button_set(buttons)

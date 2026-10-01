@@ -160,6 +160,53 @@ class TestInput < Minitest::Test
     assert_equal [1, 0], [v.var(:presses), v.var(:before_the_loop)]
   end
 
+  # A PRESS IS NEVER LOST TO A SLOW GAME. A game whose pass takes two frames goes round the
+  # loop thirty times a second, and a tap that goes down and comes up again inside one pass
+  # used to be missed: both of the pass's readings found the button up. The buttons are
+  # read on every frame the screen shows, so a tap one frame long is one press whichever
+  # frame it lands on — and a press held for several frames is still one.
+  #
+  # Six whole-screen clears make a pass take two frames on the console (measured: 19 passes
+  # in 40 frames), and the interpreter is told so. Tapping on two neighbouring frames puts
+  # one of the taps inside a pass, whatever frame the passes happen to start on.
+  private def slow_game_counting_presses
+    builder = Builder.new
+    builder.instance_eval do
+      screen :bitmap
+      presses = var :presses, 0
+      game_loop do
+        repeat(6) { clear_screen :blue }
+        pressed(:a).then { presses.add! 1 }
+      end
+    end
+    builder.emit_pending_functions
+    builder.program
+  end
+
+  TAPPED = { "one frame on frame 20" => [20], "one frame on frame 21" => [21],
+             "six frames from frame 20" => (20..25).to_a }.freeze
+
+  def test_a_slow_game_counts_every_tap_once_in_the_interpreter
+    TAPPED.each do |what, down|
+      oracle = RubyGBA::IR::Backends::Reference.new
+                                               .frames_each_pass { 2 }
+                                               .input_each_frame { |frame| down.include?(frame) ? [:a] : [] }
+                                               .run(slow_game_counting_presses, frames: 20)
+
+      assert_equal 1, oracle[:presses], "A held #{what}"
+    end
+  end
+
+  def test_a_slow_game_counts_every_tap_once_on_the_console
+    rom = assemble_rom(slow_game_counting_presses, name: "SLOWTAPS")
+    TAPPED.each do |what, down|
+      keys = ->(frame) { down.include?(frame) ? KEY_A : 0 }
+      v = assert_emulator_loads_rom(rom, frames: 40, keys: keys, vars: rom.var_addresses)
+
+      assert_equal 1, v.var(:presses), "A held #{what}"
+    end
+  end
+
   # ========================================================================
   # Integration: runs in mGBA
   # ========================================================================

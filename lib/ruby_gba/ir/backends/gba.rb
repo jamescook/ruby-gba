@@ -150,14 +150,15 @@ module RubyGBA
           r: KEY_R, l: KEY_L,
         }.freeze
 
-        # Hidden variables for edge-detected input. Each holds the set of buttons
-        # that were down as of a frame — this frame and the previous one — stored
-        # active-high (a 1 bit means the button is down). `pressed` is "down now,
-        # up last frame" = CUR_KEYS AND NOT PREV_KEYS. They're snapshotted once per
-        # vblank so every check within a frame compares against the same previous
-        # frame, exactly like the interpreter does.
-        CUR_KEYS = :__cur_keys
-        PREV_KEYS = :__prev_keys
+        # Hidden variables for edge-detected input, each a set of buttons stored active-high
+        # (a 1 bit means the button). The screen's interrupt reads the pad on every frame it
+        # shows: KEYS_SEEN is what was down at the last one, and KEYS_COLLECTED gathers every
+        # button that went down since the game last looked. Each pass of the game takes the
+        # collection into KEYS_PRESSED and starts it again, and `pressed` tests that — so a tap
+        # shorter than a slow pass is still a press, and every check within a pass agrees.
+        KEYS_SEEN = :__keys_seen
+        KEYS_COLLECTED = :__keys_collected
+        KEYS_PRESSED = :__keys_pressed
         KEY_MASK = 0x3FF # the ten button bits
 
         ACC = 0   # accumulator register
@@ -1004,6 +1005,9 @@ module RubyGBA
           emit_irq_source(IRQ_VBLANK, bios_ack: true) do
             emit_mixer_handover if @mixer.plays_samples?
             emit_frame_count
+            # The pad, for the same reason: a press is the player's, made in real time, and a
+            # game that takes two frames a pass must not miss one made between them.
+            @expressions.emit_collect_presses if @uses_pressed
             emit_music_tick if @audio.plays_music?
             # ...and between the two, a frame of every sounding note's shape, so a note that has
             # just started has climbed and one that has just ended is on its way down before the

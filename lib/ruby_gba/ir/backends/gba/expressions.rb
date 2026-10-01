@@ -572,17 +572,13 @@ module RubyGBA
             @emitter.place_label(done)
           end
 
-          # `pressed` is the down-edge: down this frame, up last frame. The snapshots
-          # are active-high, so newly-pressed buttons = CUR_KEYS AND NOT PREV_KEYS;
-          # test the button's bit in that.
+          # `pressed` is the down-edge: a button that went down on a frame since the last pass,
+          # as the screen's interrupt collected it (see #emit_collect_presses). Test its bit.
           def eval_pressed(button)
             mask = BUTTON_BIT.fetch(button) do
               raise LoweringError, "unknown button #{button.inspect}"
             end
-            @primitives.load_var(ACC, CUR_KEYS)
-            @primitives.load_var(TMP, PREV_KEYS)
-            @emitter.emit(ASM.mvn_reg(TMP, TMP))          # ~prev
-            @emitter.emit(ASM.and_reg(ACC, ACC, TMP))     # cur & ~prev = buttons newly down
+            @primitives.load_var(ACC, KEYS_PRESSED)
             @emitter.emit(ASM.tst_imm(ACC, mask))
             done = @emitter.gensym
             @emitter.emit(ASM.load_immediate(ACC, 0))
@@ -591,25 +587,49 @@ module RubyGBA
             @emitter.place_label(done)
           end
 
-          # Start both snapshots empty (no button pressed) before the game runs.
+          # Nothing down and nothing pressed before the game runs. Written rather than assumed,
+          # because the console makes no promise about what its memory holds at power-on.
           def emit_input_init
             @emitter.emit(ASM.load_immediate(ACC, 0))
-            @primitives.store_var(ACC, CUR_KEYS)
-            @primitives.store_var(ACC, PREV_KEYS)
+            @primitives.store_var(ACC, KEYS_SEEN)
+            @primitives.store_var(ACC, KEYS_COLLECTED)
+            @primitives.store_var(ACC, KEYS_PRESSED)
           end
 
-          # Once per frame: shift this frame's "current" into "previous", then latch
-          # the live key state as the new "current". The key register is active-low,
-          # so invert it and keep the ten button bits to get an active-high set.
-          def snapshot_keys
-            @primitives.load_var(ACC, CUR_KEYS)
-            @primitives.store_var(ACC, PREV_KEYS)              # previous = last frame's current
+          # IN THE SCREEN'S INTERRUPT, ON EVERY FRAME IT SHOWS: read the pad and add any button
+          # that went down since the last frame to the collection. The interrupt keeps real
+          # time whatever the game is doing, so a game that takes two frames a pass still has
+          # the pad read sixty times a second, and a press made between two of its passes is
+          # kept until a pass takes it. The pad's register is active-low, so it is turned round
+          # and cut to the ten button bits. Uses only r0-r3, which the BIOS saves.
+          def emit_collect_presses
             @emitter.emit(ASM.load_immediate(TMP, REG_KEYINPUT))
             @emitter.emit(ASM.load_halfword(ACC, TMP))
             @emitter.emit(ASM.mvn_reg(ACC, ACC))            # invert: 1 bit now means "down"
             @emitter.emit(ASM.lsl_imm(ACC, ACC, 22))        # drop everything above the
             @emitter.emit(ASM.lsr_imm(ACC, ACC, 22))        # ten button bits
-            @primitives.store_var(ACC, CUR_KEYS)               # current = this frame's keys
+            @primitives.load_var(TMP, KEYS_SEEN)
+            @primitives.store_var(ACC, KEYS_SEEN)           # what is down now, for next frame
+            @emitter.emit(ASM.mvn_reg(TMP, TMP))
+            @emitter.emit(ASM.and_reg(ACC, ACC, TMP))       # down now and not last frame
+            @primitives.load_var(TMP, KEYS_COLLECTED)
+            @emitter.emit(ASM.orr_reg(ACC, ACC, TMP))
+            @primitives.store_var(ACC, KEYS_COLLECTED)
+          end
+
+          # AT THE TOP OF EACH PASS: take what was collected as this pass's presses, and start
+          # collecting again.
+          #
+          # This runs straight after the wait for the screen, which is to say straight after the
+          # interrupt that collects — the next one is a whole frame away. Nothing else writes the
+          # collection (a timer's or a line's interrupt never touches it), so the read and the
+          # clear cannot be split by a press arriving between them, and interrupts need not be
+          # held off for it.
+          def snapshot_keys
+            @primitives.load_var(ACC, KEYS_COLLECTED)
+            @primitives.store_var(ACC, KEYS_PRESSED)
+            @emitter.emit(ASM.load_immediate(ACC, 0))
+            @primitives.store_var(ACC, KEYS_COLLECTED)
           end
         end
       end

@@ -1,6 +1,6 @@
 # frozen_string_literal: true
 
-require "digest"
+require "digest/sha2" # whole, here: loaded on first use, two tests building at once race to define it
 require "set"
 
 module RubyGBA
