@@ -203,8 +203,8 @@ module RubyGBA
         fading = IR::Fading.resolve(program)
         return unless fading.fine_walk? || fading.coarse_placed.any?
 
-        levels = IR::Fading::WALK_STEPS + 1
-        display = IR::Fading::DISPLAY_STEPS + 1
+        levels = IR::Backends::FadeSteps::WALK + 1
+        display = IR::Backends::FadeSteps::DISPLAY + 1
         printer.puts "  fading:"
         if fading.fine_walk?
           printer.puts "    a long fade changes the colours themselves, in #{levels} levels. " \

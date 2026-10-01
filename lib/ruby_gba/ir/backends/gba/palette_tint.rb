@@ -65,7 +65,7 @@ module RubyGBA
           #
           # Why no finer: red and blue are blended in one multiply, and red times 32 still
           # fits in the ten bits below blue. Times 64 would run into it.
-          WALK_STEPS = IR::Fading::WALK_STEPS
+          WALK_STEPS = FadeSteps::WALK
           BLEND_SHIFT = 5
 
           # Registers held across the walk. It runs as a whole statement, so every
@@ -212,8 +212,8 @@ module RubyGBA
 
             done = @emitter.gensym
             written = @primitives.const_int(amount)
-            steps = written && IR::Fading.steps(written, fraction_bits: fraction_bits, walked: true)
-            asked = steps || IR::Fading.steps_value(amount, fraction_bits: fraction_bits, walked: true)
+            steps = written && FadeSteps.steps(written, fraction_bits: fraction_bits, walked: true)
+            asked = steps || FadeSteps.steps_value(amount, fraction_bits: fraction_bits, walked: true)
             emit_tint_state(color, asked, done) # r0 = the steps, when the game works them out
             emit_tint_shares(color, steps)
             tint_tables(mode).each { |blob, dest, units| emit_tint_table(blob, dest, units) }

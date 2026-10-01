@@ -220,6 +220,10 @@ module RubyGBA
 
       BLD_MAX = 16 # BLDY's full-strength value
 
+      # How many levels one channel of a color has: five bits, so 32. Moving the colors
+      # themselves can step that finely, where BLDY steps in sixteenths.
+      CHANNEL_LEVELS = 32
+
       # ========================================================================
       # Key Input — reading the buttons
       #

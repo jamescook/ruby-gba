@@ -201,12 +201,12 @@ module RubyGBA
           # works it out.
           def display_steps(node)
             amount = const_int(node.amount)
-            amount && IR::Fading.steps(amount, fraction_bits: node.fraction_bits, walked: false)
+            amount && FadeSteps.steps(amount, fraction_bits: node.fraction_bits, walked: false)
           end
 
           # ...and the same for an amount the game works out, as a value to lower.
           def display_steps_value(node)
-            IR::Fading.steps_value(node.amount, fraction_bits: node.fraction_bits, walked: false)
+            FadeSteps.steps_value(node.amount, fraction_bits: node.fraction_bits, walked: false)
           end
 
           # Mix a color INTO the whole picture, which is a different piece of the display

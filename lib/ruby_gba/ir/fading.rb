@@ -46,55 +46,20 @@ module RubyGBA
     #   one game can put a bitmap scene and a tiled scene side by side.
     #
     # HOW FINE A FADE GOES is the third thing this settles, and it is the other reason to
-    # walk the colors. The display's fade counts in sixteenths, so it has seventeen levels
-    # from the picture to the color, and a fade longer than sixteen frames shows each of
-    # them twice — the picture changes every other frame. A channel of a color has 32
-    # levels, so a walk can move in thirty-seconds instead, one a frame over a fade twice
-    # as long. The games on this console do exactly that.
+    # walk the colors. A display's own blend may count in coarser steps than the colors it
+    # blends can show, and a fade walked over more frames than it has steps shows some of
+    # them twice. Walking the colors can step as finely as a color can.
     #
     # So a fade whose amount holds a FRACTION asks for the finer steps, and a fade that asks
-    # for them walks the colors wherever there is a table to walk: on either screen drawn
-    # through one, and not placed in the stack. A whole-number amount keeps the sixteenths
-    # it always had, on every route, so asking for nothing changes nothing. The screen fade
-    # verbs ask for the finer steps when a fade of the game is longer than the display's
-    # seventeen levels can show (see Effects::Packs::ScreenFade).
+    # for them walks the colors wherever there is a table to walk: on a screen drawn through
+    # one, and not placed in the stack. A whole-number amount keeps the steps it always had,
+    # on every route, so asking for nothing changes nothing. How many steps each way has is
+    # the backends' business (see Backends::FadeSteps), and when the screen fade verbs ask
+    # is theirs (see Effects::Packs::ScreenFade).
     #
-    # A placed fade cannot have them, for the reason above: only the display can place one,
-    # and the display counts in sixteenths.
+    # A placed fade cannot have them, for the reason above: only the display can place one.
     module Fading
-      # How many steps each of the two ways counts from the picture to the color.
-      DISPLAY_STEPS = 16
-      WALK_STEPS = 32
-
       def self.resolve(program) = Answer.new(program)
-
-      # How far +amount+ is, in steps of one of the two ways (+walked+ picks the walk's
-      # thirty-seconds). +fraction_bits+ is how many bits of fraction the amount carries, or
-      # nil for a whole percentage.
-      #
-      # A whole percentage is counted in sixteenths whichever way it goes, and a walk takes
-      # two of its steps for each: 2/32 and 1/16 are the same share of the way, so the
-      # picture is the same one to the last bit and only the counting is finer.
-      def self.steps(amount, fraction_bits:, walked:)
-        levels = walked ? WALK_STEPS : DISPLAY_STEPS
-        unless fraction_bits
-          return ((amount * DISPLAY_STEPS) / 100).clamp(0, DISPLAY_STEPS) * (levels / DISPLAY_STEPS)
-        end
-
-        ((amount * levels) / (100 << fraction_bits)).clamp(0, levels)
-      end
-
-      # The same conversion as a value to work out as the game runs, for a backend that
-      # compiles rather than interprets. It leaves the ends unclamped; see #steps for them.
-      def self.steps_value(amount, fraction_bits:, walked:)
-        levels = walked ? WALK_STEPS : DISPLAY_STEPS
-        unless fraction_bits
-          sixteenths = Build.binop(:/, Build.binop(:*, amount, Build.int(DISPLAY_STEPS)), Build.int(100))
-          return walked ? Build.binop(:*, sixteenths, Build.int(levels / DISPLAY_STEPS)) : sixteenths
-        end
-
-        Build.binop(:/, Build.binop(:*, amount, Build.int(levels)), Build.int(100 << fraction_bits))
-      end
 
       # IS THERE ANYTHING FOR A FADE TO KEEP in this see-through layer (a SeeThroughLayer)?
       # A layer NAMED as see-through is not enough — one fixed to show all of itself and

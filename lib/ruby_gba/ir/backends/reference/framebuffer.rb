@@ -25,9 +25,9 @@ module RubyGBA
           # A color channel runs 0..31, and a full fade is 16 steps. Both come from the
           # display contract every backend blends against, so the two agree step for step.
           CHANNEL_MAX = 31
-          FADE_STEPS = IR::Fading::DISPLAY_STEPS
+          FADE_STEPS = FadeSteps::DISPLAY
           # A tint counts in thirty-seconds (see #tint_steps_to).
-          TINT_STEPS = IR::Fading::WALK_STEPS
+          TINT_STEPS = FadeSteps::WALK
 
           # @param fill [Integer] the color every cell starts as (0 reads as black)
           def initialize(width: WIDTH, height: HEIGHT, fill: 0)
@@ -119,7 +119,7 @@ module RubyGBA
           # 100. Like the camera, this changes what you SEE and not what is stored, so a
           # fade costs no redrawing and the picture is still all there underneath.
           def fade_to(toward, amount)
-            fade_steps_to(toward, IR::Fading.steps(amount, fraction_bits: nil, walked: false))
+            fade_steps_to(toward, FadeSteps.steps(amount, fraction_bits: nil, walked: false))
           end
 
           # The same, said in the sixteenths the display counts in.
@@ -139,7 +139,7 @@ module RubyGBA
           # rule rather than a simplification here, and modelling it is what stops a
           # program looking right on one backend and wrong on another.
           def tint_to(color, amount)
-            tint_steps_to(color, IR::Fading.steps(amount, fraction_bits: nil, walked: true))
+            tint_steps_to(color, FadeSteps.steps(amount, fraction_bits: nil, walked: true))
           end
 
           # The same, said in thirty-seconds. A tint is counted that finely because a fade

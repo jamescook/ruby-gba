@@ -62,6 +62,11 @@ module RubyGBA
         DEFAULT_FRAMES = 30 # half a second — a scene change, not a blink
         FLASH_FRAMES = 6    # a hit, which wants to be over before it is read as a fade
 
+        # How many frames the display's own fade can step through without showing a level
+        # twice: one for each of its levels. A game with a fade longer than this walks the
+        # colors instead (see #level_handed_to_fade).
+        DISPLAY_LEVELS = IR::Backends::FadeSteps::DISPLAY + 1
+
         # Fade the screen out — toward black for a scene change, toward white for a
         # whiteout. Call it once, at the moment the change begins; the framework walks the
         # amount for you on every frame from there.
@@ -299,12 +304,12 @@ module RubyGBA
             # The body is built once the game is written, not here — so by the time it
             # runs, every color the game asked for is known and each has its branch.
             once_a_frame(ROUTINE) do
-              shown = fade_amount(level)
+              amount = level_handed_to_fade(level)
               (active == 1).then do
-                (color == BLACK).then { fade :black, shown, under: @fade_place }
-                (color == WHITE).then { fade :white, shown, under: @fade_place }
+                (color == BLACK).then { fade :black, amount, under: @fade_place }
+                (color == WHITE).then { fade :white, amount, under: @fade_place }
                 fade_tint_colors.each_with_index do |tint_color, i|
-                  (color == FIRST_TINT + i).then { tint tint_color, shown }
+                  (color == FIRST_TINT + i).then { tint tint_color, amount }
                 end
                 (level == target).then { active.set! 0 }
                                  .else { level.approach! target, step }
@@ -325,25 +330,21 @@ module RubyGBA
         # fades are all short keeps the display's fade, which costs nothing.
         #
         # Asked when the routine's body is built, after the whole game is written, so every
-        # fade the game asks for is counted. A fade_in that gives no length takes the speed
-        # of the one before it, and that one was counted.
-        def fade_amount(level)
+        # fade the game asks for is counted.
+        def level_handed_to_fade(level)
           fade_longest > DISPLAY_LEVELS ? level : level.to_i
         end
 
-        # How many frames the display's own fade can step through without showing a level
-        # twice: one for each of its seventeen levels.
-        DISPLAY_LEVELS = IR::Fading::DISPLAY_STEPS + 1
-
-        # The most frames any fade in this game takes.
+        # The most frames any fade in this game can take.
         #
-        # A fade said with no length keeps the speed of the one before it, which is one of
-        # the lengths counted here. Only a game where no fade says a length ever runs at the
-        # default speed, so that is the only game the default is counted for.
+        # A fade said with no length keeps the speed of the fade before it — and when no fade
+        # has run yet, that is the default half second. Which comes first depends on how the
+        # game is played, so nothing at build time can rule the default out: a game with a
+        # four-frame flash and a bare `fade_out` fades over the default whenever the fade_out
+        # comes first. So a fade said with no length counts the default.
         def fade_longest
-          return @fade_longest if @fade_longest
-
-          @fade_without_length ? DEFAULT_FRAMES : 0
+          longest = @fade_longest || 0
+          @fade_without_length ? [longest, DEFAULT_FRAMES].max : longest
         end
 
         def note_fade_length(count)

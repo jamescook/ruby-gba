@@ -112,7 +112,7 @@ class TestBuildReport < Minitest::Test
       layer(:ui) { sprite :badge, at: [200, 8] }
       game_loop do
         pressed(:a).then { fade_out frames: frames, under: under }
-        pressed(:b).then { fade_in }
+        pressed(:b).then { fade_in frames: frames }
       end
     end
   end

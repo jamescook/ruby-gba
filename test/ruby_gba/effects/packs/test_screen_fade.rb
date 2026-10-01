@@ -461,6 +461,26 @@ class TestScreenFade < Minitest::Test
     assert_equal 32, seen.uniq.size, "red, then a new picture on each frame of the way up"
   end
 
+  # A fade said with no length runs over the default half second whenever no other fade has
+  # set a speed first, so a short flash elsewhere in the game cannot stand for it.
+  def test_a_bare_fade_steps_every_frame_beside_a_short_flash
+    tile = (["#" * 8] * 8).join("\n")
+    prog = program do
+      screen :tiled
+      image(:red_art, "#" => :red) { tile }
+      tiles :set, "#" => :red_art
+      background :field, tiles: :set, map: Array.new(20) { "#" * 30 }
+      frame = var :frame, 0
+      game_loop do
+        frame.add! 1
+        (frame == 2).then { fade_out :white }
+        (frame == 500).then { flash_screen :white, frames: 4 }
+      end
+    end
+
+    assert_operator ramp(prog, 40).uniq.size, :>, 17, "the bare fade_out repeated the display's levels"
+  end
+
   # The display's own fade counts in sixteenths, so a plain bitmap screen, which has no
   # colour table to walk, keeps the old steps. It is the yardstick for the one below.
   def test_a_long_fade_on_a_plain_bitmap_screen_keeps_seventeen_steps

@@ -1523,7 +1523,7 @@ module RubyGBA
           amount = eval_value(node.amount)
           was_fading = fading?
           walked = @fading.walks_the_colors?(node)
-          steps = IR::Fading.steps(amount, fraction_bits: node.fraction_bits, walked: walked)
+          steps = FadeSteps.steps(amount, fraction_bits: node.fraction_bits, walked: walked)
           @fade_placed = node.under && [node.under, node.toward, steps]
           return walk_the_colors(node, steps) if walked
 
@@ -1565,8 +1565,8 @@ module RubyGBA
         # sixteenth is two thirty-seconds.
         def exec_tint(node)
           walked = @fading.walks_the_colors?(node)
-          steps = IR::Fading.steps(eval_value(node.amount), fraction_bits: node.fraction_bits, walked: walked)
-          @screen.tint_steps_to(Graphics::Color.resolve(node.color), walked ? steps : steps * 2)
+          steps = FadeSteps.steps(eval_value(node.amount), fraction_bits: node.fraction_bits, walked: walked)
+          @screen.tint_steps_to(Graphics::Color.resolve(node.color), FadeSteps.in_walk_steps(steps, !walked))
         end
 
         # Turn the blend on or off for the thing about to be painted: on for anything the
