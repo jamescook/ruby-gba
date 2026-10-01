@@ -1,6 +1,11 @@
 # frozen_string_literal: true
 
-require "digest/sha2" # whole, here: loaded on first use, two tests building at once race to define it
+# SHA-256 is required by name rather than through plain "digest". Plain "digest" loads only
+# the base, and the SHA-256 part is then loaded the first time anything uses it. When two
+# cartridges are built at the same moment (the test suite builds them in parallel), both
+# can try to load it at once, and one of them fails with "Digest::Base cannot be directly
+# inherited". Loading it here, before anything runs, avoids that.
+require "digest/sha2"
 require "set"
 
 module RubyGBA
