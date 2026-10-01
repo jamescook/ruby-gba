@@ -166,8 +166,8 @@ class TestInput < Minitest::Test
   # read on every frame the screen shows, so a tap one frame long is one press whichever
   # frame it lands on — and a press held for several frames is still one.
   #
-  # Six whole-screen clears make a pass take two frames on the console (measured: 19 passes
-  # in 40 frames), and the interpreter is told so. Tapping on two neighbouring frames puts
+  # Six whole-screen clears make a pass take two frames on the console, and the interpreter
+  # is told so. Tapping on two neighbouring frames puts
   # one of the taps inside a pass, whatever frame the passes happen to start on.
   private def slow_game_counting_presses
     builder = Builder.new
@@ -205,6 +205,36 @@ class TestInput < Minitest::Test
 
       assert_equal 1, v.var(:presses), "A held #{what}"
     end
+  end
+
+  # A TAP WHILE THE GAME SETS UP IS NOT A PRESS. The screen is off until the game loop's first
+  # frame, so nothing a player does then has anything to answer — and the console reads no
+  # buttons for the game before it either, the way a retail game reads none before its main
+  # loop. A button still down when the loop starts is one press, like one held from power-on.
+  #
+  # Console only: the interpreter's setting up takes no frames, so a tap cannot land in it.
+  # Twenty whole-screen clears above the loop are several frames of setting up.
+  private def slow_setup_counting_presses
+    builder = Builder.new
+    builder.instance_eval do
+      screen :bitmap
+      presses = var :presses, 0
+      repeat(20) { clear_screen :blue }
+      game_loop { pressed(:a).then { presses.add! 1 } }
+    end
+    builder.emit_pending_functions
+    builder.program
+  end
+
+  def test_a_tap_while_the_game_sets_up_is_not_a_press
+    rom = assemble_rom(slow_setup_counting_presses, name: "SETUPTAP")
+    tap = ->(frame) { frame == 1 ? KEY_A : 0 }
+    still_down = ->(frame) { frame >= 1 ? KEY_A : 0 }
+
+    assert_equal 0, assert_emulator_loads_rom(rom, frames: 20, keys: tap, vars: rom.var_addresses).var(:presses),
+                 "a tap made and let go while the game set up"
+    assert_equal 1, assert_emulator_loads_rom(rom, frames: 20, keys: still_down, vars: rom.var_addresses).var(:presses),
+                 "a button pressed while the game set up and still down when the loop starts"
   end
 
   # ========================================================================

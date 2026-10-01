@@ -985,9 +985,9 @@ module RubyGBA
             # handler in #emit_irq_handler: sound is played by a clock the game does not own, so
             # it cannot be moved on once per PASS of a loop whose length the game decides.
 
-            # A new frame begins now, so refresh the input snapshot: last frame's
-            # keys become "previous", and we latch this frame's keys as "current".
-            @expressions.snapshot_keys if @uses_pressed.call
+            # A new pass begins now, so it takes the button presses the screen's interrupt
+            # collected since the last one (see Expressions#emit_take_presses).
+            @expressions.emit_take_presses if @uses_pressed.call
 
             # The picture was held off while the game set up, and nothing is being drawn now, so
             # it goes on here — see Drawing#held_until_the_first_frame.

@@ -259,8 +259,14 @@ module RubyGBA
         def emit_flip_if_buffered = @drawing.emit_flip_if_buffered
         def emit_show_the_picture = @drawing.emit_show_the_picture
         # Where the game loop starts (see Frames#emit_start_counting), and only where the
-        # screen's interrupt counts frames at all.
-        def emit_start_counting_frames = @uses_vblank && @frames.emit_start_counting
+        # screen's interrupt counts frames at all. The buttons start here too: a tap made while
+        # the game was setting up, with the screen still off, is not one the game should act on.
+        def emit_start_counting_frames
+          return unless @uses_vblank
+
+          @frames.emit_start_counting
+          @expressions.emit_forget_presses if @uses_pressed
+        end
         def fade_steps(percent) = @effects.fade_steps(percent)
         def fade_steps_value(amount) = @effects.fade_steps_value(amount)
         def emit_clamp_blend_steps(most = Console::Hardware::BLD_MAX) = @effects.emit_clamp_blend_steps(most)

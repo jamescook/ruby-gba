@@ -596,12 +596,31 @@ module RubyGBA
             @primitives.store_var(ACC, KEYS_PRESSED)
           end
 
+          # WHERE THE GAME LOOP BEGINS: forget whatever was collected while the game set up. The
+          # screen was off then, so nothing a player did had anything to answer. What was down
+          # is forgotten as well, so a button held since the power came on is still one press,
+          # on the first frame of the loop — the same as a game with nothing to set up.
+          #
+          # The screen's interrupt can arrive between these writes, and the order makes that
+          # harmless: what has been seen is forgotten LAST, so whatever the interrupt does in
+          # between, the next frame finds every button that is down as newly down.
+          def emit_forget_presses
+            @emitter.emit(ASM.load_immediate(ACC, 0))
+            @primitives.store_var(ACC, KEYS_COLLECTED)
+            @primitives.store_var(ACC, KEYS_PRESSED)
+            @primitives.store_var(ACC, KEYS_SEEN)
+          end
+
           # IN THE SCREEN'S INTERRUPT, ON EVERY FRAME IT SHOWS: read the pad and add any button
           # that went down since the last frame to the collection. The interrupt keeps real
           # time whatever the game is doing, so a game that takes two frames a pass still has
           # the pad read sixty times a second, and a press made between two of its passes is
           # kept until a pass takes it. The pad's register is active-low, so it is turned round
-          # and cut to the ten button bits. Uses only r0-r3, which the BIOS saves.
+          # and cut to the ten button bits.
+          #
+          # It uses r0 and r1 for the numbers and r12 for where the variables are. The console's
+          # own interrupt code saves all three before it gets here and puts them back after, so
+          # the game it interrupted finds its registers as it left them.
           def emit_collect_presses
             @emitter.emit(ASM.load_immediate(TMP, REG_KEYINPUT))
             @emitter.emit(ASM.load_halfword(ACC, TMP))
@@ -625,7 +644,7 @@ module RubyGBA
           # collection (a timer's or a line's interrupt never touches it), so the read and the
           # clear cannot be split by a press arriving between them, and interrupts need not be
           # held off for it.
-          def snapshot_keys
+          def emit_take_presses
             @primitives.load_var(ACC, KEYS_COLLECTED)
             @primitives.store_var(ACC, KEYS_PRESSED)
             @emitter.emit(ASM.load_immediate(ACC, 0))
