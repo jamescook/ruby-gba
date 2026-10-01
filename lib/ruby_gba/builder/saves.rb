@@ -36,6 +36,23 @@ module RubyGBA
         @save_table = nil        # the table of places' own layout, made when the records are laid out
       end
 
+      def records? = @save_data.any?
+
+      # Which record keeps each thing, by the name the game declared it with: a variable, a
+      # list, a pool kept whole, and :random_numbers for the stream. A pool kept a field at a
+      # time is not here, because a load of it leaves which slots are live as they were.
+      def keepers
+        @save_data_keeping.each_with_object({}) do |(record, things), keepers|
+          things.each do |thing|
+            name = case thing
+                   when SaveRecords::Kept then random_numbers?(thing.name) ? :random_numbers : thing.name
+                   when DSL::Pool then thing.name
+                   end
+            keepers[name] = record if name
+          end
+        end
+      end
+
       private
 
       def handle = @port.handle
@@ -69,7 +86,86 @@ module RubyGBA
         saves.declare(name, copies: copies, when_busy: when_busy, &block)
       end
 
+      # Refuse to build unless the records keep, between them, all of the game's own state:
+      # every variable, list and pool it declared, and the random numbers if it rolls any.
+      # +except+ names what a load must leave alone — which screen the game is on, say.
+      #
+      # It is for a game that saves in the middle of play. Such a save is only right while it
+      # keeps everything the play depends on, and a thing added to the game later and never
+      # added to a record breaks it silently: the load puts back everything else, and the
+      # player finds the one thing wrong. Checked here, at the end of the build, it is a
+      # friendly error the day the thing is added.
+      #
+      # A name that starts with _ is scratch and never needed, a `save_var` saves itself, and
+      # what the framework keeps for itself (named with two underscores) is its own business.
+      # A pool counts only when it is kept whole, since one field on its own leaves which
+      # slots are live behind.
+      def saves_keep_everything(except: [])
+        if @saves_keep_everything
+          raise ArgumentError, "saves_keep_everything is written two times. Write it one time, " \
+                               "with every name to leave out in its except:."
+        end
+        left_out = Array(except)
+        unless left_out.all?(Symbol)
+          raise ArgumentError, "saves_keep_everything takes names in except:, like `except: [:mode, :cursor]`. " \
+                               "It was given #{except.inspect}."
+        end
+
+        @saves_keep_everything = left_out
+        nil
+      end
+
       private
+
+      # The check behind saves_keep_everything, run once every routine the game wrote is built
+      # (the last place a `keep` or a declaration can come from) and before the records are
+      # laid out.
+      def check_saves_keep_everything!
+        left_out = @saves_keep_everything or return
+        unless @saves&.records?
+          raise ArgumentError, "saves_keep_everything checks what the save_data records keep, but this game " \
+                               "declares no save_data record. To fix this, declare one with save_data, or " \
+                               "remove saves_keep_everything."
+        end
+
+        state = declared_state
+        keepers = @saves.keepers
+        left_out.each { |name| check_left_out!(name, state, keepers) }
+        missing = state.keys - keepers.keys - left_out
+        return if missing.empty?
+
+        things = missing.map { |name| state.fetch(name) }
+        things = things.one? ? things.first : "#{things[0..-2].join(', ')} or #{things.last}"
+        raise ArgumentError, "saves_keep_everything: no save_data record keeps #{things}. If the game needs " \
+                             "one of these after a load, keep it in a record. If it does not, add its name " \
+                             "to except:."
+      end
+
+      def check_left_out!(name, state, keepers)
+        if (record = keepers[name])
+          raise ArgumentError, "saves_keep_everything leaves out :#{name}, but save_data :#{record} keeps it. " \
+                               "To fix this, remove :#{name} from except:."
+        end
+        return if state.key?(name)
+
+        scratch = name.start_with?("_") ? " A name that starts with _ is scratch, and is never needed." : ""
+        raise ArgumentError, "saves_keep_everything leaves out :#{name}, but the game declares no variable, " \
+                             "list or pool with that name.#{scratch} To fix this, remove :#{name} from except:."
+      end
+
+      # The game's own state, each name with the words that say what it is.
+      def declared_state
+        state = {}
+        @variables.each_key { |name| state[name] = "the variable :#{name}" unless scratch?(name) || persisted?(name) }
+        @program.walk do |node|
+          state[node.name] = "the list :#{node.name}" if node.kind == :list_new && !scratch?(node.name)
+        end
+        declared_pools.each { |pool| state[pool.name] = "the pool :#{pool.name}" unless scratch?(pool.name) }
+        state[:random_numbers] = "the random numbers (:random_numbers)" if @prng_used
+        state
+      end
+
+      def scratch?(name) = name.start_with?("_")
 
       # Lay the records out, now that every routine the game wrote is built (see
       # SaveRecords#settle_save_data). Nothing to do for a game with no records.

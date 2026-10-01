@@ -415,6 +415,7 @@ module RubyGBA
       emit_bodies(emitted, default_screen_mode)
       # Every routine the game wrote is built, so nothing more can be kept in a save_data
       # record: the records are laid out now, and the routines that read them built after.
+      check_saves_keep_everything!
       settle_save_data
       emit_bodies(emitted, default_screen_mode)
 

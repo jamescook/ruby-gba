@@ -97,6 +97,7 @@ module RubyGBA
                                                         usually: usual_length(estimate, capacity), art: art)
         setup_pool_storage(handle, capacity, fields, widths, fast)
         setup_pool_art(handle, capacity, art) if art
+        declared_pools << handle
         handle
       end
 
@@ -142,6 +143,9 @@ module RubyGBA
       end
 
       private
+
+      # Every pool the game declared, in the order it declared them.
+      def declared_pools = @declared_pools ||= []
 
       # A spriteful pool never told to draw with other colours takes back the writes its
       # spawns made in case it was (see Pool#settle_colors).
