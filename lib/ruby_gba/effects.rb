@@ -64,7 +64,7 @@ module RubyGBA
   #
   #   def big_menu(rows)
   #     progress.step "laying out the menu"
-  #     rows.each_with_index { |row, n| progress.of n + 1, rows.length, row.label; ... }
+  #     rows.each_with_index { |row, n| progress.report_count n + 1, rows.length, row.label; ... }
   #   end
   #
   # Most packs have nothing to report and should not be made to — a pack that says
@@ -97,7 +97,7 @@ module RubyGBA
       def register(name, &body)
         raise ArgumentError, "Effects.register needs a block: Effects.register(:#{name}) { ... }" unless body
 
-        claim!(name, :inline)
+        refuse_taken_verb!(name, :inline)
         VERBS.define_method(name, &body)
         @verbs = @verbs.merge(name => :inline).freeze
         name
@@ -123,7 +123,7 @@ module RubyGBA
 
         verbs = pack.public_instance_methods(false)
         helpers = pack.private_instance_methods(false)
-        (verbs + helpers).each { |name| claim!(name, pack) }
+        (verbs + helpers).each { |name| refuse_taken_verb!(name, pack) }
 
         verbs.each { |name| VERBS.define_method(name, pack.instance_method(name)) }
         # A helper comes along too, or the verb that calls it breaks. It is copied
@@ -183,7 +183,7 @@ module RubyGBA
       # Refuse a name that something already answers to. Catching it here — as the
       # pack registers, not as the game calls the verb — is what keeps a pack from
       # quietly replacing a framework verb and changing what a program means.
-      def claim!(name, owner)
+      def refuse_taken_verb!(name, owner)
         if (holder = @verbs[name] || @helpers[name])
           return if holder == owner
 

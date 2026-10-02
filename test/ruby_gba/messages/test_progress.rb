@@ -74,7 +74,7 @@ class TestProgress < Minitest::Test
     quiet = Progress.silent
 
     assert_nil quiet.step("anything")
-    assert_nil quiet.of(1, 2, "anything")
+    assert_nil quiet.report_count(1, 2, "anything")
     assert_nil quiet.tick
     assert_nil quiet.done
   end
@@ -123,7 +123,7 @@ class TestProgress < Minitest::Test
     out = a_terminal
     progress = Progress::Printed.new(out, clock: FakeClock.new)
     progress.step("the guardrails")
-    progress.of(27, 27, "IwramBudget")
+    progress.report_count(27, 27, "IwramBudget")
     progress.done
 
     assert_match(/the guardrails.*27 of 27\s+IwramBudget/, out.string)
@@ -197,7 +197,7 @@ class TestProgress < Minitest::Test
     progress.step("lowering")
     3.times do
       clock.pass(1.0)
-      progress.of(1, 3)
+      progress.report_count(1, 3)
     end
     progress.done
 
@@ -244,9 +244,9 @@ class TestProgress < Minitest::Test
     progress = Progress::Printed.new(out, clock: clock)
     progress.step("lowering")
     clock.pass(1.0)
-    progress.of(1, 2, "a routine with a very long name indeed")
+    progress.report_count(1, 2, "a routine with a very long name indeed")
     clock.pass(1.0)
-    progress.of(2, 2)
+    progress.report_count(2, 2)
     progress.done
 
     refute_includes out.string.split("\r").last, "name indeed",
@@ -260,7 +260,7 @@ class TestProgress < Minitest::Test
   ROWS = proc do |rows|
     progress.step "laying out the rows"
     rows.times do |n|
-      progress.of n + 1, rows, "row #{n}"
+      progress.report_count n + 1, rows, "row #{n}"
       fill_rect 0, n * 2, 8, 2, :red
     end
   end
@@ -272,7 +272,7 @@ class TestProgress < Minitest::Test
 
     def read(count)
       @build.progress.step "reading the floors"
-      count.times { |n| @build.progress.of n + 1, count, "floor #{n}" }
+      count.times { |n| @build.progress.report_count n + 1, count, "floor #{n}" }
     end
   end
 

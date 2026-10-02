@@ -59,7 +59,7 @@ module RubyGBA
         new(work: Profiler.work_in(result), game: game, measured_at: Time.now.utc.iso8601)
       end
 
-      # ...and from what {Profiler.every_scene} answers, which is already instructions a frame
+      # ...and from what {Profiler.survey_scenes} answers, which is already instructions a frame
       # per routine, added up over every scene it runs in.
       def self.from_work(work, game: nil)
         new(work: work, game: game, measured_at: Time.now.utc.iso8601)
@@ -88,12 +88,12 @@ module RubyGBA
       # Only routines somebody WROTE are counted. The build makes routines of its own as it goes
       # — one glyph walker per font, and so on — and those appearing and disappearing is the
       # build doing its job, not the author losing track of a name.
-      def forgotten(known) = work.keys.grep_v(/\A__/) - known.to_a
+      def stale_routines(known) = work.keys.grep_v(/\A__/) - known.to_a
 
       # +names+ ordered by what a frame was measured to spend in each, dearest first. A routine
       # the profile never saw goes last, in the order it was given — it is new since the
       # measuring, and nothing here can say what it costs.
-      def rank(names)
+      def order_by_work(names)
         measured, unmeasured = names.partition { |name| measured?(name) }
         measured.sort_by { |name| [-work.fetch(name), name.to_s] } + unmeasured
       end
@@ -110,7 +110,7 @@ module RubyGBA
       # the handful of instructions that are all it runs.
       WORTH_MOVING = 24
 
-      def worth_moving?(name) = work.fetch(name, 0) >= WORTH_MOVING
+      def worth_quick_memory?(name) = work.fetch(name, 0) >= WORTH_MOVING
     end
   end
 

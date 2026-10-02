@@ -102,7 +102,7 @@ class TestAnalyzerInput < Minitest::Test
         pressed(:start).then { add! :x, 1 }
       end
     end
-    assert_equal [%i[], [:left], [:start], %i[left start]], Analyzer.attempt_keys(program)
+    assert_equal [%i[], [:left], [:start], %i[left start]], Analyzer.key_combinations(program)
   end
 
   # ...and one button is not worth holding twice. A game reading a single button has
@@ -113,7 +113,7 @@ class TestAnalyzerInput < Minitest::Test
       var :x, 0
       game_loop { held(:left).then { add! :x, 1 } }
     end
-    assert_equal [[], [:left]], Analyzer.attempt_keys(program)
+    assert_equal [[], [:left]], Analyzer.key_combinations(program)
   end
 
   # A game that reads no buttons is measured standing still, and only that.
@@ -122,7 +122,7 @@ class TestAnalyzerInput < Minitest::Test
       screen :bitmap
       game_loop { clear_screen :blue }
     end
-    assert_equal [[]], Analyzer.attempt_keys(program)
+    assert_equal [[]], Analyzer.key_combinations(program)
   end
 
   # Naming the buttons pins them: the profiler holds exactly those and sweeps nothing.

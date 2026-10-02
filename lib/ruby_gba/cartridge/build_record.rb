@@ -91,7 +91,7 @@ module RubyGBA
       # Whether the frame's own body was kept in the console's quick memory. It is the single
       # most valuable thing to keep there — where nearly all of a frame's time goes — so a
       # guardrail asks, and so does anything reporting on the build.
-      def fast_frame? = placement ? placement.funcs.include?(FRAME_ROUTINE) : false
+      def frame_in_quick_memory? = placement ? placement.funcs.include?(FRAME_ROUTINE) : false
     end
   end
 end

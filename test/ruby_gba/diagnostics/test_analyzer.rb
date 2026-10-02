@@ -243,7 +243,7 @@ class TestAnalyzer < Minitest::Test
     body = proc { clears.times { b.clear_screen :blue } }
     b.instance_eval { game_loop(&body) }
     b.finalize_program
-    Analyzer.measure_saturated(b.program)
+    Analyzer.measure_passes(b.program)
   end
 
   # ---- measuring a program must not change it ----

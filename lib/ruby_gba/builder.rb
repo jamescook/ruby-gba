@@ -172,7 +172,7 @@ module RubyGBA
     # WHAT THIS BUILD SAYS IT IS DOING, for whoever is doing real work while it runs.
     #
     #   progress.step "reading the six episodes"
-    #   floors.each_with_index { |floor, n| progress.of n + 1, floors.length, floor.name; ... }
+    #   floors.each_with_index { |floor, n| progress.report_count n + 1, floors.length, floor.name; ... }
     #
     # A build is already a run of named phases saying how far each has got (see
     # {RubyGBA::Messages::Progress}). Anything a game or an effect pack does while the block runs

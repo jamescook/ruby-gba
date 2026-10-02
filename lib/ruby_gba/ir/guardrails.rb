@@ -232,7 +232,7 @@ module RubyGBA
         def run(program, autofix: true)
           findings = []
           @checks.each_with_index do |check, n|
-            @progress.of(n + 1, @checks.length, plain_name(check))
+            @progress.report_count(n + 1, @checks.length, plain_name(check))
             check.detect(program).each do |finding|
               if autofix && finding.fix
                 program = finding.fix.apply.call(program)

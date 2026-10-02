@@ -89,7 +89,7 @@ module RubyGBA
           # @param picked [Symbol, String, Integer, nil] this row's own picked colour
           # @param showing [Value, Symbol, nil] which of several labels is on screen
           def item(label, enabled: true, color: nil, picked: nil, showing: nil, &action)
-            labels = words_of(label, showing)
+            labels = row_labels!(label, showing)
             unless [true, false].include?(enabled) || enabled.is_a?(DSL::Condition) || enabled.is_a?(DSL::Value)
               raise ArgumentError,
                     "`enabled:` says whether a row can be picked: true, false, or a test the " \
@@ -107,7 +107,7 @@ module RubyGBA
           # What the row can say, always as a list. One thing needs nothing to choose
           # between; several do, so a list without `showing:` is refused rather than
           # drawn all at once on top of itself.
-          def words_of(label, showing)
+          def row_labels!(label, showing)
             if label.is_a?(String)
               return [label] if showing.nil?
 
@@ -224,11 +224,11 @@ module RubyGBA
                  disabled: DISABLED_COLOR, cursor: CURSOR, font: :default,
                  press: :a, repeat_every: HELD_REPEAT_FRAMES, starts_on: nil, &block)
           items = menu_items!(name, block)
-          menu_place!
+          refuse_menu_outside_frame!
           check_button!(press)
           x, y = menu_origin!(at)
           step = menu_spacing!(spacing || (text_height(font: font) + ROW_GAP))
-          menu_repeat!(repeat_every)
+          refuse_bad_menu_repeat_every!(repeat_every)
 
           pick = var :"__menu_#{name}", refuse_two_first_rows!(name, menu_first_row!(name, items, starts_on))
           wait = var :"__menu_#{name}_wait", 0
@@ -246,7 +246,7 @@ module RubyGBA
                                      picked: picked, disabled: disabled, cursor: cursor)
             end
           end
-          menu_fits_the_sprite_table!(name, spent)
+          refuse_menu_over_sprite_limit!(name, spent)
           Menu.new(pick, moved, items.length)
         end
 
@@ -274,7 +274,7 @@ module RubyGBA
 
           def detect(program)
             pick = menu_pick(program)
-            return [] if pick.nil? || paced?(program)
+            return [] if pick.nil? || has_loop?(program)
 
             [IR::Guardrails::Finding.new(check: NAME, severity: :warning, message: MESSAGE,
                                          node: pick)]
@@ -286,7 +286,7 @@ module RubyGBA
             program.each.find { |node| node.kind == :set && node.var.to_s.start_with?(PICK_PREFIX) }
           end
 
-          def paced?(program)
+          def has_loop?(program)
             program.each.any? { |node| node.kind == :loop }
           end
         end
@@ -324,8 +324,8 @@ module RubyGBA
         # for the walk.
         def menu_step(items, pick, direction)
           menu_wrap(items, pick, direction)
-          if items.any? { |item| menu_changes?(item) }
-            repeat(items.length - 1, stop_when: menu_pickable_here(items, pick)) do
+          if items.any? { |item| menu_enabled_at_runtime?(item) }
+            repeat(items.length - 1, stop_when: menu_on_pickable_row(items, pick)) do
               menu_wrap(items, pick, direction)
             end
             return
@@ -351,13 +351,13 @@ module RubyGBA
         end
 
         # A test: the row the cursor is on can be picked right now.
-        def menu_pickable_here(items, pick)
+        def menu_on_pickable_row(items, pick)
           tests = items.each_index.filter_map do |i|
             item = items[i]
             next if item.enabled.equal?(false)
 
             here = (pick == i)
-            menu_changes?(item) ? here & menu_can_pick(item) : here
+            menu_enabled_at_runtime?(item) ? here & menu_can_pick(item) : here
           end
           tests.reduce { |either, test| either | test }
         end
@@ -386,7 +386,7 @@ module RubyGBA
               # written with, so a game split across files still sees its own object.
               # A row the game has shut does nothing, even with the cursor on it.
               here = (pick == i)
-              here &= menu_can_pick(item) if menu_changes?(item)
+              here &= menu_can_pick(item) if menu_enabled_at_runtime?(item)
               here.then { item.action.call }
             end
           end
@@ -433,7 +433,7 @@ module RubyGBA
         # A row the game opens and shuts is drawn both ways, under its test: dim while it is
         # shut, and the usual pair of colours while it is open.
         def menu_draw_row(item, words:, row:, style:, picked_when:)
-          if menu_changes?(item)
+          if menu_enabled_at_runtime?(item)
             menu_can_pick(item).then { menu_draw_open_row(item, words: words, row: row, style: style, picked_when: picked_when) }
                                .else { draw_text words, style.x, row, style.disabled, font: style.font }
             return
@@ -480,7 +480,7 @@ module RubyGBA
           end
 
           items.each_with_index.map do |item, i|
-            item = item.with(showing: menu_deciding_value!(item)) if item.showing
+            item = item.with(showing: menu_showing_value!(item)) if item.showing
             item.with(enabled: menu_enabled_value(name, i, item.enabled))
           end
         end
@@ -498,14 +498,14 @@ module RubyGBA
         end
 
         # Whether a row's `enabled:` is decided as the game runs, rather than true or false.
-        def menu_changes?(item) = item.enabled.is_a?(DSL::Value)
+        def menu_enabled_at_runtime?(item) = item.enabled.is_a?(DSL::Value)
 
         # A fresh test for a row that can be picked only while the game says so.
         def menu_can_pick(item) = (item.enabled != 0)
 
         # The value that says which of a row's several labels is on screen. A Symbol names
         # a variable, the way a Symbol does everywhere else in the DSL.
-        def menu_deciding_value!(item)
+        def menu_showing_value!(item)
           showing = item.showing
           return handle_for(showing) if showing.is_a?(Symbol)
           return showing if showing.is_a?(DSL::Value)
@@ -531,7 +531,7 @@ module RubyGBA
         # say something useful about — a game that overspends across everything it draws is
         # a bigger question than this verb. Caught at the call site, where the labels are,
         # rather than at lowering, where the message could only count anonymous sprites.
-        def menu_fits_the_sprite_table!(name, spent)
+        def refuse_menu_over_sprite_limit!(name, spent)
           return if spent <= Console::Hardware::MAX_SPRITES
 
           raise ArgumentError,
@@ -543,7 +543,7 @@ module RubyGBA
         end
 
         # A menu is per-frame work, so it belongs where the frame's work goes.
-        def menu_place!
+        def refuse_menu_outside_frame!
           return if @building_scene || @container_stack.length > 1
 
           raise ArgumentError,
@@ -571,7 +571,7 @@ module RubyGBA
                 "Got #{step.inspect}."
         end
 
-        def menu_repeat!(frames)
+        def refuse_bad_menu_repeat_every!(frames)
           return if frames.is_a?(Integer) && frames.positive?
 
           raise ArgumentError,

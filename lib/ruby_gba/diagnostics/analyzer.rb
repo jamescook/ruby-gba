@@ -22,7 +22,7 @@ module RubyGBA
     # ALL AT ONCE IS THE ONE THAT FINDS THE WORST FRAME. A game tests its buttons one after
     # another, and each test guards work of its own, so a frame with two buttons down runs
     # both bodies. Holding them singly finds the dearest single body, which is not the worst
-    # frame — see #attempt_keys for what that was costing.
+    # frame — see #key_combinations for what that was costing.
     module Analyzer
       module_function
 
@@ -55,7 +55,7 @@ module RubyGBA
       # game goes. Counting the work over a window and dividing by the PASSES in that window has
       # no ceiling — a game taking two frames a pass reads about 456, one taking four reads about
       # 912. Measured only when the per-frame reading saturates, since below that a pass is a
-      # frame and the two numbers are the same. See #measure_saturated.
+      # frame and the two numbers are the same. See #measure_passes.
       # +tearing+ is what the display really showed, on the one screen where that can be
       # asked: how many rows went up before the game had finished them (see {Tearing}). It is
       # the one verdict the report could never check, only estimate.
@@ -113,7 +113,7 @@ module RubyGBA
       # The same window's MIDDLE frame comes back beside it, for the other question — what a
       # frame usually costs rather than what the worst one did. See {Result}.
       def measure(rom_path, keys: [])
-        attempt(rom_path, Array(keys), {}, nil)
+        measure_holding(rom_path, Array(keys), {}, nil)
       end
 
       # Profile a program's scenes. A scene the player only reaches after input is measured
@@ -209,18 +209,18 @@ module RubyGBA
       def measure_program(program, options: {}, keys: nil, stays_in: nil)
         measuring = build_for_measuring(program, options)
         pinned = keys ? Array(keys).map(&:to_sym) : nil
-        attempts = pinned ? [pinned] : attempt_keys(program)
+        attempts = pinned ? [pinned] : key_combinations(program)
         # Only a screen with one framebuffer can be asked whether it tore — see {Tearing}.
         tearing = Tearing.measurable?(program)
         worst = in_temp_rom(measuring[:rom]) do |path|
           readings = attempts.filter_map do |held|
-            attempt(path, held, measuring[:vars], pinned ? nil : stays_in, tearing: tearing)
+            measure_holding(path, held, measuring[:vars], pinned ? nil : stays_in, tearing: tearing)
           end
           worst_reading(readings)
         end
         return worst unless worst.saturated?
 
-        counted = measure_saturated(program, options, keys: worst.keys)
+        counted = measure_passes(program, options, keys: worst.keys)
         Result.new(scanlines: worst.scanlines, typical: worst.typical, fps: counted[:fps],
                    per_pass: counted[:per_pass], keys: worst.keys, tearing: worst.tearing)
       end
@@ -263,10 +263,10 @@ module RubyGBA
       # the buttons moved the game out of the scene being measured, so the frames read
       # belong to some other scene. Nothing held is always kept — it is the baseline, and
       # a scene that leaves on its own is no worse measured than it was before.
-      def attempt(path, held, vars, stays_in, tearing: false)
+      def measure_holding(path, held, vars, stays_in, tearing: false)
         probe = Emulator.probe(path)
         probe.step(SETTLE, keys: held)
-        watch = scene_watch(vars, stays_in, held)
+        watch = scene_var_address(vars, stays_in, held)
         frames = []
         torn = Tearing::Reading.none
         WINDOW.times do
@@ -278,7 +278,7 @@ module RubyGBA
           torn = worst_tear(torn, Tearing.read(probe)) if tearing
           return nil if watch && probe.read32(watch) != stays_in[:value]
         end
-        Result.new(scanlines: frames.max, typical: middle(frames), fps: nil, keys: held, tearing: torn)
+        Result.new(scanlines: frames.max, typical: median(frames), fps: nil, keys: held, tearing: torn)
       ensure
         probe&.close
       end
@@ -286,7 +286,7 @@ module RubyGBA
       # The middle frame of a window. The MEDIAN rather than the mean, because the thing being
       # kept out is a rare dear frame and a mean would carry a share of it — two collisions in a
       # hundred and fifty move a mean by enough to matter and move a median by nothing.
-      def middle(frames)
+      def median(frames)
         return nil if frames.empty?
 
         sorted = frames.sort
@@ -323,7 +323,7 @@ module RubyGBA
       # Where to watch for the game leaving the scene being measured: the address of the
       # scene variable the dispatch tests each frame. nil when there is nothing to watch —
       # no scene, or no button held that could move it.
-      def scene_watch(vars, stays_in, held)
+      def scene_var_address(vars, stays_in, held)
         return nil if held.empty? || stays_in.nil?
 
         vars[stays_in[:var]]
@@ -350,7 +350,7 @@ module RubyGBA
       # ALL OF THEM TOGETHER AND NOT EVERY COMBINATION: the guards are independent, so the
       # dearest frame holds everything at once, and that is one more run rather than two to
       # the power of however many buttons the game reads.
-      def attempt_keys(program)
+      def key_combinations(program)
         buttons = buttons_read(program)
         singly = buttons.map { |button| [button] }
         [[]] + singly + (buttons.length > 1 ? [buttons] : [])
@@ -387,7 +387,7 @@ module RubyGBA
       # extra instruction can tip a routine out of the console's quick memory, and what got kept
       # there is half of what this report is for. The emulator counts arrivals at the loop's own
       # first instruction instead, so nothing is added.
-      def measure_saturated(program, options = {}, keys: [])
+      def measure_passes(program, options = {}, keys: [])
         measuring = build_for_measuring(program, options)
         loop_span = measuring[:rom].built&.routines&.[](Cartridge::BuildRecord::FRAME_ROUTINE) or return {}
 
@@ -411,7 +411,7 @@ module RubyGBA
 
       # The counted frame rate on its own, for a caller that wants only that.
       def measure_fps(program, options = {}, keys: [])
-        measure_saturated(program, options, keys: keys)[:fps]
+        measure_passes(program, options, keys: keys)[:fps]
       end
 
       # A measuring ROM and where its variables live. The addresses come from the very

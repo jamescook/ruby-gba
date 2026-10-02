@@ -58,13 +58,13 @@ module RubyGBA
       def writable(given)
         return QUIET if given.nil?
         return given if given.respond_to?(:puts)
-        return opened_at(given.to_path) if given.respond_to?(:to_path)
-        return opened_at(given) if given.is_a?(String)
+        return open_for_writing(given.to_path) if given.respond_to?(:to_path)
+        return open_for_writing(given) if given.is_a?(String)
 
         given
       end
 
-      def opened_at(path)
+      def open_for_writing(path)
         file = File.open(path, "w")
         @opened << file
         file

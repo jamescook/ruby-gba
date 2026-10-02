@@ -92,9 +92,9 @@ module RubyGBA
 
           def detect(program)
             targets = writes_of(program, TARGET)
-            outs = targets.select { |node| written(node)&.zero? }
+            outs = targets.select { |node| literal_value(node)&.zero? }
             return [] if outs.empty?
-            return [] if targets.any? { |node| written(node)&.positive? }
+            return [] if targets.any? { |node| literal_value(node)&.positive? }
             return [] if turned_up_by_hand?(program)
 
             [IR::Guardrails::Finding.new(check: NAME, severity: :warning, message: MESSAGE, node: outs.last)]
@@ -108,7 +108,7 @@ module RubyGBA
             walked = program.walk.select { |node| node.kind == :func && node.name == ROUTINE }
                             .flat_map { |func| func.walk.to_a }.to_set.compare_by_identity
             by_hand = writes_of(program, IR::Tunes::LEVEL).reject { |node| walked.include?(node) }
-            by_hand.count { |node| !written(node)&.zero? } > 1
+            by_hand.count { |node| !literal_value(node)&.zero? } > 1
           end
 
           # Every write, the whole tree walked — a fade in under an `else` sits beside its `if`
@@ -116,7 +116,7 @@ module RubyGBA
           def writes_of(program, name) = program.walk.select { |node| node.kind == :set && node.var == name }
 
           # The number a write puts in, when it is one written into the program.
-          def written(node) = node.value.kind == :int ? node.value.value : nil
+          def literal_value(node) = node.value.kind == :int ? node.value.value : nil
         end
 
         private
@@ -128,7 +128,7 @@ module RubyGBA
           state = music_fade_state
           (state[:active] == 0).then { state[:level].set! music_volume.to_f }
           state[:target].set! target
-          state[:step].set! FULL / music_fade_frames(frames, duration) if frames || duration
+          state[:step].set! FULL / music_fade_step_count(frames, duration) if frames || duration
           state[:active].set! 1
           nil
         end
@@ -163,8 +163,8 @@ module RubyGBA
         end
 
         # One fewer step than the frames the fade is shown over, so the level lands exactly on its
-        # target on the last of them — the reckoning ScreenFade#fade_ramp_frames makes.
-        def music_fade_frames(frames, duration)
+        # target on the last of them — the reckoning ScreenFade#fade_step_count makes.
+        def music_fade_step_count(frames, duration)
           raise ArgumentError, "a music fade takes frames: or duration:, not both." if frames && duration
 
           count = duration ? music_fade_seconds(duration) : frames

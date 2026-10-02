@@ -64,7 +64,7 @@ module RubyGBA
 
         # How many frames the display's own fade can step through without showing a level
         # twice: one for each of its levels. A game with a fade longer than this walks the
-        # colors instead (see #level_handed_to_fade).
+        # colors instead (see #fade_amount).
         DISPLAY_LEVELS = IR::Backends::FadeSteps::DISPLAY + 1
 
         # Fade the screen out — toward black for a scene change, toward white for a
@@ -188,7 +188,7 @@ module RubyGBA
             return [] if called?(program)
 
             [IR::Guardrails::Finding.new(check: NAME, severity: :warning, message: MESSAGE,
-                                         node: trigger(program) || :program)]
+                                         node: author_call_site(program) || :program)]
           end
 
           private
@@ -207,7 +207,7 @@ module RubyGBA
           # Where the author wrote the fade. The routine is the framework's and carries no
           # line, but the target it set was recorded at the call site — every write of it
           # but the declaration's, NEVER_FADED, the one below nothing.
-          def trigger(program)
+          def author_call_site(program)
             program.walk.find do |node|
               node.kind == :set && node.var == TARGET && !(node.value.kind == :int && node.value.value.negative?)
             end
@@ -242,7 +242,7 @@ module RubyGBA
             # The whole tree, so a fade_in down an else branch is seen (see NeedsGameLoop).
             targets = program.walk.select { |node| node.kind == :set && node.var == TARGET }
             return [] if targets.empty?
-            return [] if targets.any? { |node| returns_the_picture?(node) }
+            return [] if targets.any? { |node| fades_back_in?(node) }
 
             [IR::Guardrails::Finding.new(check: NAME, severity: :warning, message: MESSAGE,
                                          node: targets.last)]
@@ -252,7 +252,7 @@ module RubyGBA
 
           # A target of exactly zero is a `fade_in` or a `flash_screen`. The declaration
           # writes NEVER_FADED, which is negative, so it cannot be mistaken for one.
-          def returns_the_picture?(node)
+          def fades_back_in?(node)
             node.value.kind == :int && node.value.value.zero?
           end
         end
@@ -266,13 +266,13 @@ module RubyGBA
         # lets `fade_in` be written on its own: it comes back the way it went out. Leaving
         # the step alone when no length is given does the same for the speed.
         def start_fade(color, target, frames, duration, default: DEFAULT_FRAMES, under: nil)
-          check_fade_placement!(color, under)
-          place_the_fade(under) if under
+          refuse_colored_placed_fade!(color, under)
+          set_fade_layer!(under) if under
           state = screen_fade_state
           state[:color].set! fade_color_code(color) if color
           state[:target].set! target
           if frames || duration
-            state[:step].set! FULL / fade_ramp_frames(frames, duration, default)
+            state[:step].set! FULL / fade_step_count(frames, duration, default)
           else
             @fade_without_length = true
           end
@@ -304,7 +304,7 @@ module RubyGBA
             # The body is built once the game is written, not here — so by the time it
             # runs, every color the game asked for is known and each has its branch.
             once_a_frame(ROUTINE) do
-              amount = level_handed_to_fade(level)
+              amount = fade_amount(level)
               (active == 1).then do
                 (color == BLACK).then { fade :black, amount, under: @fade_place }
                 (color == WHITE).then { fade :white, amount, under: @fade_place }
@@ -331,8 +331,8 @@ module RubyGBA
         #
         # Asked when the routine's body is built, after the whole game is written, so every
         # fade the game asks for is counted.
-        def level_handed_to_fade(level)
-          fade_longest > DISPLAY_LEVELS ? level : level.to_i
+        def fade_amount(level)
+          longest_fade_frames > DISPLAY_LEVELS ? level : level.to_i
         end
 
         # The most frames any fade in this game can take.
@@ -342,12 +342,12 @@ module RubyGBA
         # game is played, so nothing at build time can rule the default out: a game with a
         # four-frame flash and a bare `fade_out` fades over the default whenever the fade_out
         # comes first. So a fade said with no length counts the default.
-        def fade_longest
+        def longest_fade_frames
           longest = @fade_longest || 0
           @fade_without_length ? [longest, DEFAULT_FRAMES].max : longest
         end
 
-        def note_fade_length(count)
+        def record_fade_length(count)
           @fade_longest = [@fade_longest || 0, count].max
         end
 
@@ -355,7 +355,7 @@ module RubyGBA
         # fewer step than that gets from one end to the other, so the level lands exactly
         # on the target on the final frame rather than a hair short of it — the same
         # reckoning the pulse pack makes for the same reason.
-        def fade_ramp_frames(frames, duration, default)
+        def fade_step_count(frames, duration, default)
           raise ArgumentError, "a fade takes frames: or duration:, not both." if frames && duration
 
           count = if duration
@@ -368,7 +368,7 @@ module RubyGBA
                   "a fade needs a positive whole number of frames. You gave #{(frames || duration).inspect}."
           end
 
-          note_fade_length(count)
+          record_fade_length(count)
           [count - 1, 1].max.to_f
         end
 
@@ -383,7 +383,7 @@ module RubyGBA
         # in the console: there is ONE set of blend registers, so two fades at two depths
         # cannot both be in force. A game that really wants that is writing two effects,
         # not one, and `fade` itself takes `under:` per call for it.
-        def place_the_fade(under)
+        def set_fade_layer!(under)
           if @fade_place && @fade_place != under
             raise ArgumentError,
                   "This game already fades under :#{@fade_place}, and now asks for :#{under}. " \
@@ -429,7 +429,7 @@ module RubyGBA
         # A game has one screen fade, so this asks about the whole game and not one call:
         # either order of the two — a color then a layer, or a layer then a color — leaves
         # the same game asking for something the console cannot show.
-        def check_fade_placement!(color, under)
+        def refuse_colored_placed_fade!(color, under)
           place = under || @fade_place
           wanted = color unless color.nil? || COLORS.key?(color)
           wanted ||= fade_tint_colors.first

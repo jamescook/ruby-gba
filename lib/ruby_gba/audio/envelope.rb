@@ -107,8 +107,8 @@ module RubyGBA
         end
 
         times = PLAIN.merge(said)
-        PLAIN.each_key { |key| number!(times[key], key, where) }
-        sustain = level_of(times[:sustain], where)
+        PLAIN.each_key { |key| refuse_bad_envelope_number!(times[key], key, where) }
+        sustain = sustain_level!(times[:sustain], where)
         new(attack: attack_for(times[:attack]), decay: fall_for(times[:decay], FULL, sustain),
             sustain: sustain, release: fall_for(times[:release], FULL, 0))
       end
@@ -173,7 +173,7 @@ module RubyGBA
       # time reaches it — it is here so a fall that somehow stood still could not spin.
       LONGEST_FALL = 4096
 
-      def self.level_of(fraction, where)
+      def self.sustain_level!(fraction, where)
         unless fraction.between?(0, 1)
           raise ArgumentError, "#{where} has an envelope with sustain #{fraction.inspect}. Sustain is " \
                                "how loud the note holds, from 0.0 (silent) to 1.0 (as loud as the note " \
@@ -183,7 +183,7 @@ module RubyGBA
         (fraction * MOST).round
       end
 
-      def self.number!(value, key, where)
+      def self.refuse_bad_envelope_number!(value, key, where)
         return if value.is_a?(Numeric) && value >= 0
 
         means = key == :sustain ? "a fraction of full loudness, 0.0 to 1.0" : "a time in seconds, 0 or more"

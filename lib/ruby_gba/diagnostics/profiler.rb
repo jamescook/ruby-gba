@@ -117,7 +117,7 @@ module RubyGBA
         raise ArgumentError, "give `scene:` or `from:`, not both. A saved moment already says " \
                              "which scene the game was in." if from && scene
         enter ||= scene_state(rom, scene)
-        reached = reached_by(scene, from)
+        reached = how_reached(scene, from)
 
         drops = rom.built.sound_drops
         profile, tearing, flicker, lost = in_temp_rom(rom) do |path|
@@ -125,11 +125,11 @@ module RubyGBA
           begin
             measured =
               if from
-                resumed_from(probe, from, path, frames, held, drops)
+                profile_from_saved_state(probe, from, path, frames, held, drops)
               elsif enter
-                pinned_to(probe, enter, frames, held, drops)
+                profile_pinned_to_scene(probe, enter, frames, held, drops)
               else
-                plain_run(probe, frames, settle, held, drops)
+                profile_from_boot(probe, frames, settle, held, drops)
               end
             # Looked at AFTER the profiling, from wherever it left the game — so the frames
             # judged are the same frames that were measured, doing the same work.
@@ -203,15 +203,15 @@ module RubyGBA
       def self.flicker_in(probe, program, held)
         return nil unless Flicker.measurable?(program)
 
-        before = both_pages(probe)
+        before = read_both_pages(probe)
         probe.step(FLICKER_GAP, keys: held)
-        Flicker.read(before, both_pages(probe))
+        Flicker.read(before, read_both_pages(probe))
       end
 
       # Both pictures of a tear-free screen, straight out of video memory. A pixel there is one
       # byte — a number picking a color out of the shared table — so a word carries four of
       # them, and reading by the word is four times cheaper than reading by the pixel.
-      def self.both_pages(probe)
+      def self.read_both_pages(probe)
         [IR::Backends::GBA::PAGE0, IR::Backends::GBA::PAGE1].map do |base|
           bytes = Tearing::WIDTH * Tearing::HEIGHT
           (0...bytes).step(4).flat_map do |at|
@@ -238,7 +238,7 @@ module RubyGBA
         Tear.new(looked: readings.length, torn: torn.length, worst: torn.map(&:rows).max || 0)
       end
 
-      def self.reached_by(scene, from)
+      def self.how_reached(scene, from)
         return Reached.new(how: :scene, detail: scene.to_sym) if scene
         return Reached.new(how: :state, detail: from) if from
 
@@ -267,7 +267,7 @@ module RubyGBA
       # same source twice gives the same bytes, so simply re-running a build never costs anybody
       # their saved moments. Only a real change moves the addresses, and that is exactly when the
       # state has stopped meaning anything.
-      def self.resumed_from(probe, state_path, rom_path, frames, held, drops = nil)
+      def self.profile_from_saved_state(probe, state_path, rom_path, frames, held, drops = nil)
         check_state_matches!(probe, state_path, rom_path)
         probe.load_state(state_path)
         clear_drops(probe, drops) # the state brought the moment's own history with it
@@ -295,7 +295,7 @@ module RubyGBA
 
       # The settling is stepped here rather than handed to the probe, so there is a moment
       # between it and the measuring for the counters to be put back to nothing.
-      def self.plain_run(probe, frames, settle, held, drops = nil)
+      def self.profile_from_boot(probe, frames, settle, held, drops = nil)
         probe.step(settle, keys: held) if settle.positive?
         clear_drops(probe, drops)
         probe.profile(frames: frames, keys: held)
@@ -341,7 +341,7 @@ module RubyGBA
       # is "the routines this scene runs", which is the question the placement is asking. It is
       # not a game anybody could play — a snake that dies and is forced back is nonsense as a
       # game — and it does not need to be.
-      def self.pinned_to(probe, enter, frames, held, drops = nil)
+      def self.profile_pinned_to_scene(probe, enter, frames, held, drops = nil)
         probe.step(BOOT_FRAMES, keys: held)
         address = enter.fetch(:address)
         value = enter.fetch(:value)
@@ -391,7 +391,7 @@ module RubyGBA
       #
       # Answers a {Survey}: instructions-a-frame per routine, which is what {RoutineProfile}
       # keeps, and what each scene measured, which is what the build warns from.
-      def self.every_scene(rom, frames: FRAMES, keys: [])
+      def self.survey_scenes(rom, frames: FRAMES, keys: [])
         dispatch = Analyzer.scenes(rom.built.source_program)
         address = dispatch && rom.built.var_addresses[dispatch[:selector]]
         unless address
@@ -403,7 +403,7 @@ module RubyGBA
           [name, run(rom, frames: frames, keys: keys, picture: false,
                      enter: { address: address, value: value })]
         end
-        Survey.new(work: across_scenes(measured.values), scenes: measured)
+        Survey.new(work: sum_work_across_scenes(measured.values), scenes: measured)
       end
 
       # WHAT A WHOLE GAME MEASURED, scene by scene. +work+ is what the placement is decided
@@ -413,11 +413,11 @@ module RubyGBA
       Survey = Data.define(:work, :scenes) do
         # The scenes that did not keep up, slowest first. A game is only ever in one scene at a
         # time, so one slow scene is a slow game whatever the others do.
-        def struggling = scenes.reject { |_, r| r.frames.zero? || !r.dropping_frames? }
+        def slow_scenes = scenes.reject { |_, r| r.frames.zero? || !r.dropping_frames? }
                                .sort_by { |_, r| r.fps }
       end
 
-      def self.across_scenes(results)
+      def self.sum_work_across_scenes(results)
         results.map { |r| work_in(r) }.reduce({}) do |total, scene|
           total.merge(scene) { |_, a, b| a + b }
         end
@@ -436,7 +436,7 @@ module RubyGBA
       def self.build_result(profile, routines, held, reached = Reached.new(how: :boot, detail: nil),
                             tearing = nil, flicker = nil, tick_rates = [],
                             sound_drops = SoundDrops::Reading.unmeasured)
-        tally, outside = attribute(profile.pc, routines)
+        tally, outside = tally_by_routine(profile.pc, routines)
         total = profile.samples
 
         lines = tally.sort_by { |_, seen| -seen }.map do |name, seen|
@@ -467,7 +467,7 @@ module RubyGBA
       # Put each sampled address back against the routine whose span covers it. Routines never
       # overlap, so the first match is the only one. Returns the routines and, separately, what
       # fell outside them grouped by the memory it ran in.
-      def self.attribute(counts, routines)
+      def self.tally_by_routine(counts, routines)
         spans = routines.sort_by { |_, span| span.begin }
         tally = Hash.new(0)
         outside = Hash.new(0)
@@ -511,12 +511,12 @@ module RubyGBA
           BuildReport.render(rom, out: out)
           printer.puts("")
         end
-        printer.puts("where your frames went, measured over #{result.frames} frames#{held_note(result.keys)}")
+        printer.puts("where your frames went, measured over #{result.frames} frames#{held_keys_suffix(result.keys)}")
         # Which moment this is of, said out loud: the same cartridge measured on its title screen
         # and measured in its boss fight are different numbers about different code.
         printer.puts("  #{result.reached}")
         printer.puts("")
-        printer.puts("  #{result.fps} frames a second#{dropped_note(result)}")
+        printer.puts("  #{result.fps} frames a second#{frame_drop_suffix(result)}")
         printer.puts("  #{(result.idle_share * 100).round(1)}% of each frame spare")
         tearing_line(result.tearing, printer)
         flicker_line(result.flicker, printer)
@@ -624,9 +624,9 @@ module RubyGBA
                      "changes now and then, use `keep_showing`")
       end
 
-      def self.held_note(keys) = keys.empty? ? "" : ", holding #{keys.map(&:to_s).join(' + ').upcase}"
+      def self.held_keys_suffix(keys) = keys.empty? ? "" : ", holding #{keys.map(&:to_s).join(' + ').upcase}"
 
-      def self.dropped_note(result)
+      def self.frame_drop_suffix(result)
         result.dropping_frames? ? " — the game is not finishing its work in every frame" : ""
       end
     end

@@ -220,14 +220,14 @@ module RubyGBA
                   "every row of a glyph must be the same length"
           end
           width = widths.first
-          fix_height!(char, rows.size)
+          refuse_different_height!(char, rows.size)
           @widths[char] = width
           @glyphs[char] = rows.map { |row| row_byte(row, width) }
         end
 
         # Pin the font's height to the first glyph; every later glyph must match, since
         # a font lays every character out on one baseline. Width is free to vary.
-        def fix_height!(char, height)
+        def refuse_different_height!(char, height)
           @height ||= height
           return if height == @height
 

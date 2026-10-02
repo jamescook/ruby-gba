@@ -12,7 +12,7 @@ module RubyGBA
     # THREE METHODS, because a build has three kinds of thing to say:
     #
     #   progress.step "the guardrails"      a named phase begins
-    #   progress.of 14, 27, "draw budget"   ...and where it has got to, when that can be counted
+    #   progress.report_count 14, 27, "draw budget"   ...and where it has got to, when that can be counted
     #   progress.tick                       ...or only that it is still going, when it cannot
     #
     # A tick may carry a label — `tick { "#{bytes} bytes" }` — and it is a BLOCK because a tick
@@ -33,7 +33,7 @@ module RubyGBA
     # is also the number that tells you when something got slower.
     class Progress
       def step(name) = nil
-      def of(done, total, name = nil) = nil
+      def report_count(done, total, name = nil) = nil
       def tick = nil
 
       # The last phase is over. Anything holding a line open closes it here.
@@ -82,7 +82,7 @@ module RubyGBA
           @live = out.respond_to?(:tty?) && out.tty?
           @name = nil
           @ticks = 0
-          @lock = Mutex.new  # the line is drawn by two threads; see #keep_awake
+          @lock = Mutex.new  # the line is drawn by two threads; see #start_refresher
           @idle = ConditionVariable.new
         end
 
@@ -99,14 +99,14 @@ module RubyGBA
             next unless @live
 
             show
-            keep_awake
+            start_refresher
           end
           nil
         end
 
         # Where a countable phase has got to. Cheap enough to call from a loop: it remembers the
         # numbers and only writes when a line is due.
-        def of(done, total, name = nil)
+        def report_count(done, total, name = nil)
           @lock.synchronize do
             @where = name ? "#{done} of #{total}  #{name}" : "#{done} of #{total}"
             show_if_due
@@ -154,7 +154,7 @@ module RubyGBA
         # that IS talking never draws twice for one moment. It waits on a condition variable
         # rather than sleeping, so closing a phase ends it at once instead of up to a refresh
         # later.
-        def keep_awake
+        def start_refresher
           @refresher ||= Thread.new do
             @lock.synchronize do
               until @over
@@ -171,7 +171,7 @@ module RubyGBA
           return unless @name
 
           @out.print("\r") if @live
-          @out.puts(@live ? covering(line) : line)
+          @out.puts(@live ? pad_over_last_line(line) : line)
           @name = nil
           @drawn = 0 # a new line starts at the left, with nothing of the old one to cover
         end
@@ -185,7 +185,7 @@ module RubyGBA
 
         def show
           @shown = now
-          @out.print("\r#{covering(line)}")
+          @out.print("\r#{pad_over_last_line(line)}")
           @out.flush if @out.respond_to?(:flush)
         end
 
@@ -194,7 +194,7 @@ module RubyGBA
         # the 4.53s that had been there. So a rewrite is padded out to cover whatever it is
         # replacing. Spaces rather than the escape code for "clear to the end of the line",
         # because this has to be right on whatever the person is running.
-        def covering(text)
+        def pad_over_last_line(text)
           was = @drawn.to_i
           @drawn = text.length
           text.ljust(was)

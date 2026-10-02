@@ -114,8 +114,8 @@ class TestMeasuredPlacement < Minitest::Test
 
   def test_a_routine_on_every_screen_outranks_one_on_a_single_screen
     rom = game_with_a_routine_on_every_screen.build_rom(out: StringIO.new, err: StringIO.new, profile: false)
-    work = RubyGBA::Diagnostics::Profiler.every_scene(rom, frames: 10).work
-    ranked = RubyGBA::Diagnostics::RoutineProfile.from_work(work).rank(%i[one_screen everywhere])
+    work = RubyGBA::Diagnostics::Profiler.survey_scenes(rom, frames: 10).work
+    ranked = RubyGBA::Diagnostics::RoutineProfile.from_work(work).order_by_work(%i[one_screen everywhere])
 
     assert_equal %i[everywhere one_screen], ranked, "measured: #{work.slice(:everywhere, :one_screen)}"
   end
@@ -127,7 +127,7 @@ class TestMeasuredPlacement < Minitest::Test
       path = File.join(dir, "game.profile.json")
       first = game_with_work_in_a_later_scene.build_rom(out: StringIO.new, err: StringIO.new,
                                                         profile: false)
-      RubyGBA::Diagnostics::RoutineProfile.from_work(RubyGBA::Diagnostics::Profiler.every_scene(first, frames: 10).work).write(path)
+      RubyGBA::Diagnostics::RoutineProfile.from_work(RubyGBA::Diagnostics::Profiler.survey_scenes(first, frames: 10).work).write(path)
 
       placement = placement_for(path)
 
@@ -188,8 +188,8 @@ class TestMeasuredPlacement < Minitest::Test
   def test_a_routine_that_hardly_runs_is_not_worth_the_room
     profile = RubyGBA::Diagnostics::RoutineProfile.from_work({ busy: 5000, idle: 3 })
 
-    assert profile.worth_moving?(:busy)
-    refute profile.worth_moving?(:idle)
-    assert_equal %i[busy idle], profile.rank(%i[idle busy]), "dearest first"
+    assert profile.worth_quick_memory?(:busy)
+    refute profile.worth_quick_memory?(:idle)
+    assert_equal %i[busy idle], profile.order_by_work(%i[idle busy]), "dearest first"
   end
 end

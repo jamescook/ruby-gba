@@ -57,7 +57,7 @@ module RubyGBA
       # Conditions built but never used — each one almost always handed to a native Ruby
       # `if`, which is truthy for a Condition, so the body ran unconditionally and the
       # comparison was silently ignored.
-      def pending_conditions = @builder.pending_conditions
+      def unused_conditions = @builder.pending_conditions
 
       # Every expression the block worked out. The ones whose node never joined the tree
       # were built and thrown away — see the orphaned-expression guardrail.

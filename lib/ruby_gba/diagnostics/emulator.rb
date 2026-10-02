@@ -65,13 +65,13 @@ module RubyGBA
       # The sibling checkout, for a clone with no bundle. Raises with what to do about it.
       def load_from_checkout!
         lib = File.expand_path("../../../ruby-gba-emulator/lib", __dir__)
-        raise_missing!("it is not installed and there is no ruby-gba-emulator/ beside this one") unless
+        raise_emulator_missing!("it is not installed and there is no ruby-gba-emulator/ beside this one") unless
           File.directory?(lib)
 
         $LOAD_PATH.unshift(lib) unless $LOAD_PATH.include?(lib)
         require "ruby_gba_emulator"
       rescue LoadError => e
-        raise_missing!(e.message)
+        raise_emulator_missing!(e.message)
       end
 
       # THREE FAILURES THAT LOOK THE SAME AND NEED DIFFERENT ADVICE, and what the loader said is
@@ -87,7 +87,7 @@ module RubyGBA
       # which is what a `path:` entry gets you, because bundler builds extensions for gem and git
       # sources and not for path ones. A resolvable spec means the gem is present and the build is
       # what is missing.
-      def raise_missing!(detail)
+      def raise_emulator_missing!(detail)
         raise LoadError, "#{missing_advice(detail)}\nOriginal error: #{detail}"
       end
 
@@ -132,7 +132,7 @@ module RubyGBA
           (brew install mgba, or apt install libmgba-dev).
         ADD
       end
-      private_class_method :load_from_checkout!, :raise_missing!, :missing_advice
+      private_class_method :load_from_checkout!, :raise_emulator_missing!, :missing_advice
 
       # The emulator core class (loads the backend on first use).
       def core_class

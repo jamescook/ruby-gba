@@ -92,7 +92,7 @@ module RubyGBA
             return [] if called?(program)
 
             [IR::Guardrails::Finding.new(check: NAME, severity: :warning, message: MESSAGE,
-                                         node: trigger(program) || :program)]
+                                         node: author_call_site(program) || :program)]
           end
 
           private
@@ -108,7 +108,7 @@ module RubyGBA
           # Where the author wrote `shake_screen`. The routine itself is the
           # framework's and carries no line, but the counter it sets was recorded at
           # the call site, so that is the line to send them to.
-          def trigger(program)
+          def author_call_site(program)
             program.each.find { |node| node.kind == :set && node.var == LEFT }
           end
         end

@@ -135,7 +135,7 @@ module RubyGBA
       # `wait_vblank` calls, and the software sprites, whose layer lives on the handle.
       # All are just checks in the list, so the Validator treats them alike.
       checks = IR::Guardrails.default_checks +
-               [IR::Guardrails::Checks::OrphanedCondition.new(evaluated.pending_conditions),
+               [IR::Guardrails::Checks::OrphanedCondition.new(evaluated.unused_conditions),
                 IR::Guardrails::Checks::OrphanedExpression.new(evaluated.expressions),
                 IR::Guardrails::Checks::DroppedFrameSync.new(evaluated.dropped_syncs),
                 IR::Guardrails::Checks::LayerHoldsNothing.new(evaluated.sprites),
@@ -153,7 +153,7 @@ module RubyGBA
     # to machine code, then assemble that code into a cartridge. Lowering names its
     # own phases rather than being named from here — most of the time a build spends
     # is in there, and it is three phases, not one (see Placement#choose_fast_funcs).
-    measured = given_profile(profile, program, err)
+    measured = load_routine_profile(profile, program, err)
     backend = IR::Backends::GBA.new(fast_cartridge: fast_cartridge, fast_code: fast_code,
                                     progress: progress, routine_profile: measured)
     machine_code = backend.lower(program)
@@ -215,7 +215,7 @@ module RubyGBA
   #
   # NOBODY HAS TO PLAY IT. A game keeps which screen it is on in a variable and the build knows
   # where that variable lives, so each scene is entered by writing it — see
-  # {Profiler.every_scene}. Without that the measuring would only ever see a title screen,
+  # {Profiler.survey_scenes}. Without that the measuring would only ever see a title screen,
   # which is the wrong thing to make a game fast for.
   #
   # THE FIRST BUILD'S FINDINGS ARE HELD BACK, and only its findings. They are about a cartridge
@@ -243,7 +243,7 @@ module RubyGBA
       raise
     end
 
-    survey = Diagnostics::Profiler.every_scene(first)
+    survey = Diagnostics::Profiler.survey_scenes(first)
     warn_of_slow_scenes(survey, err)
     measurement = Diagnostics::RoutineProfile.from_work(survey.work, game: title)
     build(title, code: code, maker: maker, profile: measurement,
@@ -266,7 +266,7 @@ module RubyGBA
   # pass of its loop, so fewer passes a second is less movement a second: the whole game runs
   # in SLOW MOTION, smoothly. Saying "choppy" sends a reader looking for the wrong thing.
   def self.warn_of_slow_scenes(survey, err)
-    slow = survey.struggling
+    slow = survey.slow_scenes
     return if slow.empty?
 
     slow.each do |scene, reading|
@@ -290,19 +290,19 @@ module RubyGBA
   # game has been measured less recently than it has been changed.
   # What the caller handed over, read into a {RoutineProfile} — or nothing, which means the
   # choice is made from the shape of the program.
-  def self.given_profile(profile, program, err)
+  def self.load_routine_profile(profile, program, err)
     measured = profile.is_a?(Diagnostics::RoutineProfile) ? profile : Diagnostics::RoutineProfile.read(profile || nil)
-    warn_of_forgotten_routines(measured, program, err)
+    warn_of_stale_profile(measured, program, err)
     measured
   end
 
-  def self.warn_of_forgotten_routines(measured, program, err)
+  def self.warn_of_stale_profile(measured, program, err)
     return unless measured
 
     known = program.walk.filter_map { |node| node.name if node.kind == :func }.to_set
     known << IR::Backends::GBA::Placement::FRAME_ROUTINE
     known << IR::Backends::GBA::Placement::IRQ_ROUTINE
-    gone = measured.forgotten(known)
+    gone = measured.stale_routines(known)
     return if gone.empty?
 
     err.puts("This game was measured when it had #{gone.map { |name| "`#{name}`" }.join(', ')}, " \

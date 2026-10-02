@@ -270,7 +270,7 @@ module RubyGBA
         # Mark where the song loops back to. What comes before this plays once, as an
         # introduction; what comes after it repeats for as long as the song plays.
         def loop_from_here
-          @song.loop_from(@current_frame)
+          @song.mark_loop_at(@current_frame)
         end
 
         # Total length of this part in frames.
@@ -351,7 +351,7 @@ module RubyGBA
         # The last two cost NO mixer voice — the console makes those sounds itself — so a busy
         # song reaches for them before it reaches for another recording.
         def voice(name = nil, plays: nil, envelope: nil, &block)
-          raise ArgumentError, mixed_message if @default_voice
+          raise ArgumentError, loose_notes_and_voices_message if @default_voice
           vc = VoiceContext.new(self, plays: plays, name: name, envelope: envelope)
           vc.instance_eval(&block)
           @voices << { name: name, voice: vc }
@@ -367,7 +367,7 @@ module RubyGBA
         def loop_from_here = default_voice.loop_from_here
 
         # A part marked the loop at +frame+ (see VoiceContext#loop_from_here).
-        def loop_from(frame)
+        def mark_loop_at(frame)
           @loop_marks << frame
         end
 
@@ -406,14 +406,14 @@ module RubyGBA
 
         def default_voice
           @default_voice ||= begin
-            raise ArgumentError, mixed_message if @has_blocks
+            raise ArgumentError, loose_notes_and_voices_message if @has_blocks
             vc = VoiceContext.new(self)
             @voices << { name: nil, voice: vc }
             vc
           end
         end
 
-        def mixed_message
+        def loose_notes_and_voices_message
           "write either loose notes or `voice` blocks in a song, not both"
         end
       end

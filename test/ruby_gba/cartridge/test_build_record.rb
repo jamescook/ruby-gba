@@ -86,7 +86,7 @@ class TestBuildRecord < Minitest::Test
   def test_the_record_carries_where_the_build_put_things
     rom = a_built_rom
 
-    assert_predicate rom.built, :fast_frame?, "the game loop's own body moved to quick memory"
+    assert_predicate rom.built, :frame_in_quick_memory?, "the game loop's own body moved to quick memory"
     assert_equal rom.placement, rom.built.placement
     assert_equal rom.var_addresses, rom.built.var_addresses
     assert_equal rom.loop_shapes, rom.built.loop_shapes

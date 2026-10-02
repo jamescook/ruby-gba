@@ -47,8 +47,8 @@ class TestMadeNames < Minitest::Test
       MadeNames.make(:still_sprites) => "writing the sprites nothing moves",
       MadeNames.make(:see_through_amounts, layer: :rays) => "telling the display how see-through layer :rays is",
     }
-    said.each { |name, words| assert_equal words, MadeNames.said(name), name.inspect }
-    assert_nil MadeNames.said(:jump), "a routine the author named is not one of these"
+    said.each { |name, words| assert_equal words, MadeNames.words_for_made_name(name), name.inspect }
+    assert_nil MadeNames.words_for_made_name(:jump), "a routine the author named is not one of these"
   end
 
   # The parts a game chooses — a record's name, a font's, a scene's — spelled to run into

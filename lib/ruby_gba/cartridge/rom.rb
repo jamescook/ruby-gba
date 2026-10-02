@@ -138,7 +138,7 @@ module RubyGBA
       # +scene+ names which screen to measure, and it is usually the thing you want: a game boots
       # to its title, and holding a button will not get past one — a menu reads the press EDGE, so
       # a held button is one press however long it is held. Naming a scene holds the game there
-      # and measures that, with nobody having to play it (see {Profiler.pinned_to}).
+      # and measures that, with nobody having to play it (see {Profiler.profile_pinned_to_scene}).
       #
       # +from+ names a saved moment instead — an emulator save state, made by playing to the
       # moment once. It is the general answer, and the one for a moment a scene cannot give: a
@@ -158,7 +158,7 @@ module RubyGBA
       # in the console's quick memory was copied there at boot.
       def profile(format: :human, out: $stdout, frames: Diagnostics::Profiler::FRAMES,
                   settle: Diagnostics::Profiler::SETTLE, keys: [], scene: nil, from: nil)
-        built! # a cartridge with no record cannot name its own routines
+        require_build_record! # a cartridge with no record cannot name its own routines
         result = Diagnostics::Profiler.run(self, frames: frames, settle: settle, keys: keys, scene: scene,
                               from: from)
         case format
@@ -175,7 +175,7 @@ module RubyGBA
       # What the guardrails said about this cartridge, as data: the check, how serious it was,
       # the message, and the author's line it points at.
       def findings_json
-        built!.findings.map do |finding|
+        require_build_record!.findings.map do |finding|
           { check: finding.check, severity: finding.severity, message: finding.message, at: finding.source }
         end
       end
@@ -207,7 +207,7 @@ module RubyGBA
       private
 
       # What the build worked out, for the two callers that cannot do their job without it.
-      def built!
+      def require_build_record!
         @built || raise(ROMError,
                         "This cartridge does not know how it was built, so it cannot report on itself. " \
                         "Build it with `RubyGBA.build` and the record comes with it.")
@@ -227,7 +227,7 @@ module RubyGBA
 
       def write_code(code)
         raise ArgumentError, "game code must be #{CODE_LENGTH} chars" unless code.bytesize == CODE_LENGTH
-        @buffer[HEADER_CODE, CODE_LENGTH] = GameCode.check!(code)
+        @buffer[HEADER_CODE, CODE_LENGTH] = GameCode.refuse_taken_code!(code)
       end
 
       def write_maker(maker)

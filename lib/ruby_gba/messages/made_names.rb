@@ -103,7 +103,7 @@ module RubyGBA
 
       # What a report calls the routine +name+, or nil when it is not one the build made up (or
       # is a made-up variable, which no report names).
-      def self.said(name)
+      def self.words_for_made_name(name)
         kind, parts = read(name)
         kind && KINDS.fetch(kind).words&.call(parts)
       end

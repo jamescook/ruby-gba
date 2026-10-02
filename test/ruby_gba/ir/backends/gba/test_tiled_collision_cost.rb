@@ -65,7 +65,7 @@ class TestTiledCollisionCost < Minitest::Test
   def test_eight_movers_leave_the_frame_in_the_quick_memory
     rom = game(movers: 8, pillars: 100)
 
-    assert rom.built.fast_frame?, "the frame's own body must stay in the quick memory"
+    assert rom.built.frame_in_quick_memory?, "the frame's own body must stay in the quick memory"
     assert_operator loop_bytes(rom), :<, 8 * 1024,
                     "eight movers should cost a few kilobytes, not tens of them"
   end

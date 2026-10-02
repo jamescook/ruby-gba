@@ -26,7 +26,7 @@ module RubyGBA
         @title = title
         @code = code
         @maker = maker
-        @block = shareable_or_not(block)
+        @block = shareable_if_possible(block)
         @frame_sync = frame_sync
         @fast_cartridge = fast_cartridge
         @fast_code = fast_code
@@ -45,7 +45,7 @@ module RubyGBA
       # belongs to Ruby's own main object and that is not shareable either. Such a game still
       # builds perfectly well — on the core that declared it, which is where it was going to
       # be built anyway. So this tries, and keeps what it was given when it cannot.
-      private def shareable_or_not(block)
+      private def shareable_if_possible(block)
         Ractor.make_shareable(block)
       rescue Ractor::IsolationError
         block

@@ -159,7 +159,7 @@ module RubyGBA
       def transparency_line(program, printer)
         layers = IR::SeeThrough.layers(program)
         layers.each { |layer| see_through_line(layer, printer) }
-        fade_lines(program, layers.first.name, printer) unless layers.empty?
+        see_through_fade_lines(program, layers.first.name, printer) unless layers.empty?
       end
 
       def see_through_line(layer, printer)
@@ -182,7 +182,7 @@ module RubyGBA
       # leaves the layer blending and costs what moving a colour table costs; a fade PLACED in
       # the stack cannot, and takes the layer's blend for as long as it runs. Either way the
       # two verbs are usually written nowhere near each other (see IR::Fading).
-      def fade_lines(program, layer, printer)
+      def see_through_fade_lines(program, layer, printer)
         fading = IR::Fading.resolve(program)
         if fading.any_fade_walks_palette?
           printer.puts "      ...and a fade over the whole screen walks the colours rather than " \
@@ -235,7 +235,7 @@ module RubyGBA
           next if area.nil?
 
           printer.puts format("    %-8s %s of %s used, %s free%s",
-                              what, room(area.used), room(area.capacity), room(area.free),
+                              what, format_bytes(area.used), format_bytes(area.capacity), format_bytes(area.free),
                               storage_note(area))
         end
         object_count_lines(video.objects, printer)
@@ -260,7 +260,7 @@ module RubyGBA
 
       # Picture memory runs from a handful of bytes to tens of kilobytes, and a small sprite
       # rounded to "0.0K" says nothing. Below a kilobyte it is said in bytes.
-      def room(bytes) = bytes < 1024 ? "#{bytes} bytes" : kb(bytes)
+      def format_bytes(bytes) = bytes < 1024 ? "#{bytes} bytes" : kb(bytes)
 
       # How the pictures in one area were stored, and what that saved. Said as a count of
       # pictures rather than as a bit depth: how many colours a picture uses is a fact about the
@@ -268,7 +268,7 @@ module RubyGBA
       def storage_note(area)
         parts = []
         unless area.small.zero?
-          parts << "#{area.small} of #{area.small + area.big} stored small, saving #{room(area.saved)}"
+          parts << "#{area.small} of #{area.small + area.big} stored small, saving #{format_bytes(area.saved)}"
           parts << "#{area.big} use more colours than a small one holds" unless area.big.zero?
         end
         # Nothing in a tileset says which of its tiles are really the same picture, so this is
@@ -277,7 +277,7 @@ module RubyGBA
         # A part one pose shares with another — the head and the still arm of a walk cycle —
         # is stored once. Nothing in the program says which parts those are, so this is the
         # only place the number appears.
-        parts << "#{room(area.repeats)} more saved where poses share a part" if area.repeats.positive?
+        parts << "#{format_bytes(area.repeats)} more saved where poses share a part" if area.repeats.positive?
         # A character with more frames than this memory holds keeps one here and the rest in the
         # cartridge, copied in as it animates. Nothing in the program asks for that, so this is
         # where a reader finds out it happened — and that those frames cost nothing here.
@@ -286,7 +286,7 @@ module RubyGBA
         end
         # A gap left to line a layer up with a starting point of its own. Rare, invisible from
         # the program, and the only part of this memory that is spent on nothing.
-        parts << "#{room(area.skipped)} skipped so a layer could count from a place of its own" if area.skipped.positive?
+        parts << "#{format_bytes(area.skipped)} skipped so a layer could count from a place of its own" if area.skipped.positive?
         parts.empty? ? "" : " (#{parts.join('; ')})"
       end
 

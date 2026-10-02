@@ -174,7 +174,7 @@ class TestEvaluatedGame < Minitest::Test
     end)
 
     assert_equal 1, evaluated.dropped_syncs
-    assert_equal 1, evaluated.pending_conditions.length
+    assert_equal 1, evaluated.unused_conditions.length
     refute_predicate evaluated, :debug_halted?
   end
 end

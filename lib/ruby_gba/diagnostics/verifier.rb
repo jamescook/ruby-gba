@@ -303,7 +303,7 @@ module RubyGBA
       # @param name [Symbol, nil] keep only this declared sprite's rows; nil for every row
       # @return [Array<Hash>]
       def sprites(name = nil)
-        rows = every_sprite
+        rows = named_sprite_rows
         return rows if name.nil?
 
         known = sprite_slots!
@@ -529,7 +529,7 @@ module RubyGBA
       # interpreter's Reference#sound_drops — the same shape, so the two backends' answers meet
       # in one equality. Unmeasured for a program that plays no samples, which can lose none.
       def sound_drops
-        table = drop_table!
+        table = sound_drop_counters!
         table ? table.read { |address| mem32(address) } : SoundDrops::Reading.unmeasured
       end
 
@@ -646,7 +646,7 @@ module RubyGBA
 
       # Every row of the console's table, each with the name of the sprite the game declared it
       # for. Read once per call, so a test that steps the cartridge on sees where things moved to.
-      def every_sprite
+      def named_sprite_rows
         ensure_rendered!
         whose = sprite_slots!.each_with_object({}) do |(name, slots), by_slot|
           slots.each { |slot| by_slot[slot] = name }
@@ -732,7 +732,7 @@ module RubyGBA
 
       # ...and where it counts what it could not play. Same rule: only the build knows, because
       # the counters are hidden variables.
-      def drop_table!
+      def sound_drop_counters!
         unless @rom.built
           raise ArgumentError,
                 "This ROM does not know where it counts the sounds it dropped. Assemble it with " \
@@ -815,7 +815,7 @@ module RubyGBA
         write_save_memory if @save
         @probe = Emulator.probe(@tempfile.path, save_dir: self.class.save_dir)
         @rendered = true
-        count_the_passes if @count_passes
+        watch_game_loop_passes! if @count_passes
         @audio = +"".b
         @audio_by_frame = []
         play(@frames)
@@ -834,18 +834,18 @@ module RubyGBA
         if (holding || @keys).respond_to?(:call)
           count.times do |frame|
             @probe.step(1, keys: keys_for(@played + frame, holding: holding))
-            keep_what_it_played
+            append_played_audio
           end
         else
           @probe.step(count, keys: keys_for(@played, holding: holding))
-          keep_what_it_played
+          append_played_audio
         end
         @played += count
         @pixels = @probe.frame_buffer
       end
 
       # The sound of the frames just played, kept beside the sound of the run so far.
-      def keep_what_it_played
+      def append_played_audio
         @audio_by_frame.concat(@probe.audio_by_frame)
         @audio << @probe.audio_buffer
       end
@@ -853,7 +853,7 @@ module RubyGBA
       # Watch for arrivals at the game loop's first instruction, before any frame runs. A
       # program with no game loop has no such routine, and that is an answer rather than an
       # error — see {#passes}.
-      def count_the_passes
+      def watch_game_loop_passes!
         unless @rom.built
           raise ArgumentError,
                 "This ROM does not know where its game loop is, so its passes cannot be counted. " \
@@ -864,7 +864,7 @@ module RubyGBA
 
         # The start of the pass, or the end of it — see {#passes} for why each shape gets the
         # one it does, and what each means for the pass that is still running when we stop.
-        kept_fast = @rom.built.fast_frame?
+        kept_fast = @rom.built.frame_in_quick_memory?
         @pass_in_flight = kept_fast ? 1 : 0
         @probe.watch_arrivals(kept_fast ? span.begin : span.end)
         @passes_counted = true

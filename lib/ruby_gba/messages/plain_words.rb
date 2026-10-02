@@ -65,7 +65,7 @@ module RubyGBA
       # scene's sprite routine — is said in terms of what the author declared, by the table that
       # made the name (see MadeNames). What is left is a routine the author wrote and named.
       def self.routine(name)
-        ROUTINES.fetch(name) { MadeNames.said(name) || "func :#{name}" }
+        ROUTINES.fetch(name) { MadeNames.words_for_made_name(name) || "func :#{name}" }
       end
 
       # THE VERB AN AUTHOR TYPED, for the few node kinds whose internal name is not that verb. A

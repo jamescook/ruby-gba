@@ -59,7 +59,7 @@ module RubyGBA
           def emit_beep(node)
             effect = RubyGBA::Audio::Sound.resolve_effect(node.tone, duty: node.duty, decay: node.decay,
                                                        volume: node.volume, defined: @defined_sounds)
-            emit_register_writes(RubyGBA::Audio::Sound::Registers.channel2(**effect.to_h))
+            emit_register_writes(RubyGBA::Audio::Sound::Registers.beep_writes(**effect.to_h))
           end
 
           # A one-off percussion / explosion hit on channel 4 (the noise voice).
@@ -68,14 +68,14 @@ module RubyGBA
           def emit_noise(node)
             hit = RubyGBA::Audio::Sound.resolve_noise(node.preset, pitch: node.pitch, decay: node.decay,
                                                      volume: node.volume, metallic: node.metallic)
-            emit_register_writes(RubyGBA::Audio::Sound::Registers.channel4(**hit))
+            emit_register_writes(RubyGBA::Audio::Sound::Registers.noise_hit_writes(**hit))
           end
 
           # Play a sustained wavetable tone on channel 3. Resolve the shape to its
           # sample table, then write the wave-RAM upload and channel-3 control.
           def emit_wave(node)
             samples = RubyGBA::Audio::Sound.wavetable(node.shape)
-            emit_register_writes(RubyGBA::Audio::Sound::Registers.wave_play(samples, frequency: node.frequency, volume: node.volume))
+            emit_register_writes(RubyGBA::Audio::Sound::Registers.wave_start_writes(samples, frequency: node.frequency, volume: node.volume))
             emit_forget_waveform
           end
 

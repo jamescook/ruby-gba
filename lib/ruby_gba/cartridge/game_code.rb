@@ -87,13 +87,13 @@ module RubyGBA
       end
 
       # Refuse a code a real cartridge already carries.
-      def self.check!(code)
+      def self.refuse_taken_code!(code)
         return code unless taken?(code)
 
-        raise ArgumentError, refusal(code)
+        raise ArgumentError, taken_code_message(code)
       end
 
-      def self.refusal(code)
+      def self.taken_code_message(code)
         "The game code #{code.inspect} belongs to a real Game Boy Advance cartridge. " \
           "An emulator reads this code to know which game it has. " \
           "It will show the name of that cartridge. " \
@@ -102,7 +102,7 @@ module RubyGBA
           "To pick a code yourself, use a first letter from #{FREE_LETTERS.join(", ")}. " \
           "No real cartridge uses one of those letters first."
       end
-      private_class_method :refusal
+      private_class_method :taken_code_message
     end
   end
 end

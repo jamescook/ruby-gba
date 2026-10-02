@@ -253,7 +253,7 @@ module RubyGBA
 
         # A one-off sound effect on channel 2 (the SFX channel): duty + volume +
         # fade, then frequency with the trigger bit that restarts the note.
-        def channel2(frequency:, duty:, decay:, volume:)
+        def beep_writes(frequency:, duty:, decay:, volume:)
           control = (duty_bits(duty) << 6) | (volume << 12) | (decay_step(decay) << 8)
           trigger = 0x8000 | frequency_value(frequency)
           [[REG_SOUND2CNT_L, control], [REG_SOUND2CNT_H, trigger]]
@@ -372,7 +372,7 @@ module RubyGBA
         # clock), whether it's the tighter 7-bit "metallic" noise or the full 15-bit
         # hiss, and the restart bit. The envelope fades it to silence, so no note
         # length is needed.
-        def channel4(pitch:, decay:, volume:, metallic:)
+        def noise_hit_writes(pitch:, decay:, volume:, metallic:)
           shift = NOISE_SHIFTS.fetch(pitch) { raise ArgumentError, "unknown noise pitch #{pitch.inspect}" }
           control = (volume << 12) | (decay_step(decay) << 8)  # fades out (envelope counts down)
           trigger = 0x8000 | (shift << 4) | (metallic ? 0x0008 : 0x0000)
@@ -399,7 +399,7 @@ module RubyGBA
         # source of silence (upload to the bank that isn't playing and you hear
         # nothing). To sidestep that entirely we write the same table to *both* banks,
         # so whichever one the channel loops, it loops our waveform.
-        def wave_play(samples, frequency:, volume:)
+        def wave_start_writes(samples, frequency:, volume:)
           level = WAVE_VOLUMES.fetch(volume) { raise ArgumentError, "unknown wave volume #{volume.inspect}" }
           halfwords = pack_wavetable(samples)
 

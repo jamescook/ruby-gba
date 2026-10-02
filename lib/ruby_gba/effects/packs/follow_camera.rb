@@ -113,7 +113,7 @@ module RubyGBA
             return [] if called?(program)
 
             [IR::Guardrails::Finding.new(check: NAME, severity: :warning, message: MESSAGE,
-                                         node: trigger(program) || :program)]
+                                         node: author_call_site(program) || :program)]
           end
 
           private
@@ -126,7 +126,7 @@ module RubyGBA
             program.each.any? { |node| node.kind == :call && node.target == ROUTINE }
           end
 
-          def trigger(program)
+          def author_call_site(program)
             program.each.find { |node| node.kind == :set && node.var == HOME_X }
           end
         end

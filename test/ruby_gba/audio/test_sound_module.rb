@@ -55,7 +55,7 @@ class TestSoundModule < Minitest::Test
     # duty :half=2<<6, volume 15<<12, decay :fast=1<<8 => 0xF180.
     # freq 880 -> period 2048 - round(131072/880) = 1899, plus trigger bit => 0x876B.
     assert_equal [[REG_SOUND2CNT_L, 0xF180], [REG_SOUND2CNT_H, 0x876B]],
-                 Registers.channel2(frequency: 880, duty: :half, decay: :fast, volume: 15)
+                 Registers.beep_writes(frequency: 880, duty: :half, decay: :fast, volume: 15)
   end
 
   def test_channel1_note_sustains_with_no_decay
@@ -85,7 +85,7 @@ class TestSoundModule < Minitest::Test
 
   def test_unknown_duty_is_a_friendly_error
     assert_raises(ArgumentError) do
-      Registers.channel2(frequency: 440, duty: :wobble, decay: :fast, volume: 15)
+      Registers.beep_writes(frequency: 440, duty: :wobble, decay: :fast, volume: 15)
     end
   end
 
@@ -114,11 +114,11 @@ class TestSoundModule < Minitest::Test
     # volume 15 (0xF<<12) + fast decay (step 1 <<8) = 0xF100; trigger sets the
     # restart bit, the low-pitch shift (8<<4 = 0x80), and 15-bit width (metallic off).
     assert_equal [[REG_SOUND4CNT_L, 0xF100], [REG_SOUND4CNT_H, 0x8080]],
-                 Registers.channel4(pitch: :low, decay: :fast, volume: 15, metallic: false)
+                 Registers.noise_hit_writes(pitch: :low, decay: :fast, volume: 15, metallic: false)
   end
 
   def test_metallic_noise_sets_the_seven_bit_width_bit
-    _control, trigger = Registers.channel4(pitch: :high, decay: :fast, volume: 8, metallic: true)
+    _control, trigger = Registers.noise_hit_writes(pitch: :high, decay: :fast, volume: 8, metallic: true)
     assert_equal 0x0008, trigger[1] & 0x0008, "metallic noise sets the 7-bit counter-width bit"
   end
 
@@ -175,7 +175,7 @@ class TestSoundModule < Minitest::Test
   end
 
   def test_wave_play_uploads_the_table_and_triggers_the_channel
-    writes = Registers.wave_play(Sound.wavetable(:sine), frequency: 440, volume: :full)
+    writes = Registers.wave_start_writes(Sound.wavetable(:sine), frequency: 440, volume: :full)
     assert_equal 21, writes.length, "two bank uploads (8 words each) plus 5 control writes"
     assert_equal [REG_SOUND3CNT_L, 0x0000], writes.first, "starts with the DAC off to load wave RAM"
     assert_includes writes, [REG_SOUND3CNT_L, 0x0080], "turns the DAC on to play"
@@ -189,7 +189,7 @@ class TestSoundModule < Minitest::Test
 
   def test_unknown_wave_volume_is_a_friendly_error
     err = assert_raises(ArgumentError) do
-      Registers.wave_play(Sound.wavetable(:sine), frequency: 440, volume: :loud)
+      Registers.wave_start_writes(Sound.wavetable(:sine), frequency: 440, volume: :loud)
     end
     assert_match(/unknown wave volume/, err.message)
   end

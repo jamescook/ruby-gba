@@ -527,7 +527,7 @@ module RubyGBA
               # Say which routine is being weighed, in the words an author would use. The
               # phase is quick now that nothing is priced, but it is the one place a build
               # names the routines it is deciding between, and that is worth seeing.
-              @progress.of(n + 1, ranked.length, Messages::PlainWords.routine(name))
+              @progress.report_count(n + 1, ranked.length, Messages::PlainWords.routine(name))
               next if chosen.include?(name) || forbidden.include?(name)
 
               size = sizes[name]
@@ -583,7 +583,7 @@ module RubyGBA
           def ranked_by_frame_cost(program, sizes)
             @progress.step("choosing what goes in the quick memory")
             names = placeable_names(program, sizes)
-            return @routine_profile.rank(names).select { |name| @routine_profile.worth_moving?(name) } if @routine_profile
+            return @routine_profile.order_by_work(names).select { |name| @routine_profile.worth_quick_memory?(name) } if @routine_profile
 
             reachable_first(program, names)
           end
