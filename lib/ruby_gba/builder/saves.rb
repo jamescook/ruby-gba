@@ -17,9 +17,10 @@ module RubyGBA
       # routine, something run at power-on or once a pass, a variable; and three questions
       # about what the game declared. +handle+ is the Builder itself, for the numbers and
       # conditions (DSL::Value, DSL::Condition) the saves hand back to a game — those build
-      # program through it.
+      # program through it. +save_memory+ is the size the game named with `save_memory:`, in
+      # kilobytes, or nil to let the records decide.
       Port = Data.define(:handle, :record, :repeat, :at_boot, :ensure_var, :declare_func, :run_each_pass,
-                         :start_value, :list_new_node, :save_var, :pool_refill)
+                         :start_value, :list_new_node, :save_var, :pool_refill, :save_memory)
 
       include SaveRecords
       include SavePlaces
@@ -37,6 +38,11 @@ module RubyGBA
       end
 
       def records? = @save_data.any?
+
+      # The save memory the cartridge has, in kilobytes, once the records are laid out: the
+      # size they picked, or the one the game named. A game with no records has what it named,
+      # or the 32K every cartridge has had until now.
+      def save_memory = @save_memory || @port.save_memory || IR::SaveLayout::MEMORIES.first
 
       # Which record keeps each thing, by the name the game declared it with: a variable, a
       # list, a pool kept whole, and :random_numbers for the stream. A pool kept a field at a
@@ -177,8 +183,33 @@ module RubyGBA
       def scratch?(name) = name.start_with?("_")
 
       # Lay the records out, now that every routine the game wrote is built (see
-      # SaveRecords#lay_out_save_records). Nothing to do for a game with no records.
-      def lay_out_save_records = @saves&.lay_out_save_records
+      # SaveRecords#lay_out_save_records), which is also when the cartridge's save memory is
+      # picked. Nothing to lay out for a game with no records.
+      def lay_out_save_records
+        @saves&.lay_out_save_records
+        refuse_flash_save_memory!
+      end
+
+      # How much save memory the cartridge has, in kilobytes (see Saves#save_memory).
+      def save_memory = @saves ? @saves.save_memory : (@save_memory || IR::SaveLayout::MEMORIES.first)
+
+      # 64K and 128K are flash, and nothing writes flash yet.
+      def refuse_flash_save_memory!
+        return if save_memory == IR::SaveLayout::MEMORIES.first
+
+        raise ArgumentError, "This game needs #{save_memory}K of save memory. A cartridge with more than 32K " \
+                             "keeps its saves in flash memory, and flash is not available yet. To fix " \
+                             "this, keep less in each save_data record, or use fewer copies, so that the " \
+                             "records fit in 32K."
+      end
+
+      def refuse_bad_save_memory!(save_memory)
+        return if save_memory.nil? || IR::SaveLayout::MEMORIES.include?(save_memory)
+
+        raise ArgumentError, "save_memory: #{save_memory.inspect} is not a size of save memory. A cartridge " \
+                             "has 32, 64 or 128 kilobytes. To fix this, use one of those numbers, or leave " \
+                             "save_memory: out and the build picks the smallest that holds the saves."
+      end
 
       # Put each peek's reading where the game wrote it, once the whole program is built.
       def resolve_save_data_peeks = @saves&.resolve_save_data_peeks(@program)
@@ -197,6 +228,7 @@ module RubyGBA
           end,
           save_var: method(:persisted?),
           pool_refill: method(:pool_refill_nodes),
+          save_memory: @save_memory,
         ))
       end
     end

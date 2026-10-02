@@ -778,7 +778,7 @@ module RubyGBA
       def self.save_dir = SAVE_DIR
 
       # How much save memory the cartridge's battery-backed chip holds.
-      SAVE_SIZE = 0x8000
+      SAVE_SIZE = IR::SaveLayout::SIZE
 
       # Fill the chip before the console is turned on. The emulator looks for it as a file
       # named after the ROM, in the save directory, and reads it in as the chip's contents.

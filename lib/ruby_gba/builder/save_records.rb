@@ -130,7 +130,7 @@ module RubyGBA
 
         @save_data_settled = true
         @save_data.transform_values! { |layout| layout_with_kept(layout) }
-        check_save_data_room!
+        @save_memory = pick_save_memory!
         declare_save_places
         declare_save_job_routines
         @save_data.each_value { |layout| declare_save_data_record(layout) }
@@ -210,20 +210,40 @@ module RubyGBA
                              "memory cannot tell apart. To fix this, rename one of them."
       end
 
+      # HOW MUCH SAVE MEMORY THE CARTRIDGE HAS: the smallest that holds every record, or the
+      # size the game named with `save_memory:`. Asked once the records are laid out, since
+      # what they keep is only known then.
+      def pick_save_memory!
+        halves = @save_data.values.map { |one| [one.half, one.copies] }
+        pinned = @port.save_memory
+        if pinned
+          refuse_records_over_pinned_memory!(pinned, halves) unless IR::SaveLayout.fits?(pinned, halves)
+          pinned
+        else
+          IR::SaveLayout.smallest_fitting(halves) || refuse_records_over_all_memory!
+        end
+      end
+
       # The records in the order they were declared, each with what it keeps laid out. The
       # first that does not fit beside the ones before it is the one named.
-      def check_save_data_room!
-        room = IR::SaveLayout::SIZE - IR::SaveLayout::DATA_START
+      def refuse_records_over_all_memory!
         records = @save_data.values
-        over = records.each_index.find { |i| records[0..i].sum(&:region) > room }
-        return unless over
-
-        needed = records.sum(&:region)
+        over = records.each_index.find do |i|
+          !IR::SaveLayout.fits?(IR::SaveLayout::MEMORIES.last, records[0..i].map { |one| [one.half, one.copies] })
+        end
         sizes = records.map { |one| ":#{one.name} #{one.region}" }
-        raise ArgumentError, "save_data :#{records[over].name} does not fit in save memory. The records need " \
-                             "#{needed} bytes, and there are #{room}. Each copy is kept twice, so a save " \
-                             "cut off half way cannot lose it. The records take #{sizes.join(', ')} " \
-                             "bytes. To fix this, keep less in each record, or use fewer copies."
+        raise ArgumentError, "save_data :#{records[over].name} does not fit in save memory. The biggest save " \
+                             "memory a cartridge can have is 128K, and the records need more. Each copy is " \
+                             "kept twice, so a save cut off half way cannot lose it. The records take " \
+                             "#{sizes.join(', ')} bytes. To fix this, keep less in each record, or use " \
+                             "fewer copies."
+      end
+
+      def refuse_records_over_pinned_memory!(pinned, halves)
+        needed = IR::SaveLayout.smallest_fitting(halves) or refuse_records_over_all_memory!
+        raise ArgumentError, "This game asks for `save_memory: #{pinned}`, and its save_data records need " \
+                             "#{needed}K. To fix this, ask for `save_memory: #{needed}`, or keep less in " \
+                             "each record, or use fewer copies."
       end
 
       # +layout+ with what it keeps laid out — or a friendly error for a record that keeps

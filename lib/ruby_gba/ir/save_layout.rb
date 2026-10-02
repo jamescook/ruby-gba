@@ -45,6 +45,33 @@ module RubyGBA
       # How much there is to put it in. The console's battery-backed memory is 32K.
       SIZE = 0x8000
 
+      # THE SAVE MEMORIES A CARTRIDGE CAN HAVE, in kilobytes: the 32K above, or a flash chip of
+      # 64K or 128K. Flash keeps a save with no battery, and real cartridges shipped both sizes.
+      MEMORIES = [32, 64, 128].freeze
+
+      # Flash is wiped a block at a time before it can be written again, and this is the block.
+      # So on flash every half of a record starts on one and covers whole ones: wiping a half
+      # can never touch the copy beside it.
+      SECTOR = 0x1000
+
+      # Flash sets aside two blocks for save_var's values and two for the two halves of the
+      # table of places, before any record.
+      FLASH_RESERVED_SECTORS = 4
+
+      # Does a game whose records take +halves+ — one [half_bytes, copies] pair a record — fit
+      # in +kilobytes+ of save memory?
+      def fits?(kilobytes, halves)
+        if kilobytes == 32
+          halves.sum { |half, copies| half * 2 * copies } <= SIZE - DATA_START
+        else
+          sectors = halves.sum { |half, copies| ((half + SECTOR - 1) / SECTOR) * 2 * copies }
+          FLASH_RESERVED_SECTORS + sectors <= kilobytes * 1024 / SECTOR
+        end
+      end
+
+      # The smallest save memory those records fit in, or nil when none holds them.
+      def smallest_fitting(halves) = MEMORIES.find { |kilobytes| fits?(kilobytes, halves) }
+
       MARKER = 0x5441_4453 # "SDAT" as its bytes
       HEADER = 20
       MARKER_AT = 0
