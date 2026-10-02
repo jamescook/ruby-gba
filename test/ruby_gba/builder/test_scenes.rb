@@ -187,6 +187,46 @@ class TestScenes < Minitest::Test
   end
 
   # ========================================================================
+  # func declared from inside another func's body
+  # ========================================================================
+
+  # A routine declared the first time something asks for it: the outer one declares the
+  # middle one inside its own body, and the middle one declares the inner one. Bodies are
+  # built after the program block, so these declarations happen while other bodies are
+  # being built — and each must still be built, or the call to it goes nowhere.
+  DECLARED_INSIDE = lambda do |b|
+    b.instance_eval do
+      func(:outer) do
+        add! :ran_outer, 1
+        func(:middle) do
+          add! :ran_middle, 1
+          func(:inner) { add! :ran_inner, 1 }
+          call :inner
+        end
+        call :middle
+      end
+      call :outer
+      halt
+    end
+  end
+
+  def test_a_func_declared_inside_another_func_body_is_built_however_deep
+    builder = Builder.new
+    DECLARED_INSIDE.call(builder)
+    builder.finalize_program
+    ran = Reference.new.run(builder.program)
+
+    assert_equal [1, 1, 1], [ran[:ran_outer], ran[:ran_middle], ran[:ran_inner]]
+  end
+
+  def test_a_func_declared_inside_another_func_body_is_built_on_hardware
+    rom = build { DECLARED_INSIDE.call(self) }
+    v = assert_emulator_loads_rom(rom, frames: 5, vars: rom.var_addresses)
+
+    assert_equal [1, 1, 1], [v.var(:ran_outer), v.var(:ran_middle), v.var(:ran_inner)]
+  end
+
+  # ========================================================================
   # Integration: runs in mGBA
   # ========================================================================
 
