@@ -164,7 +164,7 @@ class TestTimer < Minitest::Test
         set! :seen, beat.ticks
       end
     end
-    b.emit_pending_functions
+    b.finalize_program
     backend = GBA.new
     rom = ROM.assemble(backend.lower(b.program), title: "TIMR", code: "BTMR", maker: "01")
     v = assert_emulator_loads_rom(rom, frames: 20, vars: backend.var_addresses)
@@ -186,7 +186,7 @@ class TestTimer < Minitest::Test
       timer(:beat, per_second: 60).on_tick { add! :hits, 1 }
       game_loop { wait_vblank }
     end
-    b.emit_pending_functions
+    b.finalize_program
     backend = GBA.new
     rom = ROM.assemble(backend.lower(b.program), title: "TICK", code: "BTCK", maker: "01")
     v = assert_emulator_loads_rom(rom, frames: 20, vars: backend.var_addresses)
@@ -207,7 +207,7 @@ class TestTimer < Minitest::Test
       timer(:beat, per_second: 1200).on_tick { add! :hits, 1 }
       game_loop { wait_vblank }
     end
-    b.emit_pending_functions
+    b.finalize_program
     backend = GBA.new(fast_code: fast_code)
     rom = ROM.assemble(backend.lower(b.program), title: "TICKF", code: "BTKF", maker: "01")
     [assert_emulator_loads_rom(rom, frames: 12, vars: backend.var_addresses).var(:hits),

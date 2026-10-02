@@ -43,7 +43,7 @@ class TestLargeTiledMaps < Minitest::Test
         bg.scroll_to dx, dy
       end
     end
-    builder.emit_pending_functions
+    builder.finalize_program
     builder.program
   end
 
@@ -92,7 +92,7 @@ class TestLargeTiledMaps < Minitest::Test
       background :huge, tiles: :set, map: Array.new(65) { "#" * 65 }
       game_loop {}
     end
-    builder.emit_pending_functions
+    builder.finalize_program
 
     error = assert_raises(GBA::LoweringError) { GBA.new.lower(builder.program) }
     assert_match(/:huge/, error.message)

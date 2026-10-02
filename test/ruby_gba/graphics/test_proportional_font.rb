@@ -71,7 +71,7 @@ class TestProportionalFont < Minitest::Test
   def interpret_screen(&block)
     b = Builder.new
     b.instance_eval(&block)
-    b.emit_pending_functions
+    b.finalize_program
     Reference.new.run(b.program).screen
   end
 
@@ -104,7 +104,7 @@ class TestProportionalFont < Minitest::Test
       draw_text "IM", X, Y, :white, font: :vari
       halt
     end
-    builder.emit_pending_functions
+    builder.finalize_program
     rom = ROM.assemble(GBA.new.lower(builder.program), title: "VARIFNT", code: "BVRF", maker: "01")
     v = assert_emulator_loads_rom(rom, frames: 2)
 
@@ -157,7 +157,7 @@ class TestProportionalFont < Minitest::Test
       draw_number :n, 40, 20, :white, digits: 1, font: :hud # live -> data-driven loop
       draw_number 7,  40, 40, :white, digits: 1, font: :hud # fixed -> draw_text "7" unroll
     end
-    builder.emit_pending_functions
+    builder.finalize_program
     rom = ROM.assemble(GBA.new.lower(builder.program), title: "HUDNUM", code: "BHDN", maker: "01")
     v = assert_emulator_loads_rom(rom, frames: 4)
 

@@ -47,7 +47,7 @@ class TestRoomWalls < Minitest::Test
         moved.set! hero.x
       end
     end
-    builder.emit_pending_functions
+    builder.finalize_program
     builder.program
   end
 

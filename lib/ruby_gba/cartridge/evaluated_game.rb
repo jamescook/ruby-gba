@@ -41,7 +41,7 @@ module RubyGBA
         @builder.check_settings_were_asked! unless @builder.debug_halted?
         # Finalizing the tree is also what paces it: `game_loop` runs once per frame and the
         # builder writes that wait itself, so nothing downstream has to think about it.
-        @builder.emit_pending_functions
+        @builder.finalize_program
         @program = @builder.program
       end
 

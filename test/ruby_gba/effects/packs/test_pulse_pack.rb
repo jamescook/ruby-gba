@@ -33,7 +33,7 @@ class TestPulsePack < Minitest::Test
         (f >= frames).then { halt }
       end
     end
-    builder.emit_pending_functions
+    builder.finalize_program
     builder.program
   end
 
@@ -104,7 +104,7 @@ class TestPulsePack < Minitest::Test
       pulse sprite(:block, at: [100, 60]), to: 1.5
       halt
     end
-    builder.emit_pending_functions
+    builder.finalize_program
 
     findings = RubyGBA::IR::Guardrails::Validator.new.run(builder.program, autofix: false).findings
     pulse_finding = findings.find { |finding| finding.check == :pulse_needs_game_loop }
@@ -144,7 +144,7 @@ class TestPulsePack < Minitest::Test
       pulse block, to: 1.2, over: 0.5
       game_loop { wait_vblank }
     end
-    builder.emit_pending_functions
+    builder.finalize_program
 
     routines = builder.program.walk.select { |node| node.kind == :func }
                       .select { |node| node.name.to_s.start_with?("__pulse___obj1") }

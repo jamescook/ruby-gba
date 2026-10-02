@@ -51,7 +51,7 @@ class TestScenePresentation < Minitest::Test
         end
       end
     end
-    b.emit_pending_functions
+    b.finalize_program
     b.program
   end
 

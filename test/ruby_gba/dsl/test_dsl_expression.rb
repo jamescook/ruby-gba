@@ -23,7 +23,7 @@ class TestDSLExpression < Minitest::Test
   def interpret(held: nil, each_frame: nil, **opts, &block)
     builder = Builder.new
     builder.instance_eval(&block)
-    builder.emit_pending_functions
+    builder.finalize_program
 
     ruby = Reference.new
     ruby = ruby.hold(held) if held
@@ -42,7 +42,7 @@ class TestDSLExpression < Minitest::Test
   def tree(&block)
     builder = Builder.new
     builder.instance_eval(&block)
-    builder.emit_pending_functions
+    builder.finalize_program
     builder.program
   end
 
@@ -262,7 +262,7 @@ class TestDSLExpression < Minitest::Test
       end
       halt
     end
-    builder.emit_pending_functions
+    builder.finalize_program
     builder.program
   end
 

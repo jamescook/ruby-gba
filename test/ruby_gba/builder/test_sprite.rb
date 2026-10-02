@@ -33,7 +33,7 @@ class TestSprite < Minitest::Test
         instance_exec(hero, &body) if body
       end
     end
-    builder.emit_pending_functions
+    builder.finalize_program
     builder.program
   end
 
@@ -76,7 +76,7 @@ class TestSprite < Minitest::Test
         hero.x.add! 2                    # drive right, across the blue detail
       end
     end
-    builder.emit_pending_functions
+    builder.finalize_program
     builder.program
   end
 
@@ -141,7 +141,7 @@ class TestSprite < Minitest::Test
         (frame == 3).then { back.move_to 50, 130 }  # ...then the back one
       end
     end
-    b.emit_pending_functions
+    b.finalize_program
     screen = Reference.new.run(b.program, frames: 6).screen
 
     whole_sprite = 8 * 8 # these two are 8x8, not the 4x4 BLOCK the rest of the file uses
@@ -218,7 +218,7 @@ class TestSprite < Minitest::Test
         after(halt_on) { halt }
       end
     end
-    builder.emit_pending_functions
+    builder.finalize_program
     builder.program
   end
 

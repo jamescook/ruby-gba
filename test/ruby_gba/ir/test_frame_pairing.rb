@@ -124,7 +124,7 @@ class TestFramePairing < Minitest::Test
   def tree_of(source)
     builder = Builder.new
     builder.instance_eval(&source)
-    builder.emit_pending_functions
+    builder.finalize_program
     builder.program
   end
 end

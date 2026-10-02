@@ -16,7 +16,7 @@ class TestScreenLayout < Minitest::Test
   private def plan(&game)
     b = Builder.new
     b.instance_eval(&game)
-    b.emit_pending_functions
+    b.finalize_program
     @program = b.program
     GBA::ScreenLayout.plan(@program)
   end

@@ -198,7 +198,7 @@ class TestBiosCompress < Minitest::Test
         halt
       end
     end
-    b.emit_pending_functions
+    b.finalize_program
     b.program
   end
 

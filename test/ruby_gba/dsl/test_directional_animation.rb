@@ -40,7 +40,7 @@ class TestDirectionalAnimation < Minitest::Test
         (f >= run).then { halt }
       end
     end
-    builder.emit_pending_functions
+    builder.finalize_program
     builder.program
   end
 

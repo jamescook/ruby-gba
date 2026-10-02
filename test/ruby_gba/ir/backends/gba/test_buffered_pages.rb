@@ -39,7 +39,7 @@ class TestBufferedPages < Minitest::Test
         n.add! 1
       end
     end
-    b.emit_pending_functions
+    b.finalize_program
     b.program
   end
 
@@ -79,7 +79,7 @@ class TestBufferedPages < Minitest::Test
         fill_rect 100, 60, 40, 40, :blue
       end
     end
-    b.emit_pending_functions
+    b.finalize_program
     prog = b.program
 
     i = Reference.new.run(prog, frames: BARS)
@@ -100,7 +100,7 @@ class TestBufferedPages < Minitest::Test
       fill_rect 100, 60, 40, 40, :blue
       halt
     end
-    b.emit_pending_functions
+    b.finalize_program
     prog = b.program
 
     i = Reference.new.run(prog)
@@ -123,7 +123,7 @@ class TestBufferedPages < Minitest::Test
       wait_vblank
       halt
     end
-    b.emit_pending_functions
+    b.finalize_program
 
     i = Reference.new.run(b.program)
     assert_equal Color.resolve(:red), i.screen.pixel(10, 10)
@@ -143,7 +143,7 @@ class TestBufferedPages < Minitest::Test
         n.add! 1
       end
     end
-    b.emit_pending_functions
+    b.finalize_program
 
     i = Reference.new.run(b.program, frames: BARS)
     assert_equal (0...BARS).to_a, bars_shown(i.screen.to_a)

@@ -44,7 +44,7 @@ class TestHitbox < Minitest::Test
         halt
       end
     end
-    b.emit_pending_functions
+    b.finalize_program
     Reference.new.run(b.program, max_steps: 2_000)[:hit] == 1
   end
 
@@ -115,7 +115,7 @@ class TestHitbox < Minitest::Test
         halt
       end
     end
-    b.emit_pending_functions
+    b.finalize_program
     # The union includes the wide pose (full 8 wide), so the box reaches x108 and touches
     # the bar even though the sprite currently shows the narrow pose.
     assert_equal 1, Reference.new.run(b.program, max_steps: 2_000)[:hit],
@@ -136,7 +136,7 @@ class TestHitbox < Minitest::Test
         a.overlaps?(hit_me).then { hit_me.move_to 0, 0 } # on a real hit, snap it to the corner
       end
     end
-    b.emit_pending_functions
+    b.finalize_program
     rom = ROM.assemble(GBA.new.lower(b.program), title: "HITBOX", code: "BHIT", maker: "01")
     v = assert_emulator_loads_rom(rom, frames: 8)
     # It collided and snapped to (0,0), so its visible block (offset 2,2) is white there.

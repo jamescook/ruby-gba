@@ -100,7 +100,7 @@ class TestSheetImport < Minitest::Test
         background :bg, tiles: :dungeon, map: ["#.", ".#"]
         game_loop { wait_vblank; halt }
       end
-      builder.emit_pending_functions
+      builder.finalize_program
       builder.program
     end
 
@@ -140,7 +140,7 @@ class TestSheetImport < Minitest::Test
         hero = sprite :hero, at: [10, 10], frames_from: "/sheet/walk.png", tile: 8, rate: 1000
         game_loop { wait_vblank; hero.move(1, 0); halt }
       end
-      builder.emit_pending_functions
+      builder.finalize_program
       builder.program
     end
 
@@ -161,7 +161,7 @@ class TestSheetImport < Minitest::Test
                              colors: %i[transparent red blue]
         game_loop { hero.draw_with :hurt }
       end
-      builder.emit_pending_functions
+      builder.finalize_program
       builder.program
     end
   end
@@ -189,7 +189,7 @@ class TestSheetImport < Minitest::Test
         hero = sprite :hero, at: [10, 10], frames_from: "/sheet/walk.png", tile: 8, rate: 1000, colors: :own_art
         game_loop { hero.draw_with :hurt }
       end
-      builder.emit_pending_functions
+      builder.finalize_program
       builder.program
     end
 

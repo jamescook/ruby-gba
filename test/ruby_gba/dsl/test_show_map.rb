@@ -36,7 +36,7 @@ class TestShowMap < Minitest::Test
         instance_exec(rooms, frames, &steering)
       end
     end
-    builder.emit_pending_functions
+    builder.finalize_program
     builder.program
   end
 
@@ -144,7 +144,7 @@ class TestShowMap < Minitest::Test
       rooms.show_map :cave
       halt
     end
-    builder.emit_pending_functions
+    builder.finalize_program
 
     screen = Reference.new.run(builder.program, max_steps: 100_000).screen
 
@@ -254,7 +254,7 @@ class TestShowMap < Minitest::Test
         rooms.scroll_to 256, 0
       end
     end
-    builder.emit_pending_functions
+    builder.finalize_program
     builder.program
   end
 
@@ -295,7 +295,7 @@ class TestShowMap < Minitest::Test
         (frames == 2).then { rooms.show_map pick }
       end
     end
-    builder.emit_pending_functions
+    builder.finalize_program
     builder.program
   end
 

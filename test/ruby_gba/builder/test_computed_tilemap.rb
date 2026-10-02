@@ -52,7 +52,7 @@ class TestComputedTilemap < Minitest::Test
       background :board, tiles: :room, map: [[0, 1],
                                              [1, 0]]
     end
-    b.emit_pending_functions
+    b.finalize_program
     b.program
   end
 
@@ -77,7 +77,7 @@ class TestComputedTilemap < Minitest::Test
       background :spots, tiles: :room, map: [[0, nil],
                                              [nil, 0]]
     end
-    b.emit_pending_functions
+    b.finalize_program
     i = Reference.new.run(b.program)
     assert_equal Color.resolve(:red),   i.screen.pixel(0, 0), "cell (0,0) has a tile"
     assert_equal Color.resolve(:green), i.screen.pixel(4, 0), "cell (1,0) is blank — the field shows"
@@ -96,7 +96,7 @@ class TestComputedTilemap < Minitest::Test
     b.instance_eval do
       background :field, tiles: :many, map: (0...10).map { |r| (0...10).map { |c| (r * 10) + c } }
     end
-    b.emit_pending_functions
+    b.finalize_program
     i = Reference.new.run(b.program)
     assert_equal RubyGBA::Graphics::Color.rgb(0, 0, 0),  i.screen.pixel(0, 0),   "cell (0,0) is tile 0"
     assert_equal RubyGBA::Graphics::Color.rgb(99 % 32, 0, 0), i.screen.pixel(36, 36),
@@ -114,7 +114,7 @@ class TestComputedTilemap < Minitest::Test
     b.instance_eval do
       background :rooms, tiles: :room, map: { hall: [[0, 0]], cave: [[1, 1]] }
     end
-    b.emit_pending_functions
+    b.finalize_program
     i = Reference.new.run(b.program)
     assert_equal Color.resolve(:red), i.screen.pixel(0, 0), "the first map is the one showing at boot"
   end
@@ -130,7 +130,7 @@ class TestComputedTilemap < Minitest::Test
       tiles :world, from: SHEET, tile: 8 # no characters: cell 0 -> tile 1, cell 1 -> tile 2
       background :room, tiles: :world, map: [[1, 2]]
     end
-    b.emit_pending_functions
+    b.finalize_program
     s = Reference.new.run(b.program).screen
     assert_equal Assets::BRICK, s.pixel(0, 3), "tile 1 is the sheet's first cell"
     assert_equal Assets::FLOOR, s.pixel(8, 3), "tile 2 is the sheet's second cell"
@@ -192,7 +192,7 @@ class TestComputedTilemap < Minitest::Test
         held(:right).then { hero.move :right, by: 2 }
       end
     end
-    b.emit_pending_functions
+    b.finalize_program
     b.program
   end
 
@@ -258,7 +258,7 @@ class TestComputedTilemap < Minitest::Test
       background :board, tiles: :room, map: [[0, 1], [1, 0]]
       halt
     end
-    b.emit_pending_functions
+    b.finalize_program
     rom = assemble_rom(b.program, name: "COMPUTED")
     v = assert_emulator_loads_rom(rom, frames: 2)
     assert v.red?(1, 1),  "tile 0 renders in cell (0,0)"

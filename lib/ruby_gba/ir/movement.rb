@@ -144,7 +144,7 @@ module RubyGBA
 
       # The part of "is it shown" that belongs to the object rather than to its scene. A
       # thing outside every scene is shown by its own visibility alone; one inside a scene
-      # carries that AND the test the builder put there (Builder#scene_gate), so the test
+      # carries that AND the test the builder put there (Builder#gated_by_scene), so the test
       # comes off and what is left has to be settled. Nothing else may stand in that place.
       def own_visibility(node, gates)
         return node.active if node.scene.nil?

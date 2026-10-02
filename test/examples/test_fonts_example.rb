@@ -45,7 +45,7 @@ class TestFontsExample < Minitest::Test
   def build_number(font:)
     b = RubyGBA::Builder.new
     b.instance_eval { screen :bitmap; draw_number FontsDemo::SCORE, 8, 8, :green, digits: 5, font: font; halt }
-    b.emit_pending_functions
+    b.finalize_program
     b.program
   end
 

@@ -39,7 +39,7 @@ class TestScrollTearing < Minitest::Test
         bg.scroll_to x, 0
       end
     end
-    builder.emit_pending_functions
+    builder.finalize_program
     builder.program
   end
 
@@ -84,7 +84,7 @@ class TestScrollTearing < Minitest::Test
         held(:right).then { x.add! 4; bg.scroll_to x, 0 }
       end
     end
-    builder.emit_pending_functions
+    builder.finalize_program
     program = builder.program
 
     still = Reference.new.run(program, frames: 6).screen

@@ -516,12 +516,12 @@ module RubyGBA
       def hud_glyph_object(poses:, pose:, x:, y:)
         name = :"__hud#{@sprite_seq += 1}"
         # A HUD glyph is always shown, so active starts at 1 — and then picks up the two
-        # things that can narrow it. scene_gate scopes it to when its scene is the live
-        # one, so a scene's HUD comes and goes with the scene. condition_gate carries the
+        # things that can narrow it. gated_by_scene scopes it to when its scene is the live
+        # one, so a scene's HUD comes and goes with the scene. gated_by_open_conditions carries the
         # tests it was written under, so `(blink == 1).then { draw_text ... }` blinks
         # instead of standing still. Neither needs anything toggled by hand.
         record(Build.object(name, poses: poses, pose: pose, x: Build.int(x), y: Build.int(y),
-                                  active: condition_gate(scene_gate(Build.int(1))),
+                                  active: gated_by_open_conditions(gated_by_scene(Build.int(1))),
                                   scene: declaring_scene))
         @hud_objects << name
         name
@@ -594,7 +594,7 @@ module RubyGBA
       # Same idea as the `wrote:` a routine carries (see Scenes#declare_func): a
       # diagnostic is for what a person typed, and the framework's own emissions are
       # never its subject.
-      def verb_owns_its_text(verb)
+      def with_text_owned_by(verb)
         outer = @verb_owns_text
         @verb_owns_text = verb
         yield
@@ -617,7 +617,7 @@ module RubyGBA
         return if @building_scene # a scene declares its own HUD in its body (built once, off the loop)
         # A test around the call is still one declaration, not a per-frame one: the block
         # runs once while the program is built, and the condition rides onto the glyph so
-        # it is shown while the test holds (see Builder#condition_gate). That is how a
+        # it is shown while the test holds (see Builder#gated_by_open_conditions). That is how a
         # prompt blinks, so it is allowed — what stays refused is a per-frame body.
         return if @container_stack.drop(1).all? { |open| CONDITION_CONTAINERS.include?(open.kind) }
 

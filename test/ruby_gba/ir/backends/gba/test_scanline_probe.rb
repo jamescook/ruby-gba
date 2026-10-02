@@ -26,7 +26,7 @@ class TestScanlineProbe < Minitest::Test
       set! :sample, read_scanline
       halt
     end
-    builder.emit_pending_functions
+    builder.finalize_program
     backend = GBA.new
     rom = ROM.assemble(backend.lower(builder.program), title: "SCANL", code: "BSCN", maker: "01")
     v = assert_emulator_loads_rom(rom, frames: 3, vars: backend.var_addresses)

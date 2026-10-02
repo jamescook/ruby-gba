@@ -28,7 +28,7 @@ class TestSavePlaces < Minitest::Test
       end
       game_loop {}
     end
-    builder.emit_pending_functions
+    builder.finalize_program
     builder.program
   end
 

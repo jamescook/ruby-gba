@@ -37,7 +37,7 @@ class TestBlitOneOf < Minitest::Test
       blit %i[calm hurt dying], 40, 40, showing: state
       game_loop { wait_vblank }
     end
-    b.emit_pending_functions
+    b.finalize_program
     b.program
   end
 
@@ -75,7 +75,7 @@ class TestBlitOneOf < Minitest::Test
       blit %i[calm hurt dying], 40, 40, showing: hurt + look
       game_loop { wait_vblank }
     end
-    b.emit_pending_functions
+    b.finalize_program
 
     assert_equal RED, Reference.new.run(b.program).screen.pixel(42, 42),
                  "1 + 1 picked the third picture"

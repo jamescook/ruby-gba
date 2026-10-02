@@ -50,14 +50,14 @@ module RubyGBA
 
       def table_list(column) = Messages::MadeNames.make(:save_table, column: column)
       def places_name(what) = Messages::MadeNames.make(:save_places, piece: what)
-      def sp(what) = sd_var(places_name(what))
-      def sp_set(what, value) = record(Build.set(places_name(what), value.is_a?(Integer) ? sd_int(value) : value))
+      def place_var(what) = sd_var(places_name(what))
+      def set_place_var(what, value) = record(Build.set(places_name(what), value.is_a?(Integer) ? sd_int(value) : value))
       def sp_call(what) = record(Build.call(places_name(what)))
       def sp_op(op, lhs, rhs) = Build.binop(op, lhs, rhs)
 
       def cell(column, row) = Build.list_get(table_list(column), row)
       def set_cell(column, row, value) = record(Build.list_set(table_list(column), row, value))
-      def live(row) = sp_op(:!=, cell(:key, row), sd_int(0))
+      def row_in_use(row) = sp_op(:!=, cell(:key, row), sd_int(0))
       def row_size(row) = sp_op(:*, cell(:half, row), sp_op(:*, cell(:copies, row), sd_int(2)))
       def row_end(row) = sd_add(cell(:at, row), row_size(row))
 
@@ -73,13 +73,13 @@ module RubyGBA
         declare_save_data_lists(@save_table)
         declare_save_data_routines(@save_table, %i[scan save load])
         SCRATCH.each { |what| ensure_var(places_name(what)) }
-        %i[all one room fits reclaim compact grow move clear commit].each do |job|
+        %i[boot place_record find_room fits reclaim compact grow move clear commit].each do |job|
           declare_func(places_name(job)) { send(:"save_places_#{job}") }
         end
-        at_boot(Build.call(places_name(:all)))
+        at_boot(Build.call(places_name(:boot)))
       end
 
-      def save_places_all
+      def save_places_boot
         record(Build.set(@save_table.scratch(:copy), sd_int(0)))
         record(Build.call(@save_table.routine(:scan)))
         record(Build.call(@save_table.routine(:load)))
@@ -88,30 +88,30 @@ module RubyGBA
           short = sp_op(:-, sd_int(ROWS), Build.list_len(table_list(column)))
           repeat(DSL::Value.new(handle, short)) { |_| record(Build.list_push(table_list(column), sd_int(0))) }
         end
-        sp_set(:changed, 0)
-        repeat(ROWS) { |i| save_places_settle_row(i.node) }
+        set_place_var(:changed, 0)
+        repeat(ROWS) { |i| save_places_reconcile_row(i.node) }
         @save_data.each_value do |layout|
-          sp_set(:key, layout.key)
-          sp_set(:half, layout.half)
-          sp_set(:copies, layout.copies)
-          sp_call(:one)
-          record(Build.set(layout.place, sp(:place)))
+          set_place_var(:key, layout.key)
+          set_place_var(:half, layout.half)
+          set_place_var(:copies, layout.copies)
+          sp_call(:place_record)
+          record(Build.set(layout.place, place_var(:place)))
         end
-        sd_when(sd_eq(sp(:changed), sd_int(1))) { sp_call(:commit) }
+        sd_when(sd_eq(place_var(:changed), sd_int(1))) { sp_call(:commit) }
       end
 
       # One row against the records this build declares: a record that keeps other things now
       # frees its room, and one with fewer copies gives up the room past them.
-      def save_places_settle_row(row)
+      def save_places_reconcile_row(row)
         @save_data.each_value do |layout|
           sd_when(sd_eq(cell(:key, row), sd_int(layout.key))) do
             sd_when(sp_op(:!=, cell(:half, row), sd_int(layout.half))) do
               set_cell(:key, row, sd_int(0))
-              sp_set(:changed, 1)
+              set_place_var(:changed, 1)
             end
             sd_when(sp_op(:>, cell(:copies, row), sd_int(layout.copies))) do
               set_cell(:copies, row, sd_int(layout.copies))
-              sp_set(:changed, 1)
+              set_place_var(:changed, 1)
             end
           end
         end
@@ -119,15 +119,15 @@ module RubyGBA
 
       # PLACE ONE RECORD, named by the key, half and copies scratch; leaves where it starts
       # in the place scratch.
-      def save_places_one
-        sp_set(:need, sp_op(:*, sp(:half), sp_op(:*, sp(:copies), sd_int(2))))
-        sp_set(:found, -1)
-        repeat(ROWS) { |i| sd_when(sd_eq(cell(:key, i.node), sp(:key))) { sp_set(:found, i.node) } }
-        sd_when(sd_eq(sp(:found), sd_int(-1))) { save_places_new_row }
+      def save_places_place_record
+        set_place_var(:need, sp_op(:*, place_var(:half), sp_op(:*, place_var(:copies), sd_int(2))))
+        set_place_var(:found, -1)
+        repeat(ROWS) { |i| sd_when(sd_eq(cell(:key, i.node), place_var(:key))) { set_place_var(:found, i.node) } }
+        sd_when(sd_eq(place_var(:found), sd_int(-1))) { save_places_new_row }
           .else do
-            sd_when(sp_op(:<, cell(:copies, sp(:found)), sp(:copies))) { sp_call(:grow) }
+            sd_when(sp_op(:<, cell(:copies, place_var(:found)), place_var(:copies))) { sp_call(:grow) }
           end
-        sp_set(:place, cell(:at, sp(:found)))
+        set_place_var(:place, cell(:at, place_var(:found)))
       end
 
       # A record with no row: a free row, and room for all its copies.
@@ -138,34 +138,34 @@ module RubyGBA
       # record would be written over that record's row.
       def save_places_new_row
         save_places_free_row
-        sd_when(sd_eq(sp(:row), sd_int(-1))) do
+        sd_when(sd_eq(place_var(:row), sd_int(-1))) do
           sp_call(:reclaim)
           save_places_free_row
         end
-        sp_set(:found, sp(:row))
-        sp_set(:skip, -1)
-        sp_call(:room)
-        sd_when(sd_eq(sp(:room), sd_int(-1))) do
+        set_place_var(:found, place_var(:row))
+        set_place_var(:skip, -1)
+        sp_call(:find_room)
+        sd_when(sd_eq(place_var(:room), sd_int(-1))) do
           sp_call(:reclaim)
-          sp_call(:room)
+          sp_call(:find_room)
         end
-        sd_when(sd_eq(sp(:room), sd_int(-1))) do
+        sd_when(sd_eq(place_var(:room), sd_int(-1))) do
           sp_call(:compact)
-          sp_set(:room, sp(:cursor))
+          set_place_var(:room, place_var(:cursor))
         end
-        { key: sp(:key), at: sp(:room), half: sp(:half), copies: sp(:copies) }.each do |column, value|
-          set_cell(column, sp(:found), value)
+        { key: place_var(:key), at: place_var(:room), half: place_var(:half), copies: place_var(:copies) }.each do |column, value|
+          set_cell(column, place_var(:found), value)
         end
-        sp_set(:first, 0)
+        set_place_var(:first, 0)
         sp_call(:clear)
-        sp_set(:changed, 1)
+        set_place_var(:changed, 1)
       end
 
       def save_places_free_row
-        sp_set(:row, -1)
+        set_place_var(:row, -1)
         repeat(ROWS) do |i|
-          free = sd_and(sd_eq(cell(:key, i.node), sd_int(0)), sd_eq(sp(:row), sd_int(-1)))
-          sd_when(free) { sp_set(:row, i.node) }
+          free = sd_and(sd_eq(cell(:key, i.node), sd_int(0)), sd_eq(place_var(:row), sd_int(-1)))
+          sd_when(free) { set_place_var(:row, i.node) }
         end
       end
 
@@ -175,30 +175,30 @@ module RubyGBA
       # records are slid down together, and those above this one are then lifted by as much as
       # it grows.
       def save_places_grow
-        found = sp(:found)
-        sp_set(:first, cell(:copies, found))
-        sp_set(:probe, cell(:at, found))
-        sp_set(:skip, found)
+        found = place_var(:found)
+        set_place_var(:first, cell(:copies, found))
+        set_place_var(:probe, cell(:at, found))
+        set_place_var(:skip, found)
         sp_call(:fits)
-        sd_when(sd_eq(sp(:fits), sd_int(0))) do
-          sp_set(:skip, -1)
-          sp_call(:room)
-          sd_when(sd_eq(sp(:room), sd_int(-1))) do
+        sd_when(sd_eq(place_var(:fits), sd_int(0))) do
+          set_place_var(:skip, -1)
+          sp_call(:find_room)
+          sd_when(sd_eq(place_var(:room), sd_int(-1))) do
             sp_call(:reclaim)
-            sp_call(:room)
+            sp_call(:find_room)
           end
-          sd_when(sp_op(:!=, sp(:room), sd_int(-1))) do
-            sp_set(:row, found)
-            sp_set(:to, sp(:room))
+          sd_when(sp_op(:!=, place_var(:room), sd_int(-1))) do
+            set_place_var(:row, found)
+            set_place_var(:to, place_var(:room))
             sp_call(:move)
           end.else do
             sp_call(:compact)
             save_places_lift_above(found)
           end
         end
-        set_cell(:copies, found, sp(:copies))
+        set_cell(:copies, found, place_var(:copies))
         sp_call(:clear)
-        sp_set(:changed, 1)
+        set_place_var(:changed, 1)
       end
 
       # WIPE WHAT A RECORD HAS JUST BEEN GIVEN: the copies from the first scratch up to the
@@ -209,12 +209,12 @@ module RubyGBA
       # it read as never saved. It runs before the table is written, into room the table on
       # the chip does not give to anything, so the power going off here costs nothing.
       def save_places_clear
-        place = cell(:at, sp(:found))
-        count = sp_op(:-, sp(:copies), sp(:first))
+        place = cell(:at, place_var(:found))
+        count = sp_op(:-, place_var(:copies), place_var(:first))
         repeat(DSL::Value.new(handle, count)) do |k|
-          copy_at = sd_add(place, sp_op(:*, sd_add(sp(:first), k.node), sp_op(:*, sp(:half), sd_int(2))))
+          copy_at = sd_add(place, sp_op(:*, sd_add(place_var(:first), k.node), sp_op(:*, place_var(:half), sd_int(2))))
           2.times do |half|
-            marker = sd_add(copy_at, sd_add(sp_op(:*, sp(:half), sd_int(half)), sd_int(IR::SaveLayout::MARKER_AT)))
+            marker = sd_add(copy_at, sd_add(sp_op(:*, place_var(:half), sd_int(half)), sd_int(IR::SaveLayout::MARKER_AT)))
             record(Build.save_write(marker, sd_int(0)))
           end
         end
@@ -223,23 +223,23 @@ module RubyGBA
       # Lift every record above +row+ by how much it grows, the highest first so none is
       # written over before it has moved.
       def save_places_lift_above(row)
-        sp_set(:extra, sp_op(:-, sp(:need), row_size(row)))
-        sp_set(:limit, sd_int(IR::SaveLayout::SIZE))
+        set_place_var(:extra, sp_op(:-, place_var(:need), row_size(row)))
+        set_place_var(:limit, sd_int(IR::SaveLayout::SIZE))
         repeat(ROWS) do
-          sp_set(:pick, -1)
-          sp_set(:low, cell(:at, row))
+          set_place_var(:pick, -1)
+          set_place_var(:low, cell(:at, row))
           repeat(ROWS) do |i|
-            higher = sd_and(sd_and(live(i.node), sp_op(:>, cell(:at, i.node), sp(:low))),
-                            sp_op(:<, cell(:at, i.node), sp(:limit)))
+            higher = sd_and(sd_and(row_in_use(i.node), sp_op(:>, cell(:at, i.node), place_var(:low))),
+                            sp_op(:<, cell(:at, i.node), place_var(:limit)))
             sd_when(higher) do
-              sp_set(:pick, i.node)
-              sp_set(:low, cell(:at, i.node))
+              set_place_var(:pick, i.node)
+              set_place_var(:low, cell(:at, i.node))
             end
           end
-          sd_when(sp_op(:!=, sp(:pick), sd_int(-1))) do
-            sp_set(:limit, cell(:at, sp(:pick)))
-            sp_set(:row, sp(:pick))
-            sp_set(:to, sd_add(cell(:at, sp(:pick)), sp(:extra)))
+          sd_when(sp_op(:!=, place_var(:pick), sd_int(-1))) do
+            set_place_var(:limit, cell(:at, place_var(:pick)))
+            set_place_var(:row, place_var(:pick))
+            set_place_var(:to, sd_add(cell(:at, place_var(:pick)), place_var(:extra)))
             sp_call(:move)
           end
         end
@@ -247,17 +247,17 @@ module RubyGBA
 
       # ROOM FOR +need+ bytes, in the room scratch, or -1: the start of save data, or the end
       # of any record, whichever comes first with nothing in the way.
-      def save_places_room
-        sp_set(:room, -1)
-        sp_set(:probe, IR::SaveLayout::DATA_START)
+      def save_places_find_room
+        set_place_var(:room, -1)
+        set_place_var(:probe, IR::SaveLayout::DATA_START)
         sp_call(:fits)
-        sd_when(sd_eq(sp(:fits), sd_int(1))) { sp_set(:room, sp(:probe)) }
+        sd_when(sd_eq(place_var(:fits), sd_int(1))) { set_place_var(:room, place_var(:probe)) }
         repeat(ROWS) do |i|
-          candidate = sd_and(sd_and(sd_eq(sp(:room), sd_int(-1)), live(i.node)), sp_op(:!=, i.node, sp(:skip)))
+          candidate = sd_and(sd_and(sd_eq(place_var(:room), sd_int(-1)), row_in_use(i.node)), sp_op(:!=, i.node, place_var(:skip)))
           sd_when(candidate) do
-            sp_set(:probe, row_end(i.node))
+            set_place_var(:probe, row_end(i.node))
             sp_call(:fits)
-            sd_when(sd_eq(sp(:fits), sd_int(1))) { sp_set(:room, sp(:probe)) }
+            sd_when(sd_eq(place_var(:fits), sd_int(1))) { set_place_var(:room, place_var(:probe)) }
           end
         end
       end
@@ -265,12 +265,12 @@ module RubyGBA
       # Whether +need+ bytes from +probe+ are inside save memory and clear of every record but
       # the one in +skip+.
       def save_places_fits
-        ends = sd_add(sp(:probe), sp(:need))
-        sp_set(:fits, sp_op(:<=, ends, sd_int(IR::SaveLayout::SIZE)))
+        ends = sd_add(place_var(:probe), place_var(:need))
+        set_place_var(:fits, sp_op(:<=, ends, sd_int(IR::SaveLayout::SIZE)))
         repeat(ROWS) do |i|
-          clear = sp_op(:|, sp_op(:<=, ends, cell(:at, i.node)), sp_op(:>=, sp(:probe), row_end(i.node)))
-          sd_when(sd_and(sd_and(live(i.node), sp_op(:!=, i.node, sp(:skip))), sd_eq(clear, sd_int(0)))) do
-            sp_set(:fits, 0)
+          clear = sp_op(:|, sp_op(:<=, ends, cell(:at, i.node)), sp_op(:>=, place_var(:probe), row_end(i.node)))
+          sd_when(sd_and(sd_and(row_in_use(i.node), sp_op(:!=, i.node, place_var(:skip))), sd_eq(clear, sd_int(0)))) do
+            set_place_var(:fits, 0)
           end
         end
       end
@@ -278,12 +278,12 @@ module RubyGBA
       # Free the rows of records this build does not declare.
       def save_places_reclaim
         repeat(ROWS) do |i|
-          stale = @save_data.each_value.reduce(live(i.node)) do |test, layout|
+          stale = @save_data.each_value.reduce(row_in_use(i.node)) do |test, layout|
             sd_and(test, sp_op(:!=, cell(:key, i.node), sd_int(layout.key)))
           end
           sd_when(stale) do
             set_cell(:key, i.node, sd_int(0))
-            sp_set(:changed, 1)
+            set_place_var(:changed, 1)
           end
         end
       end
@@ -291,25 +291,25 @@ module RubyGBA
       # SLIDE THE RECORDS DOWN TOGETHER, lowest first, so all the free room is one piece from
       # the cursor scratch to the end.
       def save_places_compact
-        sp_set(:cursor, IR::SaveLayout::DATA_START)
+        set_place_var(:cursor, IR::SaveLayout::DATA_START)
         repeat(ROWS) do
-          sp_set(:pick, -1)
-          sp_set(:low, IR::SaveLayout::SIZE)
+          set_place_var(:pick, -1)
+          set_place_var(:low, IR::SaveLayout::SIZE)
           repeat(ROWS) do |i|
-            lower = sd_and(sd_and(live(i.node), sp_op(:>=, cell(:at, i.node), sp(:cursor))),
-                           sp_op(:<, cell(:at, i.node), sp(:low)))
+            lower = sd_and(sd_and(row_in_use(i.node), sp_op(:>=, cell(:at, i.node), place_var(:cursor))),
+                           sp_op(:<, cell(:at, i.node), place_var(:low)))
             sd_when(lower) do
-              sp_set(:pick, i.node)
-              sp_set(:low, cell(:at, i.node))
+              set_place_var(:pick, i.node)
+              set_place_var(:low, cell(:at, i.node))
             end
           end
-          sd_when(sp_op(:!=, sp(:pick), sd_int(-1))) do
-            sd_when(sp_op(:!=, cell(:at, sp(:pick)), sp(:cursor))) do
-              sp_set(:row, sp(:pick))
-              sp_set(:to, sp(:cursor))
+          sd_when(sp_op(:!=, place_var(:pick), sd_int(-1))) do
+            sd_when(sp_op(:!=, cell(:at, place_var(:pick)), place_var(:cursor))) do
+              set_place_var(:row, place_var(:pick))
+              set_place_var(:to, place_var(:cursor))
               sp_call(:move)
             end
-            sp_set(:cursor, row_end(sp(:pick)))
+            set_place_var(:cursor, row_end(place_var(:pick)))
           end
         end
       end
@@ -319,23 +319,23 @@ module RubyGBA
       # Moving up, the bytes go last first, so a move by less than the record's size never
       # reads a byte it has already written over.
       def save_places_move
-        row = sp(:row)
-        sp_set(:from, cell(:at, row))
-        sp_set(:length, row_size(row))
-        sp_set(:up, sp_op(:>, sp(:to), sp(:from)))
-        repeat(DSL::Value.new(handle, sp(:length))) do |k|
-          back = sp_op(:-, sp_op(:-, sp(:length), sd_int(1)), sp_op(:*, k.node, sd_int(2)))
-          j = sd_add(k.node, sp_op(:*, sp(:up), back))
-          record(Build.save_write(sd_add(sp(:to), j), sd_read(sd_add(sp(:from), j), :byte), width: :byte))
+        row = place_var(:row)
+        set_place_var(:from, cell(:at, row))
+        set_place_var(:length, row_size(row))
+        set_place_var(:up, sp_op(:>, place_var(:to), place_var(:from)))
+        repeat(DSL::Value.new(handle, place_var(:length))) do |k|
+          back = sp_op(:-, sp_op(:-, place_var(:length), sd_int(1)), sp_op(:*, k.node, sd_int(2)))
+          j = sd_add(k.node, sp_op(:*, place_var(:up), back))
+          record(Build.save_write(sd_add(place_var(:to), j), sd_read(sd_add(place_var(:from), j), :byte), width: :byte))
         end
-        set_cell(:at, row, sp(:to))
+        set_cell(:at, row, place_var(:to))
         sp_call(:commit)
       end
 
       def save_places_commit
         record(Build.set(@save_table.scratch(:copy), sd_int(0)))
         record(Build.call(@save_table.routine(:save)))
-        sp_set(:changed, 0)
+        set_place_var(:changed, 0)
       end
     end
   end

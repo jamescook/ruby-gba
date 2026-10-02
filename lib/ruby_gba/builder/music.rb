@@ -144,7 +144,7 @@ module RubyGBA
       def sound_effects(name, scores)
         keys, members = record_scores(name: name, scores: scores, verb: :sound_effects,
                                       entry: "Sound effect") do |key, score|
-          check_sound_effect!(effect: "Sound effect #{key.inspect} of :#{name}", score: score)
+          refuse_looping_sound_effect!(effect: "Sound effect #{key.inspect} of :#{name}", score: score)
         end
         record(Build.sound_effect_list(name, members))
         RubyGBA::DSL::SoundEffectList.new(self, name, keys)
@@ -203,7 +203,7 @@ module RubyGBA
       # each with the song by priority, but it plays once, so it has no loop. How many parts it may
       # have on each is checked with a song's, on the finished program
       # (Guardrails::Checks::SongTooManyParts).
-      def check_sound_effect!(effect:, score:)
+      def refuse_looping_sound_effect!(effect:, score:)
         return unless score.loop_from
 
         raise ArgumentError, "#{effect} has `loop_from:`. A sound effect plays one time, and does not " \

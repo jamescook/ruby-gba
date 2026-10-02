@@ -159,7 +159,7 @@ class TestVramLayout < Minitest::Test
       (MOST_LAYERS + 1).times { |i| background :"layer#{i}", tiles: :set, map: ["R"] }
       game_loop {}
     end
-    builder.emit_pending_functions
+    builder.finalize_program
 
     error = assert_raises(GBA::LoweringError) { GBA.new.lower(builder.program) }
     assert_match(/#{MOST_LAYERS}/, error.message, "it names the limit")
@@ -302,7 +302,7 @@ class TestVramLayout < Minitest::Test
       end
       game_loop {}
     end
-    builder.emit_pending_functions
+    builder.finalize_program
     builder.program
   end
 
@@ -322,7 +322,7 @@ class TestVramLayout < Minitest::Test
       end
       game_loop {}
     end
-    builder.emit_pending_functions
+    builder.finalize_program
     builder.program
   end
 end

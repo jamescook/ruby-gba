@@ -13,7 +13,7 @@ class TestGrid < Minitest::Test
   def interpret_screen(&block)
     builder = Builder.new
     builder.instance_eval(&block)
-    builder.emit_pending_functions
+    builder.finalize_program
     Reference.new.run(builder.program).screen
   end
 
@@ -130,7 +130,7 @@ class TestGrid < Minitest::Test
       board.set_cell 3, 2, :white   # the 8x8 square at (24, 16)
       halt
     end
-    builder.emit_pending_functions
+    builder.finalize_program
     ROM.assemble(GBA.new.lower(builder.program), title: "GRIDTEST", code: "BGRD", maker: "01")
   end
 

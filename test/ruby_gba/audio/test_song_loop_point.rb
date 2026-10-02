@@ -35,7 +35,7 @@ class TestSongLoopPoint < Minitest::Test
       music = songs :music, [song]
       game_loop { music.play 0 }
     end
-    b.emit_pending_functions
+    b.finalize_program
     b.program
   end
 
@@ -154,7 +154,7 @@ class TestSongLoopPoint < Minitest::Test
       play_song :title
       game_loop { wait_vblank }
     end
-    b.emit_pending_functions
+    b.finalize_program
     notes = Reference.new.run(b.program, frames: 400).audio.select { |entry| entry[0] == :note }.map(&:last)
 
     assert_equal NOTES.values_at(:C4, :E4, :G4, :E4, :G4, :E4, :G4, :E4), notes

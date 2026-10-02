@@ -12,7 +12,7 @@ class TestInstructionCounts < Minitest::Test
   def counts(&block)
     b = Builder.new
     b.instance_eval(&block)
-    b.emit_pending_functions
+    b.finalize_program
     backend = GBA.new
     backend.lower(b.program)
     [b.program, backend.attribution.emitted]
@@ -134,7 +134,7 @@ class TestInstructionCounts < Minitest::Test
       y = var :y, 0
       game_loop { y.add! 1 }
     end
-    b.emit_pending_functions
+    b.finalize_program
     backend = GBA.new
     backend.lower(b.program)
     once = backend.attribution.emitted[b.program.walk.find { |n| n.kind == :add }].instructions

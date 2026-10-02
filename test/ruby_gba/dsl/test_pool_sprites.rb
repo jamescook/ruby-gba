@@ -23,7 +23,7 @@ class TestPoolSprites < Minitest::Test
       handle = pool :enemy, x: 0, y: 0, capacity: 8, image: :ufo
       yield(self, handle)
     end
-    b.emit_pending_functions
+    b.finalize_program
     b.program
   end
 
@@ -74,7 +74,7 @@ class TestPoolSprites < Minitest::Test
         end
       end
     end
-    b.emit_pending_functions
+    b.finalize_program
     i = Reference.new.run(b.program)
     assert_equal 1, i[:near_hit], "the instance overlapping the box registers a hit"
     assert_equal 0, i[:far_hit], "and doesn't false-positive on a far box"
@@ -133,7 +133,7 @@ class TestPoolSprites < Minitest::Test
         end
       end
     end
-    b.emit_pending_functions
+    b.finalize_program
     prog = b.program
 
     on_menu = Reference.new.run(prog) # state 0: the play pool is hidden
@@ -152,7 +152,7 @@ class TestPoolSprites < Minitest::Test
       end
       game_loop { wait_vblank; case_var(:state) { when_val 0, :menu; when_val 1, :play } }
     end
-    b2.emit_pending_functions
+    b2.finalize_program
     on_play = Reference.new.run(b2.program)
     assert_equal GREEN, on_play.screen.pixel(52, 52), "the pool's sprite shows while its scene is active"
   end

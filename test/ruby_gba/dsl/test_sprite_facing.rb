@@ -26,7 +26,7 @@ class TestSpriteFacing < Minitest::Test
         instance_exec(guy, &body) if body
       end
     end
-    builder.emit_pending_functions
+    builder.finalize_program
     builder.program
   end
 

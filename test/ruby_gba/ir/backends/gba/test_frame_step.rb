@@ -34,7 +34,7 @@ class TestFrameStep < Minitest::Test
         repeat(busy) { spin.add! 1 } if busy.positive?
       end
     end
-    b.emit_pending_functions
+    b.finalize_program
     b.program
   end
 
@@ -95,7 +95,7 @@ class TestFrameStep < Minitest::Test
         repeat(busy) { spin.add! 1 } if busy.positive?
       end
     end
-    b.emit_pending_functions
+    b.finalize_program
     b.program
   end
 
@@ -164,7 +164,7 @@ class TestFrameStep < Minitest::Test
       once_a_frame { by_clock.add! 1 }
       game_loop { by_pass.add! 1 }
     end
-    b.emit_pending_functions
+    b.finalize_program
     b.program
   end
 
@@ -196,7 +196,7 @@ class TestFrameStep < Minitest::Test
         repeat(busy) { spin.add! 1 } if busy.positive?
       end
     end
-    b.emit_pending_functions
+    b.finalize_program
     b.program
   end
 
@@ -233,7 +233,7 @@ class TestFrameStep < Minitest::Test
         repeat(busy) { spin.add! 1 } if busy.positive?
       end
     end
-    b.emit_pending_functions
+    b.finalize_program
     b.program
   end
 

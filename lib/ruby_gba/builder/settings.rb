@@ -28,7 +28,7 @@ module RubyGBA
         return default unless default.equal?(NO_DEFAULT)
 
         raise ArgumentError, "The setting :#{name} has no default, and this build did not give it. " \
-                             "#{what_was_given}To fix this, give it when you build, for example " \
+                             "#{given_settings_sentence}To fix this, give it when you build, for example " \
                              "`settings: { #{name}: ... }` or `--set #{name}=...`, or give it a default: " \
                              "`setting :#{name}, <default>`."
       end
@@ -39,7 +39,7 @@ module RubyGBA
 
       # The names this build gave, when there are any — a missing setting is most often one
       # given under another spelling.
-      def what_was_given
+      def given_settings_sentence
         return "" if @settings.empty?
 
         "This build gave #{@settings.keys.map { |n| ":#{n}" }.join(', ')}. "

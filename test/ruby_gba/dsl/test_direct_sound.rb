@@ -84,7 +84,7 @@ class TestDirectSound < Minitest::Test
       tone.play
       game_loop { wait_vblank }
     end
-    b.emit_pending_functions
+    b.finalize_program
     rom = ROM.assemble(GBA.new.lower(b.program), title: "PCM0", code: "BPCM", maker: "01")
     v = assert_emulator_loads_rom(rom, frames: 6)
     assert v.sound?, "Direct Sound should be audibly playing the sample (energy #{v.audio_energy})"
@@ -109,7 +109,7 @@ class TestDirectSound < Minitest::Test
       tone.play(loop: true)
       game_loop { wait_vblank }
     end
-    b.emit_pending_functions
+    b.finalize_program
     rom = ROM.assemble(GBA.new.lower(b.program), title: "PCM1", code: "BPC1", maker: "01")
     v = assert_emulator_loads_rom(rom, frames: 6)
     assert v.sound?, "`enable_sound` must keep the recordings routed to the speakers " \

@@ -416,7 +416,7 @@ module RubyGBA
             # WHEN this runs is decided above it, in the tree, rather than here: the
             # statement sits inside a test for the turn having moved since the display was
             # last told, itself inside a test for the owning scene being the live one (see
-            # Builder#turn_written_when_it_changed). So reaching this is already the answer
+            # Builder#affine_write_if_changed). So reaching this is already the answer
             # to both questions, and what is left is the write.
             emit_bg_affine_matrix(node)
             emit_bg_affine_reference_point(node.around_x, node.around_y)

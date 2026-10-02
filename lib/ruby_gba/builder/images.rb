@@ -73,7 +73,7 @@ module RubyGBA
       # which (see Background#draw_with).
       def image(name, opts = {}, &block)
         one_source_of_pixels!(name, opts, block)
-        opts = opts.merge(colors: declared_list(name, opts[:colors])) if opts[:colors].is_a?(Symbol)
+        opts = opts.merge(colors: declared_colors_for_image!(name, opts[:colors])) if opts[:colors].is_a?(Symbol)
         if block
           define_ascii_image(name, opts, &block)
         elsif opts[:places]
@@ -183,7 +183,7 @@ module RubyGBA
       # as drawn and only the colours move, which is what a character flashing while it
       # cannot be hit looks like on this console.
       def colors(name, list)
-        color_list_name!(name)
+        refuse_bad_color_list_name!(name)
         unless list.is_a?(Array) && list.length.between?(2, OWN_COLORS)
           raise ArgumentError,
                 "colors :#{name} needs a list of 2 to #{OWN_COLORS} colors, the first meaning see-through. " \
@@ -198,7 +198,7 @@ module RubyGBA
       # with — checked against the sprite, since a list is matched to its pictures by place.
       # Called by a sprite or a pool told `draw_with`; +subject+ is what the error calls it.
       def colors_to_draw_with(names, poses:, subject:)
-        own = own_list_to_swap(poses, subject)
+        own = shared_pose_colors!(poses, subject)
         names.map do |name|
           list = @color_lists.fetch(name) do
             raise ArgumentError,
@@ -211,14 +211,14 @@ module RubyGBA
                   "list has #{own.length}, and each place in it needs a color at the same place in :#{name}. " \
                   "Give :#{name} #{own.length} colors or more."
           end
-          tell_places_apart!(own: own, swapped: list, name: name, poses: poses, subject: subject)
+          refuse_ambiguous_color_places!(own: own, swapped: list, name: name, poses: poses, subject: subject)
           list
         end
       end
 
       # The lists a background's tiles were drawn from, each once, in the order first met — what
       # its other colours are matched against, list by list. Every tile has to have been given
-      # one, for the same reason a sprite's pictures do (see #own_list_to_swap).
+      # one, for the same reason a sprite's pictures do (see #shared_pose_colors!).
       def lists_drawn_from(poses, subject:)
         lists = poses.map { |pose| list_drawn_from(pose) }
         return lists.uniq unless lists.include?(nil)
@@ -254,7 +254,7 @@ module RubyGBA
       # not. Palettes lifted off real cartridges repeat a colour often (two blacks, two
       # whites), so this is refused rather than drawn wrong; art given as places says which
       # place each pixel meant and is never in doubt.
-      def tell_places_apart!(own:, swapped:, name:, poses:, subject:)
+      def refuse_ambiguous_color_places!(own:, swapped:, name:, poses:, subject:)
         guessed = poses.reject { |pose| @pictures.fetch(pose).places }
         return if guessed.empty?
 
@@ -265,11 +265,11 @@ module RubyGBA
         return unless color
 
         raise ArgumentError,
-              two_places_one_color(color: color, places: places, list: name,
+              ambiguous_places_message(color: color, places: places, list: name,
                                    picture: guessed.first, subject: subject)
       end
 
-      def two_places_one_color(color:, places:, list:, picture:, subject:)
+      def ambiguous_places_message(color:, places:, list:, picture:, subject:)
         spelled = places.map { |place| "place #{place}" }
         both = "#{spelled[0..-2].join(', ')} and #{spelled.last}"
         "#{subject} was told to draw_with :#{list}. Its own list has #{Graphics::Color.name_for(color)} at " \
@@ -282,7 +282,7 @@ module RubyGBA
       # The one list every picture of a sprite was given, which is what another list swaps
       # by place. Pictures with no list were given their places by the framework, so no
       # other list can line up with them.
-      def own_list_to_swap(poses, subject)
+      def shared_pose_colors!(poses, subject)
         lists = poses.map { |pose| @pictures.fetch(pose).colors }.uniq
         return lists.first if lists.length == 1 && lists.first
 
@@ -302,7 +302,7 @@ module RubyGBA
 
       # A list declared with `colors`, as a picture's own list: its first entry still means
       # see-through, whatever colour it was written as.
-      def declared_list(picture, name)
+      def declared_colors_for_image!(picture, name)
         list = @color_lists.fetch(name) do
           raise ArgumentError,
                 "image :#{picture} is given colors: :#{name}, which is not a list of colors. " \
@@ -311,7 +311,7 @@ module RubyGBA
         [:transparent, *list.drop(1)]
       end
 
-      def color_list_name!(name)
+      def refuse_bad_color_list_name!(name)
         unless name.is_a?(Symbol)
           raise ArgumentError, "colors needs a name that is a Symbol, like colors :hurt, [...]. Got #{name.inspect}."
         end
@@ -328,7 +328,7 @@ module RubyGBA
       # Record a picture's declaration and everything the rest of the build asks about
       # it: its shape, so a sprite can size itself from its art, and its pixels, so
       # `mirror` can turn it round.
-      def remember_picture(node)
+      def record_picture(node)
         record(node)
         @pictures[node.name] = IR::Assets::Image.of(node)
         @images[node.name] = [node.width, node.height]
@@ -346,7 +346,7 @@ module RubyGBA
                           "with `image :#{source}, ...`.")
           name = free_mirror_name(source)
           turned = picture.mirrored
-          remember_picture(Build.bitmap(name, width: turned.width, height: turned.height,
+          record_picture(Build.bitmap(name, width: turned.width, height: turned.height,
                                               pixels: turned.pixels, transparent: turned.transparent,
                                               colors: turned.colors, places: turned.places))
           box_x, box_y, box_w, box_h = @image_bounds[source] || [0, 0, turned.width, turned.height]
@@ -424,7 +424,7 @@ module RubyGBA
         data = data.map { |c| c == :transparent ? transparent : c } if transparent == TRANSPARENT_PIXEL
         pixels = data.map { |c| c == transparent ? transparent : Graphics::Color.resolve(c) }.pack("v*")
         given = own_colors(name, colors, pixels, transparent)
-        remember_picture(Build.bitmap(name, width: width, height: height, pixels: pixels,
+        record_picture(Build.bitmap(name, width: width, height: height, pixels: pixels,
                                             transparent: transparent, colors: given))
         record_visible_bounds(name: name, width: width, height: height, cells: data, transparent: transparent)
       end
@@ -440,11 +440,11 @@ module RubyGBA
       def define_placed_image(name, places:, width:, height:, colors:)
         positive_dims!(name, width, height)
         table = color_table(name, colors || [])
-        checked_places!(name, places: places, width: width, height: height, table: table)
+        refuse_bad_places!(name, places: places, width: width, height: height, table: table)
 
         drawn = places.map { |place| place.zero? ? TRANSPARENT_PIXEL : table[place] }
         marker = places.include?(0) ? TRANSPARENT_PIXEL : nil
-        remember_picture(Build.bitmap(name, width: width, height: height, pixels: drawn.pack("v*"),
+        record_picture(Build.bitmap(name, width: width, height: height, pixels: drawn.pack("v*"),
                                             transparent: marker, colors: table.map { |value| value || 0x0000 },
                                             places: places.pack("C*")))
         record_visible_bounds(name: name, width: width, height: height, cells: drawn, transparent: marker)
@@ -472,7 +472,7 @@ module RubyGBA
 
       # Every place, checked while the author is still looking at the line that wrote it:
       # the list it counts into, how many there are, and that each one names a color in it.
-      def checked_places!(name, places:, width:, height:, table:)
+      def refuse_bad_places!(name, places:, width:, height:, table:)
         if table.empty?
           raise ArgumentError,
                 "image :#{name} was given places: and no colors:. A place is a place in a list of " \
@@ -534,7 +534,7 @@ module RubyGBA
 
         pixels = colors.pack("v*")
         marker = transparent ? TRANSPARENT_PIXEL : nil
-        remember_picture(Build.bitmap(name, width: widths.first, height: rows.size, pixels: pixels,
+        record_picture(Build.bitmap(name, width: widths.first, height: rows.size, pixels: pixels,
                                             transparent: marker,
                                             colors: own_colors(name, listed, pixels, marker)))
         record_visible_bounds(name: name, width: widths.first, height: rows.size, cells: colors, transparent: transparent ? TRANSPARENT_PIXEL : nil)
@@ -564,7 +564,7 @@ module RubyGBA
           # colour held at place 0 and nowhere else has nothing to be drawn with.
           slot = table.index.with_index { |entry, place| place.positive? && entry == (value & 0x7FFF) }
           slot ||= table.index(value & 0x7FFF)
-          raise ArgumentError, unlisted_color(name, value & 0x7FFF) if slot.nil?
+          raise ArgumentError, unlisted_color_message(name, value & 0x7FFF) if slot.nil?
           next unless slot.zero?
 
           raise ArgumentError,
@@ -586,7 +586,7 @@ module RubyGBA
               "#{OWN_COLORS} or fewer, or give it none and the framework works the list out."
       end
 
-      def unlisted_color(name, value)
+      def unlisted_color_message(name, value)
         "image :#{name} draws with #{Graphics::Color.name_for(value)}, which is not in the list of colors it was " \
           "given. A picture given `colors:` is drawn from those colors and no others. Add this one to " \
           "the list, or draw the picture with a color already in it."

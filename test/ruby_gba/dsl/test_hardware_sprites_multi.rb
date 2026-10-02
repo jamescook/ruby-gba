@@ -35,7 +35,7 @@ class TestHardwareSpritesMulti < Minitest::Test
         halt # a static scene — one frame is enough
       end
     end
-    builder.emit_pending_functions
+    builder.finalize_program
     builder.program
   end
 
@@ -74,7 +74,7 @@ class TestHardwareSpritesMulti < Minitest::Test
         (f >= frames).then { halt }
       end
     end
-    builder.emit_pending_functions
+    builder.finalize_program
     builder.program
   end
 

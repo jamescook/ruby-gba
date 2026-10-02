@@ -61,7 +61,7 @@ class TestPongScoring < Minitest::Test
         (fc >= frames).then { halt }
       end
     end
-    builder.emit_pending_functions
+    builder.finalize_program
     Reference.new.run(builder.program)
   end
 

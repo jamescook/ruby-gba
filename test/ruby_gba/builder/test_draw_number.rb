@@ -16,14 +16,14 @@ class TestDrawNumber < Minitest::Test
   def interpret_screen(&block)
     builder = Builder.new
     builder.instance_eval(&block)
-    builder.emit_pending_functions
+    builder.finalize_program
     Reference.new.run(builder.program).screen
   end
 
   def tree(&block)
     builder = Builder.new
     builder.instance_eval(&block)
-    builder.emit_pending_functions
+    builder.finalize_program
     builder.program
   end
 

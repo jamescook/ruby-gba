@@ -445,7 +445,7 @@ module RubyGBA
       def remember_current(index)
         node = Build.set(current_var, index.node)
         record(node)
-        @builder.note_pool_walk(self, node)
+        @builder.record_walk_instance_writes(self, node)
       end
 
       # ...and a walk PUTS IT BACK as it leaves, because the walks nest. Two walks over one pool
@@ -460,7 +460,7 @@ module RubyGBA
         yield
         restored = Build.set(current_var, Build.var_ref(held))
         record(restored)
-        @builder.note_pool_walk(self, saved, restored)
+        @builder.record_walk_instance_writes(self, saved, restored)
       end
 
       # One live instance, as the block sees it: a row handle over a pool slot. Its fields

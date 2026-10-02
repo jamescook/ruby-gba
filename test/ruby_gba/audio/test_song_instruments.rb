@@ -32,7 +32,7 @@ class TestSongInstruments < Minitest::Test
       instance_exec(&extra) if extra
       game_loop { wait_vblank }
     end
-    b.emit_pending_functions
+    b.finalize_program
     b.program
   end
 
@@ -79,7 +79,7 @@ class TestSongInstruments < Minitest::Test
         (pass == at).then { clips.each_with_index { |clip, n| clip.play(loop: loop_first && n.zero?) } }
       end
     end
-    b.emit_pending_functions
+    b.finalize_program
     b.program
   end
 
@@ -147,7 +147,7 @@ class TestSongInstruments < Minitest::Test
         (pass < 10).then { play_song :tune }.else { play_song :beeps }
       end
     end
-    b.emit_pending_functions
+    b.finalize_program
     seen = sounding_by_frame(b.program, 20)
 
     assert_equal [:piano], seen[5]
@@ -220,7 +220,7 @@ class TestSongInstruments < Minitest::Test
       play_song :tune
       game_loop { wait_vblank }
     end
-    b.emit_pending_functions
+    b.finalize_program
 
     assert_equal [:piano], Reference.new.run(b.program, frames: 3).active_samples
   end
@@ -243,7 +243,7 @@ class TestSongInstruments < Minitest::Test
         beep :high
       end
     end
-    b.emit_pending_functions
+    b.finalize_program
     report = RubyGBA::IR::Guardrails::Validator.new.run(b.program, autofix: false)
 
     refute(report.warnings.any? { |w| w.check == :channel_conflict })

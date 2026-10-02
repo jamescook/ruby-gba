@@ -39,7 +39,7 @@ class TestIRGuardrailBackgroundLayers < Minitest::Test
       %i[one two three four five].each { |name| background name, tiles: :t, map: map }
       halt
     end
-    b.emit_pending_functions
+    b.finalize_program
     b.program
   end
 
@@ -57,7 +57,7 @@ class TestIRGuardrailBackgroundLayers < Minitest::Test
       background(:spin, tiles: :t, map: square).scale(1.0)
       halt
     end
-    b.emit_pending_functions
+    b.finalize_program
     b.program
   end
 
@@ -103,7 +103,7 @@ class TestIRGuardrailBackgroundLayers < Minitest::Test
       %i[one two three four].each { |name| background name, tiles: :t, map: map }
       halt
     end
-    b.emit_pending_functions
+    b.finalize_program
 
     report = validator.run(b.program, autofix: false)
     assert report.ok?
@@ -138,7 +138,7 @@ class TestIRGuardrailBackgroundLayers < Minitest::Test
         end
       end
     end
-    b.emit_pending_functions
+    b.finalize_program
 
     report = validator.run(b.program, autofix: false)
     assert report.ok?, "the title's turning layer is on a screen of its own"
@@ -177,7 +177,7 @@ class TestIRGuardrailBackgroundLayers < Minitest::Test
         end
       end
     end
-    b.emit_pending_functions
+    b.finalize_program
 
     report = validator.run(b.program, autofix: false)
 
@@ -205,7 +205,7 @@ class TestIRGuardrailBackgroundLayers < Minitest::Test
         case_var(:state) { when_val 0, :title }
       end
     end
-    b.emit_pending_functions
+    b.finalize_program
 
     report = validator.run(b.program, autofix: false)
 
@@ -242,7 +242,7 @@ class TestIRGuardrailBackgroundLayers < Minitest::Test
         end
       end
     end
-    b.emit_pending_functions
+    b.finalize_program
 
     report = validator.run(b.program, autofix: false)
 
@@ -270,7 +270,7 @@ class TestIRGuardrailBackgroundLayers < Minitest::Test
         case_var(:state) { when_val 0, :title }
       end
     end
-    b.emit_pending_functions
+    b.finalize_program
 
     report = validator.run(b.program, autofix: false)
 
@@ -295,7 +295,7 @@ class TestIRGuardrailBackgroundLayers < Minitest::Test
       %i[one two three four five six].each { |name| background name, tiles: :t, map: map }
       halt
     end
-    b.emit_pending_functions
+    b.finalize_program
 
     report = validator.run(b.program, autofix: false)
     assert report.ok?
@@ -325,7 +325,7 @@ class TestIRGuardrailBackgroundLayers < Minitest::Test
       background(:whirl, tiles: :t, map: square).scale(1.0)
       halt
     end
-    b.emit_pending_functions
+    b.finalize_program
 
     message = validator.run(b.program, autofix: false).errors.first.message
     assert_match(/turns or resizes 2 backgrounds/, message, "it says how many turn")

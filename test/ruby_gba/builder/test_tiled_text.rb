@@ -28,7 +28,7 @@ class TestTiledText < Minitest::Test
         halt
       end
     end
-    b.emit_pending_functions
+    b.finalize_program
     b.program
   end
 
@@ -106,7 +106,7 @@ class TestTiledText < Minitest::Test
         if_eq(:score, 6) { halt } # after this frame's present showed 6-1... see below
       end
     end
-    b.emit_pending_functions
+    b.finalize_program
     s = Reference.new.run(b.program, max_steps: 2_000).screen
     # Frame N presents score, then adds 1; it halts the frame it presents 5 then makes 6.
     assert_glyph(s, "5", 100, 20, WHITE)
@@ -132,7 +132,7 @@ class TestTiledText < Minitest::Test
         (blink == 1).then { blink.set! 0 }.else { blink.set! 1 }
       end
     end
-    b.emit_pending_functions
+    b.finalize_program
     b.program
   end
 
@@ -158,7 +158,7 @@ class TestTiledText < Minitest::Test
         (blink == 1).then { blink.set! 0 }.else { blink.set! 1 }
       end
     end
-    b.emit_pending_functions
+    b.finalize_program
     prog = b.program
 
     first = Reference.new.run(prog, frames: 1).screen

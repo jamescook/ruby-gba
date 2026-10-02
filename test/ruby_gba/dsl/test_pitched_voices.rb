@@ -70,7 +70,7 @@ class TestPitchedVoices < Minitest::Test
       tone.play(loop: true, pitch: :C5)  # voice 1 — an octave up
       game_loop { wait_vblank }
     end
-    b.emit_pending_functions
+    b.finalize_program
     v = assert_emulator_loads_rom(assemble_rom(b.program, name: "PIT0"), frames: 6)
     base, high = v.voices
 

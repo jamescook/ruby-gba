@@ -15,7 +15,7 @@ class TestSaveData < Minitest::Test
   private def built(&block)
     builder = Builder.new
     builder.instance_eval(&block)
-    builder.emit_pending_functions
+    builder.finalize_program
     builder.program
   end
 
@@ -1210,7 +1210,7 @@ class TestSaveData < Minitest::Test
       hearts = var :hearts, 3
       files = save_data(:file) { keep hearts }
     end
-    builder.emit_pending_functions
+    builder.finalize_program
     lives = builder.instance_eval { var :lives, 3 }
     message = assert_raises(ArgumentError) { files.keep lives }.message
     assert_match(/save_data :file is already laid out/, message)

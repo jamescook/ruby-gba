@@ -101,7 +101,7 @@ class TestTiledCollisionCost < Minitest::Test
       movers.times { |i| guards.spawn(x: (i * 20) + 16, y: 32) }
       game_loop { guards.each { |g| g.move(:right, by: 2); g.move(:down, by: 1) } }
     end
-    builder.emit_pending_functions
+    builder.finalize_program
     builder.program
   end
 
@@ -147,7 +147,7 @@ class TestTiledCollisionCost < Minitest::Test
       end
       game_loop { made.each { |s| s.move(:right, by: 2); s.move(:down, by: 1) } }
     end
-    builder.emit_pending_functions
+    builder.finalize_program
 
     assert_backends_agree(builder.program, frames: 20)
   end

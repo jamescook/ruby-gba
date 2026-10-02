@@ -38,12 +38,12 @@ module RubyGBA
       # the one written over keeps its last good save until the whole of the new one is in.
       def copy(from, to:)
         [from, to].each { |copy| self[copy] if copy.is_a?(Integer) } # the written-number check
-        @saves.run_save_data_copy(@layout, Value.node_for(from), Value.node_for(to))
+        @saves.emit_save_data_copy_call(@layout, Value.node_for(from), Value.node_for(to))
       end
 
       # Put every kept thing back as it was declared — a new game. Only the game's state
       # changes; nothing in save memory does.
-      def reset = @saves.run_save_data(@layout, :reset, IR::Build.int(0))
+      def reset = @saves.emit_save_data_call(@layout, :reset, IR::Build.int(0))
 
       # Whether the last save, erase or copy did not read back as it should have — the chip did
       # not keep it. It holds until the next one.
@@ -73,22 +73,22 @@ module RubyGBA
 
       # Write the game's state into this copy. Until the whole of it is written the copy is
       # still the last good save, so the power going off half way loses nothing.
-      def save = @saves.run_save_data(@layout, :save, @copy)
+      def save = @saves.emit_save_data_call(@layout, :save, @copy)
 
       # Put this copy back into the game's state — when it is good. When it is not, nothing
       # changes, so loading a game's settings at power-on needs no test around it.
-      def load = @saves.run_save_data(@layout, :load, @copy)
+      def load = @saves.emit_save_data_call(@layout, :load, @copy)
 
       # Mark this copy erased. It then reads as erased rather than empty: a game that never
       # saved there and one that saved and threw it away are two different things to know.
-      def erase = @saves.run_save_data(@layout, :erase, @copy)
+      def erase = @saves.emit_save_data_call(@layout, :erase, @copy)
 
       # What this copy holds: one of the names :empty, :erased, :good or :damaged. Compare it
       # (`files[n].state == :good`), or ask the four questions below.
       def state
         names = NameSet.new("the state of a save_data copy")
         IR::SaveLayout::STATES.each { |name| names.number_for(name) }
-        Value.new(@builder, @saves.save_data_state(@layout, @copy), names: names)
+        Value.new(@builder, @saves.save_data_state_after_jobs(@layout, @copy), names: names)
       end
 
       def good? = is?(:good)
@@ -113,7 +113,7 @@ module RubyGBA
       private
 
       def is?(name)
-        Condition.new(@builder, Build.binop(:==, @saves.save_data_state(@layout, @copy),
+        Condition.new(@builder, Build.binop(:==, @saves.save_data_state_after_jobs(@layout, @copy),
                                             Build.int(IR::SaveLayout::STATES.index(name))))
       end
     end
@@ -128,7 +128,7 @@ module RubyGBA
         @layout = layout
         @copy = copy
         @kept_name = name
-        super(builder, saves.save_data_peek_site(layout, copy, name, :number))
+        super(builder, saves.peek_stand_in(layout, copy, name, :number))
       end
 
       def [](index) = list_reading(:item, index: Value.node_for(index))
@@ -141,7 +141,7 @@ module RubyGBA
       # somebody forgot to keep.
       def list_reading(shape, index: nil)
         @builder.expressions.delete(self) if @builder.respond_to?(:expressions)
-        Value.new(@builder, @saves.save_data_peek_site(@layout, @copy, @kept_name, shape, index: index))
+        Value.new(@builder, @saves.peek_stand_in(@layout, @copy, @kept_name, shape, index: index))
       end
     end
   end

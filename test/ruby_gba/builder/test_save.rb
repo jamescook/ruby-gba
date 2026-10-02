@@ -37,7 +37,7 @@ class TestSave < Minitest::Test
   def build(&block)
     b = RubyGBA::Builder.new
     b.instance_eval(&block)
-    b.emit_pending_functions
+    b.finalize_program
     b.program
   end
 

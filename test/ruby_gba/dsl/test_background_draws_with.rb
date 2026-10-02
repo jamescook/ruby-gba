@@ -33,7 +33,7 @@ class TestBackgroundDrawsWith < Minitest::Test
       rays = background :rays, tiles: :wall, map: Array.new(20) { "#" * 30 }
       game_loop { instance_exec(rays, &game) }
     end
-    builder.emit_pending_functions
+    builder.finalize_program
     builder.program
   end
 
@@ -82,7 +82,7 @@ class TestBackgroundDrawsWith < Minitest::Test
         step.add! 1
       end
     end
-    builder.emit_pending_functions
+    builder.finalize_program
     builder.program
   end
 
@@ -128,7 +128,7 @@ class TestBackgroundDrawsWith < Minitest::Test
       rays = layer(:near) { background :rays, tiles: :front_wall, map: front }
       game_loop { rays.draw_with :shimmer }
     end
-    builder.emit_pending_functions
+    builder.finalize_program
     builder.program
   end
 
@@ -171,7 +171,7 @@ class TestBackgroundDrawsWith < Minitest::Test
         tint :red, hurt
       end
     end
-    builder.emit_pending_functions
+    builder.finalize_program
     builder.program
   end
 
@@ -263,7 +263,7 @@ class TestBackgroundDrawsWith < Minitest::Test
         step.add! 1
       end
     end
-    builder.emit_pending_functions
+    builder.finalize_program
     builder.program
   end
 
@@ -310,7 +310,7 @@ class TestBackgroundDrawsWith < Minitest::Test
         tint :red, hurt
       end
     end
-    builder.emit_pending_functions
+    builder.finalize_program
     builder.program
   end
 
@@ -333,7 +333,7 @@ class TestBackgroundDrawsWith < Minitest::Test
       backdrop = background :backdrop, tiles: :scene, map: Array.new(20) { ("~" * 15) + ("o" * 15) }
       game_loop { backdrop.draw_with({ sea: :sea_dusk }) }
     end
-    builder.emit_pending_functions
+    builder.finalize_program
     prog = builder.program
     screen = Reference.new.run(prog, frames: 2).screen
 

@@ -42,7 +42,7 @@ class TestSongParts < Minitest::Test
       play_song :big
       game_loop { wait_vblank }
     end
-    b.emit_pending_functions
+    b.finalize_program
     b.program
   end
 
@@ -90,7 +90,7 @@ class TestSongParts < Minitest::Test
       play_song :pads
       game_loop { wait_vblank }
     end
-    b.emit_pending_functions
+    b.finalize_program
     b.program
   end
 

@@ -25,7 +25,7 @@ class TestSpriteScreenEdges < Minitest::Test
       predicate.call(s).then { set! :flag, 1 }
       halt
     end
-    b.emit_pending_functions
+    b.finalize_program
     Reference.new.run(b.program)[:flag]
   end
 
@@ -72,7 +72,7 @@ class TestSpriteScreenEdges < Minitest::Test
       sy = s.y.node.name
       halt
     end
-    b.emit_pending_functions
+    b.finalize_program
     i = Reference.new.run(b.program)
     [i[sx], i[sy]]
   end
@@ -97,7 +97,7 @@ class TestSpriteScreenEdges < Minitest::Test
       box(-40, 10, 20, 20).off_screen?.then { set! :off_flag, 1 } # fully off the left -> 1
       halt
     end
-    b.emit_pending_functions
+    b.finalize_program
     i = Reference.new.run(b.program)
     assert_equal 0, i[:on_flag], "a box on screen is not off_screen?"
     assert_equal 1, i[:off_flag], "a box fully past the left edge is off_screen?"

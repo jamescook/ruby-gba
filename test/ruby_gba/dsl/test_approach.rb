@@ -15,7 +15,7 @@ class TestApproach < Minitest::Test
   def interpret(&block)
     builder = Builder.new
     builder.instance_eval(&block)
-    builder.emit_pending_functions
+    builder.finalize_program
     Reference.new.run(builder.program)
   end
 
@@ -24,7 +24,7 @@ class TestApproach < Minitest::Test
   def tree(&block)
     builder = Builder.new
     builder.instance_eval(&block)
-    builder.emit_pending_functions
+    builder.finalize_program
     builder.program
   end
 
@@ -255,7 +255,7 @@ class TestApproach < Minitest::Test
         (f >= frames).then { halt }
       end
     end
-    builder.emit_pending_functions
+    builder.finalize_program
     builder.program
   end
 
@@ -301,7 +301,7 @@ class TestApproach < Minitest::Test
         (f >= frames).then { halt }
       end
     end
-    builder.emit_pending_functions
+    builder.finalize_program
     builder.program
   end
 

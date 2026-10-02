@@ -243,7 +243,7 @@ class TestOrphanedExpression < Minitest::Test
       hp += 1
       halt
     end
-    builder.emit_pending_functions
+    builder.finalize_program
     Checks::OrphanedExpression.new(builder.expressions).detect(builder.program)
 
     assert_empty builder.pending_conditions.map(&:source),
@@ -255,7 +255,7 @@ class TestOrphanedExpression < Minitest::Test
   def findings_for(&block)
     builder = Builder.new
     builder.instance_eval(&block)
-    builder.emit_pending_functions
+    builder.finalize_program
     program = builder.program
     Checks::OrphanedExpression.new(builder.expressions).detect(program)
   end

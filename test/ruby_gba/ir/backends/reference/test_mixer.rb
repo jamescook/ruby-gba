@@ -196,7 +196,7 @@ class TestMixer < Minitest::Test
       c.play(loop: true)
       game_loop { wait_vblank }
     end
-    b.emit_pending_functions
+    b.finalize_program
     rom = ROM.assemble(gba.lower(b.program), title: "MIX0", code: "BMIX", maker: "01")
     v = assert_emulator_loads_rom(rom, frames: 6)
 
@@ -220,7 +220,7 @@ class TestMixer < Minitest::Test
       c.play(loop: true)
       game_loop { wait_vblank }
     end
-    b.emit_pending_functions
+    b.finalize_program
     rom = ROM.assemble(gba.lower(b.program), title: "MIXH", code: "BMXH", maker: "01")
     v = assert_emulator_loads_rom(rom, frames: 6)
 
@@ -241,7 +241,7 @@ class TestMixer < Minitest::Test
       c.play(loop: true)
       game_loop { wait_vblank }
     end
-    b.emit_pending_functions
+    b.finalize_program
     rom = ROM.assemble(gba.lower(b.program), title: "MIXL", code: "BMXL", maker: "01")
     v = assert_emulator_loads_rom(rom, frames: 6)
 
@@ -261,7 +261,7 @@ class TestMixer < Minitest::Test
       [100, 100, -100].each_with_index { |level, n| sample(:"v#{n}", pcm: [level] * 400, rate: 8000).play(loop: true) }
       game_loop { wait_vblank }
     end
-    b.emit_pending_functions
+    b.finalize_program
     rom = ROM.assemble(gba.lower(b.program), title: "MIXS", code: "BMXS", maker: "01")
     v = assert_emulator_loads_rom(rom, frames: 6)
 
@@ -280,7 +280,7 @@ class TestMixer < Minitest::Test
       sample(:bang, pcm: [90, -90] * 200, rate: 8000).play # a twentieth of a second, then done
       game_loop { wait_vblank }
     end
-    b.emit_pending_functions
+    b.finalize_program
     rom = ROM.assemble(gba.lower(b.program), title: "MIXQ", code: "BMXQ", maker: "01",
                        built: gba.build_record(b.program))
     v = assert_emulator_loads_rom(rom, frames: 20)
@@ -327,7 +327,7 @@ class TestMixer < Minitest::Test
       a.play(loop: true, volume: :half)
       game_loop { wait_vblank }
     end
-    b.emit_pending_functions
+    b.finalize_program
     rom = ROM.assemble(gba.lower(b.program), title: "VOL0", code: "BVOL", maker: "01")
     v = assert_emulator_loads_rom(rom, frames: 6)
 

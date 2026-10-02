@@ -41,7 +41,7 @@ class TestPixelPerfectCollision < Minitest::Test
         halt
       end
     end
-    b.emit_pending_functions
+    b.finalize_program
     Reference.new.run(b.program, max_steps: 2_000)[:hit] == 1
   end
 
@@ -80,7 +80,7 @@ class TestPixelPerfectCollision < Minitest::Test
         halt
       end
     end
-    b.emit_pending_functions
+    b.finalize_program
     assert_equal 1, Reference.new.run(b.program, max_steps: 2_000)[:hit],
                  "a box collides on the sprite's whole rectangle, transparent middle included"
   end
@@ -106,7 +106,7 @@ class TestPixelPerfectCollision < Minitest::Test
           halt
         end
       end
-      b.emit_pending_functions
+      b.finalize_program
       Reference.new.run(b.program, max_steps: 2_000)[:hit]
     end
     assert_equal 1, hit_when.call(:right), "facing wide, the sprite reaches the bar"
@@ -129,7 +129,7 @@ class TestPixelPerfectCollision < Minitest::Test
         halt
       end
     end
-    b.emit_pending_functions
+    b.finalize_program
     ROM.assemble(GBA.new.lower(b.program), title: "PIXPERF", code: "BPPC", maker: "01")
   end
 

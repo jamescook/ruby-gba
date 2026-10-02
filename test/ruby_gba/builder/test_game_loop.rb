@@ -23,7 +23,7 @@ class TestGameLoop < Minitest::Test
   def lower(&block)
     builder = RubyGBA::Builder.new
     builder.instance_eval(&block)
-    builder.emit_pending_functions
+    builder.finalize_program
     backend = GBA.new
     code = backend.lower(builder.program)
     [backend, code]
@@ -136,7 +136,7 @@ class TestGameLoop < Minitest::Test
         (frames < count).then { add! :frames, 1 }
       end
     end
-    builder.emit_pending_functions
+    builder.finalize_program
     builder.program
   end
 

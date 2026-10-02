@@ -26,7 +26,7 @@ class TestSpriteDrawsWith < Minitest::Test
       ship = sprite :ship, at: [40, 40]
       game_loop { instance_exec(ship, &game) }
     end
-    builder.emit_pending_functions
+    builder.finalize_program
     builder.program
   end
 
@@ -53,7 +53,7 @@ class TestSpriteDrawsWith < Minitest::Test
       ship = sprite :ship, at: [40, 40]
       game_loop { ship.draw_with :hurt }
     end
-    builder.emit_pending_functions
+    builder.finalize_program
     i = Reference.new.run(builder.program, frames: 2)
 
     assert_equal Color.resolve(:yellow), i.screen.pixel(41, 41)
@@ -79,7 +79,7 @@ class TestSpriteDrawsWith < Minitest::Test
         step.add! 1
       end
     end
-    builder.emit_pending_functions
+    builder.finalize_program
     builder.program
   end
 
@@ -139,7 +139,7 @@ class TestSpriteDrawsWith < Minitest::Test
         [turning, big, facing, flapping].each { |thing| thing.draw_with :hurt }
       end
     end
-    builder.emit_pending_functions
+    builder.finalize_program
     builder.program
   end
 
@@ -170,7 +170,7 @@ class TestSpriteDrawsWith < Minitest::Test
         (frame == respawn_at).then { ships.spawn x: 80, y: 40 } if respawn_at
       end
     end
-    builder.emit_pending_functions
+    builder.finalize_program
     builder.program
   end
 
@@ -204,7 +204,7 @@ class TestSpriteDrawsWith < Minitest::Test
         (frame == 3).then { ships.spawn x: 80, y: 40 }
       end
     end
-    builder.emit_pending_functions
+    builder.finalize_program
     i = Reference.new.run(builder.program, frames: 5)
 
     assert_equal Color.resolve(:red), i.screen.pixel(81, 41)
@@ -408,7 +408,7 @@ class TestSpriteDrawsWith < Minitest::Test
         end
       end
     end
-    builder.emit_pending_functions
+    builder.finalize_program
     builder.program
   end
 
@@ -456,7 +456,7 @@ class TestSpriteDrawsWith < Minitest::Test
         end
       end
     end
-    builder.emit_pending_functions
+    builder.finalize_program
     builder.program
   end
 

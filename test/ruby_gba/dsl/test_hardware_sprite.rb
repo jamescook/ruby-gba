@@ -34,7 +34,7 @@ class TestHardwareSprite < Minitest::Test
         (f >= frames).then { halt }
       end
     end
-    builder.emit_pending_functions
+    builder.finalize_program
     builder.program
   end
 
@@ -86,7 +86,7 @@ class TestHardwareSprite < Minitest::Test
       image(:blob, "#" => :red) { "#####\n#####\n#####" } # 5x3 — not whole tiles
       sprite :blob, at: [0, 0]
     end
-    b.emit_pending_functions
+    b.finalize_program
     err = assert_raises(GBA::LoweringError) { GBA.new.lower(b.program) }
     assert_match(/8x8 tiles/, err.message)
     assert_match(/:blob is 5x3/, err.message)

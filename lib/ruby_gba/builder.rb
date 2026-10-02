@@ -400,8 +400,8 @@ module RubyGBA
     # Build the IR node for every deferred function body, then check that every
     # call and case target names a function that exists. Called automatically by
     # RubyGBA.build after the DSL block.
-    def emit_pending_functions
-      scenes_picked_by_name # `call mode` over scene names is a case_var over them
+    def finalize_program
+      convert_scene_name_dispatches # `call mode` over scene names is a case_var over them
       @scene_gates = scan_scene_gates # which state value each scene is shown for (from case_var)
 
       # The program's default display mode — whatever the top-level `screen` left set.
@@ -416,7 +416,7 @@ module RubyGBA
       # Every routine the game wrote is built, so nothing more can be kept in a save_data
       # record: the records are laid out now, and the routines that read them built after.
       check_saves_keep_everything!
-      settle_save_data
+      lay_out_save_records
       emit_bodies(emitted, default_screen_mode)
 
       finalize_present_lists
@@ -432,7 +432,7 @@ module RubyGBA
       finalize_pool_colors
       verify_targets_defined!
       verify_instance_routines!
-      verify_stack_fits!
+      refuse_unlayered_when_scenery_in_front!
       initialize_rng_stream
       register_save_init
       emit_boot_inits
@@ -486,7 +486,7 @@ module RubyGBA
     # the gap between frames rather than wherever the game happened to compute it.
     # +node+ is the write recorded at the call site, which finalize drops once it
     # knows there is a frame boundary to move it to. A {Background} calls this.
-    def scroll_each_frame(name, x_var, y_var, node)
+    def defer_scroll_write(name, x_var, y_var, node)
       declared_background(name).scroll_x = x_var
       declared_background(name).scroll_y = y_var
       @inline_scroll_nodes << node
@@ -496,7 +496,7 @@ module RubyGBA
     # frame in the gap between frames rather than wherever the game happened to say which
     # map it wants. +shown_var+ is what the game said; +live_var+ is what is really in the
     # background's cells. A {Background} calls this from `show_map`.
-    def swap_maps_each_frame(name, shown_var, live_var, node)
+    def defer_map_swap(name, shown_var, live_var, node)
       declared_background(name).shown_map = shown_var
       declared_background(name).live_map = live_var
       @inline_map_nodes << node
@@ -511,7 +511,7 @@ module RubyGBA
     # state the tiles are already in when the game starts. The third is a place for a backend
     # to keep whatever it needs to say which list is showing; nought is "nothing has been
     # said yet", and what goes there otherwise is that backend's business alone.
-    def recolorable_background(name)
+    def make_background_recolorable(name)
       refuse_coloring_a_turning_background!(name)
       at_boot(Build.set(:"__bg_#{name}_colors", Build.int(IR::Build::NO_RECOLOR)))
       at_boot(Build.set(:"__bg_#{name}_live_colors", Build.int(IR::Build::NO_RECOLOR)))
@@ -520,17 +520,17 @@ module RubyGBA
       declared_background(name).node
     end
 
-    # The colour counterpart to {#swap_maps_each_frame}: remember that +name+ can be handed a
+    # The colour counterpart to {#defer_map_swap}: remember that +name+ can be handed a
     # whole different list of colours, so the display's table is written once a frame in the
     # gap between frames rather than wherever the game happened to say which list it wants.
     # +shown_var+ is what the game said; +live_var+ is what is really in the table.
-    def recolor_each_frame(name, shown_var, live_var, node)
+    def defer_recolor_write(name, shown_var, live_var, node)
       declared_background(name).shown_colors = shown_var
       declared_background(name).live_colors = live_var
       @inline_color_nodes << node
     end
 
-    # The affine counterpart to {#scroll_each_frame}: remember that +name+ turns or
+    # The affine counterpart to {#defer_scroll_write}: remember that +name+ turns or
     # resizes, so its matrix is written once a frame in the gap between frames rather
     # than wherever the game happened to change its angle or size. Called once, as soon
     # as a background is made affine (see Builder::Tiled#make_background_affine) — not
@@ -539,7 +539,7 @@ module RubyGBA
     # rather than through those two verbs.
     #
     # Also captures the CURRENT scene gate (whatever scene this first `rotate`/`scale`/
-    # `angle` call happens inside, if any — see #scene_gate), so a background declared
+    # `angle` call happens inside, if any — see #gated_by_scene), so a background declared
     # and turned only inside one scene writes its matrix only while that scene is
     # active. Without this, the write would land at every frame boundary in the whole
     # program regardless of which scene is running — and BG2's affine registers are
@@ -547,7 +547,7 @@ module RubyGBA
     # is itself rendered through these same registers, so an untouched write from an
     # affine title screen would keep distorting a bitmap gameplay scene that never asked
     # for it.
-    def affine_each_frame(name, angle_var, scale_var)
+    def defer_affine_write(name, angle_var, scale_var)
       background = declared_background(name)
       background.angle = angle_var
       background.scale = scale_var
@@ -566,7 +566,7 @@ module RubyGBA
     # An affine_background write recorded at its call site (by {Background#rotate} /
     # {Background#scale}) — kept so {#finalize_background_affine} can drop it once it
     # knows there's a frame boundary to move the write to instead, the same as
-    # {#scroll_each_frame}'s inline scroll nodes.
+    # {#defer_scroll_write}'s inline scroll nodes.
     def record_inline_affine_node(node)
       @inline_affine_nodes << node
     end
@@ -580,7 +580,7 @@ module RubyGBA
     # the size back at the top of every frame and whatever was easing it got one step and
     # no more. So it goes to boot, which is the promise `var` already makes about the value
     # it is declared with, wherever it is declared.
-    def background_starts_at(var, value)
+    def set_at_boot(var, value)
       at_boot(Build.set(var, Build.int(value)))
     end
 
@@ -588,7 +588,7 @@ module RubyGBA
     # rather than with one turn, because a picture turns around one point however many
     # times the game turns it (see {Background#turns_around}). Every write of that
     # background's matrix carries it, so there is nowhere for a second answer to live.
-    def background_turns_around(name, x, y)
+    def set_background_pivot(name, x, y)
       declared_background(name).pivot = [x, y]
     end
 
@@ -797,7 +797,7 @@ module RubyGBA
     # as a NAME, which is what something deciding what has to be in memory at once needs.
     def declaring_scene = @building_scene
 
-    def scene_gate(active_node)
+    def gated_by_scene(active_node)
       return active_node unless @current_scene_gate
 
       state_var, value = @current_scene_gate
@@ -817,9 +817,9 @@ module RubyGBA
     # the two agree — it is shown exactly while the test holds, which is what the line says.
     #
     # A condition is 0 or 1, so several nested ones multiply together, the same way
-    # #scene_gate folds in "and this scene is the live one". Each is copied because a node
+    # #gated_by_scene folds in "and this scene is the live one". Each is copied because a node
     # belongs to one place in the tree, and these already belong to their `if`.
-    def condition_gate(active_node)
+    def gated_by_open_conditions(active_node)
       @shown_while.reduce(active_node) { |node, cond| Build.binop(:*, node, cond.copy) }
     end
 
@@ -975,10 +975,10 @@ module RubyGBA
     # mid-frame would show two different pictures on one screen. See that method for the
     # rest of the reasoning; this is its `rotate`/`scale` sibling.
     #
-    # Each write is gated to its owning scene (see #affine_each_frame), the same as a
+    # Each write is gated to its owning scene (see #defer_affine_write), the same as a
     # scene-owned sprite or HUD glyph — a background turned only inside one scene must stop
     # writing BG2's registers once that scene isn't the live one — and gated again on the
-    # turn having actually moved, which is #turn_written_when_it_changed below.
+    # turn having actually moved, which is #affine_write_if_changed below.
     def finalize_background_affine
       # A pivot can be named after the turn that reads it (`.scale(2.0).turns_around(...)`),
       # and a program with no frame boundary keeps the writes where the author put them —
@@ -989,7 +989,7 @@ module RubyGBA
       end
 
       write_between_frames(@inline_affine_nodes, backgrounds_that(&:turns_each_frame?)) do |name, background|
-        turn_written_when_it_changed(name, background)
+        affine_write_if_changed(name, background)
       end
     end
 
@@ -1011,8 +1011,8 @@ module RubyGBA
     # Holding what the display was TOLD apart from what the program has SINCE SAID turns
     # all of that into two comparisons: they differ exactly on the frame the answer moved,
     # which is the frame worth writing on.
-    def turn_written_when_it_changed(name, background)
-      told_angle, told_size = turn_the_display_was_told(name)
+    def affine_write_if_changed(name, background)
+      told_angle, told_size = declare_last_affine_vars(name)
       changed = Build.binop(:or,
                             Build.binop(:!=, Build.var_ref(background.angle), Build.var_ref(told_angle)),
                             Build.binop(:!=, Build.var_ref(background.scale), Build.var_ref(told_size)))
@@ -1041,7 +1041,7 @@ module RubyGBA
     # true — no background is a size of nought, the smallest one anybody can ask for being
     # more than nothing. So the pair starts out disagreeing, and the frame that finds them
     # disagreeing is the frame that puts the picture on screen.
-    def turn_the_display_was_told(name)
+    def declare_last_affine_vars(name)
       vars = [:"__bg_#{name}_told_angle", :"__bg_#{name}_told_size"]
       vars.each do |var|
         at_boot(Build.set(var, Build.int(0)))
@@ -1067,7 +1067,7 @@ module RubyGBA
       # mixing changes as the screens take turns, so every one is told again at every
       # boundary and each backend tells only the one on screen.
       layers = @layers_node.see_through
-      told = layers.size > 1 ? layers : layers.reject { |layer| told_once?(layer) }
+      told = layers.size > 1 ? layers : layers.reject { |layer| fixed_blend_amounts?(layer) }
       return if told.empty?
 
       @frame_boundaries.each do |wait_node|
@@ -1084,7 +1084,7 @@ module RubyGBA
     end
 
     # A layer whose amounts are both numbers the author wrote is told once, at boot.
-    def told_once?(layer)
+    def fixed_blend_amounts?(layer)
       [layer.shows, layer.behind].all? { |amount| DSL::Value.fixed_number(amount) }
     end
 
@@ -1175,7 +1175,7 @@ module RubyGBA
     # a menu hands over to — would get one only as that body is built, after this dispatch
     # was fixed. Numbering them all first costs nothing: a number the variable never holds
     # simply never runs its scene.
-    def scenes_picked_by_name
+    def convert_scene_name_dispatches
       scenes = @functions.keys.filter_map { |name| name.to_s.delete_prefix("_scene_").to_sym if name.to_s.start_with?("_scene_") }
       @name_dispatches.reject! do |node, held|
         next false unless node.which.kind == :var_ref && held.names.intersect?(scenes)
@@ -1361,7 +1361,7 @@ module RubyGBA
       record(node)
       @container_stack.push(node)
       # A test the block is written under is also a test anything DECLARED in the block is
-      # only shown under (see #condition_gate) — the same statement reads both ways, and a
+      # only shown under (see #gated_by_open_conditions) — the same statement reads both ways, and a
       # thing the framework redraws for you every frame has no other way to hear about it.
       @shown_while.push(node.cond) if node.kind == :if
       yield

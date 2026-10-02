@@ -42,7 +42,7 @@ class TestSceneDisplayMode < Minitest::Test
         end
       end
     end
-    b.emit_pending_functions
+    b.finalize_program
     b.program
   end
 
@@ -96,7 +96,7 @@ class TestSceneDisplayMode < Minitest::Test
         end
       end
     end
-    b.emit_pending_functions
+    b.finalize_program
 
     assert_instance_of RubyGBA::DSL::HardwareSprite, tiled_sprite,
                        "the tiled scene's sprite is a hardware (OAM) sprite"

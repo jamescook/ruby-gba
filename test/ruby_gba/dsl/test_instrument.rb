@@ -79,7 +79,7 @@ class TestInstrument < Minitest::Test
       piano.play(:C4, :E4, :G4)
       game_loop { wait_vblank }
     end
-    b.emit_pending_functions
+    b.finalize_program
     v = assert_emulator_loads_rom(assemble_rom(b.program, name: "CHRD"), frames: 6)
 
     chord = %i[C4 E4 G4]

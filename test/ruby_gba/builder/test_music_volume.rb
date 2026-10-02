@@ -38,7 +38,7 @@ class TestMusicVolume < Minitest::Test
         instance_exec(pass, &body)
       end
     end
-    b.emit_pending_functions
+    b.finalize_program
     b.program
   end
 
@@ -168,7 +168,7 @@ class TestMusicVolume < Minitest::Test
   def warnings(&block)
     b = Builder.new
     b.instance_eval(&block)
-    b.emit_pending_functions
+    b.finalize_program
     RubyGBA::IR::Guardrails::Validator.new.run(b.program, autofix: false).warnings.map(&:check)
   end
 
@@ -286,7 +286,7 @@ class TestMusicVolume < Minitest::Test
         ((music_volume == 0) & (silent_at == 0)).then { silent_at.set! pass }
       end
     end
-    b.emit_pending_functions
+    b.finalize_program
     run = Reference.new.run(b.program, frames: 20)
 
     assert_equal 100, run[:loud_at_start]
@@ -374,7 +374,7 @@ class TestMusicVolume < Minitest::Test
         instance_exec(pass, &body)
       end
     end
-    b.emit_pending_functions
+    b.finalize_program
     b.program
   end
 

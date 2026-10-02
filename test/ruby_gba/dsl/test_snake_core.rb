@@ -48,7 +48,7 @@ class TestSnakeCore < Minitest::Test
       end
       halt
     end
-    builder.emit_pending_functions
+    builder.finalize_program
     Reference.new.run(builder.program)
   end
 
@@ -109,7 +109,7 @@ class TestSnakeCore < Minitest::Test
       set! :len, xs.length
       halt
     end
-    builder.emit_pending_functions
+    builder.finalize_program
     result = Reference.new.run(builder.program)
 
     assert_equal 3, result[:len], "length stays fixed while sliding"
@@ -139,7 +139,7 @@ class TestSnakeCore < Minitest::Test
       repeat(xs.length) { |i| draw_rect_at xs[i] * grid, ys[i] * grid, grid, grid, :green }
       halt
     end
-    builder.emit_pending_functions
+    builder.finalize_program
     prog = builder.program
 
     # cells (3,5),(4,5),(5,5) at grid 4 -> x = 12,16,20 ; y = 20. Vacated (2,5) -> x=8.

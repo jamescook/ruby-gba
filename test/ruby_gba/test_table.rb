@@ -11,14 +11,14 @@ class TestTable < Minitest::Test
   def interpret(&block)
     b = Builder.new
     b.instance_eval(&block)
-    b.emit_pending_functions
+    b.finalize_program
     Reference.new.run(b.program)
   end
 
   def rom_for(title, code, &block)
     b = Builder.new
     b.instance_eval(&block)
-    b.emit_pending_functions
+    b.finalize_program
     ROM.assemble(GBA.new.lower(b.program), title: title, code: code, maker: "01")
   end
 

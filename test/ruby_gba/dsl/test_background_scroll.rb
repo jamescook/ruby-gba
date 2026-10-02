@@ -30,7 +30,7 @@ class TestBackgroundScroll < Minitest::Test
         halt
       end
     end
-    builder.emit_pending_functions
+    builder.finalize_program
     builder.program
   end
 
@@ -87,7 +87,7 @@ class TestBackgroundScroll < Minitest::Test
         after(20) { halt }
       end
     end
-    builder.emit_pending_functions
+    builder.finalize_program
     builder.program
   end
 

@@ -156,7 +156,7 @@ class TestPictureStorage < Minitest::Test
         state.set! 0
       end
     end
-    builder.emit_pending_functions
+    builder.finalize_program
     builder.program
   end
 
@@ -208,7 +208,7 @@ class TestPictureStorage < Minitest::Test
         end
       end
     end
-    builder.emit_pending_functions
+    builder.finalize_program
     builder.program
   end
 
@@ -254,7 +254,7 @@ class TestPictureStorage < Minitest::Test
       sprite :blue_ship, at: [80, 40]
       game_loop {}
     end
-    builder.emit_pending_functions
+    builder.finalize_program
     builder.program
   end
 
@@ -281,7 +281,7 @@ class TestPictureStorage < Minitest::Test
       sprite :many, at: [80, 40]
       game_loop {}
     end
-    builder.emit_pending_functions
+    builder.finalize_program
     builder.program
   end
 
@@ -304,7 +304,7 @@ class TestPictureStorage < Minitest::Test
       background :room, tiles: :walls, map: Array.new(20) { |r| (r.even? ? "#." : ".#") * 15 }
       game_loop {}
     end
-    builder.emit_pending_functions
+    builder.finalize_program
     builder.program
   end
 
@@ -422,7 +422,7 @@ class TestPictureStorage < Minitest::Test
       sprite :link, at: [40, 40]
       game_loop {}
     end
-    builder.emit_pending_functions
+    builder.finalize_program
     builder.program
   end
 

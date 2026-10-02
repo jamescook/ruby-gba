@@ -134,7 +134,7 @@ class TestAddressRegister < Minitest::Test
   def dsl_program(&block)
     builder = RubyGBA::Builder.new
     builder.instance_eval(&block)
-    builder.emit_pending_functions
+    builder.finalize_program
     builder.program
   end
 

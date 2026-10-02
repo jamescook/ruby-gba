@@ -207,7 +207,7 @@ class TestNoteEnvelope < Minitest::Test
       music.play 0
       game_loop { clear_screen :black }
     end
-    builder.emit_pending_functions
+    builder.finalize_program
     Reference.new.tap { |ruby| ruby.run(builder.program, frames: frames) }
   end
 
@@ -255,7 +255,7 @@ class TestNoteEnvelope < Minitest::Test
         (pass == burst).then { clips.each(&:play) } if burst
       end
     end
-    b.emit_pending_functions
+    b.finalize_program
     b.program
   end
 

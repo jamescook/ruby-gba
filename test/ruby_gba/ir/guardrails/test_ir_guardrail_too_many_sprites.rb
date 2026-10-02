@@ -27,7 +27,7 @@ class TestIRGuardrailTooManySprites < Minitest::Test
       draw_text "A" * letters, 0, 150, :white
       game_loop {}
     end
-    b.emit_pending_functions
+    b.finalize_program
     b.program
   end
 
