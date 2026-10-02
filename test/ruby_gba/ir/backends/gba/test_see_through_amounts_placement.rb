@@ -106,6 +106,109 @@ class TestSeeThroughAmountsPlacement < Minitest::Test
     assert_empty short, "came out bigger than charged: #{short}"
   end
 
+  # The amounts are told again wherever something puts the blend back, and a screen that
+  # switches the display into tiled mode as it takes over is one such place: the title's
+  # own code calls the routine there too. With the title in the quick memory and its
+  # amounts left in the cartridge, that call crosses between the two, and has to be
+  # charged like the game loop's.
+  private def bitmap_intro_then_title
+    tile = SOLID_TILE
+    built do
+      image(:forest, "#" => rgb(20, 4, 30)) { tile }
+      image(:ray, "#" => rgb(16, 8, 2)) { tile }
+      tiles :forests, "#" => :forest
+      tiles :rays, "#" => :ray
+      full = Array.new(20) { "#" * 30 }
+      t = var :t, 0
+      glow = var :glow, 0
+      where = var :where, 0
+      layers :back, :rays
+      scene(:intro) do
+        screen :bitmap
+        clear_screen :blue
+      end
+      scene :title do
+        screen :tiled
+        layer(:back) { background :forest, tiles: :forests, map: full }
+        layer(:rays, shows: 57 - glow, shows_behind: 57 + glow) { background :ray, tiles: :rays, map: full }
+        glow.set! (glow + 1) % 6
+      end
+      game_loop do
+        t.add! 1
+        (t == 4).then { where.set! 1 }
+        case_var(:where) do
+          when_val 0, :intro
+          when_val 1, :title
+        end
+      end
+    end
+  end
+
+  def test_a_screen_that_tells_the_amounts_again_is_charged_for_that_call
+    work = { FRAME => 400, _scene_title: 900, RAYS => 0, _scene_intro: 0 }
+    backend = GBA.new(routine_profile: RubyGBA::Diagnostics::RoutineProfile.new(work: work))
+    backend.lower(bitmap_intro_then_title)
+    short = backend.charged_against_emitted.select { |_name, (charged, emitted)| charged < emitted }
+
+    assert_includes backend.iwram_report.funcs, :_scene_title
+    assert_empty short, "came out bigger than charged: #{short}"
+  end
+
+  # WHILE PLAY IS UP, THE TITLE'S AMOUNTS ARE NOT WORKED OUT AT ALL. Nothing play draws is
+  # mixed by them, so working them out every play frame would be the title's arithmetic paid
+  # for by play, from the cartridge. Here the game loop moves the step on every frame
+  # whatever is up, so a routine still at work in play would keep changing what the display
+  # was told.
+  private def steps_whatever_is_up
+    tile = SOLID_TILE
+    built do
+      screen :tiled
+      image(:forest, "#" => rgb(20, 4, 30)) { tile }
+      image(:ray, "#" => rgb(16, 8, 2)) { tile }
+      image(:field, "#" => :green) { tile }
+      tiles :forests, "#" => :forest
+      tiles :rays, "#" => :ray
+      tiles :fields, "#" => :field
+      full = Array.new(20) { "#" * 30 }
+      t = var :t, 0
+      step = var :step, 0
+      where = var :where, 0
+      layers :back, :rays
+      scene :title, fast: false do
+        layer(:back) { background :forest, tiles: :forests, map: full }
+        layer(:rays, shows: 57 - (step * 6), shows_behind: 57 + (step * 6)) do
+          background :ray, tiles: :rays, map: full
+        end
+      end
+      scene(:playing) { layer(:back) { background :field, tiles: :fields, map: full } }
+      game_loop do
+        t.add! 1
+        step.set! t % 4
+        (t == 6).then { where.set! 1 }
+        case_var(:where) do
+          when_val 0, :title
+          when_val 1, :playing
+        end
+      end
+    end
+  end
+
+  def test_play_leaves_the_titles_amounts_alone
+    v = assert_emulator_loads_rom(assemble_rom(steps_whatever_is_up, name: "RAYSOFF"), frames: 3)
+    on_title = [v.mem16(RubyGBA::Console::Hardware::REG_BLDALPHA)]
+    v.step(1)
+    on_title << v.mem16(RubyGBA::Console::Hardware::REG_BLDALPHA)
+    assert_equal 2, on_title.uniq.size, "on the title the pair follows the step"
+
+    v.step(10)
+    in_play = [v.mem16(RubyGBA::Console::Hardware::REG_BLDALPHA)]
+    3.times do
+      v.step(1)
+      in_play << v.mem16(RubyGBA::Console::Hardware::REG_BLDALPHA)
+    end
+    assert_equal 1, in_play.uniq.size, "in play nothing works the title's pair out"
+  end
+
   # THE PICTURE DOES NOT CHANGE, frame by frame: the step moves every frame on the title, so
   # any frame of lag in the pair would show, and the title comes back after play.
   def test_the_console_mixes_each_frame_at_that_frames_pair

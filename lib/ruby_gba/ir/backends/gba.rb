@@ -233,16 +233,11 @@ module RubyGBA
         # one writing each scene's moving sprites, and the one telling the display how
         # see-through a layer is (see LayerBlend#amount_routines). Read by the placement,
         # which weighs them like routines somebody wrote and gives each its scene's `fast:`.
+        # It keeps its own copy, read off the measuring pass, as Placement#scene_routines —
+        # a different name because Placement is part of this class.
         def routines_for_scenes
           (@scene_sprites || []).to_h { |group| [SpriteDrawing.sprites_routine(group.scene), group.scene] }
                                 .merge(@layer_blend.amount_routines)
-        end
-
-        # How many routines the frame's own body calls that the program never wrote: the
-        # scenes' sprite writers, the still sprites', and the see-through amounts. Each is a
-        # call that grows if the frame moves to the quick memory and the routine does not.
-        def frame_calls_to_made_routines
-          (@scene_sprites || []).length + (@movement&.still&.any? ? 1 : 0) + @layer_blend.amount_routines.size
         end
 
         # The emitted machine code / the label table / where each embedded blob landed

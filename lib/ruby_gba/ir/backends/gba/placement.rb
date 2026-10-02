@@ -183,10 +183,11 @@ module RubyGBA
             @progress.step("measuring the routines")
             probe = self.class.new(fast_cartridge: @fast_cartridge, progress: @progress)
             probe.lower(program, fast_funcs: Set.new) # measure the program with nothing moved
-            # The routines the build makes for each scene's moving sprites are nowhere in the
-            # program, so the probe is the one that knows them.
+            # The routines the build makes for its scenes (their moving sprites, a see-through
+            # layer's amounts) are nowhere in the program, so the probe is the one that knows
+            # them.
             @scene_routines = probe.routines_for_scenes
-            sizes = moved_sizes(program, probe.func_sizes, made_calls: probe.frame_calls_to_made_routines)
+            sizes = moved_sizes(program, probe.func_sizes, made_calls: probe.made_calls_by_routine)
             # Every allocation is rounded up to a whole word, so the gap the probe leaves is
             # the gap there really is — there is no alignment slop to keep back for.
             room = probe.iwram_free
@@ -220,6 +221,15 @@ module RubyGBA
           def func_sizes
             @functions.func_ranges.transform_values(&:size)
           end
+
+          # How many calls to a routine the build made for itself each routine holds, read off
+          # the throwaway pass by where each call was written (see #moved_sizes).
+          def made_calls_by_routine
+            @functions.func_ranges.transform_values { |range| made_call_sites.count { |pos| range.cover?(pos) } }
+                      .select { |_, count| count.positive? }
+          end
+
+          def made_call_sites = (@made_call_sites ||= [])
 
           # Once the game loop's body is going to the quick memory it needs a name and a
           # place in the routine table, so that everything downstream — emitting it,
@@ -312,6 +322,7 @@ module RubyGBA
           # address and jump through it, because the two are far too far apart for a jump
           # to reach.
           def emit_call_func(name)
+            made_call_sites << @emit.pos if @functions.minted?(name)
             target_is_fast = @fast_funcs.include?(name)
             return emit_branch(:bl, @functions.func_label(name)) if target_is_fast == @emitting_hot
 
@@ -451,16 +462,19 @@ module RubyGBA
           end
 
           #
-          # A THIRD KIND is the frame's calls to routines the build made for itself — each
-          # scene's moving sprites, and the sprites nothing moves — which the frame makes in the
-          # gap after the picture, where no node of the tree says so. +made_calls+ is how many.
-          def moved_sizes(program, measured, made_calls: 0)
+          # A THIRD KIND is the calls to routines the build made for itself — each scene's
+          # moving sprites, the sprites nothing moves, a see-through layer's amounts — where no
+          # node of the tree says so. Most are made by the frame, in the gap after the picture,
+          # but a see-through layer's amounts are told again wherever something puts the blend
+          # back: a scene taking over the display, a fade lifting. So they are counted where
+          # the measuring pass really wrote them. +made_calls+ is how many, by routine.
+          def moved_sizes(program, measured, made_calls: {})
             calls = Hash.new(0)
             program.walk.each do |node|
               name = node.kind == :loop ? FRAME_ROUTINE : (node.name if node.kind == :func)
               calls[name] = crossing_calls_in(node) if name
             end
-            calls[FRAME_ROUTINE] += made_calls
+            made_calls.each { |name, count| calls[name] += count }
             calls[IRQ_ROUTINE] = irq_bodies(program).sum { |node| crossing_calls_in(node) }
             measured.to_h do |name, size|
               [name, size + (calls[name] * CROSS_CALL_GROWTH) + ROUTINE_WRAPPER]
@@ -487,7 +501,8 @@ module RubyGBA
           # The routines the author asked for by name, placed before anything the
           # framework picked and not held to its share of the room. Answers what is left.
           #
-          # A scene insisted on takes the routine that writes its sprites with it.
+          # A scene insisted on takes the routines the build made for it (its sprites, its
+          # see-through amounts) with it.
           def place_insisted(program, insisted, sizes, room, chosen)
             movable = program.walk.select { |node| node.kind == :func && insisted.include?(node.name) }.map(&:name)
             movable += scene_routines.filter_map { |routine, scene| routine if insisted.include?(scene) && sizes[routine] }
@@ -504,7 +519,8 @@ module RubyGBA
           # stopping the fill — a small routine after a large one still gets its chance.
           def place_by_frame_cost(program, sizes, room, chosen)
             forbidden = funcs_marked(program, false)
-            # A scene the author kept out of the quick memory keeps its sprites out with it.
+            # A scene the author kept out of the quick memory keeps what the build made for it
+            # out with it: its sprites, and its see-through amounts.
             forbidden += scene_routines.filter_map { |routine, scene| routine if forbidden.include?(scene) }
             ranked = ranked_by_frame_cost(program, sizes)
             ranked.each_with_index do |name, n|
@@ -587,10 +603,11 @@ module RubyGBA
           # see-through layer no one scene owns). Empty until the measuring pass has run.
           def scene_routines = @scene_routines || {}
 
-          # A SCENE'S SPRITES GO RIGHT AFTER THE SCENE, when nothing has been measured. The
-          # frame calls that routine on exactly the frames the scene runs, so it is worth what
-          # the scene is worth, and nothing in the tree reaches it for the walk below to find.
-          def with_scene_sprites(order, candidates)
+          # WHAT THE BUILD MADE FOR A SCENE GOES RIGHT AFTER THE SCENE, when nothing has been
+          # measured. The frame calls such a routine on the frames the scene runs, so it is
+          # worth what the scene is worth, and nothing in the tree reaches it for the walk below
+          # to find.
+          def with_scene_routines(order, candidates)
             of_scene = scene_routines.select { |routine, _| candidates.include?(routine) }
                                       .group_by { |_, scene| scene }
             order.flat_map { |name| [name, *of_scene.fetch(name, []).map(&:first)] }
@@ -612,7 +629,7 @@ module RubyGBA
             order << IRQ_ROUTINE if candidates.include?(IRQ_ROUTINE) && interrupts_often?(program)
 
             reached = calls_outward_from(program, frame_body(program), candidates - order.to_set)
-            with_scene_sprites(order + reached, candidates)
+            with_scene_routines(order + reached, candidates)
           end
 
           # DOES THE CONSOLE INTERRUPT OFTEN ENOUGH FOR THAT ROUTINE TO BE WORTH THE ROOM? Both
@@ -721,7 +738,7 @@ module RubyGBA
           end
 
           # What the author wrote to insist on +name+: a scene's own word for the scene and for
-          # the routine that writes its sprites, a func's for anything else.
+          # the routines the build made for it, a func's for anything else.
           def insisted_words(name)
             scene = scene_routines.fetch(name, name).to_s
             return "`func :#{name}, fast: true`" unless scene.start_with?("_scene_")

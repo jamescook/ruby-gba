@@ -48,6 +48,9 @@ module RubyGBA
             @minted[name] = body
           end
 
+          # Is +name+ one of those?
+          def minted?(name) = @minted.key?(name)
+
           def emit_functions
             cold = @funcs.reject { |name, _| @placement.fast_funcs.include?(name) }
             return if cold.empty?

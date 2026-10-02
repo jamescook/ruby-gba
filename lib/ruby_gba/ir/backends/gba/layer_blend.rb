@@ -100,8 +100,8 @@ module RubyGBA
               end
               [node.name, IR::SeeThrough.weights(node, shows, behind)]
             end
-            @amount_routines = @layers.reject { |layer| fixed?(layer) }
-                                      .to_h { |layer| [routine_name(layer), scene_of(layer)] }
+            @amount_layers = @layers.reject { |layer| fixed?(layer) }.to_h { |layer| [routine_name(layer), layer] }
+            @amount_routines = @amount_layers.transform_values { |layer| scene_of(layer) }
           end
 
           # Does this program see through any layer at all?
@@ -113,6 +113,17 @@ module RubyGBA
           # mixes changes as the screens take turns, and a game with only one pays nothing
           # for the bookkeeping.
           def several? = @layers.size > 1
+
+          # DOES THE FRAME BOUNDARY ASK WHICH SCREEN IS UP before telling the display a layer's
+          # amounts? Where there are several see-through layers, so it tells the one on screen.
+          # And where the one there is belongs to a single scene and its amounts are worked
+          # out: then on any other scene's frames nothing on screen is mixed by them, and
+          # working them out anyway would be that scene's arithmetic paid for by every other,
+          # from wherever its routine was placed. Asking costs each scene one store and the
+          # boundary one compare.
+          def asks_which_screen?
+            several? || amount_routines.values.any? { |owner| owner != Placement::FRAME_ROUTINE }
+          end
 
           # What an amount the game works out starts at: the initial value of the variable
           # it reads, when it is one plain variable. An amount worked out from more than
@@ -147,7 +158,7 @@ module RubyGBA
             emit_blend_targets
             first = layer_on(first_screen_that_blends) || @layers.first
             @emitter.write_reg16(REG_BLDALPHA, halfword(@starting.fetch(first.name)))
-            store_screen(first) if several?
+            store_screen(first) if asks_which_screen?
           end
 
           # PUT THE BLEND BACK, for whatever took it — entering a display mode, and a fade
@@ -191,14 +202,14 @@ module RubyGBA
 
           # The body of one of those routines.
           def emit_amounts_routine(name)
-            emit_amounts_if_on_screen(@layers.find { |layer| routine_name(layer) == name })
+            emit_amounts_if_on_screen(@amount_layers.fetch(name))
           end
 
           # WHICH SEE-THROUGH LAYER THIS SCENE'S SCREEN SHOWS, written as the scene runs so
-          # the frame boundary tells the display that one's amounts. Nothing for a game with
-          # one see-through layer, which never has to ask.
+          # the frame boundary tells the display that one's amounts. Nothing for a game that
+          # never has to ask (see #asks_which_screen?).
           def emit_screen_marker(scene)
-            return unless see_through? && several?
+            return unless see_through? && asks_which_screen?
 
             screenful = @screenfuls.find { |each| each.scene == scene }
             store_screen(screenful && layer_on(screenful))
@@ -266,15 +277,10 @@ module RubyGBA
           # Tell the display +layer+'s amounts: by calling the routine that works them out,
           # where they change, and by writing them here where they are numbers.
           def emit_amounts_now(layer)
-            name = routine_for(layer)
-            return @lowering.statement(Build.call(name)) if name
+            name = routine_name(layer)
+            return @lowering.statement(Build.call(name)) if amount_routines.key?(name)
 
             emit_amounts_if_on_screen(layer)
-          end
-
-          def routine_for(layer)
-            name = routine_name(layer)
-            name if amount_routines.key?(name)
           end
 
           def routine_name(layer) = Messages::MadeNames.make(:see_through_amounts, layer: layer.name)
@@ -288,10 +294,10 @@ module RubyGBA
             scenes.size == 1 && scenes.first ? scenes.first : Placement::FRAME_ROUTINE
           end
 
-          # Tell the display +layer+'s amounts — where the game has a see-through layer on
-          # more than one screen, only while +layer+'s screen is the one up.
+          # Tell the display +layer+'s amounts — where the game asks which screen is up, only
+          # while +layer+'s screen is the one up.
           def emit_amounts_if_on_screen(layer)
-            return emit_blend_amounts(layer) unless several?
+            return emit_blend_amounts(layer) unless asks_which_screen?
 
             @primitives.load_var(ACC, SCREEN_STATE)
             @emitter.emit(ASM.cmp_imm(ACC, screen_number(layer)))
