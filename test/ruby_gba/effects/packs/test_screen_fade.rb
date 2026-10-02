@@ -111,6 +111,56 @@ class TestScreenFade < Minitest::Test
     assert_equal RED, seen.last, "then it falls back to the picture, with nothing left behind"
   end
 
+  # A slow fade out and back sets a slow speed. A bare flash after it is still a hit, so it
+  # has to last as long as a flash says it does, not as long as the fade before it took.
+  def after_a_slow_fade(&effect)
+    program do
+      screen :bitmap
+      frame = var :frame, 0
+      game_loop do
+        clear_screen :red
+        frame.add! 1
+        (frame == 2).then { fade_out :black, frames: 40 }
+        (frame == 50).then { fade_in frames: 40 }
+        (frame == 100).then { instance_exec(&effect) }
+      end
+    end
+  end
+
+  # How many frames from frame +from+ on show something other than the picture.
+  def frames_not_red(prog, from:, to:)
+    ramp(prog, to).drop(from).count { |px| px != RED }
+  end
+
+  def test_a_bare_flash_lasts_as_long_as_a_six_frame_flash_whatever_came_before
+    bare = frames_not_red(after_a_slow_fade { flash_screen :white }, from: 99, to: 160)
+    six = frames_not_red(after_a_slow_fade { flash_screen :white, frames: 6 }, from: 99, to: 160)
+
+    assert_operator six, :>, 0, "the six-frame flash has to show at all"
+    assert_equal six, bare, "a bare flash is six frames, not the speed of the fade before it"
+  end
+
+  # A bare fade_out is the default half second, however quick the last flash was. Only a
+  # bare fade_in takes the speed of what went before, because it is coming back the way
+  # the screen went out.
+  def test_a_bare_fade_out_after_a_quick_flash_takes_the_default_half_second
+    quick_then_bare = program do
+      screen :bitmap
+      frame = var :frame, 0
+      game_loop do
+        clear_screen :red
+        frame.add! 1
+        (frame == 2).then { flash_screen :white, frames: 4 }
+        (frame == 20).then { fade_out :black }
+      end
+    end
+    half_second = fading_game { fade_out :black, frames: 30 }
+
+    arrives = ramp(quick_then_bare, 80).index(BLACK) - 18
+    expected = ramp(half_second, 80).index(BLACK)
+    assert_equal expected, arrives, "a bare fade_out takes thirty frames"
+  end
+
   def test_a_flash_toward_black_is_the_scene_change_cut
     seen = ramp(fading_game { flash_screen :black, frames: 8 }, 20)
 
@@ -347,6 +397,16 @@ class TestScreenFade < Minitest::Test
            "the console really does black the picture out"
     assert assert_emulator_loads_rom(rom, frames: 30).red?(120, 80),
            "and really does put it back"
+  end
+
+  # A bare flash after a slow fade, on the console: the picture is back a few frames after
+  # the flash, where the forty-frame speed of the fade before it would still be lit.
+  def test_a_bare_flash_after_a_slow_fade_is_over_quickly_on_the_console
+    v = assert_emulator_loads_rom(assemble_rom(after_a_slow_fade { flash_screen :white }, name: "BAREFL"),
+                                  frames: 104)
+    refute v.red?(120, 80), "the flash has to show at all"
+    v.step(12)
+    assert v.red?(120, 80), "and a bare flash is over in six frames, got #{v.pixel_gba(120, 80)}"
   end
 
   # A coloured flash on the TEAR-FREE screen, which is where a real game meets this: that

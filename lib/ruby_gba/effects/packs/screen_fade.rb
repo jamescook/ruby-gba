@@ -111,7 +111,7 @@ module RubyGBA
         # @param frames [Integer, nil] how long it takes, in frames
         # @param duration [Numeric, nil] how long it takes, in seconds
         def fade_in(color = nil, frames: nil, duration: nil)
-          start_fade(color, 0.0, frames, duration)
+          start_fade(color, 0.0, frames, duration, default: nil)
         end
 
         # Flash the whole screen and let it fall back — the impact effect for a hit, a
@@ -263,15 +263,17 @@ module RubyGBA
         # take, so they cannot drift apart.
         #
         # A color of nil keeps whatever the screen is already fading toward, which is what
-        # lets `fade_in` be written on its own: it comes back the way it went out. Leaving
-        # the step alone when no length is given does the same for the speed.
+        # lets `fade_in` be written on its own: it comes back the way it went out. A
+        # `default:` of nil does the same for the speed, and only `fade_in` passes one —
+        # a bare `fade_out` or `flash_screen` takes its own length, so a quick flash
+        # cannot make the next scene change a blink, nor a slow fade make a flash linger.
         def start_fade(color, target, frames, duration, default: DEFAULT_FRAMES, under: nil)
           refuse_colored_placed_fade!(color, under)
           set_fade_layer!(under) if under
           state = screen_fade_state
           state[:color].set! fade_color_code(color) if color
           state[:target].set! target
-          if frames || duration
+          if frames || duration || default
             state[:step].set! FULL / fade_step_count(frames, duration, default)
           else
             @fade_without_length = true
@@ -337,11 +339,11 @@ module RubyGBA
 
         # The most frames any fade in this game can take.
         #
-        # A fade said with no length keeps the speed of the fade before it — and when no fade
-        # has run yet, that is the default half second. Which comes first depends on how the
-        # game is played, so nothing at build time can rule the default out: a game with a
-        # four-frame flash and a bare `fade_out` fades over the default whenever the fade_out
-        # comes first. So a fade said with no length counts the default.
+        # A bare `fade_out` or `flash_screen` records its own length like any other. A bare
+        # `fade_in` keeps the speed of the fade before it — and when no fade has run yet,
+        # that is the default half second. Which comes first depends on how the game is
+        # played, so nothing at build time can rule the default out. So a bare `fade_in`
+        # counts the default.
         def longest_fade_frames
           longest = @fade_longest || 0
           @fade_without_length ? [longest, DEFAULT_FRAMES].max : longest
