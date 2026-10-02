@@ -23,7 +23,7 @@ module RubyGBA
           # of asking for it — a quarter or a half of the memory. A narrow slot can always go
           # below nothing (see Build.element_range for why there is no choice about that), and
           # what it does with a number too big for it is the interesting part: it does what the
-          # console does, keeping the low bits and dropping the rest. See #fit.
+          # console does, keeping the low bits and dropping the rest. See #wrap_to_width.
           def initialize(capacity, width: :word)
             @capacity = capacity
             @low, @high = Build.element_range(width)
@@ -51,7 +51,7 @@ module RubyGBA
 
           # Append a value at the end (caller ensures there's room).
           def push(value)
-            @items.push(fit(value))
+            @items.push(wrap_to_width(value))
           end
 
           # The value at an index (caller ensures the index is in range).
@@ -64,7 +64,7 @@ module RubyGBA
 
           # Overwrite the value at an index (caller ensures the index is in range).
           def set(index, value)
-            @items[index] = fit(value)
+            @items[index] = wrap_to_width(value)
           end
 
           # Remove and return the oldest item (the front). Caller ensures the list
@@ -87,7 +87,7 @@ module RubyGBA
           # agree with it. The value comes back the way the console's sign-extending load reads
           # it, so 200 in a byte slot is -56 on both backends rather than 200 here and -56
           # there — the two agreeing about what was dropped is the whole of the contract.
-          def fit(value)
+          def wrap_to_width(value)
             span = @high - @low + 1
             return value if span > 0xFFFF_FFFF
 

@@ -102,10 +102,10 @@ module RubyGBA
           def draw_anywhere = @area = nil
 
           # The area in force right now, so a routine that sets one of its own can hand
-          # the caller's back when it returns (#draw_within).
+          # the caller's back when it returns (#restore_area).
           attr_reader :area
 
-          def draw_within(area) = @area = area
+          def restore_area(area) = @area = area
 
           # Move the visible window over the stored picture: after this, screen (0, 0)
           # shows what was drawn at (x, y). Nothing stored moves — a camera changes what
@@ -166,7 +166,7 @@ module RubyGBA
           # it and leave what is in front of it alone — so the compositor turns this on
           # while it paints the things behind the line and off before the things in front,
           # and the finished picture already carries the blend.
-          def paint_faded(toward, steps)
+          def set_paint_fade(toward, steps)
             @paint_toward = toward
             @paint_steps = toward.nil? ? 0 : steps
             @blending = blending?
@@ -177,13 +177,13 @@ module RubyGBA
           # already there], in steps, or nil for no blend.
           #
           # This is the one blend that needs the DESTINATION, which is why it cannot be
-          # #paint_faded with a different color: a fade mixes toward a color that is the
+          # #set_paint_fade with a different color: a fade mixes toward a color that is the
           # same everywhere, and a see-through layer mixes toward whatever happens to be
           # underneath at that pixel. And it works BECAUSE the picture is painted back to
           # front — "blend with whatever is already there" and the display's own "blend
           # with the layer directly beneath" are then the same rule, so nothing about the
           # stack has to be modelled a second time.
-          def paint_through(weights)
+          def set_paint_see_through(weights)
             @through = weights
             @blending = blending?
           end
@@ -233,7 +233,7 @@ module RubyGBA
             return unless in_bounds?(x, y)
 
             at = (y * @width) + x
-            @pixels[at] = laid(at, color)
+            @pixels[at] = blend_into_cell(at, color)
           end
 
           # Paint a horizontal run of cells: +count+ of them starting at (x, y), read
@@ -249,9 +249,9 @@ module RubyGBA
             i = 0
             while i < count
               color = colors[from + i]
-              # The blend is asked for inline rather than through #laid, which would be
+              # The blend is asked for inline rather than through #blend_into_cell, which would be
               # a method call per pixel on the path that repaints the whole scene.
-              @pixels[base + i] = @blending ? laid(base + i, color) : color if color
+              @pixels[base + i] = @blending ? blend_into_cell(base + i, color) : color if color
               i += 1
             end
           end
@@ -269,7 +269,7 @@ module RubyGBA
           # Paint the entire screen one color — or, where drawing is held to a part of it, that
           # part and no more.
           def clear(color)
-            return @pixels.fill(painted(color)) unless @area
+            return @pixels.fill(apply_placed_fade(color)) unless @area
 
             fill_rect(@area[0], @area[1], @area[2] - @area[0], @area[3] - @area[1], color)
           end
@@ -361,11 +361,11 @@ module RubyGBA
           # One color on its way into the cell at +at+: the blend a placed fade asks for,
           # then the blend a see-through layer asks for against what is already there.
           # Untouched when neither is on, which is the usual case.
-          def laid(at, color)
-            color = painted(color)
+          def blend_into_cell(at, color)
+            color = apply_placed_fade(color)
             return color unless @through
 
-            through(color, @pixels[at], *@through)
+            mix_see_through(color, @pixels[at], *@through)
           end
 
           # A see-through layer's color over what is under it: +near+ steps of the one and
@@ -381,23 +381,23 @@ module RubyGBA
           # widened mix matching a retail cartridge's pixels every one. The console's own
           # documentation describes the five-bit mix; what the picture is checked against
           # is the widened one.
-          def through(color, under, near, far)
+          def mix_see_through(color, under, near, far)
             packed = 0
             3.times do |channel|
               shift = channel * 5
-              have = widened((color >> shift) & CHANNEL_MAX)
-              below = widened((under >> shift) & CHANNEL_MAX)
+              have = widen_channel((color >> shift) & CHANNEL_MAX)
+              below = widen_channel((under >> shift) & CHANNEL_MAX)
               packed |= ([((have * near) + (below * far)) / FADE_STEPS, 255].min >> 3) << shift
             end
             packed
           end
 
-          def widened(channel) = (channel << 3) | (channel >> 2)
+          def widen_channel(channel) = (channel << 3) | (channel >> 2)
 
           # One color with the blend a placed fade asks for, or the color untouched when
           # no fade is placed. The same arithmetic as #faded, so a picture blended while
           # it is painted and one blended while it is read cannot come out different.
-          def painted(color)
+          def apply_placed_fade(color)
             @paint_toward ? blend(color, @paint_toward, @paint_steps) : color
           end
 

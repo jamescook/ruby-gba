@@ -324,7 +324,7 @@ module RubyGBA
             return emit_saving(LoopForm::COUNTER) { yield } if @unread_indexes.include?(index)
 
             @primitives.store_var(LoopForm::COUNTER, index)
-            emit_saving(LoopForm::COUNTER, LoopForm::LIMIT) { @primitives.not_holding(index) { yield } }
+            emit_saving(LoopForm::COUNTER, LoopForm::LIMIT) { @primitives.without_var_in_register(index) { yield } }
           end
 
           def emit_saving(*registers)
@@ -352,7 +352,7 @@ module RubyGBA
             @emitter.emit_branch(:bcond, done, cond: :le)
 
             @emitter.place_label(top)
-            @primitives.holding(node.index, LoopForm::COUNTER) { yield }
+            @primitives.with_var_in_register(node.index, LoopForm::COUNTER) { yield }
             @emitter.emit(ASM.add_imm(LoopForm::COUNTER, LoopForm::COUNTER, 1))
             @emitter.emit(ASM.cmp_reg(LoopForm::COUNTER, LoopForm::LIMIT))
             @emitter.emit_branch(:bcond, top, cond: :lt)

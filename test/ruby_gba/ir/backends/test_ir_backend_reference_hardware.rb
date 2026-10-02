@@ -348,7 +348,7 @@ class TestIRBackendReferenceHardware < Minitest::Test
   # the one thing they are about, and nothing a game does shows it — the picture comes out the
   # same either way — so it is counted where it happens.
   COUNTS_PAINTS = Module.new do
-    def paint_the_scrolled_frame
+    def repaint_view
       @paints = @paints.to_i + 1
       super
     end

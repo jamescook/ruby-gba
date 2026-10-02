@@ -652,7 +652,7 @@ module RubyGBA
           slots.each { |slot| by_slot[slot] = name }
         end
         moved = @rom.built.sprite_offsets
-        rooms = @rom.built.sprite_pose_in_room
+        rooms = @rom.built.streamed_sprite_pose_vars
         table = palette(:sprites) # read once for the lot, not once per row
         @probe.sprites.map do |row|
           name = whose[row[:slot]]

@@ -1521,7 +1521,7 @@ module RubyGBA
           # every pose then answered to whichever trim was written down last, and the position read
           # back was out by the difference for all the others. Right on most frames of a cycle and
           # wrong on a few, which is the worst way for a number to be wrong. So it is known by its
-          # pose NUMBER instead; GBA#sprite_pose_in_room says where that number is read from.
+          # pose NUMBER instead; GBA#streamed_sprite_pose_vars says where that number is read from.
           def pose_key(sprite, pose, word)
             return pose if sprite.frames
             return pose_shown(word) if word

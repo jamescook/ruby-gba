@@ -200,7 +200,7 @@ module RubyGBA
           # The variables grow up from the base and the lists and buffers grow down from
           # the routines, so a program with a great many of either has to be told rather
           # than quietly overwriting the other.
-          def guard_variables_clear_of_routines
+          def refuse_variables_overlapping_divide!
             return unless @divide_routine_iwram && @memory.overrun.positive?
 
             raise LoweringError,

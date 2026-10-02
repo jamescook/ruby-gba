@@ -172,7 +172,7 @@ module RubyGBA
           @bg_nodes = []           # :background nodes, in order (the static scene under the objects)
           @bg_by_name = {}         # name -> :background node (for scrolling that background's window)
           @scene_fb = nil          # the settled scene (backdrop + backgrounds), built once, to restore under objects
-          @bg_scene = nil          # whose scenery is on screen: the scene that last drew one (see #take_the_screen_for)
+          @bg_scene = nil          # whose scenery is on screen: the scene that last drew one (see #restamp_scenery_for)
           @obj_prev = {}           # object name -> [x, y] it was last drawn at (to erase before redrawing)
           @drawn = []              # ...and what this frame put on screen: which picture, where, whose
           @repaints = false        # must the whole view be rebuilt every frame? (decided in collect_definitions)
@@ -183,7 +183,7 @@ module RubyGBA
           @bg_colors = {}          # ...and which of the lists of colours it was given is drawing it
           @obj_layer = []          # sprites to composite over a scrolling scene, in draw order (later = in front)
           @fade_placed = nil       # [layer, toward, amount] while a fade sits under a layer rather than over everything
-          @kept_out_of_the_fade = {} # layer -> the names a fade under it leaves alone
+          @names_above_placed_fade = {} # layer -> the names a fade under it leaves alone
           @lists = {}              # name -> ListValue (a bounded, run-time-sized collection)
           @layer_stack = []        # the layers the program declared, backmost first
           @see_through = nil       # ...and which of them you can see through, and by how much
@@ -237,9 +237,9 @@ module RubyGBA
           @over_budget = false
           @uses_frames = false # set once the program reaches its first vblank (advance_frame)
           collect_definitions(node)
-          refuse_more_layers_than_the_console_stacks(node)
-          refuse_more_sprites_than_the_console_has(node)
-          refuse_two_see_through_layers_on_one_screen(node)
+          refuse_too_many_layers!(node)
+          refuse_too_many_sprites!(node)
+          refuse_two_see_through_layers!(node)
           # How the picture stacks: what scenery and objects there are, in what order,
           # and how deep each sits. Scenery in FRONT of an object means the save-under
           # trick cannot hold — what was saved from under an object is no longer what
@@ -268,9 +268,9 @@ module RubyGBA
           self
         end
 
-        # The picture, painted up to date first if a repaint is owed (see #composite_scrolled_frame).
+        # The picture, painted up to date first if a repaint is owed (see #request_repaint).
         def screen
-          settle_the_picture
+          paint_owed_repaint
           @screen
         end
 
@@ -282,7 +282,7 @@ module RubyGBA
         # Read a list: everything in it now, oldest first, under the name the game declared.
         # An Array, so a test asks for an item, the length, or the whole thing as it likes.
         def list(name)
-          found = @lists[name] or raise ArgumentError, no_such("list", name, declared_lists)
+          found = @lists[name] or raise ArgumentError, no_such_message("list", name, declared_lists)
           found.to_a
         end
 
@@ -293,9 +293,9 @@ module RubyGBA
         # live. Those are named after the pool, and nothing a game writes should have to know
         # how — so this is asked by pool and field, the two names the game used.
         def pool(name, field)
-          live = @lists[pool_list(name, :active)] or raise ArgumentError, no_such("pool", name, pools)
+          live = @lists[pool_list(name, :active)] or raise ArgumentError, no_such_message("pool", name, pools)
           values = @lists[pool_list(name, field)] unless POOL_BOOKKEEPING.include?(field)
-          raise ArgumentError, no_such("field", field, pool_fields(name), of: " in pool :#{name}") if values.nil?
+          raise ArgumentError, no_such_message("field", field, pool_fields(name), of: " in pool :#{name}") if values.nil?
 
           values.to_a.zip(live.to_a).map { |value, up| value if up.to_i.nonzero? }
         end
@@ -397,21 +397,21 @@ module RubyGBA
         # The rule and its words live with the guardrail of that name, which the build
         # and the cartridge lowering both ask as well, so all three refuse the same
         # programs in the same sentence.
-        def refuse_more_layers_than_the_console_stacks(node)
+        def refuse_too_many_layers!(node)
           refusal = Guardrails::Checks::TooManyBackgroundLayers.new.refusal(node)
           raise ProgramError, refusal if refusal
         end
 
         # The same answer about sprites: this picture has room for any number of them, and
         # the console has 128 places. See Guardrails::Checks::TooManySprites.
-        def refuse_more_sprites_than_the_console_has(node)
+        def refuse_too_many_sprites!(node)
           refusal = Guardrails::Checks::TooManySprites.new.refusal(node)
           raise ProgramError, refusal if refusal
         end
 
         # ...and about see-through layers: this picture could blend any number at once, and
         # the console blends one a screen. See Guardrails::Checks::SeeThroughPerScreen.
-        def refuse_two_see_through_layers_on_one_screen(node)
+        def refuse_two_see_through_layers!(node)
           refusal = Guardrails::Checks::SeeThroughPerScreen.new.refusal(node)
           raise ProgramError, refusal if refusal
         end
@@ -492,7 +492,7 @@ module RubyGBA
           end
         end
 
-        def tick!
+        def count_step!
           @steps += 1
           return if @steps <= @max_steps
 
@@ -506,7 +506,7 @@ module RubyGBA
           # error: it has no frames to count, so `frames:` was moot and the budget is its only
           # stop — an unpaced loop (frame_sync: :manual with no wait) is meant to be run that
           # way. That one falls through to the whole-run stop below, which is what it always got.
-          raise ProgramError, frame_that_never_ended if @frames_limit && @uses_frames
+          raise ProgramError, frame_never_ended_message if @frames_limit && @uses_frames
 
           @stopped_at_budget = true
           # A frame-based program doesn't stop here — mid-frame would leave a torn,
@@ -520,8 +520,8 @@ module RubyGBA
 
         # Which frame is in flight: @frame is bumped at the vblank that STARTS a frame, so the
         # work running now belongs to frame @frame. (A program stuck before its first vblank
-        # never gets here — see tick!.)
-        def frame_that_never_ended
+        # never gets here — see count_step!.)
+        def frame_never_ended_message
           "frame #{@frame} of this run never ended. The program ran #{@max_steps} steps in " \
             "that one frame and did not wait for the screen. A frame ends at that wait, so this " \
             "frame cannot end. Look for a loop in the frame that never stops. If the frame is " \
@@ -532,28 +532,28 @@ module RubyGBA
         # WHAT EACH KIND OF STATEMENT DOES, one method per kind, looked up by the kind's name —
         # the same shape as the console's table (Backends::GBA::Lowering), and read by the
         # coverage test that holds both backends to every kind. A declaration is gathered before
-        # the program runs, so its row is #run_declaration, which does nothing — every kind that
+        # the program runs, so its row is #exec_declaration, which does nothing — every kind that
         # says it is one gets that row, rather than a list of them kept here.
         STATEMENTS = {
-          program: :run_program,
-          set: :run_set,
-          add: :run_add,
-          sub: :run_sub,
-          copy: :run_copy,
-          negate: :run_negate,
-          abs: :run_abs,
-          negate_abs: :run_negate_abs,
-          clamp: :run_clamp,
+          program: :exec_program,
+          set: :exec_set,
+          add: :exec_add,
+          sub: :exec_sub,
+          copy: :exec_copy,
+          negate: :exec_negate,
+          abs: :exec_abs,
+          negate_abs: :exec_negate_abs,
+          clamp: :exec_clamp,
           save_init: :exec_save_init,
           save_store: :exec_save_store,
           save_write: :exec_save_write,
-          if: :run_if,
-          loop: :run_loop,
-          inside: :run_inside,
-          repeat: :run_repeat,
-          every: :run_every,
-          after: :run_after,
-          list_new: :run_list_new,
+          if: :exec_if,
+          loop: :exec_loop,
+          inside: :exec_inside,
+          repeat: :exec_repeat,
+          every: :exec_every,
+          after: :exec_after,
+          list_new: :exec_list_new,
           list_push: :exec_list_push,
           list_drop: :exec_list_drop,
           list_set: :exec_list_set,
@@ -561,17 +561,17 @@ module RubyGBA
           blit_pose: :exec_blit_pose,
           save_region: :exec_save_region,
           restore_region: :exec_restore_region,
-          call: :run_call,
+          call: :exec_call,
           call_one_of: :exec_call_one_of,
           case: :exec_case,
-          halt: :run_halt,
-          wait_vblank: :run_wait_vblank,
-          screen: :run_screen,
-          clear_screen: :run_clear_screen,
-          pixel: :run_pixel,
-          fill_rect: :run_fill_rect,
-          dma_fill_rect: :run_dma_fill_rect,
-          draw_rect_at: :run_draw_rect_at,
+          halt: :exec_halt,
+          wait_vblank: :exec_wait_vblank,
+          screen: :exec_screen,
+          clear_screen: :exec_clear_screen,
+          pixel: :exec_pixel,
+          fill_rect: :exec_fill_rect,
+          dma_fill_rect: :exec_dma_fill_rect,
+          draw_rect_at: :exec_draw_rect_at,
           draw_column_at: :exec_draw_column_at,
           draw_text: :exec_draw_text,
           draw_digit: :exec_draw_digit,
@@ -579,32 +579,32 @@ module RubyGBA
           scroll_background: :exec_scroll_background,
           affine_background: :exec_affine_background,
           background_colors: :exec_background_colors,
-          scroll_rows: :run_scroll_rows,
-          camera: :run_camera,
+          scroll_rows: :exec_scroll_rows,
+          camera: :exec_camera,
           fade: :exec_fade,
           tint: :exec_tint,
           see_through: :exec_see_through,
           present_objects: :exec_present_objects,
           set_tile: :exec_set_tile,
           show_map: :exec_show_map,
-          enable_sound: :run_enable_sound,
-          beep: :run_beep,
-          noise: :run_noise,
-          wave: :run_wave,
-          stop_wave: :run_stop_wave,
-          play_song: :run_play_song,
-          play_from_list: :run_play_from_list,
-          play_sound_effect: :run_play_sound_effect,
-          stop_music: :run_stop_music,
-          play_sample: :run_play_sample,
-          stop_sample: :run_stop_sample,
-          timer_start: :run_timer_start,
-          timer_stop: :run_timer_stop,
-          on_timer: :run_on_timer,
-        }.merge(Nodes.of_role(:declaration).to_h { |kind| [kind, :run_declaration] }).freeze
+          enable_sound: :exec_enable_sound,
+          beep: :exec_beep,
+          noise: :exec_noise,
+          wave: :exec_wave,
+          stop_wave: :exec_stop_wave,
+          play_song: :exec_play_song,
+          play_from_list: :exec_play_from_list,
+          play_sound_effect: :exec_play_sound_effect,
+          stop_music: :exec_stop_music,
+          play_sample: :exec_play_sample,
+          stop_sample: :exec_stop_sample,
+          timer_start: :exec_timer_start,
+          timer_stop: :exec_timer_stop,
+          on_timer: :exec_on_timer,
+        }.merge(Nodes.of_role(:declaration).to_h { |kind| [kind, :exec_declaration] }).freeze
 
         def exec(node)
-          tick!
+          count_step!
           # The interpreter is a portable-only backend: it faithfully models every
           # target-neutral op but refuses a hardware-only one (opaque native bytes it
           # can't run) rather than skipping it — a silent skip would make the oracle's
@@ -616,7 +616,7 @@ module RubyGBA
                   "the reference backend can't run #{node.kind.inspect} — it's a hardware-only op the " \
                   "interpreter can't model; keep it out of code you run headlessly"
           end
-          settle_the_picture if @picture_owed && !leaves_the_picture_owed?(node)
+          paint_owed_repaint if @picture_owed && !defers_repaint?(node)
 
           handler = STATEMENTS.fetch(node.kind) do
             raise ProgramError,
@@ -626,52 +626,52 @@ module RubyGBA
           send(handler, node)
         end
 
-        def run_program(node)
+        def exec_program(node)
           node.children.each { |child| exec(child) }
         end
 
         # A declaration: gathered before the program runs (see #collect_definitions), so nothing
         # happens where it is written, just as a func body runs only when something calls it.
-        def run_declaration(_node) = nil
+        def exec_declaration(_node) = nil
 
-        def run_set(node)
+        def exec_set(node)
           @vars[node.var] = eval_value(node.value)
         end
 
-        def run_add(node)
+        def exec_add(node)
           @vars[node.var] = Int32.add(@vars[node.var], eval_value(node.operand))
         end
 
-        def run_sub(node)
+        def exec_sub(node)
           @vars[node.var] = Int32.sub(@vars[node.var], eval_value(node.operand))
         end
 
-        def run_copy(node)
+        def exec_copy(node)
           @vars[node.dest] = @vars[node.src]
         end
 
-        def run_negate(node)
+        def exec_negate(node)
           @vars[node.var] = Int32.neg(@vars[node.var])
         end
 
-        def run_abs(node)
+        def exec_abs(node)
           # |v|: flip it only when it's negative.
           v = @vars[node.var]
           @vars[node.var] = v.negative? ? Int32.neg(v) : v
         end
 
-        def run_negate_abs(node)
+        def exec_negate_abs(node)
           # -|v|: flip it only when it's positive.
           v = @vars[node.var]
           @vars[node.var] = v.positive? ? Int32.neg(v) : v
         end
 
-        def run_clamp(node)
+        def exec_clamp(node)
           @vars[node.var] = clamp_value(@vars[node.var], eval_value(node.min),
                                           eval_value(node.max))
         end
 
-        def run_if(node)
+        def exec_if(node)
           if eval_value(node.cond).zero?
             node.else&.children&.each { |child| exec(child) }
           else
@@ -679,11 +679,11 @@ module RubyGBA
           end
         end
 
-        def run_loop(node)
+        def exec_loop(node)
           loop { node.children.each { |child| exec(child) } }
         end
 
-        def run_inside(node)
+        def exec_inside(node)
           # Hold every cell the children paint inside these edges. The screen answers that
           # question once, for everything, which is why the interpreter needs no per-shape
           # arithmetic here and the other backend does.
@@ -696,18 +696,18 @@ module RubyGBA
           begin
             node.children.each { |child| exec(child) }
           ensure
-            @screen.draw_within(outer)
+            @screen.restore_area(outer)
           end
         end
 
-        def run_repeat(node)
+        def exec_repeat(node)
           # A counted loop: the index counts 0..count-1. Evaluate count once,
-          # like a for-loop bound. tick! guards the step budget even when the
+          # like a for-loop bound. count_step! guards the step budget even when the
           # body is empty.
           count = eval_value(node.count)
           i = 0
           while i < count
-            tick!
+            count_step!
             @vars[node.index] = i
             # Checked BEFORE the body, so a loop that is already finished on its first pass
             # runs the body no times at all — the same reading on both backends.
@@ -718,47 +718,47 @@ module RubyGBA
           end
         end
 
-        def run_every(node)
+        def exec_every(node)
           # A repeating timer, counted in FRAMES rather than in times this code ran: a pass of
           # the game loop is one frame on a program that keeps up and more on one that does
           # not, and a beat given in seconds has to be that many seconds either way. Taking
           # the period off rather than clearing to nought keeps the remainder, so a beat that
           # overshoots does not drift further every time.
-          @vars[node.counter] = Int32.add(@vars[node.counter], frame_step)
+          @vars[node.counter] = Int32.add(@vars[node.counter], last_pass_frames)
           if @vars[node.counter] >= node.period
             @vars[node.counter] = Int32.sub(@vars[node.counter], node.period)
             node.children.each { |child| exec(child) }
           end
         end
 
-        def run_after(node)
+        def exec_after(node)
           # A one-shot timer, likewise — and the test is REACHED rather than LANDED ON,
           # because a pass worth two frames can step over the frame it was waiting for.
           if @vars[node.counter] < node.frames
-            @vars[node.counter] = Int32.add(@vars[node.counter], frame_step)
+            @vars[node.counter] = Int32.add(@vars[node.counter], last_pass_frames)
             node.children.each { |child| exec(child) } if @vars[node.counter] >= node.frames
           end
         end
 
-        def run_list_new(node)
+        def exec_list_new(node)
           # Create (or reset) the named list, empty, at its capacity and element width.
           @lists[node.name] = ListValue.new(node.capacity, width: node.width || :word)
         end
 
-        def run_call(node)
-          exec_call(node.target)
+        def exec_call(node)
+          call_func(node.target)
         end
 
-        def run_halt(node)
+        def exec_halt(node)
           @log << [:halt]
           throw :halt
         end
 
-        def run_wait_vblank(node)
+        def exec_wait_vblank(node)
           advance_frame
         end
 
-        def run_screen(node)
+        def exec_screen(node)
           # Remember the chosen mode; the fake screen already models the bitmap the
           # draw ops assume. Double buffering (node.buffered) asks it for a second
           # page: the display shows one picture while the program draws into the other,
@@ -773,28 +773,28 @@ module RubyGBA
           # surface, so it wipes nothing.
           if IR::SceneHandover.crossing?(@screen_mode, node.mode)
             @screen.clear(0)
-            forget_the_scenery_on_screen
+            reset_scenery_state
           end
           @screen_mode = node.mode
           @buffered = node.buffered || false
           @screen.paged = @buffered
         end
 
-        def run_clear_screen(node)
+        def exec_clear_screen(node)
           @screen.clear(resolve_color(node.color))
         end
 
-        def run_pixel(node)
+        def exec_pixel(node)
           @screen.set_pixel(eval_value(node.x), eval_value(node.y), resolve_color(node.color))
         end
 
-        def run_fill_rect(node)
+        def exec_fill_rect(node)
           @screen.fill_rect(eval_value(node.x), eval_value(node.y),
                             eval_value(node.w), eval_value(node.h),
                             resolve_color(node.color))
         end
 
-        def run_dma_fill_rect(node)
+        def exec_dma_fill_rect(node)
           # Same picture as fill_rect — the "DMA" is only how a console fills it
           # fast; the pixels that land are identical.
           @screen.fill_rect(eval_value(node.x), eval_value(node.y),
@@ -802,82 +802,82 @@ module RubyGBA
                             resolve_color(node.color))
         end
 
-        def run_draw_rect_at(node)
+        def exec_draw_rect_at(node)
           # A rectangle whose position and size are all computed at run time. A width
           # or height of zero or less covers no pixels, so nothing is drawn.
           @screen.fill_rect(eval_value(node.x), eval_value(node.y),
                             eval_value(node.w), eval_value(node.h), resolve_color(node.color))
         end
 
-        def run_scroll_rows(node)
+        def exec_scroll_rows(node)
           # A standing declaration, gathered up front (collect_definitions) — the bend
           # is read while a row is painted, not where it was written. Reaching it inline
           # repaints, so a program that only bends still shows the bend.
-          composite_scrolled_frame
+          request_repaint
         end
 
-        def run_camera(node)
+        def exec_camera(node)
           @screen.camera_to(eval_value(node.x), eval_value(node.y))
         end
 
-        def run_enable_sound(node)
+        def exec_enable_sound(node)
           @audio << [:enabled]
         end
 
-        def run_beep(node)
+        def exec_beep(node)
           @audio << [:beep, resolve_effect(node)]
         end
 
-        def run_noise(node)
+        def exec_noise(node)
           @audio << [:noise, resolve_noise(node)]
         end
 
-        def run_wave(node)
+        def exec_wave(node)
           @audio << [:wave, { shape: node.shape, frequency: node.frequency, volume: node.volume }]
         end
 
-        def run_stop_wave(node)
+        def exec_stop_wave(node)
           @audio << [:stop_wave]
         end
 
-        def run_play_song(node)
+        def exec_play_song(node)
           # Names the tune; the player takes it up at the next frame (see Player#advance).
-          @player.wants(node.name)
+          @player.request_song(node.name)
         end
 
-        def run_play_from_list(node)
+        def exec_play_from_list(node)
           # The number is worked out HERE and handed over: which song a game picks can be an
           # expression, and evaluating one is the interpreter's business, not the player's.
-          @player.wants_number(node.name, eval_value(node.which))
+          @player.request_song_at(node.name, eval_value(node.which))
         end
 
-        def run_play_sound_effect(node)
-          @player.wants_effect(node.name, eval_value(node.which))
+        def exec_play_sound_effect(node)
+          @player.request_effect(node.name, eval_value(node.which))
         end
 
-        def run_stop_music(node)
+        def exec_stop_music(node)
           @player.stop
         end
 
-        def run_play_sample(node)
+        def exec_play_sample(node)
           @mixer.start(node)
         end
 
-        def run_stop_sample(node)
+        def exec_stop_sample(node)
           @mixer.stop(node.name)
         end
 
-        def run_timer_start(node)
+        def exec_timer_start(node)
           # Start (or restart) a timer: it now runs at hz overflows/sec, its elapsed
           # count reset to zero (advance_frame accrues the overflows each frame).
           @timers[node.name] = { hz: node.hz, running: true, overflows: 0.0 }
         end
 
-        def run_timer_stop(node)
+        def exec_timer_stop(node)
           @timers[node.name]&.[]=(:running, false)
         end
 
-        def run_on_timer(node)
+        def exec_on_timer(node)
           # Arm the handler: its body runs on each of the timer's overflows, which
           # advance_frame drives as the timer accrues them.
           @timer_handlers[node.timer] = node
@@ -892,13 +892,13 @@ module RubyGBA
           # drawing just finished is the one being published, and a run that stops here
           # has to stop with that frame on screen rather than with the one before it.
           if @buffered
-            settle_the_picture # the page being published has to be the finished one
+            paint_owed_repaint # the page being published has to be the finished one
             @screen.flip_pages
           end
 
           # This is a frame boundary: if we're past the budget, stop HERE — the frame just
           # drawn is complete, and the next one's clear/draws haven't started, so the screen
-          # is settled. Reaching a vblank also marks the program as frame-based (see tick!).
+          # is settled. Reaching a vblank also marks the program as frame-based (see count_step!).
           throw :halt if @over_budget
 
           # Same settled-boundary stop once we've played the requested number of frames:
@@ -917,7 +917,7 @@ module RubyGBA
           @uses_frames = true
           @screen.held = false # the first frame is set up, so the picture goes on
           @frame += 1
-          took = frames_this_pass
+          took = scripted_pass_frames
           # A running timer overflows hz times a second, so it accrues hz/FRAME_RATE
           # overflows this frame — that's what timer_ticks reads back, and each whole
           # overflow crossed this frame runs its on_tick handler once.
@@ -932,12 +932,12 @@ module RubyGBA
             # A program that never said `music_volume` has no level, rather than a level of 0.
             @player.advance(level: @vars.fetch(IR::Tunes::LEVEL, nil))
             @mixer.step_envelopes
-            @mixer.age_music
+            @mixer.advance_music_voices
           end
-          read_the_buttons(took)
+          read_buttons(took)
           @log << [:vblank, @frame]
           @on_vblank&.call(@frame)
-          count_the_frame(took)
+          store_frame_counters(took)
           repaint_bent_backgrounds
         end
 
@@ -948,7 +948,7 @@ module RubyGBA
         # down on any of them is a press for the pass about to start. So a tap shorter than a
         # slow pass is still one press, and a press held across the whole pass is still one.
         # A program that keeps up reads once a pass, which is what it always did.
-        def read_the_buttons(took)
+        def read_buttons(took)
           @pressed = Set.new
           took.times do
             @screen_frame += 1
@@ -970,7 +970,7 @@ module RubyGBA
         # How many frames the pass that just ended took, for whatever reads it. A program with no
         # frames at all has never set it, and then a beat is worth one pass, which is what it was
         # worth before any of this existed.
-        def frame_step
+        def last_pass_frames
           step = @vars[IR::Frames::STEP]
           step.nil? || step.zero? ? 1 : step
         end
@@ -978,13 +978,13 @@ module RubyGBA
         # What the test said this pass was worth, held between one and the same cap the console
         # holds it at — so a body asked to catch up can never be asked to catch up further here
         # than it would there.
-        def frames_this_pass
+        def scripted_pass_frames
           return 1 unless @frames_script
 
           @frames_script.call(@frame).to_i.clamp(1, IR::Frames::MOST)
         end
 
-        def count_the_frame(took)
+        def store_frame_counters(took)
           @vars[IR::Frames::COUNT] += took
           @vars[IR::Frames::SEEN] = @vars[IR::Frames::COUNT]
           @vars[IR::Frames::STEP] = took
@@ -997,10 +997,10 @@ module RubyGBA
         # whatever the bend said the first time and the two backends would disagree about
         # every frame after the first.
         def repaint_bent_backgrounds
-          composite_scrolled_frame unless @row_bends.empty?
+          request_repaint unless @row_bends.empty?
         end
 
-        def exec_call(name)
+        def call_func(name)
           func = @funcs[name] || raise(ProgramError, "call to undefined func #{name.inspect}")
           func.children.each { |child| exec(child) }
         end
@@ -1069,8 +1069,8 @@ module RubyGBA
           node.clauses.each do |clause_value, target|
             next unless value == clause_value
 
-            hand_the_screen_to(target)
-            exec_call(target)
+            switch_scenery_to(target)
+            call_func(target)
           end
         end
 
@@ -1078,18 +1078,18 @@ module RubyGBA
         # the console tells the display which layers are up as each scene takes over. Waiting
         # for the new scene's first background to say so left the scene before's scenery up
         # over a scene that has none: a file screen's backdrop over the game it handed to.
-        def hand_the_screen_to(scene)
+        def switch_scenery_to(scene)
           return if scene == @bg_scene || @bg_shown.none?(&:scene)
 
-          settle_the_picture
-          take_the_screen_for(scene)
+          paint_owed_repaint
+          restamp_scenery_for(scene)
         end
 
         # The routine at position +which+ of the list. A number below 0 or past the end names
         # none, and nothing is called.
         def exec_call_one_of(node)
           which = eval_value(node.which)
-          exec_call(node.targets[which]) if which.between?(0, node.targets.length - 1)
+          call_func(node.targets[which]) if which.between?(0, node.targets.length - 1)
         end
 
         # Copy a defined bitmap onto the fake screen at (x, y).
@@ -1105,11 +1105,11 @@ module RubyGBA
         # only covers where it has solid pixels, letting the layers behind fill its gaps.
         def exec_background(node)
           # Reached every frame its scene runs, and nearly always already up — which changes
-          # nothing, so an owed repaint can go on being owed (see #leaves_the_picture_owed?).
+          # nothing, so an owed repaint can go on being owed (see #defers_repaint?).
           arrives = @handover.on_arrival?(node)
           already_up = arrives && node.scene == @bg_scene && @bg_shown.include?(node)
-          settle_the_picture unless already_up
-          take_the_screen_for(node.scene)
+          paint_owed_repaint unless already_up
+          restamp_scenery_for(node.scene)
 
           # A scene's own scenery goes up once, as the scene takes over, and as declared (see
           # IR::SceneHandover). Its statement is reached every frame the scene runs; once it
@@ -1137,7 +1137,7 @@ module RubyGBA
           # the picture back as originally drawn and throw the turn away. It still counts
           # as up: being on screen is what says whose scene is showing, and a scene whose
           # only scenery turns had nothing else to say it.
-          return composite_scrolled_frame if @bg_affine.key?(node.name)
+          return request_repaint if @bg_affine.key?(node.name)
 
           stamp_background(node)
           in_stack_order(over).each { |bg| stamp_background(bg) }
@@ -1147,7 +1147,7 @@ module RubyGBA
         # IR::SceneHandover). A painted screen has no layers to switch off, so the picture
         # goes back to the backdrop and the scenery every screen shows, and this scene's own
         # is stamped from there.
-        def take_the_screen_for(scene)
+        def restamp_scenery_for(scene)
           return if scene.nil? || scene == @bg_scene
 
           @bg_scene = scene
@@ -1163,7 +1163,7 @@ module RubyGBA
         # NOTHING IS UP ANY MORE. Said when the display is wiped under everything — the one
         # crossing between the two kinds of screen — so whatever comes back is put up again
         # rather than taken as still standing.
-        def forget_the_scenery_on_screen
+        def reset_scenery_state
           @bg_shown = []
           @bg_scene = nil
           @scene_fb = nil
@@ -1193,7 +1193,7 @@ module RubyGBA
           # the map as it goes — so a changed cell has to be painted again for anything
           # to see it. Repainting the lot is the same over-approximation a scroll makes,
           # and this is an oracle: being obviously right matters more than being quick.
-          composite_scrolled_frame
+          request_repaint
         end
 
         # HAND A BACKGROUND A WHOLE DIFFERENT MAP. Its cells become that map exactly as it
@@ -1207,7 +1207,7 @@ module RubyGBA
           return unless maps && which >= 0 && which < maps.length
 
           @bg_maps[node.name] = maps[which].map(&:dup)
-          composite_scrolled_frame
+          request_repaint
         end
 
         def mutable_map(name)
@@ -1224,7 +1224,7 @@ module RubyGBA
           tile_w = node.tile_w
           tile_h = node.tile_h
           swapped = background_swap(node)
-          paint_through_for(node.name)
+          set_see_through_for(node.name)
           map_of(node).each_with_index do |row, r|
             row.each_with_index do |index, c|
               next if index.nil?
@@ -1232,7 +1232,7 @@ module RubyGBA
               stamp_tile(tiles, index, c * tile_w, r * tile_h, tile_w, tile_h, swapped)
             end
           end
-          @screen.paint_through(nil)
+          @screen.set_paint_see_through(nil)
         end
 
         # +nodes+ in the order the declared stack asks for (see IR::Stacking).
@@ -1264,11 +1264,11 @@ module RubyGBA
         # and recomposite the frame. On the console this is one register write and the
         # tile hardware redraws the layer from that offset — sprites still float on top
         # for free; here we reproduce that by repainting the scrolled scene and drawing
-        # the sprites back over it (see #composite_scrolled_frame).
+        # the sprites back over it (see #request_repaint).
         def exec_scroll_background(node)
           @bg_by_name.fetch(node.name) { raise ProgramError, "scroll of undeclared background #{node.name.inspect}" }
           @bg_scroll[node.name] = [eval_value(node.x), eval_value(node.y)]
-          composite_scrolled_frame
+          request_repaint
         end
 
         # HOW A BACKGROUND IS BEING TURNED RIGHT NOW: the angle in degrees, the size in
@@ -1285,7 +1285,7 @@ module RubyGBA
           @bg_by_name.fetch(node.name) { raise ProgramError, "affine transform of undeclared background #{node.name.inspect}" }
           @bg_affine[node.name] = Turn.new(angle: eval_value(node.angle) % 360, size: eval_value(node.scale),
                                            pivot_x: node.around_x, pivot_y: node.around_y)
-          composite_scrolled_frame
+          request_repaint
         end
 
         # Repaint one background's visible window at its current scroll offset. The map
@@ -1435,7 +1435,7 @@ module RubyGBA
         def tile_recolor(name, bmp, swapped)
           @recolor_maps[[name, swapped]] ||=
             Recolor.new(places: bmp.places, by_place: swapped,
-                        by_color: bmp.places ? nil : by_color(bmp.colors, swapped))
+                        by_color: bmp.places ? nil : color_swap_map(bmp.colors, swapped))
         end
 
         # THE COLOURS A BACKGROUND'S TILES ARE DRAWN FROM THIS FRAME: the step the game last
@@ -1460,7 +1460,7 @@ module RubyGBA
             raise ProgramError, "colors of undeclared background #{node.name.inspect}"
           end
           @bg_colors[node.name] = eval_value(node.which)
-          composite_scrolled_frame
+          request_repaint
         end
 
         # Rebuild the whole visible screen the way tile-and-sprite hardware does: paint
@@ -1490,18 +1490,18 @@ module RubyGBA
         # bends its backdrop is no reason for the file screen after it to paint every frame.
         # What is showing only changes through a statement that settles an owed repaint first,
         # so the answer cannot go stale while a repaint is owed.
-        def composite_scrolled_frame
-          return paint_the_scrolled_frame if showing_scenery.any? { |bg| @row_bends.key?(bg.name) }
+        def request_repaint
+          return repaint_view if showing_scenery.any? { |bg| @row_bends.key?(bg.name) }
 
           @picture_owed = true
-          @owed_weights = worked_out_weights
+          @owed_weights = capture_see_through_weights
         end
 
-        def settle_the_picture
+        def paint_owed_repaint
           return unless @picture_owed
 
           @picture_owed = false
-          paint_the_scrolled_frame
+          repaint_view
           @owed_weights = nil
         end
 
@@ -1510,17 +1510,17 @@ module RubyGBA
         # never changes, and one with nothing on screen is never painted, so neither is worked
         # out here — working one out can fail (a divide by a number that is still 0), and only
         # the amounts painting would read may do that.
-        def worked_out_weights
+        def capture_see_through_weights
           return nil unless @see_through
 
           @see_through.each_value.with_object({}) do |layer, weights|
-            weights[layer.name] = live_see_through_weights(layer) unless told_once?(layer) || !in_the_picture?(layer)
+            weights[layer.name] = live_see_through_weights(layer) unless fixed_see_through?(layer) || !layer_has_anything?(layer)
           end
         end
 
         # Whether anything that could be on screen now is in see-through +layer+: a background
         # showing now, or a sprite anywhere, since whether a sprite is shown is a variable too.
-        def in_the_picture?(layer)
+        def layer_has_anything?(layer)
           showing_scenery.any? { |bg| bg.layer == layer.name } ||
             @objects.each_value.any? { |object| object.layer == layer.name }
         end
@@ -1542,14 +1542,14 @@ module RubyGBA
         # #exec_fade).
         READ_OVER_THE_PICTURE = %i[fade tint].freeze
 
-        def leaves_the_picture_owed?(node)
+        def defers_repaint?(node)
           STEERING.include?(node.kind) || REPAINTING.include?(node.kind) ||
             READ_OVER_THE_PICTURE.include?(node.kind) || LEAVE_THE_PICTURE_OWED.include?(node.category)
         end
 
-        def paint_the_scrolled_frame
-          kept = @fade_placed ? kept_out_of_the_fade : nil
-          paint_blend_for(nil, kept)      # the backdrop is behind everything, so it blends
+        def repaint_view
+          kept = @fade_placed ? names_above_placed_fade : nil
+          set_blend_for(nil, kept)      # the backdrop is behind everything, so it blends
           @screen.clear(0)                # the backdrop the layers' transparent pixels reveal
           levels = @picture.depths
           (0...levels.count).each do |level|
@@ -1559,18 +1559,18 @@ module RubyGBA
             showing_scenery.each do |bg|
               next unless levels[bg.name] == level
 
-              paint_blend_for(bg.name, kept)
+              set_blend_for(bg.name, kept)
               paint_background_window(bg)
             end
             @obj_layer.each do |obj|
               next unless obj[:level] == level
 
-              paint_blend_for(obj[:name], kept)
-              paint_object_layer(obj)
+              set_blend_for(obj[:name], kept)
+              paint_snapshot_object(obj)
             end
           end
-          @screen.paint_faded(nil, nil)
-          @screen.paint_through(nil)
+          @screen.set_paint_fade(nil, nil)
+          @screen.set_paint_see_through(nil)
         end
 
         # A fade, over the whole screen or placed in the stack.
@@ -1585,7 +1585,7 @@ module RubyGBA
         # for it is the frame that has to show it. The same goes for the fade that takes a
         # placed one's place, which has to take it back out of the picture.
         #
-        # Any other fade leaves an owed repaint owed (see #composite_scrolled_frame), since
+        # Any other fade leaves an owed repaint owed (see #request_repaint), since
         # nothing the paint reads has changed.
         def exec_fade(node)
           amount = eval_value(node.amount)
@@ -1595,7 +1595,7 @@ module RubyGBA
           steps = FadeSteps.steps(amount, fraction_bits: node.fraction_bits, walked: walked)
           @fade_placed = node.under && [node.under, node.toward, steps]
           if walked
-            walk_the_colors(node, steps)
+            fade_by_tint(node, steps)
           else
             @screen.fade_steps_to(node.toward, @fade_placed ? 0 : steps)
           end
@@ -1603,7 +1603,7 @@ module RubyGBA
           # (see #fading?), so the picture has to be built again at each of those two
           # moments — the layer is drawn solid on one side of them and see-through on the
           # other.
-          composite_scrolled_frame if was_placed || @fade_placed || (@see_through && fading? != was_fading)
+          request_repaint if was_placed || @fade_placed || (@see_through && fading? != was_fading)
         end
 
         # A fade that moves the COLORS instead of asking the display to blend (see
@@ -1623,7 +1623,7 @@ module RubyGBA
         # What it buys is everything the tint already has: the
         # display's blend unit is never told anything, so the see-through layer goes on
         # blending and the mix darkens along with both sides of it.
-        def walk_the_colors(node, steps)
+        def fade_by_tint(node, steps)
           @screen.tint_steps_to(node.toward, steps)
         end
 
@@ -1643,26 +1643,26 @@ module RubyGBA
         # Turn the blend on or off for the thing about to be painted: on for anything the
         # placed fade reaches, off for anything it leaves alone. A +name+ of nil is the
         # backdrop, which is behind everything and so is always reached.
-        def paint_blend_for(name, kept)
-          paint_through_for(name)
-          return @screen.paint_faded(nil, nil) if kept.nil?
-          return @screen.paint_faded(nil, nil) if name && kept.include?(name)
+        def set_blend_for(name, kept)
+          set_see_through_for(name)
+          return @screen.set_paint_fade(nil, nil) if kept.nil?
+          return @screen.set_paint_fade(nil, nil) if name && kept.include?(name)
 
-          @screen.paint_faded(@fade_placed[1], @fade_placed[2])
+          @screen.set_paint_fade(@fade_placed[1], @fade_placed[2])
         end
 
         # Turn the see-through blend on for a thing in the see-through layer, and off for
         # everything else. The picture is painted back to front, so "blend with what is
         # already in the buffer" is the display's own "blend with the layer directly
         # beneath" — the stack does not have to be consulted a second time.
-        def paint_through_for(name)
+        def set_see_through_for(name)
           layer = see_through_layer_of(name)
-          @screen.paint_through(layer && !fading? ? see_through_weights(layer) : nil)
+          @screen.set_paint_see_through(layer && !fading? ? see_through_weights(layer) : nil)
         end
 
         # How much of a see-through layer and of what is behind it the display takes, in steps,
         # for the picture being painted: the amounts as they were when a repaint painted now
-        # was owed (see #composite_scrolled_frame), or as they are, so a picture whose amounts
+        # was owed (see #request_repaint), or as they are, so a picture whose amounts
         # the program works out — fog that thickens — is painted at the amounts it had then.
         def see_through_weights(layer)
           @owed_weights&.[](layer.name) || live_see_through_weights(layer)
@@ -1682,11 +1682,11 @@ module RubyGBA
           return if weights == @see_through_shown[node.layer]
 
           @see_through_shown[node.layer] = weights
-          composite_scrolled_frame
+          request_repaint
         end
 
         # A layer whose amounts are both numbers the author wrote, which never change.
-        def told_once?(layer)
+        def fixed_see_through?(layer)
           layer.shows.kind == :int && layer.behind.kind == :int
         end
 
@@ -1706,7 +1706,7 @@ module RubyGBA
         #
         # A fade that WALKS THE COLORS never gets here: it leaves the blend unit alone,
         # so it sets no fade amount and there is nothing for this to find (see
-        # #walk_the_colors). What is left is a fade placed in the stack, which cannot take
+        # #fade_by_tint). What is left is a fade placed in the stack, which cannot take
         # that route and does take the layer's blend.
         def fading?
           return @fade_placed[2].positive? if @fade_placed
@@ -1716,13 +1716,13 @@ module RubyGBA
 
         # The names the fade in force leaves alone — its layer and everything in front.
         # Worked out once per layer, because it depends only on the picture.
-        def kept_out_of_the_fade
-          @kept_out_of_the_fade[@fade_placed[0]] ||=
+        def names_above_placed_fade
+          @names_above_placed_fade[@fade_placed[0]] ||=
             IR::Stacking.at_or_above(@picture, @fade_placed[0]).map(&:name)
         end
 
         # Draw one snapshotted object from the layer captured this frame.
-        def paint_object_layer(obj)
+        def paint_snapshot_object(obj)
           if obj[:transform]
             return blit_image_transformed(obj[:image], obj[:x], obj[:y], *obj[:transform], recolor: obj[:recolor])
           end
@@ -1751,13 +1751,13 @@ module RubyGBA
         # When a background scrolls, the scene under the objects isn't fixed, so the
         # save-under trick can't restore it — instead we snapshot which objects are on
         # screen this frame and recomposite the whole view (scrolled scene, then these
-        # objects on top). See #composite_scrolled_frame.
+        # objects on top). See #request_repaint.
         def exec_present_objects(node)
           @drawn = objects_on_screen(node.names)
 
           if @repaints
             snapshot_object_layer
-            composite_scrolled_frame
+            request_repaint
             return
           end
 
@@ -1799,14 +1799,14 @@ module RubyGBA
         # through the transform when it does. Shared by the still-scene present path and
         # the scrolling-scene recomposite.
         def draw_object(obj, image, x, y)
-          paint_through_for(obj.name)
+          set_see_through_for(obj.name)
           recolor = object_recolor(obj, image)
           if object_transformed?(obj)
             blit_image_transformed(image, x, y, *object_transform(obj), recolor: recolor)
           else
             blit_image(image, x, y, recolor: recolor)
           end
-          @screen.paint_through(nil)
+          @screen.set_paint_see_through(nil)
         end
 
         # THE COLOURS AN OBJECT IS DRAWN IN THIS FRAME, when it is told to draw with another
@@ -1823,14 +1823,14 @@ module RubyGBA
           swapped = lists[which]
           @recolor_maps[[image, swapped]] ||=
             Recolor.new(places: bmp.places, by_place: swapped,
-                        by_color: bmp.places ? nil : by_color(bmp.colors, swapped))
+                        by_color: bmp.places ? nil : color_swap_map(bmp.colors, swapped))
         end
 
         # A picture given as COLOURS has no places recorded, so its swap is read the only way
         # left: colour to colour, and a colour its list holds twice is read at the first of
         # them. The build refuses that where the two places differ in the list being drawn
         # with, so this is only ever reached where both places agree.
-        def by_color(own, swapped)
+        def color_swap_map(own, swapped)
           (1...own.length).each_with_object({}) { |place, map| map[own[place]] ||= swapped[place] }
         end
 
@@ -1865,7 +1865,7 @@ module RubyGBA
 
         # The objects on screen this frame dressed for compositing — each with the depth it
         # sits at and the colours it is being drawn in — as the sprite layer
-        # #composite_scrolled_frame paints over the scrolled scene, in draw order.
+        # #request_repaint paints over the scrolled scene, in draw order.
         def snapshot_object_layer
           @obj_layer = @drawn.map do |on|
             obj = on[:object]
@@ -2170,14 +2170,14 @@ module RubyGBA
           end
         end
 
-        def eval_save_read(node)
+        def value_of_save_read(node)
           at = eval_value(node.at)
           width = SAVE_WIDTHS.fetch(node.width)
           raw = width.times.sum { |i| save_bytes.fetch(at + i, FRESH_BYTE) << (8 * i) }
           width == 4 ? Int32.wrap(raw) : raw
         end
 
-        def eval_save_sum(node)
+        def value_of_save_sum(node)
           at = eval_value(node.at)
           length = eval_value(node.length)
           SaveLayout.checksum(length.times.map { |i| save_bytes.fetch(at + i, FRESH_BYTE) })
@@ -2269,7 +2269,7 @@ module RubyGBA
           end
         end
 
-        def no_such(what, name, there, of: "")
+        def no_such_message(what, name, there, of: "")
           listed = there.empty? ? "There are none." : "There #{there.size == 1 ? 'is' : 'are'} #{there.map { |n| ":#{n}" }.join(', ')}."
           "There is no #{what} :#{name}#{of}. #{listed}"
         end
@@ -2302,7 +2302,7 @@ module RubyGBA
           list.set(index, eval_value(node.value))
         end
 
-        def eval_list_get(node)
+        def value_of_list_get(node)
           list = list_for(node.name)
           index = eval_value(node.index)
           check_list_index!(list, node.name, index)
@@ -2314,7 +2314,7 @@ module RubyGBA
         # table wraps the index, any other size clamps it to the ends — the read always
         # lands on a real element. The value comes back exactly as authored (the table's
         # signedness only decides how the console stores/sign-extends it).
-        def eval_table_get(node)
+        def value_of_table_get(node)
           table = @tables.fetch(node.name) do
             raise ProgramError, "reference to undefined table #{node.name.inspect}"
           end
@@ -2362,11 +2362,11 @@ module RubyGBA
           chance: :value_of_chance,
           pixels_overlap: :value_of_pixels_overlap,
           data_byte: :value_of_data_byte,
-          table_get: :eval_table_get,
-          list_get: :eval_list_get,
+          table_get: :value_of_table_get,
+          list_get: :value_of_list_get,
           list_len: :value_of_list_len,
-          save_read: :eval_save_read,
-          save_sum: :eval_save_sum,
+          save_read: :value_of_save_read,
+          save_sum: :value_of_save_sum,
           timer_ticks: :value_of_timer_ticks,
         }.freeze
 
@@ -2439,20 +2439,20 @@ module RubyGBA
         end
 
         def value_of_held(node)
-          bool(button_held?(node.button))
+          flag_int(button_held?(node.button))
         end
 
         def value_of_pressed(node)
-          bool(button_pressed?(node.button))
+          flag_int(button_pressed?(node.button))
         end
 
         # A chance holds when the random draw lands below the threshold.
         def value_of_chance(node)
-          bool(eval_value(node.draw) < node.percent)
+          flag_int(eval_value(node.draw) < node.percent)
         end
 
         def value_of_pixels_overlap(node)
-          bool(pixels_overlap?(node))
+          flag_int(pixels_overlap?(node))
         end
 
         def value_of_data_byte(node)
@@ -2490,7 +2490,7 @@ module RubyGBA
         # frame the button is held.
         #
         # A press is any button that went down on a frame the screen showed since the last
-        # pass took its presses (see #read_the_buttons), the way the console collects them,
+        # pass took its presses (see #read_buttons), the way the console collects them,
         # and nothing was down before the first frame. So a button held while the power comes
         # on is one press on the first frame, and before any frame has been reached — the
         # setting up above a game loop — nothing is pressed yet.
@@ -2537,15 +2537,15 @@ module RubyGBA
           when :^ then Int32.bit_xor(lhs, rhs)
           when :<< then Int32.shift_left(lhs, rhs)
           when :>> then Int32.shift_right(lhs, rhs)
-          when :> then bool(Int32.cmp(lhs, rhs) > 0)
-          when :< then bool(Int32.cmp(lhs, rhs) < 0)
-          when :>= then bool(Int32.cmp(lhs, rhs) >= 0)
-          when :<= then bool(Int32.cmp(lhs, rhs) <= 0)
-          when :== then bool(Int32.cmp(lhs, rhs).zero?)
-          when :!= then bool(!Int32.cmp(lhs, rhs).zero?)
+          when :> then flag_int(Int32.cmp(lhs, rhs) > 0)
+          when :< then flag_int(Int32.cmp(lhs, rhs) < 0)
+          when :>= then flag_int(Int32.cmp(lhs, rhs) >= 0)
+          when :<= then flag_int(Int32.cmp(lhs, rhs) <= 0)
+          when :== then flag_int(Int32.cmp(lhs, rhs).zero?)
+          when :!= then flag_int(!Int32.cmp(lhs, rhs).zero?)
           # Condition composition: operands are already 0/1, so combine them.
-          when :and then bool(!lhs.zero? && !rhs.zero?)
-          when :or then bool(!lhs.zero? || !rhs.zero?)
+          when :and then flag_int(!lhs.zero? && !rhs.zero?)
+          when :or then flag_int(!lhs.zero? || !rhs.zero?)
           else raise ProgramError, "unknown binary operator #{op.inspect}"
           end
         end
@@ -2557,7 +2557,7 @@ module RubyGBA
           value
         end
 
-        def bool(flag)
+        def flag_int(flag)
           flag ? 1 : 0
         end
       end

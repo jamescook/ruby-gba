@@ -82,9 +82,9 @@ module RubyGBA
           # For a moment, read this variable from its memory rather than from the register that
           # was holding it — because the register is about to be lent to something else and put
           # back afterwards (see Statements#emit_bracketed).
-          def not_holding(name, &block) = holding(name, nil, &block)
+          def without_var_in_register(name, &block) = with_var_in_register(name, nil, &block)
 
-          def holding(name, reg)
+          def with_var_in_register(name, reg)
             was = @held_registers[name]
             @held_registers[name] = reg
             yield

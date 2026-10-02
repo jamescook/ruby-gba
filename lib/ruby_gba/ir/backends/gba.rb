@@ -255,7 +255,7 @@ module RubyGBA
         # public: an explicit-receiver call ignores privacy on the DEFINING class, not
         # on whatever the receiver happens to evaluate to.
         def emit_flip_if_buffered = @drawing.emit_flip_if_buffered
-        def emit_show_the_picture = @drawing.emit_show_the_picture
+        def emit_end_forced_blank = @drawing.emit_end_forced_blank
         # Where the game loop starts (see Frames#emit_start_counting), and only where the
         # screen's interrupt counts frames at all. The buttons start here too: a tap made while
         # the game was setting up, with the screen still off, is not one the game should act on.
@@ -497,7 +497,7 @@ module RubyGBA
                                    roomy_memory: roomy_memory_report,
                                    sprite_slots: @screen.sprite_slots,
                                    sprite_offsets: @screen.sprite_offsets,
-                                   sprite_pose_in_room: sprite_pose_in_room,
+                                   streamed_sprite_pose_vars: streamed_sprite_pose_vars,
                                    build_options: { fast_cartridge: @fast_cartridge, fast_code: @fast_code })
         end
 
@@ -507,7 +507,7 @@ module RubyGBA
         # the place in the console's table, the same as ScreenLayout#sprite_offsets, and a slot in here is
         # what says that the offsets for that slot are counted by pose rather than looked up by
         # what the row says. Empty for a game whose sprites all keep every picture they can show.
-        def sprite_pose_in_room
+        def streamed_sprite_pose_vars
           @screen.each_built_sprite.each_with_object({}) do |(_node, sprite), where|
             next unless sprite.frames
 
@@ -638,7 +638,7 @@ module RubyGBA
           @uses_vblank = program.walk.any? { |node| node.kind == :wait_vblank }
           @mixer.prepare_mixer(program) # the software mixer's rate, buffers, voice slots, timer
           @audio.build_score # every tune as one score — after the mixer's rate, which sets each note's step
-          guard_mixer_needs_game_loop
+          refuse_samples_without_vblank!
           register_timers(program) # assign each named timer its hardware timer index(es)
           prepare_pixel_masks(program) # solid-pixel tables for any per-pixel collision test
           resolve_modes(program)
@@ -725,7 +725,7 @@ module RubyGBA
           @lowering.in_mode(@modes.default_mode) do
             program.children.each { |stmt| @lowering.statement(stmt) }
           end
-          guard_variables_clear_of_routines
+          refuse_variables_overlapping_divide!
           emit_functions
           emit_hot_functions # the routines worth running from the quick memory, as one block
           # After both: a hot func's body is only ever lowered here, inside
@@ -829,8 +829,8 @@ module RubyGBA
         def load_var(reg, name) = @primitives.load_var(reg, name)
         def store_var(reg, name) = @primitives.store_var(reg, name)
         def var_offset(name) = @primitives.var_offset(name)
-        def not_holding(name, &block) = @primitives.not_holding(name, &block)
-        def holding(name, reg, &block) = @primitives.holding(name, reg, &block)
+        def without_var_in_register(name, &block) = @primitives.without_var_in_register(name, &block)
+        def with_var_in_register(name, reg, &block) = @primitives.with_var_in_register(name, reg, &block)
         def store_word_acc(address) = @primitives.store_word_acc(address)
         def store_halfword_acc(address) = @primitives.store_halfword_acc(address)
         def store_word_immediate(value, address) = @primitives.store_word_immediate(value, address)
@@ -845,7 +845,7 @@ module RubyGBA
         def needs_divide_fix_routine?(program) = @divide.needs_divide_fix_routine?(program)
         def reserve_divide_routine = @divide.reserve_divide_routine
         def reserve_divide_fix_routine = @divide.reserve_divide_fix_routine
-        def guard_variables_clear_of_routines = @divide.guard_variables_clear_of_routines
+        def refuse_variables_overlapping_divide! = @divide.refuse_variables_overlapping_divide!
         def emit_copy_divide_routines_to_iwram = @divide.emit_copy_divide_routines_to_iwram
         def emit_divide_routine = @divide.emit_divide_routine
         def emit_divide_fix_routine = @divide.emit_divide_fix_routine
@@ -904,7 +904,7 @@ module RubyGBA
         # Playing samples means the mixer, and the mixer refills once per frame right after
         # wait_vblank — so a program that plays sound without a game loop would fill its
         # buffer once and then go silent. Catch that as a friendly build error.
-        def guard_mixer_needs_game_loop
+        def refuse_samples_without_vblank!
           return unless @mixer.plays_samples? && !@uses_vblank
 
           raise LoweringError,
@@ -1139,7 +1139,7 @@ module RubyGBA
               # in the tree, including funcs emitted later) already knows its base address
               # and capacity — but NOT here, where the order would be declaration order and
               # so decide by accident which collections get the quick memory. Gathered now,
-              # registered after the walk, coldest last (see #register_the_collections).
+              # registered after the walk, coldest last (see #register_lists_hot_first).
               declarations << [node, shifted.include?(node.name)]
             when :backing_buffer
               # Reserve the save-under patch's RAM once, up front, so a save/restore
@@ -1153,7 +1153,7 @@ module RubyGBA
               @layer_stack = node.names
             end
           end
-          register_the_collections(program, declarations)
+          register_lists_hot_first(program, declarations)
         end
 
         # HAND THE QUICK MEMORY TO THE COLLECTIONS A FRAME TOUCHES, and let the rest fall
@@ -1169,7 +1169,7 @@ module RubyGBA
         # So the turns go: what a frame touches, then what it does not, then what the
         # author said is cold. See Roomy for how "what a frame touches" is read off the
         # program rather than guessed at.
-        def register_the_collections(program, declarations)
+        def register_lists_hot_first(program, declarations)
           roomy = Roomy.new(program)
           ranked = declarations.sort_by do |node, _ring|
             asked = node.fast
@@ -1228,12 +1228,12 @@ module RubyGBA
             next unless node.kind == :bitmap
 
             bytes, clear = @palette.indices_for(node)
-            @emit.data_blobs[indexed_blob(node.name)] = bytes
+            @emit.data_blobs[indexed_blob_name(node.name)] = bytes
             @indexed_bitmaps[node.name] = clear
           end
         end
 
-        def indexed_blob(name) = :"#{name}#{INDEXED_SUFFIX}"
+        def indexed_blob_name(name) = :"#{name}#{INDEXED_SUFFIX}"
 
         # The console's tile size (8x8 pixels) and the number of cells across a
         # regular background map (32x32). These are fixed hardware facts.

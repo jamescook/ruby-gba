@@ -20,7 +20,7 @@ module RubyGBA
         #
         # It calls nothing back into the interpreter. What it is given is a log to write into,
         # a mixer to sound recordings on, and songs; a number the IR carries is worked out
-        # before it arrives (see #wants_number).
+        # before it arrives (see #request_song_at).
         class Player
           # The wave and noise voices' numbers in the console's own count of its voices, which is
           # what the log names a voice by.
@@ -44,7 +44,7 @@ module RubyGBA
             @frame = 0          # how far into that tune, in frames
             @events = []        # the events each of its parts is walking now
             @cursors = []       # each of its parts' next event
-            @sounding = {}      # a voice the song holds a note on -> its written volume (see #hold)
+            @sounding = {}      # a voice the song holds a note on -> its written volume (see #record_note_volume)
             @level = IR::Tunes::FULL_LEVEL # the music volume the notes sounding were set at
             @effect_lists = {}  # name -> the effects a sound effect list holds, in order
             @effects = []       # every sound effect, in the order declared (see IR::Tunes.effect_rank)
@@ -71,14 +71,14 @@ module RubyGBA
           # (IR::Tunes.priority_of): if another of its group is sounding or already asked for, an effect
           # of lower priority is not played, and one of at least that priority stops that one on
           # the next frame and starts in its place.
-          def wants_effect(list, which)
+          def request_effect(list, which)
             effects = @effect_lists[list] ||
                       raise(ProgramError, "play_sound_effect of undefined list #{list.inspect}")
             return unless which >= 0 && which < effects.length
 
             name = effects[which]
             group = group_of(name)
-            current = group && @effects.find { |other| group_of(other) == group && current?(other) }
+            current = group && @effects.find { |other| group_of(other) == group && effect_pending?(other) }
             if current
               return if priority_of(name) < priority_of(current)
               @asked.delete(current)
@@ -89,7 +89,7 @@ module RubyGBA
 
           # NAME THE TUNE PLAYING NOW. The player takes it up at the next frame, so this can be
           # written once or every frame, from a branch or a scene, and it is the same tune.
-          def wants(name)
+          def request_song(name)
             @songs[name] || raise(ProgramError, "play_song for undefined song #{name.inspect}")
             @wanted = name
           end
@@ -97,7 +97,7 @@ module RubyGBA
           # ...or name it by its place in a list. +which+ has already been worked out by
           # whoever called, because a number the game computes is the interpreter's business
           # and not this one's. A number naming no song in the list leaves the music as it is.
-          def wants_number(list, which)
+          def request_song_at(list, which)
             songs = @lists[list] ||
                     raise(ProgramError, "play_from_list of undefined list #{list.inspect}")
             @wanted = songs[which] if which >= 0 && which < songs.length
@@ -136,21 +136,21 @@ module RubyGBA
           # its voice to one due on the same frame is never written at all, rather than written
           # and then covered — whoever writes a voice first on a frame is whoever keeps it.
           def advance(level: nil)
-            catch_up
+            switch_to_wanted_song
             asked = @asked.uniq
             @asked.clear
             tune = @playing ? IR::Tunes.song_rank(@songs[@playing]) : -1
             above, below = ranked_effects.partition { |_, rank| rank > tune }
-            above.each { |name, rank| effect_frame(name, rank, asked) }
-            play_the_song(level) if @playing
-            below.each { |name, rank| effect_frame(name, rank, asked) }
-            @mixer.count_the_voices
+            above.each { |name, rank| play_effect_frame(name, rank, asked) }
+            play_song_frame(level) if @playing
+            below.each { |name, rank| play_effect_frame(name, rank, asked) }
+            @mixer.record_peak_voices
           end
 
           private
 
-          def play_the_song(level)
-            follow_the_level(level) if level
+          def play_song_frame(level)
+            apply_music_volume(level) if level
             song = @songs[@playing]
             rank = IR::Tunes.song_rank(song)
             recorded = 0
@@ -168,10 +168,10 @@ module RubyGBA
               shared = !channel.nil?
               sounds = sounds?(kind, frequency, volume || part.volume)
               heard = if shared
-                        take_voice(channel, rank, sounds: sounds)
+                        claim_channel(channel, rank, sounds: sounds)
                       elsif lane
                         # A rest is heard whether or not the part still had a voice to give back.
-                        sound_recording(owner: lane, rank: rank, name: instrument || part.instrument,
+                        play_recorded_note(owner: lane, rank: rank, name: instrument || part.instrument,
                                         frequency: sounds ? frequency : 0, envelope: envelope || part.envelope) ||
                           !sounds
                       else
@@ -186,16 +186,16 @@ module RubyGBA
               @log << [:voice, channel, @playing, frequency, volume || part.volume] if shared
               if channel && level
                 written = frequency.zero? ? 0 : volume || part.volume
-                kind == :noise ? log_loudness(channel, written) : hold(channel, written)
+                kind == :noise ? log_loudness(channel, written) : record_note_volume(channel, written)
               elsif lane && level
-                hold([:mixer, lane], frequency.zero? ? 0 : IR::Tunes.mix_loudness(volume || part.volume))
+                record_note_volume([:mixer, lane], frequency.zero? ? 0 : IR::Tunes.mix_loudness(volume || part.volume))
               end
               # A part on the WAVE or NOISE voice: the console makes the sound itself, so no
               # mixer voice is taken — the whole point of putting a part there.
-              console_voice(kind, part, frequency) if %i[wave noise].include?(kind)
+              log_wave_or_noise(kind, part, frequency) if %i[wave noise].include?(kind)
               @cursors[number] += 1
             end
-            come_round(song)
+            advance_song_frame(song)
           end
 
           # Every sound effect with its rank, highest first.
@@ -212,7 +212,7 @@ module RubyGBA
           # ONE SOUND EFFECT'S FRAME. Asked for, it starts from its first note; at its end it lets
           # go of the voices it still holds, silencing them; and sounding, it plays whatever notes
           # are due, on the voices its rank lets it take.
-          def effect_frame(name, rank, asked)
+          def play_effect_frame(name, rank, asked)
             song = @songs.fetch(name)
             # Cut off by another of its group, or of a group and asked for again: it stops first.
             finish_effect(name, rank) if @stopping.delete(name)
@@ -235,18 +235,18 @@ module RubyGBA
 
               run.cursors[number] += 1
               if lane
-                heard = sound_recording(owner: [name, lane], rank: rank, name: instrument || part.instrument,
+                heard = play_recorded_note(owner: [name, lane], rank: rank, name: instrument || part.instrument,
                                         frequency: sounds?(kind, frequency, volume || part.volume) ? frequency : 0,
                                         envelope: envelope || part.envelope)
                 @log << [:note, name, frequency] if heard
                 next
               end
-              next unless take_voice(channel, rank, sounds: sounds?(kind, frequency, volume || part.volume))
+              next unless claim_channel(channel, rank, sounds: sounds?(kind, frequency, volume || part.volume))
 
               @sounding.delete(channel) # the song's note there, if it had one, is gone
               @log << [:note, name, frequency]
               @log << [:voice, channel, name, frequency, volume || part.volume]
-              console_voice(kind, part, frequency) unless kind == :square
+              log_wave_or_noise(kind, part, frequency) unless kind == :square
             end
             run.frame += 1
           end
@@ -254,7 +254,7 @@ module RubyGBA
           # Is this effect its group's one now: asked for — even when it is stopping first, to start
           # again — or sounding and not stopping? It is still sounding on the frame after its last,
           # until the player lets it go.
-          def current?(name) = @asked.include?(name) || (@running.key?(name) && !@stopping.include?(name))
+          def effect_pending?(name) = @asked.include?(name) || (@running.key?(name) && !@stopping.include?(name))
 
           def group_of(name) = @songs.fetch(name).group
 
@@ -277,7 +277,7 @@ module RubyGBA
           # MAY A NOTE OF THIS RANK SOUND ON +channel+? Yes when nobody holding it outranks it
           # (IR::Tunes.song_rank) — and then it holds the voice while it +sounds+, where a rest or
           # a note at volume 0 lets it go.
-          def take_voice(channel, rank, sounds:)
+          def claim_channel(channel, rank, sounds:)
             return false if @holders[channel] > rank
 
             @holders[channel] = sounds ? rank : 0
@@ -295,7 +295,7 @@ module RubyGBA
           # The tune the program asked for has changed, or it said stop: silence what was
           # playing and start the new one from its first frame. A voice a sound effect holds is
           # the effect's, and is left alone.
-          def catch_up
+          def switch_to_wanted_song
             return if @wanted == @playing && @stops == @stops_seen
 
             @stops_seen = @stops
@@ -311,7 +311,7 @@ module RubyGBA
 
           # At the song's end, back to its loop frame, with every part carrying on from the
           # list it uses for the passes after the first.
-          def come_round(song)
+          def advance_song_frame(song)
             @frame += 1
             return if @frame < song.total_frames
 
@@ -328,13 +328,13 @@ module RubyGBA
           # A recorded part's note is held only while its voice is still sounding it: the
           # recording may have run out, or the note be falling away after a rest, and neither of
           # those is the part's note any more.
-          def follow_the_level(level)
+          def apply_music_volume(level)
             return if level == @level
 
             @level = level
             @sounding.each do |voice, volume|
               next unless volume.positive?
-              next if voice.is_a?(Array) && !@mixer.sounding_note(voice.last)
+              next if voice.is_a?(Array) && !@mixer.sounding_slot(voice.last)
 
               log_loudness(voice, volume)
             end
@@ -356,7 +356,7 @@ module RubyGBA
           # IR::Tunes::MIX_FULL. A rest is a volume of 0. A drum hit is not held: it rings and
           # fades by itself, so a new level waits for the next hit rather than striking this one
           # again.
-          def hold(channel, volume)
+          def record_note_volume(channel, volume)
             @sounding[channel] = volume
             log_loudness(channel, volume)
           end
@@ -368,10 +368,10 @@ module RubyGBA
           # A note on one of the mixer's voices: it starts from the top of recording +name+,
           # shaped by +envelope+ (or the recording itself), and a rest gives the voice back. True
           # when the note got a voice, or the rest had one to give back.
-          def sound_recording(owner:, rank:, name:, frequency:, envelope:)
+          def play_recorded_note(owner:, rank:, name:, frequency:, envelope:)
             return @mixer.release_music(owner) if frequency.zero?
 
-            !@mixer.take_for_music(owner: owner, rank: rank, name: name, frequency: frequency,
+            !@mixer.start_music_note(owner: owner, rank: rank, name: name, frequency: frequency,
                                    envelope: envelope).nil?
           end
 
@@ -383,7 +383,7 @@ module RubyGBA
           # they really are the same voice: a game that plays a hit while its drum part is
           # playing one gets whichever came last, and a test that reads the log sees exactly
           # that.
-          def console_voice(kind, part, frequency)
+          def log_wave_or_noise(kind, part, frequency)
             if kind == :wave
               return @log << [:stop_wave] if frequency.zero?
 

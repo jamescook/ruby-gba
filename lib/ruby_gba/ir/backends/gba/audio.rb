@@ -991,7 +991,7 @@ module RubyGBA
 
             # The picture was held off while the game set up, and nothing is being drawn now, so
             # it goes on here — see Drawing#held_until_the_first_frame.
-            @drawing.emit_show_the_picture
+            @drawing.emit_end_forced_blank
 
             # This is the safe moment to swap pages when a buffered scene is live:
             # show the frame just drawn and hand the program the other page. Which mode

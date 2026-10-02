@@ -65,7 +65,7 @@ module RubyGBA
     # to have them taken off again before it means the corner of the picture. Keyed by the place
     # in that table, then by the two things a row of it says about which pose it is holding: its
     # first tile, and whether it is being drawn backwards.
-    # +sprite_pose_in_room+ is the exception to that keying, and it exists because a sprite with
+    # +streamed_sprite_pose_vars+ is the exception to that keying, and it exists because a sprite with
     # more pictures than sprite memory holds keeps ONE of them there at a time — so every pose of
     # it goes into the same place, and the place stops telling the poses apart. Such a sprite's
     # +sprite_offsets+ are counted by pose number instead, and this says where to read the pose
@@ -76,10 +76,10 @@ module RubyGBA
                                     :palette_entries, :column_stretches, :compression,
                                     :build_options, :findings, :emitted, :routines, :video_memory,
                                     :roomy_memory, :timer_handlers, :voices, :sound_drops,
-                                    :sprite_slots, :sprite_offsets, :sprite_pose_in_room)
+                                    :sprite_slots, :sprite_offsets, :streamed_sprite_pose_vars)
       def initialize(findings: [], emitted: nil, routines: {}, video_memory: nil,
                      roomy_memory: nil, timer_handlers: {}, voices: nil, sound_drops: nil,
-                     sprite_slots: {}, sprite_offsets: {}, sprite_pose_in_room: {}, **rest)
+                     sprite_slots: {}, sprite_offsets: {}, streamed_sprite_pose_vars: {}, **rest)
         super
       end
 

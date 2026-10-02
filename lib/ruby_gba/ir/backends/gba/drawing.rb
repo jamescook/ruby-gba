@@ -154,7 +154,7 @@ module RubyGBA
           # brightness first.
           #
           # So the screen is declared with the picture held off, and the first wait for the gap
-          # between frames switches it on (#emit_show_the_picture). That gap is the one moment
+          # between frames switches it on (#emit_end_forced_blank). That gap is the one moment
           # nothing is drawn, and the work between frames runs in it too, so the first line
           # the display draws has all of it in force whichever of them comes first. A game that
           # sets up inside one frame loses nothing: the gap it waits for is the one it would
@@ -167,7 +167,7 @@ module RubyGBA
           # Switch the picture on, at the gap between frames. Every frame rather than the
           # first alone, because it is three instructions where remembering whether it was
           # the first would cost the same; on every frame after the first it changes nothing.
-          def emit_show_the_picture
+          def emit_end_forced_blank
             return unless @layout.waits_for_frames
 
             emit(ASM.load_immediate(TMP, REG_DISPCNT))
