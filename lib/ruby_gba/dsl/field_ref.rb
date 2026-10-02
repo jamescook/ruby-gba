@@ -28,8 +28,8 @@ module RubyGBA
         # (b.x + 5, b.y > 100) exactly like a variable read. It carries no variable name,
         # so the mutators below override Value's (which write to a named variable).
         super(builder, read, name: nil, fraction_bits: fraction_bits, names: names,
-                             declaring: self.class.declaring(pool, field),
-                             mixing: self.class.mixing(pool, field))
+                             declaring: self.class.fraction_declaration_advice(pool, field),
+                             mixing: self.class.mixed_kinds_advice(pool, field))
       end
 
       # A handle, not a working-out: it stands for one slot of one field, so writing one
@@ -41,13 +41,13 @@ module RubyGBA
       # to hold a handle for — nor any need of one. On the class so that a field's own two
       # sentences are written once and both callers say the same thing.
       def self.scale(pool:, field:, bits:, names: nil)
-        Scale.new(bits: bits, declaring: declaring(pool, field), mixing: mixing(pool, field),
+        Scale.new(bits: bits, declaring: fraction_declaration_advice(pool, field), mixing: mixed_kinds_advice(pool, field),
                   names: names)
       end
 
       # How to make THIS field hold a fraction: say so in the default it is declared with,
       # which is the same way a variable says it.
-      def self.declaring(pool, field)
+      def self.fraction_declaration_advice(pool, field)
         lambda { |other|
           "declare the field with one — `pool :#{pool}, #{field}: #{other}` rather than " \
             "`#{field}: #{other.to_i}`"
@@ -56,7 +56,7 @@ module RubyGBA
 
       # ...and the other mismatch. A field has no left and right side, so the wording a
       # plain operator uses does not fit it.
-      def self.mixing(pool, field)
+      def self.mixed_kinds_advice(pool, field)
         lambda { |field_holds_fraction|
           holds, given = if field_holds_fraction
                            ["numbers with a fraction", "a whole number the game works out"]
@@ -71,16 +71,17 @@ module RubyGBA
 
       # --- mutation: write back into this instance's slot ---
 
+      # Each value on its way into the slot is checked against what the field holds.
       def set!(value)
-        write(matched(value, "hold"))
+        write(node_matching(value, "hold"))
       end
 
       def add!(amount)
-        write(Build.binop(:+, read, matched(amount, "add")))
+        write(Build.binop(:+, read, node_matching(amount, "add")))
       end
 
       def sub!(amount)
-        write(Build.binop(:-, read, matched(amount, "subtract")))
+        write(Build.binop(:-, read, node_matching(amount, "subtract")))
       end
 
       # The read-modify-write mutators round-trip through a scratch variable: load the slot,
@@ -110,7 +111,7 @@ module RubyGBA
 
       # A pool field is written through the instance a walk hands over, whose name this handle
       # never learns — so a message names the field.
-      def spelled = @field.to_s
+      def name_as_written = @field.to_s
 
       # The value node that reads this instance's slot.
       def read
@@ -131,11 +132,6 @@ module RubyGBA
         @builder.record_statement(Build.set(scratch, read))
         yield Value.new(@builder, Build.var_ref(scratch), name: scratch, fraction_bits: fraction_bits)
         write(Build.var_ref(scratch))
-      end
-
-      # A value on its way into the slot, checked against what the field holds.
-      def matched(other, verb)
-        node_matching(other, verb)
       end
 
       def node_of(other)

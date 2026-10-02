@@ -363,7 +363,7 @@ module RubyGBA
           @colors_var = :"#{@object_name}_colors"
           @builder.make_object_recolorable(@object_node, @colors_var)
           Recolors.new(@builder, subject: "The sprite :#{@object_node.declared || @poses.first}", poses: @poses)
-                   .reads(@object_node)
+                   .attach_object(@object_node)
         end
         @recolors.draw_with(Value.new(@builder, Build.var_ref(@colors_var), name: @colors_var), which, showing)
         self
@@ -389,7 +389,7 @@ module RubyGBA
       # ends at or before a wall begins, or begins at or after it ends — so a sprite can
       # rest flush against a wall (touching isn't overlapping) yet never cross into one.
       def clear_of_walls(target_x, target_y)
-        return clear_of_tiles(target_x, target_y) if @solid_cells
+        return emit_tile_check(target_x, target_y) if @solid_cells
 
         left = target_x + @hit_x
         top = target_y + @hit_y
@@ -410,7 +410,7 @@ module RubyGBA
       # with eight movers emitted it sixteen times (each moves on two axes) and the game
       # loop stopped fitting in the console's quick memory — which slows down the WHOLE
       # frame, not just the moving. Called, it is emitted once however many movers there are.
-      def clear_of_tiles(target_x, target_y)
+      def emit_tile_check(target_x, target_y)
         routine = @builder.tile_collision_routine(@solid_cells, @hit_x, @hit_y, @hit_w, @hit_h)
         @builder.set!(routine[:x], Value.node_for(target_x))
         @builder.set!(routine[:y], Value.node_for(target_y))

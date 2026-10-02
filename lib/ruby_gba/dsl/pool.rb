@@ -177,7 +177,7 @@ module RubyGBA
           end
           @builder.make_pool_recolorable(self)
           recolors = Recolors.new(@builder, subject: "pool :#{@name}", poses: @art.poses)
-          slot_objects.each { |node| recolors.reads(node) }
+          slot_objects.each { |node| recolors.attach_object(node) }
           recolors
         end
         choice = FieldRef.new(builder: @builder, list: colors_list, index: index.node, pool: @name, field: :colors)
@@ -188,7 +188,7 @@ module RubyGBA
       # A pool never told to draw with other colours takes back the writes every spawn made
       # just in case, so it emits nothing for colours at all. Called once the whole program is
       # built, when that is known.
-      def settle_colors
+      def drop_unused_color_resets
         return if @recolors
 
         color_resets.each { |node| node.parent&.children&.delete(node) }
@@ -219,7 +219,7 @@ module RubyGBA
       # and the step counter of one that animates. Asked once the program is built, since a
       # pool keeps its colours column only once something has told it to draw with others.
       # What slot a walk is on is not here: nothing is being walked while a save or a load runs.
-      def whole_state
+      def saved_lists_and_vars
         lists = [*field_names.map { |one| field_list(one) }, active_list, free_list, *pose_lists]
         lists << born_list if recycle_oldest?
         lists << colors_list if recolorable?
@@ -262,7 +262,7 @@ module RubyGBA
       def each(&block)
         pool = self
         active = List.new(@builder, active_list)
-        walking do
+        preserving_current_slot do
           @builder.repeat(@capacity) do |i|
             # Recorded through the builder rather than with `.then` so the guard can carry what
             # the cost estimate needs — the walk is over every slot, the body is only for a live
@@ -270,7 +270,7 @@ module RubyGBA
             live = active[i] == 1
             @builder.consume_condition(live)
             @builder.record_conditional(live.node, over: @name, usually: @usually, of: @capacity) do
-              remember_current(i)
+              record_current_slot(i)
               block.call(Instance.new(pool, i))
             end
           end
@@ -287,7 +287,7 @@ module RubyGBA
       # A routine is built ONCE, wherever it is called from, so it cannot close over the
       # instance the way the block above does — which is why a plain `func` has no way to say
       # which guard is chasing. This pool hands the routine the instance being walked right
-      # now, and the walk itself is what says which that is (see #remember_current).
+      # now, and the walk itself is what says which that is (see #record_current_slot).
       #
       # Called from anywhere else, such a routine would run on whichever instance was walked
       # last, so it is refused at build time instead (Builder#verify_instance_routines!).
@@ -321,11 +321,11 @@ module RubyGBA
 
       # A mutable handle to +field+ of the instance at slot +index+ (a {Value}).
       def field_ref(field, index)
-        field_handle(field, index.node)
+        field_ref_at_node(field, index.node)
       end
 
       # One field of one slot, with everything it needs to read, write and complain clearly.
-      def field_handle(field, index_node)
+      def field_ref_at_node(field, index_node)
         FieldRef.new(builder: @builder, list: field_list(field), index: index_node,
                      pool: @name, field: field, fraction_bits: field_bits(field),
                      names: @field_names[field])
@@ -348,7 +348,7 @@ module RubyGBA
       # on a free slot existing, so a full pool is a clean no-op (nothing half-written).
       def spawn_dropping(values)
         slot = Build.var_ref(slot_var)
-        body = claim_free_slot(slot) + assign_fields(slot, values) + reset_pose(slot)
+        body = claim_free_slot(slot) + assign_fields(slot, values) + pose_reset_nodes(slot)
         record(Build.if_(free_available, *body))
       end
 
@@ -362,7 +362,7 @@ module RubyGBA
         choose.else = Build.else_(*take_oldest_slot)
         record(choose)
         assign_fields(slot, values).each { |node| record(node) }
-        reset_pose(slot).each { |node| record(node) }
+        pose_reset_nodes(slot).each { |node| record(node) }
         record(Build.list_set(born_list, slot, Build.var_ref(seq_var)))
         record(Build.add(seq_var, Build.int(1)))
       end
@@ -383,8 +383,8 @@ module RubyGBA
       #
       # It starts in its own colours too. Whether the pool is ever recoloured is not known yet —
       # the spawn is usually written before the walk that recolours — so a pool whose instances
-      # draw always writes it here, and #settle_colors takes it out again if nothing needed it.
-      def reset_pose(slot)
+      # draw always writes it here, and #drop_unused_color_resets takes it out again if nothing needed it.
+      def pose_reset_nodes(slot)
         nodes = []
         nodes << Build.list_set(facing_list, slot, Build.int(0)) if @art&.faces?
         nodes << Build.list_set(frame_list, slot, Build.int(0)) if @art&.animates?
@@ -442,7 +442,7 @@ module RubyGBA
       # It costs a store per live instance per pass, and only a pool with such a routine pays it:
       # the write is recorded here and taken out again at the end of the build when nothing
       # wanted it (Builder#finalize_pool_walks).
-      def remember_current(index)
+      def record_current_slot(index)
         node = Build.set(current_var, index.node)
         record(node)
         @builder.note_pool_walk(self, node)
@@ -453,7 +453,7 @@ module RubyGBA
       # leave the outer one running on whatever instance the inner one finished at, for the rest
       # of that pass. A save and a restore per walk, not per instance, settles it whichever way
       # the nesting came about, including through a call this cannot see.
-      def walking
+      def preserving_current_slot
         held = @builder.pool_walk_scratch_var
         saved = Build.set(held, Build.var_ref(current_var))
         record(saved)
@@ -516,10 +516,10 @@ module RubyGBA
 
         # This instance's collision-box edges, as Values — its x/y fields plus the image's
         # box. These need a spriteful pool (one with an image, hence a size).
-        def left = field(:x) + hit(0)
-        def top = field(:y) + hit(1)
-        def right = field(:x) + hit(0) + hit(2)
-        def bottom = field(:y) + hit(1) + hit(3)
+        def left = field(:x) + hitbox_part(0)
+        def top = field(:y) + hitbox_part(1)
+        def right = field(:x) + hitbox_part(0) + hitbox_part(2)
+        def bottom = field(:y) + hitbox_part(1) + hitbox_part(3)
 
         # Move this instance, stopping at the scenery's solid tiles if the pool was told
         # `blocked_by` — the per-instance counterpart to {HardwareSprite#move}, spelled the
@@ -552,7 +552,7 @@ module RubyGBA
                                             "instance has no solid tiles to test against."
 
           step_x, step_y = Direction.unit(direction)
-          clear_of_tiles(cells, field(:x) + (step_x * by), field(:y) + (step_y * by))
+          emit_tile_check(cells, field(:x) + (step_x * by), field(:y) + (step_y * by))
         end
 
         # Keep this instance fully on the screen, using the sprite's own size — the
@@ -575,13 +575,13 @@ module RubyGBA
 
           target_x = axis == :x ? field(:x) + delta : field(:x)
           target_y = axis == :y ? field(:y) + delta : field(:y)
-          clear_of_tiles(cells, target_x, target_y).then { var.add!(delta) }
+          emit_tile_check(cells, target_x, target_y).then { var.add!(delta) }
         end
 
         # The same shared routine a `sprite` calls — see Builder::Collision. A pool of
         # thirty-two instances and a hand-declared sprite of the same size consult one copy
         # of it between them.
-        def clear_of_tiles(cells, target_x, target_y)
+        def emit_tile_check(cells, target_x, target_y)
           hit_x, hit_y, hit_w, hit_h = require_box!
           builder = @pool.builder
           routine = builder.tile_collision_routine(cells, hit_x, hit_y, hit_w, hit_h)
@@ -593,7 +593,7 @@ module RubyGBA
 
         def field(name) = @pool.field_ref(name, @index)
 
-        def hit(component) = require_box![component]
+        def hitbox_part(component) = require_box![component]
 
         # The pool's collision box, or a friendly error if it has no size (no image).
         def require_box!

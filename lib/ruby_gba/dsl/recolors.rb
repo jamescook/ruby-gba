@@ -31,7 +31,7 @@ module RubyGBA
       end
 
       # An object that is drawn with these lists from now on.
-      def reads(node)
+      def attach_object(node)
         @objects << node
         node.recolors = @lists
         self
@@ -40,21 +40,21 @@ module RubyGBA
       # Record the write that makes +choice+ (anything with a +set!+) name what +which+ says:
       # one list, one of a set picked by +showing+, or the sprite's own colours.
       def draw_with(choice, which, showing)
-        draw_named(choice, group(which, showing), showing)
+        write_choice(choice, requested_lists!(which, showing), showing)
       end
 
       # The same, for names already checked: nil for the own colours, or the names in order.
-      def draw_named(choice, names, showing)
+      def write_choice(choice, names, showing)
         return choice.set!(IR::Build::NO_RECOLOR) if names.nil?
 
-        start = place(names)
+        start = list_offset_for(names)
         return choice.set!(start) if showing.nil?
 
-        pick(choice, count: names.length, start: start, showing: showing)
+        write_picked_list(choice, count: names.length, start: start, showing: showing)
       end
 
       # Which lists a call named, checked before anything is written. nil is the own colours.
-      def group(which, showing)
+      def requested_lists!(which, showing)
         if which == OWN
           return nil if showing.nil?
 
@@ -84,7 +84,7 @@ module RubyGBA
       private
 
       # Where +names+ sit side by side among the lists, adding them at the end when they do not.
-      def place(names)
+      def list_offset_for(names)
         found = (0..(@names.length - names.length)).find { |at| @names[at, names.length] == names }
         return found if found
 
@@ -98,7 +98,7 @@ module RubyGBA
       # One of a set of +count+ lists starting at +start+, picked by +showing+. A number
       # outside the set is the sprite's own colours, which is what a value that has run off
       # the end should look like.
-      def pick(choice, count:, start:, showing:)
+      def write_picked_list(choice, count:, start:, showing:)
         fixed = Value.fixed_number(showing)
         return choice.set!(fixed.between?(0, count - 1) ? start + fixed : IR::Build::NO_RECOLOR) if fixed
 

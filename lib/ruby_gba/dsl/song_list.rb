@@ -19,7 +19,7 @@ module RubyGBA
       # Play song +which+: a name the list was given, a number counting from 0, or a number the
       # game works out as it runs. Returns self.
       def play(which)
-        @builder.play_from_list(@name, number(which))
+        @builder.play_from_list(@name, entry_number(which))
         self
       end
 
@@ -31,7 +31,7 @@ module RubyGBA
 
       private
 
-      def entry = "song"
+      def entry_noun = "song"
     end
   end
 end

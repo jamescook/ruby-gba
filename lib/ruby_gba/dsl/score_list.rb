@@ -7,7 +7,7 @@ module RubyGBA
     # turned into a place in the list, with a friendly error for one the list does not have. A
     # number the game works out passes through untouched, for the player to check as it runs.
     #
-    # The class including it says what one entry is called (#entry), for the errors.
+    # The class including it says what one entry is called (#entry_noun), for the errors.
     module ScoreList
       def initialize(builder, name, keys)
         @builder = builder
@@ -25,20 +25,20 @@ module RubyGBA
         at = @keys.index(key)
         return at if at
 
-        raise ArgumentError, "The #{entry} list :#{@name} has no #{entry} #{key.inspect}. " \
+        raise ArgumentError, "The #{entry_noun} list :#{@name} has no #{entry_noun} #{key.inspect}. " \
                              "It has #{@keys.map(&:inspect).join(', ')}."
       end
 
       private
 
-      def number(which)
+      def entry_number(which)
         case which
         when Symbol then number_of(which)
         when Integer
           return which if which.between?(0, count - 1)
 
-          raise ArgumentError, "The #{entry} list :#{@name} has #{count} #{count == 1 ? entry : "#{entry}s"}, " \
-                               "so it has no #{entry} #{which}. The #{entry}s are numbered from 0 to #{count - 1}."
+          raise ArgumentError, "The #{entry_noun} list :#{@name} has #{count} #{count == 1 ? entry_noun : "#{entry_noun}s"}, " \
+                               "so it has no #{entry_noun} #{which}. The #{entry_noun}s are numbered from 0 to #{count - 1}."
         else which
         end
       end

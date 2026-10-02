@@ -283,7 +283,7 @@ module RubyGBA
       def show
         record(Build.if_(active_is(0),
                          Build.set(@active, Build.int(1)),
-                         *draw_at_current))
+                         *save_and_draw_nodes))
         self
       end
 
@@ -316,13 +316,13 @@ module RubyGBA
       # Pass two: draw this sprite where it is now, remembering what's freshly under it
       # so the next frame's erase can put it back. A no-op while hidden.
       def draw_node
-        Build.if_(active_is(1), *draw_at_current).stamp(@source)
+        Build.if_(active_is(1), *save_and_draw_nodes).stamp(@source)
       end
 
       # Draw the sprite for the first time at its start (used by the sprite verb when
       # the sprite begins shown): capture what's under it and draw it there.
       def draw_initial
-        draw_at_current.each { |node| record(node) }
+        save_and_draw_nodes.each { |node| record(node) }
         self
       end
 
@@ -334,7 +334,7 @@ module RubyGBA
 
       # Capture what's under the current spot, draw the sprite there, and record that
       # spot as where it was last drawn (so the next erase targets it).
-      def draw_at_current
+      def save_and_draw_nodes
         [Build.save_region(@buffer, ref(@x_var), ref(@y_var)),
          blit_op(ref(@x_var), ref(@y_var)),
          Build.copy(@old_x, @x_var),

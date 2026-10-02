@@ -40,7 +40,7 @@ module RubyGBA
       #   background declared with a single map, which can never be handed another.
       # @param node [IR::Node] the statement that declared it, so a `rotate`/`scale` written
       #   on the same line can tell that it is still part of declaring this background
-      #   rather than something the frame does to it (see {#part_of_the_declaration?})
+      #   rather than something the frame does to it (see {#on_declaration_line?})
       # @param tile_pictures [Array<Symbol>] the pictures its tileset draws, which is what
       #   another list of colours is matched against — see {#draw_with}
       def initialize(builder, name:, scroll_x:, scroll_y:, walls: [],
@@ -79,7 +79,7 @@ module RubyGBA
       # A cell outside the map is left alone rather than writing over something else, so a
       # coordinate the game worked out can be off the edge without a test around it.
       def set_tile(col, row, tile)
-        refuse_on_a_bitmap_screen!("set_tile", instead: "Draw over the spot with `blit`")
+        refuse_on_bitmap_screen!("set_tile", instead: "Draw over the spot with `blit`")
         index = @tile_index[tile]
         raise ArgumentError, unknown_tile_message(tile) if index.nil?
 
@@ -111,9 +111,9 @@ module RubyGBA
       # remembers such things opens them again on the way in, which is where it wants that
       # decision anyway.
       def show_map(which)
-        refuse_on_a_bitmap_screen!("show_map", instead: "Draw the new picture with `blit`")
+        refuse_on_bitmap_screen!("show_map", instead: "Draw the new picture with `blit`")
         refuse_with_one_map!
-        @builder.set!(shown_map_var, Value.node_for(number_of_map(which)))
+        @builder.set!(shown_map_var, Value.node_for(resolve_map_number(which)))
         # Recorded here as well as remembered, the same way a scroll is: a program with no
         # game loop has no gap between frames to hold the copy for, and then the copy simply
         # happens where it was asked for. The builder drops these once it knows there is a
@@ -172,10 +172,10 @@ module RubyGBA
       # A list the tiles use that the hash leaves out stays as drawn, and a number outside the
       # steps draws every list as drawn.
       def draw_with(which, showing: nil)
-        refuse_on_a_bitmap_screen!("draw_with",
+        refuse_on_bitmap_screen!("draw_with",
                                    instead: "Draw the picture in the colors you want with `blit`")
         choice = Value.new(@builder, Build.var_ref(colors_var), name: colors_var)
-        recolors.draw_named(choice, steps_named(which, showing), showing)
+        recolors.write_choice(choice, recolor_steps(which, showing), showing)
         # Recorded here as well as remembered, the same way `show_map` is: a program with no
         # game loop has no gap between frames to hold the write for, and then it simply
         # happens where it was asked for.
@@ -251,7 +251,7 @@ module RubyGBA
         ensure_not_affine!("scroll_by")
         record(Build.add(@scroll_x, Value.node_for(dx)))
         record(Build.add(@scroll_y, Value.node_for(dy)))
-        apply
+        record_scroll_write
       end
 
       # Put the view's top-left corner at an exact (+x+, +y+) on the map — for snapping
@@ -260,7 +260,7 @@ module RubyGBA
         ensure_not_affine!("scroll_to")
         record(Build.set(@scroll_x, Value.node_for(x)))
         record(Build.set(@scroll_y, Value.node_for(y)))
-        apply
+        record_scroll_write
       end
 
       # Slide each ROW of the picture sideways by its own amount, so the whole background
@@ -315,15 +315,15 @@ module RubyGBA
       def rotate(degrees)
         angle_var, = affine_vars
         fixed = Value.fixed_number(degrees)
-        declaring = !fixed.nil? && part_of_the_declaration?
+        declaring = !fixed.nil? && on_declaration_line?
         if fixed
-          write_turn(angle_var, fixed % 360, declaring)
+          write_affine_var(angle_var, fixed % 360, declaring)
         else
           angle.set!(degrees)
           wrap_angle
         end
-        apply_affine
-        keep_declaring if declaring
+        record_affine_write
+        extend_declaration_tail if declaring
         self
       end
 
@@ -342,15 +342,15 @@ module RubyGBA
                 "1.0 is the size it was drawn at, 0.5 is half."
         end
 
-        declaring = size.is_a?(Numeric) && part_of_the_declaration?
+        declaring = size.is_a?(Numeric) && on_declaration_line?
         if declaring
           _, scale_var = affine_vars
-          write_turn(scale_var, Fraction.scale(size.to_f, Fraction::DEFAULT_BITS), true)
+          write_affine_var(scale_var, Fraction.scale(size.to_f, Fraction::DEFAULT_BITS), true)
         else
           affine_scale_value.set!(size)
         end
-        apply_affine
-        keep_declaring if declaring
+        record_affine_write
+        extend_declaration_tail if declaring
         self
       end
 
@@ -384,7 +384,7 @@ module RubyGBA
       # upright, a background lands in exactly the same place whatever it turns around.
       def turns_around(x, y)
         affine_vars # this background is one that turns — the same claim `rotate`/`scale` make
-        @builder.background_turns_around(@name, whole_pixel(x, "x"), whole_pixel(y, "y"))
+        @builder.background_turns_around(@name, require_integer_pixel!(x, "x"), require_integer_pixel!(y, "y"))
         self
       end
 
@@ -398,7 +398,7 @@ module RubyGBA
       # declared and nothing draws it again, so there is no cell left to change — the
       # pixels are simply part of the picture now. Drawing over them is what a `blit`
       # already does, so that is what the message says.
-      def refuse_on_a_bitmap_screen!(verb, instead:)
+      def refuse_on_bitmap_screen!(verb, instead:)
         return unless @bitmap
 
         raise ArgumentError,
@@ -432,7 +432,7 @@ module RubyGBA
       # that order. A number the game works out is passed straight through — nothing at build
       # time can say which map it will land on, and a value outside the range is held to it
       # when the swap happens.
-      def number_of_map(which)
+      def resolve_map_number(which)
         return which unless which.is_a?(Symbol) || which.is_a?(String)
 
         map_number(which)
@@ -460,15 +460,15 @@ module RubyGBA
         @recolors ||= begin
           node = @builder.recolorable_background(@name)
           node.palettes = palettes
-          Recolors.new(@builder, subject: subject, poses: @tile_pictures,
-                                 colors_for: ->(steps) { steps.map { |step| colors_of_step(step) } }).reads(node)
+          Recolors.new(@builder, subject: error_subject, poses: @tile_pictures,
+                                 colors_for: ->(steps) { steps.map { |step| colors_of_step(step) } }).attach_object(node)
         end
       end
 
-      def subject = "The background :#{@name}"
+      def error_subject = "The background :#{@name}"
 
       # The lists this layer's tiles were drawn from, each once, in the order first met.
-      def palettes = @palettes ||= @builder.lists_drawn_from(@tile_pictures, subject: subject)
+      def palettes = @palettes ||= @builder.lists_drawn_from(@tile_pictures, subject: error_subject)
 
       # One step's colours, a list per palette, each checked against the tiles drawn from it.
       def colors_of_step(step)
@@ -477,20 +477,20 @@ module RubyGBA
           next own if name.nil?
 
           drawn_from_it = @tile_pictures.select { |pose| @builder.list_drawn_from(pose) == own }
-          @builder.colors_to_draw_with([name], poses: drawn_from_it, subject: subject).first
+          @builder.colors_to_draw_with([name], poses: drawn_from_it, subject: error_subject).first
         end
       end
 
       # What a call to draw_with named, as steps (see #recolors), or nil for the own colours.
-      def steps_named(which, showing)
-        return steps_of_each_list(which, showing) if which.is_a?(Hash)
+      def recolor_steps(which, showing)
+        return recolor_steps_from_hash(which, showing) if which.is_a?(Hash)
 
-        names = recolors.group(which, showing)
+        names = recolors.requested_lists!(which, showing)
         return nil if names.nil?
 
         unless palettes.length == 1
           raise ArgumentError,
-                "#{subject} was told to draw_with #{which.inspect}, but its tiles are drawn from " \
+                "#{error_subject} was told to draw_with #{which.inspect}, but its tiles are drawn from " \
                 "#{palettes.length} lists of colors. Say what each of them is drawn with, by the name it " \
                 "was given: draw_with({ #{palette_names.join(': ..., ')}: ... }#{showing ? ', showing: ...' : ''})."
         end
@@ -499,37 +499,37 @@ module RubyGBA
 
       # A hash of the layer's own lists to what each is drawn with: one list each, or the same
       # number of lists each when a number picks between them.
-      def steps_of_each_list(named, showing)
-        at = named.keys.to_h { |list| [list, palette_at!(list)] }
+      def recolor_steps_from_hash(named, showing)
+        at = named.keys.to_h { |list| [list, palette_index!(list)] }
         each_list = named.transform_values { |value| showing.nil? ? [value] : value }
         unless each_list.values.all? { |lists| lists.is_a?(Array) && !lists.empty? && lists.all?(Symbol) }
-          raise ArgumentError, uneven_steps(named, showing)
+          raise ArgumentError, uneven_steps_message(named, showing)
         end
         count = each_list.values.first.length
-        raise ArgumentError, uneven_steps(named, showing) unless each_list.values.all? { |lists| lists.length == count }
+        raise ArgumentError, uneven_steps_message(named, showing) unless each_list.values.all? { |lists| lists.length == count }
 
         (0...count).map do |step|
           Array.new(palettes.length) { |palette| (list = at.key(palette)) && each_list.fetch(list)[step] }
         end
       end
 
-      def palette_at!(list)
+      def palette_index!(list)
         colors = @builder.declared_colors(list)
         at = colors && palettes.index(colors)
         return at if at
 
         raise ArgumentError,
-              "#{subject} was told to draw :#{list} with other colors, but none of its tiles is drawn " \
+              "#{error_subject} was told to draw :#{list} with other colors, but none of its tiles is drawn " \
               "from :#{list}. Name a list its tiles were given with `image ..., colors: :name`" \
               "#{palette_names.empty? ? '' : " — #{palette_names.map { |n| ":#{n}" }.join(', ')}"}."
       end
 
-      def uneven_steps(named, showing)
+      def uneven_steps_message(named, showing)
         if showing.nil?
-          "#{subject} was told to draw_with #{named.inspect}. With no showing:, give each list one list " \
+          "#{error_subject} was told to draw_with #{named.inspect}. With no showing:, give each list one list " \
             "of colors by name, like draw_with({ sea: :sea_dusk })."
         else
-          "#{subject} was told to draw_with #{named.inspect}, showing: .... showing: picks the same step of " \
+          "#{error_subject} was told to draw_with #{named.inspect}, showing: .... showing: picks the same step of " \
             "every list, so give each list the same number of lists of colors, like " \
             "draw_with({ sea: [:sea0, :sea1], sky: [:sky0, :sky1] }, showing: step)."
         end
@@ -582,20 +582,20 @@ module RubyGBA
       # The question is answered by where the build point is rather than by reading the
       # author's line: nothing has been recorded since this background was declared, so
       # this call is still on that line.
-      def part_of_the_declaration?
+      def on_declaration_line?
         !@declaration_tail.nil? && @builder.last_statement.equal?(@declaration_tail)
       end
 
       # ...and a turn that WAS part of the declaration leaves the declaration open, so a
       # second one chained after it (`.scale(16.0).rotate(45)`) is part of it too.
-      def keep_declaring
+      def extend_declaration_tail
         @declaration_tail = @builder.last_statement
       end
 
       # The point is settled while the program is written, so it takes a number rather than
       # something the game works out. A pivot that MOVED would be its own effect and a real
       # one; refusing it here says so plainly instead of half-doing it.
-      def whole_pixel(value, axis)
+      def require_integer_pixel!(value, axis)
         return value if value.is_a?(Integer)
 
         raise ArgumentError,
@@ -607,7 +607,7 @@ module RubyGBA
       # A number written on the declaration line is what the background STARTS at, so it is
       # set once at power-on; the same number written anywhere else is a write this frame
       # makes, and stays where the author put it.
-      def write_turn(var, value, declaring)
+      def write_affine_var(var, value, declaring)
         return @builder.background_starts_at(var, value) if declaring
 
         record(Build.set(var, Build.int(value)))
@@ -629,9 +629,9 @@ module RubyGBA
       end
 
       # Write this frame's angle/scale to the display — recorded at the call site, like
-      # #apply for a scroll, and moved to the frame boundary at finalize (see
+      # #record_scroll_write for a scroll, and moved to the frame boundary at finalize (see
       # Builder#finalize_background_affine) so the console never shows a half-turned frame.
-      def apply_affine
+      def record_affine_write
         angle_var, scale_var = affine_vars
         node = record(Build.affine_background(@name, angle: Build.var_ref(angle_var), scale: Build.var_ref(scale_var)))
         @builder.record_inline_affine_node(node)
@@ -655,7 +655,7 @@ module RubyGBA
       # can then be computed anywhere in a frame, however long the frame's work runs,
       # and it can never tear. The node is still recorded here as well; the builder
       # drops these once it knows the program has a frame boundary to move them to.
-      def apply
+      def record_scroll_write
         node = record(Build.scroll_background(@name, x: Build.var_ref(@scroll_x), y: Build.var_ref(@scroll_y)))
         @builder.scroll_each_frame(@name, @scroll_x, @scroll_y, node)
         self

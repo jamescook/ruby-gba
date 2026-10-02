@@ -148,9 +148,9 @@ module RubyGBA
       def declared_pools = @declared_pools ||= []
 
       # A spriteful pool never told to draw with other colours takes back the writes its
-      # spawns made in case it was (see Pool#settle_colors).
+      # spawns made in case it was (see Pool#drop_unused_color_resets).
       def finalize_pool_colors
-        (@spriteful_pools || []).each(&:settle_colors)
+        (@spriteful_pools || []).each(&:drop_unused_color_resets)
       end
 
       # Which pool each instance routine belongs to.
@@ -456,7 +456,7 @@ module RubyGBA
       # back at nought. A save_data record's `reset` runs this for a pool it keeps, since
       # emptying a pool's lists the way a kept list is emptied would leave it with no slots.
       def pool_refill_nodes(pool)
-        lists, vars = pool.whole_state
+        lists, vars = pool.saved_lists_and_vars
         index = :"__pool_#{pool.name}_refill"
         ensure_var(index)
         emptied = lists.map do |list|
