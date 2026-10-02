@@ -39,7 +39,7 @@ class TestHardwareSpriteScale < Minitest::Test
         (f >= frames).then { halt }
       end
     end
-    builder.emit_pending_functions
+    builder.finalize_program
     builder.program
   end
 
@@ -98,7 +98,7 @@ class TestHardwareSpriteScale < Minitest::Test
         (f >= 12).then { halt }
       end
     end
-    builder.emit_pending_functions
+    builder.finalize_program
     interpreter = Reference.new.run(builder.program)
     # Ten steps of a tenth from 1.0 reaches 2.0 and `approach` holds it there.
     assert_in_delta 2.0, interpreter[:__obj1_scale] / 65_536.0, 0.01

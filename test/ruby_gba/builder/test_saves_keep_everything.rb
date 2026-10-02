@@ -14,7 +14,7 @@ class TestSavesKeepEverything < Minitest::Test
       image :guard, width: 8, height: 8, data: [1] * 64
       instance_eval(&block)
     end
-    builder.emit_pending_functions
+    builder.finalize_program
     builder.program
   end
 

@@ -19,7 +19,7 @@ module RubyGBA
       # conditions (DSL::Value, DSL::Condition) the saves hand back to a game — those build
       # program through it.
       Port = Data.define(:handle, :record, :repeat, :at_boot, :ensure_var, :declare_func, :run_each_pass,
-                         :start_value, :list_made, :save_var, :pool_refill)
+                         :start_value, :list_new_node, :save_var, :pool_refill)
 
       include SaveRecords
       include SavePlaces
@@ -41,7 +41,7 @@ module RubyGBA
       # Which record keeps each thing, by the name the game declared it with: a variable, a
       # list, a pool kept whole, and :random_numbers for the stream. A pool kept a field at a
       # time is not here, because a load of it leaves which slots are live as they were.
-      def which_record_keeps
+      def records_by_kept_name
         @save_data_keeping.each_with_object({}) do |(record, things), kept_by|
           things.each do |thing|
             name = case thing
@@ -67,7 +67,7 @@ module RubyGBA
       def start_value(name) = @port.start_value.call(name)
 
       # The node that made the list +name+.
-      def list_made(name) = @port.list_made.call(name)
+      def list_new_node(name) = @port.list_new_node.call(name)
 
       # Whether +name+ is a `save_var`, which saves itself.
       def save_var?(name) = @port.save_var.call(name)
@@ -130,8 +130,8 @@ module RubyGBA
         end
 
         state = declared_state
-        kept_by = @saves.which_record_keeps
-        left_out.each { |name| check_left_out!(name, state, kept_by) }
+        kept_by = @saves.records_by_kept_name
+        left_out.each { |name| refuse_bad_except_name!(name, state, kept_by) }
         missing = state.keys - kept_by.keys - left_out
         return if missing.empty?
 
@@ -142,19 +142,19 @@ module RubyGBA
                              "to except:."
       end
 
-      def check_left_out!(name, state, kept_by)
+      def refuse_bad_except_name!(name, state, kept_by)
         if (record = kept_by[name])
           raise ArgumentError, "saves_keep_everything leaves out :#{name}, but save_data :#{record} keeps it. " \
                                "To fix this, remove :#{name} from except:."
         end
         return if state.key?(name)
 
-        raise ArgumentError, "saves_keep_everything leaves out :#{name}, but #{never_needed(name)} " \
+        raise ArgumentError, "saves_keep_everything leaves out :#{name}, but #{except_name_reason(name)} " \
                              "To fix this, remove :#{name} from except:."
       end
 
       # Why a name left out is not one the check would ever ask for.
-      def never_needed(name)
+      def except_name_reason(name)
         if scratch?(name) then "a name that starts with _ is scratch, and is never needed."
         elsif persisted?(name) then ":#{name} is a `save_var`, which saves itself."
         elsif name == :random_numbers then "the game rolls no random numbers."
@@ -177,8 +177,8 @@ module RubyGBA
       def scratch?(name) = name.start_with?("_")
 
       # Lay the records out, now that every routine the game wrote is built (see
-      # SaveRecords#settle_save_data). Nothing to do for a game with no records.
-      def settle_save_data = @saves&.settle_save_data
+      # SaveRecords#lay_out_save_records). Nothing to do for a game with no records.
+      def lay_out_save_records = @saves&.lay_out_save_records
 
       # Put each peek's reading where the game wrote it, once the whole program is built.
       def resolve_save_data_peeks = @saves&.resolve_save_data_peeks(@program)
@@ -191,7 +191,7 @@ module RubyGBA
           start_value: ->(name) { @boot_inits.find { |node| node.kind == :set && node.var == name }&.value },
           # A list made where it is written is in the program; one the framework makes for
           # itself at power-on — a pool's columns — is still waiting among the power-on lines.
-          list_made: lambda do |name|
+          list_new_node: lambda do |name|
             made = ->(node) { node.kind == :list_new && node.name == name }
             @program.walk.find(&made) || @boot_inits.flat_map { |node| node.walk.to_a }.find(&made)
           end,

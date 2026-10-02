@@ -42,7 +42,7 @@ class TestFadeUnderLayer < Minitest::Test
       end
       game_loop { fade :black, amount, under: under }
     end
-    b.emit_pending_functions
+    b.finalize_program
     b
   end
 
@@ -153,7 +153,7 @@ class TestFadeUnderLayer < Minitest::Test
         whole.set! 1
       end
     end
-    b.emit_pending_functions
+    b.finalize_program
 
     rom = ROM.assemble(GBA.new.lower(b.program), title: "BOTH", code: "BFUB", maker: "01")
     lit = ->(v) { (8...48).flat_map { |x| (8...16).map { |y| v.pixel_gba(x, y) } }.max }
@@ -227,7 +227,7 @@ class TestFadeUnderLayer < Minitest::Test
       layer(:ui) { draw_text "A" * 70, 0, 8, :white }
       game_loop { fade :black, 100, under: :ui }
     end
-    b.emit_pending_functions
+    b.finalize_program
 
     error = assert_raises(RubyGBA::IR::Backends::GBA::LoweringError) { GBA.new.lower(b.program) }
 
@@ -252,7 +252,7 @@ class TestFadeUnderLayer < Minitest::Test
         started.set! 1
       end
     end
-    b.emit_pending_functions
+    b.finalize_program
     b
   end
 

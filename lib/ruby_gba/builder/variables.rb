@@ -205,7 +205,7 @@ module RubyGBA
       # @param step [Integer, Symbol, Value] the most it may move per call
       def approach!(name, target, step)
         # A step the author fixed has to be positive. One the game works out is read as a
-        # distance instead (see #approach_bounds), so there is nothing to check here.
+        # distance instead (see #emit_approach_bounds), so there is nothing to check here.
         fixed_step = DSL::Value.fixed_number(step)
         if fixed_step && !fixed_step.positive?
           raise ArgumentError, "approach's step must be positive. You gave #{fixed_step}."
@@ -219,7 +219,7 @@ module RubyGBA
         # applied — a branchless move that can't overshoot: when the target is
         # already within one step, the cap does nothing and it lands right on it.
         record(Build.set(delta, Build.binop(:-, DSL::Value.node_for(target), Build.var_ref(name))))
-        low, high = approach_bounds(step)
+        low, high = emit_approach_bounds(step)
         record(Build.clamp(delta, low, high))
         record(Build.add(name, Build.var_ref(delta)))
         mirror_save(name)
@@ -317,13 +317,13 @@ module RubyGBA
         held = @name_vars[name]
         return Build.int(held.number_for(value)) if held && value.is_a?(Symbol)
 
-        fraction_node_for(name, value)
+        number_node_noting_fraction!(name, value)
       end
 
       # The node to store in +name+, remembering whether that variable holds a
       # fraction. Writing a Float — `var :px, 3.5` — is how a program says it does; the
       # scale is then carried by every handle for that variable and never written again.
-      def fraction_node_for(name, value)
+      def number_node_noting_fraction!(name, value)
         bits = DSL::Fraction.bits_of(value)
         @fraction_vars[name] = bits if bits
         return Build.int(DSL::Fraction.scale(value, bits)) if value.is_a?(Float)
@@ -347,7 +347,7 @@ module RubyGBA
       # negative one would otherwise invert the range and drive the variable away from
       # its target for ever, which is silent and looks like a physics bug. Taking the
       # size of it means the step says how fast, and the target says which way.
-      def approach_bounds(step)
+      def emit_approach_bounds(step)
         fixed = DSL::Value.fixed_number(step)
         return [-fixed, fixed] if fixed
 

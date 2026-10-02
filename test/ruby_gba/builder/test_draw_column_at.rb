@@ -27,7 +27,7 @@ class TestDrawColumnAt < Minitest::Test
       image :bars, width: 2, height: 4, data: BARS
     end
     b.instance_eval(&block)
-    b.emit_pending_functions
+    b.finalize_program
     b.program
   end
 
@@ -317,7 +317,7 @@ class TestDrawColumnAtSeeThrough < Minitest::Test
         end
       end
     end
-    b.emit_pending_functions
+    b.finalize_program
     b.program
   end
 
@@ -368,7 +368,7 @@ class TestDrawColumnAtSeeThrough < Minitest::Test
         2.times { |slice| draw_column_at :tall, slice: slice, x: 20 + slice, top: -200, height: tall }
       end
     end
-    b.emit_pending_functions
+    b.finalize_program
     b.program
   end
 
@@ -440,7 +440,7 @@ class TestDrawColumnAtTearFree < Minitest::Test
         draw_column_at :bars, slice: 0, x: at, top: 100, height: 12, width: 3
       end
     end
-    b.emit_pending_functions
+    b.finalize_program
     b.program
   end
 
@@ -473,7 +473,7 @@ class TestDrawColumnAtTearFree < Minitest::Test
       image :bars, width: 2, height: 4, data: BARS
       game_loop { draw_column_at :bars, slice: 0, x: 10, top: 0, height: 8 }
     end
-    b.emit_pending_functions
+    b.finalize_program
 
     err = assert_raises(RubyGBA::IR::Palette::Missing) { GBA.new.lower(b.program) }
 

@@ -45,7 +45,7 @@ class TestCsvTilemap < Minitest::Test
   def checker_screen(text)
     b = checker_builder
     with_csv(text) { |path| b.background(:board, tiles: :checker, from: path) }
-    b.emit_pending_functions
+    b.finalize_program
     Reference.new.run(b.program).screen
   end
 
@@ -116,7 +116,7 @@ class TestCsvTilemap < Minitest::Test
       tiles :world, from: SHEET, tile: 8 # no characters: cell 0 -> tile 1, cell 1 -> tile 2
     end
     with_csv("1,2\n") { |path| b.background(:room, tiles: :world, from: path) }
-    b.emit_pending_functions
+    b.finalize_program
     s = Reference.new.run(b.program).screen
     assert_equal Assets::BRICK, s.pixel(0, 3), "CSV tile 1 is the sheet's first cell (brick)"
     assert_equal Assets::FLOOR, s.pixel(8, 3), "CSV tile 2 is the sheet's second cell (floor)"

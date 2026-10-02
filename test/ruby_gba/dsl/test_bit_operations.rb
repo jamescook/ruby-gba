@@ -316,7 +316,7 @@ class TestBitOperations < Minitest::Test
   def build_program(&block)
     builder = Builder.new
     builder.instance_eval(&block)
-    builder.emit_pending_functions
+    builder.finalize_program
     builder.program
   end
 

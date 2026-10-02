@@ -38,7 +38,7 @@ class TestHardwareSpriteRotation < Minitest::Test
         (f >= 2).then { halt }
       end
     end
-    builder.emit_pending_functions
+    builder.finalize_program
     builder.program
   end
 
@@ -99,7 +99,7 @@ class TestHardwareSpriteRotation < Minitest::Test
           (f >= 5).then { halt }
         end
       end
-      builder.emit_pending_functions
+      builder.finalize_program
       builder.program
     end
     i = Reference.new.run(prog)
@@ -169,7 +169,7 @@ class TestHardwareSpriteRotation < Minitest::Test
         (f >= 2).then { halt }
       end
     end
-    builder.emit_pending_functions
+    builder.finalize_program
     builder.program
   end
 
@@ -187,7 +187,7 @@ class TestHardwareSpriteRotation < Minitest::Test
         sprite(:"s#{k}", at: [0, 0]).turn(1)
       end
     end
-    builder.emit_pending_functions
+    builder.finalize_program
     err = assert_raises(GBA::LoweringError) { GBA.new.lower(builder.program) }
     assert_match(/at most 32/, err.message)
   end

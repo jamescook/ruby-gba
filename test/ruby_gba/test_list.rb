@@ -16,7 +16,7 @@ class TestList < Minitest::Test
   def interpret(&block)
     builder = Builder.new
     builder.instance_eval(&block)
-    builder.emit_pending_functions
+    builder.finalize_program
     Reference.new.run(builder.program)
   end
 
@@ -429,7 +429,7 @@ class TestList < Minitest::Test
         list :room, capacity: 256, width: width
         halt
       end
-      builder.emit_pending_functions
+      builder.finalize_program
       backend = GBA.new
       backend.lower(builder.program)
       [width, backend.iwram_report.used_bytes]

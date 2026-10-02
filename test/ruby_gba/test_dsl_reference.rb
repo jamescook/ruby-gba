@@ -14,7 +14,7 @@ class TestDslReference < Minitest::Test
   CONCERNS = RubyGBA::Builder.included_modules.select { |m| m.name&.start_with?("RubyGBA::Builder::") }
 
   # …plus these verbs defined on Builder itself (the rest of its public methods are
-  # framework: program, emit_pending_functions, record_*, the Condition bookkeeping).
+  # framework: program, finalize_program, record_*, the Condition bookkeeping).
   BUILDER_VERBS = %i[list entry].freeze
 
   # Public concern methods that are introspection/debug, not verbs to look up — the
@@ -47,7 +47,7 @@ class TestDslReference < Minitest::Test
   SKIP = %i[variables var_address debug_halted? make_object_rotatable make_object_scalable
             record_row_bend make_background_affine screen_pages keep_showing_pictures
             tile_collision_routine play_from_list play_sound_effect
-            declare_instance_routine note_pool_walk pool_walk_scratch_var
+            declare_instance_routine record_walk_instance_writes pool_walk_scratch_var
             colors_to_draw_with make_object_recolorable make_pool_recolorable
             lists_drawn_from list_drawn_from declared_colors name_of_colors pool_refill_nodes].freeze
 

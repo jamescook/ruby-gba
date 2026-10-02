@@ -9,7 +9,7 @@ class TestReadingCollections < Minitest::Test
   private def ran(frames: 3, &block)
     builder = Builder.new
     builder.instance_eval(&block)
-    builder.emit_pending_functions
+    builder.finalize_program
     Reference.new.run(builder.program, frames: frames)
   end
 

@@ -37,7 +37,7 @@ class TestPoolFieldMutation < Minitest::Test
       end
       halt
     end
-    b.emit_pending_functions
+    b.finalize_program
     i = Reference.new.run(b.program)
     [i[:changed], i[:untouched]]
   end
@@ -126,7 +126,7 @@ class TestPoolFieldMutation < Minitest::Test
       end
       halt
     end
-    b.emit_pending_functions
+    b.finalize_program
     i = Reference.new.run(b.program)
 
     assert_equal [10, 20, 30], [i[:first], i[:second], i[:third]]
@@ -162,7 +162,7 @@ class TestPoolFieldMutation < Minitest::Test
       end
       halt
     end
-    b.emit_pending_functions
+    b.finalize_program
     b.program
   end
 end

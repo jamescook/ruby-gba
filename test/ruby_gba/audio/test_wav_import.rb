@@ -100,7 +100,7 @@ class TestWavImport < Minitest::Test
         sound.play
         game_loop { wait_vblank }
       end
-      b.emit_pending_functions
+      b.finalize_program
       rom = ROM.assemble(GBA.new.lower(b.program), title: "WAV0", code: "BWAV", maker: "01")
       v = assert_emulator_loads_rom(rom, frames: 6)
       assert v.sound?, "a WAV-loaded sample should play real audio (energy #{v.audio_energy})"

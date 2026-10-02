@@ -30,7 +30,7 @@ class TestInterpreterBudget < Minitest::Test
         fill_rect 0, 0, 8, 8, :green               # the "frame complete" marker, drawn last
       end
     end
-    b.emit_pending_functions
+    b.finalize_program
     b.program
   end
 
@@ -74,7 +74,7 @@ class TestInterpreterBudget < Minitest::Test
         add! :n, 1
       end
     end
-    b.emit_pending_functions
+    b.finalize_program
     b.program
   end
 

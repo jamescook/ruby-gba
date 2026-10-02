@@ -56,7 +56,7 @@ module RubyGBA
       # knows the record's name, its copies and its variables, which is all a save, a load or a
       # state test names where it is written. Where each kept thing sits, how big a copy is and
       # whether the records fit are worked out once the whole program is declared
-      # (#settle_save_data), and every routine that reads them is built then.
+      # (#lay_out_save_records), and every routine that reads them is built then.
       def declare(name, copies:, when_busy:, &block)
         name = name.to_sym
         check_save_data_name!(name, copies)
@@ -83,7 +83,7 @@ module RubyGBA
         things.each do |thing|
           next @save_data_keeping.fetch(name) << keep_pool_part(name, thing) if pool_part?(thing)
 
-          @save_data_keeping.fetch(name) << save_data_item(name, thing)
+          @save_data_keeping.fetch(name) << claim_kept_item!(name, thing)
         end
       end
 
@@ -116,7 +116,7 @@ module RubyGBA
       end
 
       def kept_list(name)
-        made = list_made(name)
+        made = list_new_node(name)
         Kept.new(kind: :list, name: name, at: 0, width: made.width || :word, count: made.capacity)
       end
 
@@ -125,11 +125,11 @@ module RubyGBA
       # reads or writes them — the table of places, the job queue, each record's own. The
       # Builder calls this after building every routine the game wrote, which is the last
       # place a `keep` can come from, and builds the routines declared here after it.
-      def settle_save_data
+      def lay_out_save_records
         return if @save_data.empty? || @save_data_settled
 
         @save_data_settled = true
-        @save_data.transform_values! { |layout| settled_layout(layout) }
+        @save_data.transform_values! { |layout| layout_with_kept(layout) }
         check_save_data_room!
         declare_save_places
         declare_save_job_routines
@@ -228,7 +228,7 @@ module RubyGBA
 
       # +layout+ with what it keeps laid out — or a friendly error for a record that keeps
       # nothing, which would save an empty copy and load nothing back.
-      def settled_layout(layout)
+      def layout_with_kept(layout)
         keeping = @save_data_keeping.fetch(layout.name)
         pools = keeping.select { |one| pool_part?(one) }
         kept = keeping.flat_map { |one| pool_part?(one) ? pool_items(one) : [one] }
@@ -245,16 +245,16 @@ module RubyGBA
       # One record's lists, buffer, power-on scans and routines, once it is laid out.
       def declare_save_data_record(layout)
         declare_save_data_lists(layout)
-        declare_save_job_state(layout)
+        declare_save_snapshot_buffer(layout)
         layout.copies.times do |copy|
           at_boot(Build.set(layout.scratch(:copy), Build.int(copy)))
           at_boot(Build.call(layout.routine(:scan)))
         end
         declare_save_data_routines(layout, %i[scan load reset])
         { save: SaveJobs::SAVE, erase: SaveJobs::ERASE, copy: SaveJobs::COPY }.each do |job, kind|
-          declare_func(layout.routine(job)) { save_job_ask(layout, kind) }
+          declare_func(layout.routine(job)) { save_job_request(layout, kind) }
         end
-        declare_func(layout.routine(:step)) { save_job_step(layout) }
+        declare_func(layout.routine(:step)) { save_job_run_phase(layout) }
       end
 
       # The variables a record's routines work in, and the one its place in save memory is
@@ -357,7 +357,7 @@ module RubyGBA
       # only at power-on, before the game has anything to show, so it is written whole.
       def save_data_save(layout)
         save_data_write(layout, IR::SaveLayout::SAVED) do |body|
-          layout.kept.each { |item| save_data_put(item, body) }
+          layout.kept.each { |item| emit_write_kept_item(item, body) }
         end
       end
 
@@ -395,15 +395,15 @@ module RubyGBA
         sd_when(sd_in_range(layout, copy)) do
           record(Build.set(layout.scratch(:at), half_to_write(layout, copy)))
           here = sd_var(layout.scratch(:at))
-          open_half(layout, here)
+          emit_half_header(layout, here)
           yield sd_add(here, sd_int(IR::SaveLayout::HEADER))
-          close_half(layout, here, copy, kind)
+          emit_half_commit(layout, here, copy, kind)
         end
       end
 
       # One kept thing into the body: a variable as a word; a list as its length and then its
       # items, at the width the list keeps them.
-      def save_data_put(item, body)
+      def emit_write_kept_item(item, body)
         return record(Build.save_write(item.value_at(body), sd_var(item.name))) if item.kind == :var
 
         record(Build.save_write(item.value_at(body), Build.list_len(item.name)))
@@ -421,12 +421,12 @@ module RubyGBA
           sd_when(good) do
             record(Build.set(layout.scratch(:at), sd_half_at(layout, copy, sd_directory(layout, :half, copy))))
             body = sd_add(sd_var(layout.scratch(:at)), sd_int(IR::SaveLayout::HEADER))
-            layout.kept.each { |item| save_data_take(item, body) }
+            layout.kept.each { |item| emit_read_kept_item(item, body) }
           end
         end
       end
 
-      def save_data_take(item, body)
+      def emit_read_kept_item(item, body)
         return record(Build.set(item.name, sd_read(item.value_at(body)))) if item.kind == :var
 
         repeat(DSL::Value.new(handle, Build.list_len(item.name))) { |_| record(Build.list_drop(item.name, from: :back)) }
@@ -440,8 +440,8 @@ module RubyGBA
 
       # What one thing named in `keep` is, checked: a variable or a list the game declared,
       # kept by no other record, and not a `save_var`, which saves itself as it changes.
-      def save_data_item(record, thing)
-        item = save_data_item_of(record, thing)
+      def claim_kept_item!(record, thing)
+        item = kept_item_for(record, thing)
         if (owner = @save_data_kept[item.name])
           them = random_numbers?(item.name) ? "them" : "it"
           raise ArgumentError, "save_data :#{record} keeps #{kept_words(item.name)}, and save_data :#{owner} " \
@@ -457,24 +457,24 @@ module RubyGBA
         item
       end
 
-      def save_data_item_of(record, thing)
+      def kept_item_for(record, thing)
         case thing
         when DSL::RandomNumbers
           Kept.new(kind: :var, name: thing.name, at: 0, width: :word, count: 1)
         when DSL::List
-          made = list_made(thing.name)
+          made = list_new_node(thing.name)
           Kept.new(kind: :list, name: thing.name, at: 0, width: made.width || :word,
                    count: made.capacity)
         when DSL::Value
           return Kept.new(kind: :var, name: thing.name, at: 0, width: :word, count: 1) if thing.name
 
-          save_data_not_state!(record, "a number worked out from other things")
+          refuse_non_state_keep!(record, "a number worked out from other things")
         else
-          save_data_not_state!(record, thing.inspect)
+          refuse_non_state_keep!(record, thing.inspect)
         end
       end
 
-      def save_data_not_state!(record, what)
+      def refuse_non_state_keep!(record, what)
         raise ArgumentError, "save_data :#{record} was asked to keep #{what}. A record keeps the game's " \
                              "own state: the handles `var` and `list` give you. To fix this, pass one of those."
       end
@@ -484,26 +484,26 @@ module RubyGBA
       # Run one of a record's routines for copy +copy+ (a node). A save, an erase or a copy only
       # asks for a job (see SaveJobs); a load reads save memory, so the record's jobs are
       # finished first.
-      def run_save_data(layout, job, copy)
+      def emit_save_data_call(layout, job, copy)
         finish_save_jobs_of(layout) if job == :load
         record(Build.set(layout.scratch(:copy), copy))
         record(Build.call(layout.routine(job)))
       end
 
-      def run_save_data_copy(layout, from, to)
+      def emit_save_data_copy_call(layout, from, to)
         record(Build.set(layout.scratch(:from), from))
-        run_save_data(layout, :copy, to)
+        emit_save_data_call(layout, :copy, to)
       end
 
       # What copy +copy+ is, as a number counting into IR::SaveLayout::STATES; a copy the record
       # does not have reads as empty. It is read from save memory, so the record's jobs are
       # finished first, just before the line that asks.
-      def save_data_state(layout, copy)
+      def save_data_state_after_jobs(layout, copy)
         finish_save_jobs_of(layout)
-        save_data_state_now(layout, copy)
+        save_data_state_node(layout, copy)
       end
 
-      def save_data_state_now(layout, copy)
+      def save_data_state_node(layout, copy)
         within = sd_in_range(layout, copy)
         index = Build.clamped(copy, sd_int(0), sd_int(layout.copies - 1))
         Build.binop(:*, within, sd_directory(layout, :state, index))
@@ -520,7 +520,7 @@ module RubyGBA
       # item of a list, :length for how many a list holds.
       PeekSite = Data.define(:record, :name, :copy, :shape, :index)
 
-      def save_data_peek_site(layout, copy, name, shape, index: nil)
+      def peek_stand_in(layout, copy, name, shape, index: nil)
         finish_save_jobs_of(layout)
         stand_in = Messages::MadeNames.make(:save_record, record: layout.name, piece: :"peek#{@save_data_peeks.size}")
         @save_data_peeks[stand_in] = PeekSite.new(record: layout.name, name: name, copy: copy, shape: shape,
@@ -536,17 +536,17 @@ module RubyGBA
       def resolve_save_data_peeks(program)
         return if @save_data_peeks.empty?
 
-        @save_data_peeks.each_value { |site| save_data_kept(@save_data.fetch(site.record), site.name) }
+        @save_data_peeks.each_value { |site| kept_item!(@save_data.fetch(site.record), site.name) }
         holders = program.walk.select { |node| node.attrs.each_value.any? { |value| holds_peek?(value) } }
         holders.each do |node|
           node.attrs.each do |field, value|
-            node.public_send(:"#{field}=", with_peeks(value)) if holds_peek?(value)
+            node.public_send(:"#{field}=", replace_peek_stand_ins(value)) if holds_peek?(value)
           end
         end
       end
 
       # The thing a record keeps under +name+, or a friendly error saying what it does keep.
-      def save_data_kept(layout, name)
+      def kept_item!(layout, name)
         item = layout.kept.find { |one| one.name == name }
         return item if item
 
@@ -574,9 +574,9 @@ module RubyGBA
         end
       end
 
-      def with_peeks(value)
+      def replace_peek_stand_ins(value)
         case value
-        when Array then value.map { |element| with_peeks(element) }
+        when Array then value.map { |element| replace_peek_stand_ins(element) }
         when IR::Node then holds_peek?(value) ? peek_reading(@save_data_peeks.fetch(value.name)) : value
         else value
         end
@@ -586,7 +586,7 @@ module RubyGBA
       # node belongs to one place in the tree.
       def peek_reading(site)
         layout = @save_data.fetch(site.record)
-        item = save_data_kept(layout, site.name)
+        item = kept_item!(layout, site.name)
         check_peek_shape!(layout, item, site.shape)
         save_data_peek(layout, site.copy.copy, item, index: site.index&.copy, length: site.shape == :length)
       end
@@ -609,7 +609,7 @@ module RubyGBA
       # item past the list's end.
       def save_data_peek(layout, copy, item, index: nil, length: false)
         which = Build.clamped(copy, sd_int(0), sd_int(layout.copies - 1))
-        good = sd_eq(save_data_state_now(layout, copy), sd_int(IR::SaveLayout::STATES.index(:good)))
+        good = sd_eq(save_data_state_node(layout, copy), sd_int(IR::SaveLayout::STATES.index(:good)))
         body = sd_add(sd_half_at(layout, which, sd_directory(layout, :half, which)), sd_int(IR::SaveLayout::HEADER))
         return Build.binop(:*, good, sd_read(item.value_at(body))) if item.kind == :var || length
 
@@ -629,11 +629,11 @@ module RubyGBA
 
       # Whether one of this record's jobs is still in hand — running, or waiting its turn.
       def save_data_saving(layout)
-        mine = ->(which) { sd_eq(jv(:"#{which}_rec"), sd_int(layout.number)) }
+        mine = ->(which) { sd_eq(job_var(:"#{which}_rec"), sd_int(layout.number)) }
         Build.binop(:|, mine.call(:run), mine.call(:wait))
       end
 
-      private :save_data_item_of, :save_data_not_state!, :save_data_state_now
+      private :kept_item_for, :refuse_non_state_keep!, :save_data_state_node
     end
 
     # What `keep` inside a `save_data` block means: the same as the handle's own `keep`.

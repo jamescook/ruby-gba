@@ -47,7 +47,7 @@ class TestScores < Minitest::Test
         instance_exec(music, pass, &body)
       end
     end
-    b.emit_pending_functions
+    b.finalize_program
     b.program
   end
 

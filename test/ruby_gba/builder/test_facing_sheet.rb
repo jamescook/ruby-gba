@@ -78,7 +78,7 @@ class TestFacingSheet < Minitest::Test
           (f >= run).then { halt }
         end
       end
-      builder.emit_pending_functions
+      builder.finalize_program
     end
     builder.program
   end
@@ -142,7 +142,7 @@ class TestFacingSheet < Minitest::Test
         hero.face :right
         game_loop { hero.draw_with :hurt }
       end
-      builder.emit_pending_functions
+      builder.finalize_program
     end
     builder.program
   end

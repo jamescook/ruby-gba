@@ -28,7 +28,7 @@ class TestDrawNumberBuffered < Minitest::Test
         draw_number 42,     41, 40, :white, digits: 4 # fixed -> per-pixel buffered text
       end
     end
-    b.emit_pending_functions
+    b.finalize_program
     b.program
   end
 

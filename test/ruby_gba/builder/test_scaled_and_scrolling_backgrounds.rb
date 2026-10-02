@@ -49,7 +49,7 @@ class TestScaledAndScrollingBackgrounds < Minitest::Test
       background(:sword, tiles: :t_sword, map: sword).scale(scale)
       halt
     end
-    b.emit_pending_functions
+    b.finalize_program
     b.program
   end
 
@@ -90,7 +90,7 @@ class TestScaledAndScrollingBackgrounds < Minitest::Test
         moving.scroll_by 8, 0 # one whole cell a frame, left
       end
     end
-    b.emit_pending_functions
+    b.finalize_program
     # The scroll is applied at the frame boundary, so the moved picture is the SECOND
     # frame's — the same one frame of lag a scroll has with no resizing layer present.
     s = Reference.new.run(b.program, frames: 2).screen
@@ -122,7 +122,7 @@ class TestScaledAndScrollingBackgrounds < Minitest::Test
         rooms.set_tile 0, 0, "R"
       end
     end
-    b.emit_pending_functions
+    b.finalize_program
     s = Reference.new.run(b.program, frames: 3).screen
     assert_equal Color.resolve(:green), s.pixel(44, 44), "show_map handed the plain layer the other room"
     assert_equal Color.resolve(:red),   s.pixel(4, 4),   "...and set_tile put one of its cells back"
@@ -149,7 +149,7 @@ class TestScaledAndScrollingBackgrounds < Minitest::Test
       layer(:front) { background(:spin, tiles: :t_blue, map: square).scale(1.0) }
       halt
     end
-    b.emit_pending_functions
+    b.finalize_program
     got = Reference.new.run(b.program).screen.pixel(100, 100)
     refute_equal Color.resolve(:red),  got, "the see-through layer is not drawn solid"
     refute_equal Color.resolve(:blue), got, "...nor is the layer behind it left uncovered"
@@ -175,7 +175,7 @@ class TestScaledAndScrollingBackgrounds < Minitest::Test
       layer(:water, transparency: 50) { background :top, tiles: :t_red, map: full }
       halt
     end
-    b.emit_pending_functions
+    b.finalize_program
     Reference.new.run(b.program).screen.pixel(100, 100)
   end
 
@@ -217,7 +217,7 @@ class TestScaledAndScrollingBackgrounds < Minitest::Test
       background(:spin, tiles: :t, map: square).scale(1.0)
       halt
     end
-    b.emit_pending_functions
+    b.finalize_program
     err = assert_raises(RubyGBA::IR::Backends::GBA::LoweringError) { assemble_rom(b.program, name: "TOOMANY") }
     assert_match(/shows 3 scrolling backgrounds at one time/, err.message, "it says how many are on screen at once")
     assert_match(/shows 2 scrolling backgrounds at one time/, err.message, "...and how many fit beside a resizing one")
@@ -254,7 +254,7 @@ class TestScaledAndScrollingBackgrounds < Minitest::Test
         end
       end
     end
-    b.emit_pending_functions
+    b.finalize_program
     assemble_rom(b.program, name: "TURNTITL") # it builds; before it counted the four together
   end
 
@@ -314,7 +314,7 @@ class TestScaledAndScrollingBackgrounds < Minitest::Test
       layer(:over)  { background :flat, tiles: :t_flat, map: full }
       halt
     end
-    b.emit_pending_functions
+    b.finalize_program
     assert_equal Color.resolve(:red), Reference.new.run(b.program).screen.pixel(100, 100),
                  "the scrolling layer in front covers the resizing one behind it"
   end
@@ -332,7 +332,7 @@ class TestScaledAndScrollingBackgrounds < Minitest::Test
       background(:b, tiles: :t, map: square).scale(1.0)
       halt
     end
-    b.emit_pending_functions
+    b.finalize_program
     err = assert_raises(RubyGBA::IR::Backends::GBA::LoweringError) { assemble_rom(b.program, name: "TWOSPIN") }
     assert_match(/turns or resizes 2 backgrounds/, err.message, "it says how many were declared")
     assert_match(/can turn 1 background/, err.message, "...and how many the console turns")
@@ -376,7 +376,7 @@ class TestScaledAndScrollingBackgrounds < Minitest::Test
       background :rays, tiles: :t, map: full
       halt
     end
-    b.emit_pending_functions
+    b.finalize_program
     b.program
   end
 end

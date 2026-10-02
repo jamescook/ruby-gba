@@ -26,7 +26,7 @@ class TestStillObjects < Minitest::Test
   private def built(&block)
     builder = Builder.new
     builder.instance_eval(&block)
-    builder.emit_pending_functions
+    builder.finalize_program
     builder.program
   end
 

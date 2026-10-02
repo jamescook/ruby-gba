@@ -69,7 +69,7 @@ class TestSpritePieces < Minitest::Test
       sprite :big, at: at, frames: names, rate: rate
       game_loop {}
     end
-    b.emit_pending_functions
+    b.finalize_program
     b.program
   end
 
@@ -83,7 +83,7 @@ class TestSpritePieces < Minitest::Test
       sprite :big, at: at
       game_loop {}
     end
-    b.emit_pending_functions
+    b.finalize_program
     b.program
   end
 
@@ -142,7 +142,7 @@ class TestSpritePieces < Minitest::Test
         end
       end
     end
-    b.emit_pending_functions
+    b.finalize_program
 
     assert_backends_agree(b.program, frames: 8, name: "BIGMOVE")
   end
@@ -187,7 +187,7 @@ class TestSpritePieces < Minitest::Test
       hero = sprite :big, at: [40, 20], facing: { right: :big_right, left: mirror(:big_right) }
       game_loop { hero.face look }
     end
-    b.emit_pending_functions
+    b.finalize_program
     b
   end
 
@@ -224,7 +224,7 @@ class TestSpritePieces < Minitest::Test
       sprite :dot, at: [80, 60] # declared later, so in front of the whole big one
       game_loop {}
     end
-    b.emit_pending_functions
+    b.finalize_program
 
     assert_backends_agree(b.program, frames: 4, name: "BIGSTACK")
   end
@@ -247,7 +247,7 @@ class TestSpritePieces < Minitest::Test
       flag = sprite :flag, at: [8, 140], shown: false
       game_loop { hero.overlaps?(pip).then { flag.show } }
     end
-    b.emit_pending_functions
+    b.finalize_program
     b.program
   end
 
@@ -290,7 +290,7 @@ class TestSpritePieces < Minitest::Test
       layer(:ui) { sprite :big, at: [40, 20] }
       game_loop { fade :black, 100, under: :ui }
     end
-    b.emit_pending_functions
+    b.finalize_program
 
     assert_backends_agree(b.program, frames: 6, name: "BIGFADE", blended: true)
   end
@@ -309,7 +309,7 @@ class TestSpritePieces < Minitest::Test
       layer(:ui) { sprite :big, at: [40, 20] }
       game_loop { fade :black, 100, under: :ui }
     end
-    b.emit_pending_functions
+    b.finalize_program
     objects = record(b.program).video_memory.objects
 
     big = objects.big.find { |name, _| name == :big }.last
@@ -355,7 +355,7 @@ class TestSpritePieces < Minitest::Test
       hero = sprite :odd, at: [60, 60], facing: { right: :odd_right, left: mirror(:odd_right) }
       game_loop { hero.face :left }
     end
-    b.emit_pending_functions
+    b.finalize_program
 
     assert_backends_agree(b.program, frames: 6, name: "ODDMIRROR")
   end
@@ -398,7 +398,7 @@ class TestSpritePieces < Minitest::Test
       boss = sprite :big, at: [40, 20]
       game_loop { boss.turn 3 }
     end
-    b.emit_pending_functions
+    b.finalize_program
     err = assert_raises(GBA::LoweringError) { GBA.new.lower(b.program) }
 
     assert_match(/:big is 96x96/, err.message)
@@ -414,7 +414,7 @@ class TestSpritePieces < Minitest::Test
       image :huge, width: 320, height: 64, data: art, transparent: clear
       sprite :huge, at: [0, 0]
     end
-    b.emit_pending_functions
+    b.finalize_program
     err = assert_raises(GBA::LoweringError) { GBA.new.lower(b.program) }
 
     assert_match(/256 pixels each way at most/, err.message)
@@ -432,7 +432,7 @@ class TestSpritePieces < Minitest::Test
       image :big, width: 96, height: 96, data: art, transparent: clear
       20.times { |k| sprite :"boss#{k}", at: [k * 4, 10], facing: { right: :big } }
     end
-    b.emit_pending_functions
+    b.finalize_program
     err = assert_raises(GBA::LoweringError) { GBA.new.lower(b.program) }
 
     assert_match(/draws 128 at most/, err.message)

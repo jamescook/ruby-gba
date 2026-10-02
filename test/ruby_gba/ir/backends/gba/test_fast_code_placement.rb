@@ -38,7 +38,7 @@ class TestFastCodePlacement < Minitest::Test
         (f >= halt_after).then { halt } if halt_after
       end
     end
-    builder.emit_pending_functions
+    builder.finalize_program
     builder.program
   end
 
@@ -248,7 +248,7 @@ class TestFastCodePlacement < Minitest::Test
         end
       end
     end
-    builder.emit_pending_functions
+    builder.finalize_program
     builder.program
   end
 
@@ -310,7 +310,7 @@ class TestFastCodePlacement < Minitest::Test
       end
       game_loop { }
     end
-    b.emit_pending_functions
+    b.finalize_program
     b.program
   end
 
@@ -345,7 +345,7 @@ class TestFastCodePlacement < Minitest::Test
       timer(:beat, per_second: per_second).on_tick { n.add! 1 }
       game_loop { fill_rect 0, 0, 40, 8, :green }
     end
-    b.emit_pending_functions
+    b.finalize_program
     b.program
   end
 
@@ -473,7 +473,7 @@ class TestFastCodePlacement < Minitest::Test
         end
       end
     end
-    builder.emit_pending_functions
+    builder.finalize_program
     builder.program
   end
 
@@ -511,7 +511,7 @@ class TestFastCodePlacement < Minitest::Test
       func(:work, fast: true) { 400.times { big.add! 1 } }
       game_loop { wait_vblank; call :work }
     end
-    builder.emit_pending_functions
+    builder.finalize_program
 
     err = assert_raises(GBA::LoweringError) { GBA.new.lower(builder.program) }
     assert_match(/fast: true/, err.message)

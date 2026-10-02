@@ -18,7 +18,7 @@ module RubyGBA
                 "colors: goes with frames_from:, facing_from: or from_aseprite:. To give pictures " \
                 "you declared a list of colors, write it on each: `image ..., colors: [...]`."
         end
-        colors.is_a?(Symbol) ? declared_list(name, colors) : colors
+        colors.is_a?(Symbol) ? declared_colors_for_image!(name, colors) : colors
       end
 
       # Import a sprite sheet into animation frames: slice the file into cells of the

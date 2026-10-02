@@ -34,7 +34,7 @@ class TestLayerGuardrails < Minitest::Test
     b.image(:red_guy, "#" => :red) { (["#" * 8] * 8).join("\n") }
     b.image(:blue_guy, "#" => :blue) { (["#" * 8] * 8).join("\n") }
     b.instance_eval(&block)
-    b.emit_pending_functions
+    b.finalize_program
     [b.program, b.sprites]
   end
 

@@ -40,7 +40,7 @@ class TestPerSceneMode < Minitest::Test
         end
       end
     end
-    b.emit_pending_functions
+    b.finalize_program
     b.program
   end
 
@@ -119,7 +119,7 @@ class TestPerSceneMode < Minitest::Test
         end
       end
     end
-    b.emit_pending_functions
+    b.finalize_program
     prog = b.program
 
     err = assert_raises(GBA::LoweringError) { GBA.new.lower(prog) }
@@ -152,7 +152,7 @@ class TestPerSceneMode < Minitest::Test
       scene(:a) { }
       game_loop { wait_vblank; case_var(:state) { when_val 0, :a } }
     end
-    b.emit_pending_functions
+    b.finalize_program
     modes = RubyGBA::IR::Modes.resolve(b.program)
 
     refute_includes modes.scene_funcs, :tick,
@@ -193,7 +193,7 @@ class TestPerSceneMode < Minitest::Test
         case_var(:state) { when_val 0, :title; when_val 1, :playing }
       end
     end
-    b.emit_pending_functions
+    b.finalize_program
     prog = b.program
 
     rom = RubyGBA::Cartridge::ROM.assemble(GBA.new.lower(prog), title: "AFMD", code: "BAFM", maker: "01")
@@ -227,7 +227,7 @@ class TestPerSceneMode < Minitest::Test
         case_var(:state) { when_val 0, :title; when_val 1, :spin }
       end
     end
-    b.emit_pending_functions
+    b.finalize_program
     b.program
   end
 
@@ -273,7 +273,7 @@ class TestPerSceneMode < Minitest::Test
       end
       game_loop { wait_vblank; case_var(:state) { when_val 0, :title } }
     end
-    b.emit_pending_functions
+    b.finalize_program
     rom = RubyGBA::Cartridge::ROM.assemble(GBA.new.lower(b.program), title: "ZOOM", code: "BZOM", maker: "01")
 
     early = assert_emulator_loads_rom(rom, frames: 3)

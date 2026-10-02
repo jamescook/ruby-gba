@@ -62,7 +62,7 @@ class TestSpriteTileSharing < Minitest::Test
       sprite :hero, at: [40, 30], frames: names, rate: rate
       game_loop {}
     end
-    b.emit_pending_functions
+    b.finalize_program
     b.program
   end
 
@@ -246,7 +246,7 @@ class TestSpriteTileSharing < Minitest::Test
       sprite :hero, at: [40, 30], rate: 4, frames: [:p0, :p1, mirror(:p0), :p1].flatten
       game_loop {}
     end
-    b.emit_pending_functions
+    b.finalize_program
     b.program
   end
 

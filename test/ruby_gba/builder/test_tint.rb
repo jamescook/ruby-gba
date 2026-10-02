@@ -20,7 +20,7 @@ class TestTint < Minitest::Test
       tint color, amount
       halt
     end
-    b.emit_pending_functions
+    b.finalize_program
     b.program
   end
 
@@ -65,7 +65,7 @@ class TestTint < Minitest::Test
       tint :red, 0
       halt
     end
-    b.emit_pending_functions
+    b.finalize_program
 
     assert_equal GREEN, shown(b.program)
   end
@@ -82,7 +82,7 @@ class TestTint < Minitest::Test
       tint :red, level
       halt
     end
-    b.emit_pending_functions
+    b.finalize_program
 
     assert_equal 0x01EF, shown(b.program)
   end
@@ -120,7 +120,7 @@ class TestTint < Minitest::Test
         tint :red, level
       end
     end
-    b.emit_pending_functions
+    b.finalize_program
     program = b.program
 
     oracle = Reference.new.run(program, frames: 2).screen.pixel(120, 80)
@@ -145,7 +145,7 @@ class TestTint < Minitest::Test
       tint :red, 100
       halt
     end
-    b.emit_pending_functions
+    b.finalize_program
 
     assert_equal RED, shown(b.program)
   end
@@ -159,7 +159,7 @@ class TestTint < Minitest::Test
       fade :black, 100
       halt
     end
-    b.emit_pending_functions
+    b.finalize_program
 
     assert_equal 0x0000, shown(b.program)
   end
@@ -183,7 +183,7 @@ class TestTint < Minitest::Test
         tint color, amount
       end
     end
-    b.emit_pending_functions
+    b.finalize_program
     b.program
   end
 
@@ -222,7 +222,7 @@ class TestTint < Minitest::Test
         tint :red, level
       end
     end
-    b.emit_pending_functions
+    b.finalize_program
     b.program
   end
 
@@ -283,7 +283,7 @@ class TestTint < Minitest::Test
         level.set! 0
       end
     end
-    b.emit_pending_functions
+    b.finalize_program
     program = b.program
 
     console = assert_emulator_loads_rom(assemble_rom(program, name: "TINTU"), frames: 8)
@@ -304,7 +304,7 @@ class TestTint < Minitest::Test
         tint :red, level
       end
     end
-    b.emit_pending_functions
+    b.finalize_program
     program = b.program
 
     oracle = Reference.new.run(program, frames: 2).screen.pixel(120, 80)
@@ -328,7 +328,7 @@ class TestTint < Minitest::Test
         fade :white, 0
       end
     end
-    b.emit_pending_functions
+    b.finalize_program
     program = b.program
 
     console = assert_emulator_loads_rom(assemble_rom(program, name: "TINTF"), frames: 8)
@@ -370,7 +370,7 @@ class TestTint < Minitest::Test
         end
       end
     end
-    b.emit_pending_functions
+    b.finalize_program
     b.program
   end
 
@@ -411,7 +411,7 @@ class TestTint < Minitest::Test
         tint :red, level if tinting
       end
     end
-    b.emit_pending_functions
+    b.finalize_program
     b.program
   end
 
@@ -495,7 +495,7 @@ class TestTint < Minitest::Test
       tint :red, 0
       halt
     end
-    b.emit_pending_functions
+    b.finalize_program
 
     refute_includes warnings(b.program), :tint_never_lifted
   end
@@ -514,7 +514,7 @@ class TestTint < Minitest::Test
       level = var :level, 0
       game_loop { level.approach! 100, 4; tint :red, level }
     end
-    b.emit_pending_functions
+    b.finalize_program
 
     refute_includes warnings(b.program), :tint_never_lifted
   end
@@ -526,7 +526,7 @@ class TestTint < Minitest::Test
       clear_screen :green
       halt
     end
-    b.emit_pending_functions
+    b.finalize_program
 
     refute_includes warnings(b.program), :tint_never_lifted
   end

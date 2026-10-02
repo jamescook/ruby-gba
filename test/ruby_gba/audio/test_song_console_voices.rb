@@ -37,7 +37,7 @@ class TestSongConsoleVoices < Minitest::Test
       play_song :full
       game_loop { wait_vblank }
     end
-    b.emit_pending_functions
+    b.finalize_program
     b.program
   end
 
@@ -264,7 +264,7 @@ class TestSongConsoleVoices < Minitest::Test
       play_song :tune
       game_loop { wait_vblank }
     end
-    b.emit_pending_functions
+    b.finalize_program
     b.program
   end
 
@@ -289,7 +289,7 @@ class TestSongConsoleVoices < Minitest::Test
       play_song :tune
       game_loop { wait_vblank }
     end
-    b.emit_pending_functions
+    b.finalize_program
     b.program
   end
 
@@ -324,7 +324,7 @@ class TestSongConsoleVoices < Minitest::Test
       wave steps, :C4
       game_loop { wait_vblank }
     end
-    b.emit_pending_functions
+    b.finalize_program
 
     assert_equal Registers.wavetable_halfwords(PULSE_50), wave_ram_of(b.program, "WVERB")
   end

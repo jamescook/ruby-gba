@@ -52,12 +52,12 @@ module RubyGBA
       private
 
       def jobs_name(what) = Messages::MadeNames.make(:save_jobs, piece: what)
-      def jv(what) = sd_var(jobs_name(what))
-      def jv_set(what, value) = record(Build.set(jobs_name(what), value.is_a?(Integer) ? sd_int(value) : value))
+      def job_var(what) = sd_var(jobs_name(what))
+      def set_job_var(what, value) = record(Build.set(jobs_name(what), value.is_a?(Integer) ? sd_int(value) : value))
       def job_op(op, lhs, rhs) = Build.binop(op, lhs, rhs)
 
       # Move the whole job in place +from+ into place +to+.
-      def move_job(to:, from:) = JOB.each { |field| jv_set(:"#{to}_#{field}", jv(:"#{from}_#{field}")) }
+      def move_job(to:, from:) = JOB.each { |field| set_job_var(:"#{to}_#{field}", job_var(:"#{from}_#{field}")) }
 
       # Declared with the first record: the variables the jobs are kept in, which a line asking
       # whether a record is saving names before any record is laid out.
@@ -68,7 +68,7 @@ module RubyGBA
       # Declared once the records are laid out: the routines that run the jobs, which walk
       # every record.
       def declare_save_job_routines
-        %i[tick step finish ask end].each do |job|
+        %i[tick step_running finish pick_slot end].each do |job|
           declare_func(jobs_name(job)) { send(:"save_jobs_#{job}") }
         end
         run_each_pass(jobs_name(:tick))
@@ -76,7 +76,7 @@ module RubyGBA
 
       # What each record needs of its own: two snapshots' worth of buffer, kept in the roomy
       # memory since it is read only while a job runs, and the flag that says a job just ended.
-      def declare_save_job_state(layout)
+      def declare_save_snapshot_buffer(layout)
         stage = layout.scratch(:stage)
         size = [layout.body * 2, 1].max
         at_boot(Build.list_new(stage, size, width: :byte, fast: false))
@@ -89,42 +89,42 @@ module RubyGBA
       # ONCE A PASS: last pass's "just finished" is over, and the running job moves on a piece.
       def save_jobs_tick
         @save_data.each_value { |layout| record(Build.set(layout.scratch(:finished), sd_int(0))) }
-        record(Build.call(jobs_name(:step)))
+        record(Build.call(jobs_name(:step_running)))
       end
 
       # One piece of the running job, whichever record it belongs to.
-      def save_jobs_step
+      def save_jobs_step_running
         @save_data.each_value do |layout|
-          sd_when(sd_eq(jv(:run_rec), sd_int(layout.number))) { record(Build.call(layout.routine(:step))) }
+          sd_when(sd_eq(job_var(:run_rec), sd_int(layout.number))) { record(Build.call(layout.routine(:step))) }
         end
       end
 
       # FINISH THE RUNNING JOB NOW, all of it, however many pieces are left. The one waiting
       # behind it then becomes the running one, and is left for the passes to come.
       def save_jobs_finish
-        jv_set(:hold, jv(:serial))
-        done = sd_or(sd_eq(jv(:run_rec), sd_int(0)), job_op(:!=, jv(:serial), jv(:hold)))
+        set_job_var(:hold, job_var(:serial))
+        done = sd_or(sd_eq(job_var(:run_rec), sd_int(0)), job_op(:!=, job_var(:serial), job_var(:hold)))
         repeat(IR::SaveLayout::SIZE, stop_when: DSL::Condition.new(handle, done)) do |_|
-          record(Build.call(jobs_name(:step)))
+          record(Build.call(jobs_name(:step_running)))
         end
       end
 
       # TAKE A JOB, named by the ask scratch: it runs now when nothing does, and waits otherwise.
       # Make room first (see the module comment), and say which of its record's two buffers a
       # snapshot goes in.
-      def save_jobs_ask
-        sd_when(job_op(:!=, jv(:wait_rec), sd_int(0))) { record(Build.call(jobs_name(:finish))) }
-        same_record = sd_eq(jv(:run_rec), jv(:ask_rec))
-        jv_set(:ask_slot, sd_int(0))
-        sd_when(same_record) { jv_set(:ask_slot, job_op(:-, sd_int(1), jv(:run_slot))) }
+      def save_jobs_pick_slot
+        sd_when(job_op(:!=, job_var(:wait_rec), sd_int(0))) { record(Build.call(jobs_name(:finish))) }
+        same_record = sd_eq(job_var(:run_rec), job_var(:ask_rec))
+        set_job_var(:ask_slot, sd_int(0))
+        sd_when(same_record) { set_job_var(:ask_slot, job_op(:-, sd_int(1), job_var(:run_slot))) }
       end
 
       # The job the ask scratch names is snapshotted, if it wanted one: it goes in line.
       def save_jobs_queue
-        sd_when(sd_eq(jv(:run_rec), sd_int(0))) do
+        sd_when(sd_eq(job_var(:run_rec), sd_int(0))) do
           move_job(to: :run, from: :ask)
-          jv_set(:run_phase, 0)
-          jv_set(:serial, sd_add(jv(:serial), sd_int(1)))
+          set_job_var(:run_phase, 0)
+          set_job_var(:serial, sd_add(job_var(:serial), sd_int(1)))
         end.else do
           move_job(to: :wait, from: :ask)
         end
@@ -132,12 +132,12 @@ module RubyGBA
 
       # The running job is over: the waiting one, if any, runs next.
       def save_jobs_end
-        jv_set(:run_rec, 0)
-        sd_when(job_op(:!=, jv(:wait_rec), sd_int(0))) do
+        set_job_var(:run_rec, 0)
+        sd_when(job_op(:!=, job_var(:wait_rec), sd_int(0))) do
           move_job(to: :run, from: :wait)
-          jv_set(:wait_rec, 0)
-          jv_set(:run_phase, 0)
-          jv_set(:serial, sd_add(jv(:serial), sd_int(1)))
+          set_job_var(:wait_rec, 0)
+          set_job_var(:run_phase, 0)
+          set_job_var(:serial, sd_add(job_var(:serial), sd_int(1)))
         end
       end
 
@@ -153,35 +153,35 @@ module RubyGBA
       # `failed?`; :replace takes the place of a job on the same copy that is still waiting,
       # or abandons one on the same copy that is being written — safe, because a half only
       # counts once its checksum is in, so the copy's last save is still there.
-      def save_job_ask(layout, kind)
-        jv_set(:ask_rec, layout.number)
-        jv_set(:ask_copy, sd_var(layout.scratch(:copy)))
-        jv_set(:ask_kind, kind)
-        jv_set(:ask_src, kind == COPY ? sd_var(layout.scratch(:from)) : sd_int(0))
+      def save_job_request(layout, kind)
+        set_job_var(:ask_rec, layout.number)
+        set_job_var(:ask_copy, sd_var(layout.scratch(:copy)))
+        set_job_var(:ask_kind, kind)
+        set_job_var(:ask_src, kind == COPY ? sd_var(layout.scratch(:from)) : sd_int(0))
         case layout.when_busy
         when :refuse
           sd_when(save_data_saving(layout)) { record(Build.set(layout.scratch(:failed), sd_int(1))) }
-            .else { save_job_take(layout, kind) }
+            .else { accept_save_job(layout, kind) }
         when :replace
           same = lambda do |which|
-            sd_and(sd_eq(jv(:"#{which}_rec"), sd_int(layout.number)), sd_eq(jv(:"#{which}_copy"), jv(:ask_copy)))
+            sd_and(sd_eq(job_var(:"#{which}_rec"), sd_int(layout.number)), sd_eq(job_var(:"#{which}_copy"), job_var(:ask_copy)))
           end
           sd_when(same.call(:wait)) do
-            jv_set(:ask_slot, jv(:wait_slot))
+            set_job_var(:ask_slot, job_var(:wait_slot))
             save_job_snapshot_all(layout, kind)
-            %i[kind src].each { |what| jv_set(:"wait_#{what}", jv(:"ask_#{what}")) }
+            %i[kind src].each { |what| set_job_var(:"wait_#{what}", job_var(:"ask_#{what}")) }
           end.else do
-            sd_when(sd_and(same.call(:run), sd_eq(jv(:wait_rec), sd_int(0)))) { jv_set(:run_rec, 0) }
-            save_job_take(layout, kind)
+            sd_when(sd_and(same.call(:run), sd_eq(job_var(:wait_rec), sd_int(0)))) { set_job_var(:run_rec, 0) }
+            accept_save_job(layout, kind)
           end
         else
-          save_job_take(layout, kind)
+          accept_save_job(layout, kind)
         end
       end
 
       # The job the ask scratch names, into line: room made, snapshot taken, queued.
-      def save_job_take(layout, kind)
-        record(Build.call(jobs_name(:ask)))
+      def accept_save_job(layout, kind)
+        record(Build.call(jobs_name(:pick_slot)))
         save_job_snapshot_all(layout, kind)
         save_jobs_queue
       end
@@ -189,7 +189,7 @@ module RubyGBA
       def save_job_snapshot_all(layout, kind)
         return unless kind == SAVE
 
-        base = job_op(:*, jv(:ask_slot), sd_int(layout.body))
+        base = job_op(:*, job_var(:ask_slot), sd_int(layout.body))
         layout.kept.each { |item| save_job_snapshot(item, base, layout) }
       end
 
@@ -219,66 +219,66 @@ module RubyGBA
       #
       # Each part asks again whose job is running, because ending one hands the line straight to
       # the next — which may be another record's, and must not be run as this one's.
-      def save_job_step(layout)
-        mine = ->(phase) { sd_and(sd_eq(jv(:run_rec), sd_int(layout.number)), sd_eq(jv(:run_phase), sd_int(phase))) }
+      def save_job_run_phase(layout)
+        mine = ->(phase) { sd_and(sd_eq(job_var(:run_rec), sd_int(layout.number)), sd_eq(job_var(:run_phase), sd_int(phase))) }
         sd_when(mine.call(2)) { save_job_commit(layout) }
         sd_when(mine.call(0)) { save_job_start(layout) }
         sd_when(mine.call(1)) { save_job_piece(layout) }
       end
 
       def save_job_start(layout)
-        copy = jv(:run_copy)
+        copy = job_var(:run_copy)
         record(Build.set(layout.scratch(:copy), copy))
         # A copy is wanted only from a good copy that is not the one written over; everything
         # else only needs a copy the record has.
-        from = Build.clamped(jv(:run_src), sd_int(0), sd_int(layout.copies - 1))
-        source_good = sd_and(sd_and(sd_in_range(layout, jv(:run_src)), job_op(:!=, jv(:run_src), copy)),
+        from = Build.clamped(job_var(:run_src), sd_int(0), sd_int(layout.copies - 1))
+        source_good = sd_and(sd_and(sd_in_range(layout, job_var(:run_src)), job_op(:!=, job_var(:run_src), copy)),
                              sd_eq(sd_directory(layout, :state, from), sd_int(IR::SaveLayout::STATES.index(:good))))
-        not_a_copy = job_op(:!=, jv(:run_kind), sd_int(COPY))
+        not_a_copy = job_op(:!=, job_var(:run_kind), sd_int(COPY))
         wanted = sd_and(sd_in_range(layout, copy), sd_or(not_a_copy, source_good))
-        jv_set(:run_from, sd_add(sd_half_at(layout, from, sd_directory(layout, :half, from)),
+        set_job_var(:run_from, sd_add(sd_half_at(layout, from, sd_directory(layout, :half, from)),
                                  sd_int(IR::SaveLayout::HEADER)))
         sd_when(sd_eq(wanted, sd_int(0))) { record(Build.call(jobs_name(:end))) }.else do
-          jv_set(:run_at, half_to_write(layout, copy))
-          open_half(layout, jv(:run_at))
-          jv_set(:run_done, 0)
-          jv_set(:run_phase, 1)
-          sd_when(sd_eq(jv(:run_kind), sd_int(ERASE))) { jv_set(:run_done, layout.body) }
+          set_job_var(:run_at, half_to_write(layout, copy))
+          emit_half_header(layout, job_var(:run_at))
+          set_job_var(:run_done, 0)
+          set_job_var(:run_phase, 1)
+          sd_when(sd_eq(job_var(:run_kind), sd_int(ERASE))) { set_job_var(:run_done, layout.body) }
         end
       end
 
       def save_job_piece(layout)
-        left = job_op(:-, sd_int(layout.body), jv(:run_done))
-        jv_set(:pieces, Build.clamped(left, sd_int(0), sd_int(BYTES_PER_PASS)))
-        sd_when(job_op(:!=, jv(:run_kind), sd_int(ERASE))) do
-          body = sd_add(jv(:run_at), sd_int(IR::SaveLayout::HEADER))
-          base = job_op(:*, jv(:run_slot), sd_int(layout.body))
-          repeat(DSL::Value.new(handle, jv(:pieces))) do |i|
-            j = sd_add(jv(:run_done), i.node)
+        left = job_op(:-, sd_int(layout.body), job_var(:run_done))
+        set_job_var(:pieces, Build.clamped(left, sd_int(0), sd_int(BYTES_PER_PASS)))
+        sd_when(job_op(:!=, job_var(:run_kind), sd_int(ERASE))) do
+          body = sd_add(job_var(:run_at), sd_int(IR::SaveLayout::HEADER))
+          base = job_op(:*, job_var(:run_slot), sd_int(layout.body))
+          repeat(DSL::Value.new(handle, job_var(:pieces))) do |i|
+            j = sd_add(job_var(:run_done), i.node)
             from_buffer = Build.list_get(layout.scratch(:stage), sd_add(base, j))
-            from_copy = sd_read(sd_add(jv(:run_from), j), :byte)
-            value = job_op(:+, job_op(:*, sd_eq(jv(:run_kind), sd_int(SAVE)), from_buffer),
-                           job_op(:*, sd_eq(jv(:run_kind), sd_int(COPY)), from_copy))
+            from_copy = sd_read(sd_add(job_var(:run_from), j), :byte)
+            value = job_op(:+, job_op(:*, sd_eq(job_var(:run_kind), sd_int(SAVE)), from_buffer),
+                           job_op(:*, sd_eq(job_var(:run_kind), sd_int(COPY)), from_copy))
             record(Build.save_write(sd_add(body, j), value, width: :byte))
           end
         end
-        jv_set(:run_done, sd_add(jv(:run_done), jv(:pieces)))
-        sd_when(job_op(:>=, jv(:run_done), sd_int(layout.body))) { jv_set(:run_phase, 2) }
+        set_job_var(:run_done, sd_add(job_var(:run_done), job_var(:pieces)))
+        sd_when(job_op(:>=, job_var(:run_done), sd_int(layout.body))) { set_job_var(:run_phase, 2) }
       end
 
       def save_job_commit(layout)
-        copy = jv(:run_copy)
-        erase = sd_eq(jv(:run_kind), sd_int(ERASE))
+        copy = job_var(:run_copy)
+        erase = sd_eq(job_var(:run_kind), sd_int(ERASE))
         kind = sd_add(sd_int(IR::SaveLayout::SAVED), job_op(:*, erase, sd_int(IR::SaveLayout::ERASED - IR::SaveLayout::SAVED)))
         record(Build.set(layout.scratch(:copy), copy))
-        close_half(layout, jv(:run_at), copy, kind)
+        emit_half_commit(layout, job_var(:run_at), copy, kind)
         record(Build.set(layout.scratch(:finished), sd_int(1)))
         record(Build.call(jobs_name(:end)))
       end
 
       # EVERY JOB OF +layout+ STILL IN HAND, finished now — before anything reads the record.
       def finish_save_jobs_of(layout)
-        mine = sd_or(sd_eq(jv(:run_rec), sd_int(layout.number)), sd_eq(jv(:wait_rec), sd_int(layout.number)))
+        mine = sd_or(sd_eq(job_var(:run_rec), sd_int(layout.number)), sd_eq(job_var(:wait_rec), sd_int(layout.number)))
         repeat(2, stop_when: DSL::Condition.new(handle, sd_eq(mine, sd_int(0)))) do |_|
           record(Build.call(jobs_name(:finish)))
         end

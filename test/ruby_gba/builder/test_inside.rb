@@ -27,7 +27,7 @@ class TestInside < Minitest::Test
       image :bars, width: 2, height: 4, data: BARS
     end
     b.instance_eval(&block)
-    b.emit_pending_functions
+    b.finalize_program
     b.program
   end
 

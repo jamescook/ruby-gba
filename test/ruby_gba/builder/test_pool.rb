@@ -28,7 +28,7 @@ class TestPool < Minitest::Test
         bullets.each { |bl| draw_rect_at bl.x, bl.y, 2, 2, :green }
       end
     end
-    b.emit_pending_functions
+    b.finalize_program
     i = Reference.new.run(b.program)
 
     assert_equal GREEN, i.screen.pixel(10, 12), "first instance drawn at its own (x, y)"
@@ -56,7 +56,7 @@ class TestPool < Minitest::Test
         end
       end
     end
-    b.emit_pending_functions
+    b.finalize_program
     i = Reference.new.run(b.program, frames: 45) # the mover needs ~35 frames to reach its clamp
 
     assert_equal GREEN, i.screen.pixel(50, 80), "it moved down and settled at the clamp"
@@ -82,7 +82,7 @@ class TestPool < Minitest::Test
         end
       end
     end
-    b.emit_pending_functions
+    b.finalize_program
     i = Reference.new.run(b.program)
 
     assert_equal GREEN, i.screen.pixel(10, 40), "the others remain"
@@ -101,7 +101,7 @@ class TestPool < Minitest::Test
       5.times { p.spawn x: 1 } # two more than it can hold
       halt
     end
-    b.emit_pending_functions
+    b.finalize_program
     i = Reference.new.run(b.program)
 
     assert_equal 3, i[:__pool_p_count], "the pool filled to capacity and the extra spawns were dropped"
@@ -127,7 +127,7 @@ class TestPool < Minitest::Test
         draw_rect_at things.field_ref(:x, found), 100, 2, 2, :green
       end
     end
-    b.emit_pending_functions
+    b.finalize_program
     i = Reference.new.run(b.program)
 
     assert_equal GREEN, i.screen.pixel(20, 100), "index led back to the instance tagged 2 (x=20)"
@@ -168,7 +168,7 @@ class TestPool < Minitest::Test
         bullets.each { |bl| draw_rect_at bl.x, bl.y, 4, 4, :green }
       end
     end
-    b.emit_pending_functions
+    b.finalize_program
 
     rom = ROM.assemble(GBA.new.lower(b.program), title: "POOL", code: "BPOL", maker: "01")
     v = assert_emulator_loads_rom(rom, frames: 6)

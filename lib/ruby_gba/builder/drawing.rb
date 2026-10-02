@@ -87,7 +87,7 @@ module RubyGBA
         # the mode unnamed.
         @screen_mode = mode if mode.is_a?(Symbol)
         @tear_free = tear_free
-        record(Build.screen(mode, buffered: tear_free, colors: given_colors(colors, tear_free)))
+        record(Build.screen(mode, buffered: tear_free, colors: resolve_screen_colors(colors, tear_free)))
       end
 
       # HOW MANY PICTURES THIS SCREEN KEEPS. A tear-free screen keeps two and shows
@@ -323,7 +323,7 @@ module RubyGBA
 
         record(Build.draw_column_at(name, DSL::Value.node_for(slice), DSL::Value.node_for(x),
                                     DSL::Value.node_for(top), DSL::Value.node_for(height), width: width,
-                                    usually: stretched_usually(height, estimate, "column")))
+                                    usually: usual_stretch_height(height, estimate, "column")))
         [slice, x, top, height].each { |operand| ensure_var(operand) }
       end
 
@@ -350,7 +350,7 @@ module RubyGBA
       def draw_rect_at(x_pos, y_pos, w, h, c, estimate: nil)
         record(Build.draw_rect_at(DSL::Value.node_for(x_pos), DSL::Value.node_for(y_pos),
                                   DSL::Value.node_for(w), DSL::Value.node_for(h), c,
-                                  usually: stretched_usually(h, estimate, "rectangle")))
+                                  usually: usual_stretch_height(h, estimate, "rectangle")))
         ensure_var(x_pos)
         ensure_var(y_pos)
         ensure_var(w)
@@ -400,7 +400,7 @@ module RubyGBA
       # column or a rectangle, which take the hint for the same reason and refuse it for the
       # same one. Only a height the game works out can be told: one written in the program is
       # already known, and saying it twice invites the two to disagree.
-      def stretched_usually(height, estimate, shape)
+      def usual_stretch_height(height, estimate, shape)
         return nil if estimate.nil?
 
         if height.is_a?(Integer)
@@ -415,7 +415,7 @@ module RubyGBA
       # The colors a screen was told to show, resolved the same way every draw verb
       # resolves one, so a name, a hex string and a raw value all mean the same thing
       # here as they do there.
-      def given_colors(colors, tear_free)
+      def resolve_screen_colors(colors, tear_free)
         return nil if colors.nil?
 
         unless colors.is_a?(Array) && !colors.empty?

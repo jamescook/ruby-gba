@@ -33,7 +33,7 @@ class TestFractionMath < Minitest::Test
       draw_rect_at x, MARKER_Y, 4, 4, Color.resolve(:white)
       halt
     end
-    b.emit_pending_functions
+    b.finalize_program
     b.program
   end
 

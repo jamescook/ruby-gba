@@ -39,7 +39,7 @@ class TestKeepShowing < Minitest::Test
         bar.draw
       end
     end
-    b.emit_pending_functions
+    b.finalize_program
     [b.program, b]
   end
 
@@ -79,7 +79,7 @@ class TestKeepShowing < Minitest::Test
         (n == 2).then { draw_rect_at 10, 10, 20, 20, :red }
       end
     end
-    b.emit_pending_functions
+    b.finalize_program
 
     red = Color.resolve(:red)
     on_page = [6, 7].map { |f| Reference.new.run(b.program, frames: f).screen.pixel(15, 15) == red }
@@ -126,7 +126,7 @@ class TestKeepShowing < Minitest::Test
         (n == 3).then { draw_rect_at 100, 10, 20, 20, :green }
       end
     end
-    b.emit_pending_functions
+    b.finalize_program
 
     i = Reference.new.run(b.program, frames: 8)
     assert_equal Color.resolve(:green), i.screen.pixel(105, 15),
@@ -180,7 +180,7 @@ class TestKeepShowing < Minitest::Test
       bar = keep_showing(:bar) { fill_rect 0, 0, 240, 40, :red }
       game_loop { bar.changed }
     end
-    b.emit_pending_functions
+    b.finalize_program
 
     findings = RubyGBA::Effects::Packs::KeepShowing::NeverDrawn.new.detect(b.program)
     assert_equal 1, findings.length

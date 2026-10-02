@@ -49,7 +49,7 @@ class TestTextPlacement < Minitest::Test
       clear_screen :black
     end
     b.instance_eval(&block)
-    b.emit_pending_functions
+    b.finalize_program
     @built = b.program
     Reference.new.run(@built).screen
   end
@@ -153,7 +153,7 @@ class TestTextPlacement < Minitest::Test
       draw_text "IM", :center, Y, :white, font: :vari
       game_loop { halt }
     end
-    b.emit_pending_functions
+    b.finalize_program
     @built = b.program
     s = Reference.new.run(@built, max_steps: 500).screen
 
@@ -279,7 +279,7 @@ class TestTextPlacement < Minitest::Test
       draw_text "IM", :center, Y, :white, font: :vari
       halt
     end
-    b.emit_pending_functions
+    b.finalize_program
     rom = ROM.assemble(GBA.new.lower(b.program), title: "CENTER", code: "BCTR", maker: "01")
     v = assert_emulator_loads_rom(rom, frames: 2)
     left = (SCREEN - IM_WIDE) / 2

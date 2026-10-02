@@ -169,7 +169,7 @@ class TestScenes < Minitest::Test
   def test_a_scene_that_hands_on_does_not_run_the_scene_it_hands_to
     builder = Builder.new
     HANDING_ON.call(builder)
-    builder.emit_pending_functions
+    builder.finalize_program
     ran = Reference.new.run(builder.program)
 
     assert_equal [1, 0, 0], [ran[:ran_first], ran[:ran_second], ran[:ran_third]],

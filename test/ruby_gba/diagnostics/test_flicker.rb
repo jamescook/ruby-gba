@@ -171,7 +171,7 @@ class TestFlickerOnTheInterpreter < Minitest::Test
         ((n >= 2) & (n <= marks + 1)).then { draw_rect_at (n - 1) * step, 40, 6, 6, :red } if kept
       end
     end
-    b.emit_pending_functions
+    b.finalize_program
     b.program
   end
 

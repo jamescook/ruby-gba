@@ -35,7 +35,7 @@ class TestPoolRecycle < Minitest::Test
       end
       halt
     end
-    b.emit_pending_functions
+    b.finalize_program
     Reference.new.run(b.program)
   end
 
@@ -104,7 +104,7 @@ class TestPoolRecycle < Minitest::Test
       dots.spawn x: 60, y: 60 # full (capacity 1) -> recycles the only instance to here
       game_loop { wait_vblank }
     end
-    b.emit_pending_functions
+    b.finalize_program
     b.program
   end
 

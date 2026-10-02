@@ -32,7 +32,7 @@ class TestPicturePlaces < Minitest::Test
       ship = sprite :ship, at: [40, 40]
       game_loop { instance_exec(ship, &game) }
     end
-    builder.emit_pending_functions
+    builder.finalize_program
     builder.program
   end
 
@@ -73,7 +73,7 @@ class TestPicturePlaces < Minitest::Test
       ship = sprite :ship, at: [40, 40], frames: %i[near far], rate: 1
       game_loop { ship.draw_with :hurt }
     end
-    builder.emit_pending_functions
+    builder.finalize_program
     builder.program
   end
 
@@ -102,7 +102,7 @@ class TestPicturePlaces < Minitest::Test
       ship = sprite :ship, at: [40, 40], frames: %i[one two], rate: 1
       game_loop { ship.draw_with :hurt }
     end
-    builder.emit_pending_functions
+    builder.finalize_program
     builder.program
   end
 
@@ -127,7 +127,7 @@ class TestPicturePlaces < Minitest::Test
         [facing, turning].each { |thing| thing.draw_with :hurt }
       end
     end
-    builder.emit_pending_functions
+    builder.finalize_program
     builder.program
   end
 
@@ -161,7 +161,7 @@ class TestPicturePlaces < Minitest::Test
       background :board, tiles: :t, map: map.map(&:join)
       game_loop {}
     end
-    builder.emit_pending_functions
+    builder.finalize_program
     oracle, console, = backend_pictures(builder.program, frames: 2)
 
     assert_equal Color.resolve(:red), console[(80 * 240) + 200], "place 3 of the list is red"
@@ -190,7 +190,7 @@ class TestPicturePlaces < Minitest::Test
       hero = sprite :link, at: [40, 40]
       game_loop { hero.draw_with :hurt }
     end
-    builder.emit_pending_functions
+    builder.finalize_program
     builder.program
   end
 
@@ -277,7 +277,7 @@ class TestPicturePlaces < Minitest::Test
       hurt = sprite :hurt_ship, at: [80, 40], facing: { right: :ship }
       game_loop { hurt.draw_with :hurt; plain.show }
     end
-    builder.emit_pending_functions
+    builder.finalize_program
     builder.program
   end
 

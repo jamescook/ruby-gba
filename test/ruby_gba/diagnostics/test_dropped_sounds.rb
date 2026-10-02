@@ -30,7 +30,7 @@ class TestDroppedSounds < Minitest::Test
            .each { |s| s.play(loop: true) }
       game_loop { wait_vblank }
     end
-    b.emit_pending_functions
+    b.finalize_program
     b.program
   end
 
@@ -51,7 +51,7 @@ class TestDroppedSounds < Minitest::Test
         late.play
       end
     end
-    b.emit_pending_functions
+    b.finalize_program
     b.program
   end
 
@@ -80,7 +80,7 @@ class TestDroppedSounds < Minitest::Test
         late.play
       end
     end
-    b.emit_pending_functions
+    b.finalize_program
     b.program
   end
 
@@ -93,7 +93,7 @@ class TestDroppedSounds < Minitest::Test
       sample(:hum, pcm: [25, -25] * 2000, rate: 8000).play(loop: true)
       game_loop { wait_vblank }
     end
-    b.emit_pending_functions
+    b.finalize_program
     b.program
   end
 
@@ -157,7 +157,7 @@ class TestDroppedSounds < Minitest::Test
       clear_screen :black
       game_loop { wait_vblank }
     end
-    b.emit_pending_functions
+    b.finalize_program
 
     v = assert_emulator_loads_rom(assemble_rom(b.program), frames: 3)
 
@@ -269,7 +269,7 @@ class TestDroppedSounds < Minitest::Test
       clear_screen :black
       game_loop { wait_vblank }
     end
-    b.emit_pending_functions
+    b.finalize_program
 
     out = StringIO.new
     assemble_rom(b.program, name: "QUIET").profile(format: :json, out: out, frames: 8, settle: 4)

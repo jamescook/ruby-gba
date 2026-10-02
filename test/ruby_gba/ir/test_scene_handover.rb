@@ -27,7 +27,7 @@ class TestSceneHandover < Minitest::Test
       state = var :state, 0
       game_loop { case_var(:state) { when_val 0, :menu; when_val 1, :walk } }
     end
-    b.emit_pending_functions
+    b.finalize_program
     b.program
   end
 

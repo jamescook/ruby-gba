@@ -38,7 +38,7 @@ class TestPoolPoses < Minitest::Test
       handle = pool :guard, x: 0, y: 0, capacity: 8, **pool_opts
       yield(self, handle)
     end
-    b.emit_pending_functions
+    b.finalize_program
     b.program
   end
 

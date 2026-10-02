@@ -20,7 +20,7 @@ class TestRepeat < Minitest::Test
       repeat(:c) { |i| draw_rect_at i * 4, 40, 2, 2, :green }
       halt
     end
-    builder.emit_pending_functions
+    builder.finalize_program
     builder.program
   end
 
@@ -47,7 +47,7 @@ class TestRepeat < Minitest::Test
       repeat(3) { |i| draw_rect_at i * 8, 40, 2, 2, :green }
       halt
     end
-    builder.emit_pending_functions
+    builder.finalize_program
     screen = Reference.new.run(builder.program).screen
 
     [0, 8, 16].each { |x| assert_equal Color.resolve(:green), screen.pixel(x, 40), "mark at x=#{x}" }

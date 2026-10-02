@@ -8,7 +8,7 @@ module RubyGBA
     # these stay flat DSL verbs.
     #
     # Deferred func bodies are emitted, and their call/case targets verified, by the
-    # builder's finalize step (emit_pending_functions) — that orchestration crosses
+    # builder's finalize step (finalize_program) — that orchestration crosses
     # concerns, so it stays in the core; these are the verbs that feed it.
     module Scenes
       # Define a named subroutine. The block is stored and evaluated after the main
@@ -146,7 +146,7 @@ module RubyGBA
                 "`call` was given a value and `number:`. The value already says which routine " \
                 "to call. To fix this, remove `number:`."
         end
-        held = value.names or raise ArgumentError, holds_no_names(value)
+        held = value.names or raise ArgumentError, no_names_message(value)
 
         node = Build.call_one_of([], which: value.node)
         @name_dispatches << [node, held]
@@ -155,7 +155,7 @@ module RubyGBA
 
       # A value that holds plain numbers cannot name a routine. Say what to write instead,
       # which is the list form — the number is then a place in a list you give.
-      def holds_no_names(value)
+      def no_names_message(value)
         wrote = value.name ? "the variable :#{value.name}" : "a value"
         "`call` was given #{wrote}, which holds numbers, not names. A value names a routine " \
           "only when it was declared with a name, like `var :mode, :title`. To call one of " \
@@ -166,7 +166,7 @@ module RubyGBA
       # Call whichever of +names+ the +number+ picks. A number written into the program
       # picks while building, so it is a plain call; one the game works out picks as it runs.
       def call_one_of(names, number)
-        routines_to_pick_from!(names, number)
+        refuse_bad_routine_list!(names, number)
         fixed = DSL::Value.fixed_number(number)
         if fixed
           number_in_list!(names, fixed)
@@ -177,7 +177,7 @@ module RubyGBA
         ensure_var(number)
       end
 
-      def routines_to_pick_from!(names, number)
+      def refuse_bad_routine_list!(names, number)
         raise ArgumentError, "`call` was given an empty list of routines. Name at least one routine." if names.empty?
 
         if number.nil?

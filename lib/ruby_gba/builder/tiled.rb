@@ -340,7 +340,7 @@ module RubyGBA
         at_boot(Build.set(angle_var, Build.int(0)))
         ensure_var(angle_var)
         var(scale_var, 1.0)
-        affine_each_frame(name, angle_var, scale_var)
+        defer_affine_write(name, angle_var, scale_var)
         [angle_var, scale_var]
       end
 

@@ -178,7 +178,7 @@ class TestVariables < Minitest::Test
         add! :ticks, 1 # ++ every frame
       end
     end
-    builder.emit_pending_functions
+    builder.finalize_program
 
     i = RubyGBA::IR::Backends::Reference.new.run(builder.program, max_steps: 5_000)
     assert_operator i[:ticks], :>, 1,

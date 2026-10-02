@@ -238,10 +238,10 @@ module RubyGBA
           menu_choose(items, pick, press)
           # The rows are the verb's own text, not text the author placed, so the rule
           # about where an author writes draw_text does not reach them (see
-          # Builder::Text#verb_owns_its_text). That is what lets one menu verb work the
+          # Builder::Text#with_text_owned_by). That is what lets one menu verb work the
           # same way on a screen you paint and on a screen the console composes.
           spent = menu_sprites_spent do
-            verb_owns_its_text(:menu) do
+            with_text_owned_by(:menu) do
               menu_draw(items, pick, x: x, y: y, step: step, font: font, color: color,
                                      picked: picked, disabled: disabled, cursor: cursor)
             end

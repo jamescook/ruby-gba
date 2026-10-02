@@ -81,7 +81,7 @@ class TestAseprite < Minitest::Test
         (f >= run).then { halt }
       end
     end
-    builder.emit_pending_functions
+    builder.finalize_program
     builder.program
   end
 
@@ -233,7 +233,7 @@ class TestAseprite < Minitest::Test
       hero = sprite :hero, at: [40, 40], from_aseprite: FIXTURE, colors: %i[transparent red green blue white]
       game_loop { hero.draw_with :hurt }
     end
-    builder.emit_pending_functions
+    builder.finalize_program
     builder.program
   end
 

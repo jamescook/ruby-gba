@@ -451,7 +451,7 @@ that's filed but not fixed, so it stays visible without failing the build.
   Use this when the lowering itself is under test — no DSL sugar in the way.
 
 - **DSL** (asserting the surface behaves): `b = RubyGBA::Builder.new;
-  b.instance_eval { screen :bitmap; ...; game_loop { ... } }; b.emit_pending_functions;
+  b.instance_eval { screen :bitmap; ...; game_loop { ... } }; b.finalize_program;
   b.program`. Or `RubyGBA.build("NAME") { ... }` which returns a ROM
   (its `out:`/`err:` streams are DI'd — pass `StringIO` to assert warnings).
   **Don't write a `code:`** — a made-up four-character cartridge code lands on a real

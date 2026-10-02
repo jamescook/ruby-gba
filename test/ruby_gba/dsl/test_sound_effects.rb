@@ -38,7 +38,7 @@ class TestSoundEffects < Minitest::Test
         instance_exec(sfx, pass, music, &body)
       end
     end
-    b.emit_pending_functions
+    b.finalize_program
     b.program
   end
 
@@ -1133,7 +1133,7 @@ class TestSoundEffects < Minitest::Test
       sfx = sound_effects :sfx, { rumble: score }
       game_loop { sfx.play :rumble }
     end
-    b.emit_pending_functions
+    b.finalize_program
     RubyGBA::IR::Guardrails::Validator.new.run(b.program, autofix: false).findings
   end
 

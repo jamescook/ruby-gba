@@ -24,7 +24,7 @@ class TestVerifierMemory < Minitest::Test
       add! :doubled, :answer # doubled = 2 * answer
       halt
     end
-    builder.emit_pending_functions
+    builder.finalize_program
     backend = GBA.new
     bytes = backend.lower(builder.program)
     [ROM.assemble(bytes, title: "MEMTEST", code: "BMEM", maker: "01"), backend]
@@ -84,7 +84,7 @@ class TestVerifierMemory < Minitest::Test
       sub! :cold, 40
       halt
     end
-    builder.emit_pending_functions
+    builder.finalize_program
     builder.program
   end
 

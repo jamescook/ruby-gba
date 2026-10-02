@@ -33,7 +33,7 @@ class TestSetTile < Minitest::Test
         (frames == open_at).then { room.set_tile col, row, "." }
       end
     end
-    builder.emit_pending_functions
+    builder.finalize_program
     builder.program
   end
 
@@ -70,7 +70,7 @@ class TestSetTile < Minitest::Test
         (where < 4).then { room.set_tile where, 2, "."; where.add! 1 }
       end
     end
-    builder.emit_pending_functions
+    builder.finalize_program
     builder.program
   end
 
@@ -105,7 +105,7 @@ class TestSetTile < Minitest::Test
         room.set_tile(-5, 1, ".")
       end
     end
-    builder.emit_pending_functions
+    builder.finalize_program
 
     screen = Reference.new.run(builder.program, frames: 3).screen
     assert_equal Color.resolve(:red), pixel_at(0, 1, screen), "nothing else was written over"
@@ -134,7 +134,7 @@ class TestSetTile < Minitest::Test
         room.scroll_to 256, 0
       end
     end
-    builder.emit_pending_functions
+    builder.finalize_program
     builder.program
   end
 
@@ -179,7 +179,7 @@ class TestSetTile < Minitest::Test
       room = background :room, tiles: :dungeon, map: Array.new(6) { "######" } # no floor anywhere
       game_loop { wait_vblank; room.set_tile 1, 1, "." }
     end
-    builder.emit_pending_functions
+    builder.finalize_program
 
     screen = Reference.new.run(builder.program, frames: 3).screen
     assert_equal Color.resolve(:blue), pixel_at(1, 1, screen)
@@ -212,7 +212,7 @@ class TestSetTile < Minitest::Test
       room = background :room, tiles: :dungeon, map: ["##", "##"]
       game_loop { room.set_tile 0, 0, "#" }
     end
-    builder.emit_pending_functions
+    builder.finalize_program
     error = assert_raises(GBA::LoweringError) { GBA.new.lower(builder.program) }
     assert_match(/:room/, error.message)
     # Named by what the background DOES, not by the screen it sits on: a `screen :tiled`

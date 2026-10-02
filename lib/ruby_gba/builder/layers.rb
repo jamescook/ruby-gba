@@ -233,7 +233,7 @@ module RubyGBA
       # background IN FRONT of a sprite and the arrangement is gone, and with it the
       # answer for anything that named no layer — there is no longer a "where it always
       # was" to leave it in. So that picture has to place everything.
-      def verify_stack_fits!
+      def refuse_unlayered_when_scenery_in_front!
         return if @layer_stack.empty?
 
         picture = IR::Stacking.picture(@program)
@@ -288,7 +288,7 @@ module RubyGBA
       def make_layer_transparent(name, amounts)
         check_transparency_screen!(name, amounts.word)
         @transparency_written ||= {}
-        return if said_before?(name, amounts)
+        return if transparency_repeated!(name, amounts)
 
         layer = if amounts.split
                   Build.see_through_split(name, DSL::Value.node_for(amounts.behind))
@@ -311,25 +311,25 @@ module RubyGBA
         return nil if transparency.nil? && shows.nil? && behind.nil?
 
         unless transparency.nil?
-          two_words_and_transparency!(name) unless shows.nil? && behind.nil?
+          refuse_transparency_with_shows!(name) unless shows.nil? && behind.nil?
           check_transparency_amount!(name, "transparency", transparency)
           return SeeThroughWords.new(word: "transparency", shows: nil, behind: transparency, split: true)
         end
 
-        one_of_two_amounts!(name, shows.nil? ? "shows_behind" : "shows") if shows.nil? || behind.nil?
+        refuse_unpaired_shows!(name, shows.nil? ? "shows_behind" : "shows") if shows.nil? || behind.nil?
         check_transparency_amount!(name, "shows", shows)
         check_transparency_amount!(name, "shows_behind", behind)
         SeeThroughWords.new(word: "shows", shows: shows, behind: behind, split: false)
       end
 
-      def two_words_and_transparency!(name)
+      def refuse_transparency_with_shows!(name)
         raise ArgumentError,
               "`layer :#{name}` was given `transparency:` and `shows:` or `shows_behind:`. They " \
               "are two ways to say one thing. To fix this, use `transparency:` alone, or use " \
               "`shows:` and `shows_behind:` together."
       end
 
-      def one_of_two_amounts!(name, given)
+      def refuse_unpaired_shows!(name, given)
         missing = given == "shows" ? "shows_behind" : "shows"
         raise ArgumentError,
               "`layer :#{name}` was given `#{given}:` but not `#{missing}:`. The two go " \
@@ -350,10 +350,10 @@ module RubyGBA
                 "#{amount.inspect}."
         end
 
-        raise ArgumentError, "`layer :#{name}, #{word}: #{fixed}` is outside 0 to 100. #{range_of(word)}"
+        raise ArgumentError, "`layer :#{name}, #{word}: #{fixed}` is outside 0 to 100. #{amount_range_hint(word)}"
       end
 
-      def range_of(word)
+      def amount_range_hint(word)
         case word
         when "transparency" then "0 is solid and 100 lets everything behind show through."
         when "shows" then "0 is none of the layer and 100 is all of it."
@@ -393,10 +393,10 @@ module RubyGBA
       # Has this layer already said how see-through it is? The same thing said twice is one
       # fact said twice, and is let through. Compared as the author wrote it, since two
       # reads of the same variable build two equal-but-distinct nodes.
-      def said_before?(name, amounts)
+      def transparency_repeated!(name, amounts)
         was = @transparency_written[name]
         return false unless was
-        return true if said_the_same?(was, amounts)
+        return true if same_see_through_words?(was, amounts)
 
         raise ArgumentError,
               "The layer :#{name} is already #{transparency_as_written(was)}, and now asks for " \
@@ -404,7 +404,7 @@ module RubyGBA
               "it on one of the `layer :#{name}` blocks."
       end
 
-      def said_the_same?(was, now)
+      def same_see_through_words?(was, now)
         was.split == now.split && was.shows.equal?(now.shows) && was.behind.equal?(now.behind)
       end
 
@@ -524,10 +524,10 @@ module RubyGBA
       def refuse_painting_in_layer!(node)
         # A verb drawing its own text names ITSELF here: a `menu`'s rows really cannot
         # belong to a layer on a bitmap screen, and the author wrote `menu`, not the
-        # `draw_text` underneath it (see Text#verb_owns_its_text).
+        # `draw_text` underneath it (see Text#with_text_owned_by).
         verb = @verb_owns_text || Messages::PlainWords.verb(node.kind)
         raise ArgumentError,
-              "`#{verb}` paints where you call it#{on_a_bitmap_screen(node)}, so it cannot " \
+              "`#{verb}` paints where you call it#{bitmap_screen_suffix(node)}, so it cannot " \
               "belong to the layer :#{@current_layer}. A layer holds the things the framework " \
               "draws again every frame — a `background`, a `sprite`, tiled text. To fix this, " \
               "call `#{verb}` outside the `layer` block."
@@ -537,7 +537,7 @@ module RubyGBA
       # console draws each character for you every frame, so it IS layerable and records
       # objects; on a bitmap screen it paints into the framebuffer and reaches here. Say
       # which of the two the author is in, or the rule looks arbitrary.
-      def on_a_bitmap_screen(node)
+      def bitmap_screen_suffix(node)
         %i[draw_text draw_digit].include?(node.kind) ? " on a `screen :bitmap`" : ""
       end
 
@@ -550,10 +550,10 @@ module RubyGBA
         raise ArgumentError,
               "`#{verb}` changes the whole screen, so it cannot belong to the layer " \
               ":#{@current_layer}. To fix this, call `#{verb}` outside the `layer` " \
-              "block.#{fade_can_be_placed(node)}"
+              "block.#{placed_fade_hint(node)}"
       end
 
-      def fade_can_be_placed(node)
+      def placed_fade_hint(node)
         return "" unless node.kind == :fade
 
         " A fade can still sit at a place in the stack: `fade :black, 100, " \

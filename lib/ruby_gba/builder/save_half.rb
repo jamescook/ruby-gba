@@ -30,7 +30,7 @@ module RubyGBA
       end
 
       # Step 1: the marker and the shape, into the half starting at +here+.
-      def open_half(layout, here)
+      def emit_half_header(layout, here)
         { MARKER_AT: sd_int(IR::SaveLayout::MARKER), SHAPE_AT: sd_int(layout.shape) }.each do |field, value|
           record(Build.save_write(sd_add(here, sd_int(IR::SaveLayout.const_get(field))), value))
         end
@@ -39,7 +39,7 @@ module RubyGBA
       # Step 3: the sequence, the kind and the checksum, then the read back. +kind+ is SAVED or
       # ERASED, as a number written in the program or one the game works out. The record's
       # `copy` must already name +copy+, since looking it over reads which copy from there.
-      def close_half(layout, here, copy, kind)
+      def emit_half_commit(layout, here, copy, kind)
         kind_node = kind.is_a?(Integer) ? sd_int(kind) : kind
         record(Build.save_write(sd_add(here, sd_int(IR::SaveLayout::SEQUENCE_AT)),
                                 sd_add(sd_directory(layout, :seq, copy), sd_int(1))))
@@ -48,12 +48,12 @@ module RubyGBA
                                 Build.save_sum(sd_add(here, sd_int(IR::SaveLayout::HEADER)), sd_int(layout.body))))
         record(Build.call(layout.routine(:scan)))
         record(Build.set(layout.scratch(:failed), Build.binop(:!=, sd_directory(layout, :state, copy),
-                                                               state_after(kind))))
+                                                               expected_state_node(kind))))
       end
 
       # What a copy reads as once a half of +kind+ is in: good after a save, erased after an
       # erase.
-      def state_after(kind)
+      def expected_state_node(kind)
         good = IR::SaveLayout::STATES.index(:good)
         erased = IR::SaveLayout::STATES.index(:erased)
         return sd_int(kind == IR::SaveLayout::ERASED ? erased : good) if kind.is_a?(Integer)

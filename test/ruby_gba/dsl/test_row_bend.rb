@@ -39,7 +39,7 @@ class TestRowBend < Minitest::Test
       instance_exec(water, &bend) if bend
       game_loop { }
     end
-    b.emit_pending_functions
+    b.finalize_program
     b.program
   end
 
@@ -141,7 +141,7 @@ class TestRowBend < Minitest::Test
       water.scroll_each_row { |row| ripple[(row - phase) % 64] }
       game_loop { phase.add! 1 }
     end
-    b.emit_pending_functions
+    b.finalize_program
     b.program
   end
 
@@ -196,7 +196,7 @@ class TestRowBend < Minitest::Test
         boat.move :right, by: 4
       end
     end
-    b.emit_pending_functions
+    b.finalize_program
     b.program
   end
 
@@ -248,7 +248,7 @@ class TestRowBend < Minitest::Test
       front.scroll_each_row { |row| -(row % 8) }
       game_loop { }
     end
-    b.emit_pending_functions
+    b.finalize_program
     b.program
   end
 
@@ -291,7 +291,7 @@ class TestRowBend < Minitest::Test
       front.scroll_each_row { |row| -(row % 8) }
       game_loop { }
     end
-    b.emit_pending_functions
+    b.finalize_program
     b.program
   end
 
@@ -425,7 +425,7 @@ class TestRowBend < Minitest::Test
       end
       game_loop { }
     end
-    b.emit_pending_functions
+    b.finalize_program
     b.program
   end
 
@@ -473,7 +473,7 @@ class TestRowBend < Minitest::Test
       sample(:blip, pcm: [30, -30] * 200, rate: 8192).play
       game_loop { }
     end
-    b.emit_pending_functions
+    b.finalize_program
     b.program
   end
 
@@ -489,7 +489,7 @@ class TestRowBend < Minitest::Test
       background(:bg, tiles: :ts, map: Array.new(20, "#" * 30)).scroll_each_row { |row| row % 8 }
       halt
     end
-    b.emit_pending_functions
+    b.finalize_program
     refute BendForm.copier?(b.program)
     refute BendForm.latched?(b.program)
     assert_match(/never waits for a frame/, BendForm.kept_interrupt_reason(b.program))

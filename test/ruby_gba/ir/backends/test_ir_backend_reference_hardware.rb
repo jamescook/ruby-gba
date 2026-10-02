@@ -266,7 +266,7 @@ class TestIRBackendReferenceHardware < Minitest::Test
         (tick == 5).then { field.draw_with :dusk }
       end
     end
-    builder.emit_pending_functions
+    builder.finalize_program
     builder.program
   end
 
@@ -335,7 +335,7 @@ class TestIRBackendReferenceHardware < Minitest::Test
         end
       end
     end
-    builder.emit_pending_functions
+    builder.finalize_program
     builder.program
   end
 
@@ -404,7 +404,7 @@ class TestIRBackendReferenceHardware < Minitest::Test
         instance_exec(tick, &each_frame) if each_frame
       end
     end
-    builder.emit_pending_functions
+    builder.finalize_program
     builder.program
   end
 

@@ -22,7 +22,7 @@ class TestOverlaps < Minitest::Test
       clear_screen :black
       box(*a_dims).overlaps?(box(*b_dims)).then { pixel 0, 0, :white }
     end
-    b.emit_pending_functions
+    b.finalize_program
     Reference.new.run(b.program).screen.pixel(0, 0)
   end
 
@@ -68,7 +68,7 @@ class TestOverlaps < Minitest::Test
         (ball_x >= 40).then { halt }
       end
     end
-    b.emit_pending_functions
+    b.finalize_program
     # The loop is frame-paced (one pass per frame), so give it enough frames for the
     # ball to travel all the way through the wall and reach its halt at x 40.
     i = Reference.new.run(b.program, frames: 50)
@@ -97,7 +97,7 @@ class TestOverlaps < Minitest::Test
         (frame >= 2).then { halt }
       end
     end
-    b.emit_pending_functions
+    b.finalize_program
     Reference.new.run(b.program).screen.pixel(0, 0)
   end
 
@@ -117,7 +117,7 @@ class TestOverlaps < Minitest::Test
       box(*a_dims).overlaps?(box(*b_dims)).then { fill_rect 100, 80, 4, 4, :green }
       halt
     end
-    b.emit_pending_functions
+    b.finalize_program
     ROM.assemble(GBA.new.lower(b.program), title: "OVERLAP", code: "BOVL", maker: "01")
   end
 
@@ -158,7 +158,7 @@ class TestOverlaps < Minitest::Test
         (frame >= 24).then { halt }
       end
     end
-    b.emit_pending_functions
+    b.finalize_program
     screen = Reference.new.run(b.program).screen
 
     fragments = (0...RubyGBA::IR::Screen::HEIGHT).sum do |y|

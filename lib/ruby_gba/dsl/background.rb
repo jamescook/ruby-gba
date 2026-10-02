@@ -119,7 +119,7 @@ module RubyGBA
         # happens where it was asked for. The builder drops these once it knows there is a
         # frame boundary to move the work to (Builder#finalize_background_maps).
         node = record(Build.show_map(@name, which: Build.var_ref(shown_map_var)))
-        @builder.swap_maps_each_frame(@name, shown_map_var, live_map_var, node)
+        @builder.defer_map_swap(@name, shown_map_var, live_map_var, node)
         self
       end
 
@@ -180,7 +180,7 @@ module RubyGBA
         # game loop has no gap between frames to hold the write for, and then it simply
         # happens where it was asked for.
         node = record(Build.background_colors(@name, which: Build.var_ref(colors_var)))
-        @builder.recolor_each_frame(@name, colors_var, live_colors_var, node)
+        @builder.defer_recolor_write(@name, colors_var, live_colors_var, node)
         self
       end
 
@@ -384,7 +384,7 @@ module RubyGBA
       # upright, a background lands in exactly the same place whatever it turns around.
       def turns_around(x, y)
         affine_vars # this background is one that turns — the same claim `rotate`/`scale` make
-        @builder.background_turns_around(@name, whole_pixel(x, "x"), whole_pixel(y, "y"))
+        @builder.set_background_pivot(@name, whole_pixel(x, "x"), whole_pixel(y, "y"))
         self
       end
 
@@ -458,7 +458,7 @@ module RubyGBA
       # drawn. A layer drawn from one list has steps of one, which is today's swap exactly.
       def recolors
         @recolors ||= begin
-          node = @builder.recolorable_background(@name)
+          node = @builder.make_background_recolorable(@name)
           node.palettes = palettes
           Recolors.new(@builder, subject: subject, poses: @tile_pictures,
                                  colors_for: ->(steps) { steps.map { |step| colors_of_step(step) } }).reads(node)
@@ -608,7 +608,7 @@ module RubyGBA
       # set once at power-on; the same number written anywhere else is a write this frame
       # makes, and stays where the author put it.
       def write_turn(var, value, declaring)
-        return @builder.background_starts_at(var, value) if declaring
+        return @builder.set_at_boot(var, value) if declaring
 
         record(Build.set(var, Build.int(value)))
       end
@@ -657,7 +657,7 @@ module RubyGBA
       # drops these once it knows the program has a frame boundary to move them to.
       def apply
         node = record(Build.scroll_background(@name, x: Build.var_ref(@scroll_x), y: Build.var_ref(@scroll_y)))
-        @builder.scroll_each_frame(@name, @scroll_x, @scroll_y, node)
+        @builder.defer_scroll_write(@name, @scroll_x, @scroll_y, node)
         self
       end
 

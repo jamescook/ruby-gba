@@ -15,7 +15,7 @@ class TestAffineBackground < Minitest::Test
   def interpret(&block)
     builder = Builder.new
     builder.instance_eval(&block)
-    builder.emit_pending_functions
+    builder.finalize_program
     Reference.new.run(builder.program)
   end
 
@@ -83,7 +83,7 @@ class TestAffineBackground < Minitest::Test
   # The affine matrix is read live every frame, whether a program reaches it
   # through `rotate`/`scale` or mutates the underlying angle/scale Value directly
   # (`board.scale.approach!`, the same idiom a sprite's size already supports) — see
-  # Builder#affine_each_frame, registered once a background is made affine at all.
+  # Builder#defer_affine_write, registered once a background is made affine at all.
   def test_a_directly_mutated_scale_value_still_takes_effect
     map = marked_map({ [25, 10] => "#", [20, 10] => "$" })
     i = interpret do
@@ -162,7 +162,7 @@ class TestAffineBackground < Minitest::Test
       board.scale(scale) if scale
       game_loop { wait_vblank }
     end
-    builder.emit_pending_functions
+    builder.finalize_program
     builder.program
   end
 
@@ -225,7 +225,7 @@ class TestAffineBackground < Minitest::Test
       background(:board, tiles: :t, map: map).turns_around(x, y).scale(2.0)
       game_loop { wait_vblank }
     end
-    builder.emit_pending_functions
+    builder.finalize_program
     builder.program
   end
 
@@ -267,7 +267,7 @@ class TestAffineBackground < Minitest::Test
         board.rotate(0)
         game_loop { wait_vblank }
       end
-      builder.emit_pending_functions
+      builder.finalize_program
       Reference.new.run(builder.program, frames: 4).screen
     end
 
@@ -298,7 +298,7 @@ class TestAffineBackground < Minitest::Test
       end
       game_loop { case_var(:state) { when_val 0, :title } }
     end
-    builder.emit_pending_functions
+    builder.finalize_program
     i = Reference.new.run(builder.program, frames: 8)
 
     # Eased back to its drawn size, the mark is where it was drawn: column 20 of the map
@@ -385,7 +385,7 @@ class TestAffineBackground < Minitest::Test
       background(:board, tiles: :t, map: map).scale(2.0)
       game_loop { wait_vblank }
     end
-    builder.emit_pending_functions
+    builder.finalize_program
     builder.program
   end
 
@@ -414,7 +414,7 @@ class TestAffineBackground < Minitest::Test
       board = background(:board, tiles: :t, map: map).scale(4.0)
       game_loop { board.scale.approach! 1.0, 1.0 }
     end
-    builder.emit_pending_functions
+    builder.finalize_program
     builder.program
   end
 
@@ -461,7 +461,7 @@ class TestAffineBackground < Minitest::Test
 
       game_loop { case_var(:state) { when_val 0, :zoomed; when_val 1, :away } }
     end
-    builder.emit_pending_functions
+    builder.finalize_program
     builder.program
   end
 

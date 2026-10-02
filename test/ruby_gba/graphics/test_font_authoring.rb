@@ -21,7 +21,7 @@ class TestFontAuthoring < Minitest::Test
   def interpret(&block)
     b = Builder.new
     b.instance_eval(&block)
-    b.emit_pending_functions
+    b.finalize_program
     Reference.new.run(b.program).screen
   end
 
@@ -192,7 +192,7 @@ class TestFontAuthoring < Minitest::Test
         halt
       end
     end
-    b.emit_pending_functions
+    b.finalize_program
     s = Reference.new.run(b.program, max_steps: 500).screen
     assert_equal Color.resolve(:white), s.pixel(100, 20), "the one lit corner of the glyph"
   end
@@ -223,7 +223,7 @@ class TestFontAuthoring < Minitest::Test
       draw_text "A", 40, 40, :red, font: :plus
       halt
     end
-    builder.emit_pending_functions
+    builder.finalize_program
     rom = ROM.assemble(GBA.new.lower(builder.program), title: "FONTPIC", code: "BFPC", maker: "01")
     v = assert_emulator_loads_rom(rom, frames: 2)
     assert v.red?(41, 40), "the plus's top arm"
@@ -246,7 +246,7 @@ class TestFontAuthoring < Minitest::Test
       draw_text "A", 40, 40, :red, font: :plus
       halt
     end
-    builder.emit_pending_functions
+    builder.finalize_program
     rom = ROM.assemble(GBA.new.lower(builder.program), title: "FONTDEF", code: "BFDF", maker: "01")
     v = assert_emulator_loads_rom(rom, frames: 2)
     assert v.red?(41, 40), "the plus's top arm"   # (.#.) middle column, row 0

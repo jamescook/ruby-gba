@@ -35,7 +35,7 @@ class TestMusicKeepsTime < Minitest::Test
         instance_exec(pass, &loop_body)
       end
     end
-    b.emit_pending_functions
+    b.finalize_program
     b.program
   end
 
@@ -93,7 +93,7 @@ class TestMusicKeepsTime < Minitest::Test
         ((pass >= 16) & (pass < 22)).then { play_song :second }.else { play_song :first }
       end
     end
-    b.emit_pending_functions
+    b.finalize_program
     b.program
   end
 
@@ -121,7 +121,7 @@ class TestMusicKeepsTime < Minitest::Test
         ((pass >= 5) & (pass < 8)).then { stop_music }.else { play_song :scale }
       end
     end
-    b.emit_pending_functions
+    b.finalize_program
     i = Reference.new.run(b.program, frames: 12)
 
     assert_equal [:note, :stop_music, :note], i.audio.filter_map { |e| e[0] if %i[note stop_music].include?(e[0]) },
@@ -142,7 +142,7 @@ class TestMusicKeepsTime < Minitest::Test
       end
       game_loop { stop_music }
     end
-    b.emit_pending_functions
+    b.finalize_program
     i = Reference.new.run(b.program, frames: 10)
 
     assert_empty i.audio.select { |e| e[0] == :stop_music }
@@ -179,7 +179,7 @@ class TestMusicKeepsTime < Minitest::Test
         repeat(burn) { spin.add! 1 }
       end
     end
-    b.emit_pending_functions
+    b.finalize_program
     b.program
   end
 
@@ -230,7 +230,7 @@ class TestMusicKeepsTime < Minitest::Test
         (passes < 20).then { play_song :drone }.else { stop_music }
       end
     end
-    b.emit_pending_functions
+    b.finalize_program
     rom = ROM.assemble(backend.lower(b.program), title: "MUSSTOP", code: "ZMSS", maker: "01")
     energy = assert_emulator_loads_rom(rom, frames: 40).audio_energy_by_frame
     loud = energy.max / 4
@@ -260,7 +260,7 @@ class TestMusicKeepsTime < Minitest::Test
         end
       end
     end
-    b.emit_pending_functions
+    b.finalize_program
     rom = ROM.assemble(backend.lower(b.program), title: "MUSBEEP", code: "ZMSB", maker: "01")
     console = assert_emulator_loads_rom(rom, frames: 20)
     energy = console.audio_energy_by_frame

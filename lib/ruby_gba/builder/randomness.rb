@@ -54,7 +54,7 @@ module RubyGBA
       #
       # @param n [Integer, Symbol, Value] the stream's new starting point
       def seed(n)
-        use_rng!
+        mark_rng_used
         record(Build.set(RNG_STATE, DSL::Value.node_for(n)))
         ensure_var(n)
       end
@@ -72,15 +72,15 @@ module RubyGBA
       #     if_pressed(:start) { call :new_game }  # start from wherever it landed
       #   end
       def randomize
-        use_rng!
-        churn_rng
+        mark_rng_used
+        emit_rng_step
       end
 
       # The stream itself, for a save_data record to keep: `keep hearts, random_numbers`.
       # A load then puts the stream back where the save found it, so the rolls after a load
       # are the rolls there would have been. See DSL::RandomNumbers.
       def random_numbers
-        use_rng!
+        mark_rng_used
         DSL::RandomNumbers.new(RNG_STATE)
       end
 
@@ -96,9 +96,9 @@ module RubyGBA
       # @return [Value] a handle to the variable, so calls can chain
       def roll(name, range)
         lo, width = range_bounds(range)
-        use_rng!
+        mark_rng_used
         ensure_var(name)
-        churn_rng
+        emit_rng_step
         # Take the random high bits of the state, fold them non-negative, then fit
         # them into the range: value = (high mod width) + lo.
         record(Build.set(name, Build.binop(:/, Build.var_ref(RNG_STATE), Build.int(RNG_HIGH_DIV))))
@@ -143,14 +143,14 @@ module RubyGBA
 
       # Note that the program draws random numbers, and make sure the stream's state
       # variable exists. The one-time seed at boot is added by #initialize_rng_stream.
-      def use_rng!
+      def mark_rng_used
         @prng_used = true
         ensure_var(RNG_STATE)
       end
 
       # Churn the stream to its next state: state = state * MULT + INC (wrapping past
       # 32 bits — that overflow is what scrambles it).
-      def churn_rng
+      def emit_rng_step
         step = Build.binop(:+, Build.binop(:*, Build.var_ref(RNG_STATE), Build.int(RNG_MULT)), Build.int(RNG_INC))
         record(Build.set(RNG_STATE, step))
       end

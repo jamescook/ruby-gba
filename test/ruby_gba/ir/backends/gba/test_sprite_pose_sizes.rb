@@ -50,7 +50,7 @@ class TestSpritePoseSizes < Minitest::Test
       sprite :hero, at: [40, 30], frames: names, rate: rate
       game_loop {}
     end
-    builder.emit_pending_functions
+    builder.finalize_program
     builder.program
   end
 

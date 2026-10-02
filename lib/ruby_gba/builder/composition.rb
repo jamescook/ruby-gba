@@ -118,7 +118,7 @@ module RubyGBA
       # A walk of +pool+ wrote down which instance it is on. Kept so the writes can be taken
       # out again if no routine of that pool ever reads them, and so the calls inside the walk
       # can be told from the calls outside it.
-      def note_pool_walk(pool, *nodes)
+      def record_walk_instance_writes(pool, *nodes)
         (@pool_walks ||= []) << [pool, nodes]
       end
 
@@ -246,7 +246,7 @@ module RubyGBA
         reject_two_pool_pose_sources!(name, image: image, facing: facing, frames: frames)
         return nil unless image || posed
 
-        spriteful_pool!(name, fields)
+        refuse_unspritable_pool!(name, fields)
         return single_picture_art(name, image) unless posed
 
         validate_animation!(name, facing, frames, rate, subject: "pool")
@@ -349,7 +349,7 @@ module RubyGBA
 
       # A pool whose instances draw themselves is a pool of hardware sprites, so it needs
       # a tiled screen and x/y position fields to place them by.
-      def spriteful_pool!(name, fields)
+      def refuse_unspritable_pool!(name, fields)
         unless @screen_mode == :tiled
           raise ArgumentError,
                 "pool :#{name} draws its instances, so they are hardware sprites. Hardware sprites need a " \
@@ -379,7 +379,7 @@ module RubyGBA
           node = Build.object(name, poses: art.poses, pose: pool.pose_node(slot),
                                     x: Build.list_get(pool.field_list(:x), Build.int(slot)),
                                     y: Build.list_get(pool.field_list(:y), Build.int(slot)),
-                                    active: scene_gate(Build.list_get(pool.active_list, Build.int(slot))),
+                                    active: gated_by_scene(Build.list_get(pool.active_list, Build.int(slot))),
                                     scene: declaring_scene, declared: pool.name)
           record(node)
           pool.slot_objects << node

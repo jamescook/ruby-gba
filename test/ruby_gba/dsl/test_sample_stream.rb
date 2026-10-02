@@ -46,7 +46,7 @@ class TestSampleStream < Minitest::Test
       music.play(loop: true)
       game_loop { wait_vblank }
     end
-    b.emit_pending_functions
+    b.finalize_program
     rom = ROM.assemble(GBA.new.lower(b.program), title: "STRM", code: "BSTR", maker: "01")
     v = assert_emulator_loads_rom(rom, frames: 6)
     assert v.sound?, "a long streamed clip should play real audio (energy #{v.audio_energy})"

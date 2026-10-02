@@ -53,7 +53,7 @@ class TestSpriteMirror < Minitest::Test
       sprite :hero, at: at, frames: names, rate: rate
       game_loop {}
     end
-    builder.emit_pending_functions
+    builder.finalize_program
     builder.program
   end
 
@@ -169,7 +169,7 @@ class TestSpriteMirror < Minitest::Test
       guards.spawn x: 120, y: 40
       game_loop { guards.each { |g| g.face :left } }
     end
-    builder.emit_pending_functions
+    builder.finalize_program
 
     assert_backends_agree(builder.program, frames: 8)
   end
@@ -197,7 +197,7 @@ class TestSpriteMirror < Minitest::Test
       hero.face_angle 30
       game_loop {}
     end
-    builder.emit_pending_functions
+    builder.finalize_program
 
     assert_backends_agree(builder.program, frames: 12)
   end

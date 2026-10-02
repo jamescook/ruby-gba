@@ -56,7 +56,7 @@ class TestIRGuardrailEmptyTiled < Minitest::Test
         fill_rect 100, 70, 40, 20, :red
       end
     end
-    builder.emit_pending_functions
+    builder.finalize_program
     rom = ROM.assemble(GBA.new.lower(builder.program), title: "DRAWN", code: "BDRW", maker: "01")
 
     v = assert_emulator_loads_rom(rom, frames: 4)
@@ -86,7 +86,7 @@ class TestIRGuardrailEmptyTiled < Minitest::Test
         halt
       end
     end
-    builder.emit_pending_functions
+    builder.finalize_program
     rom = ROM.assemble(GBA.new.lower(builder.program), title: "FILLED", code: "BFIL", maker: "01")
 
     v = assert_emulator_loads_rom(rom, frames: 4)
@@ -150,7 +150,7 @@ class TestIRGuardrailEmptyTiled < Minitest::Test
       draw_text "HELLO", 40, 40, :white
       game_loop { wait_vblank }
     end
-    builder.emit_pending_functions
+    builder.finalize_program
 
     report = validator.run(builder.program, autofix: false)
     assert report.ok?, "tiled text draws as sprite glyphs, so the screen is not blank"

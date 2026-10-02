@@ -175,7 +175,7 @@ class TestBufferedMode4 < Minitest::Test
       wait_vblank
       halt
     end
-    b.emit_pending_functions
+    b.finalize_program
     prog = b.program
 
     rom = assemble_rom(prog, name: "SCORE")

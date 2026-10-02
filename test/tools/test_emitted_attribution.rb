@@ -18,7 +18,7 @@ class TestEmittedAttribution < Minitest::Test
   def measure(&block)
     b = Builder.new
     b.instance_eval(&block)
-    b.emit_pending_functions
+    b.finalize_program
     Attribution.measure(GBA, b.program)
   end
 
@@ -143,7 +143,7 @@ class TestEmittedAttribution < Minitest::Test
         fill_rect 10, 10, 20, 20, :red
       end
     end
-    b.emit_pending_functions
+    b.finalize_program
     program = b.program
 
     plain = GBA.new.lower(program)
@@ -167,7 +167,7 @@ class TestEmittedAttribution < Minitest::Test
         fill_rect 10, 10, 20, 20, :red
       end
     end
-    b.emit_pending_functions
+    b.finalize_program
     program = b.program
 
     watched = Class.new(GBA) { prepend EmittedAttribution::Recorder }.new

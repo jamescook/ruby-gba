@@ -11,12 +11,12 @@ class TestBuilderIR < Minitest::Test
 
   # Build through the DSL and hand back the IR tree it constructed. Functions are
   # deferred in the DSL (so call/func order is free), so their bodies are only
-  # evaluated — and recorded — when emit_pending_functions runs, just like a real
+  # evaluated — and recorded — when finalize_program runs, just like a real
   # build does.
   def tree(&block)
     builder = Builder.new
     builder.instance_eval(&block)
-    builder.emit_pending_functions
+    builder.finalize_program
     builder.program
   end
 

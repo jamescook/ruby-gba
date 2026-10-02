@@ -54,7 +54,7 @@ class TestMixerKeepsTime < Minitest::Test
         repeat(burn) { spin.add! 1 }
       end
     end
-    b.emit_pending_functions
+    b.finalize_program
     b.program
   end
 
@@ -132,7 +132,7 @@ class TestMixerKeepsTime < Minitest::Test
         sample(:v, pcm: [100, -100] * 400, rate: rate).play(loop: true)
         game_loop { passes.add! 1 }
       end
-      b.emit_pending_functions
+      b.finalize_program
       rom = ROM.assemble(backend.lower(b.program), title: "MIXBOOT", code: "ZMXB", maker: "01")
       console = assert_emulator_loads_rom(rom, frames: 30, vars: backend.var_addresses)
 

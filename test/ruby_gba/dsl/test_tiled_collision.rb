@@ -26,7 +26,7 @@ class TestTiledCollision < Minitest::Test
       hero.blocked_by room
       instance_exec(hero, &body)
     end
-    builder.emit_pending_functions
+    builder.finalize_program
     builder.program
   end
 

@@ -35,7 +35,7 @@ class TestTiledBackground < Minitest::Test
         BR
       MAP
     end
-    b.emit_pending_functions
+    b.finalize_program
     b.program
   end
 
@@ -76,7 +76,7 @@ class TestTiledBackground < Minitest::Test
       end
       background :field, tiles: :set, map: map # the same name again
     end
-    b.emit_pending_functions
+    b.finalize_program
 
     body = b.program.walk.find { |node| node.kind == :loop }.children.map(&:kind)
     assert_equal 1, body.index(:scroll_background),
@@ -94,7 +94,7 @@ class TestTiledBackground < Minitest::Test
       tiles :sparse, "R" => :red_tile
       background :spots, tiles: :sparse, map: ["R ", " R"] # a space = empty cell
     end
-    b.emit_pending_functions
+    b.finalize_program
     i = Reference.new.run(b.program)
     assert_equal Color.resolve(:red),   i.screen.pixel(0, 0), "cell (0,0) has a tile"
     assert_equal Color.resolve(:green), i.screen.pixel(4, 0), "cell (1,0) is blank — the field shows"
@@ -152,7 +152,7 @@ class TestTiledBackground < Minitest::Test
       tiles :set, "R" => :small
       background :bg, tiles: :set, map: "R"
     end
-    b.emit_pending_functions
+    b.finalize_program
     err = assert_raises(GBA::LoweringError) { GBA.new.lower(b.program) }
     assert_match(/8x8 tiles/, err.message)
   end
@@ -172,7 +172,7 @@ class TestTiledBackground < Minitest::Test
       background :board, tiles: :checker, map: "RB\nBR"
       halt
     end
-    b.emit_pending_functions
+    b.finalize_program
     rom = ROM.assemble(GBA.new.lower(b.program), title: "TILES", code: "BTIL", maker: "01")
     v = assert_emulator_loads_rom(rom, frames: 2)
     assert v.red?(1, 1),  "the red tile renders in cell (0,0)"

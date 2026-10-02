@@ -20,7 +20,7 @@ class TestPreviewTool < Minitest::Test
         clear_screen :red
       end
     end
-    b.emit_pending_functions
+    b.finalize_program
     b.program
   end
 
@@ -50,7 +50,7 @@ class TestPreviewTool < Minitest::Test
         draw_rect_at x, 10, 4, 4, :red
       end
     end
-    b.emit_pending_functions
+    b.finalize_program
     prog = b.program
 
     red = Color.resolve(:red)

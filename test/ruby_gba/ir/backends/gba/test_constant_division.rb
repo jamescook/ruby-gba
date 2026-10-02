@@ -91,7 +91,7 @@ class TestConstantDivision < Minitest::Test
       end
       halt
     end
-    builder.emit_pending_functions
+    builder.finalize_program
     builder.program
   end
 
@@ -135,7 +135,7 @@ class TestConstantDivision < Minitest::Test
   def program_for(&block)
     builder = Builder.new
     builder.instance_eval(&block)
-    builder.emit_pending_functions
+    builder.finalize_program
     builder.program
   end
 

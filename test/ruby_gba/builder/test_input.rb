@@ -146,7 +146,7 @@ class TestInput < Minitest::Test
       pressed(:start).then { before_the_loop.set! 1 }
       game_loop { pressed(:start).then { presses.add! 1 } }
     end
-    builder.emit_pending_functions
+    builder.finalize_program
     builder.program
   end
 
@@ -179,7 +179,7 @@ class TestInput < Minitest::Test
         pressed(:a).then { presses.add! 1 }
       end
     end
-    builder.emit_pending_functions
+    builder.finalize_program
     builder.program
   end
 
@@ -222,7 +222,7 @@ class TestInput < Minitest::Test
       repeat(20) { clear_screen :blue }
       game_loop { pressed(:a).then { presses.add! 1 } }
     end
-    builder.emit_pending_functions
+    builder.finalize_program
     builder.program
   end
 

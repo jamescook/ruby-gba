@@ -15,7 +15,7 @@ class TestAnalyzer < Minitest::Test
   def measure(&block)
     b = Builder.new
     b.instance_eval(&block)
-    b.emit_pending_functions
+    b.finalize_program
     rom = ROM.assemble(GBA.new.lower(b.program), title: "ANLZ", code: "BANL", maker: "01")
     Dir.mktmpdir do |dir|
       path = File.join(dir, "a.gba")
@@ -73,7 +73,7 @@ class TestAnalyzer < Minitest::Test
       screen :bitmap
       game_loop { wait_vblank }
     end
-    b.emit_pending_functions
+    b.finalize_program
     fps = Analyzer.measure_fps(b.program)
     assert_in_delta 60, fps, 6, "a loop that waits each frame runs at ~60fps"
   end
@@ -95,7 +95,7 @@ class TestAnalyzer < Minitest::Test
         end
       end
     end
-    b.emit_pending_functions
+    b.finalize_program
     dispatch = Analyzer.scenes(b.program)
     assert_equal :state, dispatch[:selector]
     assert_equal({ title: 0, play: 1 }, dispatch[:scenes])
@@ -113,7 +113,7 @@ class TestAnalyzer < Minitest::Test
       scene(:b) { clear_screen :blue }
       game_loop { wait_vblank }
     end
-    b.emit_pending_functions
+    b.finalize_program
     program = Analyzer.boot_into(b.program, :state, 1)
     last = program.children.select { |n| n.kind == :set && n.var == :state }.last
     assert_equal 1, last.value.value, "the last boot set of the selector wins, at the target scene"
@@ -126,7 +126,7 @@ class TestAnalyzer < Minitest::Test
       scene(:a) { clear_screen :red }
       game_loop { wait_vblank }
     end
-    b.emit_pending_functions
+    b.finalize_program
     err = assert_raises(ArgumentError) { Analyzer.boot_into(b.program, :state, 0) }
     assert_match(/never sets its scene variable/, err.message)
   end
@@ -137,7 +137,7 @@ class TestAnalyzer < Minitest::Test
       screen :bitmap
       game_loop { wait_vblank }
     end
-    b.emit_pending_functions
+    b.finalize_program
     assert_nil Analyzer.scenes(b.program)
   end
 
@@ -163,7 +163,7 @@ class TestAnalyzer < Minitest::Test
       end
       game_loop { }
     end
-    b.emit_pending_functions
+    b.finalize_program
     program = b.program
 
     rom = ROM.assemble(GBA.new.lower(program), title: "ANLZ", code: "BANL", maker: "01")
@@ -229,7 +229,7 @@ class TestAnalyzer < Minitest::Test
       screen :bitmap
       game_loop { wait_vblank }
     end
-    b.emit_pending_functions
+    b.finalize_program
 
     assert_nil Analyzer.measure_program(b.program).per_pass
   end
@@ -242,7 +242,7 @@ class TestAnalyzer < Minitest::Test
     b.instance_eval { screen :bitmap }
     body = proc { clears.times { b.clear_screen :blue } }
     b.instance_eval { game_loop(&body) }
-    b.emit_pending_functions
+    b.finalize_program
     Analyzer.measure_saturated(b.program)
   end
 
@@ -291,7 +291,7 @@ class TestAnalyzer < Minitest::Test
       n = var :n, 0
       game_loop { n.add! 1 }
     end
-    b.emit_pending_functions
+    b.finalize_program
     b.program
   end
 
@@ -304,7 +304,7 @@ class TestAnalyzer < Minitest::Test
       scene(:play) { clear_screen :red }
       game_loop { case_var(:state) { when_val 0, :title; when_val 1, :play } }
     end
-    b.emit_pending_functions
+    b.finalize_program
     b.program
   end
 end

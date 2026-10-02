@@ -151,7 +151,7 @@ class TestImageImport < Minitest::Test
       blit :photo, x, y
       halt
     end
-    builder.emit_pending_functions
+    builder.finalize_program
     builder.program
   end
 
@@ -191,7 +191,7 @@ class TestImageImport < Minitest::Test
       blit :head, x, y
       halt
     end
-    builder.emit_pending_functions
+    builder.finalize_program
     builder.program
   end
 

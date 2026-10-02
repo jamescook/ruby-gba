@@ -28,7 +28,7 @@ class TestRandom < Minitest::Test
   def tree(&block)
     builder = Builder.new
     builder.instance_eval(&block)
-    builder.emit_pending_functions
+    builder.finalize_program
     builder.program
   end
 
@@ -226,7 +226,7 @@ class TestRandom < Minitest::Test
         end
       end
     end
-    builder.emit_pending_functions
+    builder.finalize_program
     builder.program
   end
 
@@ -337,7 +337,7 @@ class TestRandom < Minitest::Test
       draw_rect_at :x, :y, 4, 4, :red
       halt
     end
-    builder.emit_pending_functions
+    builder.finalize_program
     builder.program
   end
 
