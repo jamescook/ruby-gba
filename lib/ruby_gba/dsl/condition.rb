@@ -73,7 +73,7 @@ module RubyGBA
         end
 
         @builder.consume_condition(self)
-        usually, per = Condition.how_often(estimate)
+        usually, per = Condition.parse_estimate(estimate)
         if_node = @builder.record_conditional(@node, runs: usually, per: per, &block)
         Branch.new(@builder, if_node)
       end
@@ -81,7 +81,7 @@ module RubyGBA
       # Read `estimate: { usually: N, in: M }` — the block runs about N times in every M
       # frames. `in:` left out means one frame, so `usually: 0` is "not on a normal frame"
       # and `usually: 1` is "every frame", which is what an unsaid condition already counts.
-      def self.how_often(estimate)
+      def self.parse_estimate(estimate)
         return [nil, nil] if estimate.nil?
 
         unless estimate.is_a?(Hash)
@@ -99,11 +99,11 @@ module RubyGBA
           raise ArgumentError, "`estimate:` needs `usually:`, like `estimate: { usually: 0 }`."
         end
         per = estimate.fetch(:in, 1)
-        check_how_often(runs, per)
+        validate_estimate!(runs, per)
         [runs, per]
       end
 
-      def self.check_how_often(runs, per)
+      def self.validate_estimate!(runs, per)
         unless runs.is_a?(Integer) && runs >= 0
           raise ArgumentError,
                 "`usually:` says how many frames in every `in:` run the block. " \
@@ -120,7 +120,7 @@ module RubyGBA
               "`usually: #{runs}, in: #{per}` says the block runs more often than every frame. " \
               "A block cannot run #{runs} times in #{per}. Give `usually:` #{per} or less."
       end
-      private_class_method :check_how_often
+      private_class_method :validate_estimate!
 
       private
 

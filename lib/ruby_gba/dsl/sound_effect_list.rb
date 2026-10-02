@@ -18,13 +18,13 @@ module RubyGBA
       # Play effect +which+: a name the list was given, a number counting from 0, or a number the
       # game works out as it runs. Returns self.
       def play(which)
-        @builder.play_sound_effect(@name, number(which))
+        @builder.play_sound_effect(@name, entry_number(which))
         self
       end
 
       private
 
-      def entry = "sound effect"
+      def entry_noun = "sound effect"
     end
   end
 end

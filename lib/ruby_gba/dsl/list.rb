@@ -94,7 +94,7 @@ module RubyGBA
       # How many items the list holds right now, as a Value. A COUNT, so it never carries a
       # fraction however much the items do — half an item is not a thing.
       def length
-        value_at(Build.list_len(@name))
+        whole_value(Build.list_len(@name))
       end
 
       # The first item (index 0), as a Value.
@@ -124,26 +124,26 @@ module RubyGBA
 
       # Wrap a list value node (get/length) in a Value handle so it composes with the
       # expression DSL.
-      def value_at(node)
+      def whole_value(node)
         Value.new(@builder, node)
       end
 
       # ...and the same for an ITEM, which carries whatever fraction the list holds.
       def item_value(node)
         Value.new(@builder, node, fraction_bits: @fraction_bits,
-                                  declaring: declaring, mixing: mixing)
+                                  declaring: fraction_declaration_advice, mixing: mixed_kinds_advice)
       end
 
       # How to make THIS list hold fractions, for the error somebody gets when they put a
       # number with one into a list of whole numbers.
-      def declaring
-        @declaring ||= ->(other) { "add `holds: #{other}` where `list :#{@name}` is declared" }
+      def fraction_declaration_advice
+        @fraction_declaration_advice ||= ->(other) { "add `holds: #{other}` where `list :#{@name}` is declared" }
       end
 
       # ...and how to say the other mismatch, where the number and the list are two kinds.
       # A list has no left and right side, so the wording a plain operator uses does not fit.
-      def mixing
-        @mixing ||= lambda { |list_holds_fraction|
+      def mixed_kinds_advice
+        @mixed_kinds_advice ||= lambda { |list_holds_fraction|
           holds, given = if list_holds_fraction
                            ["numbers with a fraction", "a whole number the game works out"]
                          else
@@ -165,7 +165,7 @@ module RubyGBA
       # own. Asked directly rather than through a throwaway Value, so pushing onto a list
       # does not look like an expression somebody built and dropped.
       def item_scale
-        @item_scale ||= Scale.new(bits: @fraction_bits, declaring: declaring, mixing: mixing)
+        @item_scale ||= Scale.new(bits: @fraction_bits, declaring: fraction_declaration_advice, mixing: mixed_kinds_advice)
       end
     end
   end

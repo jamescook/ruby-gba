@@ -88,7 +88,7 @@ module RubyGBA
       end
 
       # A POOL, OR ONE FIELD OF ONE, is kept as the lists and variables it is made of, which
-      # are only all known once the program is built (see DSL::Pool#whole_state) — so it is
+      # are only all known once the program is built (see DSL::Pool#saved_lists_and_vars) — so it is
       # held as it is until the record is laid out. Kept twice is refused here, where the
       # game wrote it: a whole pool claims each of its fields, so a field kept elsewhere
       # clashes with it too.
@@ -110,7 +110,7 @@ module RubyGBA
       # What a pool, or one field of one, is kept as, now that the program is built: each list
       # at the width and length it was made with, and each variable as a word.
       def pool_items(thing)
-        lists, vars = thing.is_a?(DSL::Pool) ? thing.whole_state : [[thing.pool.field_list(thing.field)], []]
+        lists, vars = thing.is_a?(DSL::Pool) ? thing.saved_lists_and_vars : [[thing.pool.field_list(thing.field)], []]
         lists.map { |name| kept_list(name) } +
           vars.map { |name| Kept.new(kind: :var, name: name, at: 0, width: :word, count: 1) }
       end

@@ -24,8 +24,8 @@ module RubyGBA
       # sides are named the way the author would write them, and a side with no name to give — an
       # expression worked out on the spot — leaves the advice out rather than describing itself.
       def operator_advice(left, operator, right, handles: false)
-        left = spelled(left)
-        right = spelled(right)
+        left = as_source_text(left)
+        right = as_source_text(right)
         return "" if operator.nil? || left.nil? || right.nil?
 
         tail = handles ? " with the handles that `var` gives you" : ""
@@ -34,7 +34,7 @@ module RubyGBA
 
       # An operand as the author would write it: a variable by its own name, a number as itself.
       # Nil for anything else, which has no name to be written by.
-      def spelled(operand)
+      def as_source_text(operand)
         case operand
         when nil then nil
         when Symbol then operand.to_s

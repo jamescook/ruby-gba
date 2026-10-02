@@ -91,10 +91,10 @@ module RubyGBA
         Value.new(@builder, @saves.save_data_state_after_jobs(@layout, @copy), names: names)
       end
 
-      def good? = is?(:good)
-      def empty? = is?(:empty)
-      def erased? = is?(:erased)
-      def damaged? = is?(:damaged)
+      def good? = state_is?(:good)
+      def empty? = state_is?(:empty)
+      def erased? = state_is?(:erased)
+      def damaged? = state_is?(:damaged)
 
       # A variable the record keeps, as this copy holds it — read from save memory, with the
       # game's own state left alone. A file-select screen shows each file's hearts this way.
@@ -112,7 +112,7 @@ module RubyGBA
 
       private
 
-      def is?(name)
+      def state_is?(name)
         Condition.new(@builder, Build.binop(:==, @saves.save_data_state_after_jobs(@layout, @copy),
                                             Build.int(IR::SaveLayout::STATES.index(name))))
       end
@@ -131,15 +131,15 @@ module RubyGBA
         super(builder, saves.peek_stand_in(layout, copy, name, :number))
       end
 
-      def [](index) = list_reading(:item, index: Value.node_for(index))
+      def [](index) = peek_list_value(:item, index: Value.node_for(index))
 
-      def length = list_reading(:length)
+      def length = peek_list_value(:length)
 
       private
 
       # Read as a list, the number this stands for is not the reading, so it is no expression
       # somebody forgot to keep.
-      def list_reading(shape, index: nil)
+      def peek_list_value(shape, index: nil)
         @builder.expressions.delete(self) if @builder.respond_to?(:expressions)
         Value.new(@builder, @saves.peek_stand_in(@layout, @copy, @kept_name, shape, index: index))
       end

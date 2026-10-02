@@ -52,7 +52,7 @@ module RubyGBA
           # site, and there is no node in the tree to point at. Standalone so the message
           # is easy to assert.
           def self.finding(value)
-            return Finding.new(check: NAME, severity: :error, message: changing_message(value), node: value) if value.changing
+            return Finding.new(check: NAME, severity: :error, message: changing_message(value), node: value) if value.bang_spelling
 
             message =
               "You worked out a number and then did nothing with it. So the program is " \
@@ -69,10 +69,10 @@ module RubyGBA
           # line of its own changed d once; now it works out a new number and changes nothing,
           # so the likeliest meaning is the `!` form, and the message says it by name.
           def self.changing_message(value)
-            bare = value.changing.delete("!")
+            bare = value.bang_spelling.delete("!")
             "`#{bare}` works out a new number and leaves the variable as it is. Nothing uses " \
               "that number here, so this line does nothing. A word that changes a variable ends " \
-              "in `!`. To change the variable, write `#{value.changing}`."
+              "in `!`. To change the variable, write `#{value.bang_spelling}`."
           end
         end
       end
