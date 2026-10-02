@@ -533,7 +533,7 @@ module RubyGBA
       def glyph_image(font_name, char, color)
         @glyph_images[[font_name, char, color]] ||= begin
           font = IR::FontTable.of(@program).get(font_name)
-          fits_a_glyph_tile!(font_name, font)
+          fits_glyph_tile!(font_name, font)
           data = Array.new(HUD_GLYPH_PX * HUD_GLYPH_PX, Images::TRANSPARENT_PIXEL)
           font.each_pixel(char.to_s) { |dx, dy| data[(dy * HUD_GLYPH_PX) + dx] = color }
           name = :"__glyph#{@glyph_images.size}"
@@ -558,7 +558,7 @@ module RubyGBA
       # isn't wired up yet — so say so plainly rather than clip the glyph. An imported
       # font is usually too big because of one or two wide characters, so name the widest
       # one: that is what a person has to look at.
-      def fits_a_glyph_tile!(font_name, font)
+      def fits_glyph_tile!(font_name, font)
         return if font.cell_w <= HUD_GLYPH_PX && font.height <= HUD_GLYPH_PX
 
         widest = font.widest_character

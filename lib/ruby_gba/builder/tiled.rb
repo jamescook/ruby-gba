@@ -330,9 +330,9 @@ module RubyGBA
         background = declared_background(name)
         return [background.angle, background.scale] if background.turns_each_frame?
 
-        refuse_turning_without_a_tile_screen!(name)
-        refuse_turning_a_scrolled_background!(name)
-        refuse_turning_a_recolored_background!(name)
+        refuse_turning_without_tile_screen!(name)
+        refuse_turning_scrolled_background!(name)
+        refuse_turning_recolored_background!(name)
 
         background.node.affine = true
         angle_var = :"__bg_#{name}_angle"
@@ -392,7 +392,7 @@ module RubyGBA
       # layer's cells hold a tile number and nothing else, so its tiles read the whole table
       # instead — there is no group of its own to write, and writing the table would recolour
       # everything on screen.
-      def refuse_coloring_a_turning_background!(name)
+      def refuse_coloring_turning_background!(name)
         return unless background_turns?(name)
 
         raise ArgumentError,
@@ -401,7 +401,7 @@ module RubyGBA
               "own. To fix this, give other colors to a background that does not turn."
       end
 
-      def refuse_turning_a_recolored_background!(name)
+      def refuse_turning_recolored_background!(name)
         return unless declared_background(name).draws_with_colors?
 
         raise ArgumentError,
@@ -410,7 +410,7 @@ module RubyGBA
               "To fix this, turn a different background, or stop giving :#{name} other colors."
       end
 
-      def refuse_turning_a_scrolled_background!(name)
+      def refuse_turning_scrolled_background!(name)
         background = declared_background(name)
         moves = if background.scrolls? then "scrolls"
                 elsif background.bends_rows? then "bends the rows of"
@@ -429,7 +429,7 @@ module RubyGBA
       # A raw register value leaves the mode unnamed (see Drawing#screen), and so does a
       # program that never wrote `screen` — so neither can be quoted back, and neither
       # can be told what it holds.
-      def refuse_turning_without_a_tile_screen!(name)
+      def refuse_turning_without_tile_screen!(name)
         return if IR::Modes::TILE_SCREENS.include?(@screen_mode)
 
         have = if @screen_mode

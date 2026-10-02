@@ -274,7 +274,7 @@ module RubyGBA
             # to the tiled screen, that screen's own colors have been in this table since —
             # so put the originals back, which is also what makes the remembered tint true
             # again.
-            upload_palette if @palette_tint.moves_a_color_table? && @layout.modes.crosses_display_systems?
+            upload_palette if @palette_tint.moves_color_table? && @layout.modes.crosses_display_systems?
           end
 
           # Switch the hardware into direct-color (Mode 3) and record it as live. Writing

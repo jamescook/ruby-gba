@@ -86,7 +86,7 @@ module RubyGBA
             # one whole-picture effect at a time — that is the rule the DSL states and the
             # interpreter models — so a fade puts the colors back. Only a program that
             # tints such a screen emits this, and the check inside is one compare.
-            if @palette_tint.moves_a_color_table? && @palette_tint.palette_screen?(node)
+            if @palette_tint.moves_color_table? && @palette_tint.palette_screen?(node)
               @palette_tint.emit_lift_palette_tint(@layout.modes.mode_at(node))
             end
             return emit_fade_beside_see_through(node) if @layer_blend.see_through?

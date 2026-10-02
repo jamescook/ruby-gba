@@ -79,7 +79,7 @@ module RubyGBA
       end
 
       # The first see-through layer of +program+ a fade has something to keep in, or nil.
-      def self.layer_a_fade_preserves(program)
+      def self.layer_fade_preserves(program)
         SeeThrough.layers(program).find { |layer| can_be_seen_through?(layer) }
       end
 
@@ -130,7 +130,7 @@ module RubyGBA
           modes = Modes.resolve(program)
           mark_fine_fades(fades, modes)
           mark_fine_tints(tints, modes)
-          return unless sees_through_a_layer?(program)
+          return unless sees_through_layer?(program)
 
           fades.select { |node| modes.mode_at(node) == Modes::TILED }.each do |node|
             node.under ? @blend_fades << node : @walking[node] = true
@@ -168,8 +168,8 @@ module RubyGBA
           end
         end
 
-        def sees_through_a_layer?(program)
-          !Fading.layer_a_fade_preserves(program).nil?
+        def sees_through_layer?(program)
+          !Fading.layer_fade_preserves(program).nil?
         end
       end
     end

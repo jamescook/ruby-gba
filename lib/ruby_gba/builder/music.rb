@@ -87,7 +87,7 @@ module RubyGBA
       #   end. Leave it out to read the volume instead.
       # @return [Value, nil] the volume now, when reading
       def music_volume(amount = nil)
-        level = handle_for(IR::Tunes::LEVEL)
+        level = value_handle_for(IR::Tunes::LEVEL)
         unless @music_level_declared
           var IR::Tunes::LEVEL, IR::Tunes::FULL_LEVEL
           @music_level_declared = true
@@ -101,7 +101,7 @@ module RubyGBA
           # Worked out, held in range, and only then stored: the player reads the level from the
           # screen's interrupt, which can land between any two statements, and a level stored
           # before it was held in range would sound for a frame at whatever came out.
-          wanted = handle_for(:__music_level_wanted)
+          wanted = value_handle_for(:__music_level_wanted)
           wanted.set! amount * full / 100
           wanted.clamp! 0, full
           level.set! wanted

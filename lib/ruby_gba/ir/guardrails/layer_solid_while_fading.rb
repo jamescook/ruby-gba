@@ -30,7 +30,7 @@ module RubyGBA
           PLAIN_NAME = "a see-through layer while a placed fade runs"
 
           def detect(program)
-            layer = IR::Fading.layer_a_fade_preserves(program)
+            layer = IR::Fading.layer_fade_preserves(program)
             return [] unless layer
 
             fade = IR::Fading.resolve(program).blend_fades.first

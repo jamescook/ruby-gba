@@ -179,7 +179,7 @@ module RubyGBA
           # sit anywhere, where a group has to be sixteen in a row, so the top is where they are
           # least in the way.
           def allocate_after(base)
-            wide = @pictures.reject { |picture| fits_a_bank?(picture) }
+            wide = @pictures.reject { |picture| fits_bank?(picture) }
             loop do
               spilled = try_allocation_after(base, wide)
               break if spilled.empty?
@@ -245,7 +245,7 @@ module RubyGBA
           # It terminates because every pass either finishes or moves at least one
           # picture from narrow to wide, and there are finitely many pictures.
           def allocate
-            wide = @pictures.reject { |picture| fits_a_bank?(picture) }
+            wide = @pictures.reject { |picture| fits_bank?(picture) }
             loop do
               spilled = try_allocation(wide)
               break if spilled.empty?
@@ -254,7 +254,7 @@ module RubyGBA
             end
           end
 
-          def fits_a_bank?(picture)
+          def fits_bank?(picture)
             return false if picture.wide # the caller has already settled this one
 
             picture.authored? || picture.colors.size <= BANK_COLORS

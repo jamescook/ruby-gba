@@ -260,7 +260,7 @@ module RubyGBA
 
       # Picture memory runs from a handful of bytes to tens of kilobytes, and a small sprite
       # rounded to "0.0K" says nothing. Below a kilobyte it is said in bytes.
-      def format_bytes(bytes) = bytes < 1024 ? "#{bytes} bytes" : kb(bytes)
+      def format_bytes(bytes) = bytes < 1024 ? "#{bytes} bytes" : kilobytes(bytes)
 
       # How the pictures in one area were stored, and what that saved. Said as a count of
       # pictures rather than as a bit depth: how many colours a picture uses is a fact about the
@@ -304,7 +304,7 @@ module RubyGBA
             printer.puts "    #{routine_size(placement, name)}#{Messages::PlainWords.routine(name)}"
           end
           printer.puts format("    %s of 32K used, %s free",
-                              kb(placement.used_bytes), kb(placement.free_bytes))
+                              kilobytes(placement.used_bytes), kilobytes(placement.free_bytes))
         end
         printer.puts("    #{chosen_from_line(placement)}")
         passed_over_lines(placement, program, printer)
@@ -323,9 +323,9 @@ module RubyGBA
         return if roomy.nil? || roomy.used.zero?
 
         printer.puts format("  the roomy memory (a read there waits ~%dx longer): %s of %s used, %s free",
-                            ROOMY_MEMORY_SLOWDOWN, kb(roomy.used), kb(roomy.total), kb(roomy.free))
+                            ROOMY_MEMORY_SLOWDOWN, kilobytes(roomy.used), kilobytes(roomy.total), kilobytes(roomy.free))
         roomy.collections.each do |name, bytes|
-          printer.puts format("    %8s  :%s", kb(bytes), name)
+          printer.puts format("    %8s  :%s", kilobytes(bytes), name)
         end
       end
 
@@ -345,7 +345,7 @@ module RubyGBA
 
       def routine_size(placement, name)
         bytes = placement.sizes[name]
-        bytes ? format("%8s  ", kb(bytes)) : " " * 10
+        bytes ? format("%8s  ", kilobytes(bytes)) : " " * 10
       end
 
       # ...AND WHAT DID NOT FIT, which is the actionable half. A routine the frame spends real
@@ -357,7 +357,7 @@ module RubyGBA
         placement.passed_over.first(NAMED_MISSES).each do |over|
           printer.puts format("    (%s did not fit — it needs %s and %s was left when its " \
                               "turn came, so it runs from the cartridge.%s)",
-                              Messages::PlainWords.routine(over.name), kb(over.bytes), kb(over.room),
+                              Messages::PlainWords.routine(over.name), kilobytes(over.bytes), kilobytes(over.room),
                               repeated_note(program, over))
         end
       end
@@ -434,7 +434,7 @@ module RubyGBA
         })
       end
 
-      def kb(bytes) = format("%.1fK", bytes / 1024.0)
+      def kilobytes(bytes) = format("%.1fK", bytes / 1024.0)
     end
   end
 end

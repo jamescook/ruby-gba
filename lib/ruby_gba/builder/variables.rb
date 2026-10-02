@@ -22,7 +22,7 @@ module RubyGBA
         record(Build.set(name, stored_node(name, value)))
         ensure_var(name)
         mirror_save(name)
-        handle_for(name)
+        value_handle_for(name)
       end
 
       # Declare a variable and give it a starting value. Unlike {#set} (a runtime
@@ -46,7 +46,7 @@ module RubyGBA
         ensure_var(name)
         @name_vars[name] ||= DSL::NameSet.new("the variable :#{name}") if value.is_a?(Symbol)
         at_boot(Build.set(name, stored_node(name, value)))
-        handle_for(name)
+        value_handle_for(name)
       end
 
       # Declare a variable whose value survives the console being turned off — a high
@@ -77,7 +77,7 @@ module RubyGBA
         unless persisted?(name)
           @persisted << IR::SavedVar.new(name: name, default: default, slot: @persisted.length)
         end
-        handle_for(name)
+        value_handle_for(name)
       end
 
 
@@ -262,7 +262,7 @@ module RubyGBA
       # A handle for a variable, carrying a fraction if that is what it holds. Every
       # route to a variable goes through here, so `var :px, 3.5` and a later
       # `set :px, ...` hand back handles that agree about what the variable is.
-      def handle_for(name)
+      def value_handle_for(name)
         DSL::Value.new(self, Build.var_ref(name), name: name, fraction_bits: @fraction_vars[name],
                                              names: @name_vars[name])
       end

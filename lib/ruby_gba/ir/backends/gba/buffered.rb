@@ -219,7 +219,7 @@ module RubyGBA
           # Every edge settled while building goes straight to the same fixed-rect fill
           # fill_rect uses (#emit_buffered_rect) — clipped in Ruby, once, nothing for the
           # console to check. A width settled while building but at least one other edge
-          # not gets the fits-whole check (#emit_draw_rect_at_buffered_fixed_width): the
+          # not gets the fits-whole check (#emit_buffered_fixed_width_rect): the
           # overwhelming common case is a rect that never actually crosses an edge, and
           # that one still gets the size-chosen, parity-branched shape a fixed rect does.
           # Anything else always needs the clip worked out at run time
@@ -236,7 +236,7 @@ module RubyGBA
             return emit_buffered_rect(x, y, w, h, node.color) if x && y && w && h
             return emit_buffered_rect_at_computed(node, w) unless w
 
-            emit_draw_rect_at_buffered_fixed_width(node, w, h)
+            emit_buffered_fixed_width_rect(node, w, h)
           end
 
           # Registers through the whole run: r2 the rect's (clipped, once it needs to be)
@@ -341,7 +341,7 @@ module RubyGBA
           # would actually cross an edge falls through to the general run-time clip
           # (#emit_buffered_rect_at_computed's tail), because that shape cannot promise
           # the width stays a plain number once the console has trimmed it.
-          def emit_draw_rect_at_buffered_fixed_width(node, w, h)
+          def emit_buffered_fixed_width_rect(node, w, h)
             scratch = emit_index_fill_word(node.color)
             index = @layout.palette.index_of(node.color)
 
@@ -421,7 +421,7 @@ module RubyGBA
           end
 
           # The clip, and the rows it leaves for, shared by #emit_buffered_rect_at_computed
-          # (always this shape) and #emit_draw_rect_at_buffered_fixed_width (the fallback
+          # (always this shape) and #emit_buffered_fixed_width_rect (the fallback
           # once a fits-whole rect turns out not to). Assumes r2/r3 (x/y) and r7 (the raw,
           # unclipped width) are already loaded, and r6 (rows left) is too when the height
           # is not settled while building.

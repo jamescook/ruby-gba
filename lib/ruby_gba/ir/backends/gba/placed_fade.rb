@@ -50,7 +50,7 @@ module RubyGBA
             @picture = picture
             @gates = program.walk.filter_map { |node| node.under if node.kind == :fade }
                             .uniq
-                            .flat_map { |layer| sprites_needing_a_window(layer) }
+                            .flat_map { |layer| sprites_needing_window(layer) }
                             .uniq(&:name)
                             .to_h { |node| [node.name, window_shown_condition(node)] }
             @twins = {}
@@ -103,7 +103,7 @@ module RubyGBA
           # The sprites a fade under +layer+ has to hold itself off one at a time. None when
           # every sprite is on the kept side: they then leave the blend's target list
           # together, which is one register bit and no twins at all.
-          def sprites_needing_a_window(layer)
+          def sprites_needing_window(layer)
             kept = IR::Stacking.at_or_above(@picture, layer).map(&:name)
             keeps, blends = @picture.objects.partition { |node| kept.include?(node.name) }
             blends.empty? ? [] : keeps

@@ -181,7 +181,7 @@ module RubyGBA
           # for this class, because a fade asks it too now and "does it tint" would be the
           # wrong question — what the callers want to know is whether the tables are
           # rewritten while the game runs, whoever is rewriting them.
-          def moves_a_color_table?
+          def moves_color_table?
             @palette_tint
           end
 

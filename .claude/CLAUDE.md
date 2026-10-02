@@ -263,6 +263,42 @@ Keep the IR **target-agnostic**: `IR::Node` describes *what the program does*, n
   names the tune, and the player walks each part's event table in ROM once per real frame
 - `debug_halt` truncates the ROM for bisecting issues
 
+### Naming methods — the name says what it does, not a story about it
+
+**A method's name tells a reader what calling it does or returns, without opening the body.**
+This codebase's comments are deliberately narrative; method names are not, and carrying that voice
+into a name is the mistake this section exists for. 535 names had to be renamed for it at once.
+
+```
+BAD   check_one_start          check what? one start of what? (it raises on a conflicting `var`)
+GOOD  refuse_conflicting_declaration!
+BAD   jv / sp                  an abbreviation names nothing
+GOOD  job_var / place_var
+BAD   said_before?             a `?` that RAISES when the answer is "differently"
+BAD   verb_owns_its_text       a clause of a story (sets a flag for the length of a block)
+GOOD  with_text_owned_by
+BAD   emit_pending_functions   sounds narrow; it is the whole end-of-build pass
+GOOD  finalize_program
+```
+
+- **Say the effect and its object.** A verb with no real object (`check_`, `handle_`, `process_`,
+  `settle_`, `take_`, `do_`) hides what happens. Say what is raised, emitted, allocated or returned.
+- **Suffixes are promises.** `?` returns true or false and does nothing else. `!` raises a friendly
+  error or mutates in a way a caller must know about; this repo's raising guard is `refuse_x!`. A
+  method that builds an error message is `x_message`, not a phrase that reads like a predicate.
+  An emitter of ARM or IR starts `emit_`.
+- **No prose.** No articles (`the_`, `a_`, `an_`), no filler, no metaphors a newcomer cannot decode
+  (`owed`, `ledger`, `bargain`), and no clauses that narrate. A long name is fine only when it is
+  precise (`emit_divide_by_power_of_two`), never when it is a sentence.
+- **Siblings differ in their names.** `save_job_ask` beside `save_jobs_ask`, or `emit_x` beside
+  `emit_x_now`, must say in the name what differs.
+- **Check before you rename.** Builder and `IR::Backends::GBA` are many modules mixed into one class,
+  so a name that already exists in any of them silently overrides it: grep `def new_name` first.
+
+`test/ruby_gba/test_method_names.rb` fails the build on the mechanical half of this — articles,
+vague-verb prefixes, two-letter abbreviations, and names of seven words or more. It cannot judge the rest, so a
+name that passes it is not thereby a good name.
+
 ### Writing code comments
 
 - Comments are for humans and should read as if a human wrote them.

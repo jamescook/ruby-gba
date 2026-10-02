@@ -104,7 +104,7 @@ class TestDrawRectAtClipping < Minitest::Test
 
   # A width settled while building but a position the game works out — the shape that
   # keeps the fast, size-chosen row a fixed rectangle gets (see
-  # Backends::GBA::Buffered#emit_draw_rect_at_buffered_fixed_width) for the common case
+  # Backends::GBA::Buffered#emit_buffered_fixed_width_rect) for the common case
   # where it turns out to fit whole, and falls back to the general clip only when it
   # actually crosses an edge, as it does here.
   def test_a_fixed_width_moving_position_straddling_the_right_edge_tear_free

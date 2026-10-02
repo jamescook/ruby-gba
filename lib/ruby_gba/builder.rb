@@ -513,7 +513,7 @@ module RubyGBA
     # to keep whatever it needs to say which list is showing; nought is "nothing has been
     # said yet", and what goes there otherwise is that backend's business alone.
     def make_background_recolorable(name)
-      refuse_coloring_a_turning_background!(name)
+      refuse_coloring_turning_background!(name)
       at_boot(Build.set(:"__bg_#{name}_colors", Build.int(IR::Build::NO_RECOLOR)))
       at_boot(Build.set(:"__bg_#{name}_live_colors", Build.int(IR::Build::NO_RECOLOR)))
       at_boot(Build.set(:"__bg_#{name}_colors_at", Build.int(0)))
@@ -1181,7 +1181,7 @@ module RubyGBA
       @name_dispatches.reject! do |node, held|
         next false unless node.which.kind == :var_ref && held.names.intersect?(scenes)
 
-        refuse_names_that_are_scenes_and_routines!(held.names)
+        refuse_scene_routine_name_clash!(held.names)
         scenes.each { |scene| held.number_for(scene) }
         clauses = held.names.each_with_index.map { |name, number| [number, :"_scene_#{name}"] }
         swap_node(node, Build.case_(node.which.name, clauses))
@@ -1189,7 +1189,7 @@ module RubyGBA
       end
     end
 
-    def refuse_names_that_are_scenes_and_routines!(names)
+    def refuse_scene_routine_name_clash!(names)
       both = names.find { |name| @functions.key?(name) && @functions.key?(:"_scene_#{name}") }
       return unless both
 

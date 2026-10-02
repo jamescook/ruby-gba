@@ -720,7 +720,7 @@ module RubyGBA
           # table rather than a picture — there is nothing here for a bitmap scene to
           # overwrite.
           emit_boot_row_bends if @raster.row_bend_tables?
-          emit_tint_state_init if @palette_tint.moves_a_color_table? # the tables start as they were drawn
+          emit_tint_state_init if @palette_tint.moves_color_table? # the tables start as they were drawn
           @lowering.in_mode(@modes.default_mode) do
             program.children.each { |stmt| @lowering.statement(stmt) }
           end
@@ -885,7 +885,7 @@ module RubyGBA
         def emit_music_tick = @audio.emit_music_tick
 
         # Forwards to @palette_tint (see {PaletteTint}).
-        def moves_a_color_table? = @palette_tint.moves_a_color_table?
+        def moves_color_table? = @palette_tint.moves_color_table?
         def emit_tint_state_init = @palette_tint.emit_tint_state_init
 
         # Forwards to @drawing (see {Drawing}) — the scene entry points Functions is handed
