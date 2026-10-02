@@ -56,7 +56,7 @@ module RubyGBA
       # Strip the internal `_scene_` prefix a scene's func carries, so a message or
       # a report shows the name the author actually wrote (`:play`, not
       # `:_scene_play`).
-      def self.friendly_name(name)
+      def self.strip_scene_prefix(name)
         name.to_s.sub(/\A_scene_/, "")
       end
 
@@ -93,7 +93,7 @@ module RubyGBA
       # between any two of them is what the console has to switch the whole display
       # for (the mode register plus the VRAM/OAM layout), not just flip a page. A
       # program that stays on one system is left on its existing path.
-      def mixed_display?
+      def crosses_display_systems?
         systems = (@func_mode.values + [@default_mode]).map { |m| BITMAP_MODES.include?(m) ? :bitmap : m }
         systems.uniq.size > 1
       end
@@ -101,12 +101,12 @@ module RubyGBA
       # Is the display switched as each scene takes over? A program whose scenes do not
       # all draw the same way has to be set up once and then re-set on a scene's change,
       # rather than leaving each `screen` to say it where it is written.
-      def switched_per_scene? = any_buffered? || mixed_display?
+      def switched_per_scene? = any_buffered? || crosses_display_systems?
 
       # Whether the program mixes modes — some scene direct, some buffered. A
       # single-mode program can be judged as a whole; a mixed one has to be judged
       # scene by scene, since each mode has its own drawing budget.
-      def mixed?
+      def mixes_direct_and_buffered?
         seen = @func_mode.values + [@default_mode]
         seen.include?(DIRECT) && seen.include?(BUFFERED)
       end
@@ -123,7 +123,7 @@ module RubyGBA
       # somewhere" and "the tiled screen itself holds one" are different questions — and
       # for anything the tiled screen has a fixed number of, only the second one counts.
       # A thing on a screen that is up at a different moment costs this screen nothing.
-      def on_the_tiled_screen(nodes) = nodes.select { |node| mode_at(node) == TILED }
+      def select_on_tiled_screen(nodes) = nodes.select { |node| mode_at(node) == TILED }
 
       # The screen mode in force where a statement sits: the mode of the scene that
       # owns it, or the boot mode for a statement in the main body. Asking it per
@@ -156,7 +156,7 @@ module RubyGBA
         @func_mode = {}
         @scene_funcs = []
         @default_mode = declared_mode(main_body) || DIRECT
-        scene_targets.each { |target| resolve_func(target, @default_mode, scene: true) }
+        scene_targets.each { |target| assign_func_mode!(target, @default_mode, scene: true) }
         # A plain `call` sitting directly in the main loop — chiefly `once_a_frame`'s
         # hidden routine, but any bare per-frame helper the same way — is not a scene:
         # it doesn't own the display, it runs every real frame regardless of which
@@ -170,12 +170,12 @@ module RubyGBA
         # scene's own display: its hidden routine's preamble re-enters its own mode
         # every frame, right after the real scene already presented that frame's
         # sprites, clearing them before the console ever shows them.
-        (main_body_call_targets - scene_targets).each { |target| resolve_func(target, @default_mode, scene: false) }
+        (main_body_call_targets - scene_targets).each { |target| assign_func_mode!(target, @default_mode, scene: false) }
         @func_mode.freeze
         @scene_funcs.freeze
       end
 
-      def resolve_func(name, inherited, scene:)
+      def assign_func_mode!(name, inherited, scene:)
         func = @funcs[name] or return
         mode = declared_mode(func.children) || inherited
         @scene_funcs << name if scene && !@scene_funcs.include?(name)
@@ -184,14 +184,14 @@ module RubyGBA
           return if @func_mode[name] == mode
 
           raise Conflict,
-                "The drawing routine :#{self.class.friendly_name(name)} is reached from scenes of " \
+                "The drawing routine :#{self.class.strip_scene_prefix(name)} is reached from scenes of " \
                 "different screen modes. A drawing routine cannot be shared across screen modes, " \
                 "because the modes draw to different places. To fix this, give each mode its own " \
                 "routine. Or move the shared drawing inline."
         end
 
         @func_mode[name] = mode
-        call_targets(func).each { |target| resolve_func(target, mode, scene: false) }
+        call_targets(func).each { |target| assign_func_mode!(target, mode, scene: false) }
       end
 
       # The screen mode a run of statements declares, via a `screen` node among

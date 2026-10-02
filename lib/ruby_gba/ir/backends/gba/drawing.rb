@@ -87,7 +87,7 @@ module RubyGBA
             # on `screen :rotozoom` is on a screen of its own, up at a different moment, so
             # it does not (see Guardrails::Checks::TooManyBackgroundLayers, which asks the
             # same question to work out how many scrolling layers are left).
-            def turning_layers = modes.on_the_tiled_screen(picture.scenery.select(&:affine))
+            def turning_layers = modes.select_on_tiled_screen(picture.scenery.select(&:affine))
           end
 
           # Fill the area itself, which is what clearing means when only part of the picture may
@@ -274,7 +274,7 @@ module RubyGBA
             # to the tiled screen, that screen's own colors have been in this table since —
             # so put the originals back, which is also what makes the remembered tint true
             # again.
-            upload_palette if @palette_tint.moves_a_color_table? && @layout.modes.mixed_display?
+            upload_palette if @palette_tint.moves_a_color_table? && @layout.modes.crosses_display_systems?
           end
 
           # Switch the hardware into direct-color (Mode 3) and record it as live. Writing
@@ -386,7 +386,7 @@ module RubyGBA
               end
               # The maps just sent are the first ones declared, so what says which map is
               # showing goes back to the first as well (see IR::SceneHandover).
-              scene_handover.resets(name).each { |var| @primitives.store_word_immediate(0, @primitives.var_addr(var)) }
+              scene_handover.map_choices_to_reset(name).each { |var| @primitives.store_word_immediate(0, @primitives.var_addr(var)) }
             end
           end
 

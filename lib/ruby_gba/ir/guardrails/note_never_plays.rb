@@ -23,11 +23,11 @@ module RubyGBA
           def detect(program)
             program.walk.select { |node| node.kind == :song }.flat_map do |song|
               song.voices.each_with_index.filter_map do |part, index|
-                problem = first_problem(part.events, song.total_frames)
+                problem = first_unreachable_note(part.events, song.total_frames)
                 next unless problem
 
-                message = "#{SongWords.part(program, song, index).sub(/\A./, &:upcase)} of " \
-                          "#{SongWords.song(program, song)} #{describe(problem, song.total_frames)}"
+                message = "#{SongWords.part_phrase(program, song, index).sub(/\A./, &:upcase)} of " \
+                          "#{SongWords.song_phrase(program, song)} #{describe(problem, song.total_frames)}"
                 Finding.new(check: NAME, severity: :error, message: message, node: song)
               end
             end
@@ -36,7 +36,7 @@ module RubyGBA
           private
 
           # The first note the player cannot reach, and why.
-          def first_problem(events, total)
+          def first_unreachable_note(events, total)
             before = nil
             events.each do |frame, *|
               return [:before_the_start, frame] if frame.negative?
@@ -56,19 +56,19 @@ module RubyGBA
             stuck = "The part then stays silent until the song starts again."
             case kind
             when :same_frame
-              "has two notes that start on the same frame, #{SongWords.seconds(frame)} into the song. The " \
+              "has two notes that start on the same frame, #{SongWords.seconds_phrase(frame)} into the song. The " \
                 "music starts one note of a part on each frame, at most. So the second note never plays. " \
                 "#{stuck} #{too_short}"
             when :out_of_order
-              "has a note #{SongWords.seconds(frame)} into the song, after a note at " \
-                "#{SongWords.seconds(before)}. The music plays the notes of a part in time order. So this note " \
+              "has a note #{SongWords.seconds_phrase(frame)} into the song, after a note at " \
+                "#{SongWords.seconds_phrase(before)}. The music plays the notes of a part in time order. So this note " \
                 "never plays. #{stuck} To fix this, put the notes of the part in time order."
             when :before_the_start
               "has a note on frame #{frame}, before the song starts. The music plays a song from frame 0. So " \
                 "this note never plays. #{stuck} To fix this, start every note on frame 0 or later."
             when :past_the_end
-              "has a note that starts #{SongWords.seconds(frame)} into the song. The song is only " \
-                "#{SongWords.seconds(total)} long. It starts again before that note, so that note never " \
+              "has a note that starts #{SongWords.seconds_phrase(frame)} into the song. The song is only " \
+                "#{SongWords.seconds_phrase(total)} long. It starts again before that note, so that note never " \
                 "plays. #{too_short}"
             end
           end

@@ -140,10 +140,10 @@ module RubyGBA
 
           # The routine that writes one scene's moving sprites (see GBA#prepare_scene_sprites).
           # Named for the scene, so a report and a measured profile can say whose it is.
-          def self.sprites_routine(scene) = Messages::MadeNames.make(:scene_sprites, scene: Modes.friendly_name(scene))
+          def self.sprites_routine(scene) = Messages::MadeNames.make(:scene_sprites, scene: Modes.strip_scene_prefix(scene))
 
           # Whether that routine last wrote its sprites as SHOWN — its scene up.
-          def self.sprites_shown(scene) = Messages::MadeNames.make(:scene_sprites_shown, scene: Modes.friendly_name(scene))
+          def self.sprites_shown(scene) = Messages::MadeNames.make(:scene_sprites_shown, scene: Modes.strip_scene_prefix(scene))
 
           # WRITE ONE SCENE'S MOVING SPRITES, on its frames and on the one frame after it goes.
           #

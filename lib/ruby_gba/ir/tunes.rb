@@ -39,7 +39,7 @@ module RubyGBA
       # The songs the program can play, in the order they are declared: every song it names with
       # `play_song`, and every song in a list it picks from by number. A song that is written and
       # never played takes nothing.
-      def played(program)
+      def played_songs(program)
         names = program.walk.filter_map { |node| node.name if node.kind == :play_song }
         names += lists_played(program).values.flatten
         program.walk.select { |node| node.kind == :song && names.include?(node.name) }
@@ -105,7 +105,7 @@ module RubyGBA
       # The most recorded parts any one played tune has — how many parts the player has to be
       # ready to find a voice for at once, since one tune plays at a time.
       def most_recorded_parts(program)
-        played(program).map { |song| recorded_parts(song) }.max || 0
+        played_songs(program).map { |song| recorded_parts(song) }.max || 0
       end
 
       # The frame a song goes back to at its end: 0, unless it has a loop point.
@@ -145,9 +145,9 @@ module RubyGBA
       end
 
       # ...and their song nodes, with every song the program plays: all it can sound.
-      def played_and_effects(program)
+      def playable_songs(program)
         names = effects(program)
-        played(program) + program.walk.select { |node| node.kind == :song && names.include?(node.name) }
+        played_songs(program) + program.walk.select { |node| node.kind == :song && names.include?(node.name) }
       end
 
       # THE ORDER A FRAME PLAYS THE SOUND EFFECTS IN: highest rank first, as [name, rank] — given
@@ -186,16 +186,16 @@ module RubyGBA
       # tail of +first+ unless the part holds a note across the loop frame.
       Pass = Data.define(:first, :again)
 
-      def passes(song)
+      def loop_passes(song)
         from = loop_frame(song)
         if from.positive? && from >= song.total_frames
           raise ArgumentError, "song #{song.name.inspect} loops from frame #{from}, and is #{song.total_frames} frames long"
         end
 
-        song.voices.map { |part| pass(part.events, from) }
+        song.voices.map { |part| part_loop_pass(part.events, from) }
       end
 
-      def pass(events, from)
+      def part_loop_pass(events, from)
         split = events.index { |event| event.first >= from } || events.size
         before = events.first(split)
         after = events.drop(split)
@@ -218,7 +218,7 @@ module RubyGBA
       # passes does — which counts a note held across the loop frame and sounded again there —
       # or if the song ends on a note, which then carries on into the repeat.
       def repeat_sounds?(song)
-        song.voices.zip(passes(song)).any? do |part, pass|
+        song.voices.zip(loop_passes(song)).any? do |part, pass|
           sounding?(part.events.last) || pass.again.any? { |event| sounding?(event) }
         end
       end

@@ -198,7 +198,7 @@ module RubyGBA
     # finished telling you what it did. On the way out of an error this still runs first, so a
     # reader sees the explanation and then the line saying the build stopped.
     progress.done
-    findings&.emit(to: err)
+    findings&.print_findings(to: err)
     # Last of all, because the line above is the last thing anybody prints: hand back any
     # file this build opened for itself. A stream the caller opened is left alone.
     output&.close

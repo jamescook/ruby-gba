@@ -47,7 +47,7 @@ module RubyGBA
             users = contributors(program)
             pinned = users.reject { |user| user[:movable] }.sum { |user| user[:bytes] }
             total = users.sum { |user| user[:bytes] }
-            return pinned_too_big(users, pinned) if pinned > BUDGET_BYTES
+            return pinned_overflow_findings(users, pinned) if pinned > BUDGET_BYTES
             return [] if total <= BUDGET_BYTES + EWRAM_BYTES
 
             # Blame the biggest user, which is the capacity to shrink. The plain
@@ -60,7 +60,7 @@ module RubyGBA
 
           # The things that can only be in the quick memory are over it on their own, and
           # no other memory can take them.
-          def pinned_too_big(users, pinned)
+          def pinned_overflow_findings(users, pinned)
             worst = users.reject { |user| user[:movable] }.first
             [Finding.new(check: NAME, severity: :error, node: worst&.dig(:node) || :program,
                          message: pinned_message(pinned, users))]
@@ -164,8 +164,8 @@ module RubyGBA
           def round_up_word(bytes) = (bytes + 3) & ~3
 
           def message(total, users)
-            "This program reserves about #{human(total)} of memory for its data. But the console has only " \
-              "#{human(IWRAM_BYTES)} of #{Messages::PlainWords::QUICK_MEMORY} and #{human(EWRAM_BYTES)} of roomier " \
+            "This program reserves about #{human_size(total)} of memory for its data. But the console has only " \
+              "#{human_size(IWRAM_BYTES)} of #{Messages::PlainWords::QUICK_MEMORY} and #{human_size(EWRAM_BYTES)} of roomier " \
               "memory, and both are full. The biggest users are #{top_users(users)}. To fix this, use a " \
               "smaller capacity for a pool or a list. Or use fewer fields. Or use narrower items " \
               "(`width: :byte`). Then it all fits."
@@ -174,9 +174,9 @@ module RubyGBA
           # The variables and the sprites' save-buffers can only be in the quick memory, so
           # a program whose variables alone are over it cannot be helped by the other one.
           def pinned_message(pinned, users)
-            "This program reserves about #{human(pinned)} of the console's #{Messages::PlainWords::QUICK_MEMORY} for " \
-              "things that can only live there. But the console has only #{human(IWRAM_BYTES)} of it, and " \
-              "about #{human(BUDGET_BYTES)} of that is free for your data — the rest holds the call stack " \
+            "This program reserves about #{human_size(pinned)} of the console's #{Messages::PlainWords::QUICK_MEMORY} for " \
+              "things that can only live there. But the console has only #{human_size(IWRAM_BYTES)} of it, and " \
+              "about #{human_size(BUDGET_BYTES)} of that is free for your data — the rest holds the call stack " \
               "and the framework's own state. A list or a pool can move to the roomier memory; a variable " \
               "cannot, because a variable is reached by its distance from the start of the quick one. The " \
               "biggest users are #{top_users(users.reject { |u| u[:movable] })}. To fix this, use fewer " \
@@ -184,12 +184,12 @@ module RubyGBA
           end
 
           def top_users(users)
-            users.first(TOP_USERS).map { |user| "#{user[:label]} (#{human(user[:bytes])})" }.join(", ")
+            users.first(TOP_USERS).map { |user| "#{user[:label]} (#{human_size(user[:bytes])})" }.join(", ")
           end
 
           # Bytes as a short human size: whole KB where it's exact, one decimal otherwise,
           # and plain bytes under 1KB (so tiny contributors don't all read "0KB").
-          def human(bytes)
+          def human_size(bytes)
             return "#{bytes}B" if bytes < 1024
 
             kb = bytes / 1024.0

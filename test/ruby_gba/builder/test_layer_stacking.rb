@@ -193,7 +193,7 @@ class TestLayerStacking < Minitest::Test
       { name: :c, layer: nil },
       { name: :d, layer: :back },
     ]
-    ordered = RubyGBA::IR::Stacking.order(items, %i[back front]) { |item| item[:layer] }
+    ordered = RubyGBA::IR::Stacking.order_by_stack(items, %i[back front]) { |item| item[:layer] }
 
     assert_equal %i[a d c b], ordered.map { |item| item[:name] },
                  "a and c must not move; d and b swap into the places b and d had"
@@ -201,14 +201,14 @@ class TestLayerStacking < Minitest::Test
 
   def test_a_layer_the_stack_never_named_does_not_move_anything
     items = [{ name: :a, layer: :ghost }, { name: :b, layer: nil }]
-    ordered = RubyGBA::IR::Stacking.order(items, %i[back front]) { |item| item[:layer] }
+    ordered = RubyGBA::IR::Stacking.order_by_stack(items, %i[back front]) { |item| item[:layer] }
 
     assert_equal %i[a b], ordered.map { |item| item[:name] }
   end
 
   def test_things_in_one_layer_keep_the_order_they_were_declared_in
     items = %i[first second third].map { |name| { name: name, layer: :only } }
-    ordered = RubyGBA::IR::Stacking.order(items, [:only]) { |item| item[:layer] }
+    ordered = RubyGBA::IR::Stacking.order_by_stack(items, [:only]) { |item| item[:layer] }
 
     assert_equal %i[first second third], ordered.map { |item| item[:name] }
   end

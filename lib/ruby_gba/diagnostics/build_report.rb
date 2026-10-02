@@ -184,7 +184,7 @@ module RubyGBA
       # two verbs are usually written nowhere near each other (see IR::Fading).
       def fade_lines(program, layer, printer)
         fading = IR::Fading.resolve(program)
-        if fading.any_color_walk?
+        if fading.any_fade_walks_palette?
           printer.puts "      ...and a fade over the whole screen walks the colours rather than " \
                        "taking that blend, so :#{layer} keeps showing what is behind it"
           printer.puts "      ...which costs a blend per declared colour, on each frame a fade moves"
@@ -201,12 +201,12 @@ module RubyGBA
       # it gives up. A game whose fades are all short hears nothing (see IR::Fading).
       def fade_steps_lines(program, printer)
         fading = IR::Fading.resolve(program)
-        return unless fading.fine_walk? || fading.coarse_placed.any?
+        return unless fading.fine_palette_fade? || fading.coarse_placed.any?
 
         levels = IR::Backends::FadeSteps::WALK + 1
         display = IR::Backends::FadeSteps::DISPLAY + 1
         printer.puts "  fading:"
-        if fading.fine_walk?
+        if fading.fine_palette_fade?
           printer.puts "    a long fade changes the colours themselves, in #{levels} levels. " \
                        "The display's own fade has #{display}."
           printer.puts "      ...which costs a blend per declared colour, on each frame it moves"

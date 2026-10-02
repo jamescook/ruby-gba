@@ -27,22 +27,22 @@ module RubyGBA
 
       # The grid this background scrolls over, as [columns, rows].
       def grid(map)
-        [cells(map.map { |row| row.length }.max || 0), cells(map.length)]
+        [grid_size_for(map.map { |row| row.length }.max || 0), grid_size_for(map.length)]
       end
 
       # The smallest grid size that holds this many cells, or nil for a map too big for
       # any of them.
-      def cells(count) = SIZES.find { |size| count <= size }
+      def grid_size_for(count) = SIZES.find { |size| count <= size }
 
       # Whether a map fits a grid at all — the one thing a caller has to check before
       # trusting #grid.
       def fits?(map)
         cols, rows = [map.map { |row| row.length }.max || 0, map.length]
-        !cells(cols).nil? && !cells(rows).nil?
+        !grid_size_for(cols).nil? && !grid_size_for(rows).nil?
       end
 
       # The biggest map there is, for a message.
-      def most = SIZES.last
+      def max_grid_size = SIZES.last
     end
   end
 end

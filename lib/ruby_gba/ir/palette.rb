@@ -118,9 +118,9 @@ module RubyGBA
       def initialize(program, scopes)
         roots = scopes || [program] # the subtrees to gather colors from
         given = given_entries(program)
-        return adopt(given, roots) if given
+        return use_given_palette!(given, roots) if given
 
-        distinct = collect(roots).uniq # first-seen order, deduped by resolved value
+        distinct = colors_drawn_in(roots).uniq # first-seen order, deduped by resolved value
         needed = (distinct + [BLACK]).uniq.size # one slot per color, plus reserved black
         raise Overflow, overflow_message(distinct.size) if needed > CAPACITY
 
@@ -140,12 +140,12 @@ module RubyGBA
       # A duplicate color keeps its FIRST slot for drawing, and both slots stay in the
       # table: a real imported palette repeats colors, and dropping the later one would
       # shift every slot after it and break every picture.
-      def adopt(given, roots)
+      def use_given_palette!(given, roots)
         @entries = given
         @slots = {}
         given.each_with_index { |value, slot| @slots[value] ||= slot }
 
-        missing = collect(roots).uniq.reject { |value| @slots.key?(value) }
+        missing = colors_drawn_in(roots).uniq.reject { |value| @slots.key?(value) }
         raise Missing, missing_message(missing, roots) unless missing.empty?
       end
 
@@ -179,7 +179,7 @@ module RubyGBA
       # definitions (whose pixels are already packed 15-bit values). Walks each
       # subtree WHOLE, not just its statement children, so a color used only in an
       # else-branch (held in an attr, not a child) still gets a slot.
-      def collect(roots)
+      def colors_drawn_in(roots)
         values = []
         roots.each do |root|
           root.walk do |node|
@@ -215,7 +215,7 @@ module RubyGBA
       end
 
       def missing_message(missing, roots)
-        named = missing.first(6).map { |value| with_source(value, roots) }.join(", ")
+        named = missing.first(6).map { |value| describe_color(value, roots) }.join(", ")
         more = missing.length > 6 ? ", and #{missing.length - 6} more" : ""
         one = missing.length == 1
         "This program draws with #{one ? 'a color' : "#{missing.length} colors"} the screen was " \
@@ -223,7 +223,7 @@ module RubyGBA
           "Add #{one ? 'it' : 'them'} to that list, or draw with a color that is already in it."
       end
 
-      def with_source(value, roots)
+      def describe_color(value, roots)
         picture = picture_holding(value, roots)
         picture ? "#{name_for(value)} (in the picture :#{picture})" : name_for(value)
       end

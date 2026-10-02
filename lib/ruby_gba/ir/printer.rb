@@ -42,7 +42,7 @@ module RubyGBA
 
       # The plain "  label…            ~value" layout shared by both printers, so a
       # coloured row is the same characters as a plain one plus zero-width styling.
-      def layout(label, value)
+      def format_row(label, value)
         format("#{LEAD}%-#{LABEL_WIDTH}s ~%s", label, value)
       end
     end
@@ -55,7 +55,7 @@ module RubyGBA
       end
 
       def cost_line(label, value, severity: nil, group: false)
-        @out.puts(layout(label, value))
+        @out.puts(format_row(label, value))
       end
     end
 
@@ -98,9 +98,9 @@ module RubyGBA
 
       def cost_line(label, value, severity: nil, group: false)
         tint = COLORS[severity].to_s
-        return @out.puts(group ? heading(label, value, tint) : "#{tint}#{layout(label, value)}#{RESET}") if tint != "" || group
+        return @out.puts(group ? heading(label, value, tint) : "#{tint}#{format_row(label, value)}#{RESET}") if tint != "" || group
 
-        @out.puts(layout(label, value))
+        @out.puts(format_row(label, value))
       end
 
       private
@@ -110,7 +110,7 @@ module RubyGBA
       # label text, stopping before the padding — so no rule runs to the value column.
       def heading(label, value, tint)
         shown = label[0, [label.length, LABEL_WIDTH].min] # the label without its trailing pad
-        rest = layout(label, value)[(LEAD.length + shown.length)..] # padding + " ~value"
+        rest = format_row(label, value)[(LEAD.length + shown.length)..] # padding + " ~value"
         "#{tint}#{BOLD}#{UNDERLINE}#{LEAD}#{shown}#{UNDERLINE_OFF}#{rest}#{RESET}"
       end
     end

@@ -112,7 +112,7 @@ module RubyGBA
             # ordinary method with nothing behind it, and a shade quicker to call besides.
             class_eval <<~WRITER, __FILE__, __LINE__ + 1
               def #{name}=(value)
-                put_operand(:#{name}, value)
+                store_operand(:#{name}, value)
               end
             WRITER
           end
@@ -133,7 +133,7 @@ module RubyGBA
         @children = []
         @parent = nil
         @source = source
-        operands.each { |name, value| set_operand(name, value) }
+        operands.each { |name, value| assign_operand!(name, value) }
         children.each { |child| add_child(child) }
       end
 
@@ -234,7 +234,7 @@ module RubyGBA
       # pass wants — "show me every node, statement or operand."
       #
       # It goes only where a node can be, which each operand settles as it is written (see
-      # #put_operand). So a pass reading the program never looks inside the data a game
+      # #store_operand). So a pass reading the program never looks inside the data a game
       # ships — a level map, a wall texture, a sine table — where there is nothing to find
       # and a great many numbers to find it among.
       def walk(&block)
@@ -249,7 +249,7 @@ module RubyGBA
       # of the DECLARATION a framework-built statement serves, so that a sprite's per-frame
       # repaint is traced to the `sprite` line rather than to no line at all. A node that
       # already carries one keeps it. Returns self.
-      def stamp(source)
+      def default_source!(source)
         each { |node| node.source ||= source }
         self
       end
@@ -262,7 +262,7 @@ module RubyGBA
       # means adding a counter to count frames with — so the program it was handed is still
       # the program afterwards.
       #
-      # An operand that leads to no node is plain data held frozen (see #survey), so the copy
+      # An operand that leads to no node is plain data held frozen (see #operand_flags!), so the copy
       # shares it rather than copying a game's data table number by number.
       def copy
         self.class.new(source: source,
@@ -308,7 +308,7 @@ module RubyGBA
       # Put an operand there while constructing, by name. A name the kind does not have is
       # refused with what it DOES have — the answer is nearly always in that list, and the
       # bare NoMethodError a writer would raise says nothing about the alternatives.
-      def set_operand(name, value)
+      def assign_operand!(name, value)
         unless self.class.tags.key?(name)
           known = self.class.tags.keys
           raise InvariantError,
@@ -323,13 +323,13 @@ module RubyGBA
       # The one door into an operand: hold it still, store it, wire a nested node's parent
       # back, and settle whether a walk has to come this way again — and whether a pass
       # looking for names does.
-      def put_operand(name, value)
-        leads, named = survey(value)
+      def store_operand(name, value)
+        leads, named = operand_flags!(value)
         instance_variable_set(:"@#{name}", value)
         value.parent = self if value.is_a?(Node)
 
-        @node_fields = settled(node_fields, name, leads)
-        @name_fields = settled(name_fields, name, named)
+        @node_fields = toggle_field(node_fields, name, leads)
+        @name_fields = toggle_field(name_fields, name, named)
         value
       end
 
@@ -337,7 +337,7 @@ module RubyGBA
       # DECLARES its operands, not the order they were written in, so a pass that collects as
       # it walks — the colours a program draws in, the routines it can reach — gets them in the
       # order the kind reads in.
-      def settled(fields, name, wanted)
+      def toggle_field(fields, name, wanted)
         return fields if wanted == fields.include?(name)
 
         keep = wanted ? fields + [name] : fields - [name]
@@ -369,21 +369,21 @@ module RubyGBA
       # line making it.
       #
       # One read rather than three, because an operand can be a game's whole data table.
-      def survey(value)
+      def operand_flags!(value)
         case value
         when Node then [true, false]
         when Symbol then [false, true]
         when Array
           leads = named = false
           value.each do |element|
-            l, n = survey(element)
+            l, n = operand_flags!(element)
             leads ||= l
             named ||= n
           end
           value.freeze
           [leads, named]
         when Hash
-          [false, value.any? { |key, element| survey(key)[1] || survey(element)[1] }]
+          [false, value.any? { |key, element| operand_flags!(key)[1] || operand_flags!(element)[1] }]
         else [false, false]
         end
       end

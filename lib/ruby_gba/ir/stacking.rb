@@ -25,7 +25,7 @@ module RubyGBA
       # +items+ arranged the way +stack+ (the declared layers, backmost first) asks
       # for. The block is handed each item and answers which layer it named, or nil.
       # An unchanged copy comes back when nothing names a layer the stack knows.
-      def order(items, stack)
+      def order_by_stack(items, stack)
         return items if stack.nil? || stack.empty?
 
         places = (0...items.length).select { |at| stack.include?(yield(items[at])) }
@@ -54,7 +54,7 @@ module RubyGBA
 
       def picture(program)
         stack = program.walk.find { |node| node.kind == :layers }&.names || []
-        scenery = order(program.walk.select { |node| node.kind == :background }, stack, &:layer)
+        scenery = order_by_stack(program.walk.select { |node| node.kind == :background }, stack, &:layer)
         objects = objects_in_draw_order(program)
         Picture.new(stack: stack, scenery: scenery, objects: objects,
                     depths: depths(scenery: scenery, objects: objects, stack: stack))
@@ -93,7 +93,7 @@ module RubyGBA
         # Everything that decides that arrangement asks this one method. Two places asking
         # it two ways is how a picture comes out right in the check that allows it and wrong
         # in the code that draws it.
-        def turning_on_the_tiled_screen(modes) = modes.on_the_tiled_screen(turning)
+        def turning_on_tiled_screen(modes) = modes.select_on_tiled_screen(turning)
       end
 
       # Every screenful a program has, the always-there one first. A program with no scenes
@@ -186,7 +186,7 @@ module RubyGBA
         started = false
         of = {}
 
-        merge(scenery, objects, stack).each do |item, kind|
+        back_to_front(scenery, objects, stack).each do |item, kind|
           level += 1 if started && kind == :scenery
           started = true
           of[item.name] = level
@@ -203,7 +203,7 @@ module RubyGBA
       # back, objects in front of it. That keeps a picture that names no layers exactly
       # as it was, and it is what #scenery_over_objects? watches, because the two rules
       # only disagree once the stack asks for scenery in FRONT of an object.
-      def merge(scenery, objects, stack)
+      def back_to_front(scenery, objects, stack)
         tagged = scenery.each_with_index.map { |node, nth| [node, :scenery, depth_key(node, stack, -1), nth] } +
                  objects.each_with_index.map { |node, nth| [node, :object, depth_key(node, stack, Float::INFINITY), nth] }
 

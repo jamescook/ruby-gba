@@ -81,7 +81,7 @@ module RubyGBA
         #
         # Back to front, which is what a declared stack decides. With no layers this is
         # the order they were declared in, exactly as before.
-        painted = IR::Stacking.order(@sprites, @layer_stack, &:layer)
+        painted = IR::Stacking.order_by_stack(@sprites, @layer_stack, &:layer)
         painted.reverse_each { |sprite| record_statement(sprite.erase_node) }
         painted.each { |sprite| record_statement(sprite.draw_node) }
         # Hardware sprites need no erase pass — the console recomposites the whole

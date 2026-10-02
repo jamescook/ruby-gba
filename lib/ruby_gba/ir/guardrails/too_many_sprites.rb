@@ -39,7 +39,7 @@ module RubyGBA
           end
 
           # Why the sprites are refused, or nil when they fit.
-          def refusal(program)
+          def refusal_message(program)
             detect(program).first&.message
           end
 
@@ -48,40 +48,40 @@ module RubyGBA
           def message(sprites)
             letters, rest = sprites.partition { |node| node.declared.nil? }
             pooled, declared = rest.partition { |node| pool?(node) }
-            shares = [letters_share(letters), *pool_shares(pooled), declared_share(declared)].compact
+            shares = [letters_sentence(letters), *pool_sentences(pooled), declared_sentence(declared)].compact
             "This game has #{sprites.size} sprites. The console has places for #{MOST}, and each " \
               "sprite takes one for the whole game, in every scene. #{shares.join(' ')} " \
-              "To fix this, use fewer sprites.#{letters_fix(letters)}#{pool_fix(pooled)}"
+              "To fix this, use fewer sprites.#{letters_hint(letters)}#{pool_hint(pooled)}"
           end
 
-          def letters_share(letters)
+          def letters_sentence(letters)
             return nil if letters.empty?
 
             "#{letters.size} are letters of text: on a tiled screen, the console draws each " \
               "character as a sprite."
           end
 
-          def pool_shares(pooled)
+          def pool_sentences(pooled)
             pooled.group_by(&:declared).map do |pool, slots|
               "#{slots.size} are the places of pool :#{pool}."
             end
           end
 
-          def declared_share(declared)
+          def declared_sentence(declared)
             return nil if declared.empty?
 
             pictures = declared.map(&:declared).uniq.map { |name| ":#{name}" }
             "#{declared.size} are sprites the game declared (#{pictures.join(', ')})."
           end
 
-          def letters_fix(letters)
+          def letters_hint(letters)
             return "" if letters.empty?
 
             " For the text, use shorter words. Or draw the text on a `screen :bitmap`, where " \
               "text takes no sprites."
           end
 
-          def pool_fix(pooled)
+          def pool_hint(pooled)
             return "" if pooled.empty?
 
             " A pool takes one place for each instance it can hold. For a pool, give it a " \

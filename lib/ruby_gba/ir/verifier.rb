@@ -15,7 +15,7 @@ module RubyGBA
     # host; the ROM then runs later on the console. A *value* — a number the
     # program works with — may be either an author-time literal (folded to a
     # constant) or a run-time variable/expression, and the value model unifies
-    # them: everything flows through Build.wrap into a value node, so a verb
+    # them: everything flows through Build.to_value_node into a value node, so a verb
     # accepts either interchangeably. But nothing *proved* a verb actually wrapped
     # its operands — a verb that dropped a raw Integer into a value slot would fail
     # silently, the whole class of bug where a run-time value handed to an
@@ -71,14 +71,14 @@ module RubyGBA
       # recognized node is well-formed. A node the verifier can't identify never
       # slips through as "fine"; it fails loudly, pointing at the missing row.
       def verify!(node)
-        node.walk { |n| check_known(n) }
-        node.walk { |n| check_node(n) }
+        node.walk { |n| verify_known_kind!(n) }
+        node.walk { |n| verify_node!(n) }
         node
       end
 
       # -- pass 1: every kind must be in the model (the drift backstop) --
 
-      def check_known(node)
+      def verify_known_kind!(node)
         return if Fields.known?(node.kind)
 
         raise InvariantError,
@@ -89,16 +89,16 @@ module RubyGBA
 
       # -- pass 2: every recognized node must be well-formed --
 
-      def check_node(node)
+      def verify_node!(node)
         schema = Fields.of(node.kind) # present — pass 1 proved it
-        node.attrs.each { |field, value| check_field(node, schema, field, value) }
-        check_value_slots_present(node, schema)
-        check_children_are_statements(node)
+        node.attrs.each { |field, value| verify_field!(node, schema, field, value) }
+        verify_value_slots_present!(node, schema)
+        verify_children_are_statements!(node)
         node
       end
 
       # An operand present on the node must match its declared slot.
-      def check_field(node, schema, field, value)
+      def verify_field!(node, schema, field, value)
         type = schema.fetch(field) do
           raise InvariantError,
                 "#{node.kind}.#{field} is not a declared field — add it to IR::Fields[:#{node.kind}] " \
@@ -112,19 +112,19 @@ module RubyGBA
 
       # A value slot must actually be there — a verb that forgot to set it is as
       # broken as one that set it wrong.
-      def check_value_slots_present(node, schema)
+      def verify_value_slots_present!(node, schema)
         schema.each do |field, type|
           next unless type == :value
           next if node.attrs.key?(field)
 
           raise InvariantError,
-                "#{node.kind}.#{field} is missing — a value operand wasn't set (route it through Build.wrap)"
+                "#{node.kind}.#{field} is missing — a value operand wasn't set (route it through Build.to_value_node)"
         end
       end
 
       # Statements nest as children; value nodes live in #attrs. A value node found
       # among the children means a verb wired an operand as a statement.
-      def check_children_are_statements(node)
+      def verify_children_are_statements!(node)
         node.children.each do |child|
           next if child.statement?
 
@@ -149,7 +149,7 @@ module RubyGBA
       def mismatch_message(node, field, type, value)
         if type == :value
           "#{node.kind}.#{field} must be a value node, but holds #{value.inspect} — the verb built this " \
-            "node without routing #{field} through Value.node_for / Build.wrap"
+            "node without routing #{field} through Value.node_for / Build.to_value_node"
         elsif value.is_a?(Node)
           "#{node.kind}.#{field} must be an author-time #{type} (#{value.inspect} is a value node) — a run-time " \
             "value leaked into a structural slot"

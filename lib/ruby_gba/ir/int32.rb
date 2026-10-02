@@ -138,7 +138,7 @@ module RubyGBA
       # Both backends pin this, so a count the game works out gives the same answer
       # wherever the program runs.
       def shift_left(a, count)
-        return 0 unless shifts_within_the_number?(count)
+        return 0 unless shift_count_in_range?(count)
 
         wrap(wrap(a) << count)
       end
@@ -157,14 +157,14 @@ module RubyGBA
       # the sign filling in behind — so both arrive here, and an out-of-range count
       # empties the number as described above.
       def shift_right(a, bits)
-        return wrap(a).negative? ? -1 : 0 unless shifts_within_the_number?(bits)
+        return wrap(a).negative? ? -1 : 0 unless shift_count_in_range?(bits)
 
         wrap(wrap(a) >> bits) # Ruby's >> on a negative rounds down, which is the point
       end
 
       # Does this count move bits about inside the number, rather than pushing all of
       # them off one end?
-      def shifts_within_the_number?(count)
+      def shift_count_in_range?(count)
         count >= 0 && count < BITS
       end
 

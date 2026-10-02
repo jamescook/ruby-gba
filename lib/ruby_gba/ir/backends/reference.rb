@@ -398,21 +398,21 @@ module RubyGBA
         # and the cartridge lowering both ask as well, so all three refuse the same
         # programs in the same sentence.
         def refuse_too_many_layers!(node)
-          refusal = Guardrails::Checks::TooManyBackgroundLayers.new.refusal(node)
+          refusal = Guardrails::Checks::TooManyBackgroundLayers.new.refusal_message(node)
           raise ProgramError, refusal if refusal
         end
 
         # The same answer about sprites: this picture has room for any number of them, and
         # the console has 128 places. See Guardrails::Checks::TooManySprites.
         def refuse_too_many_sprites!(node)
-          refusal = Guardrails::Checks::TooManySprites.new.refusal(node)
+          refusal = Guardrails::Checks::TooManySprites.new.refusal_message(node)
           raise ProgramError, refusal if refusal
         end
 
         # ...and about see-through layers: this picture could blend any number at once, and
         # the console blends one a screen. See Guardrails::Checks::SeeThroughPerScreen.
         def refuse_two_see_through_layers!(node)
-          refusal = Guardrails::Checks::SeeThroughPerScreen.new.refusal(node)
+          refusal = Guardrails::Checks::SeeThroughPerScreen.new.refusal_message(node)
           raise ProgramError, refusal if refusal
         end
 
@@ -1237,7 +1237,7 @@ module RubyGBA
 
         # +nodes+ in the order the declared stack asks for (see IR::Stacking).
         def in_stack_order(nodes)
-          IR::Stacking.order(nodes, @layer_stack, &:layer)
+          IR::Stacking.order_by_stack(nodes, @layer_stack, &:layer)
         end
 
         # Does +a+ sit further back in the stack than +b+? Only when both named a layer:
@@ -1591,7 +1591,7 @@ module RubyGBA
           amount = eval_value(node.amount)
           was_fading = fading?
           was_placed = @fade_placed
-          walked = @fading.walks_the_colors?(node)
+          walked = @fading.palette_walk?(node)
           steps = FadeSteps.steps(amount, fraction_bits: node.fraction_bits, walked: walked)
           @fade_placed = node.under && [node.under, node.toward, steps]
           if walked
@@ -1635,7 +1635,7 @@ module RubyGBA
         # blends it, the amount is a whole percentage or is counted in sixteenths, and a
         # sixteenth is two thirty-seconds.
         def exec_tint(node)
-          walked = @fading.walks_the_colors?(node)
+          walked = @fading.palette_walk?(node)
           steps = FadeSteps.steps(eval_value(node.amount), fraction_bits: node.fraction_bits, walked: walked)
           @screen.tint_steps_to(Graphics::Color.resolve(node.color), FadeSteps.in_walk_steps(steps, !walked))
         end

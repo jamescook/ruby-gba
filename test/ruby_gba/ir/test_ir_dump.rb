@@ -52,7 +52,7 @@ class TestIRDump < Minitest::Test
     assert_equal node, rebuilt
   end
 
-  # emit_class's whole file, evaluated in a scratch module (so the class it defines
+  # class_source's whole file, evaluated in a scratch module (so the class it defines
   # lands there and not in the real, global RubyGBA namespace) and run for real —
   # the strongest available proof that what a user gets back is exactly what the
   # class claims to be: something that rebuilds the tree and lowers it, and nothing
@@ -61,7 +61,7 @@ class TestIRDump < Minitest::Test
   # here — proving that guard's OTHER half (it firing when run as a real script) is
   # test_cli.rb's job, over an actual `ruby` subprocess.
   def test_emit_class_runs_and_lowers_to_the_same_code_a_real_build_produces
-    source = Dump.emit_class(ConformanceFixture.program, class_name: "FixtureIR",
+    source = Dump.class_source(ConformanceFixture.program, class_name: "FixtureIR",
                                                           fast_cartridge: true, fast_code: false)
     scratch = Module.new
     scratch.module_eval(source, "generated_ir.rb", 1)
@@ -79,7 +79,7 @@ class TestIRDump < Minitest::Test
   def test_emit_class_carries_a_font_the_game_declared
     face = RubyGBA::Graphics::Font.new(glyphs: { "A" => [0b111, 0b101, 0b111] }, widths: { "A" => 3 }, height: 3)
     tree = program(font(:dump_test_font, face), draw_text("A", 0, 0, :white, font: :dump_test_font), halt)
-    source = Dump.emit_class(tree, class_name: "LetteredIR", fast_cartridge: true, fast_code: true)
+    source = Dump.class_source(tree, class_name: "LetteredIR", fast_cartridge: true, fast_code: true)
 
     scratch = Module.new
     scratch.module_eval(source, "generated_ir.rb", 1)
@@ -136,7 +136,7 @@ class TestIRDump < Minitest::Test
   end
 
   def test_emit_class_source_is_syntactically_valid_and_defines_program_and_lower
-    source = Dump.emit_class(ConformanceFixture.program, class_name: "FixtureIR",
+    source = Dump.class_source(ConformanceFixture.program, class_name: "FixtureIR",
                                                           fast_cartridge: true, fast_code: false)
     result = Prism.parse(source)
     assert result.success?, result.errors.map(&:message).join("\n")

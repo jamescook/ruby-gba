@@ -17,7 +17,7 @@ module RubyGBA
         # Like OrphanedCondition, it reports from data rather than from the tree: a
         # counted wait leaves no node behind, so there is nothing in the program to
         # find. It ignores the program and runs as an ordinary check in the Validator's
-        # list, which keeps every message the developer reads on the one Report#emit
+        # list, which keeps every message the developer reads on the one Report#print_findings
         # path.
         class DroppedFrameSync
           NAME = :dropped_frame_sync

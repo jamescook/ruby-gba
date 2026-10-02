@@ -62,7 +62,7 @@ module RubyGBA
             # two cannot disagree about which programs fit.
             modes = Modes.resolve(program)
             Stacking.screenfuls(program).each do |screenful|
-              found = refusal_for(screenful, modes)
+              found = screenful_finding(screenful, modes)
               return [found] if found
             end
             []
@@ -74,7 +74,7 @@ module RubyGBA
 
           # Why the layers are refused, or nil when they fit. The two backends come
           # through here, so one rule and one wording serve the build and both of them.
-          def refusal(program)
+          def refusal_message(program)
             detect(program).first&.message
           end
 
@@ -86,94 +86,94 @@ module RubyGBA
           # backgrounds AND too many scrolling ones is told about the second turner first:
           # cutting a scrolling layer would not save it, and the arrangement it was counted
           # against is not one the console has anyway.
-          def refusal_for(screenful, modes)
-            sharing = screenful.turning_on_the_tiled_screen(modes)
+          def screenful_finding(screenful, modes)
+            sharing = screenful.turning_on_tiled_screen(modes)
             if sharing.size > MAX_TURNING_LAYERS
-              return refusal_of(sharing.last, only_one_can_turn(sharing, screenful.scene))
+              return error_finding(sharing.last, too_many_turning_message(sharing, screenful.scene))
             end
 
             # HOW MANY SCROLLING ONES FIT depends on whether THIS screen holds a turning
             # layer, because that is what decides which arrangement the console is put in as
             # the screen is set up.
-            room = room_beside(sharing)
+            room = scrolling_layer_limit(sharing)
             scrolling = screenful.scrolling
             return nil if scrolling.size <= room
 
             # The layer blamed is the first one with nowhere to go, so the author is sent to
             # a line that really is past the end rather than to the stack's first layer,
             # which fits.
-            refusal_of(scrolling[room], no_room_to_stack(scrolling, sharing, screenful.scene))
+            error_finding(scrolling[room], too_many_scrolling_message(scrolling, sharing, screenful.scene))
           end
 
-          def refusal_of(node, message)
+          def error_finding(node, message)
             Finding.new(check: NAME, severity: :error, node: node, message: message)
           end
 
           # How many scrolling backgrounds the tiled screen has room for, which depends
           # on whether that screen itself holds one that turns.
-          def room_beside(sharing)
+          def scrolling_layer_limit(sharing)
             sharing.empty? ? MAX_SCROLLING_LAYERS : MAX_SCROLLING_LAYERS_BESIDE_TURNING
           end
 
-          def only_one_can_turn(turning, scene)
-            "#{whose(scene)} turns or resizes #{turning.size} backgrounds at one time " \
-              "(#{named(turning)}). The console can turn #{MAX_TURNING_LAYERS} background at " \
+          def too_many_turning_message(turning, scene)
+            "#{screen_subject(scene)} turns or resizes #{turning.size} backgrounds at one time " \
+              "(#{name_list(turning)}). The console can turn #{MAX_TURNING_LAYERS} background at " \
               "one time. To fix this, turn #{MAX_TURNING_LAYERS} background, and let the " \
-              "others scroll.#{move_the_turner(scene)}"
+              "others scroll.#{move_turner_hint(scene)}"
           end
 
           # The way out a game with scenes has: scenes take turns, so a background turned in
           # one of them stops counting against the others. Said about the TURNING one here,
-          # where #move_them below is about a scrolling one — pointing at the wrong one is
+          # where #move_into_scene_hint below is about a scrolling one — pointing at the wrong one is
           # advice that cannot be followed.
-          def move_the_turner(scene)
+          def move_turner_hint(scene)
             return "" unless scene
 
             " Each scene turns its own, so you can also move a background that turns into " \
               "the scene that turns it."
           end
 
-          def no_room_to_stack(scrolling, sharing, scene)
-            return nothing_turns(scrolling, scene) if sharing.empty?
+          def too_many_scrolling_message(scrolling, sharing, scene)
+            return scrolling_limit_message(scrolling, scene) if sharing.empty?
 
-            beside_a_turning_layer(scrolling, sharing.first, scene)
+            scrolling_beside_turner_message(scrolling, sharing.first, scene)
           end
 
-          def nothing_turns(scrolling, scene)
-            "#{how_many(scrolling, scene)} The console shows #{MAX_SCROLLING_LAYERS} scrolling " \
+          def scrolling_limit_message(scrolling, scene)
+            "#{scrolling_count_sentence(scrolling, scene)} The console shows #{MAX_SCROLLING_LAYERS} scrolling " \
               "backgrounds at one time. To fix this, show #{MAX_SCROLLING_LAYERS} scrolling " \
-              "backgrounds.#{move_them(scene)}"
+              "backgrounds.#{move_into_scene_hint(scene)}"
           end
 
-          def beside_a_turning_layer(scrolling, turner, scene)
+          def scrolling_beside_turner_message(scrolling, turner, scene)
             most = MAX_SCROLLING_LAYERS_BESIDE_TURNING
             "Background :#{turner.name} turns or resizes. Beside a background that turns, the " \
-              "console shows #{most} scrolling backgrounds at one time. #{how_many(scrolling, scene)} " \
+              "console shows #{most} scrolling backgrounds at one time. #{scrolling_count_sentence(scrolling, scene)} " \
               "To fix this, show #{most} scrolling backgrounds. Or stop turning :#{turner.name}. " \
-              "Then #{MAX_SCROLLING_LAYERS} scrolling backgrounds fit.#{move_them(scene)}"
+              "Then #{MAX_SCROLLING_LAYERS} scrolling backgrounds fit.#{move_into_scene_hint(scene)}"
           end
 
           # WHAT THE COUNT IS ABOUT, said plainly, because the number only makes sense
           # beside it: a game can have many more backgrounds than this, as long as no one
           # screen shows too many. A game that declares no scenes shows everything at once,
           # so for that one the screenful IS the game and saying so would only puzzle.
-          def how_many(scrolling, scene)
-            "#{whose(scene)} shows #{scrolling.size} scrolling backgrounds at one time " \
-              "(#{named(scrolling)})."
+          def scrolling_count_sentence(scrolling, scene)
+            "#{screen_subject(scene)} shows #{scrolling.size} scrolling backgrounds at one time " \
+              "(#{name_list(scrolling)})."
           end
 
-          def whose(scene) = scene ? "The scene :#{Modes.friendly_name(scene)}" : "This game"
+          def screen_subject(scene) = scene ? "The scene :#{Modes.strip_scene_prefix(scene)}" : "This game"
 
           # The way out a game with scenes has and a game without does not: scenes take
           # turns, so scenery moved into one of them stops counting against the others.
-          def move_them(scene)
+          def move_into_scene_hint(scene)
             return "" unless scene
 
             " Each scene gets its own layers, so you can also move a background into a " \
               "scene that has room."
           end
 
-          def named(nodes) = nodes.map { |node| ":#{node.name}" }.join(", ")
+          def name_list(nodes) = nodes.map { |node| ":#{node.name}" }.join(", ")
         end
       end
     end

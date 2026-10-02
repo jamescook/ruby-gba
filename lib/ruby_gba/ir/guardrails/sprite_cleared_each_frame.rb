@@ -41,7 +41,7 @@ module RubyGBA
           def detect(program)
             funcs = FrameReach.index_funcs(program)
             FrameReach.loops(program).filter_map do |loop_node|
-              steady = FrameReach.steady_statements(loop_node, funcs)
+              steady = FrameReach.per_frame_statements(loop_node, funcs)
               next unless steady.any? { |node| SPRITE_OPS.include?(node.kind) }
 
               # Blame the clear rather than the loop. The fix is to delete this one

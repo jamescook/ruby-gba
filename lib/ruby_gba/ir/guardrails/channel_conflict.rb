@@ -30,7 +30,7 @@ module RubyGBA
           EFFECTS = { beep: "beeps", wave: "wave tones", noise: "noise hits" }.freeze
 
           def detect(program)
-            played = Tunes.played(program)
+            played = Tunes.played_songs(program)
             plays = EFFECTS.keys.select { |verb| program.walk.any? { |node| node.kind == verb } }
 
             plays.flat_map do |verb|

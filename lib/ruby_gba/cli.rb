@@ -153,7 +153,7 @@ module RubyGBA
     def build_ir(game_file)
       game = load_game(game_file)
       rom = game.build_rom(settings: given_settings)
-      source = RubyGBA::IR::Dump.emit_class(rom.source_program, class_name: "#{constantize(game.title)}IR",
+      source = RubyGBA::IR::Dump.class_source(rom.source_program, class_name: "#{constantize(game.title)}IR",
                                             **game.build_options)
       if options[:output]
         File.write(options[:output], source)

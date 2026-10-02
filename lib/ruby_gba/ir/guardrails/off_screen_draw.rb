@@ -52,13 +52,13 @@ module RubyGBA
           def constant_bounds(node, bitmaps)
             case node.kind
             when :pixel
-              at(node) { |x, y| [x, y, 1, 1] }
+              with_constant_position(node) { |x, y| [x, y, 1, 1] }
             when :fill_rect, :dma_fill_rect, :draw_rect_at
               rect_bounds(node)
             when :draw_text
-              at(node) { |x, y| font = node.fonts.get(node.font); [x, y, font.text_width(node.text), font.height] }
+              with_constant_position(node) { |x, y| font = node.fonts.get(node.font); [x, y, font.text_width(node.text), font.height] }
             when :draw_digit
-              at(node) { |x, y| font = node.fonts.get(node.font); [x, y, font.width, font.height] } # one glyph
+              with_constant_position(node) { |x, y| font = node.fonts.get(node.font); [x, y, font.width, font.height] } # one glyph
             when :blit
               blit_bounds(node, bitmaps)
             end
@@ -76,12 +76,12 @@ module RubyGBA
             width, height = bitmaps[node.name]
             return nil unless width
 
-            at(node) { |x, y| [x, y, width, height] }
+            with_constant_position(node) { |x, y| [x, y, width, height] }
           end
 
           # Yield the node's constant (x, y) to build its bounds, or nil if either
           # coordinate is a run-time value.
-          def at(node)
+          def with_constant_position(node)
             x = const_int(node.x)
             y = const_int(node.y)
             yield(x, y) if x && y

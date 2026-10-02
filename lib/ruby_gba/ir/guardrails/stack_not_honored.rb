@@ -46,7 +46,7 @@ module RubyGBA
             # Fewer than two things in the stack come back unmoved, so the comparison
             # below answers "nothing to say" on its own and needs no case of its own.
             painted = painted_in_order(program, declared.names)
-            asked = Stacking.order(painted, declared.names, &:layer)
+            asked = Stacking.order_by_stack(painted, declared.names, &:layer)
             return [] if asked.each_index.all? { |at| asked[at].equal?(painted[at]) }
 
             [Finding.new(check: NAME, severity: :warning, node: declared,
@@ -72,7 +72,7 @@ module RubyGBA
             scenery = program.walk.select do |node|
               node.kind == :background && Modes::BITMAP_MODES.include?(modes.mode_at(node))
             end
-            (scenery + Stacking.order(@sprites, stack, &:layer)).select(&:layer)
+            (scenery + Stacking.order_by_stack(@sprites, stack, &:layer)).select(&:layer)
           rescue Modes::Conflict
             # One drawing routine reached from two screen modes. That error names it,
             # and until it is fixed there is no one mode to judge a picture in.

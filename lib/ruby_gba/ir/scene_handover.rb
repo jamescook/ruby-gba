@@ -54,7 +54,7 @@ module RubyGBA
 
       # The variables that say which map a background is showing, put back to its first as
       # +scene+ takes over.
-      def resets(scene) = arriving(scene).flat_map(&:choice)
+      def map_choices_to_reset(scene) = arriving(scene).flat_map(&:choice)
     end
   end
 end

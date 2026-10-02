@@ -310,13 +310,13 @@ module RubyGBA
       # Pass one: erase this sprite from where it was last drawn, restoring what it
       # covered. A no-op while the sprite is hidden.
       def erase_node
-        Build.if_(active_is(1), Build.restore_region(@buffer, ref(@old_x), ref(@old_y))).stamp(@source)
+        Build.if_(active_is(1), Build.restore_region(@buffer, ref(@old_x), ref(@old_y))).default_source!(@source)
       end
 
       # Pass two: draw this sprite where it is now, remembering what's freshly under it
       # so the next frame's erase can put it back. A no-op while hidden.
       def draw_node
-        Build.if_(active_is(1), *save_and_draw_nodes).stamp(@source)
+        Build.if_(active_is(1), *save_and_draw_nodes).default_source!(@source)
       end
 
       # Draw the sprite for the first time at its start (used by the sprite verb when

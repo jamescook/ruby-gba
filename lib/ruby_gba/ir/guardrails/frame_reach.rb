@@ -29,20 +29,20 @@ module RubyGBA
 
         # Every statement reachable each frame from +node+, following every call into
         # funcs but stopping at a `pressed`-guarded (transition) body.
-        def steady_statements(node, funcs, seen = Set.new, acc = [])
+        def per_frame_statements(node, funcs, seen = Set.new, acc = [])
           return acc if transition?(node)
 
           acc << node
-          node.callees.each { |target| follow(target, funcs, seen, acc) }
-          node.children.each { |child| steady_statements(child, funcs, seen, acc) }
+          node.callees.each { |target| follow_call(target,funcs, seen, acc) }
+          node.children.each { |child| per_frame_statements(child, funcs, seen, acc) }
           acc
         end
 
-        def follow(target, funcs, seen, acc)
+        def follow_call(target, funcs, seen, acc)
           return acc if seen.include?(target)
 
           func = funcs[target] or return acc
-          func.children.each { |child| steady_statements(child, funcs, seen | Set[target], acc) }
+          func.children.each { |child| per_frame_statements(child, funcs, seen | Set[target], acc) }
           acc
         end
 

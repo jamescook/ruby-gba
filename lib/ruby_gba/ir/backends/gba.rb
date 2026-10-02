@@ -1348,7 +1348,7 @@ module RubyGBA
         # IR::Movement says which those are, less the ones the layout has to write every frame
         # whatever the program does (see ScreenLayout#written_every_frame).
         def prepare_still_objects(program)
-          @movement = IR::Movement.of(program).except(@screen.written_every_frame)
+          @movement = IR::Movement.still_objects(program).except(@screen.written_every_frame)
           still = @movement.still
           @functions.define_generated_func(SpriteDrawing::STILL_ROUTINE) { @sprite_drawing.emit_write_sprite_rows(still) } if still.any?
           prepare_scene_sprites(program, still)
@@ -1367,7 +1367,7 @@ module RubyGBA
         # nothing about which frame's numbers a sprite is drawn from changes (see
         # SpriteDrawing#emit_scene_sprites).
         def prepare_scene_sprites(program, still)
-          @scene_sprites = IR::Movement.by_scene(program).filter_map do |things|
+          @scene_sprites = IR::Movement.objects_shown_by_scene(program).filter_map do |things|
             moving = things.names.select { |name| @screen.objects.key?(name) } - still
             things.with(names: moving) if moving.any?
           end

@@ -105,7 +105,7 @@ module RubyGBA
         # findings by hand, so the wording and destination live in one spot and the
         # stream is injectable: $stderr for a real build, a StringIO to capture it in
         # a test, or a null sink to silence it. Returns self so it chains.
-        def emit(to: $stderr)
+        def print_findings(to: $stderr)
           return self if findings.empty?
 
           # A heading, then a blank line before each finding, so several read as a list
@@ -125,12 +125,12 @@ module RubyGBA
         def heading
           problems = errors.length
           counts = []
-          counts << how_many(problems, "problem") if problems.positive?
-          counts << how_many(findings.length - problems, "warning") if findings.length > problems
+          counts << plural_count(problems, "problem") if problems.positive?
+          counts << plural_count(findings.length - problems, "warning") if findings.length > problems
           "#{counts.join(' and ')} about this game:"
         end
 
-        def how_many(count, thing) = "#{count} #{thing}#{'s' if count != 1}"
+        def plural_count(count, thing) = "#{count} #{thing}#{'s' if count != 1}"
       end
 
       # The extension hook. BUILTIN_CHECKS are always on; these are the extra

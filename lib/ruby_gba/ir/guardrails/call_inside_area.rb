@@ -51,7 +51,7 @@ module RubyGBA
           def calls_that_draw(area, funcs)
             area.children.flat_map { |child| find_calls(child) }.filter_map do |call_node|
               hits = call_node.callees.filter_map do |target|
-                drawn_by = routine_draws?(target, funcs)
+                drawn_by = unclipped_draw_kind_in(target, funcs)
                 [target, drawn_by] if drawn_by
               end
               [call_node, *hits.first] unless hits.empty?
@@ -75,7 +75,7 @@ module RubyGBA
           # baked into the routine's own instructions, so the console clips it there
           # exactly as the interpreter does — it is the fix this check recommends, and
           # a game that already did it must not be told to do it again.
-          def routine_draws?(name, funcs, seen = Set.new)
+          def unclipped_draw_kind_in(name, funcs, seen = Set.new)
             return nil if seen.include?(name)
 
             func = funcs[name] or return nil
@@ -87,7 +87,7 @@ module RubyGBA
             return nil if node.kind == :inside
             return node.kind if CLIPPED_DRAWS.include?(node.kind)
             if CALLS.include?(node.kind)
-              return node.callees.lazy.filter_map { |target| routine_draws?(target, funcs, seen) }.first
+              return node.callees.lazy.filter_map { |target| unclipped_draw_kind_in(target, funcs, seen) }.first
             end
 
             node.children.each do |child|

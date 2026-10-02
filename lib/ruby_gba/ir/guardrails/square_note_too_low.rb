@@ -42,12 +42,12 @@ module RubyGBA
           private
 
           def message(program, song, index, low)
-            part = SongWords.part(program, song, index)
+            part = SongWords.part_phrase(program, song, index)
             lowest = low.min
             count = low.size == 1 ? "" : " This part has #{low.size} notes that are too low."
             notes = low.size == 1 ? "this note" : "these notes"
-            "#{part.sub(/\A./, &:upcase)} of #{SongWords.song(program, song)} plays a note at " \
-              "#{lowest.round} Hz (MIDI key #{key(lowest)}). The square-wave voice cannot play a note lower " \
+            "#{part.sub(/\A./, &:upcase)} of #{SongWords.song_phrase(program, song)} plays a note at " \
+              "#{lowest.round} Hz (MIDI key #{midi_key(lowest)}). The square-wave voice cannot play a note lower " \
               "than #{LOWEST} Hz. It plays this note at #{LOWEST} Hz, so you hear a different note.#{count} " \
               "The lowest note that the voice plays correctly is :#{LOWEST_NOTE} (MIDI key #{LOWEST_KEY}). To " \
               "fix this, play #{notes} one or more octaves higher. Or write `plays: :wave` on this part. " \
@@ -55,7 +55,7 @@ module RubyGBA
               "instrument can play lower notes."
           end
 
-          def key(hz) = (69 + (12 * Math.log2(hz / 440.0))).round
+          def midi_key(hz) = (69 + (12 * Math.log2(hz / 440.0))).round
         end
       end
     end

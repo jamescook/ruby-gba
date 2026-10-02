@@ -56,7 +56,7 @@ module RubyGBA
           end
 
           # A plain-language name for where an offending op sits, for the message.
-          def per_frame_where(container)
+          def per_frame_place(container)
             case container.kind
             when :loop then "your game loop"
             when :repeat then "a repeat loop"

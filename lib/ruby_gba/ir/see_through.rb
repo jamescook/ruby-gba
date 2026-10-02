@@ -44,31 +44,31 @@ module RubyGBA
       # that was drawn in steps says.
       def weights(layer, shows, behind)
         if layer.split
-          far = steps_down(behind)
+          far = floor_steps(behind)
           return [STEPS - far, far]
         end
 
-        [nearest(shows), nearest(behind)]
+        [nearest_steps(shows), nearest_steps(behind)]
       end
 
       # The same two shares for amounts the game works out, as one number: the layer's
       # share in the low byte and what is behind above it — the halfword a display with a
       # blend register of that shape is told. Only the two-amount form comes here; the
       # one-number form has a lowering of its own that predates this.
-      def weights_value(layer)
-        near = nearest_value(layer.shows.copy)
-        far = nearest_value(layer.behind.copy)
+      def packed_shares_expr(layer)
+        near = nearest_step_expr(layer.shows.copy)
+        far = nearest_step_expr(layer.behind.copy)
         Build.binop(:|, near, Build.binop(:<<, far, Build.int(8)))
       end
 
-      def nearest_value(amount)
+      def nearest_step_expr(amount)
         scaled = Build.binop(:+, Build.binop(:*, amount, Build.int(STEPS)), Build.int(50))
         Build.clamped(Build.binop(:/, scaled, Build.int(100)), Build.int(0), Build.int(STEPS))
       end
 
-      def steps_down(percent) = ((percent * STEPS) / 100).clamp(0, STEPS)
+      def floor_steps(percent) = ((percent * STEPS) / 100).clamp(0, STEPS)
 
-      def nearest(percent) = (((percent * STEPS) + 50) / 100).clamp(0, STEPS)
+      def nearest_steps(percent) = (((percent * STEPS) + 50) / 100).clamp(0, STEPS)
     end
   end
 end

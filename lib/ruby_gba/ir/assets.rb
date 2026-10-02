@@ -96,7 +96,7 @@ module RubyGBA
 
         # How far a held note goes back at the end of the recording, or 0 for one that stops
         # there. A recording that holds from its very start goes back by the whole of it.
-        def held_by = holds_from ? length - holds_from : 0
+        def loop_length = holds_from ? length - holds_from : 0
       end
     end
   end

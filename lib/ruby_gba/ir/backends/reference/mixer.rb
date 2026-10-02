@@ -212,7 +212,7 @@ module RubyGBA
             slot = own || @slots.index(nil) || quietest_releasing_slot || lowest_ranked_slot_below(rank) or return record_drop
             frames = frames_for(info, frequency / Audio::Music::NOTE_FREQUENCIES.fetch(info.note || :C4).to_f)
             @slots[slot] = Voice.new(name: name, owner: owner, rank: rank, frames_left: frames,
-                                     frames_total: frames, loop: info.held_by.positive?,
+                                     frames_total: frames, loop: info.loop_length.positive?,
                                      **envelope_fields(envelope || info.envelope))
           end
 

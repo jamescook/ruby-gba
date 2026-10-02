@@ -50,8 +50,8 @@ class TestSceneHandover < Minitest::Test
   end
 
   def test_the_map_a_scene_shows_goes_back_to_its_first_as_it_arrives
-    refute_empty plan.resets(:_scene_menu), "the wall has two maps, so which one is showing is put back"
-    assert_empty plan.resets(:_scene_walk)
+    refute_empty plan.map_choices_to_reset(:_scene_menu), "the wall has two maps, so which one is showing is put back"
+    assert_empty plan.map_choices_to_reset(:_scene_walk)
   end
 
   # Three kinds of screen, and handing over from one kind to another replaces the whole

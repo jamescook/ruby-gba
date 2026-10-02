@@ -47,7 +47,7 @@ module RubyGBA
           end
 
           # Why the layers are refused, or nil when each screen has one at most.
-          def refusal(program)
+          def refusal_message(program)
             detect(program).first&.message
           end
 
@@ -55,7 +55,7 @@ module RubyGBA
 
           def message(both, scene)
             names = both.map { |layer| ":#{layer.name}" }.join(" and ")
-            screen = scene ? "The scene :#{Modes.friendly_name(scene)} shows" : "This game shows"
+            screen = scene ? "The scene :#{Modes.strip_scene_prefix(scene)} shows" : "This game shows"
             "#{screen} two see-through layers, #{names}. The console blends one layer with " \
               "what is behind it, so a screen can have one see-through layer. Each scene can " \
               "have its own. To fix this, make one of the two layers solid, or put each " \

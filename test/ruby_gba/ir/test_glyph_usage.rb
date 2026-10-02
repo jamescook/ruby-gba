@@ -19,18 +19,18 @@ class TestGlyphUsage < Minitest::Test
 
   def test_static_text_contributes_its_exact_characters
     prog = program { screen(:bitmap); draw_text("HI", 0, 0, :white); halt }
-    assert_equal({ default: %w[H I] }, Usage.reachable(prog))
+    assert_equal({ default: %w[H I] }, Usage.glyphs_by_font(prog))
   end
 
   def test_characters_are_folded_through_the_font
     # the default font is uppercase-only, so "hi" reaches the H and I glyphs
     prog = program { screen(:bitmap); draw_text("hi", 0, 0, :white); halt }
-    assert_equal(%w[H I], Usage.reachable(prog)[:default])
+    assert_equal(%w[H I], Usage.glyphs_by_font(prog)[:default])
   end
 
   def test_a_number_contributes_the_ten_digits
     prog = program { screen(:bitmap); var(:s, 0); draw_number(:s, 0, 0, :white); halt }
-    assert_equal(("0".."9").to_a, Usage.reachable(prog)[:default])
+    assert_equal(("0".."9").to_a, Usage.glyphs_by_font(prog)[:default])
   end
 
   def test_usage_is_grouped_by_font
@@ -40,7 +40,7 @@ class TestGlyphUsage < Minitest::Test
       draw_text "12", 0, 8, :white, font: :tiny  # tiny
       halt
     end
-    reach = Usage.reachable(prog)
+    reach = Usage.glyphs_by_font(prog)
     assert_equal(%w[A B], reach[:default])
     assert_equal(%w[1 2], reach[:tiny])
   end

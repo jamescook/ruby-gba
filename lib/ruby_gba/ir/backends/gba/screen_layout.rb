@@ -467,7 +467,7 @@ module RubyGBA
           # the arrangement that provides it leaves only the two below that one scrolling.
           def scrolling_slots(screenful)
             check = Guardrails::Checks::TooManyBackgroundLayers
-            most = if screenful.turning_on_the_tiled_screen(@modes).any?
+            most = if screenful.turning_on_tiled_screen(@modes).any?
                      check::MAX_SCROLLING_LAYERS_BESIDE_TURNING
                    else
                      check::MAX_SCROLLING_LAYERS
@@ -508,7 +508,7 @@ module RubyGBA
           # so it is switched on beside this screen's scrolling ones rather than taking one
           # of their slots — which is also why it does not count against them.
           def scene_screen(screenful, slots)
-            turning = screenful.turning_on_the_tiled_screen(@modes).any?
+            turning = screenful.turning_on_tiled_screen(@modes).any?
             on = screenful.scrolling.filter_map { |node| slots[node.name] }
             on += [AFFINE_BG] if turning
             SceneScreen.new(on: on, turning: turning)
@@ -524,8 +524,8 @@ module RubyGBA
           # program that reached a backend without passing the guardrails still cannot
           # build a cartridge with a layer quietly missing from it.
           def check_layers_fit!(program)
-            refusal = Guardrails::Checks::TooManyBackgroundLayers.new.refusal(program) ||
-                      Guardrails::Checks::SeeThroughPerScreen.new.refusal(program)
+            refusal = Guardrails::Checks::TooManyBackgroundLayers.new.refusal_message(program) ||
+                      Guardrails::Checks::SeeThroughPerScreen.new.refusal_message(program)
             raise LoweringError, refusal if refusal
           end
 
@@ -630,7 +630,7 @@ module RubyGBA
           # that ran out is named — "the scenery" would send the author adding up the whole game.
           def tiles_overflow_message(full, nodes, scene = nil)
             worst = nodes.max_by { |node| node.tiles.size }
-            whose = scene ? "The scenery of the scene :#{IR::Modes.friendly_name(scene)}" : "The scenery"
+            whose = scene ? "The scenery of the scene :#{IR::Modes.strip_scene_prefix(scene)}" : "The scenery"
             everywhere = scene && @picture.scenery.any? { |node| node.scene.nil? }
             "#{whose} does not fit in the #{TileVram::TOTAL_BYTES} bytes the console keeps it in. " \
               "Its tile pictures take #{full.tile_bytes} bytes, and its #{full.map_blocks} maps take " \
@@ -885,7 +885,7 @@ module RubyGBA
           def whose_picture(screenful)
             return "This picture" unless screenful.scene
 
-            "The scene :#{IR::Modes.friendly_name(screenful.scene)}'s picture"
+            "The scene :#{IR::Modes.strip_scene_prefix(screenful.scene)}'s picture"
           end
 
           # Which of the two ways it ran out, and what to do about that one.
@@ -951,7 +951,7 @@ module RubyGBA
             return if IR::TileMap.fits?(map)
 
             cols = map.map(&:length).max || 0
-            most = IR::TileMap.most
+            most = IR::TileMap.max_grid_size
             raise LoweringError,
                   "background :#{name} is #{cols}x#{map.length} tiles, and a tiled background is at most " \
                   "#{most}x#{most} tiles (#{most * TILE_PX}x#{most * TILE_PX} pixels, which is four " \
@@ -993,7 +993,7 @@ module RubyGBA
             nodes = @picture.objects
             # The guardrail of the same name has the rule and the words; this is the lowering's
             # own invariant, for a program that reached it without passing the guardrails.
-            refusal = Guardrails::Checks::TooManySprites.new.refusal(program)
+            refusal = Guardrails::Checks::TooManySprites.new.refusal_message(program)
             raise LoweringError, refusal if refusal
             build_shared_object_palette(nodes)
             # EVERY SPRITE'S PICTURES, cut into the rectangles the console draws and encoded,
@@ -1275,7 +1275,7 @@ module RubyGBA
           # is measured on its own and named — "the sprites" would send the author counting
           # every sprite in the game.
           def whose_sprites(scene)
-            scene ? "The sprites of the scene :#{IR::Modes.friendly_name(scene)}" : "The sprites"
+            scene ? "The sprites of the scene :#{IR::Modes.strip_scene_prefix(scene)}" : "The sprites"
           end
 
           # ...and that a scene's count includes the sprites every scene shows, when there are any.

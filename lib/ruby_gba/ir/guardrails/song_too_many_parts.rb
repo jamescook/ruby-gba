@@ -51,33 +51,33 @@ module RubyGBA
             one = SongWords.effect?(program, song) ? "A sound effect" : "A song"
             "#{SongWords.song_capitalized(program, song)} has #{counts.fetch(kind)} parts that " \
               "#{does}. #{one} can have #{limit} of them at most, because " \
-              "#{format(because, limit: limit)}. #{fixes(program, song, kind, counts)}"
+              "#{format(because, limit: limit)}. #{fix_hints(program, song, kind, counts)}"
           end
 
           # WHERE THE PARTS THAT DO NOT FIT CAN GO, one voice with room per sentence. The point
           # of naming them all is that the two the console plays itself cost NO mixer voice,
           # which is the thing an author has no way to know and the reason to reach for them.
-          def fixes(program, song, kind, counts)
+          def fix_hints(program, song, kind, counts)
             room = LIMITS.keys.reject { |other| other == kind }
                          .select { |other| counts.fetch(other) < LIMITS.fetch(other).first }
             last = "To fix this, use fewer parts that #{LIMITS.fetch(kind)[1]}."
             return last if room.empty?
 
-            "#{room.map { |other| move(program, song, other) }.join(' ')} #{last}"
+            "#{room.map { |other| move_part_hint(program, song, other) }.join(' ')} #{last}"
           end
 
-          def move(program, song, kind)
+          def move_part_hint(program, song, kind)
             case kind
             when :square then "One part can play the square wave. To do that, remove `plays:` from it."
             when :wave then "One part can play the wave voice, with `plays: :wave`. That voice costs " \
                             "no mixer voice."
             when :noise then "One part can play the noise voice, with `plays: :noise`. That voice plays " \
                              "the drums, and it costs no mixer voice."
-            else "One part can play an instrument: #{example(program, song)}."
+            else "One part can play an instrument: #{instrument_example(program, song)}."
             end
           end
 
-          def example(program, song)
+          def instrument_example(program, song)
             return "`Score::Part.new(plays: :strings, notes: ...)`" if SongWords.score?(program, song)
 
             "`voice :strings, plays: :strings do ... end`"

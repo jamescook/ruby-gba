@@ -142,24 +142,24 @@ module RubyGBA
         def read(bytes)
           halves = [TABLE_AT, TABLE_AT + SaveLayout.half_bytes(TABLE_BODY)].filter_map do |at|
             body = (0...TABLE_BODY).map { |i| bytes.fetch(at + HEADER + i, 0) }
-            good = word(bytes, at + MARKER_AT) == MARKER && word(bytes, at + SHAPE_AT) == shape &&
-                   word(bytes, at + CHECKSUM_AT) == SaveLayout.checksum(body)
-            [word(bytes, at + SEQUENCE_AT), body] if good
+            good = signed_word_at(bytes, at + MARKER_AT) == MARKER && signed_word_at(bytes, at + SHAPE_AT) == shape &&
+                   signed_word_at(bytes, at + CHECKSUM_AT) == SaveLayout.checksum(body)
+            [signed_word_at(bytes, at + SEQUENCE_AT), body] if good
           end
           _, body = halves.max_by(&:first)
           return nil unless body
 
           columns = TABLE_COLUMNS.each_with_index.to_h do |column, c|
             start = c * (4 + (TABLE_ROWS * 4))
-            [column, (0...TABLE_ROWS).map { |r| Int32.wrap(le_word(body, start + 4 + (r * 4))) }]
+            [column, (0...TABLE_ROWS).map { |r| Int32.wrap(unsigned_word_at(body, start + 4 + (r * 4))) }]
           end
           (0...TABLE_ROWS).map { |r| Row.new(**columns.transform_values { |values| values[r] }) }
                           .reject { |row| row.key.zero? }
         end
 
         def le_bytes(word) = (0...4).map { |i| (word >> (8 * i)) & 0xFF }
-        def le_word(bytes, at) = (0...4).sum { |i| bytes.fetch(at + i) << (8 * i) }
-        def word(bytes, at) = Int32.wrap((0...4).sum { |i| bytes.fetch(at + i, 0) << (8 * i) })
+        def unsigned_word_at(bytes, at) = (0...4).sum { |i| bytes.fetch(at + i) << (8 * i) }
+        def signed_word_at(bytes, at) = Int32.wrap((0...4).sum { |i| bytes.fetch(at + i, 0) << (8 * i) })
       end
     end
   end

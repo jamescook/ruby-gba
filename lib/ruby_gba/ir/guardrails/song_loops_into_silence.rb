@@ -46,7 +46,7 @@ module RubyGBA
                     "put `loop_from_here` at a point that has notes after it"
                   end
             "#{SongWords.song_capitalized(program, song)} loops from " \
-              "#{SongWords.seconds(Tunes.loop_frame(song))} into the song. No part plays a note from that " \
+              "#{SongWords.seconds_phrase(Tunes.loop_frame(song))} into the song. No part plays a note from that " \
               "point to the end. So after the first time through, the song is silent. To fix this, #{fix}."
           end
         end

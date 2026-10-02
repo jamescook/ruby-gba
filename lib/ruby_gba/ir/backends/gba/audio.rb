@@ -324,7 +324,7 @@ module RubyGBA
             # A game that never moves the music volume plays every note exactly as it was written,
             # and none of the working-out for one is emitted.
             @scales = program.walk.any? { |node| node.kind == :set && node.var == IR::Tunes::LEVEL }
-            @loops = IR::Tunes.played(program).any? { |song| IR::Tunes.loop_frame(song).positive? }
+            @loops = IR::Tunes.played_songs(program).any? { |song| IR::Tunes.loop_frame(song).positive? }
             recorded = IR::Tunes.most_recorded_parts(program)
             if recorded > RubyGBA::Audio::Sound::MIXER_VOICES # refused before this by Guardrails::Checks::SongTooManyParts
               raise LoweringError, "a song has #{recorded} recorded parts, and the mixer has #{RubyGBA::Audio::Sound::MIXER_VOICES} voices"
@@ -332,7 +332,7 @@ module RubyGBA
 
             # The wave and noise lanes are added only for a game that has a part on them, so a
             # game that uses neither emits nothing for them at all.
-            console = CONSOLE_LANES.select { |kind, _| IR::Tunes.played(program).any? { |song| IR::Tunes.parts_on(song, kind).positive? } }
+            console = CONSOLE_LANES.select { |kind, _| IR::Tunes.played_songs(program).any? { |song| IR::Tunes.parts_on(song, kind).positive? } }
             @lanes = MUSIC_CHANNELS.map { |channel| Lane.new(:square, channel) } +
                      Array.new(recorded) { |lane| Lane.new(:recorded, lane) } +
                      console.map { |kind, channel| Lane.new(kind, channel) }
@@ -1027,7 +1027,7 @@ module RubyGBA
             (listed - @songs.keys).each do |name|
               raise LoweringError, "a song list names #{name.inspect}, which is not a song"
             end
-            plain = IR::Tunes.played(program).map(&:name) - listed
+            plain = IR::Tunes.played_songs(program).map(&:name) - listed
             @song_numbers = (plain + listed).each.with_index(1).to_h
             @list_bases = lists.transform_values { |songs| @song_numbers.fetch(songs.first) }
             @list_sizes = lists.transform_values(&:size)
@@ -1049,7 +1049,7 @@ module RubyGBA
           end
 
           # AT THE END OF A TUNE THAT LOOPS FROM A POINT: back to its loop frame, with each lane
-          # at the event it carries on from (see IR::Tunes#passes). Both come out of the tune's
+          # at the event it carries on from (see IR::Tunes#loop_passes). Both come out of the tune's
           # loop table, so the player does nothing here that it does not do going back to the top
           # — and a tune that loops from its start has no table, and falls through to that.
           # +at+ holds the tune's directory entry.
@@ -1476,7 +1476,7 @@ module RubyGBA
           #     its loop table: the frame it goes back to, and where each lane carries on from.
           #     That is nearly always part way into the lane's own events. A lane holding a note
           #     across the loop point carries on from a copy of its later events instead, headed
-          #     by the held note (see IR::Tunes#passes), so only such a lane costs more room.
+          #     by the held note (see IR::Tunes#loop_passes), so only such a lane costs more room.
           #
           # Where things start is a byte offset into this same data, so nothing in it needs to know
           # where the cartridge puts it — except the recordings, which are data of their own, and
@@ -1502,13 +1502,13 @@ module RubyGBA
               # itself was declared with, which is where music decoded from elsewhere keeps it.
               shape = sounding.envelope || info.envelope
               shape = nil if shape&.plain?
-              [0, info.length, shape ? shape.packed : 0, info.held_by].pack("VVVV")
+              [0, info.length, shape ? shape.packed : 0, info.loop_length].pack("VVVV")
             end.join
             table += shapes.map { |shape| RubyGBA::Audio::Sound::Registers.wavetable_halfwords(shape).pack("v*") }.join
             events = [NEVER, 0, 0, 0].pack("VVvv") # a row any lane can wait on
             @song_numbers.each_key do |name|
               song = @songs.fetch(name)
-              passes = IR::Tunes.passes(song)
+              passes = IR::Tunes.loop_passes(song)
               starts = Array.new(@lanes.size, events_at)
               again = starts.dup
               used = 0

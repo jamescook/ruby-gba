@@ -23,7 +23,7 @@ module RubyGBA
       module_function
 
       # font name (Symbol) => sorted Array of the glyph keys it may draw.
-      def reachable(program)
+      def glyphs_by_font(program)
         fonts = FontTable.of(program) # once for the whole walk, not once per draw
         usage = Hash.new { |hash, key| hash[key] = Set.new }
         program.walk do |node|
@@ -42,7 +42,7 @@ module RubyGBA
       # A one-line-per-font summary, so the tree-shaking is visible (e.g. ":default draws 10
       # of 41 glyphs").
       def footprint(program)
-        reachable(program).map do |name, keys|
+        glyphs_by_font(program).map do |name, keys|
           Footprint.new(font: name, drawn: keys.length, keys: keys,
                         total: FontTable.of(program).get(name).glyph_count)
         end

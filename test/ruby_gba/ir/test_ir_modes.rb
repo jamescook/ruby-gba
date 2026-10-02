@@ -76,9 +76,9 @@ class TestIRModes < Minitest::Test
   end
 
   def test_mixed_when_scenes_use_different_modes
-    assert Modes.resolve(game(title: :direct, play: :buffered)).mixed?
-    refute Modes.resolve(game(title: :buffered, play: :buffered, boot: :buffered)).mixed?
-    refute Modes.resolve(game(title: nil, play: nil)).mixed? # all inherit direct
+    assert Modes.resolve(game(title: :direct, play: :buffered)).mixes_direct_and_buffered?
+    refute Modes.resolve(game(title: :buffered, play: :buffered, boot: :buffered)).mixes_direct_and_buffered?
+    refute Modes.resolve(game(title: nil, play: nil)).mixes_direct_and_buffered? # all inherit direct
   end
 
   def test_any_buffered
@@ -108,8 +108,8 @@ class TestIRModes < Minitest::Test
     assert_equal :buffered, Modes.resolve(prog).mode_of(:never_called) # falls back to boot
   end
 
-  def test_friendly_name_strips_the_scene_prefix
-    assert_equal "play", Modes.friendly_name(:_scene_play)
-    assert_equal "paint", Modes.friendly_name(:paint) # a plain func is unchanged
+  def test_strip_scene_prefix
+    assert_equal "play", Modes.strip_scene_prefix(:_scene_play)
+    assert_equal "paint", Modes.strip_scene_prefix(:paint) # a plain func is unchanged
   end
 end

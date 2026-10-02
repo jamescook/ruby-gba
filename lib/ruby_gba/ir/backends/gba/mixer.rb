@@ -630,7 +630,7 @@ module RubyGBA
           def loop_back_distance(node, sample)
             return 0 unless node.loop
 
-            held = sample.held_by
+            held = sample.loop_length
             held.positive? ? held : sample.length
           end
 
@@ -1636,7 +1636,7 @@ module RubyGBA
           # as it costs nothing everywhere else.
           def shapes_any_note?(program)
             program.walk.any? { |node| node.kind == :sample && node.envelope } ||
-              IR::Tunes.played_and_effects(program).any? do |song|
+              IR::Tunes.playable_songs(program).any? do |song|
                 IR::Tunes.soundings(song).any? { |sounding| sounding.envelope }
               end
           end

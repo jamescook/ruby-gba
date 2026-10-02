@@ -79,7 +79,7 @@ module RubyGBA
           # number; an amount the game computes is scaled at run time, which is a
           # multiply and a divide once per call — nothing next to a frame.
           def emit_fade(node)
-            return emit_palette_fade(node) if @layout.fading.walks_the_colors?(node)
+            return emit_palette_fade(node) if @layout.fading.palette_walk?(node)
 
             # On a screen drawn through a color table the two effects are separate pieces
             # of hardware, so nothing puts a tint away by itself. The display still holds

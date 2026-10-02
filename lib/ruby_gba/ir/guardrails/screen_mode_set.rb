@@ -45,7 +45,7 @@ module RubyGBA
               severity: :error,
               message: PROBLEM,
               node: first_draw,
-              fix: Fix.new(message: FIXED, apply: method(:switch_screen_on)),
+              fix: Fix.new(message: FIXED, apply: method(:prepend_bitmap_screen)),
             )]
           end
 
@@ -64,7 +64,7 @@ module RubyGBA
 
           # The safe fix: put a bitmap `screen` at the very top, ahead of every
           # existing statement, so the screen is on before anything draws.
-          def switch_screen_on(program)
+          def prepend_bitmap_screen(program)
             Build.program(Build.screen(:bitmap), *program.children)
           end
         end

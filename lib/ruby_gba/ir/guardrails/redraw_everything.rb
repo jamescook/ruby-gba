@@ -46,7 +46,7 @@ module RubyGBA
 
             funcs = FrameReach.index_funcs(program)
             FrameReach.loops(program).filter_map do |loop_node|
-              steady = FrameReach.steady_statements(loop_node, funcs)
+              steady = FrameReach.per_frame_statements(loop_node, funcs)
               clears = steady.any? { |node| node.kind == :clear_screen }
               grows  = steady.any? { |node| growing_list_redraw?(node) }
               next unless clears && grows

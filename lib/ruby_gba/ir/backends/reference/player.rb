@@ -120,7 +120,7 @@ module RubyGBA
           # Then each part plays its next note if that note is due on this frame (frequency 0 is
           # a rest), and the frame moves on, wrapping at the song's length so the tune loops —
           # back to its loop frame, where every part carries on from its list for the passes
-          # after the first (IR::Tunes#passes).
+          # after the first (IR::Tunes#loop_passes).
           #
           # A part that plays a recording sounds each note on a voice of the mixer, which a note
           # starts from the top and a rest stops. The voice ages in the frame it starts, because
@@ -396,7 +396,7 @@ module RubyGBA
             end
           end
 
-          def passes(name) = @passes[name] ||= IR::Tunes.passes(@songs[name])
+          def passes(name) = @passes[name] ||= IR::Tunes.loop_passes(@songs[name])
         end
       end
     end

@@ -157,7 +157,7 @@ class TestPerSceneMode < Minitest::Test
 
     refute_includes modes.scene_funcs, :tick,
                      "a per-frame routine must not be treated as a mode-owning scene"
-    assert_includes modes.scene_funcs.map { |n| RubyGBA::IR::Modes.friendly_name(n) }, "a",
+    assert_includes modes.scene_funcs.map { |n| RubyGBA::IR::Modes.strip_scene_prefix(n) }, "a",
                      "a real case_var scene must still be tracked"
   end
 

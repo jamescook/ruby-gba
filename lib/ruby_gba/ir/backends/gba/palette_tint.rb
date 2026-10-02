@@ -170,9 +170,9 @@ module RubyGBA
           def prepare_palette_tint(program, fading:)
             @program_fades = program.walk.any? { |node| node.kind == :fade }
             @palette_tint = program.walk.any? { |node| node.kind == :tint && palette_screen?(node) } ||
-                            fading.any_color_walk?
+                            fading.any_fade_walks_palette?
             @darkens = program.walk.any? do |node|
-              node.kind == :fade && node.toward == :black && fading.walks_the_colors?(node)
+              node.kind == :fade && node.toward == :black && fading.palette_walk?(node)
             end
             mark_tint_tables_unpacked if @palette_tint
           end

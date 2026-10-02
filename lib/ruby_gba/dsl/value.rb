@@ -28,13 +28,13 @@ module RubyGBA
 
       # The one coercion boundary. Turns any value operand into an IR value node, so
       # nothing but a value node ever reaches the IR: a Value contributes its node,
-      # and everything else goes through Build.wrap (an Integer becomes a literal, a
+      # and everything else goes through Build.to_value_node (an Integer becomes a literal, a
       # Symbol a variable reference, a value node passes through, and anything that
       # can't be a value raises a plain-language error). Every collision point — the
       # operators below and the builder's verbs — funnels through here, so a Value
       # and its `:symbol` are interchangeable everywhere a value is expected.
       def self.node_for(operand)
-        operand.is_a?(Value) ? operand.node : Build.wrap(operand)
+        operand.is_a?(Value) ? operand.node : Build.to_value_node(operand)
       end
 
       # THE NUMBER THIS OPERAND ALREADY HAS, or nil when the game works it out as it runs.
@@ -494,7 +494,7 @@ module RubyGBA
       # anywhere, which is exactly why IR::Int32 pins what happens when it lands outside.
       def refuse_shift_past_width!(op, places)
         count = Value.fixed_number(places)
-        return if count.nil? || IR::Int32.shifts_within_the_number?(count)
+        return if count.nil? || IR::Int32.shift_count_in_range?(count)
 
         advice =
           if count.negative?

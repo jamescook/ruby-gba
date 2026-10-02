@@ -83,7 +83,7 @@ class TestIRGuardrails < Minitest::Test
     fix = Guardrails::Fix.new(message: "fixed it", apply: ->(prog) { prog })
     report = validate([StubCheck.new([error("boom", fix: fix), error("bang", fix: fix)])], program)
     said = StringIO.new
-    report.emit(to: said)
+    report.print_findings(to: said)
 
     assert_equal "2 warnings about this game:", said.string.lines.first.chomp
   end
@@ -94,7 +94,7 @@ class TestIRGuardrails < Minitest::Test
     fix = Guardrails::Fix.new(message: "fixed it", apply: ->(prog) { prog })
     report = validate([StubCheck.new([error("boom"), error("bang", fix: fix)])], program)
     said = StringIO.new
-    report.emit(to: said)
+    report.print_findings(to: said)
 
     assert_equal "1 problem and 1 warning about this game:", said.string.lines.first.chomp
   end
@@ -102,7 +102,7 @@ class TestIRGuardrails < Minitest::Test
   # ...and a clean build says nothing at all, heading included.
   def test_a_clean_program_is_written_as_nothing_rather_than_a_heading_of_none
     said = StringIO.new
-    validate([StubCheck.new([])], program).emit(to: said)
+    validate([StubCheck.new([])], program).print_findings(to: said)
 
     assert_empty said.string
   end

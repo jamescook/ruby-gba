@@ -37,7 +37,7 @@ module RubyGBA
             declared = program.walk.find { |node| node.kind == :layers }
             return [] if declared.nil? || declared.names.empty?
 
-            empty = declared.names - in_use(program)
+            empty = declared.names - used_layer_names(program)
             return [] if empty.empty?
 
             [Finding.new(check: NAME, severity: :warning, node: declared,
@@ -48,7 +48,7 @@ module RubyGBA
 
           # Every layer the program gives a meaning to: one something is in, and one
           # an effect is placed under.
-          def in_use(program)
+          def used_layer_names(program)
             (program.walk.flat_map do |node|
               [(node.layer if node.respond_to?(:layer)),
                (node.under if node.kind == :fade)]
@@ -56,16 +56,16 @@ module RubyGBA
           end
 
           def message(empty, stack)
-            return every_layer(empty) if empty.length == stack.length
+            return all_layers_empty_message(empty) if empty.length == stack.length
 
-            "#{holds_nothing(empty)} A layer with nothing in it changes no picture. " \
+            "#{empty_layers_sentence(empty)} A layer with nothing in it changes no picture. " \
               "Usually the name is written differently in the `layer` block, or what was " \
               "in it has moved out. To fix this, put something in #{list_of(empty)} with " \
               "`layer :#{empty.first} do ... end`, or remove #{empty.length > 1 ? 'them' : "it"} " \
               "from the `layers` line."
           end
 
-          def holds_nothing(empty)
+          def empty_layers_sentence(empty)
             return "The layer :#{empty.first} holds nothing." if empty.length == 1
 
             "These layers hold nothing: #{list_of(empty)}."
@@ -75,7 +75,7 @@ module RubyGBA
           # nothing was ever put in it. Saying "put something in :sky, :world, :actors
           # and :ui" one layer at a time would miss the point, so say the one thing
           # that is wrong and what a `layer` block is for.
-          def every_layer(empty)
+          def all_layers_empty_message(empty)
             "This game declares layers and puts nothing in any of them: #{list_of(empty)}. " \
               "So the stack changes no picture. A `layer` block is what gives a depth to a " \
               "`background`, to a `sprite`, and to text on a tiled screen. To fix this, put " \

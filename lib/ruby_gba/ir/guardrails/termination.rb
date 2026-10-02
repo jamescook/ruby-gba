@@ -34,7 +34,7 @@ module RubyGBA
 
           def detect(program)
             funcs = index_funcs(program)
-            flow = executed(program)
+            flow = runnable_statements(program)
             return [] if flow.empty? # nothing runs — that's the "no code" check's job
             return [] if flow.any? { |stmt| never_returns?(stmt, funcs, Set.new) }
 
@@ -45,7 +45,7 @@ module RubyGBA
 
           private
 
-          def executed(node)
+          def runnable_statements(node)
             node.children.reject { |child| DEFINITIONS.include?(child.kind) }
           end
 
@@ -72,7 +72,7 @@ module RubyGBA
             func = funcs[target]
             return false unless func
 
-            executed(func).any? { |stmt| never_returns?(stmt, funcs, seen | Set[target]) }
+            runnable_statements(func).any? { |stmt| never_returns?(stmt, funcs, seen | Set[target]) }
           end
         end
       end

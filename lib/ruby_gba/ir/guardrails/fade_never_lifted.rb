@@ -43,7 +43,7 @@ module RubyGBA
           def message(node)
             color = node.toward
             "This game fades the screen fully to #{color} and never fades back. " \
-              "#{what_it_covers(node)} To fix this, use `fade :#{color}, 0` when the fade " \
+              "#{coverage_sentence(node)} To fix this, use `fade :#{color}, 0` when the fade " \
               "is finished. For a fade over time, move a variable from 0 to 100 and give " \
               "it to `fade`."
           end
@@ -52,7 +52,7 @@ module RubyGBA
           # the same one — the kept layer is still there, floating over a game that is
           # gone. Say the one that happened, or the reader looks for a flat screen and
           # sees their HUD.
-          def what_it_covers(node)
+          def coverage_sentence(node)
             unless node.under
               return "A full fade covers everything, so the screen stays one flat color " \
                      "and the game is not visible behind it. Anything drawn after the " \

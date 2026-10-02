@@ -850,7 +850,7 @@ module RubyGBA
       layer_of = @program.walk.each_with_object({}) do |node, found|
         found[node.name] = node.layer if node.kind == :object
       end
-      IR::Stacking.order(names, @layer_stack) { |name| layer_of[name] }
+      IR::Stacking.order_by_stack(names, @layer_stack) { |name| layer_of[name] }
     end
 
     # Move every background's scroll write to the frame boundary.

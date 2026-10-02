@@ -79,7 +79,7 @@ module RubyGBA
       end
 
       # The first see-through layer of +program+ a fade has something to keep in, or nil.
-      def self.kept_layer(program)
+      def self.layer_a_fade_preserves(program)
         SeeThrough.layers(program).find { |layer| can_be_seen_through?(layer) }
       end
 
@@ -95,17 +95,17 @@ module RubyGBA
           @blend_fades = []
           @coarse_placed = []
           @fine = false
-          sort_the_fades(program)
+          classify_fades(program)
         end
 
         # Does this fade move the color table rather than the display's own blend? Asked of
         # a tint, which moves the table wherever there is one: is it counted in the walk's
         # thirty-seconds?
-        def walks_the_colors?(node) = @walking.key?(node)
+        def palette_walk?(node) = @walking.key?(node)
 
         # Does any fade walk the colors for the finer steps, whether or not a layer is seen
         # through? The build report says what that costs.
-        def fine_walk? = @fine
+        def fine_palette_fade? = @fine
 
         # The fades that asked for the finer steps and cannot have them, being placed in the
         # stack — seventeen levels, so a long one changes the picture every other frame.
@@ -113,7 +113,7 @@ module RubyGBA
 
         # Does any fade in this program? The color tables have to be kept readable in the
         # cartridge for one that does, and the build report names the mechanism it got.
-        def any_color_walk? = @walking.each_key.any? { |node| node.kind == :fade }
+        def any_fade_walks_palette? = @walking.each_key.any? { |node| node.kind == :fade }
 
         # The fades that still take the display's blend on the screen a layer can be seen
         # through — the ones that leave that layer solid while they run, which is the only
@@ -122,14 +122,14 @@ module RubyGBA
 
         private
 
-        def sort_the_fades(program)
+        def classify_fades(program)
           fades = program.walk.select { |node| node.kind == :fade }
           tints = program.walk.select { |node| node.kind == :tint && node.fraction_bits }
           return if fades.empty? && tints.empty?
 
           modes = Modes.resolve(program)
-          sort_the_fine_ones(fades, modes)
-          sort_the_fine_tints(tints, modes)
+          mark_fine_fades(fades, modes)
+          mark_fine_tints(tints, modes)
           return unless sees_through_a_layer?(program)
 
           fades.select { |node| modes.mode_at(node) == Modes::TILED }.each do |node|
@@ -149,7 +149,7 @@ module RubyGBA
         # table. On the plain bitmap screen there is no table, and a placed fade has to be
         # the display's, so both of those keep the sixteenths — and the placed ones are
         # remembered, because that is a trade worth telling the author about.
-        def sort_the_fine_ones(fades, modes)
+        def mark_fine_fades(fades, modes)
           fades.select(&:fraction_bits).each do |node|
             next if modes.mode_at(node) == Modes::DIRECT
             next @coarse_placed << node if node.under
@@ -162,14 +162,14 @@ module RubyGBA
         # A tint on a screen drawn through a table always walks it, so for a tint the only
         # question is the steps: a fraction counts in thirty-seconds there, and the display
         # blends a tint on the plain bitmap screen in sixteenths whatever it is given.
-        def sort_the_fine_tints(tints, modes)
+        def mark_fine_tints(tints, modes)
           tints.each do |node|
             @walking[node] = true unless modes.mode_at(node) == Modes::DIRECT
           end
         end
 
         def sees_through_a_layer?(program)
-          !Fading.kept_layer(program).nil?
+          !Fading.layer_a_fade_preserves(program).nil?
         end
       end
     end

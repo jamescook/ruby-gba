@@ -48,18 +48,18 @@ module RubyGBA
 
       # --- variable operations ---
       # An operand may be a bare Integer/Symbol (coerced to a value node by
-      # #wrap) or an already-built value node.
+      # #to_value_node) or an already-built value node.
 
       def set(var, value)
-        Nodes.build(:set, var: var, value: wrap(value))
+        Nodes.build(:set, var: var, value: to_value_node(value))
       end
 
       def add(var, operand)
-        Nodes.build(:add, var: var, operand: wrap(operand))
+        Nodes.build(:add, var: var, operand: to_value_node(operand))
       end
 
       def sub(var, operand)
-        Nodes.build(:sub, var: var, operand: wrap(operand))
+        Nodes.build(:sub, var: var, operand: to_value_node(operand))
       end
 
       def copy(dest, src)
@@ -85,7 +85,7 @@ module RubyGBA
       # fixed as the program is written or worked out while it runs (a limit that
       # depends on the level, a speed the game changes).
       def clamp(var, min, max)
-        Nodes.build(:clamp, var: var, min: wrap(min), max: wrap(max))
+        Nodes.build(:clamp, var: var, min: to_value_node(min), max: to_value_node(max))
       end
 
       # --- persistence (variables that survive power-off) ---
@@ -141,7 +141,7 @@ module RubyGBA
       end
 
       def pixel(x, y, color)
-        Nodes.build(:pixel, x: wrap(x), y: wrap(y), color: color)
+        Nodes.build(:pixel, x: to_value_node(x), y: to_value_node(y), color: color)
       end
 
       def fill_rect(x, y, w, h, color)
@@ -182,7 +182,7 @@ module RubyGBA
       # +usually+ is how many rows it normally covers, for the estimate only — nothing about how
       # the program runs reads it. See #draw_column_at, which takes it for the same reason.
       def draw_rect_at(x, y, w, h, color, usually: nil)
-        Nodes.build(:draw_rect_at, x: wrap(x), y: wrap(y), w: wrap(w), h: wrap(h),
+        Nodes.build(:draw_rect_at, x: to_value_node(x), y: to_value_node(y), w: to_value_node(w), h: to_value_node(h),
                                    color: color, usually: usually)
       end
 
@@ -191,8 +191,8 @@ module RubyGBA
       # prove, and unlike most such numbers this one has a known ceiling (a column is clipped to
       # the screen), so the estimate can be told rather than left to guess.
       def draw_column_at(name, slice, x, top, height, width: 1, usually: nil)
-        Nodes.build(:draw_column_at, name: name, slice: wrap(slice), x: wrap(x),
-                                     top: wrap(top), height: wrap(height), width: width,
+        Nodes.build(:draw_column_at, name: name, slice: to_value_node(slice), x: to_value_node(x),
+                                     top: to_value_node(top), height: to_value_node(height), width: width,
                                      usually: usually)
       end
 
@@ -281,7 +281,7 @@ module RubyGBA
 
       # Effect number +which+ of list +name+ (counting from 0) starts from its first note.
       def play_sound_effect(name, which:)
-        Nodes.build(:play_sound_effect, name: name, which: wrap(which))
+        Nodes.build(:play_sound_effect, name: name, which: to_value_node(which))
       end
 
       # Name the tune playing now. Every backend moves it on once per frame by itself, and
@@ -303,7 +303,7 @@ module RubyGBA
 
       # The tune playing now is song number +which+ of list +name+ (counting from 0).
       def play_from_list(name, which:)
-        Nodes.build(:play_from_list, name: name, which: wrap(which))
+        Nodes.build(:play_from_list, name: name, which: to_value_node(which))
       end
 
       # --- sampled (PCM) audio ---
@@ -391,8 +391,8 @@ module RubyGBA
       # ceiling in the count, so `most` is only ever wanted where the count is worked out as the
       # game runs and nothing in the program bounds it.
       def repeat(count, index, *body, stop_when: nil, usually: nil, most: nil)
-        Nodes.build(:repeat, children: body, count: wrap(count), index: index,
-                             stop_when: wrap(stop_when || 0), usually: usually, most: most)
+        Nodes.build(:repeat, children: body, count: to_value_node(count), index: index,
+                             stop_when: to_value_node(stop_when || 0), usually: usually, most: most)
       end
 
       # A repeating timer: run +body+ once every +period+ frames. +counter+ names
@@ -470,7 +470,7 @@ module RubyGBA
       # from 0, which may be worked out as the program runs. A number naming no routine in
       # the list calls nothing.
       def call_one_of(targets, which:)
-        Nodes.build(:call_one_of, targets: targets.to_a, which: wrap(which))
+        Nodes.build(:call_one_of, targets: targets.to_a, which: to_value_node(which))
       end
 
       # Multi-way dispatch on a variable: run the scene/func whose value matches.
@@ -533,7 +533,7 @@ module RubyGBA
       # variables (a moving object). A part pushed off a screen edge is clipped, not
       # wrapped.
       def blit(name, x, y)
-        Nodes.build(:blit, name: name, x: wrap(x), y: wrap(y))
+        Nodes.build(:blit, name: name, x: to_value_node(x), y: to_value_node(y))
       end
 
       # Draw one of a set of same-size images, chosen by a run-time index — a sprite
@@ -541,7 +541,7 @@ module RubyGBA
       # +poses+ is a list of defined image names; +index+ selects one (0-based) at
       # run time. Like a run-time-selected blit: costs one draw, not the whole set.
       def blit_pose(poses, index, x, y)
-        Nodes.build(:blit_pose, poses: poses, index: wrap(index), x: wrap(x), y: wrap(y))
+        Nodes.build(:blit_pose, poses: poses, index: to_value_node(index), x: to_value_node(x), y: to_value_node(y))
       end
 
       # A run-time test: do the visible (non-transparent) pixels of two posed things
@@ -553,8 +553,8 @@ module RubyGBA
       # side's own picture to know which pixels are solid, so both agree on the shape.
       def pixels_overlap(a_poses:, a_pose:, a_x:, a_y:, b_poses:, b_pose:, b_x:, b_y:)
         Nodes.build(:pixels_overlap,
-                 a_poses: a_poses, a_pose: wrap(a_pose), a_x: wrap(a_x), a_y: wrap(a_y),
-                 b_poses: b_poses, b_pose: wrap(b_pose), b_x: wrap(b_x), b_y: wrap(b_y))
+                 a_poses: a_poses, a_pose: to_value_node(a_pose), a_x: to_value_node(a_x), a_y: to_value_node(a_y),
+                 b_poses: b_poses, b_pose: to_value_node(b_pose), b_x: to_value_node(b_x), b_y: to_value_node(b_y))
       end
 
       # --- the stack (what sits in front of what) ---
@@ -578,13 +578,13 @@ module RubyGBA
       # Layer +name+ can be seen through: +shows+ of itself and +behind+ of what is behind
       # it, each 0 to 100.
       def see_through_layer(name, shows:, behind:)
-        Nodes.build(:see_through_layer, name: name, shows: wrap(shows), behind: wrap(behind), split: false)
+        Nodes.build(:see_through_layer, name: name, shows: to_value_node(shows), behind: to_value_node(behind), split: false)
       end
 
       # The one-number form: +behind+ of what is behind layer +name+ shows through it, and
       # the layer shows the rest.
       def see_through_split(name, behind)
-        amount = wrap(behind)
+        amount = to_value_node(behind)
         rest = amount.kind == :int ? int(100 - amount.value) : binop(:-, int(100), amount.copy)
         Nodes.build(:see_through_layer, name: name, shows: rest, behind: amount, split: true)
       end
@@ -610,7 +610,7 @@ module RubyGBA
         Nodes.build(:background, name: name, tiles: tiles, map: map, maps: maps, choice: choice,
                                  recolors: recolors, palettes: palettes,
                                  tile_w: tile_w, tile_h: tile_h, affine: affine, scene: scene,
-                                 **in_layer(layer))
+                                 **layer_field(layer))
       end
 
       # The named background's cells all become the map numbered +which+ — a whole room
@@ -618,7 +618,7 @@ module RubyGBA
       # the maps the background was declared with and is a value operand, so a game can work
       # out which room it has walked into. The cells become that map exactly as declared.
       def show_map(name, which:)
-        Nodes.build(:show_map, name: name, which: wrap(which))
+        Nodes.build(:show_map, name: name, which: to_value_node(which))
       end
 
       # The named background's tiles all draw from the list of colours numbered +which+ —
@@ -626,7 +626,7 @@ module RubyGBA
       # from 0 through the lists the background was given and is a value operand, so a game
       # can walk through them on a counter; a number naming none of them is its own colours.
       def background_colors(name, which:)
-        Nodes.build(:background_colors, name: name, which: wrap(which))
+        Nodes.build(:background_colors, name: name, which: to_value_node(which))
       end
 
       # Turn and resize the named background as a whole, this frame — the affine
@@ -641,7 +641,7 @@ module RubyGBA
       # swings or grows about nothing in particular belongs.
       def affine_background(name, angle:, scale:, around: nil)
         x, y = around || MIDDLE_OF_THE_SCREEN
-        Nodes.build(:affine_background, name: name, angle: wrap(angle), scale: wrap(scale),
+        Nodes.build(:affine_background, name: name, angle: to_value_node(angle), scale: to_value_node(scale),
                                         around_x: x, around_y: y)
       end
 
@@ -656,7 +656,7 @@ module RubyGBA
       # machine scrolls: one backend re-renders the window, another nudges the tile
       # hardware's scroll offset.
       def scroll_background(name, x:, y:)
-        Nodes.build(:scroll_background, name: name, x: wrap(x), y: wrap(y))
+        Nodes.build(:scroll_background, name: name, x: to_value_node(x), y: to_value_node(y))
       end
 
       # Give every ROW of the picture its own sideways offset on top of the named
@@ -670,7 +670,7 @@ module RubyGBA
       # paints; a backend with display hardware that re-reads its scroll position for
       # every row it draws can hand the whole thing over and pay nothing per pixel.
       def scroll_rows(name, row:, offset:, body: [])
-        Nodes.build(:scroll_rows, children: body, name: name, row: row, offset: wrap(offset))
+        Nodes.build(:scroll_rows, children: body, name: name, row: row, offset: to_value_node(offset))
       end
 
       # Move the whole displayed picture. x/y are where the visible window's top-left
@@ -682,7 +682,7 @@ module RubyGBA
       # window onto it. Where the window falls outside the drawn image there is nothing
       # to show, so the backdrop appears along that edge.
       def camera(x:, y:)
-        Nodes.build(:camera, x: wrap(x), y: wrap(y))
+        Nodes.build(:camera, x: to_value_node(x), y: to_value_node(y))
       end
 
       # Blend the whole displayed picture toward a color. +toward+ is :black or :white
@@ -704,8 +704,8 @@ module RubyGBA
       # whole percentage. A fraction is also a request for finer steps than a hundredth can
       # give over a long fade (see IR::Fading).
       def fade(toward:, amount:, under: nil, fraction_bits: nil)
-        Nodes.build(:fade, toward: toward, amount: wrap(amount), **under_layer(under),
-                           **amount_fraction(fraction_bits))
+        Nodes.build(:fade, toward: toward, amount: to_value_node(amount), **under_field(under),
+                           **fraction_bits_field(fraction_bits))
       end
 
       # Blend the whole displayed picture toward any color, not only black or white.
@@ -719,12 +719,12 @@ module RubyGBA
       # The two therefore reach the screen by different means and round differently, so
       # they stay separate rather than one growing a color argument.
       def tint(color:, amount:, fraction_bits: nil)
-        Nodes.build(:tint, color: color, amount: wrap(amount), **amount_fraction(fraction_bits))
+        Nodes.build(:tint, color: color, amount: to_value_node(amount), **fraction_bits_field(fraction_bits))
       end
 
       # An operand given only when there is one, so a whole-percentage fade is the node it
       # always was.
-      def amount_fraction(bits) = bits ? { fraction_bits: bits } : {}
+      def fraction_bits_field(bits) = bits ? { fraction_bits: bits } : {}
 
       # --- display objects (a moving picture the display composites over the scene) ---
       #
@@ -760,17 +760,17 @@ module RubyGBA
       # coordinates and may be worked out as the program runs; +tile+ is an index into
       # that background's own tiles, settled while the program is written.
       def set_tile(name, col, row, tile)
-        Nodes.build(:set_tile, name: name, col: wrap(col), row: wrap(row), tile: tile)
+        Nodes.build(:set_tile, name: name, col: to_value_node(col), row: to_value_node(row), tile: tile)
       end
 
       # Reserves the object; #present_objects is what actually draws it for a frame.
       def object(name, poses:, pose:, x:, y:, active:, angle: 0, scale: SCALE_ONE, layer: nil, scene: nil,
                  recolor: NO_RECOLOR, recolors: [], declared: nil)
-        Nodes.build(:object, name: name, poses: poses, pose: wrap(pose),
-                          x: wrap(x), y: wrap(y), active: wrap(active),
-                          angle: wrap(angle), scale: wrap(scale),
-                          recolor: wrap(recolor), recolors: recolors,
-                          **declared_as(declared), **in_layer(layer), **in_scene(scene))
+        Nodes.build(:object, name: name, poses: poses, pose: to_value_node(pose),
+                          x: to_value_node(x), y: to_value_node(y), active: to_value_node(active),
+                          angle: to_value_node(angle), scale: to_value_node(scale),
+                          recolor: to_value_node(recolor), recolors: recolors,
+                          **declared_field(declared), **layer_field(layer), **scene_field(scene))
       end
 
       # The +recolor+ an object that is drawn in its own colours holds: a number that names
@@ -801,14 +801,14 @@ module RubyGBA
       # constants or variables; a part off a screen edge is skipped (nothing to
       # remember out there).
       def save_region(buffer, x, y)
-        Nodes.build(:save_region, buffer: buffer, x: wrap(x), y: wrap(y))
+        Nodes.build(:save_region, buffer: buffer, x: to_value_node(x), y: to_value_node(y))
       end
 
       # Paint a saved patch back onto the screen at (x, y) — restore what a moving
       # object had covered, so it leaves no trace. Pairs with {save_region}; restore
       # at the same spot it was saved. A part off a screen edge is clipped.
       def restore_region(buffer, x, y)
-        Nodes.build(:restore_region, buffer: buffer, x: wrap(x), y: wrap(y))
+        Nodes.build(:restore_region, buffer: buffer, x: to_value_node(x), y: to_value_node(y))
       end
 
       # --- lists (a bounded, ordered collection) ---
@@ -856,7 +856,7 @@ module RubyGBA
 
       # Append a value at the end of the list (grows its length by one).
       def list_push(name, value)
-        Nodes.build(:list_push, name: name, value: wrap(value))
+        Nodes.build(:list_push, name: name, value: to_value_node(value))
       end
 
       # Remove one item from an end of the list: `from: :front` (a shift, dropping
@@ -871,13 +871,13 @@ module RubyGBA
       # Overwrite the item at `index` with a new value (the slot must already hold
       # one). `index` is a value operand.
       def list_set(name, index, value)
-        Nodes.build(:list_set, name: name, index: wrap(index), value: wrap(value))
+        Nodes.build(:list_set, name: name, index: to_value_node(index), value: to_value_node(value))
       end
 
       # Read the item at `index` — a value, so it can drive an operand or a
       # coordinate. `index` is itself a value operand.
       def list_get(name, index)
-        Nodes.build(:list_get, name: name, index: wrap(index))
+        Nodes.build(:list_get, name: name, index: to_value_node(index))
       end
 
       # How many items the list holds right now — a value.
@@ -899,7 +899,7 @@ module RubyGBA
       # safe by the read: a power-of-two table wraps it (a free mask), any other size
       # clamps it, so a read never reaches outside the table.
       def table_get(name, index)
-        Nodes.build(:table_get, name: name, index: wrap(index))
+        Nodes.build(:table_get, name: name, index: to_value_node(index))
       end
 
       # --- expression values (the AST an assignment or condition is built from) ---
@@ -913,7 +913,7 @@ module RubyGBA
       end
 
       def binop(op, lhs, rhs)
-        Nodes.build(:binop, op: op, lhs: wrap(lhs), rhs: wrap(rhs))
+        Nodes.build(:binop, op: op, lhs: to_value_node(lhs), rhs: to_value_node(rhs))
       end
 
       # Multiply two numbers that each carry +fraction_bits+ fraction bits, giving a
@@ -928,7 +928,7 @@ module RubyGBA
           raise ArgumentError, "fraction_bits must be a whole number from 0 to 32, got #{fraction_bits.inspect}"
         end
 
-        Nodes.build(:mul_fix, lhs: wrap(lhs), rhs: wrap(rhs), fraction_bits: fraction_bits)
+        Nodes.build(:mul_fix, lhs: to_value_node(lhs), rhs: to_value_node(rhs), fraction_bits: fraction_bits)
       end
 
       # Divide one number carrying a fraction by another, giving a number carrying one
@@ -942,7 +942,7 @@ module RubyGBA
           raise ArgumentError, "fraction_bits must be a whole number from 0 to 32, got #{fraction_bits.inspect}"
         end
 
-        Nodes.build(:div_fix, lhs: wrap(lhs), rhs: wrap(rhs), fraction_bits: fraction_bits)
+        Nodes.build(:div_fix, lhs: to_value_node(lhs), rhs: to_value_node(rhs), fraction_bits: fraction_bits)
       end
 
       # Divide +operand+ by 2**bits, rounding down (see Int32.shift_right for why down
@@ -952,31 +952,31 @@ module RubyGBA
           raise ArgumentError, "shift_right's bits must be a whole number from 0 to 31, got #{bits.inspect}"
         end
 
-        Nodes.build(:shift_right, operand: wrap(operand), bits: bits)
+        Nodes.build(:shift_right, operand: to_value_node(operand), bits: bits)
       end
 
       # Arithmetic negation of a value operand: -operand. This is the value-node
       # form (it produces a new value inside an expression), as opposed to the
       # `negate` statement, which flips a stored variable in place.
       def neg(operand)
-        Nodes.build(:neg, operand: wrap(operand))
+        Nodes.build(:neg, operand: to_value_node(operand))
       end
 
       # Every bit of +operand+ turned the other way. The complement, which is what
       # clears a flag: keep everything except the bits named by a mask.
       def bit_not(operand)
-        Nodes.build(:bit_not, operand: wrap(operand))
+        Nodes.build(:bit_not, operand: to_value_node(operand))
       end
 
       # |operand|, as a new value — the `abs` statement changes a stored variable instead.
       def absolute(operand)
-        Nodes.build(:absolute, operand: wrap(operand))
+        Nodes.build(:absolute, operand: to_value_node(operand))
       end
 
       # +operand+ held within [min, max], as a new value — the `clamp` statement changes a
       # stored variable instead.
       def clamped(operand, min, max)
-        Nodes.build(:clamped, operand: wrap(operand), min: wrap(min), max: wrap(max))
+        Nodes.build(:clamped, operand: to_value_node(operand), min: to_value_node(min), max: to_value_node(max))
       end
 
       # --- input reads (value operands, e.g. inside an `if_` condition) ---
@@ -1013,7 +1013,7 @@ module RubyGBA
       # plainly rather than letting a stray object slip into the tree and fail
       # cryptically later. (The DSL handle, Value, is unwrapped one layer up — the
       # IR core doesn't know about it — so it never reaches here.)
-      def wrap(operand)
+      def to_value_node(operand)
         case operand
         when Node then operand
         when Integer then int(operand)
@@ -1029,26 +1029,26 @@ module RubyGBA
       # thing belongs to a layer, nothing at all when it doesn't. A field that was never
       # set doesn't appear on the node, so a program that names no layers builds exactly
       # the tree it built before layers existed.
-      def in_layer(name)
+      def layer_field(name)
         name ? { layer: name } : {}
       end
 
       # The same idea for the game state a thing was declared inside. Absent means it is
       # always there — a HUD, a hero every screen shows.
-      def in_scene(name)
+      def scene_field(name)
         name ? { scene: name } : {}
       end
 
       # ...and for what the author called a drawn thing. Absent means the author named no
       # such thing: a letter of text is drawn the same way a sprite is, and belongs to the
       # words rather than to anything the game asked for by name.
-      def declared_as(name)
+      def declared_field(name)
         name ? { declared: name } : {}
       end
 
       # The same idea for an effect, which names the layer it sits UNDER rather than the
       # one it belongs to.
-      def under_layer(name)
+      def under_field(name)
         name ? { under: name } : {}
       end
 

@@ -65,12 +65,12 @@ module RubyGBA
         { var_ref: %i[name], case: %i[var], copy: %i[src], save_store: %i[var] }
       )
 
-      def of(program)
+      def still_objects(program)
         frame = program.children.find { |node| node.kind == :loop }
         return EVERYTHING_MOVES if frame.nil? || program.walk.any? { |node| node.kind == :raw }
 
         moved = moved_names(program, frame)
-        gates = scene_gates(program)
+        gates = scene_dispatch_tests(program)
         states = gates.values.map(&:first).uniq
         return EVERYTHING_MOVES if states.length > 1
 
@@ -87,9 +87,9 @@ module RubyGBA
       # its own instructions in it, or two variables picking scenes, loses nothing here.
       SceneThings = Data.define(:scene, :state, :value, :names)
 
-      def by_scene(program)
-        gates = scene_gates(program)
-        shown = program.walk.select { |node| node.kind == :object && node.scene && own_visibility(node, gates) }
+      def objects_shown_by_scene(program)
+        gates = scene_dispatch_tests(program)
+        shown = program.walk.select { |node| node.kind == :object && node.scene && visibility_without_scene_test(node, gates) }
         shown.group_by(&:scene).map do |scene, nodes|
           state, value = gates.fetch(scene)
           SceneThings.new(scene: scene, state: state, value: value, names: nodes.map(&:name))
@@ -123,7 +123,7 @@ module RubyGBA
       # Which variable and value each scene is dispatched for, read from where the program
       # picks one scene per frame. A scene nothing dispatches to has no answer here, and
       # anything belonging to it is left moving.
-      def scene_gates(program)
+      def scene_dispatch_tests(program)
         program.walk.each_with_object({}) do |node, gates|
           next unless node.kind == :case
 
@@ -135,7 +135,7 @@ module RubyGBA
       # size and its colours must all read nothing that moves; whether it is SHOWN may also
       # read its scene's own variable, and nothing else.
       def still?(node, moved, gates)
-        shown = own_visibility(node, gates)
+        shown = visibility_without_scene_test(node, gates)
         return false if shown.nil?
 
         [node.pose, node.x, node.y, node.angle, node.scale, node.recolor, shown]
@@ -146,7 +146,7 @@ module RubyGBA
       # thing outside every scene is shown by its own visibility alone; one inside a scene
       # carries that AND the test the builder put there (Builder#gated_by_scene), so the test
       # comes off and what is left has to be settled. Nothing else may stand in that place.
-      def own_visibility(node, gates)
+      def visibility_without_scene_test(node, gates)
         return node.active if node.scene.nil?
 
         state, value = gates[node.scene]

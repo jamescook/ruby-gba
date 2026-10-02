@@ -255,7 +255,7 @@ module RubyGBA
             end
             return emit_split_amount(layer.behind) if layer.split
 
-            @lowering.value(IR::SeeThrough.weights_value(layer))
+            @lowering.value(IR::SeeThrough.packed_shares_expr(layer))
             @primitives.store_halfword_acc(REG_BLDALPHA)
           end
 

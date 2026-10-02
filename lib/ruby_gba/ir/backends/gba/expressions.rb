@@ -269,7 +269,7 @@ module RubyGBA
           # gets loaded.
           def emit_constant_shift_left(lhs, count)
             @lowering.value(lhs)
-            if Int32.shifts_within_the_number?(count)
+            if Int32.shift_count_in_range?(count)
               @emitter.emit(ASM.lsl_imm(ACC, ACC, count)) if count.positive?
             else
               @emitter.emit(ASM.load_immediate(ACC, 0))
@@ -283,7 +283,7 @@ module RubyGBA
           # nobody meant to write costs the same single instruction.
           def emit_constant_shift_right(lhs, count)
             @lowering.value(lhs)
-            places = Int32.shifts_within_the_number?(count) ? count : Int32::BITS - 1
+            places = Int32.shift_count_in_range?(count) ? count : Int32::BITS - 1
             @emitter.emit(ASM.asr_imm(ACC, ACC, places)) if places.positive?
             true
           end

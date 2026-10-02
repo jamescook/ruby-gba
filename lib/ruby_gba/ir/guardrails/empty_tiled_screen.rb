@@ -41,7 +41,7 @@ module RubyGBA
             [Finding.new(
               check: NAME,
               severity: :error,
-              message: verb ? wrong_screen(verb) : nothing_to_show,
+              message: verb ? wrong_screen_message(verb) : empty_screen_message,
               node: tiled_screen_node(program),
             )]
           end
@@ -50,7 +50,7 @@ module RubyGBA
 
           # The message for the mode-conversion mistake: the game draws, but it
           # draws the way the other screen draws.
-          def wrong_screen(verb)
+          def wrong_screen_message(verb)
             "This game draws with `#{verb}`, but the screen mode is `screen :tiled`. " \
               "A tiled screen shows backgrounds and sprites only. It cannot show " \
               "`pixel`, `fill_rect`, `blit`, or `clear_screen`. So the drawing never " \
@@ -63,7 +63,7 @@ module RubyGBA
           end
 
           # The message for a tiled screen that was never given content.
-          def nothing_to_show
+          def empty_screen_message
             "This game sets `screen :tiled`, but it gives the screen nothing to show. " \
               "A tiled screen shows backgrounds and sprites only. With neither one, " \
               "every frame stays black. There is no crash or error to point at it.\n\n" \

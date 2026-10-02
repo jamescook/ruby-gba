@@ -57,11 +57,11 @@ module RubyGBA
           # crying wolf. +seen+ guards a call cycle.
           def reaches_sync?(node, funcs, seen)
             node.walk.any? do |n|
-              %i[wait_vblank raw].include?(n.kind) || n.callees.any? { |target| follow?(target, funcs, seen) }
+              %i[wait_vblank raw].include?(n.kind) || n.callees.any? { |target| call_reaches_sync?(target, funcs, seen) }
             end
           end
 
-          def follow?(target, funcs, seen)
+          def call_reaches_sync?(target, funcs, seen)
             return false if seen.include?(target)
 
             func = funcs[target]

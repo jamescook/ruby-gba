@@ -20,8 +20,8 @@ module RubyGBA
 
         # "the song :title", "song 2 of :music", "the song :forest of :music" — and "the sound
         # effect :hit of :sfx" for a Score handed to `sound_effects`.
-        def song(program, node)
-          list = list_of(program, node)
+        def song_phrase(program, node)
+          list = containing_list(program, node)
           return "the song :#{node.name}" unless list
 
           what = effect?(program, node) ? "sound effect" : "song"
@@ -30,16 +30,16 @@ module RubyGBA
         end
 
         # The same, to start a sentence with.
-        def song_capitalized(program, node) = song(program, node).sub(/\A./, &:upcase)
+        def song_capitalized(program, node) = song_phrase(program, node).sub(/\A./, &:upcase)
 
         # Did the song come from a list of Scores, rather than a `song` block?
-        def score?(program, node) = !list_of(program, node).nil?
+        def score?(program, node) = !containing_list(program, node).nil?
 
         # Is it one of the game's sound effects rather than a song?
-        def effect?(program, node) = list_of(program, node)&.kind == :sound_effect_list
+        def effect?(program, node) = containing_list(program, node)&.kind == :sound_effect_list
 
         # "the part :bass" / "the second part" for a song block, "part 1" for a Score.
-        def part(program, node, index)
+        def part_phrase(program, node, index)
           return "part #{index}" if score?(program, node)
 
           name = node.voices[index].name
@@ -49,12 +49,12 @@ module RubyGBA
         end
 
         # How far into the song a frame is, for a person: "0.2 seconds".
-        def seconds(frame)
+        def seconds_phrase(frame)
           value = (frame / Audio::Score::FRAME_RATE.to_f).round(2)
           "#{value.to_s.delete_suffix('.0')} second#{'s' unless value == 1}"
         end
 
-        def list_of(program, node)
+        def containing_list(program, node)
           program.walk.find do |candidate|
             (candidate.kind == :song_list && candidate.songs.include?(node.name)) ||
               (candidate.kind == :sound_effect_list && candidate.effects.include?(node.name))
