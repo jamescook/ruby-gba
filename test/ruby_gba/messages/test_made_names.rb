@@ -21,6 +21,7 @@ class TestMadeNames < Minitest::Test
     scene_sprites: { scene: :playing },
     scene_sprites_shown: { scene: :playing },
     still_sprites: {},
+    see_through_amounts: { layer: :rays },
   }.freeze
 
   def test_every_kind_of_name_is_in_the_samples
@@ -44,6 +45,7 @@ class TestMadeNames < Minitest::Test
       MadeNames.make(:buffered_digit_routine, font: :tiny) => "drawing a draw_number's digits (:tiny)",
       MadeNames.make(:scene_sprites, scene: :playing) => "moving the sprites of scene :playing",
       MadeNames.make(:still_sprites) => "writing the sprites nothing moves",
+      MadeNames.make(:see_through_amounts, layer: :rays) => "telling the display how see-through layer :rays is",
     }
     said.each { |name, words| assert_equal words, MadeNames.said(name), name.inspect }
     assert_nil MadeNames.said(:jump), "a routine the author named is not one of these"

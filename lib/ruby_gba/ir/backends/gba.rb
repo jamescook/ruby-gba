@@ -229,17 +229,20 @@ module RubyGBA
         # Each func's byte span in @code (for dump_func) — lives on @functions.
         def func_ranges = @functions.func_ranges
 
-        # The routines this build made for its scenes' moving sprites, each with the scene it
-        # writes for. Read by the placement, which weighs them like routines somebody wrote.
-        def scene_sprite_routines
+        # The routines this build made for its scenes, each with the scene it works for: the
+        # one writing each scene's moving sprites, and the one telling the display how
+        # see-through a layer is (see LayerBlend#amount_routines). Read by the placement,
+        # which weighs them like routines somebody wrote and gives each its scene's `fast:`.
+        def routines_for_scenes
           (@scene_sprites || []).to_h { |group| [SpriteDrawing.sprites_routine(group.scene), group.scene] }
+                                .merge(@layer_blend.amount_routines)
         end
 
         # How many routines the frame's own body calls that the program never wrote: the
-        # scenes' sprite writers and the still sprites'. Each is a call that grows if the
-        # frame moves to the quick memory and the routine does not.
+        # scenes' sprite writers, the still sprites', and the see-through amounts. Each is a
+        # call that grows if the frame moves to the quick memory and the routine does not.
         def frame_calls_to_made_routines
-          (@scene_sprites || []).length + (@movement&.still&.any? ? 1 : 0)
+          (@scene_sprites || []).length + (@movement&.still&.any? ? 1 : 0) + @layer_blend.amount_routines.size
         end
 
         # The emitted machine code / the label table / where each embedded blob landed
@@ -658,6 +661,9 @@ module RubyGBA
           @raster.prepare_row_bends(program, layers: @screen.hardware_layers)
           @has_objects = program.walk.any? { |node| node.kind == :object }
           @layer_blend.prepare_layer_blend(program) # ...and which layer, if any, you can see through
+          @layer_blend.amount_routines.each_key do |name|
+            @functions.mint(name) { @layer_blend.emit_amounts_routine(name) }
+          end
           @scene_blend = @tiled ? @layer_blend.scene_blend(@modes) : {}
           # ...which is what decides whether a fade may use the display's blend at all, or
           # has to walk the color table instead to leave that layer alone (see IR::Fading).

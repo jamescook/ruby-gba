@@ -41,7 +41,8 @@ module RubyGBA
           # `call` under the same name. The chooser ranks routines by what a frame spends in
           # each, which it reads off the program, and this one is not in there to be read — so
           # it stays in the cartridge unless the chooser is told about it by name, which it is
-          # for each scene's moving sprites (see Placement#sprite_routines).
+          # for each scene's moving sprites and each see-through layer's amounts (see
+          # Placement#scene_routines).
           def mint(name, &body)
             @funcs[name] = Build.func(name)
             @minted[name] = body

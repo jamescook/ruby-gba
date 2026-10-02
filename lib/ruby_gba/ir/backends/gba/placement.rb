@@ -185,7 +185,7 @@ module RubyGBA
             probe.lower(program, fast_funcs: Set.new) # measure the program with nothing moved
             # The routines the build makes for each scene's moving sprites are nowhere in the
             # program, so the probe is the one that knows them.
-            @sprite_routines = probe.scene_sprite_routines
+            @scene_routines = probe.routines_for_scenes
             sizes = moved_sizes(program, probe.func_sizes, made_calls: probe.frame_calls_to_made_routines)
             # Every allocation is rounded up to a whole word, so the gap the probe leaves is
             # the gap there really is — there is no alignment slop to keep back for.
@@ -490,7 +490,7 @@ module RubyGBA
           # A scene insisted on takes the routine that writes its sprites with it.
           def place_insisted(program, insisted, sizes, room, chosen)
             movable = program.walk.select { |node| node.kind == :func && insisted.include?(node.name) }.map(&:name)
-            movable += sprite_routines.filter_map { |routine, scene| routine if insisted.include?(scene) && sizes[routine] }
+            movable += scene_routines.filter_map { |routine, scene| routine if insisted.include?(scene) && sizes[routine] }
             movable.each do |name|
               guard_insisted_fits!(name, sizes[name], room)
               chosen << name
@@ -505,7 +505,7 @@ module RubyGBA
           def place_by_frame_cost(program, sizes, room, chosen)
             forbidden = funcs_marked(program, false)
             # A scene the author kept out of the quick memory keeps its sprites out with it.
-            forbidden += sprite_routines.filter_map { |routine, scene| routine if forbidden.include?(scene) }
+            forbidden += scene_routines.filter_map { |routine, scene| routine if forbidden.include?(scene) }
             ranked = ranked_by_frame_cost(program, sizes)
             ranked.each_with_index do |name, n|
               # Say which routine is being weighed, in the words an author would use. The
@@ -578,19 +578,20 @@ module RubyGBA
             named = program.walk.select { |node| node.kind == :func }.map(&:name)
             named << FRAME_ROUTINE if sizes.key?(FRAME_ROUTINE)
             named << IRQ_ROUTINE if sizes.key?(IRQ_ROUTINE)
-            named.concat(sprite_routines.keys)
+            named.concat(scene_routines.keys)
             named.select { |name| sizes[name].to_i.positive? }
           end
 
-          # Each scene's sprite-writing routine, by name, with the scene it writes for. Empty
-          # until the measuring pass has run.
-          def sprite_routines = @sprite_routines || {}
+          # The routines the build made for a scene — its sprite writer, a see-through layer's
+          # amounts — by name, with the scene each works for (the frame's own routine for a
+          # see-through layer no one scene owns). Empty until the measuring pass has run.
+          def scene_routines = @scene_routines || {}
 
           # A SCENE'S SPRITES GO RIGHT AFTER THE SCENE, when nothing has been measured. The
           # frame calls that routine on exactly the frames the scene runs, so it is worth what
           # the scene is worth, and nothing in the tree reaches it for the walk below to find.
           def with_scene_sprites(order, candidates)
-            of_scene = sprite_routines.select { |routine, _| candidates.include?(routine) }
+            of_scene = scene_routines.select { |routine, _| candidates.include?(routine) }
                                       .group_by { |_, scene| scene }
             order.flat_map { |name| [name, *of_scene.fetch(name, []).map(&:first)] }
           end
@@ -722,7 +723,7 @@ module RubyGBA
           # What the author wrote to insist on +name+: a scene's own word for the scene and for
           # the routine that writes its sprites, a func's for anything else.
           def insisted_words(name)
-            scene = sprite_routines.fetch(name, name).to_s
+            scene = scene_routines.fetch(name, name).to_s
             return "`func :#{name}, fast: true`" unless scene.start_with?("_scene_")
 
             "`scene :#{scene.delete_prefix('_scene_')}, fast: true`"

@@ -100,6 +100,8 @@ module RubyGBA
               end
               [node.name, IR::SeeThrough.weights(node, shows, behind)]
             end
+            @amount_routines = @layers.reject { |layer| fixed?(layer) }
+                                      .to_h { |layer| [routine_name(layer), scene_of(layer)] }
           end
 
           # Does this program see through any layer at all?
@@ -157,7 +159,7 @@ module RubyGBA
           # then and now are the same number.
           def emit_layer_blend_again
             emit_blend_targets
-            @layers.each { |layer| emit_amounts_if_on_screen(layer) }
+            @layers.each { |layer| emit_amounts_now(layer) }
           end
 
           # HOW SEE-THROUGH A LAYER IS, NOW. A picture whose amounts the program works out
@@ -170,7 +172,26 @@ module RubyGBA
           def emit_see_through(node)
             return unless see_through?
 
-            emit_amounts_if_on_screen(@layers.find { |layer| layer.name == node.layer })
+            emit_amounts_now(@layers.find { |layer| layer.name == node.layer })
+          end
+
+          # THE ROUTINES THAT WORK OUT AMOUNTS THE GAME CHANGES, each with the scene it works
+          # for — or with the frame's own routine, for a layer that is not one scene's alone.
+          #
+          # Turning two percentages into the display's sixteenths is a multiply, a divide and
+          # a clamp apiece. Written straight into the frame boundary, that sat in the game
+          # loop's own body, which is the first thing kept in the quick memory — so a title
+          # screen kept out of that memory on purpose still spent it, on every scene's behalf.
+          # As a routine of the layer's own it is weighed like the scene it belongs to and
+          # takes that scene's `fast:`, and the boundary keeps a call. It is called at the same
+          # place the work was, so the display hears each pair on the same frame as before.
+          #
+          # A pair of numbers the author wrote needs none: that is one write of a number.
+          def amount_routines = @amount_routines || {}
+
+          # The body of one of those routines.
+          def emit_amounts_routine(name)
+            emit_amounts_if_on_screen(@layers.find { |layer| routine_name(layer) == name })
           end
 
           # WHICH SEE-THROUGH LAYER THIS SCENE'S SCREEN SHOWS, written as the scene runs so
@@ -241,6 +262,31 @@ module RubyGBA
           def halfword((near, far)) = near | (far << 8)
 
           private
+
+          # Tell the display +layer+'s amounts: by calling the routine that works them out,
+          # where they change, and by writing them here where they are numbers.
+          def emit_amounts_now(layer)
+            name = routine_for(layer)
+            return @lowering.statement(Build.call(name)) if name
+
+            emit_amounts_if_on_screen(layer)
+          end
+
+          def routine_for(layer)
+            name = routine_name(layer)
+            name if amount_routines.key?(name)
+          end
+
+          def routine_name(layer) = Messages::MadeNames.make(:see_through_amounts, layer: layer.name)
+
+          def fixed?(layer) = [layer.shows, layer.behind].all? { |amount| @primitives.const_int(amount) }
+
+          # The one scene whose screens show +layer+, or the frame's own routine when it is
+          # shown outside any scene or by more than one.
+          def scene_of(layer)
+            scenes = @screenfuls.select { |screenful| layer_on(screenful) == layer }.map(&:scene).uniq
+            scenes.size == 1 && scenes.first ? scenes.first : Placement::FRAME_ROUTINE
+          end
 
           # Tell the display +layer+'s amounts — where the game has a see-through layer on
           # more than one screen, only while +layer+'s screen is the one up.
