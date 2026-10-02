@@ -325,6 +325,24 @@ class TestMenu < Minitest::Test
     assert_equal 3, cursor_row(i, 160), "the right menu was moved on its own"
   end
 
+  # One name is one menu's pick, so two menus called :main share where the cursor is. Two
+  # of them that start it on different rows cannot both be right, and the error names the
+  # menu the author wrote rather than the hidden variable that holds its pick.
+  def test_two_menus_with_one_name_that_start_on_different_rows_is_a_friendly_error
+    error = assert_raises(ArgumentError) do
+      build_program do
+        screen :bitmap
+        game_loop do
+          menu(:main, at: [X, Y], spacing: SPACING) { |r| ROWS.each { |l| r.item(l) } }
+          menu(:main, at: [X, Y], spacing: SPACING, starts_on: 2) { |r| ROWS.each { |l| r.item(l) } }
+        end
+      end
+    end
+
+    assert_match(/menu :main/, error.message)
+    refute_match(/__menu/, error.message)
+  end
+
   # ---- decoration a game says rather than builds ----
 
   def test_a_row_can_carry_its_own_colours

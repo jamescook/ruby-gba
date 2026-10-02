@@ -96,6 +96,7 @@ module RubyGBA
       @variables = {}          # name → { address:, initial: } — introspection metadata
       @fraction_vars = {}      # name → fraction bits, for variables that hold a fraction (see Fraction)
       @name_vars = {}          # name → the NameSet, for variables that hold one of a set of names
+      @var_declarations = {}   # name → what its first `var` started it at, and where (see Variables#var)
       @name_dispatches = []    # [dispatch node, NameSet] — filled in at finalize, once every name is known
       @next_var_addr = IWRAM_START
       @functions = {}          # name → deferred body block (evaluated at emit time)

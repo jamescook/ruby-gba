@@ -42,6 +42,7 @@ module RubyGBA
       # @param value [Integer, Symbol, Value] the starting value, or the first of its names
       # @return [Value] a handle to the variable
       def var(name, value)
+        refuse_conflicting_declaration!(name, value)
         ensure_var(name)
         @name_vars[name] ||= DSL::NameSet.new("the variable :#{name}") if value.is_a?(Symbol)
         at_boot(Build.set(name, stored_node(name, value)))
@@ -71,6 +72,7 @@ module RubyGBA
                 "fresh cartridge. You gave #{default.inspect}."
         end
 
+        refuse_conflicting_declaration!(name, default, saved: true)
         ensure_var(name)
         unless persisted?(name)
           @persisted << IR::SavedVar.new(name: name, default: default, slot: @persisted.length)
@@ -263,6 +265,49 @@ module RubyGBA
       def handle_for(name)
         DSL::Value.new(self, Build.var_ref(name), name: name, fraction_bits: @fraction_vars[name],
                                              names: @name_vars[name])
+      end
+
+      # A name is one variable however many places declare it. That is what lets a game
+      # object say `var :score, 0` in setup that runs more than once, and it is also how two
+      # parts of a game that each wanted a scratch `_seen` end up writing the same one with
+      # nothing to say so — found later by a wrong picture. Two declarations that agree are
+      # the first case and pass; two that start the variable differently (a fraction and a
+      # whole number, or two different numbers) can only be the second. So can a `save_var`
+      # and a `var` of one name: the plain one would quietly be saved and loaded too.
+      def refuse_conflicting_declaration!(name, value, saved: false)
+        start = value.is_a?(DSL::Value) ? value.node : value
+        here = Declaration.new(start: start, saved: saved, at: Messages::AuthorSource.author_file_and_line)
+        first = (@var_declarations[name] ||= here)
+        return if first.agrees_with?(here)
+
+        raise ArgumentError,
+              "The variable :#{name} has two declarations that do not agree. " \
+              "#{first.describe('first')} #{here.describe('second')} " \
+              "One name is one variable, so both places change the same value. " \
+              "If they are two different things, give each one its own name. " \
+              "If they are one thing, make both declarations the same."
+      end
+
+      # One `var` or `save_var`: what it started the variable at, whether it is kept across
+      # power-off, and the line of the game that said it.
+      Declaration = Data.define(:start, :saved, :at) do
+        # Ruby says 0.0 == 0, and a fraction and a whole number are exactly the two kinds
+        # that must not pass as the same, so the class has to match as well as the value.
+        def agrees_with?(other)
+          saved == other.saved && start.instance_of?(other.start.class) && start == other.start
+        end
+
+        # "At hero.rb:12 it starts at 0.0, a fraction." — for the message above.
+        def describe(which)
+          what = case start
+                 when Float then "#{start}, a fraction"
+                 when Integer then "#{start}, a whole number"
+                 when Symbol then ":#{start}, one of a set of names"
+                 else "a value the game works out"
+                 end
+          kept = saved ? " and is kept when the power is off" : ""
+          "#{at ? "At #{at}" : "In the #{which} place"} it starts at #{what}#{kept}."
+        end
       end
 
       # The node to store in +name+. A variable that holds NAMES turns the one it was given

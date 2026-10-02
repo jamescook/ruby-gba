@@ -25,8 +25,15 @@ module RubyGBA
       # The same thing as a phrase to hang on the end of an error message, and empty when
       # there is no line to name.
       def at_author_line
+        where = author_file_and_line
+        where ? " (at #{where})" : ""
+      end
+
+      # "hero.rb:42" — the file's own name and the line, without the directories, which is
+      # how a message names a place. Nil when there is no line to name.
+      def author_file_and_line
         where = author_source
-        where ? " (at #{where[%r{[^/]+\.rb:\d+}] || where})" : ""
+        where && (where[%r{[^/]+\.rb:\d+}] || where)
       end
     end
   end

@@ -230,7 +230,7 @@ module RubyGBA
           step = menu_spacing!(spacing || (text_height(font: font) + ROW_GAP))
           menu_repeat!(repeat_every)
 
-          pick = var :"__menu_#{name}", menu_first_row!(name, items, starts_on)
+          pick = var :"__menu_#{name}", refuse_two_first_rows!(name, menu_first_row!(name, items, starts_on))
           wait = var :"__menu_#{name}_wait", 0
           moved = var :"__menu_#{name}_moved", 0
 
@@ -608,6 +608,27 @@ module RubyGBA
 
           starts_on
         end
+
+        # A menu's name is where its pick is kept, so two `menu :main` calls share one cursor
+        # — which is right for a menu written once in a routine called from two places. Two
+        # that start that cursor on different rows cannot both be right, and saying so here
+        # names the menu the author wrote, where the variable check underneath would name
+        # the hidden variable that holds the pick.
+        def refuse_two_first_rows!(name, row)
+          here = Messages::AuthorSource.author_file_and_line
+          first = (@menu_first_rows ||= {})[name] ||= { row: row, at: here }
+          return row if first[:row] == row
+
+          raise ArgumentError,
+                "menu :#{name} is written in two places, and the two start the cursor on " \
+                "different rows. #{menu_start_place(first[:at], 'first')} it starts on row " \
+                "#{first[:row]}. #{menu_start_place(here, 'second')} it starts on row #{row}. " \
+                "Menus with one name share one cursor. If they are two different menus, give " \
+                "each one its own name. If they are one menu, give both the same `starts_on:`."
+        end
+
+        # "At hero.rb:12", or "In the first place" when no line of the game's own wrote it.
+        def menu_start_place(at, which) = at ? "At #{at}" : "In the #{which} place"
 
         # Down here because the check classes it names are declared above it.
         CHECKS = Ractor.make_shareable([NeedsGameLoop.new])

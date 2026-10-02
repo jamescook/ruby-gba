@@ -51,6 +51,58 @@ class TestVariables < Minitest::Test
     assert_equal 1, builder.variables.size
   end
 
+  # Two parts of a game that each declare a scratch `_seen` share ONE variable, and
+  # nothing about the program says so. One holding a fraction and the other a whole
+  # number is the case that gave a wrong picture rather than a build error.
+  def test_one_name_declared_as_a_fraction_and_a_whole_number_names_both_lines
+    first = __LINE__ + 3
+    error = assert_raises(ArgumentError) do
+      build_with_builder do
+        var :_seen, 0.0
+        var :_seen, 0
+      end
+    end
+
+    assert_includes error.message, ":_seen"
+    assert_includes error.message, "do not agree"
+    assert_includes error.message, "test_variables.rb:#{first}"
+    assert_includes error.message, "test_variables.rb:#{first + 1}"
+  end
+
+  def test_one_name_declared_with_two_different_numbers_is_a_friendly_error
+    error = assert_raises(ArgumentError) do
+      build_with_builder do
+        var :lives, 3
+        var :lives, 5
+      end
+    end
+
+    assert_includes error.message, "do not agree"
+  end
+
+  # A variable kept across power-off and a plain one with the same name are still one
+  # variable, so the plain one would quietly be saved too.
+  def test_a_saved_and_a_plain_declaration_that_differ_name_both_lines
+    error = assert_raises(ArgumentError) do
+      build_with_builder do
+        save_var :best, 5
+        var :best, 0
+      end
+    end
+
+    assert_includes error.message, ":best"
+  end
+
+  # A helper that declares its state and is called from two places says the same thing
+  # twice, and that stays one variable with nothing said.
+  def test_one_name_declared_the_same_way_twice_is_one_variable
+    builder = build_with_builder do
+      2.times { var :_seen, 0 }
+    end
+
+    assert_equal 1, builder.variables.size
+  end
+
   def test_set_auto_declares_variable
     builder = build_with_builder do
       set! :counter, 42
