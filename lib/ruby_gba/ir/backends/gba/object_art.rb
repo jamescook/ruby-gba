@@ -44,7 +44,7 @@ module RubyGBA
 
           # The always-there art is finished: remember where it ended and what it holds,
           # so every scene starts from the same place and can still share it.
-          def seal_resident
+          def finish_resident_art
             @resident_units = @units
             @resident = @at.dup
             @peak = @units

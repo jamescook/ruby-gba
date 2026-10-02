@@ -491,7 +491,7 @@ class TestFastCodePlacement < Minitest::Test
   def test_a_routine_is_charged_at_least_what_it_comes_out_at
     backend = GBA.new
     backend.lower(game_of_scenes)
-    charges = backend.charged_against_emitted
+    charges = backend.charged_and_emitted_sizes
 
     refute_empty charges, "the program has something worth moving"
     short = charges.select { |_name, (charged, emitted)| charged < emitted }

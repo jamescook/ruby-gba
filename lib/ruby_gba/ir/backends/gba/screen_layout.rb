@@ -182,7 +182,7 @@ module RubyGBA
             @placed_fade = PlacedFade.new(@picture, program)
             @see_through = IR::SeeThrough.layers(program).map(&:name) # the layers a sprite blends in
             if Modes.draws_with_tiles?(program)
-              guard_stack_fits
+              check_stack_depth_fits!
               prepare_backgrounds(program)
             end
             prepare_objects(program) if program.walk.any? { |node| node.kind == :object }
@@ -192,7 +192,7 @@ module RubyGBA
           # walks the whole colour table can put those back rather than over: for each, where
           # the group sits, the variable holding where the layer's current version starts, and
           # how far along that version this group's list is.
-          def recolored_banks
+          def bg_recolor_restore_banks
             @backgrounds.each_value.flat_map do |place|
               next [] unless place.colors
 
@@ -231,7 +231,7 @@ module RubyGBA
           #   sprite's own numbers on the way past, so it can only be written when the sprite
           #   is.
           def written_every_frame
-            @objects.each_key.select { |name| @objects[name].frames || @placed_fade.twin_for(name) }
+            @objects.each_key.select { |name| @objects[name].frames || @placed_fade.fade_window_for(name) }
           end
 
           # WHERE EACH PIECE OF A SPRITE STANDS, pose by pose: for every pose, one
@@ -253,7 +253,7 @@ module RubyGBA
               (0...sprite.pieces).map do |piece|
                 word = sprite.pose_words.fetch((piece * sprite.pose_count) + pose)
                 size = OBJ_SIZES.key([(word >> 10) & 3, (word >> 12) & 3])
-                [*pose_moved(word), *size, word.anybits?(POSE_MIRRORED)]
+                [*decode_pose_offset(word), *size, word.anybits?(POSE_MIRRORED)]
               end
             end
           end
@@ -350,14 +350,14 @@ module RubyGBA
             # A `screen :rotozoom` background lives on its own rotate/scale layer (BG2) —
             # a different pair of hardware layers from the four `screen :tiled` scrolls on
             # — so it's set aside from the regular stack rather than counted against it.
-            check_layers_fit(program)
+            check_layers_fit!(program)
             affine_nodes, regular_nodes = @picture.scenery.partition(&:affine)
 
-            banks, big = bank_the_tiles(regular_nodes, affine_nodes)
+            banks, big = assign_tile_banks(regular_nodes, affine_nodes)
 
             slots = layer_slots
             @scene_layers = scene_layers_for(slots)
-            everywhere = place_everywhere(slots, banks, big)
+            everywhere = place_shared_scenery(slots, banks, big)
             fullest = place_each_scene(everywhere, slots, banks, big)
 
             # Which layer each background ended up on, for everything that has to name one by
@@ -371,7 +371,7 @@ module RubyGBA
             @blobs[BG_SHARED_CHAR] = everywhere.bytes
             @tiles = fullest
             @vram = fullest.vram # what the report reads the room left out of
-            @bg_shared = bank_tally(regular_nodes + affine_nodes, big, colors, boot: everywhere)
+            @bg_shared = shared_scenery_summary(regular_nodes + affine_nodes, big, colors, boot: everywhere)
           end
 
           # WHERE A SCENE'S OWN TILE PICTURES ARE SENT AS IT TAKES OVER: the blob holding them,
@@ -382,7 +382,7 @@ module RubyGBA
           # THE SCENERY EVERY SCREEN SHOWS GOES IN FIRST, and stays for the whole game: its
           # pictures are sent at boot and its maps are set up once. What it takes is what
           # each scene has left.
-          def place_everywhere(slots, banks, big)
+          def place_shared_scenery(slots, banks, big)
             @vram = TileVram.new
             @tiles = BackgroundTiles.new(vram: @vram)
             place_scenery(@picture.scenery.reject(&:scene), slots, banks, big)
@@ -413,7 +413,7 @@ module RubyGBA
               unless own.empty?
                 blob = :"__bg_scene_tiles_#{index}"
                 @blobs[blob] = own
-                sent_as_a_scene_takes_over!(blob)
+                keep_unpacked!(blob)
                 @scene_tiles[scene] = SceneTiles.new(blob: blob, offset: shared, units: own.bytesize / 2)
               end
               fullest = @tiles if @vram.free_bytes < fullest.vram.free_bytes
@@ -428,7 +428,7 @@ module RubyGBA
             nodes.reject(&:affine).each { |node| prepare_one_background(node, slots.fetch(node.name), banks, big) }
             nodes.select(&:affine).each { |node| prepare_affine_background(node, banks) }
           rescue TileVram::Full => e
-            raise LoweringError, tiles_do_not_fit(e, @picture.scenery.reject(&:scene) + nodes, scene)
+            raise LoweringError, tiles_overflow_message(e, @picture.scenery.reject(&:scene) + nodes, scene)
           end
 
           # WHICH OF THE CONSOLE'S FOUR SCROLLING LAYERS EACH BACKGROUND GETS.
@@ -448,7 +448,7 @@ module RubyGBA
           # own backgrounds then take whatever is left, which is why a scene can have four
           # only when there is no always-there scenery beside them.
           #
-          # There is always a slot to hand out, because #check_layers_fit has already refused
+          # There is always a slot to hand out, because #check_layers_fit! has already refused
           # a screenful asking for more than there are. It runs first for that reason.
           def layer_slots
             slots = {}
@@ -523,7 +523,7 @@ module RubyGBA
           # author should hear it then. This stays as the lowering's own invariant: a
           # program that reached a backend without passing the guardrails still cannot
           # build a cartridge with a layer quietly missing from it.
-          def check_layers_fit(program)
+          def check_layers_fit!(program)
             refusal = Guardrails::Checks::TooManyBackgroundLayers.new.refusal(program) ||
                       Guardrails::Checks::SeeThroughPerScreen.new.refusal(program)
             raise LoweringError, refusal if refusal
@@ -543,7 +543,7 @@ module RubyGBA
           #
           # A `screen :rotozoom` layer is always big: its map is one byte a cell, with no
           # room to name a bank. That is the console, not a choice.
-          def bank_the_tiles(regular_nodes, affine_nodes)
+          def assign_tile_banks(regular_nodes, affine_nodes)
             nodes = regular_nodes + affine_nodes
             nodes.each { |node| validate_tile_sizes!(node.name, node.tiles) }
             big = affine_nodes + regular_nodes.reject { |node| every_tile_small?(node) }
@@ -613,7 +613,7 @@ module RubyGBA
           # one run of tile pictures, with how many TILES got each storage and what the small
           # ones saved. Those two are counted off the layers rather than off the banks, since
           # a layer stored the big way is one picture there however many tiles it has.
-          def bank_tally(nodes, big, colors, boot:)
+          def shared_scenery_summary(nodes, big, colors, boot:)
             small = nodes.reject { |node| big.include?(node) }.sum { |node| node.tiles.size }
             SharedScenery.new(palette_units: colors.size, tile_units: boot.bytes.bytesize / 2,
                               tile_bytes: @tiles.bytes.bytesize,
@@ -628,7 +628,7 @@ module RubyGBA
           #
           # A scene is only ever measured against the room it has on its own screen, so a scene
           # that ran out is named — "the scenery" would send the author adding up the whole game.
-          def tiles_do_not_fit(full, nodes, scene = nil)
+          def tiles_overflow_message(full, nodes, scene = nil)
             worst = nodes.max_by { |node| node.tiles.size }
             whose = scene ? "The scenery of the scene :#{IR::Modes.friendly_name(scene)}" : "The scenery"
             everywhere = scene && @picture.scenery.any? { |node| node.scene.nil? }
@@ -667,8 +667,8 @@ module RubyGBA
             @blobs[map_blob] =
               grids.map { |map| map_entries(map, cols, rows, stored.blank) { |i| cell_for.fetch(i) }.pack("v*") }
                    .join
-            plain_blob!(map_blob) if grids.size > 1
-            sent_as_a_scene_takes_over!(map_blob) if node.scene
+            keep_unpacked!(map_blob) if grids.size > 1
+            keep_unpacked!(map_blob) if node.scene
             @backgrounds[name] = BackgroundPlacement.new(
               map: map_blob, map_units: entries.size,
               bg: layer,                           # hardware layer (BG0..BG3), in stack order
@@ -689,14 +689,14 @@ module RubyGBA
           def background_color_lists(node, banks, small)
             return nil if node.recolors.empty?
 
-            raise LoweringError, too_many_colors_to_recolor(node) unless small
+            raise LoweringError, recolor_colors_message(node) unless small
 
             room = 1 << (node.palettes.length - 1).bit_length # lists a version takes, rounded up to a power of two
             blob = :"__bg_colors_#{node.name}"
             @blobs[blob] = (node.recolors + [node.palettes]).flat_map do |version|
-              version.flat_map { |list| whole_bank(list) } + ([0] * (PaletteBanks::BANK_SIZE * (room - version.length)))
+              version.flat_map { |list| pad_to_bank(list) } + ([0] * (PaletteBanks::BANK_SIZE * (room - version.length)))
             end.pack("v*")
-            plain_blob!(blob) # picked out of by a number the game works out, so it stays where it is put
+            keep_unpacked!(blob) # picked out of by a number the game works out, so it stays where it is put
             BackgroundColorLists.new(blob: blob, count: node.recolors.length,
                                      banks: node.palettes.map { |list| bank_drawn_from(node, list, banks) },
                                      at: :"__bg_#{node.name}_colors_at",
@@ -712,11 +712,11 @@ module RubyGBA
 
           # A list as the display holds it: sixteen entries, the author's own order kept, and
           # nothing in the places a shorter list does not reach.
-          def whole_bank(list)
+          def pad_to_bank(list)
             list.first(PaletteBanks::BANK_SIZE) + ([0] * [PaletteBanks::BANK_SIZE - list.length, 0].max)
           end
 
-          def too_many_colors_to_recolor(node)
+          def recolor_colors_message(node)
             "background :#{node.name} is told to draw with other colors, and its tiles are drawn from " \
               "too many colors for that. A background can be given other colors only when its tiles " \
               "are drawn from 16 colors or fewer between them. To fix this, draw its tiles from fewer " \
@@ -732,9 +732,8 @@ module RubyGBA
           # the game does as it runs, and which packing the lot into one compressed stream
           # would destroy. Registering the codec here is what stops the first upload packing
           # it (see BlobUpload#pack_blob, which asks this table before doing anything).
-          def plain_blob!(name) = @codecs[name] = :none
-
-          # KEEP WHAT A SCENE SENDS AS IT TAKES OVER UNPACKED, too, for a different reason:
+          #
+          # WHAT A SCENE SENDS AS IT TAKES OVER is kept unpacked too, for a different reason:
           # time. Packed data is unpacked by the console's own built-in routine, a few bytes at
           # a time, and a scene's art is sent inside the pass that switches to it — so a big
           # scene unpacking its tiles and maps made that pass run three frames long, and the
@@ -742,7 +741,7 @@ module RubyGBA
           # time copying). A plain copy is the console's copying engine, which moves the
           # largest scene's scenery in a fraction of a frame. What it costs is cartridge space,
           # which a game has far more of than frames. Art sent once at power-on still packs.
-          def sent_as_a_scene_takes_over!(name) = plain_blob!(name)
+          def keep_unpacked!(name) = @codecs[name] = :none
 
           def regular_map_size(cols, rows) = REGULAR_MAP_SIZES.fetch([cols, rows]) << MAP_SIZE_SHIFT
 
@@ -821,8 +820,8 @@ module RubyGBA
 
             map_blob = :"__bg_map_#{name}"
             @blobs[map_blob] = grids.map { |one| one.pack("C*") }.join
-            plain_blob!(map_blob) if grids.size > 1
-            sent_as_a_scene_takes_over!(map_blob) if node.scene
+            keep_unpacked!(map_blob) if grids.size > 1
+            keep_unpacked!(map_blob) if node.scene
             blocks = ((entries.size + SCREENBLOCK_BYTES - 1) / SCREENBLOCK_BYTES)
             @backgrounds[name] = BackgroundPlacement.new(
               map: map_blob, map_units: entries.size / 2, # DMA copies halfwords, so a byte map is half as many
@@ -870,7 +869,7 @@ module RubyGBA
           # on screen together — and scenes that take turns never are. Counted across the
           # whole program instead, a game that declared a stack and three backgrounds in each
           # of two scenes passed the layer count and then died here at six levels.
-          def guard_stack_fits
+          def check_stack_depth_fits!
             return if @picture.stack.empty?
 
             deepest = @screenfuls.max_by { |screenful| screenful.depths.count }
@@ -1004,14 +1003,14 @@ module RubyGBA
             # fitted into memory below, so it is done once.
             cutter = PoseCutter.new(@bitmaps)
             @obj_pictures = nodes.to_h { |node| [node.name, sprite_pictures(node, cutter)] }
-            guard_objects_fit(nodes)
-            guard_window_twins_fit(nodes)
+            check_sprite_count_fits!(nodes)
+            check_fade_windows_fit!(nodes)
 
             # The window twins take the front slots and every real sprite moves back by as
             # many, which changes nothing about what is in front of what (a twin paints
             # nothing, and the sprites keep their order among themselves). It has to be
             # this way round: a twin only holds the effect off a sprite that is BEHIND it.
-            front = @placed_fade.place_twins { |name| @obj_pictures.fetch(name).pieces }
+            front = @placed_fade.place_fade_windows { |name| @obj_pictures.fetch(name).pieces }
             slot_of = {}
             nodes.reverse_each do |node| # last declared is in front, so it takes the front slots
               slot_of[node.name] = front
@@ -1022,7 +1021,7 @@ module RubyGBA
 
             sets = @obj_pictures.values.group_by(&:stored).values.map { |sprites| PictureSet.new(sprites: sprites) }
             one_frame = Set.new # the names of the sprites kept to one frame at a time
-            blobs = SpriteLayout::Blobs.new(data_blobs: @blobs, keep_plain: method(:plain_blob!))
+            blobs = SpriteLayout::Blobs.new(data_blobs: @blobs, keep_plain: method(:keep_unpacked!))
             loop do
               @sprite_art = SpriteLayout.new(nodes: nodes, pictures: @obj_pictures,
                                              one_frame: one_frame, blobs: blobs) do |pictures, placed|
@@ -1031,13 +1030,13 @@ module RubyGBA
               end
               break if @sprite_art.fits?(OBJ_TILE_CAPACITY)
 
-              set = set_to_keep_to_one_frame(sets, one_frame) or raise LoweringError, sprite_art_does_not_fit(nodes)
+              set = pick_set_for_one_frame(sets, one_frame) or raise LoweringError, sprite_art_overflow_message(nodes)
               set.names.each { |name| @blobs.delete(:"__obj_tiles_#{name}") }
               one_frame.merge(set.names)
             end
             @objects = @sprite_art.sprites
             @scene_art = @sprite_art.scene_art
-            @scene_art.each_value { |sent| sent.each { |blob, *| sent_as_a_scene_takes_over!(blob) } }
+            @scene_art.each_value { |sent| sent.each { |blob, *| keep_unpacked!(blob) } }
           end
 
           # A SPRITE WHOSE PICTURES DO NOT ALL FIT KEEPS ONE FRAME IN SPRITE MEMORY AT A TIME.
@@ -1066,19 +1065,19 @@ module RubyGBA
           # until all of them are kept to one frame, and then each costs a frame's room. A pool is
           # the usual case, and is often worth more kept whole. What has to give back is what is
           # over: the pictures every screen shows and the fullest scene's.
-          def set_to_keep_to_one_frame(sets, one_frame)
+          def pick_set_for_one_frame(sets, one_frame)
             scene = @sprite_art.fullest_scene
             best = sets.reject { |set| one_frame.include?(set.names.first) }
                        .select(&:can_keep_to_one_frame?)
-                       .max_by { |set| set.gives_back(scene) }
-            best if best&.gives_back(scene)&.positive?
+                       .max_by { |set| set.bytes_freed_by_one_frame(scene) }
+            best if best&.bytes_freed_by_one_frame(scene)&.positive?
           end
 
           # Out of room for sprite pictures. Name the greediest, since the fix is nearly
           # always one piece of art rather than "fewer sprites" — and say what sharing
           # already saved, because a reader's first question is whether it is doing
           # anything.
-          def sprite_art_does_not_fit(nodes)
+          def sprite_art_overflow_message(nodes)
             scene = @sprite_art.fullest_scene
             sprites = @sprite_art.sprites
             worst = nodes.select { |node| node.scene.nil? || node.scene == scene }
@@ -1087,7 +1086,7 @@ module RubyGBA
             # sprite's own name is the framework's.
             named = worst.map { |node| ":#{node.poses.first} (#{sprites[node.name].tile_units * 32})" }
             "The sprites' pictures need #{@sprite_art.bytes} bytes at once, and the console keeps them in " \
-              "#{OBJ_TILE_CAPACITY}. Only one scene's are needed at a time. #{fullest_is(scene)}, " \
+              "#{OBJ_TILE_CAPACITY}. Only one scene's are needed at a time. #{fullest_scene_phrase(scene)}, " \
               "and its biggest pictures are #{named.uniq.join(', ')}. When that makes room, a sprite that " \
               "animates keeps only one frame at a time in this memory, and that was not enough. To fix " \
               "this, use fewer pictures there, or smaller ones." \
@@ -1096,7 +1095,7 @@ module RubyGBA
 
           # A scene is a routine named after the state it draws, with a prefix of the
           # framework's in front. The author wrote the state.
-          def fullest_is(scene)
+          def fullest_scene_phrase(scene)
             return "The fullest is what every screen shows" if scene.nil?
 
             "The fullest is the :#{scene.to_s.delete_prefix('_scene_')} scene"
@@ -1137,7 +1136,7 @@ module RubyGBA
             (0...OBJ_SINE_ENTRIES).map { |degrees| Affine.sine(degrees) }.pack("s<*")
           end
 
-          def guard_window_twins_fit(nodes)
+          def check_fade_windows_fit!(nodes)
             spent = object_count(nodes)
             total = spent + twin_object_count
             return if total <= MAX_SPRITES
@@ -1152,7 +1151,7 @@ module RubyGBA
           # Out of places in the console's sprite table. A game whose sprites are one object
           # each gets the plain count; one with a picture too big for a single object gets
           # told which sprites are spending several, since that is the part nobody wrote.
-          def guard_objects_fit(nodes)
+          def check_sprite_count_fits!(nodes)
             spent = object_count(nodes)
             return if spent <= MAX_SPRITES
 
@@ -1214,7 +1213,7 @@ module RubyGBA
             @blobs[@obj_palette_blob] = tables.fetch(nil).pack("v*")
             @scene_obj_palettes.each do |scene, blob|
               @blobs[blob] = tables.fetch(scene).pack("v*")
-              sent_as_a_scene_takes_over!(blob)
+              keep_unpacked!(blob)
             end
           end
 
@@ -1234,7 +1233,7 @@ module RubyGBA
             pictures += recolor_pictures(nodes)
             PaletteBanks.new(pictures, after: after)
           rescue PaletteBanks::Overflow
-            raise LoweringError, too_many_object_colors(pictures, scene)
+            raise LoweringError, object_colors_overflow_message(pictures, scene)
           end
 
           # The table a sprite's colours are in: its scene's, or the one every screen shows.
@@ -1267,7 +1266,7 @@ module RubyGBA
             raise LoweringError,
                   "#{whose_sprites(node.scene)} and the lists of colors they draw with need more than the " \
                   "#{PaletteBanks::BANKS} groups of colors the console holds for sprites. Each different list " \
-                  "takes one group, and so does each sprite with different colors.#{shared_groups(node.scene)} " \
+                  "takes one group, and so does each sprite with different colors.#{shared_sprites_note(node.scene)} " \
                   "To fix this, tell sprites to draw_with fewer different lists, or give more sprites the same " \
                   "`colors:` list."
           end
@@ -1280,7 +1279,7 @@ module RubyGBA
           end
 
           # ...and that a scene's count includes the sprites every scene shows, when there are any.
-          def shared_groups(scene)
+          def shared_sprites_note(scene)
             return "" unless scene && @picture.objects.any? { |node| node.scene.nil? }
 
             " This count includes the sprites that every scene shows."
@@ -1292,14 +1291,14 @@ module RubyGBA
           # The draw reads it as a table of the bank already shifted to where the table entry
           # carries it, one word each, so a frame picks one with a single read. Sprites whose
           # lists landed in the same banks — every slot of a pool — share the one table.
-          def recolor_banks(node)
+          def sprite_recolor_bank_table(node)
             return nil if node.recolors.empty?
 
             banks = [*node.recolors.each_index.map { |index| obj_banks_for(node).placement([:recolor, node.name, index]).bank },
                      obj_banks_for(node).placement(node.name).bank]
             blob = :"__recolor_banks_#{banks.join('_')}"
             @blobs[blob] = banks.map { |bank| bank << OBJ_BANK_SHIFT }.pack("V*")
-            plain_blob!(blob) # read from the middle, by the list the game picked
+            keep_unpacked!(blob) # read from the middle, by the list the game picked
             RecolorBanks.new(table: blob, own: banks.length - 1)
           end
 
@@ -1336,11 +1335,11 @@ module RubyGBA
           # Nothing fits: even stored the big way, the sprites name more colors than the
           # console's sprite table holds. Name the greediest pictures, since "255 colors"
           # on its own leaves the author hunting through their own art.
-          def too_many_object_colors(pictures, scene = nil)
+          def object_colors_overflow_message(pictures, scene = nil)
             worst = pictures.max_by(3) { |picture| picture.colors.size }
             named = worst.map { |picture| ":#{picture.key} (#{picture.colors.size})" }.join(", ")
             "#{whose_sprites(scene)} use more colors between them than the console's sprite table holds " \
-              "(#{PaletteBanks::CAPACITY}, one of which means see-through).#{shared_groups(scene)} The sprites " \
+              "(#{PaletteBanks::CAPACITY}, one of which means see-through).#{shared_sprites_note(scene)} The sprites " \
               "with the most colors are #{named}. Draw them from fewer colors, or use fewer sprites at once."
           end
 
@@ -1452,7 +1451,7 @@ module RubyGBA
               # which is every picture that names no layers.
               attr2_base: (hardware_priority(name) << OBJ_PRIORITY_SHIFT) |
                 (place.narrow? && node.recolors.empty? ? place.bank << OBJ_BANK_SHIFT : 0),
-              recolor: node.recolor, recolor_banks: recolor_banks(node),
+              recolor: node.recolor, recolor_banks: sprite_recolor_bank_table(node),
             )
           end
 
@@ -1470,7 +1469,7 @@ module RubyGBA
             # Kept unpacked: the draw reads one word straight out of the middle of this,
             # picked by the pose the game is showing, and there is no seeking into a
             # compressed stream.
-            plain_blob!(blob)
+            keep_unpacked!(blob)
             words
           end
 
@@ -1502,7 +1501,7 @@ module RubyGBA
             alike = [sprite.offset_x, sprite.offset_y]
             (0...sprite.pose_count).to_h do |pose|
               word = words&.at(pose)
-              [pose_key(sprite, pose, word), word ? pose_moved(word) : alike]
+              [pose_key(sprite, pose, word), word ? decode_pose_offset(word) : alike]
             end
           end
 
@@ -1524,14 +1523,14 @@ module RubyGBA
           # pose NUMBER instead; GBA#streamed_sprite_pose_vars says where that number is read from.
           def pose_key(sprite, pose, word)
             return pose if sprite.frames
-            return pose_shown(word) if word
+            return decode_pose_tile(word) if word
 
             [sprite.tile_index + (pose * sprite.per_pose), false]
           end
 
-          def pose_shown(word) = [word & 0x3FF, word.anybits?(POSE_MIRRORED)]
+          def decode_pose_tile(word) = [word & 0x3FF, word.anybits?(POSE_MIRRORED)]
 
-          def pose_moved(word) = [(word >> 14) & 0xFF, (word >> 22) & 0xFF]
+          def decode_pose_offset(word) = [(word >> 14) & 0xFF, (word >> 22) & 0xFF]
 
           # What the sprites cost out of the 128 the console draws at once. Worth a line only
           # where it is not simply one each: a picture too big for a single object is drawn as

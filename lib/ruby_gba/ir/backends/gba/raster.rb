@@ -134,7 +134,7 @@ module RubyGBA
           # Whether the rows are worked out ahead of the frame into a table. True for every
           # bend in a paced program, whichever moves the numbers afterwards; false only where
           # there is no frame to work them out in, and the handler runs the block per line.
-          def latches_row_bends?
+          def row_bend_tables?
             !@row_bend_table.empty?
           end
 
@@ -302,14 +302,14 @@ module RubyGBA
             @emitter.emit(ASM.add_imm_cond(:ne, ACC, ACC, 1))  # ...otherwise the next line down
             @emitter.emit(ASM.cmp_imm(ACC, VISIBLE_LINES))
             @emitter.emit_branch(:bcond, done, cond: :ge)      # below the picture: nothing to bend
-            if latches_row_bends?
+            if row_bend_tables?
               @emitter.emit(ASM.lsl_imm(SPARE, ACC, 1))        # two bytes an entry, held for them all
               @row_bends.each_value { |node| emit_read_row_from_table(node) }
             else
               # Every bend is told the line first, because working one offset out needs the
               # accumulator the line number is sitting in.
               @row_bends.each_value { |node| @primitives.store_var(ACC, node.row) }
-              @row_bends.each_value { |node| emit_one_row_bend(node) }
+              @row_bends.each_value { |node| emit_row_bend_without_table(node) }
             end
             @emitter.place_label(done)
           end
@@ -328,7 +328,7 @@ module RubyGBA
           # program put in the block, work the offset out, add the layer's own scroll, and
           # write it. This is what a program with no frame gets, having had no gap to work
           # its rows out in ahead of time.
-          def emit_one_row_bend(node)
+          def emit_row_bend_without_table(node)
             node.children.each { |child| @lowering.statement(child) }
             @lowering.value(Build.binop(:+, node.offset, @row_bend_base[node.name]))
             @primitives.store_halfword_acc(BackgroundDrawing::BG_HOFS_REGS[bg_number(node.name)])

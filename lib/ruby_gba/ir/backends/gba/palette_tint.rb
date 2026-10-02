@@ -106,7 +106,7 @@ module RubyGBA
             def obj_palette_blob = screen.obj_palette_blob
             def obj_palette_units = screen.obj_palette_units
             def scene_obj_palettes = screen.scene_obj_palettes
-            def recolored_banks = screen.recolored_banks
+            def bg_recolor_restore_banks = screen.bg_recolor_restore_banks
           end
 
           # WHERE THE SPRITE COLOURS ON SCREEN NOW CAME FROM, in a game whose scenes each send
@@ -121,7 +121,7 @@ module RubyGBA
           # Say which sprite table is in the console now, at power-on or on a change of screen,
           # where the one every screen shows has just been sent. Nothing for a build that never
           # walks a table, or has only the one.
-          def emit_obj_table_is(blob)
+          def emit_record_obj_palette_source(blob)
             return unless @palette_tint && scene_obj_tables?
 
             @emitter.emit_load_data_address(ACC, blob)
@@ -133,7 +133,7 @@ module RubyGBA
           # the same way a layer's other colours do (see #emit_colors_into_bank), because a
           # plain copy into a screen that is meant to be dark would bring this scene's sprites
           # in at full brightness. It also says this table is the one to walk from now on.
-          def emit_obj_table_arrives(blob, units)
+          def emit_send_scene_obj_palette(blob, units)
             return @drawing.emit_plain_dma_blob(blob, OBJ_PALETTE, units) unless @palette_tint
 
             @emitter.emit_load_data_address(ACC, blob)
@@ -174,7 +174,7 @@ module RubyGBA
             @darkens = program.walk.any? do |node|
               node.kind == :fade && node.toward == :black && fading.walks_the_colors?(node)
             end
-            keep_tint_originals_readable if @palette_tint
+            mark_tint_tables_unpacked if @palette_tint
           end
 
           # Does this build move a color table at all? Named for what it asks rather than
@@ -357,7 +357,7 @@ module RubyGBA
           # instructions on a frame where the colours changed and nothing else.
           def emit_colors_into_bank(dest, units)
             @emitter.emit(ASM.mov_reg(TINT_SRC, ACC))
-            emit_shares_from_the_tint_in_force
+            emit_tint_shares_from_state
             emit_blend_run(dest, units)
           end
 
@@ -366,12 +366,12 @@ module RubyGBA
           # that layer was DRAWN in, which is not what it is being drawn with. So each such
           # group is written again, from the list it is really showing.
           #
-          # The layout's +recolored_banks+ are (where the group sits, the variable holding
+          # The layout's +bg_recolor_restore_banks+ are (where the group sits, the variable holding
           # where its layer's current version starts, how far along that version this group's
           # list is) — nought in that variable meaning the layer has never been told anything,
           # where the tables already hold the right colours.
           def emit_recolored_banks
-            @layout.recolored_banks.each do |dest, source_var, along|
+            @layout.bg_recolor_restore_banks.each do |dest, source_var, along|
               @primitives.load_var(TINT_SRC, source_var)
               @emitter.emit(ASM.cmp_imm(TINT_SRC, 0))
               past = @emitter.gensym
@@ -389,7 +389,7 @@ module RubyGBA
           # holding rather than from one being asked for now — for the caller that has no
           # tint statement in front of it. The state packs the colour above the steps, and
           # nought means the table holds the originals, which comes out as the identity.
-          def emit_shares_from_the_tint_in_force
+          def emit_tint_shares_from_state
             @primitives.load_var(ACC, TINT_STATE)
             @emitter.emit(ASM.lsr_imm(TINT_STEPS, ACC, TINT_COLOR_SHIFT))  # the colour
             @emitter.emit(ASM.and_imm(ACC, ACC, (1 << TINT_COLOR_SHIFT) - 1)) # ...and the steps
@@ -454,12 +454,12 @@ module RubyGBA
             @emitter.emit_branch(:bcond, skip, cond: :eq)
             @emitter.emit(ASM.load_immediate(ACC, 0))
             @primitives.store_var(ACC, TINT_STATE)
-            tint_tables(mode).each { |blob, dest, units| emit_copy_back(blob, dest, units) }
+            tint_tables(mode).each { |blob, dest, units| emit_restore_palette_table(blob, dest, units) }
             @emitter.place_label(skip)
           end
 
           # Copy a table's originals back into place, from wherever #emit_table_source says they are.
-          def emit_copy_back(blob, dest, units)
+          def emit_restore_palette_table(blob, dest, units)
             return @drawing.emit_plain_dma_blob(blob, dest, units) unless blob == @layout.obj_palette_blob && scene_obj_tables?
 
             emit_table_source(ACC, blob)
@@ -474,7 +474,7 @@ module RubyGBA
           # anything uploads them, is what stops the packer touching them (see
           # BlobUpload#pack_blob, which packs a blob the first time it is uploaded and
           # remembers the answer). Only a build that tints pays the few bytes.
-          def keep_tint_originals_readable
+          def mark_tint_tables_unpacked
             all_tint_tables.each { |blob, _dest, _units| @layout.blob_codecs[blob] = :none }
           end
 
@@ -490,7 +490,7 @@ module RubyGBA
           # A table has just been (re)uploaded from the cartridge, so whatever tint was in
           # it is gone. Called wherever a program puts its colors back — the boot upload,
           # and each entry into a scene whose screen re-uploads its own.
-          def emit_tint_state_reset
+          def emit_tint_reset_if_tinting
             emit_tint_state_init if @palette_tint
           end
         end

@@ -96,7 +96,7 @@ class TestSceneSpriteWrites < Minitest::Test
   def test_the_game_loop_is_charged_for_the_calls_it_makes_to_them
     backend = GBA.new
     backend.lower(two_screens(markers: 4))
-    short = backend.charged_against_emitted.select { |_name, (charged, emitted)| charged < emitted }
+    short = backend.charged_and_emitted_sizes.select { |_name, (charged, emitted)| charged < emitted }
 
     assert_empty short, "came out bigger than charged: #{short}"
   end

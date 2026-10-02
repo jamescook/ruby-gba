@@ -632,7 +632,7 @@ module RubyGBA
           # SAFE TO SHARE WITH THE GAME because the game only ever writes WANTED, with a single
           # store, and this only ever reads it. Everything else here belongs to the player alone
           # — except the mixer's voices, which the game's sounds share, and which the game only
-          # touches with interrupts held off (see Mixer#emit_music_voice_routine).
+          # touches with interrupts held off (see Mixer#emit_take_music_voice_routine).
           #
           # Every register is free here — the console saves r0-r3 and r12 on the way in, and the
           # dispatcher r4-r11. r2 holds the score, r3 an entry or a row in it, r4 the tune asked
@@ -1010,7 +1010,7 @@ module RubyGBA
             # they stand — the same ones the sprites are about to be placed from, so the
             # bend and everything standing on it show the same frame. (Nothing here when no
             # background bends, or when a program with no frame runs its block per line.)
-            @raster.emit_fill_row_bend_tables if @raster.latches_row_bends?
+            @raster.emit_fill_row_bend_tables if @raster.row_bend_tables?
           end
 
           private
@@ -1381,7 +1381,7 @@ module RubyGBA
 
           # Start the row's note on a mixer voice — from the top of the recording the row names, at
           # the row's step and loudness — or switch the part's voice off for a rest. Which voice is
-          # the mixer's to say (Mixer#emit_music_voice_routine): the part's own, a free one, or
+          # the mixer's to say (Mixer#emit_take_music_voice_routine): the part's own, a free one, or
           # one of the game's. The voice's SOUNDING word goes last, and it is the part's mark. In a
           # game whose sound effects play recordings there may be no voice to have, and then the
           # note is not played.

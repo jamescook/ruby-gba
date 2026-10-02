@@ -87,12 +87,12 @@ module RubyGBA
               addr = @memory.alloc_roomy(want)
               return [addr, true] if addr
 
-              raise LoweringError, no_room_anywhere(name, want) if fast == false
+              raise LoweringError, no_room_message(name, want) if fast == false
             end
             [@memory.alloc(want), false]
           end
 
-          def no_room_anywhere(name, want)
+          def no_room_message(name, want)
             "list #{name.inspect} needs #{want} bytes and neither of the console's work memories has " \
               "room left. It has 32K of quick memory (which also holds the code kept there) and 256K " \
               "of roomy memory, and both are full. Use a smaller capacity, or narrower items " \

@@ -265,7 +265,6 @@ module RubyGBA
           @frames.emit_reset_frame_mark
           @expressions.emit_forget_presses if @uses_pressed
         end
-        def fade_steps(percent) = @effects.fade_steps(percent)
         def fade_steps_value(amount) = @effects.fade_steps_value(amount)
         def emit_clamp_blend_steps(most = Console::Hardware::BLD_MAX) = @effects.emit_clamp_blend_steps(most)
         def emit_blend_weights_from_acc = @effects.emit_blend_weights_from_acc
@@ -511,7 +510,7 @@ module RubyGBA
           @screen.each_built_sprite.each_with_object({}) do |(_node, sprite), where|
             next unless sprite.frames
 
-            address = var_addr(sprite.frame_in_room_var)
+            address = var_addr(sprite.resident_frame_var)
             sprite.pieces.times { |piece| where[sprite.slot + piece] = address }
           end
         end
@@ -632,7 +631,7 @@ module RubyGBA
           reserve_divide_routine if needs_divide_routine?(program)
           reserve_divide_fix_routine if needs_divide_fix_routine?(program)
           collect_definitions(program)
-          adopt_frame_body(program) # the game loop's body counts as a routine once it moves
+          register_frame_routine(program) # the game loop's body counts as a routine once it moves
           @mixer.prepare_direct_sound(program) # embed the program's samples as ROM data
           @audio.prepare_music(program) # number its tunes, and keep the mixer voices they play on
           @uses_vblank = program.walk.any? { |node| node.kind == :wait_vblank }
@@ -659,7 +658,7 @@ module RubyGBA
           @layer_blend.amount_routines.each_key do |name|
             @functions.define_generated_func(name) { @layer_blend.emit_amounts_routine(name) }
           end
-          @scene_blend = @tiled ? @layer_blend.scene_blend(@modes) : {}
+          @scene_blend = @tiled ? @layer_blend.blend_control_by_scene(@modes) : {}
           # ...which is what decides whether a fade may use the display's blend at all, or
           # has to walk the color table instead to leave that layer alone (see IR::Fading).
           @fading = IR::Fading.resolve(program)
@@ -720,7 +719,7 @@ module RubyGBA
           # it to the display. Set up wherever the program starts out, since a bend is fed a
           # table rather than a picture — there is nothing here for a bitmap scene to
           # overwrite.
-          emit_boot_row_bends if @raster.latches_row_bends?
+          emit_boot_row_bends if @raster.row_bend_tables?
           emit_tint_state_init if @palette_tint.moves_a_color_table? # the tables start as they were drawn
           @lowering.in_mode(@modes.default_mode) do
             program.children.each { |stmt| @lowering.statement(stmt) }
@@ -1351,7 +1350,7 @@ module RubyGBA
         def prepare_still_objects(program)
           @movement = IR::Movement.of(program).except(@screen.written_every_frame)
           still = @movement.still
-          @functions.define_generated_func(SpriteDrawing::STILL_ROUTINE) { @sprite_drawing.write_object_table(still) } if still.any?
+          @functions.define_generated_func(SpriteDrawing::STILL_ROUTINE) { @sprite_drawing.emit_write_sprite_rows(still) } if still.any?
           prepare_scene_sprites(program, still)
         end
 
@@ -1373,7 +1372,7 @@ module RubyGBA
             things.with(names: moving) if moving.any?
           end
           @scene_sprites.each do |group|
-            @functions.define_generated_func(SpriteDrawing.sprites_routine(group.scene)) { @sprite_drawing.write_object_table(group.names) }
+            @functions.define_generated_func(SpriteDrawing.sprites_routine(group.scene)) { @sprite_drawing.emit_write_sprite_rows(group.names) }
           end
         end
 

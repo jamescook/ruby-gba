@@ -59,12 +59,12 @@ module RubyGBA
 
             @emitter.emit(ASM.load_immediate(base, SRAM_START))
             @emitter.emit(ASM.load_immediate(marker, Int32.wrap(node.magic)))
-            emit_assemble_word(stored, base, 0, scratch: 2) # the marker actually in save memory
+            emit_load_sram_word(stored, base, 0, scratch: 2) # the marker actually in save memory
             @emitter.emit(ASM.cmp_reg(stored, marker))       # equal? -> the save is real
 
             node.vars.each do |var|
               offset = save_slot_offset(var.slot)
-              emit_assemble_word(saved, base, offset, scratch: 2)
+              emit_load_sram_word(saved, base, offset, scratch: 2)
               @emitter.emit(ASM.mov_reg_cond(:eq, ACC, saved))       # real save -> take the saved value
               @emitter.emit(ASM.load_immediate(3, Int32.wrap(var.default)))
               @emitter.emit(ASM.mov_reg_cond(:ne, ACC, 3))           # fresh cartridge -> take the default
@@ -180,7 +180,7 @@ module RubyGBA
           # Read four consecutive bytes of save memory (little-endian) into +dest+,
           # rebuilding the 32-bit value. +base+ points at the start of save memory;
           # +offset+ is where this value's slot begins.
-          def emit_assemble_word(dest, base, offset, scratch:)
+          def emit_load_sram_word(dest, base, offset, scratch:)
             @emitter.emit(ASM.ldrb_offset(dest, base, offset)) # byte 0 (lowest)
             [8, 16, 24].each_with_index do |shift, i|
               @emitter.emit(ASM.ldrb_offset(scratch, base, offset + i + 1))

@@ -225,12 +225,12 @@ module RubyGBA
             reversed = {} # what a mirror of a stored pose would look like -> that pose
             poses.each_with_index.map do |image, k|
               bmp = @bitmaps.fetch(image)
-              drawn = stored_as(bmp)
+              drawn = pose_identity(bmp)
               next nil if seen.key?(drawn)
               next reversed[drawn] if reversed.key?(drawn)
 
               seen[drawn] = k
-              reversed[stored_as(bmp.mirrored)] ||= k
+              reversed[pose_identity(bmp.mirrored)] ||= k
               nil
             end
           end
@@ -238,7 +238,7 @@ module RubyGBA
           # WHAT TWO POSES HAVE TO MATCH IN to be stored once. The pixels, and — for art
           # given as places — the places too: two pictures can draw the same colors out of
           # different places of one list, and the console stores the places.
-          def stored_as(bmp) = bmp.places ? [bmp.pixels, bmp.places] : bmp.pixels
+          def pose_identity(bmp) = bmp.places ? [bmp.pixels, bmp.places] : bmp.pixels
 
           # Where a mirrored pose's box sits: the source's box reflected in the canvas it
           # was drawn on. Taken from the source rather than worked out from the mirrored

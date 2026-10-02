@@ -28,7 +28,7 @@ module RubyGBA
           # Where a sprite's frames go in the cartridge, kept as they are rather than packed
           # (see SpriteLayout#one_frame_placement).
           Blobs = Data.define(:data_blobs, :keep_plain) do
-            def plain(name, bytes)
+            def store_unpacked(name, bytes)
               data_blobs[name] = bytes
               keep_plain.call(name)
             end
@@ -66,7 +66,7 @@ module RubyGBA
           def lay_out(nodes)
             by_scene = nodes.group_by(&:scene)
             (by_scene[nil] || []).each { |node| place(node) }
-            @art.seal_resident
+            @art.finish_resident_art
             by_scene.each do |scene, in_scene|
               next if scene.nil?
 
@@ -101,7 +101,7 @@ module RubyGBA
           # where it starts, so the bytes must not be packed.
           def one_frame_placement(pictures)
             blob = :"__obj_frames_#{pictures.name}"
-            @blobs.plain(blob, pictures.frames)
+            @blobs.store_unpacked(blob, pictures.frames)
             units = pictures.frame_bytes / 32
             { starts: pictures.room_starts, alike: pictures.one_shape?, per_pose: 0,
               tiles: nil, tile_units: units,

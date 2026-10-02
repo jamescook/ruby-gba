@@ -54,17 +54,17 @@ module RubyGBA
 
           # THE ROOM ONE FRAME TAKES, piece by piece, for a sprite kept to one frame at a time:
           # the most any pose needs for that piece, and a blank tile where a pose has none.
-          def room
+          def one_frame_piece_bytes
             blank = place.narrow? ? 32 : 64
             (0...pieces).map { |piece| encoded.compact.map { |list| list[piece]&.bytesize || blank }.max }
           end
 
-          def frame_bytes = room.sum
+          def frame_bytes = one_frame_piece_bytes.sum
 
           # Where each piece sits in that room, in the 32-byte units a tile number counts in —
           # the same for every pose, which is what lets the room be filled by a copy.
           def room_starts
-            at = room.each_index.map { |piece| room.first(piece).sum / 32 }
+            at = one_frame_piece_bytes.each_index.map { |piece| one_frame_piece_bytes.first(piece).sum / 32 }
             node.poses.map { at.dup }
           end
 
@@ -74,7 +74,7 @@ module RubyGBA
           def frames
             node.poses.each_index.map do |k|
               list = encoded[mirrors[k] || k]
-              room.each_with_index.map { |bytes, piece| (list[piece] || "".b).ljust(bytes, "\0".b) }.join
+              one_frame_piece_bytes.each_with_index.map { |bytes, piece| (list[piece] || "".b).ljust(bytes, "\0".b) }.join
             end.join.b
           end
         end
@@ -92,7 +92,7 @@ module RubyGBA
           # What keeping every sprite showing it to one frame gives back where memory is over:
           # the pictures every screen shows, and +scene+'s. The set is stored once there however
           # many of them show it, and each costs a frame's room instead.
-          def gives_back(scene)
+          def bytes_freed_by_one_frame(scene)
             counted = sprites.count { |sprite| [nil, scene].include?(sprite.scene) }
             return 0 if counted.zero?
 

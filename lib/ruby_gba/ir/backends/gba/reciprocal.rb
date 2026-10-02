@@ -83,8 +83,8 @@ module RubyGBA
 
               loop do
                 power += 1
-                tight_q, tight_r = double(tight_q, tight_r, nearest)
-                recip_q, recip_r = double(recip_q, recip_r, divisor)
+                tight_q, tight_r = long_division_step(tight_q, tight_r, nearest)
+                recip_q, recip_r = long_division_step(recip_q, recip_r, divisor)
                 slack = divisor - recip_r
                 break if tight_q > slack || (tight_q == slack && tight_r.positive?)
               end
@@ -94,7 +94,7 @@ module RubyGBA
 
             # One step of long division: double a quotient and its remainder, carrying
             # when the remainder has reached the divisor.
-            def double(quotient, remainder, divisor)
+            def long_division_step(quotient, remainder, divisor)
               quotient *= 2
               remainder *= 2
               return [quotient + 1, remainder - divisor] if remainder >= divisor

@@ -674,7 +674,7 @@ module RubyGBA
           # x, y and the palette index arrive as arguments (r1, r2, r3); they move into
           # r10, r11 and r8 first, because the glyph table lookup that follows needs
           # r1-r3 back as scratch — and because loading the hidden page base in the
-          # :hold phase below reaches for r12 (ADDR, see Primitives#emit_var_base) to
+          # :hold phase below reaches for r12 (ADDR, see Primitives#emit_var_address_base) to
           # build its address, which would silently overwrite the index if it were
           # held there instead.
           def emit_digit_routines

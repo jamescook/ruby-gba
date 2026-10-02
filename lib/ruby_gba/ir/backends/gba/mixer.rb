@@ -21,7 +21,7 @@ module RubyGBA
         # game loop, which is what arms that interrupt.
         #
         # THE SLOTS ARE SHARED between the game's sounds and the notes of songs and sound effects,
-        # each taking one only while it sounds (see #emit_music_voice_routine for who gives way
+        # each taking one only while it sounds (see #emit_take_music_voice_routine for who gives way
         # when they run out). A slot's SOUNDING word says whose it is: 0 nobody's, OWNER_GAME the
         # game's, and a recorded part its own mark (Mixer.music_owner, or Mixer.ranked_owner in a
         # game whose sound effects play recordings).
@@ -593,9 +593,9 @@ module RubyGBA
             sample = sample_info(node.name)
             holding_off_interrupts do
               @emitter.emit_load_data_address(4, node.name) # r4 = the sample's address in ROM
-              find_free_slot                          # r0 = a free slot's address, or none -> skip
+              emit_find_free_voice                          # r0 = a free slot's address, or none -> skip
               done = @emitter.gensym
-              @emitter.emit(ASM.cmp_imm(0, 0))        # find_free_slot leaves r0 = 0 when full
+              @emitter.emit(ASM.cmp_imm(0, 0))        # emit_find_free_voice leaves r0 = 0 when full
               @emitter.emit_branch(:bcond, done, cond: :eq)
 
               @emitter.emit(ASM.str(4, 0))                             # slot.src = address (SLOT_SRC = 0)
@@ -603,7 +603,7 @@ module RubyGBA
               @emitter.emit(ASM.str_offset(TMP, 0, SLOT_POS))          # slot.pos = 0
               @emitter.emit(ASM.load_immediate(TMP, sample.length))
               @emitter.emit(ASM.str_offset(TMP, 0, SLOT_LEN))          # slot.len = length
-              @emitter.emit(ASM.load_immediate(TMP, loop_back(node, sample)))
+              @emitter.emit(ASM.load_immediate(TMP, loop_back_distance(node, sample)))
               @emitter.emit(ASM.str_offset(TMP, 0, SLOT_LOOP))         # how far back at the end
               @emitter.emit(ASM.load_immediate(TMP, MIX_LEVELS.fetch(node.volume, MIX_LEVELS[:full])))
               @emitter.emit(ASM.str_offset(TMP, 0, SLOT_VOL))          # slot.volume (0..64 gain)
@@ -627,7 +627,7 @@ module RubyGBA
           # plays once and stops. A sound asked to loop goes back to where the recording holds
           # from — which for a recording with no hold point is its very start, so the ordinary
           # loop is this same subtraction.
-          def loop_back(node, sample)
+          def loop_back_distance(node, sample)
             return 0 unless node.loop
 
             held = sample.held_by
@@ -740,7 +740,7 @@ module RubyGBA
 
           # The routines those call, emitted once inside the screen's interrupt.
           def emit_music_voice_routines
-            emit_music_voice_routine
+            emit_take_music_voice_routine
             emit_music_voice_off_routine
             emit_music_voice_find_routine if @music_follows_level
           end
@@ -856,13 +856,13 @@ module RubyGBA
           #   5. with no game sound either, the voice of the lowest-ranked note ranked below this
           #      one — the first of them, when two rank the same;
           #   6. and with none of those, no voice: r7 is 0, the note is not played, and it is
-          #      counted with the sounds that did not play (#emit_note_drop).
+          #      counted with the sounds that did not play (#emit_count_dropped_sound).
           #
           # In: r8 = the part's mark. Out: r7 = the voice. Uses r0, r1, r9-r12 — and, in a game that
           # shapes a note, r2 and r3 as well, and in one that ranks its voices r2-r5, which it keeps
           # on the stack because the player needs them back. Returns through lr, which the
           # interrupt saved.
-          def emit_music_voice_routine
+          def emit_take_music_voice_routine
             e = @emitter
             done = e.gensym
             scan = e.gensym
@@ -889,7 +889,7 @@ module RubyGBA
             e.emit(ASM.ldr_offset(0, 7, SLOT_ACTIVE))
             e.emit(ASM.cmp_reg(0, 8))
             if @uses_envelopes
-              emit_own_voice(onward, done)
+              emit_weigh_part_own_voice(onward, done)
             else
               e.emit_branch(:bcond, done, cond: :eq)            # 1. the part's own
             end
@@ -902,7 +902,7 @@ module RubyGBA
             e.emit(ASM.cmp_imm(0, OWNER_GAME))
             other = ranks_voices? ? ranked : onward
             if @uses_envelopes
-              emit_tail_candidate(onward, sounding: other)
+              emit_weigh_other_part_voice(onward, sounding: other)
             else
               e.emit_branch(:bcond, other, cond: :ne)           # another part's
             end
@@ -937,7 +937,7 @@ module RubyGBA
               e.emit(ASM.mov_reg(7, 4))
               e.emit(ASM.cmp_imm(7, 0))
               e.emit_branch(:bcond, done, cond: :ne)
-              emit_note_drop                                    # 6. no voice at all
+              emit_count_dropped_sound                                    # 6. no voice at all
               e.emit(ASM.load_immediate(7, 0))
             end
             e.place_label(done)
@@ -950,7 +950,7 @@ module RubyGBA
           # note has ended and weighed as a tail like any other; and a voice of the part's that is
           # already falling is a tail already. Anything that is not the part's falls through to
           # the free and busy tests.
-          def emit_own_voice(onward, done)
+          def emit_weigh_part_own_voice(onward, done)
             e = @emitter
             others = e.gensym
             tail = e.gensym
@@ -964,27 +964,27 @@ module RubyGBA
             e.emit(ASM.load_immediate(2, PHASE_FALLING))
             e.emit(ASM.str_offset(2, 7, SLOT_PHASE))            # a shape: its note ends, and it falls away
             e.place_label(tail)
-            emit_weigh_tail(onward)
+            emit_keep_quietest_fading_voice(onward)
             e.place_label(others)
           end
 
           # 3: another part's voice, with the flags of comparing its mark against the game's still
           # up. The game's own goes on to be weighed by its ticket; another part's is a tail if its
           # note is falling, and otherwise goes on to +sounding+.
-          def emit_tail_candidate(onward, sounding:)
+          def emit_weigh_other_part_voice(onward, sounding:)
             e = @emitter
             game = e.gensym
             e.emit_branch(:bcond, game, cond: :eq)
             e.emit(ASM.ldr_offset(2, 7, SLOT_PHASE))
             e.emit(ASM.cmp_imm(2, PHASE_FALLING))
             e.emit_branch(:bcond, sounding, cond: :lo)          # another part's note, still sounding
-            emit_weigh_tail(onward)
+            emit_keep_quietest_fading_voice(onward)
             e.place_label(game)
           end
 
           # Keep the voice in r7 as the quietest tail if it is quieter than the one kept so far —
           # the first of them, when two are as quiet. On to the next voice either way.
-          def emit_weigh_tail(onward)
+          def emit_keep_quietest_fading_voice(onward)
             e = @emitter
             e.emit(ASM.ldr_offset(2, 7, SLOT_LEVEL))
             e.emit(ASM.cmp_reg(2, 3))
@@ -1248,7 +1248,7 @@ module RubyGBA
           # them every one is covered. The voice slots: `play` and `stop` hold interrupts off while
           # they are in the table (#holding_off_interrupts), so this never sees one half-written.
           # This can retire a voice but never start one; the music player, earlier in the same
-          # interrupt, starts voices, and can take one of the game's (#emit_music_voice_routine).
+          # interrupt, starts voices, and can take one of the game's (#emit_take_music_voice_routine).
           #
           # THEN THE START OF WHAT IT MIXED is copied past the end of the buffer now playing, as
           # far as a late hand-over can reach (see #emit_mixer_handover): those lots are the ones
@@ -1261,16 +1261,16 @@ module RubyGBA
             @emitter.emit(ASM.cmp_imm(0, 0))
             @emitter.emit_branch(:bcond, mix_buf0, cond: :ne)
             emit_call_mix(@mix_buf1)
-            emit_copy_guard(from: @mix_buf1, to: @mix_buf0)
+            emit_copy_overrun_lots(from: @mix_buf1, to: @mix_buf0)
             @emitter.emit_branch(:b, done)
             @emitter.place_label(mix_buf0)
             emit_call_mix(@mix_buf0)
-            emit_copy_guard(from: @mix_buf0, to: @mix_buf1)
+            emit_copy_overrun_lots(from: @mix_buf0, to: @mix_buf1)
             @emitter.place_label(done)
           end
 
           # Copy the first guard_lots of +from+ to just past the end of +to+, a word at a time.
-          def emit_copy_guard(from:, to:)
+          def emit_copy_overrun_lots(from:, to:)
             e = @emitter
             copy = e.gensym
             e.emit(ASM.load_immediate(0, from))
@@ -1510,7 +1510,7 @@ module RubyGBA
 
           # Leave r0 = the address of a free voice slot, or 0 if every one is busy. Uses r0/r1/r2
           # only, so the caller's r3 and r4 survive.
-          def find_free_slot
+          def emit_find_free_voice
             @emitter.emit(ASM.load_immediate(1, @voice_base))
             @emitter.emit(ASM.load_immediate(2, @voice_base + (MAX_VOICES * SLOT_BYTES)))
             scan = @emitter.gensym
@@ -1524,7 +1524,7 @@ module RubyGBA
             @emitter.emit(ASM.cmp_reg(1, 2))
             @emitter.emit_branch(:bcond, scan, cond: :lt)
             emit_find_tail(miss) if @uses_envelopes               # nothing free: a note falling away gives way
-            emit_note_drop                                        # nothing at all: write down what was lost
+            emit_count_dropped_sound                                        # nothing at all: write down what was lost
             @emitter.emit(ASM.load_immediate(0, 0))               # none free
             @emitter.emit_branch(:b, miss)
             @emitter.place_label(found)
@@ -1534,7 +1534,7 @@ module RubyGBA
 
           # WITH EVERY VOICE BUSY, A SONG'S NOTE THAT IS FALLING AWAY GIVES WAY to the game's sound,
           # the quietest of them first — the same rule a song's own note keeps
-          # (#emit_music_voice_routine). A note falling away is on its way out, and it holds a voice
+          # (#emit_take_music_voice_routine). A note falling away is on its way out, and it holds a voice
           # only because a shaped note keeps its voice to fade on; losing the game a sound it
           # would have had without that is not the trade anybody asked for.
           #
@@ -1588,7 +1588,7 @@ module RubyGBA
           # A slot's SOUNDING word is 0 idle, OWNER_GAME the game's, and higher for a part of a
           # song or an effect — so "above OWNER_GAME" is "the music's", in one compare.
           # Uses r0/r1/r2 and r12, the same registers the search already spends.
-          def emit_note_drop
+          def emit_count_dropped_sound
             e = @emitter
             scan = e.gensym
             keep = e.gensym

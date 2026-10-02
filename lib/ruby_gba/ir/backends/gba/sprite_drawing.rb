@@ -67,9 +67,9 @@ module RubyGBA
             # The table has just been wiped, so the sprites nobody moves are gone from it too
             # and have to be written again. This runs on a change of screen as well as at
             # boot, which is the case that would otherwise leave a title screen blank.
-            forget_still_objects
+            emit_mark_still_sprites_unwritten
             @uploads.emit_dma_blob(@layout.obj_palette_blob, OBJ_PALETTE, @layout.obj_palette_units) # the shared sprite palette, once
-            @palette_tint.emit_obj_table_is(@layout.obj_palette_blob) # ...which is the one a tint walks until a scene sends its own
+            @palette_tint.emit_record_obj_palette_source(@layout.obj_palette_blob) # ...which is the one a tint walks until a scene sends its own
             @layout.objects.each_value do |obj|
               # A sprite showing the same pictures as one already uploaded points at
               # those, so there is nothing of its own to send. A sprite that belongs to a
@@ -79,9 +79,9 @@ module RubyGBA
 
               @uploads.emit_dma_blob(obj.tiles, OBJ_TILE_BASE + (obj.tile_index * 32), obj.tile_units * 16) # tiles -> sprite memory
             end
-            forget_frames_in_rooms(@layout.objects.each_value)
+            emit_reset_resident_frames(@layout.objects.each_value)
             emit_boot_object_windows
-            @palette_tint.emit_tint_state_reset # the table now holds the originals again
+            @palette_tint.emit_tint_reset_if_tinting # the table now holds the originals again
           end
 
           # Set up the object window, once, for a program that keeps sprites out of a
@@ -94,7 +94,7 @@ module RubyGBA
             return if placed_fade.none?
 
             write_reg16(REG_WINOUT, WIN_ALL_LAYERS | WIN_EFFECT | (WIN_ALL_LAYERS << WINOUT_OBJ_SHIFT))
-            store_word_immediate(placed_fade.line, var_addr(EFFECT_LINE))
+            store_word_immediate(placed_fade.fade_stack_index, var_addr(EFFECT_LINE))
           end
 
           # Fill the sprite table with the "unused slot" marker so no leftover memory
@@ -133,9 +133,9 @@ module RubyGBA
           # free — there's nothing to erase, unlike a software sprite.
           def emit_present_objects(node)
             by_scene = @layout.scene_sprites
-            write_object_table(node.names - @layout.movement.still - by_scene.flat_map(&:names))
+            emit_write_sprite_rows(node.names - @layout.movement.still - by_scene.flat_map(&:names))
             by_scene.each { |group| emit_scene_sprites(group) }
-            emit_settle_still_objects
+            emit_refresh_still_sprites
           end
 
           # The routine that writes one scene's moving sprites (see GBA#prepare_scene_sprites).
@@ -182,8 +182,8 @@ module RubyGBA
           # the console's quick memory. A picture too big for one of the console's objects is
           # drawn as several, so a title screen's lettering is a dozen of them and more; the
           # whole of that was code saying that nothing had changed.
-          def write_object_table(names)
-            names.each { |name| emit_present_object(@layout.objects.fetch(name), twin: placed_fade.twin_for(name)) }
+          def emit_write_sprite_rows(names)
+            names.each { |name| emit_present_object(@layout.objects.fetch(name), twin: placed_fade.fade_window_for(name)) }
           end
 
           # WRITE THE STILL SPRITES, ON THE FRAMES WHERE THAT CAN MATTER AND NO OTHERS.
@@ -197,7 +197,7 @@ module RubyGBA
           #
           # A game with no scenes has no such variable, so it remembers a fixed number and the
           # routine runs on the first frame and never again.
-          def emit_settle_still_objects
+          def emit_refresh_still_sprites
             return if @layout.movement.still.empty?
 
             watching = @layout.movement.watching
@@ -246,11 +246,11 @@ module RubyGBA
             emit_branch(:b, done)
 
             place_label(draw)
-            emit_hold_object_colors(obj) if obj.recolor_banks
+            emit_store_object_palette_bank(obj) if obj.recolor_banks
             emit_send_object_frame(obj) if obj.frames
             # Worked out once for the whole sprite when it is drawn as several objects:
             # every piece stands at the same place and reads it back from there.
-            emit_hold_object_position(obj) if obj.pieces > 1
+            emit_stash_object_position(obj) if obj.pieces > 1
             obj.pieces.times do |piece|
               base = oam_slot(obj.slot, piece)
               mirror = twin && oam_slot(twin.slot, piece)
@@ -260,7 +260,7 @@ module RubyGBA
                 emit_draw_object_upright(obj, base, mirror, piece)
               end
             end
-            emit_window_gate(twin, obj.pieces) if twin
+            emit_hide_twin_unless_faded(twin, obj.pieces) if twin
             place_label(done)
           end
 
@@ -279,7 +279,7 @@ module RubyGBA
           #
           # A number past the last list, or below 0 (which compared unsigned is past it too),
           # is the sprite's own, kept as the table's last entry.
-          def emit_hold_object_colors(obj)
+          def emit_store_object_palette_bank(obj)
             banks = obj.recolor_banks
             @lowering.value(obj.recolor)
             emit(ASM.cmp_imm(ACC, banks.own))
@@ -299,24 +299,24 @@ module RubyGBA
           end
 
           # Which pose's pictures are sitting in a sprite's room right now, for a sprite that
-          # keeps one frame at a time (see ScreenLayout#set_to_keep_to_one_frame). The sprite names its
+          # keeps one frame at a time (see ScreenLayout#pick_set_for_one_frame). The sprite names its
           # own variable, so that anything reading a finished cartridge back looks in the same
-          # place this writes (see Sprite#frame_in_room_var, and GBA#streamed_sprite_pose_vars).
-          def frame_in_room(obj) = obj.frame_in_room_var
+          # place this writes (see Sprite#resident_frame_var, and GBA#streamed_sprite_pose_vars).
+          def resident_frame_var(obj) = obj.resident_frame_var
 
           # Nothing is in any room: set at boot, and again whenever sprite memory is written
           # over — a screen change sends every picture again, and a scene taking over sends
           # its own over the room its sprites use — so the next draw copies its frame in.
           NO_FRAME = 0xFFFF_FFFF
 
-          def forget_still_objects
+          def emit_mark_still_sprites_unwritten
             return if @layout.movement.still.empty?
 
             @primitives.store_word_immediate(0, @primitives.var_addr(STILL_UP))
           end
 
-          def forget_frames_in_rooms(objects)
-            objects.each { |obj| store_word_immediate(NO_FRAME, var_addr(frame_in_room(obj))) if obj.frames }
+          def emit_reset_resident_frames(objects)
+            objects.each { |obj| store_word_immediate(NO_FRAME, var_addr(resident_frame_var(obj))) if obj.frames }
           end
 
           # COPY THE FRAME THIS SPRITE IS SHOWING INTO ITS ROOM, when it is not the one already
@@ -328,10 +328,10 @@ module RubyGBA
           def emit_send_object_frame(obj)
             already = gensym
             @lowering.value(obj.pose)
-            load_var(TMP, frame_in_room(obj))
+            load_var(TMP, resident_frame_var(obj))
             emit(ASM.cmp_reg(ACC, TMP))
             emit_branch(:bcond, already, cond: :eq)
-            store_var(ACC, frame_in_room(obj))
+            store_var(ACC, resident_frame_var(obj))
             emit(ASM.load_immediate(TMP, obj.frame_bytes))
             emit(ASM.mul(2, ACC, TMP))                    # r2 = where this frame starts in the blob
             emit_load_data_address(ACC, obj.frames)
@@ -355,7 +355,7 @@ module RubyGBA
             mask_into_acc(0xFF)
             orr_acc(obj.attr0_base)
             store_halfword_acc(base)
-            mirror_attr0(mirror)
+            emit_copy_attr0_to_twin(mirror)
             # attr1 = (x & 0x1FF) | size
             @lowering.value(obj.x)
             emit_add_const(ACC, ACC, obj.offset_x, TMP) unless obj.offset_x.zero?
@@ -386,7 +386,7 @@ module RubyGBA
           POSE_DRAW_X = :__pose_draw_x
           POSE_DRAW_Y = :__pose_draw_y
 
-          def emit_hold_object_position(obj)
+          def emit_stash_object_position(obj)
             @lowering.value(obj.y)
             store_var(ACC, POSE_DRAW_Y)
             @lowering.value(obj.x)
@@ -395,7 +395,7 @@ module RubyGBA
 
           def emit_draw_object_sized_poses(obj, base, mirror = nil, piece = 0)
             # A sprite of several pieces had this done once for all of them, by the caller.
-            emit_hold_object_position(obj) if obj.pieces == 1
+            emit_stash_object_position(obj) if obj.pieces == 1
             emit_load_pose_word(obj, piece)
             # attr0 = (y + how far down) & 0xFF, then the shape out of bits 10..11.
             load_var(ACC, POSE_DRAW_Y)
@@ -406,7 +406,7 @@ module RubyGBA
             emit(ASM.orr_reg_lsl(ACC, ACC, TMP, 4))     # ...into bit 14
             orr_acc(obj.attr0_base) unless obj.attr0_base.zero?
             store_halfword_acc(base)
-            mirror_attr0(mirror)
+            emit_copy_attr0_to_twin(mirror)
             # attr1 = (x + how far right) & 0x1FF, then the size out of bits 12..13.
             load_var(ACC, POSE_DRAW_X)
             emit(ASM.lsr_imm(TMP, POSE_WORD, 14))
@@ -472,7 +472,7 @@ module RubyGBA
           # Drop the attr0 just written into the window twin's slot as well, with the bit
           # that makes it a window rather than a picture. The value is still in hand, so
           # this is two instructions and not a second sprite worked out from scratch.
-          def mirror_attr0(mirror)
+          def emit_copy_attr0_to_twin(mirror)
             return unless mirror
 
             orr_acc(OBJ_WINDOW_MODE)
@@ -484,7 +484,7 @@ module RubyGBA
           # already been written, so this only has to hide the twin — one window per piece
           # for a sprite drawn as several objects, since the hole has to be the shape of
           # the whole picture. Asked once for all of them, after they are drawn.
-          def emit_window_gate(twin, pieces)
+          def emit_hide_twin_unless_faded(twin, pieces)
             @lowering.value(twin.gate)
             emit(ASM.cmp_imm(ACC, 0))
             keeps = gensym
@@ -507,7 +507,7 @@ module RubyGBA
             mask_into_acc(0xFF)
             orr_acc(obj.attr0_base | OBJ_ROTSCALE | OBJ_DOUBLE_SIZE)
             store_halfword_acc(base)
-            mirror_attr0(mirror)
+            emit_copy_attr0_to_twin(mirror)
             # attr1 = ((x - half_w) & 0x1FF) | size | affine-group index (bits 9..13)
             @lowering.value(obj.x)
             emit(ASM.sub_imm(ACC, ACC, half_w)) unless half_w.zero?

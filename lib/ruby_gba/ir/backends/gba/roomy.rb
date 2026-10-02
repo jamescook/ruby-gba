@@ -98,7 +98,7 @@ module RubyGBA
             roots = program.walk.select { |n| [:loop, :on_timer].include?(n.kind) }
             seen = Set.new
             found = Set.new
-            roots.each { |node| gather(node, bodies, seen, found) }
+            roots.each { |node| collect_touched_lists(node, bodies, seen, found) }
             found
           end
 
@@ -112,19 +112,19 @@ module RubyGBA
           # and a game of any size puts all its per-frame work there. Following only calls, a
           # raycaster with twenty-six collections came back with none of them touched by a
           # frame. So this follows whatever a node says it can call (IR::Node#callees).
-          def self.gather(node, bodies, seen, found)
+          def self.collect_touched_lists(node, bodies, seen, found)
             node.walk do |n|
               found << n.name if %i[list_get list_set list_push list_drop list_len list_new].include?(n.kind)
-              n.callees.each { |target| reach(target, bodies, seen, found) }
+              n.callees.each { |target| visit_callee(target, bodies, seen, found) }
             end
           end
 
-          def self.reach(target, bodies, seen, found)
+          def self.visit_callee(target, bodies, seen, found)
             return if seen.include?(target)
 
             seen << target
             body = bodies[target]
-            gather(body, bodies, seen, found) if body
+            collect_touched_lists(body, bodies, seen, found) if body
           end
         end
       end

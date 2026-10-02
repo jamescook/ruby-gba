@@ -52,13 +52,13 @@ module RubyGBA
         # drawn size, which is nearly all of them and costs nothing.
         #
         # +frames+ is set on a sprite whose pictures do not all stay in sprite memory (see
-        # ScreenLayout#set_to_keep_to_one_frame): the blob in the cartridge holding every pose laid out
+        # ScreenLayout#pick_set_for_one_frame): the blob in the cartridge holding every pose laid out
         # at the same stride, +frame_bytes+ long each, one of which is copied into the room
         # at +tile_index+ whenever the pose changes. nil for every sprite that fits.
         #
         # +recolor_banks+ is set on a sprite that can be drawn with other colours: the table of
         # the bank of sixteen each of its other lists landed in, counted the way the +recolor+
-        # operand counts them, and last its own (ScreenLayout#recolor_banks). Its +attr2_base+ then
+        # operand counts them, and last its own (ScreenLayout#sprite_recolor_bank_table). Its +attr2_base+ then
         # leaves the bank out, since the bank is the part of that word a frame decides. nil for
         # every other sprite.
         Sprite = Data.define(
@@ -75,7 +75,7 @@ module RubyGBA
           # says that one place whichever pose is showing and nothing in it can tell them apart.
           # This is what can. The sprite's place in the table names it, being the one thing about
           # a sprite that no other sprite shares. Meaningless for a sprite with no +frames+.
-          def frame_in_room_var = :"__frame_in_room_#{slot}"
+          def resident_frame_var = :"__frame_in_room_#{slot}"
         end
       end
     end

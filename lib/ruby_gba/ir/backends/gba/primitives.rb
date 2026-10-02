@@ -60,14 +60,14 @@ module RubyGBA
             return @emitter.emit(ASM.mov_reg(reg, held)) if held
 
             offset = var_offset(name)
-            return @emitter.emit(ASM.ldr_offset(reg, ADDR, offset)) if emit_var_base(offset)
+            return @emitter.emit(ASM.ldr_offset(reg, ADDR, offset)) if emit_var_address_base(offset)
 
             @emitter.emit(ASM.ldr(reg, ADDR))
           end
 
           def store_var(reg, name)
             offset = var_offset(name)
-            return @emitter.emit(ASM.str_offset(reg, ADDR, offset)) if emit_var_base(offset)
+            return @emitter.emit(ASM.str_offset(reg, ADDR, offset)) if emit_var_address_base(offset)
 
             @emitter.emit(ASM.str(reg, ADDR))
           end
@@ -186,7 +186,7 @@ module RubyGBA
           # this only spends it. Note the order: the instruction is emitted first and the
           # new value recorded after, because emitting it is itself what makes the old
           # value untrue.
-          def emit_base(address, reg = ADDR, held = @emitter.address_register)
+          def emit_load_address_register(address, reg = ADDR, held = @emitter.address_register)
             return if held.holds?(address)
 
             step = held.value && address - held.value
@@ -201,7 +201,7 @@ module RubyGBA
           # The same, for a collection's own base — which waits in a register of its own so
           # that the variables and the collections are not forever pushing each other out of
           # one. See {LIST_ADDR}.
-          def emit_list_base(address) = emit_base(address, LIST_ADDR, @emitter.list_register)
+          def emit_list_base(address) = emit_load_address_register(address, LIST_ADDR, @emitter.list_register)
 
           # rd = rn & imm — the ring-wrap mask. A mask that fits an 8-bit rotated
           # immediate (capacity up to 256) rides directly in the AND; a wider one is
@@ -220,9 +220,9 @@ module RubyGBA
           # Put what the load will be read from into the address register: the base of the
           # variable memory when the variable is near enough to it, and the variable's own
           # address when it is not. Answers whether the distance still has to be named.
-          def emit_var_base(offset)
+          def emit_var_address_base(offset)
             near = offset.between?(0, FURTHEST_FROM_BASE)
-            emit_base(near ? IWRAM_START : IWRAM_START + offset)
+            emit_load_address_register(near ? IWRAM_START : IWRAM_START + offset)
             near
           end
         end

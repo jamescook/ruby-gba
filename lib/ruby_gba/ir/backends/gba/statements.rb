@@ -21,7 +21,7 @@ module RubyGBA
         LoopShape = Data.define(:shape, :blocked_by, :spills) do
           def initialize(shape:, blocked_by: nil, spills: 0) = super
 
-          def held = shape != :memory
+          def counter_held? = shape != :memory
           def spilled? = shape == :spilled
         end
 
@@ -142,7 +142,7 @@ module RubyGBA
           # against a number, and a number known here is an instruction; a number the game works
           # out would be a register held across every shape in the block.
           def emit_inside(node)
-            @lowering.inside(node.x, node.y, node.w, node.h) do
+            @lowering.with_draw_area(node.x, node.y, node.w, node.h) do
               node.children.each { |stmt| @lowering.statement(stmt) }
             end
           end
@@ -175,18 +175,18 @@ module RubyGBA
           # registers are free is this file's business. #loop_shapes hands it over the way
           # #var_addresses hands over where a variable landed.
           def emit_repeat(node)
-            return emit_shape(node, :registers) { emit_repeat_held(node) } if LoopForm.registers?(node)
-            return emit_shape(node, :spilled) { emit_repeat_spilled(node) } if LoopForm.spills?(node)
+            return record_loop_shape(node, :registers) { emit_repeat_in_registers(node) } if LoopForm.counter_in_registers?(node)
+            return record_loop_shape(node, :spilled) { emit_repeat_spilled(node) } if LoopForm.spills?(node)
 
-            emit_shape(node, :memory) { emit_repeat_in_memory(node) }
+            record_loop_shape(node, :memory) { emit_repeat_in_memory(node) }
           end
 
           # Remember which shape this loop got before emitting it, so the cost estimate charges
           # for the code that will really run. The build decides; the estimate is told.
-          def emit_shape(node, shape)
+          def record_loop_shape(node, shape)
             @loop_shapes[node.index] =
               LoopShape.new(shape: shape,
-                            blocked_by: shape == :registers ? nil : LoopForm.reason(node),
+                            blocked_by: shape == :registers ? nil : LoopForm.register_blocker_phrase(node),
                             spills: shape == :spilled ? LoopForm.blocking_children(node).size : 0)
             yield
           end
@@ -280,7 +280,7 @@ module RubyGBA
           # is one move rather than three instructions of address and load. The index is
           # written back to its memory once on the way out, so anything after the loop sees
           # the value it would have seen anyway.
-          def emit_repeat_held(node)
+          def emit_repeat_in_registers(node)
             emit_repeat_loop(node) do
               node.children.each { |stmt| @lowering.statement(stmt) }
             end
@@ -321,13 +321,13 @@ module RubyGBA
           # A loop counting down has no index anyone reads and no limit, so the bracket is the
           # save and the restore of the one register.
           def emit_bracketed(index)
-            return emit_saving(LoopForm::COUNTER) { yield } if @unread_indexes.include?(index)
+            return emit_preserving(LoopForm::COUNTER) { yield } if @unread_indexes.include?(index)
 
             @primitives.store_var(LoopForm::COUNTER, index)
-            emit_saving(LoopForm::COUNTER, LoopForm::LIMIT) { @primitives.without_var_in_register(index) { yield } }
+            emit_preserving(LoopForm::COUNTER, LoopForm::LIMIT) { @primitives.without_var_in_register(index) { yield } }
           end
 
-          def emit_saving(*registers)
+          def emit_preserving(*registers)
             @emitter.emit(ASM.push(*registers))
             yield
             @emitter.emit(ASM.pop(*registers))

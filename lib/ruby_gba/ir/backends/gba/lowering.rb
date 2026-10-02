@@ -84,7 +84,7 @@ module RubyGBA
           # error there), so this doesn't need to model a stack either.
           attr_reader :draw_area
 
-          def inside(x, y, w, h)
+          def with_draw_area(x, y, w, h)
             @draw_area = [x, y, w, h]
             yield
           ensure

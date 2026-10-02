@@ -179,7 +179,7 @@ module RubyGBA
           # --- the voices the recorded parts of songs and sound effects borrow ---
 
           # WHICH VOICE A NOTE OF A SONG OR A SOUND EFFECT GETS, by the rule the console's player
-          # keeps (GBA::Mixer#emit_music_voice_routine). In order:
+          # keeps (GBA::Mixer#emit_take_music_voice_routine). In order:
           #
           #   1. the part's own voice, if it is still sounding a note with no shape;
           #   2. the first free one;
@@ -339,7 +339,7 @@ module RubyGBA
           # A SOUND WAS JUST LOST — every voice was busy, so this play, or this note of a song or
           # an effect, is dropped rather than cutting off one it may not. Counted here so a test
           # can hold the interpreter's answer against the console's, which is measured the same
-          # way (see {SoundDrops}, and GBA::Mixer#emit_note_drop for the console's half). A drop
+          # way (see {SoundDrops}, and GBA::Mixer#emit_count_dropped_sound for the console's half). A drop
           # means every voice was sounding, so the only thing worth writing down is how the music
           # and the game were splitting them.
           def record_drop

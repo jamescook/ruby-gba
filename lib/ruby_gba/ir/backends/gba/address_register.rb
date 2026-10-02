@@ -56,7 +56,7 @@ module RubyGBA
 
           # What the register holds, or nil when that is not known. Read by whoever is
           # about to want a DIFFERENT address in it: getting from one address to another
-          # can be cheaper than naming the second one outright (see Primitives#emit_base).
+          # can be cheaper than naming the second one outright (see Primitives#emit_load_address_register).
           attr_reader :value
 
           # Is this what the register holds right now?

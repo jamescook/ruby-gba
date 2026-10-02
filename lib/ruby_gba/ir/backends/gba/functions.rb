@@ -35,7 +35,7 @@ module RubyGBA
           # A ROUTINE THIS BACKEND MADE UP FOR ITSELF, with a block for a body rather than
           # statements of the program — because nothing in the program asked for it. Something
           # the console needs done in one place rather than written out again at every point
-          # it is needed (see SpriteDrawing#write_object_table).
+          # it is needed (see SpriteDrawing#emit_write_sprite_rows).
           #
           # It is a routine like any other from here on: emitted with the rest, and reached by
           # `call` under the same name. The chooser ranks routines by what a frame spends in

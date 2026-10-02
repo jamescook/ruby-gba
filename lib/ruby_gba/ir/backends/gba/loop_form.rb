@@ -110,7 +110,7 @@ module RubyGBA
           end
 
           # Whether this repeat can keep its counter in a register with nothing saved.
-          def registers?(node)
+          def counter_in_registers?(node)
             node.kind == :repeat && !stops_early?(node) && blocking_children(node).empty?
           end
 
@@ -139,10 +139,10 @@ module RubyGBA
           #
           # ITS COUNT IS NOT AMONG THEM, and that is why this asks the children rather than
           # walking everything under the node: the count is worked out before either register
-          # is loaded (see Statements#emit_repeat_held), so whatever it takes, it takes while
+          # is loaded (see Statements#emit_repeat_in_registers), so whatever it takes, it takes while
           # there is nothing yet to lose.
           def blocking_children(node)
-            node.children.select { |child| blocker_within(child, node.index) }
+            node.children.select { |child| first_blocker_in_statement(child, node.index) }
           end
 
           # The first thing inside one statement that needs the registers, or nil. A full walk
@@ -150,8 +150,8 @@ module RubyGBA
           # parts of itself off to the side — the branch an `if` runs when its test fails is
           # kept beside the node rather than under it, so a walk of statements alone strolls
           # past a call sitting in an else.
-          def blocker_within(statement, index)
-            statement.walk.find { |inner| takes_the_registers?(inner) || writes?(inner, index) }
+          def first_blocker_in_statement(statement, index)
+            statement.walk.find { |inner| needs_loop_registers?(inner) || writes?(inner, index) }
           end
 
           def unbracketable_within?(statement, index)
@@ -161,24 +161,24 @@ module RubyGBA
           # WHAT STOPPED IT, in the words an author would use, for the one report that says so.
           # The first thing found rather than all of them: an author fixes one at a time, and
           # the next build says what is next.
-          def reason(node)
-            blocker = blocker_in(node)
+          def register_blocker_phrase(node)
+            blocker = first_blocker_in_body(node)
             return "it holds something that needs the registers" unless blocker
 
-            phrase_for(blocker, node.index)
+            blocker_phrase(blocker, node.index)
           end
 
           # The first thing in this loop's body that needs the registers, or nil. Read off the
           # same statements the shape is decided from, so "it cannot" and "here is why" can
           # never disagree.
-          def blocker_in(node)
+          def first_blocker_in_body(node)
             index = node.index
-            blocking_children(node).filter_map { |child| blocker_within(child, index) }.first
+            blocking_children(node).filter_map { |child| first_blocker_in_statement(child, index) }.first
           end
 
           # Whether this one node needs the two registers for itself, either because it can
           # reach code that lands anywhere, or because its own lowering works in them.
-          def takes_the_registers?(node)
+          def needs_loop_registers?(node)
             REACHES_OTHER_CODE.include?(node.kind) ||
               USES_HIGH_REGISTERS.include?(node.kind) ||
               CALLS_A_ROUTINE.include?(node.kind) ||
@@ -188,7 +188,7 @@ module RubyGBA
           # The words for one blocker. The body writing the loop's own index would have to
           # write the register too, and nothing in the surface does that — so it is refused
           # rather than handled, and it says so.
-          def phrase_for(node, index)
+          def blocker_phrase(node, index)
             case node.kind
             when :call then "the body calls :#{node.target}"
             when :call_one_of then "the body calls a routine picked by number"

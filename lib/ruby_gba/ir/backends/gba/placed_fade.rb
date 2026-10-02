@@ -52,7 +52,7 @@ module RubyGBA
                             .uniq
                             .flat_map { |layer| sprites_needing_a_window(layer) }
                             .uniq(&:name)
-                            .to_h { |node| [node.name, gate_for(node)] }
+                            .to_h { |node| [node.name, window_shown_condition(node)] }
             @twins = {}
           end
 
@@ -60,7 +60,7 @@ module RubyGBA
           # — a twin has to hold exactly the shape the sprite holds, so a sprite drawn as
           # four objects needs four windows. The block says how many places a sprite takes.
           # Returns where the real sprites start.
-          def place_twins
+          def place_fade_windows
             front = 0
             @twins = @gates.to_h do |name, gate|
               at = front
@@ -70,7 +70,7 @@ module RubyGBA
             front
           end
 
-          def twin_for(name) = @twins[name]
+          def fade_window_for(name) = @twins[name]
           def none? = @gates.empty?
           def any? = !none?
           def count = @gates.size
@@ -81,7 +81,7 @@ module RubyGBA
 
           # WHICH LAYERS A FADE BLENDS: everything behind where it sits. A fade that names no
           # layer reaches the whole screen.
-          def targets(under)
+          def blend_target_bits(under)
             return BLD_ALL_LAYERS if under.nil?
 
             kept = IR::Stacking.at_or_above(@picture, under).map(&:name)
@@ -96,7 +96,7 @@ module RubyGBA
           # Where in the stack a fade sits. One past the front for a fade that names no
           # layer, so no twin is ever shown for it — which is also where it starts at boot,
           # before any fade is placed.
-          def line(under = nil) = under.nil? ? @picture.stack.length : @picture.stack.index(under)
+          def fade_stack_index(under = nil) = under.nil? ? @picture.stack.length : @picture.stack.index(under)
 
           private
 
@@ -109,7 +109,7 @@ module RubyGBA
             blends.empty? ? [] : keeps
           end
 
-          def gate_for(node)
+          def window_shown_condition(node)
             Build.binop(:<=, Build.var_ref(EFFECT_LINE), Build.int(@picture.stack.index(node.layer)))
           end
         end

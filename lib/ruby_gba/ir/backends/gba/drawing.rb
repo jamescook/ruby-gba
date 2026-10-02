@@ -298,7 +298,7 @@ module RubyGBA
             @background_drawing.reset_bg2_affine_if_needed
             @background_drawing.emit_boot_backgrounds if @layout.tiled && !@layout.backgrounds.empty? # shared BG palette + tile pictures
             @sprite_drawing.emit_boot_objects if @layout.has_objects                             # sprite palette + tiles, and clear OAM
-            @layer_blend.emit_layer_blend_again if @layer_blend.see_through?     # ...and which one is see-through
+            @layer_blend.emit_restore_layer_blend if @layer_blend.see_through?     # ...and which one is see-through
             value = tiled_dispcnt
             value |= OBJ_ENABLE | OBJ_1D_MAP if @layout.has_objects
             @emitter.write_reg16(REG_DISPCNT, value | held)
@@ -315,7 +315,7 @@ module RubyGBA
             @background_drawing.reset_bg2_affine_matrix # the one-time "no turn, no resize yet" starting matrix
             @background_drawing.emit_boot_backgrounds if @layout.tiled && !@layout.backgrounds.empty?
             @sprite_drawing.emit_boot_objects if @layout.has_objects
-            @layer_blend.emit_layer_blend_again if @layer_blend.see_through?
+            @layer_blend.emit_restore_layer_blend if @layer_blend.see_through?
             value = MODE_2 | BG2_ENABLE
             value |= OBJ_ENABLE | OBJ_1D_MAP if @layout.has_objects
             @emitter.write_reg16(REG_DISPCNT, value | held)
@@ -352,7 +352,7 @@ module RubyGBA
           # blended in its place.
           #
           # A game whose scenes all want the same thing has nothing here: boot's one write
-          # stands for the whole run (see LayerBlend#scene_blend).
+          # stands for the whole run (see LayerBlend#blend_control_by_scene).
           def emit_scene_blend(name)
             wanted = @layout.scene_blend[name]
             write_reg16(REG_BLDCNT, wanted) if wanted
@@ -516,9 +516,9 @@ module RubyGBA
             emit_on_scene_entry(SCENE_ART_STATE, @layout.scene_art.keys.index(name) + 1) do
               # Its colours first: the groups its sprites name are this scene's now (see
               # ScreenLayout#build_shared_object_palette).
-              @palette_tint.emit_obj_table_arrives(colors, @layout.obj_palette_units) if colors
+              @palette_tint.emit_send_scene_obj_palette(colors, @layout.obj_palette_units) if colors
               sending.each { |blob, at, units| @uploads.emit_dma_blob(blob, SpriteDrawing::OBJ_TILE_BASE + (at * 32), units * 16) }
-              @sprite_drawing.forget_frames_in_rooms(rooms)
+              @sprite_drawing.emit_reset_resident_frames(rooms)
             end
           end
 
@@ -551,7 +551,7 @@ module RubyGBA
             emit(ASM.str(ACC, TMP))                       # DMA source = the table
             store_word_immediate(BG_PALETTE, REG_DMA3DAD) # DMA destination = palette memory
             store_word_immediate(@layout.palette.size | DMA_ENABLE, REG_DMA3CNT) # go: 16-bit, both increment
-            @palette_tint.emit_tint_state_reset # the table now holds the originals again
+            @palette_tint.emit_tint_reset_if_tinting # the table now holds the originals again
           end
 
           # This file's own seams, called as bare methods like the ones in {EmitterCalls}.

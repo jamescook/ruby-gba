@@ -79,7 +79,7 @@ module RubyGBA
           def take_tile(unit)
             start = align(@tile_bytes, unit)
             @tile_bytes = start + unit
-            check_they_still_fit!
+            check_tiles_and_maps_fit!
             start
           end
 
@@ -88,14 +88,14 @@ module RubyGBA
           # bytes in between belong to nobody and are uploaded as zeroes.
           def skip_to(offset)
             @tile_bytes = offset if offset > @tile_bytes
-            check_they_still_fit!
+            check_tiles_and_maps_fit!
           end
 
           # Room for one map: +blocks+ consecutive screen blocks (one for a map of 32x32
           # cells, more for a larger one). Returns the first block's number.
           def take_map(blocks = 1)
             @maps_taken += blocks
-            check_they_still_fit!
+            check_tiles_and_maps_fit!
             SCREEN_BLOCKS - @maps_taken
           end
 
@@ -116,7 +116,7 @@ module RubyGBA
 
           private
 
-          def check_they_still_fit!
+          def check_tiles_and_maps_fit!
             first_map = (SCREEN_BLOCKS - @maps_taken) * SCREEN_BLOCK_BYTES
             return if @tile_bytes <= first_map && @maps_taken <= SCREEN_BLOCKS
 

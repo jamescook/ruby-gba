@@ -81,8 +81,8 @@ class TestRepeatStopWhen < Minitest::Test
     early = Build.repeat(Build.int(4), :i, Build.set(:n, Build.int(1)),
                          stop_when: Build.var_ref(:done))
 
-    assert LoopForm.registers?(plain), "a plain counted loop keeps the registers"
-    refute LoopForm.registers?(early), "one that can stop early cannot"
+    assert LoopForm.counter_in_registers?(plain), "a plain counted loop keeps the registers"
+    refute LoopForm.counter_in_registers?(early), "one that can stop early cannot"
     refute LoopForm.stops_early?(plain), "a zero stop condition is nothing to stop for"
     assert LoopForm.stops_early?(early)
   end

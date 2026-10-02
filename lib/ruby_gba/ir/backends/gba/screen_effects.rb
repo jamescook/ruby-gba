@@ -11,7 +11,7 @@ module RubyGBA
         # moves the colour table instead (see PaletteTint).
         #
         # The fade and the tint share their arithmetic with PaletteTint and LayerBlend, which
-        # reach it through the backend (#fade_steps and friends are public for that reason).
+        # reach it through the backend (#fade_steps_value and friends are public for that reason).
         class ScreenEffects
           include Console::Hardware
           include EmitterCalls
@@ -79,7 +79,7 @@ module RubyGBA
           # number; an amount the game computes is scaled at run time, which is a
           # multiply and a divide once per call — nothing next to a frame.
           def emit_fade(node)
-            return emit_fade_by_walking_the_colors(node) if @layout.fading.walks_the_colors?(node)
+            return emit_palette_fade(node) if @layout.fading.walks_the_colors?(node)
 
             # On a screen drawn through a color table the two effects are separate pieces
             # of hardware, so nothing puts a tint away by itself. The display still holds
@@ -89,7 +89,7 @@ module RubyGBA
             if @palette_tint.moves_a_color_table? && @palette_tint.palette_screen?(node)
               @palette_tint.emit_lift_palette_tint(@layout.modes.mode_at(node))
             end
-            return emit_fade_sharing_the_blend(node) if @layer_blend.see_through?
+            return emit_fade_beside_see_through(node) if @layer_blend.see_through?
 
             emit_fade_registers(node)
           end
@@ -105,7 +105,7 @@ module RubyGBA
           # PaletteTint::DARKEN). Nothing else here runs: the blend registers are never
           # written, so the layer keeps the setup it was given at boot and there is nothing
           # to hand back when the fade lifts.
-          def emit_fade_by_walking_the_colors(node)
+          def emit_palette_fade(node)
             toward = node.toward == :black ? PaletteTint::DARKEN : Graphics::Color.resolve(node.toward)
             @palette_tint.emit_palette_tint(color: toward,
                                             amount: node.amount,
@@ -117,7 +117,7 @@ module RubyGBA
           def emit_fade_registers(node)
             emit_fade_control(node)
 
-            if (steps = display_steps(node))
+            if (steps = constant_fade_steps(node))
               write_reg16(REG_BLDY, steps)
             else
               @lowering.value(display_steps_value(node))
@@ -127,10 +127,10 @@ module RubyGBA
 
           def emit_fade_control(node)
             mode = node.toward == :white ? BLD_BRIGHTEN : BLD_DARKEN
-            write_reg16(REG_BLDCNT, mode | placed_fade.targets(node.under))
+            write_reg16(REG_BLDCNT, mode | placed_fade.blend_target_bits(node.under))
             # Where this fade sits in the stack, for the window twins to read. Only a
             # program that has twins writes it (see ScreenLayout, which makes the PlacedFade).
-            store_word_immediate(placed_fade.line(node.under), var_addr(EFFECT_LINE)) if placed_fade.any?
+            store_word_immediate(placed_fade.fade_stack_index(node.under), var_addr(EFFECT_LINE)) if placed_fade.any?
           end
 
           # How far the fade has come, in the sixteenths the hardware counts in, for an
@@ -165,17 +165,17 @@ module RubyGBA
           # A zero the author wrote is settled here and costs not one instruction; an amount
           # the game works out is a compare and a branch, which is what a fade walked over
           # frames arrives as.
-          def emit_fade_sharing_the_blend(node)
-            if (steps = display_steps(node))
-              return @layer_blend.emit_layer_blend_again if steps.zero?
+          def emit_fade_beside_see_through(node)
+            if (steps = constant_fade_steps(node))
+              return @layer_blend.emit_restore_layer_blend if steps.zero?
 
               return emit_fade_registers(node)
             end
 
-            emit_fade_or_hand_back(node)
+            emit_fade_or_restore_blend(node)
           end
 
-          def emit_fade_or_hand_back(node)
+          def emit_fade_or_restore_blend(node)
             hand_back = gensym
             done = gensym
             @lowering.value(display_steps_value(node))
@@ -187,19 +187,14 @@ module RubyGBA
             store_halfword_acc(REG_BLDY)
             emit_branch(:b, done)
             place_label(hand_back)
-            @layer_blend.emit_layer_blend_again
+            @layer_blend.emit_restore_layer_blend
             place_label(done)
-          end
-
-          # A percentage of the way there, in the sixteenths the hardware counts in.
-          def fade_steps(percent)
-            ((percent * BLD_MAX) / 100).clamp(0, BLD_MAX)
           end
 
           # How far a fade or a tint goes in those sixteenths, when its amount is written in
           # the program — whole or with a fraction (see IR::Fading) — and nil when the game
           # works it out.
-          def display_steps(node)
+          def constant_fade_steps(node)
             amount = const_int(node.amount)
             amount && FadeSteps.steps(amount, fraction_bits: node.fraction_bits, walked: false)
           end
@@ -242,7 +237,7 @@ module RubyGBA
             write_reg16(PALETTE_START, Graphics::Color.resolve(node.color)) # the backdrop IS the tint
             write_reg16(REG_BLDCNT, BLD_ALPHA | BLD_BG2 | (BLD_BACKDROP << BLD_SECOND_SHIFT))
 
-            if (steps = display_steps(node))
+            if (steps = constant_fade_steps(node))
               write_reg16(REG_BLDALPHA, tint_weights(steps))
             else
               @lowering.value(display_steps_value(node))

@@ -66,7 +66,7 @@ module RubyGBA
         #
         # The bit depth is per SPRITE and per BG LAYER, never per tile — which is why a
         # layer with one greedy tile goes wide as a whole, and why all of a sprite's poses
-        # share one setting. See #build_shared_object_palette and #bank_the_tiles in ScreenLayout
+        # share one setting. See #build_shared_object_palette and #assign_tile_banks in ScreenLayout
         # for the two callers.
         # ---------------------------------------------------------------------------
         class PaletteBanks
@@ -154,8 +154,12 @@ module RubyGBA
           # What a table going on from this one needs to know about it.
           attr_reader :placements, :wide_slots, :laid, :bank_base
 
-          # The first group of sixteen nothing here uses.
-          def next_bank = (@entries.size + BANK_SIZE - 1) / BANK_SIZE
+          # The first whole group of sixteen above the wide colours — the first one nothing
+          # here uses. A game with no wide pictures starts at 0 and gets every bank. Protected
+          # rather than private, because #allocate_after asks it of the table it goes on from.
+          def first_free_bank
+            (@entries.size + BANK_SIZE - 1) / BANK_SIZE
+          end
 
           private
 
@@ -192,10 +196,10 @@ module RubyGBA
 
             banks = []
             spilled = []
-            first_own = base.next_bank
+            first_own = base.first_free_bank
             (@pictures - wide).sort_by { |picture| -picture.colors.size }.each do |picture|
-              shared = base.laid.index { |bank| reads_from?(bank, picture) }
-              next place_reading(picture, base.laid[shared], base.bank_base + shared) if shared
+              shared = base.laid.index { |bank| fits_existing_bank?(bank, picture) }
+              next place_in_existing_bank(picture, base.laid[shared], base.bank_base + shared) if shared
 
               bank = bank_for(picture, banks, first: first_own, room: room)
               next spilled << picture if bank.nil?
@@ -213,7 +217,7 @@ module RubyGBA
           def place_wide_after(base, wide)
             fresh = wide.flat_map(&:colors).uniq.reject { |color| base.wide_slots.key?(color) }
             groups = (fresh.size + BANK_SIZE - 1) / BANK_SIZE
-            raise Overflow, "#{fresh.size} more colours" if base.next_bank + groups > BANKS
+            raise Overflow, "#{fresh.size} more colours" if base.first_free_bank + groups > BANKS
 
             slots = base.wide_slots.merge(fresh.each_with_index.to_h { |color, i| [color, ((BANKS - groups) * BANK_SIZE) + i] })
             fresh.each { |color| @entries[slots.fetch(color)] = color }
@@ -224,14 +228,14 @@ module RubyGBA
           end
 
           # Can +picture+ read an existing group without changing it?
-          def reads_from?(bank, picture)
+          def fits_existing_bank?(bank, picture)
             return false unless bank[:keeps_to] == picture.keeps_to
             return bank[:fixed] && bank[:colors] == picture.authored if picture.authored?
 
             picture.colors.all? { |color| bank[:colors].include?(color) }
           end
 
-          def place_reading(picture, bank, slot)
+          def place_in_existing_bank(picture, bank, slot)
             indices = picture.colors.to_h { |color| [color, slot_in(bank, color)] }
             @placements[picture.key] = Placement.new(bank: slot, indices: indices)
           end
@@ -356,12 +360,6 @@ module RubyGBA
           # Where +color+ sits in an authored list, looking only at the slots that DRAW.
           def drawable_slot(colors, color)
             (1...colors.length).find { |slot| colors[slot] == color }
-          end
-
-          # The first whole group of sixteen above the wide colours. A game with no wide
-          # pictures starts at 0 and gets every bank.
-          def first_free_bank
-            (@entries.size + BANK_SIZE - 1) / BANK_SIZE
           end
 
           # Lay the banks into the table. Each starts on its own group of sixteen, so

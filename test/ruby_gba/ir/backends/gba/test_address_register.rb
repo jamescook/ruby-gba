@@ -206,7 +206,7 @@ class TestAddressRegister < Minitest::Test
   # and it used to be rebuilt at every single touch. It now waits in a register the same
   # way the variables' base does — a SECOND register, because one shared between them
   # would be pushed out by whichever was touched last, and a pool walk touches both
-  # constantly. See {LIST_ADDR} and {Primitives#emit_base}.
+  # constantly. See {LIST_ADDR} and {Primitives#emit_load_address_register}.
 
   # BOTH REGISTERS ARE WATCHED, not just the first one. Nothing the DSL can express writes
   # the list register between two touches of a list today — the routines that use it for

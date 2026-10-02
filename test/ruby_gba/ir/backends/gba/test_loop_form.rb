@@ -48,7 +48,7 @@ class TestLoopForm < Minitest::Test
     end
 
     assert_equal 1, shapes.length
-    assert shapes.values.first.held, "nothing in that body can touch a register the loop needs"
+    assert shapes.values.first.counter_held?, "nothing in that body can touch a register the loop needs"
   end
 
   # A CALL is the plainest reason it cannot: the routine may use any register it likes, and
@@ -82,7 +82,7 @@ class TestLoopForm < Minitest::Test
     shape = shapes.values.first
 
     assert_equal :memory, shape.shape
-    refute shape.held
+    refute shape.counter_held?
     assert_equal "the body calls :bump", shape.blocked_by
   end
 
@@ -197,7 +197,7 @@ class TestLoopForm < Minitest::Test
   def test_a_body_holding_raw_instructions_goes_through_memory
     node = RubyGBA::IR::Build.repeat(RubyGBA::IR::Build.int(4), :i, RubyGBA::IR::Build.raw(""))
 
-    refute LoopForm.registers?(node)
+    refute LoopForm.counter_in_registers?(node)
   end
 
   # THE INVARIANT THE WHOLE THING RESTS ON: every statement kind NOT named as a blocker really
@@ -264,7 +264,7 @@ class TestLoopForm < Minitest::Test
     end
 
     # Every loop in the sweep must have taken the fast shape, or it proves nothing about it.
-    through_memory = rom.loop_shapes.reject { |_, shape| shape.held }
+    through_memory = rom.loop_shapes.reject { |_, shape| shape.counter_held? }
     assert_empty through_memory.transform_values(&:blocked_by),
                  "a body in this sweep is a blocker — either it belongs in the blocked list, or " \
                  "the sweep needs a different statement to stand for that kind"
@@ -556,7 +556,7 @@ class TestLoopForm < Minitest::Test
     end
     reference = RubyGBA::IR::Backends::Reference.new.run(rom.source_program)
 
-    assert(rom.loop_shapes.values.none?(&:held), "both loops go through memory")
+    assert(rom.loop_shapes.values.none?(&:counter_held?), "both loops go through memory")
     assert_equal 105, reference[:whole], "passes 0 to 4, each adding ten times its number and one"
     assert_equal 64, reference[:stopped], "passes 0 to 3, and the stop is seen before pass 4"
     assert_equal 105, read_var(rom, :whole)

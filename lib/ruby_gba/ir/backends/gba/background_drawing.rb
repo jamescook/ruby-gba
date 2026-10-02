@@ -46,7 +46,7 @@ module RubyGBA
           def emit_boot_backgrounds
             @uploads.emit_dma_blob(BG_SHARED_PAL, BG_PALETTE, @layout.bg_shared.palette_units)  # colors -> palette memory
             @uploads.emit_dma_blob(BG_SHARED_CHAR, VRAM_START, @layout.bg_shared.tile_units)    # pictures -> video memory
-            @palette_tint.emit_tint_state_reset # the table now holds the originals again
+            @palette_tint.emit_tint_reset_if_tinting # the table now holds the originals again
             # No scene's scenery is up yet. Written rather than assumed: the console makes
             # no promise about its memory at power-on, and a stale value would leave the
             # first scene's layers pointing at nothing. Written again on each entry into a

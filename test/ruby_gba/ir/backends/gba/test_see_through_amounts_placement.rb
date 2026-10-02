@@ -101,7 +101,7 @@ class TestSeeThroughAmountsPlacement < Minitest::Test
   def test_the_game_loop_is_charged_for_its_call_to_the_amounts
     backend = GBA.new
     backend.lower(title_and_play(INVOLVED))
-    short = backend.charged_against_emitted.select { |_name, (charged, emitted)| charged < emitted }
+    short = backend.charged_and_emitted_sizes.select { |_name, (charged, emitted)| charged < emitted }
 
     assert_empty short, "came out bigger than charged: #{short}"
   end
@@ -148,7 +148,7 @@ class TestSeeThroughAmountsPlacement < Minitest::Test
     work = { FRAME => 400, _scene_title: 900, RAYS => 0, _scene_intro: 0 }
     backend = GBA.new(routine_profile: RubyGBA::Diagnostics::RoutineProfile.new(work: work))
     backend.lower(bitmap_intro_then_title)
-    short = backend.charged_against_emitted.select { |_name, (charged, emitted)| charged < emitted }
+    short = backend.charged_and_emitted_sizes.select { |_name, (charged, emitted)| charged < emitted }
 
     assert_includes backend.iwram_report.funcs, :_scene_title
     assert_empty short, "came out bigger than charged: #{short}"

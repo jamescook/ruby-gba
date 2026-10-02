@@ -105,7 +105,7 @@ module RubyGBA
           # the whole frame ran from the cartridge at about a third of the speed.
           #
           # If the bound is ever wrong again the build stops with the message in
-          # #guard_fast_code_fits, which names the overrun and what to do about it. A loud
+          # #check_fast_code_fits!, which names the overrun and what to do about it. A loud
           # failure that points at the real fault beats a silent margin that pays for it
           # for ever.
 
@@ -120,7 +120,7 @@ module RubyGBA
           # through it — sixteen plus four plus four. So it grows by twenty.
           #
           # Being short here does not fail loudly at the call. It fails at the very end,
-          # in #guard_fast_code_fits, on a game that fits: the chooser adds up sizes that
+          # in #check_fast_code_fits!, on a game that fits: the chooser adds up sizes that
           # are each a little under, takes one routine more than there is room for, and
           # the build stops with advice about a routine the author would have to guess at.
           # Twelve was under by eight a call, which was worth 224 bytes on one routine of
@@ -187,7 +187,7 @@ module RubyGBA
             # layer's amounts) are nowhere in the program, so the probe is the one that knows
             # them.
             @scene_routines = probe.routines_for_scenes
-            sizes = moved_sizes(program, probe.func_sizes, made_calls: probe.made_calls_by_routine)
+            sizes = moved_sizes(program, probe.func_sizes, made_calls: probe.generated_calls_by_routine)
             # Every allocation is rounded up to a whole word, so the gap the probe leaves is
             # the gap there really is — there is no alignment slop to keep back for.
             room = probe.iwram_free
@@ -224,18 +224,18 @@ module RubyGBA
 
           # How many calls to a routine the build made for itself each routine holds, read off
           # the throwaway pass by where each call was written (see #moved_sizes).
-          def made_calls_by_routine
-            @functions.func_ranges.transform_values { |range| made_call_sites.count { |pos| range.cover?(pos) } }
+          def generated_calls_by_routine
+            @functions.func_ranges.transform_values { |range| generated_call_sites.count { |pos| range.cover?(pos) } }
                       .select { |_, count| count.positive? }
           end
 
-          def made_call_sites = (@made_call_sites ||= [])
+          def generated_call_sites = (@generated_call_sites ||= [])
 
           # Once the game loop's body is going to the quick memory it needs a name and a
           # place in the routine table, so that everything downstream — emitting it,
           # calling it, reporting it — treats it as the routine it has become. Its "body"
           # is the loop node's own statements.
-          def adopt_frame_body(program)
+          def register_frame_routine(program)
             return unless @fast_funcs.include?(FRAME_ROUTINE)
 
             loop_node = program.walk.find { |node| node.kind == :loop }
@@ -273,14 +273,14 @@ module RubyGBA
             # what comes back is already on a word.
             @hot_bytes = @emit.labels.fetch(HOT_END) - @emit.labels.fetch(HOT_START)
             @hot_base = @memory.alloc(@hot_bytes)
-            guard_fast_code_fits
+            check_fast_code_fits!
           end
 
           # What each moved routine was CHARGED against what it came out at, for the one
           # test that can tell whether #moved_sizes is still the upper bound it claims to
           # be (a charge that is short does not fail here — it fails much later, in
-          # #guard_fast_code_fits, on a game that fits). Valid after #lower.
-          def charged_against_emitted
+          # #check_fast_code_fits!, on a game that fits). Valid after #lower.
+          def charged_and_emitted_sizes
             @fast_funcs.to_h do |name|
               [name, [(@routine_sizes || {})[name].to_i, @functions.func_ranges[name]&.size.to_i]]
             end
@@ -322,7 +322,7 @@ module RubyGBA
           # address and jump through it, because the two are far too far apart for a jump
           # to reach.
           def emit_call_func(name)
-            made_call_sites << @emit.pos if @functions.generated_func?(name)
+            generated_call_sites << @emit.pos if @functions.generated_func?(name)
             target_is_fast = @fast_funcs.include?(name)
             return emit_branch(:bl, @functions.func_label(name)) if target_is_fast == @emitting_hot
 
@@ -411,7 +411,7 @@ module RubyGBA
           # The quick memory is 32KB and everything shares it. Growing past what is left
           # would quietly overwrite the console's own startup stack, so say so instead,
           # and say what to do about it.
-          def guard_fast_code_fits
+          def check_fast_code_fits!
             over = @memory.overrun
             return if over.zero?
 
@@ -550,7 +550,7 @@ module RubyGBA
           # game loop's body, or every announcement body for the routine those run in.
           def placeable_nodes(program, name)
             case name
-            # The first loop only, matching the one #adopt_frame_body actually emits.
+            # The first loop only, matching the one #register_frame_routine actually emits.
             when FRAME_ROUTINE then [program.walk.find { |node| node.kind == :loop }].compact
             when IRQ_ROUTINE   then irq_bodies(program)
             else program.walk.select { |node| node.kind == :func && node.name == name }
@@ -699,7 +699,7 @@ module RubyGBA
             bodies = program.walk.select { |node| node.kind == :func }.to_h { |node| [node.name, node] }
             found = []
             visit = lambda do |node|
-              called_by(node).each do |name|
+              callees_of(node).each do |name|
                 next if found.include?(name) || !candidates.include?(name)
 
                 found << name
@@ -714,7 +714,7 @@ module RubyGBA
           # can land on, and every routine a call picked by number can. A scene IS a routine
           # and a `case_var` IS how a game reaches the one it is playing, so leaving those out
           # would miss the most important routine in most games — the playing scene.
-          def called_by(node)
+          def callees_of(node)
             node.walk.flat_map(&:callees)
           end
 
@@ -725,21 +725,21 @@ module RubyGBA
           def guard_insisted_fits!(name, size, room)
             if size.nil?
               raise LoweringError,
-                    "#{insisted_words(name)} asks to keep that routine in the console's quick " \
+                    "#{fast_true_snippet(name)} asks to keep that routine in the console's quick " \
                     "memory, but nothing calls it, so it is never built. To fix this, call it or " \
                     "remove the routine."
             end
             return if size <= room
 
             raise LoweringError,
-                  "#{insisted_words(name)} asks to keep that routine in the console's quick " \
+                  "#{fast_true_snippet(name)} asks to keep that routine in the console's quick " \
                   "memory, but it needs #{size} bytes and only #{[room, 0].max} are free. To fix " \
                   "this, make the routine smaller, or use fewer variables and lists."
           end
 
           # What the author wrote to insist on +name+: a scene's own word for the scene and for
           # the routines the build made for it, a func's for anything else.
-          def insisted_words(name)
+          def fast_true_snippet(name)
             scene = scene_routines.fetch(name, name).to_s
             return "`func :#{name}, fast: true`" unless scene.start_with?("_scene_")
 
