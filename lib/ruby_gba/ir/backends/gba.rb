@@ -256,13 +256,13 @@ module RubyGBA
         # on whatever the receiver happens to evaluate to.
         def emit_flip_if_buffered = @drawing.emit_flip_if_buffered
         def emit_end_forced_blank = @drawing.emit_end_forced_blank
-        # Where the game loop starts (see Frames#emit_start_counting), and only where the
+        # Where the game loop starts (see Frames#emit_reset_frame_mark), and only where the
         # screen's interrupt counts frames at all. The buttons start here too: a tap made while
         # the game was setting up, with the screen still off, is not one the game should act on.
         def emit_start_counting_frames
           return unless @uses_vblank
 
-          @frames.emit_start_counting
+          @frames.emit_reset_frame_mark
           @expressions.emit_forget_presses if @uses_pressed
         end
         def fade_steps(percent) = @effects.fade_steps(percent)
@@ -637,7 +637,7 @@ module RubyGBA
           @audio.prepare_music(program) # number its tunes, and keep the mixer voices they play on
           @uses_vblank = program.walk.any? { |node| node.kind == :wait_vblank }
           @mixer.prepare_mixer(program) # the software mixer's rate, buffers, voice slots, timer
-          @audio.build_score # every tune as one score — after the mixer's rate, which sets each note's step
+          @audio.register_audio_blobs # every tune as one score — after the mixer's rate, which sets each note's step
           refuse_samples_without_vblank!
           register_timers(program) # assign each named timer its hardware timer index(es)
           prepare_pixel_masks(program) # solid-pixel tables for any per-pixel collision test
@@ -657,7 +657,7 @@ module RubyGBA
           @has_objects = program.walk.any? { |node| node.kind == :object }
           @layer_blend.prepare_layer_blend(program) # ...and which layer, if any, you can see through
           @layer_blend.amount_routines.each_key do |name|
-            @functions.mint(name) { @layer_blend.emit_amounts_routine(name) }
+            @functions.define_generated_func(name) { @layer_blend.emit_amounts_routine(name) }
           end
           @scene_blend = @tiled ? @layer_blend.scene_blend(@modes) : {}
           # ...which is what decides whether a fade may use the display's blend at all, or
@@ -1015,7 +1015,7 @@ module RubyGBA
             # The pad, for the same reason: a press is the player's, made in real time, and a
             # game that takes two frames a pass must not miss one made between them.
             @expressions.emit_collect_presses if @uses_pressed
-            emit_music_tick if @audio.plays_music?
+            emit_music_tick if @audio.needs_sound_player?
             # ...and between the two, a frame of every sounding note's shape, so a note that has
             # just started has climbed and one that has just ended is on its way down before the
             # slice they are both in is built (see Mixer#emit_envelope_step).
@@ -1351,7 +1351,7 @@ module RubyGBA
         def prepare_still_objects(program)
           @movement = IR::Movement.of(program).except(@screen.written_every_frame)
           still = @movement.still
-          @functions.mint(SpriteDrawing::STILL_ROUTINE) { @sprite_drawing.write_object_table(still) } if still.any?
+          @functions.define_generated_func(SpriteDrawing::STILL_ROUTINE) { @sprite_drawing.write_object_table(still) } if still.any?
           prepare_scene_sprites(program, still)
         end
 
@@ -1373,7 +1373,7 @@ module RubyGBA
             things.with(names: moving) if moving.any?
           end
           @scene_sprites.each do |group|
-            @functions.mint(SpriteDrawing.sprites_routine(group.scene)) { @sprite_drawing.write_object_table(group.names) }
+            @functions.define_generated_func(SpriteDrawing.sprites_routine(group.scene)) { @sprite_drawing.write_object_table(group.names) }
           end
         end
 

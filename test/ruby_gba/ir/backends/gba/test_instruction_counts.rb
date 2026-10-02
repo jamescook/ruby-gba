@@ -70,7 +70,7 @@ class TestInstructionCounts < Minitest::Test
 
     assert_operator shared, :>, 1, "the tree really does share the read"
     assert_equal shared, emitted[read].times
-    assert_in_delta 1.0, emitted[read].each_use, 1e-9, "one use of it is one load"
+    assert_in_delta 1.0, emitted[read].instructions_per_use, 1e-9, "one use of it is one load"
   end
 
   # A count is only a price where the code runs the way it is written. A divide by
@@ -84,7 +84,7 @@ class TestInstructionCounts < Minitest::Test
       game_loop { y.set!(x / d) }
     end
 
-    refute_predicate emitted[find(program, :binop)], :straight?
+    refute_predicate emitted[find(program, :binop)], :branch_free?
   end
 
   # ...and neither is a comparison, which turns the console's flags into a 1 or a 0 by
@@ -96,7 +96,7 @@ class TestInstructionCounts < Minitest::Test
       game_loop { (x > 3).then { y.set! 1 } }
     end
 
-    refute_predicate emitted[find(program, :binop)], :straight?
+    refute_predicate emitted[find(program, :binop)], :branch_free?
   end
 
   # A divide by a number written in the program folds into instructions at build time, so
@@ -108,7 +108,7 @@ class TestInstructionCounts < Minitest::Test
       game_loop { y.set!(x / 100) }
     end
 
-    assert_predicate emitted[find(program, :binop)], :straight?
+    assert_predicate emitted[find(program, :binop)], :branch_free?
   end
 
   # The cartridge carries it, like every other answer the build worked out — that is what

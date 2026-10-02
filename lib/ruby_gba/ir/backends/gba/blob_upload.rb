@@ -73,7 +73,7 @@ module RubyGBA
             return @codecs[blob_name] if @codecs.key?(blob_name)
 
             raw = @emitter.data_blobs[blob_name]
-            codec, blob = BiosCompress.best(raw)
+            codec, blob = BiosCompress.pack_smallest(raw)
             unless codec == :none
               @raw_bytes[blob_name] = raw.bytesize # remember the before size for the savings line
               @emitter.data_blobs[blob_name] = blob

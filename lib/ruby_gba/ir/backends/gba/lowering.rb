@@ -49,7 +49,7 @@ module RubyGBA
           NOTHING = Ractor.make_shareable(->(_node) {})
 
           def value(node)
-            @attribution.around(node) { @values.fetch(node.kind) { unknown_value(node) }.call(node) }
+            @attribution.measure_node(node) { @values.fetch(node.kind) { unknown_value(node) }.call(node) }
           end
 
           # Every statement in the program is lowered through here, nested ones included, so
@@ -58,7 +58,7 @@ module RubyGBA
           # reported on each would spend more time saying so than emitting.
           def statement(node)
             @progress.tick { "#{@emitted.call} bytes" }
-            @attribution.around(node) { @statements.fetch(node.kind) { unknown_statement(node) }.call(node) }
+            @attribution.measure_node(node) { @statements.fetch(node.kind) { unknown_statement(node) }.call(node) }
           end
 
           # Every kind with a value/statement handler — read by the coverage test that

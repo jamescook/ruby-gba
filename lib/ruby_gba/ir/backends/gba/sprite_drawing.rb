@@ -172,7 +172,7 @@ module RubyGBA
 
           # Write these sprites' rows of the console's table. Called twice over: by the frame,
           # for the sprites it moves, and by a routine of its own for the sprites nothing
-          # moves (see GBA#prepare_still_objects, and Functions#mint, which is what makes that
+          # moves (see GBA#prepare_still_objects, and Functions#define_generated_func, which is what makes that
           # routine).
           #
           # THE SPLIT IS THERE TO KEEP THE FRAME'S OWN CODE SMALL. The console re-reads this

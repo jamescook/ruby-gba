@@ -152,14 +152,14 @@ module RubyGBA
           def prepare_row_bends(program, layers:)
             @layers = layers
             @row_bends.each_key { |name| @row_bend_base[name] = row_bend_base(program, name) }
-            @copies_row_bends = BendForm.copier?(program)
-            return unless BendForm.latched?(program)
+            @copies_row_bends = BendForm.fed_by_dma?(program)
+            return unless BendForm.rows_precomputed?(program)
 
             # A table per bending layer, and an engine each for as many as there are engines
             # to give. The table lives in the same quick memory the variables do, and holds a
             # row's offset per entry with one to spare: the engine's last move of a frame
             # reads one past the bottom of the picture, on a line nothing is drawn on.
-            engines = @copies_row_bends ? BendForm.engines(program) : []
+            engines = @copies_row_bends ? BendForm.free_engines(program) : []
             @row_bends.each_key.with_index do |name, i|
               @row_bend_table[name] = @memory.alloc(TABLE_BYTES)
               @row_bend_engine[name] = engines[i] if @copies_row_bends

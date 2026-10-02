@@ -261,7 +261,7 @@ module RubyGBA
           # A program that waits for frames shows nothing until the first one has been set up:
           # everything said before the game loop reaches the screen by work done between
           # frames, so the picture is held off until then — the console does the same (see
-          # Backends::GBA::Drawing#held_until_the_first_frame). A program that never waits has
+          # Backends::GBA::Drawing#initial_forced_blank_bit). A program that never waits has
           # no first frame to wait for, and shows what it draws as it draws it.
           @screen.held = node.walk.any? { |child| child.kind == :wait_vblank }
           catch(:halt) { exec(node) }

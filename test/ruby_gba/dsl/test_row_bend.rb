@@ -212,7 +212,7 @@ class TestRowBend < Minitest::Test
   # clear and an interrupt to arm is more than a program gets through before its first pass.
   def test_a_bend_the_interrupt_feeds_agrees_with_a_moving_sprite_too
     program = ripple_and_sprite_program(layers: 4)
-    refute BendForm.copier?(program), "four bending layers is one more than there are engines"
+    refute BendForm.fed_by_dma?(program), "four bending layers is one more than there are engines"
     (2..5).each do |f|
       assert_backends_agree(program, frames: f, console_frames: f + 2, name: "ISP#{f}")
     end
@@ -296,7 +296,7 @@ class TestRowBend < Minitest::Test
   end
 
   def test_three_bending_layers_are_each_fed_by_an_engine
-    assert BendForm.copier?(three_bends_program)
+    assert BendForm.fed_by_dma?(three_bends_program)
     assert_backends_agree(three_bends_program, frames: 4, name: "TRIB")
   end
 
@@ -306,7 +306,7 @@ class TestRowBend < Minitest::Test
   # and the failure would be a silent game or a scrambled picture. Both are checked.
   def test_a_bend_and_sampled_sound_keep_out_of_each_others_way
     program = sounding_program(bends: 1)
-    assert BendForm.copier?(program), "one engine is left for the bend"
+    assert BendForm.fed_by_dma?(program), "one engine is left for the bend"
 
     rom = assemble_rom(program, name: "SNDB")
     v = assert_emulator_loads_rom(rom, frames: 6)
@@ -358,7 +358,7 @@ class TestRowBend < Minitest::Test
 
   def test_a_bend_is_fed_by_the_copier
     program = bars_program { |water| water.scroll_each_row { |row| row % 8 } }
-    assert BendForm.copier?(program)
+    assert BendForm.fed_by_dma?(program)
     assert_nil BendForm.kept_interrupt_reason(program)
   end
 
@@ -373,7 +373,7 @@ class TestRowBend < Minitest::Test
         shift
       end
     end
-    assert BendForm.copier?(program)
+    assert BendForm.fed_by_dma?(program)
     assert_nil BendForm.kept_interrupt_reason(program)
   end
 
@@ -397,7 +397,7 @@ class TestRowBend < Minitest::Test
   # interrupt costs the whole 228 lines the moment one bend needs it, so feeding the others
   # from tables as well would add work for no saving.
   def test_a_fourth_bending_layer_puts_them_all_back_on_the_interrupt
-    refute BendForm.copier?(four_bends_program)
+    refute BendForm.fed_by_dma?(four_bends_program)
     assert_match(/4 bending layers and 3 copying engines free/,
                  BendForm.kept_interrupt_reason(four_bends_program))
   end
@@ -406,8 +406,8 @@ class TestRowBend < Minitest::Test
   # engine too and cannot share. That is worth naming in the reason: nothing about a second
   # bending layer suggests the sound took its engine.
   def test_sampled_sound_leaves_room_for_one_bending_layer
-    assert BendForm.copier?(sounding_program(bends: 1))
-    refute BendForm.copier?(sounding_program(bends: 2))
+    assert BendForm.fed_by_dma?(sounding_program(bends: 1))
+    refute BendForm.fed_by_dma?(sounding_program(bends: 2))
     assert_match(/2 bending layers and 1 copying engine free, and this game's sampled sound holds the rest/,
                  BendForm.kept_interrupt_reason(sounding_program(bends: 2)))
   end
@@ -490,8 +490,8 @@ class TestRowBend < Minitest::Test
       halt
     end
     b.finalize_program
-    refute BendForm.copier?(b.program)
-    refute BendForm.latched?(b.program)
+    refute BendForm.fed_by_dma?(b.program)
+    refute BendForm.rows_precomputed?(b.program)
     assert_match(/never waits for a frame/, BendForm.kept_interrupt_reason(b.program))
   end
 
@@ -503,13 +503,13 @@ class TestRowBend < Minitest::Test
   def test_one_bend_rides_a_copying_engine
     program = bars_program { |water| water.scroll_each_row { |row| row % 8 } }
 
-    assert BendForm.copier?(program), "one bend has an engine to spare"
+    assert BendForm.fed_by_dma?(program), "one bend has an engine to spare"
   end
 
   # ...and a fourth is one more than there are engines, so the game is interrupted on every
   # line of the display instead. The build says why, in words.
   def test_a_fourth_bend_keeps_the_interrupt_and_says_why
-    refute BendForm.copier?(four_bends_program)
+    refute BendForm.fed_by_dma?(four_bends_program)
     assert_match(/4 bending layers/, BendForm.kept_interrupt_reason(four_bends_program).to_s)
   end
 

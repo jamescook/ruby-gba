@@ -17,7 +17,7 @@ class TestBiosCompress < Minitest::Test
   # --- The packer: pack then expand gives back the original bytes ---
 
   def assert_round_trips(bytes)
-    codec, blob = Pack.best(bytes)
+    codec, blob = Pack.pack_smallest(bytes)
     skip "nothing to expand — best kept it raw" if codec == :none
     assert_equal bytes, Pack.decode(blob), "packed #{codec} blob did not expand to the original"
   end
@@ -40,18 +40,18 @@ class TestBiosCompress < Minitest::Test
 
   def test_lz77_round_trips_directly
     bytes = (("hello world " * 20)).b
-    assert_equal bytes, Pack.decode(Pack.framed(Pack.lz77(bytes), Pack::TYPE_LZ77, bytes.bytesize))
+    assert_equal bytes, Pack.decode(Pack.with_bios_header(Pack.lz77(bytes), Pack::TYPE_LZ77, bytes.bytesize))
   end
 
   def test_rle_round_trips_directly
     bytes = ("\x00".b * 300) + ("\xAB".b * 5)
-    assert_equal bytes, Pack.decode(Pack.framed(Pack.rle(bytes), Pack::TYPE_RLE, bytes.bytesize))
+    assert_equal bytes, Pack.decode(Pack.with_bios_header(Pack.rle(bytes), Pack::TYPE_RLE, bytes.bytesize))
   end
 
   # --- It only ever shrinks: incompressible or tiny data stays raw ---
 
   def test_repetitive_data_shrinks
-    codec, blob = Pack.best("\x00".b * 500)
+    codec, blob = Pack.pack_smallest("\x00".b * 500)
     refute_equal :none, codec, "a long run should pack"
     assert blob.bytesize < 500, "the packed blob (#{blob.bytesize} bytes) should be smaller than 500"
   end
@@ -60,24 +60,24 @@ class TestBiosCompress < Minitest::Test
     # A short, varied blob has no runs to fold, so the 4-byte header alone would make
     # it bigger. best must decline and hand back the original for a plain copy.
     bytes = (0...24).map { |i| (i * 37) & 0xFF }.pack("C*")
-    codec, blob = Pack.best(bytes)
+    codec, blob = Pack.pack_smallest(bytes)
     assert_equal :none, codec
     assert_equal bytes, blob
   end
 
   def test_empty_input_stays_raw
-    assert_equal [:none, ""], Pack.best("")
+    assert_equal [:none, ""], Pack.pack_smallest("")
   end
 
   # The 4-byte header plus 4-byte padding is an 8-byte floor, so nothing 8 bytes or
   # smaller can pack smaller — even an 8-byte run of one value.
   def test_eight_bytes_or_fewer_stay_raw
-    codec, = Pack.best("\x00".b * 8)
+    codec, = Pack.pack_smallest("\x00".b * 8)
     assert_equal :none, codec
   end
 
   def test_nine_identical_bytes_pack
-    codec, blob = Pack.best("\x00".b * 9)
+    codec, blob = Pack.pack_smallest("\x00".b * 9)
     refute_equal :none, codec, "9 identical bytes should pack below 9"
     assert_operator blob.bytesize, :<, 9
   end
@@ -359,7 +359,7 @@ class TestBiosCompress < Minitest::Test
   def test_packing_a_large_asset_does_not_scan_the_whole_window_per_byte
     blob = seeded(16_000, 99) { |r| r.rand(256) }
     started = Process.clock_gettime(Process::CLOCK_MONOTONIC)
-    Pack.best(blob)
+    Pack.pack_smallest(blob)
     elapsed = Process.clock_gettime(Process::CLOCK_MONOTONIC) - started
 
     assert_operator elapsed, :<, 1.0,

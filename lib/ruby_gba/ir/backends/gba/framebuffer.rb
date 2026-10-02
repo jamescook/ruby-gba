@@ -74,7 +74,7 @@ module RubyGBA
 
           # Stash a solid fill color as a packed two-pixel word in IWRAM and return its
           # address — the fixed source a DMA fill re-reads for every pixel.
-          def hold_fill_word(color)
+          def emit_color_fill_word(color)
             value = Graphics::Color.resolve(color)
             word = (value << 16) | value
             scratch = @primitives.var_addr(:_dma_scratch)
@@ -117,7 +117,7 @@ module RubyGBA
           end
 
           # Point DMA3 at (source, destination), then kick it off — one filled row.
-          def fire_dma_fill(source_addr, dest_addr, control)
+          def emit_dma_fill_row(source_addr, dest_addr, control)
             @primitives.store_word_immediate(source_addr, REG_DMA3SAD)
             @primitives.store_word_immediate(dest_addr, REG_DMA3DAD)
             @primitives.store_word_immediate(control, REG_DMA3CNT)
@@ -126,7 +126,7 @@ module RubyGBA
           # Guard the fast block-fill's even-width assumption: it moves two pixels at
           # a time, so an odd width would drop the last column (and a width of 0 or 1
           # would ask DMA for a runaway transfer).
-          def even_width!(w, kind)
+          def refuse_odd_width!(w, kind)
             return if w.positive? && w.even?
 
             raise LoweringError,

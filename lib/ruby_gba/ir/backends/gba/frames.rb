@@ -56,7 +56,7 @@ module RubyGBA
           # so a game that opens on a flash lost the flash's brightest frame to the setting up.
           # Marked here, the first wait wakes at the next frame and the first pass is one frame,
           # the same as on every backend that has no setting up to count.
-          def emit_start_counting
+          def emit_reset_frame_mark
             @primitives.load_var(ACC, COUNT)
             @primitives.store_var(ACC, SEEN)
           end

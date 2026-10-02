@@ -30,7 +30,7 @@ module RubyGBA
         #
         # The rule has three parts:
         #
-        #   * Any instruction that could write the register (ASM.disturbs?, which answers
+        #   * Any instruction that could write the register (ASM.may_write_register?, which answers
         #     yes whenever it cannot tell).
         #   * A LABEL, because a label is somewhere other code jumps to, and what a
         #     register held on the way here says nothing about what it holds on the way in.
@@ -74,11 +74,11 @@ module RubyGBA
 
           # These instructions were just emitted. Anything that could change the register
           # ends what we knew about it.
-          def saw(bytes)
+          def forget_if_overwritten(bytes)
             return if @value.nil?
 
             bytes.unpack("V*").each do |word|
-              return forget if ASM.disturbs?(word, @reg)
+              return forget if ASM.may_write_register?(word, @reg)
             end
           end
         end

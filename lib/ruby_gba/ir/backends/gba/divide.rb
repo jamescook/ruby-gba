@@ -272,13 +272,13 @@ module RubyGBA
             @emitter.emit(ASM.cmp_imm(DIV_DEN, 0))
             @emitter.emit_branch(:bcond, by_zero, cond: :eq)
 
-            emit_divide_signs_aside
+            emit_divide_strip_signs
             emit_divide_ladder
-            emit_divide_signs_back
+            emit_divide_restore_signs
             @emitter.place_label(by_zero)
             emit_divide_by_zero
             @emitter.place_label(:__divide_routine_end)
-            guard_routine_size("divide", @emitter.pos - start, DIVIDE_ROUTINE_IWRAM_MAX)
+            refuse_oversized_routine!("divide", @emitter.pos - start, DIVIDE_ROUTINE_IWRAM_MAX)
           end
 
           # The other routine: dividing one number that holds a fraction by another.
@@ -353,7 +353,7 @@ module RubyGBA
             @emitter.place_label(by_zero)
             emit_divide_by_zero
             @emitter.place_label(:__divide_fix_routine_end)
-            guard_routine_size("fraction divide", @emitter.pos - start, DIVIDE_FIX_ROUTINE_IWRAM_MAX)
+            refuse_oversized_routine!("fraction divide", @emitter.pos - start, DIVIDE_FIX_ROUTINE_IWRAM_MAX)
           end
 
           private
@@ -373,7 +373,7 @@ module RubyGBA
           # the leftover follows the numerator. Both are packed into one register — the
           # numerator's sign where it already sits, the quotient's in the bottom bit —
           # rather than stacked, so nothing touches memory.
-          def emit_divide_signs_aside
+          def emit_divide_strip_signs
             @emitter.emit(ASM.and_imm(DIV_SIGNS, DIV_NUM, SIGN_BIT))
             @emitter.emit(ASM.eor_reg(DIV_COUNT, DIV_NUM, DIV_DEN))
             @emitter.emit(ASM.orr_reg_lsr(DIV_SIGNS, DIV_SIGNS, DIV_COUNT, 31))
@@ -413,7 +413,7 @@ module RubyGBA
 
           # Put the signs back and leave the answers where a caller expects them: the
           # quotient in r0, the leftover in r1 (where it already is).
-          def emit_divide_signs_back
+          def emit_divide_restore_signs
             @emitter.emit(ASM.mov_reg(DIV_DEN, DIV_ANS))
             @emitter.emit(ASM.tst_imm(DIV_SIGNS, 1))
             @emitter.emit(ASM.rsb_imm_cond(:ne, DIV_DEN, DIV_DEN, 0)) # the two signs differed
@@ -433,7 +433,7 @@ module RubyGBA
             @emitter.emit(ASM.return)
           end
 
-          def guard_routine_size(what, size, room)
+          def refuse_oversized_routine!(what, size, room)
             return unless size > room
 
             raise LoweringError,

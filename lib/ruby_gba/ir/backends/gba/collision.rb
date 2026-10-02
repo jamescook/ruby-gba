@@ -112,7 +112,7 @@ module RubyGBA
             done = @emitter.gensym
             branch_if_ge(PO_X0, PO_X1, done) # an empty rectangle can't overlap
             branch_if_ge(PO_Y0, PO_Y1, done)
-            walk_overlap(a[:w], b[:w], done)
+            emit_overlap_pixel_scan(a[:w], b[:w], done)
 
             @emitter.place_label(done)
             @primitives.load_var(ACC, PO_RES)
@@ -141,8 +141,8 @@ module RubyGBA
 
           # dest = max(varA + addA, varB + addB).
           def store_max(dest, var_a, add_a, var_b, add_b)
-            edge(var_a, add_a)          # ACC = A edge
-            edge_into(var_b, add_b, TMP) # TMP = B edge
+            emit_load_edge(var_a, add_a)          # ACC = A edge
+            emit_load_edge_into(var_b, add_b, TMP) # TMP = B edge
             @emitter.emit(ASM.cmp_reg(ACC, TMP))
             keep = @emitter.gensym
             @emitter.emit_branch(:bcond, keep, cond: :ge) # A >= B: keep A
@@ -153,8 +153,8 @@ module RubyGBA
 
           # dest = min(varA + addA, varB + addB).
           def store_min(dest, var_a, add_a, var_b, add_b)
-            edge(var_a, add_a)
-            edge_into(var_b, add_b, TMP)
+            emit_load_edge(var_a, add_a)
+            emit_load_edge_into(var_b, add_b, TMP)
             @emitter.emit(ASM.cmp_reg(ACC, TMP))
             keep = @emitter.gensym
             @emitter.emit_branch(:bcond, keep, cond: :le) # A <= B: keep A
@@ -164,12 +164,12 @@ module RubyGBA
           end
 
           # ACC = the value in +var+ plus a constant (an edge = a corner plus a size).
-          def edge(var, add)
+          def emit_load_edge(var, add)
             @primitives.load_var(ACC, var)
             @emitter.emit(ASM.add_imm(ACC, ACC, add)) if add.positive?
           end
 
-          def edge_into(var, add, reg)
+          def emit_load_edge_into(var, add, reg)
             @primitives.load_var(reg, var)
             @emitter.emit(ASM.add_imm(reg, reg, add)) if add.positive?
           end
@@ -186,7 +186,7 @@ module RubyGBA
           # Walk the overlapping rectangle, row by row and column by column; the moment a
           # pixel is drawn in both sprites, record a hit and jump to +done+. +aw+/+bw+ are
           # the mask row strides (each sprite's width).
-          def walk_overlap(aw, bw, done)
+          def emit_overlap_pixel_scan(aw, bw, done)
             y_loop = @emitter.gensym
             y_end = @emitter.gensym
             x_loop = @emitter.gensym
@@ -216,11 +216,11 @@ module RubyGBA
             @emitter.emit_branch(:b, done)
 
             @emitter.place_label(next_x)
-            increment(PO_X)
+            emit_increment_var(PO_X)
             @emitter.emit_branch(:b, x_loop)
 
             @emitter.place_label(x_end)
-            increment(PO_Y)
+            emit_increment_var(PO_Y)
             @emitter.emit_branch(:b, y_loop)
 
             @emitter.place_label(y_end)
@@ -245,7 +245,7 @@ module RubyGBA
             @emitter.emit(ASM.ldrb_offset(ACC, ADDR, 0))  # the solid/transparent byte
           end
 
-          def increment(var)
+          def emit_increment_var(var)
             @primitives.load_var(ACC, var)
             @emitter.emit(ASM.add_imm(ACC, ACC, 1))
             @primitives.store_var(ACC, var)

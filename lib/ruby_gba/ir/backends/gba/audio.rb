@@ -42,7 +42,7 @@ module RubyGBA
             @effects = []      # every sound effect, highest rank first (see #prepare_sound_effects)
           end
 
-          def emit_writes(writes)
+          def emit_register_writes(writes)
             writes.each { |address, value| @emitter.write_reg16(address, value) }
           end
 
@@ -50,7 +50,7 @@ module RubyGBA
           # speakers, since switching sound ON must never switch part of it off. The mixer says
           # what that is, and says nothing for a program with no recording in it.
           def emit_enable_sound(_node = nil)
-            emit_writes(RubyGBA::Audio::Sound::Registers.enable(direct_sound: @mixer.direct_sound_routing))
+            emit_register_writes(RubyGBA::Audio::Sound::Registers.enable(direct_sound: @mixer.direct_sound_routing))
           end
 
           # A one-off sound effect on channel 2. Resolve the beep to concrete musical
@@ -59,7 +59,7 @@ module RubyGBA
           def emit_beep(node)
             effect = RubyGBA::Audio::Sound.resolve_effect(node.tone, duty: node.duty, decay: node.decay,
                                                        volume: node.volume, defined: @defined_sounds)
-            emit_writes(RubyGBA::Audio::Sound::Registers.channel2(**effect.to_h))
+            emit_register_writes(RubyGBA::Audio::Sound::Registers.channel2(**effect.to_h))
           end
 
           # A one-off percussion / explosion hit on channel 4 (the noise voice).
@@ -68,20 +68,20 @@ module RubyGBA
           def emit_noise(node)
             hit = RubyGBA::Audio::Sound.resolve_noise(node.preset, pitch: node.pitch, decay: node.decay,
                                                      volume: node.volume, metallic: node.metallic)
-            emit_writes(RubyGBA::Audio::Sound::Registers.channel4(**hit))
+            emit_register_writes(RubyGBA::Audio::Sound::Registers.channel4(**hit))
           end
 
           # Play a sustained wavetable tone on channel 3. Resolve the shape to its
           # sample table, then write the wave-RAM upload and channel-3 control.
           def emit_wave(node)
             samples = RubyGBA::Audio::Sound.wavetable(node.shape)
-            emit_writes(RubyGBA::Audio::Sound::Registers.wave_play(samples, frequency: node.frequency, volume: node.volume))
+            emit_register_writes(RubyGBA::Audio::Sound::Registers.wave_play(samples, frequency: node.frequency, volume: node.volume))
             emit_forget_waveform
           end
 
           # Silence the wave voice.
           def emit_stop_wave(_node = nil)
-            emit_writes(RubyGBA::Audio::Sound::Registers.wave_stop)
+            emit_register_writes(RubyGBA::Audio::Sound::Registers.wave_stop)
             emit_forget_waveform
           end
 
@@ -311,7 +311,7 @@ module RubyGBA
 
           # Number the tunes the program plays, pick the lanes they need, and keep the mixer
           # voices their recorded parts will use. A tune that is written but never played costs
-          # nothing. The score itself waits for #build_score, because a recorded note's step
+          # nothing. The score itself waits for #register_audio_blobs, because a recorded note's step
           # depends on the rate the mixer settles on.
           def prepare_music(program)
             program.walk.each do |node|
@@ -319,7 +319,7 @@ module RubyGBA
 
               @songs.key?(node.name) || raise(LoweringError, "play_song for undefined song #{node.name.inspect}")
             end
-            number_the_songs(program)
+            assign_song_numbers!(program)
             @counts_stops = program.walk.any? { |node| node.kind == :stop_music }
             # A game that never moves the music volume plays every note exactly as it was written,
             # and none of the working-out for one is emitted.
@@ -349,9 +349,9 @@ module RubyGBA
           end
 
           # Put every tune the program plays in the cartridge, as one score.
-          def build_score
-            @emitter.data_blobs[MUSIC_SCORE] = score_blob if plays_music?
-            @emitter.data_blobs[MUSIC_WAVE_LEVELS] = wave_levels_blob if plays_music? && @scales && @waves
+          def register_audio_blobs
+            @emitter.data_blobs[MUSIC_SCORE] = score_blob if needs_sound_player?
+            @emitter.data_blobs[MUSIC_WAVE_LEVELS] = wave_levels_blob if needs_sound_player? && @scales && @waves
             @effect_lists.each { |name, slots| @emitter.data_blobs[effect_slots_blob(name)] = slots.pack("v*") }
             @emitter.data_blobs[SOUND_EFFECT_GROUPS] = groups_blob if grouped?
           end
@@ -383,7 +383,7 @@ module RubyGBA
 
           # Does the program play any tune or sound effect (so the player goes in the screen's
           # interrupt)?
-          def plays_music? = !@song_numbers.empty? || plays_sound_effects?
+          def needs_sound_player? = !@song_numbers.empty? || plays_sound_effects?
 
           def plays_sound_effects? = !@effects.empty?
 
@@ -397,7 +397,7 @@ module RubyGBA
           # and one naming no effect in the list plays nothing.
           #
           # A list with an effect in a group asks through the group instead, for every effect in it
-          # (#emit_ask_in_group): the effect a number the game works out names is not known until
+          # (#emit_request_grouped_effect): the effect a number the game works out names is not known until
           # the game runs.
           def emit_play_sound_effect(node)
             slots = @effect_lists.fetch(node.name)
@@ -405,10 +405,10 @@ module RubyGBA
             grouped = slots.any? { |slot| group_of(@effects[slot]) }
             if fixed
               return unless fixed.between?(0, slots.size - 1)
-              return emit_ask_in_group(place: slots[fixed]) if grouped
+              return emit_request_grouped_effect(place: slots[fixed]) if grouped
 
               @emitter.emit(ASM.load_immediate(TMP, @effect_table + (slots[fixed] * @effect_slot_bytes)))
-              return emit_ask
+              return emit_request_effect
             end
 
             none = @emitter.gensym
@@ -423,18 +423,18 @@ module RubyGBA
             @emitter.emit(ASM.add_reg(TMP, TMP, ACC))
             @emitter.emit(ASM.load_halfword(ACC, TMP))        # its place in the table
             if grouped
-              emit_ask_in_group
+              emit_request_grouped_effect
             else
               @emitter.emit(ASM.lsl_imm(ACC, ACC, @effect_slot_bytes.bit_length - 1))
               @emitter.emit(ASM.load_immediate(TMP, @effect_table))
               @emitter.emit(ASM.add_reg(TMP, TMP, ACC))
-              emit_ask
+              emit_request_effect
             end
             @emitter.place_label(none)
           end
 
           # Ask for the effect whose place in the table is at the address in TMP: one store.
-          def emit_ask
+          def emit_request_effect
             @emitter.emit(ASM.load_immediate(ACC, EFFECT_ASKED))
             @emitter.emit(ASM.str_offset(ACC, TMP, EFFECT_STATE))
           end
@@ -468,7 +468,7 @@ module RubyGBA
           #
           # A group has one sounding or asked for at most, which is what lets the walk stop at the
           # first it finds. An effect in no group has an empty list, and is simply asked for.
-          def emit_ask_in_group(place: nil)
+          def emit_request_grouped_effect(place: nil)
             e = @emitter
             place ? e.emit(ASM.load_immediate(ASK_PLACE, place)) : e.emit(ASM.mov_reg(ASK_PLACE, ACC))
             found = e.gensym
@@ -476,13 +476,13 @@ module RubyGBA
             done = e.gensym
             @mixer.holding_off_interrupts do
               e.emit(ASM.push(*ASK_KEEPS))
-              emit_open_group(ask)
+              emit_load_group_entry(ask)
               emit_find_in_group(found)
               e.emit_branch(:b, ask)                                    # none of them: ask
               e.place_label(found)
-              emit_decide_in_group(done)
+              emit_resolve_group_conflict(done)
               e.place_label(ask)
-              emit_table_place(ADDR, ASK_PLACE)
+              emit_effect_slot_address(ADDR, ASK_PLACE)
               e.emit(ASM.ldr_offset(ASK_STATE, ADDR, EFFECT_STATE))
               e.emit(ASM.cmp_imm(ASK_STATE, EFFECT_STOPPING))
               e.emit(ASM.mov_imm_cond(:eq, ASK_STATE, EFFECT_RESTARTING))
@@ -495,7 +495,7 @@ module RubyGBA
 
           # The asked-for effect's entry: its group's list and how many are in it, and its priority —
           # and on to +ask+ when it has no group.
-          def emit_open_group(ask)
+          def emit_load_group_entry(ask)
             e = @emitter
             e.emit_load_data_address(ASK_BLOB, SOUND_EFFECT_GROUPS)
             e.emit(ASM.lsl_imm(ADDR, ASK_PLACE, GROUP_ENTRY_SHIFT))
@@ -517,7 +517,7 @@ module RubyGBA
             e.place_label(scan)
             e.emit(ASM.load_halfword(ASK_MEMBER, ASK_LIST))
             e.emit(ASM.add_imm(ASK_LIST, ASK_LIST, GROUP_MEMBER_BYTES))
-            emit_table_place(ADDR, ASK_MEMBER)
+            emit_effect_slot_address(ADDR, ASK_MEMBER)
             e.emit(ASM.ldr_offset(ASK_STATE, ADDR, EFFECT_STATE))
             [EFFECT_ASKED, EFFECT_SOUNDING, EFFECT_RESTARTING].each do |current|
               e.emit(ASM.cmp_imm(ASK_STATE, current))
@@ -531,7 +531,7 @@ module RubyGBA
           # otherwise; another, it is STOPPING unless it outranks the one asked for, and then this
           # one is not played. Both of those go on to +done+; stopping the other falls through, to
           # ask for this one.
-          def emit_decide_in_group(done)
+          def emit_resolve_group_conflict(done)
             e = @emitter
             other = e.gensym
             e.emit(ASM.cmp_reg(ASK_MEMBER, ASK_PLACE))
@@ -554,7 +554,7 @@ module RubyGBA
 
           # +reg+ = the address of the table place whose number is in +number+ (the table's start
           # in ASK_TABLE).
-          def emit_table_place(reg, number)
+          def emit_effect_slot_address(reg, number)
             @emitter.emit(ASM.lsl_imm(reg, number, @effect_slot_bytes.bit_length - 1))
             @emitter.emit(ASM.add_reg(reg, ASK_TABLE, reg))
           end
@@ -600,7 +600,7 @@ module RubyGBA
           # No tune — the player silences whatever it was playing. With no tune anywhere in the
           # program there is nothing to silence, and nothing to write.
           def emit_stop_music(_node = nil)
-            return unless plays_music?
+            return unless needs_sound_player?
 
             @emitter.emit(ASM.load_immediate(ACC, 0))
             @primitives.store_var(ACC, MUSIC_WANTED) # first, so the player never sees a count
@@ -696,13 +696,13 @@ module RubyGBA
             @emitter.place_label(play)
             if plays_sound_effects? # ...the effects that outrank the tune
               @primitives.load_var(EFFECT_OUTRANKS, MUSIC_RANK)
-              emit_first_effect
+              emit_point_at_first_effect
               @emitter.emit(ASM.push(frame))
               @emitter.emit_branch(:bl, SOUND_EFFECTS)
               @emitter.emit(ASM.pop(frame))
               @emitter.emit(ASM.push(EFFECT_SLOT, EFFECT_ENTRY)) # where they stopped
             end
-            emit_follow_the_level if @scales
+            emit_apply_music_volume_change if @scales
             @lanes.each_with_index { |lane, number| emit_play_lane(lane, number, base, at, value, frame) }
 
             onward = @emitter.gensym
@@ -727,7 +727,7 @@ module RubyGBA
             if plays_sound_effects? # no tune: every effect
               @emitter.emit_load_data_address(base, MUSIC_SCORE)
               @emitter.emit(ASM.load_immediate(EFFECT_OUTRANKS, 0))
-              emit_first_effect
+              emit_point_at_first_effect
               @emitter.emit_branch(:bl, SOUND_EFFECTS)
             end
             @emitter.place_label(finished)
@@ -740,7 +740,7 @@ module RubyGBA
           EFFECT_ENTRY = 8
           EFFECT_OUTRANKS = 11
 
-          def emit_first_effect
+          def emit_point_at_first_effect
             @emitter.emit(ASM.load_immediate(EFFECT_SLOT, @effect_table))
             @primitives.emit_add_const(EFFECT_ENTRY, 2, @effects_at, ACC)
           end
@@ -791,7 +791,7 @@ module RubyGBA
               e.emit_branch(:bcond, stop, cond: :eq)           # cut off by another of its group
               e.emit(ASM.cmp_imm(ACC, EFFECT_RESTARTING))
               e.emit_branch(:bcond, onward, cond: :ne)         # none of those: nothing to do
-              emit_let_go_of_voices(rank)                      # asked for again: it stops first
+              emit_release_effect_voices(rank)                      # asked for again: it stops first
               e.place_label(start)
             else
               e.emit(ASM.cmp_imm(ACC, EFFECT_ASKED))
@@ -815,7 +815,7 @@ module RubyGBA
             e.place_label(stop)
             e.emit(ASM.load_immediate(ACC, 0))                # at its end
             e.emit(ASM.str_offset(ACC, slot, EFFECT_STATE))
-            emit_let_go_of_voices(rank)
+            emit_release_effect_voices(rank)
             e.emit_branch(:b, onward)
 
             e.place_label(play)
@@ -838,7 +838,7 @@ module RubyGBA
                 end
                 emit_console_note(lane, row)
                 song_lane = @lanes.index(lane)
-                forget_held_note(song_lane) if song_lane && holds_notes?(lane)
+                emit_clear_held_note(song_lane) if song_lane && holds_notes?(lane)
               end
               e.place_label(skip)
             end
@@ -891,7 +891,7 @@ module RubyGBA
 
           # EVERY VOICE THE EFFECT OF RANK +rank+ STILL HOLDS goes quiet and is free: a console voice
           # whose holder is still that rank, and its recorded lanes' mixer voices.
-          def emit_let_go_of_voices(rank)
+          def emit_release_effect_voices(rank)
             @effect_lanes.each do |lane|
               next emit_effect_voice_off(lane, rank) if lane.kind == :recorded
 
@@ -962,7 +962,7 @@ module RubyGBA
 
           # Silence +lane+'s voice, and nobody holds it.
           def emit_free_voice(lane)
-            emit_writes(console_note(lane, SILENCE, 0, 0))
+            emit_register_writes(console_note(lane, SILENCE, 0, 0))
             @emitter.emit(ASM.load_immediate(ACC, 0))
             @primitives.store_var(ACC, self.class.voice_rank(lane.index))
           end
@@ -986,11 +986,11 @@ module RubyGBA
             # it cannot be moved on once per PASS of a loop whose length the game decides.
 
             # A new pass begins now, so it takes the button presses the screen's interrupt
-            # collected since the last one (see Expressions#emit_take_presses).
-            @expressions.emit_take_presses if @uses_pressed.call
+            # collected since the last one (see Expressions#emit_latch_presses).
+            @expressions.emit_latch_presses if @uses_pressed.call
 
             # The picture was held off while the game set up, and nothing is being drawn now, so
-            # it goes on here — see Drawing#held_until_the_first_frame.
+            # it goes on here — see Drawing#initial_forced_blank_bit.
             @drawing.emit_end_forced_blank
 
             # This is the safe moment to swap pages when a buffered scene is live:
@@ -1018,7 +1018,7 @@ module RubyGBA
           # THE NUMBER EACH TUNE IS KNOWN BY — the songs named on their own first, then each list's
           # songs together and in the list's order. Together is what makes picking from a list
           # one addition: song +which+ of a list is the list's first number plus +which+.
-          def number_the_songs(program)
+          def assign_song_numbers!(program)
             lists = IR::Tunes.lists_played(program).reject { |_, songs| songs.empty? }
             listed = lists.values.flatten
             if listed.uniq.size < listed.size
@@ -1146,16 +1146,16 @@ module RubyGBA
           # one.
           def emit_silence_lane(lane, number)
             if lane.kind == :recorded
-              forget_held_note(number) if holds_notes?(lane)
+              emit_clear_held_note(number) if holds_notes?(lane)
               emit_song_mark(8, lane.index)
               @mixer.emit_music_voice_off
             elsif !shared_lane?(lane)
-              emit_writes(console_note(lane, SILENCE, 0, 0))
-              forget_held_note(number) if holds_notes?(lane)
+              emit_register_writes(console_note(lane, SILENCE, 0, 0))
+              emit_clear_held_note(number) if holds_notes?(lane)
             else
               # A voice a sound effect holds is the effect's, and is left alone: its rank's bottom
               # half is not 0 (IR::Tunes.song_rank).
-              forget_held_note(number) if holds_notes?(lane)
+              emit_clear_held_note(number) if holds_notes?(lane)
               kept = @emitter.gensym
               @primitives.load_var(ACC, self.class.voice_rank(lane.index))
               @emitter.emit(ASM.lsl_imm(ACC, ACC, IR::Tunes::RANK_SHIFT))
@@ -1200,7 +1200,7 @@ module RubyGBA
           # bits sit is the one thing that differs between the two voices.
           def sounding_mask(lane) = lane.kind == :wave ? 0xF << WAVE_VOLUME_SHIFT : 0xF000
 
-          def forget_held_note(number)
+          def emit_clear_held_note(number)
             @emitter.emit(ASM.load_immediate(ACC, 0))
             @primitives.store_var(ACC, self.class.music_note(number))
           end
@@ -1210,7 +1210,7 @@ module RubyGBA
           # and a recorded part's mixer voice while they play — before any lane plays this
           # frame's notes, which is the order the interpreter does it in. A drum hit is left to
           # ring (see #holds_notes?).
-          def emit_follow_the_level
+          def emit_apply_music_volume_change
             same = @emitter.gensym
             @primitives.load_var(LEVEL_REG, IR::Tunes::LEVEL)
             @primitives.load_var(ACC, MUSIC_LEVEL_APPLIED)
@@ -1219,7 +1219,7 @@ module RubyGBA
             @primitives.store_var(LEVEL_REG, MUSIC_LEVEL_APPLIED)
             @lanes.each_with_index do |lane, number|
               next unless holds_notes?(lane)
-              next emit_follow_recorded(lane, number) if lane.kind == :recorded
+              next emit_rescale_recorded_note(lane, number) if lane.kind == :recorded
 
               resting = @emitter.gensym
               @primitives.load_var(NOTE_REG, self.class.music_note(number))
@@ -1252,7 +1252,7 @@ module RubyGBA
           # note is, the same as always.
           def emit_scaled_note(lane, starts: true)
             regs = music_voice_regs(lane)
-            emit_sweep(regs)
+            emit_clear_sweep(regs)
             wave = lane.kind == :wave
             @emitter.emit(ASM.lsr_imm(WORK_REG, NOTE_REG, wave ? WAVE_VOLUME_SHIFT : 12))
             @emitter.emit(ASM.and_imm(WORK_REG, WORK_REG, 0xF))      # the written volume
@@ -1270,7 +1270,7 @@ module RubyGBA
           # A RECORDED PART'S NOTE AT THE NEW LEVEL: the mixer voice sounding it, if it still has
           # one, gets the note's loudness times the level. The mixer reads a voice's loudness as
           # it mixes, so nothing is started again.
-          def emit_follow_recorded(lane, number)
+          def emit_rescale_recorded_note(lane, number)
             resting = @emitter.gensym
             @primitives.load_var(WRITE_REG, self.class.music_note(number))
             @emitter.emit(ASM.cmp_imm(WRITE_REG, 0))
@@ -1362,7 +1362,7 @@ module RubyGBA
           # for a square note, a wave note and a drum hit alike.
           def emit_console_note(lane, at)
             regs = music_voice_regs(lane)
-            emit_sweep(regs)
+            emit_clear_sweep(regs)
             [[4, regs[:reg_a]], [6, regs[:reg_b]]].each do |offset, addr|
               @emitter.emit(ASM.load_halfword_offset(ACC, at, offset))
               @emitter.emit(ASM.load_immediate(TMP, addr))
@@ -1371,7 +1371,7 @@ module RubyGBA
           end
 
           # Channel 1's sweep, cleared before each note it plays so the trigger lands last.
-          def emit_sweep(regs)
+          def emit_clear_sweep(regs)
             regs[:const].each do |addr, value|
               @emitter.emit(ASM.load_immediate(ACC, value))
               @emitter.emit(ASM.load_immediate(TMP, addr))
@@ -1434,7 +1434,7 @@ module RubyGBA
             @emitter.emit(ASM.str_offset(mark, voice, Mixer::SLOT_ACTIVE))      # the part's now
             @emitter.emit_branch(:b, sounded)
             @emitter.place_label(rest)
-            forget_held_note(number) if follows_level
+            emit_clear_held_note(number) if follows_level
             @mixer.emit_music_voice_off
             @emitter.place_label(sounded)
           end

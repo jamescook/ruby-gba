@@ -99,7 +99,7 @@ module RubyGBA
           # is the header + packed payload (padded to a whole number of 4-byte words,
           # which the BIOS wants). For :none nothing shrank it, so the blob is the
           # original bytes unchanged and the caller keeps its plain copy.
-          def best(bytes)
+          def pack_smallest(bytes)
             # The packed form is a 4-byte BIOS header plus the payload, padded to a
             # 4-byte multiple — an 8-byte floor. So a blob of 8 bytes or fewer can never
             # come out smaller; skip the work and keep it raw. (Bigger blobs still fall
@@ -107,8 +107,8 @@ module RubyGBA
             return [:none, bytes] if bytes.nil? || bytes.bytesize <= 8
 
             candidates = [
-              [:lz77, framed(lz77(bytes), TYPE_LZ77, bytes.bytesize)],
-              [:rle,  framed(rle(bytes),  TYPE_RLE,  bytes.bytesize)],
+              [:lz77, with_bios_header(lz77(bytes), TYPE_LZ77, bytes.bytesize)],
+              [:rle,  with_bios_header(rle(bytes),  TYPE_RLE,  bytes.bytesize)],
             ]
             codec, blob = candidates.min_by { |_c, b| b.bytesize }
             blob.bytesize < bytes.bytesize ? [codec, blob] : [:none, bytes]
@@ -275,7 +275,7 @@ module RubyGBA
           end
 
           # Prepend the 4-byte BIOS header and pad to a whole number of 4-byte words.
-          def framed(payload, type, size)
+          def with_bios_header(payload, type, size)
             blob = [(type << 4), size & 0xFF, (size >> 8) & 0xFF, (size >> 16) & 0xFF]
             blob.concat(payload)
             blob << 0 while (blob.length % 4) != 0

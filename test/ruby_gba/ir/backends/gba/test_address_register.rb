@@ -5,7 +5,7 @@ require "test_helper"
 # THE BASE OF THE VARIABLE MEMORY, LEFT IN A REGISTER instead of made again before every
 # access. Two things have to hold for that to be safe, and they are tested apart:
 #
-#   * ASM.disturbs? has to say YES about every instruction that could write the register,
+#   * ASM.may_write_register? has to say YES about every instruction that could write the register,
 #     and it is allowed to say yes about ones that could not. Getting that backwards does
 #     not fail — it sends a load or a store to whatever address happens to be there — so
 #     the encodings are checked one at a time, built by the same ASM methods the backend
@@ -21,77 +21,77 @@ class TestAddressRegister < Minitest::Test
   # The one instruction this whole change is about: the base put in the address register.
   BASE_LOAD = A.load_immediate(ADDR, BASE)
 
-  def disturbs?(bytes, reg = ADDR) = A.disturbs?(bytes.unpack1("V"), reg)
+  def may_write_register?(bytes, reg = ADDR) = A.may_write_register?(bytes.unpack1("V"), reg)
 
   # ---- which instructions could change a register ----
 
   def test_an_instruction_writing_the_register_disturbs_it
-    assert disturbs?(A.mov_reg(ADDR, 0)), "a move into it"
-    assert disturbs?(A.add_reg(ADDR, 1, 0)), "an add landing in it"
-    assert disturbs?(A.ldr(ADDR, 1)), "a load into it"
-    assert disturbs?(A.load_immediate(ADDR, BASE)), "the base load itself"
-    assert disturbs?(A.mul(ADDR, 0, 1)), "a multiply, which keeps its answer elsewhere"
-    assert disturbs?(A.pop(ADDR)), "a pop naming it"
-    assert disturbs?(A.load_halfword(ADDR, 1)), "a halfword load into it"
-    assert disturbs?(A.mov_reg_lsl_reg(ADDR, 0, 1)), "a shift by a register, landing in it"
+    assert may_write_register?(A.mov_reg(ADDR, 0)), "a move into it"
+    assert may_write_register?(A.add_reg(ADDR, 1, 0)), "an add landing in it"
+    assert may_write_register?(A.ldr(ADDR, 1)), "a load into it"
+    assert may_write_register?(A.load_immediate(ADDR, BASE)), "the base load itself"
+    assert may_write_register?(A.mul(ADDR, 0, 1)), "a multiply, which keeps its answer elsewhere"
+    assert may_write_register?(A.pop(ADDR)), "a pop naming it"
+    assert may_write_register?(A.load_halfword(ADDR, 1)), "a halfword load into it"
+    assert may_write_register?(A.mov_reg_lsl_reg(ADDR, 0, 1)), "a shift by a register, landing in it"
   end
 
   def test_the_ordinary_work_between_two_accesses_leaves_it_alone
-    refute disturbs?(A.mov_reg(0, 1)), "a move between other registers"
-    refute disturbs?(A.add_reg(0, 1, 0)), "an add"
-    refute disturbs?(A.sub_imm(0, 0, 1)), "a subtract"
-    refute disturbs?(A.lsl_imm(0, 0, 6)), "a shift"
-    refute disturbs?(A.orr_imm(1, 1, 0xF00)), "an or"
-    refute disturbs?(A.and_reg(0, 0, 1)), "an and"
-    refute disturbs?(A.mvn_reg(0, 1)), "a complement"
-    refute disturbs?(A.ldr_offset(0, ADDR, 8)), "a load THROUGH it into another register"
-    refute disturbs?(A.str_offset(0, ADDR, 8)), "a store through it"
-    refute disturbs?(A.store_halfword(0, 1)), "a halfword store, which keeps nothing"
-    refute disturbs?(A.push(0)), "a push"
-    refute disturbs?(A.pop(1)), "a pop naming other registers"
-    refute disturbs?(A.mul(0, 1, 2)), "a multiply landing elsewhere"
-    refute disturbs?(A.smull(0, 1, 2, 3)), "a long multiply landing elsewhere"
-    refute disturbs?(A.load_immediate(0, 0x06000000)), "a whole address built in another register"
+    refute may_write_register?(A.mov_reg(0, 1)), "a move between other registers"
+    refute may_write_register?(A.add_reg(0, 1, 0)), "an add"
+    refute may_write_register?(A.sub_imm(0, 0, 1)), "a subtract"
+    refute may_write_register?(A.lsl_imm(0, 0, 6)), "a shift"
+    refute may_write_register?(A.orr_imm(1, 1, 0xF00)), "an or"
+    refute may_write_register?(A.and_reg(0, 0, 1)), "an and"
+    refute may_write_register?(A.mvn_reg(0, 1)), "a complement"
+    refute may_write_register?(A.ldr_offset(0, ADDR, 8)), "a load THROUGH it into another register"
+    refute may_write_register?(A.str_offset(0, ADDR, 8)), "a store through it"
+    refute may_write_register?(A.store_halfword(0, 1)), "a halfword store, which keeps nothing"
+    refute may_write_register?(A.push(0)), "a push"
+    refute may_write_register?(A.pop(1)), "a pop naming other registers"
+    refute may_write_register?(A.mul(0, 1, 2)), "a multiply landing elsewhere"
+    refute may_write_register?(A.smull(0, 1, 2, 3)), "a long multiply landing elsewhere"
+    refute may_write_register?(A.load_immediate(0, 0x06000000)), "a whole address built in another register"
   end
 
   def test_a_comparison_keeps_no_answer_so_it_disturbs_nothing
-    refute disturbs?(A.cmp_reg(0, 1)), "comparing two registers"
-    refute disturbs?(A.cmp_imm(0, 0)), "comparing against a number"
-    refute disturbs?(A.tst_imm(0, 1)), "testing bits"
-    refute disturbs?(A.cmp_reg_lsr(0, 1, 2)), "comparing against a shifted register"
+    refute may_write_register?(A.cmp_reg(0, 1)), "comparing two registers"
+    refute may_write_register?(A.cmp_imm(0, 0)), "comparing against a number"
+    refute may_write_register?(A.tst_imm(0, 1)), "testing bits"
+    refute may_write_register?(A.cmp_reg_lsr(0, 1, 2)), "comparing against a shifted register"
   end
 
   # A predicated instruction may or may not run, which is not a distinction worth making:
   # what matters is that it COULD write the register.
   def test_an_instruction_that_might_not_run_still_disturbs_what_it_would_write
-    assert disturbs?(A.mov_reg_cond(:gt, ADDR, 0))
-    assert disturbs?(A.add_imm_cond(:ls, ADDR, ADDR, 4))
-    refute disturbs?(A.rsb_imm_cond(:lt, 0, 0, 0))
+    assert may_write_register?(A.mov_reg_cond(:gt, ADDR, 0))
+    assert may_write_register?(A.add_imm_cond(:ls, ADDR, ADDR, 4))
+    refute may_write_register?(A.rsb_imm_cond(:lt, 0, 0, 0))
   end
 
   # Control leaving counts, because what it reaches is free to use the register.
   def test_leaving_disturbs_everything
-    assert disturbs?(A.bx(1)), "jumping through a register"
-    assert disturbs?(A.branch_link(4)), "a call"
-    assert disturbs?(A.pop(15)), "a return, which pops into the program counter"
-    assert disturbs?(A.add_pc_reg_lsl(0, 4)), "a jump worked out as it runs"
-    assert disturbs?(A.swi(0x05 << 16)), "handing over to the console's own routines"
-    assert disturbs?(A.ldr(15, 1)), "a load into the program counter"
+    assert may_write_register?(A.bx(1)), "jumping through a register"
+    assert may_write_register?(A.branch_link(4)), "a call"
+    assert may_write_register?(A.pop(15)), "a return, which pops into the program counter"
+    assert may_write_register?(A.add_pc_reg_lsl(0, 4)), "a jump worked out as it runs"
+    assert may_write_register?(A.swi(0x05 << 16)), "handing over to the console's own routines"
+    assert may_write_register?(A.ldr(15, 1)), "a load into the program counter"
   end
 
   # A plain branch is the one control instruction that does not: it writes nothing, and
   # wherever it lands is a label, which is where the backend forgets anyway.
   def test_a_plain_branch_writes_nothing
-    refute disturbs?(A.branch(4))
-    refute disturbs?(A.branch_cond(:eq, 4))
-    refute disturbs?(A.loop_forever)
+    refute may_write_register?(A.branch(4))
+    refute may_write_register?(A.branch_cond(:eq, 4))
+    refute may_write_register?(A.loop_forever)
   end
 
   def test_it_answers_about_whichever_register_is_asked
     move = A.mov_reg(3, 0)
-    assert disturbs?(move, 3)
-    refute disturbs?(move, 0)
-    refute disturbs?(move, ADDR)
+    assert may_write_register?(move, 3)
+    refute may_write_register?(move, 0)
+    refute may_write_register?(move, ADDR)
   end
 
   # ---- what the tracker does with those answers ----
@@ -101,17 +101,17 @@ class TestAddressRegister < Minitest::Test
     refute held.holds?(BASE), "it starts out knowing nothing"
 
     held.now_holds(BASE)
-    held.saw(A.add_reg(0, 1, 0))
+    held.forget_if_overwritten(A.add_reg(0, 1, 0))
     assert held.holds?(BASE), "arithmetic elsewhere leaves it be"
 
-    held.saw(A.mov_reg(ADDR, 0))
+    held.forget_if_overwritten(A.mov_reg(ADDR, 0))
     refute held.holds?(BASE), "a write to the register itself ends it"
   end
 
   def test_one_disturbing_instruction_among_several_is_enough
     held = AddressRegister.new(reg: ADDR)
     held.now_holds(BASE)
-    held.saw(A.add_reg(0, 1, 0) + A.mov_reg(ADDR, 0) + A.add_reg(0, 1, 0))
+    held.forget_if_overwritten(A.add_reg(0, 1, 0) + A.mov_reg(ADDR, 0) + A.add_reg(0, 1, 0))
     refute held.holds?(BASE)
   end
 
@@ -229,7 +229,7 @@ class TestAddressRegister < Minitest::Test
   # lands in that register — the MOV and ORRs an address is built from, and the ADD or SUB
   # that steps from one address to the next, and nothing else the backend emits.
   #
-  # Deliberately narrower than ASM.disturbs?, which also says yes to every return and every
+  # Deliberately narrower than ASM.may_write_register?, which also says yes to every return and every
   # call. Those really do end what is known about the register, and counting them here
   # would drown the thing being counted.
   def writes_list_base?(word)

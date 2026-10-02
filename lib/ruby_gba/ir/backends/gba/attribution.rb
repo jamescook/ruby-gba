@@ -57,12 +57,12 @@ module RubyGBA
             # What ONE use of this node came to. The places a shared node is lowered from
             # emit the same code, so their mean is what each of them costs — and it is a
             # fraction rather than a whole number only where they genuinely differ.
-            def each_use = times.zero? ? 0 : instructions.to_f / times
+            def instructions_per_use = times.zero? ? 0 : instructions.to_f / times
 
             # Whether what was emitted is what a frame runs: no loop to go round, no call
             # into code that was counted somewhere else, no alternative to skip. Asked of
             # every place it was lowered from at once, so one awkward place speaks for all.
-            def straight? = jumps.zero?
+            def branch_free? = jumps.zero?
 
             # Spans added and taken apart — one stretch of the emitted code against another.
             # Both are still one place, so how many places is not part of this arithmetic.
@@ -70,8 +70,8 @@ module RubyGBA
             def -(other) = with(instructions: instructions - other.instructions, jumps: jumps - other.jumps)
 
             # The same node, found lowered somewhere else as well. This is the one that adds
-            # a place, and #each_use is what the pair is kept for.
-            def and_another(other)
+            # a place, and #instructions_per_use is what the pair is kept for.
+            def merge_site(other)
               with(instructions: instructions + other.instructions,
                    jumps: jumps + other.jumps, times: times + other.times)
             end
@@ -104,17 +104,17 @@ module RubyGBA
           end
 
           # Lower +node+ (whatever the block does) and remember what it alone emitted.
-          def around(node)
-            was = mark
+          def measure_node(node)
+            was = emitted_so_far
             @nested.push(ZERO)
             result = yield
             inner = @nested.pop
-            whole = mark - was
+            whole = emitted_so_far - was
             # Tell whoever contains me that all of this is spoken for.
             @nested[-1] += whole unless @nested.empty?
             mine = whole - inner
             had = @emitted[node]
-            @emitted[node] = had ? had.and_another(mine) : mine
+            @emitted[node] = had ? had.merge_site(mine) : mine
             result
           end
 
@@ -122,7 +122,7 @@ module RubyGBA
 
           # Where the emit pass has got to, in the two things being counted. Subtracting one
           # of these from a later one is what a node emitted between them.
-          def mark = Emitted.new(instructions: @emit.pos / INSTRUCTION_BYTES, jumps: @emit.branches)
+          def emitted_so_far = Emitted.new(instructions: @emit.pos / INSTRUCTION_BYTES, jumps: @emit.branches)
         end
       end
     end

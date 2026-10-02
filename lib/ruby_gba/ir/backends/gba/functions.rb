@@ -43,13 +43,13 @@ module RubyGBA
           # it stays in the cartridge unless the chooser is told about it by name, which it is
           # for each scene's moving sprites and each see-through layer's amounts (see
           # Placement#scene_routines).
-          def mint(name, &body)
+          def define_generated_func(name, &body)
             @funcs[name] = Build.func(name)
             @minted[name] = body
           end
 
           # Is +name+ one of those?
-          def minted?(name) = @minted.key?(name)
+          def generated_func?(name) = @minted.key?(name)
 
           def emit_functions
             cold = @funcs.reject { |name, _| @placement.fast_funcs.include?(name) }

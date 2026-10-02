@@ -78,8 +78,8 @@ module RubyGBA
           end
 
           def emit(bytes)
-            @address_register.saw(bytes)
-            @list_register.saw(bytes)
+            @address_register.forget_if_overwritten(bytes)
+            @list_register.forget_if_overwritten(bytes)
             @code << bytes
           end
 

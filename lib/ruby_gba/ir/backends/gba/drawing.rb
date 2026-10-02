@@ -95,11 +95,11 @@ module RubyGBA
           # through the rectangle verb because that one holds authors to an even width, and an
           # area's width is whatever the author said.
           def emit_fill_area(color)
-            scratch = @framebuffer.hold_fill_word(color)
+            scratch = @framebuffer.emit_color_fill_word(color)
             control = @framebuffer.fill_control_for_column(@framebuffer.clip_left,
                                                             @framebuffer.clip_right - @framebuffer.clip_left)
             (@framebuffer.clip_top...@framebuffer.clip_bottom).each do |row|
-              @framebuffer.fire_dma_fill(scratch, VRAM_START + ((row * SCREEN_WIDTH) + @framebuffer.clip_left) * 2,
+              @framebuffer.emit_dma_fill_row(scratch, VRAM_START + ((row * SCREEN_WIDTH) + @framebuffer.clip_left) * 2,
                                          control)
             end
           end
@@ -140,7 +140,7 @@ module RubyGBA
             # Turn the sprite layer on alongside the chosen mode when the program has
             # sprites, and pick the simple 1D tile arrangement they're packed for.
             value |= OBJ_ENABLE | OBJ_1D_MAP if @layout.has_objects
-            @emitter.write_reg16(REG_DISPCNT, value | held_until_the_first_frame)
+            @emitter.write_reg16(REG_DISPCNT, value | initial_forced_blank_bit)
           end
 
           # KEEP THE PICTURE SWITCHED OFF UNTIL THE FIRST FRAME HAS BEEN SET UP.
@@ -162,7 +162,7 @@ module RubyGBA
           # switch it on in, so it is shown as soon as it is declared, as before.
           #
           # What a console shows while its picture is held off is plain white.
-          def held_until_the_first_frame = @layout.waits_for_frames ? FORCED_BLANK : 0
+          def initial_forced_blank_bit = @layout.waits_for_frames ? FORCED_BLANK : 0
 
           # Switch the picture on, at the gap between frames. Every frame rather than the
           # first alone, because it is three instructions where remembering whether it was
@@ -189,10 +189,10 @@ module RubyGBA
           # :rotozoom`: two turning layers and nothing else, and it keeps its own path.)
           # +on+ names the layers to switch on and +turning+ which arrangement THIS screen
           # wants. Given neither, this is the value for the screen the console is set up for
-          # BEFORE any scene has run — see #boot_screen. The sprite layer is added by the
+          # BEFORE any scene has run — see #first_scene_layers. The sprite layer is added by the
           # callers, which all do it the same way for every screen.
           def tiled_dispcnt(on = nil, turning: nil)
-            boot = (on.nil? && turning.nil?) ? boot_screen : nil
+            boot = (on.nil? && turning.nil?) ? first_scene_layers : nil
             on = boot.on if boot
             turning = (boot ? boot.turning : turning_background?) if turning.nil?
             (turning ? MODE_1 : MODE_0) | tiled_bg_enable_bits(*[on].compact)
@@ -208,7 +208,7 @@ module RubyGBA
           # video memory, which is where the tile PICTURES are, so it draws the art as
           # though it were a grid, in front of everything. Naming too FEW layers instead is
           # a black frame, which is the safe way to be wrong for the one frame it lasts.
-          def boot_screen = @layout.scene_layers.values.first
+          def first_scene_layers = @layout.scene_layers.values.first
 
           def turning_background? = @layout.turning_layers.any?
 
@@ -218,7 +218,7 @@ module RubyGBA
           # a turning layer is always BG2 (that is where the console keeps the hardware)
           # however few plain layers sit beside it.
           BG_ENABLES = [BG0_ENABLE, BG1_ENABLE, BG2_ENABLE, BG3_ENABLE].freeze
-          def tiled_bg_enable_bits(used = whole_programs_layers)
+          def tiled_bg_enable_bits(used = program_bg_layers)
             bits = used.reduce(0) { |on, layer| on | BG_ENABLES[layer] }
             # ...and the object window, for a program that keeps sprites out of a fade.
             bits |= OBJ_WINDOW_ENABLE if @layout.placed_fade.any?
@@ -233,7 +233,7 @@ module RubyGBA
           # it draws no scenery, so it wants no layer, and handing it one anyway leaves that
           # layer on with nobody to point it anywhere. A title screen of sprites and words
           # showed the game's tile pictures as a grid behind them for exactly that reason.
-          def whole_programs_layers
+          def program_bg_layers
             used = @layout.backgrounds.each_value.map(&:bg).uniq
             used.empty? ? [0] : used
           end
@@ -246,9 +246,9 @@ module RubyGBA
           def emit_boot_screen
             upload_palette if @layout.modes.any_buffered? # the palette exists only for the buffered path
             # Held off until the first frame is set up, as a single-screen game's is (see
-            # #held_until_the_first_frame). Only here: a scene changing the screen later is
+            # #initial_forced_blank_bit). Only here: a scene changing the screen later is
             # changing a picture already showing, and must not switch it off.
-            held = held_until_the_first_frame
+            held = initial_forced_blank_bit
             case @layout.modes.default_mode
             when :tiled then enter_tiled_mode(held)
             when :affine then enter_affine_mode(held)
@@ -375,18 +375,18 @@ module RubyGBA
           # staying in a scene costs one compare a frame, changing scene costs the setup.
           # A game whose scenery belongs to no scene emits none of this.
           def emit_scene_scenery(name)
-            arriving = handover.arriving(name)
+            arriving = scene_handover.arriving(name)
             return if arriving.empty?
 
-            once_as_the_scene_takes_over(SCENE_SCENERY_STATE, scene_scenery_marker(name)) do
-              with_the_layers_off(name) do
+            emit_on_scene_entry(SCENE_SCENERY_STATE, scene_scenery_marker(name)) do
+              emit_with_bg_layers_disabled(name) do
                 tiles = @layout.scene_tiles[name]
                 @uploads.emit_dma_blob(tiles.blob, VRAM_START + tiles.offset, tiles.units) if tiles
                 arriving.each { |node| @background_drawing.emit_background_hardware(node) }
               end
               # The maps just sent are the first ones declared, so what says which map is
               # showing goes back to the first as well (see IR::SceneHandover).
-              handover.resets(name).each { |var| @primitives.store_word_immediate(0, @primitives.var_addr(var)) }
+              scene_handover.resets(name).each { |var| @primitives.store_word_immediate(0, @primitives.var_addr(var)) }
             end
           end
 
@@ -405,7 +405,7 @@ module RubyGBA
           # layers to switch, and is left alone.
           BG_ENABLE_MASK = BG0_ENABLE | BG1_ENABLE | BG2_ENABLE | BG3_ENABLE
 
-          def with_the_layers_off(name)
+          def emit_with_bg_layers_disabled(name)
             screen = @layout.scene_screens[name]
             return yield unless screen
 
@@ -424,7 +424,7 @@ module RubyGBA
           end
 
           # What a scene does to the screen as it takes over, said once for both backends.
-          def handover = IR::SceneHandover.of(@layout.picture)
+          def scene_handover = IR::SceneHandover.of(@layout.picture)
 
           # Which scene's scenery is up, counting from 1 so that 0 means "none yet" — which
           # is what boot writes, since the console makes no promise about its memory at
@@ -444,7 +444,7 @@ module RubyGBA
           # +state+ is a variable naming whose turn it currently is and +marker+ this
           # scene's number in it, counting from 1 so that the 0 boot writes means nobody's.
           # The cost while a scene runs is the compare and the branch.
-          def once_as_the_scene_takes_over(state, marker)
+          def emit_on_scene_entry(state, marker)
             @primitives.load_var(ACC, state)
             @emitter.emit(ASM.cmp_imm(ACC, marker))
             skip = @emitter.gensym
@@ -513,7 +513,7 @@ module RubyGBA
             colors = @layout.scene_obj_palettes[name]
             return if sending.empty? && rooms.empty? && colors.nil?
 
-            once_as_the_scene_takes_over(SCENE_ART_STATE, @layout.scene_art.keys.index(name) + 1) do
+            emit_on_scene_entry(SCENE_ART_STATE, @layout.scene_art.keys.index(name) + 1) do
               # Its colours first: the groups its sprites name are this scene's now (see
               # ScreenLayout#build_shared_object_palette).
               @palette_tint.emit_obj_table_arrives(colors, @layout.obj_palette_units) if colors
@@ -668,14 +668,14 @@ module RubyGBA
             return @buffered.emit_fill_rect_buffered(node) if @lowering.mode == :buffered
 
             x, y, w, h = constant_ints!(node, x: node.x, y: node.y, w: node.w, h: node.h)
-            @framebuffer.even_width!(w, :dma_fill_rect)
+            @framebuffer.refuse_odd_width!(w, :dma_fill_rect)
             # Held to the area sideways before a single row is emitted: every row of a rectangle
             # spans the same columns, so where it starts and how far it reaches is one answer.
             left = [x, @framebuffer.clip_left].max
             right = [x + w, @framebuffer.clip_right].min
             return if right <= left
 
-            scratch = @framebuffer.hold_fill_word(node.color)
+            scratch = @framebuffer.emit_color_fill_word(node.color)
             control = @framebuffer.fill_control_for_column(left, right - left)
 
             h.times do |dy|
@@ -683,7 +683,7 @@ module RubyGBA
               next unless (@framebuffer.clip_top...@framebuffer.clip_bottom).cover?(row)
 
               row_addr = VRAM_START + ((row * SCREEN_WIDTH) + left) * 2
-              @framebuffer.fire_dma_fill(scratch, row_addr, control)
+              @framebuffer.emit_dma_fill_row(scratch, row_addr, control)
             end
           end
 
@@ -839,11 +839,11 @@ module RubyGBA
             bottom = [y + height, @framebuffer.clip_bottom].min
             return if bottom <= top
 
-            scratch = @framebuffer.hold_fill_word(color)
+            scratch = @framebuffer.emit_color_fill_word(color)
             control = @framebuffer.fill_control_for_column(nil, right - left)
             (top...bottom).each do |row|
               row_addr = VRAM_START + ((row * SCREEN_WIDTH) + left) * 2
-              @framebuffer.fire_dma_fill(scratch, row_addr, control)
+              @framebuffer.emit_dma_fill_row(scratch, row_addr, control)
             end
           end
 
@@ -856,7 +856,7 @@ module RubyGBA
           # y against the area, because a run-time y or height means a run-time set of
           # rows survives: an unclipped row is what wrapped a rect onto its neighbor.
           def emit_draw_rect_at_computed(node, width, height)
-            scratch = @framebuffer.hold_fill_word(node.color)
+            scratch = @framebuffer.emit_color_fill_word(node.color)
 
             x_reg = 2
             y_reg = 3
@@ -976,7 +976,7 @@ module RubyGBA
             return emit_background_blits(node) unless @layout.tiled
             # A background a scene owns goes up as that scene takes over (see
             # #emit_scene_scenery and IR::SceneHandover), not where it is written.
-            return if handover.on_arrival?(node)
+            return if scene_handover.on_arrival?(node)
 
             @background_drawing.emit_background_hardware(node)
           end

@@ -667,7 +667,7 @@ module RubyGBA
           # Two things count as changing the register even though no instruction here writes
           # it. Writing the program counter sends control somewhere this can't follow, and a
           # call reaches a routine that is free to use the register for its own purposes.
-          def disturbs?(word, reg)
+          def may_write_register?(word, reg)
             return true if (word >> 28) == 0xF # the "never" condition — nothing we emit
 
             case (word >> 25) & 0b111

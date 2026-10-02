@@ -100,7 +100,7 @@ module RubyGBA
           # combine. Using the stack for the intermediate keeps arbitrarily nested
           # expressions correct without a register allocator.
           def eval_binop(node)
-            node = number_on_the_right(node)
+            node = constant_on_right(node)
             return if emit_constant_binop(node)
 
             @lowering.value(node.lhs)
@@ -170,8 +170,8 @@ module RubyGBA
           # is above that — the order the `clamp` statement takes, which lowers through here.
           def eval_clamped(node)
             @lowering.value(node.operand)
-            clamp_acc_to(node.min, cond: :ge) # below the floor? take the floor
-            clamp_acc_to(node.max, cond: :le) # above the ceiling? take the ceiling
+            emit_clamp_acc_bound(node.min, cond: :ge) # below the floor? take the floor
+            emit_clamp_acc_bound(node.max, cond: :le) # above the ceiling? take the ceiling
           end
 
           # Replace r0 with +bound+ unless the comparison against it already holds.
@@ -180,7 +180,7 @@ module RubyGBA
           # waiting on the stack, the same way a binary operation holds one side while it
           # computes the other. A bound that is a plain number skips all that and loads
           # straight into a register.
-          def clamp_acc_to(bound, cond:)
+          def emit_clamp_acc_bound(bound, cond:)
             if (fixed = @primitives.const_int(bound))
               @emitter.emit(ASM.load_immediate(TMP, fixed))
             else
@@ -230,7 +230,7 @@ module RubyGBA
           # different things the other way about.
           COMMUTES = %i[& | ^].freeze
 
-          def number_on_the_right(node)
+          def constant_on_right(node)
             return node unless COMMUTES.include?(node.op)
             return node if @primitives.const_int(node.lhs).nil? || @primitives.const_int(node.rhs)
 
@@ -378,7 +378,7 @@ module RubyGBA
 
             bits = power_of_two_bits(size)
             bits ? emit_wrap_to_power_of_two(lhs, bits) : emit_reciprocal_modulo(lhs, size)
-            emit_flip_wrap_negative(size) if divisor.negative?
+            emit_wrap_to_negative_range(size) if divisor.negative?
             true
           end
 
@@ -412,7 +412,7 @@ module RubyGBA
           # Turn a wrap onto 0...size into a wrap onto -size...0, which is what Ruby's `%`
           # gives for a negative divisor. Every answer but zero moves down by one size;
           # zero stays zero, which is the only reason this needs a branch at all.
-          def emit_flip_wrap_negative(size)
+          def emit_wrap_to_negative_range(size)
             @emitter.emit(ASM.load_immediate(TMP, size))
             done = @emitter.gensym
             @emitter.emit(ASM.cmp_imm(ACC, 0))
@@ -644,7 +644,7 @@ module RubyGBA
           # collection (a timer's or a line's interrupt never touches it), so the read and the
           # clear cannot be split by a press arriving between them, and interrupts need not be
           # held off for it.
-          def emit_take_presses
+          def emit_latch_presses
             @primitives.load_var(ACC, KEYS_COLLECTED)
             @primitives.store_var(ACC, KEYS_PRESSED)
             @emitter.emit(ASM.load_immediate(ACC, 0))

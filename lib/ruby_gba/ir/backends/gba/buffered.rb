@@ -61,7 +61,7 @@ module RubyGBA
                                         @framebuffer.clip_bottom - @framebuffer.clip_top, node.color)
             end
 
-            scratch = hold_index_word(node.color)
+            scratch = emit_index_fill_word(node.color)
             store_word_immediate(scratch, REG_DMA3SAD)
             point_dma_dest_at_backbuf
             count = SCREEN_WIDTH * SCREEN_HEIGHT / 4 # 32-bit words, 4 indices each
@@ -80,7 +80,7 @@ module RubyGBA
           # building, so which of the two shapes a row takes is settled here.
           def emit_fill_rect_buffered(node)
             x, y, w, h = constant_ints!(node, x: node.x, y: node.y, w: node.w, h: node.h)
-            @framebuffer.even_width!(w, node.kind)
+            @framebuffer.refuse_odd_width!(w, node.kind)
             emit_buffered_rect(x, y, w, h, node.color)
           end
 
@@ -125,7 +125,7 @@ module RubyGBA
 
             x = left
             w = right - left
-            scratch = hold_index_word(color)
+            scratch = emit_index_fill_word(color)
             index = @layout.palette.index_of(color)
 
             # WHICH PIXELS CANNOT GO IN AS PAIRS. A fill moves whole 16-bit units, so a run that
@@ -342,7 +342,7 @@ module RubyGBA
           # (#emit_buffered_rect_at_computed's tail), because that shape cannot promise
           # the width stays a plain number once the console has trimmed it.
           def emit_draw_rect_at_buffered_fixed_width(node, w, h)
-            scratch = hold_index_word(node.color)
+            scratch = emit_index_fill_word(node.color)
             index = @layout.palette.index_of(node.color)
 
             @framebuffer.eval_rect_position(node, x_reg: RECT_X, y_reg: RECT_Y, rows_reg: RECT_ROWS_LEFT)
@@ -410,7 +410,7 @@ module RubyGBA
           # run-time set of rows survives: an unclipped row is what wrapped a rect onto
           # its neighbor.
           def emit_buffered_rect_at_computed(node, w)
-            scratch = hold_index_word(node.color)
+            scratch = emit_index_fill_word(node.color)
             index = @layout.palette.index_of(node.color)
 
             @framebuffer.eval_rect_position(node, x_reg: RECT_X, y_reg: RECT_Y,
@@ -526,7 +526,7 @@ module RubyGBA
               emit(ASM.lsl_imm(RECT_ADDR, RECT_ADDR, 1))
             end
             emit(ASM.load_halfword(ACC, RECT_ADDR))
-            splice_index_byte(ACC, index, high)
+            emit_splice_index_const(ACC, index, high)
             emit(ASM.store_halfword(ACC, RECT_ADDR))
           end
 
@@ -580,14 +580,14 @@ module RubyGBA
               emit(ASM.lsl_imm(RECT_ADDR, RECT_ADDR, 1)) # r5 = the containing unit's address
             end
             emit(ASM.load_halfword(ACC, RECT_ADDR))      # r0 = the current pixel pair
-            splice_index_byte(ACC, index, high)
+            emit_splice_index_const(ACC, index, high)
             emit(ASM.store_halfword(ACC, RECT_ADDR))
           end
 
           # Stash a solid fill color as a word of four packed indices in IWRAM and
           # return its address — the fixed source a Mode 4 DMA fill re-reads. A 16-bit
           # fill reads its low half (two indices); a 32-bit fill reads all four.
-          def hold_index_word(color)
+          def emit_index_fill_word(color)
             index = @layout.palette.index_of(color)
             word = index * 0x01010101 # the same index in all four bytes
             scratch = var_addr(:_dma_scratch)
@@ -723,18 +723,18 @@ module RubyGBA
             high = gensym
             done = gensym
             emit_branch(:bcond, high, cond: :ne)
-            splice_index_byte_reg(0, index_reg, false) # even column: the low byte
+            emit_splice_index_reg(0, index_reg, false) # even column: the low byte
             emit_branch(:b, done)
             place_label(high)
-            splice_index_byte_reg(0, index_reg, true)  # odd column: the high byte
+            emit_splice_index_reg(0, index_reg, true)  # odd column: the high byte
             place_label(done)
             emit(ASM.store_halfword(0, 1))          # write the spliced pair back
           end
 
-          # The same splice as #splice_index_byte, with the index arriving in a
+          # The same splice as #emit_splice_index_const, with the index arriving in a
           # register rather than a build-time constant — what the shared digit routine
           # needs, since one routine's index varies with which digit call reached it.
-          def splice_index_byte_reg(reg, index_reg, high)
+          def emit_splice_index_reg(reg, index_reg, high)
             if high
               emit(ASM.and_imm(reg, reg, 0x00FF))         # keep the left (low) pixel
               emit(ASM.orr_reg_lsl(reg, reg, index_reg, 8)) # set the right (high) pixel
@@ -771,7 +771,7 @@ module RubyGBA
             halfword_offset = ((py * SCREEN_WIDTH) + px) & ~1 # start of the pixel's 16-bit unit
             emit_add_const(1, base_reg, halfword_offset, ACC) # r1 = &unit (scratch r0)
             emit(ASM.load_halfword(ACC, 1))                   # r0 = the current pixel pair
-            held ? splice_index_byte_reg(ACC, index, px.odd?) : splice_index_byte(ACC, index, px.odd?)
+            held ? emit_splice_index_reg(ACC, index, px.odd?) : emit_splice_index_const(ACC, index, px.odd?)
             emit(ASM.store_halfword(ACC, 1))
           end
 
@@ -798,17 +798,17 @@ module RubyGBA
             high = gensym
             done = gensym
             emit_branch(:bcond, high, cond: :ne)
-            splice_index_byte(ACC, index, false) # even x: low byte
+            emit_splice_index_const(ACC, index, false) # even x: low byte
             emit_branch(:b, done)
             place_label(high)
-            splice_index_byte(ACC, index, true)  # odd x: high byte
+            emit_splice_index_const(ACC, index, true)  # odd x: high byte
             place_label(done)
             emit(ASM.store_halfword(ACC, 1))
           end
 
           # Replace one byte of the 16-bit pixel pair in +reg+ with +index+, keeping
           # the other pixel: the high byte when +high+ (an odd column), else the low.
-          def splice_index_byte(reg, index, high)
+          def emit_splice_index_const(reg, index, high)
             if high
               emit(ASM.and_imm(reg, reg, 0x00FF))     # keep the left (low) pixel
               emit(ASM.orr_imm(reg, reg, index << 8)) # set the right (high) pixel
@@ -1044,9 +1044,9 @@ module RubyGBA
           # of each row that survives clipping. An even column and an even width give all
           # three, which is why both are asked for rather than worked around.
           def emit_blit_buffered(node, bmp)
-            see_through_not_drawn_here!(node.name) if @layout.indexed_bitmaps[node.name]
-            odd_column_not_drawn_here!(node) unless Parity.even?(node.x)
-            odd_width_not_drawn_here!(node.name, bmp) unless bmp.width.even?
+            refuse_see_through_blit!(node.name) if @layout.indexed_bitmaps[node.name]
+            refuse_odd_blit_column!(node) unless Parity.even?(node.x)
+            refuse_odd_blit_width!(node.name, bmp) unless bmp.width.even?
 
             emit_blit_rows_buffered(node, bmp)
           end
@@ -1149,7 +1149,7 @@ module RubyGBA
           # the one fact behind all of them, and a person who reads it once has read it.
           TAKES_PAIRS = "The screen takes two pixels at a time and will not take one."
 
-          def see_through_not_drawn_here!(name)
+          def refuse_see_through_blit!(name)
             raise LoweringError,
                   "The picture :#{name} has see-through pixels. The tear-free screen " \
                   "(`tear_free: true`) cannot draw a see-through picture yet. It draws a solid " \
@@ -1157,7 +1157,7 @@ module RubyGBA
                   "use the direct-color screen, where a see-through picture works."
           end
 
-          def odd_column_not_drawn_here!(node)
+          def refuse_odd_blit_column!(node)
             column = const_int(node.x)
             found = column ? "This picture starts at column #{column}." : "The game works this column out as it runs."
             fix = column ? "Move the picture one pixel." : "Work the column out as an even number. Multiply it by 2."
@@ -1167,7 +1167,7 @@ module RubyGBA
                   "halfway through a pair. #{fix}"
           end
 
-          def odd_width_not_drawn_here!(name, bmp)
+          def refuse_odd_blit_width!(name, bmp)
             raise LoweringError,
                   "On the tear-free screen (`tear_free: true`), a picture must have an even width. " \
                   "The picture :#{name} is #{bmp.width} pixels wide. #{TAKES_PAIRS} The framework " \

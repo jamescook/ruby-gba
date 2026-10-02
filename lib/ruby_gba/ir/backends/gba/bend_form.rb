@@ -64,63 +64,63 @@ module RubyGBA
 
           # How many bends this program can feed from an engine: all three when nothing else
           # is using them, one when it plays sampled sound.
-          def channels(program)
-            engines(program).length
+          def free_engine_count(program)
+            free_engines(program).length
           end
 
-          def engines(program)
+          def free_engines(program)
             return FREE_ENGINES if program.walk.none? { |node| node.kind == :play_sample }
 
             FREE_ENGINES - SOUND_ENGINES
           end
 
-          def bends(program)
+          def scroll_rows_nodes(program)
             program.walk.select { |node| node.kind == :scroll_rows }
           end
 
           # Whether this program's bends are worked out into a table ahead of the frame. They
           # are, whenever there is a frame to work them out in — which is what a wait for one
           # is. A program with no frame has no such moment and runs its block per line instead.
-          def latched?(program)
-            !bends(program).empty? && program.walk.any? { |node| node.kind == :wait_vblank }
+          def rows_precomputed?(program)
+            !scroll_rows_nodes(program).empty? && program.walk.any? { |node| node.kind == :wait_vblank }
           end
 
           # ...and the other side of the same answer: a bend that runs its block per line,
           # because the program it is in never waits for a frame.
-          def live?(program)
-            !bends(program).empty? && !latched?(program)
+          def rows_per_scanline?(program)
+            !scroll_rows_nodes(program).empty? && !rows_precomputed?(program)
           end
 
           # Whether this program's tables are fed to the display by a copying engine rather
           # than by a per-line interrupt. All of them or none: the interrupt costs what it
           # costs the moment one bend needs it, and feeding one layer by engine beside it
           # would save nothing.
-          def copier?(program)
-            bends = bends(program)
-            !bends.empty? && refusal(program, bends).nil?
+          def fed_by_dma?(program)
+            bends = scroll_rows_nodes(program)
+            !bends.empty? && interrupt_reason_for(program, bends).nil?
           end
 
           # WHY THE INTERRUPT WAS KEPT, in the words an author would use, or nil when the
           # copier took it. Read off the same test the answer comes from, so "it did not" and
           # "here is why" can never disagree.
           def kept_interrupt_reason(program)
-            bends = bends(program)
-            bends.empty? ? nil : refusal(program, bends)
+            bends = scroll_rows_nodes(program)
+            bends.empty? ? nil : interrupt_reason_for(program, bends)
           end
 
-          def refusal(program, bends)
-            if !latched?(program)
+          def interrupt_reason_for(program, bends)
+            if !rows_precomputed?(program)
               "the program never waits for a frame, so there is no moment to work the rows out in"
-            elsif bends.length > channels(program)
-              too_many(program, bends)
+            elsif bends.length > free_engine_count(program)
+              too_many_bends_message(program, bends)
             end
           end
 
           # More bending layers than there are engines to feed them. Naming what took the
           # others is the whole use of this line: with sampled sound in the game there is one
           # engine, and moving a bend is not what an author would think to try.
-          def too_many(program, bends)
-            free = channels(program)
+          def too_many_bends_message(program, bends)
+            free = free_engine_count(program)
             taken = free < FREE_ENGINES.length ? ", and this game's sampled sound holds the rest" : ""
             "there are #{bends.length} bending layers and #{free} copying #{free == 1 ? 'engine' : 'engines'} " \
               "free#{taken}"

@@ -398,8 +398,8 @@ class TestASM < Minitest::Test
 
   # It writes the register it loads, and says so, so a known address is never trusted past it.
   def test_ldr_reg_lsl_disturbs_the_register_it_loads
-    assert A.disturbs?(unpack(A.ldr_reg_lsl(12, 12, 0, 2)), 12)
-    refute A.disturbs?(unpack(A.ldr_reg_lsl(1, 12, 0, 2)), 12), "the address is only read"
+    assert A.may_write_register?(unpack(A.ldr_reg_lsl(12, 12, 0, 2)), 12)
+    refute A.may_write_register?(unpack(A.ldr_reg_lsl(1, 12, 0, 2)), 12), "the address is only read"
   end
 
   def test_str
@@ -605,9 +605,9 @@ class TestASM < Minitest::Test
   # A post-indexed store writes its address register back, so a register held across it
   # cannot be assumed to still hold what it did.
   def test_a_post_indexed_store_disturbs_its_address_register
-    assert A.disturbs?(unpack(A.store_halfword_post(7, 1, 2)), 1)
-    assert A.disturbs?(unpack(A.strb_post(0, 6, 1)), 6)
-    refute A.disturbs?(unpack(A.strb_post(0, 6, 1)), 0), "the value stored is only read"
+    assert A.may_write_register?(unpack(A.store_halfword_post(7, 1, 2)), 1)
+    assert A.may_write_register?(unpack(A.strb_post(0, 6, 1)), 6)
+    refute A.may_write_register?(unpack(A.strb_post(0, 6, 1)), 0), "the value stored is only read"
   end
 
   # Comparing against a register shifted down asks "is this at most a sixteenth of

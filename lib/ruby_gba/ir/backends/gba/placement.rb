@@ -322,7 +322,7 @@ module RubyGBA
           # address and jump through it, because the two are far too far apart for a jump
           # to reach.
           def emit_call_func(name)
-            made_call_sites << @emit.pos if @functions.minted?(name)
+            made_call_sites << @emit.pos if @functions.generated_func?(name)
             target_is_fast = @fast_funcs.include?(name)
             return emit_branch(:bl, @functions.func_label(name)) if target_is_fast == @emitting_hot
 
@@ -494,7 +494,7 @@ module RubyGBA
           # ordinary code, into a table, and what the announcement then does is read one
           # number out of it (see {BendForm}).
           def irq_bodies(program)
-            kinds = BendForm.live?(program) ? %i[scroll_rows on_timer] : %i[on_timer]
+            kinds = BendForm.rows_per_scanline?(program) ? %i[scroll_rows on_timer] : %i[on_timer]
             program.walk.select { |node| kinds.include?(node.kind) }
           end
 
@@ -670,7 +670,7 @@ module RubyGBA
 
           def frame_does_work?(program)
             body = frame_body(program) or return false
-            return true unless BendForm.bends(program).empty?
+            return true unless BendForm.scroll_rows_nodes(program).empty?
 
             body.walk.any? { |node| !NO_WORK_KINDS.include?(node.kind) }
           end

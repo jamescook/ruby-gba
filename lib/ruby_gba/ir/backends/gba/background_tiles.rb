@@ -92,8 +92,8 @@ module RubyGBA
             # counting from anywhere else cannot see that far back, so it gets a blank of
             # its own — placed before its own tiles so it is the first thing in reach —
             # and its empty cells name that instead.
-            blank = base.zero? ? 0 : place(name, ("\x00" * unit).b, unit, base, most)
-            numbers = stored.each_with_index.to_h { |tile, index| [index, place(name, tile, unit, base, most)] }
+            blank = base.zero? ? 0 : store_tile(name, ("\x00" * unit).b, unit, base, most)
+            numbers = stored.each_with_index.to_h { |tile, index| [index, store_tile(name, tile, unit, base, most)] }
             StoredTiles.new(numbers: numbers, base: base, blank: blank)
           end
 
@@ -180,7 +180,7 @@ module RubyGBA
 
           # One tile's bytes, at the number a map will name it by — the place it already has
           # if this exact tile has been stored, else a fresh place at the end.
-          def place(name, tile, unit, base, most)
+          def store_tile(name, tile, unit, base, most)
             at = stored_at(tile, base)
             if at
               @shared += 1
@@ -191,7 +191,7 @@ module RubyGBA
               (@stored[tile] ||= []) << at
             end
             @vram.tile_number(at, unit: unit, base: base, most: most) ||
-              (raise LoweringError, too_far(name, at, unit, base, most))
+              (raise LoweringError, too_far_message(name, at, unit, base, most))
           end
 
           # A map cell holds its tile number in ten bits, counted in the layer's own tile
@@ -200,7 +200,7 @@ module RubyGBA
           # Past that a tileset is not too big for the memory, it is too far for one map to
           # point across, and saying which is the difference between a fixable message and
           # a baffling one.
-          def too_far(name, offset, unit, base, most)
+          def too_far_message(name, offset, unit, base, most)
             "background :#{name} counts its tiles from #{base} bytes into video memory and has one at " \
               "#{offset}, which is past the #{most * unit} bytes a map cell can reach across. Use fewer " \
               "different tiles, or declare this background before the ones with the biggest tilesets."
