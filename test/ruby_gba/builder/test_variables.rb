@@ -69,6 +69,18 @@ class TestVariables < Minitest::Test
     assert_includes error.message, "test_variables.rb:#{first + 1}"
   end
 
+  def test_a_whole_number_then_a_fraction_is_refused_too
+    error = assert_raises(ArgumentError) do
+      build_with_builder do
+        var :_seen, 0
+        var :_seen, 0.0
+      end
+    end
+
+    assert_includes error.message, "do not agree"
+    assert_includes error.message, "a fraction"
+  end
+
   def test_one_name_declared_with_two_different_numbers_is_a_friendly_error
     error = assert_raises(ArgumentError) do
       build_with_builder do
