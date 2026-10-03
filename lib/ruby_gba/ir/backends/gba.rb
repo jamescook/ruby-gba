@@ -24,6 +24,7 @@ require_relative "gba/screen_effects" # the camera, fades and tints: the whole p
 require_relative "gba/sprite_drawing" # writing the rows of the console's sprite table
 require_relative "gba/background_drawing" # putting background layers up, and changing them as the game runs
 require_relative "gba/framebuffer"
+require_relative "gba/scene_entry"
 require_relative "gba/drawing"
 require_relative "gba/placement"
 require_relative "gba/buffered"
@@ -733,6 +734,7 @@ module RubyGBA
           unless @modes.switched_per_scene?
             @background_drawing.emit_boot_backgrounds if @tiled && !@screen.backgrounds.empty? # shared BG palette + tiles
             @sprite_drawing.emit_boot_objects if @has_objects # sprite tiles/colors + clear the sprite table
+            @drawing.emit_clear_used_scene_markers # no scene's scenery or sprite pictures are up yet
             @layer_blend.emit_boot_layer_blend if @layer_blend.see_through? # ...and which layer you can see through
           end
           # Clear each bending layer's table of row offsets, and start the engine that feeds

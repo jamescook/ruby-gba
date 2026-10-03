@@ -61,9 +61,6 @@ module RubyGBA
           # these tiles.
           def emit_boot_objects
             clear_object_table
-            # Nothing is loaded yet, and the console's memory is garbage at power-on — so
-            # the first scene to take over has to find a number that is not its own.
-            @primitives.store_word_immediate(0, @primitives.var_addr(Drawing::SCENE_ART_STATE)) if @layout.scene_art.any?
             # The table has just been wiped, so the sprites nobody moves are gone from it too
             # and have to be written again. This runs on a change of screen as well as at
             # boot, which is the case that would otherwise leave a title screen blank.

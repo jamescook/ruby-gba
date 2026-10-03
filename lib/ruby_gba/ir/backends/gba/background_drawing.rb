@@ -48,15 +48,7 @@ module RubyGBA
             @uploads.emit_dma_blob(BG_SHARED_PAL, BG_PALETTE, @layout.bg_shared.palette_units)  # colors -> palette memory
             @uploads.emit_dma_blob(BG_SHARED_CHAR, VRAM_START, @layout.bg_shared.tile_units)    # pictures -> video memory
             @palette_tint.emit_tint_reset_if_tinting # the table now holds the originals again
-            # No scene's scenery is up yet. Written rather than assumed: the console makes
-            # no promise about its memory at power-on, and a stale value would leave the
-            # first scene's layers pointing at nothing. Written again on each entry into a
-            # tiled screen too, which is right — the tiles have just been sent afresh, so
-            # whatever was up is not any more.
-            @primitives.store_word_immediate(0, @primitives.var_addr(Drawing::SCENE_SCENERY_STATE)) if scene_scenery?
           end
-
-          def scene_scenery? = @layout.picture.scenery.any?(&:scene)
 
           # Point one layer's hardware at its data: DMA its map into its own screen block,
           # then set its control register (how its pixels are stored, where it counts its

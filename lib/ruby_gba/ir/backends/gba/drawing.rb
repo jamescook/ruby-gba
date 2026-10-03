@@ -51,10 +51,18 @@ module RubyGBA
             @background_drawing = background_drawing
             @backing_info = backing_info
             @call_cold_routine = call_cold_routine
+            # What a scene does once as it takes over, and the notes saying whose is up.
+            @scene_entry = SceneEntry.new(emitter: emitter, primitives: primitives)
             @layout = nil
           end
 
-          attr_writer :layout
+          def layout=(value)
+            @layout = value
+            @scene_entry.layout = value
+          end
+
+          # Say no scene's scenery or sprite pictures are up (see SceneEntry#emit_clear_used_markers).
+          def emit_clear_used_scene_markers = @scene_entry.emit_clear_used_markers
 
           # The prepare-pass results this file reads, bundled into one record and handed
           # over through #layout= once every pass that decides them has run.
@@ -271,6 +279,7 @@ module RubyGBA
             @primitives.store_word_immediate(PAGE1, @primitives.var_addr(BACKBUF))
             @emitter.write_reg16(REG_DISPCNT, base | held)
             @primitives.store_word_immediate(MODE_BUFFERED, @primitives.var_addr(MODE_STATE))
+            @scene_entry.emit_clear_used_markers # a new display: nothing any scene put up is there
             # A scene that tints leaves its color table blended, and one that remembers a
             # tint has to be able to trust what is in the table. In a program that crosses
             # to the tiled screen, that screen's own colors have been in this table since —
@@ -287,6 +296,7 @@ module RubyGBA
             @background_drawing.reset_bg2_affine_if_needed
             @emitter.write_reg16(REG_DISPCNT, MODE_3 | BG2_ENABLE | held)
             @primitives.store_word_immediate(MODE_DIRECT, @primitives.var_addr(MODE_STATE))
+            @scene_entry.emit_clear_used_markers # a new display: nothing any scene put up is there
           end
 
           # Switch the hardware into tiled mode (Mode 0). Because the bitmap framebuffer
@@ -305,6 +315,7 @@ module RubyGBA
             value |= OBJ_ENABLE | OBJ_1D_MAP if @layout.has_objects
             @emitter.write_reg16(REG_DISPCNT, value | held)
             @primitives.store_word_immediate(MODE_TILED, @primitives.var_addr(MODE_STATE))
+            @scene_entry.emit_clear_used_markers # a new display: nothing any scene put up is there
           end
 
           # Switch the hardware into the affine layer (Mode 2): re-upload the shared BG
@@ -322,6 +333,7 @@ module RubyGBA
             value |= OBJ_ENABLE | OBJ_1D_MAP if @layout.has_objects
             @emitter.write_reg16(REG_DISPCNT, value | held)
             @primitives.store_word_immediate(MODE_AFFINE, @primitives.var_addr(MODE_STATE))
+            @scene_entry.emit_clear_used_markers # a new display: nothing any scene put up is there
           end
 
           # Emitted at the top of each scene when a program switches the hardware per
@@ -361,10 +373,6 @@ module RubyGBA
             @layer_blend.emit_screen_marker(name)
           end
 
-          # WHICH SCENE'S SCENERY IS SET UP, so a scene taking over points its layers at its
-          # own maps and a scene already running points them nowhere.
-          SCENE_SCENERY_STATE = :_scene_scenery
-
           # PUT THIS SCENE'S BACKGROUNDS UP, ONCE, AS IT TAKES OVER.
           #
           # Pointing a layer at a background sends the whole map into video memory and puts
@@ -385,11 +393,11 @@ module RubyGBA
             # say it goes up as declared (see IR::SceneHandover). It is one store a frame,
             # and only in a game where some scene has scenery of its own.
             if arrival.scenery.empty?
-              @primitives.store_word_immediate(0, @primitives.var_addr(SCENE_SCENERY_STATE)) if arrival.takes_down_scenery?
+              @scene_entry.emit_clear_marker(:scenery) if arrival.takes_down_scenery?
               return
             end
 
-            emit_on_scene_entry(SCENE_SCENERY_STATE, scene_scenery_marker(name)) do
+            @scene_entry.emit_once_on_arrival(:scenery, name) do
               emit_with_bg_layers_disabled(name) do
                 tiles = @layout.scene_tiles[name]
                 @uploads.emit_dma_blob(tiles.blob, VRAM_START + tiles.offset, tiles.units) if tiles
@@ -438,46 +446,13 @@ module RubyGBA
           # What a scene does to the screen as it takes over, said once for both backends.
           def scene_handover = @layout.handover
 
-          # Which scene's scenery is up, counting from 1 so that 0 means "none yet" — which
-          # is what boot writes, since the console makes no promise about its memory at
-          # power-on and a stale value here would leave the first scene's layers pointing
-          # nowhere.
-          def scene_scenery_marker(name)
-            @layout.picture.scenery.filter_map(&:scene).uniq.index(name) + 1
-          end
-
-          # DO THE BLOCK WHEN A SCENE TAKES OVER, AND NOT WHILE IT RUNS.
-          #
-          # A scene's own routine is reached on every frame it is active, so anything in it
-          # that sets the hardware UP rather than moving what is already there has to be
-          # guarded — sending a scene's sprite pictures, pointing its layers at its maps.
-          # Both are a copy, and both throw away whatever has happened since if repeated.
-          #
-          # +state+ is a variable naming whose turn it currently is and +marker+ this
-          # scene's number in it, counting from 1 so that the 0 boot writes means nobody's.
-          # The cost while a scene runs is the compare and the branch.
-          def emit_on_scene_entry(state, marker)
-            @primitives.load_var(ACC, state)
-            @emitter.emit(ASM.cmp_imm(ACC, marker))
-            skip = @emitter.gensym
-            @emitter.emit_branch(:bcond, skip, cond: :eq) # already this scene's? nothing to do
-            yield
-            @emitter.emit(ASM.load_immediate(ACC, marker))
-            @primitives.store_var(ACC, state)
-            @emitter.place_label(skip)
-          end
-
           # The screen this scene draws on, in a program whose scenes differ. One that does
           # not leaves each `screen` node to write the display control inline. Whether it is a
-          # change depends on the scene before, so it is a compare as the scene takes over.
+          # change depends on the scene before, so it is a compare as the scene takes over:
+          # entering a mode writes MODE_STATE itself, since boot enters one too.
           def emit_scene_mode(name)
             mode = scene_handover.arrival(name).mode
-            @primitives.load_var(ACC, MODE_STATE)
-            @emitter.emit(ASM.cmp_imm(ACC, mode_state_marker(mode)))
-            skip = @emitter.gensym
-            @emitter.emit_branch(:bcond, skip, cond: :eq) # already in this mode? nothing to do
-            enter_mode(mode)
-            @emitter.place_label(skip)
+            @scene_entry.emit_unless_holds(MODE_STATE, mode_state_marker(mode)) { enter_mode(mode) }
           end
 
           # SWITCH ON THE LAYERS THIS SCENE USES, AND ONLY THOSE.
@@ -500,10 +475,6 @@ module RubyGBA
             value |= OBJ_ENABLE | OBJ_1D_MAP if @layout.has_objects
             write_reg16(REG_DISPCNT, value)
           end
-
-          # WHICH SCENE'S SPRITE PICTURES ARE IN MEMORY, so that a scene taking over sends
-          # its own and a scene already running sends nothing.
-          SCENE_ART_STATE = :_scene_art
 
           # Send a scene's sprite pictures when it takes over. Scenes share the room above
           # whatever is always there, so this is what makes a game's budget one scene's
@@ -531,13 +502,11 @@ module RubyGBA
               # loaded, which is right: nothing overwrote it. A painted picture is the exception,
               # since its list can change while its scene is away and it goes up from the list
               # as it is then — so in a game with one, this scene says nobody's is loaded.
-              if @layout.scene_art.any? && arrival.takes_down_art?
-                @primitives.store_word_immediate(0, @primitives.var_addr(SCENE_ART_STATE))
-              end
+              @scene_entry.emit_clear_marker(:art) if @layout.scene_art.any? && arrival.takes_down_art?
               return
             end
 
-            emit_on_scene_entry(SCENE_ART_STATE, @layout.scene_art.keys.index(name) + 1) do
+            @scene_entry.emit_once_on_arrival(:art, name) do
               # Its colours first: the groups its sprites name are this scene's now (see
               # ScreenLayout#build_shared_object_palette).
               @palette_tint.emit_send_scene_obj_palette(colors, @layout.obj_palette_units) if colors
