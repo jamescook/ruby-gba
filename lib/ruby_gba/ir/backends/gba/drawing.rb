@@ -376,7 +376,18 @@ module RubyGBA
           # A game whose scenery belongs to no scene emits none of this.
           def emit_scene_scenery(name)
             arriving = scene_handover.arriving(name)
-            return if arriving.empty?
+            # A SCENE WITH NO SCENERY OF ITS OWN STILL TAKES THE LAST ONE'S DOWN, so it says
+            # nobody's is up. Without this, a scene that comes back after one with no
+            # scenery found its own marked as still up and skipped putting it up again —
+            # keeping the cells and painted tiles of the last visit, where the scene rules
+            # say it goes up as declared (see IR::SceneHandover). It is one store a frame,
+            # and only in a game where some scene has scenery of its own.
+            if arriving.empty?
+              if @layout.picture.scenery.any?(&:scene)
+                @primitives.store_word_immediate(0, @primitives.var_addr(SCENE_SCENERY_STATE))
+              end
+              return
+            end
 
             emit_on_scene_entry(SCENE_SCENERY_STATE, scene_scenery_marker(name)) do
               emit_with_bg_layers_disabled(name) do

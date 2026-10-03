@@ -109,6 +109,40 @@ class TestSceneBackgrounds < Minitest::Test
     assert_equal RED, on_console(a_backdrop_then_a_bare_scene, "SCNBG0", SWITCH_AT + 6)
   end
 
+  # A SCENE THAT COMES BACK AFTER A BARE ONE PUTS ITS SCENERY UP AS DECLARED. A cell it had
+  # changed is back as drawn. The console used to keep the scene marked as still up across a
+  # scene with no scenery of its own, so it skipped putting it up and kept the changed cell.
+  private def a_door_opened_then_a_bare_scene_then_back
+    tile = SOLID_TILE
+    program do
+      screen :tiled
+      image(:red_art, "#" => :red) { tile }
+      image(:blue_art, "#" => :blue) { tile }
+      tiles :room, "#" => :red_art, "o" => :blue_art
+      state = var :state, 0
+      tick = var :tick, 0
+      scene(:room) do
+        hall = background :hall, tiles: :room, map: Array.new(20) { "#" * 30 }
+        (tick == 2).then { hall.set_tile 15, 10, "o" } # the cell under the middle of the screen
+        (tick == SWITCH_AT).then { state.set! 1 }
+      end
+      scene(:walk) { (tick == SWITCH_AT + 3).then { state.set! 0 } }
+      game_loop do
+        tick.add! 1
+        case_var(:state) do
+          when_val 0, :room
+          when_val 1, :walk
+        end
+      end
+    end
+  end
+
+  def test_a_scene_back_after_a_bare_one_puts_its_scenery_up_as_declared
+    assert_equal BLUE, shown(a_door_opened_then_a_bare_scene_then_back, SWITCH_AT), "the door was opened"
+    assert_equal RED, shown(a_door_opened_then_a_bare_scene_then_back, SWITCH_AT + 8), "and is shut again"
+    assert_equal RED, on_console(a_door_opened_then_a_bare_scene_then_back, "SCNBG7", SWITCH_AT + 10)
+  end
+
   # SCENERY EVERY SCREEN SHOWS IS IN EVERY SCREENFUL, so it is what each scene has left
   # that the scene's own has to fit in. A game with a backdrop up throughout and three
   # backgrounds in each of two scenes is four layers at a time, and fits exactly.
