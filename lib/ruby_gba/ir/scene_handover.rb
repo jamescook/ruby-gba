@@ -41,13 +41,15 @@ module RubyGBA
       #
       # +screen+ is the `screen` the scene declares, or nil for one that draws on the screen it
       # was reached on: the display changes first, since changing its kind wipes whatever was
-      # put up before it. +scenery+ is its own backgrounds, in the order the stack draws them;
+      # put up before it. +mode+ is the screen it draws on either way, as IR::Modes names it.
+      # Whether that CHANGES the kind of screen depends on the scene before, so a backend asks
+      # that as the scene arrives (see .crossing?). +scenery+ is its own backgrounds, in the order the stack draws them;
       # +map_choices+ the variables saying which map each shows, put back to the first;
       # +painted_tiles+ the runs of tiles that scenery shows, and +painted_pictures+ the
       # pictures its sprites show, each copied in from its list. The last two flags are for a
       # scene with none of its own: the last scene's scenery or painted pictures still come
       # down, and a backend that only keeps note of whose are up has to be told.
-      Arrival = Data.define(:scene, :screen, :scenery, :map_choices, :painted_tiles, :painted_pictures,
+      Arrival = Data.define(:scene, :screen, :mode, :scenery, :map_choices, :painted_tiles, :painted_pictures,
                             :takes_down_scenery, :takes_down_art) do
         def takes_down_scenery? = takes_down_scenery
         def takes_down_art? = takes_down_art
@@ -65,19 +67,20 @@ module RubyGBA
         @objects = picture.objects
         @tile_runs, @picture_runs = program.walk.select { |node| node.kind == :tile_run }.partition { |run| run.picture.nil? }
         @funcs = program.children.select { |node| node.kind == :func }.to_h { |func| [func.name, func] }
+        @modes = Modes.resolve(program)
         @arrivals = {}
       end
 
       # The plan for +scene+ taking over.
       def arrival(scene)
         @arrivals[scene] ||= begin
-          scenery = @scenery.select { |node| node.scene && node.scene == scene }
+          scenery = @scenery.select { |node| on_arrival?(node) && node.scene == scene }
           pictures = painted_pictures_of(scene)
           Arrival.new(scene: scene, screen: @funcs[scene]&.children&.find { |node| node.kind == :screen },
-                      scenery: scenery, map_choices: scenery.flat_map(&:choice),
+                      mode: @modes.mode_of(scene), scenery: scenery, map_choices: scenery.flat_map(&:choice),
                       painted_tiles: @tile_runs.select { |run| scenery.any? { |bg| bg.tiles.intersect?(run.tiles) } },
                       painted_pictures: pictures,
-                      takes_down_scenery: scenery.empty? && @scenery.any?(&:scene),
+                      takes_down_scenery: scenery.empty? && @scenery.any? { |node| on_arrival?(node) },
                       takes_down_art: pictures.empty? && @objects.any? { |obj| obj.scene && painted?(obj) })
         end
       end
@@ -86,9 +89,13 @@ module RubyGBA
       def showing(scene) = @scenery.select { |node| node.scene.nil? || node.scene == scene }
 
       # Whether +background+ goes up as its scene takes over, rather than where it is written.
-      def on_arrival?(background) = !background.scene.nil?
+      # Only scenery drawn from tiles is up in that sense: a scene on a painted screen paints
+      # its background into the one picture where the statement is written, like any drawing.
+      def on_arrival?(background) = !background.scene.nil? && drawn_from_tiles?(background.scene)
 
       private
+
+      def drawn_from_tiles?(scene) = [Modes::TILED, Modes::AFFINE].include?(@modes.mode_of(scene))
 
       # The painted pictures a sprite of +scene+ shows in any of its poses.
       def painted_pictures_of(scene)

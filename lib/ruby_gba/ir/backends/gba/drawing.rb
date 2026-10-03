@@ -468,9 +468,10 @@ module RubyGBA
           end
 
           # The screen this scene draws on, in a program whose scenes differ. One that does
-          # not leaves each `screen` node to write the display control inline.
+          # not leaves each `screen` node to write the display control inline. Whether it is a
+          # change depends on the scene before, so it is a compare as the scene takes over.
           def emit_scene_mode(name)
-            mode = @layout.modes.func_mode[name]
+            mode = scene_handover.arrival(name).mode
             @primitives.load_var(ACC, MODE_STATE)
             @emitter.emit(ASM.cmp_imm(ACC, mode_state_marker(mode)))
             skip = @emitter.gensym

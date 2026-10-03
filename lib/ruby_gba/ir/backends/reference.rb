@@ -1131,6 +1131,10 @@ module RubyGBA
           return if @handover.on_arrival?(node)
 
           paint_owed_repaint
+          # ...and a scene's background on a painted screen is drawing like any other, put into
+          # the one picture each time its statement runs.
+          return stamp_background(node) if node.scene
+
           put_up_background(node)
         end
 

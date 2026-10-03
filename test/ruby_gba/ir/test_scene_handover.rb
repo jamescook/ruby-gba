@@ -97,6 +97,23 @@ class TestSceneHandover < Minitest::Test
     assert_empty plan.arrival(:_scene_walk).map_choices
   end
 
+  # A scene draws on the screen it names at the top of its block, or else the game's.
+  def test_a_scene_arrives_on_its_own_screen_or_the_games
+    b = Builder.new
+    b.instance_eval do
+      screen :tiled
+      scene(:title) { screen :bitmap }
+      scene(:play) { nil }
+      var :state, 0
+      game_loop { case_var(:state) { when_val 0, :title; when_val 1, :play } }
+    end
+    b.finalize_program
+    handover = Handover.of(b.program)
+
+    assert_equal :direct, handover.arrival(:_scene_title).mode
+    assert_equal :tiled, handover.arrival(:_scene_play).mode
+  end
+
   # Three kinds of screen, and handing over from one kind to another replaces the whole
   # display: a painted picture, one drawn from tiles, and one that turns.
   def test_changing_the_kind_of_screen_replaces_what_was_shown

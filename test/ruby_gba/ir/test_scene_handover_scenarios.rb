@@ -94,6 +94,8 @@ class TestSceneHandoverScenarios < Minitest::Test
                  program: :scenery_across_a_bitmap_screen_then_a_bare_scene,
                  frames: LOOK_AFTER_LEAVING, probe: [0, 0], color: BACKDROP,
                  console_frames: LOOK_AFTER_LEAVING + 1),
+    Scenario.new(name: :bitmap_scenes_background_drawn_where_written, program: :bitmap_scene_clears_then_draws_scenery,
+                 frames: 2, probe: [4, 4], color: :red),
     Scenario.new(name: :sprite_art_back_after_a_bitmap_screen, program: :sprite_then_a_bitmap_screen,
                  frames: LOOK_BACK_FROM_BITMAP, probe: [120, 80], color: :red,
                  console_frames: LOOK_BACK_FROM_BITMAP + 1,
@@ -325,6 +327,23 @@ class TestSceneHandoverScenarios < Minitest::Test
                              third: :walk) do |tick|
         (tick == LEAVE_AFTER_BITMAP).then { set! :state, 2 }
       end
+    end
+  end
+
+  # A scene on the bitmap screen that clears it and then declares its red scenery. A bitmap
+  # screen is one picture, and a background is painted into it where it is written, so the
+  # clear comes first and the scenery is over it.
+  private def bitmap_scene_clears_then_draws_scenery
+    built do
+      screen :bitmap
+      red_and_blue_art
+      tiles :set, "#" => :red_art
+      var :state, 0
+      scene(:field) do
+        clear_screen :blue
+        background :field, tiles: :set, map: Array.new(4) { "#" * 4 }
+      end
+      game_loop { case_var(:state) { when_val 0, :field } }
     end
   end
 
