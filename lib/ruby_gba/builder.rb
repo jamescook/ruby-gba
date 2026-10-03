@@ -400,6 +400,23 @@ module RubyGBA
 
     # --- Finalize (RubyGBA.build calls this once, after the DSL block) ---
 
+    # Refuse a game with 64K or 128K of save memory, which is flash, which the console's
+    # lowering cannot write yet. Asked on the way to a cartridge, after finalize_program: the
+    # records are laid out for flash all the same, so the interpreter can run where they go.
+    def refuse_flash_save_memory!
+      return if save_memory == IR::SaveLayout::MEMORIES.first
+
+      needed = @saves&.needed_save_memory || IR::SaveLayout::MEMORIES.first
+      fix = if needed == IR::SaveLayout::MEMORIES.first
+              "leave `save_memory:` out, or ask for `save_memory: 32`."
+            else
+              "keep less in each save_data record, or use fewer copies, so that the records fit in 32K."
+            end
+      raise ArgumentError, "This game has #{save_memory}K of save memory. A cartridge with more than 32K " \
+                           "keeps its saves in flash memory, and flash is not available yet. To fix " \
+                           "this, #{fix}"
+    end
+
     # Refuse a setting the build was given that the game never asked for (see {Settings}).
     def check_settings_were_asked!
       problem = unasked_setting_error

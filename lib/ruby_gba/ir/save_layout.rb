@@ -39,10 +39,11 @@ module RubyGBA
     module SaveLayout
       module_function
 
-      # Where save data starts: past the block `save_var` keeps.
+      # Where save data starts in the 32K memory: past the block `save_var` keeps. Anything
+      # that places save data asks a Memory (below), which knows flash starts elsewhere.
       START = 0x1000
 
-      # How much there is to put it in. The console's battery-backed memory is 32K.
+      # The 32K memory's size: the console's battery-backed memory.
       SIZE = 0x8000
 
       # THE SAVE MEMORIES A CARTRIDGE CAN HAVE, in kilobytes: the 32K above, or a flash chip of
@@ -54,20 +55,45 @@ module RubyGBA
       # can never touch the copy beside it.
       SECTOR = 0x1000
 
-      # Flash sets aside two blocks for save_var's values and two for the two halves of the
-      # table of places, before any record.
-      FLASH_RESERVED_SECTORS = 4
+      # THE SHAPE OF ONE SAVE MEMORY: how big it is, where the table of places and the records
+      # go, and how much room a half of a record takes. Everything that works out a place in
+      # save memory asks this — the build's check that the records fit, the routines that
+      # place them at power-on, and the address of each half — so none of them can lay the
+      # memory out one way while another checks it another.
+      #
+      # The 32K memory is packed: the table straight after save_var's block, and each half of a
+      # record straight after the last. Flash is wiped a block at a time, so on it save_var's
+      # values take the first two blocks, each half of the table one block of its own, and
+      # every half of a record whole blocks of its own: wiping a half can never touch the one
+      # beside it.
+      Memory = Data.define(:kilobytes) do
+        def flash? = kilobytes != MEMORIES.first
+
+        # How many bytes there are.
+        def size = kilobytes * 1024
+
+        # Where the table of places starts.
+        def table_at = flash? ? 2 * SECTOR : START
+
+        # Where records can go: past both halves of the table.
+        def data_start = table_at + (2 * room(SaveLayout.half_bytes(TABLE_BODY)))
+
+        # How many bytes a half of +half+ bytes takes, which is how far apart the halves sit.
+        def room(half) = flash? ? ((half + SECTOR - 1) / SECTOR) * SECTOR : half
+
+        # How many bytes a record with halves of +half+ bytes and +copies+ copies takes.
+        def record_room(half, copies) = room(half) * 2 * copies
+
+        # Do records taking +halves+ — one [half_bytes, copies] pair a record — all fit at once?
+        def fits?(halves) = halves.sum { |half, copies| record_room(half, copies) } <= size - data_start
+      end
+
+      # The save memory of +kilobytes+.
+      def memory(kilobytes) = Memory.new(kilobytes)
 
       # Does a game whose records take +halves+ — one [half_bytes, copies] pair a record — fit
       # in +kilobytes+ of save memory?
-      def fits?(kilobytes, halves)
-        if kilobytes == MEMORIES.first
-          halves.sum { |half, copies| half * 2 * copies } <= SIZE - DATA_START
-        else
-          sectors = halves.sum { |half, copies| ((half + SECTOR - 1) / SECTOR) * 2 * copies }
-          FLASH_RESERVED_SECTORS + sectors <= kilobytes * 1024 / SECTOR
-        end
-      end
+      def fits?(kilobytes, halves) = memory(kilobytes).fits?(halves)
 
       # The smallest save memory those records fit in, or nil when none holds them.
       def smallest_fitting(halves) = MEMORIES.find { |kilobytes| fits?(kilobytes, halves) }
@@ -102,7 +128,7 @@ module RubyGBA
         Int32.wrap((high << 16) | low)
       end
 
-      # The table of places sits where save data starts, and records after it.
+      # In the 32K memory, the table of places sits where save data starts, and records after it.
       TABLE_AT = START
 
       # How many records the table has rows for.
@@ -116,7 +142,7 @@ module RubyGBA
       # then a word a row.
       TABLE_BODY = TABLE_COLUMNS.length * (4 + (TABLE_ROWS * 4))
 
-      # Where records can go: past both halves of the table.
+      # Where records can go in the 32K memory: past both halves of the table.
       DATA_START = TABLE_AT + (2 * half_bytes(TABLE_BODY))
 
       # A record's name as a number, which is how its row in the table is found. Never 0, which
@@ -151,23 +177,27 @@ module RubyGBA
           end)
         end
 
+        # The 32K memory, which a table is read from and written to unless it says otherwise.
+        PACKED = SaveLayout.memory(MEMORIES.first)
+
         # Write +rows+ (at most TABLE_ROWS) into +bytes+ — a save store's bytes, address to
-        # byte — as a good first half with sequence +sequence+.
-        def write(bytes, rows, sequence: 1)
+        # byte — as a good first half with sequence +sequence+, where +memory+ keeps its table.
+        def write(bytes, rows, sequence: 1, memory: PACKED)
           words = TABLE_COLUMNS.flat_map do |column|
             values = rows.map { |row| row.public_send(column) }
             [TABLE_ROWS, *values, *Array.new(TABLE_ROWS - values.size, 0)]
           end
           body = words.flat_map { |word| le_bytes(word) }
           header = [MARKER, shape, sequence, SAVED, SaveLayout.checksum(body)]
-          (header.flat_map { |word| le_bytes(word) } + body).each_with_index { |byte, i| bytes[TABLE_AT + i] = byte }
+          (header.flat_map { |word| le_bytes(word) } + body).each_with_index { |byte, i| bytes[memory.table_at + i] = byte }
           bytes
         end
 
         # The rows in use in the table +bytes+ hold, read from its newer good half, or nil when
         # neither half is good.
-        def read(bytes)
-          halves = [TABLE_AT, TABLE_AT + SaveLayout.half_bytes(TABLE_BODY)].filter_map do |at|
+        def read(bytes, memory: PACKED)
+          second = memory.table_at + memory.room(SaveLayout.half_bytes(TABLE_BODY))
+          halves = [memory.table_at, second].filter_map do |at|
             body = (0...TABLE_BODY).map { |i| bytes.fetch(at + HEADER + i, 0) }
             good = signed_word_at(bytes, at + MARKER_AT) == MARKER && signed_word_at(bytes, at + SHAPE_AT) == shape &&
                    signed_word_at(bytes, at + CHECKSUM_AT) == SaveLayout.checksum(body)

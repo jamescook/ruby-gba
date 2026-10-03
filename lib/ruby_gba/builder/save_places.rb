@@ -58,7 +58,17 @@ module RubyGBA
       def cell(column, row) = Build.list_get(table_list(column), row)
       def set_cell(column, row, value) = record(Build.list_set(table_list(column), row, value))
       def row_in_use(row) = sp_op(:!=, cell(:key, row), sd_int(0))
-      def row_size(row) = sp_op(:*, cell(:half, row), sp_op(:*, cell(:copies, row), sd_int(2)))
+      def row_size(row) = sp_op(:*, half_room(cell(:half, row)), sp_op(:*, cell(:copies, row), sd_int(2)))
+
+      # How much room a half of +half+ bytes takes, worked out as the game runs: the half itself
+      # in the packed 32K, and whole blocks on flash (see IR::SaveLayout::Memory#room). A row
+      # can be a record this build no longer declares, so its half is only known from the table.
+      def half_room(half)
+        return half unless @save_memory_shape.flash?
+
+        block = IR::SaveLayout::SECTOR
+        sp_op(:&, sd_add(half, sd_int(block - 1)), sd_int(-block))
+      end
       def row_end(row) = sd_add(cell(:at, row), row_size(row))
 
       # Declared once the records are laid out: the table itself, kept the way a record is, and
@@ -68,7 +78,7 @@ module RubyGBA
           at_boot(Build.list_new(table_list(column), ROWS, width: :word))
           SaveRecords::Kept.new(kind: :list, name: table_list(column), at: 0, width: :word, count: ROWS)
         end
-        @save_table = lay_out_save_data(:__table, 1, kept, place: IR::SaveLayout::TABLE_AT)
+        @save_table = lay_out_save_data(:__table, 1, kept, place: @save_memory_shape.table_at)
         declare_save_data_vars(@save_table)
         declare_save_data_lists(@save_table)
         declare_save_data_routines(@save_table, %i[scan save load])
@@ -120,7 +130,7 @@ module RubyGBA
       # PLACE ONE RECORD, named by the key, half and copies scratch; leaves where it starts
       # in the place scratch.
       def save_places_place_record
-        set_place_var(:need, sp_op(:*, place_var(:half), sp_op(:*, place_var(:copies), sd_int(2))))
+        set_place_var(:need, sp_op(:*, half_room(place_var(:half)), sp_op(:*, place_var(:copies), sd_int(2))))
         set_place_var(:found, -1)
         repeat(ROWS) { |i| sd_when(sd_eq(cell(:key, i.node), place_var(:key))) { set_place_var(:found, i.node) } }
         sd_when(sd_eq(place_var(:found), sd_int(-1))) { save_places_new_row }
@@ -210,11 +220,12 @@ module RubyGBA
       # the chip does not give to anything, so the power going off here costs nothing.
       def save_places_clear
         place = cell(:at, place_var(:found))
+        room = half_room(place_var(:half))
         count = sp_op(:-, place_var(:copies), place_var(:first))
         repeat(DSL::Value.new(handle, count)) do |k|
-          copy_at = sd_add(place, sp_op(:*, sd_add(place_var(:first), k.node), sp_op(:*, place_var(:half), sd_int(2))))
+          copy_at = sd_add(place, sp_op(:*, sd_add(place_var(:first), k.node), sp_op(:*, room, sd_int(2))))
           2.times do |half|
-            marker = sd_add(copy_at, sd_add(sp_op(:*, place_var(:half), sd_int(half)), sd_int(IR::SaveLayout::MARKER_AT)))
+            marker = sd_add(copy_at, sd_add(sp_op(:*, room, sd_int(half)), sd_int(IR::SaveLayout::MARKER_AT)))
             record(Build.save_write(marker, sd_int(0)))
           end
         end
@@ -224,7 +235,7 @@ module RubyGBA
       # written over before it has moved.
       def save_places_lift_above(row)
         set_place_var(:extra, sp_op(:-, place_var(:need), row_size(row)))
-        set_place_var(:limit, sd_int(IR::SaveLayout::SIZE))
+        set_place_var(:limit, sd_int(@save_memory_shape.size))
         repeat(ROWS) do
           set_place_var(:pick, -1)
           set_place_var(:low, cell(:at, row))
@@ -249,7 +260,7 @@ module RubyGBA
       # of any record, whichever comes first with nothing in the way.
       def save_places_find_room
         set_place_var(:room, -1)
-        set_place_var(:probe, IR::SaveLayout::DATA_START)
+        set_place_var(:probe, @save_memory_shape.data_start)
         sp_call(:fits)
         sd_when(sd_eq(place_var(:fits), sd_int(1))) { set_place_var(:room, place_var(:probe)) }
         repeat(ROWS) do |i|
@@ -266,7 +277,7 @@ module RubyGBA
       # the one in +skip+.
       def save_places_fits
         ends = sd_add(place_var(:probe), place_var(:need))
-        set_place_var(:fits, sp_op(:<=, ends, sd_int(IR::SaveLayout::SIZE)))
+        set_place_var(:fits, sp_op(:<=, ends, sd_int(@save_memory_shape.size)))
         repeat(ROWS) do |i|
           clear = sp_op(:|, sp_op(:<=, ends, cell(:at, i.node)), sp_op(:>=, place_var(:probe), row_end(i.node)))
           sd_when(sd_and(sd_and(row_in_use(i.node), sp_op(:!=, i.node, place_var(:skip))), sd_eq(clear, sd_int(0)))) do
@@ -291,10 +302,10 @@ module RubyGBA
       # SLIDE THE RECORDS DOWN TOGETHER, lowest first, so all the free room is one piece from
       # the cursor scratch to the end.
       def save_places_compact
-        set_place_var(:cursor, IR::SaveLayout::DATA_START)
+        set_place_var(:cursor, @save_memory_shape.data_start)
         repeat(ROWS) do
           set_place_var(:pick, -1)
-          set_place_var(:low, IR::SaveLayout::SIZE)
+          set_place_var(:low, @save_memory_shape.size)
           repeat(ROWS) do |i|
             lower = sd_and(sd_and(row_in_use(i.node), sp_op(:>=, cell(:at, i.node), place_var(:cursor))),
                            sp_op(:<, cell(:at, i.node), place_var(:low)))

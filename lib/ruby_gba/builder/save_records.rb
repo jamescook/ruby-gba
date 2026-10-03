@@ -131,6 +131,7 @@ module RubyGBA
         @save_data_settled = true
         @save_data.transform_values! { |layout| layout_with_kept(layout) }
         refuse_records_over_save_memory!
+        @save_memory_shape = IR::SaveLayout.memory(save_memory)
         declare_save_places
         declare_save_job_routines
         @save_data.each_value { |layout| declare_save_data_record(layout) }
@@ -153,7 +154,6 @@ module RubyGBA
         def routine(job) = Messages::MadeNames.make(:save_record, record: name, piece: job)
         def scratch(what) = Messages::MadeNames.make(:save_record, record: name, piece: what)
         def directory(what) = Messages::MadeNames.make(:save_directory, record: name, kept: what)
-        def region = half * 2 * copies
         def place_node = place.is_a?(Integer) ? Build.int(place) : Build.var_ref(place)
       end
 
@@ -230,7 +230,8 @@ module RubyGBA
         over = records.each_index.find do |i|
           !IR::SaveLayout.fits?(IR::SaveLayout::MEMORIES.last, records[0..i].map { |one| [one.half, one.copies] })
         end
-        sizes = records.map { |one| ":#{one.name} #{one.region}" }
+        biggest = IR::SaveLayout.memory(IR::SaveLayout::MEMORIES.last)
+        sizes = records.map { |one| ":#{one.name} #{biggest.record_room(one.half, one.copies)}" }
         raise ArgumentError, "save_data :#{records[over].name} does not fit in save memory. The biggest save " \
                              "memory a cartridge can have is #{IR::SaveLayout::MEMORIES.last}K, and the " \
                              "records need more. Each copy is kept twice, so a save cut off half way cannot " \
@@ -301,10 +302,11 @@ module RubyGBA
       def sd_read(at, width = :word) = Build.save_read(at, width: width)
       def sd_when(test, &block) = DSL::Condition.new(handle, test).then(&block)
 
-      # Where one half of copy +copy+ starts: the record's place, two halves a copy.
+      # Where one half of copy +copy+ starts: the record's place, two halves a copy, each as far
+      # from the last as the save memory gives a half (see IR::SaveLayout::Memory#room).
       def sd_half_at(layout, copy, half)
-        sd_add(layout.place_node,
-               sd_add(Build.binop(:*, copy, sd_int(layout.half * 2)), Build.binop(:*, half, sd_int(layout.half))))
+        room = @save_memory_shape.room(layout.half)
+        sd_add(layout.place_node, sd_add(Build.binop(:*, copy, sd_int(room * 2)), Build.binop(:*, half, sd_int(room))))
       end
 
       # The copy asked for is one this record has.

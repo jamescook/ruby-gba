@@ -35,6 +35,7 @@ module RubyGBA
         @save_data_peeks = {}    # a peek's stand-in → the SaveRecords::PeekSite it stands for
         @save_data_settled = false # true once the records are laid out, and nothing more can be kept
         @save_table = nil        # the table of places' own layout, made when the records are laid out
+        @save_memory_shape = nil # the IR::SaveLayout::Memory they are laid out in, picked then too
       end
 
       def records? = @save_data.any?
@@ -190,29 +191,11 @@ module RubyGBA
       # Lay the records out, now that every routine the game wrote is built (see
       # SaveRecords#lay_out_save_records), which is also when the cartridge's save memory is
       # picked. Nothing to lay out for a game with no records.
-      def lay_out_save_records
-        @saves&.lay_out_save_records
-        refuse_flash_save_memory!
-      end
+      def lay_out_save_records = @saves&.lay_out_save_records
 
       # How much save memory the cartridge has, in kilobytes: what the records picked, else what
       # the game named, else the smallest there is.
       def save_memory = @saves&.save_memory || @save_memory || IR::SaveLayout::MEMORIES.first
-
-      # 64K and 128K are flash, which the lowering cannot write.
-      def refuse_flash_save_memory!
-        return if save_memory == IR::SaveLayout::MEMORIES.first
-
-        needed = @saves&.needed_save_memory || IR::SaveLayout::MEMORIES.first
-        fix = if needed == IR::SaveLayout::MEMORIES.first
-                "leave `save_memory:` out, or ask for `save_memory: 32`."
-              else
-                "keep less in each save_data record, or use fewer copies, so that the records fit in 32K."
-              end
-        raise ArgumentError, "This game has #{save_memory}K of save memory. A cartridge with more than 32K " \
-                             "keeps its saves in flash memory, and flash is not available yet. To fix " \
-                             "this, #{fix}"
-      end
 
       def refuse_bad_save_memory!(save_memory)
         return if save_memory.nil? || IR::SaveLayout::MEMORIES.include?(save_memory)

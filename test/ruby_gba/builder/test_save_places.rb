@@ -18,8 +18,8 @@ class TestSavePlaces < Minitest::Test
   SMALL = Layout.half_bytes(4)
 
   # The game: each record keeps one variable, or, given +bytes+, a list that many bytes long.
-  private def game(records)
-    builder = Builder.new
+  private def game(records, save_memory: nil)
+    builder = Builder.new(save_memory: save_memory)
     builder.instance_eval do
       screen :tiled
       records.each do |name, spec|
@@ -42,13 +42,15 @@ class TestSavePlaces < Minitest::Test
   # Power the game declaring +records+ on, with save memory holding +rows+ (and +bytes+), and
   # say where each record now is: name => [at, copies]. +names+ are the records to recognise
   # in the table, which includes ones the game no longer declares.
-  private def placed(records, rows, bytes: {}, names: records.keys)
+  # +save_memory+ is the cartridge's, in kilobytes; nil lets the records pick.
+  private def placed(records, rows, bytes: {}, names: records.keys, save_memory: nil)
+    memory = Layout.memory(save_memory || Layout::MEMORIES.first)
     store = { bytes: bytes.dup }
-    Table.write(store[:bytes], rows)
-    Reference.new(save: store).run(game(records), frames: 1)
+    Table.write(store[:bytes], rows, memory: memory)
+    Reference.new(save: store).run(game(records, save_memory: save_memory), frames: 1)
     @store = store
     by_key = names.to_h { |name| [Layout.record_key(name), name] }
-    Table.read(store[:bytes]).to_h { |one| [by_key.fetch(one.key), [one.at, one.copies]] }
+    Table.read(store[:bytes], memory: memory).to_h { |one| [by_key.fetch(one.key), [one.at, one.copies]] }
   end
 
   # --- room nothing holds ---
@@ -139,6 +141,73 @@ class TestSavePlaces < Minitest::Test
 
     assert_equal oracle, Table.read(table).to_h { |one| [by_key.fetch(one.key), [one.at, one.copies]] }
   end
+
+  # --- flash, which is wiped 4K at a time ---
+  #
+  # The console cannot write flash yet, but where records go on it is the same program, so the
+  # interpreter runs it. Flash keeps two 4K blocks for save_var's values and two for the two
+  # halves of the table, so save data starts at 16K, and every half of a record takes whole
+  # blocks of its own.
+
+  FLASH_START = 0x4000
+  BLOCK = 0x1000
+
+  def test_on_flash_a_new_record_goes_at_the_start_of_flash_save_data
+    assert_equal({ file: [FLASH_START, 1] }, placed({ file: {} }, [], save_memory: 64))
+  end
+
+  # 64K is sixteen blocks and four are kept back, so three records of two copies — four
+  # blocks each, however small a half is — fill it exactly, the last ending at 64K. The build
+  # said they fit, and they do.
+  def test_on_flash_records_take_whole_blocks_and_fill_the_memory_to_its_end
+    records = { a: { copies: 2 }, b: { copies: 2 }, c: { copies: 2 } }
+    assert_equal({ a: [FLASH_START, 2], b: [FLASH_START + (4 * BLOCK), 2], c: [FLASH_START + (8 * BLOCK), 2] },
+                 placed(records, [], save_memory: 64))
+  end
+
+  # Four blocks free at the start, two between, two at the end, and a record that needs six:
+  # sliding the records down together leaves it its six in one piece, still on whole blocks.
+  def test_on_flash_records_slide_together_on_whole_blocks
+    rows = [row(:left, FLASH_START + (4 * BLOCK)), row(:right, FLASH_START + (8 * BLOCK))]
+    big = { bytes: 9000 } # three blocks a half
+    where = placed({ left: {}, right: {}, big: big }, rows, save_memory: 64)
+
+    assert_equal({ left: [FLASH_START, 1], right: [FLASH_START + (2 * BLOCK), 1], big: [FLASH_START + (4 * BLOCK), 1] },
+                 where)
+  end
+
+  # A save of the second copy goes in a half that starts on a block — the second copy's two
+  # blocks are the third and fourth of the record's — and it loads back at the next power-on.
+  def test_on_flash_a_save_lands_on_its_block_and_loads_back
+    store = { bytes: {} }
+    Reference.new(save: store).input_each_frame { |f| f == 2 ? [:a] : [] }.run(flash_game, frames: 12)
+    marked = [2, 3].map { |block| FLASH_START + (block * BLOCK) }.select { |at| word(store, at) == Layout::MARKER }
+
+    assert_equal 1, marked.size, "one half of the second copy holds the save, at the start of a block"
+    assert_equal 7, Reference.new(save: store).run(flash_game, frames: 2)[:hearts], "and it loads back"
+  end
+
+  # A 64K game keeping one number in two copies: A saves 7 hearts into the second copy, and
+  # power-on loads that copy.
+  private def flash_game
+    builder = Builder.new(save_memory: 64)
+    builder.instance_eval do
+      screen :tiled
+      hearts = var :hearts, 0
+      files = save_data(:file, copies: 2) { keep hearts }
+      files[1].load
+      game_loop do
+        pressed(:a).then do
+          hearts.set! 7
+          files[1].save
+        end
+      end
+    end
+    builder.finalize_program
+    builder.program
+  end
+
+  private def word(store, at) = (0...4).sum { |i| store[:bytes].fetch(at + i, 0) << (8 * i) }
 
   def test_the_records_above_are_lifted_when_one_grows_and_nothing_else_fits
     grower = { bytes: ((ROOM / 5) / 4) * 4, copies: 2 }
