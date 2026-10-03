@@ -32,7 +32,7 @@ class TestHeroExample < Minitest::Test
 
   # Start a new game, then play +frames+ more, holding what the block gives for each frame
   # of the walk (counted from 1).
-  def play(frames:, store: {}, &walk)
+  def play(frames:, store: SaveImage.new, &walk)
     Reference.new(save: store)
              .input_each_frame { |f| [1, 3].include?(f) ? [:a] : Array(f >= STARTED ? walk&.call(f - 3) : nil) }
              .run(Hero.program, frames: frames + STARTED)
@@ -155,7 +155,7 @@ class TestHeroExample < Minitest::Test
 
   # The game opens on its file screen: the hero is not out yet, and no file holds a walk.
   def test_the_game_opens_on_its_file_screen
-    run = power_on({}, frames: 3)
+    run = power_on(SaveImage.new, frames: 3)
 
     refute_equal Color.resolve(:red), run.screen.pixel(*CENTER), "the hero waits for a game to start"
     assert_equal [0, 0, 0], (0..2).map { |n| run[:"shown#{n}"] }
@@ -165,7 +165,7 @@ class TestHeroExample < Minitest::Test
   # how far that walk went; picking the file opens its menu on CONTINUE, which puts the hero back exactly
   # where the save left them — the whole of the world around them drawn the same.
   def test_a_saved_walk_continues_where_it_was_saved
-    store = {}
+    store = SaveImage.new
     saved = play(frames: 40, store: store) { |f| { 21 => :start }.fetch(f) { f <= 20 ? :right : nil } }
 
     back = power_on(store, frames: 3)
@@ -184,7 +184,7 @@ class TestHeroExample < Minitest::Test
 
   # Walking without saving is lost when the console goes off.
   def test_a_walk_that_was_not_saved_is_not_kept
-    store = {}
+    store = SaveImage.new
     play(frames: 25, store: store) { |f| f <= 20 ? :right : nil }
 
     assert_equal 0, power_on(store, frames: 3)[:shown0]
@@ -193,7 +193,7 @@ class TestHeroExample < Minitest::Test
   # ERASE, three rows down from CONTINUE in the file's menu, empties the file; the
   # next power-on finds it empty.
   def test_erase_empties_the_file
-    store = {}
+    store = SaveImage.new
     play(frames: 25, store: store) { |f| { 21 => :start }.fetch(f) { f <= 20 ? :right : nil } }
     power_on(store, frames: 12, presses: { 1 => :a, 3 => :down, 5 => :down, 7 => :down, 9 => :a })
 
@@ -202,7 +202,7 @@ class TestHeroExample < Minitest::Test
 
   # COPY TO NEXT puts file 1's walk in file 2 as well.
   def test_copy_puts_the_walk_in_the_next_file
-    store = {}
+    store = SaveImage.new
     play(frames: 25, store: store) { |f| { 21 => :start }.fetch(f) { f <= 20 ? :right : nil } }
     power_on(store, frames: 10, presses: { 1 => :a, 3 => :down, 5 => :down, 7 => :a })
 

@@ -80,7 +80,7 @@ end
 `test_helper` pulls in minitest and the library, and hands every test these
 names and helpers with nothing to declare:
 
-- `Reference` (the oracle backend), `GBA` (the ROM lowering), `Builder`, `Color`, `ROM`
+- `Reference` (the oracle backend), `SaveImage` (a cartridge's save memory, handed to `Reference.new(save:)` and the Verifier), `GBA` (the ROM lowering), `Builder`, `Color`, `ROM`
 - `EmulatorSupport` — `assert_emulator_loads_rom`, `assemble_rom`, `require_emulator!`
 
 It does that by reopening `Minitest::Test` and including them — the Minitest

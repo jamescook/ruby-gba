@@ -50,13 +50,11 @@ class TestSavePlaces < Minitest::Test
   # in the table, which includes ones the game no longer declares.
   # +save_memory+ is the cartridge's, in kilobytes; nil lets the records pick.
   private def placed(records, rows, bytes: {}, names: records.keys, save_memory: nil)
-    memory = Layout.memory(save_memory || Layout::MEMORIES.first)
-    store = { bytes: bytes.dup }
-    Table.write(store[:bytes], rows, memory: memory)
+    store = SaveImage.new(kilobytes: save_memory || Layout::MEMORIES.first, bytes: bytes).write_table(rows)
     Reference.new(save: store).run(game(records, save_memory: save_memory), frames: 1)
     @store = store
     by_key = names.to_h { |name| [Layout.record_key(name), name] }
-    Table.read(store[:bytes], memory: memory).to_h { |one| [by_key.fetch(one.key), [one.at, one.copies]] }
+    store.table.to_h { |one| [by_key.fetch(one.key), [one.at, one.copies]] }
   end
 
   # --- room nothing holds ---
@@ -117,7 +115,7 @@ class TestSavePlaces < Minitest::Test
     where = placed({ file: { copies: 2 }, next: {} }, rows, bytes: saved)
 
     assert_equal({ file: [START + (4 * SMALL), 2], next: [START + (2 * SMALL), 1] }, where)
-    moved = (0...(2 * SMALL)).map { |i| @store[:bytes][START + (4 * SMALL) + i] }
+    moved = @store.read_bytes(START + (4 * SMALL), 2 * SMALL)
     assert_equal saved.values, moved, "the copy it had came with it"
   end
 
@@ -139,15 +137,14 @@ class TestSavePlaces < Minitest::Test
     rows = [row(:left, START + third), row(:right, START + (2 * third))]
     oracle = placed(records, rows)
     rom = assemble_rom(game(records), name: "SLIDE")
-    v = assert_emulator_loads_rom(rom, frames: 12, save: Table.write({}, rows))
+    v = assert_emulator_loads_rom(rom, frames: 12, save: SaveImage.new.write_table(rows))
     table = (0...(Layout::PACKED.data_start - Layout::PACKED.table_at)).to_h do |i| # both halves of the table
       [Layout::PACKED.table_at + i, v.mem8(RubyGBA::Console::Hardware::SRAM_START + Layout::PACKED.table_at + i)]
     end
     by_key = records.keys.to_h { |name| [Layout.record_key(name), name] }
 
-    assert_equal oracle, Table.read(table).to_h { |one| [by_key.fetch(one.key), [one.at, one.copies]] }
+    assert_equal oracle, SaveImage.new(bytes: table).table.to_h { |one| [by_key.fetch(one.key), [one.at, one.copies]] }
   end
-
   # --- flash, which is wiped 4K at a time ---
   #
   # The console cannot write flash yet, but where records go on it is the same program, so the
@@ -196,9 +193,9 @@ class TestSavePlaces < Minitest::Test
   # A save of the second copy goes in a half that starts on a block — the second copy's two
   # blocks are the third and fourth of the record's — and it loads back at the next power-on.
   def test_on_flash_a_save_lands_on_its_block_and_loads_back
-    store = { bytes: {} }
+    store = SaveImage.new
     Reference.new(save: store).input_each_frame { |f| f == 2 ? [:a] : [] }.run(flash_game, frames: 12)
-    marked = [2, 3].map { |block| FLASH_START + (block * BLOCK) }.select { |at| word(store, at) == Layout::MARKER }
+    marked = [2, 3].map { |block| FLASH_START + (block * BLOCK) }.select { |at| store.word(at) == Layout::MARKER }
 
     assert_equal 1, marked.size, "one half of the second copy holds the save, at the start of a block"
     assert_equal 7, Reference.new(save: store).run(flash_game, frames: 2)[:hearts], "and it loads back"
@@ -214,7 +211,7 @@ class TestSavePlaces < Minitest::Test
     where = placed({ file: { copies: 2 }, next: {} }, rows, bytes: saved.merge(old), save_memory: 64)
 
     assert_equal({ file: [FLASH_START + (4 * BLOCK), 2], next: [FLASH_START + (2 * BLOCK), 1] }, where)
-    moved = (0...(2 * BLOCK)).map { |i| @store[:bytes].fetch(FLASH_START + (4 * BLOCK) + i, 0xFF) }
+    moved = (0...(2 * BLOCK)).map { |i| @store.read(FLASH_START + (4 * BLOCK) + i, 1) }
     assert_equal saved.values, moved, "the copy it had came with it"
   end
 
@@ -228,14 +225,14 @@ class TestSavePlaces < Minitest::Test
     where = placed({ grower: { copies: 2 }, above: above }, rows, bytes: saved, save_memory: 64)
 
     assert_equal({ grower: [FLASH_START, 2], above: [FLASH_START + (4 * BLOCK), 1] }, where)
-    moved = (0...(8 * BLOCK)).map { |i| @store[:bytes].fetch(FLASH_START + (4 * BLOCK) + i, 0xFF) }
+    moved = (0...(8 * BLOCK)).map { |i| @store.read(FLASH_START + (4 * BLOCK) + i, 1) }
     assert_equal saved.values, moved
   end
 
   # Each save goes into the older half, so the third lands where the first was — which flash
   # takes only once that half's blocks are wiped. An erase is a half written over too.
   def test_on_flash_a_copy_saved_over_and_over_loads_its_last_save
-    store = { bytes: {} }
+    store = SaveImage.new
     presses = { 2 => [:a], 6 => [:a], 10 => [:b], 14 => [:a] }
     Reference.new(save: store).input_each_frame { |f| presses.fetch(f, []) }.run(flash_game, frames: 30)
 
@@ -261,7 +258,6 @@ class TestSavePlaces < Minitest::Test
     end
   end
 
-  private def word(store, at) = (0...4).sum { |i| store[:bytes].fetch(at + i, 0) << (8 * i) }
 
   def test_the_records_above_are_lifted_when_one_grows_and_nothing_else_fits
     grower = { bytes: ((ROOM / 5) / 4) * 4, copies: 2 }

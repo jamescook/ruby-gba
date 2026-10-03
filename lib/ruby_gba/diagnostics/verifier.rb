@@ -48,10 +48,9 @@ module RubyGBA
       #   variable's value back from memory after the run.
       # @param count_passes [Boolean] count how many times round the game loop the console
       #   got, readable afterwards as {#passes}. Off by default because it is not free.
-      # @param save [Hash{Integer=>Integer}, nil] what the cartridge's save memory holds when the
-      #   console is turned on, byte by byte from its start — the same shape the interpreter's
-      #   save store keeps under :bytes, so a save one backend wrote can be handed to the other.
-      #   A byte not named holds 0xFF, as a fresh chip does. nil is a fresh chip.
+      # @param save [IR::SaveImage, nil] what the cartridge's save memory holds when the console
+      #   is turned on — the same save memory the interpreter reads and writes, so a save one
+      #   backend wrote can be handed to the other. nil is a fresh chip.
       def initialize(rom, frames: 2, keys: nil, vars: nil, count_passes: false, save: nil)
         @rom = rom
         @save = save
@@ -777,16 +776,11 @@ module RubyGBA
 
       def self.save_dir = SAVE_DIR
 
-      # How much save memory the cartridge's battery-backed chip holds.
-      SAVE_SIZE = IR::SaveLayout::SIZE
-
       # Fill the chip before the console is turned on. The emulator looks for it as a file
       # named after the ROM, in the save directory, and reads it in as the chip's contents.
       def write_save_memory
-        chip = Array.new(SAVE_SIZE, 0xFF)
-        @save.each { |at, byte| chip[at] = byte }
         path = File.join(self.class.save_dir, "#{File.basename(@tempfile.path, '.gba')}.sav")
-        File.binwrite(path, chip.pack("C*"))
+        File.binwrite(path, @save.to_sav)
       end
 
       # The picture on screen right now — the frame the run stopped on. A run told to play no

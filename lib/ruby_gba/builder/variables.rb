@@ -75,6 +75,7 @@ module RubyGBA
         refuse_conflicting_declaration!(name, default, saved: true)
         ensure_var(name)
         unless persisted?(name)
+          IR::SaveLayout.save_var_at(@persisted.length) # refuses one more than save memory holds
           @persisted << IR::SavedVar.new(name: name, default: default, slot: @persisted.length)
         end
         value_handle_for(name)

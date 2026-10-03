@@ -47,7 +47,7 @@ class TestSaveData < Minitest::Test
   end
 
   def test_a_saved_record_comes_back_after_the_power_goes_off
-    store = {}
+    store = SaveImage.new
     play(one_save, store, pressing: { 2 => :a })
     back = play(one_save, store)
 
@@ -57,7 +57,7 @@ class TestSaveData < Minitest::Test
   end
 
   def test_nothing_is_kept_until_the_game_saves
-    store = {}
+    store = SaveImage.new
     play(one_save, store, pressing: { 2 => :b })
     back = play(one_save, store)
 
@@ -66,13 +66,13 @@ class TestSaveData < Minitest::Test
   end
 
   def test_a_change_after_saving_is_not_kept
-    store = {}
+    store = SaveImage.new
     play(one_save, store, pressing: { 2 => :a, 4 => :b })
     assert_equal 7, play(one_save, store)[:hearts]
   end
 
   def test_loading_puts_back_what_was_saved
-    run = play(one_save, {}, pressing: { 2 => :a, 3 => :b, 4 => :l })
+    run = play(one_save, SaveImage.new, pressing: { 2 => :a, 3 => :b, 4 => :l })
     assert_equal 7, run[:hearts]
   end
 
@@ -141,7 +141,7 @@ class TestSaveData < Minitest::Test
   end
 
   def test_each_copy_keeps_its_own_save_and_can_be_read_without_loading
-    store = {}
+    store = SaveImage.new
     files_after(store, :a, :up, :a, :up, :a)
     back = files_after(store)
 
@@ -151,7 +151,7 @@ class TestSaveData < Minitest::Test
   end
 
   def test_loading_a_copy_picked_by_a_worked_out_number
-    store = {}
+    store = SaveImage.new
     files_after(store, :a, :up, :a)
     back = files_after(store, :up, :l)
 
@@ -160,7 +160,7 @@ class TestSaveData < Minitest::Test
   end
 
   def test_an_erased_copy_says_so_and_loads_nothing
-    store = {}
+    store = SaveImage.new
     files_after(store, :a, :up, :a, :b)
     back = files_after(store, :up, :l)
 
@@ -169,7 +169,7 @@ class TestSaveData < Minitest::Test
   end
 
   def test_one_copy_can_be_copied_over_another
-    store = {}
+    store = SaveImage.new
     files_after(store, :a, :up, :up, :r)
     back = files_after(store)
 
@@ -177,14 +177,14 @@ class TestSaveData < Minitest::Test
   end
 
   def test_reset_puts_the_kept_things_back_as_they_were_declared
-    run = files_after({}, :a, :select)
+    run = files_after(SaveImage.new, :a, :select)
 
     assert_equal 3, run[:hearts]
     assert_empty run.list(:name)
   end
 
   def test_a_copy_number_the_record_does_not_have_does_nothing
-    store = {}
+    store = SaveImage.new
     files_after(store, :down, :a)
     back = files_after(store)
 
@@ -198,15 +198,15 @@ class TestSaveData < Minitest::Test
   # that save can write, in turn: at every one, copy 0 is either the old save or the new one —
   # never damaged, never a mixture — and copy 1 is untouched.
   def test_a_save_cut_off_at_any_point_keeps_the_last_good_one
-    before = {}
+    before = SaveImage.new
     files_after(before, :a, :up, :a)
-    whole = before.merge(bytes: before[:bytes].dup)
+    whole = before.dup
     Reference.new(save: whole).input_each_frame { |f| f == 2 ? [:right] : [] }.run(three_files, frames: 4)
     assert_equal 99, files_after(whole)[:shown0], "uncut, the new save is the copy"
 
     (0..40).each do |cut|
-      store = before.merge(bytes: before[:bytes].dup)
-      Reference.new(save: store).cut_power_after_saving(cut)
+      store = before.dup
+      Reference.new(save: store.cut_power_after(cut))
                .input_each_frame { |f| f == 2 ? [:right] : [] }.run(three_files, frames: 4)
       back = files_after(store)
 
@@ -218,9 +218,9 @@ class TestSaveData < Minitest::Test
 
   # Cut after the header's first two words and four bytes of the body.
   def test_a_first_save_cut_off_half_way_is_damaged
-    store = {}
+    store = SaveImage.new
     files_after(store, :up, :up, :a)
-    Reference.new(save: store).cut_power_after_saving(12)
+    Reference.new(save: store.cut_power_after(12))
              .input_each_frame { |f| f == 2 ? [:a] : [] }.run(three_files, frames: 4)
     back = files_after(store)
 
@@ -229,7 +229,7 @@ class TestSaveData < Minitest::Test
 
   def test_the_console_keeps_three_copies_the_way_the_interpreter_does
     buttons = %i[a up a up a down b up r select]
-    store = {}
+    store = SaveImage.new
     oracle = files_after(store, *buttons)
     keys = { a: KEY_A, b: KEY_B, up: KEY_UP, down: KEY_DOWN, r: KEY_R, select: KEY_SELECT }
     schedule = presses(*buttons).transform_values { |button| keys.fetch(button) }
@@ -240,14 +240,14 @@ class TestSaveData < Minitest::Test
     %i[shown0 shown1 shown2 state0 state1 state2 hearts].each do |name|
       assert_equal oracle[name], v.var(name), name.to_s
     end
-    written = store[:bytes].keys.sort
-    assert_equal written.map { |at| store[:bytes][at] }, written.map { |at| v.mem8(SRAM_START + at) }
+    written = store.written.keys.sort
+    assert_equal written.map { |at| store.read(at, 1) }, written.map { |at| v.mem8(SRAM_START + at) }
   end
 
   # A FILE-SELECT SCREEN SHOWS EACH FILE'S NAME, which is a list: read it item by item from the
   # copy, with the game's own list left alone.
   def test_a_kept_list_can_be_read_from_a_copy_without_loading_it
-    store = {}
+    store = SaveImage.new
     files_after(store, :up, :a) # copy 1 holds the name [1]
     program = built do
       screen :tiled
@@ -296,7 +296,7 @@ class TestSaveData < Minitest::Test
   ROLLING = %i[up up up a b up up l b].freeze
 
   def test_a_load_puts_the_random_numbers_back_on_both_backends
-    oracle = play(rolling_after_a_load, {}, pressing: presses(*ROLLING), frames: (ROLLING.length * 2) + 4)
+    oracle = play(rolling_after_a_load, SaveImage.new, pressing: presses(*ROLLING), frames: (ROLLING.length * 2) + 4)
     refute_equal 0, oracle[:first]
     assert_equal oracle[:first], oracle[:rolled], "the roll after the load is the roll after the save"
 
@@ -310,7 +310,7 @@ class TestSaveData < Minitest::Test
 
   # A new game is not a replay: putting the kept things back leaves the numbers rolling on.
   def test_a_reset_leaves_the_random_numbers_rolling_on
-    run = play(rolling_after_a_load, {}, pressing: presses(:b, :select, :b), frames: 10)
+    run = play(rolling_after_a_load, SaveImage.new, pressing: presses(:b, :select, :b), frames: 10)
     refute_equal run[:first], run[:rolled]
   end
 
@@ -356,7 +356,7 @@ class TestSaveData < Minitest::Test
   end
 
   private def guards_after(*buttons, keeping: :pool)
-    play(guards_saved(keeping: keeping), {}, pressing: presses(*buttons), frames: (buttons.length * 2) + 6)
+    play(guards_saved(keeping: keeping), SaveImage.new, pressing: presses(*buttons), frames: (buttons.length * 2) + 6)
   end
 
   private def guards_of(run) = [run.pool(:guard, :x), run.pool(:guard, :hp), run[:guard_count]]
@@ -424,8 +424,8 @@ class TestSaveData < Minitest::Test
   end
 
   def test_a_load_puts_back_which_way_each_pooled_thing_faces
-    undisturbed = play(facing_guards, {}, pressing: presses(:a), frames: 11)
-    loaded = play(facing_guards, {}, pressing: presses(:a, :b, :l), frames: 11)
+    undisturbed = play(facing_guards, SaveImage.new, pressing: presses(:a), frames: 11)
+    loaded = play(facing_guards, SaveImage.new, pressing: presses(:a, :b, :l), frames: 11)
 
     assert_equal undisturbed.sprites(:guard).map(&:picture), loaded.sprites(:guard).map(&:picture)
     assert_equal :l1, loaded.sprites(:guard).first.picture
@@ -497,7 +497,7 @@ class TestSaveData < Minitest::Test
   end
 
   def test_a_record_declared_before_what_it_keeps_saves_loads_and_peeks
-    store = {}
+    store = SaveImage.new
     screen_first_after(store, :a, :up, :a)
     back = screen_first_after(store)
 
@@ -512,19 +512,19 @@ class TestSaveData < Minitest::Test
   end
 
   def test_a_record_declared_before_what_it_keeps_erases_copies_and_resets
-    store = {}
+    store = SaveImage.new
     screen_first_after(store, :a, :up, :up, :r, :down, :b)
     back = screen_first_after(store)
 
     assert_equal [10, 0, 10], (0..2).map { |n| back[:"shown#{n}"] }
     assert_equal [2, 1, 2], (0..2).map { |n| back[:"state#{n}"] }
-    assert_equal 3, screen_first_after({}, :a, :select)[:hearts]
+    assert_equal 3, screen_first_after(SaveImage.new, :a, :select)[:hearts]
   end
 
   # Keeping the same things in the same order, a record filled in later is the same record as
   # one written with a block — so saves made by either build load in the other.
   def test_a_record_filled_in_later_reads_saves_the_block_form_made
-    store = {}
+    store = SaveImage.new
     files_after(store, :a, :up, :a)
     back = screen_first_after(store)
 
@@ -533,7 +533,7 @@ class TestSaveData < Minitest::Test
 
   def test_the_console_runs_a_record_declared_before_what_it_keeps
     buttons = %i[a up a up up r down b]
-    oracle = screen_first_after({}, *buttons)
+    oracle = screen_first_after(SaveImage.new, *buttons)
     keys = { a: KEY_A, b: KEY_B, up: KEY_UP, down: KEY_DOWN, r: KEY_R }
     schedule = presses(*buttons).transform_values { |button| keys.fetch(button) }
     rom = assemble_rom(file_screen_first, name: "FILESFIRST")
@@ -548,7 +548,7 @@ class TestSaveData < Minitest::Test
   # A SAVE SAYS WHETHER IT WORKED. `saving?` holds from the moment one is asked for until it is
   # written, and then `failed?` holds when what was written did not read back.
   def test_a_save_says_it_worked
-    run = files_after({}, :a)
+    run = files_after(SaveImage.new, :a)
     outcome = built do
       screen :tiled
       hearts = var :hearts, 3
@@ -563,7 +563,7 @@ class TestSaveData < Minitest::Test
         files.failed?.then { worked.set! 2 }.else { worked.set! 1 }
       end
     end
-    after = play(outcome, {})
+    after = play(outcome, SaveImage.new)
 
     assert_equal [1, 0, 1], [after[:busy_at_first], after[:busy], after[:worked]]
     assert_equal 10, run[:hearts]
@@ -600,7 +600,7 @@ class TestSaveData < Minitest::Test
   end
 
   def test_three_full_size_files_and_settings_on_both_backends
-    store = {}
+    store = SaveImage.new
     play(full_size, store, pressing: { 2 => :a, 4 => :b, 6 => :l }, frames: 16)
     back = play(full_size, store, pressing: { 2 => :l }, frames: 4)
     assert_equal 3, back[:speed], "the settings record is kept apart from the files"
@@ -637,7 +637,7 @@ class TestSaveData < Minitest::Test
   end
 
   def test_a_big_save_runs_over_several_passes_while_the_game_goes_on
-    store = {}
+    store = SaveImage.new
     run = play(a_big_save, store, pressing: { 2 => :a }, frames: 30)
     assert_includes 3..10, run[:saving_passes], "the save spreads over a handful of passes"
 
@@ -670,7 +670,7 @@ class TestSaveData < Minitest::Test
   end
 
   def test_a_save_holds_the_moment_it_was_asked_for
-    store = {}
+    store = SaveImage.new
     run = play(changes_while_saving, store, pressing: { 2 => :a }, frames: 20)
     assert_operator run[:hearts], :<, 12, "the game went on changing things while it saved"
 
@@ -695,14 +695,14 @@ class TestSaveData < Minitest::Test
         end
       end
     end
-    assert_equal 12, play(program, {}, pressing: { 2 => :a })[:seen]
+    assert_equal 12, play(program, SaveImage.new, pressing: { 2 => :a })[:seen]
   end
 
   # THE POWER GOING OFF BETWEEN TWO PASSES OF A SAVE. A big save of 99 over a good save of 12
   # is cut after every so many bytes, across the passes it is written over: each time, the next
   # power-on finds the copy either as it was or as it was saved — never damaged, never a mix.
   def test_a_save_cut_off_between_passes_keeps_the_last_good_one
-    before = {}
+    before = SaveImage.new
     play(changes_while_saving, before, pressing: { 2 => :a }, frames: 20)
     resave = built do
       screen :bitmap
@@ -718,8 +718,8 @@ class TestSaveData < Minitest::Test
       end
     end
     (0..1300).step(37) do |cut|
-      store = before.merge(bytes: before[:bytes].dup)
-      Reference.new(save: store).cut_power_after_saving(cut)
+      store = before.dup
+      Reference.new(save: store.cut_power_after(cut))
                .input_each_frame { |f| f == 2 ? [:a] : [] }.run(resave, frames: 20)
       back = play(changes_while_saving, store, frames: 2)
 
@@ -752,7 +752,7 @@ class TestSaveData < Minitest::Test
   end
 
   private def after_two_saves(when_busy)
-    store = {}
+    store = SaveImage.new
     run = play(two_saves(when_busy), store, pressing: { 2 => :a }, frames: 30)
     [run, play(two_saves(when_busy), store, frames: 2)]
   end
@@ -788,8 +788,8 @@ class TestSaveData < Minitest::Test
         (files.finished? & files.saving?).then { overlap.set! 1 }
       end
     end
-    once = play(program, {}, pressing: { 2 => :a }, frames: 20)
-    twice = play(program, {}, pressing: { 2 => :b }, frames: 30)
+    once = play(program, SaveImage.new, pressing: { 2 => :a }, frames: 20)
+    twice = play(program, SaveImage.new, pressing: { 2 => :b }, frames: 30)
 
     assert_equal [1, 0], [once[:finished_passes], once[:overlap]]
     assert_equal 2, twice[:finished_passes], "each of two jobs says so when it is written"
@@ -840,7 +840,7 @@ class TestSaveData < Minitest::Test
   end
 
   private def saved_by_the_first_build
-    {}.tap { |store| play(version, store, pressing: { 2 => :a }, frames: 12) }
+    SaveImage.new.tap { |store| play(version, store, pressing: { 2 => :a }, frames: 12) }
   end
 
   def test_a_record_keeps_its_saves_when_one_declared_before_it_grows
@@ -872,7 +872,7 @@ class TestSaveData < Minitest::Test
   # A copy one build dropped is gone: a later build that has that copy again finds it empty,
   # not holding what was saved there before it was dropped.
   def test_a_copy_given_back_after_it_was_dropped_is_empty
-    store = {}
+    store = SaveImage.new
     play(version(copies: 3), store, pressing: { 2 => :a }, frames: 12)
     play(version(copies: 2), store)
     back = play(version(copies: 3), store)
@@ -883,7 +883,7 @@ class TestSaveData < Minitest::Test
   # A record that takes over another's room does not find that record's saves in it: here the
   # renamed record keeps the same things, so an old save left there would pass every check.
   def test_room_a_dropped_record_leaves_holds_nothing_for_the_next
-    store = {}
+    store = SaveImage.new
     play(journal_kept_as(:journal), store, pressing: { 2 => :a }, frames: 12)
     back = play(journal_kept_as(:diary), store)
 
@@ -919,8 +919,8 @@ class TestSaveData < Minitest::Test
     before = saved_by_the_first_build
     bigger = version(copies: 4)
     (0..400).step(3) do |cut|
-      store = before.merge(bytes: before[:bytes].dup)
-      Reference.new(save: store).cut_power_after_saving(cut).run(bigger, frames: 2)
+      store = before.dup
+      Reference.new(save: store.cut_power_after(cut)).run(bigger, frames: 2)
       back = play(bigger, store)
 
       assert_equal [42, 43, 7], [back[:shown0], back[:shown1], back[:kept_speed]], "cut after #{cut} bytes"
@@ -931,7 +931,7 @@ class TestSaveData < Minitest::Test
   # gives it up: here the first build's journal takes most of save memory, and the second
   # build's atlas fits only in the room the journal leaves.
   def test_a_record_no_longer_declared_gives_its_room_to_a_new_one
-    store = {}
+    store = SaveImage.new
     play(version(order: %i[settings journal file], extra: { journal: 12_000 }), store, pressing: { 2 => :a }, frames: 12)
     back = play(version(order: %i[settings file atlas], extra: { atlas: 12_000 }), store)
 
@@ -941,7 +941,7 @@ class TestSaveData < Minitest::Test
   # Room that is free in two pieces, neither big enough on its own: the records that stay are
   # moved together to make one piece, and keep their saves.
   def test_records_are_moved_together_when_the_free_room_is_in_pieces
-    store = {}
+    store = SaveImage.new
     first = version(order: %i[settings north file south], extra: { north: 5000, south: 5000 })
     play(first, store, pressing: { 2 => :a }, frames: 12)
     back = play(version(order: %i[settings file atlas], extra: { atlas: 10_000 }), store)
@@ -954,7 +954,7 @@ class TestSaveData < Minitest::Test
   def test_the_console_finds_a_record_that_kept_its_place
     store = saved_by_the_first_build
     rom = assemble_rom(version(settings: %i[speed volume], copies: 4), name: "MOVED")
-    v = assert_emulator_loads_rom(rom, frames: 4, save: store[:bytes], vars: rom.var_addresses)
+    v = assert_emulator_loads_rom(rom, frames: 4, save: store, vars: rom.var_addresses)
 
     assert_equal [42, 43, 0, 0], (0..3).map { |n| v.var(:"shown#{n}") }
   end
@@ -968,9 +968,9 @@ class TestSaveData < Minitest::Test
     first = version(order: %i[settings north file south], extra: { north: 5000, south: 5000 })
     [version(order: %i[file settings]),
      version(order: %i[settings file atlas], extra: { atlas: 10_000 })].each_with_index do |second, n|
-      store = {}
+      store = SaveImage.new
       play(first, store, pressing: { 2 => :a }, frames: 12)
-      before = store[:bytes].dup
+      before = store.dup
       oracle = play(second, store)
       rom = assemble_rom(second, name: "SLIDE#{n}")
       v = assert_emulator_loads_rom(rom, frames: 12, save: before, vars: rom.var_addresses)
@@ -978,8 +978,8 @@ class TestSaveData < Minitest::Test
 
       assert_equal [42, 43, 7], shown.map { |name| v.var(name) }
       assert_equal shown.map { |name| oracle[name] }, shown.map { |name| v.var(name) }
-      written = store[:bytes].keys.sort
-      assert_equal written.map { |at| store[:bytes][at] }, written.map { |at| v.mem8(SRAM_START + at) }
+      written = store.written.keys.sort
+      assert_equal written.map { |at| store.read(at, 1) }, written.map { |at| v.mem8(SRAM_START + at) }
     end
   end
 
@@ -1010,7 +1010,7 @@ class TestSaveData < Minitest::Test
   end
 
   def test_records_named_like_the_framework_keep_their_own_saves
-    store = {}
+    store = SaveImage.new
     play(records_named_like_the_framework, store, pressing: { 2 => :a }, frames: 12)
     back = play(records_named_like_the_framework, store)
 
@@ -1018,10 +1018,10 @@ class TestSaveData < Minitest::Test
   end
 
   def test_the_console_keeps_records_named_like_the_framework_apart
-    store = {}
+    store = SaveImage.new
     play(records_named_like_the_framework, store, pressing: { 2 => :a }, frames: 12)
     rom = assemble_rom(records_named_like_the_framework, name: "NAMES")
-    v = assert_emulator_loads_rom(rom, frames: 4, save: store[:bytes], vars: rom.var_addresses)
+    v = assert_emulator_loads_rom(rom, frames: 4, save: store, vars: rom.var_addresses)
 
     assert_equal [10, 11, 12, 13, 14], NAMED_LIKE_THE_FRAMEWORK.map { |name| v.var(:"kept_#{name}") }
   end
@@ -1056,25 +1056,21 @@ class TestSaveData < Minitest::Test
   # slots — 4 + 4 + 6 bytes.
   HEADER_AND_BODY_BODY = 14
 
-  private def word(store, at) = (0...4).sum { |i| store[:bytes].fetch(at + i, 0) << (8 * i) }
-
   # Where the first half holding a marker starts, at or after +from+.
   private def half_with_marker(store, from)
-    (from...(Layout::START + Layout::SIZE)).step(4).find { |at| word(store, at) == Layout::MARKER } or
+    (from...(Layout::START + Layout::SIZE)).step(4).find { |at| store.word(at) == Layout::MARKER } or
       flunk("no half with the marker after #{from}")
   end
 
-  private def saved_bytes(store, at, count) = (0...count).map { |i| store[:bytes].fetch(at + i, 0) }
-
   def test_a_saved_half_holds_its_header_and_body_where_the_layout_says
-    store = {}
+    store = SaveImage.new
     play(header_and_body, store, pressing: { 2 => :a }, frames: 12)
     half = half_with_marker(store, Layout::PACKED.data_start)
-    body = saved_bytes(store, half + Layout::HEADER, HEADER_AND_BODY_BODY)
+    body = store.read_bytes(half + Layout::HEADER, HEADER_AND_BODY_BODY)
 
-    assert_equal 1, word(store, half + Layout::SEQUENCE_AT), "the first save of a copy"
-    assert_equal Layout::SAVED, word(store, half + Layout::KIND_AT)
-    assert_equal Layout.checksum(body) & 0xFFFF_FFFF, word(store, half + Layout::CHECKSUM_AT)
+    assert_equal 1, store.word(half + Layout::SEQUENCE_AT), "the first save of a copy"
+    assert_equal Layout::SAVED, store.word(half + Layout::KIND_AT)
+    assert_equal Layout.checksum(body), store.word(half + Layout::CHECKSUM_AT)
     assert_equal [7, 0, 0, 0], body[0, 4], "the hearts, first, as a word"
     assert_equal [2, 0, 0, 0], body[4, 4], "then the list's length"
     assert_equal [300 & 0xFF, 300 >> 8, 0xFE, 0xFF], body[8, 4], "then its items, a half-word each"
@@ -1083,35 +1079,36 @@ class TestSaveData < Minitest::Test
   # The table of places is written the other way — whole, at power-on — and holds to the
   # same header.
   def test_the_table_of_places_holds_the_same_header
-    store = {}
+    store = SaveImage.new
     play(header_and_body, store)
     table = Layout::PACKED.table_at
     body_bytes = Layout::TABLE_COLUMNS.length * (4 + (Layout::TABLE_ROWS * 4))
 
-    assert_equal Layout::MARKER, word(store, table)
-    assert_equal Layout::SAVED, word(store, table + Layout::KIND_AT)
-    assert_equal Layout.checksum(saved_bytes(store, table + Layout::HEADER, body_bytes)) & 0xFFFF_FFFF,
-                 word(store, table + Layout::CHECKSUM_AT)
+    assert_equal Layout::MARKER, store.word(table)
+    assert_equal Layout::SAVED, store.word(table + Layout::KIND_AT)
+    assert_equal Layout.checksum(store.read_bytes(table + Layout::HEADER, body_bytes)),
+                 store.word(table + Layout::CHECKSUM_AT)
   end
 
   # THE ORDER, read off a power cut at each step: the marker and the shape first, then the body,
   # then the sequence and the kind, and the checksum last of all — so until that last word is
   # in, the half cannot pass for good.
   def test_a_save_is_written_marker_first_and_checksum_last
-    fresh = {}
+    fresh = SaveImage.new
     play(header_and_body, fresh) # the table of places is written at the first power-on
     steps = { 8 => :opened, 8 + HEADER_AND_BODY_BODY => :body, 8 + HEADER_AND_BODY_BODY + 8 => :stamped }
     steps.each do |cut, step|
-      store = Marshal.load(Marshal.dump(fresh))
-      Reference.new(save: store).cut_power_after_saving(cut)
+      store = fresh.dup
+      Reference.new(save: store.cut_power_after(cut))
                .input_each_frame { |f| f == 2 ? [:a] : [] }.run(header_and_body, frames: 12)
       half = half_with_marker(store, Layout::PACKED.data_start)
-      body = saved_bytes(store, half + Layout::HEADER, HEADER_AND_BODY_BODY)
+      body = store.read_bytes(half + Layout::HEADER, HEADER_AND_BODY_BODY)
 
-      refute_equal 0, word(store, half + Layout::SHAPE_AT), "#{step}: the shape goes in with the marker"
-      assert_equal step == :opened ? [0, 0, 0, 0] : [7, 0, 0, 0], body[0, 4], "#{step}: the body"
-      assert_equal step == :stamped ? 1 : 0, word(store, half + Layout::SEQUENCE_AT), "#{step}: the sequence"
-      assert_equal 0, word(store, half + Layout::CHECKSUM_AT), "#{step}: no checksum yet"
+      refute_equal 0, store.word(half + Layout::SHAPE_AT), "#{step}: the shape goes in with the marker"
+      # A word not written yet is four bytes of 0xFF, which is what a fresh chip holds.
+      assert_equal step == :opened ? [0xFF] * 4 : [7, 0, 0, 0], body[0, 4], "#{step}: the body"
+      assert_equal step == :stamped ? 1 : -1, store.word(half + Layout::SEQUENCE_AT), "#{step}: the sequence"
+      assert_equal(-1, store.word(half + Layout::CHECKSUM_AT), "#{step}: no checksum yet")
     end
   end
 
@@ -1225,15 +1222,15 @@ class TestSaveData < Minitest::Test
   # The two lay save memory out byte for byte alike, which is what lets a test that cuts the
   # power on the interpreter speak for the console.
   def test_the_console_writes_the_same_bytes_as_the_interpreter
-    store = {}
+    store = SaveImage.new
     play(one_save, store, pressing: { 2 => :a })
     rom = assemble_rom(one_save, name: "RECBYTES")
     v = assert_emulator_loads_rom(rom, frames: 3, keys: ->(f) { f == 2 ? KEY_A : 0 })
     v.step(2)
 
-    written = store[:bytes].keys.sort
+    written = store.written.keys.sort
     refute_empty written
     console = written.map { |at| v.mem8(SRAM_START + at) }
-    assert_equal written.map { |at| store[:bytes][at] }, console
+    assert_equal written.map { |at| store.read(at, 1) }, console
   end
 end

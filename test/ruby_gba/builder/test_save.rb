@@ -44,7 +44,7 @@ class TestSave < Minitest::Test
   # --- Reference interpreter: a power cycle is two runs sharing one save store ---
 
   def test_a_saved_value_comes_back_on_the_next_boot
-    store = {}
+    store = SaveImage.new
     Reference.new(save: store).run(build(&KEEPER), frames: 3)
 
     reborn = Reference.new(save: store).run(build(&READER), frames: 1)
@@ -52,21 +52,32 @@ class TestSave < Minitest::Test
   end
 
   def test_a_fresh_cartridge_starts_from_the_default
-    fresh = Reference.new(save: {}).run(build(&READER), frames: 1)
+    fresh = Reference.new(save: SaveImage.new).run(build(&READER), frames: 1)
     assert_equal 0, fresh[:high_score], "with nothing saved, a save_var starts from its default"
   end
 
   def test_changing_a_saved_variable_writes_it_through_immediately
-    store = {}
+    store = SaveImage.new
     Reference.new(save: store).run(build(&KEEPER), frames: 3)
-    assert_equal 7, store[0], "the new high score is mirrored to its save slot"
-    assert_equal SAVE_MAGIC, store[:magic], "the marker is stamped so the next boot trusts the data"
+    assert_equal 7, store.word(4), "the new high score is mirrored to its save slot, where the console keeps it"
+    assert_equal SAVE_MAGIC, store.word(0), "the marker is stamped so the next boot trusts the data"
   end
 
   def test_the_default_is_only_ever_a_whole_number
     b = RubyGBA::Builder.new
     err = assert_raises(ArgumentError) { b.save_var(:hp, "lots") }
     assert_match(/whole number/, err.message)
+  end
+
+  # save_var's block of save memory ends where save_data's table of places begins, so one
+  # more would overwrite every save file. Refused where it is declared, for both backends.
+  def test_one_save_var_more_than_its_block_holds_is_refused
+    b = RubyGBA::Builder.new
+    1023.times { |i| b.save_var(:"kept#{i}", 0) }
+    err = assert_raises(ArgumentError) { b.save_var(:one_too_many, 0) }
+
+    assert_match(/1024 save_var/, err.message)
+    assert_match(/save_data/, err.message)
   end
 
   # --- Console (the emulator): the game writes real SRAM, read straight back ---

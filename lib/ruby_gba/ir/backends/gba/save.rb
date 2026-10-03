@@ -27,9 +27,6 @@ module RubyGBA
         class Save
           include Console::Hardware
 
-          # The 4-byte header (the marker) that sits before the saved values.
-          SAVE_HEADER_BYTES = 4
-
           # The string a flashcart / emulator scans the ROM for to decide there IS a
           # save chip and map it in. Without it, writes to SRAM go nowhere. The trailing
           # digits are a version the detector ignores; padded to a word so it stays aligned.
@@ -64,11 +61,6 @@ module RubyGBA
             )
           end
 
-          # The byte offset of a variable's 4-byte slot within save memory.
-          def save_slot_offset(slot)
-            SAVE_HEADER_BYTES + (slot * 4)
-          end
-
           # Boot: load the persisted variables, or seed a fresh cartridge with the
           # defaults. Written without a branch — one compare of the stored marker sets
           # the flags, then each variable is filled with either its saved value or its
@@ -82,11 +74,11 @@ module RubyGBA
 
             @emitter.emit(ASM.load_immediate(base, SRAM_START))
             @emitter.emit(ASM.load_immediate(marker, Int32.wrap(node.magic)))
-            emit_load_sram_word(stored, base, 0, scratch: 2) # the marker actually in save memory
+            emit_load_sram_word(stored, base, IR::SaveLayout::SAVE_VAR_MARKER_AT, scratch: 2) # the marker actually in save memory
             @emitter.emit(ASM.cmp_reg(stored, marker))       # equal? -> the save is real
 
             node.vars.each do |var|
-              offset = save_slot_offset(var.slot)
+              offset = IR::SaveLayout.save_var_at(var.slot)
               emit_load_sram_word(saved, base, offset, scratch: 2)
               @emitter.emit(ASM.mov_reg_cond(:eq, ACC, saved))       # real save -> take the saved value
               @emitter.emit(ASM.load_immediate(3, Int32.wrap(var.default)))
@@ -95,13 +87,13 @@ module RubyGBA
               emit_store_word_to_sram(ACC, base, offset, scratch: 3) # and back to save memory
             end
 
-            emit_store_word_to_sram(marker, base, 0, scratch: 3) # stamp the marker so next boot loads
+            emit_store_word_to_sram(marker, base, IR::SaveLayout::SAVE_VAR_MARKER_AT, scratch: 3) # stamp the marker so next boot loads
           end
 
           # Mirror one variable's current value back to its save slot — emitted right
           # after the variable changes, so the save always matches what the player sees.
           def emit_save_store(node)
-            offset = save_slot_offset(node.slot)
+            offset = IR::SaveLayout.save_var_at(node.slot)
             @primitives.load_var(ACC, node.var)
             @emitter.emit(ASM.load_immediate(TMP, SRAM_START + offset)) # the slot's address
             @emitter.emit(ASM.strb(ACC, TMP))                           # low byte

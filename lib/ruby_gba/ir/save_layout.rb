@@ -43,6 +43,29 @@ module RubyGBA
       # that places save data asks a Memory (below), which knows flash starts elsewhere.
       START = 0x1000
 
+      # HOW `save_var` KEEPS ITS NUMBERS in that first block: the game's marker in the first
+      # word, then a word a variable in the order they were declared. A block of 4K holds the
+      # marker and 1023 of them, and that is a limit rather than a starting point: one more
+      # would land on the table of places, and every save file would go with it.
+      SAVE_VARS = (START / 4) - 1
+
+      # Where save_var's marker is kept.
+      SAVE_VAR_MARKER_AT = 0
+
+      # Where the number of the save_var in +slot+ (counting from 0) is kept. A slot past
+      # what the block holds is refused here, which is where both backends and the builder ask.
+      def save_var_at(slot)
+        raise ArgumentError, too_many_save_vars_message(slot + 1) if slot >= SAVE_VARS
+
+        SAVE_VAR_MARKER_AT + 4 + (slot * 4)
+      end
+
+      # Why a game with +count+ save_vars cannot be built.
+      def too_many_save_vars_message(count)
+        "This game has #{count} save_var variables. Save memory holds #{SAVE_VARS} of them. To fix " \
+          "this, keep the rest in a save_data record, which can hold lists and many more numbers."
+      end
+
       # The 32K memory's size.
       SIZE = 0x8000
 
@@ -177,10 +200,9 @@ module RubyGBA
         Int32.wrap(Zlib.crc32(items.map { |kind, name, width, count| [kind, name, width, count].join(":") }.join(";")))
       end
 
-      # THE TABLE OF PLACES AS BYTES, in plain Ruby: what an earlier build left in save memory,
-      # written or read without running a game. The build writes the table through the same
-      # routines a record uses; this is the same layout said directly, for a test that wants to
-      # start a game from a table it chose and see where each record ended up.
+      # THE TABLE OF PLACES' OWN FACTS. The build writes the table through the same routines a
+      # record uses; SaveImage#write_table and SaveImage#table say the same layout directly, for
+      # a test that wants to start a game from a table it chose and see where each record went.
       module Table
         # One row: the record's key (see SaveLayout.record_key), where it starts, how many
         # bytes one half of a copy takes, and how many copies it has.
@@ -194,44 +216,6 @@ module RubyGBA
             [:list, Messages::MadeNames.make(:save_table, column: column), :word, TABLE_ROWS]
           end)
         end
-
-        # Write +rows+ (at most TABLE_ROWS) into +bytes+ — a save store's bytes, address to
-        # byte — as a good first half with sequence +sequence+, where +memory+ keeps its table.
-        def write(bytes, rows, sequence: 1, memory: PACKED)
-          words = TABLE_COLUMNS.flat_map do |column|
-            values = rows.map { |row| row.public_send(column) }
-            [TABLE_ROWS, *values, *Array.new(TABLE_ROWS - values.size, 0)]
-          end
-          body = words.flat_map { |word| le_bytes(word) }
-          header = [MARKER, shape, sequence, SAVED, SaveLayout.checksum(body)]
-          (header.flat_map { |word| le_bytes(word) } + body).each_with_index { |byte, i| bytes[memory.table_at + i] = byte }
-          bytes
-        end
-
-        # The rows in use in the table +bytes+ hold, read from its newer good half, or nil when
-        # neither half is good.
-        def read(bytes, memory: PACKED)
-          second = memory.table_at + memory.room(SaveLayout.half_bytes(TABLE_BODY))
-          halves = [memory.table_at, second].filter_map do |at|
-            body = (0...TABLE_BODY).map { |i| bytes.fetch(at + HEADER + i, 0) }
-            good = signed_word_at(bytes, at + MARKER_AT) == MARKER && signed_word_at(bytes, at + SHAPE_AT) == shape &&
-                   signed_word_at(bytes, at + CHECKSUM_AT) == SaveLayout.checksum(body)
-            [signed_word_at(bytes, at + SEQUENCE_AT), body] if good
-          end
-          _, body = halves.max_by(&:first)
-          return nil unless body
-
-          columns = TABLE_COLUMNS.each_with_index.to_h do |column, c|
-            start = c * (4 + (TABLE_ROWS * 4))
-            [column, (0...TABLE_ROWS).map { |r| Int32.wrap(unsigned_word_at(body, start + 4 + (r * 4))) }]
-          end
-          (0...TABLE_ROWS).map { |r| Row.new(**columns.transform_values { |values| values[r] }) }
-                          .reject { |row| row.key.zero? }
-        end
-
-        def le_bytes(word) = (0...4).map { |i| (word >> (8 * i)) & 0xFF }
-        def unsigned_word_at(bytes, at) = (0...4).sum { |i| bytes.fetch(at + i) << (8 * i) }
-        def signed_word_at(bytes, at) = Int32.wrap((0...4).sum { |i| bytes.fetch(at + i, 0) << (8 * i) })
       end
     end
   end

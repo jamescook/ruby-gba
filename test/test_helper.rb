@@ -27,6 +27,7 @@ require_relative "../lib/ruby_gba"
 # `Color` at the printer's palette that way).
 module SharedConstants
   Reference = RubyGBA::IR::Backends::Reference # the oracle: runs a program in-process
+  SaveImage = RubyGBA::IR::SaveImage           # a cartridge's save memory, which outlives a run
   GBA = RubyGBA::IR::Backends::GBA             # the lowering: turns a program into a ROM
   Builder = RubyGBA::Builder                   # the DSL surface
   Color = RubyGBA::Graphics::Color

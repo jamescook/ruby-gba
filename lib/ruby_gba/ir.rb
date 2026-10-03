@@ -11,6 +11,7 @@ require_relative "ir/font_table" # which font a name means to one program
 require_relative "ir/assets" # what a declared image or recording is, for every backend
 require_relative "ir/saved_var" # ...and what a variable that survives power-off is
 require_relative "ir/save_layout" # ...and where save data lives in save memory
+require_relative "ir/save_image" # ...and that memory held in Ruby, laid out the same way
 require_relative "ir/tile_map" # how big a grid a background scrolls over, for every backend
 require_relative "ir/build"
 require_relative "ir/parity"

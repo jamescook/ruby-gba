@@ -141,13 +141,17 @@ module RubyGBA
           rows.select { |row| row.name == name }
         end
 
-        # +save+ is the cartridge's save memory — an external store that outlives the
-        # interpreter, so passing the SAME object to two Reference.new(...).run calls models
+        # +save+ is the cartridge's save memory (an IR::SaveImage) — it outlives the
+        # interpreter, so passing the SAME one to two Reference.new(...).run calls models
         # a power cycle (the second boot sees what the first one saved). Defaults to a
-        # fresh, empty store: a brand-new cartridge, and untouched by programs that
-        # persist nothing.
-        def initialize(save: {})
-          @save = save             # persisted variables, by slot; @save[:magic] marks it written
+        # fresh one: a brand-new cartridge, and untouched by programs that persist nothing.
+        def initialize(save: SaveImage.new)
+          unless save.is_a?(SaveImage)
+            raise ArgumentError, "save: must be a RubyGBA::IR::SaveImage. To make an empty save memory, " \
+                                 "write RubyGBA::IR::SaveImage.new."
+          end
+
+          @save = save
           @vars = Hash.new(0)      # variable store; an unwritten variable reads as 0
           @funcs = {}              # name -> :func node
           @screen = Framebuffer.new # the fake bitmap screen the draw ops write into
@@ -238,7 +242,7 @@ module RubyGBA
           @over_budget = false
           @uses_frames = false # set once the program reaches its first vblank (advance_frame)
           collect_definitions(node)
-          @save_memory = SaveLayout.memory_of(node)
+          @save.use_memory!(SaveLayout.memory_of(node))
           refuse_too_many_layers!(node)
           refuse_too_many_sprites!(node)
           refuse_two_see_through_layers!(node)
@@ -268,6 +272,8 @@ module RubyGBA
           @screen.held = node.walk.any? { |child| child.kind == :wait_vblank }
           catch(:halt) { exec(node) }
           self
+        ensure
+          @save.restore_power # a cut is for one run, so the next run turns the console on again
         end
 
         # The picture, painted up to date first if a repaint is owed (see #request_repaint).
@@ -339,15 +345,6 @@ module RubyGBA
         # and end inside one slow pass. Returns self.
         def input_each_frame(&block)
           @input_script = block
-          self
-        end
-
-        # TURN THE POWER OFF part way through a save: once this run has written +bytes+ bytes
-        # of save data, it stops where it stands, with whatever it had written kept and nothing
-        # after. Handing the same save store to another run is then turning the console on
-        # again. Returns self.
-        def cut_power_after_saving(bytes)
-          @power_left = bytes
           self
         end
 
@@ -2200,93 +2197,64 @@ module RubyGBA
           transparent.nil? || color != transparent
         end
 
-        # --- backing store (save the pixels under a moving object, then put them back) ---
+        # --- save memory (see IR::SaveImage, laid out as IR::SaveLayout says) ---
 
-        # Copy the buffer-sized screen patch at (x, y) into the named backing buffer.
-        # An off-screen cell reads as nil (there's nothing out there to remember);
-        # restore skips those, so a patch hanging off an edge round-trips cleanly.
-        # Boot-load the persisted variables from the save store. When the store
-        # already carries this program's marker, each variable takes its saved value;
-        # otherwise (a fresh cartridge) each takes its default, and the defaults plus
-        # the marker are written so the next boot loads them. Mirrors the GBA lowering.
+        SAVE_WIDTHS = { byte: 1, half: 2, word: 4 }.freeze
+
+        # Boot-load the persisted variables from save memory. When it already carries this
+        # program's marker, each variable takes its saved value; otherwise (a fresh
+        # cartridge) each takes its default. Either way each is written back and the marker
+        # after them, which is what the console's branchless boot does — so the two write the
+        # same bytes in the same order, and a power cut lands on the same one.
         def exec_save_init(node)
-          if @save[:magic] == node.magic
-            node.vars.each { |v| @vars[v.name] = Int32.wrap(@save[v.slot]) }
-          else
-            node.vars.each do |v|
-              value = Int32.wrap(v.default)
-              @vars[v.name] = value
-              @save[v.slot] = value
-            end
-            @save[:magic] = node.magic
+          saved = @save.word(SaveLayout::SAVE_VAR_MARKER_AT) == Int32.wrap(node.magic)
+          node.vars.each do |v|
+            at = SaveLayout.save_var_at(v.slot)
+            value = saved ? @save.word(at) : Int32.wrap(v.default)
+            @vars[v.name] = value
+            write_save(at, value, SAVE_WIDTHS[:word])
           end
+          write_save(SaveLayout::SAVE_VAR_MARKER_AT, node.magic, SAVE_WIDTHS[:word])
         end
 
         # Mirror one persisted variable's current value into its save slot.
         def exec_save_store(node)
-          @save[node.slot] = @vars[node.var]
+          write_save(SaveLayout.save_var_at(node.slot), @vars[node.var], 4)
         end
-
-        # --- save memory as bytes, for save data (see IR::SaveLayout) ---
-        #
-        # The store a test hands in keeps them under :bytes, one entry per byte written, so
-        # the same store given to a second run is the same cartridge powered on again. A byte
-        # nothing ever wrote reads as 0xFF, which is what a fresh chip holds.
-
-        SAVE_WIDTHS = { byte: 1, half: 2, word: 4 }.freeze
-        FRESH_BYTE = 0xFF
-
-        def save_bytes = (@save[:bytes] ||= {})
 
         def exec_save_write(node)
-          at = eval_value(node.at)
-          value = eval_value(node.value)
-          SAVE_WIDTHS.fetch(node.width).times do |i|
-            throw(:halt) if @power_left&.zero? # the power went off before this byte
-            @power_left -= 1 if @power_left
-            byte = (value >> (8 * i)) & 0xFF
-            refuse_write_needing_wipe!(at + i, byte) if @save_memory.flash?
-            save_bytes[at + i] = byte
-          end
+          write_save(eval_value(node.at), eval_value(node.value), SAVE_WIDTHS.fetch(node.width))
         end
 
-        # Flash can only turn bits OFF in a write; turning one back on takes wiping its whole
-        # block first. The chip would quietly keep the bits both bytes have, which is a damaged
-        # save nobody sees until it is loaded, so the interpreter stops the program instead.
-        def refuse_write_needing_wipe!(at, byte)
-          held = save_bytes.fetch(at, FRESH_BYTE)
-          return if (byte & ~held).zero?
-
-          raise ProgramError, format("The program wrote 0x%<byte>02X to flash save memory at 0x%<at>X, which " \
-                                     "holds 0x%<held>02X. Flash cannot take that byte there. Before the " \
-                                     "program writes over a block of flash, it must wipe the block.",
-                                     at: at, held: held, byte: byte)
-        end
-
-        # Wipe the block holding +at+. Memory that takes any byte has no blocks to wipe, and
-        # nothing is wiped once the power has gone off.
         def exec_save_erase(node)
-          return unless @save_memory.flash?
-          throw(:halt) if @power_left&.zero?
-
-          block = @save_memory.block
-          start = (eval_value(node.at) / block) * block
-          (start...(start + block)).each { |byte| save_bytes.delete(byte) }
+          @save.wipe_block(eval_value(node.at))
+        rescue SaveImage::PowerOff
+          throw(:halt)
         end
 
         def value_of_save_read(node)
           at = eval_value(node.at)
           width = SAVE_WIDTHS.fetch(node.width)
-          raw = width.times.sum { |i| save_bytes.fetch(at + i, FRESH_BYTE) << (8 * i) }
-          width == 4 ? Int32.wrap(raw) : raw
+          width == 4 ? @save.word(at) : @save.read(at, width)
         end
 
-        def value_of_save_sum(node)
-          at = eval_value(node.at)
-          length = eval_value(node.length)
-          SaveLayout.checksum(length.times.map { |i| save_bytes.fetch(at + i, FRESH_BYTE) })
+        def value_of_save_sum(node) = @save.checksum(eval_value(node.at), eval_value(node.length))
+
+        # Write to save memory. The power going off stops the program where it stands, and a
+        # write flash cannot take stops it with the reason.
+        def write_save(at, value, width)
+          @save.write(at, value, width)
+        rescue SaveImage::PowerOff
+          throw(:halt)
+        rescue SaveImage::FlashRefused => e
+          raise ProgramError, e.message
         end
 
+        # --- backing store (save the pixels under a moving object, then put them back) ---
+
+        # Copy the buffer-sized screen patch at (x, y) into the named backing buffer.
+        # An off-screen cell reads as nil (there's nothing out there to remember);
+        # restore skips those, so a patch hanging off an edge round-trips cleanly.
         def exec_save_region(node)
           buf = backing_for(node.buffer)
           x = eval_value(node.x)
