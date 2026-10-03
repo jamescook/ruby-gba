@@ -24,6 +24,8 @@ class TestMadeNames < Minitest::Test
     see_through_amounts: { layer: :rays },
     tile_run_tile: { run: :box, number: 3 },
     tile_run_pending: { run: :box },
+    canvas_part: { canvas: :box, part: :pixel },
+    canvas_font: { font: :tiny, part: :rows },
   }.freeze
 
   def test_every_kind_of_name_is_in_the_samples

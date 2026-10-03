@@ -82,6 +82,12 @@ module RubyGBA
         tile_run_tile: Kind.new(spelling: "__tile_run_%{run}__%{number}", parts: { run: ANY, number: "\\d+" },
                                 words: nil),
         tile_run_pending: Kind.new(spelling: "__tile_run_pending_%{run}", parts: { run: ANY }, words: nil),
+        canvas_part: Kind.new(spelling: "__canvas_%{canvas}__%{part}", parts: { canvas: ANY, part: PLAIN },
+                              words: lambda do |parts|
+                                "painting a pixel of canvas :#{parts[:canvas]}" if parts[:part] == "pixel"
+                              end),
+        canvas_font: Kind.new(spelling: "__letters_%{font}__%{part}", parts: { font: ANY, part: PLAIN },
+                              words: nil),
         see_through_amounts: Kind.new(spelling: "__see_through_%{layer}", parts: { layer: ANY },
                                       words: ->(parts) { "telling the display how see-through layer :#{parts[:layer]} is" }),
       }.then { |kinds| Ractor.make_shareable(kinds) }

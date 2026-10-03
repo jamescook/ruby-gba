@@ -147,7 +147,7 @@ module RubyGBA
       end
 
       def refuse_tile_run_list_unfit!(name, list, count, what: "tiles")
-        made = @program.walk.find { |node| node.kind == :list_new && node.name == list.name }
+        made = (@program.walk.to_a + @boot_inits).find { |node| node.kind == :list_new && node.name == list.name }
         unless made&.width == :byte
           raise ArgumentError, "#{what} :#{name} gets its pixels from list :#{list.name}, which must hold bytes. " \
                                "To fix this, declare it with `width: :byte`."
