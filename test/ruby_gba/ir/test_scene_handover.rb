@@ -31,11 +31,54 @@ class TestSceneHandover < Minitest::Test
     b.program
   end
 
-  private def plan = Handover.of(Stacking.picture(program))
+  private def plan = Handover.of(program)
+
+  # A scene that paints: tiles on its own background, and a sprite whose picture is painted
+  # from a list. A second scene with nothing of its own.
+  private def painting_program
+    tile = SOLID_TILE
+    b = Builder.new
+    b.instance_eval do
+      screen :tiled
+      colors :ink, %i[transparent white]
+      image(:art, "#" => :red) { tile }
+      canvas = list :canvas, capacity: 64, width: :byte
+      words = list :words, capacity: 64, width: :byte
+      tiles :set, "#" => :art
+      background :sky, tiles: :set, map: Array.new(20) { "#" * 30 }
+      scene :talk do
+        tiles :box, from: canvas, count: 2, colors: :ink
+        background :box, tiles: :box, map: [[1, 2]]
+        image :tag, from: words, width: 16, height: 8, colors: :ink
+        sprite :tag, at: [0, 0]
+      end
+      scene(:walk) { nil }
+      var :state, 0
+      game_loop { case_var(:state) { when_val 0, :talk; when_val 1, :walk } }
+    end
+    b.finalize_program
+    b.program
+  end
+
+  def test_a_scene_arrives_with_its_scenery_and_what_it_paints_from_lists
+    talk = Handover.of(painting_program).arrival(:_scene_talk)
+    assert_equal %i[box], talk.scenery.map(&:name)
+    assert_equal %i[box], talk.painted_tiles.map(&:name), "the box's tiles go up from their list"
+    assert_equal %i[tag], talk.painted_pictures.map(&:picture), "the tag goes up from its list"
+  end
+
+  def test_a_scene_with_nothing_of_its_own_takes_down_the_last_scenes
+    walk = Handover.of(painting_program).arrival(:_scene_walk)
+    assert_empty walk.scenery
+    assert_empty walk.painted_tiles
+    assert_empty walk.painted_pictures
+    assert walk.takes_down_scenery?, "another scene's scenery is not left marked as up"
+    assert walk.takes_down_art?, "another scene's painted picture is not left marked as up"
+  end
 
   def test_a_scene_puts_up_its_own_scenery_in_the_order_the_stack_draws_it
-    assert_equal %i[wall card], plan.arriving(:_scene_menu).map(&:name)
-    assert_empty plan.arriving(:_scene_walk), "a scene with no scenery of its own puts none up"
+    assert_equal %i[wall card], plan.arrival(:_scene_menu).scenery.map(&:name)
+    assert_empty plan.arrival(:_scene_walk).scenery, "a scene with no scenery of its own puts none up"
   end
 
   def test_what_shows_while_a_scene_runs_is_its_own_scenery_and_what_every_screen_shows
@@ -50,8 +93,8 @@ class TestSceneHandover < Minitest::Test
   end
 
   def test_the_map_a_scene_shows_goes_back_to_its_first_as_it_arrives
-    refute_empty plan.map_choices_to_reset(:_scene_menu), "the wall has two maps, so which one is showing is put back"
-    assert_empty plan.map_choices_to_reset(:_scene_walk)
+    refute_empty plan.arrival(:_scene_menu).map_choices, "the wall has two maps, so which one is showing is put back"
+    assert_empty plan.arrival(:_scene_walk).map_choices
   end
 
   # Three kinds of screen, and handing over from one kind to another replaces the whole

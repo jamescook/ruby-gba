@@ -37,18 +37,50 @@ module RubyGBA
       # the same kind share a display; two kinds cannot.
       DISPLAYS = { bitmap: :painted, tiled: :tiles, rotozoom: :turning }.freeze
 
-      def self.of(picture) = new(picture)
+      # WHAT ONE SCENE PUTS UP AS IT TAKES OVER, as plain data, for a backend to carry out.
+      #
+      # +screen+ is the `screen` the scene declares, or nil for one that draws on the screen it
+      # was reached on: the display changes first, since changing its kind wipes whatever was
+      # put up before it. +scenery+ is its own backgrounds, in the order the stack draws them;
+      # +map_choices+ the variables saying which map each shows, put back to the first;
+      # +painted_tiles+ the runs of tiles that scenery shows, and +painted_pictures+ the
+      # pictures its sprites show, each copied in from its list. The last two flags are for a
+      # scene with none of its own: the last scene's scenery or painted pictures still come
+      # down, and a backend that only keeps note of whose are up has to be told.
+      Arrival = Data.define(:scene, :screen, :scenery, :map_choices, :painted_tiles, :painted_pictures,
+                            :takes_down_scenery, :takes_down_art) do
+        def takes_down_scenery? = takes_down_scenery
+        def takes_down_art? = takes_down_art
+      end
+
+      def self.of(program) = new(program)
 
       # Whether handing over from a scene on the +from+ screen to one on the +to+ screen
       # replaces the whole display. The first screen a game puts up replaces nothing.
       def self.crossing?(from, to) = !from.nil? && DISPLAYS.fetch(from) != DISPLAYS.fetch(to)
 
-      def initialize(picture)
+      def initialize(program)
+        picture = Stacking.picture(program)
         @scenery = picture.scenery
+        @objects = picture.objects
+        @tile_runs, @picture_runs = program.walk.select { |node| node.kind == :tile_run }.partition { |run| run.picture.nil? }
+        @funcs = program.children.select { |node| node.kind == :func }.to_h { |func| [func.name, func] }
+        @arrivals = {}
       end
 
-      # The backgrounds +scene+ puts up as it takes over, in the order the stack draws them.
-      def arriving(scene) = @scenery.select { |node| node.scene && node.scene == scene }
+      # The plan for +scene+ taking over.
+      def arrival(scene)
+        @arrivals[scene] ||= begin
+          scenery = @scenery.select { |node| node.scene && node.scene == scene }
+          pictures = painted_pictures_of(scene)
+          Arrival.new(scene: scene, screen: @funcs[scene]&.children&.find { |node| node.kind == :screen },
+                      scenery: scenery, map_choices: scenery.flat_map(&:choice),
+                      painted_tiles: @tile_runs.select { |run| scenery.any? { |bg| bg.tiles.intersect?(run.tiles) } },
+                      painted_pictures: pictures,
+                      takes_down_scenery: scenery.empty? && @scenery.any?(&:scene),
+                      takes_down_art: pictures.empty? && @objects.any? { |obj| obj.scene && painted?(obj) })
+        end
+      end
 
       # The scenery on screen while +scene+ runs: what every screen shows, and its own.
       def showing(scene) = @scenery.select { |node| node.scene.nil? || node.scene == scene }
@@ -56,9 +88,15 @@ module RubyGBA
       # Whether +background+ goes up as its scene takes over, rather than where it is written.
       def on_arrival?(background) = !background.scene.nil?
 
-      # The variables that say which map a background is showing, put back to its first as
-      # +scene+ takes over.
-      def map_choices_to_reset(scene) = arriving(scene).flat_map(&:choice)
+      private
+
+      # The painted pictures a sprite of +scene+ shows in any of its poses.
+      def painted_pictures_of(scene)
+        poses = @objects.select { |obj| obj.scene && obj.scene == scene }.flat_map(&:poses)
+        @picture_runs.select { |run| poses.include?(run.picture) }
+      end
+
+      def painted?(obj) = @picture_runs.any? { |run| obj.poses.include?(run.picture) }
     end
   end
 end

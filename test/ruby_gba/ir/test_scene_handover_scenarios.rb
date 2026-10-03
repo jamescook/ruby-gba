@@ -62,6 +62,9 @@ class TestSceneHandoverScenarios < Minitest::Test
   BITMAP_BACK = 9
   LOOK_IN_BITMAP = 7
   LOOK_BACK_FROM_BITMAP = 13
+  # ...and the one that then leaves the tiled scene for a bare one on LEAVE_AFTER_BITMAP.
+  LEAVE_AFTER_BITMAP = 12
+  LOOK_AFTER_LEAVING = 15
 
   SCENARIOS = [
     Scenario.new(name: :door_open_while_the_room_is_up, program: :door_opened_then_a_bare_scene,
@@ -87,6 +90,10 @@ class TestSceneHandoverScenarios < Minitest::Test
     Scenario.new(name: :scenery_back_after_a_bitmap_screen, program: :scenery_then_a_bitmap_screen,
                  frames: LOOK_BACK_FROM_BITMAP, probe: [0, 0], color: :red,
                  console_frames: LOOK_BACK_FROM_BITMAP + 1),
+    Scenario.new(name: :scenery_back_after_a_bitmap_screen_goes_with_its_scene,
+                 program: :scenery_across_a_bitmap_screen_then_a_bare_scene,
+                 frames: LOOK_AFTER_LEAVING, probe: [0, 0], color: BACKDROP,
+                 console_frames: LOOK_AFTER_LEAVING + 1),
     Scenario.new(name: :sprite_art_back_after_a_bitmap_screen, program: :sprite_then_a_bitmap_screen,
                  frames: LOOK_BACK_FROM_BITMAP, probe: [120, 80], color: :red,
                  console_frames: LOOK_BACK_FROM_BITMAP + 1,
@@ -194,8 +201,8 @@ class TestSceneHandoverScenarios < Minitest::Test
 
     # A tiled scene that hands over to a bitmap screen — all blue — on frame BITMAP_AWAY and takes
     # over again on frame BITMAP_BACK. +tiled+ is what the tiled scene declares; the block runs
-    # every frame with the frame count.
-    def across_a_bitmap_screen(tiled: -> {})
+    # every frame with the frame count. +third+ names a scene run while :state is 2.
+    def across_a_bitmap_screen(tiled: -> {}, third: nil)
       state = var :state, 0
       tick = var :tick, 0
       scene(:tiled_screen) do
@@ -213,6 +220,7 @@ class TestSceneHandoverScenarios < Minitest::Test
         case_var(:state) do
           when_val 0, :tiled_screen
           when_val 1, :bitmap_screen
+          when_val 2, third if third
         end
       end
     end
@@ -302,6 +310,21 @@ class TestSceneHandoverScenarios < Minitest::Test
       red_and_blue_art
       tiles :set, "#" => :red_art
       across_a_bitmap_screen(tiled: -> { background :field, tiles: :set, map: Array.new(20) { "#" * 30 } })
+    end
+  end
+
+  # The same, and then on to a tiled scene with nothing of its own: the scenery that came back
+  # after the bitmap screen goes again with its scene.
+  private def scenery_across_a_bitmap_screen_then_a_bare_scene
+    built do
+      screen :tiled
+      red_and_blue_art
+      tiles :set, "#" => :red_art
+      scene(:walk) { nil }
+      across_a_bitmap_screen(tiled: -> { background :field, tiles: :set, map: Array.new(20) { "#" * 30 } },
+                             third: :walk) do |tick|
+        (tick == LEAVE_AFTER_BITMAP).then { set! :state, 2 }
+      end
     end
   end
 

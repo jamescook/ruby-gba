@@ -251,17 +251,6 @@ module RubyGBA
             emit_copy_painted_run(node.name, run)
           end
 
-          # The copy for every run +background+ shows, as its scene takes over: the scene
-          # before used the same memory, so the list is the only place the pixels still are
-          # (see IR::SceneHandover).
-          def emit_copy_tiles_shown_by(background)
-            @layout.painted_vram.each do |name, run|
-              emit_copy_painted_run(name, run) if background.tiles.include?(painted_first_tile(name))
-            end
-          end
-
-          def painted_first_tile(name) = Messages::MadeNames.make(:tile_run_tile, run: name, number: 1)
-
           def emit_copy_painted_run(name, run)
             list = @lists.list_info(run.list)
             if list[:ring]

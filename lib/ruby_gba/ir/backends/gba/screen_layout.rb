@@ -205,6 +205,7 @@ module RubyGBA
             # ...and each picture a sprite shows that is painted the same way, by its name.
             @painted_pictures = runs.select(&:picture).to_h { |run| [run.picture, run] }
             @painted_vram = {}
+            @handover = IR::SceneHandover.of(program) # what each scene puts up as it takes over
             @see_through = IR::SeeThrough.layers(program).map(&:name) # the layers a sprite blends in
             if Modes.draws_with_tiles?(program)
               check_stack_depth_fits!
@@ -228,19 +229,7 @@ module RubyGBA
           end
 
           attr_reader :picture, :screenfuls # how the picture stacks, whole and one screen at a time
-
-          # Does a sprite that belongs to a scene show a painted picture?
-          def painted_sprites_in_any_scene?
-            !@picture.nil? && @picture.objects.any? { |node| node.scene && painted_sprite?(node) }
-          end
-
-          # The runs whose painted picture a sprite of +scene+ shows, by run name.
-          def painted_sprites_of_scene(scene)
-            return [] if @picture.nil?
-
-            @picture.objects.select { |node| node.scene == scene && painted_sprite?(node) }
-                    .map { |node| @painted_pictures.fetch(node.poses.first).name }.uniq
-          end
+          attr_reader :handover # what each scene puts up as it takes over (see IR::SceneHandover)
           attr_reader :backgrounds, :hardware_layers, :scene_layers, :bg_shared, :vram,
                       :objects, :obj_pictures, :sprite_art, :scene_art, :placed_fade,
                       :obj_palette_blob, :obj_palette_units, :blobs, :codecs,

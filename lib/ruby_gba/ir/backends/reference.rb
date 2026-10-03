@@ -173,7 +173,7 @@ module RubyGBA
           @bg_nodes = []           # :background nodes, in order (the static scene under the objects)
           @bg_by_name = {}         # name -> :background node (for scrolling that background's window)
           @scene_fb = nil          # the settled scene (backdrop + backgrounds), built once, to restore under objects
-          @bg_scene = nil          # whose scenery is on screen: the scene that last drew one (see #restamp_scenery_for)
+          @scene = nil             # the scene that last took over (see #take_over)
           @obj_prev = {}           # object name -> [x, y] it was last drawn at (to erase before redrawing)
           @drawn = []              # ...and what this frame put on screen: which picture, where, whose
           @repaints = false        # must the whole view be rebuilt every frame? (decided in collect_definitions)
@@ -248,7 +248,7 @@ module RubyGBA
           # ends up over it — so the whole view is rebuilt each frame instead, the same
           # way a scrolling scene is.
           @picture = IR::Stacking.picture(node)
-          @handover = IR::SceneHandover.of(@picture)
+          @handover = IR::SceneHandover.of(node)
           # Which part of the display each fade in this program uses. Settled here rather
           # than asked per fade, because the answer is about the whole program (see
           # IR::Fading) and a fade walked over frames runs on every one of them.
@@ -1012,25 +1012,7 @@ module RubyGBA
 
         def call_func(name)
           func = @funcs[name] || raise(ProgramError, "call to undefined func #{name.inspect}")
-          take_over_painted_sprites(name) if name.start_with?("_scene_")
           func.children.each { |child| exec(child) }
-        end
-
-        # A SCENE TAKING OVER PUTS ITS SPRITES' PAINTED PICTURES UP FROM THEIR LISTS, as they
-        # are at that moment (see IR::SceneHandover) — the console's memory under them was the
-        # last scene's. Only on the frame the scene changes; staying in it changes nothing.
-        def take_over_painted_sprites(scene)
-          return if scene == @live_scene
-
-          @live_scene = scene
-          painted = @tile_runs.each_value.select(&:picture)
-          return if painted.empty?
-
-          @objects.each_value do |obj|
-            next unless obj.scene == scene
-
-            painted.each { |run| copy_run_tiles(run) if obj.poses.include?(run.picture) }
-          end
         end
 
         # Advance one timer by a frame's worth of overflows, and run its on_tick handler
@@ -1097,20 +1079,31 @@ module RubyGBA
           node.clauses.each do |clause_value, target|
             next unless value == clause_value
 
-            switch_scenery_to(target)
+            take_over(target)
             call_func(target)
           end
         end
 
-        # A SCENE TAKES THE SCREEN AS IT STARTS, whether or not it has scenery of its own —
-        # the console tells the display which layers are up as each scene takes over. Waiting
-        # for the new scene's first background to say so left the scene before's scenery up
-        # over a scene that has none: a file screen's backdrop over the game it handed to.
-        def switch_scenery_to(scene)
-          return if scene == @bg_scene || @bg_shown.none?(&:scene)
+        # A SCENE TAKES THE SCREEN AS IT STARTS, by carrying out its plan (see
+        # IR::SceneHandover): its screen first, since changing the kind of screen wipes what
+        # was up; then the last scene's scenery down, whether or not this one has scenery of
+        # its own (waiting for its first background to say so left a file screen's backdrop up
+        # over the game it handed to); then its own scenery up as declared, and what it paints
+        # from lists copied in as the lists are now. Only on the frame the scene changes;
+        # staying in it changes nothing.
+        def take_over(scene)
+          return if scene == @scene
 
-          paint_owed_repaint
-          restamp_scenery_for(scene)
+          @scene = scene
+          arrival = @handover.arrival(scene)
+          exec_screen(arrival.screen) if arrival.screen
+          if @bg_shown.any?(&:scene) || arrival.scenery.any?
+            paint_owed_repaint
+            take_down_scenery
+          end
+          arrival.map_choices.each { |var| @vars[var] = 0 }
+          (arrival.painted_tiles + arrival.painted_pictures).each { |run| copy_run_tiles(run) }
+          arrival.scenery.each { |bg| put_up_background(bg) }
         end
 
         # The routine at position +which+ of the list. A number below 0 or past the end names
@@ -1132,24 +1125,18 @@ module RubyGBA
         # composites stacked layers: the backmost paints first, and each layer in front
         # only covers where it has solid pixels, letting the layers behind fill its gaps.
         def exec_background(node)
-          # Reached every frame its scene runs, and nearly always already up — which changes
+          # A scene's own scenery goes up as the scene takes over, and as declared (see
+          # #take_over). Its statement is reached every frame the scene runs and changes
           # nothing, so an owed repaint can go on being owed (see #defers_repaint?).
-          arrives = @handover.on_arrival?(node)
-          already_up = arrives && node.scene == @bg_scene && @bg_shown.include?(node)
-          paint_owed_repaint unless already_up
-          restamp_scenery_for(node.scene)
+          return if @handover.on_arrival?(node)
 
-          # A scene's own scenery goes up once, as the scene takes over, and as declared (see
-          # IR::SceneHandover). Its statement is reached every frame the scene runs; once it
-          # is up, that changes nothing until the scene hands over or the display is wiped.
-          return if arrives && @bg_shown.include?(node)
+          paint_owed_repaint
+          put_up_background(node)
+        end
 
-          if arrives
-            @bg_maps.delete(node.name)
-            node.choice.each { |var| @vars[var] = 0 }
-            @tile_runs.each_value { |run| copy_run_tiles(run) if node.tiles.intersect?(run.tiles) }
-          end
-
+        # Stamp +node+ onto the picture, in its place in the stack.
+        def put_up_background(node)
+          @bg_maps.delete(node.name) if @handover.on_arrival?(node)
           # A layer can put this background BEHIND one that is already on screen, and a
           # stamp only covers where it has solid pixels — so painting it now would leave
           # it in front. Painting the ones it belongs behind back over it settles the
@@ -1174,12 +1161,9 @@ module RubyGBA
 
         # A SCENE'S SCENERY REPLACES THE SCENE BEFORE'S, rather than being drawn over it (see
         # IR::SceneHandover). A painted screen has no layers to switch off, so the picture
-        # goes back to the backdrop and the scenery every screen shows, and this scene's own
-        # is stamped from there.
-        def restamp_scenery_for(scene)
-          return if scene.nil? || scene == @bg_scene
-
-          @bg_scene = scene
+        # goes back to the backdrop and the scenery every screen shows, and the next scene's
+        # own is stamped from there.
+        def take_down_scenery
           kept = @bg_shown.reject { |bg| @handover.on_arrival?(bg) }
           return if kept.length == @bg_shown.length
 
@@ -1194,7 +1178,6 @@ module RubyGBA
         # rather than taken as still standing.
         def reset_scenery_state
           @bg_shown = []
-          @bg_scene = nil
           @scene_fb = nil
         end
 
@@ -1202,7 +1185,7 @@ module RubyGBA
         # own. The three places that paint the picture all read this rather than the whole
         # program's, so none of them can draw a scene that is not running.
         def showing_scenery
-          @handover.showing(@bg_scene)
+          @handover.showing(@scene)
         end
 
         # PUT A DIFFERENT TILE IN ONE CELL. The map a background was declared with is the

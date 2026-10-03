@@ -80,8 +80,7 @@ module RubyGBA
             def scene_screens = screen.scene_screens
             def scene_tiles = screen.scene_tiles
             def painted_vram = screen.painted_vram
-            def painted_sprites_of_scene(scene) = screen.painted_sprites_of_scene(scene)
-            def painted_sprites_in_any_scene? = screen.painted_sprites_in_any_scene?
+            def handover = screen.handover
             def scene_obj_palettes = screen.scene_obj_palettes
             def picture = screen.picture
 
@@ -378,17 +377,15 @@ module RubyGBA
           # staying in a scene costs one compare a frame, changing scene costs the setup.
           # A game whose scenery belongs to no scene emits none of this.
           def emit_scene_scenery(name)
-            arriving = scene_handover.arriving(name)
+            arrival = scene_handover.arrival(name)
             # A SCENE WITH NO SCENERY OF ITS OWN STILL TAKES THE LAST ONE'S DOWN, so it says
             # nobody's is up. Without this, a scene that comes back after one with no
             # scenery found its own marked as still up and skipped putting it up again —
             # keeping the cells and painted tiles of the last visit, where the scene rules
             # say it goes up as declared (see IR::SceneHandover). It is one store a frame,
             # and only in a game where some scene has scenery of its own.
-            if arriving.empty?
-              if @layout.picture.scenery.any?(&:scene)
-                @primitives.store_word_immediate(0, @primitives.var_addr(SCENE_SCENERY_STATE))
-              end
+            if arrival.scenery.empty?
+              @primitives.store_word_immediate(0, @primitives.var_addr(SCENE_SCENERY_STATE)) if arrival.takes_down_scenery?
               return
             end
 
@@ -396,12 +393,12 @@ module RubyGBA
               emit_with_bg_layers_disabled(name) do
                 tiles = @layout.scene_tiles[name]
                 @uploads.emit_dma_blob(tiles.blob, VRAM_START + tiles.offset, tiles.units) if tiles
-                arriving.each { |node| @background_drawing.emit_background_hardware(node) }
-                arriving.each { |node| @background_drawing.emit_copy_tiles_shown_by(node) }
+                arrival.scenery.each { |node| @background_drawing.emit_background_hardware(node) }
+                arrival.painted_tiles.each { |run| @background_drawing.emit_copy_tiles(Build.copy_tiles(run.name)) }
               end
               # The maps just sent are the first ones declared, so what says which map is
               # showing goes back to the first as well (see IR::SceneHandover).
-              scene_handover.map_choices_to_reset(name).each { |var| @primitives.store_word_immediate(0, @primitives.var_addr(var)) }
+              arrival.map_choices.each { |var| @primitives.store_word_immediate(0, @primitives.var_addr(var)) }
             end
           end
 
@@ -439,7 +436,7 @@ module RubyGBA
           end
 
           # What a scene does to the screen as it takes over, said once for both backends.
-          def scene_handover = IR::SceneHandover.of(@layout.picture)
+          def scene_handover = @layout.handover
 
           # Which scene's scenery is up, counting from 1 so that 0 means "none yet" — which
           # is what boot writes, since the console makes no promise about its memory at
@@ -526,13 +523,14 @@ module RubyGBA
             sending = @layout.scene_art[name] || []
             rooms = @layout.objects.each_value.select { |obj| obj.scene == name && obj.frames }
             colors = @layout.scene_obj_palettes[name]
-            painted = @layout.painted_sprites_of_scene(name)
+            arrival = @layout.handover.arrival(name)
+            painted = arrival.painted_pictures
             if sending.empty? && rooms.empty? && colors.nil? && painted.empty?
               # A scene with no sprite art of its own normally leaves the last scene's marked as
               # loaded, which is right: nothing overwrote it. A painted picture is the exception,
               # since its list can change while its scene is away and it goes up from the list
               # as it is then — so in a game with one, this scene says nobody's is loaded.
-              if @layout.scene_art.any? && @layout.painted_sprites_in_any_scene?
+              if @layout.scene_art.any? && arrival.takes_down_art?
                 @primitives.store_word_immediate(0, @primitives.var_addr(SCENE_ART_STATE))
               end
               return
@@ -546,7 +544,7 @@ module RubyGBA
               @sprite_drawing.emit_reset_resident_frames(rooms)
               # A picture the game paints goes up from its list as it is now: the scene before
               # used the same memory (see IR::SceneHandover).
-              painted.each { |run_name| @background_drawing.emit_copy_tiles(Build.copy_tiles(run_name)) }
+              painted.each { |run| @background_drawing.emit_copy_tiles(Build.copy_tiles(run.name)) }
             end
           end
 
