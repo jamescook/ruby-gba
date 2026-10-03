@@ -52,6 +52,10 @@ module RubyGBA
     # +sound_drops+ is where it counts the sounds it could NOT play, for the same reason and with
     # the same catch: they are hidden variables, so only the build knows their addresses (see
     # IR::Backends::GBA::Mixer::DropTable). nil where nothing plays and nothing can be lost.
+    # +video_copies+ is every copy into video memory the game makes while it runs — tiles it
+    # paints, a map handed to a background, a sprite's next frame — each with where the
+    # instruction that starts it runs from and how many bytes it moves. That instruction runs
+    # once per copy, so a profile counts the copies without anything added to the cartridge.
     # +sprite_slots+ is which of the console's 128 places each declared sprite was given — one
     # each for most, several in a row for a picture too big to draw in one go. The console's own
     # table says which place a sprite is in and nothing more, so without this nothing can get
@@ -76,10 +80,12 @@ module RubyGBA
                                     :palette_entries, :column_stretches, :compression,
                                     :build_options, :findings, :emitted, :routines, :video_memory,
                                     :roomy_memory, :timer_handlers, :voices, :sound_drops,
-                                    :sprite_slots, :sprite_offsets, :streamed_sprite_pose_vars)
+                                    :sprite_slots, :sprite_offsets, :streamed_sprite_pose_vars,
+                                    :video_copies)
       def initialize(findings: [], emitted: nil, routines: {}, video_memory: nil,
                      roomy_memory: nil, timer_handlers: {}, voices: nil, sound_drops: nil,
-                     sprite_slots: {}, sprite_offsets: {}, streamed_sprite_pose_vars: {}, **rest)
+                     sprite_slots: {}, sprite_offsets: {}, streamed_sprite_pose_vars: {},
+                     video_copies: [], **rest)
         super
       end
 

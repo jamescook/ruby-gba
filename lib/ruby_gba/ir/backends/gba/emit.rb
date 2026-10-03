@@ -52,8 +52,14 @@ module RubyGBA
           # picks one by number. It has no +pos+ in the code at all.
           BlobWord = Data.define(:kind, :blob, :offset, :target)
 
+          # A COPY INTO VIDEO MEMORY THE GAME MAKES WHILE IT RUNS: where the instruction that
+          # starts it sits in the code, what the profile calls it, and how many bytes it moves.
+          # Each runs once per copy, so the profile's count of that instruction is the number
+          # of copies (see Profiler.video_copies_in).
+          VideoCopy = Data.define(:at, :source, :bytes)
+
           attr_reader :code, :labels, :fixups, :data_blobs, :data_positions, :address_register,
-                      :list_register
+                      :list_register, :video_copies
 
           # How many jumps have been emitted so far. Counted here because this is where a
           # jump is made, and read by {Attribution}, which needs to know whether the code a
@@ -70,6 +76,7 @@ module RubyGBA
             @data_blobs = {}       # name -> bytes (embedded data, appended after code)
             @data_positions = {}   # name -> byte offset of its blob within @code
             @data_links = []       # words inside a blob that hold another blob's address
+            @video_copies = []     # run-time copies into video memory, for the profile (see VideoCopy)
             # Everything that ends up in @code comes through here, and labels are placed
             # here too, so this is the one place that can watch a register's value survive
             # — or stop surviving — from one instruction to the next.
@@ -98,6 +105,13 @@ module RubyGBA
 
           def gensym
             "L#{@label_seq += 1}"
+          end
+
+          # The next instruction starts a copy of +bytes+ into video memory that the profile
+          # calls +source+. Called just before the write that starts the copy, and nothing is
+          # emitted for it, so the cartridge is the same whether anybody profiles it or not.
+          def note_video_copy(source, bytes)
+            @video_copies << VideoCopy.new(at: pos, source: source, bytes: bytes)
           end
 
           # Emit a 4-byte branch placeholder now and remember to resolve it against

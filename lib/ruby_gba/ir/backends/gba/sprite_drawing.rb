@@ -183,7 +183,9 @@ module RubyGBA
           # drawn as several, so a title screen's lettering is a dozen of them and more; the
           # whole of that was code saying that nothing had changed.
           def emit_write_sprite_rows(names)
-            names.each { |name| emit_present_object(@layout.objects.fetch(name), twin: placed_fade.fade_window_for(name)) }
+            names.each do |name|
+              emit_present_object(@layout.objects.fetch(name), twin: placed_fade.fade_window_for(name), name: name)
+            end
           end
 
           # WRITE THE STILL SPRITES, ON THE FRAMES WHERE THAT CAN MATTER AND NO OTHERS.
@@ -233,7 +235,7 @@ module RubyGBA
           # shoulder — so this walks the pieces, and a sprite the console can draw in one
           # go is simply the case where there is one of them. The pieces take a run of
           # slots from the sprite's own, so the whole thing keeps one place in the stack.
-          def emit_present_object(obj, twin: nil)
+          def emit_present_object(obj, twin: nil, name: nil)
             @lowering.value(obj.active)
             emit(ASM.cmp_imm(ACC, 0))
             draw = gensym
@@ -247,7 +249,7 @@ module RubyGBA
 
             place_label(draw)
             emit_store_object_palette_bank(obj) if obj.recolor_banks
-            emit_send_object_frame(obj) if obj.frames
+            emit_send_object_frame(obj, name) if obj.frames
             # Worked out once for the whole sprite when it is drawn as several objects:
             # every piece stands at the same place and reads it back from there.
             emit_stash_object_position(obj) if obj.pieces > 1
@@ -325,7 +327,7 @@ module RubyGBA
           # whole number of tiles and a tile is a whole number of words. Done in the gap after
           # the screen is drawn, with the rest of the sprite table, so the frame and the table
           # entry pointing at it change together.
-          def emit_send_object_frame(obj)
+          def emit_send_object_frame(obj, name)
             already = gensym
             @lowering.value(obj.pose)
             load_var(TMP, resident_frame_var(obj))
@@ -339,6 +341,10 @@ module RubyGBA
             emit(ASM.load_immediate(TMP, REG_DMA3SAD))
             emit(ASM.str(ACC, TMP))                       # source = the frame in the cartridge
             store_word_immediate(OBJ_TILE_BASE + (obj.tile_index * 32), REG_DMA3DAD)
+            # Named the way the author named it; the build's own name is all a sprite they named
+            # nothing for has.
+            declared = @layout.picture.objects.find { |node| node.name == name }&.declared || name
+            @emitter.note_video_copy("sending sprite :#{declared} its next frame", obj.frame_bytes)
             store_word_immediate((obj.frame_bytes / 4) | DMA_ENABLE | DMA_32BIT, REG_DMA3CNT)
             place_label(already)
           end

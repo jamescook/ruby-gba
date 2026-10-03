@@ -231,6 +231,7 @@ module RubyGBA
             emit(ASM.load_immediate(TMP, REG_DMA3SAD))
             emit(ASM.str(ACC, TMP)) # DMA source = that map in the cartridge
             store_word_immediate(map_vram_address(bg), REG_DMA3DAD)
+            @emitter.note_video_copy("handing background :#{node.name} another map", bg.map_units * 2)
             store_word_immediate(bg.map_units | DMA_ENABLE, REG_DMA3CNT) # go: 16-bit, both increment
             place_label(done)
           end
@@ -270,6 +271,7 @@ module RubyGBA
             end
             store_word_immediate(list[:base], REG_DMA3SAD)
             store_word_immediate(VRAM_START + run.at, REG_DMA3DAD)
+            @emitter.note_video_copy("painting tiles :#{name}", run.bytes)
             store_word_immediate((run.bytes / 4) | DMA_ENABLE | DMA_32BIT, REG_DMA3CNT)
           end
 

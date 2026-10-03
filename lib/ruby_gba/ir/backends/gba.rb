@@ -491,6 +491,7 @@ module RubyGBA
                                    emitted: @attribution.emitted,
                                    routines: routine_addresses,
                                    timer_handlers: timer_handler_addresses,
+                                   video_copies: video_copy_addresses,
                                    voices: voice_table,
                                    sound_drops: drop_table,
                                    video_memory: @screen.video_memory_report,
@@ -554,6 +555,19 @@ module RubyGBA
           irq = routine_addresses[Placement::IRQ_ROUTINE] or return {}
 
           @timer_handlers.to_h { |name, info| [name, { hz: info[:hz], at: irq.begin + info[:at] }] }
+        end
+
+        # WHERE EACH RUN-TIME COPY INTO VIDEO MEMORY STARTS, as the address the console really
+        # runs it from, with what it is and how many bytes it moves (see Emit::VideoCopy). The
+        # instruction's position in the emitted code is turned into an address the way a
+        # routine's is: by the routine it sits in, which may have been copied into the quick
+        # memory, or else where the cartridge holds it.
+        def video_copy_addresses
+          @emit.video_copies.map do |copy|
+            name, span = @functions.func_ranges.find { |_, range| range.cover?(copy.at) }
+            at = span ? runtime_base(name, span) + (copy.at - span.begin) : ROM_START + RubyGBA::Cartridge::ROM::ENTRY_OFFSET + copy.at
+            { source: copy.source, bytes: copy.bytes, at: at }
+          end
         end
 
         def routine_addresses

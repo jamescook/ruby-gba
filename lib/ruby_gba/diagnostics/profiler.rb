@@ -75,8 +75,12 @@ module RubyGBA
 
       # A finished profile. +unattributed+ is the share that ran outside every routine the build
       # knows about.
+      # ONE KIND OF COPY INTO VIDEO MEMORY over the measured frames: what it is, how many times it
+      # ran, and the bytes it moved a frame, on average.
+      VideoCopyLine = Data.define(:source, :copies, :bytes_per_frame)
+
       Result = Data.define(:frames, :samples, :fps, :idle_share, :lines, :unattributed, :keys,
-                           :reached, :tearing, :flicker, :tick_rates, :sound_drops) do
+                           :reached, :tearing, :flicker, :tick_rates, :sound_drops, :video_copies) do
         def dropping_frames? = fps < 59.5
 
         # Instructions a frame — what the game actually does, where a share only says how that
@@ -95,6 +99,9 @@ module RubyGBA
             sound_drops: sound_drops&.measured? ? { dropped: sound_drops.dropped,
                                                     music_held: sound_drops.music_held,
                                                     voices: sound_drops.voices } : nil,
+            video_copies: video_copies.map do |copy|
+              { source: copy.source, copies: copy.copies, bytes_per_frame: copy.bytes_per_frame }
+            end,
             routines: lines.map do |line|
               { name: line.name.to_s, label: line.label, samples: line.samples,
                 share: line.share, where: line.where.to_s }
@@ -149,7 +156,25 @@ module RubyGBA
         end
 
         build_result(profile, routines, held, reached, tearing, flicker,
-                     tick_rates_in(profile, rom.built.timer_handlers), lost)
+                     tick_rates_in(profile, rom.built.timer_handlers), lost,
+                     video_copies_in(profile, rom.built.video_copies))
+      end
+
+      # HOW MUCH THE GAME COPIED INTO VIDEO MEMORY, counted off the same histogram the routine
+      # lines come from: the instruction that starts each copy runs once per copy, so its count
+      # is the number of copies, and each one moves a number of bytes the build already knows.
+      # Nothing is added to the cartridge to count them. A copy that never ran in the measured
+      # frames says nothing, and a game with none says nothing at all.
+      def self.video_copies_in(profile, copies)
+        return [] if copies.nil? || copies.empty? || profile.frames.zero?
+
+        copies.group_by { |copy| copy[:source] }.filter_map do |source, sites|
+          runs = sites.sum { |site| profile.pc.fetch(site[:at], 0) }
+          next if runs.zero?
+
+          moved = sites.sum { |site| profile.pc.fetch(site[:at], 0) * site[:bytes] }
+          VideoCopyLine.new(source: source, copies: runs, bytes_per_frame: (moved / profile.frames.to_f).round)
+        end.sort_by { |line| -line.bytes_per_frame }
       end
 
       # WHAT THE MEASURED FRAMES LOST, counted off the console.
@@ -435,7 +460,7 @@ module RubyGBA
 
       def self.build_result(profile, routines, held, reached = Reached.new(how: :boot, detail: nil),
                             tearing = nil, flicker = nil, tick_rates = [],
-                            sound_drops = SoundDrops::Reading.unmeasured)
+                            sound_drops = SoundDrops::Reading.unmeasured, video_copies = [])
         tally, outside = tally_by_routine(profile.pc, routines)
         total = profile.samples
 
@@ -452,7 +477,7 @@ module RubyGBA
                    idle_share: profile.idle_share.round(4), lines: lines,
                    unattributed: share(outside.sum { |_, seen| seen }, total), keys: held,
                    reached: reached, tearing: tearing, flicker: flicker, tick_rates: tick_rates,
-                   sound_drops: sound_drops)
+                   sound_drops: sound_drops, video_copies: video_copies)
       end
 
       # WHAT RAN THAT IS NOT A ROUTINE THE AUTHOR WROTE, named by where it ran rather than
@@ -522,6 +547,7 @@ module RubyGBA
         flicker_line(result.flicker, printer)
         tick_rate_lines(result.tick_rates, printer)
         sound_drop_lines(result.sound_drops, printer)
+        video_copy_lines(result.video_copies, printer)
         printer.puts("")
 
         result.lines.each { |line| printer.cost_line(label_for(line), "#{line.share}%") }
@@ -588,6 +614,15 @@ module RubyGBA
       # "the game had all of them", which the first line has already said, and "held 0" is a
       # sentence about nothing. A song or effect note that finds no voice counts in the first line
       # the same as a game sound does.
+      # Each kind of copy into video memory, dearest first. It is time the frame spends that no
+      # routine line shows on its own, since the copy runs while the processor waits.
+      def self.video_copy_lines(copies, printer)
+        copies.each do |copy|
+          printer.puts("  #{copy.bytes_per_frame} bytes a frame copied into video memory by #{copy.source} " \
+                       "(#{copy.copies} copies)")
+        end
+      end
+
       def self.sound_drop_lines(drops, printer)
         return if drops.nil? || !drops.any?
 
