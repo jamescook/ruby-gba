@@ -62,7 +62,23 @@ class TestSaveMemory < Minitest::Test
 
   # Room to grow is a reason to name a size the records do not need yet, and it is flash.
   def test_naming_flash_for_a_small_game_is_not_available_yet
-    assert_match(/not available yet/, refusal(bytes: 10, copies: 1, save_memory: 64))
+    message = refusal(bytes: 10, copies: 1, save_memory: 64)
+
+    assert_match(/not available yet/, message)
+    assert_match(/leave `save_memory:` out/, message, "the records fit 32K, so keeping less is not the fix")
+  end
+
+  # A game that keeps nothing in a save_data record still has save memory, for its save_var.
+  def test_naming_flash_for_a_game_with_only_save_var_is_not_available_yet
+    message = assert_raises(ArgumentError) do
+      RubyGBA.build("SAVEMEM", out: nil, err: nil, save_memory: 128) do
+        screen :bitmap
+        save_var :best, 0
+        game_loop {}
+      end
+    end.message
+
+    assert_match(/leave `save_memory:` out/, message)
   end
 
   # Said on the line that names the game, beside its cartridge code, it reaches the build.

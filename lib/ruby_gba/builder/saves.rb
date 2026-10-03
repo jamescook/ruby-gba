@@ -40,9 +40,14 @@ module RubyGBA
       def records? = @save_data.any?
 
       # The save memory the cartridge has, in kilobytes, once the records are laid out: the
-      # size they picked, or the one the game named. A game with no records has what it named,
-      # or the 32K every cartridge has had until now.
-      def save_memory = @save_memory || @port.save_memory || IR::SaveLayout::MEMORIES.first
+      # size the game named, or else the smallest that holds the records. Nil before then.
+      def save_memory = @port.save_memory || needed_save_memory
+
+      # The smallest save memory that holds the records, in kilobytes, once they are laid out.
+      def needed_save_memory = @save_data_settled ? IR::SaveLayout.smallest_fitting(record_halves) : nil
+
+      # Each record as one [half bytes, copies] pair, which is what decides how much room it takes.
+      def record_halves = @save_data.values.map { |one| [one.half, one.copies] }
 
       # Which record keeps each thing, by the name the game declared it with: a variable, a
       # list, a pool kept whole, and :random_numbers for the stream. A pool kept a field at a
@@ -190,17 +195,23 @@ module RubyGBA
         refuse_flash_save_memory!
       end
 
-      # How much save memory the cartridge has, in kilobytes (see Saves#save_memory).
-      def save_memory = @saves ? @saves.save_memory : (@save_memory || IR::SaveLayout::MEMORIES.first)
+      # How much save memory the cartridge has, in kilobytes: what the records picked, else what
+      # the game named, else the smallest there is.
+      def save_memory = @saves&.save_memory || @save_memory || IR::SaveLayout::MEMORIES.first
 
-      # 64K and 128K are flash, and nothing writes flash yet.
+      # 64K and 128K are flash, which the lowering cannot write.
       def refuse_flash_save_memory!
         return if save_memory == IR::SaveLayout::MEMORIES.first
 
-        raise ArgumentError, "This game needs #{save_memory}K of save memory. A cartridge with more than 32K " \
+        needed = @saves&.needed_save_memory || IR::SaveLayout::MEMORIES.first
+        fix = if needed == IR::SaveLayout::MEMORIES.first
+                "leave `save_memory:` out, or ask for `save_memory: 32`."
+              else
+                "keep less in each save_data record, or use fewer copies, so that the records fit in 32K."
+              end
+        raise ArgumentError, "This game has #{save_memory}K of save memory. A cartridge with more than 32K " \
                              "keeps its saves in flash memory, and flash is not available yet. To fix " \
-                             "this, keep less in each save_data record, or use fewer copies, so that the " \
-                             "records fit in 32K."
+                             "this, #{fix}"
       end
 
       def refuse_bad_save_memory!(save_memory)

@@ -61,7 +61,7 @@ module RubyGBA
       # Does a game whose records take +halves+ — one [half_bytes, copies] pair a record — fit
       # in +kilobytes+ of save memory?
       def fits?(kilobytes, halves)
-        if kilobytes == 32
+        if kilobytes == MEMORIES.first
           halves.sum { |half, copies| half * 2 * copies } <= SIZE - DATA_START
         else
           sectors = halves.sum { |half, copies| ((half + SECTOR - 1) / SECTOR) * 2 * copies }
