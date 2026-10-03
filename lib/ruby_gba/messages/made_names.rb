@@ -79,6 +79,9 @@ module RubyGBA
         scene_sprites_shown: Kind.new(spelling: "__sprites_shown_%{scene}", parts: { scene: ANY }, words: nil),
         still_sprites: Kind.new(spelling: "__still_objects", parts: {},
                                 words: ->(_) { "writing the sprites nothing moves" }),
+        tile_run_tile: Kind.new(spelling: "__tile_run_%{run}__%{number}", parts: { run: ANY, number: "\\d+" },
+                                words: nil),
+        tile_run_pending: Kind.new(spelling: "__tile_run_pending_%{run}", parts: { run: ANY }, words: nil),
         see_through_amounts: Kind.new(spelling: "__see_through_%{layer}", parts: { layer: ANY },
                                       words: ->(parts) { "telling the display how see-through layer :#{parts[:layer]} is" }),
       }.then { |kinds| Ractor.make_shareable(kinds) }

@@ -123,6 +123,9 @@ module RubyGBA
       #   key => cell — or empty with `from:` to import the whole sheet as numbered
       #   tiles. Options `from:`/`tile:`/`transparent:`/`solid:`.
       def tiles(name, tile_map)
+        # Pixels the game paints itself, kept in a list of its own (see TileRuns).
+        return define_tile_run(name, tile_map) if tile_map[:from].is_a?(DSL::List)
+
         tile_map = tile_map.dup
         solid = Array(tile_map.delete(:solid)) # tiles that block movement, named by their keys
         from = tile_map.delete(:from)          # a tile sheet to import the tiles from, if any

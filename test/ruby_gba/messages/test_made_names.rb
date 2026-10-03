@@ -22,6 +22,8 @@ class TestMadeNames < Minitest::Test
     scene_sprites_shown: { scene: :playing },
     still_sprites: {},
     see_through_amounts: { layer: :rays },
+    tile_run_tile: { run: :box, number: 3 },
+    tile_run_pending: { run: :box },
   }.freeze
 
   def test_every_kind_of_name_is_in_the_samples

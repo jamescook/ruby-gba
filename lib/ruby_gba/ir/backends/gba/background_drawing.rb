@@ -18,10 +18,11 @@ module RubyGBA
           include Console::Hardware
           include EmitterCalls
 
-          def initialize(emitter:, primitives:, lowering:, divide:, raster:, palette_tint:, uploads:)
+          def initialize(emitter:, primitives:, lowering:, divide:, raster:, palette_tint:, uploads:, lists:)
             @emitter = emitter
             @primitives = primitives
             @lowering = lowering
+            @lists = lists
             @divide = divide
             @raster = raster
             @palette_tint = palette_tint
@@ -232,6 +233,44 @@ module RubyGBA
             store_word_immediate(map_vram_address(bg), REG_DMA3DAD)
             store_word_immediate(bg.map_units | DMA_ENABLE, REG_DMA3CNT) # go: 16-bit, both increment
             place_label(done)
+          end
+
+          # PAINT A RUN OF TILES FROM ITS LIST: one copy, from the list straight into the video
+          # memory its tiles were given, a word at a time. The list already holds the pixels
+          # the way that memory does (two to a byte, the left one in the low half), which is
+          # what lets this be a plain copy rather than a loop that packs them.
+          #
+          # When it happens is decided above this, the same as a map copy: in the gap between
+          # frames, on a frame the game said `changed` (see Builder::TileRuns). A run that no
+          # background shows has nowhere on screen to go, so it copies nothing.
+          def emit_copy_tiles(node)
+            run = @layout&.painted_vram&.[](node.name)
+            return if run.nil?
+
+            emit_copy_painted_run(node.name, run)
+          end
+
+          # The copy for every run +background+ shows, as its scene takes over: the scene
+          # before used the same memory, so the list is the only place the pixels still are
+          # (see IR::SceneHandover).
+          def emit_copy_tiles_shown_by(background)
+            @layout.painted_vram.each do |name, run|
+              emit_copy_painted_run(name, run) if background.tiles.include?(painted_first_tile(name))
+            end
+          end
+
+          def painted_first_tile(name) = Messages::MadeNames.make(:tile_run_tile, run: name, number: 1)
+
+          def emit_copy_painted_run(name, run)
+            list = @lists.list_info(run.list)
+            if list[:ring]
+              raise LoweringError, "tiles :#{name} get their pixels from list :#{run.list}, and the game also shifts " \
+                                   "that list. A shifted list moves its first item, so its bytes are no longer in " \
+                                   "the order the tiles read them. To fix this, do not shift a list that tiles paint from."
+            end
+            store_word_immediate(list[:base], REG_DMA3SAD)
+            store_word_immediate(VRAM_START + run.at, REG_DMA3DAD)
+            store_word_immediate((run.bytes / 4) | DMA_ENABLE | DMA_32BIT, REG_DMA3CNT)
           end
 
           # ACC = where the map numbered +which+ starts, or a jump to +done+ if it names no

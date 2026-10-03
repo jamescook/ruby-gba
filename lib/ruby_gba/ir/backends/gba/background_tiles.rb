@@ -64,6 +64,7 @@ module RubyGBA
             @vram = from.vram.dup
             @bytes = from.bytes.dup
             @stored = from.stored.transform_values(&:dup)
+            @painted_at = from.painted_at.dup
           end
 
           # The whole run, as it is uploaded; how many tiles turned out to be repeats; and
@@ -84,18 +85,30 @@ module RubyGBA
           # sit; +unit+ is how big one of this layer's tiles is stored (which is also the
           # step between one tile number and the next); +most+ is how many tiles its map can
           # count across.
-          def add(name, drawn, unit:, most: TileVram::MOST_TILES)
+          #
+          # +painted+ names the tiles, by their index in +drawn+, whose pixels the game paints
+          # from a list as it runs (see Nodes::TileRun). They are never shared, with each other
+          # or anything else — two that are blank now will not be on the next frame — and where
+          # each one landed is kept, for the copy that paints it (see #painted_at).
+          def add(name, drawn, unit:, most: TileVram::MOST_TILES, painted: {})
             stored = drawn.map { |bmp, place| encode(bmp, place) }
-            base = choose_base(stored, unit, most)
+            base = choose_base(stored.reject.with_index { |_, i| painted.key?(i) }, unit, most,
+                               unshared: painted.size)
 
             # A layer counting from the bottom shares the blank tile seeded at 0. One
             # counting from anywhere else cannot see that far back, so it gets a blank of
             # its own — placed before its own tiles so it is the first thing in reach —
             # and its empty cells name that instead.
             blank = base.zero? ? 0 : store_tile(name, ("\x00" * unit).b, unit, base, most)
-            numbers = stored.each_with_index.to_h { |tile, index| [index, store_tile(name, tile, unit, base, most)] }
+            numbers = stored.each_with_index.to_h do |tile, index|
+              image = painted[index]
+              [index, image ? store_painted_tile(name, image, tile, unit, base, most) : store_tile(name, tile, unit, base, most)]
+            end
             StoredTiles.new(numbers: numbers, base: base, blank: blank)
           end
+
+          # Where each painted tile landed, as bytes into video memory, by its picture's name.
+          def painted_at = (@painted_at ||= {})
 
           # Pack one 8x8 tile the way the tile hardware reads it: 64 pixels row by row,
           # each the number that picks its color. A tile stored the small way packs two
@@ -149,15 +162,18 @@ module RubyGBA
           # Sharing follows the same rule as the reach: a picture already stored BELOW
           # where this layer counts from is out of its sight, so it stores its own copy
           # rather than pointing at one it cannot name.
-          def choose_base(stored, unit, most)
+          #
+          # +unshared+ is how many painted tiles come too, each needing room of its own.
+          def choose_base(stored, unit, most, unshared: 0)
             wanted = stored.uniq
             reach = most * unit
             mark = align(@vram.tile_bytes, unit)
+            own = unshared * unit
 
-            return 0 if mark + (fresh_bytes(wanted, 0, unit)) <= reach
+            return 0 if mark + fresh_bytes(wanted, 0, unit) + own <= reach
 
             floor = (mark / CHAR_BLOCK_BYTES) * CHAR_BLOCK_BYTES
-            return floor if mark + unit + fresh_bytes(wanted, floor, unit) <= floor + reach
+            return floor if mark + unit + fresh_bytes(wanted, floor, unit) + own <= floor + reach
 
             ceiling = align(mark, CHAR_BLOCK_BYTES)
             return floor if ceiling > TileVram::TOTAL_BYTES - CHAR_BLOCK_BYTES
@@ -190,6 +206,17 @@ module RubyGBA
               @bytes << tile
               (@stored[tile] ||= []) << at
             end
+            @vram.tile_number(at, unit: unit, base: base, most: most) ||
+              (raise LoweringError, too_far_message(name, at, unit, base, most))
+          end
+
+          # A painted tile's bytes, always at a fresh place of its own and never offered to
+          # anything that comes after as a picture to share.
+          def store_painted_tile(name, image, tile, unit, base, most)
+            at = @vram.take_tile(unit)
+            @bytes << ("\x00" * (at - @bytes.bytesize)).b if at > @bytes.bytesize
+            @bytes << tile
+            painted_at[image] = at
             @vram.tile_number(at, unit: unit, base: base, most: most) ||
               (raise LoweringError, too_far_message(name, at, unit, base, most))
           end

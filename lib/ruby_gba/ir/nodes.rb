@@ -93,6 +93,30 @@ module RubyGBA
         operands name: :name, which: :value
       end
 
+      # A RUN OF TILES WHOSE PIXELS COME FROM A LIST THE GAME OWNS, rather than from a
+      # picture fixed while the program is built. +tiles+ names them in order — a background's
+      # map names them like any other tile — and +list+ is where their pixels are kept: tile k
+      # is the 32 bytes from k × 32, each byte two pixels, the left one in the low four bits,
+      # each of those a place in +colors+ (place 0 is see-through). The tiles start
+      # see-through and show what the list holds only after a CopyTiles.
+      class TileRun
+        include Node
+        kind :tile_run
+        declaration!
+        category :data
+        operands name: :name, list: :name, tiles: :list, colors: :list
+      end
+
+      # Show a TileRun's list on its tiles: every tile of the run takes the pixels its bytes
+      # of the list hold now. Where a program is paced by frames this sits in the gap between
+      # them, so a picture is never seen half copied.
+      class CopyTiles
+        include Node
+        kind :copy_tiles
+        category :draw
+        operands name: :name
+      end
+
       # The per-frame write that turns and resizes an affine background as a whole (see
       # ScrollBackground, its sibling for plain panning). +angle+ is degrees clockwise,
       # +scale+ is in Build::SCALE_ONE-ths (1.0 = drawn size) — the same units a hardware

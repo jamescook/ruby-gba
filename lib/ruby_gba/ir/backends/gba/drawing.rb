@@ -79,6 +79,7 @@ module RubyGBA
             def scene_layers = screen.scene_layers
             def scene_screens = screen.scene_screens
             def scene_tiles = screen.scene_tiles
+            def painted_vram = screen.painted_vram
             def scene_obj_palettes = screen.scene_obj_palettes
             def picture = screen.picture
 
@@ -394,6 +395,7 @@ module RubyGBA
                 tiles = @layout.scene_tiles[name]
                 @uploads.emit_dma_blob(tiles.blob, VRAM_START + tiles.offset, tiles.units) if tiles
                 arriving.each { |node| @background_drawing.emit_background_hardware(node) }
+                arriving.each { |node| @background_drawing.emit_copy_tiles_shown_by(node) }
               end
               # The maps just sent are the first ones declared, so what says which map is
               # showing goes back to the first as well (see IR::SceneHandover).

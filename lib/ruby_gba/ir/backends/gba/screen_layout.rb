@@ -138,9 +138,21 @@ module RubyGBA
             new(program, bitmaps: bitmaps || bitmaps_of(program), modes: modes || IR::Modes.resolve(program))
           end
 
-          # Every picture the program declares, by name.
+          # Every picture the program declares, by name — and each tile of a run the game paints
+          # from a list, as the blank picture it is until the first copy, drawn from the run's
+          # own colours so it gets a bank of sixteen like any tile with a list of its own.
           def self.bitmaps_of(program)
-            program.walk.select { |node| node.kind == :bitmap }.to_h { |node| [node.name, Assets::Image.of(node)] }
+            pictures = program.walk.select { |node| node.kind == :bitmap }.to_h { |node| [node.name, Assets::Image.of(node)] }
+            program.walk.select { |node| node.kind == :tile_run }.each { |run| pictures.merge!(painted_tile_pictures(run)) }
+            pictures
+          end
+
+          # A run's tiles, each the blank picture it is until the first copy.
+          def self.painted_tile_pictures(run)
+            blank = Assets::Image.new(width: TILE_PX, height: TILE_PX, transparent: Graphics::Image::TRANSPARENT,
+                                      pixels: ([Graphics::Image::TRANSPARENT] * (TILE_PX * TILE_PX)).pack("v*"),
+                                      colors: run.colors, places: ("\x00" * (TILE_PX * TILE_PX)).b)
+            run.tiles.to_h { |tile| [tile, blank] }
           end
 
           # Does this sprite turn or change size? It does unless BOTH its angle and its size
@@ -180,6 +192,11 @@ module RubyGBA
             @scene_screens = {}   # tiled scene -> the layers it has on, whether or not scenes differ
             @scene_obj_palettes = {} # scene -> the sprite colour table it sends when it takes over
             @placed_fade = PlacedFade.new(@picture, program)
+            # Each tile the game paints from a list, by its picture's name -> its run; and
+            # where each run landed in video memory (see #note_painted_runs).
+            @painted_runs = program.walk.select { |node| node.kind == :tile_run }
+                                   .flat_map { |run| run.tiles.map { |tile| [tile, run] } }.to_h
+            @painted_vram = {}
             @see_through = IR::SeeThrough.layers(program).map(&:name) # the layers a sprite blends in
             if Modes.draws_with_tiles?(program)
               check_stack_depth_fits!
@@ -207,6 +224,7 @@ module RubyGBA
                       :objects, :obj_pictures, :sprite_art, :scene_art, :placed_fade,
                       :obj_palette_blob, :obj_palette_units, :blobs, :codecs,
                       :scene_tiles, # scene -> its own tile pictures, sent as it takes over (see #place_each_scene)
+                      :painted_vram, # run of painted tiles -> where it sits in video memory (see #note_painted_runs)
                       :scene_screens,
                       :scene_obj_palettes # scene -> the blob of its sprite colour table (see #build_shared_object_palette)
 
@@ -378,6 +396,10 @@ module RubyGBA
           # how far into video memory they go, and how many halfwords that is. Only scenes
           # with pictures of their own are here.
           SceneTiles = Data.define(:blob, :offset, :units)
+
+          # WHERE A RUN OF PAINTED TILES SITS: how far into video memory it starts, how many
+          # bytes it takes, and the list its pixels are copied from.
+          PaintedRun = Data.define(:at, :bytes, :list)
 
           # THE SCENERY EVERY SCREEN SHOWS GOES IN FIRST, and stays for the whole game: its
           # pictures are sent at boot and its maps are set up once. What it takes is what
@@ -598,6 +620,33 @@ module RubyGBA
 
           def tile_key(node, index) = [node.name, index]
 
+          # WHERE EACH RUN OF PAINTED TILES LANDED, as bytes into video memory: the copy that
+          # paints it writes there (see BackgroundDrawing#emit_copy_tiles). One copy is one
+          # stretch of memory, so the run has to have landed in order and side by side, which
+          # it does because its tiles are stored one after another and never shared.
+          def note_painted_runs(node, images)
+            images.map { |image| @painted_runs.fetch(image) }.uniq.each do |run|
+              first = @tiles.painted_at.fetch(run.tiles.first)
+              unless run.tiles.each_with_index.all? { |tile, k| @tiles.painted_at[tile] == first + (k * SMALL_TILE_BYTES) }
+                raise LoweringError, "background :#{node.name} shows only part of tiles :#{run.name}, or shows them " \
+                                     "out of order. Its tileset must hold all #{run.tiles.size} of them."
+              end
+              if (earlier = @painted_vram[run.name]) && earlier.at != first
+                raise LoweringError, "tiles :#{run.name} are shown by two backgrounds, or in two scenes. The " \
+                                     "game paints one copy of them, so one background in one place must show " \
+                                     "them. To fix this, give each background its own list and its own tiles."
+              end
+              @painted_vram[run.name] = PaintedRun.new(at: first, bytes: run.tiles.size * SMALL_TILE_BYTES, list: run.list)
+            end
+          end
+
+          def refuse_painted_tiles_stored_big!(node)
+            raise LoweringError, "background :#{node.name} shows tiles the game paints from a list, and its other " \
+                                 "tiles need more than 15 colours. A painted tile holds 16 colours or fewer. To " \
+                                 "fix this, draw the other tiles from fewer colours, or put the painted tiles on " \
+                                 "a background of their own."
+          end
+
           # A tile's distinct colors, first-seen order, without the see-through one.
           def tile_colors(node, index)
             bmp = @bitmaps.fetch(node.tiles[index])
@@ -646,8 +695,11 @@ module RubyGBA
             name = node.name
             validate_map_fits!(name, node.map)
             small = !big.include?(node)
+            painted = node.tiles.each_with_index.select { |tile, _| @painted_runs.key?(tile) }.to_h { |tile, i| [i, tile] }
+            refuse_painted_tiles_stored_big!(node) if !small && !painted.empty?
             stored = @tiles.add(name, tile_pictures(node, banks),
-                                unit: small ? SMALL_TILE_BYTES : BIG_TILE_BYTES)
+                                unit: small ? SMALL_TILE_BYTES : BIG_TILE_BYTES, painted: painted)
+            note_painted_runs(node, painted.values)
 
             # The map: one 16-bit entry per cell, holding the tile to draw there and — for a
             # layer stored the small way — which bank of sixteen that tile reads from. Cells
@@ -794,6 +846,12 @@ module RubyGBA
             name = node.name
             tiles = node.tiles
             validate_map_fits!(name, node.map)
+            if tiles.any? { |tile| @painted_runs.key?(tile) }
+              raise LoweringError, "background :#{name} turns or resizes, and it shows tiles the game paints from a " \
+                                   "list. A turning background stores every tile with 256 colours, and a painted " \
+                                   "tile holds 16. To fix this, put the painted tiles on a background that does " \
+                                   "not turn."
+            end
 
             # The same shared sine table a turning sprite reads (see #prepare_affine) —
             # baked in here too, since a program can turn a background without ever

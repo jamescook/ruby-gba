@@ -164,6 +164,7 @@ module RubyGBA
           @defined_sounds = {}     # name -> musical params (from define_sound)
           @data = {}               # name -> bytes (embedded data blobs)
           @bitmaps = {}            # name -> { width:, height: } (a blob that has a shape)
+          @tile_runs = {}          # name -> the TileRun whose tiles are painted from a list
           @tile_colors = {}        # name -> its pixels as colors, decoded once (nil = see-through)
           @backing = {}            # name -> { width:, height:, pixels: } (saved patch under a moving object)
           @objects = {}            # name -> :object node (a composited moving picture)
@@ -442,6 +443,11 @@ module RubyGBA
             when :bitmap
               @data[n.name] = n.pixels
               @bitmaps[n.name] = Assets::Image.of(n)
+            when :tile_run
+              # Tiles the game paints from a list: see-through until the first copy.
+              @tile_runs[n.name] = n
+              n.tiles.each { |tile| @bitmaps[tile] = blank_run_tile(n) }
+              @repaints = true
             when :backing_buffer
               # Reserve the patch. `pixels` stays nil until the first save_region
               # fills it — a restore before any save has nothing to put back.
@@ -587,6 +593,7 @@ module RubyGBA
           present_objects: :exec_present_objects,
           set_tile: :exec_set_tile,
           show_map: :exec_show_map,
+          copy_tiles: :exec_copy_tiles,
           enable_sound: :exec_enable_sound,
           beep: :exec_beep,
           noise: :exec_noise,
@@ -1119,6 +1126,7 @@ module RubyGBA
           if arrives
             @bg_maps.delete(node.name)
             node.choice.each { |var| @vars[var] = 0 }
+            @tile_runs.each_value { |run| copy_run_tiles(run) if node.tiles.intersect?(run.tiles) }
           end
 
           # A layer can put this background BEHIND one that is already on screen, and a
@@ -1208,6 +1216,38 @@ module RubyGBA
 
           @bg_maps[node.name] = maps[which].map(&:dup)
           request_repaint
+        end
+
+        # A RUN OF TILES TAKES WHAT ITS LIST HOLDS NOW (see Nodes::TileRun): tile k is the 32
+        # bytes from k × 32, each byte two pixels with the left one in the low four bits, each
+        # four bits a place in the run's colours, and place 0 see-through. A slot the game
+        # never filled reads as 0, which is what the console's memory under it would be
+        # copied as for a list it filled from the start.
+        def exec_copy_tiles(node)
+          copy_run_tiles(@tile_runs.fetch(node.name))
+          request_repaint
+        end
+
+        def copy_run_tiles(run)
+          bytes = @lists.fetch(run.list).to_a
+          run.tiles.each_with_index do |tile, k|
+            places = (0...RUN_TILE_BYTES).flat_map do |at|
+              byte = (bytes[(k * RUN_TILE_BYTES) + at] || 0) & 0xFF
+              [byte & 0x0F, byte >> 4]
+            end
+            @bitmaps[tile] = run_tile_from_places(run, places)
+          end
+          @tile_colors.delete_if { |(name, _), _| run.tiles.include?(name) }
+        end
+
+        RUN_TILE_BYTES = 32
+
+        def blank_run_tile(run) = run_tile_from_places(run, Array.new(64, 0))
+
+        def run_tile_from_places(run, places)
+          pixels = places.map { |place| place.zero? ? Graphics::Image::TRANSPARENT : run.colors.fetch(place, 0) }
+          Assets::Image.new(width: 8, height: 8, transparent: Graphics::Image::TRANSPARENT,
+                            pixels: pixels.pack("v*"), colors: nil, places: places.pack("C*"))
         end
 
         def mutable_map(name)
@@ -1535,7 +1575,7 @@ module RubyGBA
         # ...and the ones that change what the picture is built from and then always repaint, so
         # an owed repaint is replaced rather than painted — plus `background`, which settles one
         # itself when it has anything to put up (see #exec_background).
-        REPAINTING = %i[scroll_background show_map set_tile background_colors see_through present_objects
+        REPAINTING = %i[scroll_background show_map set_tile copy_tiles background_colors see_through present_objects
                         background affine_background].freeze
         # ...and the ones that are mostly laid over the picture as the screen is read, and that
         # owe the picture again themselves on the occasions they change what is painted (see

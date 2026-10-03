@@ -621,6 +621,17 @@ module RubyGBA
         Nodes.build(:show_map, name: name, which: to_value_node(which))
       end
 
+      # A run of tiles named +tiles+, in order, whose pixels come from the byte list +list+
+      # (see Nodes::TileRun). +colors+ are the run's colours, place 0 first.
+      def tile_run(name, list:, tiles:, colors:)
+        Nodes.build(:tile_run, name: name, list: list, tiles: tiles, colors: colors)
+      end
+
+      # Show the run +name+'s list on its tiles (see Nodes::CopyTiles).
+      def copy_tiles(name)
+        Nodes.build(:copy_tiles, name: name)
+      end
+
       # The named background's tiles all draw from the list of colours numbered +which+ —
       # the whole layer at once, the way show_map hands over the whole grid. +which+ counts
       # from 0 through the lists the background was given and is a value operand, so a game

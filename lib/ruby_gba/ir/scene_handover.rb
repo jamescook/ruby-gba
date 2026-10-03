@@ -22,6 +22,10 @@ module RubyGBA
     #     with show_map, is left behind with the visit that changed it, and what says which
     #     map is showing goes back to the first. A game that remembers an opened door opens
     #     it again on the way in.
+    #   * A run of tiles the game paints from a list (`tiles ..., from: list`) goes up showing
+    #     what its list holds AT THAT MOMENT, as if the game had said `changed`. There is
+    #     nowhere else it could come from: the scene before has used the same video memory
+    #     for its own scenery, and the list is the only place the pixels are kept.
     #   * The scene before's own scenery comes down, or it would show through wherever this
     #     scene's has a hole — whether or not this scene has any scenery of its own.
     #   * Handing over from one KIND of screen to another replaces the whole display: a

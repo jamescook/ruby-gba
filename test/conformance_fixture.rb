@@ -235,6 +235,15 @@ module ConformanceFixture
       # a variable — a door opening. A backend that wrote the wrong cell, or none, draws a
       # different picture.
       B.set_tile(:grid, B.var_ref(:x), B.int(1), 0),
+      # A tile the program paints itself: its pixels are a list's bytes, two places to a
+      # byte, shown once the list is copied over. This program's screen is a bitmap, where
+      # no background can show such a tile (a real game is refused one there), so nothing
+      # here shows it: what is covered is that every backend declares the run and copies
+      # it. Whether the pixels come out right is test_tile_runs', on both backends.
+      B.list_new(:painted, 32, width: :byte),
+      B.tile_run(:painted_run, list: :painted, tiles: [:painted_tile], colors: [0x0000, 0x7FFF]),
+      B.list_push(:painted, B.int(0x01)),
+      B.copy_tiles(:painted_run),
       # ...and bend it row by row: every row of the picture gets its own sideways offset,
       # worked out from the row number a backend puts in :bend_row. `% 2` keeps the offsets
       # small and makes alternate rows differ, so a backend that ignored the bend, or

@@ -17,6 +17,7 @@ require_relative "builder/control_flow"
 require_relative "builder/scenes"
 require_relative "builder/collision"
 require_relative "builder/tiled"
+require_relative "builder/tile_runs"
 require_relative "builder/composition"
 require_relative "builder/timers"
 require_relative "builder/sampled_audio"
@@ -67,6 +68,7 @@ module RubyGBA
     include Scenes     # func, call, scene, case_var, dump_func
     include Collision  # box (overlaps? lives on the shape — Box/Sprite via Bounds)
     include Tiled      # tiles, background (tiled-graphics surface; hardware lowering to follow)
+    include TileRuns   # tiles from: a list — tiles the game paints as it runs
     include Composition # pool (a component + a pool of instances, per-instance update)
     include Timers     # timer (a hardware counter running at a chosen rate)
     include SampledAudio # sample (a recorded PCM sound, played via Direct Sound)
@@ -102,6 +104,8 @@ module RubyGBA
       @name_dispatches = []    # [dispatch node, NameSet] — filled in at finalize, once every name is known
       @next_var_addr = IWRAM_START
       @functions = {}          # name → deferred body block (evaluated at emit time)
+      @tile_runs = []          # runs of tiles painted from a list, in declaration order (see TileRuns)
+      @inline_tile_copies = [] # their copies where `changed` was said, moved to the frame gap at finalize
       @func_fast = {}          # name → where the author insisted the routine live (func fast:)
       @dump_requests = []      # function names to disassemble from the lowered ROM
       @songs = {}              # name → Music::SongContext or Score (for build-time validation)
@@ -425,6 +429,7 @@ module RubyGBA
       finalize_present_lists
       finalize_background_scrolls
       finalize_background_maps
+      finalize_tile_copies
       finalize_background_colors
       finalize_background_affine
       finalize_layer_blend

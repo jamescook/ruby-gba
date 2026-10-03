@@ -90,6 +90,8 @@ module RubyGBA
         # neither is itself at one.
         set_tile: :free,
         show_map: :free,
+        # ...or a run of its tiles painted from a list, which changes pixels, not depth.
+        copy_tiles: :free,
         background_colors: :free,
         affine_background: :free,
         scroll_rows: :free,

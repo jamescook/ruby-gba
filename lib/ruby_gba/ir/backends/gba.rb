@@ -368,7 +368,7 @@ module RubyGBA
                                               palette_tint: @palette_tint, uploads: @uploads)
           @background_drawing = BackgroundDrawing.new(emitter: @emit, primitives: @primitives, lowering: @lowering,
                                                       divide: @divide, raster: @raster,
-                                                      palette_tint: @palette_tint, uploads: @uploads)
+                                                      palette_tint: @palette_tint, uploads: @uploads, lists: @lists)
           @drawing = Drawing.new(emitter: @emit, primitives: @primitives, lowering: @lowering,
                                  divide: @divide, framebuffer: @framebuffer, raster: @raster,
                                  palette_tint: @palette_tint, layer_blend: @layer_blend, buffered: @buffered,
@@ -423,6 +423,7 @@ module RubyGBA
             scroll_rows: Lowering::NOTHING, camera: @effects.method(:emit_camera), fade: @effects.method(:emit_fade),
             tint: @effects.method(:emit_tint), see_through: @layer_blend.method(:emit_see_through),
             set_tile: @background_drawing.method(:emit_set_tile), show_map: @background_drawing.method(:emit_show_map),
+            copy_tiles: @background_drawing.method(:emit_copy_tiles),
             background_colors: @background_drawing.method(:emit_background_colors),
             present_objects: @sprite_drawing.method(:emit_present_objects), save_region: @drawing.method(:emit_save_region),
             restore_region: @drawing.method(:emit_restore_region), enable_sound: @audio.method(:emit_enable_sound),
@@ -1121,6 +1122,8 @@ module RubyGBA
               register_table(node)
             when :data
               @emit.data_blobs[node.name] = node.bytes
+            when :tile_run
+              @bitmaps.merge!(ScreenLayout.painted_tile_pictures(node))
             when :bitmap
               @bitmaps[node.name] = Assets::Image.of(node)
               # An opaque bitmap streams from ROM via DMA, so embed its pixels. A
