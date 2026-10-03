@@ -104,7 +104,7 @@ module RubyGBA
       def save_jobs_finish
         set_job_var(:hold, job_var(:serial))
         done = sd_or(sd_eq(job_var(:run_rec), sd_int(0)), job_op(:!=, job_var(:serial), job_var(:hold)))
-        repeat(@save_memory_shape.size, stop_when: DSL::Condition.new(handle, done)) do |_|
+        repeat(@save_memory_layout.size, stop_when: DSL::Condition.new(handle, done)) do |_|
           record(Build.call(jobs_name(:step_running)))
         end
       end

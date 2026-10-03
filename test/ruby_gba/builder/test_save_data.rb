@@ -1069,7 +1069,7 @@ class TestSaveData < Minitest::Test
   def test_a_saved_half_holds_its_header_and_body_where_the_layout_says
     store = {}
     play(header_and_body, store, pressing: { 2 => :a }, frames: 12)
-    half = half_with_marker(store, Layout::DATA_START)
+    half = half_with_marker(store, Layout::PACKED.data_start)
     body = saved_bytes(store, half + Layout::HEADER, HEADER_AND_BODY_BODY)
 
     assert_equal 1, word(store, half + Layout::SEQUENCE_AT), "the first save of a copy"
@@ -1085,7 +1085,7 @@ class TestSaveData < Minitest::Test
   def test_the_table_of_places_holds_the_same_header
     store = {}
     play(header_and_body, store)
-    table = Layout::TABLE_AT
+    table = Layout::PACKED.table_at
     body_bytes = Layout::TABLE_COLUMNS.length * (4 + (Layout::TABLE_ROWS * 4))
 
     assert_equal Layout::MARKER, word(store, table)
@@ -1105,7 +1105,7 @@ class TestSaveData < Minitest::Test
       store = Marshal.load(Marshal.dump(fresh))
       Reference.new(save: store).cut_power_after_saving(cut)
                .input_each_frame { |f| f == 2 ? [:a] : [] }.run(header_and_body, frames: 12)
-      half = half_with_marker(store, Layout::DATA_START)
+      half = half_with_marker(store, Layout::PACKED.data_start)
       body = saved_bytes(store, half + Layout::HEADER, HEADER_AND_BODY_BODY)
 
       refute_equal 0, word(store, half + Layout::SHAPE_AT), "#{step}: the shape goes in with the marker"

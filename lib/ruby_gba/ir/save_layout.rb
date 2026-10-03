@@ -43,7 +43,7 @@ module RubyGBA
       # that places save data asks a Memory (below), which knows flash starts elsewhere.
       START = 0x1000
 
-      # The 32K memory's size: the console's battery-backed memory.
+      # The 32K memory's size.
       SIZE = 0x8000
 
       # THE SAVE MEMORIES A CARTRIDGE CAN HAVE, in kilobytes: the 32K above, or a flash chip of
@@ -78,8 +78,13 @@ module RubyGBA
         # Where records can go: past both halves of the table.
         def data_start = table_at + (2 * room(SaveLayout.half_bytes(TABLE_BODY)))
 
+        # What a half's room is counted in: whole blocks on flash, single bytes in the packed
+        # 32K. Anything that rounds a half to its room — here, or in a routine that works it
+        # out as the game runs — rounds up to a whole number of these.
+        def block = flash? ? SECTOR : 1
+
         # How many bytes a half of +half+ bytes takes, which is how far apart the halves sit.
-        def room(half) = flash? ? ((half + SECTOR - 1) / SECTOR) * SECTOR : half
+        def room(half) = ((half + block - 1) / block) * block
 
         # How many bytes a record with halves of +half+ bytes and +copies+ copies takes.
         def record_room(half, copies) = room(half) * 2 * copies
@@ -90,6 +95,9 @@ module RubyGBA
 
       # The save memory of +kilobytes+.
       def memory(kilobytes) = Memory.new(kilobytes)
+
+      # The packed 32K memory, which a table is read from and written to unless it says otherwise.
+      PACKED = memory(MEMORIES.first)
 
       # Does a game whose records take +halves+ — one [half_bytes, copies] pair a record — fit
       # in +kilobytes+ of save memory?
@@ -128,9 +136,6 @@ module RubyGBA
         Int32.wrap((high << 16) | low)
       end
 
-      # In the 32K memory, the table of places sits where save data starts, and records after it.
-      TABLE_AT = START
-
       # How many records the table has rows for.
       TABLE_ROWS = 16
 
@@ -141,9 +146,6 @@ module RubyGBA
       # How many bytes the table's body takes: each column is kept as a list, its length and
       # then a word a row.
       TABLE_BODY = TABLE_COLUMNS.length * (4 + (TABLE_ROWS * 4))
-
-      # Where records can go in the 32K memory: past both halves of the table.
-      DATA_START = TABLE_AT + (2 * half_bytes(TABLE_BODY))
 
       # A record's name as a number, which is how its row in the table is found. Never 0, which
       # marks a row nothing uses.
@@ -176,9 +178,6 @@ module RubyGBA
             [:list, Messages::MadeNames.make(:save_table, column: column), :word, TABLE_ROWS]
           end)
         end
-
-        # The 32K memory, which a table is read from and written to unless it says otherwise.
-        PACKED = SaveLayout.memory(MEMORIES.first)
 
         # Write +rows+ (at most TABLE_ROWS) into +bytes+ — a save store's bytes, address to
         # byte — as a good first half with sequence +sequence+, where +memory+ keeps its table.

@@ -131,7 +131,7 @@ module RubyGBA
         @save_data_settled = true
         @save_data.transform_values! { |layout| layout_with_kept(layout) }
         refuse_records_over_save_memory!
-        @save_memory_shape = IR::SaveLayout.memory(save_memory)
+        @save_memory_layout = IR::SaveLayout.memory(save_memory)
         declare_save_places
         declare_save_job_routines
         @save_data.each_value { |layout| declare_save_data_record(layout) }
@@ -305,7 +305,7 @@ module RubyGBA
       # Where one half of copy +copy+ starts: the record's place, two halves a copy, each as far
       # from the last as the save memory gives a half (see IR::SaveLayout::Memory#room).
       def sd_half_at(layout, copy, half)
-        room = @save_memory_shape.room(layout.half)
+        room = @save_memory_layout.room(layout.half)
         sd_add(layout.place_node, sd_add(Build.binop(:*, copy, sd_int(room * 2)), Build.binop(:*, half, sd_int(room))))
       end
 

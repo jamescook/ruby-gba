@@ -11,16 +11,15 @@ require "test_helper"
 class TestSavePlaces < Minitest::Test
   Layout = RubyGBA::IR::SaveLayout
   Table = Layout::Table
-  START = Layout::DATA_START
-  ROOM = Layout::SIZE - Layout::DATA_START
+  START = Layout::PACKED.data_start
+  ROOM = Layout::SIZE - Layout::PACKED.data_start
 
   # A record that keeps one variable takes this much for one half of a copy.
   SMALL = Layout.half_bytes(4)
 
   # The game: each record keeps one variable, or, given +bytes+, a list that many bytes long.
   private def game(records, save_memory: nil)
-    builder = Builder.new(save_memory: save_memory)
-    builder.instance_eval do
+    built(save_memory: save_memory) do
       screen :tiled
       records.each do |name, spec|
         kept = spec[:bytes] ? list(:"#{name}_list", capacity: spec[:bytes], width: :byte) : var(:"#{name}_var", 0)
@@ -28,6 +27,13 @@ class TestSavePlaces < Minitest::Test
       end
       game_loop {}
     end
+  end
+
+  # The program the block declares, built with a Builder of its own rather than the way a game
+  # is built, which refuses flash: the console cannot write it yet, and the interpreter can.
+  private def built(save_memory:, &block)
+    builder = Builder.new(save_memory: save_memory)
+    builder.instance_eval(&block)
     builder.finalize_program
     builder.program
   end
@@ -134,8 +140,8 @@ class TestSavePlaces < Minitest::Test
     oracle = placed(records, rows)
     rom = assemble_rom(game(records), name: "SLIDE")
     v = assert_emulator_loads_rom(rom, frames: 12, save: Table.write({}, rows))
-    table = (0...(Layout::DATA_START - Layout::TABLE_AT)).to_h do |i| # both halves of the table
-      [Layout::TABLE_AT + i, v.mem8(RubyGBA::Console::Hardware::SRAM_START + Layout::TABLE_AT + i)]
+    table = (0...(Layout::PACKED.data_start - Layout::PACKED.table_at)).to_h do |i| # both halves of the table
+      [Layout::PACKED.table_at + i, v.mem8(RubyGBA::Console::Hardware::SRAM_START + Layout::PACKED.table_at + i)]
     end
     by_key = records.keys.to_h { |name| [Layout.record_key(name), name] }
 
@@ -165,6 +171,17 @@ class TestSavePlaces < Minitest::Test
                  placed(records, [], save_memory: 64))
   end
 
+  # One record more — two blocks, however small — is past what 64K holds, and the build says
+  # so rather than placing it over the end. Records this small fit the packed 32K, where a
+  # half takes only its own bytes, so that is the size the build says they need.
+  def test_on_flash_one_record_more_than_fits_is_refused
+    records = { a: { copies: 2 }, b: { copies: 2 }, c: { copies: 2 }, d: {} }
+    message = assert_raises(ArgumentError) { game(records, save_memory: 64) }.message
+
+    assert_match(/save_memory: 64/, message)
+    assert_match(/need 32K/, message)
+  end
+
   # Four blocks free at the start, two between, two at the end, and a record that needs six:
   # sliding the records down together leaves it its six in one piece, still on whole blocks.
   def test_on_flash_records_slide_together_on_whole_blocks
@@ -190,8 +207,7 @@ class TestSavePlaces < Minitest::Test
   # A 64K game keeping one number in two copies: A saves 7 hearts into the second copy, and
   # power-on loads that copy.
   private def flash_game
-    builder = Builder.new(save_memory: 64)
-    builder.instance_eval do
+    built(save_memory: 64) do
       screen :tiled
       hearts = var :hearts, 0
       files = save_data(:file, copies: 2) { keep hearts }
@@ -203,8 +219,6 @@ class TestSavePlaces < Minitest::Test
         end
       end
     end
-    builder.finalize_program
-    builder.program
   end
 
   private def word(store, at) = (0...4).sum { |i| store[:bytes].fetch(at + i, 0) << (8 * i) }

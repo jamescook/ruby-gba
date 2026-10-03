@@ -35,7 +35,7 @@ module RubyGBA
         @save_data_peeks = {}    # a peek's stand-in → the SaveRecords::PeekSite it stands for
         @save_data_settled = false # true once the records are laid out, and nothing more can be kept
         @save_table = nil        # the table of places' own layout, made when the records are laid out
-        @save_memory_shape = nil # the IR::SaveLayout::Memory they are laid out in, picked then too
+        @save_memory_layout = nil # the IR::SaveLayout::Memory they are laid out in, picked then too
       end
 
       def records? = @save_data.any?
@@ -126,6 +126,25 @@ module RubyGBA
 
         @saves_keep_everything = left_out
         nil
+      end
+
+      # Refuse a game with 64K or 128K of save memory, which is flash, which the console cannot
+      # write yet. EvaluatedGame asks this once the program is finalized, so every game built the
+      # usual way is refused — for a cartridge and for the interpreter alike. finalize_program
+      # does not ask it, and lays the records out for flash all the same, so a test that builds
+      # a Builder by hand can run where flash records go on the interpreter.
+      def refuse_flash_save_memory!
+        return if save_memory == IR::SaveLayout::MEMORIES.first
+
+        needed = @saves&.needed_save_memory || IR::SaveLayout::MEMORIES.first
+        fix = if needed == IR::SaveLayout::MEMORIES.first
+                "leave `save_memory:` out, or ask for `save_memory: 32`."
+              else
+                "keep less in each save_data record, or use fewer copies, so that the records fit in 32K."
+              end
+        raise ArgumentError, "This game has #{save_memory}K of save memory. A cartridge with more than 32K " \
+                             "keeps its saves in flash memory, and flash is not available yet. To fix " \
+                             "this, #{fix}"
       end
 
       private
