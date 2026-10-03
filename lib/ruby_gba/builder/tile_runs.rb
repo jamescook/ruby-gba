@@ -57,6 +57,37 @@ module RubyGBA
         DSL::TileRun.new(self, name)
       end
 
+      # THE SIZES THE CONSOLE DRAWS A SPRITE AT, in pixels across and down. A picture painted
+      # from a list is one of these whole, rather than cut into pieces the way a bigger drawn
+      # picture is, because the game writes its bytes in the order one sprite keeps its tiles.
+      PICTURE_SIZES = Ractor.make_shareable([[8, 8], [16, 16], [32, 32], [64, 64], [16, 8], [32, 8], [32, 16],
+                                             [64, 32], [8, 16], [8, 32], [16, 32], [32, 64]])
+
+      # `image` given a list rather than art: a picture a sprite shows, painted by the game. Its
+      # tiles are the list's 32-byte runs left to right and then top to bottom, which is the
+      # order a sprite's tiles are kept in.
+      def define_picture_run(name, opts)
+        list = opts[:from]
+        width = opts[:width]
+        height = opts[:height]
+        colors = tile_run_colors(name, opts[:colors], what: "image")
+        refuse_tile_run_on_bitmap_screen!(name, what: "image")
+        unless PICTURE_SIZES.include?([width, height])
+          raise ArgumentError, "image :#{name} gets its pixels from a list, so it must be a size the console " \
+                               "draws a sprite at. It is #{width.inspect}x#{height.inspect}. The sizes are " \
+                               "#{PICTURE_SIZES.map { |w, h| "#{w}x#{h}" }.join(', ')}."
+        end
+        refuse_tile_run_list_unfit!(name, list, (width / 8) * (height / 8), what: "image")
+
+        @images[name] = [width, height]
+        record(Build.tile_run(name, list: list.name, tiles: [], colors: colors, picture: name,
+                                    width: width, height: height))
+        at_boot(Build.set(tile_run_pending(name), Build.int(0)))
+        ensure_var(tile_run_pending(name))
+        @tile_runs << name
+        DSL::TileRun.new(self, name)
+      end
+
       # COPY EACH RUN WHOSE LIST MOVED, in the gap between frames, and only on a frame where
       # the game said so. Saying `changed` sets a flag; the gap copies and clears it. That is
       # what makes three `changed` in one frame one copy, and what keeps the copy out of the
@@ -83,14 +114,14 @@ module RubyGBA
 
       # The run's colours, place 0 first: a list declared with `colors`, by name, or the
       # colours themselves.
-      def tile_run_colors(name, colors)
+      def tile_run_colors(name, colors, what: "tiles")
         list = colors.is_a?(Symbol) ? @color_lists[colors] : colors
         if list.nil? && colors.is_a?(Symbol)
-          raise ArgumentError, "tiles :#{name} draws from colors :#{colors}, and no list has that name. " \
+          raise ArgumentError, "#{what} :#{name} draws from colors :#{colors}, and no list has that name. " \
                                "Declare it first with `colors :#{colors}, [:transparent, ...]`."
         end
         unless list.is_a?(Array) && list.length.between?(2, Images::OWN_COLORS)
-          raise ArgumentError, "tiles :#{name} needs `colors:`: a list of 2 to #{Images::OWN_COLORS} colors, " \
+          raise ArgumentError, "#{what} :#{name} needs `colors:`: a list of 2 to #{Images::OWN_COLORS} colors, " \
                                "the first meaning see-through. Each four bits of the list's bytes picks one."
         end
         list.map do |color|
@@ -100,10 +131,10 @@ module RubyGBA
         end
       end
 
-      def refuse_tile_run_on_bitmap_screen!(name)
+      def refuse_tile_run_on_bitmap_screen!(name, what: "tiles")
         return unless @screen_mode == :bitmap
 
-        raise ArgumentError, "tiles :#{name} gets its pixels from a list, and this screen is a bitmap. A bitmap " \
+        raise ArgumentError, "#{what} :#{name} gets its pixels from a list, and this screen is a bitmap. A bitmap " \
                              "screen has no tiles to copy the list into. To draw pixels the game works out " \
                              "on it, use `pixel` or `blit`."
       end
@@ -115,16 +146,16 @@ module RubyGBA
                              "number, 1 or more. Got #{count.inspect}."
       end
 
-      def refuse_tile_run_list_unfit!(name, list, count)
+      def refuse_tile_run_list_unfit!(name, list, count, what: "tiles")
         made = @program.walk.find { |node| node.kind == :list_new && node.name == list.name }
         unless made&.width == :byte
-          raise ArgumentError, "tiles :#{name} gets its pixels from list :#{list.name}, which must hold bytes. " \
+          raise ArgumentError, "#{what} :#{name} gets its pixels from list :#{list.name}, which must hold bytes. " \
                                "To fix this, declare it with `width: :byte`."
         end
         needed = count * TILE_BYTES
         return if made.capacity >= needed
 
-        raise ArgumentError, "tiles :#{name} has #{count} tiles, and each tile is #{TILE_BYTES} bytes of its " \
+        raise ArgumentError, "#{what} :#{name} has #{count} tiles, and each tile is #{TILE_BYTES} bytes of its " \
                              "list, so list :#{list.name} needs a capacity of #{needed}. It has " \
                              "#{made.capacity}. To fix this, give the list a capacity of #{needed}."
       end

@@ -271,7 +271,7 @@ module RubyGBA
             end
             store_word_immediate(list[:base], REG_DMA3SAD)
             store_word_immediate(VRAM_START + run.at, REG_DMA3DAD)
-            @emitter.note_video_copy("painting tiles :#{name}", run.bytes)
+            @emitter.note_video_copy("painting #{run.what} :#{name}", run.bytes)
             store_word_immediate((run.bytes / 4) | DMA_ENABLE | DMA_32BIT, REG_DMA3CNT)
           end
 

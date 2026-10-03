@@ -147,12 +147,18 @@ module RubyGBA
             pictures
           end
 
-          # A run's tiles, each the blank picture it is until the first copy.
+          # A run's tiles, or the one picture a sprite shows, each blank until the first copy.
           def self.painted_tile_pictures(run)
-            blank = Assets::Image.new(width: TILE_PX, height: TILE_PX, transparent: Graphics::Image::TRANSPARENT,
-                                      pixels: ([Graphics::Image::TRANSPARENT] * (TILE_PX * TILE_PX)).pack("v*"),
-                                      colors: run.colors, places: ("\x00" * (TILE_PX * TILE_PX)).b)
+            return { run.picture => blank_picture(run.width, run.height, run.colors) } if run.picture
+
+            blank = blank_picture(TILE_PX, TILE_PX, run.colors)
             run.tiles.to_h { |tile| [tile, blank] }
+          end
+
+          def self.blank_picture(width, height, colors)
+            Assets::Image.new(width: width, height: height, transparent: Graphics::Image::TRANSPARENT,
+                              pixels: ([Graphics::Image::TRANSPARENT] * (width * height)).pack("v*"),
+                              colors: colors, places: ("\x00" * (width * height)).b)
           end
 
           # Does this sprite turn or change size? It does unless BOTH its angle and its size
@@ -194,8 +200,10 @@ module RubyGBA
             @placed_fade = PlacedFade.new(@picture, program)
             # Each tile the game paints from a list, by its picture's name -> its run; and
             # where each run landed in video memory (see #note_painted_runs).
-            @painted_runs = program.walk.select { |node| node.kind == :tile_run }
-                                   .flat_map { |run| run.tiles.map { |tile| [tile, run] } }.to_h
+            runs = program.walk.select { |node| node.kind == :tile_run }
+            @painted_runs = runs.flat_map { |run| run.tiles.map { |tile| [tile, run] } }.to_h
+            # ...and each picture a sprite shows that is painted the same way, by its name.
+            @painted_pictures = runs.select(&:picture).to_h { |run| [run.picture, run] }
             @painted_vram = {}
             @see_through = IR::SeeThrough.layers(program).map(&:name) # the layers a sprite blends in
             if Modes.draws_with_tiles?(program)
@@ -220,6 +228,19 @@ module RubyGBA
           end
 
           attr_reader :picture, :screenfuls # how the picture stacks, whole and one screen at a time
+
+          # Does a sprite that belongs to a scene show a painted picture?
+          def painted_sprites_in_any_scene?
+            !@picture.nil? && @picture.objects.any? { |node| node.scene && painted_sprite?(node) }
+          end
+
+          # The runs whose painted picture a sprite of +scene+ shows, by run name.
+          def painted_sprites_of_scene(scene)
+            return [] if @picture.nil?
+
+            @picture.objects.select { |node| node.scene == scene && painted_sprite?(node) }
+                    .map { |node| @painted_pictures.fetch(node.poses.first).name }.uniq
+          end
           attr_reader :backgrounds, :hardware_layers, :scene_layers, :bg_shared, :vram,
                       :objects, :obj_pictures, :sprite_art, :scene_art, :placed_fade,
                       :obj_palette_blob, :obj_palette_units, :blobs, :codecs,
@@ -399,7 +420,7 @@ module RubyGBA
 
           # WHERE A RUN OF PAINTED TILES SITS: how far into video memory it starts, how many
           # bytes it takes, and the list its pixels are copied from.
-          PaintedRun = Data.define(:at, :bytes, :list)
+          PaintedRun = Data.define(:at, :bytes, :list, :what)
 
           # THE SCENERY EVERY SCREEN SHOWS GOES IN FIRST, and stays for the whole game: its
           # pictures are sent at boot and its maps are set up once. What it takes is what
@@ -620,6 +641,14 @@ module RubyGBA
 
           def tile_key(node, index) = [node.name, index]
 
+          # Does this sprite show a picture the game paints from a list? One that does shows
+          # nothing else: a painted picture is a sprite's only pose.
+          def painted_sprite?(node) = node.poses.any? { |pose| @painted_pictures.key?(pose) }
+
+          # Where sprite pictures start, counted from the start of video memory, as a painted
+          # run's address is.
+          def obj_tile_vram_offset = SpriteDrawing::OBJ_TILE_BASE - VRAM_START
+
           # WHERE EACH RUN OF PAINTED TILES LANDED, as bytes into video memory: the copy that
           # paints it writes there (see BackgroundDrawing#emit_copy_tiles). One copy is one
           # stretch of memory, so the run has to have landed in order and side by side, which
@@ -636,7 +665,7 @@ module RubyGBA
                                      "game paints one copy of them, so one background in one place must show " \
                                      "them. To fix this, give each background its own list and its own tiles."
               end
-              @painted_vram[run.name] = PaintedRun.new(at: first, bytes: run.tiles.size * SMALL_TILE_BYTES, list: run.list)
+              @painted_vram[run.name] = PaintedRun.new(at: first, bytes: run.tiles.size * SMALL_TILE_BYTES, list: run.list, what: "tiles")
             end
           end
 
@@ -1080,8 +1109,10 @@ module RubyGBA
             sets = @obj_pictures.values.group_by(&:stored).values.map { |sprites| PictureSet.new(sprites: sprites) }
             one_frame = Set.new # the names of the sprites kept to one frame at a time
             blobs = SpriteLayout::Blobs.new(data_blobs: @blobs, keep_plain: method(:keep_unpacked!))
+            painted = nodes.select { |node| painted_sprite?(node) }.to_h { |node| [node.name, node.poses.first] }
+            sets.reject! { |set| set.names.any? { |name| painted.key?(name) } } # nothing to give back
             loop do
-              @sprite_art = SpriteLayout.new(nodes: nodes, pictures: @obj_pictures,
+              @sprite_art = SpriteLayout.new(nodes: nodes, pictures: @obj_pictures, painted: painted,
                                              one_frame: one_frame, blobs: blobs) do |pictures, placed|
                 object_record(pictures, slot: slot_of.fetch(pictures.name),
                                         affine_slot: affine_of[pictures.name], **placed)
@@ -1093,6 +1124,12 @@ module RubyGBA
               one_frame.merge(set.names)
             end
             @objects = @sprite_art.sprites
+            painted.each do |name, picture|
+              run = @painted_pictures.fetch(picture)
+              @painted_vram[run.name] ||= PaintedRun.new(at: obj_tile_vram_offset + (@objects.fetch(name).tile_index * 32),
+                                                         bytes: run.width * run.height / 2, list: run.list,
+                                                         what: "image")
+            end
             @scene_art = @sprite_art.scene_art
             @scene_art.each_value { |sent| sent.each { |blob, *| keep_unpacked!(blob) } }
           end
@@ -1418,7 +1455,9 @@ module RubyGBA
           # pixels and the size of the box together, so two pieces match only when they
           # would draw the same thing.
           def sprite_pictures(node, cutter)
-            cut = cutter.cut(node, transformed: object_transformed?(node))
+            # A painted picture is kept whole, never trimmed to what it draws: it draws nothing
+            # until the game paints it, and then whatever the game paints.
+            cut = cutter.cut(node, transformed: object_transformed?(node) || painted_sprite?(node))
             mirrors = cut[:mirrors]
             boxes = cut[:boxes]
             pieces = boxes.map(&:size).max

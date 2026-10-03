@@ -447,6 +447,7 @@ module RubyGBA
               # Tiles the game paints from a list: see-through until the first copy.
               @tile_runs[n.name] = n
               n.tiles.each { |tile| @bitmaps[tile] = blank_run_tile(n) }
+              store_run_picture(n, Array.new(n.width * n.height, 0)) if n.picture
               @repaints = true
             when :backing_buffer
               # Reserve the patch. `pixels` stays nil until the first save_region
@@ -1009,7 +1010,25 @@ module RubyGBA
 
         def call_func(name)
           func = @funcs[name] || raise(ProgramError, "call to undefined func #{name.inspect}")
+          take_over_painted_sprites(name) if name.start_with?("_scene_")
           func.children.each { |child| exec(child) }
+        end
+
+        # A SCENE TAKING OVER PUTS ITS SPRITES' PAINTED PICTURES UP FROM THEIR LISTS, as they
+        # are at that moment (see IR::SceneHandover) — the console's memory under them was the
+        # last scene's. Only on the frame the scene changes; staying in it changes nothing.
+        def take_over_painted_sprites(scene)
+          return if scene == @live_scene
+
+          @live_scene = scene
+          painted = @tile_runs.each_value.select(&:picture)
+          return if painted.empty?
+
+          @objects.each_value do |obj|
+            next unless obj.scene == scene
+
+            painted.each { |run| copy_run_tiles(run) if obj.poses.include?(run.picture) }
+          end
         end
 
         # Advance one timer by a frame's worth of overflows, and run its on_tick handler
@@ -1230,14 +1249,44 @@ module RubyGBA
 
         def copy_run_tiles(run)
           bytes = @lists.fetch(run.list).to_a
+          return copy_run_picture(run, bytes) if run.picture
+
           run.tiles.each_with_index do |tile, k|
-            places = (0...RUN_TILE_BYTES).flat_map do |at|
-              byte = (bytes[(k * RUN_TILE_BYTES) + at] || 0) & 0xFF
-              [byte & 0x0F, byte >> 4]
-            end
-            @bitmaps[tile] = run_tile_from_places(run, places)
+            @bitmaps[tile] = run_tile_from_places(run, run_tile_places(bytes, k))
           end
           @tile_colors.delete_if { |(name, _), _| run.tiles.include?(name) }
+        end
+
+        # The 64 places of tile +k+ of a run's bytes, row by row.
+        def run_tile_places(bytes, k)
+          (0...RUN_TILE_BYTES).flat_map do |at|
+            byte = (bytes[(k * RUN_TILE_BYTES) + at] || 0) & 0xFF
+            [byte & 0x0F, byte >> 4]
+          end
+        end
+
+        # A sprite's picture from its list: its tiles in the order a sprite's are kept, left to
+        # right and then top to bottom, laid back out into one picture.
+        def copy_run_picture(run, bytes)
+          across = run.width / 8
+          places = Array.new(run.width * run.height, 0)
+          (across * (run.height / 8)).times do |k|
+            left = (k % across) * 8
+            top = (k / across) * 8
+            run_tile_places(bytes, k).each_with_index do |place, i|
+              places[((top + (i / 8)) * run.width) + left + (i % 8)] = place
+            end
+          end
+          store_run_picture(run, places)
+        end
+
+        # The picture as everything that draws one reads it: its shape, and its pixels.
+        def store_run_picture(run, places)
+          pixels = places.map { |place| place.zero? ? Graphics::Image::TRANSPARENT : run.colors.fetch(place, 0) }
+          picture = Assets::Image.new(width: run.width, height: run.height, transparent: Graphics::Image::TRANSPARENT,
+                                      pixels: pixels.pack("v*"), colors: nil, places: places.pack("C*"))
+          @bitmaps[run.picture] = picture
+          @data[run.picture] = picture.pixels
         end
 
         RUN_TILE_BYTES = 32

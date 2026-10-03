@@ -72,6 +72,9 @@ module RubyGBA
       # what a layer drawn from several lists needs, so `draw_with` can say which of them is
       # which (see Background#draw_with).
       def image(name, opts = {}, &block)
+        # A picture the game paints itself, kept in a list of its own (see TileRuns).
+        return define_picture_run(name, opts) if opts[:from].is_a?(DSL::List)
+
         one_source_of_pixels!(name, opts, block)
         opts = opts.merge(colors: declared_colors_for_image!(name, opts[:colors])) if opts[:colors].is_a?(Symbol)
         if block

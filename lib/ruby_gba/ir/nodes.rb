@@ -99,12 +99,18 @@ module RubyGBA
       # is the 32 bytes from k × 32, each byte two pixels, the left one in the low four bits,
       # each of those a place in +colors+ (place 0 is see-through). The tiles start
       # see-through and show what the list holds only after a CopyTiles.
+      #
+      # A run can instead be ONE PICTURE a sprite shows: +picture+ names it, +width+ and
+      # +height+ are its size in pixels, and its tiles are the list's 32-byte runs taken left
+      # to right and then top to bottom — the order a sprite's tiles are kept in. +tiles+ is
+      # empty for one of those, and +picture+ nil for a run a background shows.
       class TileRun
         include Node
         kind :tile_run
         declaration!
         category :data
-        operands name: :name, list: :name, tiles: :list, colors: :list
+        operands name: :name, list: :name, tiles: :list, colors: :list, picture: :name, width: :int,
+                 height: :int
       end
 
       # Show a TileRun's list on its tiles: every tile of the run takes the pixels its bytes

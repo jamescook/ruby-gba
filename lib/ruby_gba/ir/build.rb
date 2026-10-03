@@ -622,9 +622,11 @@ module RubyGBA
       end
 
       # A run of tiles named +tiles+, in order, whose pixels come from the byte list +list+
-      # (see Nodes::TileRun). +colors+ are the run's colours, place 0 first.
-      def tile_run(name, list:, tiles:, colors:)
-        Nodes.build(:tile_run, name: name, list: list, tiles: tiles, colors: colors)
+      # (see Nodes::TileRun). +colors+ are the run's colours, place 0 first. A run that is one
+      # sprite's picture names it +picture+, +width+ by +height+ pixels, and has no +tiles+.
+      def tile_run(name, list:, tiles:, colors:, picture: nil, width: 0, height: 0)
+        Nodes.build(:tile_run, name: name, list: list, tiles: tiles, colors: colors, picture: picture,
+                               width: width, height: height)
       end
 
       # Show the run +name+'s list on its tiles (see Nodes::CopyTiles).

@@ -38,9 +38,15 @@ module RubyGBA
           # frame at a time this time round, and +blobs+ where a kept-to-one-frame sprite's
           # frames go in the cartridge. The block is given a sprite's pictures and where they
           # landed, and gives back the record the drawing reads.
-          def initialize(nodes:, pictures:, one_frame:, blobs:, &record)
+          #
+          # +painted+ is each sprite showing a picture the game paints from a list, by name, with
+          # that picture's name. Such a sprite gets a room of its own the list is copied into,
+          # and every sprite showing the same painted picture shares it.
+          def initialize(nodes:, pictures:, one_frame:, blobs:, painted: {}, &record)
             @art = ObjectArt.new(blobs.data_blobs)
             @pictures = pictures
+            @painted = painted
+            @painted_rooms = {} # painted picture -> the unit its room starts at
             @one_frame = one_frame
             @blobs = blobs
             @record = record
@@ -84,6 +90,8 @@ module RubyGBA
             @sprites[node.name] =
               if @one_frame.include?(node.name)
                 @record.call(pictures, one_frame_placement(pictures))
+              elsif (picture = @painted[node.name])
+                @record.call(pictures, painted_placement(pictures, picture))
               else
                 @repeats += pictures.repeats
                 blob, unit = @art.place(node.name, pictures.stored, narrow: pictures.place.narrow?)
@@ -92,6 +100,15 @@ module RubyGBA
                   tiles: blob, tile_units: pictures.stored_bytes / 32, tile_index: unit }
                   .then { |placed| @record.call(pictures, placed) }
               end
+          end
+
+          # THE ROOM A PAINTED PICTURE IS COPIED INTO, out of the game's list rather than the
+          # cartridge — so there is nothing to store, only room to keep, and it is never shared
+          # with a picture that merely looks the same, since the game changes it.
+          def painted_placement(pictures, picture)
+            units = pictures.stored_bytes / 32
+            unit = (@painted_rooms[picture] ||= @art.reserve(units, narrow: pictures.place.narrow?))
+            { starts: pictures.starts, alike: true, per_pose: 0, tiles: nil, tile_units: units, tile_index: unit }
           end
 
           # THE ROOM FOR ONE FRAME. Every pose is laid out the same way inside it, so the

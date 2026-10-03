@@ -154,6 +154,121 @@ class TestTileRuns < Minitest::Test
     [3, 4].each { |frames| assert_backends_agree(prog, frames: frames) }
   end
 
+  # --- a sprite's picture from a list ---
+
+  # A 16x8 picture is two tiles side by side, so its list is 64 bytes, the left tile first —
+  # the order the console keeps a sprite's tiles in. +body+ runs each pass with the list, the
+  # picture's handle and a frame counter.
+  def tag_game(&body)
+    b = Builder.new
+    b.instance_eval do
+      screen :tiled
+      colors :ink, [:transparent, :white]
+      canvas = list :canvas, capacity: 64, width: :byte
+      repeat(64) { canvas.push 0 }
+      tag = image :tag, from: canvas, width: 16, height: 8, colors: :ink
+      sprite :tag, at: [40, 20]
+      frame = var :frame, 0
+      game_loop do
+        frame.add! 1
+        instance_exec(canvas, tag, frame, &body)
+      end
+    end
+    b.finalize_program
+    b.program
+  end
+
+  def test_a_sprite_shows_its_lists_pixels_on_the_frame_after_changed
+    prog = tag_game do |canvas, tag, frame|
+      (frame == 3).then do
+        canvas[32] = 0x01 # the second tile's top-left pixel: 8 across from the sprite's corner
+        tag.changed
+      end
+    end
+
+    refute_equal WHITE, pixel(prog, 3, 48, 20), "not on the frame it was written"
+    assert_equal WHITE, pixel(prog, 4, 48, 20), "on the next frame, the same as tiles a background shows"
+  end
+
+  def test_the_console_agrees_on_a_sprites_painted_picture_and_when_it_shows
+    prog = tag_game do |canvas, tag, frame|
+      (frame == 3).then do
+        repeat(64) { |i| canvas[i] = (i * 7) & 0xFF }
+        tag.changed
+      end
+    end
+    oracle, console = backend_pictures(prog, frames: 5)
+
+    assert_includes oracle, WHITE, "the pattern shows, so the comparison means something"
+    assert_empty mismatched_pixels(oracle, console)
+    [3, 4].each { |frames| assert_backends_agree(prog, frames: frames) }
+  end
+
+  # The sprite side of a scene coming back: its painted picture goes up from the list as it is
+  # then, so a pixel wiped from the list while the scene was away is gone on return.
+  def tag_scene_game
+    b = Builder.new
+    b.instance_eval do
+      screen :tiled
+      colors :ink, [:transparent, :white]
+      canvas = list :canvas, capacity: 32, width: :byte
+      repeat(32) { canvas.push 0 }
+      state = var :state, 0
+      frame = var :frame, 0
+      scene(:talking) do
+        tag = image :tag, from: canvas, width: 8, height: 8, colors: :ink
+        sprite :tag, at: [0, 0]
+        (frame == 2).then { canvas[0] = 0x01; tag.changed }
+        (frame == 5).then { state.set! 1 }
+      end
+      scene(:walking) do
+        (frame == 7).then { canvas[0] = 0x00 }
+        (frame == 9).then { state.set! 0 }
+      end
+      game_loop do
+        frame.add! 1
+        case_var(:state) { when_val 0, :talking; when_val 1, :walking }
+      end
+    end
+    b.finalize_program
+    b.program
+  end
+
+  def test_a_painted_sprite_back_with_its_scene_shows_its_list_as_it_is_then
+    assert_equal WHITE, pixel(tag_scene_game, 4, 0, 0)
+    assert_equal 0, pixel(tag_scene_game, 13, 0, 0)
+    [4, 13].each { |frames| assert_backends_agree(tag_scene_game, frames: frames) }
+  end
+
+  # Three save slots, each with a name tag of its own: three lists, three pictures.
+  def three_tags
+    b = Builder.new
+    b.instance_eval do
+      screen :tiled
+      colors :ink, %i[transparent white red blue]
+      tags = (0..2).map do |slot|
+        canvas = list :"name_#{slot}", capacity: 32, width: :byte
+        repeat(32) { canvas.push slot + 1 } # every left pixel is place slot + 1
+        tag = image :"tag_#{slot}", from: canvas, width: 8, height: 8, colors: :ink
+        sprite :"tag_#{slot}", at: [slot * 10, 0]
+        tag
+      end
+      game_loop { tags.each(&:changed) }
+    end
+    b.finalize_program
+    b.program
+  end
+
+  def test_three_sprites_each_show_their_own_list
+    shown = (0..2).map { |slot| pixel(three_tags, 3, slot * 10, 0) }
+
+    assert_equal [WHITE, RED, RubyGBA::Graphics::Color.resolve(:blue)], shown
+  end
+
+  def test_the_console_shows_each_sprites_own_list_too
+    assert_backends_agree(three_tags, frames: 3)
+  end
+
   def refusal(screen_kind: :tiled, &block)
     assert_raises(ArgumentError) do
       b = Builder.new
@@ -175,6 +290,9 @@ class TestTileRuns < Minitest::Test
     assert_match(/It has 40/, message)
     assert_match(/no list has that name/, refusal { tiles :box, from: list(:c, capacity: 64, width: :byte), count: 2, colors: :nope })
     assert_match(/2 to 16 colors/, refusal { tiles :box, from: list(:c, capacity: 64, width: :byte), count: 2 })
+    assert_match(/sizes are 8x8/, refusal { image :tag, from: list(:c, capacity: 64, width: :byte), width: 24, height: 8, colors: :ink })
+    assert_match(/use `pixel` or `blit`/,
+                 refusal(screen_kind: :bitmap) { image :tag, from: list(:c, capacity: 64, width: :byte), width: 16, height: 8, colors: :ink })
     assert_match(/keys 1 to 2/, refusal do
       image(:w, "#" => :white) { (["#" * 8] * 8).join("\n") }
       tiles :box, from: list(:c, capacity: 64, width: :byte), count: 2, colors: :ink, 2 => :w

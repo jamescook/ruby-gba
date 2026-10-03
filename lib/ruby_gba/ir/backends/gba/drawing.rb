@@ -80,6 +80,8 @@ module RubyGBA
             def scene_screens = screen.scene_screens
             def scene_tiles = screen.scene_tiles
             def painted_vram = screen.painted_vram
+            def painted_sprites_of_scene(scene) = screen.painted_sprites_of_scene(scene)
+            def painted_sprites_in_any_scene? = screen.painted_sprites_in_any_scene?
             def scene_obj_palettes = screen.scene_obj_palettes
             def picture = screen.picture
 
@@ -524,7 +526,17 @@ module RubyGBA
             sending = @layout.scene_art[name] || []
             rooms = @layout.objects.each_value.select { |obj| obj.scene == name && obj.frames }
             colors = @layout.scene_obj_palettes[name]
-            return if sending.empty? && rooms.empty? && colors.nil?
+            painted = @layout.painted_sprites_of_scene(name)
+            if sending.empty? && rooms.empty? && colors.nil? && painted.empty?
+              # A scene with no sprite art of its own normally leaves the last scene's marked as
+              # loaded, which is right: nothing overwrote it. A painted picture is the exception,
+              # since its list can change while its scene is away and it goes up from the list
+              # as it is then — so in a game with one, this scene says nobody's is loaded.
+              if @layout.scene_art.any? && @layout.painted_sprites_in_any_scene?
+                @primitives.store_word_immediate(0, @primitives.var_addr(SCENE_ART_STATE))
+              end
+              return
+            end
 
             emit_on_scene_entry(SCENE_ART_STATE, @layout.scene_art.keys.index(name) + 1) do
               # Its colours first: the groups its sprites name are this scene's now (see
@@ -532,6 +544,9 @@ module RubyGBA
               @palette_tint.emit_send_scene_obj_palette(colors, @layout.obj_palette_units) if colors
               sending.each { |blob, at, units| @uploads.emit_dma_blob(blob, SpriteDrawing::OBJ_TILE_BASE + (at * 32), units * 16) }
               @sprite_drawing.emit_reset_resident_frames(rooms)
+              # A picture the game paints goes up from its list as it is now: the scene before
+              # used the same memory (see IR::SceneHandover).
+              painted.each { |run_name| @background_drawing.emit_copy_tiles(Build.copy_tiles(run_name)) }
             end
           end
 
