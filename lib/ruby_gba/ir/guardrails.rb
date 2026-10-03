@@ -281,6 +281,7 @@ require_relative "guardrails/empty_tiled_screen"
 require_relative "guardrails/bitmap_draw_on_tiled"
 require_relative "guardrails/call_inside_area"
 require_relative "guardrails/screen_inside_scene"
+require_relative "guardrails/painted_picture_with_other_poses"
 require_relative "guardrails/fade_never_lifted"
 require_relative "guardrails/tint_never_lifted"
 require_relative "guardrails/dropped_frame_sync"
@@ -349,6 +350,7 @@ module RubyGBA
         Checks::TooManySprites.new,
         Checks::SeeThroughPerScreen.new,
         Checks::ScreenInsideScene.new,
+        Checks::PaintedPictureWithOtherPoses.new,
       ])
     end
   end
