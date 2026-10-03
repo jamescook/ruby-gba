@@ -27,7 +27,7 @@ module RubyGBA
 
           attr_writer :layout
 
-          def placed_fade = @layout.placed_fade
+          def placed_fade = @layout.screen.placed_fade
 
           # Move the visible window over the whole picture.
           #

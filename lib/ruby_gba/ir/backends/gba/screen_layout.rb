@@ -83,6 +83,17 @@ module RubyGBA
           # that scroll beside one that turns and resizes.
           SceneScreen = Data.define(:on, :turning)
 
+          # WHAT ONE SCENE SENDS AS IT TAKES OVER, in one place: its own tile pictures (a
+          # SceneTiles, or nil), the screen it has on (a SceneScreen, for a tiled scene), its
+          # own sprite pictures (blob, at, units for each), and the blob of its sprite colour
+          # table (or nil). Each pass that decides one of these fills in its part.
+          #
+          # +art+ is nil for a scene that owns no sprites, and a list — empty when there is
+          # nothing to copy — for one that does, since a scene whose sprites keep one frame at
+          # a time still marks its pictures as up (see Drawing#emit_scene_art_upload).
+          SceneSend = Data.define(:tiles, :screen, :art, :obj_palette)
+          NOTHING_SENT = Ractor.make_shareable(SceneSend.new(tiles: nil, screen: nil, art: nil, obj_palette: nil))
+
           AFFINE_MAX_TILES = 256
 
           # The console keeps four levels of depth, and a picture can ask for more of them
@@ -189,14 +200,10 @@ module RubyGBA
             @codecs = {}          # names of the data that must stay unpacked in the cartridge
             @backgrounds = {}     # name -> where a background landed (see #prepare_one_background)
             @hardware_layers = {} # name -> which of the console's layers it uses
-            @scene_layers = {}    # scene -> which layers it switches on, when scenes differ
             @bg_shared = nil      # the one colour table and tile run every layer shares
             @objects = {}         # name -> where a sprite landed (see #object_record)
             @obj_pictures = {}    # name -> its pictures, cut and encoded
-            @scene_art = {}       # scene -> the sprite pictures it sends when it takes over
-            @scene_tiles = {}     # scene -> the tile pictures it sends when it takes over
-            @scene_screens = {}   # tiled scene -> the layers it has on, whether or not scenes differ
-            @scene_obj_palettes = {} # scene -> the sprite colour table it sends when it takes over
+            @scene_sends = {}     # scene -> what it sends as it takes over (see SceneSend)
             @placed_fade = PlacedFade.new(@picture, program)
             # Each tile the game paints from a list, by its picture's name -> its run; and
             # where each run landed in video memory (see #note_painted_runs).
@@ -230,13 +237,29 @@ module RubyGBA
 
           attr_reader :picture, :screenfuls # how the picture stacks, whole and one screen at a time
           attr_reader :handover # what each scene puts up as it takes over (see IR::SceneHandover)
-          attr_reader :backgrounds, :hardware_layers, :scene_layers, :bg_shared, :vram,
-                      :objects, :obj_pictures, :sprite_art, :scene_art, :placed_fade,
+          attr_reader :backgrounds, :hardware_layers, :bg_shared, :vram,
+                      :objects, :obj_pictures, :sprite_art, :placed_fade,
                       :obj_palette_blob, :obj_palette_units, :blobs, :codecs,
-                      :scene_tiles, # scene -> its own tile pictures, sent as it takes over (see #place_each_scene)
-                      :painted_vram, # run of painted tiles -> where it sits in video memory (see #note_painted_runs)
-                      :scene_screens,
-                      :scene_obj_palettes # scene -> the blob of its sprite colour table (see #build_shared_object_palette)
+                      :painted_vram # run of painted tiles -> where it sits in video memory (see #note_painted_runs)
+
+          # What +scene+ sends as it takes over (see SceneSend). A scene with nothing of its
+          # own, or no scene at all, sends nothing.
+          def scene_send(scene) = @scene_sends.fetch(scene, NOTHING_SENT)
+
+          # Do the tiled scenes want different layers on? Only then does each scene tell the
+          # display which, as it takes over (see #scene_screens_for).
+          def layers_differ_by_scene? = @scene_sends.each_value.filter_map(&:screen).uniq.size > 1
+
+          # The screen of the first tiled scene declared — the one boot sets up where the
+          # scenes differ (see Drawing#first_scene_layers).
+          def first_scene_screen = @scene_sends.each_value.find(&:screen)&.screen
+
+          # Does any scene own sprites of its own? Then a scene's sprite pictures are marked
+          # as up or not as scenes take turns, even for a scene with nothing to send.
+          def scene_art? = @scene_sends.each_value.any?(&:art)
+
+          # Does any scene send a sprite colour table of its own?
+          def scene_obj_palettes? = @scene_sends.each_value.any?(&:obj_palette)
 
           # How many of the console's 128 sprite places +nodes+ take between them. Usually
           # one each; a sprite whose picture is bigger than one object takes one per piece.
@@ -384,7 +407,7 @@ module RubyGBA
             banks, big = assign_tile_banks(regular_nodes, affine_nodes)
 
             slots = layer_slots
-            @scene_layers = scene_layers_for(slots)
+            scene_screens_for(slots).each { |scene, screen| record_scene_send(scene, screen: screen) }
             everywhere = place_shared_scenery(slots, banks, big)
             fullest = place_each_scene(everywhere, slots, banks, big)
 
@@ -397,10 +420,12 @@ module RubyGBA
             colors = banks.entries
             @blobs[BG_SHARED_PAL] = colors.pack("v*")
             @blobs[BG_SHARED_CHAR] = everywhere.bytes
-            @tiles = fullest
             @vram = fullest.vram # what the report reads the room left out of
-            @bg_shared = shared_scenery_summary(regular_nodes + affine_nodes, big, colors, boot: everywhere)
+            @bg_shared = shared_scenery_summary(regular_nodes + affine_nodes, big, colors, boot: everywhere, fullest: fullest)
           end
+
+          # Fill in part of what +scene+ sends as it takes over.
+          def record_scene_send(scene, **part) = @scene_sends[scene] = scene_send(scene).with(**part)
 
           # WHERE A SCENE'S OWN TILE PICTURES ARE SENT AS IT TAKES OVER: the blob holding them,
           # how far into video memory they go, and how many halfwords that is. Only scenes
@@ -415,10 +440,9 @@ module RubyGBA
           # pictures are sent at boot and its maps are set up once. What it takes is what
           # each scene has left.
           def place_shared_scenery(slots, banks, big)
-            @vram = TileVram.new
-            @tiles = BackgroundTiles.new(vram: @vram)
-            place_scenery(@picture.scenery.reject(&:scene), slots, banks, big)
-            @tiles
+            store = BackgroundTiles.new(vram: TileVram.new)
+            place_scenery(store, @picture.scenery.reject(&:scene), slots, banks, big)
+            store
           end
 
           # THEN EACH SCENE'S OWN, IN THE SAME ROOM AS EVERY OTHER SCENE'S.
@@ -434,31 +458,30 @@ module RubyGBA
           # Returns the tile run of the screen that holds the most, which is what the report
           # has to say about: that one is the budget.
           def place_each_scene(everywhere, slots, banks, big)
-            @scene_tiles = {}
             shared = everywhere.bytes.bytesize
             fullest = everywhere
             @picture.scenery.filter_map(&:scene).uniq.each_with_index do |scene, index|
-              @tiles = everywhere.dup
-              @vram = @tiles.vram
-              place_scenery(@picture.scenery.select { |node| node.scene == scene }, slots, banks, big, scene: scene)
-              own = @tiles.bytes.byteslice(shared..)
+              store = everywhere.dup
+              place_scenery(store, @picture.scenery.select { |node| node.scene == scene }, slots, banks, big, scene: scene)
+              own = store.bytes.byteslice(shared..)
               unless own.empty?
                 blob = :"__bg_scene_tiles_#{index}"
                 @blobs[blob] = own
                 keep_unpacked!(blob)
-                @scene_tiles[scene] = SceneTiles.new(blob: blob, offset: shared, units: own.bytesize / 2)
+                record_scene_send(scene, tiles: SceneTiles.new(blob: blob, offset: shared, units: own.bytesize / 2))
               end
-              fullest = @tiles if @vram.free_bytes < fullest.vram.free_bytes
+              fullest = store if store.vram.free_bytes < fullest.vram.free_bytes
             end
             fullest
           end
 
-          # Put +nodes+ in video memory, the scrolling ones before any that turn. A screen
-          # whose scenery does not fit is refused naming its scene, and counting what every
-          # screen shows with it, since that is part of what the scene has to fit beside.
-          def place_scenery(nodes, slots, banks, big, scene: nil)
-            nodes.reject(&:affine).each { |node| prepare_one_background(node, slots.fetch(node.name), banks, big) }
-            nodes.select(&:affine).each { |node| prepare_affine_background(node, banks) }
+          # Put +nodes+ in video memory — into +store+, the tile pictures and maps of the
+          # screen they are on — the scrolling ones before any that turn. A screen whose
+          # scenery does not fit is refused naming its scene, and counting what every screen
+          # shows with it, since that is part of what the scene has to fit beside.
+          def place_scenery(store, nodes, slots, banks, big, scene: nil)
+            nodes.reject(&:affine).each { |node| prepare_one_background(store, node, slots.fetch(node.name), banks, big) }
+            nodes.select(&:affine).each { |node| prepare_affine_background(store, node, banks) }
           rescue TileVram::Full => e
             raise LoweringError, tiles_overflow_message(e, @picture.scenery.reject(&:scene) + nodes, scene)
           end
@@ -526,14 +549,13 @@ module RubyGBA
           #   arrangement it is in as each screen is set up, so this is simply what it is for.
           #
           # Nothing is emitted for a program whose scenes all want the same screen, which is
-          # every program with no scene-owned scenery and most of those that have it.
-          def scene_layers_for(slots)
+          # every program with no scene-owned scenery and most of those that have it (see
+          # #layers_differ_by_scene?). Returns each tiled scene's screen.
+          def scene_screens_for(slots)
             wanted = @screenfuls.reject { |s| s.scene.nil? }.to_h do |screenful|
               [screenful.scene, scene_screen(screenful, slots)]
             end
-            wanted.select! { |scene, _| @modes.func_mode[scene] == IR::Modes::TILED }
-            @scene_screens = wanted
-            wanted.values.uniq.size > 1 ? wanted : {}
+            wanted.select { |scene, _| @modes.func_mode[scene] == IR::Modes::TILED }
           end
 
           # A turning background is always on the layer the console keeps that hardware on,
@@ -642,10 +664,10 @@ module RubyGBA
           # paints it writes there (see BackgroundDrawing#emit_copy_tiles). One copy is one
           # stretch of memory, so the run has to have landed in order and side by side, which
           # it does because its tiles are stored one after another and never shared.
-          def note_painted_runs(node, images)
+          def note_painted_runs(store, node, images)
             images.map { |image| @painted_runs.fetch(image) }.uniq.each do |run|
-              first = @tiles.painted_at.fetch(run.tiles.first)
-              unless run.tiles.each_with_index.all? { |tile, k| @tiles.painted_at[tile] == first + (k * SMALL_TILE_BYTES) }
+              first = store.painted_at.fetch(run.tiles.first)
+              unless run.tiles.each_with_index.all? { |tile, k| store.painted_at[tile] == first + (k * SMALL_TILE_BYTES) }
                 raise LoweringError, "background :#{node.name} shows only part of tiles :#{run.name}, or shows them " \
                                      "out of order. Its tileset must hold all #{run.tiles.size} of them."
               end
@@ -680,13 +702,13 @@ module RubyGBA
           # one run of tile pictures, with how many TILES got each storage and what the small
           # ones saved. Those two are counted off the layers rather than off the banks, since
           # a layer stored the big way is one picture there however many tiles it has.
-          def shared_scenery_summary(nodes, big, colors, boot:)
+          def shared_scenery_summary(nodes, big, colors, boot:, fullest:)
             small = nodes.reject { |node| big.include?(node) }.sum { |node| node.tiles.size }
             SharedScenery.new(palette_units: colors.size, tile_units: boot.bytes.bytesize / 2,
-                              tile_bytes: @tiles.bytes.bytesize,
+                              tile_bytes: fullest.bytes.bytesize,
                               small: small, big: nodes.sum { |node| node.tiles.size } - small,
                               saved: small * SMALL_TILE_BYTES,
-                              shared: @tiles.shared, skipped: @tiles.skipped)
+                              shared: fullest.shared, skipped: fullest.skipped)
           end
 
           # The tiles and the maps grow toward each other and met. Name the biggest tileset,
@@ -709,15 +731,15 @@ module RubyGBA
           # Put one layer's tiles in video memory and build its map. +layer+ is its place in
           # the stack, which is also its hardware layer number (BG0, BG1, ...). What decides
           # its paint order is the priority below.
-          def prepare_one_background(node, layer, banks, big)
+          def prepare_one_background(store, node, layer, banks, big)
             name = node.name
             validate_map_fits!(name, node.map)
             small = !big.include?(node)
             painted = node.tiles.each_with_index.select { |tile, _| @painted_runs.key?(tile) }.to_h { |tile, i| [i, tile] }
             refuse_painted_tiles_stored_big!(node) if !small && !painted.empty?
-            stored = @tiles.add(name, tile_pictures(node, banks),
-                                unit: small ? SMALL_TILE_BYTES : BIG_TILE_BYTES, painted: painted)
-            note_painted_runs(node, painted.values)
+            stored = store.add(name, tile_pictures(node, banks),
+                               unit: small ? SMALL_TILE_BYTES : BIG_TILE_BYTES, painted: painted)
+            note_painted_runs(store, node, painted.values)
 
             # The map: one 16-bit entry per cell, holding the tile to draw there and — for a
             # layer stored the small way — which bank of sixteen that tile reads from. Cells
@@ -742,7 +764,7 @@ module RubyGBA
             @backgrounds[name] = BackgroundPlacement.new(
               map: map_blob, map_units: entries.size,
               bg: layer,                           # hardware layer (BG0..BG3), in stack order
-              screen_block: @vram.take_map(entries.size / MAP_ENTRIES_A_BLOCK),
+              screen_block: store.vram.take_map(entries.size / MAP_ENTRIES_A_BLOCK),
               size: regular_map_size(cols, rows),
               priority: hardware_priority(name),
               affine: false,
@@ -860,7 +882,7 @@ module RubyGBA
           # That one byte is also why this layer is always stored the big way: with no room
           # in a map entry to name a bank of sixteen, its tiles have nothing to draw from
           # but the whole table.
-          def prepare_affine_background(node, banks)
+          def prepare_affine_background(store, node, banks)
             name = node.name
             tiles = node.tiles
             validate_map_fits!(name, node.map)
@@ -877,8 +899,8 @@ module RubyGBA
             @blobs[OBJ_SINE_BLOB] ||= build_sine_table
 
             begin
-              stored = @tiles.add(name, tile_pictures(node, banks),
-                                  unit: BIG_TILE_BYTES, most: AFFINE_MAX_TILES)
+              stored = store.add(name, tile_pictures(node, banks),
+                                 unit: BIG_TILE_BYTES, most: AFFINE_MAX_TILES)
             rescue LoweringError
               raise LoweringError,
                     "background :#{name} turns and resizes, so its map can only name " \
@@ -902,7 +924,7 @@ module RubyGBA
             @backgrounds[name] = BackgroundPlacement.new(
               map: map_blob, map_units: entries.size / 2, # DMA copies halfwords, so a byte map is half as many
               bg: AFFINE_BG,
-              screen_block: @vram.take_map(blocks),
+              screen_block: store.vram.take_map(blocks),
               size: affine_map_size(cols, rows, name),
               priority: hardware_priority(name),
               affine: true,
@@ -1119,8 +1141,10 @@ module RubyGBA
                                                          bytes: run.width * run.height / 2, list: run.list,
                                                          what: "image")
             end
-            @scene_art = @sprite_art.scene_art
-            @scene_art.each_value { |sent| sent.each { |blob, *| keep_unpacked!(blob) } }
+            @sprite_art.scene_art.each do |scene, sent|
+              sent.each { |blob, *| keep_unpacked!(blob) }
+              record_scene_send(scene, art: sent)
+            end
           end
 
           # A SPRITE WHOSE PICTURES DO NOT ALL FIT KEEPS ONE FRAME IN SPRITE MEMORY AT A TIME.
@@ -1279,11 +1303,11 @@ module RubyGBA
           def build_shared_object_palette(nodes)
             everywhere = nodes.reject(&:scene)
             @obj_banks = { nil => object_banks(everywhere) }
-            @scene_obj_palettes = {}
+            scene_palettes = {}
             nodes.filter_map(&:scene).uniq.each_with_index do |scene, index|
               in_scene = nodes.select { |node| node.scene == scene }
               @obj_banks[scene] = object_banks(in_scene, after: @obj_banks[nil], scene: scene)
-              @scene_obj_palettes[scene] = :"__obj_palette_scene_#{index}"
+              scene_palettes[scene] = :"__obj_palette_scene_#{index}"
             end
             nodes.each { |node| recolor_banks_fit!(node) }
 
@@ -1295,9 +1319,10 @@ module RubyGBA
             @obj_palette_blob = :__obj_palette
             @obj_palette_units = units
             @blobs[@obj_palette_blob] = tables.fetch(nil).pack("v*")
-            @scene_obj_palettes.each do |scene, blob|
+            scene_palettes.each do |scene, blob|
               @blobs[blob] = tables.fetch(scene).pack("v*")
               keep_unpacked!(blob)
+              record_scene_send(scene, obj_palette: blob)
             end
           end
 

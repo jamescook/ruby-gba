@@ -71,33 +71,18 @@ module RubyGBA
           # mode each scene draws in is on +modes+ (see IR::Modes), which is asked rather than
           # copied out field by field.
           #
-          # Where every background and sprite went is the +screen+ ({ScreenLayout}) itself,
-          # read through it rather than copied out, so a thing the layout decides has one
-          # home.
+          # Where every background and sprite went, and what each scene sends as it takes
+          # over, is the +screen+ ({ScreenLayout}) itself, read as +layout.screen+ rather than
+          # copied out, so a thing the layout decides has one home.
           Layout = Data.define(:screen, :bitmaps, :palette, :indexed_bitmaps, :blob_codecs, :blob_raw_bytes,
                                 :modes, :fading, :tiled, :has_objects, :scene_blend, :movement,
                                 :scene_sprites, :waits_for_frames) do
-            def objects = screen.objects
-            def placed_fade = screen.placed_fade
-            def backgrounds = screen.backgrounds
-            def bg_shared = screen.bg_shared
-            def obj_palette_blob = screen.obj_palette_blob
-            def obj_palette_units = screen.obj_palette_units
-            def scene_art = screen.scene_art
-            def scene_layers = screen.scene_layers
-            def scene_screens = screen.scene_screens
-            def scene_tiles = screen.scene_tiles
-            def painted_vram = screen.painted_vram
-            def handover = screen.handover
-            def scene_obj_palettes = screen.scene_obj_palettes
-            def picture = screen.picture
-
             # The backgrounds that turn AND sit on the tiled screen — the ones that decide
             # which way the console arranges that screen's layers. A background that turns
             # on `screen :rotozoom` is on a screen of its own, up at a different moment, so
             # it does not (see Guardrails::Checks::TooManyBackgroundLayers, which asks the
             # same question to work out how many scrolling layers are left).
-            def turning_layers = modes.select_on_tiled_screen(picture.scenery.select(&:affine))
+            def turning_layers = modes.select_on_tiled_screen(screen.picture.scenery.select(&:affine))
           end
 
           # Fill the area itself, which is what clearing means when only part of the picture may
@@ -218,7 +203,7 @@ module RubyGBA
           # video memory, which is where the tile PICTURES are, so it draws the art as
           # though it were a grid, in front of everything. Naming too FEW layers instead is
           # a black frame, which is the safe way to be wrong for the one frame it lasts.
-          def first_scene_layers = @layout.scene_layers.values.first
+          def first_scene_layers = (@layout.screen.first_scene_screen if @layout.screen.layers_differ_by_scene?)
 
           def turning_background? = @layout.turning_layers.any?
 
@@ -231,7 +216,7 @@ module RubyGBA
           def tiled_bg_enable_bits(used = program_bg_layers)
             bits = used.reduce(0) { |on, layer| on | BG_ENABLES[layer] }
             # ...and the object window, for a program that keeps sprites out of a fade.
-            bits |= OBJ_WINDOW_ENABLE if @layout.placed_fade.any?
+            bits |= OBJ_WINDOW_ENABLE if @layout.screen.placed_fade.any?
             bits
           end
 
@@ -244,7 +229,7 @@ module RubyGBA
           # layer on with nobody to point it anywhere. A title screen of sprites and words
           # showed the game's tile pictures as a grid behind them for exactly that reason.
           def program_bg_layers
-            used = @layout.backgrounds.each_value.map(&:bg).uniq
+            used = @layout.screen.backgrounds.each_value.map(&:bg).uniq
             used.empty? ? [0] : used
           end
 
@@ -308,7 +293,7 @@ module RubyGBA
           # scene body, which runs right after this preamble.
           def enter_tiled_mode(held = 0)
             @background_drawing.reset_bg2_affine_if_needed
-            @background_drawing.emit_boot_backgrounds if @layout.tiled && !@layout.backgrounds.empty? # shared BG palette + tile pictures
+            @background_drawing.emit_boot_backgrounds if @layout.tiled && !@layout.screen.backgrounds.empty? # shared BG palette + tile pictures
             @sprite_drawing.emit_boot_objects if @layout.has_objects                             # sprite palette + tiles, and clear OAM
             @layer_blend.emit_restore_layer_blend if @layer_blend.see_through?     # ...and which one is see-through
             value = tiled_dispcnt
@@ -326,7 +311,7 @@ module RubyGBA
           # the same as a regular tiled layer's.
           def enter_affine_mode(held = 0)
             @background_drawing.reset_bg2_affine_matrix # the one-time "no turn, no resize yet" starting matrix
-            @background_drawing.emit_boot_backgrounds if @layout.tiled && !@layout.backgrounds.empty?
+            @background_drawing.emit_boot_backgrounds if @layout.tiled && !@layout.screen.backgrounds.empty?
             @sprite_drawing.emit_boot_objects if @layout.has_objects
             @layer_blend.emit_restore_layer_blend if @layer_blend.see_through?
             value = MODE_2 | BG2_ENABLE
@@ -399,7 +384,7 @@ module RubyGBA
 
             @scene_entry.emit_once_on_arrival(:scenery, name) do
               emit_with_bg_layers_disabled(name) do
-                tiles = @layout.scene_tiles[name]
+                tiles = @layout.screen.scene_send(name).tiles
                 @uploads.emit_dma_blob(tiles.blob, VRAM_START + tiles.offset, tiles.units) if tiles
                 arrival.scenery.each { |node| @background_drawing.emit_background_hardware(node) }
                 arrival.painted_tiles.each { |run| @background_drawing.emit_copy_tiles(Build.copy_tiles(run.name)) }
@@ -426,7 +411,7 @@ module RubyGBA
           BG_ENABLE_MASK = BG0_ENABLE | BG1_ENABLE | BG2_ENABLE | BG3_ENABLE
 
           def emit_with_bg_layers_disabled(name)
-            screen = @layout.scene_screens[name]
+            screen = @layout.screen.scene_send(name).screen
             return yield unless screen
 
             change_display_control { emit(ASM.bic_imm(ACC, ACC, BG_ENABLE_MASK)) }
@@ -444,7 +429,7 @@ module RubyGBA
           end
 
           # What a scene does to the screen as it takes over, said once for both backends.
-          def scene_handover = @layout.handover
+          def scene_handover = @layout.screen.handover
 
           # The screen this scene draws on, in a program whose scenes differ. One that does
           # not leaves each `screen` node to write the display control inline. Whether it is a
@@ -465,10 +450,11 @@ module RubyGBA
           #
           # It is written every pass rather than guarded by a compare, because it is one
           # store of a number settled during the build — the guard would cost as much as the
-          # write. A program whose scenes all use the same layers has an empty table here
-          # and emits none of this.
+          # write. A program whose scenes all use the same layers emits none of this.
           def emit_scene_layers(name)
-            wanted = @layout.scene_layers[name]
+            return unless @layout.screen.layers_differ_by_scene?
+
+            wanted = @layout.screen.scene_send(name).screen
             return unless wanted
 
             value = tiled_dispcnt(wanted.on, turning: wanted.turning)
@@ -492,25 +478,26 @@ module RubyGBA
           # show for one frame — on the frame a game changes what the whole screen is, and
           # where the scene it is leaving has already stopped drawing its own sprites.
           def emit_scene_art_upload(name)
-            sending = @layout.scene_art[name] || []
-            rooms = @layout.objects.each_value.select { |obj| obj.scene == name && obj.frames }
-            colors = @layout.scene_obj_palettes[name]
-            arrival = @layout.handover.arrival(name)
+            own = @layout.screen.scene_send(name)
+            art = own.art || []
+            rooms = @layout.screen.objects.each_value.select { |obj| obj.scene == name && obj.frames }
+            colors = own.obj_palette
+            arrival = @layout.screen.handover.arrival(name)
             painted = arrival.painted_pictures
-            if sending.empty? && rooms.empty? && colors.nil? && painted.empty?
+            if art.empty? && rooms.empty? && colors.nil? && painted.empty?
               # A scene with no sprite art of its own normally leaves the last scene's marked as
               # loaded, which is right: nothing overwrote it. A painted picture is the exception,
               # since its list can change while its scene is away and it goes up from the list
               # as it is then — so in a game with one, this scene says nobody's is loaded.
-              @scene_entry.emit_clear_marker(:art) if @layout.scene_art.any? && arrival.takes_down_art?
+              @scene_entry.emit_clear_marker(:art) if @layout.screen.scene_art? && arrival.takes_down_art?
               return
             end
 
             @scene_entry.emit_once_on_arrival(:art, name) do
               # Its colours first: the groups its sprites name are this scene's now (see
               # ScreenLayout#build_shared_object_palette).
-              @palette_tint.emit_send_scene_obj_palette(colors, @layout.obj_palette_units) if colors
-              sending.each { |blob, at, units| @uploads.emit_dma_blob(blob, SpriteDrawing::OBJ_TILE_BASE + (at * 32), units * 16) }
+              @palette_tint.emit_send_scene_obj_palette(colors, @layout.screen.obj_palette_units) if colors
+              art.each { |blob, at, units| @uploads.emit_dma_blob(blob, SpriteDrawing::OBJ_TILE_BASE + (at * 32), units * 16) }
               @sprite_drawing.emit_reset_resident_frames(rooms)
               # A picture the game paints goes up from its list as it is now: the scene before
               # used the same memory (see IR::SceneHandover).
@@ -552,7 +539,7 @@ module RubyGBA
 
           # This file's own seams, called as bare methods like the ones in {EmitterCalls}.
           def backing_info(name) = @backing_info.call(name)
-          def placed_fade = @layout.placed_fade
+          def placed_fade = @layout.screen.placed_fade
           def emit_call_cold_routine(label) = @call_cold_routine.call(label)
 
           # At the vblank boundary, flip the pages — but only while a buffered scene is

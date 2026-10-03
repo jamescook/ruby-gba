@@ -45,8 +45,8 @@ module RubyGBA
           # goes in with the rest of them below. Each layer's map and control register are
           # set later, when its background node is reached (emit_background_hardware).
           def emit_boot_backgrounds
-            @uploads.emit_dma_blob(BG_SHARED_PAL, BG_PALETTE, @layout.bg_shared.palette_units)  # colors -> palette memory
-            @uploads.emit_dma_blob(BG_SHARED_CHAR, VRAM_START, @layout.bg_shared.tile_units)    # pictures -> video memory
+            @uploads.emit_dma_blob(BG_SHARED_PAL, BG_PALETTE, @layout.screen.bg_shared.palette_units)  # colors -> palette memory
+            @uploads.emit_dma_blob(BG_SHARED_CHAR, VRAM_START, @layout.screen.bg_shared.tile_units)    # pictures -> video memory
             @palette_tint.emit_tint_reset_if_tinting # the table now holds the originals again
           end
 
@@ -57,7 +57,7 @@ module RubyGBA
           # whole layer every frame for free, and composites the layers by priority so
           # nearer ones sit in front.
           def emit_background_hardware(node)
-            bg = @layout.backgrounds.fetch(node.name)
+            bg = @layout.screen.backgrounds.fetch(node.name)
             return emit_affine_background_hardware(bg) if bg.affine
 
             @uploads.emit_dma_blob(bg.map, VRAM_START + (bg.screen_block * SCREENBLOCK_BYTES), bg.map_units)
@@ -94,7 +94,7 @@ module RubyGBA
           # where half the old room and half the new really would show at once. That wants
           # a verb of its own, handing over a map in one go between frames.
           def emit_set_tile(node)
-            bg = @layout.backgrounds[node.name]
+            bg = @layout.screen.backgrounds[node.name]
             return if bg.nil? # a background with no tiled layer (a bitmap-mode program)
 
             grid = bg.grid or raise_no_cells_to_change(node.name)
@@ -215,7 +215,7 @@ module RubyGBA
           # number the game worked out can be anything, and a game should not need a test
           # around it to stay safe.
           def emit_show_map(node)
-            bg = @layout.backgrounds[node.name]
+            bg = @layout.screen.backgrounds[node.name]
             return if bg.nil? || bg.map_count < 2 # no tiled layer, or nothing else to show
 
             done = gensym
@@ -237,7 +237,7 @@ module RubyGBA
           # frames, on a frame the game said `changed` (see Builder::TileRuns). A run that no
           # background shows has nowhere on screen to go, so it copies nothing.
           def emit_copy_tiles(node)
-            run = @layout&.painted_vram&.[](node.name)
+            run = @layout&.screen&.painted_vram&.[](node.name)
             return if run.nil?
 
             emit_copy_painted_run(node.name, run)
@@ -320,7 +320,7 @@ module RubyGBA
           # last in the blob — so that case is a conditional move rather than a branch, and
           # a counter that has run off the end looks right rather than wrong.
           def emit_background_colors(node)
-            lists = @layout.backgrounds[node.name]&.colors
+            lists = @layout.screen.backgrounds[node.name]&.colors
             return if lists.nil? # no tiled layer here, or nothing else to draw it with
 
             @lowering.value(node.which)
@@ -369,7 +369,7 @@ module RubyGBA
           # entered right after an affine one keeps showing whatever turn or zoom the
           # affine scene last left sitting in hardware.
           def reset_bg2_affine_if_needed
-            return unless @layout.backgrounds.values.any?(&:affine)
+            return unless @layout.screen.backgrounds.values.any?(&:affine)
 
             reset_bg2_affine_matrix
           end
@@ -433,7 +433,7 @@ module RubyGBA
             # itself rendered through this same BG2 matrix). So rather than fall back
             # onto them, this does nothing at all, the same choice #emit_scroll_background
             # makes for a background outside tile mode.
-            return unless @layout.backgrounds[node.name]&.affine
+            return unless @layout.screen.backgrounds[node.name]&.affine
 
             # WHEN this runs is decided above it, in the tree, rather than here: the
             # statement sits inside a test for the turn having moved since the display was
@@ -549,7 +549,7 @@ module RubyGBA
             # still declares a background) there's no tiled layer, so fall back to BG0 —
             # the scroll registers do nothing when that layer isn't on, matching the
             # interpreter's harmless handling.
-            bg_num = @layout.backgrounds[node.name]&.bg || 0
+            bg_num = @layout.screen.backgrounds[node.name]&.bg || 0
             # A bending layer's sideways position is settled row by row instead, and every
             # one of those rows already has this scroll in it (see Raster). Writing it here
             # too would only undo the top row's bend until the display asked for the next.

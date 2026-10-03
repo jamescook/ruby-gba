@@ -55,7 +55,7 @@ module RubyGBA
           # with no scenes of its own emits nothing here.
           def emit_clear_used_markers
             emit_clear_marker(:scenery) if scenery_by_scene?
-            emit_clear_marker(:art) if @layout.scene_art.any?
+            emit_clear_marker(:art) if @layout.screen.scene_art?
           end
 
           # Run the block's code unless +var+ holds +value+. The cost when it does is the
@@ -71,7 +71,7 @@ module RubyGBA
 
           private
 
-          def scenery_by_scene? = @layout.picture.scenery.any? { |bg| @layout.handover.on_arrival?(bg) }
+          def scenery_by_scene? = @layout.screen.picture.scenery.any? { |bg| @layout.screen.handover.on_arrival?(bg) }
         end
       end
     end

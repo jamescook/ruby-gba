@@ -105,7 +105,6 @@ module RubyGBA
             def bg_shared = screen.bg_shared
             def obj_palette_blob = screen.obj_palette_blob
             def obj_palette_units = screen.obj_palette_units
-            def scene_obj_palettes = screen.scene_obj_palettes
             def bg_recolor_restore_banks = screen.bg_recolor_restore_banks
           end
 
@@ -116,7 +115,7 @@ module RubyGBA
           OBJ_TABLE_AT = :_obj_table_at
 
           # Does the sprite table this build walks change as scenes take over?
-          def scene_obj_tables? = @layout.scene_obj_palettes.any?
+          def scene_obj_tables? = @layout.screen.scene_obj_palettes?
 
           # Say which sprite table is in the console now, at power-on or on a change of screen,
           # where the one every screen shows has just been sent. Nothing for a build that never

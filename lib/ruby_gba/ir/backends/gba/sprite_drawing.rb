@@ -30,7 +30,7 @@ module RubyGBA
 
           attr_writer :layout
 
-          def placed_fade = @layout.placed_fade
+          def placed_fade = @layout.screen.placed_fade
 
           # Where a sprite's tiles live: the object tile area of video memory, and the
           # sprite table itself. In tile mode the console draws sprites from tiles kept
@@ -65,9 +65,9 @@ module RubyGBA
             # and have to be written again. This runs on a change of screen as well as at
             # boot, which is the case that would otherwise leave a title screen blank.
             emit_mark_still_sprites_unwritten
-            @uploads.emit_dma_blob(@layout.obj_palette_blob, OBJ_PALETTE, @layout.obj_palette_units) # the shared sprite palette, once
-            @palette_tint.emit_record_obj_palette_source(@layout.obj_palette_blob) # ...which is the one a tint walks until a scene sends its own
-            @layout.objects.each_value do |obj|
+            @uploads.emit_dma_blob(@layout.screen.obj_palette_blob, OBJ_PALETTE, @layout.screen.obj_palette_units) # the shared sprite palette, once
+            @palette_tint.emit_record_obj_palette_source(@layout.screen.obj_palette_blob) # ...which is the one a tint walks until a scene sends its own
+            @layout.screen.objects.each_value do |obj|
               # A sprite showing the same pictures as one already uploaded points at
               # those, so there is nothing of its own to send. A sprite that belongs to a
               # scene is sent when that scene takes over, not here (see
@@ -76,7 +76,7 @@ module RubyGBA
 
               @uploads.emit_dma_blob(obj.tiles, OBJ_TILE_BASE + (obj.tile_index * 32), obj.tile_units * 16) # tiles -> sprite memory
             end
-            emit_reset_resident_frames(@layout.objects.each_value)
+            emit_reset_resident_frames(@layout.screen.objects.each_value)
             emit_boot_object_windows
             @palette_tint.emit_tint_reset_if_tinting # the table now holds the originals again
           end
@@ -181,7 +181,7 @@ module RubyGBA
           # whole of that was code saying that nothing had changed.
           def emit_write_sprite_rows(names)
             names.each do |name|
-              emit_present_object(@layout.objects.fetch(name), twin: placed_fade.fade_window_for(name), name: name)
+              emit_present_object(@layout.screen.objects.fetch(name), twin: placed_fade.fade_window_for(name), name: name)
             end
           end
 
@@ -340,7 +340,7 @@ module RubyGBA
             store_word_immediate(OBJ_TILE_BASE + (obj.tile_index * 32), REG_DMA3DAD)
             # Named the way the author named it; the build's own name is all a sprite they named
             # nothing for has.
-            declared = @layout.picture.objects.find { |node| node.name == name }&.declared || name
+            declared = @layout.screen.picture.objects.find { |node| node.name == name }&.declared || name
             @emitter.note_video_copy("sending sprite :#{declared} its next frame", obj.frame_bytes)
             store_word_immediate((obj.frame_bytes / 4) | DMA_ENABLE | DMA_32BIT, REG_DMA3CNT)
             place_label(already)
