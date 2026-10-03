@@ -216,6 +216,16 @@ module RubyGBA
       # the game named, else the smallest there is.
       def save_memory = @saves&.save_memory || @save_memory || IR::SaveLayout::MEMORIES.first
 
+      # Say in the program how much save memory it has, so every backend runs it on the same
+      # kind. A game that saves nothing has none to speak of.
+      def declare_save_memory
+        return if @persisted.empty? && @saves.nil?
+
+        node = Build.save_memory(save_memory)
+        @program.children.unshift(node)
+        node.parent = @program
+      end
+
       def refuse_bad_save_memory!(save_memory)
         return if save_memory.nil? || IR::SaveLayout::MEMORIES.include?(save_memory)
 

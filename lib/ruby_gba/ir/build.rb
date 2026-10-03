@@ -125,6 +125,16 @@ module RubyGBA
         Nodes.build(:save_sum, at: at, length: length)
       end
 
+      # The program has +kilobytes+ of save memory (see Nodes::SaveMemory).
+      def save_memory(kilobytes)
+        Nodes.build(:save_memory, kilobytes: kilobytes)
+      end
+
+      # Wipe the block of save memory holding +at+ (see Nodes::SaveErase).
+      def save_erase(at)
+        Nodes.build(:save_erase, at: at)
+      end
+
       # --- drawing / screen operations ---
 
       # Pick a screen mode. +buffered+ opts a bitmap mode into double

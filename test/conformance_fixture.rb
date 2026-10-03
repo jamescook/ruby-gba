@@ -113,6 +113,9 @@ module ConformanceFixture
       B.set(:acc, B.save_read(B.int(0x1000))),
       B.set(:acc, B.save_read(B.int(0x1004), width: :byte)),
       B.set(:acc, B.save_sum(B.int(0x1000), B.int(5))),
+      # ...on the 32K kind of save memory, where wiping a block before writing it does nothing
+      B.save_memory(32),
+      B.save_erase(B.int(0x1000)),
 
       # --- every value-operand kind and every operator ---
       *OPERATORS.map { |op| B.set(:acc, B.binop(op, B.var_ref(:x), B.int(2))) },

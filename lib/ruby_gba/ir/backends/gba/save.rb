@@ -118,6 +118,10 @@ module RubyGBA
             end
           end
 
+          # Wiping a block is a flash step. Battery-backed memory takes any byte as it is, so
+          # there is nothing to emit — and a program for it carries none of these anyway.
+          def emit_save_erase(_node) = nil
+
           # r0 = the checksum of node.length bytes from node.at: two running totals, the bytes
           # and the totals so far, the second in the top half (see IR::SaveLayout.checksum).
           # Only the low sixteen bits of each are kept at the end, which is the same answer as

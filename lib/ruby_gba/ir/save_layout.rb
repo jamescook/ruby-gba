@@ -99,6 +99,14 @@ module RubyGBA
       # The packed 32K memory, which a table is read from and written to unless it says otherwise.
       PACKED = memory(MEMORIES.first)
 
+      # The save memory +program+ says it has (a `save_memory` node), or the 32K when it says
+      # nothing. Every backend asks this, so none can run a program on memory another lays out
+      # differently.
+      def memory_of(program)
+        named = program.walk.find { |node| node.kind == :save_memory }
+        named ? memory(named.kilobytes) : PACKED
+      end
+
       # Does a game whose records take +halves+ — one [half_bytes, copies] pair a record — fit
       # in +kilobytes+ of save memory?
       def fits?(kilobytes, halves) = memory(kilobytes).fits?(halves)

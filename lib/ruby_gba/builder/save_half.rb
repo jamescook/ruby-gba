@@ -29,8 +29,10 @@ module RubyGBA
         sd_half_at(layout, copy, sd_eq(sd_directory(layout, :half, copy), sd_int(0)))
       end
 
-      # Step 1: the marker and the shape, into the half starting at +here+.
+      # Step 1: the marker and the shape, into the half starting at +here+ — wiped first, on a
+      # memory that has to be (see #emit_room_wipe).
       def emit_half_header(layout, here)
+        emit_room_wipe(here, @save_memory_layout.room(layout.half))
         { MARKER_AT: sd_int(IR::SaveLayout::MARKER), SHAPE_AT: sd_int(layout.shape) }.each do |field, value|
           record(Build.save_write(sd_add(here, sd_int(IR::SaveLayout.const_get(field))), value))
         end
@@ -49,6 +51,18 @@ module RubyGBA
         record(Build.call(layout.routine(:scan)))
         record(Build.set(layout.scratch(:failed), Build.binop(:!=, sd_directory(layout, :state, copy),
                                                                expected_state_node(kind))))
+      end
+
+      # Wipe the +bytes+ of save memory from +here+, which start on a block and cover whole
+      # ones. Flash can only turn bits off when it is written, so a half written over an older
+      # save has to be wiped back to all bits on first; the 32K memory takes any byte as it is,
+      # and a game on it gets nothing here.
+      def emit_room_wipe(here, bytes)
+        return unless @save_memory_layout.flash?
+
+        (bytes / @save_memory_layout.block).times do |i|
+          record(Build.save_erase(sd_add(here, sd_int(i * @save_memory_layout.block))))
+        end
       end
 
       # What a copy reads as once a half of +kind+ is in: good after a save, erased after an

@@ -204,8 +204,46 @@ class TestSavePlaces < Minitest::Test
     assert_equal 7, Reference.new(save: store).run(flash_game, frames: 2)[:hearts], "and it loads back"
   end
 
-  # A 64K game keeping one number in two copies: A saves 7 hearts into the second copy, and
-  # power-on loads that copy.
+  # A record given a second copy, with a record right after it, moves to room further on — room
+  # that still holds an old save of something else, which flash must wipe before the copy it
+  # brings can be written there.
+  def test_on_flash_a_record_moves_byte_for_byte_into_room_that_held_something_else
+    rows = [row(:file, FLASH_START), row(:next, FLASH_START + (2 * BLOCK))]
+    saved = (0...(2 * BLOCK)).to_h { |i| [FLASH_START + i, (i * 7) & 0xFF] }
+    old = (0...(4 * BLOCK)).to_h { |i| [FLASH_START + (4 * BLOCK) + i, 0] }
+    where = placed({ file: { copies: 2 }, next: {} }, rows, bytes: saved.merge(old), save_memory: 64)
+
+    assert_equal({ file: [FLASH_START + (4 * BLOCK), 2], next: [FLASH_START + (2 * BLOCK), 1] }, where)
+    moved = (0...(2 * BLOCK)).map { |i| @store[:bytes].fetch(FLASH_START + (4 * BLOCK) + i, 0xFF) }
+    assert_equal saved.values, moved, "the copy it had came with it"
+  end
+
+  # The memory's free room is two blocks at the end, and a record grows by two: the eight
+  # blocks above it lift by two, into blocks six of which they are still in. Each block is
+  # wiped only once what it held has been copied on.
+  def test_on_flash_records_lifted_into_their_own_room_come_with_their_bytes
+    above = { bytes: 14_000 } # four blocks a half, eight a copy
+    rows = [row(:grower, FLASH_START), row(:above, FLASH_START + (2 * BLOCK), half: half(above))]
+    saved = (0...(8 * BLOCK)).to_h { |i| [FLASH_START + (2 * BLOCK) + i, (i * 7) & 0xFF] }
+    where = placed({ grower: { copies: 2 }, above: above }, rows, bytes: saved, save_memory: 64)
+
+    assert_equal({ grower: [FLASH_START, 2], above: [FLASH_START + (4 * BLOCK), 1] }, where)
+    moved = (0...(8 * BLOCK)).map { |i| @store[:bytes].fetch(FLASH_START + (4 * BLOCK) + i, 0xFF) }
+    assert_equal saved.values, moved
+  end
+
+  # Each save goes into the older half, so the third lands where the first was — which flash
+  # takes only once that half's blocks are wiped. An erase is a half written over too.
+  def test_on_flash_a_copy_saved_over_and_over_loads_its_last_save
+    store = { bytes: {} }
+    presses = { 2 => [:a], 6 => [:a], 10 => [:b], 14 => [:a] }
+    Reference.new(save: store).input_each_frame { |f| presses.fetch(f, []) }.run(flash_game, frames: 30)
+
+    assert_equal 9, Reference.new(save: store).run(flash_game, frames: 2)[:hearts]
+  end
+
+  # A 64K game keeping one number in two copies: A saves one more heart than last time (7 the
+  # first time) into the second copy, B erases it, and power-on loads it.
   private def flash_game
     built(save_memory: 64) do
       screen :tiled
@@ -214,9 +252,11 @@ class TestSavePlaces < Minitest::Test
       files[1].load
       game_loop do
         pressed(:a).then do
-          hearts.set! 7
+          (hearts == 0).then { hearts.set! 6 }
+          hearts.add! 1
           files[1].save
         end
+        pressed(:b).then { files[1].erase }
       end
     end
   end

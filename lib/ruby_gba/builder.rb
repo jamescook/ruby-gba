@@ -446,6 +446,7 @@ module RubyGBA
       initialize_rng_stream
       register_save_init
       emit_boot_inits
+      declare_save_memory
       resolve_save_data_peeks
     end
 

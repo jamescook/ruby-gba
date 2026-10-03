@@ -331,6 +331,10 @@ module RubyGBA
       # the to scratch, then write the table, so it points at them only once they are there.
       # Moving up, the bytes go last first, so a move by less than the record's size never
       # reads a byte it has already written over.
+      #
+      # On flash each block it lands in is wiped as the first of its bytes arrives — the block
+      # it is going into, and never one still waiting to be read, since a block of the old place
+      # that the new one covers has been copied out by then whichever way it moves.
       def save_places_move
         row = place_var(:row)
         set_place_var(:from, cell(:at, row))
@@ -339,10 +343,21 @@ module RubyGBA
         repeat(DSL::Value.new(handle, place_var(:length))) do |k|
           back = sp_op(:-, sp_op(:-, place_var(:length), sd_int(1)), sp_op(:*, k.node, sd_int(2)))
           j = sd_add(k.node, sp_op(:*, place_var(:up), back))
+          emit_block_wipe_on_entry(sd_add(place_var(:to), j))
           record(Build.save_write(sd_add(place_var(:to), j), sd_read(sd_add(place_var(:from), j), :byte), width: :byte))
         end
         set_cell(:at, row, place_var(:to))
         sp_call(:commit)
+      end
+
+      # Wipe the block +at+ is in when +at+ is the first byte of it a move reaches: its first
+      # byte going down, its last going up. Flash only; see #save_places_move.
+      def emit_block_wipe_on_entry(at)
+        return unless @save_memory_layout.flash?
+
+        last = @save_memory_layout.block - 1
+        entry = sp_op(:*, place_var(:up), sd_int(last))
+        sd_when(sp_op(:==, Build.binop(:&, at, sd_int(last)), entry)) { record(Build.save_erase(at)) }
       end
 
       def save_places_commit

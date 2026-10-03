@@ -238,6 +238,7 @@ module RubyGBA
           @over_budget = false
           @uses_frames = false # set once the program reaches its first vblank (advance_frame)
           collect_definitions(node)
+          @save_memory = SaveLayout.memory_of(node)
           refuse_too_many_layers!(node)
           refuse_too_many_sprites!(node)
           refuse_two_see_through_layers!(node)
@@ -554,6 +555,7 @@ module RubyGBA
           save_init: :exec_save_init,
           save_store: :exec_save_store,
           save_write: :exec_save_write,
+          save_erase: :exec_save_erase,
           if: :exec_if,
           loop: :exec_loop,
           inside: :exec_inside,
@@ -2255,8 +2257,30 @@ module RubyGBA
           SAVE_WIDTHS.fetch(node.width).times do |i|
             throw(:halt) if @power_left&.zero? # the power went off before this byte
             @power_left -= 1 if @power_left
-            save_bytes[at + i] = (value >> (8 * i)) & 0xFF
+            byte = (value >> (8 * i)) & 0xFF
+            refuse_flash_bit_set!(at + i, byte) if @save_memory.flash?
+            save_bytes[at + i] = byte
           end
+        end
+
+        # Flash can only turn bits OFF in a write; turning one back on takes wiping its whole
+        # block first. The chip would quietly keep the bits both bytes have, which is a damaged
+        # save nobody sees until it is loaded, so the interpreter stops the program instead.
+        def refuse_flash_bit_set!(at, byte)
+          held = save_bytes.fetch(at, FRESH_BYTE)
+          return if (byte & ~held).zero?
+
+          raise ProgramError, format("save memory at 0x%<at>X is flash and holds 0x%<held>02X, so writing " \
+                                     "0x%<byte>02X there needs its block wiped first", at: at, held: held, byte: byte)
+        end
+
+        # Wipe the block holding +at+. Memory that takes any byte has no blocks to wipe.
+        def exec_save_erase(node)
+          return unless @save_memory.flash?
+
+          block = @save_memory.block
+          start = (eval_value(node.at) / block) * block
+          (start...(start + block)).each { |byte| save_bytes.delete(byte) }
         end
 
         def value_of_save_read(node)

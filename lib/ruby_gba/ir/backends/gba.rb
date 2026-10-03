@@ -161,6 +161,10 @@ module RubyGBA
         KEYS_PRESSED = :__keys_pressed
         KEY_MASK = 0x3FF # the ten button bits
 
+        # The kinds that reach save memory, any one of which means the cartridge has a save
+        # chip and has to carry the marker that tells an emulator so.
+        SAVE_KINDS = %i[save_memory save_init save_write save_read save_sum save_erase].freeze
+
         ACC = 0   # accumulator register
         TMP = 1   # temporary / I/O address register
         ADDR = 12 # variable address scratch
@@ -403,7 +407,7 @@ module RubyGBA
             negate: @statements.method(:emit_negate), abs: @statements.method(:emit_abs),
             negate_abs: @statements.method(:emit_negate_abs), clamp: @statements.method(:emit_clamp),
             save_init: method(:emit_save_init), save_store: method(:emit_save_store),
-            save_write: @save.method(:emit_save_write),
+            save_write: @save.method(:emit_save_write), save_erase: @save.method(:emit_save_erase),
             if: @statements.method(:emit_if), loop: @statements.method(:emit_loop),
             repeat: @statements.method(:emit_repeat), inside: @statements.method(:emit_inside),
             every: @statements.method(:emit_every), after: @statements.method(:emit_after),
@@ -680,7 +684,8 @@ module RubyGBA
           prepare_still_objects(program) if @has_objects
           # Save data reaches the chip too, so it needs the marker that maps it as much as a
           # saved number does.
-          @uses_save = program.walk.any? { |node| %i[save_init save_write save_read].include?(node.kind) }
+          @uses_save = program.walk.any? { |node| SAVE_KINDS.include?(node.kind) }
+          refuse_flash_save_memory!(program)
           prepare_palette(program) if @modes.any_buffered?
           # The colour tables a tint walks: the tear-free screen's, and the ones the layout
           # made for the scenery and the sprites (see PaletteTint's class comment).
@@ -815,6 +820,19 @@ module RubyGBA
         end
 
         private
+
+        # A cartridge writes its saves to the 32K kind of save memory only: flash takes a
+        # different marker and a command for every byte, and this backend has neither yet. A
+        # game built the usual way is refused before it gets here; this catches a program put
+        # together another way.
+        def refuse_flash_save_memory!(program)
+          kilobytes = IR::SaveLayout.memory_of(program).kilobytes
+          return if kilobytes == IR::SaveLayout::MEMORIES.first
+
+          raise LoweringError, "This program has #{kilobytes}K of save memory. A cartridge with more than " \
+                               "32K keeps its saves in flash memory, and flash is not available yet. To " \
+                               "fix this, give the program 32K of save memory."
+        end
 
         # Forwards to @emit — the code buffer + two-pass label/fixup collaborator built
         # in #initialize. Every other lowering concern in this class calls these as bare
