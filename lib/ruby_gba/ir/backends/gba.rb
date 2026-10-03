@@ -685,7 +685,7 @@ module RubyGBA
           # Save data reaches the chip too, so it needs the marker that maps it as much as a
           # saved number does.
           @uses_save = program.walk.any? { |node| SAVE_KINDS.include?(node.kind) }
-          refuse_flash_save_memory!(program)
+          @save.use_memory(IR::SaveLayout.memory_of(program))
           prepare_palette(program) if @modes.any_buffered?
           # The colour tables a tint walks: the tear-free screen's, and the ones the layout
           # made for the scenery and the sprites (see PaletteTint's class comment).
@@ -820,19 +820,6 @@ module RubyGBA
         end
 
         private
-
-        # A cartridge writes its saves to the 32K kind of save memory only: flash takes a
-        # different marker and a command for every byte, and this backend has neither yet. A
-        # game built the usual way is refused before it gets here; this catches a program put
-        # together another way.
-        def refuse_flash_save_memory!(program)
-          kilobytes = IR::SaveLayout.memory_of(program).kilobytes
-          return if kilobytes == IR::SaveLayout::MEMORIES.first
-
-          raise LoweringError, "This program has #{kilobytes}K of save memory. A cartridge with more than " \
-                               "32K keeps its saves in flash memory, and flash is not available yet. To " \
-                               "fix this, give the program 32K of save memory."
-        end
 
         # Forwards to @emit — the code buffer + two-pass label/fixup collaborator built
         # in #initialize. Every other lowering concern in this class calls these as bare

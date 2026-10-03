@@ -803,9 +803,9 @@ module RubyGBA
       end
 
       # HOW MUCH SAVE MEMORY THE PROGRAM HAS, in kilobytes (see IR::SaveLayout::MEMORIES), and
-      # so which kind: the 32K takes any byte at any time, where the bigger two are flash, which
-      # a write can only turn bits off in until a block of it is wiped. A program that names
-      # none has the 32K.
+      # so which kind: the smallest takes any byte at any time, where the bigger ones have to be
+      # wiped a block at a time before a block is written again (IR::SaveLayout::Memory says
+      # which). A program that names none has the smallest.
       class SaveMemory
         include Node
         kind :save_memory
@@ -814,9 +814,10 @@ module RubyGBA
         operands kilobytes: :int
       end
 
-      # Wipe the block of save memory that holds +at+, leaving every byte of it 0xFF so it
-      # takes any write again. Flash needs this before a block is written afresh; on memory
-      # that takes any byte it does nothing, so a write order is written once for both.
+      # Wipe the block of save memory that holds +at+, so it takes any write again, and reads
+      # as never written. Memory wiped a block at a time needs this before a block is written
+      # afresh; on memory that takes any byte it does nothing, so a write order is written once
+      # for both.
       class SaveErase
         include Node
         kind :save_erase

@@ -40,6 +40,15 @@ class TestSaveMemoryRules < Minitest::Test
     assert_equal 0x00, bytes[0x6000], "and the next block is not"
   end
 
+  # The power going off stops a wipe as surely as a write: the block keeps what it held.
+  def test_a_wipe_after_the_power_went_off_does_not_happen
+    store = { bytes: {} }
+    program = B.program(B.save_memory(64), byte_write(0x5000, 0x12), B.save_erase(B.int(0x5000)), B.halt)
+    Reference.new(save: store).cut_power_after_saving(1).run(program, frames: 1)
+
+    assert_equal 0x12, store[:bytes][0x5000]
+  end
+
   def test_battery_memory_takes_any_byte_and_a_wipe_does_nothing
     bytes = run_program(B.save_memory(32), byte_write(0x1000, 0x12), byte_write(0x1000, 0x34),
                         B.save_erase(B.int(0x1000)))

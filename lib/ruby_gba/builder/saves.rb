@@ -134,7 +134,7 @@ module RubyGBA
       # does not ask it, and lays the records out for flash all the same, so a test that builds
       # a Builder by hand can run where flash records go on the interpreter.
       def refuse_flash_save_memory!
-        return if save_memory == IR::SaveLayout::MEMORIES.first
+        return unless IR::SaveLayout.memory(save_memory).flash?
 
         needed = @saves&.needed_save_memory || IR::SaveLayout::MEMORIES.first
         fix = if needed == IR::SaveLayout::MEMORIES.first
@@ -142,9 +142,7 @@ module RubyGBA
               else
                 "keep less in each save_data record, or use fewer copies, so that the records fit in 32K."
               end
-        raise ArgumentError, "This game has #{save_memory}K of save memory. A cartridge with more than 32K " \
-                             "keeps its saves in flash memory, and flash is not available yet. To fix " \
-                             "this, #{fix}"
+        raise ArgumentError, IR::SaveLayout.flash_unavailable_message(save_memory, fix)
       end
 
       private
@@ -221,9 +219,7 @@ module RubyGBA
       def declare_save_memory
         return if @persisted.empty? && @saves.nil?
 
-        node = Build.save_memory(save_memory)
-        @program.children.unshift(node)
-        node.parent = @program
+        prepend_to_program(Build.save_memory(save_memory))
       end
 
       def refuse_bad_save_memory!(save_memory)

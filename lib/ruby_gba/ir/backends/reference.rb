@@ -2258,7 +2258,7 @@ module RubyGBA
             throw(:halt) if @power_left&.zero? # the power went off before this byte
             @power_left -= 1 if @power_left
             byte = (value >> (8 * i)) & 0xFF
-            refuse_flash_bit_set!(at + i, byte) if @save_memory.flash?
+            refuse_write_needing_wipe!(at + i, byte) if @save_memory.flash?
             save_bytes[at + i] = byte
           end
         end
@@ -2266,17 +2266,21 @@ module RubyGBA
         # Flash can only turn bits OFF in a write; turning one back on takes wiping its whole
         # block first. The chip would quietly keep the bits both bytes have, which is a damaged
         # save nobody sees until it is loaded, so the interpreter stops the program instead.
-        def refuse_flash_bit_set!(at, byte)
+        def refuse_write_needing_wipe!(at, byte)
           held = save_bytes.fetch(at, FRESH_BYTE)
           return if (byte & ~held).zero?
 
-          raise ProgramError, format("save memory at 0x%<at>X is flash and holds 0x%<held>02X, so writing " \
-                                     "0x%<byte>02X there needs its block wiped first", at: at, held: held, byte: byte)
+          raise ProgramError, format("The program wrote 0x%<byte>02X to flash save memory at 0x%<at>X, which " \
+                                     "holds 0x%<held>02X. Flash cannot take that byte there. Before the " \
+                                     "program writes over a block of flash, it must wipe the block.",
+                                     at: at, held: held, byte: byte)
         end
 
-        # Wipe the block holding +at+. Memory that takes any byte has no blocks to wipe.
+        # Wipe the block holding +at+. Memory that takes any byte has no blocks to wipe, and
+        # nothing is wiped once the power has gone off.
         def exec_save_erase(node)
           return unless @save_memory.flash?
+          throw(:halt) if @power_left&.zero?
 
           block = @save_memory.block
           start = (eval_value(node.at) / block) * block

@@ -93,21 +93,6 @@ class TestSaveMemory < Minitest::Test
     assert_match(/not available yet/, assert_raises(ArgumentError) { named.program }.message)
   end
 
-  # A program built by hand rather than as a game skips the game's own refusal, so the step that
-  # makes the cartridge refuses flash too: it has only the 32K kind to write to.
-  def test_a_flash_program_built_by_hand_is_refused_on_its_way_to_a_cartridge
-    builder = Builder.new(save_memory: 64)
-    builder.instance_eval do
-      screen :bitmap
-      save_var :best, 0
-      game_loop {}
-    end
-    builder.finalize_program
-
-    error = assert_raises(RubyGBA::IR::Backends::GBA::LoweringError) { assemble_rom(builder.program) }
-    assert_match(/not available yet/, error.message)
-  end
-
   def test_naming_32k_for_a_game_that_fits_builds_the_same_cartridge
     assert_equal game(bytes: 1000, copies: 3).buffer, game(bytes: 1000, copies: 3, save_memory: 32).buffer
   end

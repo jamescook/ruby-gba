@@ -35,10 +35,33 @@ module RubyGBA
           # digits are a version the detector ignores; padded to a word so it stays aligned.
           SRAM_SIGNATURE = "SRAM_V123\x00\x00\x00".b.freeze
 
+          # WHAT DIFFERS BETWEEN KINDS OF SAVE CHIP: the marker an emulator looks for, and how a
+          # block is wiped before it is written again. Battery-backed memory takes any byte as it
+          # is, so wiping is nothing. It is the only kind written yet; flash, which needs a
+          # command for every byte and a real wipe, goes in beside it (see #use_memory).
+          BatteryChip = Data.define(:signature) do
+            def emit_wipe(_node) = nil
+          end
+
+          BATTERY = BatteryChip.new(SRAM_SIGNATURE)
+
           def initialize(emitter:, primitives:, lowering:)
             @emitter = emitter
             @primitives = primitives
             @lowering = lowering
+            @chip = BATTERY
+          end
+
+          # Pick the chip for +memory+ (an IR::SaveLayout::Memory), the save memory the program
+          # says it has. Flash has no chip here yet, so a program that asks for it is refused.
+          # A game built the usual way is refused before it gets here; this catches a program
+          # put together another way.
+          def use_memory(memory)
+            return @chip = BATTERY unless memory.flash?
+
+            raise LoweringError, IR::SaveLayout.flash_unavailable_message(
+              memory.kilobytes, "give the program 32K of save memory.",
+            )
           end
 
           # The byte offset of a variable's 4-byte slot within save memory.
@@ -118,9 +141,8 @@ module RubyGBA
             end
           end
 
-          # Wiping a block is a flash step. Battery-backed memory takes any byte as it is, so
-          # there is nothing to emit — and a program for it carries none of these anyway.
-          def emit_save_erase(_node) = nil
+          # Wipe the block holding node.at, the way the chip does it (see BatteryChip).
+          def emit_save_erase(node) = @chip.emit_wipe(node)
 
           # r0 = the checksum of node.length bytes from node.at: two running totals, the bytes
           # and the totals so far, the second in the top half (see IR::SaveLayout.checksum).
@@ -158,7 +180,7 @@ module RubyGBA
           # the scanner (which steps a word at a time) can find it.
           def emit_save_signature
             @emitter.emit("\x00".b * ((-@emitter.pos) % 4))
-            @emitter.emit(SRAM_SIGNATURE)
+            @emitter.emit(@chip.signature)
           end
 
           private

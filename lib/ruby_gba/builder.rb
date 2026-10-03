@@ -751,10 +751,13 @@ module RubyGBA
     # the order they were registered in, so all hidden state is set before the
     # game starts.
     def emit_boot_inits
-      @boot_inits.reverse_each do |node|
-        @program.children.unshift(node)
-        node.parent = @program
-      end
+      @boot_inits.reverse_each { |node| prepend_to_program(node) }
+    end
+
+    # Put +node+ first in the program, owned by it.
+    def prepend_to_program(node)
+      @program.children.unshift(node)
+      node.parent = @program
     end
 
     # A fixed marker written alongside the saved variables so a fresh cartridge
