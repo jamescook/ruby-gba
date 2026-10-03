@@ -2227,26 +2227,31 @@ module RubyGBA
         end
 
         def exec_save_erase(node)
-          @save.wipe_block(eval_value(node.at))
-        rescue SaveImage::PowerOff
-          throw(:halt)
+          at = eval_value(node.at)
+          on_save_memory { @save.wipe_block(at, wait: node.wait != false) }
         end
 
         def value_of_save_read(node)
           at = eval_value(node.at)
           width = SAVE_WIDTHS.fetch(node.width)
-          width == 4 ? @save.word(at) : @save.read(at, width)
+          on_save_memory { width == 4 ? @save.word(at) : @save.read(at, width) }
         end
 
-        def value_of_save_sum(node) = @save.checksum(eval_value(node.at), eval_value(node.length))
+        def value_of_save_sum(node)
+          at = eval_value(node.at)
+          length = eval_value(node.length)
+          on_save_memory { @save.checksum(at, length) }
+        end
 
-        # Write to save memory. The power going off stops the program where it stands, and a
-        # write flash cannot take stops it with the reason.
-        def write_save(at, value, width)
-          @save.write(at, value, width)
+        def write_save(at, value, width) = on_save_memory { @save.write(at, value, width) }
+
+        # Reach save memory. The power going off stops the program where it stands, and
+        # something the chip cannot do stops it with the reason.
+        def on_save_memory
+          yield
         rescue SaveImage::PowerOff
           throw(:halt)
-        rescue SaveImage::FlashRefused => e
+        rescue SaveImage::Refused => e
           raise ProgramError, e.message
         end
 

@@ -6,60 +6,44 @@ module RubyGBA
       class GBA
         # Lowering the persistence ops to the cartridge's save memory.
         #
-        # The GBA saves a game's progress in a small chip on the cartridge that keeps
-        # its contents when the console is off. This backend uses the simplest kind,
-        # battery-backed SRAM: 32KB of memory mapped straight into the address space
-        # at SRAM_START, so reading and writing it is just loads and stores — no erase
-        # or command sequences (as flash would need). Two quirks shape the code below:
-        # the memory is on an 8-bit bus, so it must be read and written ONE BYTE AT A
-        # TIME (a 4-byte value becomes four LDRB/STRB), and an emulator or flashcart
-        # only enables the save chip when it finds a marker string in the ROM (see
-        # #emit_save_signature).
+        # The GBA saves a game's progress in a small chip on the cartridge that keeps its
+        # contents when the console is off: 32K of battery-backed SRAM, or a flash chip of 64K or
+        # 128K, as the program says (see IR::SaveLayout.memory_of). What each chip does
+        # differently — how a byte is written, how a block is wiped, how a place becomes an
+        # address — is the chip's (see SaveChip); this lowers the ops onto whichever it is.
         #
-        # Layout: a 4-byte marker at the front, then each persisted variable as a
-        # 4-byte little-endian value in its slot. The marker tells a fresh cartridge
-        # (whose save memory is uninitialized garbage) apart from one that already
-        # holds real saved data.
+        # Two quirks are shared by every chip. The memory is on an 8-bit bus, so it is read and
+        # written ONE BYTE AT A TIME (a 4-byte value becomes four byte loads or stores). And an
+        # emulator or a flashcart only maps the chip when it finds a marker string in the ROM (see
+        # #emit_save_signature) — an emulator also watches the first thing the game does to save
+        # memory, which is why a flash cartridge says a command to it before anything reads it
+        # (see #emit_wake_chip).
         #
-        # Holds no state of its own — a slot's address is worked out fresh from its
-        # number each time. Takes emitter: and primitives: purely to reach load_var/
-        # store_var/emit/etc without going through GBA's shared self.
+        # Layout of save_var's block: a 4-byte marker at the front, then each persisted variable as
+        # a 4-byte little-endian value in its slot. The marker tells a fresh cartridge (whose save
+        # memory is uninitialized garbage) apart from one that already holds real saved data.
         class Save
           include Console::Hardware
 
-          # The string a flashcart / emulator scans the ROM for to decide there IS a
-          # save chip and map it in. Without it, writes to SRAM go nowhere. The trailing
-          # digits are a version the detector ignores; padded to a word so it stays aligned.
-          SRAM_SIGNATURE = "SRAM_V123\x00\x00\x00".b.freeze
-
-          # WHAT DIFFERS BETWEEN KINDS OF SAVE CHIP: the marker an emulator looks for, and how a
-          # block is wiped before it is written again. Battery-backed memory takes any byte as it
-          # is, so wiping is nothing. It is the only kind written yet; flash, which needs a
-          # command for every byte and a real wipe, goes in beside it (see #use_memory).
-          BatteryChip = Data.define(:signature) do
-            def emit_wipe(_node) = nil
-          end
-
-          BATTERY = BatteryChip.new(SRAM_SIGNATURE)
-
-          def initialize(emitter:, primitives:, lowering:)
+          def initialize(emitter:, primitives:, lowering:, memory:, call_cold:)
             @emitter = emitter
             @primitives = primitives
             @lowering = lowering
-            @chip = BATTERY
+            @memory = memory
+            @call_cold = call_cold
+            @save_memory = IR::SaveLayout::PACKED
+            @chip = chip_for(@save_memory)
           end
 
           # Pick the chip for +memory+ (an IR::SaveLayout::Memory), the save memory the program
-          # says it has. Flash has no chip here yet, so a program that asks for it is refused.
-          # A game built the usual way is refused before it gets here; this catches a program
-          # put together another way.
+          # says it has.
           def use_memory(memory)
-            return @chip = BATTERY unless memory.flash?
-
-            raise LoweringError, IR::SaveLayout.flash_unavailable_message(
-              memory.kilobytes, "give the program 32K of save memory.",
-            )
+            @save_memory = memory
+            @chip = chip_for(memory)
           end
+
+          # What the chip says before anything touches save memory (see FlashChip#emit_wake).
+          def emit_wake_chip = @chip.emit_wake
 
           # Boot: load the persisted variables, or seed a fresh cartridge with the
           # defaults. Written without a branch — one compare of the stored marker sets
@@ -67,6 +51,7 @@ module RubyGBA
           # default by a pair of predicated moves. Nothing between the moves touches the
           # flags (loads and shifts don't), so the one compare governs every variable.
           def emit_save_init(node)
+            refuse_save_var_on_flash!
             base = 4  # a pointer to the start of save memory, held for the whole routine
             marker = 5
             stored = 6
@@ -93,6 +78,7 @@ module RubyGBA
           # Mirror one variable's current value back to its save slot — emitted right
           # after the variable changes, so the save always matches what the player sees.
           def emit_save_store(node)
+            refuse_save_var_on_flash!
             offset = IR::SaveLayout.save_var_at(node.slot)
             @primitives.load_var(ACC, node.var)
             @emitter.emit(ASM.load_immediate(TMP, SRAM_START + offset)) # the slot's address
@@ -103,96 +89,53 @@ module RubyGBA
             end
           end
 
-          # --- the three ways into save memory that save data is built from ---
-          #
-          # A place in save memory is a count of bytes from its start, so each of these turns
-          # one into an address by adding where the chip sits. The chip is read and written a
-          # byte at a time — its bus is eight bits wide — so a word is four bytes put together
-          # lowest first, the same order the interpreter keeps.
-
-          SAVE_WIDTH_BYTES = { byte: 1, half: 2, word: 4 }.freeze
+          # --- the ways into save memory that save data is built from, each the chip's ---
 
           # r0 = the byte, half or word at node.at.
-          def eval_save_read(node)
-            emit_save_address(node.at)                             # r1 = where it is
-            emit_read_bytes(ACC, TMP, SAVE_WIDTH_BYTES.fetch(node.width), scratch: 2)
-          end
+          def eval_save_read(node) = @chip.eval_read(node)
 
-          def emit_save_write(node)
-            emit_save_address(node.at)
-            @emitter.emit(ASM.push(TMP))
-            @lowering.value(node.value)                            # r0 = what to write
-            @emitter.emit(ASM.pop(TMP))                            # r1 = where
-            SAVE_WIDTH_BYTES.fetch(node.width).times do |i|
-              if i.zero?
-                @emitter.emit(ASM.strb_offset(ACC, TMP, 0))
-              else
-                @emitter.emit(ASM.lsr_imm(2, ACC, 8 * i))
-                @emitter.emit(ASM.strb_offset(2, TMP, i))
-              end
-            end
-          end
+          def emit_save_write(node) = @chip.emit_write(node)
 
-          # Wipe the block holding node.at, the way the chip does it (see BatteryChip).
+          # Wipe the block holding node.at, the way the chip does it.
           def emit_save_erase(node) = @chip.emit_wipe(node)
 
-          # r0 = the checksum of node.length bytes from node.at: two running totals, the bytes
-          # and the totals so far, the second in the top half (see IR::SaveLayout.checksum).
-          # Only the low sixteen bits of each are kept at the end, which is the same answer as
-          # keeping them to sixteen bits all the way.
-          def eval_save_sum(node)
-            low = 2
-            high = 3
-            emit_save_address(node.at)
-            @emitter.emit(ASM.push(TMP))
-            @lowering.value(node.length)                           # r0 = how many bytes are left
-            @emitter.emit(ASM.pop(TMP))                            # r1 = the next byte
-            @emitter.emit(ASM.load_immediate(low, 0))
-            @emitter.emit(ASM.load_immediate(high, 0))
-            again = @emitter.gensym
-            done = @emitter.gensym
-            @emitter.place_label(again)
-            @emitter.emit(ASM.cmp_imm(ACC, 0))
-            @emitter.emit_branch(:bcond, done, cond: :le)
-            @emitter.emit(ASM.ldrb_offset(ADDR, TMP, 0))
-            @emitter.emit(ASM.add_imm(TMP, TMP, 1))
-            @emitter.emit(ASM.add_reg(low, low, ADDR))
-            @emitter.emit(ASM.add_reg(high, high, low))
-            @emitter.emit(ASM.sub_imm(ACC, ACC, 1))
-            @emitter.emit_branch(:b, again)
-            @emitter.place_label(done)
-            @emitter.emit(ASM.lsl_imm(low, low, 16))
-            @emitter.emit(ASM.lsr_imm(low, low, 16))
-            @emitter.emit(ASM.lsl_imm(ACC, high, 16))
-            @emitter.emit(ASM.orr_reg(ACC, ACC, low))
-          end
+          # r0 = the checksum of node.length bytes from node.at (see IR::SaveLayout.checksum).
+          def eval_save_sum(node) = @chip.eval_sum(node)
 
-          # Append the save-type marker so a flashcart / emulator maps the save chip.
-          # It's plain data placed after all the code, never executed; word-aligned so
-          # the scanner (which steps a word at a time) can find it.
+          # Append the save-type marker so a flashcart / emulator maps the save chip, and before
+          # it the chip's own routines. The marker is plain data placed after all the code,
+          # never executed; word-aligned so the scanner (which steps a word at a time) can find it.
           def emit_save_signature
+            @chip.emit_routines
             @emitter.emit("\x00".b * ((-@emitter.pos) % 4))
             @emitter.emit(@chip.signature)
           end
 
           private
 
-          # r1 = the address of the place in save memory +at+ says (a value node).
-          def emit_save_address(at)
-            @lowering.value(at)
-            @emitter.emit(ASM.load_immediate(TMP, SRAM_START))
-            @emitter.emit(ASM.add_reg(TMP, TMP, ACC))
+          def chip_for(memory)
+            SaveChip.for(memory, emitter: @emitter, lowering: @lowering, call_cold: @call_cold,
+                                 roomy_word: method(:allocate_bank_word))
           end
 
-          # +count+ bytes from the address in +base+, lowest first, into +dest+ — the bytes that
-          # make up a byte, a half or a word. A word is the whole signed number; the narrower
-          # two stay unsigned, as they are stored.
-          def emit_read_bytes(dest, base, count, scratch:)
-            @emitter.emit(ASM.ldrb_offset(dest, base, 0))
-            (1...count).each do |i|
-              @emitter.emit(ASM.ldrb_offset(scratch, base, i))
-              @emitter.emit(ASM.orr_reg_lsl(dest, dest, scratch, 8 * i))
-            end
+          # The word a 128K chip keeps of which bank is showing.
+          def allocate_bank_word
+            @memory.alloc_roomy(4) or
+              raise LoweringError, "This game has 128K of save memory, and the console's roomy memory " \
+                                   "is full, so there is no room for the one word that save memory needs. " \
+                                   "To fix this, make a list or a pool smaller."
+          end
+
+          # A save_var writes its number into save memory each time it changes, and flash takes a
+          # byte only once between two wipes of its block. A game is refused before it gets here
+          # (see Builder#refuse_save_var_on_flash!); this catches a program put together another
+          # way.
+          def refuse_save_var_on_flash!
+            return unless @chip.flash?
+
+            raise LoweringError, IR::SaveLayout.save_var_on_flash_message(
+              @save_memory.kilobytes, "give the program 32K of save memory.",
+            )
           end
 
           # Read four consecutive bytes of save memory (little-endian) into +dest+,

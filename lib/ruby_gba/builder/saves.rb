@@ -128,21 +128,22 @@ module RubyGBA
         nil
       end
 
-      # Refuse a game with 64K or 128K of save memory, which is flash, which the console cannot
-      # write yet. EvaluatedGame asks this once the program is finalized, so every game built the
-      # usual way is refused — for a cartridge and for the interpreter alike. finalize_program
-      # does not ask it, and lays the records out for flash all the same, so a test that builds
-      # a Builder by hand can run where flash records go on the interpreter.
-      def refuse_flash_save_memory!
-        return unless IR::SaveLayout.memory(save_memory).flash?
+      # Refuse a game with a save_var and 64K or 128K of save memory, which is flash, where a
+      # save_var cannot be kept yet (see IR::SaveLayout.save_var_on_flash_message). EvaluatedGame
+      # asks this once the program is finalized, so every game built the usual way is refused —
+      # for a cartridge and for the interpreter alike. finalize_program does not ask it, so a
+      # test that builds a Builder by hand can still run one on the interpreter.
+      def refuse_save_var_on_flash!
+        return if @persisted.empty? || !IR::SaveLayout.memory(save_memory).flash?
 
         needed = @saves&.needed_save_memory || IR::SaveLayout::MEMORIES.first
         fix = if needed == IR::SaveLayout::MEMORIES.first
                 "leave `save_memory:` out, or ask for `save_memory: 32`."
               else
-                "keep less in each save_data record, or use fewer copies, so that the records fit in 32K."
+                "keep the save_var numbers in a save_data record instead, or keep less in each record so " \
+                  "that the records fit in 32K."
               end
-        raise ArgumentError, IR::SaveLayout.flash_unavailable_message(save_memory, fix)
+        raise ArgumentError, IR::SaveLayout.save_var_on_flash_message(save_memory, fix)
       end
 
       private

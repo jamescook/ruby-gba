@@ -26,16 +26,17 @@ class TestSaveMemory < Minitest::Test
     assert_raises(ArgumentError) { game(**) }.message
   end
 
-  def test_records_too_big_for_32k_ask_for_64k_of_flash
-    message = refusal(bytes: 6000, copies: 3)
+  # Which save memory a cartridge has is said by the marker an emulator looks for.
+  FLASH_64K = "FLASH512_V131"
+  FLASH_128K = "FLASH1M_V103"
 
-    assert_match(/64K/, message)
-    assert_match(/not available yet/, message)
+  def test_records_too_big_for_32k_get_64k_of_flash
+    assert_includes game(bytes: 6000, copies: 3).buffer, FLASH_64K
   end
 
   # Five copies of the same record: 20 blocks and 4 more, which is past 64K's 16.
-  def test_records_too_big_for_64k_ask_for_128k
-    assert_match(/128K/, refusal(bytes: 6000, copies: 5))
+  def test_records_too_big_for_64k_get_128k
+    assert_includes game(bytes: 6000, copies: 5).buffer, FLASH_128K
   end
 
   # Eight copies: 32 blocks and 4 more, past 128K's 32.
@@ -60,16 +61,14 @@ class TestSaveMemory < Minitest::Test
     assert_match(/32, 64 or 128/, message)
   end
 
-  # Room to grow is a reason to name a size the records do not need yet, and it is flash.
-  def test_naming_flash_for_a_small_game_is_not_available_yet
-    message = refusal(bytes: 10, copies: 1, save_memory: 64)
-
-    assert_match(/not available yet/, message)
-    assert_match(/leave `save_memory:` out/, message, "the records fit 32K, so keeping less is not the fix")
+  # Room to grow is a reason to name a size the records do not need yet.
+  def test_naming_flash_for_a_small_game_gives_it_flash
+    assert_includes game(bytes: 10, copies: 1, save_memory: 64).buffer, FLASH_64K
   end
 
-  # A game that keeps nothing in a save_data record still has save memory, for its save_var.
-  def test_naming_flash_for_a_game_with_only_save_var_is_not_available_yet
+  # A save_var writes its number into save memory each time it changes, and flash cannot take
+  # that yet. A game that keeps nothing in a save_data record still has save memory, for it.
+  def test_naming_flash_for_a_game_with_a_save_var_is_refused
     message = assert_raises(ArgumentError) do
       RubyGBA.build("SAVEMEM", out: nil, err: nil, save_memory: 128) do
         screen :bitmap
@@ -78,7 +77,23 @@ class TestSaveMemory < Minitest::Test
       end
     end.message
 
+    assert_match(/save_var cannot be kept in flash memory yet/, message)
     assert_match(/leave `save_memory:` out/, message)
+  end
+
+  def test_records_that_need_flash_beside_a_save_var_are_refused
+    message = assert_raises(ArgumentError) do
+      RubyGBA.build("SAVEMEM", out: nil, err: nil) do
+        screen :bitmap
+        save_var :best, 0
+        flags = list :flags, capacity: 6000, width: :byte
+        save_data(:file, copies: 3) { keep flags }
+        game_loop {}
+      end
+    end.message
+
+    assert_match(/64K/, message)
+    assert_match(/in a save_data record instead/, message, "the records need flash, so 32K is not the fix")
   end
 
   # Said on the line that names the game, beside its cartridge code, it reaches the build.
@@ -90,7 +105,7 @@ class TestSaveMemory < Minitest::Test
       game_loop {}
     end
 
-    assert_match(/not available yet/, assert_raises(ArgumentError) { named.program }.message)
+    assert_equal 64, RubyGBA::IR::SaveLayout.memory_of(named.program).kilobytes
   end
 
   def test_naming_32k_for_a_game_that_fits_builds_the_same_cartridge

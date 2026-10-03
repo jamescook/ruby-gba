@@ -217,6 +217,18 @@ module RubyGBA
         @probe.read8(address)
       end
 
+      # THE SAVE CHIP AS IT IS NOW, as an IR::SaveImage the size the chip is — which is what
+      # turning the console off leaves. Hand it to another run's `save:` to turn it on again.
+      #
+      # The bus shows a 128K flash chip a bank at a time, so the chip is read from the file the
+      # emulator keeps it in, which holds all of it.
+      def save_image
+        ensure_rendered!
+        bytes = File.binread(save_path).bytes
+        held = bytes.each_with_index.reject { |byte, _| byte == IR::SaveImage::FRESH_BYTE }
+        IR::SaveImage.new(kilobytes: bytes.length / 1024, bytes: held.to_h { |byte, at| [at, byte] })
+      end
+
       # How many times the game read the pad while the console ran it — what the emulator saw,
       # which is not the same as how many passes a game loop made (see Probe#pad_reads).
       #
@@ -778,10 +790,15 @@ module RubyGBA
 
       # Fill the chip before the console is turned on. The emulator looks for it as a file
       # named after the ROM, in the save directory, and reads it in as the chip's contents.
+      # The file is as big as the cartridge's chip: a save memory made without a size takes the
+      # cartridge's, and one of another size is refused, as the interpreter refuses it.
       def write_save_memory
-        path = File.join(self.class.save_dir, "#{File.basename(@tempfile.path, '.gba')}.sav")
-        File.binwrite(path, @save.to_sav)
+        program = @rom.source_program
+        @save.use_memory!(IR::SaveLayout.memory_of(program)) if program
+        File.binwrite(save_path, @save.to_sav)
       end
+
+      def save_path = File.join(self.class.save_dir, "#{File.basename(@tempfile.path, '.gba')}.sav")
 
       # The picture on screen right now — the frame the run stopped on. A run told to play no
       # frames has none, which is a friendly error rather than a crash on nothing: the console

@@ -309,6 +309,14 @@ module RubyGBA
         sd_add(layout.place_node, sd_add(Build.binop(:*, copy, sd_int(room * 2)), Build.binop(:*, half, sd_int(room))))
       end
 
+      # Where copy +copy+'s newer half starts. A copy with no good half says -1 for which is
+      # newer, so it is held to 0 or 1: a reading of such a copy is thrown away, but the place it
+      # read from is still a place in save memory, which a 128K chip reaches by switching to the
+      # bank it is in.
+      def sd_newer_half_at(layout, copy)
+        sd_half_at(layout, copy, Build.clamped(sd_directory(layout, :half, copy), sd_int(0), sd_int(1)))
+      end
+
       # The copy asked for is one this record has.
       def sd_in_range(layout, copy)
         sd_and(Build.binop(:>=, copy, sd_int(0)), Build.binop(:<, copy, sd_int(layout.copies)))
@@ -433,7 +441,7 @@ module RubyGBA
         good = sd_eq(sd_directory(layout, :state, copy), sd_int(IR::SaveLayout::STATES.index(:good)))
         sd_when(sd_in_range(layout, copy)) do
           sd_when(good) do
-            record(Build.set(layout.scratch(:at), sd_half_at(layout, copy, sd_directory(layout, :half, copy))))
+            record(Build.set(layout.scratch(:at), sd_newer_half_at(layout, copy)))
             body = sd_add(sd_var(layout.scratch(:at)), sd_int(IR::SaveLayout::HEADER))
             layout.kept.each { |item| emit_read_kept_item(item, body) }
           end
@@ -624,7 +632,7 @@ module RubyGBA
       def save_data_peek(layout, copy, item, index: nil, length: false)
         which = Build.clamped(copy, sd_int(0), sd_int(layout.copies - 1))
         good = sd_eq(save_data_state_node(layout, copy), sd_int(IR::SaveLayout::STATES.index(:good)))
-        body = sd_add(sd_half_at(layout, which, sd_directory(layout, :half, which)), sd_int(IR::SaveLayout::HEADER))
+        body = sd_add(sd_newer_half_at(layout, which), sd_int(IR::SaveLayout::HEADER))
         return Build.binop(:*, good, sd_read(item.value_at(body))) if item.kind == :var || length
 
         saved = Build.clamped(sd_read(item.value_at(body)), sd_int(0), sd_int(item.count))

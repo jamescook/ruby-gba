@@ -46,7 +46,7 @@ class TestDslReference < Minitest::Test
   # cheat-sheet documents on `save_data`; nobody writes it. request_tile_copy is the hook
   # behind `changed` on tiles painted from a list, which the cheat-sheet documents on `tiles`.
   # canvas_font, canvas_font_tables, image_size and image_pixels are what a `canvas` asks while
-  # it builds its words, documented on `canvas`; nobody writes them. refuse_flash_save_memory!
+  # it builds its words, documented on `canvas`; nobody writes them. refuse_save_var_on_flash!
   # is a step of the build, asked once the program is finalized; nobody writes it.
   SKIP = %i[variables var_address debug_halted? make_object_rotatable make_object_scalable
             record_row_bend make_background_affine screen_pages keep_showing_pictures
@@ -55,7 +55,7 @@ class TestDslReference < Minitest::Test
             colors_to_draw_with make_object_recolorable make_pool_recolorable
             lists_drawn_from list_drawn_from declared_colors name_of_colors pool_refill_nodes
             request_tile_copy canvas_font canvas_font_tables image_size image_pixels
-            refuse_flash_save_memory!].freeze
+            refuse_save_var_on_flash!].freeze
 
   # …plus the verbs the loaded effect packs contribute. A pack's verb is an ordinary
   # DSL verb at the call site, so it has to be looked up in the same place.

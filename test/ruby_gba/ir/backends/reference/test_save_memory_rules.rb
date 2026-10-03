@@ -41,6 +41,26 @@ class TestSaveMemoryRules < Minitest::Test
     assert_equal 0x00, store.read(0x6000, 1), "and the next block is not"
   end
 
+  # A wipe that is only started is still going on until the program sees it finished. The chip
+  # says it is busy to the first read of the block, and is finished by the next one.
+  def test_a_started_wipe_reads_busy_once_then_0xff
+    first = B.save_read(B.int(0x5000), width: :byte)
+    program = B.program(B.save_memory(64), byte_write(0x5000, 0x12), B.save_erase(B.int(0x5000), wait: false),
+                        B.set(:busy, first), B.set(:done, first), B.halt)
+    run = Reference.new(save: SaveImage.new).run(program, frames: 1)
+
+    refute_equal 0xFF, run[:busy]
+    assert_equal 0xFF, run[:done]
+  end
+
+  def test_a_write_before_a_started_wipe_is_seen_finished_is_refused
+    error = assert_raises(Reference::ProgramError) do
+      run_program(B.save_memory(64), B.save_erase(B.int(0x5000), wait: false), byte_write(0x6000, 0x12))
+    end
+
+    assert_match(/wipe/, error.message)
+  end
+
   # The power going off stops a wipe as surely as a write: the block keeps what it held.
   def test_a_wipe_after_the_power_went_off_does_not_happen
     store = SaveImage.new.cut_power_after(1)
@@ -48,6 +68,18 @@ class TestSaveMemoryRules < Minitest::Test
     Reference.new(save: store).run(program, frames: 1)
 
     assert_equal 0x12, store.read(0x5000, 1)
+  end
+
+  # The console's chip has no byte past its end — a place past it lands back at the start, or
+  # nowhere — so a program that writes or reads there is refused, naming the size.
+  def test_a_place_past_the_end_of_save_memory_is_refused
+    write = assert_raises(Reference::ProgramError) { run_program(B.save_memory(64), byte_write(0x10000, 1)) }
+    read = assert_raises(Reference::ProgramError) do
+      run_program(B.set(:x, B.save_read(B.int(0x7FFE), width: :word)))
+    end
+
+    assert_match(/64K/, write.message)
+    assert_match(/32K/, read.message)
   end
 
   def test_battery_memory_takes_any_byte_and_a_wipe_does_nothing

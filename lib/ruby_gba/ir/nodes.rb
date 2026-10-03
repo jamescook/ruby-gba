@@ -818,11 +818,16 @@ module RubyGBA
       # as never written. Memory wiped a block at a time needs this before a block is written
       # afresh; on memory that takes any byte it does nothing, so a write order is written once
       # for both.
+      #
+      # A wipe takes a while. With +wait+ the program goes on once it is done. Without, the wipe
+      # is only started, so the program can do other work meanwhile: until it is done, the
+      # program must not write to save memory or start another wipe, and a read of the block
+      # does not read 0xFF. So the program reads the block's first byte until it reads 0xFF.
       class SaveErase
         include Node
         kind :save_erase
         category :var
-        operands at: :value
+        operands at: :value, wait: :flag
       end
 
       class SaveRegion

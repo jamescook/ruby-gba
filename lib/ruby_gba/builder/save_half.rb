@@ -30,9 +30,9 @@ module RubyGBA
       end
 
       # Step 1: the marker and the shape, into the half starting at +here+ — wiped first, on a
-      # memory that has to be (see #emit_room_wipe).
-      def emit_half_header(layout, here)
-        emit_room_wipe(here, @save_memory_layout.room(layout.half))
+      # memory that has to be (see #emit_room_wipe), unless +wipe+ says the caller wiped it.
+      def emit_half_header(layout, here, wipe: true)
+        emit_room_wipe(here, @save_memory_layout.room(layout.half)) if wipe
         { MARKER_AT: sd_int(IR::SaveLayout::MARKER), SHAPE_AT: sd_int(layout.shape) }.each do |field, value|
           record(Build.save_write(sd_add(here, sd_int(IR::SaveLayout.const_get(field))), value))
         end

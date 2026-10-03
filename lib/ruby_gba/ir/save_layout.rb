@@ -122,12 +122,13 @@ module RubyGBA
       # The packed 32K memory, which a table is read from and written to unless it says otherwise.
       PACKED = memory(MEMORIES.first)
 
-      # Why a game or a program with +kilobytes+ of flash save memory cannot be built yet, ending
-      # with +fix+ (a sentence's end, saying what to change). Said once, for the build and the
-      # cartridge step alike.
-      def flash_unavailable_message(kilobytes, fix)
-        "This game has #{kilobytes}K of save memory. A cartridge with more than 32K keeps its saves in " \
-          "flash memory, and flash is not available yet. To fix this, #{fix}"
+      # Why a game or a program with a save_var and +kilobytes+ of flash save memory cannot be
+      # built yet, ending with +fix+ (a sentence's end, saying what to change). A save_var
+      # writes its number into save memory each time it changes, and flash takes a byte only
+      # once between two wipes of its block. Said once, for the build and the cartridge step alike.
+      def save_var_on_flash_message(kilobytes, fix)
+        "This game has a save_var and #{kilobytes}K of save memory. A cartridge with more than 32K keeps " \
+          "its saves in flash memory, and a save_var cannot be kept in flash memory yet. To fix this, #{fix}"
       end
 
       # The save memory +program+ says it has (a `save_memory` node), or the 32K when it says

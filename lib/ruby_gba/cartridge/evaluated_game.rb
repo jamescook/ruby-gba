@@ -46,7 +46,7 @@ module RubyGBA
         # Finalizing the tree is also what paces it: `game_loop` runs once per frame and the
         # builder writes that wait itself, so nothing downstream has to think about it.
         @builder.finalize_program
-        @builder.refuse_flash_save_memory!
+        @builder.refuse_save_var_on_flash!
         @program = @builder.program
       end
 

@@ -19,11 +19,16 @@ module RubyGBA
     class SaveImage
       FRESH_BYTE = 0xFF
 
+      # What a byte of a block being wiped reads: the top bit the other way round from the
+      # 0xFF it is on its way to, which is how a flash chip says it is busy.
+      BUSY_BYTE = 0x00
+
       # Raised by a write once the power has gone off (see #cut_power_after).
       class PowerOff < StandardError; end
 
-      # Raised by a write flash cannot take where it was asked to.
-      class FlashRefused < StandardError; end
+      # Raised by something the chip cannot do: a write flash cannot take where it was asked to,
+      # or a place past the end of the chip.
+      class Refused < StandardError; end
 
       # +kilobytes+ is the size of the chip, which also says what kind it is. Left out, it is
       # whatever the first program run on it says it has. +bytes+ is what the chip holds
@@ -32,6 +37,7 @@ module RubyGBA
         @memory = kilobytes && SaveLayout.memory(kilobytes)
         @bytes = bytes.dup
         @power_left = nil
+        @wiping = nil
       end
 
       # A copy holds its own bytes, so a test can start several runs from one moment. A cut
@@ -40,6 +46,7 @@ module RubyGBA
         super
         @bytes = source.written
         @power_left = nil
+        @wiping = nil
       end
 
       # The kind and size of the chip (an IR::SaveLayout::Memory).
@@ -57,13 +64,25 @@ module RubyGBA
       end
 
       # The +width+ bytes at +at+, lowest first, as an unsigned number.
-      def read(at, width) = (0...width).sum { |i| @bytes.fetch(at + i, FRESH_BYTE) << (8 * i) }
+      def read(at, width) = read_bytes(at, width).each_with_index.sum { |byte, i| byte << (8 * i) }
 
       # The word at +at+, as the signed number a variable holds.
       def word(at) = Int32.wrap(read(at, 4))
 
-      # The +count+ bytes from +at+.
-      def read_bytes(at, count) = (0...count).map { |i| @bytes.fetch(at + i, FRESH_BYTE) }
+      # The +count+ bytes from +at+. While a block is being wiped (see #wipe_block), a byte of it
+      # reads BUSY_BYTE, and that read is the one that finds the wipe finished.
+      def read_bytes(at, count)
+        refuse_outside_memory!("read", at, count)
+        busy = false
+        bytes = (at...(at + count)).map do |i|
+          next @bytes.fetch(i, FRESH_BYTE) unless wiping?(i)
+
+          busy = true
+          BUSY_BYTE
+        end
+        @wiping = nil if busy
+        bytes
+      end
 
       # The checksum of the +length+ bytes from +at+ (see SaveLayout.checksum).
       def checksum(at, length) = SaveLayout.checksum(read_bytes(at, length))
@@ -73,24 +92,35 @@ module RubyGBA
 
       # Write +value+'s low +width+ bytes at +at+, lowest first, one byte at a time — so the
       # power going off part way keeps the bytes before it. Raises PowerOff when it does, and
-      # FlashRefused when flash cannot take a byte.
+      # Refused when the chip cannot take a byte there.
       def write(at, value, width)
+        refuse_outside_memory!("wrote to", at, width)
         width.times do |i|
           spend_power!
           byte = (value >> (8 * i)) & 0xFF
-          refuse_write_needing_wipe!(at + i, byte) if memory.flash?
+          if memory.flash?
+            refuse_while_wiping!("wrote to", at + i)
+            refuse_write_needing_wipe!(at + i, byte)
+          end
           @bytes[at + i] = byte
         end
       end
 
       # Wipe the block holding +at+. Memory that takes any byte has no blocks to wipe, and
       # nothing is wiped once the power has gone off.
-      def wipe_block(at)
+      #
+      # A flash chip takes a while to wipe a block. With +wait+ the wipe is over when this
+      # returns. Without, the chip is still at it: it is busy until the program reads the block
+      # (see #read_bytes), and a write or another wipe before then is refused.
+      def wipe_block(at, wait: true)
         return unless memory.flash?
 
         refuse_without_power!
+        refuse_outside_memory!("wiped", at, 1)
+        refuse_while_wiping!("wiped", at)
         start = (at / memory.block) * memory.block
         (start...(start + memory.block)).each { |byte| @bytes.delete(byte) }
+        @wiping = start unless wait
       end
 
       # TURN THE POWER OFF part way through a save: once +bytes+ more bytes are written, the
@@ -101,9 +131,11 @@ module RubyGBA
         self
       end
 
-      # The console is on again: no cut is waiting, whether or not the last one came.
+      # The console is on again: no cut is waiting, whether or not the last one came, and no
+      # wipe is still going on.
       def restore_power
         @power_left = nil
+        @wiping = nil
       end
 
       # THE TABLE OF PLACES, written straight in as a good first half with +sequence+: what an
@@ -159,13 +191,34 @@ module RubyGBA
         raise PowerOff if @power_left&.zero?
       end
 
+      def wiping?(at) = @wiping && at >= @wiping && at < @wiping + memory.block
+
+      # The chip has no byte past its end. The console's would land back at its start, or
+      # nowhere, so the two backends could only agree by refusing it.
+      def refuse_outside_memory!(did, at, count)
+        return if at >= 0 && at + count <= memory.size
+
+        raise Refused, format("The program %<did>s save memory at 0x%<at>X, and save memory is %<kb>dK, which " \
+                              "ends at 0x%<end>X. A program must keep to the save memory it has.",
+                              did: did, at: at, kb: memory.kilobytes, end: memory.size)
+      end
+
+      # A flash chip that is wiping a block takes no other command until it is done.
+      def refuse_while_wiping!(did, at)
+        return unless @wiping
+
+        raise Refused, format("The program %<did>s flash save memory at 0x%<at>X while the chip was still " \
+                                   "wiping the block at 0x%<block>X. After the program starts a wipe, it must " \
+                                   "read the block until the block reads 0xFF.", did: did, at: at, block: @wiping)
+      end
+
       # Flash can only turn bits OFF in a write. The chip would quietly keep the bits both
       # bytes have, which is a damaged save nobody sees until it is loaded, so it is refused.
       def refuse_write_needing_wipe!(at, byte)
         held = @bytes.fetch(at, FRESH_BYTE)
         return if (byte & ~held).zero?
 
-        raise FlashRefused, format("The program wrote 0x%<byte>02X to flash save memory at 0x%<at>X, which " \
+        raise Refused, format("The program wrote 0x%<byte>02X to flash save memory at 0x%<at>X, which " \
                                    "holds 0x%<held>02X. Flash cannot take that byte there. Before the " \
                                    "program writes over a block of flash, it must wipe the block.",
                                    at: at, held: held, byte: byte)

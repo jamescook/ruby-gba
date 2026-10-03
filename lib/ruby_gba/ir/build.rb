@@ -130,9 +130,10 @@ module RubyGBA
         Nodes.build(:save_memory, kilobytes: kilobytes)
       end
 
-      # Wipe the block of save memory holding +at+ (see Nodes::SaveErase).
-      def save_erase(at)
-        Nodes.build(:save_erase, at: at)
+      # Wipe the block of save memory holding +at+ (see Nodes::SaveErase). +wait: false+ only
+      # starts the wipe.
+      def save_erase(at, wait: true)
+        Nodes.build(:save_erase, at: at, wait: wait)
       end
 
       # --- drawing / screen operations ---

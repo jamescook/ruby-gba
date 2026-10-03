@@ -38,6 +38,7 @@ require_relative "gba/timers"
 require_relative "gba/frames" # how many frames a pass of the game loop really took
 require_relative "gba/raster"
 require_relative "gba/mixer"
+require_relative "gba/save_chips"
 require_relative "gba/save"
 require_relative "gba/roomy"         # which collections go in the other, roomier memory
 require_relative "gba/tile_vram"     # where the scenery's pictures and maps go, so they cannot collide
@@ -319,7 +320,8 @@ module RubyGBA
           @attribution = Attribution.new(@emit)
           @lowering = Lowering.new(progress: progress, emitted: @emit.method(:pos),
                                    attribution: @attribution)
-          @save = Save.new(emitter: @emit, primitives: @primitives, lowering: @lowering)
+          @save = Save.new(emitter: @emit, primitives: @primitives, lowering: @lowering, memory: @memory,
+                           call_cold: method(:emit_call_cold_routine))
           @defined_sounds = {}   # name -> musical params (from define_sound)
           @songs = {}            # name -> :song node (from song)
           @blob_codecs = {}      # name -> :lz77/:rle/:none (how a VRAM blob was packed, if at all)
@@ -712,6 +714,8 @@ module RubyGBA
           # Fast ROM + prefetch, first, unless it's all raw or the caller asked to keep
           # the console's cautious power-on timing.
           emit_waitcnt_setup if @fast_cartridge && !raw_escape_hatch?(program)
+          # A flash chip is told so before anything else touches save memory (see Save).
+          @save.emit_wake_chip if @uses_save
           emit_copy_divide_routines_to_iwram # a no-op when neither routine was reserved
           emit_copy_hot_code_to_iwram unless @fast_funcs.empty?
           # THE MIXER IS BROUGHT UP BEFORE THE INTERRUPTS ARE ARMED, and the order is load-bearing
