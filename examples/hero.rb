@@ -54,6 +54,17 @@
 # frame. A save cut off by the power going out keeps the last good one — each file is kept
 # twice — and none of that is anything the game says.
 #
+# And two PICTURES THE GAME DRAWS AS IT RUNS. A signpost stands a few steps from where a walk
+# starts: press A beside it and a box along the bottom types out which file you are walking
+# in and how many steps it has taken, a letter every two frames — words nobody could have
+# drawn before the game was built. And a little map in the corner gains a dot wherever you
+# walk. Both are a `canvas`, a picture you draw into with words — a pixel, a rectangle, a
+# letter, a number — that shows what you drew on the next frame:
+#
+#     box = canvas :box, width: 192, height: 16, colors: [...]
+#     pen.add! box.draw_letter(note[typed], pen, 5, :white)
+#     trail.pixel (px & 255) >> 3, (py & 255) >> 3, :white
+#
 # What you never touch: object memory, tile numbers, palettes, the sprite table, save
 # memory, or a single scroll register. A tile is an `image`, the world is a `background`,
 # and the hero is a `sprite`.
@@ -83,11 +94,21 @@ module Hero
   POND_COLS = (10..12)
   POND_ROWS = (10..11)
 
+  # A signpost a few steps east of where a new game starts, and where you have to stand to
+  # read it: within a tile or so of its middle, in the world's own pixels.
+  SIGN_COL = 17
+  SIGN_ROW = 10
+  SIGN_X = (SIGN_COL * 8) + 4
+  SIGN_Y = (SIGN_ROW * 8) + 4
+  READING_REACH_X = 24
+  READING_REACH_Y = 16
+
   # A 32x32 world (256x256 pixels — far bigger than the screen): grass, the pond, and
   # trees scattered across it so there's plenty of scenery moving past as you walk.
   MAP = Ractor.make_shareable((0...32).map do |r|
     (0...32).map do |c|
       if POND_ROWS.cover?(r) && POND_COLS.cover?(c) then "~" # the pond
+      elsif r == SIGN_ROW && c == SIGN_COL           then "S" # the signpost
       elsif ((r * 3) + (c * 5)) % 11 == 0            then "T" # scattered trees
       else "."                                              # grass
       end
@@ -134,7 +155,20 @@ module Hero
       ART
     end
 
-    tiles :terrain, "." => :grass, "T" => :tree, "~" => :water
+    image :sign, "=" => rgb(24, 18, 8), "|" => rgb(12, 7, 2), "." => rgb(3, 18, 5) do
+      <<~ART
+        ........
+        .======.
+        .======.
+        .======.
+        ...||...
+        ...||...
+        ...||...
+        ..||||..
+      ART
+    end
+
+    tiles :terrain, "." => :grass, "T" => :tree, "~" => :water, "S" => :sign
 
     # A sheet of pale mist, in tiles like anything else. On its own it would be a flat
     # white wall over the game; it is the layer it goes in that makes it weather.
@@ -234,9 +268,67 @@ module Hero
     choosing = var :choosing, 0
     next_choosing = var :next_choosing, 0
 
+    # --- PICTURES THE GAME DRAWS WHILE IT RUNS ---
+    #
+    # Everything above was drawn before the game was built. These two are drawn by the game,
+    # out of what is happening: a box along the bottom that a signpost's words are typed into
+    # a letter at a time — words that say which file you are walking in and how far you have
+    # come, so nothing could have drawn them in advance — and a little map in the corner that
+    # gains a dot wherever you walk. A `canvas` is a picture you draw into with words (a
+    # pixel, a rectangle, a letter, a number), and what you draw shows on the next frame.
+    #
+    #     box = canvas :box, width: 192, height: 16, colors: [...]
+    #     pen.add! box.draw_letter(note[typed], pen, 5, :white)   # one letter, then the next
+    note = list :note, capacity: 32, width: :byte # the sign's words, as letters, put together as you read
+    box = canvas :box, width: 192, height: 16, colors: [:transparent, :white, rgb(2, 4, 12)]
+    trail = canvas :trail, width: 32, height: 32, colors: %i[transparent white blue], as: :sprite
+    reading = var :reading, 0 # 1 while the sign's box is open
+    typed = var :typed, 0     # how many of its letters are up
+    pen = var :pen, 0         # where the next one goes
+    tick = var :tick, 0
+
+    # One more letter of the sign's words, where the last one ended. A `func`, because two
+    # places type a letter and drawing one is a fair amount of code: as a routine it is
+    # written once and called from both.
+    func(:type_a_letter) do
+      pen.add! box.draw_letter(note[typed], pen, 5, :white)
+      typed.add! 1
+    end
+
+    # Open the sign's box and put its words together, from the file you are walking in and
+    # the steps it has taken. It runs on the one frame A is pressed, so it is kept out of the
+    # quick memory (`fast: false`) where the code every frame runs would rather be.
+    func(:open_the_sign, fast: false) do
+      repeat(note.length) { note.pop }
+      "FILE ".each_char { |char| note.push char.ord }
+      note.push slot + 49 # the file's number, 1 to 3, as the letter that draws it
+      ", ".each_char { |char| note.push char.ord }
+      [10_000, 1000, 100, 10].each do |power|
+        (steps >= power).then { note.push ((steps / power) % 10) + 48 }
+      end
+      note.push (steps % 10) + 48
+      " STEPS".each_char { |char| note.push char.ord }
+      box.clear rgb(2, 4, 12)
+      typed.set! 0
+      pen.set! 4
+      reading.set! 1
+    end
+
+    # A fresh walk starts with no box open and a map showing only the pond — one dot of the
+    # map for every tile of the world, which is 8 pixels.
+    fresh_pictures = lambda do
+      box.clear
+      reading.set! 0
+      trail.clear
+      trail.fill_rect POND_COLS.first, POND_ROWS.first, POND_COLS.size, POND_ROWS.size, :blue
+    end
+
     # Put the world back around the hero at the place a file says. The window's corner sits
     # as far back from the hero's world position as the hero sits into the screen.
-    place_hero = -> { world.scroll_to px - hero.x, py - hero.y }
+    place_hero = lambda do
+      world.scroll_to px - hero.x, py - hero.y
+      fresh_pictures.call
+    end
 
     # A plain backdrop for the file screen, so its words are not read over scenery.
     image :panel, "#" => rgb(2, 4, 12) do
@@ -348,6 +440,29 @@ module Hero
       end
       (saved > 0).then { saved.sub! 1 }
       layer(:words) { (saved > 0).then { draw_text "SAVED", :center, 16, :white } }
+
+      # THE SIGN. Stand by it and press A: the box opens and its words type themselves out,
+      # two frames a letter. A while they are typing puts the rest up at once, and A once
+      # they are all up closes it. The words are put together as the box opens, from the
+      # file you are walking in and the steps it has taken — a number no picture drawn
+      # before the game was built could hold.
+      layer(:words) do
+        rows = box.cells.map { |row| ([nil] * 3) + row + ([nil] * 3) }
+        background :sign_box, tiles: :box, map: Array.new(18) { [nil] * 30 } + rows
+        sprite :trail, at: [204, 4]
+      end
+      tick.add! 1
+      (pressed(:a) & (reading == 1)).then do
+        (typed >= note.length).then { box.clear; reading.set! 0 }
+                              .else { repeat(32, stop_when: typed >= note.length) { call :type_a_letter } }
+      end
+      near = ((px - SIGN_X).abs < READING_REACH_X) & ((py - SIGN_Y).abs < READING_REACH_Y)
+      (pressed(:a) & (reading == 0) & near).then { call :open_the_sign }
+      ((reading == 1) & (typed < note.length) & ((tick & 1) == 0)).then { call :type_a_letter }
+
+      # THE MAP: a dot wherever you are, a pixel for every tile of the world. It is never
+      # cleared while you walk, so it is a map of everywhere you have been.
+      trail.pixel (px & 255) >> 3, (py & 255) >> 3, :white
     end
 
     # Whichever screen `mode` names runs this frame, and owns what it shows while it runs.

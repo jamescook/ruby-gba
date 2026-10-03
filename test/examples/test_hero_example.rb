@@ -101,6 +101,56 @@ class TestHeroExample < Minitest::Test
                  "the mist never cleared on the walk back south"
   end
 
+  # --- Pictures the game draws while it runs ---
+  #
+  # The sign's box sits along the bottom of the screen and its words start 4 pixels into it;
+  # the map sits in the top-right corner, a pixel for every tile of the world.
+  WORDS = { xs: (24..215), ys: (144..159) }.freeze
+  MAP_CORNER = [204, 4].freeze
+
+  def white_pixels_in_box(screen)
+    WORDS[:xs].sum { |x| WORDS[:ys].count { |y| screen.pixel(x, y) == Color.resolve(:white) } }
+  end
+
+  # A new game starts a few steps from the sign, so A on the first frame of the walk opens
+  # it. Its words type in over the frames after, two frames a letter.
+  def test_the_sign_types_its_words_in_a_letter_at_a_time
+    reading = ->(frames) { play(frames: frames) { |f| f == 2 ? :a : nil }.screen }
+    soon = white_pixels_in_box(reading.call(6))
+    later = white_pixels_in_box(reading.call(30))
+
+    assert_operator soon, :>, 0, "a letter or two is up soon after A"
+    assert_operator later, :>, soon, "and more of them as the frames go on"
+  end
+
+  def test_a_second_a_puts_the_rest_of_the_words_up_at_once
+    hurried = play(frames: 6) { |f| [2, 4].include?(f) ? :a : nil }.screen
+    typed = play(frames: 60) { |f| f == 2 ? :a : nil }.screen
+
+    assert_equal white_pixels_in_box(typed), white_pixels_in_box(hurried)
+  end
+
+  # The map gains a dot where the hero stands, and keeps the one where they stood.
+  def test_the_map_gains_a_dot_wherever_the_hero_walks
+    walked = play(frames: 42) { |f| f <= 40 ? :right : nil }.screen
+    white = Color.resolve(:white)
+    start = [MAP_CORNER[0] + (Hero::START_X / 8), MAP_CORNER[1] + (Hero::START_Y / 8)]
+    now = [MAP_CORNER[0] + ((Hero::START_X + 80) / 8), MAP_CORNER[1] + (Hero::START_Y / 8)]
+
+    assert_equal white, walked.pixel(*start), "where the walk began"
+    assert_equal white, walked.pixel(*now), "where the hero is now, 40 steps of 2 pixels east"
+  end
+
+  # The console's frames are counted from power-on rather than from the first pass of the
+  # game, so it starts its game the way the other console tests here do (NEW_GAME, below).
+  def test_the_console_draws_the_sign_and_the_map_as_the_interpreter_does
+    keys = NEW_GAME.call(->(f) { f.between?(2, 3) ? KEY_A : 0 })
+    v = assert_emulator_loads_rom(Hero.build_rom(err: StringIO.new, profile: false), frames: 40, keys: keys)
+
+    assert v.pixel_is?(MAP_CORNER[0] + (Hero::START_X / 8), MAP_CORNER[1] + (Hero::START_Y / 8), :white), "the map's first dot"
+    assert WORDS[:xs].any? { |x| WORDS[:ys].any? { |y| v.pixel_is?(x, y, :white) } }, "the sign's words"
+  end
+
   # --- The save files ---
 
   # The game opens on its file screen: the hero is not out yet, and no file holds a walk.
