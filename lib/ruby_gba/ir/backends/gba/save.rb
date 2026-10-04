@@ -126,16 +126,17 @@ module RubyGBA
                                    "To fix this, make a list or a pool smaller."
           end
 
-          # A save_var writes its number into save memory each time it changes, and flash takes a
-          # byte only once between two wipes of its block. A game is refused before it gets here
-          # (see Builder#refuse_save_var_on_flash!); this catches a program put together another
-          # way.
+          # These two write a save_var's number straight into save_var's block, which only the
+          # 32K memory has: flash takes a byte only once between two wipes of its block, so a
+          # game on flash keeps its save_vars in a record instead (see Builder::SaveVarRecord)
+          # and never reaches here. This catches a program put together another way.
           def refuse_save_var_on_flash!
             return unless @chip.flash?
 
-            raise LoweringError, IR::SaveLayout.save_var_on_flash_message(
-              @save_memory.kilobytes, "give the program 32K of save memory.",
-            )
+            raise LoweringError, "This program writes a save_var straight into save memory, and it has " \
+                                 "#{@save_memory.kilobytes}K of save memory, which is flash. Flash cannot take " \
+                                 "a number written in place. To fix this, give the program 32K of save memory, " \
+                                 "or build it with RubyGBA.game, which keeps save_vars in a record on flash."
           end
 
           # Read four consecutive bytes of save memory (little-endian) into +dest+,

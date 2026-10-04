@@ -28,6 +28,7 @@ require_relative "builder/save_records"
 require_relative "builder/save_half"
 require_relative "builder/save_places"
 require_relative "builder/save_jobs"
+require_relative "builder/save_var_record"
 require_relative "builder/saves" # ...all four held as one object, behind the save_data verb
 require_relative "builder/debug" # the probe-only verbs, defined but deliberately not mixed in
 
@@ -448,6 +449,7 @@ module RubyGBA
       emit_boot_inits
       declare_save_memory
       resolve_save_data_peeks
+      swap_save_stores_for_change_flags
     end
 
     # Build every routine body not built yet (+emitted+ says which are), each into a func
@@ -768,9 +770,10 @@ module RubyGBA
 
     # If the program declared any `save_var`s, add the one boot step that loads them
     # (or writes their defaults on a fresh cartridge). Registered at boot like the
-    # other hidden-state setup, so it runs once before the game starts.
+    # other hidden-state setup, so it runs once before the game starts. On flash they are kept
+    # in a record of their own, which loads them itself (see SaveVarRecord).
     def register_save_init
-      return if @persisted.empty?
+      return if @persisted.empty? || @saves&.save_vars_in_record?
 
       at_boot(Build.save_init(vars: @persisted, magic: SAVE_MAGIC))
     end

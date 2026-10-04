@@ -61,15 +61,9 @@ module RubyGBA
         name = name.to_sym
         check_save_data_name!(name, copies)
         check_save_data_when_busy!(name, when_busy)
-        declare_save_jobs if @save_data.empty?
-        place = Messages::MadeNames.make(:save_record, record: name, piece: :place)
-        record_layout = Layout.new(name: name, copies: copies, kept: nil, body: nil, half: nil, place: place,
-                                   shape: nil, key: IR::SaveLayout.record_key(name),
-                                   number: @save_data.size + 1, when_busy: when_busy, pools: nil)
-        check_save_data_count!(record_layout)
+        record_layout = new_record_layout(name, copies: copies, when_busy: when_busy)
         @save_data[name] = record_layout
         @save_data_keeping[name] = []
-        declare_save_data_vars(record_layout)
         SaveDataKeeping.new(self, name).instance_eval(&block) if block
         DSL::SaveData.new(handle, self, record_layout)
       end
@@ -126,15 +120,19 @@ module RubyGBA
       # Builder calls this after building every routine the game wrote, which is the last
       # place a `keep` can come from, and builds the routines declared here after it.
       def lay_out_save_records
-        return if @save_data.empty? || @save_data_settled
+        return if @save_data_settled
 
         @save_data_settled = true
         @save_data.transform_values! { |layout| layout_with_kept(layout) }
+        lay_out_save_var_record(saved_vars, save_memory)
+        return if @save_data.empty?
+
         refuse_records_over_save_memory!
         @save_memory_layout = IR::SaveLayout.memory(save_memory)
         declare_save_places
         declare_save_job_routines
         @save_data.each_value { |layout| declare_save_data_record(layout) }
+        declare_save_var_saving
       end
 
       # Everything the routines need to know about one record, worked out once. +place+ is
@@ -158,6 +156,28 @@ module RubyGBA
       end
 
       private
+
+      # A record's layout before what it keeps is known, counted against the records a game
+      # can have, with the variables its routines work in declared.
+      def new_record_layout(name, copies:, when_busy:)
+        declare_save_jobs if @save_data.empty?
+        place = Messages::MadeNames.make(:save_record, record: name, piece: :place)
+        layout = Layout.new(name: name, copies: copies, kept: nil, body: nil, half: nil, place: place,
+                            shape: nil, key: IR::SaveLayout.record_key(name),
+                            number: @save_data.size + 1, when_busy: when_busy, pools: nil)
+        check_save_data_count!(layout)
+        declare_save_data_vars(layout)
+        layout
+      end
+
+      # What an error calls record +name+: the name the game declared it with, or, for the
+      # record the framework keeps the save_vars in on flash, what that record is.
+      def record_words(name)
+        name == SaveVarRecord::SAVE_VAR_RECORD ? SaveVarRecord::SAVE_VAR_RECORD_WORDS : "save_data :#{name}"
+      end
+
+      # The same at the start of a sentence.
+      def record_words_first(name) = record_words(name).sub(/\Athe/, "The")
 
       def check_save_data_name!(name, copies)
         unless Messages::MadeNames::RECORD_NAME.match?(name)
@@ -201,7 +221,7 @@ module RubyGBA
       def check_save_data_count!(layout)
         records = [*@save_data.each_value, layout]
         if records.length > IR::SaveLayout::TABLE_ROWS
-          raise ArgumentError, "save_data :#{layout.name} is record #{records.length}, and a game can have " \
+          raise ArgumentError, "#{record_words_first(layout.name)} is record #{records.length}, and a game can have " \
                                "#{IR::SaveLayout::TABLE_ROWS}. To fix this, keep more in fewer records."
         end
         return unless (same = @save_data.each_value.find { |other| other.key == layout.key })
@@ -218,7 +238,9 @@ module RubyGBA
         named = @port.save_memory
         return if named.nil? || IR::SaveLayout.fits?(named, record_halves)
 
-        raise ArgumentError, "This game asks for `save_memory: #{named}`, and its save_data records need " \
+        records = "save_data records"
+        records += ", with the record that keeps its save_var numbers on flash," if save_vars_in_record?
+        raise ArgumentError, "This game asks for `save_memory: #{named}`, and its #{records} need " \
                              "#{needed_save_memory}K. To fix this, ask for `save_memory: " \
                              "#{needed_save_memory}`, or keep less in each record, or use fewer copies."
       end
@@ -231,8 +253,8 @@ module RubyGBA
           !IR::SaveLayout.fits?(IR::SaveLayout::MEMORIES.last, records[0..i].map { |one| [one.half, one.copies] })
         end
         biggest = IR::SaveLayout.memory(IR::SaveLayout::MEMORIES.last)
-        sizes = records.map { |one| ":#{one.name} #{biggest.record_room(one.half, one.copies)}" }
-        raise ArgumentError, "save_data :#{records[over].name} does not fit in save memory. The biggest save " \
+        sizes = records.map { |one| "#{record_words(one.name).delete_prefix('save_data ')} #{biggest.record_room(one.half, one.copies)}" }
+        raise ArgumentError, "#{record_words_first(records[over].name)} does not fit in save memory. The biggest save " \
                              "memory a cartridge can have is #{IR::SaveLayout::MEMORIES.last}K, and the " \
                              "records need more. Each copy is kept twice, so a save cut off half way cannot " \
                              "lose it. The records take #{sizes.join(', ')} bytes. To fix this, keep less " \

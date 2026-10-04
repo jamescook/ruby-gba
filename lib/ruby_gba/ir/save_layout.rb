@@ -11,8 +11,8 @@ module RubyGBA
     # store out the same way, which is what lets a test cut the power half way through a save
     # and mean the same thing on both.
     #
-    # THE FIRST BLOCK IS `save_var`'s, as it always was: a marker and a word per saved
-    # number. Save data starts after it, at a place nothing a game adds can move — so a game
+    # THE FIRST BLOCK OF THE 32K MEMORY IS `save_var`'s, as it always was: a marker and a word
+    # per saved number. Save data starts after it, at a place nothing a game adds can move — so a game
     # that grows another `save_var` still finds last week's save files where it left them.
     #
     # THEN A TABLE OF PLACES: one row per record, saying where in save memory it lives, how
@@ -85,10 +85,11 @@ module RubyGBA
       # memory out one way while another checks it another.
       #
       # The 32K memory is packed: the table straight after save_var's block, and each half of a
-      # record straight after the last. Flash is wiped a block at a time, so on it save_var's
-      # values take the first two blocks, each half of the table one block of its own, and
-      # every half of a record whole blocks of its own: wiping a half can never touch the one
-      # beside it.
+      # record straight after the last. Flash is wiped a block at a time, so on it each half of
+      # the table takes one block of its own and every half of a record whole blocks of its
+      # own: wiping a half can never touch the one beside it. Flash keeps no block for
+      # save_var, whose numbers are kept there in a record like any other (see
+      # Builder::SaveVarRecord), so the table starts at the very beginning.
       Memory = Data.define(:kilobytes) do
         def flash? = kilobytes != MEMORIES.first
 
@@ -96,7 +97,7 @@ module RubyGBA
         def size = kilobytes * 1024
 
         # Where the table of places starts.
-        def table_at = flash? ? 2 * SECTOR : START
+        def table_at = flash? ? 0 : START
 
         # Where records can go: past both halves of the table.
         def data_start = table_at + (2 * room(SaveLayout.half_bytes(TABLE_BODY)))
@@ -121,15 +122,6 @@ module RubyGBA
 
       # The packed 32K memory, which a table is read from and written to unless it says otherwise.
       PACKED = memory(MEMORIES.first)
-
-      # Why a game or a program with a save_var and +kilobytes+ of flash save memory cannot be
-      # built yet, ending with +fix+ (a sentence's end, saying what to change). A save_var
-      # writes its number into save memory each time it changes, and flash takes a byte only
-      # once between two wipes of its block. Said once, for the build and the cartridge step alike.
-      def save_var_on_flash_message(kilobytes, fix)
-        "This game has a save_var and #{kilobytes}K of save memory. A cartridge with more than 32K keeps " \
-          "its saves in flash memory, and a save_var cannot be kept in flash memory yet. To fix this, #{fix}"
-      end
 
       # The save memory +program+ says it has (a `save_memory` node), or the 32K when it says
       # nothing. Every backend asks this, so none can run a program on memory another lays out

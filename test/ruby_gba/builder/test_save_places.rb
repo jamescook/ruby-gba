@@ -147,24 +147,24 @@ class TestSavePlaces < Minitest::Test
   end
   # --- flash, which is wiped 4K at a time ---
   #
-  # The console cannot write flash yet, but where records go on it is the same program, so the
-  # interpreter runs it. Flash keeps two 4K blocks for save_var's values and two for the two
-  # halves of the table, so save data starts at 16K, and every half of a record takes whole
-  # blocks of its own.
+  # Where records go on flash is the same program on both backends, so the interpreter runs
+  # it here. Flash keeps two 4K blocks for the two halves of the table, so save
+  # data starts at 8K, and every half of a record takes whole blocks of its own.
 
-  FLASH_START = 0x4000
+  FLASH_START = 0x2000
   BLOCK = 0x1000
 
   def test_on_flash_a_new_record_goes_at_the_start_of_flash_save_data
     assert_equal({ file: [FLASH_START, 1] }, placed({ file: {} }, [], save_memory: 64))
   end
 
-  # 64K is sixteen blocks and four are kept back, so three records of two copies — four
-  # blocks each, however small a half is — fill it exactly, the last ending at 64K. The build
-  # said they fit, and they do.
+  # 64K is sixteen blocks and two are kept back, so three records of two copies — four
+  # blocks each, however small a half is — and one of one copy fill it exactly, the last
+  # ending at 64K. The build said they fit, and they do.
   def test_on_flash_records_take_whole_blocks_and_fill_the_memory_to_its_end
-    records = { a: { copies: 2 }, b: { copies: 2 }, c: { copies: 2 } }
-    assert_equal({ a: [FLASH_START, 2], b: [FLASH_START + (4 * BLOCK), 2], c: [FLASH_START + (8 * BLOCK), 2] },
+    records = { a: { copies: 2 }, b: { copies: 2 }, c: { copies: 2 }, d: {} }
+    assert_equal({ a: [FLASH_START, 2], b: [FLASH_START + (4 * BLOCK), 2], c: [FLASH_START + (8 * BLOCK), 2],
+                   d: [FLASH_START + (12 * BLOCK), 1] },
                  placed(records, [], save_memory: 64))
   end
 
@@ -172,7 +172,7 @@ class TestSavePlaces < Minitest::Test
   # so rather than placing it over the end. Records this small fit the packed 32K, where a
   # half takes only its own bytes, so that is the size the build says they need.
   def test_on_flash_one_record_more_than_fits_is_refused
-    records = { a: { copies: 2 }, b: { copies: 2 }, c: { copies: 2 }, d: {} }
+    records = { a: { copies: 2 }, b: { copies: 2 }, c: { copies: 2 }, d: {}, e: {} }
     message = assert_raises(ArgumentError) { game(records, save_memory: 64) }.message
 
     assert_match(/save_memory: 64/, message)
@@ -215,17 +215,17 @@ class TestSavePlaces < Minitest::Test
     assert_equal saved.values, moved, "the copy it had came with it"
   end
 
-  # The memory's free room is two blocks at the end, and a record grows by two: the eight
-  # blocks above it lift by two, into blocks six of which they are still in. Each block is
+  # The memory's free room is two blocks at the end, and a record grows by two: the ten
+  # blocks above it lift by two, into blocks eight of which they are still in. Each block is
   # wiped only once what it held has been copied on.
   def test_on_flash_records_lifted_into_their_own_room_come_with_their_bytes
-    above = { bytes: 14_000 } # four blocks a half, eight a copy
+    above = { bytes: 18_000 } # five blocks a half, ten a copy
     rows = [row(:grower, FLASH_START), row(:above, FLASH_START + (2 * BLOCK), half: half(above))]
-    saved = (0...(8 * BLOCK)).to_h { |i| [FLASH_START + (2 * BLOCK) + i, (i * 7) & 0xFF] }
+    saved = (0...(10 * BLOCK)).to_h { |i| [FLASH_START + (2 * BLOCK) + i, (i * 7) & 0xFF] }
     where = placed({ grower: { copies: 2 }, above: above }, rows, bytes: saved, save_memory: 64)
 
     assert_equal({ grower: [FLASH_START, 2], above: [FLASH_START + (4 * BLOCK), 1] }, where)
-    moved = (0...(8 * BLOCK)).map { |i| @store.read(FLASH_START + (4 * BLOCK) + i, 1) }
+    moved = (0...(10 * BLOCK)).map { |i| @store.read(FLASH_START + (4 * BLOCK) + i, 1) }
     assert_equal saved.values, moved
   end
 

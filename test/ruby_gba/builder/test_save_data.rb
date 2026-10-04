@@ -1127,7 +1127,7 @@ class TestSaveData < Minitest::Test
   end
 
   def test_a_record_that_does_not_fit_is_a_friendly_error
-    message = refused { big = list :big, capacity: 5000; save_data(:f, copies: 3) { keep big } }
+    message = refused { big = list :big, capacity: 5000; save_data(:f, copies: 4) { keep big } }
     assert_match(/does not fit in save memory/, message)
     assert_match(/use fewer copies/, message)
   end

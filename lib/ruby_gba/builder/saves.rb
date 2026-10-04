@@ -15,14 +15,15 @@ module RubyGBA
     class Saves
       # WHAT THE SAVES ASK OF THE BUILDER, and nothing more: build a statement, a loop, a
       # routine, something run at power-on or once a pass, a variable; and three questions
-      # about what the game declared. +handle+ is the Builder itself, for the numbers and
+      # about what the game declared, and its `save_var`s. +handle+ is the Builder itself, for the numbers and
       # conditions (DSL::Value, DSL::Condition) the saves hand back to a game — those build
       # program through it. +save_memory+ is the size the game named with `save_memory:`, in
       # kilobytes, or nil to let the records decide.
       Port = Data.define(:handle, :record, :repeat, :at_boot, :ensure_var, :declare_func, :run_each_pass,
-                         :start_value, :list_new_node, :save_var, :pool_refill, :save_memory)
+                         :start_value, :list_new_node, :save_var, :saved_vars, :pool_refill, :save_memory)
 
       include SaveRecords
+      include SaveVarRecord
       include SavePlaces
       include SaveJobs
       include SaveHalf
@@ -84,6 +85,9 @@ module RubyGBA
       # Whether +name+ is a `save_var`, which saves itself.
       def save_var?(name) = @port.save_var.call(name)
 
+      # Every `save_var`, as IR::SavedVar, in the order declared.
+      def saved_vars = @port.saved_vars.call
+
       # Statements that put +pool+ back as power-on leaves it.
       def pool_refill(pool) = @port.pool_refill.call(pool)
     end
@@ -126,24 +130,6 @@ module RubyGBA
 
         @saves_keep_everything = left_out
         nil
-      end
-
-      # Refuse a game with a save_var and 64K or 128K of save memory, which is flash, where a
-      # save_var cannot be kept yet (see IR::SaveLayout.save_var_on_flash_message). EvaluatedGame
-      # asks this once the program is finalized, so every game built the usual way is refused —
-      # for a cartridge and for the interpreter alike. finalize_program does not ask it, so a
-      # test that builds a Builder by hand can still run one on the interpreter.
-      def refuse_save_var_on_flash!
-        return if @persisted.empty? || !IR::SaveLayout.memory(save_memory).flash?
-
-        needed = @saves&.needed_save_memory || IR::SaveLayout::MEMORIES.first
-        fix = if needed == IR::SaveLayout::MEMORIES.first
-                "leave `save_memory:` out, or ask for `save_memory: 32`."
-              else
-                "keep the save_var numbers in a save_data record instead, or keep less in each record so " \
-                  "that the records fit in 32K."
-              end
-        raise ArgumentError, IR::SaveLayout.save_var_on_flash_message(save_memory, fix)
       end
 
       private
@@ -208,8 +194,33 @@ module RubyGBA
 
       # Lay the records out, now that every routine the game wrote is built (see
       # SaveRecords#lay_out_save_records), which is also when the cartridge's save memory is
-      # picked. Nothing to lay out for a game with no records.
-      def lay_out_save_records = @saves&.lay_out_save_records
+      # picked. Nothing to lay out for a game with no records — unless it named flash save
+      # memory and has a `save_var`, which on flash is kept in a record (see SaveVarRecord).
+      def lay_out_save_records
+        saves if @persisted.any? && IR::SaveLayout.memory(@save_memory || IR::SaveLayout::MEMORIES.first).flash?
+        @saves&.lay_out_save_records
+        refuse_flash_save_var_without_loop!
+      end
+
+      # A save_var on flash is saved on a pass of the game loop after it changes, so a game
+      # with no loop would never save one, and nothing on screen would say so.
+      def refuse_flash_save_var_without_loop!
+        return unless @saves&.save_vars_in_record? && @frame_boundaries.empty?
+
+        raise ArgumentError, "This game has a save_var and #{save_memory}K of save memory, and it has no " \
+                             "game_loop. On 64K or 128K a save_var is saved by the game loop after it " \
+                             "changes, so without one it is never saved. To fix this, write a game_loop, " \
+                             "or give the game 32K of save memory."
+      end
+
+      # Where a `save_var` changed, set the flag that asks for a save rather than write the
+      # number, when the saved variables are kept in a record. Run once every routine is built.
+      def swap_save_stores_for_change_flags
+        return unless @saves&.save_vars_in_record?
+
+        stores = @program.walk.select { |node| node.kind == :save_store }
+        stores.each { |node| swap_node(node, @saves.save_var_changed_node) }
+      end
 
       # How much save memory the cartridge has, in kilobytes: what the records picked, else what
       # the game named, else the smallest there is.
@@ -247,6 +258,7 @@ module RubyGBA
             @program.walk.find(&made) || @boot_inits.flat_map { |node| node.walk.to_a }.find(&made)
           end,
           save_var: method(:persisted?),
+          saved_vars: -> { @persisted },
           pool_refill: method(:pool_refill_nodes),
           save_memory: @save_memory,
         ))

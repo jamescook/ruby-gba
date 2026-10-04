@@ -66,10 +66,10 @@ class TestSaveChip < Minitest::Test
     assert_equal 7, hearts_at_power_on(rom, chip)
   end
 
-  # The filler's halves are six blocks each, which ends it at the first 64K exactly. Reading a
-  # record that size back at power-on takes the console a few dozen frames.
+  # The filler's halves are seven blocks each, which ends it at the first 64K exactly. Reading
+  # a record that size back at power-on takes the console a few dozen frames.
   def test_a_save_on_128k_of_flash_comes_back_from_the_second_bank
-    rom = saving_rom(128, pad: 20_500)
+    rom = saving_rom(128, pad: 28_000)
     chip = saved_chip(rom, press: 48)
     file = chip.table.find { |row| row.key == RubyGBA::IR::SaveLayout.record_key(:file) }
 
@@ -114,12 +114,12 @@ class TestSaveChip < Minitest::Test
 
   # A game whose record's second half runs across the line between the 128K chip's two banks:
   # writing, checking and reading it back each go from one bank to the other part way. The
-  # filler's halves are four blocks each, which puts the file's three-block halves at 0xC000
+  # filler's halves are five blocks each, which puts the file's three-block halves at 0xC000
   # and 0xF000. The first save goes in the first half and the second save across the line.
   def test_a_save_across_the_line_between_banks_comes_back
     rom = RubyGBA.game("FLASHBNK", save_memory: 128) do
       screen :bitmap
-      filler = list :filler, capacity: 14_000, width: :byte, fast: false
+      filler = list :filler, capacity: 18_000, width: :byte, fast: false
       save_data(:filler) { keep filler }
       pages = list :pages, capacity: 10_000, width: :byte, fast: false
       hearts = var :hearts, 3
@@ -203,16 +203,6 @@ class TestSaveChip < Minitest::Test
   def test_a_flash_cartridge_carries_the_marker_for_its_size
     assert_includes saving_rom(64).buffer, "FLASH512_V131"
     assert_includes saving_rom(128).buffer, "FLASH1M_V103"
-  end
-
-  # A save_var writes its number straight into save memory each time it changes, and flash
-  # cannot take a byte twice without a wipe. A game is refused before it gets here; a program
-  # put together by hand is refused on its way to a cartridge.
-  def test_a_save_var_on_flash_is_refused_on_its_way_to_a_cartridge
-    error = assert_raises(RubyGBA::IR::Backends::GBA::LoweringError) { assemble_rom(program(64)) }
-
-    assert_match(/save_var/, error.message)
-    assert_match(/64K/, error.message)
   end
 
   def test_a_32k_cartridge_carries_the_marker_that_maps_battery_memory

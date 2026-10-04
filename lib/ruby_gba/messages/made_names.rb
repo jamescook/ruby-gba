@@ -36,7 +36,8 @@ module RubyGBA
                     step: "writing save_data :%s a piece at a time",
                     load: "loading save_data :%s", erase: "erasing a copy of save_data :%s",
                     copy: "copying one copy of save_data :%s over another",
-                    reset: "putting save_data :%s's things back as declared" }.freeze
+                    reset: "putting save_data :%s's things back as declared",
+                    autosave: "asking for a save of save_data :%s after a change" }.freeze
 
       # WHAT A RECORD CAN BE CALLED: letters and digits, with one underscore between words —
       # which `save_data` holds a game to. A record's own names put its name before TWO
@@ -46,7 +47,8 @@ module RubyGBA
       RECORD_NAME = /\A[A-Za-z][A-Za-z0-9]*(?:_[A-Za-z0-9]+)*\z/
 
       # The same, read back — and the table of places, which is kept the way a record is and
-      # named with underscores in front so no record can be called it.
+      # named with two underscores in front so no record can be called it, and the record the
+      # `save_var`s are kept in on flash, named with one.
       RECORD = "_*[A-Za-z0-9]+(?:_[A-Za-z0-9]+)*"
       PLAIN = "[A-Za-z0-9_]+"
       ANY = ".+"
@@ -61,10 +63,13 @@ module RubyGBA
                                  words: nil),
         save_record: Kind.new(spelling: "__save_%{record}__%{piece}", parts: { record: RECORD, piece: PLAIN },
                               words: lambda do |parts|
-                                return PLACES_WORDS if parts[:record].start_with?("_")
+                                return PLACES_WORDS if parts[:record].start_with?("__")
 
-                                job = SAVE_JOBS[parts[:piece].to_sym]
-                                job && format(job, parts[:record])
+                                job = SAVE_JOBS[parts[:piece].to_sym] or return nil
+                                # The one record named with one underscore is save_var's.
+                                return job.sub("save_data :%s", "the save_var numbers") if parts[:record].start_with?("_")
+
+                                format(job, parts[:record])
                               end),
         save_table: Kind.new(spelling: "__save__table_%{column}", parts: { column: PLAIN }, words: nil),
         save_places: Kind.new(spelling: "__save__places_%{piece}", parts: { piece: PLAIN },
