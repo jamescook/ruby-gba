@@ -489,12 +489,33 @@ class TestFastCodePlacement < Minitest::Test
   # was given and the author is told to mark a routine `fast: false` — advice about a program
   # that was never the problem.
   def test_a_routine_is_charged_at_least_what_it_comes_out_at
-    backend = GBA.new
-    backend.lower(game_of_scenes)
-    charges = backend.charged_and_emitted_sizes
+    assert_charged_at_least_emitted(game_of_scenes, moved: RubyGBA::IR::Backends::GBA::Placement::FRAME_ROUTINE)
+  end
 
-    refute_empty charges, "the program has something worth moving"
+  # The same for calls no node of the tree shows: a save on 128K of flash reads and writes each
+  # byte through a routine that switches the chip to the right half of itself, and that call
+  # crosses too once the save's own routine moves. Short, a game with a big list on 128K
+  # stopped building where the same game on 64K built.
+  def test_a_routine_saving_on_128k_is_charged_at_least_what_it_comes_out_at
+    program = RubyGBA.game("CHARGE", save_memory: 128) do
+      screen :bitmap
+      hearts = var :hearts, 3
+      file = save_data(:file) { keep hearts }
+      game_loop { pressed(:a).then { hearts.set! 7; file[0].save } }
+    end.program
+
+    assert_charged_at_least_emitted(program, moved: :__save_file__step)
+  end
+
+  # Lower +program+ and check every routine moved to the quick memory was charged at least
+  # what it came out at — +moved+ among them, so the check cannot pass by moving nothing.
+  private def assert_charged_at_least_emitted(program, moved:)
+    backend = GBA.new
+    backend.lower(program)
+    charges = backend.charged_and_emitted_sizes
     short = charges.select { |_name, (charged, emitted)| charged < emitted }
+
+    assert_includes charges.keys, moved, "the routine under test was moved"
     assert_empty short, "these routines came out bigger than the chooser was told: " \
                         "#{short.map { |name, (c, e)| "#{name} charged #{c}, emitted #{e}" }.join(', ')}"
   end

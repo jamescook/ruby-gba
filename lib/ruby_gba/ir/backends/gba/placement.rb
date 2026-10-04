@@ -335,13 +335,15 @@ module RubyGBA
           end
 
           # Call a routine that never itself moves to the quick memory — always in the
-          # cartridge, whichever call reaches it. Digit routines are the one caller
-          # (see Drawing#emit_digit_routines): plain when the call is cold too, and
-          # the same address-and-jump-through #emit_call_func's own crossing call
-          # uses when the call is running from inside the moved block, since a label
-          # back in the cartridge is too far from the quick memory for a relative
-          # branch to reach.
+          # cartridge, whichever call reaches it: the digit routines (see
+          # Drawing#emit_digit_routines) and a flash chip's byte routines (see SaveChip).
+          # Plain when the call is cold too, and the same address-and-jump-through
+          # #emit_call_func's own crossing call uses when the call is running from inside
+          # the moved block, since a label back in the cartridge is too far from the quick
+          # memory for a relative branch to reach. So it is counted where the measuring
+          # pass writes it, as a call the build made for itself (see #moved_sizes).
           def emit_call_cold_routine(label)
+            generated_call_sites << @emit.pos
             return emit_branch(:bl, label) unless @emitting_hot
 
             emit_load_label_address(ADDR, label)
@@ -438,12 +440,10 @@ module RubyGBA
           # memory, so this is the direction to be wrong in.
           #
           # NOT EVERY CROSSING CALL IS A `call` THE AUTHOR WROTE, and each kind that was
-          # missed made this an under-estimate rather than an upper bound. Two are invented
-          # by the lowering, with no `call` node anywhere to show for them:
-          #
-          # A RUN-TIME DIGIT shares one glyph-drawing routine per font and calls it, so every
-          # `draw_digit` is a crossing call. A game with a score on screen has one per digit
-          # place, which came to a couple of hundred bytes in examples/breakout.rb.
+          # missed made this an under-estimate rather than an upper bound. Some are invented
+          # by the lowering, with no `call` node anywhere to show for them. One is counted
+          # from the tree here, and the rest where the measuring pass wrote them (see
+          # #moved_sizes):
           #
           # A MULTI-WAY DISPATCH calls the scene it lands on, one call per clause, built out
           # of `call` nodes made while emitting rather than nodes the tree holds (see
@@ -454,28 +454,36 @@ module RubyGBA
           # A CALL PICKED BY NUMBER is not among them, because it never grows: it jumps
           # through an address read out of a table, whichever memory the routine it lands in
           # was given (see #routine_table).
-          CROSSING_CALL_KINDS = %i[call draw_digit].freeze
+          CROSSING_CALL_KINDS = %i[call].freeze
 
           # ...and a dispatch, whose calls are one per clause rather than one per node.
           def dispatch_calls_in(node)
             node.walk.select { |child| child.kind == :case }.sum { |child| child.clauses.length }
           end
 
+          # THE CALLS COUNTED WHERE THEY ARE WRITTEN, because no node of the tree says where:
           #
-          # A THIRD KIND is the calls to routines the build made for itself — each scene's
-          # moving sprites, the sprites nothing moves, a see-through layer's amounts — where no
-          # node of the tree says so. Most are made by the frame, in the gap after the picture,
-          # but a see-through layer's amounts are told again wherever something puts the blend
-          # back: a scene taking over the display, a fade lifting. So they are counted where
-          # the measuring pass really wrote them. +made_calls+ is how many, by routine.
+          # Calls to routines the build made for itself — each scene's moving sprites, the
+          # sprites nothing moves, a see-through layer's amounts. Most are made by the frame, in
+          # the gap after the picture, but a see-through layer's amounts are told again
+          # wherever something puts the blend back: a scene taking over the display, a fade
+          # lifting.
+          #
+          # Calls to routines that always stay in the cartridge (#emit_call_cold_routine). A
+          # run-time digit shares one glyph-drawing routine per font, so a game with a score on
+          # screen calls it once per digit place — a couple of hundred bytes in
+          # examples/breakout.rb. A 128K flash chip is read and written a byte at a time through
+          # one, so a save routine holds a call for every byte it reads or writes.
+          #
+          # +made_calls+ is how many of both, by routine, the interrupt's included.
           def moved_sizes(program, measured, made_calls: {})
             calls = Hash.new(0)
             program.walk.each do |node|
               name = node.kind == :loop ? FRAME_ROUTINE : (node.name if node.kind == :func)
               calls[name] = crossing_calls_in(node) if name
             end
-            made_calls.each { |name, count| calls[name] += count }
             calls[IRQ_ROUTINE] = irq_bodies(program).sum { |node| crossing_calls_in(node) }
+            made_calls.each { |name, count| calls[name] += count }
             measured.to_h do |name, size|
               [name, size + (calls[name] * CROSS_CALL_GROWTH) + ROUTINE_WRAPPER]
             end

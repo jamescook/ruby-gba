@@ -85,7 +85,7 @@ class TestSaveMemory < Minitest::Test
       RubyGBA.build("SAVEMEM", out: nil, err: nil) do
         screen :bitmap
         save_var :best, 0 if with_save_var
-        flags = list :flags, capacity: 6000, width: :byte, fast: false
+        flags = list :flags, capacity: 6000, width: :byte
         save_data(:file, copies: 3) { keep flags }
         mode = var :mode, 0
         save_data(:settings) { keep mode }

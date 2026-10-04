@@ -27,6 +27,8 @@ class TestSaveChip < Minitest::Test
 
   # A game with one save file, which loads it at power-on and saves 7 hearts when A is pressed
   # and 9 when B is. +pad+ bytes in a record declared first push the file's record past them.
+  # The filler is never read in play, so it goes in the roomy memory: in the quick memory it
+  # would push the save code out to the cartridge, and power-on would take longer to read it.
   private def saving_game(save_memory, pad: 0)
     RubyGBA.game("FLASHSAV", save_memory: save_memory) do
       screen :bitmap
@@ -119,9 +121,9 @@ class TestSaveChip < Minitest::Test
   def test_a_save_across_the_line_between_banks_comes_back
     rom = RubyGBA.game("FLASHBNK", save_memory: 128) do
       screen :bitmap
-      filler = list :filler, capacity: 18_000, width: :byte, fast: false
+      filler = list :filler, capacity: 18_000, width: :byte
       save_data(:filler) { keep filler }
-      pages = list :pages, capacity: 10_000, width: :byte, fast: false
+      pages = list :pages, capacity: 10_000, width: :byte
       hearts = var :hearts, 3
       page = var :page, 0
       file = save_data(:file) { keep pages, hearts }
