@@ -148,6 +148,11 @@ module RubyGBA
       # The smallest save memory those records fit in, or nil when none holds them.
       def smallest_fitting(halves) = MEMORIES.find { |kilobytes| fits?(kilobytes, halves) }
 
+      # HOW MUCH SAVE MEMORY A CARTRIDGE HAS, in kilobytes: the size the game +named+, else the
+      # size its records +needed+ (nil before they are laid out, or for a game with none), else
+      # the smallest there is. The one rule, so the program and its records cannot disagree.
+      def chosen(named, needed) = named || needed || MEMORIES.first
+
       MARKER = 0x5441_4453 # "SDAT" as its bytes
       HEADER = 20
       MARKER_AT = 0

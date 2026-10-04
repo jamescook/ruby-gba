@@ -41,9 +41,10 @@ module RubyGBA
 
       def records? = @save_data.any?
 
-      # The save memory the cartridge has, in kilobytes, once the records are laid out: the
-      # size the game named, or else the smallest that holds the records. Nil before then.
-      def save_memory = @port.save_memory || needed_save_memory
+      # The save memory the cartridge has, in kilobytes (see IR::SaveLayout.chosen). Before the
+      # records are laid out, what they need is not known yet, so it is the size named or the
+      # smallest.
+      def save_memory = IR::SaveLayout.chosen(@port.save_memory, needed_save_memory)
 
       # The smallest save memory that holds the records, in kilobytes, once they are laid out.
       def needed_save_memory = @save_data_settled ? IR::SaveLayout.smallest_fitting(record_halves) : nil
@@ -200,7 +201,7 @@ module RubyGBA
       # picked. Nothing to lay out for a game with no records — unless it named flash save
       # memory and has a `save_var`, which on flash is kept in a record (see SaveVarRecord).
       def lay_out_save_records
-        saves if @persisted.any? && IR::SaveLayout.memory(@save_memory || IR::SaveLayout::MEMORIES.first).flash?
+        saves if @persisted.any? && IR::SaveLayout.memory(save_memory).flash?
         @saves&.lay_out_save_records
         refuse_flash_save_var_without_loop!
       end
@@ -225,9 +226,9 @@ module RubyGBA
         stores.each { |node| swap_node(node, @saves.save_var_changed_node) }
       end
 
-      # How much save memory the cartridge has, in kilobytes: what the records picked, else what
-      # the game named, else the smallest there is.
-      def save_memory = @saves&.save_memory || @save_memory || IR::SaveLayout::MEMORIES.first
+      # How much save memory the cartridge has, in kilobytes (see IR::SaveLayout.chosen): the
+      # records answer when there are any, since only they know what they need.
+      def save_memory = @saves ? @saves.save_memory : IR::SaveLayout.chosen(@save_memory, nil)
 
       # Say in the program how much save memory it has, so every backend runs it on the same
       # kind. A game that saves nothing has none to speak of.
