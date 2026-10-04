@@ -34,7 +34,7 @@ module RubyGBA
     # save_var writes through as it always did.
     module SaveVarRecord
       # The record's name. One underscore in front, which no `save_data` name can have.
-      SAVE_VAR_RECORD = :_save_vars
+      SAVE_VAR_RECORD = IR::SaveLayout::SAVE_VAR_RECORD
 
       # How many passes go between two saves the saved variables ask for: five seconds, for a
       # game running at full speed.

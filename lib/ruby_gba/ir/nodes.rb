@@ -806,12 +806,16 @@ module RubyGBA
       # so which kind: the smallest takes any byte at any time, where the bigger ones have to be
       # wiped a block at a time before a block is written again (IR::SaveLayout::Memory says
       # which). A program that names none has the smallest.
+      #
+      # It also says how the size came about, for a report to read and nothing to run:
+      # +asked_for+ is whether the program's author named it, and +records+ is each record laid
+      # out in it as [name, half bytes, copies], in the order they were declared.
       class SaveMemory
         include Node
         kind :save_memory
         declaration!
         category :data
-        operands kilobytes: :int
+        operands kilobytes: :int, asked_for: :flag, records: :list
       end
 
       # Wipe the block of save memory that holds +at+, so it takes any write again, and reads

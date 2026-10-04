@@ -126,8 +126,8 @@ module RubyGBA
       end
 
       # The program has +kilobytes+ of save memory (see Nodes::SaveMemory).
-      def save_memory(kilobytes)
-        Nodes.build(:save_memory, kilobytes: kilobytes)
+      def save_memory(kilobytes, asked_for: true, records: [])
+        Nodes.build(:save_memory, kilobytes: kilobytes, asked_for: asked_for, records: records)
       end
 
       # Wipe the block of save memory holding +at+ (see Nodes::SaveErase). +wait: false+ only

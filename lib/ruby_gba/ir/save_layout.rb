@@ -49,6 +49,10 @@ module RubyGBA
       # would land on the table of places, and every save file would go with it.
       SAVE_VARS = (START / 4) - 1
 
+      # On flash the save_vars are kept in a record instead (see Builder::SaveVarRecord), and
+      # this is its name: one underscore in front, which no `save_data` name can have.
+      SAVE_VAR_RECORD = :_save_vars
+
       # Where save_var's marker is kept.
       SAVE_VAR_MARKER_AT = 0
 
@@ -106,6 +110,12 @@ module RubyGBA
         # 32K. Anything that rounds a half to its room — here, or in a routine that works it
         # out as the game runs — rounds up to a whole number of these.
         def block = flash? ? SECTOR : 1
+
+        # How many bytes of a record's body a background save writes each pass of the game
+        # loop: a full-size save file in about five passes on battery memory. A byte of flash
+        # takes the chip several hundred cycles where battery memory takes a few, so a pass on
+        # flash writes an eighth as many.
+        def bytes_per_pass = flash? ? 32 : 256
 
         # How many bytes a half of +half+ bytes takes, which is how far apart the halves sit.
         def room(half) = ((half + block - 1) / block) * block

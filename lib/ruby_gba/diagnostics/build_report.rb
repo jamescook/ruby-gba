@@ -51,6 +51,7 @@ module RubyGBA
         video_memory_lines(built.video_memory, printer)
         quick_memory_lines(built.placement, program, printer)
         roomy_memory_lines(built.roomy_memory, printer)
+        save_memory_lines(program, printer)
         glyph_lines(program, printer)
         column_stretch_lines(built.column_stretches, printer)
         sample_clock_line(built.voices, printer)
@@ -329,6 +330,76 @@ module RubyGBA
         end
       end
 
+      # WHICH SAVE MEMORY THE CARTRIDGE HAS, and what takes it. The build picks 32K, or 64K or
+      # 128K of flash, from the save_data records unless the game named a size, and nothing in
+      # the program says which it got. So this says the size and how it came about, then each
+      # thing laid out in it: the block kept for save_var on 32K, the table that says where
+      # each record lives, each record's copies (two halves each, so a save cut off half way
+      # keeps the last), and what is free.
+      #
+      # On flash it says two more things, both about time: a save goes in a few bytes a pass,
+      # so a big record takes many passes, and a fresh cartridge's first power-on spends a few
+      # frames writing the table of places.
+      def save_memory_lines(program, printer)
+        use = save_memory_use(program) or return
+
+        memory = use.fetch(:memory)
+        records = use.fetch(:records)
+        kind = memory.flash? ? "flash" : "battery-backed memory"
+        printer.puts "  save memory: #{memory.kilobytes}K of #{kind}, #{save_memory_reason(use)}"
+        printer.puts "    kept for save_var: #{format_bytes(memory.table_at)}" if memory.table_at.positive?
+        printer.puts "    the table of places: #{format_bytes(memory.data_start - memory.table_at)}" if records.any?
+        records.each { |record| printer.puts "    #{record_label(record, copies: true)}: #{format_bytes(record[:bytes])}" }
+        printer.puts "    free: #{format_bytes(use.fetch(:free))}"
+        return unless memory.flash?
+
+        printer.puts "  on flash a save writes #{memory.bytes_per_pass} bytes a pass, while the game goes on:"
+        use.fetch(:records).each do |record|
+          printer.puts "    #{record_label(record)}: about #{save_passes(memory, record[:half])} passes"
+        end
+        printer.puts "  a fresh flash cartridge's first power-on takes a few frames, to write the table of places"
+      end
+
+      # The save memory's facts as one hash, or nil for a program that saves nothing: the
+      # IR::SaveLayout::Memory, whether the game asked for it, each record with the room its
+      # copies take, and what is left.
+      def save_memory_use(program)
+        node = program.walk.find { |one| one.kind == :save_memory } or return nil
+
+        memory = IR::SaveLayout.memory(node.kilobytes)
+        records = node.records.map do |name, half, copies|
+          { name: name, half: half, copies: copies, bytes: memory.record_room(half, copies) }
+        end
+        # A game with no records has no table of places either: only save_var's block is used.
+        used = records.empty? ? memory.table_at : memory.data_start
+        { memory: memory, asked_for: node.asked_for, records: records,
+          free: memory.size - used - records.sum { |one| one[:bytes] } }
+      end
+
+      # How the size came about: the game named it, the records needed it, or nothing asked for
+      # more than the smallest.
+      def save_memory_reason(use)
+        return "as the game asked" if use.fetch(:asked_for)
+        return "the smallest, since nothing asks for more" if use.fetch(:records).empty?
+
+        "picked by the build to hold the saves"
+      end
+
+      def record_label(record, copies: false)
+        label = record[:name] == IR::SaveLayout::SAVE_VAR_RECORD ? "the save_var numbers" : "save_data :#{record[:name]}"
+        copies && record[:copies] > 1 ? "#{label}, #{record[:copies]} copies" : label
+      end
+
+      # About how many passes of the game loop one save of a record with halves of +half+ bytes
+      # takes: on flash, the pass that starts it and one more for each block of its half wiped,
+      # the last of which also writes the first piece of the body; then the rest of the body a
+      # pass's worth at a time, and one to close.
+      def save_passes(memory, half)
+        body = half - IR::SaveLayout::HEADER
+        wipes = memory.flash? ? memory.room(half) / memory.block : 0
+        1 + wipes + ((body + memory.bytes_per_pass - 1) / memory.bytes_per_pass)
+      end
+
       # How much longer a whole number takes to read from the roomy memory than from the quick
       # one. It is a property of the two memories — how wide each is and how many cycles the
       # slower one makes the processor wait — not an estimate of anybody's program.
@@ -415,7 +486,8 @@ module RubyGBA
       # question a before-and-after asks, and nothing should have to match a sentence to ask it.
       def as_json(rom)
         video = { video_memory: rom.built.video_memory&.to_h,
-                  roomy_memory: rom.built.roomy_memory&.to_h }
+                  roomy_memory: rom.built.roomy_memory&.to_h,
+                  save_memory: save_memory_json(rom.built.source_program) }
         placement = rom.built.placement
         return video.merge(quick_memory: nil) if placement.nil?
 
@@ -432,6 +504,15 @@ module RubyGBA
               bytes: over.bytes, room: over.room }
           end
         })
+      end
+
+      def save_memory_json(program)
+        use = save_memory_use(program) or return nil
+
+        memory = use.fetch(:memory)
+        { kilobytes: memory.kilobytes, flash: memory.flash?, asked_for: use.fetch(:asked_for),
+          records: use.fetch(:records).map { |one| { name: one[:name].to_s, copies: one[:copies], bytes: one[:bytes] } },
+          free_bytes: use.fetch(:free) }
       end
 
       def kilobytes(bytes) = format("%.1fK", bytes / 1024.0)

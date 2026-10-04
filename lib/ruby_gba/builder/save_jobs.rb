@@ -33,14 +33,9 @@ module RubyGBA
     # ON FLASH a half is wiped before it is written, a block at a time, and the chip takes a good
     # part of a frame over each block. So a job on flash starts each block's wipe and goes on to
     # the next pass, and a pass only asks the chip whether it has finished — opening the half
-    # once the last block is wiped. Each byte takes the chip a while too, so a pass writes fewer.
+    # once the last block is wiped. Each byte takes the chip a while too, so a pass writes fewer
+    # (IR::SaveLayout::Memory#bytes_per_pass).
     module SaveJobs
-      # How many bytes of a record's body are written each pass: a full-size save file in about
-      # five passes on battery memory. A byte of flash takes the chip several hundred cycles
-      # where battery memory takes a few, so a pass on flash writes an eighth as many.
-      BYTES_PER_PASS = 256
-      FLASH_BYTES_PER_PASS = 32
-
       SAVE = 1
       ERASE = 2
       COPY = 3
@@ -264,6 +259,9 @@ module RubyGBA
       # the next — which may be another record's, and must not be run as this one's. A wipe
       # started this pass is first asked about next pass, and the body starts on the pass the
       # last block is seen wiped.
+      #
+      # Diagnostics::BuildReport#save_passes counts a save's passes from these phases, so a
+      # phase added or taken away here changes what it should say.
       def save_job_run_phase(layout)
         mine = ->(phase) { sd_and(sd_eq(job_var(:run_rec), sd_int(layout.number)), sd_eq(job_var(:run_phase), sd_int(phase))) }
         sd_when(mine.call(CLOSING)) { save_job_commit(layout) }
@@ -320,7 +318,7 @@ module RubyGBA
 
       def save_job_piece(layout)
         left = job_op(:-, sd_int(layout.body), job_var(:run_done))
-        per_pass = @save_memory_layout.flash? ? FLASH_BYTES_PER_PASS : BYTES_PER_PASS
+        per_pass = @save_memory_layout.bytes_per_pass
         set_job_var(:pieces, Build.clamped(left, sd_int(0), sd_int(per_pass)))
         sd_when(job_op(:!=, job_var(:run_kind), sd_int(ERASE))) do
           body = sd_add(job_var(:run_at), sd_int(IR::SaveLayout::HEADER))

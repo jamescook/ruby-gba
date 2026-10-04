@@ -51,6 +51,9 @@ module RubyGBA
       # Each record as one [half bytes, copies] pair, which is what decides how much room it takes.
       def record_halves = @save_data.values.map { |one| [one.half, one.copies] }
 
+      # Each record as [name, half bytes, copies], once laid out — for the build report.
+      def laid_out_records = @save_data.values.map { |one| [one.name, one.half, one.copies] }
+
       # Which record keeps each thing, by the name the game declared it with: a variable, a
       # list, a pool kept whole, and :random_numbers for the stream. A pool kept a field at a
       # time is not here, because a load of it leaves which slots are live as they were.
@@ -231,7 +234,8 @@ module RubyGBA
       def declare_save_memory
         return if @persisted.empty? && @saves.nil?
 
-        prepend_to_program(Build.save_memory(save_memory))
+        prepend_to_program(Build.save_memory(save_memory, asked_for: !@save_memory.nil?,
+                                                          records: @saves&.laid_out_records || []))
       end
 
       def refuse_bad_save_memory!(save_memory)

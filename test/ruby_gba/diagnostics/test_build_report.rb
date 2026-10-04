@@ -138,6 +138,87 @@ class TestBuildReport < Minitest::Test
     refute_match(/33 levels/, text)
   end
 
+  # --- save memory, whose size the build picks and nothing else reports ---
+
+  # A game keeping +bytes+ flags in +copies+ copies, with a save_var if +best+.
+  private def saving_game(bytes:, copies:, best: false, **options)
+    RubyGBA.build("BRPTSAVE", out: nil, err: nil, **options) do
+      screen :bitmap
+      save_var :best, 0 if best
+      flags = list :flags, capacity: bytes, width: :byte, fast: false
+      files = save_data(:file, copies: copies) { keep flags }
+      game_loop { pressed(:a).then { files[0].save } }
+    end
+  end
+
+  def test_it_says_which_save_memory_the_build_picked_and_what_takes_it
+    text = report_for(saving_game(bytes: 6000, copies: 3))
+
+    assert_match(/save memory: 64K of flash, picked by the build to hold the saves/, text)
+    assert_match(/save_data :file, 3 copies: 48\.0K/, text)
+    assert_match(/the table of places: 8\.0K/, text)
+    assert_match(/free: 8\.0K/, text)
+  end
+
+  def test_it_says_when_the_game_asked_for_the_size
+    text = report_for(saving_game(bytes: 10, copies: 1, save_memory: 128))
+
+    assert_match(/save memory: 128K of flash, as the game asked/, text)
+  end
+
+  # On flash a save goes in slowly, and a fresh cartridge's first power-on writes the table.
+  def test_on_flash_it_says_how_many_passes_a_save_takes
+    text = report_for(saving_game(bytes: 6000, copies: 3))
+
+    assert_match(/32 bytes a pass/, text)
+    assert_match(/save_data :file: about \d+ passes/, text)
+    assert_match(/first power-on/, text)
+  end
+
+  def test_on_32k_it_names_the_room_kept_for_save_var
+    text = report_for(saving_game(bytes: 10, copies: 1, best: true))
+
+    assert_match(/save memory: 32K of battery-backed memory, picked by the build/, text)
+    assert_match(/kept for save_var: 4\.0K/, text)
+    refute_match(/first power-on/, text)
+  end
+
+  # A game with save_vars and no record has the smallest size because nothing needs more, and
+  # writes no table of places.
+  def test_a_game_with_only_save_vars_is_said_to_have_the_smallest
+    rom = RubyGBA.build("BRPTVARS", out: nil, err: nil) do
+      screen :bitmap
+      save_var :best, 0
+      game_loop {}
+    end
+    text = report_for(rom)
+
+    assert_match(/save memory: 32K of battery-backed memory, the smallest, since nothing asks for more/, text)
+    refute_match(/table of places/, text)
+    assert_match(/free: 28\.0K/, text)
+  end
+
+  # On flash the save_vars are a record of their own, named for what it is.
+  def test_on_flash_the_save_var_record_is_named_for_what_it_keeps
+    text = report_for(saving_game(bytes: 10, copies: 1, best: true, save_memory: 64))
+
+    section = text.split("save memory:").last
+    assert_match(/the save_var numbers: 8\.0K/, section)
+    refute_match(/_save_vars/, section)
+  end
+
+  def test_a_game_that_saves_nothing_says_nothing_about_save_memory
+    refute_match(/save memory/, report_for(crowded_game))
+  end
+
+  def test_the_json_says_the_save_memory_and_each_record
+    json = RubyGBA::Diagnostics::BuildReport.as_json(saving_game(bytes: 6000, copies: 3))
+
+    assert_equal 64, json[:save_memory][:kilobytes]
+    assert_equal false, json[:save_memory][:asked_for]
+    assert_equal [{ name: "file", copies: 3, bytes: 48 * 1024 }], json[:save_memory][:records]
+  end
+
   # --- it rides along with the measured half ---
 
   def test_a_profile_prints_the_build_facts_above_the_measured_ones
