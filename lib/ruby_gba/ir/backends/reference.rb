@@ -2670,11 +2670,11 @@ module RubyGBA
           end
         end
 
+        # Held at the floor, then at the ceiling — in that order, so a floor the game has
+        # worked out to above its ceiling gives the ceiling, as the console's two
+        # compare-and-replace steps do (see GBA::Expressions#eval_clamped).
         def clamp_value(value, min, max)
-          return min if value < min
-          return max if value > max
-
-          value
+          [[value, min].max, max].min
         end
 
         def flag_int(flag)

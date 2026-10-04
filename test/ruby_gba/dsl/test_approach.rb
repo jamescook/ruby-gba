@@ -236,6 +236,36 @@ class TestApproach < Minitest::Test
     assert_equal 90, i[:x]
   end
 
+  # A FLOOR ABOVE ITS CEILING, which bounds worked out as the game runs can reach. The value
+  # is held at the floor and then at the ceiling, so the ceiling wins and the answer is the
+  # ceiling wherever the value started — on both runners, for the word that changes the
+  # variable and the word that hands back a new number.
+  def test_a_floor_above_its_ceiling_gives_the_ceiling_on_both_backends
+    builder = Builder.new
+    builder.instance_eval do
+      screen :bitmap
+      floor = var :floor, 50
+      ceiling = var :ceiling, 10
+      below = var :below, 0
+      between = var :between, 30
+      above = var :above, 90
+      [below, between, above].each { |v| v.clamp! floor, ceiling }
+      source = var :source, 0
+      made = var :made, 0
+      made.set! source.clamp(floor, ceiling)
+      halt
+    end
+    builder.finalize_program
+    names = %i[below between above made]
+    backend = GBA.new
+    rom = RubyGBA::Cartridge::ROM.assemble(backend.lower(builder.program), title: "CLAMPLOHI", maker: "01")
+    v = assert_emulator_loads_rom(rom, frames: 2, vars: backend.var_addresses)
+    i = Reference.new.run(builder.program)
+
+    assert_equal [10, 10, 10, 10], names.map { |name| i[name] }, "the interpreter"
+    assert_equal [10, 10, 10, 10], names.map { |name| v.var(name) }, "the console"
+  end
+
   # ---- both backends agree, on real hardware ----
 
   # A green marker whose x is the approached value: it starts at 0 and homes in
