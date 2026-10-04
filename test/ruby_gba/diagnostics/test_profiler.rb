@@ -15,7 +15,7 @@ class TestProfiler < Minitest::Test
 
   # One routine doing nearly all the work, one doing almost none, and one nothing calls.
   def lopsided_game
-    RubyGBA.build("PROF", code: "PROF", maker: "01") do
+    RubyGBA.build("PROF", code: "PROF", maker: "01", err: nil) do
       screen :bitmap
       clear_screen :black
       var :x, 0

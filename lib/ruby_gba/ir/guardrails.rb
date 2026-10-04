@@ -314,6 +314,7 @@ require_relative "guardrails/stack_not_honored"
 require_relative "guardrails/too_many_background_layers"
 require_relative "guardrails/too_many_sprites"
 require_relative "guardrails/see_through_per_screen"
+require_relative "guardrails/routine_never_called"
 
 module RubyGBA
   module IR
@@ -352,6 +353,7 @@ module RubyGBA
         Checks::SeeThroughPerScreen.new,
         Checks::ScreenInsideScene.new,
         Checks::PaintedPictureWithOtherPoses.new,
+        Checks::RoutineNeverCalled.new,
       ])
     end
   end

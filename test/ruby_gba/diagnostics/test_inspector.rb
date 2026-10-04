@@ -385,7 +385,7 @@ class TestInspector < Minitest::Test
 
   def test_dump_func_prints_output
     out = StringIO.new
-    RubyGBA.build("TEST", code: "BTST", maker: "01", validate: false, out: out) do
+    RubyGBA.build("TEST", code: "BTST", maker: "01", validate: false, out: out, err: nil) do
       func :my_func do
         set! :x, 42
       end
@@ -400,7 +400,7 @@ class TestInspector < Minitest::Test
 
   def test_dump_func_works_with_scene_name
     out = StringIO.new
-    RubyGBA.build("TEST", code: "BTST", maker: "01", validate: false, out: out) do
+    RubyGBA.build("TEST", code: "BTST", maker: "01", validate: false, out: out, err: nil) do
       scene :title do
         set! :x, 1
       end
