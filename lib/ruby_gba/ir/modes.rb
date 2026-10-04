@@ -139,14 +139,18 @@ module RubyGBA
       end
 
       # The statement subtrees that draw in buffered mode: the main body when the
-      # boot mode is buffered, plus every reachable func resolved to buffered. A
+      # boot mode is buffered, plus every func that draws in buffered mode. A
       # consumer that cares only about buffered drawing (the palette, which only
       # exists for the indexed double-buffered screen) walks exactly these, so a
       # direct-color scene's colors never count toward the buffered palette.
+      #
+      # A func nothing calls counts too, in the boot mode (#mode_of), because the
+      # lowering still emits it in that mode — leaving its colors out would make the
+      # build ask the table for a color it was never given.
       def buffered_scopes
         scopes = []
         scopes.concat(main_body) if @default_mode == BUFFERED
-        @funcs.each { |name, func| scopes << func if @func_mode[name] == BUFFERED }
+        @funcs.each { |name, func| scopes << func if mode_of(name) == BUFFERED }
         scopes
       end
 

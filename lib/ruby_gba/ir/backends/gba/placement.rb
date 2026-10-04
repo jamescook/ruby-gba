@@ -734,7 +734,7 @@ module RubyGBA
             if size.nil?
               raise LoweringError,
                     "#{fast_true_snippet(name)} asks to keep that routine in the console's quick " \
-                    "memory, but nothing calls it, so it is never built. To fix this, call it or " \
+                    "memory, but nothing calls it, so it never runs. To fix this, call it or " \
                     "remove the routine."
             end
             return if size <= room
