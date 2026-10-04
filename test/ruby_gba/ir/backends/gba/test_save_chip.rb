@@ -15,7 +15,7 @@ class TestSaveChip < Minitest::Test
   PRESS = 8
 
   private def program(save_memory)
-    builder = Builder.new(save_memory: save_memory)
+    builder = Builder.new(options: RubyGBA::Cartridge::Options.new(save_memory: save_memory))
     builder.instance_eval do
       screen :bitmap
       save_var :best, 0

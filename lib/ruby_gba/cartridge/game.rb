@@ -13,28 +13,19 @@ module RubyGBA
     # #build_rom (the finished cartridge) — so an example is one `RubyGBA.game` call
     # instead of a module of wiring.
     class Game
-      attr_reader :title, :code, :maker
+      # +options+ is how the game is built (see {Options}), for anything that has to build it
+      # the same way — the IR dump (`build --format=ir`), whose emitted class has to lower to
+      # the same cartridge, reads its lowering half.
+      attr_reader :title, :code, :maker, :options
 
-      # How this game is built, for anything that has to build it the same way — the IR dump
-      # (`build --format=ir`), whose emitted class has to lower to the same cartridge. A
-      # finished ROM carries the same pair in its {BuildRecord}.
-      def build_options
-        { fast_cartridge: @fast_cartridge, fast_code: @fast_code }
-      end
-
-      # +save_memory+ is how much save memory the cartridge has, in kilobytes (32, 64 or 128),
-      # or nil to let the game's save_data records decide. Like +code+, it is part of what the
-      # cartridge is, so it is said where the game is named.
-      def initialize(title, code: nil, maker: nil, block:, frame_sync: :auto, fast_cartridge: true, fast_code: true,
-                     save_memory: nil)
+      # +options+ is part of what the cartridge is — how much save memory it has, how quickly
+      # it reads — so like +code+ it is said where the game is named.
+      def initialize(title, code: nil, maker: nil, block:, options: Options.new)
         @title = title
         @code = code
         @maker = maker
-        @save_memory = save_memory
+        @options = options
         @block = shareable_if_possible(block)
-        @frame_sync = frame_sync
-        @fast_cartridge = fast_cartridge
-        @fast_code = fast_code
         freeze
       end
 
@@ -96,10 +87,8 @@ module RubyGBA
       # +settings+ are what this build is told, as for #program.
       def build_rom(out: $stdout, err: $stderr, validate: true, progress: Messages::Progress.silent,
                     profile: true, settings: {})
-        RubyGBA.build(@title, code: @code, maker: @maker, validate: validate,
-                      frame_sync: @frame_sync, fast_cartridge: @fast_cartridge,
-                      fast_code: @fast_code, out: out, err: err, progress: progress,
-                      profile: profile, settings: settings, save_memory: @save_memory, &@block)
+        RubyGBA.build(@title, code: @code, maker: @maker, validate: validate, out: out, err: err,
+                      progress: progress, profile: profile, settings: settings, **@options.to_h, &@block)
       end
 
       # A friendly output filename from the title: "BIRD" -> "bird.gba".
@@ -141,8 +130,7 @@ module RubyGBA
       # never asks pays nothing.
       def evaluated(settings)
         seen = (Ractor.current[:ruby_gba_evaluated_games] ||= {})
-        seen[[self, settings]] ||= EvaluatedGame.new(@block, frame_sync: @frame_sync, settings: settings,
-                                                             save_memory: @save_memory)
+        seen[[self, settings]] ||= EvaluatedGame.new(@block, options: @options, settings: settings)
       end
 
       # Is +path+ the very script Ruby was told to run? Compared as full paths so a
@@ -183,14 +171,18 @@ module RubyGBA
     # Declare a game: record its DSL block for later building and return a Game
     # handle. Building and writing are left to the caller — see Game — except for the
     # `ruby game.rb` convenience above.
+    #
+    # +frame_sync+, +fast_cartridge+, +fast_code+ and +save_memory+ say how it is built, the same
+    # four {RubyGBA.build} takes; see {Cartridge::Options}.
     def game(title, code: nil, maker: nil, frame_sync: :auto, fast_cartridge: true, fast_code: true,
              save_memory: nil, &block)
       unless block
         raise ArgumentError, %(RubyGBA.game needs a block: RubyGBA.game("NAME") { ... })
       end
 
-      handle = Cartridge::Game.new(title, code: code, maker: maker, block: block, frame_sync: frame_sync,
-                        fast_cartridge: fast_cartridge, fast_code: fast_code, save_memory: save_memory)
+      options = Cartridge::Options.new(frame_sync: frame_sync, fast_cartridge: fast_cartridge,
+                                       fast_code: fast_code, save_memory: save_memory)
+      handle = Cartridge::Game.new(title, code: code, maker: maker, block: block, options: options)
       Ractor.current[:ruby_gba_registered_games] = registered_games + [handle]
       handle
     end

@@ -83,18 +83,13 @@ module RubyGBA
     # nodes as terse Build.set(...) calls.
     Build = IR::Build
 
-    # @param frame_sync [Symbol] :auto (the framework paces each game_loop) or
-    #   :manual (the developer places `wait_vblank` themselves)
+    # @param options [Cartridge::Options] how the game is built; the Builder reads its frame
+    #   pacing and the save memory it named
     # @param progress [RubyGBA::Messages::Progress] what a build says it is doing (see {#progress})
     # @param settings [Hash] what this build was told, read by the game with `setting` (see {Settings})
-    def initialize(frame_sync: :auto, progress: Messages::Progress.silent, settings: {}, save_memory: nil)
-      unless %i[auto manual].include?(frame_sync)
-        raise ArgumentError, "frame_sync must be :auto or :manual, got #{frame_sync.inspect}"
-      end
-      refuse_bad_save_memory!(save_memory)
-
-      @frame_sync = frame_sync
-      @save_memory = save_memory # kilobytes the game named, or nil to let its records decide
+    def initialize(options: Cartridge::Options.new, progress: Messages::Progress.silent, settings: {})
+      @frame_sync = options.frame_sync
+      @save_memory = options.save_memory # kilobytes the game named, or nil to let its records decide
       @settings = settings.to_h.transform_keys(&:to_sym)
       @asked_settings = Set.new
       @progress = progress

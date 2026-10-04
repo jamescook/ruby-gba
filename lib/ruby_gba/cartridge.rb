@@ -11,6 +11,7 @@ require_relative "cartridge/rom_validator"
 require_relative "cartridge/build_record" # what the build worked out, for the cartridge to carry
 require_relative "cartridge/game_code" # the four characters an emulator tells one cartridge from another by
 require_relative "cartridge/rom"
+require_relative "cartridge/options" # how a game is built, as one value
 require_relative "cartridge/evaluated_game" # the one place a game's block becomes a program
 require_relative "cartridge/game"
 require_relative "cartridge/test_patterns"

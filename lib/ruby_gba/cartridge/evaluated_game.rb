@@ -30,11 +30,9 @@ module RubyGBA
       #
       # +settings+ is what this one build was told, which the game reads with `setting`.
       #
-      # +save_memory+ is how much save memory the game named, in kilobytes, or nil to let its
-      # records decide.
-      def initialize(block, frame_sync: :auto, progress: Messages::Progress.silent, settings: {}, save_memory: nil)
-        @builder = Builder.new(frame_sync: frame_sync, progress: progress, settings: settings,
-                               save_memory: save_memory)
+      # +options+ is how the game is built (see {Options}).
+      def initialize(block, options: Options.new, progress: Messages::Progress.silent, settings: {})
+        @builder = Builder.new(options: options, progress: progress, settings: settings)
         # `debug_halt` throws rather than returns, because it stops the game's block where it
         # stands and there is no other way out of somebody else's code. Catching it here is
         # what makes a truncated build a build like any other: everything above the call is

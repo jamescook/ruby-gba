@@ -86,6 +86,10 @@ module RubyGBA
   def self.build(title, code: nil, maker: nil, validate: true, frame_sync: :auto, fast_cartridge: true,
                  fast_code: true, out: $stdout, err: $stderr, progress: Messages::Progress.silent,
                  profile: false, settings: {}, save_memory: nil, &block)
+    # The four that say how the game is built travel as one value from here on (see
+    # {Cartridge::Options}), checked now so a setting that cannot be right stops the build first.
+    options = Cartridge::Options.new(frame_sync: frame_sync, fast_cartridge: fast_cartridge,
+                                     fast_code: fast_code, save_memory: save_memory)
     # Settle where this build prints BEFORE anything is read or checked, so a caller
     # that named somewhere the build cannot write is told on every build rather than on
     # the one build that finally has a warning to give (see {Messages::BuildOutput}).
@@ -94,15 +98,12 @@ module RubyGBA
     err = output.err
 
     if profile == true
-      return build_measured(title, code: code, maker: maker, validate: validate,
-                            frame_sync: frame_sync, fast_cartridge: fast_cartridge,
-                            fast_code: fast_code, out: out, err: err, progress: progress,
-                            settings: settings, save_memory: save_memory, &block)
+      return build_measured(title, code: code, maker: maker, validate: validate, out: out, err: err,
+                            progress: progress, settings: settings, **options.to_h, &block)
     end
 
     progress.step("reading the game")
-    evaluated = Cartridge::EvaluatedGame.new(block, frame_sync: frame_sync, progress: progress, settings: settings,
-                                                    save_memory: save_memory)
+    evaluated = Cartridge::EvaluatedGame.new(block, options: options, progress: progress, settings: settings)
     program = evaluated.program
 
     # First prove the tree is well-formed — every value operand is a value node,
@@ -157,8 +158,7 @@ module RubyGBA
     # own phases rather than being named from here — most of the time a build spends
     # is in there, and it is three phases, not one (see Placement#choose_fast_funcs).
     measured = load_routine_profile(profile, program, err)
-    backend = IR::Backends::GBA.new(fast_cartridge: fast_cartridge, fast_code: fast_code,
-                                    progress: progress, routine_profile: measured)
+    backend = IR::Backends::GBA.new(**options.lowering, progress: progress, routine_profile: measured)
     machine_code = backend.lower(program)
     record = backend.build_record(program)
 

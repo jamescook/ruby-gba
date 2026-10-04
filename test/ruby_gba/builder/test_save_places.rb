@@ -32,7 +32,7 @@ class TestSavePlaces < Minitest::Test
   # The program the block declares, built with a Builder of its own rather than the way a game
   # is built, which refuses flash: the console cannot write it yet, and the interpreter can.
   private def built(save_memory:, &block)
-    builder = Builder.new(save_memory: save_memory)
+    builder = Builder.new(options: RubyGBA::Cartridge::Options.new(save_memory: save_memory))
     builder.instance_eval(&block)
     builder.finalize_program
     builder.program

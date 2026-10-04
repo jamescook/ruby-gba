@@ -238,14 +238,6 @@ module RubyGBA
                                                           records: @saves&.laid_out_records || []))
       end
 
-      def refuse_bad_save_memory!(save_memory)
-        return if save_memory.nil? || IR::SaveLayout::MEMORIES.include?(save_memory)
-
-        raise ArgumentError, "save_memory: #{save_memory.inspect} is not a size of save memory. A cartridge " \
-                             "has 32, 64 or 128 kilobytes. To fix this, use one of those numbers, or leave " \
-                             "save_memory: out and the build picks the smallest that holds the saves."
-      end
-
       # Put each peek's reading where the game wrote it, once the whole program is built.
       def resolve_save_data_peeks = @saves&.resolve_save_data_peeks(@program)
 
