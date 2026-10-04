@@ -753,17 +753,17 @@ module RubyGBA
           refuse_variables_overlapping_divide!
           emit_functions
           emit_hot_functions # the routines worth running from the quick memory, as one block
-          # After both: a hot func's body is only ever lowered here, inside
-          # emit_hot_functions, so a digit routine a hot func alone reaches would
-          # still be unregistered before this if it came any earlier.
-          @drawing.emit_digit_routines  # the shared glyph loop each font's draw_number/draw_digit calls
-          @buffered.emit_digit_routines # ...and its tear-free counterpart
           emit_mix_routine # the mixer's inner loop, placed in ROM and copied to IWRAM at boot
           emit_divide_routine # likewise the divide routine, for a divisor worked out at run time
           emit_divide_fix_routine # and the one for dividing numbers that hold a fraction
           # The interrupt dispatcher itself, reached only via the vector. When it was worth
           # keeping in the quick memory it has already been emitted inside the moved block.
           emit_irq_handler if uses_irq? && !irq_runs_fast?
+          # After every body that can draw a number: a hot func's body is only ever lowered
+          # inside emit_hot_functions, and a timer's tick inside the interrupt dispatcher, so a
+          # digit routine one of them alone reaches would still be unregistered any earlier.
+          @drawing.emit_digit_routines  # the shared glyph loop each font's draw_number/draw_digit calls
+          @buffered.emit_digit_routines # ...and its tear-free counterpart
           emit_data_region
           emit_save_signature if @uses_save # the marker that maps the save chip (past all code/data)
           # Only now does every variable have a home, so only now is it known where the

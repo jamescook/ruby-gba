@@ -194,6 +194,22 @@ class TestTimer < Minitest::Test
     assert hits.between?(10, 30), "the on_tick handler should have run ~20 times over 20 frames, got #{hits}"
   end
 
+  # A number drawn only from a tick is drawn: the routine that draws a font's digits is shared,
+  # and it used to be laid out before the tick's code asked for it, so the game did not build.
+  def test_a_number_drawn_only_from_a_tick_is_drawn_on_the_console
+    rom = RubyGBA.build("TICKNUM", out: nil, err: nil) do
+      screen :bitmap
+      clear_screen :black
+      shown = var :shown, 7
+      timer(:beat, per_second: 60).on_tick { draw_number shown, 8, 8, :white, digits: 1 }
+      game_loop {}
+    end
+    v = assert_emulator_loads_rom(rom, frames: 10)
+    lit = (8...13).to_a.product((8...15).to_a).count { |x, y| v.white?(x, y) }
+
+    assert_operator lit, :>, 0, "the 7 is on screen"
+  end
+
   # A timer fast enough to be worth it has its handler kept in the console's quick memory,
   # which means the handler is copied bytes running from a different address than the ones the
   # build laid out (see Backends::GBA::Placement#IRQ_ROUTINE). It has to count exactly the

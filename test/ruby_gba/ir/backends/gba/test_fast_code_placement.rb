@@ -507,6 +507,19 @@ class TestFastCodePlacement < Minitest::Test
     assert_charged_at_least_emitted(program, moved: :__save_file__step)
   end
 
+  # ...and a digit drawn from a timer's tick, whose call to the font's digit routine is written
+  # in the routine the console interrupts into.
+  def test_a_digit_drawn_from_a_tick_is_charged_to_the_interrupt
+    program = RubyGBA.game("CHARGE") do
+      screen :bitmap
+      shown = var :shown, 0
+      timer(:clock, per_second: 4000).on_tick { shown.add! 1; draw_number shown, 8, 8, :white, digits: 3 }
+      game_loop {}
+    end.program
+
+    assert_charged_at_least_emitted(program, moved: RubyGBA::IR::Backends::GBA::Placement::IRQ_ROUTINE)
+  end
+
   # Lower +program+ and check every routine moved to the quick memory was charged at least
   # what it came out at — +moved+ among them, so the check cannot pass by moving nothing.
   private def assert_charged_at_least_emitted(program, moved:)
