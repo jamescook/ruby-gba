@@ -93,6 +93,8 @@ module RubyGBA
                               end),
         canvas_font: Kind.new(spelling: "__letters_%{font}__%{part}", parts: { font: ANY, part: PLAIN },
                               words: nil),
+        list_fill_routine: Kind.new(spelling: "__list_fill_bytes", parts: {},
+                                    words: ->(_) { "filling a run of a list, as a canvas clears or fills a rectangle" }),
         told_turn: Kind.new(spelling: "__bg_%{background}_told_%{part}", parts: { background: ANY, part: PLAIN },
                             words: nil),
         see_through_amounts: Kind.new(spelling: "__see_through_%{layer}", parts: { layer: ANY },

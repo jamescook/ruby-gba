@@ -114,7 +114,7 @@ module RubyGBA
           # frame. So this follows whatever a node says it can call (IR::Node#callees).
           def self.collect_touched_lists(node, bodies, seen, found)
             node.walk do |n|
-              found << n.name if %i[list_get list_set list_push list_drop list_len list_new].include?(n.kind)
+              found << n.name if %i[list_get list_set list_fill list_push list_drop list_len list_new].include?(n.kind)
               n.callees.each { |target| visit_callee(target, bodies, seen, found) }
             end
           end

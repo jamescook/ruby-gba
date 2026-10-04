@@ -335,7 +335,8 @@ module RubyGBA
                                      bitmaps: @bitmaps)
           @expressions = Expressions.new(emitter: @emit, primitives: @primitives, lowering: @lowering,
                                          divide: @divide, tables: @tables)
-          @lists = Lists.new(memory: @memory, primitives: @primitives, emitter: @emit, lowering: @lowering)
+          @lists = Lists.new(memory: @memory, primitives: @primitives, emitter: @emit, lowering: @lowering,
+                             call_cold: method(:emit_call_cold_routine))
           # `placement: self` — Placement is not its own object yet (see its class
           # comment); its methods live directly on this instance, so handing self in is
           # what makes the dependency an explicit constructor argument instead of a bare
@@ -416,6 +417,7 @@ module RubyGBA
             every: @statements.method(:emit_every), after: @statements.method(:emit_after),
             list_new: @lists.method(:emit_list_new), list_push: @lists.method(:emit_list_push),
             list_drop: @lists.method(:emit_list_drop), list_set: @lists.method(:emit_list_set),
+            list_fill: @lists.method(:emit_list_fill),
             call: @statements.method(:emit_call), case: @functions.method(:emit_case),
             call_one_of: @functions.method(:emit_call_one_of),
             raw: @statements.method(:emit_raw), halt: @statements.method(:emit_halt),
@@ -764,6 +766,7 @@ module RubyGBA
           # digit routine one of them alone reaches would still be unregistered any earlier.
           @drawing.emit_digit_routines  # the shared glyph loop each font's draw_number/draw_digit calls
           @buffered.emit_digit_routines # ...and its tear-free counterpart
+          @lists.emit_fill_routine # the one routine every list_fill calls, for the same reason
           emit_data_region
           emit_save_signature if @uses_save # the marker that maps the save chip (past all code/data)
           # Only now does every variable have a home, so only now is it known where the

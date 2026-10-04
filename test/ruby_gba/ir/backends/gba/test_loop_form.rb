@@ -239,6 +239,7 @@ class TestLoopForm < Minitest::Test
         divide_by_a_power_of_two: ->(_i) { n.set!(other / 4) },
         list_read: ->(i) { n.set! xs[i] },
         list_write: ->(i) { xs[i] = 2 },
+        list_fill: ->(_i) { b.record_statement(RubyGBA::IR::Build.list_fill(:xs, from: 1, count: 5, value: 2)) },
         table_read: ->(i) { n.set! curve[i] },
         pixel: ->(_i) { b.pixel 4, 4, :red },
         fill_rect: ->(_i) { b.fill_rect 0, 0, 2, 2, :blue },

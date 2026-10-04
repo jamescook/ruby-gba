@@ -22,6 +22,7 @@ class TestMadeNames < Minitest::Test
     scene_sprites_shown: { scene: :playing },
     still_sprites: {},
     see_through_amounts: { layer: :rays },
+    list_fill_routine: {},
     told_turn: { background: :field, part: :size },
     tile_run_tile: { run: :box, number: 3 },
     tile_run_pending: { run: :box },

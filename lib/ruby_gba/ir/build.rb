@@ -892,6 +892,13 @@ module RubyGBA
         Nodes.build(:list_drop, name: name, from: from)
       end
 
+      # Overwrite +count+ items from index +from+ with one value (each slot must already hold
+      # one). All three are value operands.
+      def list_fill(name, from:, count:, value:)
+        Nodes.build(:list_fill, name: name, from: to_value_node(from), count: to_value_node(count),
+                                value: to_value_node(value))
+      end
+
       # Overwrite the item at `index` with a new value (the slot must already hold
       # one). `index` is a value operand.
       def list_set(name, index, value)

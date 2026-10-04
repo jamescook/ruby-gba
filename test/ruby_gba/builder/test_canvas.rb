@@ -92,6 +92,30 @@ class TestCanvas < Minitest::Test
     assert_empty mismatched_pixels(oracle, console)
   end
 
+  # Rectangles a row of which starts or ends half way into a byte, crosses from one tile into
+  # the next, or runs off an edge of the canvas — each one where a row filled a byte at a time
+  # could go wrong — against the pixels worked out here one at a time.
+  RECTS = [[3, 1, 10, 2], [16, 4, 6, 2], [:off_left, 8, 6, 2], [60, 12, 10, 3], [30, 14, 4, 5],
+           [40, 2, 0, 3], [45, 2, -2, 3], [25, 9, 1, 1], [26, 11, 1, 1], [7, 6, 2, 1]].freeze
+
+  def test_rectangles_fill_exactly_their_pixels_on_both
+    prog = game do |board, _frame|
+      board.clear
+      off_left = var :off_left, -3
+      RECTS.each { |x, y, w, h| board.fill_rect x == :off_left ? off_left : x, y, w, h, :red }
+    end
+    want = RECTS.flat_map do |x, y, w, h|
+      x = -3 if x == :off_left
+      (y...(y + h)).to_a.product((x...(x + w)).to_a).filter_map { |py, px| [px, py] if px.between?(0, 63) && py.between?(0, 15) }
+    end.uniq.sort
+    picture = screen(prog, 3)
+    lit = (0...16).to_a.product((0...64).to_a).filter_map { |y, x| [x, y] if picture.pixel(x, y) == RED }.sort
+
+    assert_equal want, lit
+    oracle, console = backend_pictures(prog, frames: 3)
+    assert_empty mismatched_pixels(oracle, console)
+  end
+
   def test_a_canvas_can_be_a_sprites_picture
     b = Builder.new
     b.instance_eval do

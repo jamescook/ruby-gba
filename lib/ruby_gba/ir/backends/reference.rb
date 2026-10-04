@@ -563,6 +563,7 @@ module RubyGBA
           list_push: :exec_list_push,
           list_drop: :exec_list_drop,
           list_set: :exec_list_set,
+          list_fill: :exec_list_fill,
           blit: :exec_blit,
           blit_pose: :exec_blit_pose,
           save_region: :exec_save_region,
@@ -2402,6 +2403,19 @@ module RubyGBA
           index = eval_value(node.index)
           check_list_index!(list, node.name, index)
           list.set(index, eval_value(node.value))
+        end
+
+        # The same as a list_set at each index in turn, so an index outside the list is the same
+        # error — said once, before anything is written.
+        def exec_list_fill(node)
+          count = eval_value(node.count)
+          return unless count.positive?
+
+          list = list_for(node.name)
+          from = eval_value(node.from)
+          [from, from + count - 1].each { |index| check_list_index!(list, node.name, index) }
+          value = eval_value(node.value)
+          count.times { |i| list.set(from + i, value) }
         end
 
         def value_of_list_get(node)

@@ -574,6 +574,16 @@ module RubyGBA
         operands name: :name, index: :value, value: :value
       end
 
+      # Every item from +from+ for +count+ items set to +value+, as that many list_sets would
+      # — a count of 0 or less sets none. One statement, so a backend can write a long run a
+      # word at a time rather than an item at a time.
+      class ListFill
+        include Node
+        kind :list_fill
+        category :list
+        operands name: :name, from: :value, count: :value, value: :value
+      end
+
       class Loop
         include Node
         kind :loop

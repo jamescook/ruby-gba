@@ -33,13 +33,132 @@ module RubyGBA
         class Lists
           include Console::Hardware
 
-          def initialize(memory:, primitives:, emitter:, lowering:)
+          def initialize(memory:, primitives:, emitter:, lowering:, call_cold:)
             @memory = memory
             @primitives = primitives
             @emitter = emitter
             @lowering = lowering
+            @call_cold = call_cold
             @lists = {}
             @backing = {}
+            @fills = false
+          end
+
+          # The routine every list_fill calls, named once.
+          FILL_ROUTINE = Messages::MadeNames.make(:list_fill_routine)
+
+          # list_fill: +count+ items from +from+ set to one value, the way that many list_sets
+          # would — and a bad index stays inside the list the same way: a run starting outside
+          # it writes nothing, and one running off its end stops at the end. What it saves is
+          # the per-item work: the run is handed to one routine that writes a word, four bytes,
+          # at a time (see #emit_fill_routine), where a list_set per item works out an address
+          # and stores one item each time.
+          #
+          # Only a plain array can be filled: a ring's items wrap round its block, so a run of
+          # them is not a run of memory. Nothing builds a fill of one.
+          def emit_list_fill(node)
+            info = list_info(node.name)
+            raise LoweringError, "list #{node.name.inspect} is shifted, so a run of it cannot be filled" if info[:ring]
+
+            @fills = true
+            skip = @emitter.gensym
+            @lowering.value(node.value)
+            @emitter.emit(ASM.push(ACC))
+            @lowering.value(node.count)
+            @emitter.emit(ASM.push(ACC))
+            @lowering.value(node.from)                              # r0 = from
+            @emitter.emit(ASM.pop(2))                               # r2 = count
+            @emitter.emit(ASM.pop(3))                               # r3 = the value
+            @emitter.emit(ASM.cmp_imm(ACC, 0))
+            @emitter.emit_branch(:bcond, skip, cond: :lt)           # starts before the list
+            # r12 is the address register, borrowed here for a count: the emitter forgets the
+            # address it held the moment anything writes it.
+            @emitter.emit(ASM.load_immediate(12, info[:capacity]))
+            @emitter.emit(ASM.sub_reg(12, 12, ACC))                 # r12 = items from +from+ to the end
+            @emitter.emit(ASM.cmp_reg(2, 12))
+            @emitter.emit(ASM.mov_reg_cond(:gt, 2, 12))             # stop at the end
+            @emitter.emit(ASM.cmp_imm(2, 0))
+            @emitter.emit_branch(:bcond, skip, cond: :le)           # nothing to write
+            shift = Math.log2(info[:bytes]).to_i
+            if shift.positive?
+              @emitter.emit(ASM.lsl_imm(ACC, ACC, shift))           # r0 = from * item size
+              @emitter.emit(ASM.lsl_imm(2, 2, shift))               # r2 = bytes to write
+            end
+            @primitives.emit_list_base(info[:base])
+            @emitter.emit(ASM.add_reg(TMP, LIST_ADDR, ACC))         # r1 = where the run starts
+            emit_fill_pattern(info[:width])                         # r0 = the value in every byte place
+            @call_cold.call(FILL_ROUTINE)
+            @emitter.place_label(skip)
+          end
+
+          # The value in r3 repeated across a whole word in r0, so a word written anywhere in the
+          # run holds the right item in each of its places.
+          def emit_fill_pattern(width)
+            case width
+            when :byte
+              @emitter.emit(ASM.and_imm(ACC, 3, 0xFF))
+              @emitter.emit(ASM.orr_reg_lsl(ACC, ACC, ACC, 8))
+              @emitter.emit(ASM.orr_reg_lsl(ACC, ACC, ACC, 16))
+            when :half
+              @emitter.emit(ASM.lsl_imm(ACC, 3, 16))
+              @emitter.emit(ASM.lsr_imm(ACC, ACC, 16))
+              @emitter.emit(ASM.orr_reg_lsl(ACC, ACC, ACC, 16))
+            when :word
+              @emitter.emit(ASM.mov_reg(ACC, 3))
+            end
+          end
+
+          # THE ROUTINE THAT WRITES A RUN: r0 the word pattern, r1 where the run starts, r2 how
+          # many bytes, more than nought. Bytes one at a time until the address is on a whole
+          # word, then whole words, then the bytes left over. Each byte written alone is the
+          # pattern's low byte, and the pattern is turned a byte along after it, so the next
+          # address finds the byte that belongs there — which is what keeps a run of halves or
+          # words right whichever byte it starts on. Touches r0 to r3 and nothing else, and is
+          # emitted only in a program that fills.
+          def emit_fill_routine
+            return unless @fills
+
+            e = @emitter
+            e.emit(ASM.loop_forever) # fall-through guard: only ever entered by a call
+            e.place_label(FILL_ROUTINE)
+            lead = e.gensym
+            words = e.gensym
+            tail = e.gensym
+            last_bytes = e.gensym
+            done = e.gensym
+            e.place_label(lead)
+            e.emit(ASM.tst_imm(TMP, 3))
+            e.emit_branch(:bcond, words, cond: :eq)               # on a whole word
+            emit_fill_byte
+            e.emit(ASM.subs_imm(2, 2, 1))
+            e.emit_branch(:bcond, done, cond: :eq)
+            e.emit_branch(:b, lead)
+            e.place_label(words)
+            e.emit(ASM.subs_imm(2, 2, 4))
+            e.emit_branch(:bcond, tail, cond: :lt)
+            e.emit(ASM.str_post(ACC, TMP, 4))
+            e.emit_branch(:b, words)
+            e.place_label(tail)
+            e.emit(ASM.add_imm(2, 2, 4))                          # the bytes the words left
+            e.place_label(last_bytes)
+            e.emit(ASM.cmp_imm(2, 0))
+            e.emit_branch(:bcond, done, cond: :eq)
+            emit_fill_byte
+            e.emit(ASM.sub_imm(2, 2, 1))
+            e.emit_branch(:b, last_bytes)
+            e.place_label(done)
+            e.emit(ASM.return)
+            # Where it ends, so a profile can say how much of a frame went into filling (see
+            # GBA#lowered_routine_addresses).
+            e.place_label(:"#{FILL_ROUTINE}_end")
+          end
+
+          # One byte of the pattern written, the address moved on, and the pattern turned a byte
+          # along to match it.
+          def emit_fill_byte
+            @emitter.emit(ASM.strb_post(ACC, TMP, 1))
+            @emitter.emit(ASM.lsr_imm(3, ACC, 8))
+            @emitter.emit(ASM.orr_reg_lsl(ACC, 3, ACC, 24))
           end
 
           # Reserve a list's IWRAM layout: the slot block, then the head and length

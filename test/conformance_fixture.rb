@@ -322,6 +322,8 @@ module ConformanceFixture
       B.list_push(:narrow, -4),           # ...and so does a countdown that ran past nothing
       B.set(:acc, B.list_get(:narrow, 0)),
       B.set(:acc, B.list_get(:narrow, 1)),
+      B.list_fill(:narrow, from: 0, count: 2, value: 7), # a run of items set at once
+      B.set(:acc, B.list_get(:narrow, 1)),
       B.list_new(:tally, 4, width: :byte),
       B.list_push(:tally, 300),           # too big — keeps the low bits (44)
       B.set(:acc, B.list_get(:tally, 0)),

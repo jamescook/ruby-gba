@@ -12,7 +12,9 @@ module RubyGBA
     #
     # Every word is built from what a game could write itself (list reads and writes, the bit
     # operators, a table, a loop, a routine), which is why it works the same on the console
-    # and in the interpreter with nothing new in either.
+    # and in the interpreter — and from one thing it could not: setting a run of the list's
+    # bytes at once (IR list_fill), which `clear` and `fill_rect` use for whole bytes, where a
+    # byte at a time cost a clear of a big canvas most of a frame.
     #
     # A POSITION THE GAME WORKS OUT IS CLIPPED at the canvas edge, so a dot that wandered off
     # needs no test around it. A position written as a number past the edge is a friendly
@@ -57,23 +59,36 @@ module RubyGBA
         nil
       end
 
-      # The whole canvas one colour; see-through when no colour is given.
+      # The whole canvas one colour; see-through when no colour is given. Every byte of the
+      # list holds two pixels of that colour, so it is one run of the list filled at once.
       def clear(color = :transparent)
         place = place_of(color)
-        both = place | (place << 4)
-        list = @list
-        @builder.repeat(@width * @height / 2) { |i| list[i] = both }
+        fill_bytes(0, @width * @height / 2, place | (place << 4))
         changed
         nil
       end
 
       # A filled rectangle, any width. Every part of it may be worked out as the game runs; a
-      # width or height of 0 or less draws nothing.
+      # width or height of 0 or less draws nothing, and what falls outside the canvas is cut
+      # off.
+      #
+      # A ROW OF IT IS WHOLE BYTES with at most a pixel left over at each end, since a byte
+      # holds two pixels side by side, left one first. So each row paints its odd end pixels
+      # one at a time and fills the bytes between — a run per tile it crosses, because a row
+      # of one tile is four bytes and the same row of the next tile is a whole tile further on
+      # in the list.
       def fill_rect(x, y, w, h, color)
         refuse_written_position_outside!(x, y)
         place = place_of(color)
+        left = scratch(:left)
+        right = scratch(:right)
+        row_y = scratch(:row_y)
+        left.set! value(x).clamp(0, @width)
+        right.set! plus(x, w).clamp(0, @width)
+        @place.set! place
         @builder.repeat(h) do |row|
-          @builder.repeat(w) { |col| paint_at(plus(x, col), plus(y, row), place) }
+          row_y.set! plus(y, row)
+          ((row_y >= 0) & (row_y < @height) & (left < right)).then { @builder.call(fill_row_routine) }
         end
         changed
         nil
@@ -151,6 +166,69 @@ module RubyGBA
       private
 
       def part(what) = Messages::MadeNames.make(:canvas_part, canvas: @name, part: what)
+
+      # A variable of the canvas's own for a word's working, made the first time it is asked for.
+      def scratch(what)
+        @scratch ||= {}
+        @scratch[what] ||= @builder.var(part(what), 0)
+      end
+
+      # +count+ bytes of the list from +from+ set to +byte+, in one statement.
+      def fill_bytes(from, count, byte)
+        @builder.record_statement(IR::Build.list_fill(@list.name, from: Value.node_for(from),
+                                                                   count: Value.node_for(count),
+                                                                   value: Value.node_for(byte)))
+      end
+
+      # The routine that fills one row of a rectangle, written once for the canvas however many
+      # rectangles the game fills: the row in :row_y, from column :left up to but not including
+      # :right, both inside the canvas, in the colour in :place.
+      def fill_row_routine
+        @fill_row_routine ||= begin
+          name = part(:fill_row)
+          row_y = scratch(:row_y)
+          left = scratch(:left)
+          right = scratch(:right)
+          place = @place
+          canvas = self
+          @builder.func(name) { canvas.send(:fill_row, row_y, left, right, place) }
+          name
+        end
+      end
+
+      # One row of a rectangle at +row_y+, from column +left+ up to but not including +right+:
+      # the odd end pixels one at a time, the whole bytes between a run per tile.
+      def fill_row(row_y, left, right, place)
+        from = scratch(:from_x)
+        upto = scratch(:upto_x)
+        tile = scratch(:tile)
+        from.set! left
+        upto.set! right
+        ((from & 1) == 1).then do
+          paint_at(from, row_y, place)
+          from.add! 1
+        end
+        ((upto & 1) == 1).then do
+          paint_at(upto - 1, row_y, place)
+          upto.sub! 1
+        end
+        (from < upto).then do
+          tile.set! from >> 3
+          tiles = ((upto - 1) >> 3) - tile + 1
+          @builder.repeat(tiles, estimate: { usually: 2, most: (@width / 8) + 1 }) do
+            fill_row_in_tile(row_y, tile, from, upto, place)
+            tile.add! 1
+          end
+        end
+      end
+
+      # The part of a row between +from+ and +upto+ that falls in tile column +tile+.
+      def fill_row_in_tile(row_y, tile, from, upto, place)
+        start = (tile << 3).clamp(from, upto)
+        stop = ((tile << 3) + 8).clamp(from, upto)
+        byte = ((((row_y >> 3) * (@width / 8)) + tile) * 32) + ((row_y & 7) * 4) + ((start & 7) >> 1)
+        fill_bytes(byte, (stop - start) >> 1, place | (place << 4))
+      end
 
       # +a+ plus +b+, kept a plain number when both are.
       def plus(a, b) = a.is_a?(Integer) && b.is_a?(Integer) ? a + b : value(a) + b
