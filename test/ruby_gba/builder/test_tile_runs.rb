@@ -117,6 +117,120 @@ class TestTileRuns < Minitest::Test
     [4, 13].each { |frames| assert_backends_agree(scene_game, frames: frames) }
   end
 
+  # One dialogue box shown in two scenes. The second scene has a floor of its own declared
+  # first, so its tiles go in ahead of the box's and the box lands somewhere else in video
+  # memory there — which is the case one copy to one place cannot serve. A pixel painted in
+  # each scene has to show in that scene, and survive the trip to the other one.
+  def shared_box_game
+    b = Builder.new
+    b.instance_eval do
+      screen :tiled
+      colors :ink, [:transparent, :white]
+      image(:red_tile, "#" => :red) { (["#" * 8] * 8).join("\n") }
+      canvas = list :canvas, capacity: 64, width: :byte
+      repeat(64) { canvas.push 0 }
+      box = tiles :box, from: canvas, count: 2, colors: :ink
+      state = var :state, 0
+      frame = var :frame, 0
+      scene(:house) do
+        background :house_box, tiles: :box, map: [[1, 2]]
+        (frame == 2).then { canvas[0] = 0x01; box.changed }
+        (frame == 5).then { state.set! 1 }
+      end
+      scene(:shop) do
+        tiles :floor, "#" => :red_tile
+        background :floor, tiles: :floor, map: ["####"]
+        background :shop_box, tiles: :box, map: [[1, 2]]
+        (frame == 8).then { canvas[32] = 0x01; box.changed }
+        (frame == 11).then { state.set! 0 }
+      end
+      game_loop do
+        frame.add! 1
+        case_var(:state) { when_val 0, :house; when_val 1, :shop }
+      end
+    end
+    b.finalize_program
+    b.program
+  end
+
+  def test_one_box_shown_in_two_scenes_shows_its_list_in_each
+    prog = shared_box_game
+
+    assert_equal WHITE, pixel(prog, 4, 0, 0), "painted in the house, shown there"
+    assert_equal WHITE, pixel(prog, 7, 0, 0), "the shop puts the box up from the list as it is"
+    assert_equal WHITE, pixel(prog, 10, 8, 0), "painted in the shop, shown there"
+    assert_equal WHITE, pixel(prog, 14, 8, 0), "and back in the house"
+  end
+
+  def test_the_console_agrees_on_one_box_in_two_scenes
+    [4, 7, 10, 14].each { |frames| assert_backends_agree(shared_box_game, frames: frames) }
+  end
+
+  # A box every screen shows, and the same box shown again by one scene's own background —
+  # a status line along the top, repeated beside the shopkeeper. The scene's copy is the one
+  # every screen already has, so both show the same pixels.
+  def test_a_box_every_screen_shows_can_be_shown_again_by_a_scene
+    b = Builder.new
+    b.instance_eval do
+      screen :tiled
+      colors :ink, [:transparent, :white]
+      canvas = list :canvas, capacity: 64, width: :byte
+      repeat(64) { canvas.push 0 }
+      box = tiles :box, from: canvas, count: 2, colors: :ink
+      background :top_box, tiles: :box, map: [[1, 2]]
+      state = var :state, 0
+      frame = var :frame, 0
+      scene(:house) { (frame == 3).then { state.set! 1 } }
+      scene(:shop) do
+        background :shop_box, tiles: :box, map: [[nil, nil, 1, 2]]
+        (frame == 5).then { canvas[0] = 0x01; box.changed }
+      end
+      game_loop do
+        frame.add! 1
+        case_var(:state) { when_val 0, :house; when_val 1, :shop }
+      end
+    end
+    b.finalize_program
+
+    assert_equal WHITE, pixel(b.program, 8, 16, 0), "the shop's own copy shows the pixel"
+    assert_backends_agree(b.program, frames: 8)
+  end
+
+  # A scene that does not show the box can still say it changed — the dialogue was updated
+  # while the player is on a road — and the box is not on that screen, so nothing is drawn.
+  # The road's own floor sits where the box sits in the house, so a copy that went there
+  # anyway would paint the box's pixels over the road.
+  def test_a_scene_that_does_not_show_the_box_is_left_alone_when_it_changes
+    b = Builder.new
+    b.instance_eval do
+      screen :tiled
+      colors :ink, [:transparent, :white]
+      image(:red_tile, "#" => :red) { (["#" * 8] * 8).join("\n") }
+      canvas = list :canvas, capacity: 64, width: :byte
+      repeat(64) { canvas.push 0 } # see-through, unlike every pixel of the road's floor
+      box = tiles :box, from: canvas, count: 2, colors: :ink
+      state = var :state, 0
+      frame = var :frame, 0
+      scene(:house) do
+        background :house_box, tiles: :box, map: [[1, 2]]
+        (frame == 3).then { state.set! 1 }
+      end
+      scene(:road) do
+        tiles :road, "#" => :red_tile
+        background :road, tiles: :road, map: ["##"]
+        box.changed
+      end
+      game_loop do
+        frame.add! 1
+        case_var(:state) { when_val 0, :house; when_val 1, :road }
+      end
+    end
+    b.finalize_program
+
+    assert_equal RED, pixel(b.program, 8, 0, 0), "the road shows its own floor"
+    assert_backends_agree(b.program, frames: 8)
+  end
+
   include Differential
 
   # Every byte of both tiles gets a different pattern of places from a four-colour list, so a
@@ -240,6 +354,51 @@ class TestTileRuns < Minitest::Test
     [4, 13].each { |frames| assert_backends_agree(tag_scene_game, frames: frames) }
   end
 
+  # One name tag shown by a sprite in two scenes, the second of which has a sprite picture of
+  # its own declared first — so the scenes' sprite art lays out differently, and the tag has to
+  # show in each and its pixels survive the trip.
+  def shared_tag_game
+    b = Builder.new
+    b.instance_eval do
+      screen :tiled
+      colors :ink, [:transparent, :white]
+      image(:coin, "#" => :red) { (["#" * 8] * 8).join("\n") }
+      canvas = list :canvas, capacity: 32, width: :byte
+      repeat(32) { canvas.push 0 }
+      tag = image :tag, from: canvas, width: 8, height: 8, colors: :ink
+      state = var :state, 0
+      frame = var :frame, 0
+      scene(:house) do
+        sprite :tag, at: [0, 0]
+        (frame == 2).then { canvas[0] = 0x01; tag.changed }
+        (frame == 5).then { state.set! 1 }
+      end
+      scene(:shop) do
+        sprite :coin, at: [40, 40]
+        sprite :tag, at: [0, 0]
+        (frame == 8).then { canvas[1] = 0x10; tag.changed }
+        (frame == 11).then { state.set! 0 }
+      end
+      game_loop do
+        frame.add! 1
+        case_var(:state) { when_val 0, :house; when_val 1, :shop }
+      end
+    end
+    b.finalize_program
+    b.program
+  end
+
+  def test_one_painted_picture_in_two_scenes_shows_its_list_in_each
+    prog = shared_tag_game
+
+    assert_equal WHITE, pixel(prog, 4, 0, 0), "painted in the house, shown there"
+    assert_equal WHITE, pixel(prog, 7, 0, 0), "the shop puts the tag up from the list as it is"
+    assert_equal RED, pixel(prog, 7, 40, 40), "and its own coin beside it"
+    assert_equal WHITE, pixel(prog, 10, 3, 0), "painted in the shop, shown there"
+    assert_equal WHITE, pixel(prog, 14, 3, 0), "and back in the house"
+    [4, 7, 10, 14].each { |frames| assert_backends_agree(prog, frames: frames) }
+  end
+
   # Three save slots, each with a name tag of its own: three lists, three pictures.
   def three_tags
     b = Builder.new
@@ -297,6 +456,28 @@ class TestTileRuns < Minitest::Test
       image(:w, "#" => :white) { (["#" * 8] * 8).join("\n") }
       tiles :box, from: list(:c, capacity: 64, width: :byte), count: 2, colors: :ink, 2 => :w
     end)
+  end
+
+  # Shifting moves where a list's first item lives, so its bytes stop being in the order the
+  # tiles read them. Refused while the program is built, so the interpreter and the console
+  # cannot draw it two different ways — and from inside a routine too, which is built last.
+  def test_a_list_the_game_also_shifts_is_refused_on_both_backends
+    message = assert_raises(ArgumentError) do
+      b = Builder.new
+      b.instance_eval do
+        screen :tiled
+        colors :ink, [:transparent, :white]
+        canvas = list :canvas, capacity: 64, width: :byte
+        tiles :box, from: canvas, count: 2, colors: :ink
+        background :front, tiles: :box, map: [[1, 2]]
+        func(:scroll_text) { canvas.shift }
+        game_loop { call :scroll_text }
+      end
+      b.finalize_program
+    end.message
+
+    assert_match(/tiles :box/, message)
+    assert_match(/shift/, message)
   end
 
   # A box's frame drawn from fixed tiles round the run, in one tileset. The run's tiles are

@@ -151,6 +151,25 @@ class TestHeroExample < Minitest::Test
     assert WORDS[:xs].any? { |x| WORDS[:ys].any? { |y| v.pixel_is?(x, y, :white) } }, "the sign's words"
   end
 
+  # SELECT takes the walk to the file screen, and the map of it comes along to the same
+  # corner: one picture the game paints, shown on two screens.
+  def test_the_file_screen_shows_the_map_of_the_walk_it_was_opened_from
+    start = [MAP_CORNER[0] + (Hero::START_X / 8), MAP_CORNER[1] + (Hero::START_Y / 8)]
+    files = play(frames: 24) { |f| f <= 16 ? :right : (f == 18 ? :select : nil) }.screen
+
+    refute_equal Color.resolve(:red), files.pixel(*CENTER), "on the file screen, where the hero is not out"
+    assert_equal Color.resolve(:white), files.pixel(*start), "the map's first dot is still in the corner"
+  end
+
+  def test_the_console_shows_the_map_on_the_file_screen_too
+    start = [MAP_CORNER[0] + (Hero::START_X / 8), MAP_CORNER[1] + (Hero::START_Y / 8)]
+    keys = NEW_GAME.call(->(f) { f <= 16 ? KEY_RIGHT : (f.between?(18, 19) ? KEY_SELECT : 0) })
+    v = assert_emulator_loads_rom(Hero.build_rom(err: StringIO.new, profile: false), frames: 40, keys: keys)
+
+    refute v.red?(*CENTER), "on the file screen"
+    assert v.pixel_is?(*start, :white), "the map's first dot, got 0x#{format('%04X', v.pixel_gba(*start))}"
+  end
+
   # --- The save files ---
 
   # The game opens on its file screen: the hero is not out yet, and no file holds a walk.

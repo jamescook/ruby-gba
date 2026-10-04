@@ -434,7 +434,28 @@ module RubyGBA
 
           # WHERE A RUN OF PAINTED TILES SITS: how far into video memory it starts, how many
           # bytes it takes, and the list its pixels are copied from.
-          PaintedRun = Data.define(:at, :bytes, :list, :what)
+          #
+          # +places+ is where it starts on each screen that shows it, by scene (nil for one
+          # every screen shows). Scenes lay their own tiles out from the same starting point,
+          # so a run shown in two of them can land in two places, and the place a run has in
+          # one scene is some other picture's in the next. So +at+ is set only for a run every
+          # screen shows, which sits in one place throughout; for a run that belongs to scenes
+          # it is nil, and the copy reads where it goes from a variable each scene sets as it
+          # runs (see Drawing#emit_painted_run_places).
+          PaintedRun = Data.define(:at, :bytes, :list, :what, :places) do
+            # +earlier+ is what was noted for the run before, if anything: one more screen's
+            # place is added to its places.
+            def self.with_place(earlier, scene:, at:, **rest)
+              places = (earlier&.places || {}).merge(scene => at)
+              new(at: places.key?(nil) ? at : nil, places: places, **rest)
+            end
+
+            # The variable a run that moves keeps its address in: where it sits on the screen
+            # up now, as a whole address, or 0 on a screen that does not show it.
+            def self.place_var(name) = :"__painted_#{name}_at"
+
+            def moves? = at.nil?
+          end
 
           # THE SCENERY EVERY SCREEN SHOWS GOES IN FIRST, and stays for the whole game: its
           # pictures are sent at boot and its maps are set up once. What it takes is what
@@ -671,13 +692,31 @@ module RubyGBA
                 raise LoweringError, "background :#{node.name} shows only part of tiles :#{run.name}, or shows them " \
                                      "out of order. Its tileset must hold all #{run.tiles.size} of them."
               end
-              if (earlier = @painted_vram[run.name]) && earlier.at != first
-                raise LoweringError, "tiles :#{run.name} are shown by two backgrounds, or in two scenes. The " \
-                                     "game paints one copy of them, so one background in one place must show " \
-                                     "them. To fix this, give each background its own list and its own tiles."
+              earlier = @painted_vram[run.name]
+              unless one_place_per_screen?(earlier&.places || {}, node.scene, first)
+                refuse_painted_run_in_two_places!(run, node)
               end
-              @painted_vram[run.name] = PaintedRun.new(at: first, bytes: run.tiles.size * SMALL_TILE_BYTES, list: run.list, what: "tiles")
+              @painted_vram[run.name] = PaintedRun.with_place(earlier, scene: node.scene, at: first,
+                                                              bytes: run.tiles.size * SMALL_TILE_BYTES,
+                                                              list: run.list, what: "tiles")
             end
+          end
+
+          # A screen copies the run to one place, so every background on one screen that shows
+          # it has to show it from the same place — and a background every screen shows is on
+          # all of them at once.
+          def one_place_per_screen?(places, scene, first)
+            same = places.select { |shown_in, _| shown_in == scene || shown_in.nil? || scene.nil? }
+            same.values.all?(first)
+          end
+
+          def refuse_painted_run_in_two_places!(run, node)
+            raise LoweringError, "background :#{node.name} shows tiles :#{run.name}, and so does another background " \
+                                 "on the same screen. Background :#{node.name} counts its tiles from too far along " \
+                                 "video memory to reach the copy the other one shows. The game paints the tiles in " \
+                                 "one copy, so one screen must show them from one place. To fix this, declare " \
+                                 "background :#{node.name} before the backgrounds with the biggest tilesets, or give " \
+                                 "it its own list and its own tiles."
           end
 
           def refuse_painted_tiles_stored_big!(node)
@@ -1135,11 +1174,13 @@ module RubyGBA
               one_frame.merge(set.names)
             end
             @objects = @sprite_art.sprites
+            scene_of = nodes.to_h { |node| [node.name, node.scene] }
             painted.each do |name, picture|
               run = @painted_pictures.fetch(picture)
-              @painted_vram[run.name] ||= PaintedRun.new(at: obj_tile_vram_offset + (@objects.fetch(name).tile_index * 32),
-                                                         bytes: run.width * run.height / 2, list: run.list,
-                                                         what: "image")
+              at = obj_tile_vram_offset + (@objects.fetch(name).tile_index * 32)
+              @painted_vram[run.name] = PaintedRun.with_place(@painted_vram[run.name], scene: scene_of.fetch(name), at: at,
+                                                              bytes: run.width * run.height / 2, list: run.list,
+                                                              what: "image")
             end
             @sprite_art.scene_art.each do |scene, sent|
               sent.each { |blob, *| keep_unpacked!(blob) }

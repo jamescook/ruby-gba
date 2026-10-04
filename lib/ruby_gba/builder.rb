@@ -432,6 +432,7 @@ module RubyGBA
       finalize_present_lists
       finalize_background_scrolls
       finalize_background_maps
+      refuse_shifted_tile_run_lists!
       finalize_tile_copies
       finalize_background_colors
       finalize_background_affine

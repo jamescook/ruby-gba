@@ -69,14 +69,19 @@ module RubyGBA
 
           private
 
+          # A painted picture's room is kept per screen, like everything else here: the room it
+          # had in one scene is some other picture's in the next, so a scene showing it again
+          # gets a room of its own (and the copy is told where, see ScreenLayout::PaintedRun).
           def lay_out(nodes)
             by_scene = nodes.group_by(&:scene)
             (by_scene[nil] || []).each { |node| place(node) }
             @art.finish_resident_art
+            resident_rooms = @painted_rooms.dup
             by_scene.each do |scene, in_scene|
               next if scene.nil?
 
               @art.begin_scene
+              @painted_rooms = resident_rooms.dup
               in_scene.each { |node| place(node) }
               @scene_bytes[scene] = @art.bytes_so_far
               @scene_art[scene] = @art.end_scene

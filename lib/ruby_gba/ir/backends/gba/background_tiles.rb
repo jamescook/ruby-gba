@@ -210,13 +210,20 @@ module RubyGBA
               (raise LoweringError, too_far_message(name, at, unit, base, most))
           end
 
-          # A painted tile's bytes, always at a fresh place of its own and never offered to
-          # anything that comes after as a picture to share.
+          # A painted tile's bytes, at a place of its own and never offered to anything that
+          # comes after as a picture to share. The one thing it does share is ITSELF: a run
+          # this screen already holds — another background showing it, or the scenery every
+          # screen shows — is pointed at where it is, since the game paints it in one copy and
+          # one screen can only hold it in one place. (A copy too far back for this layer to
+          # name is the exception, and stores again; the layout then refuses the two places.)
           def store_painted_tile(name, image, tile, unit, base, most)
-            at = @vram.take_tile(unit)
-            @bytes << ("\x00" * (at - @bytes.bytesize)).b if at > @bytes.bytesize
-            @bytes << tile
-            painted_at[image] = at
+            at = painted_at[image]
+            unless at && at >= base
+              at = @vram.take_tile(unit)
+              @bytes << ("\x00" * (at - @bytes.bytesize)).b if at > @bytes.bytesize
+              @bytes << tile
+              painted_at[image] = at
+            end
             @vram.tile_number(at, unit: unit, base: base, most: most) ||
               (raise LoweringError, too_far_message(name, at, unit, base, most))
           end

@@ -245,15 +245,33 @@ module RubyGBA
 
           def emit_copy_painted_run(name, run)
             list = @lists.list_info(run.list)
-            if list[:ring]
-              raise LoweringError, "tiles :#{name} get their pixels from list :#{run.list}, and the game also shifts " \
-                                   "that list. A shifted list moves its first item, so its bytes are no longer in " \
-                                   "the order the tiles read them. To fix this, do not shift a list that tiles paint from."
+            # The builder refuses a shifted list a run paints from (Builder#refuse_shifted_tile_run_lists!);
+            # this is the lowering's own invariant, for a tree that reached it some other way.
+            raise LoweringError, "#{run.what} :#{name} paints from list :#{run.list}, which the game shifts." if list[:ring]
+
+            if run.moves?
+              done = gensym
+              emit_painted_run_destination(ScreenLayout::PaintedRun.place_var(name), done)
+            else
+              store_word_immediate(VRAM_START + run.at, REG_DMA3DAD)
             end
             store_word_immediate(list[:base], REG_DMA3SAD)
-            store_word_immediate(VRAM_START + run.at, REG_DMA3DAD)
             @emitter.note_video_copy("painting #{run.what} :#{name}", run.bytes)
             store_word_immediate((run.bytes / 4) | DMA_ENABLE | DMA_32BIT, REG_DMA3CNT)
+            place_label(done) if done
+          end
+
+          # A RUN SHOWN IN SEVERAL SCENES, IN DIFFERENT PLACES: the scene up now has put where
+          # the run sits on its screen in a variable (see Drawing#emit_painted_run_places), so
+          # the copy goes there. On a screen that does not show the run the variable holds 0,
+          # and the copy is skipped — there is nowhere on this screen for it to go, and video
+          # memory at any fixed place would be some other picture's.
+          def emit_painted_run_destination(var, done)
+            @primitives.load_var(ACC, var)
+            emit(ASM.cmp_imm(ACC, 0))
+            emit_branch(:bcond, done, cond: :eq)
+            emit(ASM.load_immediate(TMP, REG_DMA3DAD))
+            emit(ASM.str(ACC, TMP))
           end
 
           # ACC = where the map numbered +which+ starts, or a jump to +done+ if it names no

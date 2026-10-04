@@ -337,6 +337,7 @@ module RubyGBA
           # yet, and not on yet is one frame of backdrop.
           def emit_scene_preamble(name)
             emit_scene_mode(name) if @layout.modes.switched_per_scene?
+            emit_painted_run_places(name)
             emit_scene_scenery(name)
             emit_scene_blend(name)
             emit_scene_layers(name)
@@ -356,6 +357,24 @@ module RubyGBA
             wanted = @layout.scene_blend[name]
             write_reg16(REG_BLDCNT, wanted) if wanted
             @layer_blend.emit_screen_marker(name)
+          end
+
+          # SAY WHERE EACH PAINTED RUN SITS ON THIS SCENE'S SCREEN, for a run shown in several
+          # scenes that each lay it out somewhere else (see ScreenLayout::PaintedRun). The copy
+          # that paints it reads this, both the one as the scene takes over and the one the
+          # game asks for with `changed`; a scene that does not show the run says 0, so a copy
+          # asked for there goes nowhere rather than over this screen's own pictures.
+          #
+          # Written every pass rather than guarded, the same as #emit_scene_layers: it is one
+          # store of a number settled during the build, which costs what the guard would. A
+          # game whose runs each sit in one place emits none of this.
+          def emit_painted_run_places(name)
+            (@layout.screen&.painted_vram || {}).each do |run_name, run|
+              next unless run.moves?
+
+              at = run.places[name]
+              store_word_immediate(at ? VRAM_START + at : 0, @primitives.var_addr(ScreenLayout::PaintedRun.place_var(run_name)))
+            end
           end
 
           # PUT THIS SCENE'S BACKGROUNDS UP, ONCE, AS IT TAKES OVER.

@@ -112,6 +112,24 @@ module RubyGBA
         end
       end
 
+      # A LIST A RUN PAINTS FROM MUST NOT BE SHIFTED. Dropping the front item moves where the
+      # first item lives — the list becomes a ring that wraps round its own memory — so its
+      # bytes are no longer in the order the tiles read them. Refused here, once every routine
+      # is built, so that a `shift` anywhere in the game is seen and both backends refuse it
+      # alike rather than the interpreter drawing the shifted order and the console stopping.
+      def refuse_shifted_tile_run_lists!
+        return if @tile_runs.empty?
+
+        runs = @program.walk.select { |node| node.kind == :tile_run }
+        shifted = @program.walk.filter_map { |node| node.name if node.kind == :list_drop && node.from == :front }
+        run = runs.find { |node| shifted.include?(node.list) } or return
+        what = run.picture ? "image" : "tiles"
+        raise ArgumentError, "#{what} :#{run.name} gets its pixels from list :#{run.list}, and the game also " \
+                             "uses `shift` on that list. A shift moves the first item, so the bytes are no longer " \
+                             "in the order that #{what} :#{run.name} reads them. To fix this, do not use `shift` " \
+                             "on list :#{run.list}."
+      end
+
       # The run's colours, place 0 first: a list declared with `colors`, by name, or the
       # colours themselves.
       def tile_run_colors(name, colors, what: "tiles")

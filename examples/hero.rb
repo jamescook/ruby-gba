@@ -346,6 +346,10 @@ module Hero
       number.set! slot + 1
       layer(:words) do
         background :backdrop, tiles: :panels, map: Array.new(20) { "#" * 30 }
+        # The map of the walk you left, in the same corner it had while you walked. A
+        # picture the game paints can be shown on any number of screens; each one puts it
+        # up from what the game last drew, so nothing here has to draw it again.
+        sprite :trail, at: [204, 4]
 
         # Second step, written first: on the frame a file is picked this menu is not yet up,
         # so the press that picked the file is not taken as a choice here too.
