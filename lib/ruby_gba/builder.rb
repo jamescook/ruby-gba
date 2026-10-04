@@ -226,9 +226,9 @@ module RubyGBA
     # Today it takes one thing, `usually:`: how many items the list normally holds. A walk
     # over a list can only be bounded by the capacity, and that is the only number a build
     # can prove — a snake's body list is sized for every cell of the board and holds four
-    # cells for most of a game. So the guardrail that warns when a growing list stops fitting
-    # in a frame counts a walk at what you say it usually holds, and at the full capacity for
-    # the worst it could reach.
+    # cells for most of a game. Nothing reads it now: the estimate it was written for is
+    # deleted, and the build measures the worst it could reach instead, with the list held at
+    # its capacity (RubyGBA.warn_of_collections_that_fill).
     #
     #   body  = list :body,  capacity: 256, estimate: { usually: 12 }
     #   shots = list :shots, capacity: 32,  estimate: { usually: 3..6 }

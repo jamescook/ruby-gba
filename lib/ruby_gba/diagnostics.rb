@@ -17,5 +17,6 @@ require_relative "diagnostics/tick_rate"
 require_relative "diagnostics/sound_drops"
 require_relative "diagnostics/analyzer"
 require_relative "diagnostics/build_report" # the exact half of a profile: what the build made
+require_relative "diagnostics/full_collections" # every list and pool, and how to hold each one full
 require_relative "diagnostics/profiler" # ...and the measured half: where the frames went
 require_relative "diagnostics/routine_profile"

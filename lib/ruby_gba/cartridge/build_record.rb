@@ -76,16 +76,19 @@ module RubyGBA
     # number from: the address of the variable the cartridge writes as it copies a frame in. A
     # place in here is what says which of the two keyings that place's offsets use. Empty for a
     # game whose sprites all keep every picture they can show.
+    # +lists+ is where each list landed — its first slot, its capacity, its width, and where its
+    # length is kept (see IR::Backends::GBA::Lists#list_places). It is what lets the build measure
+    # its game with every collection held full, which is a state a game reaches only in play.
     class BuildRecord < Data.define(:source_program, :placement, :var_addresses, :loop_shapes,
                                     :palette_entries, :column_stretches, :compression,
                                     :build_options, :findings, :emitted, :routines, :video_memory,
                                     :roomy_memory, :timer_handlers, :voices, :sound_drops,
                                     :sprite_slots, :sprite_offsets, :streamed_sprite_pose_vars,
-                                    :video_copies)
+                                    :video_copies, :lists)
       def initialize(findings: [], emitted: nil, routines: {}, video_memory: nil,
                      roomy_memory: nil, timer_handlers: {}, voices: nil, sound_drops: nil,
                      sprite_slots: {}, sprite_offsets: {}, streamed_sprite_pose_vars: {},
-                     video_copies: [], **rest)
+                     video_copies: [], lists: {}, **rest)
         super
       end
 

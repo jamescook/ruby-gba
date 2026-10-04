@@ -500,7 +500,7 @@ module RubyGBA
                                    emitted: @attribution.emitted,
                                    routines: routine_addresses,
                                    timer_handlers: timer_handler_addresses,
-                                   video_copies: video_copy_addresses,
+                                   video_copies: video_copy_addresses, lists: @lists.list_places,
                                    voices: voice_table,
                                    sound_drops: drop_table,
                                    video_memory: @screen.video_memory_report,

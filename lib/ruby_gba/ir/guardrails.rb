@@ -186,7 +186,8 @@ module RubyGBA
         # backend by hand, so every mispricing was a bug. What replaced the first of them is
         # a measurement: a build runs the game to decide what goes in the quick memory, so
         # the real frame rate is already in its hands and it says so when a game misses 60
-        # (RubyGBA.warn_of_slow_scenes).
+        # (RubyGBA.warn_of_slow_scenes). The second is measured too, with each scene run again
+        # with its lists and pools held full (RubyGBA.warn_of_collections_that_fill).
         def build_checks(placement)
           [Checks::FrameFromCartridge.new(placement)]
         end

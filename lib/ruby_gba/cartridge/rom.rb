@@ -138,7 +138,7 @@ module RubyGBA
       # +scene+ names which screen to measure, and it is usually the thing you want: a game boots
       # to its title, and holding a button will not get past one — a menu reads the press EDGE, so
       # a held button is one press however long it is held. Naming a scene holds the game there
-      # and measures that, with nobody having to play it (see {Profiler.profile_pinned_to_scene}).
+      # and measures that, with nobody having to play it (see {Profiler.profile_holding_words}).
       #
       # +from+ names a saved moment instead — an emulator save state, made by playing to the
       # moment once. It is the general answer, and the one for a moment a scene cannot give: a

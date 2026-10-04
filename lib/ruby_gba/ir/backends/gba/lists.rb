@@ -225,6 +225,19 @@ module RubyGBA
                   .to_h { |name, info| [name, info[:capacity] * info[:bytes]] }
           end
 
+          # WHERE EACH LIST LIVES, for a finished cartridge to be asked about: the address of its
+          # first slot, how many slots it may hold, and the address of the number saying how many
+          # it holds now. A measurement that wants a list held full writes that number (see
+          # Diagnostics::FullCollections), and nothing but this build knows where it is.
+          Place = Data.define(:base, :capacity, :length_at)
+
+          def list_places
+            @lists.to_h do |name, info|
+              [name, Place.new(base: info[:base], capacity: info[:capacity],
+                               length_at: @primitives.vars.fetch(length_var(name)))]
+            end
+          end
+
           # A list's layout, or a friendly error if the program never created it.
           def list_info(name)
             @lists[name] ||

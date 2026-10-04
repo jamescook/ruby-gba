@@ -248,6 +248,7 @@ module RubyGBA
 
     survey = Diagnostics::Profiler.survey_scenes(first)
     warn_of_slow_scenes(survey, err)
+    warn_of_collections_that_fill(survey, err)
     measurement = Diagnostics::RoutineProfile.from_work(survey.work, game: title)
     build(title, code: code, maker: maker, profile: measurement,
           out: out, err: err, progress: progress, **options, &block)
@@ -280,6 +281,27 @@ module RubyGBA
         frame than one frame has room for. Everything moves once a frame, so the whole game
         moves that much more slowly — smoothly, not choppily. To see where the frames go, call
         `rom.profile` on the built ROM.
+      MSG
+    end
+  end
+
+  # A GAME THAT KEEPS UP UNTIL ITS COLLECTIONS FILL is said so at build time too, and the
+  # number in it is measured like the one above: the build ran the scene again with every list
+  # and pool held at its capacity (see Profiler.growth_in). That is the bug a collection sized
+  # for the worst moment of a game and walked item by item every frame causes — fine for the
+  # whole of development, and too slow in the one session that fills it.
+  def self.warn_of_collections_that_fill(survey, err)
+    survey.growths.each do |growth|
+      where = growth.scene ? "The #{growth.scene.inspect} scene keeps" : "This game keeps"
+      named = growth.collections.map { |c| "#{c.label}, which can hold #{c.capacity}" }
+      full = growth.together ? "With all of them full at the same time" : "With #{named.one? ? 'it' : 'them'} full"
+      err.puts <<~MSG
+
+        #{where} up at 60 frames a second now. But it uses
+        #{named.join(', and ')}.
+        #{full}, it runs at about #{growth.reading.fps.round} frames a second, and the whole game
+        moves more slowly. To fix this, give #{named.one? ? 'it' : 'them'} a smaller capacity, or
+        do less work for each item.
       MSG
     end
   end

@@ -117,13 +117,17 @@ module RubyGBA
       # those two applies to any game (see {Flicker}), and both cost a bus read per pixel, which
       # is the dearest thing here by a wide margin. The run the BUILD makes of itself to choose
       # what goes in the quick memory wants the routine counts and nothing else, so it says no.
-      def self.run(rom, frames: FRAMES, settle: SETTLE, keys: [], enter: nil, scene: nil, from: nil,
-                   picture: true)
+      # +holding+ is words written before every frame, [address, value], to hold the game in a
+      # state it reaches only in play (see FullCollections). nil starts the game from power-on;
+      # a list, even an empty one, starts it the way a held game is started, so two held runs
+      # compare like with like.
+      def self.run(rom, frames: FRAMES, settle: SETTLE, keys: [], scene: nil, from: nil,
+                   picture: true, holding: nil)
         routines = rom.built.routines
         held = Array(keys)
         raise ArgumentError, "give `scene:` or `from:`, not both. A saved moment already says " \
                              "which scene the game was in." if from && scene
-        enter ||= scene_state(rom, scene)
+        holding = scene_state(rom, scene) + Array(holding) if scene
         reached = how_reached(scene, from)
 
         drops = rom.built.sound_drops
@@ -133,8 +137,8 @@ module RubyGBA
             measured =
               if from
                 profile_from_saved_state(probe, from, path, frames, held, drops)
-              elsif enter
-                profile_pinned_to_scene(probe, enter, frames, held, drops)
+              elsif holding
+                profile_holding_words(probe, holding, frames, held, drops)
               else
                 profile_from_boot(probe, frames, settle, held, drops)
               end
@@ -326,11 +330,12 @@ module RubyGBA
         probe.profile(frames: frames, keys: held)
       end
 
-      # Where a named scene's state lives and what value means it — so `scene: :playing` can hold
-      # the game there. A friendly error for a name the game does not have, since the alternative
-      # is silently measuring whatever screen it happened to boot to.
+      # The word to write to put the game in a named scene, as [[address, value]] (none for no
+      # scene) — so `scene: :playing` can hold the game there. A friendly error for a name the
+      # game does not have, since the alternative is silently measuring whatever screen it
+      # happened to boot to.
       def self.scene_state(rom, scene)
-        return nil unless scene
+        return [] unless scene
 
         dispatch = Analyzer.scenes(rom.built.source_program)
         raise ArgumentError, "this game has no scenes, so there is no #{scene.inspect} to profile. " \
@@ -345,7 +350,7 @@ module RubyGBA
         address = rom.built.var_addresses[dispatch[:selector]]
         raise ArgumentError, "this game's scenes are not held in a variable this can reach." unless address
 
-        { address: address, value: value }
+        [[address, value]]
       end
 
       # HOLD THE GAME IN ONE SCENE AND MEASURE THAT, without playing it there.
@@ -366,16 +371,18 @@ module RubyGBA
       # is "the routines this scene runs", which is the question the placement is asking. It is
       # not a game anybody could play — a snake that dies and is forced back is nonsense as a
       # game — and it does not need to be.
-      def self.profile_pinned_to_scene(probe, enter, frames, held, drops = nil)
+      #
+      # +writes+ are whole words, [address, value], and the scene is one of them. The others
+      # hold a collection full the same way (see FullCollections): a list the game pops from is
+      # back at its capacity on the next frame.
+      def self.profile_holding_words(probe, writes, frames, held, drops = nil)
         probe.step(BOOT_FRAMES, keys: held)
-        address = enter.fetch(:address)
-        value = enter.fetch(:value)
-        probe.write32(address, value)
+        writes.each { |address, value| probe.write32(address, value) }
         probe.step(SETTLE, keys: held)
         clear_drops(probe, drops) # the scene starts here; what it lost before it does not count
 
         frames.times.map do
-          probe.write32(address, value)
+          writes.each { |address, value| probe.write32(address, value) }
           probe.profile(frames: 1, keys: held)
         end.reduce { |a, b| add_profiles(a, b) }
       end
@@ -419,27 +426,65 @@ module RubyGBA
       def self.survey_scenes(rom, frames: FRAMES, keys: [])
         dispatch = Analyzer.scenes(rom.built.source_program)
         address = dispatch && rom.built.var_addresses[dispatch[:selector]]
-        unless address
-          whole = run(rom, frames: frames, keys: keys, picture: false)
-          return Survey.new(work: work_in(whole), scenes: { nil => whole })
+        scenes = address ? dispatch[:scenes].to_h { |name, value| [name, [[address, value]]] } : { nil => [] }
+        measured = scenes.to_h do |name, writes|
+          [name, run(rom, frames: frames, keys: keys, picture: false, holding: writes.empty? ? nil : writes)]
         end
-
-        measured = dispatch[:scenes].to_h do |name, value|
-          [name, run(rom, frames: frames, keys: keys, picture: false,
-                     enter: { address: address, value: value })]
+        collections = FullCollections.of(rom.built)
+        growths = scenes.filter_map do |name, writes|
+          growth_in(rom, name, writes, measured[name], collections, frames: frames, keys: keys)
         end
-        Survey.new(work: sum_work_across_scenes(measured.values), scenes: measured)
+        Survey.new(work: sum_work_across_scenes(measured.values), scenes: measured, growths: growths)
       end
 
       # WHAT A WHOLE GAME MEASURED, scene by scene. +work+ is what the placement is decided
       # from; +scenes+ is each scene's own reading, kept because the build warns from it — a
       # game that misses 60 frames a second is worth saying so at build time, and the build has
-      # just run it, so that costs nothing extra.
-      Survey = Data.define(:work, :scenes) do
+      # just run it, so that costs nothing extra. +growths+ are the scenes that keep up as the
+      # game stands and would not with its collections full (see #growth_in).
+      Survey = Data.define(:work, :scenes, :growths) do
+        def initialize(work:, scenes:, growths: [])
+          super
+        end
+
         # The scenes that did not keep up, slowest first. A game is only ever in one scene at a
         # time, so one slow scene is a slow game whatever the others do.
         def slow_scenes = scenes.reject { |_, r| r.frames.zero? || !r.dropping_frames? }
                                .sort_by { |_, r| r.fps }
+      end
+
+      # A scene that keeps up now and falls behind once its collections fill. +reading+ is the
+      # scene measured with every collection held full; +collections+ are the ones that do it
+      # on their own, or all of them where none does alone (+together+).
+      Growth = Data.define(:scene, :reading, :collections, :together)
+
+      # WHETHER A SCENE KEEPS UP WITH EVERY COLLECTION FULL, measured: the scene again, with each
+      # list and pool the game declared held at its capacity. Only a scene that keeps up as it
+      # stands is asked — one that does not is already said, and full only makes it worse.
+      #
+      # WHICH COLLECTION IS TO BLAME is measured too, by holding each one full on its own. That
+      # costs a run for each, so it is paid only by a scene that falls behind. Where no one of
+      # them does it alone, it is several at once, and the warning names those that each made
+      # the scene do more work — not every collection in the game, since a scene that never
+      # touches a list leaves the same share of its frame spare with that list full.
+      def self.growth_in(rom, scene, writes, now, collections, frames:, keys:)
+        return nil if collections.empty? || now.frames.zero? || now.dropping_frames?
+
+        measure = ->(held) { run(rom, frames: frames, keys: keys, picture: false, holding: writes + held) }
+        full = measure.call(collections.flat_map(&:writes))
+        return nil unless full.dropping_frames?
+        return Growth.new(scene: scene, reading: full, collections: collections, together: false) if collections.one?
+
+        alone = collections.to_h { |collection| [collection, measure.call(collection.writes)] }
+        behind = alone.select { |_, reading| reading.dropping_frames? }.keys
+        return Growth.new(scene: scene, reading: full, collections: behind, together: false) if behind.any?
+
+        # Against the scene measured the same way with nothing full, not +now+: a game with no
+        # scenes is measured from power-on there, and a different start leaves a different share
+        # of the frame spare.
+        base = measure.call([])
+        busier = alone.select { |_, reading| reading.idle_share < base.idle_share }.keys
+        Growth.new(scene: scene, reading: full, collections: busier, together: true)
       end
 
       def self.sum_work_across_scenes(results)

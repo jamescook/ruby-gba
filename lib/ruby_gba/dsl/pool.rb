@@ -86,9 +86,23 @@ module RubyGBA
 
       def field_list(field) = :"__pool_#{@name}_#{field}"
       def current_var = :"__pool_#{@name}_current"
-      def active_list = :"__pool_#{@name}_active"
-      def free_list = :"__pool_#{@name}_free"
-      def count_var = :"__pool_#{@name}_count"
+      def active_list = Pool.active_list(@name)
+      def free_list = Pool.free_list(@name)
+      def count_var = Pool.count_var(@name)
+
+      # The three that say how many instances are live, by the pool's name alone: which slots
+      # are (a byte each, 1 for live), the stack of slots that are free, and the count. They are
+      # what a finished cartridge is written to hold a pool full (see
+      # Diagnostics::FullCollections), so they are spelled here once for both.
+      def self.active_list(name) = :"__pool_#{name}_active"
+      def self.free_list(name) = :"__pool_#{name}_free"
+      def self.count_var(name) = :"__pool_#{name}_count"
+
+      # The pool whose live-slot column +list+ is, or nil when it is not one.
+      def self.named_by_active_list(list)
+        found = list.to_s.match(/\A__pool_(?<pool>.+)_active\z/)
+        found && found[:pool].to_sym
+      end
       def slot_var = :"__pool_#{@name}_slot"
 
       # Recycle-oldest bookkeeping (allocated only for an :recycle_oldest pool): a
