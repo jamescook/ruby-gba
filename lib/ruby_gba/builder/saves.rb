@@ -3,9 +3,12 @@
 module RubyGBA
   class Builder
     # EVERY `save_data` RECORD A GAME DECLARES, and the machinery behind them: the routines each
-    # record is built into (SaveRecords), the table saying where each lives (SavePlaces), the
-    # queue that writes saves a piece a pass (SaveJobs), and the order a half is written in
-    # (SaveHalf). One object the Builder holds, rather than four add-ons sharing its insides.
+    # record is built into (SaveRecords, mixed in here), and three objects of their own it makes
+    # and hands what they need — the table saying where each record lives (SavePlaces), the
+    # queue that writes saves a piece a pass (SaveJobs), and where a copy's halves are and the
+    # order one is written in (SaveHalf). Each of those keeps its own state and is given the
+    # records and the save memory, rather than reading them out of this object. One object the
+    # Builder holds, rather than four add-ons sharing its insides.
     #
     # It builds program the way the Builder does — recording statements, declaring routines,
     # adding to what runs at power-on — and it asks the Builder for exactly those things
@@ -22,11 +25,9 @@ module RubyGBA
       Port = Data.define(:handle, :record, :repeat, :at_boot, :ensure_var, :declare_func, :run_each_pass,
                          :start_value, :list_new_node, :save_var, :saved_vars, :pool_refill, :save_memory)
 
+      include SaveProgram
       include SaveRecords
       include SaveVarRecord
-      include SavePlaces
-      include SaveJobs
-      include SaveHalf
 
       def initialize(port)
         @port = port
@@ -35,8 +36,9 @@ module RubyGBA
         @save_data_kept = {}     # a kept variable or list → the record that keeps it
         @save_data_peeks = {}    # a peek's stand-in → the SaveRecords::PeekSite it stands for
         @save_data_settled = false # true once the records are laid out, and nothing more can be kept
-        @save_table = nil        # the table of places' own layout, made when the records are laid out
         @save_memory_layout = nil # the IR::SaveLayout::Memory they are laid out in, picked then too
+        @halves = nil            # the SaveHalf for that memory, made then too
+        @jobs = nil              # the SaveJobs queue, made with the first record
       end
 
       def records? = @save_data.any?
@@ -71,14 +73,6 @@ module RubyGBA
       end
 
       private
-
-      def handle = @port.handle
-      def record(node) = @port.record.call(node)
-      def repeat(...) = @port.repeat.call(...)
-      def at_boot(node) = @port.at_boot.call(node)
-      def ensure_var(name) = @port.ensure_var.call(name)
-      def declare_func(name, &body) = @port.declare_func.call(name, &body)
-      def run_each_pass(name) = @port.run_each_pass.call(name)
 
       # What the game declared +name+ with, as a value node, or nil.
       def start_value(name) = @port.start_value.call(name)

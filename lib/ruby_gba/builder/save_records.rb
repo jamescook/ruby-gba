@@ -129,8 +129,10 @@ module RubyGBA
 
         refuse_records_over_save_memory!
         @save_memory_layout = IR::SaveLayout.memory(save_memory)
-        declare_save_places
-        declare_save_job_routines
+        @halves = SaveHalf.new(@port, memory: @save_memory_layout)
+        SavePlaces.new(@port, memory: @save_memory_layout, records: @save_data,
+                              table_record: method(:declare_table_record)).declare
+        @jobs.lay_out(memory: @save_memory_layout, halves: @halves)
         @save_data.each_value { |layout| declare_save_data_record(layout) }
         declare_save_var_saving
       end
@@ -153,6 +155,13 @@ module RubyGBA
         def scratch(what) = Messages::MadeNames.make(:save_record, record: name, piece: what)
         def directory(what) = Messages::MadeNames.make(:save_directory, record: name, kept: what)
         def place_node = place.is_a?(Integer) ? Build.int(place) : Build.var_ref(place)
+        # What the game knows about copy +copy+ without reading save memory (see
+        # SaveRecords#declare_save_data_lists), as a value node.
+        def directory_at(what, copy) = Build.list_get(directory(what), copy)
+        # Whether +copy+ is a copy this record has, as a value node: 1 or 0.
+        def copy_in_range(copy)
+          Build.binop(:&, Build.binop(:>=, copy, Build.int(0)), Build.binop(:<, copy, Build.int(copies)))
+        end
       end
 
       private
@@ -160,7 +169,7 @@ module RubyGBA
       # A record's layout before what it keeps is known, counted against the records a game
       # can have, with the variables its routines work in declared.
       def new_record_layout(name, copies:, when_busy:)
-        declare_save_jobs if @save_data.empty?
+        @jobs ||= SaveJobs.new(@port, records: @save_data)
         place = Messages::MadeNames.make(:save_record, record: name, piece: :place)
         layout = Layout.new(name: name, copies: copies, kept: nil, body: nil, half: nil, place: place,
                             shape: nil, key: IR::SaveLayout.record_key(name),
@@ -280,16 +289,16 @@ module RubyGBA
       # One record's lists, buffer, power-on scans and routines, once it is laid out.
       def declare_save_data_record(layout)
         declare_save_data_lists(layout)
-        declare_save_snapshot_buffer(layout)
+        @jobs.declare_snapshot_buffer(layout)
         layout.copies.times do |copy|
           at_boot(Build.set(layout.scratch(:copy), Build.int(copy)))
           at_boot(Build.call(layout.routine(:scan)))
         end
         declare_save_data_routines(layout, %i[scan load reset])
         { save: SaveJobs::SAVE, erase: SaveJobs::ERASE, copy: SaveJobs::COPY }.each do |job, kind|
-          declare_func(layout.routine(job)) { save_job_request(layout, kind) }
+          declare_func(layout.routine(job)) { @jobs.emit_request(layout, kind) }
         end
-        declare_func(layout.routine(:step)) { save_job_run_phase(layout) }
+        declare_func(layout.routine(:step)) { @jobs.emit_run_phase(layout) }
       end
 
       # The variables a record's routines work in, and the one its place in save memory is
@@ -310,41 +319,21 @@ module RubyGBA
         end
       end
 
+      # The table of places, laid out and declared the way a record is, with only the routines
+      # it needs: it is found at power-on, read, and written back (see SavePlaces).
+      def declare_table_record(kept, place:)
+        table = lay_out_save_data(:__table, 1, kept, place: place)
+        declare_save_data_vars(table)
+        declare_save_data_lists(table)
+        declare_save_data_routines(table, %i[scan save load])
+        table
+      end
+
       def declare_save_data_routines(layout, jobs = %i[scan save load erase copy reset])
         jobs.each { |job| declare_func(layout.routine(job)) { send(:"save_data_#{job}", layout) } }
       end
 
       # --- the routines' bodies, run while the routines are built ---
-
-      def sd_int(value) = Build.int(value)
-      def sd_var(name) = Build.var_ref(name)
-      def sd_add(lhs, rhs) = Build.binop(:+, lhs, rhs)
-      def sd_eq(lhs, rhs) = Build.binop(:==, lhs, rhs)
-      def sd_and(lhs, rhs) = Build.binop(:&, lhs, rhs)
-      def sd_read(at, width = :word) = Build.save_read(at, width: width)
-      def sd_when(test, &block) = DSL::Condition.new(handle, test).then(&block)
-
-      # Where one half of copy +copy+ starts: the record's place, two halves a copy, each as far
-      # from the last as the save memory gives a half (see IR::SaveLayout::Memory#room).
-      def sd_half_at(layout, copy, half)
-        room = @save_memory_layout.room(layout.half)
-        sd_add(layout.place_node, sd_add(Build.binop(:*, copy, sd_int(room * 2)), Build.binop(:*, half, sd_int(room))))
-      end
-
-      # Where copy +copy+'s newer half starts. A copy with no good half says -1 for which is
-      # newer, so it is held to 0 or 1: a reading of such a copy is thrown away, but the place it
-      # read from is still a place in save memory, which a 128K chip reaches by switching to the
-      # bank it is in.
-      def sd_newer_half_at(layout, copy)
-        sd_half_at(layout, copy, Build.clamped(sd_directory(layout, :half, copy), sd_int(0), sd_int(1)))
-      end
-
-      # The copy asked for is one this record has.
-      def sd_in_range(layout, copy)
-        sd_and(Build.binop(:>=, copy, sd_int(0)), Build.binop(:<, copy, sd_int(layout.copies)))
-      end
-
-      def sd_directory(layout, what, copy) = Build.list_get(layout.directory(what), copy)
 
       # LOOK ONE COPY OVER: which half is good and newer, and so what the copy is.
       #
@@ -358,7 +347,7 @@ module RubyGBA
         started = sd_int(0)
         2.times do |half|
           at = layout.scratch(:"at#{half}")
-          record(Build.set(at, sd_half_at(layout, copy, sd_int(half))))
+          record(Build.set(at, @halves.half_at(layout, copy, sd_int(half))))
           here = sd_var(at)
           marked = sd_and(sd_eq(sd_read(sd_add(here, sd_int(IR::SaveLayout::MARKER_AT))), sd_int(IR::SaveLayout::MARKER)),
                           sd_eq(sd_read(sd_add(here, sd_int(IR::SaveLayout::SHAPE_AT))), sd_int(layout.shape)))
@@ -383,7 +372,7 @@ module RubyGBA
           record(Build.list_set(layout.directory(:state), copy,
                                 Build.binop(:*, sd_var(layout.scratch(:started)), sd_int(state.index(:damaged)))))
         end.else do
-          at = sd_half_at(layout, copy, sd_var(winner))
+          at = @halves.half_at(layout, copy, sd_var(winner))
           record(Build.set(layout.scratch(:at), at))
           record(Build.list_set(layout.directory(:seq), copy,
                                 sd_read(sd_add(sd_var(layout.scratch(:at)), sd_int(IR::SaveLayout::SEQUENCE_AT)))))
@@ -436,12 +425,12 @@ module RubyGBA
       # block writes, closed.
       def save_data_write(layout, kind)
         copy = sd_var(layout.scratch(:copy))
-        sd_when(sd_in_range(layout, copy)) do
-          record(Build.set(layout.scratch(:at), half_to_write(layout, copy)))
+        sd_when(layout.copy_in_range(copy)) do
+          record(Build.set(layout.scratch(:at), @halves.half_to_write(layout, copy)))
           here = sd_var(layout.scratch(:at))
-          emit_half_header(layout, here)
+          @halves.emit_half_header(layout, here)
           yield sd_add(here, sd_int(IR::SaveLayout::HEADER))
-          emit_half_commit(layout, here, copy, kind)
+          @halves.emit_half_commit(layout, here, copy, kind)
         end
       end
 
@@ -460,10 +449,10 @@ module RubyGBA
       # game can load its settings at power-on with no test around it.
       def save_data_load(layout)
         copy = sd_var(layout.scratch(:copy))
-        good = sd_eq(sd_directory(layout, :state, copy), sd_int(IR::SaveLayout::STATES.index(:good)))
-        sd_when(sd_in_range(layout, copy)) do
+        good = sd_eq(layout.directory_at(:state, copy), sd_int(IR::SaveLayout::STATES.index(:good)))
+        sd_when(layout.copy_in_range(copy)) do
           sd_when(good) do
-            record(Build.set(layout.scratch(:at), sd_newer_half_at(layout, copy)))
+            record(Build.set(layout.scratch(:at), @halves.newer_half_at(layout, copy)))
             body = sd_add(sd_var(layout.scratch(:at)), sd_int(IR::SaveLayout::HEADER))
             layout.kept.each { |item| emit_read_kept_item(item, body) }
           end
@@ -529,7 +518,7 @@ module RubyGBA
       # asks for a job (see SaveJobs); a load reads save memory, so the record's jobs are
       # finished first.
       def emit_save_data_call(layout, job, copy)
-        finish_save_jobs_of(layout) if job == :load
+        @jobs.emit_finish_jobs_of(layout) if job == :load
         record(Build.set(layout.scratch(:copy), copy))
         record(Build.call(layout.routine(job)))
       end
@@ -543,14 +532,14 @@ module RubyGBA
       # does not have reads as empty. It is read from save memory, so the record's jobs are
       # finished first, just before the line that asks.
       def save_data_state_after_jobs(layout, copy)
-        finish_save_jobs_of(layout)
+        @jobs.emit_finish_jobs_of(layout)
         save_data_state_node(layout, copy)
       end
 
       def save_data_state_node(layout, copy)
-        within = sd_in_range(layout, copy)
+        within = layout.copy_in_range(copy)
         index = Build.clamped(copy, sd_int(0), sd_int(layout.copies - 1))
-        Build.binop(:*, within, sd_directory(layout, :state, index))
+        Build.binop(:*, within, layout.directory_at(:state, index))
       end
 
       # ONE PEEK AT A COPY, written wherever the game reads it — which on a file-select screen
@@ -565,7 +554,7 @@ module RubyGBA
       PeekSite = Data.define(:record, :name, :copy, :shape, :index)
 
       def peek_stand_in(layout, copy, name, shape, index: nil)
-        finish_save_jobs_of(layout)
+        @jobs.emit_finish_jobs_of(layout)
         stand_in = Messages::MadeNames.make(:save_record, record: layout.name, piece: :"peek#{@save_data_peeks.size}")
         @save_data_peeks[stand_in] = PeekSite.new(record: layout.name, name: name, copy: copy, shape: shape,
                                                   index: index)
@@ -654,7 +643,7 @@ module RubyGBA
       def save_data_peek(layout, copy, item, index: nil, length: false)
         which = Build.clamped(copy, sd_int(0), sd_int(layout.copies - 1))
         good = sd_eq(save_data_state_node(layout, copy), sd_int(IR::SaveLayout::STATES.index(:good)))
-        body = sd_add(sd_newer_half_at(layout, which), sd_int(IR::SaveLayout::HEADER))
+        body = sd_add(@halves.newer_half_at(layout, which), sd_int(IR::SaveLayout::HEADER))
         return Build.binop(:*, good, sd_read(item.value_at(body))) if item.kind == :var || length
 
         saved = Build.clamped(sd_read(item.value_at(body)), sd_int(0), sd_int(item.count))
@@ -672,10 +661,7 @@ module RubyGBA
       def save_data_finished(layout) = sd_eq(sd_var(layout.scratch(:finished)), sd_int(1))
 
       # Whether one of this record's jobs is still in hand — running, or waiting its turn.
-      def save_data_saving(layout)
-        mine = ->(which) { sd_eq(job_var(:"#{which}_rec"), sd_int(layout.number)) }
-        Build.binop(:|, mine.call(:run), mine.call(:wait))
-      end
+      def save_data_saving(layout) = @jobs.saving(layout)
 
       private :kept_item_for, :refuse_non_state_keep!, :save_data_state_node
     end

@@ -56,10 +56,10 @@ module RubyGBA
 
       # Declare the record of the saved variables +saved_vars+ (IR::SavedVar), laid out beside
       # the records already laid out — if the game has any and its save memory is flash.
-      # +memory+ is the save memory the records so far need, in kilobytes, or nil when they
-      # fit none (which is refused next, whatever this does).
+      # +memory+ is the save memory the cartridge has, in kilobytes (see IR::SaveLayout.chosen);
+      # records that fit no memory at all are refused next, whatever this does.
       def lay_out_save_var_record(saved_vars, memory)
-        return if saved_vars.empty? || memory.nil? || !IR::SaveLayout.memory(memory).flash?
+        return if saved_vars.empty? || !IR::SaveLayout.memory(memory).flash?
 
         layout = new_record_layout(SAVE_VAR_RECORD, copies: 1, when_busy: :wait)
         %i[changed spacing count].each { |what| ensure_var(layout.scratch(what)) }
@@ -96,7 +96,7 @@ module RubyGBA
       def emit_save_var_autosave(layout)
         spacing = layout.scratch(:spacing)
         changed = layout.scratch(:changed)
-        idle = sd_and(sd_eq(job_var(:run_rec), sd_int(0)), sd_eq(job_var(:wait_rec), sd_int(0)))
+        idle = @jobs.idle
         sd_when(Build.binop(:>, sd_var(spacing), sd_int(0))) do
           record(Build.set(spacing, Build.binop(:-, sd_var(spacing), sd_int(1))))
         end.else do
