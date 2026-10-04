@@ -95,16 +95,23 @@ module RubyGBA
       # font lacks are skipped — reserving a max-width cell so a missing glyph leaves a
       # gap rather than colliding — and pixels clip in the caller's set_pixel.
       def each_pixel(text)
-        base_x = 0
-        text.each_char do |ch|
-          rows = glyph(ch)
+        each_glyph_x(text) do |ch, base_x|
+          rows = glyph(ch) or next
           w = glyph_width(ch)
-          if rows
-            rows.each_with_index do |row, y|
-              w.times { |x| yield base_x + x, y if (row >> (w - 1 - x)) & 1 == 1 }
-            end
+          rows.each_with_index do |row, y|
+            w.times { |x| yield base_x + x, y if (row >> (w - 1 - x)) & 1 == 1 }
           end
-          base_x += (w || @max_width) + @spacing
+        end
+      end
+
+      # Yield each character of +text+ with the column it starts at — the pen's walk,
+      # which every screen makes the same way: each glyph's own width and a gap, and a
+      # character the font lacks taking the widest glyph's room.
+      def each_glyph_x(text)
+        pen = 0
+        text.each_char do |ch|
+          yield ch, pen
+          pen += (glyph_width(ch) || @max_width) + @spacing
         end
       end
 

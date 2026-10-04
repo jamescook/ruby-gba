@@ -131,7 +131,7 @@ module RubyGBA
         end
         colors = text_colors!(color, showing)
         chosen = IR::FontTable.of(@program).get(font) # fail early with a friendly error on an unknown font name
-        x = column_for(x, drawn_width(text, chosen), within, "draw_text")
+        x = column_for(x, chosen.text_width(text), within, "draw_text")
 
         # A tiled screen has no framebuffer to paint into, so text is drawn as little
         # sprite glyphs the console composites each frame — declared once, like a
@@ -213,7 +213,7 @@ module RubyGBA
           raise ArgumentError, "text_width measures words (a String). Got #{text.inspect}."
         end
 
-        drawn_width(text, IR::FontTable.of(@program).get(font))
+        IR::FontTable.of(@program).get(font).text_width(text)
       end
 
       # How tall one line of text is, in pixels — the other side of a box round it.
@@ -325,19 +325,6 @@ module RubyGBA
         [first, within.last - first + (within.exclude_end? ? 0 : 1)]
       end
 
-      # How wide TEXT really comes out — which depends on how this screen draws it.
-      # A bitmap screen plots the glyphs itself and advances by each one's own width,
-      # so a proportional font packs tighter. A tiled screen has no pixels to plot
-      # into: every character is its own little sprite, laid on a fixed grid one cell
-      # apart so the columns of a HUD line up. Measuring the way the screen actually
-      # draws is the whole point, so this asks the mode rather than the font alone.
-      def drawn_width(text, font)
-        return 0 if text.empty?
-        return (text.length * font.cell_w) - font.spacing if TILE_HARDWARE_MODES.include?(@screen_mode)
-
-        font.text_width(text)
-      end
-
       # A number known at build time: right-align its glyphs in the field now. The
       # column step is the chosen font's cell width, so a narrower font packs tighter.
       def draw_fixed_number(number, x, y, color, digits, font)
@@ -422,11 +409,10 @@ module RubyGBA
       # A glyph fits in one 8x8 sprite tile.
       HUD_GLYPH_PX = 8
 
-      # Draw a fixed string as a row of glyph sprites at (x, y), advancing one font
-      # cell per character. A space or a character the font lacks draws nothing but
-      # still takes its column, so words stay aligned — the column comes from the
-      # character's place in the string, not from what came before it, so leaving one
-      # out moves nothing.
+      # Draw a fixed string as a row of glyph sprites at (x, y), each advancing by its
+      # own width the way the bitmap pen does, so a proportional font stays proportional.
+      # A space or a character the font lacks draws nothing but still takes its room, so
+      # leaving its sprite out moves nothing after it.
       #
       # And leaving it out is worth doing: the console draws 128 sprites at once, a
       # character is one of them, and a sprite with no lit pixels in it would spend a
@@ -445,11 +431,11 @@ module RubyGBA
       def draw_text_tiled(text, x, y, colors, font, showing)
         f = IR::FontTable.of(@program).get(font)
         pose = colors.length == 1 ? Build.int(0) : glyph_color_pose(showing)
-        text.each_char.with_index do |ch, i|
+        f.each_glyph_x(text) do |ch, dx|
           next if f.glyph_pixels(ch).zero? # a space, or a character the font lacks: nothing to draw
 
           hud_glyph_object(poses: colors.map { |c| glyph_image(font, ch, c) }, pose: pose.copy,
-                           x: x + i * f.cell_w, y: y)
+                           x: x + dx, y: y)
         end
         nil
       end

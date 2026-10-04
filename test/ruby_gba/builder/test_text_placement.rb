@@ -139,13 +139,13 @@ class TestTextPlacement < Minitest::Test
     refute_equal WHITE, s.pixel(92, Y), "92 is where the old length-times-four guess put it"
   end
 
-  # --- a tiled screen measures the grid its glyphs are laid on ------------------
+  # --- a tiled screen spaces its letters the way a bitmap one does ---------------
 
-  # On a tiled screen there are no pixels to plot into: each character is its own
-  # little sprite on a fixed grid, one cell apart, so a HUD's columns line up. That is
-  # a DIFFERENT width from the same string drawn proportionally, and centring has to
-  # use the one the screen will really draw — 11 across here, not 7.
-  def test_a_tiled_screen_centres_on_the_grid_not_on_the_proportional_width
+  # On a tiled screen each character is its own little sprite, and a sprite can stand
+  # at any column — so the letters advance by their own widths there too, and "IM" is
+  # 7 across on either screen rather than spaced for an M twice. Asked of the console
+  # as well, since it is the console that places the sprites.
+  def test_a_tiled_screen_spaces_a_proportional_font_by_each_letter
     b = Builder.new
     define_demo_font(b)
     b.instance_eval do
@@ -155,13 +155,35 @@ class TestTextPlacement < Minitest::Test
     end
     b.finalize_program
     @built = b.program
-    s = Reference.new.run(@built, max_steps: 500).screen
+    left = (SCREEN - IM_WIDE) / 2
 
-    cell = built.fonts.get(:vari).cell_w
-    left = (SCREEN - ((2 * cell) - 1)) / 2
-    assert_equal 114, left, "the grid is 11 across, where the proportional line is 7"
-    assert_text_at s, "I", left, Y, font: :vari
-    assert_text_at s, "M", left + cell, Y, font: :vari
+    assert_text_at Reference.new.run(@built, frames: 1).screen, "IM", left, Y, font: :vari
+    v = assert_emulator_loads_rom(assemble_rom(@built, name: "TILEDVARI"), frames: 3)
+    assert_equal [left, left + 2], v.sprites.map(&:x).sort, "the I is one pixel and a gap"
+  end
+
+  # A LIVE NUMBER KEEPS ITS COLUMNS, proportional font or not, so a digit that changes
+  # never moves the ones beside it: "18" in a font where 1 is one pixel and 8 is five
+  # still puts its 8 a whole cell along, on both runners.
+  def test_a_live_number_on_a_tiled_screen_keeps_a_column_per_digit
+    b = Builder.new
+    b.instance_eval do
+      font :digits do
+        glyph "1", "#\n#\n#\n#\n#"
+        glyph "8", "#####\n#...#\n#####\n#...#\n#####"
+      end
+      screen :tiled
+      score = var :score, 18
+      draw_number score, 100, Y, :white, digits: 2, font: :digits
+      game_loop { halt }
+    end
+    b.finalize_program
+    program = b.program
+    cell = program.fonts.get(:digits).cell_w
+
+    assert_equal [100, 100 + cell], Reference.new.run(program, frames: 2).sprites.map(&:x).sort
+    v = assert_emulator_loads_rom(assemble_rom(program, name: "LIVECOLS"), frames: 4)
+    assert_equal [100, 100 + cell], v.sprites.map(&:x).sort
   end
 
   # --- a number places its FIELD -------------------------------------------------
@@ -201,7 +223,7 @@ class TestTextPlacement < Minitest::Test
     assert_equal [IM_WIDE, 0, 5], measured
   end
 
-  def test_text_width_on_a_tiled_screen_reports_the_grid
+  def test_text_width_on_a_tiled_screen_is_the_same_as_on_a_bitmap_one
     measured = nil
     b = Builder.new
     define_demo_font(b)
@@ -210,7 +232,7 @@ class TestTextPlacement < Minitest::Test
       measured = text_width("IM", font: :vari)
     end
 
-    assert_equal 11, measured, "one cell per character, no trailing gap"
+    assert_equal IM_WIDE, measured, "each letter its own width, not 11 for two cells"
   end
 
   # A box drawn round a label is the reason measuring is worth having on its own.
