@@ -136,6 +136,23 @@ class TestIRGuardrailRoutineNeverCalled < Minitest::Test
     assert_equal [:setup], found.map { |finding| finding.node.name }
   end
 
+  # A second handler for the same timer replaces the first, so what only the first calls
+  # never runs.
+  def test_a_routine_called_only_from_a_replaced_handler_is_named
+    found = findings do
+      screen :bitmap
+      var :ticks, 0
+      func(:old_tick) { add! :ticks, 1 }
+      func(:new_tick) { add! :ticks, 2 }
+      clock = timer :clock, per_second: 60
+      clock.on_tick { call :old_tick }
+      clock.on_tick { call :new_tick }
+      game_loop { wait_vblank }
+    end
+
+    assert_equal [:old_tick], found.map { |finding| finding.node.name }
+  end
+
   def test_a_routine_called_from_every_and_after_is_quiet
     assert_empty(findings do
       screen :bitmap

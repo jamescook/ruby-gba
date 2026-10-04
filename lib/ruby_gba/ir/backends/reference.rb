@@ -416,10 +416,12 @@ module RubyGBA
         end
 
         # Register every definition in the tree up front — funcs, named sound
-        # effects, and songs — so an op can refer to one defined later in the
-        # program (a forward reference), the same resolve-names-first move the GBA
-        # lowering makes with labels.
+        # effects, songs and timer handlers — so an op can refer to one defined later in
+        # the program (a forward reference), the same resolve-names-first move the GBA
+        # lowering makes with labels. A handler is armed here rather than where it is
+        # written, since it is its timer's from power-on (see Nodes::OnTimer.of).
         def collect_definitions(node)
+          @timer_handlers = Nodes::OnTimer.of(node)
           node.walk do |n|
             case n.kind
             when :func
@@ -910,11 +912,9 @@ module RubyGBA
           @timers[node.name]&.[]=(:running, false)
         end
 
-        def exec_on_timer(node)
-          # Arm the handler: its body runs on each of the timer's overflows, which
-          # advance_frame drives as the timer accrues them.
-          @timer_handlers[node.timer] = node
-        end
+        # Reaching the line does nothing: the handler was armed before the run began (see
+        # #collect_definitions), and advance_frame runs its body on each overflow.
+        def exec_on_timer(_node); end
 
         # One vblank: snapshot the current buttons as "previous" (so an edge can
         # be spotted), advance the frame counter, and pull the next frame's input

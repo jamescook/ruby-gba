@@ -128,8 +128,7 @@ module RubyGBA
           # partner in the very next slot. Runs during the definitions pass.
           def register_timers(program)
             counted = program.walk.select { |n| n.kind == :timer_ticks }.map { |n| n.name }.to_set
-            handlers = {}
-            program.walk.each { |n| handlers[n.timer] = n if n.kind == :on_timer } # last wins if repeated
+            handlers = IR::Nodes::OnTimer.of(program)
             program.walk.select { |n| n.kind == :timer_start }.each do |node|
               register_timer(node.name, counted.include?(node.name), handlers[node.name], node.hz)
             end

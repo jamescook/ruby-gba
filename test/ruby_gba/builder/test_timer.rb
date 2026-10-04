@@ -150,6 +150,53 @@ class TestTimer < Minitest::Test
     assert_equal 5, run_on_tick(per_second: 60, stop_frame: 10, stop_at: 5)[:hits]
   end
 
+  # A HANDLER IS THE TIMER'S, NOT THE LINE'S. `on_tick` says what a timer does when it
+  # ticks, the way `once_a_frame` says what happens each frame, so a handler written inside
+  # a routine nothing calls still answers every tick once the timer runs — on both runners.
+  def test_a_handler_inside_a_routine_nothing_calls_still_runs
+    b = Builder.new
+    b.instance_eval do
+      screen :bitmap
+      clear_screen :black
+      var :hits, 0
+      beat = timer :beat, per_second: 60
+      func(:setup) { beat.on_tick { add! :hits, 1 } }
+      game_loop { wait_vblank }
+    end
+    b.finalize_program
+    backend = GBA.new
+    rom = ROM.assemble(backend.lower(b.program), title: "TICKU", maker: "01")
+    console = assert_emulator_loads_rom(rom, frames: 20, vars: backend.var_addresses).var(:hits)
+
+    assert_equal 10, Reference.new.run(b.program, frames: 10)[:hits]
+    assert console.between?(10, 30), "the handler should have run ~20 times over 20 frames, got #{console}"
+  end
+
+  # A second handler for the same timer replaces the first rather than running beside it,
+  # on both runners.
+  def test_a_second_handler_for_a_timer_replaces_the_first
+    b = Builder.new
+    b.instance_eval do
+      screen :bitmap
+      clear_screen :black
+      var :first, 0
+      var :second, 0
+      beat = timer :beat, per_second: 60
+      beat.on_tick { add! :first, 1 }
+      beat.on_tick { add! :second, 1 }
+      game_loop { wait_vblank }
+    end
+    b.finalize_program
+    backend = GBA.new
+    rom = ROM.assemble(backend.lower(b.program), title: "TICKTWO", maker: "01")
+    v = assert_emulator_loads_rom(rom, frames: 20, vars: backend.var_addresses)
+    i = Reference.new.run(b.program, frames: 10)
+
+    assert_equal [0, 10], [i[:first], i[:second]]
+    assert_equal 0, v.var(:first), "the replaced handler never runs on the console"
+    assert v.var(:second).between?(10, 30), "the second handler runs, got #{v.var(:second)}"
+  end
+
   # --- hardware: the timer really runs on the console ---
 
   def test_the_timer_counts_on_the_console

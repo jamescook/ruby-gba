@@ -24,8 +24,9 @@ module RubyGBA
         # and calls for itself are not the author's to hear about, and are left out.
         #
         # A routine called only from one nothing calls is named too: it never runs either.
-        # The one exception is a timer's handler, which the console installs wherever it is
-        # written, so its calls count even inside a routine nothing calls.
+        # The one exception is a timer's handler, which is its timer's wherever it is
+        # written, so its calls count even inside a routine nothing calls — unless a later
+        # handler for the same timer replaced it (see Nodes::OnTimer.of).
         class RoutineNeverCalled
           NAME = :routine_never_called
           PLAIN_NAME = "a routine nothing calls"
@@ -42,7 +43,7 @@ module RubyGBA
 
           def reached_routines(program, routines)
             reached = Set.new
-            handlers = program.walk.select { |node| node.kind == :on_timer }
+            handlers = Nodes::OnTimer.of(program).values
             waiting = callees_outside_routines(program.children + handlers.flat_map(&:children))
             until waiting.empty?
               name = waiting.pop
@@ -56,8 +57,10 @@ module RubyGBA
 
           # Every routine named by a call in +statements+, not counting the bodies of routines
           # declared among them — a routine runs when it is called, not where it is written.
+          # Nor the bodies of timer handlers: those count once each, from the handlers that
+          # are really in force, whoever wrote them where.
           def callees_outside_routines(statements)
-            statements.reject { |node| node.kind == :func }.flat_map do |node|
+            statements.reject { |node| %i[func on_timer].include?(node.kind) }.flat_map do |node|
               node.callees + callees_outside_routines(node.children)
             end
           end

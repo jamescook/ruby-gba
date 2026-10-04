@@ -657,6 +657,14 @@ module RubyGBA
         kind :on_timer
         category :control
         operands timer: :name
+
+        # The handler each timer answers its ticks with, timer name -> node. A handler is its
+        # timer's from power-on wherever it is written — inside a routine nothing calls too —
+        # and a second one for the same timer replaces the first. Every backend asks here, so
+        # none of them can settle that differently.
+        def self.of(program)
+          program.walk.select { |node| node.kind == :on_timer }.to_h { |node| [node.timer, node] }
+        end
       end
 
       class Pixel

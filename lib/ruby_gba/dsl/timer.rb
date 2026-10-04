@@ -41,6 +41,10 @@ module RubyGBA
       # game generally reaches for those friendlier verbs rather than an on_tick handler
       # directly. Note the handler runs "between" the game loop's steps, so if it and the
       # loop change the same variable they can race — have the handler own what it touches.
+      #
+      # The handler is the timer's from power-on, wherever the line is written, the same as
+      # `once_a_frame`: one inside a routine nothing calls still runs once the timer does,
+      # and a second for the same timer replaces the first.
       def on_tick(&block)
         @builder.record_container(IR::Build.on_timer(@name), &block)
         self
