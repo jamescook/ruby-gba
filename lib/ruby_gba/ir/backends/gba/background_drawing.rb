@@ -388,6 +388,20 @@ module RubyGBA
             write_reg16(REG_BG2PD, FIXED_ONE)
             store_word_immediate(0, REG_BG2X)
             store_word_immediate(0, REG_BG2Y)
+            forget_told_turns
+          end
+
+          # The display has just been put back upright, so whatever turn and size it was last
+          # told are no longer on it. A turn is only told again when it differs from the one
+          # told last (see Builder#affine_write_if_changed), so forgetting the size — which is
+          # never nought — makes the next frame tell it the turn the game has now. Without this a
+          # background turned before a screen of another kind came back upright after it.
+          def forget_told_turns
+            @layout.screen.backgrounds.each do |name, background|
+              next unless background.affine
+
+              store_word_immediate(0, var_addr(Messages::MadeNames.make(:told_turn, background: name, part: :size)))
+            end
           end
 
           # Point the console's rotate/scale layer (BG2) at an affine background's map

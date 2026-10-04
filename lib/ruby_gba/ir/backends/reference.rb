@@ -778,13 +778,38 @@ module RubyGBA
           # scene's scenery is put up again when it comes back rather than taken as still
           # there. A switch between single- and double-buffered bitmap keeps the same
           # surface, so it wipes nothing.
-          if IR::SceneHandover.crossing?(@screen_mode, node.mode)
+          crossing = IR::SceneHandover.crossing?(@screen_mode, node.mode)
+          if crossing
             @screen.clear(0)
             reset_scenery_state
           end
           @screen_mode = node.mode
           @buffered = node.buffered || false
           @screen.paged = @buffered
+          put_up_always_up if crossing && IR::SceneHandover.tiles?(node.mode)
+        end
+
+        # Arrive on the screen a scene draws on, for a scene that names none: one reached from
+        # a screen of another kind crosses back to its own, the same as if it had said so.
+        def cross_to_scene_screen(arrival)
+          screen = IR::Modes::SCREEN_OF_MODE.fetch(arrival.mode)
+          return unless IR::SceneHandover.crossing?(@screen_mode, screen)
+
+          exec_screen(Build.screen(screen, buffered: arrival.mode == IR::Modes::BUFFERED))
+        end
+
+        # PUT UP AGAIN WHAT EVERY SCREEN DRAWN FROM TILES SHOWS, once a screen of another kind
+        # has replaced the display (see IR::SceneHandover#always_up): nothing else would, since
+        # its statements ran once, at power-on. As declared — every changed cell and the map
+        # chosen were left behind with the display.
+        def put_up_always_up
+          always = @handover.always_up
+          always.scenery.each do |bg|
+            @bg_maps.delete(bg.name)
+            put_up_background(bg)
+          end
+          always.map_choices.each { |var| @vars[var] = 0 }
+          (always.painted_tiles + always.painted_pictures).each { |run| copy_run_tiles(run) }
         end
 
         def exec_clear_screen(node)
@@ -1093,7 +1118,7 @@ module RubyGBA
 
           @scene = scene
           arrival = @handover.arrival(scene)
-          exec_screen(arrival.screen) if arrival.screen
+          arrival.screen ? exec_screen(arrival.screen) : cross_to_scene_screen(arrival)
           if @bg_shown.any?(&:scene) || arrival.scenery.any?
             paint_owed_repaint
             take_down_scenery

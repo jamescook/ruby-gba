@@ -93,6 +93,8 @@ module RubyGBA
                               end),
         canvas_font: Kind.new(spelling: "__letters_%{font}__%{part}", parts: { font: ANY, part: PLAIN },
                               words: nil),
+        told_turn: Kind.new(spelling: "__bg_%{background}_told_%{part}", parts: { background: ANY, part: PLAIN },
+                            words: nil),
         see_through_amounts: Kind.new(spelling: "__see_through_%{layer}", parts: { layer: ANY },
                                       words: ->(parts) { "telling the display how see-through layer :#{parts[:layer]} is" }),
       }.then { |kinds| Ractor.make_shareable(kinds) }

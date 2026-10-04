@@ -42,12 +42,6 @@ class TestSceneHandoverScenarios < Minitest::Test
   # interpreter's (0 when they agree).
   Broken = Data.define(:why, :interpreter_shows, :differing)
 
-  # What the interpreter shows of a tiled screen it comes back to from the bitmap screen,
-  # wherever that tiled screen draws nothing: the bitmap screen's last picture, where the console
-  # shows the backdrop.
-  BITMAP_SHOWS_THROUGH = "the interpreter still shows the bitmap screen's picture wherever the tiled screen " \
-                         "draws nothing, where the console shows the backdrop"
-
   # The colour a probe reads where nothing is drawn.
   BACKDROP = :backdrop
 
@@ -98,30 +92,31 @@ class TestSceneHandoverScenarios < Minitest::Test
                  frames: 2, probe: [4, 4], color: :red),
     Scenario.new(name: :sprite_art_back_after_a_bitmap_screen, program: :sprite_then_a_bitmap_screen,
                  frames: LOOK_BACK_FROM_BITMAP, probe: [120, 80], color: :red,
-                 console_frames: LOOK_BACK_FROM_BITMAP + 1,
-                 broken: Broken.new(why: BITMAP_SHOWS_THROUGH, interpreter_shows: nil, differing: 38_144)),
+                 console_frames: LOOK_BACK_FROM_BITMAP + 1),
     Scenario.new(name: :painted_tiles_back_with_their_scene, program: :painted_tiles_in_a_scene,
                  frames: 13, probe: [0, 0], color: :white),
     Scenario.new(name: :painted_sprite_back_with_its_scene, program: :painted_sprite_in_a_scene,
                  frames: 13, probe: [0, 0], color: :white),
     Scenario.new(name: :always_up_background_across_a_bitmap_screen, program: :always_up_background,
                  frames: LOOK_BACK_FROM_BITMAP, probe: [0, 0], color: :red,
-                 console_frames: LOOK_BACK_FROM_BITMAP + 1,
-                 broken: Broken.new(why: "neither backend puts a background every tiled screen shows up " \
-                                         "again after a bitmap screen; and #{BITMAP_SHOWS_THROUGH}",
-                                    interpreter_shows: :blue, differing: 38_400)),
+                 console_frames: LOOK_BACK_FROM_BITMAP + 1),
+    Scenario.new(name: :always_up_door_shut_after_a_bitmap_screen, program: :always_up_door_opened,
+                 frames: LOOK_BACK_FROM_BITMAP, probe: [0, 0], color: :red,
+                 console_frames: LOOK_BACK_FROM_BITMAP + 1),
+    Scenario.new(name: :always_up_first_map_after_a_bitmap_screen, program: :always_up_second_map_twice,
+                 frames: BITMAP_BACK + 1, probe: [0, 0], color: :red, console_frames: BITMAP_BACK + 2),
+    Scenario.new(name: :always_up_second_map_again_after_a_bitmap_screen, program: :always_up_second_map_twice,
+                 frames: LOOK_BACK_FROM_BITMAP, probe: [0, 0], color: :blue,
+                 console_frames: LOOK_BACK_FROM_BITMAP + 1),
+    Scenario.new(name: :always_up_turn_kept_across_a_bitmap_screen, program: :always_up_turned_background,
+                 frames: LOOK_BACK_FROM_BITMAP, probe: [200, 100], color: :red,
+                 console_frames: LOOK_BACK_FROM_BITMAP + 1),
     Scenario.new(name: :always_up_painted_tiles_across_a_bitmap_screen, program: :always_up_painted_tiles,
                  frames: LOOK_BACK_FROM_BITMAP, probe: [0, 0], color: :white,
-                 console_frames: LOOK_BACK_FROM_BITMAP + 1,
-                 broken: Broken.new(why: "the background they are on is not put up again after a bitmap " \
-                                         "screen, on either backend; and #{BITMAP_SHOWS_THROUGH}",
-                                    interpreter_shows: :blue, differing: 38_400)),
+                 console_frames: LOOK_BACK_FROM_BITMAP + 1),
     Scenario.new(name: :always_up_painted_sprite_across_a_bitmap_screen, program: :always_up_painted_sprite,
                  frames: LOOK_BACK_FROM_BITMAP, probe: [0, 0], color: :white,
-                 console_frames: LOOK_BACK_FROM_BITMAP + 1,
-                 broken: Broken.new(why: "the console does not copy the list in again after the bitmap " \
-                                         "screen wiped the picture",
-                                    interpreter_shows: nil, differing: 1)),
+                 console_frames: LOOK_BACK_FROM_BITMAP + 1),
   ].freeze
 
   SCENARIOS.each_with_index do |scenario, i|
@@ -405,6 +400,45 @@ class TestSceneHandoverScenarios < Minitest::Test
       tiles :set, "#" => :red_art
       background :field, tiles: :set, map: Array.new(20) { "#" * 30 }
       across_a_bitmap_screen
+    end
+  end
+
+  # The same red background with its top-left cell opened, in blue, on frame 2. The bitmap screen
+  # replaced the display, so it comes back as declared: shut.
+  private def always_up_door_opened
+    built do
+      screen :tiled
+      red_and_blue_art
+      tiles :set, "#" => :red_art, "o" => :blue_art
+      field = background :field, tiles: :set, map: Array.new(20) { "#" * 30 }
+      across_a_bitmap_screen { |tick| (tick == 2).then { field.set_tile 0, 0, "o" } }
+    end
+  end
+
+  # A background every tiled screen shows, with a red map and a blue one: the blue one is shown
+  # on frame 2, the bitmap screen puts the first back, and asking for the blue one again on
+  # frame 11 shows it — which it would not if the background still counted the blue one as up.
+  private def always_up_second_map_twice
+    built do
+      screen :tiled
+      red_and_blue_art
+      tiles :set, "#" => :red_art, "o" => :blue_art
+      field = background :field, tiles: :set,
+                                 map: { red: Array.new(20) { "#" * 30 }, blue: Array.new(20) { "o" * 30 } }
+      across_a_bitmap_screen { |tick| ((tick == 2) | (tick == 11)).then { field.show_map :blue } }
+    end
+  end
+
+  # A background every turning screen shows, red on its left half, turned half a circle about the
+  # middle of the screen on frame 2. The turn is the game's, like a scroll, so it is still in
+  # force after the bitmap screen: the red half is over to the right, low down.
+  private def always_up_turned_background
+    built do
+      screen :rotozoom
+      red_and_blue_art
+      tiles :set, "#" => :red_art, "o" => :blue_art
+      field = background :field, tiles: :set, map: Array.new(16) { ("#" * 8) + ("o" * 8) }
+      across_a_bitmap_screen { |tick| (tick == 2).then { field.rotate 180 } }
     end
   end
 

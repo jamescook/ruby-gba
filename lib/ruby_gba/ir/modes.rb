@@ -41,6 +41,9 @@ module RubyGBA
       # wants both as well. A `:bitmap` screen has pixels somebody painted instead.
       TILE_SCREENS = %i[tiled rotozoom].freeze
 
+      # The `screen` each resolved mode is drawn on — the other way round from #declared_mode.
+      SCREEN_OF_MODE = { DIRECT => :bitmap, BUFFERED => :bitmap, TILED => :tiled, AFFINE => :rotozoom }.freeze
+
       def self.resolve(program)
         new(program)
       end

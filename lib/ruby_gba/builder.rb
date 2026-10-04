@@ -1059,7 +1059,7 @@ module RubyGBA
     # more than nothing. So the pair starts out disagreeing, and the frame that finds them
     # disagreeing is the frame that puts the picture on screen.
     def declare_last_affine_vars(name)
-      vars = [:"__bg_#{name}_told_angle", :"__bg_#{name}_told_size"]
+      vars = %i[angle size].map { |part| Messages::MadeNames.make(:told_turn, background: name, part: part) }
       vars.each do |var|
         at_boot(Build.set(var, Build.int(0)))
         ensure_var(var)

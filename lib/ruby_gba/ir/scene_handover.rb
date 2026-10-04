@@ -31,7 +31,10 @@ module RubyGBA
     #   * Handing over from one KIND of screen to another replaces the whole display: a
     #     painted picture, one drawn from tiles and one that turns share the same video
     #     memory in ways that cannot coexist, so the console shows the new one and nothing
-    #     of the old. What was up is gone, and comes back only by being put up again.
+    #     of the old. What was up is gone, and comes back only by being put up again —
+    #     the scenery every screen shows included, which nothing else puts up after
+    #     power-on, and the pictures painted from lists that it and the sprites every
+    #     screen shows are drawn from (see #always_up).
     class SceneHandover
       # Each kind of screen a `screen` names, and the kind of display it is. Two screens of
       # the same kind share a display; two kinds cannot.
@@ -55,11 +58,24 @@ module RubyGBA
         def takes_down_art? = takes_down_art
       end
 
+      # WHAT EVERY SCREEN DRAWN FROM TILES SHOWS, to put up again after a screen of another
+      # kind replaced the display: the scenery declared in no scene, the runs of tiles it
+      # shows that the game paints from lists, and the painted pictures of the sprites
+      # declared in no scene — each copied in from its list as it is now.
+      #
+      # The scenery goes up AS DECLARED, the same as a scene's own: the cells the game changed
+      # and the map it chose were in the video memory the other screen has used since, so
+      # +map_choices+ go back to the first map.
+      AlwaysUp = Data.define(:scenery, :map_choices, :painted_tiles, :painted_pictures)
+
       def self.of(program) = new(program)
 
       # Whether handing over from a scene on the +from+ screen to one on the +to+ screen
       # replaces the whole display. The first screen a game puts up replaces nothing.
       def self.crossing?(from, to) = !from.nil? && DISPLAYS.fetch(from) != DISPLAYS.fetch(to)
+
+      # Whether the +screen+ a `screen` names is drawn from tiles, and so shows scenery.
+      def self.tiles?(screen) = DISPLAYS.fetch(screen) != DISPLAYS.fetch(:bitmap)
 
       def initialize(program)
         picture = Stacking.picture(program)
@@ -75,13 +91,22 @@ module RubyGBA
       def arrival(scene)
         @arrivals[scene] ||= begin
           scenery = @scenery.select { |node| on_arrival?(node) && node.scene == scene }
-          pictures = painted_pictures_of(scene)
+          pictures = painted_pictures_of(@objects.select { |obj| obj.scene && obj.scene == scene })
           Arrival.new(scene: scene, screen: @funcs[scene]&.children&.find { |node| node.kind == :screen },
                       mode: @modes.mode_of(scene), scenery: scenery, map_choices: scenery.flat_map(&:choice),
-                      painted_tiles: @tile_runs.select { |run| scenery.any? { |bg| bg.tiles.intersect?(run.tiles) } },
-                      painted_pictures: pictures,
+                      painted_tiles: painted_tiles_of(scenery), painted_pictures: pictures,
                       takes_down_scenery: scenery.empty? && @scenery.any? { |node| on_arrival?(node) },
                       takes_down_art: pictures.empty? && @objects.any? { |obj| obj.scene && painted?(obj) })
+        end
+      end
+
+      # What to put up again on arriving at a screen drawn from tiles from a screen of another
+      # kind (see AlwaysUp).
+      def always_up
+        @always_up ||= begin
+          scenery = @scenery.select { |node| node.scene.nil? }
+          AlwaysUp.new(scenery: scenery, map_choices: scenery.flat_map(&:choice),
+                       painted_tiles: painted_tiles_of(scenery), painted_pictures: painted_pictures_of(@objects.reject(&:scene)))
         end
       end
 
@@ -95,11 +120,14 @@ module RubyGBA
 
       private
 
-      def drawn_from_tiles?(scene) = [Modes::TILED, Modes::AFFINE].include?(@modes.mode_of(scene))
+      def drawn_from_tiles?(scene) = self.class.tiles?(Modes::SCREEN_OF_MODE.fetch(@modes.mode_of(scene)))
 
-      # The painted pictures a sprite of +scene+ shows in any of its poses.
-      def painted_pictures_of(scene)
-        poses = @objects.select { |obj| obj.scene && obj.scene == scene }.flat_map(&:poses)
+      # The runs of tiles painted from lists that +scenery+ shows.
+      def painted_tiles_of(scenery) = @tile_runs.select { |run| scenery.any? { |bg| bg.tiles.intersect?(run.tiles) } }
+
+      # The painted pictures +objects+ show in any of their poses.
+      def painted_pictures_of(objects)
+        poses = objects.flat_map(&:poses)
         @picture_runs.select { |run| poses.include?(run.picture) }
       end
 

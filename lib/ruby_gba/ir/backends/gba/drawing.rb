@@ -437,7 +437,24 @@ module RubyGBA
           # entering a mode writes MODE_STATE itself, since boot enters one too.
           def emit_scene_mode(name)
             mode = scene_handover.arrival(name).mode
-            @scene_entry.emit_unless_holds(MODE_STATE, mode_state_marker(mode)) { enter_mode(mode) }
+            @scene_entry.emit_unless_holds(MODE_STATE, mode_state_marker(mode)) do
+              enter_mode(mode)
+              emit_always_up if IR::SceneHandover.tiles?(IR::Modes::SCREEN_OF_MODE.fetch(mode))
+            end
+          end
+
+          # PUT UP AGAIN WHAT EVERY SCREEN DRAWN FROM TILES SHOWS, on the way back from a screen
+          # of another kind (see IR::SceneHandover#always_up). Entering the mode sends the
+          # pictures again; the maps of the scenery declared in no scene, and what the game
+          # paints from lists, were sent once at power-on and nothing else sends them. The maps
+          # go up as declared, so what says which one is showing goes back to the first.
+          def emit_always_up
+            always = scene_handover.always_up
+            always.scenery.each { |node| @background_drawing.emit_background_hardware(node) }
+            always.map_choices.each { |var| @primitives.store_word_immediate(0, @primitives.var_addr(var)) }
+            (always.painted_tiles + always.painted_pictures).each do |run|
+              @background_drawing.emit_copy_tiles(Build.copy_tiles(run.name))
+            end
           end
 
           # SWITCH ON THE LAYERS THIS SCENE USES, AND ONLY THOSE.
