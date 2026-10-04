@@ -2611,10 +2611,14 @@ module RubyGBA
         # on is one press on the first frame, and before any frame has been reached — the
         # setting up above a game loop — nothing is pressed yet.
         def button_held?(button)
+          return !@held.empty? if button == IR::Buttons::ANY
+
           @held.include?(check_button!(button))
         end
 
         def button_pressed?(button)
+          return !@pressed.empty? if button == IR::Buttons::ANY
+
           @pressed.include?(check_button!(button))
         end
 

@@ -226,6 +226,11 @@ module RubyGBA
           items = menu_items!(name, block)
           refuse_menu_outside_frame!
           check_button!(press)
+          if press == IR::Buttons::ANY
+            raise ArgumentError, "menu :#{name} chooses a row with press: :any. Then the up and down buttons that " \
+                                 "move the cursor also choose the row. To fix this, give press: one button, " \
+                                 "for example press: :a."
+          end
           x, y = menu_origin!(at)
           step = menu_spacing!(spacing || (text_height(font: font) + ROW_GAP))
           refuse_bad_menu_repeat_every!(repeat_every)

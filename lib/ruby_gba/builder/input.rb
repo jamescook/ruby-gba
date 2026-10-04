@@ -52,7 +52,7 @@ module RubyGBA
       # Accept a known button name (from the shared IR vocabulary); raise a plain
       # error for anything else.
       def check_button!(button)
-        return if IR::Buttons.known?(button)
+        return if IR::Buttons.readable?(button)
 
         raise ArgumentError, "#{button} is not a known button. Use one of these: :a :b :select :start :right :left :up :down :r :l."
       end

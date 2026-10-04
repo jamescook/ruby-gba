@@ -559,6 +559,8 @@ module RubyGBA
           # active-low, so the bit reads 0 while the button is down: TST sets the zero
           # flag exactly then, and we turn that into 1 (held) or 0 (not).
           def eval_held(button)
+            return eval_any_held if button == IR::Buttons::ANY
+
             mask = BUTTON_BIT.fetch(button) do
               raise LoweringError, "unknown button #{button.inspect}"
             end
@@ -575,14 +577,41 @@ module RubyGBA
           # `pressed` is the down-edge: a button that went down on a frame since the last pass,
           # as the screen's interrupt collected it (see #emit_collect_presses). Test its bit.
           def eval_pressed(button)
+            return eval_any_pressed if button == IR::Buttons::ANY
+
             mask = BUTTON_BIT.fetch(button) do
               raise LoweringError, "unknown button #{button.inspect}"
             end
             @primitives.load_var(ACC, KEYS_PRESSED)
-            @emitter.emit(ASM.tst_imm(ACC, mask))
+            @emitter.emit(ASM.and_imm(ACC, ACC, mask)) # bit zero => not a fresh press => 0
+            emit_one_unless_zero
+          end
+
+          # ANY BUTTON HELD: one test against all ten, not ten tests. The key register reads 0
+          # for a button that is down, so it is turned over first, and the shift then throws
+          # away everything but the ten button bits (the register's other bits turn into ones
+          # when it is turned over). Whatever is left is a button that is down.
+          def eval_any_held
+            @emitter.emit(ASM.load_immediate(TMP, REG_KEYINPUT))
+            @emitter.emit(ASM.load_halfword(ACC, TMP))
+            @emitter.emit(ASM.mvn_reg(ACC, ACC))
+            @emitter.emit(ASM.lsl_imm(ACC, ACC, 32 - KEY_MASK.bit_length))
+            emit_one_unless_zero
+          end
+
+          # ANY BUTTON PRESSED: the collected presses are kept the right way up and hold only
+          # button bits, so any bit at all is a button that went down since the last pass.
+          def eval_any_pressed
+            @primitives.load_var(ACC, KEYS_PRESSED)
+            emit_one_unless_zero
+          end
+
+          # ACC = 1 if it is not 0, else 0.
+          def emit_one_unless_zero
+            @emitter.emit(ASM.cmp_imm(ACC, 0))
             done = @emitter.gensym
             @emitter.emit(ASM.load_immediate(ACC, 0))
-            @emitter.emit_branch(:bcond, done, cond: :eq) # bit zero => not a fresh press => 0
+            @emitter.emit_branch(:bcond, done, cond: :eq)
             @emitter.emit(ASM.load_immediate(ACC, 1))
             @emitter.place_label(done)
           end

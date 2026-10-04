@@ -160,6 +160,53 @@ class TestInput < Minitest::Test
     assert_equal [1, 0], [v.var(:presses), v.var(:before_the_loop)]
   end
 
+  # ANY BUTTON AT ALL — how a game gets out of an attract screen. `held(:any)` holds while
+  # something is down; `pressed(:any)` is true on a frame some button went down, so pressing A
+  # while LEFT is still held is a press, and a button held on and on is one press however long.
+  private def counting_any_button
+    builder = Builder.new
+    builder.instance_eval do
+      screen :tiled
+      held_frames = var :held_frames, 0
+      presses = var :presses, 0
+      game_loop do
+        held(:any).then { held_frames.add! 1 }
+        pressed(:any).then { presses.add! 1 }
+      end
+    end
+    builder.finalize_program
+    builder.program
+  end
+
+  # LEFT for three frames, then A as well for two, then nothing, then B for one: six frames
+  # with something down, and three presses — LEFT, A on top of LEFT, and B.
+  ANY_BUTTON_FRAMES = { 3 => [:left], 4 => [:left], 5 => [:left], 6 => %i[left a], 7 => %i[left a], 9 => [:b] }.freeze
+  KEY_BITS = { left: KEY_LEFT, a: KEY_A, b: KEY_B }.freeze
+
+  def test_any_button_is_held_and_pressed_on_both_backends
+    program = counting_any_button
+    oracle = RubyGBA::IR::Backends::Reference.new
+                                   .input_each_frame { |frame| ANY_BUTTON_FRAMES.fetch(frame, []) }
+                                   .run(program, frames: 14)
+    assert_equal [6, 3], [oracle[:held_frames], oracle[:presses]]
+
+    rom = assemble_rom(program, name: "ANYBUTTON")
+    keys = ->(frame) { ANY_BUTTON_FRAMES.fetch(frame - 4, []).sum { |button| KEY_BITS.fetch(button) } }
+    v = assert_emulator_loads_rom(rom, frames: 20, keys: keys, vars: rom.var_addresses)
+    assert_equal [6, 3], [v.var(:held_frames), v.var(:presses)]
+  end
+
+  # `:any` is not a button, so the list a typo is answered with does not offer it, and a test
+  # cannot hold it — holding "any button" says nothing about which.
+  def test_unknown_button_message_does_not_offer_any
+    message = assert_raises(ArgumentError) { build { if_held(:turbo) { halt } } }.message
+
+    refute_match(/:any/, message)
+    assert_raises(RubyGBA::IR::Backends::Reference::ProgramError) do
+      RubyGBA::IR::Backends::Reference.new.hold(:any).run(counting_any_button, frames: 2)
+    end
+  end
+
   # A PRESS IS NEVER LOST TO A SLOW GAME. A game whose pass takes two frames goes round the
   # loop thirty times a second, and a tap that goes down and comes up again inside one pass
   # used to be missed: both of the pass's readings found the button up. The buttons are

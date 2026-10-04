@@ -439,6 +439,18 @@ class TestMenu < Minitest::Test
     assert_match(/needs `showing:`/, error.message)
   end
 
+  # Any button includes up and down, which move the cursor, so moving would choose.
+  def test_a_menu_cannot_choose_with_any_button
+    error = assert_raises(ArgumentError) do
+      build_program do
+        screen :bitmap
+        game_loop { menu(:main, at: [X, Y], press: :any) { |r| r.item("GO") } }
+      end
+    end
+
+    assert_match(/press: :any/, error.message)
+  end
+
   def test_a_row_that_says_one_thing_does_not_take_showing
     error = assert_raises(ArgumentError) do
       build_program do
