@@ -731,8 +731,7 @@ module RubyGBA
             bmp = @bitmaps.fetch(node.tiles[index])
             seen = {}
             (TILE_PX * TILE_PX).times do |i|
-              color = bmp.color_at(i)
-              seen[color] = true unless color == BG_SEE_THROUGH
+              seen[bmp.color_at(i)] = true unless bmp.tile_see_through_at?(i)
             end
             seen.keys
           end

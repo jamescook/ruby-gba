@@ -1305,13 +1305,6 @@ module RubyGBA
         BG_SHARED_CHAR = :__bg_shared_char # every layer's tile pictures, uploaded as one piece
 
 
-        # A background tile has no see-through marker of its own the way a sprite picture
-        # does. Instead the BACKDROP color — what the screen shows where nothing was
-        # drawn — is what "nothing here" looks like in a tile, so a layer in front of
-        # another lets it through wherever it is that color. It always takes the number
-        # the console reads as see-through, so it needs no slot of its own.
-        BG_SEE_THROUGH = 0x0000
-
         # How many cells one screen block holds: a block is 2K and a regular map's cell is
         # a halfword, so 32x32 of them is exactly one.
         MAP_ENTRIES_A_BLOCK = MAP_CELLS * MAP_CELLS

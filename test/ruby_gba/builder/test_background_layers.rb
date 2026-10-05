@@ -60,6 +60,85 @@ class TestBackgroundLayers < Minitest::Test
     assert_equal Color.resolve(:red),   s.pixel(44, 44), "the near layer slid 40px (its landmark to x44) — twice as far"
   end
 
+  # A front layer drawn in pure black over a red one. Black is a colour like any other: it
+  # is see-through only where the picture says see-through, never because its number is 0.
+  RED = Color.rgb(31, 0, 0)
+
+  def black_over_red(&front)
+    builder = Builder.new
+    builder.instance_eval do
+      screen :tiled
+      image :red, width: 8, height: 8, colors: [:transparent, RED], places: [1] * 64
+      tiles :reds, "#" => :red
+      background :behind, tiles: :reds, map: Array.new(20) { "#" * 30 }
+      instance_eval(&front)
+      game_loop {}
+    end
+    builder.finalize_program
+    builder.program
+  end
+
+  def black_by_place
+    black_over_red do
+      colors :inks, [:transparent, RED, 0x0000]
+      image :black, width: 8, height: 8, places: [2] * 64, colors: :inks
+      tiles :blacks, "b" => :black
+      background :front, tiles: :blacks, map: ["b"]
+    end
+  end
+
+  def black_drawn_in_characters
+    black_over_red do
+      image(:black, "#" => :black) { SOLID_TILE }
+      tiles :blacks, "b" => :black
+      background :front, tiles: :blacks, map: ["b"]
+    end
+  end
+
+  # Tiles the game paints hold place numbers too: every pixel here is place 2, black.
+  def black_painted
+    black_over_red do
+      colors :inks, [:transparent, RED, 0x0000]
+      bytes = list :bytes, capacity: 32, width: :byte
+      box = tiles :box, from: bytes, count: 1, colors: :inks
+      background :front, tiles: :box, map: [[1]]
+      repeat(32) { bytes.push 0x22 }
+      box.changed
+    end
+  end
+
+  # A background that turns reads the whole colour table rather than a group of sixteen,
+  # which is the other way a tile is stored: black at a place has to keep a slot there.
+  def black_by_place_turning
+    black_over_red do
+      colors :inks, [:transparent, RED, 0x0000]
+      image :black, width: 8, height: 8, places: [2] * 64, colors: :inks
+      tiles :blacks, "b" => :black
+      angle = var :angle, 0
+      background(:front, tiles: :blacks, map: Array.new(16) { "b" * 16 }).rotate(angle)
+    end
+  end
+
+  def test_black_at_a_place_covers_on_a_turning_background
+    assert_equal 0x0000, Reference.new.run(black_by_place_turning, frames: 3).screen.pixel(2, 2)
+    assert_equal 0x0000, assert_emulator_loads_rom(rom_for(black_by_place_turning), frames: 3).pixel_gba(2, 2)
+  end
+
+  def test_black_painted_at_a_place_covers
+    assert_equal 0x0000, Reference.new.run(black_painted, frames: 3).screen.pixel(2, 2)
+    assert_equal 0x0000, assert_emulator_loads_rom(rom_for(black_painted), frames: 3).pixel_gba(2, 2)
+  end
+
+  # Art given as place numbers says where it is see-through itself (place 0), so black at
+  # any other place is solid. Art drawn in colours has only the backdrop colour to say
+  # "nothing here", so black drawn that way lets the layer behind through.
+  def test_black_at_a_place_covers_and_black_drawn_as_a_colour_shows_through
+    assert_equal 0x0000, Reference.new.run(black_by_place, frames: 3).screen.pixel(2, 2)
+    assert_equal 0x0000, assert_emulator_loads_rom(rom_for(black_by_place), frames: 3).pixel_gba(2, 2)
+    assert_equal RED, Reference.new.run(black_drawn_in_characters, frames: 3).screen.pixel(2, 2)
+    assert_equal RED, assert_emulator_loads_rom(rom_for(black_drawn_in_characters), frames: 3).pixel_gba(2, 2)
+  end
+
   # --- Hardware (the emulator): the layers really composite and parallax-scroll ---
 
   def test_layers_compose_on_the_console

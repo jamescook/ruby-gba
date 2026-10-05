@@ -51,6 +51,16 @@ module RubyGBA
         # Does this pixel draw anything? A picture with no see-through color draws every one.
         def drawn_at?(index) = transparent.nil? || raw_at(index) != transparent
 
+        # Does the layer behind show through this pixel when the picture is a background
+        # tile? A tile has no marker of its own for "nothing here", so it is the backdrop
+        # color, black, that says it — except in art that came with its place numbers,
+        # where place 0 says it and black at any other place is a color like the rest. Every
+        # backend asks this one question, so a black pixel is solid or see-through on each.
+        def tile_see_through_at?(index)
+          place = place_at(index)
+          place.nil? ? color_at(index).zero? : place.zero?
+        end
+
         # EVERY COLOR THIS PICTURE ACTUALLY DRAWS, its see-through pixels left out. What a
         # picture was given and what it uses are different lists: a table can name colors no
         # pixel is painted in, which is how one picture ships a whole game's palette.

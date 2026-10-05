@@ -124,8 +124,10 @@ module RubyGBA
               # which is the number the console reads. One stored the big way reads the whole
               # shared table, where the same color is one entry however many places the list
               # gave it — so there is nothing to keep apart and the color is looked up.
+              # Black at a place of its own is a real color, so it was given a slot like the
+              # rest; only a pixel the tile leaves empty takes the see-through number.
               index = (place.narrow? && bmp.place_at(i)) ||
-                      (color == BG_SEE_THROUGH ? 0 : place.indices.fetch(color))
+                      (bmp.tile_see_through_at?(i) ? 0 : place.indices.fetch(color))
               next bytes << index.chr unless place.narrow?
 
               if pending.nil?

@@ -1349,14 +1349,13 @@ module RubyGBA
           depth_a && depth_b && depth_a < depth_b
         end
 
-        # Paint one tile at (x0, y0), skipping its backdrop-colored (transparent) pixels
-        # so whatever's already there shows through — the per-pixel form of a tile blit
-        # that layering needs.
+        # Paint one tile at (x0, y0), skipping its see-through pixels so whatever's already
+        # there shows through — the per-pixel form of a tile blit that layering needs.
         def stamp_tile(tiles, index, x0, y0, tile_w, tile_h, swapped = nil)
           tile_h.times do |ty|
             tile_w.times do |tx|
               color = background_pixel(tiles, index, tx, ty, swapped)
-              @screen.set_pixel(x0 + tx, y0 + ty, color) unless color.zero?
+              @screen.set_pixel(x0 + tx, y0 + ty, color) unless color.nil?
             end
           end
         end
@@ -1484,7 +1483,7 @@ module RubyGBA
               next unless row
 
               color = background_pixel(tiles, row[mx / tile_w], mx % tile_w, my % tile_h, swapped)
-              @screen.set_pixel(px, py, color) unless color.zero?
+              @screen.set_pixel(px, py, color) unless color.nil?
             end
           end
         end
@@ -1522,9 +1521,12 @@ module RubyGBA
             bmp = @bitmaps.fetch(name)
             recolor = swapped && tile_recolor(name, bmp, swapped)
             Array.new(bmp.width * bmp.height) do |i|
+              # Read off the pixel as drawn, never after a swap of colours: a swap moves what
+              # a place shows and leaves the place, and so what shows through, alone.
+              next if bmp.tile_see_through_at?(i)
+
               color = bmp.color_at(i)
-              color = recolor.color_for(i, color) unless recolor.nil?
-              color.zero? ? nil : color
+              recolor.nil? ? color : recolor.color_for(i, color)
             end
           end
         end
@@ -1831,15 +1833,13 @@ module RubyGBA
           blit_image(obj[:image], obj[:x], obj[:y], recolor: obj[:recolor])
         end
 
-        # The color of a background cell's pixel: the tile's pixel there, or the black
-        # backdrop where the cell is empty (a map hole, which the hardware shows as
-        # background-palette entry 0). A tile pixel marked transparent (bit 15 set) reads
-        # as the backdrop (0) too — the tile hardware treats both as palette entry 0, so
-        # both let a layer behind show through. Masking to 15 bits is how we match that.
+        # The color of a background cell's pixel, or nil where the layer behind shows
+        # through: an empty cell (a map hole, which the hardware shows as background-palette
+        # entry 0) and a see-through pixel of a tile (see #see_through_tile_pixel?) alike.
         def background_pixel(tiles, index, x, y, swapped = nil)
-          return 0 if index.nil?
+          return nil if index.nil?
 
-          tile_colors(tiles[index], swapped)[(y * @bitmaps.fetch(tiles[index]).width) + x] || 0
+          tile_colors(tiles[index], swapped)[(y * @bitmaps.fetch(tiles[index]).width) + x]
         end
 
         # Draw this frame's objects the way sprite hardware does: composite each one
