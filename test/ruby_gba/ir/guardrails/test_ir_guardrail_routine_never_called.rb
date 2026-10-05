@@ -73,6 +73,26 @@ class TestIRGuardrailRoutineNeverCalled < Minitest::Test
     end)
   end
 
+  # A test keeps the body it runs when it fails apart from the one it runs when it holds, so
+  # a call in the second has to count as much as one in the first — however deep it sits.
+  def test_routines_called_from_an_else_are_quiet
+    assert_empty(findings do
+      screen :bitmap
+      count = var :count, 0
+      func(:held) { count.add! 1 }
+      func(:failed) { count.add! 2 }
+      func(:failed_then_held) { count.add! 3 }
+      func(:failed_twice) { count.add! 4 }
+      func(:step) do
+        (count > 3).then { call :held }.else do
+          call :failed
+          (count > 9).then { call :failed_then_held }.else { call :failed_twice }
+        end
+      end
+      game_loop { call :step }
+    end)
+  end
+
   def test_routines_picked_by_number_are_quiet
     assert_empty(findings do
       screen :bitmap

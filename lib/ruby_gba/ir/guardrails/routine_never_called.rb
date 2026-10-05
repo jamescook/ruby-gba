@@ -61,7 +61,7 @@ module RubyGBA
           # are really in force, whoever wrote them where.
           def callees_outside_routines(statements)
             statements.reject { |node| %i[func on_timer].include?(node.kind) }.flat_map do |node|
-              node.callees + callees_outside_routines(node.children)
+              node.callees + callees_outside_routines(node.statement_bodies)
             end
           end
 

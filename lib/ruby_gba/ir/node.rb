@@ -200,6 +200,15 @@ module RubyGBA
       # A test with a branch to take when it fails.
       def branching? = self.class.tags.key?(:else)
 
+      # Every statement directly under this node, wherever it runs: its children, and for a
+      # test the body it runs when the test fails too, which it keeps apart from its children.
+      # A walk that has to see every statement asks this rather than #children.
+      def statement_bodies
+        return children unless branching? && self.else
+
+        children + self.else.children
+      end
+
       # The routines this node can hand control to, by name — none, for nearly every kind. A
       # kind that calls says which (see Nodes::Call and its siblings), so code following the
       # calls through a program asks this, and a new way of reaching a routine is followed
