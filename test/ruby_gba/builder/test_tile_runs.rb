@@ -117,6 +117,38 @@ class TestTileRuns < Minitest::Test
     [4, 13].each { |frames| assert_backends_agree(scene_game, frames: frames) }
   end
 
+  # The list declared inside the scene that shows it. The scene puts its run up as it takes
+  # over, which is before the scene's own lines have run once — so the list has to be there
+  # already, empty, the way every list is from power-on.
+  def list_in_scene_game
+    b = Builder.new
+    b.instance_eval do
+      screen :tiled
+      colors :ink, [:transparent, :white]
+      frame = var :frame, 0
+      scene(:talking) do
+        canvas = list :canvas, capacity: 64, width: :byte
+        repeat(64) { canvas.push 0 }
+        box = tiles :box, from: canvas, count: 2, colors: :ink
+        background :front, tiles: :box, map: [[1, 2]]
+        (frame == 2).then { canvas[0] = 0x01; box.changed }
+      end
+      var :state, 0
+      game_loop do
+        frame.add! 1
+        case_var(:state) { when_val 0, :talking }
+      end
+    end
+    b.finalize_program
+    b.program
+  end
+
+  def test_a_list_declared_inside_the_scene_that_shows_it
+    prog = list_in_scene_game
+    assert_equal WHITE, pixel(prog, 5, 0, 0)
+    assert_backends_agree(prog, frames: 5)
+  end
+
   # One dialogue box shown in two scenes. The second scene has a floor of its own declared
   # first, so its tiles go in ahead of the box's and the box lands somewhere else in video
   # memory there — which is the case one copy to one place cannot serve. A pixel painted in

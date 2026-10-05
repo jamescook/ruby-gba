@@ -24,6 +24,10 @@ module RubyGBA
           # below nothing (see Build.element_range for why there is no choice about that), and
           # what it does with a number too big for it is the interesting part: it does what the
           # console does, keeping the low bits and dropping the rest. See #wrap_to_width.
+          # An empty list the size a declaration asks for; one that names no width holds
+          # whole words.
+          def self.of(node) = new(node.capacity, width: node.width || :word)
+
           def initialize(capacity, width: :word)
             @capacity = capacity
             @low, @high = Build.element_range(width)

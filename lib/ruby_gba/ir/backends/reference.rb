@@ -436,6 +436,11 @@ module RubyGBA
               @player.declare_effects(n.name, n.effects)
             when :sample
               @mixer.declare(n.name, Assets::Sample.of(n))
+            when :list_new
+              # A list is room the cartridge sets aside, so it is there, empty, from power-on —
+              # wherever it is declared. A scene that shows tiles painted from a list declared
+              # inside it puts them up as it takes over, before its declaration has run once.
+              @lists[n.name] ||= ListValue.of(n)
             when :table
               @tables[n.name] = TableValues.new(values: n.values, signed: n.signed)
             when :data
@@ -752,7 +757,7 @@ module RubyGBA
 
         def exec_list_new(node)
           # Create (or reset) the named list, empty, at its capacity and element width.
-          @lists[node.name] = ListValue.new(node.capacity, width: node.width || :word)
+          @lists[node.name] = ListValue.of(node)
         end
 
         def exec_call(node)
