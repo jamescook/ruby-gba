@@ -232,8 +232,9 @@ module RubyGBA
               "tile a `colors:` list with `image ..., colors:`."
       end
 
-      # The list one picture was drawn from, or nil where the framework worked it out.
-      def list_drawn_from(pose) = @pictures.fetch(pose).colors
+      # The list one picture was drawn from, or nil where the framework worked it out. A picture
+      # painted from a list is drawn from the one it was given.
+      def list_drawn_from(pose) = @painted_colors[pose] || @pictures.fetch(pose).colors
 
       # A list declared with `colors`, as a picture given it by name holds it: see-through first.
       # nil for a name nothing declared.
@@ -256,9 +257,10 @@ module RubyGBA
       # other list agrees about those places, and draws half the pixels wrong when it does
       # not. Palettes lifted off real cartridges repeat a colour often (two blacks, two
       # whites), so this is refused rather than drawn wrong; art given as places says which
-      # place each pixel meant and is never in doubt.
+      # place each pixel meant and is never in doubt, and so is a picture painted from a list,
+      # whose bytes are places.
       def refuse_ambiguous_color_places!(own:, swapped:, name:, poses:, subject:)
-        guessed = poses.reject { |pose| @pictures.fetch(pose).places }
+        guessed = poses.reject { |pose| @painted_colors.key?(pose) || @pictures.fetch(pose).places }
         return if guessed.empty?
 
         drawn = guessed.flat_map { |pose| @pictures.fetch(pose).colors_drawn }
@@ -286,7 +288,7 @@ module RubyGBA
       # by place. Pictures with no list were given their places by the framework, so no
       # other list can line up with them.
       def shared_pose_colors!(poses, subject)
-        lists = poses.map { |pose| @pictures.fetch(pose).colors }.uniq
+        lists = poses.map { |pose| list_drawn_from(pose) }.uniq
         return lists.first if lists.length == 1 && lists.first
 
         if lists.compact.length > 1

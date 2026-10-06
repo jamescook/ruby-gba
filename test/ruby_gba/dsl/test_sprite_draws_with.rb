@@ -60,6 +60,39 @@ class TestSpriteDrawsWith < Minitest::Test
     assert_equal Color.resolve(:white), i.screen.pixel(45, 41)
   end
 
+  # A picture the game paints from a list keeps its pixels as places, so another list swaps
+  # its colours by place the same way. A save file's name wears its panel's colours like this.
+  def painted_program
+    builder = Builder.new
+    builder.instance_eval do
+      screen :tiled
+      colors :ink, OWN
+      colors :hurt, HURT
+      canvas = list :canvas, capacity: 32, width: :byte
+      repeat(8) { [0x11, 0x11, 0x22, 0x22].each { |two_pixels| canvas.push two_pixels } }
+      tag = image :tag, from: canvas, width: 8, height: 8, colors: :ink
+      tag.changed
+      ship = sprite :tag, at: [40, 40]
+      step = var :step, 0
+      game_loop do
+        ship.draw_with [:ink, :hurt], showing: step
+        step.add! 1
+      end
+    end
+    builder.finalize_program
+    builder.program
+  end
+
+  def test_a_painted_picture_draws_with_other_colors_on_both_backends
+    hurt = Reference.new.run(painted_program, frames: 3)
+    past = Reference.new.run(painted_program, frames: 4)
+
+    assert_equal Color.resolve(:yellow), hurt.screen.pixel(41, 41), "the first place of :hurt"
+    assert_equal Color.resolve(:white), hurt.screen.pixel(45, 41), "and the second"
+    assert_equal Color.resolve(:red), past.screen.pixel(41, 41), "past the set, its own colors"
+    (2..4).each { |frames| assert_backends_agree(painted_program, frames: frames) }
+  end
+
   # --- picked by a number the game works out ---
 
   # A pulse: a counter walks through two lists and past them, and the ship steps right on

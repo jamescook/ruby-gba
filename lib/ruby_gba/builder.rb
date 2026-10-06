@@ -104,6 +104,7 @@ module RubyGBA
       @next_var_addr = IWRAM_START
       @functions = {}          # name → deferred body block (evaluated at emit time)
       @tile_runs = []          # runs of tiles painted from a list, in declaration order (see TileRuns)
+      @painted_colors = {}     # picture painted from a list → the colours its places pick (see TileRuns)
       @inline_tile_copies = [] # their copies where `changed` was said, moved to the frame gap at finalize
       @func_fast = {}          # name → where the author insisted the routine live (func fast:)
       @dump_requests = []      # function names to disassemble from the lowered ROM

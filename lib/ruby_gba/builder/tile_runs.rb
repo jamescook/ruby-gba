@@ -80,6 +80,7 @@ module RubyGBA
         refuse_tile_run_list_unfit!(name, list, (width / 8) * (height / 8), what: "image")
 
         @images[name] = [width, height]
+        @painted_colors[name] = colors
         record(Build.tile_run(name, list: list.name, tiles: [], colors: colors, picture: name,
                                     width: width, height: height))
         at_boot(Build.set(tile_run_pending(name), Build.int(0)))
