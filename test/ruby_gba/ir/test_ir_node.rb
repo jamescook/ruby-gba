@@ -104,6 +104,15 @@ class TestIRNode < Minitest::Test
     assert_equal %i[program set loop wait_vblank add], kinds
   end
 
+  # An `.else` body is statements of the program as much as the `.then` beside it, so a pass
+  # asking for every statement is shown both.
+  def test_each_visits_an_else_body_after_the_then
+    branch = if_(var_ref(:x), add(:x, 1))
+    branch.else = else_(add(:y, 1))
+    names = branch.each.filter_map { |node| node.var if node.kind == :add }
+    assert_equal %i[x y], names
+  end
+
   def test_each_does_not_descend_into_value_operands
     # set's value is a value node in attrs, not a child — #each ignores it.
     kinds = set(:x, binop(:+, :y, 1)).each.map(&:kind)

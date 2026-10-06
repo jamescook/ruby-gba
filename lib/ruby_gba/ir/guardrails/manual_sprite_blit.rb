@@ -38,23 +38,20 @@ module RubyGBA
 
           private
 
-          # Walk every container: a blit sitting beside a save/restore-region op is one
-          # of the framework's sprite draws. Collect the images those manage, and the
-          # identities of those blits, so the caller can tell a sprite's own draw from
-          # a hand-written one.
+          # A blit sitting beside a save/restore-region op is one of the framework's sprite
+          # draws. Collect the images those manage, and the identities of those blits, so the
+          # caller can tell a sprite's own draw from a hand-written one. Each blit is asked
+          # about the statements beside it, whatever holds them — an `.else` body included,
+          # which is not a statement of its own.
           def classify_blits(program)
             managed = Set.new
             framework_blits = Set.new
             program.each do |node|
-              siblings = node.children
-              next unless siblings.any? { |child| SPRITE_OPS.include?(child.kind) }
+              next unless node.kind == :blit
+              next unless node.parent&.children&.any? { |sibling| SPRITE_OPS.include?(sibling.kind) }
 
-              siblings.each do |child|
-                next unless child.kind == :blit
-
-                managed << child.name
-                framework_blits << child.object_id
-              end
+              managed << node.name
+              framework_blits << node.object_id
             end
             [managed, framework_blits]
           end

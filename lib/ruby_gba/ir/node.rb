@@ -229,13 +229,15 @@ module RubyGBA
       end
       alias << add_child
 
-      # Depth-first, pre-order over this node and its statement #children. Does
-      # NOT descend into value operands — use #walk for the whole tree.
+      # Depth-first, pre-order over this node and every statement under it, an `.else` body
+      # included (see #statement_bodies). The `.else` itself is not yielded, only what is in
+      # it, so the statements beside one in there are its parent's children, not the `if`'s.
+      # Does NOT descend into value operands — use #walk for the whole tree.
       def each(&block)
         return enum_for(:each) unless block
 
         yield self
-        @children.each { |child| child.each(&block) }
+        statement_bodies.each { |child| child.each(&block) }
       end
 
       # Depth-first over the ENTIRE tree: statement children and any value nodes

@@ -102,6 +102,41 @@ class TestRedrawEverythingGuardrail < Minitest::Test
     assert_empty Check.new.detect(prog)
   end
 
+  # Work under an `.else` is as much every frame's as work under the `.then` beside it.
+  def test_flags_the_redraw_in_an_else
+    prog = program do
+      screen :bitmap
+      body = list :body, capacity: 64
+      paused = var :paused, 0
+      func :repaint do
+        clear_screen :black
+        repeat(body.length) { |_i| draw_rect_at 0, 0, 8, 8, :green }
+      end
+      game_loop do
+        wait_vblank
+        (paused == 1).then { draw_rect_at 0, 0, 8, 8, :white }.else { call :repaint }
+      end
+    end
+    assert_equal 1, Check.new.detect(prog).length
+  end
+
+  # A press is the rare case, so the `.else` of a press is the steady one: it runs on every
+  # frame the button did not just go down.
+  def test_flags_the_redraw_in_the_else_of_a_press
+    prog = program do
+      screen :bitmap
+      body = list :body, capacity: 64
+      game_loop do
+        wait_vblank
+        pressed(:start).then { draw_rect_at 0, 0, 8, 8, :white }.else do
+          clear_screen :black
+          repeat(body.length) { |_i| draw_rect_at 0, 0, 8, 8, :green }
+        end
+      end
+    end
+    assert_equal 1, Check.new.detect(prog).length
+  end
+
   # A clear + growing-list redraw behind a press is a transition, not steady work.
   def test_quiet_when_the_redraw_is_behind_a_press_transition
     prog = program do

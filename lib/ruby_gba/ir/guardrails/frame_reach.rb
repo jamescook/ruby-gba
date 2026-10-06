@@ -13,7 +13,13 @@ module RubyGBA
       # frame is steady work), but deliberately does NOT descend into a body guarded
       # by a `pressed` edge: that fires on a press, once in a while (a new round
       # starting, a menu choice), not steadily — so a board painted once on START and
-      # then drawn incrementally is correctly left out of the steady path.
+      # then drawn incrementally is correctly left out of the steady path. Its `.else` is
+      # followed, though: the press is the rare frame, so the other side is the steady one.
+      #
+      # Both sides of an ordinary `if` are on the path, since either may be what runs this
+      # frame — which also means two things a check finds can sit on opposite sides of one
+      # `if` and never run in the same frame. The checks built on this accept that: they
+      # warn about what a frame CAN do.
       module FrameReach
         module_function
 
@@ -28,13 +34,18 @@ module RubyGBA
         end
 
         # Every statement reachable each frame from +node+, following every call into
-        # funcs but stopping at a `pressed`-guarded (transition) body.
+        # funcs and into an `.else` as well as a `.then`, but stopping at a `pressed`-guarded
+        # (transition) body. A press's own `.else` is followed: the press is the rare frame,
+        # so its other side is the steady one.
         def per_frame_statements(node, funcs, seen = Set.new, acc = [])
-          return acc if transition?(node)
+          if transition?(node)
+            node.else&.children&.each { |child| per_frame_statements(child, funcs, seen, acc) }
+            return acc
+          end
 
           acc << node
-          node.callees.each { |target| follow_call(target,funcs, seen, acc) }
-          node.children.each { |child| per_frame_statements(child, funcs, seen, acc) }
+          node.callees.each { |target| follow_call(target, funcs, seen, acc) }
+          node.statement_bodies.each { |child| per_frame_statements(child, funcs, seen, acc) }
           acc
         end
 

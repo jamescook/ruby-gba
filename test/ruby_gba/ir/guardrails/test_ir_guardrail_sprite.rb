@@ -63,6 +63,12 @@ class TestSpriteGuardrails < Minitest::Test
     assert_empty Cleared.new.detect(prog), "a clear behind a pressed edge is a once-in-a-while transition"
   end
 
+  # The other side of a press runs on every frame the button did not just go down.
+  def test_flags_a_clear_in_the_else_of_a_press_edge
+    prog = a_heart { |hero| pressed(:start).then { hero.x.set! 0 }.else { clear_screen :black }; hero.x.add! 1 }
+    assert_equal 1, Cleared.new.detect(prog).length
+  end
+
   # ---- manual blit of a sprite's image ----
 
   def test_flags_a_hand_blit_of_a_sprite_image
@@ -71,6 +77,18 @@ class TestSpriteGuardrails < Minitest::Test
     assert_equal 1, findings.length
     assert findings.first.warning?
     assert_match(/heart/, findings.first.message)
+  end
+
+  # A sprite declared under an `.else` draws itself there; that draw is its own, not a hand one.
+  def test_does_not_flag_the_own_draw_of_a_sprite_declared_in_an_else
+    prog = program do
+      screen :bitmap
+      image(:heart, "#" => :red) { "##\n##" }
+      ready = var :ready, 1
+      (ready == 0).then { clear_screen :blue }.else { sprite :heart, at: [40, 40] }
+      game_loop { wait_vblank }
+    end
+    assert_empty Manual.new.detect(prog)
   end
 
   def test_does_not_flag_the_sprites_own_draws
