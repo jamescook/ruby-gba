@@ -1299,9 +1299,7 @@ module RubyGBA
 
         # The picture as everything that draws one reads it: its shape, and its pixels.
         def store_run_picture(run, places)
-          pixels = places.map { |place| place.zero? ? Graphics::Image::TRANSPARENT : run.colors.fetch(place, 0) }
-          picture = Assets::Image.new(width: run.width, height: run.height, transparent: Graphics::Image::TRANSPARENT,
-                                      pixels: pixels.pack("v*"), colors: nil, places: places.pack("C*"))
+          picture = run_picture_from_places(run, places, width: run.width, height: run.height)
           @bitmaps[run.picture] = picture
           @data[run.picture] = picture.pixels
         end
@@ -1310,10 +1308,15 @@ module RubyGBA
 
         def blank_run_tile(run) = run_tile_from_places(run, Array.new(64, 0))
 
-        def run_tile_from_places(run, places)
+        def run_tile_from_places(run, places) = run_picture_from_places(run, places, width: 8, height: 8)
+
+        # A painted picture keeps the run's colour list as its own, because a background told
+        # `draw_with` finds the colours to swap in by the list each tile was drawn from (see
+        # #tile_colors). Without it the swap finds nothing and the tiles keep their colours.
+        def run_picture_from_places(run, places, width:, height:)
           pixels = places.map { |place| place.zero? ? Graphics::Image::TRANSPARENT : run.colors.fetch(place, 0) }
-          Assets::Image.new(width: 8, height: 8, transparent: Graphics::Image::TRANSPARENT,
-                            pixels: pixels.pack("v*"), colors: nil, places: places.pack("C*"))
+          Assets::Image.new(width: width, height: height, transparent: Graphics::Image::TRANSPARENT,
+                            pixels: pixels.pack("v*"), colors: run.colors, places: places.pack("C*"))
         end
 
         def mutable_map(name)
@@ -1512,7 +1515,8 @@ module RubyGBA
         # Tiles are fixed at build time and a scrolling background repaints the same
         # handful of them for every row of every frame, so each one is decoded once and
         # kept. That turns the packed bytes into colors a few dozen times instead of a
-        # few million.
+        # few million. Tiles the game paints are the exception, and a copy of their list
+        # throws their kept colors away (see #copy_run_tiles).
         # +swapped+ is another list of colours the tile is being drawn with this frame (see
         # #background_swap), and nil for the colours it was drawn in. A swap goes by PLACE,
         # so a see-through pixel stays see-through however the list is written: place 0

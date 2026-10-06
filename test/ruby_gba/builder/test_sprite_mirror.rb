@@ -182,6 +182,24 @@ class TestSpriteMirror < Minitest::Test
     assert_match(/not defined/, error.message)
   end
 
+  # A picture the game paints has no pixels yet while the cartridge is built, so there is
+  # nothing to turn round — and it is defined, so the error must not say otherwise.
+  def test_mirroring_a_painted_picture_is_a_friendly_error
+    builder = Builder.new
+    error = assert_raises(ArgumentError) do
+      builder.instance_eval do
+        screen :tiled
+        canvas = list :canvas, capacity: 32, width: :byte
+        image :tag, from: canvas, width: 8, height: 8, colors: %i[transparent white]
+        mirror(:tag)
+      end
+    end
+
+    assert_match(/:tag/, error.message)
+    assert_match(/paint/, error.message)
+    refute_match(/not defined/, error.message)
+  end
+
   # A SPRITE THAT TURNS IS NOT MIRRORED. The two attribute bits that reverse an object
   # are the ones that name its rotation group once it is turning, so a turning sprite
   # keeps both sets of pixels — and, more to the point, still draws the right picture.

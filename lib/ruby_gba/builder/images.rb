@@ -345,6 +345,12 @@ module RubyGBA
       # collides on the art facing either way.
       def mirrored_image(source)
         @mirrored_images[source] ||= begin
+          if @painted_colors.key?(source)
+            raise ArgumentError,
+                  "mirror names the picture :#{source}, which the game paints from a list. The build does not " \
+                  "know its pixels, so mirror cannot turn it round. To show it turned round, paint the turned " \
+                  "pixels into a list of its own."
+          end
           picture = @pictures[source] ||
                     raise(ArgumentError,
                           "mirror names the picture :#{source}, which is not defined. Define it first " \

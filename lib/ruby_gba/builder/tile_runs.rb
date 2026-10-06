@@ -47,7 +47,10 @@ module RubyGBA
         refuse_tile_run_key_taken!(name, tile_map, count)
 
         images = (1..count).map { |number| Messages::MadeNames.make(:tile_run_tile, run: name, number: number) }
-        images.each { |image| @images[image] = [8, 8] }
+        images.each do |image|
+          @images[image] = [8, 8]
+          @painted_colors[image] = colors
+        end
         record(Build.tile_run(name, list: list.name, tiles: images, colors: colors))
         at_boot(Build.set(tile_run_pending(name), Build.int(0)))
         ensure_var(tile_run_pending(name))

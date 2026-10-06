@@ -57,6 +57,33 @@ class TestBackgroundDrawsWith < Minitest::Test
     assert_backends_agree(a_wall_of_bars { |rays| rays.draw_with :shimmer }, frames: 3)
   end
 
+  # Tiles the game paints from a list keep their pixels as places, so a layer of them is
+  # recoloured by place the same way. The list paints one tile in the bar's two halves.
+  private def a_wall_of_painted_bars
+    builder = Builder.new
+    builder.instance_eval do
+      screen :tiled
+      colors :ink, OWN
+      colors :shimmer, SHIMMER
+      canvas = list :canvas, capacity: 32, width: :byte
+      repeat(8) { [0x11, 0x11, 0x22, 0x22].each { |two_pixels| canvas.push two_pixels } }
+      wall = tiles :wall, from: canvas, count: 1, colors: :ink
+      wall.changed
+      rays = background :rays, tiles: :wall, map: Array.new(20) { [1] * 30 }
+      game_loop { rays.draw_with :shimmer }
+    end
+    builder.finalize_program
+    builder.program
+  end
+
+  def test_a_layer_of_painted_tiles_draws_with_other_colors_on_both_backends
+    i = Reference.new.run(a_wall_of_painted_bars, frames: 3)
+
+    assert_equal Color.resolve(:yellow), i.screen.pixel(1, 1), "the first place of the list"
+    assert_equal Color.resolve(:white), i.screen.pixel(5, 1), "and the second"
+    assert_backends_agree(a_wall_of_painted_bars, frames: 3)
+  end
+
   # --- ONE OF SEVERAL, PICKED BY A NUMBER THE GAME WORKS OUT ---
   #
   # This is the shape the effect is really for: several lists and a counter walking them, so
