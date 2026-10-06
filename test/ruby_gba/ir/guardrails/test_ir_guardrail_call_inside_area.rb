@@ -53,6 +53,26 @@ class TestIRGuardrailCallInsideArea < Minitest::Test
 
   # --- the check ---
 
+  # An `.else` runs as surely as a `.then`, on whichever frames its test says, so a call
+  # there, or a draw in a routine's own `.else`, is the same footgun.
+  def test_it_flags_a_call_in_an_else_and_a_draw_in_a_routines_else
+    called_from_else = program do
+      screen :bitmap
+      on = var :on, 0
+      func(:draw_something) { fill_rect 0, 0, 240, 160, :red }
+      game_loop { inside(0, 0, 100, 100) { (on == 1).then { pixel 1, 1, :blue }.else { call :draw_something } } }
+    end
+    drawn_in_else = program do
+      screen :bitmap
+      on = var :on, 0
+      func(:draw_something) { (on == 1).then { on.set! 0 }.else { fill_rect 0, 0, 240, 160, :red } }
+      game_loop { inside(0, 0, 100, 100) { call :draw_something } }
+    end
+
+    assert_equal 1, Check.new.detect(called_from_else).size, "a call in the area's else"
+    assert_equal 1, Check.new.detect(drawn_in_else).size, "a draw in the routine's else"
+  end
+
   def test_it_flags_a_call_that_draws_and_names_the_routine_and_verb
     findings = Check.new.detect(game_with_call_that_draws)
 

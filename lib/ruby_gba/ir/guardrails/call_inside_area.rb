@@ -59,11 +59,12 @@ module RubyGBA
           end
 
           # Every call in a subtree — descends into `:if`/`:loop`/`:repeat`
-          # bodies (real children of the `inside` block), never into a `:func`
-          # definition (there isn't one inside a block; funcs are top-level).
+          # bodies (real children of the `inside` block) and an `.else`, never
+          # into a `:func` definition (there isn't one inside a block; funcs are
+          # top-level).
           def find_calls(node)
             calls = CALLS.include?(node.kind) ? [node] : []
-            calls + node.children.flat_map { |child| find_calls(child) }
+            calls + node.statement_bodies.flat_map { |child| find_calls(child) }
           end
 
           # Does the func named +name+ draw on the bitmap screen OUTSIDE any area of its
@@ -90,7 +91,7 @@ module RubyGBA
               return node.callees.lazy.filter_map { |target| unclipped_draw_kind_in(target, funcs, seen) }.first
             end
 
-            node.children.each do |child|
+            node.statement_bodies.each do |child|
               hit = unclipped_draw_in(child, funcs, seen)
               return hit if hit
             end
