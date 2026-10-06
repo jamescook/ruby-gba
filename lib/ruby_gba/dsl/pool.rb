@@ -167,9 +167,10 @@ module RubyGBA
       def facing_row(direction) = @art&.dirs&.[](direction)
       def facing_names = @art&.dirs&.keys || []
 
-      # Point one instance at a direction (its row among the pictures).
+      # Point one instance at a direction (its row among the pictures): a number, or a Value
+      # the game works out.
       def set_facing(index, row)
-        record(Build.list_set(facing_list, index.node, Build.int(row)))
+        record(Build.list_set(facing_list, index.node, row.is_a?(Value) ? row.node : Build.int(row)))
         self
       end
 
@@ -510,7 +511,17 @@ module RubyGBA
         # Turn this instance to face a direction — the same verb, spelled the same way, that
         # a `sprite` given `facing:` takes. Each instance holds its own direction, so ten
         # guards in one pool can face ten ways.
-        def face(direction)
+        #
+        # `g.face [:a, :b], showing: g.step` picks one by a number the game works out, per
+        # instance (see HardwareSprite#face).
+        def face(direction, showing: nil)
+          unless showing.nil?
+            @pool.builder.write_picked_pose(direction, showing, subject: "pool :#{@pool.name}",
+                                                                row_of: @pool.method(:facing_row)) do |row|
+              @pool.set_facing(@index, row)
+            end
+            return self
+          end
           row = @pool.facing_row(direction)
           if row.nil?
             known = @pool.facing_names

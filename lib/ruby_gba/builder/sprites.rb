@@ -211,7 +211,66 @@ module RubyGBA
         object_node.recolor = Build.var_ref(colors_var)
       end
 
+      # A POSE PICKED BY A NUMBER THE GAME WORKS OUT (see HardwareSprite#face): +names+ are the
+      # directions it may show, +showing+ counts into them from 0, and the block is handed the
+      # row to write — a number, or a Value worked out as the game runs. +row_of+ turns a
+      # direction name into its row, nil for one the thing does not have.
+      #
+      # Written as a test per pose, a pick is code that grows with the poses; this is one
+      # bounded read whatever their number. Rows in order are a sum (`start + showing`); any
+      # other order is read out of a table built into the cartridge, one entry per name. A
+      # number outside the list writes nothing, so the pose stays as it was — what a counter
+      # that has run past its last step should look like.
+      def write_picked_pose(names, showing, subject:, row_of:)
+        rows = picked_pose_rows!(names, subject, row_of)
+        fixed = DSL::Value.fixed_number(showing)
+        return (yield Build.int(rows[fixed]) if fixed.between?(0, rows.length - 1)) if fixed
+
+        step = picked_pose_step!(showing, subject)
+        row = if rows.each_cons(2).all? { |a, b| b == a + 1 }
+                step + rows.first
+              else
+                pose_rows_table(rows)[step]
+              end
+        ((step >= 0) & (step < rows.length)).then { yield row }
+      end
+
       private
+
+      def picked_pose_rows!(names, subject, row_of)
+        unless names.is_a?(Array) && !names.empty?
+          raise ArgumentError,
+                "#{subject} was told to face #{names.inspect} and showing:. showing: picks one of several " \
+                "poses, so give it a list: face [:#{names}, :other], showing: ..."
+        end
+        names.map do |name|
+          row_of.call(name) or
+            raise ArgumentError, "#{subject} cannot face #{name.inspect}. Give it that pose with `facing:`, or " \
+                                 "take :#{name} out of the list."
+        end
+      end
+
+      def picked_pose_step!(showing, subject)
+        step = showing.is_a?(Symbol) ? DSL::Value.new(self, Build.var_ref(showing), name: showing) : showing
+        unless step.is_a?(DSL::Value) && !step.is_a?(DSL::Condition)
+          raise ArgumentError, "#{subject} was told to face a pose picked by showing: #{step.class}. showing: needs a " \
+                               "number, counting from 0, like showing: step."
+        end
+        if DSL::Fraction.bits_of(step)
+          raise ArgumentError, "#{subject} picks a pose by a whole number, and the number given to showing: holds " \
+                               "a fraction. To fix this, use `.to_i` to drop the fraction."
+        end
+        step
+      end
+
+      # One table of rows for each different order of rows, however many picks use it.
+      def pose_rows_table(rows)
+        @pose_rows_tables ||= {}
+        @pose_rows_tables[rows] ||= begin
+          name = Messages::MadeNames.make(:pose_rows, number: @pose_rows_tables.size)
+          table(name, rows, width: rows.max < 128 ? :byte : :half)
+        end
+      end
 
       # A `screen :tiled` sprite: the console draws it in hardware. Reserve a name for
       # it, boot its position and visibility, and declare it as a composited object

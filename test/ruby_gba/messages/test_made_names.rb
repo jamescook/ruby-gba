@@ -24,6 +24,7 @@ class TestMadeNames < Minitest::Test
     see_through_amounts: { layer: :rays },
     list_fill_routine: {},
     list_copy_routine: {},
+    pose_rows: { number: 2 },
     told_turn: { background: :field, part: :size },
     tile_run_tile: { run: :box, number: 3 },
     tile_run_pending: { run: :box },

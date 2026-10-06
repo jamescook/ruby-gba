@@ -213,10 +213,19 @@ module RubyGBA
       # Only for a sprite given `facing:` poses, and only a direction it has a pose
       # for — anything else is a friendly error. The pose shows on the next frame,
       # like any other change.
-      def face(direction)
+      #
+      # `face [:a, :b], showing: step` picks one by a number the game works out, the same as a
+      # tiled sprite's (see HardwareSprite#face).
+      def face(direction, showing: nil)
         unless faceted?
           raise ArgumentError,
                 "this sprite has no poses to face with — give it `facing: { left: :img_l, right: :img_r, ... }`"
+        end
+        unless showing.nil?
+          @builder.write_picked_pose(direction, showing, subject: "this sprite", row_of: @facing_dirs.method(:[])) do |row|
+            record(Build.set(@facing_var, row.is_a?(Value) ? row.node : row))
+          end
+          return self
         end
         index = @facing_dirs[direction] or
           raise ArgumentError, "this sprite cannot face #{direction.inspect} — it faces #{@facing_dirs.keys.join(', ')}"
