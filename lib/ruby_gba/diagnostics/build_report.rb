@@ -49,7 +49,7 @@ module RubyGBA
         stack_lines(program, printer)
         fade_steps_lines(program, printer)
         video_memory_lines(built.video_memory, printer)
-        quick_memory_lines(built.placement, program, printer)
+        quick_memory_lines(built.placement, program, printer, built.emitted)
         roomy_memory_lines(built.roomy_memory, printer)
         save_memory_lines(program, printer)
         glyph_lines(program, printer)
@@ -293,7 +293,7 @@ module RubyGBA
 
       # WHAT THE BUILD KEPT IN THE QUICK MEMORY, with each routine's size beside it — size is the
       # whole of why one routine is on this list and another is not, so it belongs next to them.
-      def quick_memory_lines(placement, program, printer)
+      def quick_memory_lines(placement, program, printer, emitted = nil)
         return if placement.nil? || (placement.funcs.empty? && placement.passed_over.empty?)
 
         faster = "code runs ~#{QUICK_MEMORY_SPEEDUP}x faster there"
@@ -308,7 +308,7 @@ module RubyGBA
                               kilobytes(placement.used_bytes), kilobytes(placement.free_bytes))
         end
         printer.puts("    #{chosen_from_line(placement)}")
-        passed_over_lines(placement, program, printer)
+        passed_over_lines(placement, program, printer, emitted)
       end
 
       # WHAT WENT IN THE OTHER WORK MEMORY, which is a decision nobody wrote down.
@@ -422,27 +422,52 @@ module RubyGBA
       # ...AND WHAT DID NOT FIT, which is the actionable half. A routine the frame spends real
       # time in that just missed is exactly where a program loses that speed, and nothing in a
       # finished cartridge can say so afterwards.
-      def passed_over_lines(placement, program, printer)
+      def passed_over_lines(placement, program, printer, emitted)
         return if placement.passed_over.empty?
 
         placement.passed_over.first(NAMED_MISSES).each do |over|
           printer.puts format("    (%s did not fit — it needs %s and %s was left when its " \
                               "turn came, so it runs from the cartridge.%s)",
                               Messages::PlainWords.routine(over.name), kilobytes(over.bytes), kilobytes(over.room),
-                              repeated_note(program, over))
+                              repeated_note(program, over, emitted))
         end
       end
 
-      def repeated_note(program, over)
+      # THE LINE A ROUTINE'S SIZE COMES FROM, ranked by the bytes emitted for it rather than by
+      # how many statements carry it: a picture declared in a routine is a statement and emits
+      # nothing, so counting statements named a line of declarations ahead of the code. A part
+      # of a statement — a sum, a read — carries no line of its own and is charged to the
+      # statement it sits in.
+      def repeated_note(program, over, emitted)
         body = program.walk.find { |node| node.kind == :func && node.name == over.name }
-        return "" unless body
+        return "" unless body && emitted
 
-        counts = body.walk.filter_map { |n| n.source&.to_s }.tally
-        where, times = counts.max_by { |_, count| count } || []
+        bytes, places = bytes_by_line(body, emitted)
+        where, size = bytes.max_by { |_, total| total } || []
+        times = where && places[where].size
         return "" if where.nil? || times < REPEATED_ENOUGH
 
-        format(" Its most repeated line is %s, emitted %d times.%s",
-               where.split("/").last, times, helper_advice(counts, times))
+        format(" Its costliest line is %s, emitted %d times, %s in all.%s",
+               where.split("/").last, times, kilobytes(size), helper_advice(places.transform_values(&:size), times))
+      end
+
+      # Bytes emitted for each source line of +body+, and the statements carrying that line
+      # whose code came to something.
+      def bytes_by_line(body, emitted)
+        bytes = Hash.new(0)
+        places = Hash.new { |all, line| all[line] = Set.new.compare_by_identity }
+        body.walk do |node|
+          size = emitted[node]&.instructions_per_use.to_f * IR::Backends::GBA::Attribution::INSTRUCTION_BYTES
+          next unless size.positive?
+
+          owner = node
+          owner = owner.parent until owner.nil? || owner.equal?(body) || owner.source
+          next unless owner&.source
+
+          bytes[owner.source.to_s] += size
+          places[owner.source.to_s] << owner
+        end
+        [bytes, places]
       end
 
       # Said only when the evidence is there: a run of DIFFERENT lines each emitted the same

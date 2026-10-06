@@ -49,6 +49,27 @@ class TestBuildReport < Minitest::Test
     assert_match(/it needs .*K and .*K was left when its turn came/, text)
   end
 
+  # THE LINE IT NAMES IS THE ONE THAT COSTS. A picture declared inside a routine is a
+  # statement of that routine and emits nothing, so a count of statements names a line of
+  # declarations ahead of the line the routine's size really comes from.
+  def test_it_names_the_line_that_emits_the_most_not_the_most_statements
+    rom = RubyGBA.build("BRCOST", maker: "01", out: StringIO.new, err: StringIO.new) do
+      screen :tiled
+      x = var :x, 0
+      scene(:play) do
+        1200.times { |n| image(:"pic#{n}", "#" => :red) { "########\n" * 8 } }
+        900.times { |n| x.set!((x * (n + 3)) + (x / 7)) }
+        sprite :pic0, at: [0, 0]
+      end
+      mode = var :mode, :play
+      game_loop { call mode }
+    end
+    note = report_for(rom)[/did not fit.*?\)/m]
+
+    assert_match(/test_build_report\.rb:#{__LINE__ - 8}/o, note, "the arithmetic line, not the pictures")
+    assert_match(/\d+(\.\d)?K in all/, note, "and what it came to")
+  end
+
   def test_it_says_whether_the_list_was_chosen_by_measuring_or_from_the_shape
     assert_match(/chosen from the shape of the program/, report_for(crowded_game))
   end
