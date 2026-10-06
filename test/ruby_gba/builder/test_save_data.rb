@@ -246,27 +246,52 @@ class TestSaveData < Minitest::Test
 
   # A FILE-SELECT SCREEN SHOWS EACH FILE'S NAME, which is a list: read it item by item from the
   # copy, with the game's own list left alone.
-  def test_a_kept_list_can_be_read_from_a_copy_without_loading_it
-    store = SaveImage.new
-    files_after(store, :up, :a) # copy 1 holds the name [1]
-    program = built do
+  private def names_peeked
+    proc do
       screen :tiled
+      # A full build refuses a tiled screen with nothing on it.
+      image(:dot, "#" => :white) { "########\n" * 8 }
+      sprite :dot, at: [0, 0]
       hearts = var :hearts, 3
       name = list :name, capacity: 3, width: :byte
       files = save_data(:file, copies: 3) { keep hearts, name }
       first = var :first, 0
       length = var :length, 0
       none = var :none, 0
+      total = var :total, 0
       game_loop do
+        total.set! (hearts * 2) + 1
         first.set! files[1].peek(name)[0]
+        (first > 0).then { total.add! first }
         length.set! files[1].peek(name).length
         none.set! files[2].peek(name).length
+        total.add! length + none
       end
     end
-    run = play(program, store)
+  end
+
+  def test_a_kept_list_can_be_read_from_a_copy_without_loading_it
+    store = SaveImage.new
+    files_after(store, :up, :a) # copy 1 holds the name [1]
+    run = play(built(&names_peeked), store)
 
     assert_equal [1, 1, 0], [run[:first], run[:length], run[:none]]
     assert_empty run.list(:name)
+  end
+
+  # A list read item by item from several places, among other expressions, is still no
+  # expression left unused, so the build's checks pass it and the console reads what the
+  # interpreter reads.
+  def test_a_kept_list_peeked_from_several_places_builds_and_reads_alike
+    store = SaveImage.new
+    files_after(store, :up, :a)
+    oracle = play(built(&names_peeked), store.dup)
+    rom = RubyGBA.build("PEEKS", out: StringIO.new, err: StringIO.new, &names_peeked)
+    v = assert_emulator_loads_rom(rom, frames: 4, save: store, vars: rom.var_addresses)
+
+    readings = %i[first length none total]
+    assert_equal [1, 1, 0, 9], readings.map { |name| oracle[name] }
+    assert_equal readings.map { |name| oracle[name] }, readings.map { |name| v.var(name) }
   end
 
   # THE RANDOM NUMBERS ARE PART OF A SAVE. A game that saves mid-level and loads again must

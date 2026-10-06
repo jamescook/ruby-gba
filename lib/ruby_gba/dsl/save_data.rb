@@ -138,9 +138,10 @@ module RubyGBA
       private
 
       # Read as a list, the number this stands for is not the reading, so it is no expression
-      # somebody forgot to keep.
+      # somebody forgot to keep. It is taken out by identity: `delete` would ask every held
+      # expression `==`, and on a Value that builds a comparison rather than answering.
       def peek_list_value(shape, index: nil)
-        @builder.expressions.delete(self) if @builder.respond_to?(:expressions)
+        @builder.expressions.delete_if { |held| held.equal?(self) } if @builder.respond_to?(:expressions)
         Value.new(@builder, @saves.peek_stand_in(@layout, @copy, @kept_name, shape, index: index))
       end
     end
