@@ -25,13 +25,33 @@ module RubyGBA
       # the flag set here is what tells it to; where it is not, the copy stays where it was
       # asked for, since there is no gap to move it to.
       def request_tile_copy(name)
-        record(Build.set(tile_run_pending(name), Build.int(1)))
+        mask = tile_run_pending(name)
+        record(Build.set(mask, Build.binop(:|, Build.var_ref(mask), Build.int(tile_run_bit(name)))))
         @inline_tile_copies << record(Build.copy_tiles(name))
       end
 
       private
 
-      def tile_run_pending(name) = Messages::MadeNames.make(:tile_run_pending, run: name)
+      # WHICH RUNS ARE OWED A COPY, as bits of a few variables rather than a flag apiece: a bit
+      # per run, thirty to a variable so a mask never reaches the sign bit. That is what lets
+      # the gap between frames ask one question of all of them (see #finalize_tile_copies).
+      RUNS_PER_MASK = 30
+
+      def tile_run_pending(name) = Messages::MadeNames.make(:tile_run_pending, number: @tile_runs.index(name) / RUNS_PER_MASK)
+      def tile_run_bit(name) = 1 << (@tile_runs.index(name) % RUNS_PER_MASK)
+
+      # The run's place among the runs is settled as it is declared, which is where its mask
+      # starts at nought — once for each mask, however many runs share it.
+      def register_tile_run(name)
+        @tile_runs << name
+        mask = tile_run_pending(name)
+        return unless (@tile_runs.index(name) % RUNS_PER_MASK).zero?
+
+        at_boot(Build.set(mask, Build.int(0)))
+        ensure_var(mask)
+      end
+
+      def tile_run_masks = @tile_runs.map { |name| tile_run_pending(name) }.uniq
 
       # `tiles` given a list rather than a picture file. The run's tiles are keyed 1 to
       # +count+ in the order their bytes sit in the list, and any other keys are ordinary
@@ -52,9 +72,7 @@ module RubyGBA
           @painted_colors[image] = colors
         end
         record(Build.tile_run(name, list: list.name, tiles: images, colors: colors))
-        at_boot(Build.set(tile_run_pending(name), Build.int(0)))
-        ensure_var(tile_run_pending(name))
-        @tile_runs << name
+        register_tile_run(name)
 
         tiles(name, images.each_with_index.to_h { |image, i| [i + 1, image] }.merge(tile_map))
         DSL::TileRun.new(self, name)
@@ -86,9 +104,7 @@ module RubyGBA
         @painted_colors[name] = colors
         record(Build.tile_run(name, list: list.name, tiles: [], colors: colors, picture: name,
                                     width: width, height: height))
-        at_boot(Build.set(tile_run_pending(name), Build.int(0)))
-        ensure_var(tile_run_pending(name))
-        @tile_runs << name
+        register_tile_run(name)
         DSL::TileRun.new(self, name)
       end
 
@@ -97,22 +113,43 @@ module RubyGBA
       # what makes three `changed` in one frame one copy, and what keeps the copy out of the
       # middle of a frame, where the top of the screen would show the old pixels and the
       # bottom the new.
+      #
+      # THE GAME LOOP ASKS ONE QUESTION, however many runs there are: is any bit of any mask
+      # set? Only then does it call the routine that copies — the one place the code for each
+      # run lives. The game loop is run on every frame of every scene, so a check and a copy
+      # written into it for each run were paid by every scene, the one the player plays in
+      # included; and the routine runs only on a frame something was painted, so it is kept
+      # in the cartridge rather than the quick memory.
       def finalize_tile_copies
         return if @tile_runs.empty? || @frame_boundaries.empty?
 
         @inline_tile_copies.each { |node| node.parent&.children&.delete(node) }
+        declare_painted_copies_routine
         @frame_boundaries.each do |wait_node|
           container = wait_node.parent
           at = container&.children&.index(wait_node)
           next unless at
 
-          @tile_runs.reverse_each do |name|
-            pending = tile_run_pending(name)
-            node = Build.if_(Build.binop(:!=, Build.var_ref(pending), Build.int(0)),
-                             Build.copy_tiles(name), Build.set(pending, Build.int(0)))
-            container.children.insert(at + 1, node)
-            node.parent = container
+          any = tile_run_masks.map { |mask| Build.var_ref(mask) }.reduce { |a, b| Build.binop(:|, a, b) }
+          node = Build.if_(Build.binop(:!=, any, Build.int(0)), Build.call(PAINTED_COPIES))
+          container.children.insert(at + 1, node)
+          node.parent = container
+        end
+      end
+
+      # The routine the game loop calls on a frame with a run owed a copy.
+      PAINTED_COPIES = Messages::MadeNames.make(:painted_copies)
+
+      # Built here, once every run is known, rather than handed to `func`: the routines a game
+      # wrote are built already. Listed with them so a call to it counts as one to a routine.
+      def declare_painted_copies_routine
+        @functions[PAINTED_COPIES] = proc {}
+        push_container(Build.func(PAINTED_COPIES, fast: false)) do
+          @tile_runs.uniq.each do |name|
+            owed = Build.binop(:&, Build.var_ref(tile_run_pending(name)), Build.int(tile_run_bit(name)))
+            record(Build.if_(Build.binop(:!=, owed, Build.int(0)), Build.copy_tiles(name)))
           end
+          tile_run_masks.each { |mask| record(Build.set(mask, Build.int(0))) }
         end
       end
 

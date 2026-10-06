@@ -87,7 +87,9 @@ module RubyGBA
         tile_run_tile: Kind.new(spelling: "__tile_run_%{run}__%{number}", parts: { run: ANY, number: "\\d+" },
                                 words: nil),
         pose_rows: Kind.new(spelling: "__pose_rows_%{number}", parts: { number: "\\d+" }, words: nil),
-        tile_run_pending: Kind.new(spelling: "__tile_run_pending_%{run}", parts: { run: ANY }, words: nil),
+        tile_run_pending: Kind.new(spelling: "__tile_runs_pending_%{number}", parts: { number: "\\d+" }, words: nil),
+        painted_copies: Kind.new(spelling: "__painted_copies", parts: {},
+                                 words: ->(_) { "copying the pictures and tiles the game painted" }),
         canvas_part: Kind.new(spelling: "__canvas_%{canvas}__%{part}", parts: { canvas: ANY, part: PLAIN },
                               words: lambda do |parts|
                                 "painting a pixel of canvas :#{parts[:canvas]}" if parts[:part] == "pixel"

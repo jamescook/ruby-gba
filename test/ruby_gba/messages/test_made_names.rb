@@ -27,7 +27,8 @@ class TestMadeNames < Minitest::Test
     pose_rows: { number: 2 },
     told_turn: { background: :field, part: :size },
     tile_run_tile: { run: :box, number: 3 },
-    tile_run_pending: { run: :box },
+    tile_run_pending: { number: 0 },
+    painted_copies: {},
     canvas_part: { canvas: :box, part: :pixel },
     canvas_font: { font: :tiny, part: :rows },
   }.freeze

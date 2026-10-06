@@ -529,4 +529,34 @@ class TestTileRuns < Minitest::Test
 
     assert_equal WHITE, pixel(b.program, 2, 0, 0)
   end
+
+  # --- what painted pictures cost the frame's own code ---
+
+  # A file screen of +count+ painted name tags, each changed every frame, and a play scene.
+  def name_tags(count)
+    proc do
+      screen :tiled
+      scene(:files) do
+        count.times do |n|
+          canvas = list :"name#{n}", capacity: 64, width: :byte
+          tag = image :"tag#{n}", from: canvas, width: 16, height: 8, colors: %i[transparent white]
+          sprite :"tag#{n}", at: [n * 8, 0]
+          tag.changed
+        end
+      end
+      mode = var :mode, :files
+      game_loop { call mode }
+    end
+  end
+
+  # THE GAME LOOP IS EVERY SCENE'S, so what a picture on one screen adds there is paid on all
+  # of them — the scene the player plays in included. Twenty painted pictures add nothing to it.
+  def test_twenty_painted_pictures_add_nothing_to_the_game_loop
+    sizes = [1, 20].map do |count|
+      rom = RubyGBA.build("TAGS#{count}", out: StringIO.new, err: StringIO.new, profile: false, &name_tags(count))
+      rom.placement.sizes.fetch(:__frame)
+    end
+
+    assert_equal sizes.first, sizes.last
+  end
 end
