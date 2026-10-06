@@ -549,6 +549,28 @@ class TestTileRuns < Minitest::Test
     end
   end
 
+  # A picture declared in a second scene keeps its place among the runs, so the thirty-first
+  # run still opens the second group of change marks and that group starts at nought.
+  def test_a_run_declared_twice_keeps_the_runs_after_it_in_their_groups
+    b = Builder.new
+    b.instance_eval do
+      screen :tiled
+      canvases = (0..30).map { |n| list :"name#{n}", capacity: 64, width: :byte }
+      scene(:one) do
+        30.times { |n| image(:"tag#{n}", from: canvases[n], width: 16, height: 8, colors: %i[transparent white]).changed }
+      end
+      scene(:two) do
+        image(:tag0, from: canvases[0], width: 16, height: 8, colors: %i[transparent white])
+        image(:tag30, from: canvases[30], width: 16, height: 8, colors: %i[transparent white]).changed
+      end
+      mode = var :mode, :one
+      game_loop { call mode }
+    end
+    b.finalize_program
+
+    assert_includes b.variables, :__tile_runs_pending_1, "the second group has a variable of its own"
+  end
+
   # THE GAME LOOP IS EVERY SCENE'S, so what a picture on one screen adds there is paid on all
   # of them — the scene the player plays in included. Twenty painted pictures add nothing to it.
   def test_twenty_painted_pictures_add_nothing_to_the_game_loop

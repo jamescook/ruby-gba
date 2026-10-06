@@ -307,6 +307,10 @@ module RubyGBA
       # as each operand is written, the way a walk's route is.
       def named_operands = name_fields.map { |field| [field, public_send(field)] }
 
+      # The nodes held directly in this node's operands — a value it reads, an `.else` — for a
+      # walk that has to carry something down to them, which #walk cannot.
+      def operand_nodes = node_fields.flat_map { |field| Array(public_send(field)).flatten.grep(Node) }
+
       def inspect
         parts = [kind.inspect]
         parts.concat(attrs.map { |k, v| "#{k}=#{v.inspect}" })

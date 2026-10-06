@@ -70,6 +70,31 @@ class TestBuildReport < Minitest::Test
     assert_match(/\d+(\.\d)?K in all/, note, "and what it came to")
   end
 
+  # A value held in a Ruby variable is ONE node written into every statement that uses it,
+  # so asking it which statement holds it answers with the last one — here a line of another
+  # routine, which is not in the routine the note is about at all.
+  def test_a_value_shared_by_many_statements_is_charged_to_each_of_them
+    rom = RubyGBA.build("BRSHARE", maker: "01", out: StringIO.new, err: StringIO.new) do
+      screen :tiled
+      image(:dot, "#" => :red) { "########\n" * 8 }
+      x = var :x, 3
+      heavy = (x * 37) + (x / 7) + (x * x)
+      scene(:play) do
+        sprite :dot, at: [0, 0]
+        1200.times { |n| var(:"y#{n % 8}", 0).set! heavy }
+      end
+      func(:elsewhere) { var(:z, 0).set! heavy }
+      mode = var :mode, :play
+      game_loop do
+        call mode
+        call :elsewhere
+      end
+    end
+    note = report_for(rom)[/did not fit.*?\)/m]
+
+    assert_match(/test_build_report\.rb:#{__LINE__ - 11}/o, note, "the line in the scene, not the other routine's")
+  end
+
   def test_it_says_whether_the_list_was_chosen_by_measuring_or_from_the_shape
     assert_match(/chosen from the shape of the program/, report_for(crowded_game))
   end

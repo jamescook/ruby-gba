@@ -42,7 +42,10 @@ module RubyGBA
 
       # The run's place among the runs is settled as it is declared, which is where its mask
       # starts at nought — once for each mask, however many runs share it.
+      # A run declared again — the same name in a second scene — keeps the place it has.
       def register_tile_run(name)
+        return if @tile_runs.include?(name)
+
         @tile_runs << name
         mask = tile_run_pending(name)
         return unless (@tile_runs.index(name) % RUNS_PER_MASK).zero?
@@ -145,7 +148,7 @@ module RubyGBA
       def declare_painted_copies_routine
         @functions[PAINTED_COPIES] = proc {}
         push_container(Build.func(PAINTED_COPIES, fast: false)) do
-          @tile_runs.uniq.each do |name|
+          @tile_runs.each do |name|
             owed = Build.binop(:&, Build.var_ref(tile_run_pending(name)), Build.int(tile_run_bit(name)))
             record(Build.if_(Build.binop(:!=, owed, Build.int(0)), Build.copy_tiles(name)))
           end

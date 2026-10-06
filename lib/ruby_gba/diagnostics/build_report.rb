@@ -453,21 +453,28 @@ module RubyGBA
 
       # Bytes emitted for each source line of +body+, and the statements carrying that line
       # whose code came to something.
+      #
+      # The statement a part belongs to is carried DOWN the walk rather than looked up from
+      # the part: a value the game holds in a Ruby variable is one node written into many
+      # statements, and its parent is only the last of them, which may not even be in this
+      # routine.
       def bytes_by_line(body, emitted)
         bytes = Hash.new(0)
         places = Hash.new { |all, line| all[line] = Set.new.compare_by_identity }
-        body.walk do |node|
-          size = emitted[node]&.instructions_per_use.to_f * IR::Backends::GBA::Attribution::INSTRUCTION_BYTES
-          next unless size.positive?
-
-          owner = node
-          owner = owner.parent until owner.nil? || owner.equal?(body) || owner.source
-          next unless owner&.source
-
+        charge_lines(body, nil, emitted) do |owner, size|
           bytes[owner.source.to_s] += size
           places[owner.source.to_s] << owner
         end
         [bytes, places]
+      end
+
+      # Each node under +node+ with the statement carrying a line that holds it, and what it
+      # emitted, for every place it sits.
+      def charge_lines(node, owner, emitted, &charge)
+        owner = node if node.source
+        size = emitted[node]&.instructions_per_use.to_f * IR::Backends::GBA::Attribution::INSTRUCTION_BYTES
+        yield owner, size if owner && size.positive?
+        (node.children + node.operand_nodes).each { |part| charge_lines(part, owner, emitted, &charge) }
       end
 
       # Said only when the evidence is there: a run of DIFFERENT lines each emitted the same

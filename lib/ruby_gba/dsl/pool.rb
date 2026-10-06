@@ -167,10 +167,10 @@ module RubyGBA
       def facing_row(direction) = @art&.dirs&.[](direction)
       def facing_names = @art&.dirs&.keys || []
 
-      # Point one instance at a direction (its row among the pictures): a number, or a Value
+      # Point one instance at a direction (its row among the pictures): a number, or a value node
       # the game works out.
       def set_facing(index, row)
-        record(Build.list_set(facing_list, index.node, row.is_a?(Value) ? row.node : Build.int(row)))
+        record(Build.list_set(facing_list, index.node, row.is_a?(Integer) ? Build.int(row) : row))
         self
       end
 

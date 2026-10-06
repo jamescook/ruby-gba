@@ -248,7 +248,7 @@ module RubyGBA
         unless showing.nil?
           @builder.write_picked_pose(direction, showing, subject: "sprite :#{@object_name}",
                                                          row_of: @facing_dirs.method(:[])) do |row|
-            record(Build.set(@facing_var, row.is_a?(Value) ? row.node : row))
+            record(Build.set(@facing_var, row))
           end
           return self
         end

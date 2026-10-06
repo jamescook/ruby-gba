@@ -117,6 +117,16 @@ class TestFaceShowing < Minitest::Test
       hero = sprite :hero, at: [0, 0], facing: { a: :a, b: :b }
       game_loop { hero.face %i[a c], showing: var(:n, 0) }
     end)
+    assert_match(/from 0 to 1/, refused do
+      instance_eval(&poses)
+      hero = sprite :hero, at: [0, 0], facing: { a: :a, b: :b }
+      game_loop { hero.face %i[a b], showing: 5 }
+    end)
+    assert_match(/no variable has that name/, refused do
+      instance_eval(&poses)
+      hero = sprite :hero, at: [0, 0], facing: { a: :a, b: :b }
+      game_loop { hero.face %i[a b], showing: :nope }
+    end)
     assert_match(/showing: picks/, refused do
       instance_eval(&poses)
       hero = sprite :hero, at: [0, 0], facing: { a: :a, b: :b }

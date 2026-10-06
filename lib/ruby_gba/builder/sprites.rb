@@ -224,24 +224,43 @@ module RubyGBA
       def write_picked_pose(names, showing, subject:, row_of:)
         rows = picked_pose_rows!(names, subject, row_of)
         fixed = DSL::Value.fixed_number(showing)
-        return (yield Build.int(rows[fixed]) if fixed.between?(0, rows.length - 1)) if fixed
+        if fixed
+          unless fixed.between?(0, rows.length - 1)
+            raise ArgumentError, "#{subject} was told to face pose #{fixed} of a list of #{rows.length}. The " \
+                                 "poses count from 0, so give a number from 0 to #{rows.length - 1}."
+          end
+          return yield Build.int(rows[fixed])
+        end
 
         step = picked_pose_step!(showing, subject)
+        # Worked out once and kept, unless it is already a variable: the step is read three
+        # times below, and a number made fresh each read (a roll of the dice) could pass the
+        # range test as one value and pick the pose as another.
+        unless step.node.kind == :var_ref
+          kept = var(PICKED_POSE_STEP, 0)
+          kept.set!(step)
+          step = kept
+        end
         row = if rows.each_cons(2).all? { |a, b| b == a + 1 }
                 step + rows.first
               else
                 pose_rows_table(rows)[step]
               end
-        ((step >= 0) & (step < rows.length)).then { yield row }
+        ((step >= 0) & (step < rows.length)).then { yield row.node }
       end
+
+      # Scratch for a pose step worked out from an expression (see #write_picked_pose): one
+      # variable for every pick, since each pick reads it straight after writing it.
+      PICKED_POSE_STEP = :_picked_pose_step
 
       private
 
       def picked_pose_rows!(names, subject, row_of)
         unless names.is_a?(Array) && !names.empty?
+          example = names.is_a?(Symbol) ? ":#{names}" : ":idle"
           raise ArgumentError,
-                "#{subject} was told to face #{names.inspect} and showing:. showing: picks one of several " \
-                "poses, so give it a list: face [:#{names}, :other], showing: ..."
+                "#{subject} was told to face #{names.inspect} with showing:. showing: picks one pose from a list. " \
+                "Give it a list of poses, like face [#{example}, :other], showing: step."
         end
         names.map do |name|
           row_of.call(name) or
@@ -251,6 +270,10 @@ module RubyGBA
       end
 
       def picked_pose_step!(showing, subject)
+        if showing.is_a?(Symbol) && !@variables.key?(showing)
+          raise ArgumentError, "#{subject} was told to face a pose picked by :#{showing}, and no variable has " \
+                               "that name. Declare it first with `var :#{showing}, 0`, or correct the name."
+        end
         step = showing.is_a?(Symbol) ? DSL::Value.new(self, Build.var_ref(showing), name: showing) : showing
         unless step.is_a?(DSL::Value) && !step.is_a?(DSL::Condition)
           raise ArgumentError, "#{subject} was told to face a pose picked by showing: #{step.class}. showing: needs a " \
