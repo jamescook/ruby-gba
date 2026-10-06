@@ -12,14 +12,16 @@ module RubyGBA
       # @param name [Symbol] the table's name
       # @param count [Integer] how many elements it holds
       # @param fraction_bits [Integer, nil] fraction bits its values carry, if any
-      def initialize(builder, name, count, fraction_bits: nil)
+      # @param width [Symbol] how big one entry is: :byte, :half or :word
+      def initialize(builder, name, count, fraction_bits: nil, width: :half)
         @builder = builder
         @name = name
         @count = count
         @fraction_bits = fraction_bits
+        @width = width
       end
 
-      attr_reader :name
+      attr_reader :name, :fraction_bits, :width
 
       # The element at +index+, as a {Value}. +index+ may be a Value, an Integer, or a
       # :symbol naming a variable. An out-of-range index is made safe by the read: a

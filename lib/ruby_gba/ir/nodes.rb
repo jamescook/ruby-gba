@@ -584,6 +584,17 @@ module RubyGBA
         operands name: :name, from: :value, count: :value, value: :value
       end
 
+      # The list made to hold exactly +count+ entries of +table+, from entry +at+ on. +at+ is
+      # worked out as the game runs and is held inside the table, so the run never reads past
+      # either end of it. One statement, so a backend can copy the run as a block rather than
+      # an entry at a time.
+      class ListCopy
+        include Node
+        kind :list_copy
+        category :list
+        operands name: :name, table: :name, at: :value, count: :int
+      end
+
       class Loop
         include Node
         kind :loop

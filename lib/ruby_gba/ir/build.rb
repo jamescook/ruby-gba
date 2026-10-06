@@ -899,6 +899,12 @@ module RubyGBA
                                 value: to_value_node(value))
       end
 
+      # Make the list hold exactly +count+ entries of +table+, from entry +at+ (a value
+      # operand) on.
+      def list_copy(name, table:, at:, count:)
+        Nodes.build(:list_copy, name: name, table: table, at: to_value_node(at), count: count)
+      end
+
       # Overwrite the item at `index` with a new value (the slot must already hold
       # one). `index` is a value operand.
       def list_set(name, index, value)

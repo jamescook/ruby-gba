@@ -42,6 +42,7 @@ module RubyGBA
             @lists = {}
             @backing = {}
             @fills = false
+            @copies = false
           end
 
           # The routine every list_fill calls, named once.
@@ -89,6 +90,92 @@ module RubyGBA
             emit_fill_pattern(info[:width])                         # r0 = the value in every byte place
             @call_cold.call(FILL_ROUTINE)
             @emitter.place_label(skip)
+          end
+
+          # The routine every list_copy calls, named once.
+          COPY_ROUTINE = Messages::MadeNames.make(:list_copy_routine)
+
+          # list_copy: the list made to hold +count+ entries of a table in the cartridge, from
+          # the entry the game worked out. The start is held so the whole run is inside the
+          # table, the same as the interpreter holds it, and the run always lands at the front
+          # of the list — so a ring's head goes back to its first slot and the copy is still
+          # one block of memory. The bytes are handed to one routine (see #emit_copy_routine).
+          def emit_list_copy(node, table)
+            info = list_info(node.name)
+            # The builder refuses these (Builder#copy_table_run); this is the lowering's own
+            # invariant, for a tree that reached it some other way — either would write past
+            # the list into whatever memory follows it.
+            unless table.elem_bytes == info[:bytes] && node.count.between?(1, [info[:capacity], table.count].min)
+              raise LoweringError, "list #{node.name.inspect} cannot hold #{node.count} entries of table #{node.table.inspect}"
+            end
+
+            @copies = true
+            @lowering.value(node.at)                                         # r0 = where the run starts
+            @emitter.emit(ASM.cmp_imm(ACC, 0))
+            @emitter.emit(ASM.mov_imm_cond(:lt, ACC, 0))                     # not before the table
+            @emitter.emit(ASM.load_immediate(TMP, table.count - node.count))
+            @emitter.emit(ASM.cmp_reg(ACC, TMP))
+            @emitter.emit(ASM.mov_reg_cond(:gt, ACC, TMP))                   # nor running off its end
+            shift = Math.log2(table.elem_bytes).to_i
+            @emitter.emit(ASM.lsl_imm(ACC, ACC, shift)) if shift.positive?   # r0 = its distance in bytes
+            @emitter.emit_load_data_address(TMP, node.table)
+            @emitter.emit(ASM.add_reg(ACC, TMP, ACC))                        # r0 = where it is in the cartridge
+            @primitives.emit_list_base(info[:base])
+            @emitter.emit(ASM.mov_reg(TMP, LIST_ADDR))                       # r1 = the list's first slot
+            @emitter.emit(ASM.load_immediate(2, node.count * table.elem_bytes)) # r2 = bytes to copy
+            @call_cold.call(COPY_ROUTINE)
+            @emitter.emit(ASM.load_immediate(ACC, 0))
+            @primitives.store_var(ACC, head_var(node.name)) if info[:ring]
+            @emitter.emit(ASM.load_immediate(ACC, node.count))
+            @primitives.store_var(ACC, length_var(node.name))
+          end
+
+          # THE ROUTINE THAT COPIES A RUN: r0 where it comes from, r1 where it goes, r2 how many
+          # bytes, more than nought. The copying engine moves a run without the processor, a
+          # word or a half-word at a time, while a byte at a time is all the processor can do
+          # in a loop — so the widest one the two addresses and the length all allow is taken:
+          # words when all three are a whole number of words, half-words when they are a whole
+          # number of halves, and bytes one at a time only for a run that is neither. A table
+          # run starting at an entry the game works out is usually on a word, since entries
+          # are picked by a number times the run's length. Touches r0 to r3 and nothing else,
+          # and is emitted only in a program that copies.
+          def emit_copy_routine
+            return unless @copies
+
+            e = @emitter
+            halves = e.gensym
+            bytes = e.gensym
+            e.emit(ASM.loop_forever) # fall-through guard: only ever entered by a call
+            e.place_label(COPY_ROUTINE)
+            e.emit(ASM.orr_reg(3, ACC, TMP))
+            e.emit(ASM.orr_reg(3, 3, 2))                                     # r3 = every address bit in play
+            e.emit(ASM.tst_imm(3, 1))
+            e.emit_branch(:bcond, bytes, cond: :ne)
+            e.emit(ASM.tst_imm(3, 2))                                        # held until the branch below:
+            e.emit(ASM.load_immediate(3, REG_DMA3SAD))                       # nothing between sets the flags
+            e.emit(ASM.str_offset(ACC, 3, 0))                                # the engine reads from r0
+            e.emit(ASM.str_offset(TMP, 3, 4))                                # ...and writes to r1
+            e.emit_branch(:bcond, halves, cond: :ne)
+            e.emit(ASM.lsr_imm(2, 2, 2))                                     # words
+            e.emit(ASM.orr_imm(2, 2, DMA_32BIT))
+            e.emit(ASM.orr_imm(2, 2, DMA_ENABLE))
+            e.emit(ASM.str_offset(2, 3, 8))                                  # go; the processor waits
+            e.emit(ASM.return)
+            e.place_label(halves)
+            e.emit(ASM.lsr_imm(2, 2, 1))                                     # half-words
+            e.emit(ASM.orr_imm(2, 2, DMA_ENABLE))
+            e.emit(ASM.str_offset(2, 3, 8))
+            e.emit(ASM.return)
+            e.place_label(bytes)
+            e.emit(ASM.ldrb_offset(3, ACC, 0))
+            e.emit(ASM.add_imm(ACC, ACC, 1))
+            e.emit(ASM.strb_post(3, TMP, 1))
+            e.emit(ASM.subs_imm(2, 2, 1))
+            e.emit_branch(:bcond, bytes, cond: :ne)
+            e.emit(ASM.return)
+            # Where it ends, so a profile can say how much of a frame went into copying (see
+            # GBA#lowered_routine_addresses).
+            e.place_label(:"#{COPY_ROUTINE}_end")
           end
 
           # The value in r3 repeated across a whole word in r0, so a word written anywhere in the

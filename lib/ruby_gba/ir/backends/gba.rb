@@ -418,6 +418,7 @@ module RubyGBA
             list_new: @lists.method(:emit_list_new), list_push: @lists.method(:emit_list_push),
             list_drop: @lists.method(:emit_list_drop), list_set: @lists.method(:emit_list_set),
             list_fill: @lists.method(:emit_list_fill),
+            list_copy: ->(node) { @lists.emit_list_copy(node, @tables.fetch(node.table)) },
             call: @statements.method(:emit_call), case: @functions.method(:emit_case),
             call_one_of: @functions.method(:emit_call_one_of),
             raw: @statements.method(:emit_raw), halt: @statements.method(:emit_halt),
@@ -767,6 +768,7 @@ module RubyGBA
           @drawing.emit_digit_routines  # the shared glyph loop each font's draw_number/draw_digit calls
           @buffered.emit_digit_routines # ...and its tear-free counterpart
           @lists.emit_fill_routine # the one routine every list_fill calls, for the same reason
+          @lists.emit_copy_routine # ...and every list_copy
           emit_data_region
           emit_save_signature if @uses_save # the marker that maps the save chip (past all code/data)
           # Only now does every variable have a home, so only now is it known where the

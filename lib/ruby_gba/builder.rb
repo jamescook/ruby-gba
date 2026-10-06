@@ -383,7 +383,76 @@ module RubyGBA
       signed = values.any?(&:negative?) if signed.nil?
       check_table_values_fit!(name, values, width, signed)
       record(Build.table(name, values, width: width, signed: signed))
-      DSL::Table.new(self, name, values.length, fraction_bits: bits)
+      DSL::Table.new(self, name, values.length, fraction_bits: bits, width: width)
+    end
+
+    # A RUN OF A TABLE COPIED INTO A LIST AT ONCE (see List#copy_from). The loop it replaces —
+    # `list[i] = table[start + i]` for each i — works out an address and makes a read and a
+    # write for every entry, which is most of a frame for a few hundred of them. This is one
+    # statement, so the console copies the run as a block. The list then holds exactly
+    # +count+ entries; +at+ is held inside the table, so the run never reads past it.
+    #
+    # The two must keep their entries the same way, since a block copy moves bytes and does
+    # not change one size of entry into another.
+    def copy_table_run(list, table, at:, count:)
+      made = declared_list_node(list.name)
+      refuse_unfit_table_copy!(list, made, table, count, at)
+      record(Build.list_copy(list.name, table: table.name, at: DSL::Value.node_for(at), count: count))
+      ensure_var(at)
+    end
+
+    def declared_list_node(name)
+      (@program.walk.to_a + @boot_inits).find { |node| node.kind == :list_new && node.name == name }
+    end
+
+    def refuse_unfit_table_copy!(list, made, table, count, at)
+      what = "list :#{list.name}.copy_from"
+      unless made
+        raise ArgumentError, "#{what} copies into a list that is not declared. Declare it first with " \
+                             "`list :#{list.name}, capacity: ...`."
+      end
+      unless table.is_a?(DSL::Table)
+        raise ArgumentError, "#{what} needs a table, made with `table`. It was given #{table.class.name.split("::").last}."
+      end
+      unless count.is_a?(Integer) && count.positive?
+        raise ArgumentError, "#{what} needs `count:`, a whole number written in the program, 1 or more. " \
+                             "It was given #{count.inspect}."
+      end
+      if DSL::Fraction.bits_of(at)
+        raise ArgumentError, "#{what} starts the run at an entry of the table, and the number given to " \
+                             "`at:` holds a fraction. To fix this, use `.to_i` to drop the fraction."
+      end
+      if count > table.length
+        raise ArgumentError, "#{what} copies #{count} entries, and table :#{table.name} has #{table.length}. " \
+                             "Give a count of #{table.length} or less."
+      end
+      if count > made.capacity
+        raise ArgumentError, "#{what} copies #{count} entries, and the list holds #{made.capacity}. " \
+                             "Give the list a capacity of #{count} or more."
+      end
+      refuse_mismatched_table_copy!(what, list, made, table, count)
+    end
+
+    # The copying engine counts a run in at most 65535 halves, so a run is held to 64K.
+    TABLE_COPY_MOST_BYTES = 65_536
+
+    def refuse_mismatched_table_copy!(what, list, made, table, count)
+      list_width = made.width || :word
+      unless table.width == list_width
+        raise ArgumentError, "#{what} copies from table :#{table.name}, which keeps each entry in a " \
+                             "#{table.width}. The list keeps each item in a #{list_width}. A copy moves " \
+                             "the entries as they are, so give both the same `width:`."
+      end
+      bytes = count * Build::ELEMENT_BYTES.fetch(list_width)
+      if bytes > TABLE_COPY_MOST_BYTES
+        raise ArgumentError, "#{what} copies #{bytes} bytes. One copy can move #{TABLE_COPY_MOST_BYTES} bytes " \
+                             "or less. Copy the run in parts, each with a count of its own."
+      end
+      return if table.fraction_bits == list.fraction_bits
+
+      table_holds, list_holds = table.fraction_bits ? ["numbers with a fraction", "whole numbers"] : ["whole numbers", "numbers with a fraction"]
+      raise ArgumentError, "#{what} copies from table :#{table.name}, which holds #{table_holds}. The list holds " \
+                           "#{list_holds}. A copy moves the numbers as they are, so give both the same kind of number."
     end
 
     # Define an entry point of raw ARM instructions — the escape hatch for

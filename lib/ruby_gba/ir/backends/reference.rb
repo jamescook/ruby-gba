@@ -571,6 +571,7 @@ module RubyGBA
           list_drop: :exec_list_drop,
           list_set: :exec_list_set,
           list_fill: :exec_list_fill,
+          list_copy: :exec_list_copy,
           blit: :exec_blit,
           blit_pose: :exec_blit_pose,
           save_region: :exec_save_region,
@@ -2425,6 +2426,16 @@ module RubyGBA
           [from, from + count - 1].each { |index| check_list_index!(list, node.name, index) }
           value = eval_value(node.value)
           count.times { |i| list.set(from + i, value) }
+        end
+
+        # The list made to hold the run of the table from +at+, held so the whole run is inside
+        # the table — the same start the console copies from. Each entry is kept the way the
+        # list keeps an item, so a byte the table reads as 200 reads back as -56, as the bytes
+        # copied on the console do.
+        def exec_list_copy(node)
+          values = @tables.fetch(node.table).values
+          start = eval_value(node.at).clamp(0, values.length - node.count)
+          list_for(node.name).replace(values[start, node.count])
         end
 
         def value_of_list_get(node)

@@ -71,6 +71,11 @@ module RubyGBA
             @items[index] = wrap_to_width(value)
           end
 
+          # Hold exactly +values+ from now on (caller ensures they fit).
+          def replace(values)
+            @items = values.map { |value| wrap_to_width(value) }
+          end
+
           # Remove and return the oldest item (the front). Caller ensures the list
           # isn't empty.
           def shift

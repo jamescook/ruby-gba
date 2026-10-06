@@ -83,6 +83,15 @@ module RubyGBA
         value
       end
 
+      # Make the list hold exactly +count+ entries of +table+, from entry +at+ on: the letter
+      # a name is drawn with, the frame of an animation, a row of a level. +at+ may be worked
+      # out as the game runs; +count+ is a number written in the program. One copy rather
+      # than an entry at a time (see Builder#copy_table_run).
+      def copy_from(table, at:, count:)
+        @builder.copy_table_run(self, table, at: at, count: count)
+        self
+      end
+
       # --- reading: hand back a Value ---
 
       # The item at `index`, as a Value. The index may be a Value, an Integer, or a

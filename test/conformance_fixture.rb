@@ -324,6 +324,8 @@ module ConformanceFixture
       B.set(:acc, B.list_get(:narrow, 1)),
       B.list_fill(:narrow, from: 0, count: 2, value: 7), # a run of items set at once
       B.set(:acc, B.list_get(:narrow, 1)),
+      B.list_copy(:narrow, table: :lut, at: B.var_ref(:x), count: 3), # a run of a table at once
+      B.set(:acc, B.list_get(:narrow, 2)),
       B.list_new(:tally, 4, width: :byte),
       B.list_push(:tally, 300),           # too big — keeps the low bits (44)
       B.set(:acc, B.list_get(:tally, 0)),

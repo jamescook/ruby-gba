@@ -95,6 +95,8 @@ module RubyGBA
                               words: nil),
         list_fill_routine: Kind.new(spelling: "__list_fill_bytes", parts: {},
                                     words: ->(_) { "filling a run of a list, as a canvas clears or fills a rectangle" }),
+        list_copy_routine: Kind.new(spelling: "__list_copy_bytes", parts: {},
+                                    words: ->(_) { "copying a run of a table into a list" }),
         told_turn: Kind.new(spelling: "__bg_%{background}_told_%{part}", parts: { background: ANY, part: PLAIN },
                             words: nil),
         see_through_amounts: Kind.new(spelling: "__see_through_%{layer}", parts: { layer: ANY },
