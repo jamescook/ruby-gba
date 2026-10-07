@@ -52,27 +52,9 @@ class TestFaceShowing < Minitest::Test
     (2..6).each { |frames| assert_backends_agree(game, frames: frames) }
   end
 
-  # On a bitmap screen a pose changed by `face` shows a frame apart on the two backends
-  # whichever way it is written, so this holds the pick to what a test per pose draws, on
-  # each backend.
-  def test_a_bitmap_sprite_picks_what_a_test_per_pose_picks
-    picked = built(&stepping(4, screen: :bitmap))
-    tested = built do
-      screen :bitmap
-      names = (0...4).map do |n|
-        image(:"pose#{n}", "." => :transparent, "#" => :red) { TestFaceShowing.marked(n) }
-        :"pose#{n}"
-      end
-      hero = sprite :hero, at: [40, 40], facing: names.to_h { |name| [name, name] }
-      step = var :step, 0
-      game_loop do
-        names.reverse.each_with_index { |name, n| (step == n).then { hero.face name } }
-        step.add! 1
-      end
-    end
-    (2..5).each do |frames|
-      assert_equal backend_pictures(tested, frames: frames), backend_pictures(picked, frames: frames), "frame #{frames}"
-    end
+  def test_a_bitmap_sprite_picks_the_same_way
+    game = built(&stepping(4, screen: :bitmap))
+    (1..6).each { |frames| assert_backends_agree(game, frames: frames) }
   end
 
   # The line that picks costs the same whatever the number of poses; only the table grows.

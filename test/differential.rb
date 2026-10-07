@@ -172,7 +172,20 @@ module Differential
   # A console that boots inside the offset has finished at least as many passes as were
   # asked for, and then the number asked for is the one to play — the surplus is slack in
   # the offset rather than a moment the caller wanted.
+  #
+  # A SINGLE-BUFFERED CONSOLE PAST THE FRAME COUNT is compared at the passes it finished. Run
+  # for the bitmap boot offset, every single-buffered program tried finished a pass MORE than
+  # was asked for — the offset gives that screen a frame of room to spare — and on a screen the
+  # game paints straight into, the picture is the last pass painted, since a game that keeps
+  # up stops in the wait between two passes. Played at the frame count instead, the
+  # interpreter shows the pass before, and anything that changes every pass — a pose, a
+  # position — reads as a frame of drift that is not in either backend. A screen that shows
+  # finished passes (tear-free, tiled) shows the one before the last painted, and is left to
+  # the frame count as it always was. BELOW the frame count a single-buffered program keeps
+  # BOOT_SLACK's tolerance on purpose: a pass short there is either a late boot or a game over
+  # budget caught mid-pass, and the count cannot tell the two apart.
   def oracle_frames_for(program, frames, passes, cf)
+    return passes if passes > frames && !shows_finished_passes?(program)
     return passes if passes < frames && shows_finished_passes?(program)
     return frames if passes >= frames - BOOT_SLACK
 

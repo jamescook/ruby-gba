@@ -432,8 +432,11 @@ So a program whose picture is a **finished** pass is compared at the passes the 
 finished. That's a tiled or rotozoom screen (no framebuffer the game paints into — the
 sprite table and scroll registers are written in one go right after the vblank) and a
 tear-free bitmap one (two pages, the shown one finished). A single-buffered bitmap screen
-can be caught half-drawn, so it keeps `BOOT_SLACK`'s one-pass tolerance and the
-`OverBudget` refusal. Nothing here relaxes the comparison — it's still every pixel exact;
+is compared at the console's passes when the console finished MORE than the frames asked
+for — the bitmap boot offset leaves room for one, and a game that keeps up stops between
+two passes, so its picture is the last pass painted. Below the frame count it can be caught
+half-drawn, so there it keeps `BOOT_SLACK`'s one-pass tolerance and the `OverBudget`
+refusal. Nothing here relaxes the comparison — it's still every pixel exact;
 it only picks which moment is compared.
 
 A failure prints the differing count, the first few coordinates with color names,
