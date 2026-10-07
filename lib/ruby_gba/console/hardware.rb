@@ -263,6 +263,7 @@ module RubyGBA
       #                              wait on it, so a handler must OR the acknowledged bit in here too
       DISPSTAT_VBLANK_IRQ = 0x0008 # REG_DISPSTAT bit 3: have the display raise a VBlank interrupt each frame
       DISPSTAT_HBLANK_IRQ = 0x0010 # REG_DISPSTAT bit 4: ...and one at the end of every scanline
+      DISPSTAT_VCOUNT_IRQ = 0x0020 # REG_DISPSTAT bit 5: ...and one as it starts the line in bits 8-15
 
       IRQ_VBLANK  = 0x0001  # Fires once per frame (~60Hz) — primary game tick
       IRQ_HBLANK  = 0x0002  # Fires once per scanline — for raster effects

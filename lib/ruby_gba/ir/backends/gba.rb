@@ -925,8 +925,8 @@ module RubyGBA
         def emit_scene_art_upload(name) = @drawing.emit_scene_art_upload(name)
 
         # Does the program need any interrupt at all — VBlank (for wait_vblank) or a timer
-        # (for an on_tick handler)? The mixer needs none: it refills on the frame loop, in
-        # the main thread, not off an interrupt.
+        # (for an on_tick handler)? The mixer adds none of its own: a game that plays recorded
+        # sound has a game loop, and so already waits for the screen.
         def uses_irq?
           @uses_vblank || irq_timers.any? || interrupts_rows?
         end
@@ -985,6 +985,7 @@ module RubyGBA
           enabled = 0
           enabled |= IRQ_VBLANK if @uses_vblank
           enabled |= IRQ_HBLANK if interrupts_rows?
+          enabled |= IRQ_VCOUNT if mixes_at_first_line?
           irq_timers.each { |_, info| enabled |= timer_irq_bit(info[:rate]) }
 
           # Which moments the display announces: the gap between frames (so wait_vblank
@@ -995,6 +996,7 @@ module RubyGBA
           announce = 0
           announce |= DISPSTAT_VBLANK_IRQ if @uses_vblank
           announce |= DISPSTAT_HBLANK_IRQ if interrupts_rows?
+          announce |= DISPSTAT_VCOUNT_IRQ if mixes_at_first_line? # line 0, so bits 8-15 stay clear
 
           write_io_halfword(REG_IME, 0)                          # interrupts off while we wire things up
           write_io_halfword(REG_DISPSTAT, announce) unless announce.zero?
@@ -1015,9 +1017,9 @@ module RubyGBA
         # The interrupt dispatcher, reached only through the vector. The BIOS enters it in
         # ARM state having saved r0-r3/r12/lr and set up the interrupt stack, so it may use
         # r0-r3 freely and returns with BX LR. It checks each armed source in turn: if that
-        # source is pending in REG_IF, run its handler, then acknowledge it. VBlank's
-        # handler is empty (just the ack) so wait_vblank wakes; a timer's is its on_tick
-        # body. The body may clobber r0-r3/r12, so REG_IF is re-read per source.
+        # source is pending in REG_IF, run its handler, then acknowledge it. VBlank's ack
+        # is what wakes wait_vblank (its work is below); the first line's handler builds
+        # the next slice of sound; a timer's is its on_tick body. The body may clobber r0-r3/r12, so REG_IF is re-read per source.
         def emit_irq_handler
           start = pos
           place_label(IRQ_HANDLER_LABEL)
@@ -1031,14 +1033,14 @@ module RubyGBA
           # ...and the screen's own frame, whose handler used to be nothing but the ack. Three
           # things ride on it now, all for the same reason: THE SCREEN KEEPS TIME WHATEVER THE
           # GAME IS DOING. It counts frames, which is what lets a pass of the game loop know how
-          # many of them it took; it builds the next slice of sound, because a sixtieth of a
-          # second of sound is a fact about the display and not about how long the game took to
-          # think; and it moves the tune on a frame, because a tempo is too. A game whose pass
-          # spans two frames comes round here twice, and gets two slices and two frames of tune
-          # — see Mixer#emit_mixer_fill for what went wrong when it did not. The slice built last
-          # frame is handed to the sound hardware before anything else (see
+          # many of them it took; it hands the sound hardware its next slice of sound, because a
+          # sixtieth of a second of sound is a fact about the display and not about how long the
+          # game took to think; and it moves the tune on a frame, because a tempo is too. A game
+          # whose pass spans two frames comes round here twice, and gets two slices and two
+          # frames of tune — see Mixer#emit_mixer_fill for what went wrong when it did not. The
+          # slice built last frame is handed over before anything else (see
           # Mixer#emit_mixer_handover). Then the tune, so a note a recorded part starts this frame
-          # is in the slice built this frame.
+          # is in the slice built next, which is built as the next picture starts (see below).
           emit_irq_source(IRQ_VBLANK, bios_ack: true) do
             emit_mixer_handover if @mixer.plays_samples?
             emit_frame_count
@@ -1050,8 +1052,17 @@ module RubyGBA
             # just started has climbed and one that has just ended is on its way down before the
             # slice they are both in is built (see Mixer#emit_envelope_step).
             @mixer.emit_envelope_step if @mixer.shapes_notes?
-            emit_mixer_fill if @mixer.plays_samples?
+            emit_mixer_fill if @mixer.plays_samples? && !mixes_at_first_line?
           end if @uses_vblank
+          # BUILDING THE SOUND WAITS FOR THE PICTURE. The gap between frames is the only time
+          # the sprite table and the scroll registers can be written without the screen catching
+          # them half done, and the game only wakes to write them once this handler returns.
+          # Mixing a heavy song can take longer than the whole gap, so mixing here pushed those
+          # writes into the next picture, and its top rows showed last frame's sprites. So the
+          # gap is the game's, and the sound is built when the display starts the next picture.
+          # It is still once a frame, by the screen's clock, and still ahead of the next
+          # hand-over by most of a frame.
+          emit_irq_source(IRQ_VCOUNT) { emit_mixer_fill } if mixes_at_first_line?
           irq_timers.each do |name, info|
             emit_irq_source(timer_irq_bit(info[:rate])) do
               # WHERE THIS HANDLER'S FIRST INSTRUCTION SITS, kept so a profile can count how
@@ -1085,6 +1096,21 @@ module RubyGBA
         # IRQ_TIMER0, timer 1 the next bit up, and so on).
         def timer_irq_bit(index)
           IRQ_TIMER0 << index
+        end
+
+        # Whether the next slice of sound is built as the display starts its first line, not in
+        # the gap between frames (see the handler in #emit_irq_handler). Not for a game that
+        # bends a background a line at a time: an interrupt holds the others off while it runs,
+        # so mixing at the top of the picture would freeze the bend for every line the mixing
+        # lasts, where mixing in the gap reaches only the lines it runs past the gap's end.
+        #
+        # WHAT IT COSTS is room for the mix. Started in the gap, it had until the next gap, a
+        # whole frame. Started at the first line, it has to be done by the time the display
+        # reaches the gap again, two thirds of a frame, because the next hand-over cannot run
+        # until it has finished. A song that takes longer than that to mix leaves the game a
+        # sliver of each frame either way.
+        def mixes_at_first_line?
+          @mixer.plays_samples? && !interrupts_rows?
         end
 
         # Service one source: if its +bit+ is pending in REG_IF, run its handler (the block,

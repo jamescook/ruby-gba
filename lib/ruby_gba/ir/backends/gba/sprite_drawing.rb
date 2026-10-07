@@ -126,7 +126,8 @@ module RubyGBA
           # Draw this frame's sprites: write each named object's current position and
           # visibility into its slot in the sprite table. Runs right after the vblank
           # (when changing the table is safe), so a moving sprite lands at its new spot
-          # with no tearing. The console composites the sprites over the background for
+          # with no tearing. A game playing recorded sound keeps that: its mixing waits for
+          # the display to start the next picture, so it never takes the gap from this. The console composites the sprites over the background for
           # free — there's nothing to erase, unlike a software sprite.
           def emit_present_objects(node)
             by_scene = @layout.scene_sprites

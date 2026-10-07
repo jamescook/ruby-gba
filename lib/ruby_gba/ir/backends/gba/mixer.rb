@@ -1171,10 +1171,10 @@ module RubyGBA
           # started again by the next prompt one, so a game settles on its prompt hand-overs
           # within its first frames, and after that only a hand-over later than LATE_ROOM jumps.
           #
-          # STILL THE FIRST THING IN THE SCREEN'S INTERRUPT, before the tune, the note shapes or
-          # the mix, which keeps a game asleep at the end of its frame at the same lot every
-          # frame, and a busy one no later than it has to be. The cost is that a sound is heard a
-          # frame after it is mixed — every sound alike, so nothing moves against anything else.
+          # STILL THE FIRST THING IN THE SCREEN'S INTERRUPT, before the tune and the note shapes
+          # (the mix itself comes later still, as the next picture starts), which keeps a game asleep at the end of its frame at the same lot every
+          # frame, and a busy one no later than it has to be. The cost is that a sound is heard at
+          # the gap after it is mixed — every sound alike, so nothing moves against anything else.
           def emit_mixer_handover
             e = @emitter
             play_buf1 = e.gensym
@@ -1233,8 +1233,11 @@ module RubyGBA
           # The per-frame refill: fill the buffer that is NOT playing with the next slice of
           # mixed sound, which the next frame's hand-over plays.
           #
-          # EMITTED INSIDE THE SCREEN'S OWN INTERRUPT, not in the game loop, and that is the
-          # whole of what keeps sound whole. This fills ONE FRAME of sound, and the
+          # EMITTED INSIDE AN INTERRUPT OF THE SCREEN'S, not in the game loop, and that is the
+          # whole of what keeps sound whole. Which one is the display starting its first line,
+          # not the gap between frames: the gap is where the game writes its sprites, and a
+          # heavy mix there pushed those writes into the next picture (see GBA#emit_irq_handler).
+          # A game that bends a background a line at a time still mixes in the gap. This fills ONE FRAME of sound, and the
           # hardware plays it on the sample clock — in real time, which has nothing to do with
           # how long a pass of the game loop takes. Called once per pass, a game whose pass
           # spans two frames handed the hardware a frame of sound every two:
@@ -1247,8 +1250,8 @@ module RubyGBA
           # and the dispatcher saves r4-r11 and lr while the BIOS saves r0-r3 and r12, so between
           # them every one is covered. The voice slots: `play` and `stop` hold interrupts off while
           # they are in the table (#holding_off_interrupts), so this never sees one half-written.
-          # This can retire a voice but never start one; the music player, earlier in the same
-          # interrupt, starts voices, and can take one of the game's (#emit_take_music_voice_routine).
+          # This can retire a voice but never start one; the music player, in the gap's interrupt
+          # before this one, starts voices, and can take one of the game's (#emit_take_music_voice_routine).
           #
           # THEN THE START OF WHAT IT MIXED is copied past the end of the buffer now playing, as
           # far as a late hand-over can reach (see #emit_mixer_handover): those lots are the ones
