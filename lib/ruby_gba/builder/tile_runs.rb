@@ -35,7 +35,7 @@ module RubyGBA
       # WHICH RUNS ARE OWED A COPY, as bits of a few variables rather than a flag apiece: a bit
       # per run, thirty to a variable so a mask never reaches the sign bit. That is what lets
       # the gap between frames ask one question of all of them (see #finalize_tile_copies).
-      RUNS_PER_MASK = 30
+      RUNS_PER_MASK = IR::Nodes::CopyOwedTiles::RUNS_PER_MASK
 
       def tile_run_pending(name) = Messages::MadeNames.make(:tile_run_pending, number: @tile_runs.index(name) / RUNS_PER_MASK)
       def tile_run_bit(name) = 1 << (@tile_runs.index(name) % RUNS_PER_MASK)
@@ -148,10 +148,9 @@ module RubyGBA
       def declare_painted_copies_routine
         @functions[PAINTED_COPIES] = proc {}
         push_container(Build.func(PAINTED_COPIES, fast: false)) do
-          @tile_runs.each do |name|
-            owed = Build.binop(:&, Build.var_ref(tile_run_pending(name)), Build.int(tile_run_bit(name)))
-            record(Build.if_(Build.binop(:!=, owed, Build.int(0)), Build.copy_tiles(name)))
-          end
+          # One step for every run, so the routine walks a table of them rather than holding a
+          # test and a copy for each one.
+          record(Build.copy_owed_tiles(@tile_runs.dup, tile_run_masks))
           tile_run_masks.each { |mask| record(Build.set(mask, Build.int(0))) }
         end
       end

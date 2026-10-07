@@ -602,7 +602,7 @@ module RubyGBA
           present_objects: :exec_present_objects,
           set_tile: :exec_set_tile,
           show_map: :exec_show_map,
-          copy_tiles: :exec_copy_tiles,
+          copy_tiles: :exec_copy_tiles, copy_owed_tiles: :exec_copy_owed_tiles,
           enable_sound: :exec_enable_sound,
           beep: :exec_beep,
           noise: :exec_noise,
@@ -1265,6 +1265,15 @@ module RubyGBA
           request_repaint
         end
 
+        # Every run whose bit is set, in the order they were declared (see Nodes::CopyOwedTiles).
+        def exec_copy_owed_tiles(node)
+          per = Nodes::CopyOwedTiles::RUNS_PER_MASK
+          node.runs.each_with_index do |name, i|
+            copy_run_tiles(@tile_runs.fetch(name)) if @vars[node.masks.fetch(i / per)].to_i[i % per] == 1
+          end
+          request_repaint
+        end
+
         def copy_run_tiles(run)
           bytes = @lists.fetch(run.list).to_a
           return copy_run_picture(run, bytes) if run.picture
@@ -1648,7 +1657,7 @@ module RubyGBA
         # ...and the ones that change what the picture is built from and then always repaint, so
         # an owed repaint is replaced rather than painted — plus `background`, which settles one
         # itself when it has anything to put up (see #exec_background).
-        REPAINTING = %i[scroll_background show_map set_tile copy_tiles background_colors see_through present_objects
+        REPAINTING = %i[scroll_background show_map set_tile copy_tiles copy_owed_tiles background_colors see_through present_objects
                         background affine_background].freeze
         # ...and the ones that are mostly laid over the picture as the screen is read, and that
         # owe the picture again themselves on the occasions they change what is painted (see

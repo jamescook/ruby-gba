@@ -247,6 +247,8 @@ module ConformanceFixture
       B.tile_run(:painted_run, list: :painted, tiles: [:painted_tile], colors: [0x0000, 0x7FFF]),
       B.list_push(:painted, B.int(0x01)),
       B.copy_tiles(:painted_run),
+      # ...and the same copy asked for by its bit in a variable, the way a game's frame asks.
+      B.copy_owed_tiles([:painted_run], [:x]),
       # ...and bend it row by row: every row of the picture gets its own sideways offset,
       # worked out from the row number a backend puts in :bend_row. `% 2` keeps the offsets
       # small and makes alternate rows differ, so a backend that ignored the bend, or

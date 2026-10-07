@@ -434,6 +434,7 @@ module RubyGBA
             tint: @effects.method(:emit_tint), see_through: @layer_blend.method(:emit_see_through),
             set_tile: @background_drawing.method(:emit_set_tile), show_map: @background_drawing.method(:emit_show_map),
             copy_tiles: @background_drawing.method(:emit_copy_tiles),
+            copy_owed_tiles: @background_drawing.method(:emit_copy_owed_tiles),
             background_colors: @background_drawing.method(:emit_background_colors),
             present_objects: @sprite_drawing.method(:emit_present_objects), save_region: @drawing.method(:emit_save_region),
             restore_region: @drawing.method(:emit_restore_region), enable_sound: @audio.method(:emit_enable_sound),

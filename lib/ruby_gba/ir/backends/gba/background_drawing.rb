@@ -244,10 +244,7 @@ module RubyGBA
           end
 
           def emit_copy_painted_run(name, run)
-            list = @lists.list_info(run.list)
-            # The builder refuses a shifted list a run paints from (Builder#refuse_shifted_tile_run_lists!);
-            # this is the lowering's own invariant, for a tree that reached it some other way.
-            raise LoweringError, "#{run.what} :#{name} paints from list :#{run.list}, which the game shifts." if list[:ring]
+            list = painted_run_list(name, run)
 
             if run.moves?
               done = gensym
@@ -259,6 +256,117 @@ module RubyGBA
             @emitter.note_video_copy("painting #{run.what} :#{name}", run.bytes)
             store_word_immediate((run.bytes / 4) | DMA_ENABLE | DMA_32BIT, REG_DMA3CNT)
             place_label(done) if done
+          end
+
+          # EVERY PAINTED RUN OWED A COPY, AS ONE WALK OVER A TABLE (see Nodes::CopyOwedTiles).
+          # Written out run by run, a test and a copy came to about thirty instructions each, so a
+          # game with a box of text, a row of name tags and a few portraits carried kilobytes of
+          # them. Walked, the code is the same for one run as for twenty: each run is a row of
+          # six words, and two instructions of its own.
+          #
+          # A row is: where its pending bits are, which bit is its own, where its list starts,
+          # where it goes in video memory, how many words it is, and how far into the steps
+          # below its own step is. Where it goes is either the place itself, or — for a run that
+          # sits in different places on different screens — where the variable holding the place
+          # is, marked by its lowest bit (no place in video memory and no variable is at an odd
+          # address). That variable holds 0 on a screen that does not show the run, and then the
+          # run is skipped, as it was when each had its own copy.
+          #
+          # THE TWO INSTRUCTIONS EACH RUN KEEPS are the one that starts its copy and a jump back.
+          # Every run COULD start its copy at one shared instruction, and the profile could then
+          # no longer say which picture the bytes went to: it counts copies by how many times the
+          # instruction that starts each one ran, and reads nothing else off the cartridge.
+          COPY_ROW_BYTES = 24
+
+          def emit_copy_owed_tiles(node)
+            rows = owed_copy_rows(node)
+            return if rows.empty?
+
+            table = gensym
+            loop_top = gensym
+            direct = gensym
+            step = gensym
+            after = gensym
+            # Interrupts are held off for the walk: a timer's handler can use the same copying
+            # engine, and one landing between a row's setup writes would start this copy with
+            # the handler's addresses. r2 and r3 hold the walk; this step is only ever the body
+            # of the routine that copies, whose callers expect it to use them.
+            emit(ASM.load_immediate(TMP, REG_IME))
+            emit(ASM.load_halfword(ACC, TMP))
+            emit(ASM.push(ACC))
+            emit(ASM.load_immediate(ACC, 0))
+            emit(ASM.store_halfword(ACC, TMP))
+            emit_load_label_address(2, table)
+            emit(ASM.load_immediate(3, rows.size))
+            place_label(loop_top)
+            emit(ASM.ldr_offset(ACC, 2, 0))
+            emit(ASM.ldr(ACC, ACC))                 # its pending bits
+            emit(ASM.ldr_offset(TMP, 2, 4))
+            emit(ASM.and_reg(ACC, ACC, TMP))
+            emit(ASM.cmp_imm(ACC, 0))
+            emit_branch(:bcond, step, cond: :eq)    # not owed a copy
+            emit(ASM.ldr_offset(ACC, 2, 12))        # where it goes
+            emit(ASM.tst_imm(ACC, 1))
+            emit_branch(:bcond, direct, cond: :eq)
+            emit(ASM.bic_imm(ACC, ACC, 1))
+            emit(ASM.ldr(ACC, ACC))                 # ...read from the variable this screen set
+            emit(ASM.cmp_imm(ACC, 0))
+            emit_branch(:bcond, step, cond: :eq)    # nowhere on this screen
+            place_label(direct)
+            emit(ASM.load_immediate(ADDR, REG_DMA3SAD))
+            emit(ASM.ldr_offset(TMP, 2, 8))
+            emit(ASM.str_offset(TMP, ADDR, 0))      # from its list
+            emit(ASM.str_offset(ACC, ADDR, 4))      # to its place
+            emit(ASM.ldr_offset(TMP, 2, 16))        # how much, and go
+            emit(ASM.ldr_offset(ACC, 2, 20))
+            # Into the run's own step: the processor reads pc as two instructions on, which is
+            # the first step, so the filler between is never run.
+            emit(ASM.add_reg(15, 15, ACC))
+            emit(ASM.nop)
+            rows.each do |row|
+              @emitter.note_video_copy("painting #{row[:what]} :#{row[:name]}", row[:bytes])
+              emit(ASM.str_offset(TMP, ADDR, 8))
+              emit_branch(:b, step)
+            end
+            place_label(step)
+            emit(ASM.add_imm(2, 2, COPY_ROW_BYTES))
+            emit(ASM.subs_imm(3, 3, 1))
+            emit_branch(:bcond, loop_top, cond: :ne)
+            emit(ASM.pop(ACC))
+            emit(ASM.load_immediate(TMP, REG_IME))
+            emit(ASM.store_halfword(ACC, TMP))      # the interrupt switch as it was
+            emit_branch(:b, after)
+            place_label(table)
+            rows.each_with_index do |row, i|
+              (row[:words] + [i * 8]).each { |word| emit([word].pack("V")) } # its step is the i-th, 8 bytes each
+            end
+            place_label(after)
+          end
+
+          # One table row per run a background or a sprite on some screen shows, in the shape
+          # #emit_copy_owed_tiles reads. A run nothing shows has nowhere to go, and no row.
+          def owed_copy_rows(node)
+            per = Nodes::CopyOwedTiles::RUNS_PER_MASK
+            node.runs.each_with_index.filter_map do |name, i|
+              run = @layout&.screen&.painted_vram&.[](name)
+              next if run.nil?
+
+              list = painted_run_list(name, run)
+              place = run.moves? ? var_addr(ScreenLayout::PaintedRun.place_var(name)) | 1 : VRAM_START + run.at
+              { name: name, what: run.what, bytes: run.bytes,
+                words: [var_addr(node.masks.fetch(i / per)), 1 << (i % per), list[:base], place,
+                        (run.bytes / 4) | DMA_ENABLE | DMA_32BIT] }
+            end
+          end
+
+          # The list a run paints from. The builder refuses a shifted one
+          # (Builder#refuse_shifted_tile_run_lists!); this is the lowering's own invariant, for a
+          # tree that reached it some other way.
+          def painted_run_list(name, run)
+            list = @lists.list_info(run.list)
+            raise LoweringError, "#{run.what} :#{name} paints from list :#{run.list}, which the game shifts." if list[:ring]
+
+            list
           end
 
           # A RUN SHOWN IN SEVERAL SCENES, IN DIFFERENT PLACES: the scene up now has put where

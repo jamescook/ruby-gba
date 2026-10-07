@@ -123,6 +123,19 @@ module RubyGBA
         operands name: :name
       end
 
+      # Copy every run in +runs+ whose list the game said moved, as one step. Which runs those
+      # are is kept as bits of the variables in +masks+: run number +i+ is bit
+      # +i % RUNS_PER_MASK+ of +masks[i / RUNS_PER_MASK]+. Thirty to a variable, so a mask
+      # never reaches the sign bit. The bits are only read here; clearing them is the program's.
+      class CopyOwedTiles
+        include Node
+        kind :copy_owed_tiles
+        category :draw
+        operands runs: :list, masks: :list
+
+        RUNS_PER_MASK = 30
+      end
+
       # The per-frame write that turns and resizes an affine background as a whole (see
       # ScrollBackground, its sibling for plain panning). +angle+ is degrees clockwise,
       # +scale+ is in Build::SCALE_ONE-ths (1.0 = drawn size) — the same units a hardware

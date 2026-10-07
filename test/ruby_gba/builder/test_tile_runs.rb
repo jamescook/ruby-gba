@@ -581,4 +581,19 @@ class TestTileRuns < Minitest::Test
 
     assert_equal sizes.first, sizes.last
   end
+
+  # THE ROUTINE THAT COPIES THEM is one walk over a table, so a picture adds a row to the
+  # table and a two-instruction step (see GBA BackgroundDrawing#emit_copy_owed_tiles), not a
+  # copy of its own.
+  def test_twenty_painted_pictures_share_one_copy_routine
+    routine = RubyGBA::Messages::MadeNames.make(:painted_copies)
+    sizes = [1, 20].map do |count|
+      rom = RubyGBA.build("COPY#{count}", out: StringIO.new, err: StringIO.new, profile: false, &name_tags(count))
+      rom.placement.sizes.fetch(routine)
+    end
+
+    # A row of six words and two instructions: 32 bytes a picture, where a copy of its own
+    # was over a hundred.
+    assert_equal 19 * 32, sizes.last - sizes.first, "#{sizes.inspect}: each picture adds a row and two instructions"
+  end
 end
