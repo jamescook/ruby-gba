@@ -20,7 +20,8 @@ module RubyGBA
         # +tile_bytes+ is the busiest screen's pictures, which is not what boot sends: a scene's
         # own pictures go in as it takes over, into room the other scenes use too, so what has
         # to fit — and what is worth reporting — is the one screen that holds the most.
-        SharedScenery = Data.define(:palette_units, :tile_units, :tile_bytes, :small, :big, :saved, :shared, :skipped)
+        SharedScenery = Data.define(:palette_units, :tile_units, :tile_bytes, :small, :big, :saved, :shared, :mirrored,
+                                   :skipped)
 
         # EVERY TILE OF EVERY BACKGROUND, STORED ONCE EACH, as the one run of bytes the
         # console reads them out of. A layer is added to this and gets back the numbers its
@@ -52,6 +53,7 @@ module RubyGBA
             @vram.take_tile(BIG_TILE_BYTES)
             @stored = {} # the same picture, stored once — every place each one was put
             @shared = 0
+            @mirrored = 0
             @skipped = 0
           end
 
@@ -67,9 +69,10 @@ module RubyGBA
             @painted_at = from.painted_at.dup
           end
 
-          # The whole run, as it is uploaded; how many tiles turned out to be repeats; and
-          # how many bytes nothing draws from (see #choose_base).
-          attr_reader :bytes, :shared, :skipped
+          # The whole run, as it is uploaded; how many tiles turned out to be repeats; how many
+          # turned out to be another tile mirrored; and how many bytes nothing draws from (see
+          # #choose_base).
+          attr_reader :bytes, :shared, :mirrored, :skipped
 
           # The room this run is laid out in, which the maps are handed out of as well.
           attr_reader :vram
@@ -86,14 +89,20 @@ module RubyGBA
           # step between one tile number and the next); +most+ is how many tiles its map can
           # count across.
           #
+          # +mirrors+ says the layer's map can draw a tile reversed (see #mirrors_of). A
+          # turning layer's cells have no room to say so, and keeps a mirror as a picture.
+          #
           # +painted+ names the tiles, by their index in +drawn+, whose pixels the game paints
           # from a list as it runs (see Nodes::TileRun). They are never shared, with each other
           # or anything else — two that are blank now will not be on the next frame — and where
           # each one landed is kept, for the copy that paints it (see #painted_at).
-          def add(name, drawn, unit:, most: TileVram::MOST_TILES, painted: {})
+          def add(name, drawn, unit:, most: TileVram::MOST_TILES, painted: {}, mirrors: false)
+            @mirrors = mirrors
             stored = drawn.map { |bmp, place| encode(bmp, place) }
-            base = choose_base(stored.reject.with_index { |_, i| painted.key?(i) }, unit, most,
-                               unshared: painted.size)
+            pictures = stored.reject.with_index { |_, i| painted.key?(i) }
+            distinct = pictures.uniq
+            @layer_mirrors = mirrors ? distinct.size - distinct.uniq { |tile| mirror_group(tile, unit) }.size : 0
+            base = choose_base(pictures, unit, most, unshared: painted.size)
 
             # A layer counting from the bottom shares the blank tile seeded at 0. One
             # counting from anywhere else cannot see that far back, so it gets a blank of
@@ -167,7 +176,7 @@ module RubyGBA
           #
           # +unshared+ is how many painted tiles come too, each needing room of its own.
           def choose_base(stored, unit, most, unshared: 0)
-            wanted = stored.uniq
+            wanted = @mirrors ? stored.uniq { |tile| mirror_group(tile, unit) } : stored.uniq
             reach = most * unit
             mark = align(@vram.tile_bytes, unit)
             own = unshared * unit
@@ -188,7 +197,44 @@ module RubyGBA
           # How much room this layer's pictures need if it counts from +base+: the ones no
           # copy of which is already stored somewhere it could name.
           def fresh_bytes(wanted, base, unit)
-            wanted.count { |tile| stored_at(tile, base).nil? } * unit
+            wanted.count { |tile| stored_place_and_flip(tile, base, unit).nil? } * unit
+          end
+
+          # Where a picture can be drawn from by a layer counting from +base+, and which way
+          # round: the picture itself if it is stored, else one of its mirrors drawn reversed.
+          # Nil when neither is.
+          def stored_place_and_flip(tile, base, unit)
+            at = stored_at(tile, base)
+            return [at, 0] if at
+            return nil unless @mirrors
+
+            mirrors_of(tile, unit).each do |flip, picture|
+              at = stored_at(picture, base)
+              return [at, flip] if at
+            end
+            nil
+          end
+
+          # One answer for a tile and all its mirrors, so they count as one picture.
+          def mirror_group(tile, unit) = [tile, *mirrors_of(tile, unit).values].min
+
+          # The three other ways round a tile can be drawn, as the bytes each would be stored as,
+          # by the map bits that turn the stored one into it. Reversing a picture is its own
+          # undoing, so the bits that draw a mirror from the tile also draw the tile from it.
+          #
+          # A row is a tile's width in bytes: eight for a tile stored the big way, one pixel a
+          # byte, and four for one stored small, two pixels a byte with the left one in the low
+          # half — so reversing a small row reverses its bytes AND swaps the halves of each.
+          def mirrors_of(tile, unit)
+            width = unit / TILE_PX
+            rows = tile.bytes.each_slice(width).to_a
+            across = rows.map do |row|
+              row = row.reverse
+              width == TILE_PX ? row : row.map { |byte| ((byte & 0x0F) << 4) | (byte >> 4) }
+            end
+            { BG_FLIP_ACROSS => across, BG_FLIP_DOWN => rows.reverse,
+              BG_FLIP_ACROSS | BG_FLIP_DOWN => across.reverse }
+              .transform_values { |picture| picture.flatten.pack("C*") }
           end
 
           # Where a picture already sits that a layer counting from +base+ could name. Two
@@ -197,19 +243,22 @@ module RubyGBA
           def stored_at(tile, base) = @stored.fetch(tile, []).find { |at| at >= base }
 
           # One tile's bytes, at the number a map will name it by — the place it already has
-          # if this exact tile has been stored, else a fresh place at the end.
+          # if this exact tile or a mirror of it has been stored (the mirror drawn turned round),
+          # else a fresh place at the end.
           def store_tile(name, tile, unit, base, most)
-            at = stored_at(tile, base)
+            at, flip = stored_place_and_flip(tile, base, unit)
             if at
-              @shared += 1
+              flip.zero? ? @shared += 1 : @mirrored += 1
             else
+              flip = 0
               at = @vram.take_tile(unit)
               @bytes << ("\x00" * (at - @bytes.bytesize)).b if at > @bytes.bytesize
               @bytes << tile
               (@stored[tile] ||= []) << at
             end
-            @vram.tile_number(at, unit: unit, base: base, most: most) ||
-              (raise LoweringError, too_far_message(name, at, unit, base, most))
+            number = @vram.tile_number(at, unit: unit, base: base, most: most) ||
+                     (raise LoweringError, too_far_message(name, at, unit, base, most))
+            number | flip
           end
 
           # A painted tile's bytes, at a place of its own and never offered to anything that
@@ -238,8 +287,16 @@ module RubyGBA
           # a baffling one.
           def too_far_message(name, offset, unit, base, most)
             "background :#{name} counts its tiles from #{base} bytes into video memory and has one at " \
-              "#{offset}, which is past the #{most * unit} bytes a map cell can reach across. Use fewer " \
-              "different tiles, or declare this background before the ones with the biggest tilesets."
+              "#{offset}, which is past the #{most * unit} bytes a map cell can reach across.#{mirrors_message} " \
+              "Use fewer different tiles, or declare this background before the ones with the biggest tilesets."
+          end
+
+          # What the layer already got back from its mirrors, so the author does not go
+          # looking for the saving the build made for them.
+          def mirrors_message
+            return "" unless @layer_mirrors.positive?
+
+            " #{@layer_mirrors} of its tiles were another of its tiles mirrored, and those are already stored only once."
           end
 
           def align(value, to) = ((value + to - 1) / to) * to

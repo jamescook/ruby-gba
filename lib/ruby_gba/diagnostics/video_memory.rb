@@ -28,7 +28,8 @@ module RubyGBA
       # One of the two areas. +small+ and +big+ are how many pictures got each storage, and
       # +saved+ is what the small ones would have cost stored the big way — which is their own
       # size again, since the small way is exactly half. +shared+ is how many pictures turned
-      # out to be one another and were stored once.
+      # out to be one another and were stored once. +mirrored+ is how many background tiles
+      # turned out to be another tile reversed, and are drawn from it turned round.
       #
       # +repeats+ is bytes a picture did not cost because part of it was already there. A
       # sprite's poses are stored as pieces, and most of a character does not change between
@@ -46,16 +47,17 @@ module RubyGBA
       # frames waiting in the cartridge — which is the other way a picture comes to cost nothing
       # here, and a different thing from sharing: a shared picture is in this memory once for
       # everyone showing it, where these are copied in as the sprite animates.
-      Area = Data.define(:used, :capacity, :small, :big, :saved, :shared, :repeats, :skipped,
+      Area = Data.define(:used, :capacity, :small, :big, :saved, :shared, :mirrored, :repeats, :skipped,
                          :one_frame) do
-        def initialize(repeats: 0, skipped: 0, one_frame: 0, **rest) = super
+        def initialize(mirrored: 0, repeats: 0, skipped: 0, one_frame: 0, **rest) = super
 
         def free = capacity - used
         def share = capacity.zero? ? 0.0 : used.to_f / capacity
 
         def to_h
           { used: used, capacity: capacity, free: free, small: small, big: big,
-            saved: saved, shared: shared, repeats: repeats, skipped: skipped, one_frame: one_frame }
+            saved: saved, shared: shared, mirrored: mirrored, repeats: repeats, skipped: skipped,
+            one_frame: one_frame }
         end
       end
 

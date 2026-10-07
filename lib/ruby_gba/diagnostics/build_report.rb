@@ -275,6 +275,8 @@ module RubyGBA
         # Nothing in a tileset says which of its tiles are really the same picture, so this is
         # the one line that says how much of it was repeats.
         parts << "#{area.shared} were the same picture as another and stored once" if area.shared.positive?
+        # ...and which were another tile reversed, which a map cell draws for nothing.
+        parts << "#{area.mirrored} were another tile mirrored and are drawn from it turned round" if area.mirrored.positive?
         # A part one pose shares with another — the head and the still arm of a walk cycle —
         # is stored once. Nothing in the program says which parts those are, so this is the
         # only place the number appears.

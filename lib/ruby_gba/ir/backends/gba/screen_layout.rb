@@ -746,7 +746,7 @@ module RubyGBA
                               tile_bytes: fullest.bytes.bytesize,
                               small: small, big: nodes.sum { |node| node.tiles.size } - small,
                               saved: small * SMALL_TILE_BYTES,
-                              shared: fullest.shared, skipped: fullest.skipped)
+                              shared: fullest.shared, mirrored: fullest.mirrored, skipped: fullest.skipped)
           end
 
           # The tiles and the maps grow toward each other and met. Name the biggest tileset,
@@ -776,7 +776,7 @@ module RubyGBA
             painted = node.tiles.each_with_index.select { |tile, _| @painted_runs.key?(tile) }.to_h { |tile, i| [i, tile] }
             refuse_painted_tiles_stored_big!(node) if !small && !painted.empty?
             stored = store.add(name, tile_pictures(node, banks),
-                               unit: small ? SMALL_TILE_BYTES : BIG_TILE_BYTES, painted: painted)
+                               unit: small ? SMALL_TILE_BYTES : BIG_TILE_BYTES, painted: painted, mirrors: true)
             note_painted_runs(store, node, painted.values)
 
             # The map: one 16-bit entry per cell, holding the tile to draw there and — for a
@@ -1737,7 +1737,7 @@ module RubyGBA
             used = @bg_shared.tile_bytes
             RubyGBA::Diagnostics::VideoMemory::Area.new(used: used, capacity: used + @vram.free_bytes,
                                            small: @bg_shared.small, big: @bg_shared.big,
-                                           saved: @bg_shared.saved, shared: @bg_shared.shared,
+                                           saved: @bg_shared.saved, shared: @bg_shared.shared, mirrored: @bg_shared.mirrored,
                                            skipped: @bg_shared.skipped)
           end
         end

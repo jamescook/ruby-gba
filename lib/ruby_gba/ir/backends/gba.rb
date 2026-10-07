@@ -1324,6 +1324,13 @@ module RubyGBA
         # TILE, not per layer — so one 4bpp background can span all sixteen banks.
         BG_BANK_SHIFT = 12
 
+        # A map entry's bits 10 and 11: draw this cell's tile reversed left to right, and
+        # upside down. Both together is the tile turned half round. The console does it as
+        # it draws, so a tile that is another one mirrored needs no picture of its own. A
+        # turning layer's cells are one byte with no room for them.
+        BG_FLIP_ACROSS = 0x0400
+        BG_FLIP_DOWN = 0x0800
+
         # BGxCNT bits 2-3: which 16K block this layer counts its tile numbers from. Every
         # layer's pictures are still one run uploaded in one piece — this only says where
         # in that run a given layer starts counting. See {TileVram} and {BackgroundTiles}.
