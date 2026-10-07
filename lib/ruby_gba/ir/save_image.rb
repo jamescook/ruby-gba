@@ -112,6 +112,11 @@ module RubyGBA
       # A flash chip takes a while to wipe a block. With +wait+ the wipe is over when this
       # returns. Without, the chip is still at it: it is busy until the program reads the block
       # (see #read_bytes), and a write or another wipe before then is refused.
+      #
+      # A WIPE IS TWO STEPS of a cut (see #cut_power_after), because it takes long enough for
+      # the power to go off in the middle of it. Cut before it starts, the block keeps what it
+      # held; cut half way, the half the chip reached reads 0xFF and the rest is as it was —
+      # neither the old bytes nor a wiped block, which is what a save has to survive.
       def wipe_block(at, wait: true)
         return unless memory.flash?
 
@@ -119,15 +124,22 @@ module RubyGBA
         refuse_outside_memory!("wiped", at, 1)
         refuse_while_wiping!("wiped", at)
         start = (at / memory.block) * memory.block
+        if @power_left == 1
+          (start...(start + (memory.block / 2))).each { |byte| @bytes.delete(byte) }
+          @power_left = 0
+          raise PowerOff
+        end
+        @power_left -= 2 if @power_left
         (start...(start + memory.block)).each { |byte| @bytes.delete(byte) }
         @wiping = start unless wait
       end
 
-      # TURN THE POWER OFF part way through a save: once +bytes+ more bytes are written, the
-      # next write raises PowerOff, with what was written kept and nothing after. The cut is
-      # for one run, which ends it with #restore_power. Returns self.
-      def cut_power_after(bytes)
-        @power_left = bytes
+      # TURN THE POWER OFF part way through a save: once +steps+ more steps are taken, the next
+      # one raises PowerOff, with what was done kept and nothing after. A byte written is one
+      # step and a wipe is two, so a cut can land in the middle of a wipe. The cut is for one
+      # run, which ends it with #restore_power. Returns self.
+      def cut_power_after(steps)
+        @power_left = steps
         self
       end
 

@@ -70,6 +70,20 @@ class TestSaveMemoryRules < Minitest::Test
     assert_equal 0x12, store.read(0x5000, 1)
   end
 
+  # A wipe takes long enough for the power to go off in the middle of it, and then the block
+  # is neither what it held nor wiped: the part the chip reached reads 0xFF, the rest is as it
+  # was. A cut is counted in steps, a byte written one step and a wipe two, so a cut one step
+  # before the wipe lands half way through it.
+  def test_a_wipe_the_power_cuts_half_way_leaves_part_of_the_block_wiped
+    store = SaveImage.new(kilobytes: 64)
+    store.write(0x5000, 0x12, 1)
+    store.write(0x5FFF, 0x34, 1)
+    store.cut_power_after(1)
+
+    assert_raises(SaveImage::PowerOff) { store.wipe_block(0x5000) }
+    assert_equal [0xFF, 0x34], [store.read(0x5000, 1), store.read(0x5FFF, 1)]
+  end
+
   # The console's chip has no byte past its end — a place past it lands back at the start, or
   # nowhere — so a program that writes or reads there is refused, naming the size.
   def test_a_place_past_the_end_of_save_memory_is_refused
