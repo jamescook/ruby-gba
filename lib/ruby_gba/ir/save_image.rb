@@ -115,8 +115,9 @@ module RubyGBA
       #
       # A WIPE IS TWO STEPS of a cut (see #cut_power_after), because it takes long enough for
       # the power to go off in the middle of it. Cut before it starts, the block keeps what it
-      # held; cut half way, the half the chip reached reads 0xFF and the rest is as it was —
-      # neither the old bytes nor a wiped block, which is what a save has to survive.
+      # held; cut half way, the first half reads 0xFF and the rest is as it was. A real chip cut
+      # in a wipe leaves the whole block in no state anybody can count on; this is one such
+      # state — neither the old bytes nor a wiped block — which is what a save has to survive.
       def wipe_block(at, wait: true)
         return unless memory.flash?
 

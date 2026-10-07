@@ -219,6 +219,7 @@ class TestSaveData < Minitest::Test
   # ON FLASH A SAVE WIPES BEFORE IT WRITES, and a wipe takes long enough for the power to go
   # off in the middle of it. A wiped block, or half of one, is only ever the older half of a
   # copy, so wherever the power goes off the copy holds the save before or the save after.
+  # The save cut is the THIRD, so the half it wipes is one that held a save of its own.
   private def one_file_on_flash
     builder = Builder.new(options: RubyGBA::Cartridge::Options.new(save_memory: 64))
     builder.instance_eval do
@@ -229,6 +230,7 @@ class TestSaveData < Minitest::Test
       game_loop do
         pressed(:a).then { hearts.set! 7; file[0].save }
         pressed(:b).then { hearts.set! 9; file[0].save }
+        pressed(:l).then { hearts.set! 11; file[0].save }
       end
     end
     builder.finalize_program
@@ -238,20 +240,20 @@ class TestSaveData < Minitest::Test
   def test_a_save_on_flash_cut_off_at_any_point_keeps_the_last_good_one
     program = one_file_on_flash
     before = SaveImage.new(kilobytes: 64)
-    Reference.new(save: before).input_each_frame { |f| f == 2 ? [:a] : [] }.run(program, frames: 120)
-    assert_equal 7, Reference.new(save: before.dup).run(program, frames: 2)[:hearts], "the first save went in"
+    Reference.new(save: before).input_each_frame { |f| { 2 => [:a], 60 => [:b] }.fetch(f, []) }.run(program, frames: 120)
+    assert_equal 9, Reference.new(save: before.dup).run(program, frames: 2)[:hearts], "two saves went in"
 
     found = (0..80).map do |cut|
       store = before.dup
-      Reference.new(save: store.cut_power_after(cut)).input_each_frame { |f| f == 2 ? [:b] : [] }
+      Reference.new(save: store.cut_power_after(cut)).input_each_frame { |f| f == 2 ? [:l] : [] }
                .run(program, frames: 120)
       store.restore_power
 
       Reference.new(save: store).run(program, frames: 2)[:hearts].tap do |hearts|
-        assert_includes [7, 9], hearts, "cut after #{cut} steps"
+        assert_includes [9, 11], hearts, "cut after #{cut} steps"
       end
     end
-    assert_equal [7, 9], found.uniq.sort, "the cuts reach from before the save to after it"
+    assert_equal [9, 11], found.uniq.sort, "the cuts reach from before the save to after it"
   end
 
   # Cut after the header's first two words and four bytes of the body.
