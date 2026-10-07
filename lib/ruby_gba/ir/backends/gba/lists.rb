@@ -151,20 +151,17 @@ module RubyGBA
             e.emit(ASM.orr_reg(3, 3, 2))                                     # r3 = every address bit in play
             e.emit(ASM.tst_imm(3, 1))
             e.emit_branch(:bcond, bytes, cond: :ne)
-            e.emit(ASM.tst_imm(3, 2))                                        # held until the branch below:
-            e.emit(ASM.load_immediate(3, REG_DMA3SAD))                       # nothing between sets the flags
-            e.emit(ASM.str_offset(ACC, 3, 0))                                # the engine reads from r0
-            e.emit(ASM.str_offset(TMP, 3, 4))                                # ...and writes to r1
+            e.emit(ASM.tst_imm(3, 2))
             e.emit_branch(:bcond, halves, cond: :ne)
-            e.emit(ASM.lsr_imm(2, 2, 2))                                     # words
-            e.emit(ASM.orr_imm(2, 2, DMA_32BIT))
-            e.emit(ASM.orr_imm(2, 2, DMA_ENABLE))
-            e.emit(ASM.str_offset(2, 3, 8))                                  # go; the processor waits
+            e.emit(ASM.lsr_imm(3, 2, 2))                                     # words
+            e.emit(ASM.orr_imm(3, 3, DMA_32BIT))
+            e.emit(ASM.orr_imm(3, 3, DMA_ENABLE))
+            emit_start_engine
             e.emit(ASM.return)
             e.place_label(halves)
-            e.emit(ASM.lsr_imm(2, 2, 1))                                     # half-words
-            e.emit(ASM.orr_imm(2, 2, DMA_ENABLE))
-            e.emit(ASM.str_offset(2, 3, 8))
+            e.emit(ASM.lsr_imm(3, 2, 1))                                     # half-words
+            e.emit(ASM.orr_imm(3, 3, DMA_ENABLE))
+            emit_start_engine
             e.emit(ASM.return)
             e.place_label(bytes)
             e.emit(ASM.ldrb_offset(3, ACC, 0))
@@ -246,18 +243,44 @@ module RubyGBA
           def emit_fill_words_by_engine
             e = @emitter
             e.emit(ASM.push(ACC))                                   # the pattern, where the engine can read it
-            e.emit(ASM.load_immediate(3, REG_DMA3SAD))
-            e.emit(ASM.str_offset(13, 3, 0))                        # it reads from the stack...
-            e.emit(ASM.str_offset(TMP, 3, 4))                       # ...and writes from r1 on
-            e.emit(ASM.lsr_imm(ACC, 2, 2))                          # how many words
-            e.emit(ASM.orr_imm(ACC, ACC, DMA_ENABLE))
-            e.emit(ASM.orr_imm(ACC, ACC, DMA_32BIT))
-            e.emit(ASM.orr_imm(ACC, ACC, DMA_SRC_FIXED))
-            e.emit(ASM.str_offset(ACC, 3, 8))                       # go; the processor waits
-            e.emit(ASM.bic_imm(ACC, 2, 3))
-            e.emit(ASM.add_reg(TMP, TMP, ACC))                      # r1 past the words
+            e.emit(ASM.mov_reg(ACC, 13))                            # it reads from the stack...
+            e.emit(ASM.lsr_imm(3, 2, 2))                            # ...this many words
+            e.emit(ASM.orr_imm(3, 3, DMA_ENABLE))
+            e.emit(ASM.orr_imm(3, 3, DMA_32BIT))
+            e.emit(ASM.orr_imm(3, 3, DMA_SRC_FIXED))
+            emit_start_engine
+            e.emit(ASM.bic_imm(3, 2, 3))
+            e.emit(ASM.add_reg(TMP, TMP, 3))                        # r1 past the words
             e.emit(ASM.and_imm(2, 2, 3))                            # r2 the bytes left
             e.emit(ASM.pop(ACC))
+          end
+
+          # START THE COPYING ENGINE from r0 to r1 with the control word in r3, every register
+          # as it was afterwards. The engine is set up in three writes and goes on the last, and
+          # a routine answering an interrupt can use the same engine — a timer's handler that
+          # fills or copies — so an interrupt between the writes would leave this one starting
+          # with that one's addresses. So interrupts are held off for the three writes, and the
+          # switch is put back as it was rather than turned on, which keeps it off where the
+          # caller had it off. The processor waits while the engine runs, so the hold covers the
+          # copy as well.
+          def emit_start_engine
+            e = @emitter
+            e.emit(ASM.push(ACC, 2, 3))
+            e.emit(ASM.load_immediate(2, REG_IME))
+            e.emit(ASM.load_halfword(ACC, 2))
+            e.emit(ASM.push(ACC))                                   # the interrupt switch as it was
+            e.emit(ASM.load_immediate(ACC, 0))
+            e.emit(ASM.store_halfword(ACC, 2))
+            e.emit(ASM.load_immediate(2, REG_DMA3SAD))
+            e.emit(ASM.ldr_offset(ACC, 13, 4))
+            e.emit(ASM.str_offset(ACC, 2, 0))                       # from
+            e.emit(ASM.str_offset(TMP, 2, 4))                       # to
+            e.emit(ASM.ldr_offset(ACC, 13, 12))
+            e.emit(ASM.str_offset(ACC, 2, 8))                       # go; the processor waits
+            e.emit(ASM.pop(ACC))
+            e.emit(ASM.load_immediate(2, REG_IME))
+            e.emit(ASM.store_halfword(ACC, 2))
+            e.emit(ASM.pop(ACC, 2, 3))
           end
 
           # One byte of the pattern written, the address moved on, and the pattern turned a byte

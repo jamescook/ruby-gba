@@ -94,8 +94,9 @@ module RubyGBA
 
       # Set every item to +value+, or the +count+ items from +from+: clearing a box a game
       # letters text into, a row of a board. Each may be worked out as the game runs. One step,
-      # so the console sets the run a whole word at a time (see Builder#fill_list_run); a run
-      # reaches only items the list holds, the same as `[]=`.
+      # so the console sets the run a whole word at a time (see Builder#fill_list_run). A run
+      # must stay inside the items the list holds: past them the interpreter stops with an
+      # error, where the console only holds the run to the capacity.
       def fill(value, from: nil, count: nil)
         @builder.fill_list_run(self, item_node(value, "hold"), from: from, count: count)
         self

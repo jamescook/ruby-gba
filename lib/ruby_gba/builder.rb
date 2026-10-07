@@ -404,8 +404,8 @@ module RubyGBA
     # A LIST SET TO ONE VALUE IN ONE STEP (see List#fill): the whole list as it is now, or
     # +count+ items from +from+. The loop it replaces sets an item at a time and works out an
     # address for each; the console sets the run a whole word at a time instead, and a byte
-    # at a time only at its ends. A run is held to the items the list has room for, the same
-    # as `[]=`; one written past that, or from before the first item, is refused here.
+    # at a time only at its ends. On the console a run is held to the list's capacity; a run
+    # written past that, or from before the first item, is refused here.
     def fill_list_run(list, value_node, from:, count:)
       what = "list :#{list.name}.fill"
       if from.nil? != count.nil?
@@ -418,6 +418,22 @@ module RubyGBA
                                         value: value_node))
       ensure_var(from)
       ensure_var(count)
+    end
+
+    # A LIST THE GAME SHIFTS CANNOT BE FILLED. Dropping the front item makes the list a ring
+    # that wraps round its own memory, so a run of its items is not a run of memory to set in
+    # one step. Refused once every routine is built, so a `shift` anywhere in the game is seen,
+    # and both backends refuse it alike.
+    def refuse_filled_shifted_lists!
+      filled = @program.walk.filter_map { |node| node.name if node.kind == :list_fill }.uniq
+      return if filled.empty?
+
+      shifted = @program.walk.filter_map { |node| node.name if node.kind == :list_drop && node.from == :front }
+      name = filled.find { |list| shifted.include?(list) } or return
+      raise ArgumentError, "list :#{name} is filled with `fill`, and the game also uses `shift` on it. A shift moves " \
+                           "the first item, so the items are no longer one run in memory and `fill` cannot set " \
+                           "them at once. To fix this, set the items one at a time with `[]=`, or do not use " \
+                           "`shift` on list :#{name}."
     end
 
     def refuse_fill_outside_list!(what, made, from, count)
@@ -530,6 +546,7 @@ module RubyGBA
       finalize_background_scrolls
       finalize_background_maps
       refuse_shifted_tile_run_lists!
+      refuse_filled_shifted_lists!
       finalize_tile_copies
       finalize_background_colors
       finalize_background_affine

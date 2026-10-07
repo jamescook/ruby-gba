@@ -82,4 +82,23 @@ class TestListFillWord < Minitest::Test
     assert_match(/read-only/, refused { table(:t, [1, 2], width: :byte).fill 0 })
     assert_match(/fraction/, refused { list(:l, capacity: 4).fill var(:f, 1.5) })
   end
+
+  # A list the game shifts wraps round its own memory, so a run of its items is not a run of
+  # memory to fill — refused once the whole program is known, wherever the shift is written.
+  def test_filling_a_list_the_game_shifts_is_a_friendly_error
+    builder = Builder.new
+    error = assert_raises(ArgumentError) do
+      builder.instance_eval do
+        queue = list :queue, capacity: 8, width: :byte
+        game_loop do
+          queue.fill 0
+          queue.shift
+        end
+      end
+      builder.finalize_program
+    end
+
+    assert_match(/queue/, error.message)
+    assert_match(/shift/, error.message)
+  end
 end
