@@ -33,6 +33,12 @@ module RubyGBA
         Value.new(@builder, Build.table_get(@name, Value.node_for(index)), fraction_bits: @fraction_bits)
       end
 
+      # A table is stored in the cartridge, so nothing can be written into it as the game runs.
+      def fill(*)
+        raise ArgumentError, "table :#{@name} is read-only: it is stored in the cartridge, so `fill` cannot " \
+                             "change it. To fill something the game changes, make it a `list`."
+      end
+
       # How many elements the table holds — a build-time constant (a plain Integer,
       # since the size is fixed when the program is built).
       def length

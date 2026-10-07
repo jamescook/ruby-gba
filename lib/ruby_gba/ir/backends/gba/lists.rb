@@ -210,7 +210,6 @@ module RubyGBA
             e.place_label(FILL_ROUTINE)
             lead = e.gensym
             words = e.gensym
-            tail = e.gensym
             last_bytes = e.gensym
             done = e.gensym
             e.place_label(lead)
@@ -221,12 +220,9 @@ module RubyGBA
             e.emit_branch(:bcond, done, cond: :eq)
             e.emit_branch(:b, lead)
             e.place_label(words)
-            e.emit(ASM.subs_imm(2, 2, 4))
-            e.emit_branch(:bcond, tail, cond: :lt)
-            e.emit(ASM.str_post(ACC, TMP, 4))
-            e.emit_branch(:b, words)
-            e.place_label(tail)
-            e.emit(ASM.add_imm(2, 2, 4))                          # the bytes the words left
+            e.emit(ASM.cmp_imm(2, 4))
+            e.emit_branch(:bcond, last_bytes, cond: :lt)          # less than a word left
+            emit_fill_words_by_engine
             e.place_label(last_bytes)
             e.emit(ASM.cmp_imm(2, 0))
             e.emit_branch(:bcond, done, cond: :eq)
@@ -238,6 +234,30 @@ module RubyGBA
             # Where it ends, so a profile can say how much of a frame went into filling (see
             # GBA#lowered_routine_addresses).
             e.place_label(:"#{FILL_ROUTINE}_end")
+          end
+
+          # THE WHOLE WORDS OF THE RUN, handed to the copying engine rather than stored one at a
+          # time: told to read the same word over and over, it writes it across the run with the
+          # processor waiting, which is a few cycles a word where a store in a loop run from the
+          # cartridge is several times that. The engine reads its word from memory, so the pattern
+          # goes on the stack for it to read and comes back off after. r1 then points past the
+          # words and r2 holds the bytes left, fewer than four, with the pattern as it was — a
+          # whole number of words moves it round no places.
+          def emit_fill_words_by_engine
+            e = @emitter
+            e.emit(ASM.push(ACC))                                   # the pattern, where the engine can read it
+            e.emit(ASM.load_immediate(3, REG_DMA3SAD))
+            e.emit(ASM.str_offset(13, 3, 0))                        # it reads from the stack...
+            e.emit(ASM.str_offset(TMP, 3, 4))                       # ...and writes from r1 on
+            e.emit(ASM.lsr_imm(ACC, 2, 2))                          # how many words
+            e.emit(ASM.orr_imm(ACC, ACC, DMA_ENABLE))
+            e.emit(ASM.orr_imm(ACC, ACC, DMA_32BIT))
+            e.emit(ASM.orr_imm(ACC, ACC, DMA_SRC_FIXED))
+            e.emit(ASM.str_offset(ACC, 3, 8))                       # go; the processor waits
+            e.emit(ASM.bic_imm(ACC, 2, 3))
+            e.emit(ASM.add_reg(TMP, TMP, ACC))                      # r1 past the words
+            e.emit(ASM.and_imm(2, 2, 3))                            # r2 the bytes left
+            e.emit(ASM.pop(ACC))
           end
 
           # One byte of the pattern written, the address moved on, and the pattern turned a byte

@@ -401,6 +401,37 @@ module RubyGBA
       ensure_var(at)
     end
 
+    # A LIST SET TO ONE VALUE IN ONE STEP (see List#fill): the whole list as it is now, or
+    # +count+ items from +from+. The loop it replaces sets an item at a time and works out an
+    # address for each; the console sets the run a whole word at a time instead, and a byte
+    # at a time only at its ends. A run is held to the items the list has room for, the same
+    # as `[]=`; one written past that, or from before the first item, is refused here.
+    def fill_list_run(list, value_node, from:, count:)
+      what = "list :#{list.name}.fill"
+      if from.nil? != count.nil?
+        raise ArgumentError, "#{what} was given #{from.nil? ? 'count:' : 'from:'} alone. To fill a run, give both " \
+                             "from: and count:. To fill the whole list, give neither."
+      end
+      from, count = from.nil? ? [0, list.length] : [from, count]
+      refuse_fill_outside_list!(what, declared_list_node(list.name), from, count)
+      record(Build.list_fill(list.name, from: DSL::Value.node_for(from), count: DSL::Value.node_for(count),
+                                        value: value_node))
+      ensure_var(from)
+      ensure_var(count)
+    end
+
+    def refuse_fill_outside_list!(what, made, from, count)
+      start = DSL::Value.fixed_number(from)
+      if start&.negative?
+        raise ArgumentError, "#{what} was given from: #{start}. The items count from 0, so give from: 0 or more."
+      end
+      size = DSL::Value.fixed_number(count)
+      return unless made && start && size && start + size > made.capacity
+
+      raise ArgumentError, "#{what} sets items #{start} to #{start + size - 1}, and the list holds #{made.capacity}. " \
+                           "Give a run that ends inside the list, or give the list a bigger capacity."
+    end
+
     def declared_list_node(name)
       (@program.walk.to_a + @boot_inits).find { |node| node.kind == :list_new && node.name == name }
     end
