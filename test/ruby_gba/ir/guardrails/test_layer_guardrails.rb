@@ -413,6 +413,19 @@ class TestLayerGuardrails < Minitest::Test
     assert_match(/:ui holds nothing/, finding.message)
   end
 
+  # A layer a sprite is only ever MOVED into — the stairs behind every background — holds
+  # it while it is there, so it is not empty.
+  def test_a_layer_a_sprite_can_be_put_in_is_not_empty
+    found = findings(Checks::LayerHoldsNothing) do
+      screen :tiled
+      layers :stairs, :world
+      guy = layer(:world) { sprite :red_guy, at: [10, 10] }
+      game_loop { guy.put_in_layer :stairs }
+    end
+
+    assert_empty found
+  end
+
   def test_more_than_one_empty_layer_is_one_finding_naming_them_all
     finding = only_finding(Checks::LayerHoldsNothing) do
       screen :tiled

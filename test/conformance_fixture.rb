@@ -287,7 +287,10 @@ module ConformanceFixture
                           # ...drawn with another list of colours, picked by a number the
                           # program works out, rather than its own.
                           recolor: B.binop(:-, B.var_ref(:x), B.var_ref(:x)), recolors: [[0x0000, 0x7C00]],
-                          layer: :actors), # ...in front of the scenery
+                          layer: :actors, # ...in front of the scenery,
+                          # ...and put in the scenery's own layer by the number a variable
+                          # holds — still drawn over that scenery, which it shares.
+                          layers: [:scenery], layer_pick: :x),
 
       B.present_objects([:hero_obj]),   # draw the declared objects for this frame
       B.save_region(:under, :x, :y),    # remember the pixels under a moving object

@@ -1991,10 +1991,21 @@ module RubyGBA
             obj = on[:object]
             image = on[:picture]
             snap = { name: obj.name, image: image, x: on[:x], y: on[:y],
-                     level: @picture.depths[obj.name], recolor: object_recolor(obj, image) }
+                     level: object_level(obj), recolor: object_recolor(obj, image) }
             snap[:transform] = object_transform(obj) if object_transformed?(obj)
             snap
           end
+        end
+
+        # How deep an object sits this frame: the layer it was put in, or the one it was
+        # declared in for a number that names none of the others.
+        def object_level(obj)
+          return @picture.depths[obj.name] if obj.layers.nil? || obj.layers.empty?
+
+          pick = self[obj.layer_pick]
+          return @picture.depths[obj.name] unless pick.between?(0, obj.layers.length - 1)
+
+          @picture.depths[IR::Stacking.choice_name(obj, obj.layers[pick])]
         end
 
         # Which of an object's poses to draw right now — its pose selector picks one

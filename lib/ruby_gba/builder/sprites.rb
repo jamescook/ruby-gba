@@ -211,6 +211,32 @@ module RubyGBA
         object_node.recolor = Build.var_ref(colors_var)
       end
 
+      # Make a hardware sprite able to change layer (see HardwareSprite#put_in_layer): allocate
+      # the variable that picks its layer, boot it to the layer it was declared in, and name it
+      # on the object. Idempotent, and a sprite never moved names none and emits nothing for it.
+      def make_object_layer_choosable(object_node, layer_var)
+        return if object_node.layer_pick # already names its variable
+
+        at_boot(Build.set(layer_var, Build.int(Build::DECLARED_LAYER)))
+        ensure_var(layer_var)
+        object_node.layer_pick = layer_var
+      end
+
+      # Refuse a layer a sprite was told to go in that the stack does not have, naming it.
+      def refuse_unknown_layers!(names, subject)
+        if @layer_stack.empty?
+          raise ArgumentError,
+                "#{subject} was told to put_in_layer, and this game declares no layers. Declare the " \
+                "stack first, back to front: layers :stairs, :ground, :walking, :scenery, :upper."
+        end
+        unknown = names.reject { |name| @layer_stack.include?(name) }
+        return if unknown.empty?
+
+        raise ArgumentError,
+              "#{subject} was told to put_in_layer :#{unknown.first}, and the stack has no layer of that " \
+              "name. The stack is #{list_of(@layer_stack)}, back to front."
+      end
+
       # A POSE PICKED BY A NUMBER THE GAME WORKS OUT (see HardwareSprite#face): +names+ are the
       # directions it may show, +showing+ counts into them from 0, and the block is handed the
       # row to write — a number, or a Value worked out as the game runs. +row_of+ turns a
@@ -232,15 +258,7 @@ module RubyGBA
           return yield Build.int(rows[fixed])
         end
 
-        step = picked_pose_step!(showing, subject)
-        # Worked out once and kept, unless it is already a variable: the step is read three
-        # times below, and a number made fresh each read (a roll of the dice) could pass the
-        # range test as one value and pick the pose as another.
-        unless step.node.kind == :var_ref
-          kept = var(PICKED_POSE_STEP, 0)
-          kept.set!(step)
-          step = kept
-        end
+        step = kept_step(picked_step!(showing, subject, "face a pose"))
         row = if rows.each_cons(2).all? { |a, b| b == a + 1 }
                 step + rows.first
               else
@@ -249,8 +267,20 @@ module RubyGBA
         ((step >= 0) & (step < rows.length)).then { yield row.node }
       end
 
-      # Scratch for a pose step worked out from an expression (see #write_picked_pose): one
-      # variable for every pick, since each pick reads it straight after writing it.
+      # ONE OF A RUN OF +count+ CHOICES, PICKED BY A NUMBER THE GAME WORKS OUT: +choice+ (anything
+      # with a +set!+) is set to +start+ plus +showing+, or to +outside+ when the number names
+      # none of them. What a sprite's colours and its layer are both picked by. +subject+ and
+      # +verb+ say what was told what, for the friendly errors.
+      def write_picked_choice(choice, count:, start:, showing:, outside:, subject:, verb:)
+        fixed = DSL::Value.fixed_number(showing)
+        return choice.set!(fixed.between?(0, count - 1) ? start + fixed : outside) if fixed
+
+        step = kept_step(picked_step!(showing, subject, verb))
+        ((step >= 0) & (step < count)).then { choice.set!(step + start) }.else { choice.set!(outside) }
+      end
+
+      # Scratch for a step worked out from an expression (see #kept_step): one variable for
+      # every pick, since each pick reads it straight after writing it.
       PICKED_POSE_STEP = :_picked_pose_step
 
       private
@@ -269,21 +299,34 @@ module RubyGBA
         end
       end
 
-      def picked_pose_step!(showing, subject)
+      # The number +showing+ gives, as a Value, or a friendly error. +verb+ is what the subject
+      # was told to do, as a phrase: "face a pose", "put_in_layer a layer".
+      def picked_step!(showing, subject, verb)
         if showing.is_a?(Symbol) && !@variables.key?(showing)
-          raise ArgumentError, "#{subject} was told to face a pose picked by :#{showing}, and no variable has " \
+          raise ArgumentError, "#{subject} was told to #{verb} picked by :#{showing}, and no variable has " \
                                "that name. Declare it first with `var :#{showing}, 0`, or correct the name."
         end
         step = showing.is_a?(Symbol) ? DSL::Value.new(self, Build.var_ref(showing), name: showing) : showing
         unless step.is_a?(DSL::Value) && !step.is_a?(DSL::Condition)
-          raise ArgumentError, "#{subject} was told to face a pose picked by showing: #{step.class}. showing: needs a " \
+          raise ArgumentError, "#{subject} was told to #{verb} picked by showing: #{step.class}. showing: needs a " \
                                "number, counting from 0, like showing: step."
         end
         if DSL::Fraction.bits_of(step)
-          raise ArgumentError, "#{subject} picks a pose by a whole number, and the number given to showing: holds " \
-                               "a fraction. To fix this, use `.to_i` to drop the fraction."
+          raise ArgumentError, "#{subject} was told to #{verb} picked by a number that holds a fraction. " \
+                               "showing: counts in whole numbers. To fix this, use `.to_i` to drop the fraction."
         end
         step
+      end
+
+      # +step+ worked out once and kept, unless it is already a variable. A pick reads its
+      # step more than once — the range test, then the pick — and a number made fresh at each
+      # read (a roll of the dice) could pass the test as one value and pick as another.
+      def kept_step(step)
+        return step if step.node.kind == :var_ref
+
+        kept = var(PICKED_POSE_STEP, 0)
+        kept.set!(step)
+        kept
       end
 
       # One table of rows for each different order of rows, however many picks use it.

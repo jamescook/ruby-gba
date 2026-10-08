@@ -794,17 +794,22 @@ module RubyGBA
 
       # Reserves the object; #present_objects is what actually draws it for a frame.
       def object(name, poses:, pose:, x:, y:, active:, angle: 0, scale: SCALE_ONE, layer: nil, scene: nil,
-                 recolor: NO_RECOLOR, recolors: [], declared: nil)
+                 recolor: NO_RECOLOR, recolors: [], declared: nil, layers: [], layer_pick: nil)
         Nodes.build(:object, name: name, poses: poses, pose: to_value_node(pose),
                           x: to_value_node(x), y: to_value_node(y), active: to_value_node(active),
                           angle: to_value_node(angle), scale: to_value_node(scale),
                           recolor: to_value_node(recolor), recolors: recolors,
+                          **layer_choice_fields(layers, layer_pick),
                           **declared_field(declared), **layer_field(layer), **scene_field(scene))
       end
 
       # The +recolor+ an object that is drawn in its own colours holds: a number that names
       # none of the other lists, since any such number means its own.
       NO_RECOLOR = -1
+
+      # What the variable named by +layer_pick+ holds while an object is in the layer it was
+      # declared in, for the same reason.
+      DECLARED_LAYER = -1
 
       # Draw the named objects for this frame, on top of the background, in order
       # (later ones sit in front). Emitted once per frame at the moment it's safe to
@@ -1086,6 +1091,13 @@ module RubyGBA
       # words rather than to anything the game asked for by name.
       def declared_field(name)
         name ? { declared: name } : {}
+      end
+
+      # ...and for the other layers an object can be put in, and the variable picking one:
+      # an object that stays in the layer it was declared in carries neither, so a program
+      # that never moves one builds the tree it always did.
+      def layer_choice_fields(layers, pick)
+        layers.empty? ? {} : { layers: layers, layer_pick: pick }
       end
 
       # The same idea for an effect, which names the layer it sits UNDER rather than the

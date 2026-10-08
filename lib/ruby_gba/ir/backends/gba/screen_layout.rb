@@ -117,6 +117,11 @@ module RubyGBA
           # Where a sprite's banks are kept, and which entry is its own colours.
           RecolorBanks = Data.define(:table, :own)
 
+          # Where a sprite's depths are kept, and which entry is the layer it was declared in.
+          # +scene_var+, where the depths differ from screen to screen, is the variable that picks
+          # the screen, and the table holds +scene_count+ rows for its values and one for any other.
+          LayerDepths = Data.define(:table, :own, :scene_var, :scene_count)
+
           # EVERYTHING THAT CHANGES BETWEEN POSES THAT ARE NOT INTERCHANGEABLE, one word
           # each, read by the per-frame draw.
           #
@@ -196,6 +201,7 @@ module RubyGBA
             # which is what the console's four layers and four depths actually have to cover.
             @picture = IR::Stacking.picture(program)
             @screenfuls = IR::Stacking.screenfuls(program)
+            @program = program # read again for the scenes a sprite's depth table is picked by
             @blobs = {}           # cartridge data by name: colour tables, tile pictures, maps
             @codecs = {}          # names of the data that must stay unpacked in the cartridge
             @backgrounds = {}     # name -> where a background landed (see #prepare_one_background)
@@ -1451,6 +1457,62 @@ module RubyGBA
             RecolorBanks.new(table: blob, own: banks.length - 1)
           end
 
+          # The depth each of the other layers a sprite can be put in puts it at, in the order
+          # the program counts them, then the depth of the layer it was declared in. nil for a
+          # sprite that stays where it was declared. Kept the same way as the bank table above:
+          # one word each, already shifted to where the sprite's entry carries it.
+          #
+          # A DEPTH IS A NUMBER ON ONE SCREEN, and the same layer can be a different number on
+          # the next. The console counts depth from the front, so a room with a top layer puts
+          # the ground floor one further back than a room without one does — and a sprite every
+          # room shows has to be told the number of the room that is up. Where the rooms agree
+          # there is one row; where they differ there is a row per value of the variable the
+          # game picks its scenes with, read by that variable as the sprite is drawn. A value
+          # that puts up no scene of its own reads the deepest of them, which is what a sprite
+          # that stays where it was declared is given everywhere.
+          def sprite_layer_depth_table(node)
+            return nil if node.layers.nil?
+
+            rows = @screenfuls.select { |screenful| screenful.depths.of.key?(node.name) }
+                              .to_h { |screenful| [screenful.scene, layer_depth_row(node, screenful.depths)] }
+            deepest = rows.values.transpose.map(&:max)
+            return layer_depth_blob(node, [deepest], scene_var: nil, scene_count: 0) if rows.values.uniq.length == 1
+
+            state, by_value = scene_rows_by_value(node, rows)
+            table = (0..by_value.keys.max).map { |value| by_value.fetch(value, deepest) } + [deepest]
+            layer_depth_blob(node, table, scene_var: state, scene_count: table.length - 1)
+          end
+
+          # Where +node+ sits on one screen, for each layer it can be put in and then its own.
+          def layer_depth_row(node, depths)
+            names = [*node.layers.map { |layer| IR::Stacking.choice_name(node, layer) }, node.name]
+            names.map { |name| depths.count - 1 - depths[name] }
+          end
+
+          # The variable the scenes in +rows+ are picked with, and each row by the value that
+          # puts its scene up. A sprite shown on screens picked by two different variables, or
+          # by none, cannot be told which screen it is on.
+          def scene_rows_by_value(node, rows)
+            gates = IR::Movement.scene_dispatch_tests(@program)
+            states = rows.keys.map { |scene| scene && gates[scene]&.first }.uniq
+            if states.length != 1 || states.first.nil?
+              raise LoweringError,
+                    "The sprite :#{node.declared || node.name} can put_in_layer, and it is on screens where its " \
+                    "layers are at different depths. The game does not pick those screens with one variable, " \
+                    "so the sprite cannot know which screen is up. To fix this, declare the sprite inside each " \
+                    "scene, or pick every scene with one `case_var`."
+            end
+            [states.first, rows.to_h { |scene, row| [gates[scene].last, row] }]
+          end
+
+          def layer_depth_blob(node, table, scene_var:, scene_count:)
+            words = table.flatten.map { |depth| depth << OBJ_PRIORITY_SHIFT }
+            blob = :"__layer_depths_#{words.join('_')}"
+            @blobs[blob] = words.pack("V*")
+            keep_unpacked!(blob) # read from the middle, by the layer the game picked
+            LayerDepths.new(table: blob, own: node.layers.length, scene_var: scene_var, scene_count: scene_count)
+          end
+
           # The table a sprite's art came with, where its poses all name the same one.
           # Art made somewhere else on this console arrives as numbers picking out of its
           # own sixteen, so the order is the whole point and the framework must not
@@ -1600,9 +1662,12 @@ module RubyGBA
               # the small way — which bank of sixteen colors it draws from. The depth stays
               # 0 (the front) in every picture where the sprites are over all the scenery,
               # which is every picture that names no layers.
-              attr2_base: (hardware_priority(name) << OBJ_PRIORITY_SHIFT) |
+              # A sprite that can change layer leaves the depth out, since a frame decides it.
+              attr2_base: (node.layers.nil? ? hardware_priority(name) << OBJ_PRIORITY_SHIFT : 0) |
                 (place.narrow? && node.recolors.empty? ? place.bank << OBJ_BANK_SHIFT : 0),
               recolor: node.recolor, recolor_banks: sprite_recolor_bank_table(node),
+              layer_pick: node.layer_pick && IR::Build.var_ref(node.layer_pick),
+              layer_depths: sprite_layer_depth_table(node),
             )
           end
 

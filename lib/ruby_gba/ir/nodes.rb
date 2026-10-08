@@ -669,11 +669,18 @@ module RubyGBA
         # for things the author named no sprite for at all, a letter of text among them, which
         # have no +declared+ to give. Keeping it is what lets a target report on what it drew
         # in the author's own words rather than in numbers it made up.
+        #
+        # +layers+ is every other layer it can be put in while the program runs, and
+        # +layer_pick+ names the variable saying which of them it is in now, counting from 0;
+        # both are absent on a thing that never changes layer. Any other number
+        # leaves it in +layer+, the one it was declared in. That is how one thing walks
+        # behind scenery on one floor of a room and in front of it on the next.
         operands name: :name, declared: :name,
                  poses: :list, pose: :value, x: :value,
                  y: :value, active: :value, angle: :value,
                  scale: :value, layer: :name, scene: :name,
-                 recolor: :value, recolors: :list
+                 recolor: :value, recolors: :list,
+                 layers: :list, layer_pick: :name
       end
 
       class OnTimer

@@ -384,7 +384,57 @@ module RubyGBA
         self
       end
 
+      # Put the sprite in another of the declared layers, from now until it is told otherwise:
+      # behind a room's top layer on its ground floor, in front of it upstairs, behind every
+      # layer on a flight of stairs.
+      #
+      #   hero.put_in_layer :walking                                 # one layer
+      #   hero.put_in_layer [:upper, :walking, :stairs], showing: d  # one of several, by a number
+      #
+      # A number outside the list leaves it in the layer it was declared in. The change shows
+      # on the frame the sprite's position and pose next do, never before or after them.
+      def put_in_layer(which, showing: nil)
+        names = Array(which)
+        subject = "The sprite :#{@object_node.declared || @object_name}"
+        @builder.refuse_unknown_layers!(names, subject)
+        if showing.nil? && names.length > 1
+          raise ArgumentError,
+                "#{subject} was told to put_in_layer #{names.length} layers and nothing to pick between " \
+                "them. Say which one with showing:, like put_in_layer [:#{names.first}, ...], showing: floor."
+        end
+        if showing && !which.is_a?(Array)
+          raise ArgumentError,
+                "#{subject} was told put_in_layer :#{which} and showing:, but that names one layer. " \
+                "showing: picks between several, so give it a list: put_in_layer [:#{which}, :other], showing: ..."
+        end
+
+        @layer_var ||= :"#{@object_name}_layer"
+        @builder.make_object_layer_choosable(@object_node, @layer_var)
+        start = layer_choice_offset(names)
+        choice = Value.new(@builder, Build.var_ref(@layer_var), name: @layer_var)
+        if showing.nil?
+          choice.set!(start)
+        else
+          @builder.write_picked_choice(choice, count: names.length, start: start, showing: showing,
+                                               outside: Build::DECLARED_LAYER, subject: subject,
+                                               verb: "put_in_layer a layer")
+        end
+        self
+      end
+
       private
+
+      # Where +names+ sit side by side among the layers this sprite can be put in, adding them
+      # at the end when they do not — so a set picked by a number is that number plus where
+      # the set starts, rather than a test per layer.
+      def layer_choice_offset(names)
+        known = @object_node.layers || []
+        found = (0..(known.length - names.length)).find { |at| known[at, names.length] == names }
+        return found if found
+
+        @object_node.layers = known + names
+        known.length
+      end
 
       # Move +delta+ pixels along one axis. With no walls it's a plain nudge; blocked, it
       # happens only if the sprite's box at the destination is clear of every wall (each

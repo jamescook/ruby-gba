@@ -306,6 +306,16 @@ module RubyGBA
               "or draw a second picture in the other colors."
       end
 
+      # A sprite on a tiled screen can be put in another layer as the game runs
+      # (HardwareSprite#put_in_layer). This one is painted into the one picture, back to
+      # front by the layer it was declared in, and a background there is painted in once
+      # and never again — so there is nothing for it to go behind.
+      def put_in_layer(*, **)
+        raise ArgumentError,
+              "A sprite on `screen :bitmap` cannot put_in_layer. That screen paints its backgrounds into " \
+              "the picture one time, so a sprite cannot move behind them later. To fix this, use `screen :tiled`."
+      end
+
       # The per-frame repaint runs in two passes across every sprite (see
       # Builder#wait_vblank): first each sprite is erased from where it was, then each
       # is drawn where it is now. Splitting it this way is what lets sprites overlap

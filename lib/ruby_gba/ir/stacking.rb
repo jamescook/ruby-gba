@@ -203,12 +203,35 @@ module RubyGBA
       # back, objects in front of it. That keeps a picture that names no layers exactly
       # as it was, and it is what #scenery_over_objects? watches, because the two rules
       # only disagree once the stack asks for scenery in FRONT of an object.
+      #
+      # An object that can be put in other layers as the program runs is in each of them
+      # here too, as a stand-in named by #choice_name, so every place it can go has a level
+      # worked out for it before it ever goes there.
       def back_to_front(scenery, objects, stack)
         tagged = scenery.each_with_index.map { |node, nth| [node, :scenery, depth_key(node, stack, -1), nth] } +
-                 objects.each_with_index.map { |node, nth| [node, :object, depth_key(node, stack, Float::INFINITY), nth] }
+                 objects.each_with_index.flat_map do |node, nth|
+                   [node, *layer_choices(node)].map { |item| [item, :object, depth_key(item, stack, Float::INFINITY), nth] }
+                 end
 
         tagged.sort_by { |_node, kind, key, nth| [key, kind == :scenery ? 0 : 1, nth] }
               .map { |node, kind, _key, _nth| [node, kind] }
+      end
+
+      # One of the other layers an object can be put in, standing in for the object there.
+      LayerChoice = Data.define(:name, :layer)
+
+      # What +depths+ calls +object+ while it is in +layer+, one of the other layers it can
+      # be put in. Its own name is the layer it was declared in.
+      def choice_name(object, layer) = [object.name, layer]
+
+      def layer_choices(object)
+        (object.layers || []).map { |layer| LayerChoice.new(name: choice_name(object, layer), layer: layer) }
+      end
+
+      # Every level +object+ can be at: the one it was declared at, then one per other
+      # layer it can be put in, in the order those are counted.
+      def levels_of(depths, object)
+        [depths[object.name], *layer_choices(object).map { |choice| depths[choice.name] }]
       end
 
       # Where in the stack a thing sits, or +absent+ when it named no layer.
@@ -253,7 +276,7 @@ module RubyGBA
         return false if scenery.empty? || objects.empty?
 
         frontmost = scenery.map { |node| depths[node.name] }.max
-        objects.any? { |node| depths[node.name] < frontmost }
+        objects.any? { |node| levels_of(depths, node).min < frontmost }
       end
     end
   end

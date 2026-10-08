@@ -61,6 +61,11 @@ module RubyGBA
         # operand counts them, and last its own (ScreenLayout#sprite_recolor_bank_table). Its +attr2_base+ then
         # leaves the bank out, since the bank is the part of that word a frame decides. nil for
         # every other sprite.
+        #
+        # +layer_depths+ is the same kind of table for a sprite that can be put in other
+        # layers: the depth each one puts it at, counted the way +layer_pick+ counts them,
+        # and last the layer it was declared in (ScreenLayout#sprite_layer_depth_table). Its
+        # +attr2_base+ then leaves the depth out. nil for every other sprite.
         Sprite = Data.define(
           :slot, :pieces, :scene,
           :tiles, :tile_units, :tile_index, :frames, :frame_bytes,
@@ -68,7 +73,12 @@ module RubyGBA
           :offset_x, :offset_y, :width, :height,
           :x, :y, :active, :angle, :scale, :transformed, :scales, :affine_slot,
           :attr0_base, :attr1_base, :attr2_base, :recolor, :recolor_banks,
+          :layer_pick, :layer_depths,
         ) do
+          # Does a frame work out part of this sprite's third word, rather than all of it
+          # being settled when the cartridge is built?
+          def picks_attr2? = !recolor_banks.nil? || !layer_depths.nil?
+
           # WHICH POSE IS IN THE ROOM, for a sprite kept to one frame at a time — the name of the
           # variable the cartridge keeps it in, written as each frame is copied in. Every pose of
           # such a sprite goes into the SAME place in sprite memory, so the console's own table

@@ -48,11 +48,14 @@ class TestDslReference < Minitest::Test
   # canvas_font, canvas_font_tables, image_size and image_pixels are what a `canvas` asks while
   # it builds its words, documented on `canvas`; nobody writes them. write_picked_pose is the
   # hook behind `face ..., showing:` on a sprite and a pool instance, documented on `sprite`.
+  # make_object_layer_choosable and refuse_unknown_layers! are the hooks behind `put_in_layer` on a
+  # sprite, documented under Layers.
   SKIP = %i[variables var_address debug_halted? make_object_rotatable make_object_scalable
             record_row_bend make_background_affine screen_pages keep_showing_pictures
             tile_collision_routine play_from_list play_sound_effect
             declare_instance_routine record_walk_instance_writes pool_walk_scratch_var
             colors_to_draw_with make_object_recolorable make_pool_recolorable
+            make_object_layer_choosable refuse_unknown_layers! write_picked_choice
             lists_drawn_from list_drawn_from declared_colors name_of_colors pool_refill_nodes
             request_tile_copy canvas_font canvas_font_tables image_size image_pixels write_picked_pose].freeze
 

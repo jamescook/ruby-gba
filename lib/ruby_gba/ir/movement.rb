@@ -132,13 +132,13 @@ module RubyGBA
       end
 
       # Is everything this object is drawn from settled? Its place, its pose, its turn, its
-      # size and its colours must all read nothing that moves; whether it is SHOWN may also
+      # size, its colours and its layer must all read nothing that moves; whether it is SHOWN may also
       # read its scene's own variable, and nothing else.
       def still?(node, moved, gates)
         shown = visibility_without_scene_test(node, gates)
         return false if shown.nil?
 
-        [node.pose, node.x, node.y, node.angle, node.scale, node.recolor, shown]
+        [node.pose, node.x, node.y, node.angle, node.scale, node.recolor, (Build.var_ref(node.layer_pick) if node.layer_pick), shown]
           .compact.all? { |operand| fixed?(operand, moved) }
       end
 

@@ -246,7 +246,7 @@ module RubyGBA
             emit_branch(:b, done)
 
             place_label(draw)
-            emit_store_object_palette_bank(obj) if obj.recolor_banks
+            emit_store_object_picked_attr2(obj) if obj.picks_attr2?
             emit_send_object_frame(obj, name) if obj.frames
             # Worked out once for the whole sprite when it is drawn as several objects:
             # every piece stands at the same place and reads it back from there.
@@ -266,35 +266,70 @@ module RubyGBA
 
           def oam_slot(first, piece) = OAM_START + ((first + piece) * 8)
 
-          # Where the bank a sprite is drawn from this frame is held while its pieces are
+          # Where the part of a sprite's third word a frame decides is held while its pieces are
           # written. One variable serves every sprite, since each is done before the next.
-          OBJ_COLORS_BANK = :__obj_colors_bank
+          OBJ_PICKED_ATTR2 = :__obj_picked_attr2
 
-          # WHICH COLOURS A SPRITE DRAWS WITH THIS FRAME, for one that can be drawn with other
-          # lists. A pixel of a small-storage sprite is a place in a bank of sixteen, and the
-          # bank is named in the third word of the sprite's table entry — so naming another
-          # bank there is all it takes, and the picture itself is never touched. Worked out
-          # once, before the pieces, and ORed into each of their third words; since that word
-          # is written with the position and the pose, the colours change on the same frame.
+          # THE PART OF A SPRITE'S THIRD WORD THIS FRAME DECIDES, worked out once, before the
+          # pieces, and ORed into each of their third words. Since that word is written with
+          # the position and the pose, what it decides changes on the same frame they do.
           #
-          # A number past the last list, or below 0 (which compared unsigned is past it too),
-          # is the sprite's own, kept as the table's last entry.
-          def emit_store_object_palette_bank(obj)
-            banks = obj.recolor_banks
-            @lowering.value(obj.recolor)
-            emit(ASM.cmp_imm(ACC, banks.own))
-            emit(ASM.mov_imm_cond(:hs, ACC, banks.own))
-            emit_load_data_address(TMP, banks.table)
-            emit(ASM.ldr_reg_lsl(ACC, TMP, ACC, 2))
-            store_var(ACC, OBJ_COLORS_BANK)
+          # Two things can be decided there. WHICH COLOURS: a pixel of a small-storage sprite
+          # is a place in a bank of sixteen, and the bank is named in this word — so naming
+          # another bank is all it takes, and the picture itself is never touched. And HOW
+          # DEEP: the console compares a sprite's two-bit depth here with each background's
+          # own, and draws the sprite in front of every background whose number is the same
+          # or bigger. Putting the sprite in another layer is changing those two bits.
+          def emit_store_object_picked_attr2(obj)
+            emit_pick_from_table(obj.recolor, obj.recolor_banks) if obj.recolor_banks
+            if obj.layer_depths
+              store_var(ACC, OBJ_PICKED_ATTR2) if obj.recolor_banks
+              emit_pick_layer_depth(obj.layer_pick, obj.layer_depths)
+              if obj.recolor_banks
+                load_var(TMP, OBJ_PICKED_ATTR2)
+                emit(ASM.orr_reg(ACC, ACC, TMP))
+              end
+            end
+            store_var(ACC, OBJ_PICKED_ATTR2)
           end
 
-          # OR this frame's bank into the third word being worked out in r0, for a sprite
-          # drawn with other lists (whose +attr2_base+ leaves the bank out).
-          def orr_object_colors(obj)
-            return unless obj.recolor_banks
+          # r0 = the word +choice+ picks out of +table+. A number past the last entry, or
+          # below 0 (which compared unsigned is past it too), picks the table's last entry,
+          # which is what the sprite was declared with.
+          def emit_pick_from_table(choice, table)
+            @lowering.value(choice)
+            emit(ASM.cmp_imm(ACC, table.own))
+            emit(ASM.mov_imm_cond(:hs, ACC, table.own))
+            emit_load_data_address(TMP, table.table)
+            emit(ASM.ldr_reg_lsl(ACC, TMP, ACC, 2))
+          end
 
-            load_var(TMP, OBJ_COLORS_BANK)
+          # r0 = the depth the sprite's picked layer puts it at, on the screen that is up. Where
+          # the depths differ from screen to screen the table is a row per screen, and the
+          # variable that picks the screen says which row — held to the last row, the deepest,
+          # for a value that picks no screen of the sprite's own.
+          def emit_pick_layer_depth(choice, depths)
+            return emit_pick_from_table(choice, depths) unless depths.scene_var
+
+            @lowering.value(choice)
+            emit(ASM.cmp_imm(ACC, depths.own))
+            emit(ASM.mov_imm_cond(:hs, ACC, depths.own))
+            load_var(TMP, depths.scene_var)
+            emit(ASM.cmp_imm(TMP, depths.scene_count))
+            emit(ASM.mov_imm_cond(:hs, TMP, depths.scene_count))
+            emit(ASM.load_immediate(2, depths.own + 1))  # r2 = one row: each layer, then its own
+            emit(ASM.mul(3, TMP, 2))                       # r3 = the screen's row (rd must differ from rm)
+            emit(ASM.add_reg(ACC, ACC, 3))
+            emit_load_data_address(TMP, depths.table)
+            emit(ASM.ldr_reg_lsl(ACC, TMP, ACC, 2))
+          end
+
+          # OR this frame's picked part into the third word being worked out in r0, for a
+          # sprite whose +attr2_base+ leaves that part out.
+          def orr_picked_attr2(obj)
+            return unless obj.picks_attr2?
+
+            load_var(TMP, OBJ_PICKED_ATTR2)
             emit(ASM.orr_reg(ACC, ACC, TMP))
           end
 
@@ -428,7 +463,7 @@ module RubyGBA
             emit(ASM.lsl_imm(ACC, POSE_WORD, 22))
             emit(ASM.lsr_imm(ACC, ACC, 22))
             orr_acc(obj.attr2_base) unless obj.attr2_base.zero?
-            orr_object_colors(obj)
+            orr_picked_attr2(obj)
             store_halfword_acc(base + 4)
             store_halfword_acc(mirror + 4) if mirror
           end
@@ -593,11 +628,11 @@ module RubyGBA
           # variable pose (facing / animation) is computed at run time.
           def emit_object_tile_number(obj, attr2_addr)
             fixed = const_int(obj.pose)
-            if fixed && obj.recolor_banks.nil?
+            if fixed && !obj.picks_attr2?
               write_reg16(attr2_addr, obj.tile_index + (fixed * obj.per_pose) | obj.attr2_base)
             elsif fixed
               emit(ASM.load_immediate(ACC, obj.tile_index + (fixed * obj.per_pose) | obj.attr2_base))
-              orr_object_colors(obj)
+              orr_picked_attr2(obj)
               store_halfword_acc(attr2_addr)
             else
               @lowering.value(obj.pose)                          # r0 = pose index
@@ -605,7 +640,7 @@ module RubyGBA
               emit(ASM.mul(2, ACC, TMP))                      # r2 = pose * stride (rd must differ from rm)
               emit_add_const(ACC, 2, obj.tile_index, TMP)   # r0 = r2 + base tile
               orr_acc(obj.attr2_base) unless obj.attr2_base.zero?
-              orr_object_colors(obj)
+              orr_picked_attr2(obj)
               store_halfword_acc(attr2_addr)
             end
           end

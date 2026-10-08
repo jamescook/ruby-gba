@@ -99,16 +99,9 @@ module RubyGBA
       # outside the set is the sprite's own colours, which is what a value that has run off
       # the end should look like.
       def write_picked_list(choice, count:, start:, showing:)
-        fixed = Value.fixed_number(showing)
-        return choice.set!(fixed.between?(0, count - 1) ? start + fixed : IR::Build::NO_RECOLOR) if fixed
-
-        step = showing.is_a?(Symbol) ? Value.new(@builder, IR::Build.var_ref(showing), name: showing) : showing
-        unless step.respond_to?(:>=) && !step.is_a?(Condition)
-          raise ArgumentError,
-                "#{@subject} was told to draw_with a list picked by showing: #{step.class}. showing: needs a " \
-                "number, counting from 0, like showing: step."
-        end
-        ((step >= 0) & (step < count)).then { choice.set!(step + start) }.else { choice.set!(IR::Build::NO_RECOLOR) }
+        @builder.write_picked_choice(choice, count: count, start: start, showing: showing,
+                                             outside: IR::Build::NO_RECOLOR, subject: @subject,
+                                             verb: "draw_with a list")
       end
     end
   end

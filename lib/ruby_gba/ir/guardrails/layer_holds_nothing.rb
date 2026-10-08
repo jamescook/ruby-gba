@@ -46,11 +46,12 @@ module RubyGBA
 
           private
 
-          # Every layer the program gives a meaning to: one something is in, and one
-          # an effect is placed under.
+          # Every layer the program gives a meaning to: one something is in, one a sprite
+          # can be put in as the game runs, and one an effect is placed under.
           def used_layer_names(program)
             (program.walk.flat_map do |node|
               [(node.layer if node.respond_to?(:layer)),
+               *(node.layers if node.kind == :object),
                (node.under if node.kind == :fade)]
             end + @sprites.map(&:layer)).compact.uniq
           end
