@@ -89,6 +89,27 @@ class TestVideoCopies < Minitest::Test
     assert_operator found.bytes_per_frame, :>, 0
   end
 
+  # A view walked across a map bigger than the console's grid, a cell a frame: each frame
+  # brings one column of 21 cells in, two bytes a cell, rather than the whole view.
+  def test_a_big_map_walked_a_cell_a_frame_copies_a_column_a_frame
+    rom = build do
+      screen :tiled
+      image(:red_art, "#" => :red) { (["#" * 8] * 8).join("\n") }
+      tiles :set, "#" => :red_art
+      field = background :field, tiles: :set, map: ["#" * 120] * 30
+      x = var :x, 0
+      game_loop do
+        x.add! 8
+        field.scroll_to x, 0
+      end
+    end
+    found = copies(rom).find { |copy| copy.source.include?(":field") }
+
+    refute_nil found, "the strip copy is named"
+    assert_operator found.bytes_per_frame, :>=, 42
+    assert_operator found.bytes_per_frame, :<, 31 * 21 * 2, "not the whole view every frame"
+  end
+
   INKS = (1..15).map { |i| RubyGBA::Graphics::Color.rgb(i * 2, 31 - (i * 2), 10) }.freeze
 
   # A 64x64 picture in fifteen inks, its pixels drawn at random from its own seed, so no 8x8

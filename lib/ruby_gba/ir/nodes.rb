@@ -80,10 +80,25 @@ module RubyGBA
         # it as a scene takes over names the same one.
         def self.set_var(name) = :"__bg_#{name}_set"
 
+        # For a background brought into view a strip at a time (see #streams?): which map the
+        # cells around the view are copied from, and whether they hold it yet — 0 until they
+        # are, which asks a target that copies strips for the whole view again. Only such a
+        # target reads them.
+        def self.stream_vars(name) = [:"__bg_#{name}_streamed", :"__bg_#{name}_filled"]
+
+        # The two variables a background's scroll position is kept in, x then y, in pixels.
+        def self.scroll_vars(name) = [:"__bg_#{name}_sx", :"__bg_#{name}_sy"]
+
         def several_sets? = !sets.nil? && !sets.empty?
 
         # Which tiles of +tiles+ belong to set number +set+.
         def set_tiles(set) = (set_starts[set]...(set_starts[set + 1] || tiles.length))
+
+        # Every map this background can show: +maps+, or +map+ alone where there is one.
+        def every_map = maps.nil? || maps.empty? ? [map] : maps
+
+        # Whether its maps are brought into view a strip at a time (see IR::TileMap.streams?).
+        def streams? = TileMap.streams?(every_map)
       end
 
       # A background's tiles all draw from a different list of colours — the whole layer at

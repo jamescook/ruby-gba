@@ -44,9 +44,12 @@ module RubyGBA
           # ...and the lowerings that use the high registers for their own working: a
           # blitted image clips each row against the screen edges in them, the mixer sums
           # its voices there, and a run-time digit holds its cell's x/y/color across the
-          # shared glyph routine's whole walk in them (see Drawing#emit_digit_routines).
+          # shared glyph routine's whole walk in them (see Drawing#emit_digit_routines). A
+          # background's scroll write and map change are here for a map bigger than the grid,
+          # whose cells around the view are brought in using them (see MapStreaming); this list
+          # is read before anything knows which backgrounds those are.
           USES_HIGH_REGISTERS = %i[blit blit_pose play_sample stop_sample sample
-                                   draw_column_at draw_digit].freeze
+                                   draw_column_at draw_digit scroll_background show_map].freeze
 
           # A value kind that reaches the console's own routines, which own the registers while
           # they run. A stretched column is here as well as above: it works in the high
@@ -200,6 +203,7 @@ module RubyGBA
             when :pixels_overlap then "a per-pixel collision test"
             when :draw_column_at then "the body stretches a column of a picture"
             when :draw_digit then "the body draws a live number"
+            when :scroll_background, :show_map then "the body moves a background or gives it another map"
             when *USES_HIGH_REGISTERS then "the body draws an image"
             else
               writes?(node, index) ? "the body writes :#{index}, the loop's own count" : "a divide the game works out"

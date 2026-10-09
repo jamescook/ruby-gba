@@ -43,6 +43,23 @@ module RubyGBA
 
       # The biggest map there is, for a message.
       def max_grid_size = SIZES.last
+
+      # WHETHER A BACKGROUND'S MAPS ARE BROUGHT INTO VIEW A STRIP AT A TIME, rather than
+      # held whole in the grid. That is so for a background with a map too big for any
+      # grid, and for one whose maps are of different sizes, since they cannot all fill
+      # one grid. Such a background keeps every map whole in the cartridge and the grid
+      # holds only the cells around the view.
+      #
+      # IT DOES NOT COME ROUND AGAIN. Past the edge of such a map there are no cells, so
+      # the view shows nothing there — the backdrop, or the layers behind. A room has
+      # edges; coming round to the far side of it is what a small repeating backdrop
+      # wants, and that one is held whole and still does.
+      def streams?(maps)
+        maps.any? { |map| !fits?(map) } || maps.map { |map| size_of(map) }.uniq.size > 1
+      end
+
+      # A map's own size, as [columns, rows].
+      def size_of(map) = [map.map { |row| row.length }.max || 0, map.length]
     end
   end
 end

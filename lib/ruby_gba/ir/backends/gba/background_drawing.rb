@@ -17,6 +17,7 @@ module RubyGBA
         class BackgroundDrawing
           include Console::Hardware
           include EmitterCalls
+          include MapStreaming
 
           def initialize(emitter:, primitives:, lowering:, divide:, raster:, palette_tint:, uploads:, lists:)
             @emitter = emitter
@@ -61,7 +62,15 @@ module RubyGBA
             bg = @layout.screen.backgrounds.fetch(node.name)
             return emit_affine_background_hardware(bg) if bg.affine
 
-            @uploads.emit_dma_blob(bg.map, VRAM_START + (bg.screen_block * SCREENBLOCK_BYTES), bg.map_units)
+            # A map brought in a strip at a time is put up as its first map, filled around
+            # wherever the view is (see MapStreaming).
+            if bg.stream
+              emit(ASM.load_immediate(ACC, 0))
+              store_var(ACC, IR::Nodes::Background.stream_vars(node.name).first)
+              emit_stream_fill(bg)
+            else
+              @uploads.emit_dma_blob(bg.map, VRAM_START + (bg.screen_block * SCREENBLOCK_BYTES), bg.map_units)
+            end
             depth = bg.small ? 0 : BG_256_COLOR # a small layer's tiles each name their own bank
             write_reg16(BG_CNT_REGS[bg.bg], bg.priority | depth | (bg.char_base << CHAR_BASE_SHIFT) |
                                             (bg.screen_block << 8) | bg.size)
@@ -226,6 +235,8 @@ module RubyGBA
           end
 
           def emit_map_copy(node, bg, done)
+            return emit_stream_map_change(node, bg, done) if bg.stream
+
             emit_map_source(bg, node.which, done)
             emit(ASM.load_immediate(TMP, REG_DMA3SAD))
             emit(ASM.str(ACC, TMP)) # DMA source = that map in the cartridge
@@ -288,6 +299,7 @@ module RubyGBA
             emit_set_char_base(bg, swap) if swap.char_base_table
 
             emit_map_copy(node, bg, done)
+            emit_stream_fill(bg) if bg.stream # ...the view of it, while the layers are still off
             emit_area_colors(swap, from_var: true)
             load_var(ACC, SET_SWAP_DISPLAY)
             emit(ASM.load_immediate(TMP, REG_DISPCNT))
@@ -792,7 +804,9 @@ module RubyGBA
             # still declares a background) there's no tiled layer, so fall back to BG0 —
             # the scroll registers do nothing when that layer isn't on, matching the
             # interpreter's harmless handling.
-            bg_num = @layout.screen.backgrounds[node.name]&.bg || 0
+            bg = @layout.screen.backgrounds[node.name]
+            bg_num = bg&.bg || 0
+            emit_stream_view(node, bg) if bg&.stream # the cells around the view, before the view moves
             # A bending layer's sideways position is settled row by row instead, and every
             # one of those rows already has this scroll in it (see Raster). Writing it here
             # too would only undo the top row's bend until the display asked for the next.

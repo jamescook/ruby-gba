@@ -80,23 +80,4 @@ class TestLargeTiledMaps < Minitest::Test
   def test_both_backends_agree_on_the_biggest_map
     assert_backends_agree(quartered_program(64, 64, scroll: [200, 200]), frames: 6)
   end
-
-  # --- what still does not fit ---
-
-  def test_a_map_past_the_biggest_size_is_a_friendly_error
-    builder = Builder.new
-    builder.instance_eval do
-      screen :tiled
-      image(:t, "#" => :red) { SOLID_TILE }
-      tiles :set, "#" => :t
-      background :huge, tiles: :set, map: Array.new(65) { "#" * 65 }
-      game_loop {}
-    end
-    builder.finalize_program
-
-    error = assert_raises(GBA::LoweringError) { GBA.new.lower(builder.program) }
-    assert_match(/:huge/, error.message)
-    assert_match(/65x65/, error.message, "it says how big the map is")
-    assert_match(/64x64/, error.message, "and how big one can be")
-  end
 end

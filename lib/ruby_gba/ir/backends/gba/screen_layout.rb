@@ -49,9 +49,19 @@ module RubyGBA
           # map counts 1 and has nothing to step to.
           # +sets+ is set on a background whose maps draw from several sets of tiles (see
           # TileSetSwap), and nil on every other.
+          # +stream+ is set on a background whose maps are brought into view a strip at a time
+          # (see StreamedMaps), and nil on every other; such a background has no +grid+.
           BackgroundPlacement = Data.define(:map, :map_units, :bg, :screen_block, :size,
                                             :priority, :affine, :small, :char_base,
-                                            :map_count, :map_bytes, :grid, :colors, :sets)
+                                            :map_count, :map_bytes, :grid, :colors, :sets, :stream)
+
+          # A BACKGROUND'S MAPS KEPT WHOLE IN THE CARTRIDGE, for one whose maps are bigger than
+          # the grid or of different sizes (see MapStreaming). +maps+ holds each map row after
+          # row at its own size, one after another; +table+ holds four words a map — how far
+          # into +maps+ it starts, its columns, its rows, and what a cell outside it holds (the
+          # blank tile of the area it draws from) — so a map of any size is found by its number.
+          # +name+ is the background's.
+          StreamedMaps = Data.define(:name, :maps, :table)
 
           # BRINGING ANOTHER SET OF TILES IN, for a background that walks between areas. Every
           # set's tile pictures are in +tiles+, +stride+ bytes each, and one of them at a time
@@ -916,7 +926,7 @@ module RubyGBA
           # its paint order is the priority below.
           def prepare_one_background(store, node, layer, banks, big)
             name = node.name
-            validate_map_fits!(name, node.map)
+            streams = node.streams? # a map too big for any grid is one of these, so it always fits
             small = !big.include?(node)
             painted = node.tiles.each_with_index.select { |tile, _| @painted_runs.key?(tile) }.to_h { |tile, i| [i, tile] }
             refuse_painted_tiles_stored_big!(node) if !small && !painted.empty?
@@ -941,7 +951,7 @@ module RubyGBA
             # pixel see-through, so a layer behind shows through. Which number that is
             # depends on where the layer counts from, and it is 0 for a layer counting from
             # the bottom, which is nearly all of them.
-            cols, rows = IR::TileMap.grid(node.map)
+            cols, rows = streams ? [MapStreaming::STREAM_CELLS] * 2 : IR::TileMap.grid(node.map)
             cells_of_sets = set_stores.each_with_index.map do |(stored, first), set|
               indices = node.several_sets? ? node.set_tiles(set) : node.tiles.each_index
               indices.to_h do |index|
@@ -956,13 +966,16 @@ module RubyGBA
             grids = every_map(node)
             map_sets = node.several_sets? ? node.map_sets : [0] * grids.size
             map_blob = :"__bg_map_#{name}"
-            @blobs[map_blob] = grids.each_with_index.map do |map, k|
-              set_stored, = set_stores[map_sets[k]]
-              cells = cells_of_sets[map_sets[k]]
-              map_entries(map, cols, rows, set_stored.blank) { |i| cells.fetch(i) }.pack("v*")
-            end.join
-            keep_unpacked!(map_blob) if grids.size > 1
-            keep_unpacked!(map_blob) if node.scene
+            stream = (streamed_maps(node, grids, map_sets, set_stores, cells_of_sets) if streams)
+            unless streams
+              @blobs[map_blob] = grids.each_with_index.map do |map, k|
+                set_stored, = set_stores[map_sets[k]]
+                cells = cells_of_sets[map_sets[k]]
+                map_entries(map, cols, rows, set_stored.blank) { |i| cells.fetch(i) }.pack("v*")
+              end.join
+              keep_unpacked!(map_blob) if grids.size > 1
+              keep_unpacked!(map_blob) if node.scene
+            end
             @backgrounds[name] = BackgroundPlacement.new(
               sets: (tile_set_swap(node, laid, map_sets, banks) if node.several_sets?),
               map: map_blob, map_units: entries.size,
@@ -974,9 +987,37 @@ module RubyGBA
               small: small,
               char_base: stored.char_base,
               map_count: grids.size, map_bytes: entries.size * 2,
-              grid: MapGrid.new(cols: cols, rows: rows, cells: cell_for),
-              colors: background_color_lists(node, banks, small)
+              grid: (MapGrid.new(cols: cols, rows: rows, cells: cell_for) unless streams),
+              colors: background_color_lists(node, banks, small),
+              stream: stream
             )
+          end
+
+          # Every map of a background brought into view a strip at a time, kept whole: each one
+          # row after row at its own size, and a table of where each starts and how big it is
+          # (see StreamedMaps). Both are read from the middle, by the map the game names, so
+          # neither is packed.
+          def streamed_maps(node, grids, map_sets, set_stores, cells_of_sets)
+            at = 0
+            table = []
+            bytes = grids.each_with_index.map do |map, k|
+              set_stored, = set_stores[map_sets[k]]
+              cells = cells_of_sets[map_sets[k]]
+              cols, rows = IR::TileMap.size_of(map)
+              entries = map.flat_map do |row|
+                Array.new(cols) { |c| (index = row[c]).nil? ? set_stored.blank : cells.fetch(index) }
+              end
+              table.push(at, cols, rows, set_stored.blank)
+              at += entries.size * 2
+              entries.pack("v*")
+            end
+            maps = :"__bg_map_#{node.name}"
+            @blobs[maps] = bytes.join
+            keep_unpacked!(maps)
+            sizes = :"__bg_map_sizes_#{node.name}"
+            @blobs[sizes] = table.pack("V*")
+            keep_unpacked!(sizes)
+            StreamedMaps.new(name: node.name, maps: maps, table: sizes)
           end
 
           # What it takes to bring one of a background's sets of tiles in (see TileSetSwap): every
@@ -1172,7 +1213,7 @@ module RubyGBA
               map_count: grids.size, map_bytes: entries.size,
               grid: nil, # its cells are one byte and hold a tile number alone: no grid of that shape
               colors: nil, # ...and its tiles read the whole table rather than a group of sixteen
-              sets: nil
+              sets: nil, stream: nil
             )
           end
 

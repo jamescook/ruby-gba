@@ -344,22 +344,6 @@ class TestShowMap < Minitest::Test
     assert_match(/:hall/, error.message, "and what it can be")
   end
 
-  def test_maps_of_different_sizes_are_a_friendly_error
-    error = assert_raises(ArgumentError) do
-      builder = Builder.new
-      builder.instance_eval do
-        screen :tiled
-        image(:wall, "#" => :red) { SOLID_TILE }
-        tiles :dungeon, "#" => :wall
-        background :rooms, tiles: :dungeon, map: { hall: HALL, cave: Array.new(4) { "###" } }
-      end
-    end
-    assert_match(/:hall/, error.message)
-    assert_match(/:cave/, error.message)
-    assert_match(/6x6/, error.message, "it says both sizes")
-    assert_match(/3x4/, error.message)
-  end
-
   def test_handing_a_bitmap_background_another_map_is_a_friendly_error
     error = assert_raises(ArgumentError) do
       builder = Builder.new

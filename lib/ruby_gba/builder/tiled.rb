@@ -209,8 +209,12 @@ module RubyGBA
       #     rooms = background :rooms, tiles: :dungeon, map: { hall: HALL, cave: CAVE }
       #     rooms.show_map :cave       # ...and the whole room is the cave now
       #
-      # The first is the one showing when the program starts, and they must all be the
-      # same size, because they share one grid. See {Background#show_map}.
+      # The first is the one showing when the program starts. See {Background#show_map}.
+      #
+      # A MAP BIGGER THAN THE CONSOLE'S GRID, or maps of different sizes, are kept whole in
+      # the cartridge and brought into view a strip at a time as the view moves (see
+      # IR::TileMap.streams?). Past the edge of such a map the view shows nothing, rather than
+      # the map coming round again.
       #
       # WHAT STOPS A MOVER, said apart from what it SEES: `walls:` is a grid of its own,
       # the same shape as the map, saying which cells a mover cannot enter. Without it the
@@ -265,7 +269,7 @@ module RubyGBA
           grids = drawn.map { |rows, _| rows.map { |row| row.map { |img| img && index_of[img] } } }
           sets = nil
         end
-        check_maps_are_one_size!(name, map_names, grids)
+        streams = IR::TileMap.streams?(grids)
 
         # The line that makes the record every later fact about this background is written
         # into. The node is kept in it so `.rotate`/`.scale`, which come later on the
@@ -280,6 +284,11 @@ module RubyGBA
         # a background drawn from several sets of tiles, which set is really in tile memory.
         choice = map_names.size > 1 ? [:"__bg_#{name}_map", :"__bg_#{name}_live"] : []
         choice += [IR::Nodes::Background.set_var(name)] if sets
+        # ...and, for one brought into view a strip at a time, which map the strips come from
+        # and whether the cells around the view hold it yet. Both go back to 0 with the rest,
+        # which is "the first map, and nothing copied", so a scene taking over fills the view.
+        choice += IR::Nodes::Background.stream_vars(name) if streams
+        refuse_streaming_turning_background!(name) if streams && @screen_mode == :rotozoom
         declared.node =
           record(Build.background(name, tiles: tile_names, map: grids.first,
                                         maps: map_names.size > 1 ? grids : [], choice: choice,
@@ -296,17 +305,26 @@ module RubyGBA
         # The window's top-left, in pixels, tracked in two hidden variables (cleared at
         # boot since console RAM isn't zero at power-on). A background that never
         # scrolls simply leaves them at 0.
-        scroll_x = :"__bg_#{name}_sx"
-        scroll_y = :"__bg_#{name}_sy"
+        scroll_x, scroll_y = IR::Nodes::Background.scroll_vars(name)
         boot = [scroll_x, scroll_y]
         # ...and, for a background with several maps, which one the game says is showing and
         # which one is really in its cells. Both start at 0 — the first map, the one the
         # build already stamped — so nothing is copied until the game asks for another.
         boot += choice
         boot.each { |var| at_boot(Build.set(var, Build.int(0))); ensure_var(var) }
+        # The cells around the view are brought in where the view's place is written, in
+        # the gap between frames — so one that never scrolls still has that write.
+        if streams
+          declared.scroll_x = scroll_x
+          declared.scroll_y = scroll_y
+        end
         DSL::Background.new(self, name: name, scroll_x: scroll_x, scroll_y: scroll_y,
                              walls: wall_rects(img_rows, set),
-                             cells: [grids.first.map(&:length).max || 0, grids.first.length],
+                             # The biggest map's size each way, which is every map's where they
+                             # are one size. The walls of each map are laid out at this size, so
+                             # finding a map's walls stays arithmetic when the maps differ.
+                             cells: [grids.map { |grid| grid.map(&:length).max || 0 }.max, grids.map(&:length).max],
+                             streams: streams,
                              tile_index: tile_lookup(set, index_of),
                              bitmap: @screen_mode == :bitmap,
                              map_names: map_names,
@@ -343,6 +361,7 @@ module RubyGBA
         return [background.angle, background.scale] if background.turns_each_frame?
 
         refuse_turning_without_tile_screen!(name)
+        refuse_streaming_turning_background!(name) if background.node.streams?
         refuse_turning_scrolled_background!(name)
         refuse_turning_recolored_background!(name)
 
@@ -379,6 +398,15 @@ module RubyGBA
                 "#{name}.scroll_each_row bends a background row by row, and background :#{name} turns " \
                 "and resizes. A layer that turns has no scroll to bend. To fix this, bend a different " \
                 "background, or stop turning :#{name}."
+        end
+        # A map brought into view a strip at a time holds only the columns around the view, and
+        # a bent row reaches past them into columns nobody brought in.
+        if declared_background(name).node.streams?
+          raise ArgumentError,
+                "#{name}.scroll_each_row bends a background row by row, and background :#{name} has a map " \
+                "bigger than 64x64 cells, or maps that are not all one size. Such a background holds only " \
+                "the cells around the view, and a bent row can show cells outside them. To fix this, bend " \
+                "a different background, or make every map of :#{name} one size, 64x64 cells or smaller."
         end
         declared_background(name).bends_rows = true # ...and the other order: turning it later is refused too
 
@@ -622,21 +650,16 @@ module RubyGBA
               "each map must have a name of its own, in every area."
       end
 
-      # ALL OF A BACKGROUND'S MAPS ARE THE SAME SIZE, and that is a rule rather than a
-      # convenience: they take turns in one grid of cells, so the grid is picked once and
-      # every one of them has to fill it. A map of another size would leave the cells it
-      # does not reach holding the last map's tiles.
-      def check_maps_are_one_size!(name, map_names, grids)
-        sizes = grids.map { |grid| [grid.map(&:length).max || 0, grid.length] }
-        return if sizes.uniq.size <= 1
-
-        first = sizes.first
-        odd = sizes.each_index.find { |i| sizes[i] != first }
+      # A LAYER THAT TURNS HOLDS ITS WHOLE MAP AT ONCE. Its cells are read through the turn,
+      # so any of them can come into view on any frame, and there is no edge of the view to
+      # bring a strip in at. So a map too big for its grid, or maps of different sizes, cannot
+      # be a turning background's.
+      def refuse_streaming_turning_background!(name)
+        turns = @screen_mode == :rotozoom ? "is on `screen :rotozoom`, where a background turns," : "turns or resizes,"
         raise ArgumentError,
-              "background :#{name}: all of its maps must be the same size, because they take turns " \
-              "in one grid of cells. Map #{map_names.first.inspect} is #{first[0]}x#{first[1]} cells " \
-              "and map #{map_names[odd].inspect} is #{sizes[odd][0]}x#{sizes[odd][1]}. " \
-              "Pad the smaller one out to the same size."
+              "background :#{name} #{turns} and its maps are bigger than 64x64 cells or are not all one " \
+              "size. A background that turns must hold its whole map at once. To fix this, make every map " \
+              "of :#{name} one size, 64x64 cells or smaller, or use a background that does not turn."
       end
 
       # The background's cells as a grid of tile-image names (nil = blank), plus the

@@ -1419,6 +1419,7 @@ module RubyGBA
         def paint_background_window(bg)
           turn = @bg_affine[bg.name]
           return paint_affine_background_window(bg, turn) if turn
+          return paint_streamed_background_window(bg) if bg.streams?
 
           tiles = bg.tiles
           map = map_of(bg)
@@ -1453,6 +1454,46 @@ module RubyGBA
               index = row[mx / tile_w]
               # A tile's see-through pixels are nil in its decoded art, so they're left
               # alone and whatever is behind this layer keeps showing there.
+              if index
+                @screen.paint_row(px, py, tile_colors(tiles[index], swapped), from: (ty * tile_w) + tx,
+                                                                              count: span)
+              end
+              px += span
+            end
+          end
+        end
+
+        # The window of a background whose map is brought into view a strip at a time
+        # (see IR::TileMap.streams?): the same walk as #paint_background_window, except
+        # that nothing comes round again. A place outside the map has no cell, so the
+        # backdrop and the layers behind show there — on the left and above as much as on
+        # the right and below, which is why this tests both ends rather than leaning on
+        # an index that Ruby would count from the far end of a row when it is negative.
+        def paint_streamed_background_window(bg)
+          tiles = bg.tiles
+          map = map_of(bg)
+          tile_w = bg.tile_w
+          tile_h = bg.tile_h
+          swapped = background_swap(bg)
+          map_w = (map.map(&:length).max || 0) * tile_w
+          map_h = map.length * tile_h
+          base_x, off_y = @bg_scroll[bg.name] || [0, 0]
+          bend = @row_bends[bg.name]
+          width = @screen.width
+
+          @screen.height.times do |py|
+            my = off_y + py
+            next if my.negative? || my >= map_h
+
+            row = map[my / tile_h]
+            ty = my % tile_h
+            off_x = base_x + row_bend_offset(bend, py)
+            px = 0
+            while px < width
+              mx = off_x + px
+              tx = mx % tile_w # Ruby % keeps this 0...tile_w for a negative place too
+              span = [tile_w - tx, width - px].min
+              index = mx.negative? || mx >= map_w ? nil : row[mx / tile_w]
               if index
                 @screen.paint_row(px, py, tile_colors(tiles[index], swapped), from: (ty * tile_w) + tx,
                                                                               count: span)

@@ -45,7 +45,8 @@ module RubyGBA
       #   another list of colours is matched against — see {#draw_with}
       def initialize(builder, name:, scroll_x:, scroll_y:, walls: [],
                      cells: [0, 0], tile_index: {}, bitmap: false, map_names: nil,
-                     solid_cells: [], tile_size: [8, 8], node: nil, tile_pictures: [], walks_areas: false)
+                     solid_cells: [], tile_size: [8, 8], node: nil, tile_pictures: [], walks_areas: false,
+                     streams: false)
         @builder = builder
         @name = name
         @tile_pictures = tile_pictures
@@ -59,6 +60,7 @@ module RubyGBA
         @tile_index = tile_index
         @bitmap = bitmap
         @walks_areas = walks_areas # its maps are in several areas, each drawn from its own tiles
+        @streams = streams # its maps are brought into view a strip at a time (see IR::TileMap.streams?)
         @map_names = map_names || [name]
       end
 
@@ -87,6 +89,7 @@ module RubyGBA
                 "set_tile cannot change a cell of it. To fix this, give each look of the room a map " \
                 "of its own and use show_map."
         end
+        refuse_set_tile_on_streamed_map!
         index = @tile_index[tile]
         raise ArgumentError, unknown_tile_message(tile) if index.nil?
 
@@ -422,6 +425,19 @@ module RubyGBA
         @solid_cells.flat_map do |grid|
           (0...rows).flat_map { |r| (0...cols).map { |c| grid&.dig(r, c) ? 1 : 0 } }
         end
+      end
+
+      # A MAP BROUGHT INTO VIEW A STRIP AT A TIME IS COPIED IN AGAIN AS THE VIEW MOVES. Its
+      # cells come out of the map in the cartridge each time they come into view, so a cell
+      # changed in the grid goes back to the map's own tile the next time it scrolls in.
+      def refuse_set_tile_on_streamed_map!
+        return unless @streams
+
+        raise ArgumentError,
+              "background :#{@name} has a map bigger than 64x64 cells, or maps that are not all one size. " \
+              "The cells of such a map are copied in again as the view moves, so set_tile cannot change " \
+              "one of them. To fix this, give each look of the room a map of its own, with `map: { open: ..., " \
+              "shut: ... }`, and change between them with show_map."
       end
 
       # A background with one map is the ordinary kind and can never be handed another —
