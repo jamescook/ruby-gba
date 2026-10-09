@@ -891,7 +891,9 @@ module RubyGBA
       #
       # It also says how the size came about, for a report to read and nothing to run:
       # +asked_for+ is whether the program's author named it, and +records+ is each record laid
-      # out in it as [name, half bytes, copies], in the order they were declared.
+      # out in it as [name, half bytes, copies, kept], in the order they were declared — +kept+
+      # being what it keeps as [kind, name] (see Builder::Saves#laid_out_records), which a test
+      # writing a copy into save memory reads.
       class SaveMemory
         include Node
         kind :save_memory

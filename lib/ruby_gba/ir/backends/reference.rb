@@ -6,6 +6,7 @@ require_relative "reference/framebuffer"
 require_relative "reference/list_value"
 require_relative "reference/mixer"
 require_relative "reference/player"
+require_relative "reference/save_writing"
 
 module RubyGBA
   module IR
@@ -45,6 +46,8 @@ module RubyGBA
       # the input ops read. Other hardware (sound, tiled backgrounds, sprites, the
       # paged bitmap modes) is layered on in its own right.
       class Reference
+        include SaveWriting
+
         class ProgramError < StandardError; end
 
         # A table as this backend needs it: the numbers themselves, because it reads them

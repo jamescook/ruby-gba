@@ -34,6 +34,9 @@ module RubyGBA
             @items = []
           end
 
+          # The numbers one slot holds without dropping any bits.
+          def slot_range = (@low..@high)
+
           # How many items are in the list right now.
           def length
             @items.length

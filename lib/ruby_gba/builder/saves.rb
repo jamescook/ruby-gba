@@ -23,7 +23,8 @@ module RubyGBA
       # program through it. +save_memory+ is the size the game named with `save_memory:`, in
       # kilobytes, or nil to let the records decide.
       Port = Data.define(:handle, :record, :repeat, :at_boot, :ensure_var, :declare_func, :run_each_pass,
-                         :start_value, :list_new_node, :save_var, :saved_vars, :pool_refill, :save_memory)
+                         :start_value, :list_new_node, :save_var, :saved_vars, :pool_refill, :save_memory,
+                         :fraction_bits)
 
       include SaveProgram
       include SaveRecords
@@ -54,8 +55,29 @@ module RubyGBA
       # Each record as one [half bytes, copies] pair, which is what decides how much room it takes.
       def record_halves = @save_data.values.map { |one| [one.half, one.copies] }
 
-      # Each record as [name, half bytes, copies], once laid out — for the build report.
-      def laid_out_records = @save_data.values.map { |one| [one.name, one.half, one.copies] }
+      # Each record as [name, half bytes, copies, kept], once laid out — for the build report,
+      # and for a test that writes a copy into save memory (Backends::Reference.save_into).
+      # +kept+ is what the record keeps, in the order kept, each as one of:
+      #   [:var, name, fraction bits or nil]      [:list, name, fraction bits or nil]
+      #   [:random_numbers, the variable they are kept in]
+      #   [:pool, the pool's name]                [:pool_field, the pool's name, the field]
+      def laid_out_records
+        @save_data.values.map do |one|
+          pooled = one.pools.flat_map { |part| pool_items(part).map(&:name) }
+          kept = one.kept.reject { |item| pooled.include?(item.name) }.map { |item| kept_entry(item) }
+          [one.name, one.half, one.copies, kept + one.pools.map { |part| pool_entry(part) }]
+        end
+      end
+
+      def kept_entry(item)
+        return [:random_numbers, item.name] if random_numbers?(item.name)
+
+        [item.kind, item.name, @port.fraction_bits.call(item.name)]
+      end
+
+      def pool_entry(part)
+        part.is_a?(DSL::Pool) ? [:pool, part.name] : [:pool_field, part.pool.name, part.field]
+      end
 
       # Which record keeps each thing, by the name the game declared it with: a variable, a
       # list, a pool kept whole, and :random_numbers for the stream. A pool kept a field at a
@@ -252,6 +274,7 @@ module RubyGBA
           saved_vars: -> { @persisted },
           pool_refill: method(:pool_refill_nodes),
           save_memory: @save_memory,
+          fraction_bits: ->(name) { @fraction_vars[name] || @fraction_lists[name] },
         ))
       end
     end

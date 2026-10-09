@@ -98,6 +98,7 @@ module RubyGBA
       @dropped_syncs = 0       # `wait_vblank` calls the game loop already covers
       @variables = {}          # name → { address:, initial: } — introspection metadata
       @fraction_vars = {}      # name → fraction bits, for variables that hold a fraction (see Fraction)
+      @fraction_lists = {}     # ...and the same for lists, from what `holds:` showed
       @name_vars = {}          # name → the NameSet, for variables that hold one of a set of names
       @var_declarations = {}   # name → what its first `var` started it at, and where (see Variables#var)
       @name_dispatches = []    # [dispatch node, NameSet] — filled in at finalize, once every name is known
@@ -283,7 +284,9 @@ module RubyGBA
     def list(name, capacity:, estimate: nil, holds: nil, width: :word, fast: nil)
       record(Build.list_new(name, capacity, usually: usual_length(estimate, capacity),
                                             width: width, fast: fast))
-      DSL::List.new(self, name, fraction_bits: list_fraction_bits(name, holds))
+      bits = list_fraction_bits(name, holds)
+      @fraction_lists[name] = bits if bits
+      DSL::List.new(self, name, fraction_bits: bits)
     end
 
     # What `holds:` said, as a number of fraction bits. A whole number says the same as
