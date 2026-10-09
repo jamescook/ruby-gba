@@ -356,14 +356,15 @@ module RubyGBA
           end
 
           # WHERE EACH LIST LIVES, for a finished cartridge to be asked about: the address of its
-          # first slot, how many slots it may hold, and the address of the number saying how many
-          # it holds now. A measurement that wants a list held full writes that number (see
-          # Diagnostics::FullCollections), and nothing but this build knows where it is.
-          Place = Data.define(:base, :capacity, :length_at)
+          # first slot, how many slots it may hold, how many bytes a slot is, and the address of
+          # the number saying how many it holds now. A measurement that wants a list held full
+          # writes that number (see Diagnostics::FullCollections), and nothing but this build
+          # knows where it is.
+          Place = Data.define(:base, :capacity, :bytes, :length_at)
 
           def list_places
             @lists.to_h do |name, info|
-              [name, Place.new(base: info[:base], capacity: info[:capacity],
+              [name, Place.new(base: info[:base], capacity: info[:capacity], bytes: info[:bytes],
                                length_at: @primitives.vars.fetch(length_var(name)))]
             end
           end

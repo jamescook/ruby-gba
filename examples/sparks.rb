@@ -5,9 +5,9 @@
 # random column, each falling until it leaves the bottom and hands its slot back.
 #
 # It shows what `pool` is for, and it is the shape a bullet, enemy or particle game spends
-# its frame in: many of one thing, each with a few fields, walked every frame. The walk is
-# over every slot the pool has; the body runs only for the live ones, and a spark that has
-# fallen off the bottom removes itself, so a slot never leaks. On a bitmap screen a pool
+# its frame in: many of one thing, each with a few fields, walked every frame. The walk goes
+# through the live sparks, oldest first, and a spark that has fallen off the bottom removes
+# itself, so a slot never leaks. On a bitmap screen a pool
 # draws nothing on its own, so the body draws each spark as a two-pixel dot.
 #
 # Run it to build examples/sparks.gba:

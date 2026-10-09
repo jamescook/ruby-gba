@@ -13,12 +13,24 @@ module RubyGBA
     # Behind the scenes each field is a backing {List}, one slot per instance, alongside
     # an `active` column (which slots are live) and a `free` stack (open slot indices). So
     # spawn and remove are O(1) — pop or push a free index — a live instance keeps its
-    # slot (stable identity), removing one mid-`each` is just clearing a flag, and the
-    # fields can never desync because there's no way to touch one without the others. It
-    # all desugars onto list ops + a `repeat`, so every backend runs it and the cost model
-    # sees straight through it.
+    # slot (stable identity), and the fields can never desync because there's no way to
+    # touch one without the others. It all desugars onto list ops + a `repeat`, so every
+    # backend runs it and the cost model sees straight through it.
+    #
+    # WHICH SLOT A THING LANDS IN SAYS NOTHING ABOUT WHEN IT CAME, so the slots are not the
+    # order a walk goes in. Every slot also says which slot came next and which came before
+    # it, and the pool keeps the first and the last: a chain through the live things in the
+    # order they were spawned, which is how a console game keeps the things in a room. A
+    # spawn joins the end of it and a removal closes the gap, so `each` visits the oldest
+    # first and the newest last, and walks only what is in the chain rather than every slot.
+    # That order is what a player can see: things that each roll a random number roll them
+    # one after another, and the first to reach something gets it.
     class Pool
       Build = IR::Build
+
+      # The slot number that means "no slot": the end of the chain, and an empty pool's
+      # first and last.
+      NONE = -1
 
       # @return [Symbol] the pool's name
       attr_reader :name
@@ -105,13 +117,38 @@ module RubyGBA
       end
       def slot_var = :"__pool_#{@name}_slot"
 
-      # Recycle-oldest bookkeeping (allocated only for an :recycle_oldest pool): a
-      # per-slot age stamp (born_list), a monotonic spawn counter that stamps it
-      # (seq_var), and two scratch names the "find the oldest" scan works in.
-      def born_list = :"__pool_#{@name}_born"
-      def seq_var = :"__pool_#{@name}_seq"
-      def oldest_born_var = :"__pool_#{@name}_oldest"
-      def scan_index_var = :"__pool_#{@name}_scan"
+      # The chain the walk follows: for each slot, the slot spawned after it and the one
+      # spawned before it, and the first and last of the chain.
+      # Spelled here by the pool's name alone too, for the same reason as the three above.
+      def next_list = Pool.next_list(@name)
+      def prev_list = Pool.prev_list(@name)
+      def head_var = Pool.head_var(@name)
+      def tail_var = Pool.tail_var(@name)
+      def self.next_list(name) = :"__pool_#{name}_next"
+      def self.prev_list(name) = :"__pool_#{name}_prev"
+      def self.retired_list(name) = :"__pool_#{name}_retired"
+      def self.head_var(name) = :"__pool_#{name}_head"
+      def self.tail_var(name) = :"__pool_#{name}_tail"
+
+      # A THING REMOVED WHILE THE POOL IS BEING WALKED STAYS IN THE CHAIN until the walk is
+      # over, and its slot is not free until then either. A walk is following the chain, and
+      # if a removal closed the gap at once — or a spawn reused the slot — the walk could step
+      # off the end early or onto a thing spawned during the walk. So a removal during a walk
+      # only marks the thing dead and puts its slot here, and the outermost walk, as it ends,
+      # takes each one out of the chain and frees its slot. +walking_var+ counts the walks of
+      # this pool in progress, since one can run inside another.
+      def retired_list = Pool.retired_list(@name)
+      def walking_var = :"__pool_#{@name}_walking"
+      def unlink_var = :"__pool_#{@name}_unlink"
+      def unlink_before_var = :"__pool_#{@name}_before"
+      def unlink_after_var = :"__pool_#{@name}_after"
+      def release_index_var = :"__pool_#{@name}_release"
+
+      # The variables the chain's routines work in, for the build to set aside.
+      def chain_scratch_vars = [slot_var, unlink_var, unlink_before_var, unlink_after_var, release_index_var]
+
+      # What a variable of the pool holds at power-on: an empty chain has no first or last.
+      def power_on_value(var) = [head_var, tail_var].include?(var) ? NONE : 0
 
       # Pose bookkeeping (allocated only for a pool whose instances face or animate): which
       # way each instance faces, where each is in its cycle, and the one counter that
@@ -229,17 +266,17 @@ module RubyGBA
 
       # EVERYTHING THAT MAKES THIS POOL WHAT IT IS, for a save_data record to keep the whole of
       # it: the lists — every field, which slots are live, the free slots, and each slot's
-      # facing, place in its cycle, age and colours where the pool keeps them — and then the
-      # variables — how many are live, the spawn counter an oldest-first pool stamps ages with,
-      # and the step counter of one that animates. Asked once the program is built, since a
-      # pool keeps its colours column only once something has told it to draw with others.
-      # What slot a walk is on is not here: nothing is being walked while a save or a load runs.
+      # facing, place in its cycle and colours where the pool keeps them, and the chain that
+      # says what order they came in, with the removals a walk has not yet taken out of it —
+      # and then the variables — how many are live, the first and last of the chain, and the
+      # step counter of one that animates. Asked once the program is built, since a pool keeps
+      # its colours column only once something has told it to draw with others. What slot a
+      # walk is on is not here: a save keeps what the pool holds, not where a walk stands.
       def saved_lists_and_vars
-        lists = [*field_names.map { |one| field_list(one) }, active_list, free_list, *pose_lists]
-        lists << born_list if recycle_oldest?
+        lists = [*field_names.map { |one| field_list(one) }, active_list, free_list, *pose_lists,
+                 next_list, prev_list, retired_list]
         lists << colors_list if recolorable?
-        vars = [count_var]
-        vars << seq_var if recycle_oldest?
+        vars = [count_var, head_var, tail_var]
         vars << tick_var if @art&.animates?
         [lists, vars]
       end
@@ -266,30 +303,50 @@ module RubyGBA
                 "pool :#{@name} has no field #{unknown.first.inspect} — its fields are #{@fields.keys.join(', ')}"
         end
 
+        record(release_when_idle)
         recycle_oldest? ? spawn_recycling(values) : spawn_dropping(values)
         self
       end
 
-      # Run the block once per LIVE instance, handing it a row handle whose fields are
-      # mutable (`b.x.add!`, `b.y.set!`, read `b.x`) and which can retire itself (`b.remove`).
-      # A removed or never-spawned slot is skipped. It walks all `capacity` slots (a cheap
-      # active check on a dead one).
+      # Run the block once per LIVE instance, oldest first, handing it a row handle whose
+      # fields are mutable (`b.x.add!`, `b.y.set!`, read `b.x`) and which can retire itself
+      # (`b.remove`).
+      #
+      # The walk follows the chain from its first thing and stops after the thing that was last
+      # when it began, so a thing spawned during the walk is first visited by the next one. It
+      # looks one step ahead before running the block, and nothing the block does can change
+      # that step: a removal during a walk leaves the chain alone until the walk is over (see
+      # #retired_list). A thing removed before its turn is still in the chain, dead, and is
+      # passed over.
       def each(&block)
         pool = self
         active = List.new(@builder, active_list)
+        at, ahead, last = walk_vars
+        record(Build.add(walking_var, Build.int(1)))
         preserving_current_slot do
-          @builder.repeat(@capacity) do |i|
-            # Recorded through the builder rather than with `.then` so the guard can carry what
-            # the cost estimate needs — the walk is over every slot, the body is only for a live
-            # one — without that hint becoming something an author can write on any `.then`.
-            live = active[i] == 1
+          record(Build.set(ahead, Build.var_ref(head_var)))
+          record(Build.set(last, Build.var_ref(tail_var)))
+          finished = Value.new(@builder, Build.var_ref(ahead)) == NONE
+          @builder.repeat(@capacity, stop_when: finished) do
+            record(Build.set(at, Build.var_ref(ahead)))
+            step = Build.if_(Build.binop(:==, Build.var_ref(at), Build.var_ref(last)), Build.set(ahead, Build.int(NONE)))
+            step.else = Build.else_(Build.set(ahead, Build.list_get(next_list, Build.var_ref(at))))
+            record(step)
+            slot = Value.new(@builder, Build.var_ref(at), name: at)
+            # The walk can pass a thing removed before its turn, so the body is only for a live
+            # one. The guard is recorded through the builder rather than with `.then` so it can
+            # carry the pool's name and `usually:` without those becoming something an author
+            # can write on any `.then`.
+            live = active[slot] == 1
             @builder.consume_condition(live)
             @builder.record_conditional(live.node, over: @name, usually: @usually, of: @capacity) do
-              record_current_slot(i)
-              block.call(Instance.new(pool, i))
+              record_current_slot(slot)
+              block.call(Instance.new(pool, slot))
             end
           end
         end
+        record(Build.sub(walking_var, Build.int(1)))
+        record(release_when_idle)
         self
       end
 
@@ -323,16 +380,120 @@ module RubyGBA
       def count = Value.new(@builder, Build.var_ref(count_var))
 
       # Whether the pool is full (no free slot), as a {Condition} — branch with `.then`.
-      def full? = count >= @capacity
+      # That is whether a free slot is left, rather than how many are live: during a walk a
+      # thing removed is no longer counted but its slot is not free until the walk ends, and
+      # `full?` says what a spawn will find.
+      def full? = Condition.new(@builder, Build.binop(:==, Build.list_len(free_list), Build.int(0)))
 
-      # Retire the instance at slot +index+ (a {Value}): free the slot and stop drawing/
-      # updating it next frame. Called by {Instance#remove}; safe to call mid-`each`.
+      # Retire the instance at slot +index+ (a {Value}): it leaves the order and stops being
+      # drawn and updated. Called by {Instance#remove}; safe to call mid-`each`, on any
+      # instance of the pool. Outside a walk its slot is free at once; during one it is freed
+      # as the walk ends (see #retired_list). A slot that is not live is left alone, so a thing
+      # removed twice — a slot number kept after a walk, say — is not freed twice.
+      #
+      # The work is one routine of the pool's, called from every place a thing is removed,
+      # since closing the gap in the chain is a dozen statements a game would otherwise carry
+      # once per `remove` it writes.
       def remove_at(index)
-        record(Build.list_set(active_list, index.node, Build.int(0)))
-        record(Build.list_push(free_list, index.node))
-        record(Build.sub(count_var, Build.int(1)))
+        record(Build.set(unlink_var, index.node))
+        @builder.call(removal_routine)
         self
       end
+
+      # THE CHAIN IS KEPT BY FOUR ROUTINES OF THE POOL'S, each declared the first time it is
+      # needed and called from every place that needs it: removing a thing, putting a spawn at
+      # the end, taking a slot out of the middle, and freeing what a walk removed. Each is a
+      # handful of statements a game would otherwise carry once per `spawn` and `remove` it
+      # writes. They pass the slot they work on in slot_var or unlink_var.
+
+      # Remove the thing whose slot is in unlink_var.
+      def removal_routine
+        pool_routine(:remove) do
+          free_now = Build.if_(not_walking,
+                               Build.call(unlink_routine), Build.list_push(free_list, Build.var_ref(unlink_var)))
+          free_now.else = Build.else_(Build.list_push(retired_list, Build.var_ref(unlink_var)))
+          live = Build.binop(:==, Build.list_get(active_list, Build.var_ref(unlink_var)), Build.int(1))
+          [Build.if_(live,
+                     Build.list_set(active_list, Build.var_ref(unlink_var), Build.int(0)),
+                     Build.sub(count_var, Build.int(1)),
+                     free_now)]
+        end
+      end
+
+      # Take everything removed during the walks just ended out of the chain, and free its
+      # slot, last removed first.
+      def release_routine
+        pool_routine(:release_removed) do
+          index = release_index_var
+          [Build.repeat(Build.list_len(retired_list), index,
+                        Build.set(unlink_var, Build.list_get(retired_list,
+                                                             Build.binop(:-, Build.list_len(retired_list), Build.int(1)))),
+                        Build.list_drop(retired_list, from: :back),
+                        Build.call(unlink_routine),
+                        Build.list_push(free_list, Build.var_ref(unlink_var)))]
+        end
+      end
+
+      # Put the slot in slot_var at the end of the chain: after the last thing, or as the
+      # first and last of an empty one.
+      def append_routine
+        pool_routine(:append) do
+          slot = -> { Build.var_ref(slot_var) }
+          tail = -> { Build.var_ref(tail_var) }
+          join = Build.if_(Build.binop(:==, tail.call, Build.int(NONE)), Build.set(head_var, slot.call))
+          join.else = Build.else_(Build.list_set(next_list, tail.call, slot.call))
+          [Build.list_set(next_list, slot.call, Build.int(NONE)),
+           Build.list_set(prev_list, slot.call, tail.call),
+           join,
+           Build.set(tail_var, slot.call)]
+        end
+      end
+
+      # Take the slot in unlink_var out of the chain, joining the things either side of it.
+      # The slot's own links are left as they were.
+      def unlink_routine
+        pool_routine(:unlink) do
+          # Each neighbour is read once into a variable: a read of a list is several
+          # instructions, and this would otherwise make eight of them.
+          before_var = unlink_before_var
+          after_var = unlink_after_var
+          before = -> { Build.var_ref(before_var) }
+          after = -> { Build.var_ref(after_var) }
+          front = Build.if_(Build.binop(:==, before.call, Build.int(NONE)), Build.set(head_var, after.call))
+          front.else = Build.else_(Build.list_set(next_list, before.call, after.call))
+          back = Build.if_(Build.binop(:==, after.call, Build.int(NONE)), Build.set(tail_var, before.call))
+          back.else = Build.else_(Build.list_set(prev_list, after.call, before.call))
+          [Build.set(before_var, Build.list_get(prev_list, Build.var_ref(unlink_var))),
+           Build.set(after_var, Build.list_get(next_list, Build.var_ref(unlink_var))),
+           front, back]
+        end
+      end
+
+      # A test that holds while no walk of this pool is in progress.
+      def not_walking = Build.binop(:==, Build.var_ref(walking_var), Build.int(0))
+
+      # A statement that frees what earlier walks removed, when no walk is in progress and
+      # something is waiting. A walk says it as it ends. A spawn says it too, because a save
+      # made during a walk keeps things that walk had not yet let go of, and a game that loads
+      # it and spawns before any walk ends would otherwise find those slots still taken.
+      def release_when_idle
+        waiting = Build.binop(:>, Build.list_len(retired_list), Build.int(0))
+        Build.if_(Build.binop(:and, not_walking, waiting), Build.call(release_routine))
+      end
+
+      # The name of the pool's routine for +job+, declared with the statements the block
+      # gives the first time it is asked for.
+      def pool_routine(job)
+        @pool_routines ||= {}
+        @pool_routines[job] ||= begin
+          name = :"__pool_#{@name}_#{job}"
+          nodes = yield
+          builder = @builder
+          builder.func(name) { nodes.each { |node| builder.record_statement(node) } }
+          name
+        end
+      end
+      private :removal_routine, :release_routine, :append_routine, :unlink_routine, :pool_routine, :not_walking, :release_when_idle
 
       # A mutable handle to +field+ of the instance at slot +index+ (a {Value}).
       def field_ref(field, index)
@@ -363,23 +524,29 @@ module RubyGBA
       # on a free slot existing, so a full pool is a clean no-op (nothing half-written).
       def spawn_dropping(values)
         slot = Build.var_ref(slot_var)
-        body = claim_free_slot(slot) + assign_fields(slot, values) + pose_reset_nodes(slot)
+        body = claim_free_slot(slot) + [Build.call(append_routine)] + assign_fields(slot, values) + pose_reset_nodes(slot)
         record(Build.if_(free_available, *body))
       end
 
       # The :recycle_oldest policy: take a free slot when there is one, otherwise reuse the
-      # longest-lived instance's slot — so a new spawn always appears. Either way the chosen
-      # slot then takes the new instance's fields and a fresh age stamp (its spawn order),
-      # which is what makes the *next* full spawn able to find the oldest again.
+      # longest-lived instance's slot — so a new spawn always appears. The oldest is the
+      # first in the chain, so finding it is one read. Either way the slot then joins the end
+      # of the chain, as the newest.
+      #
+      # The one place it cannot take the oldest is a walk of this same pool: the walk is
+      # following the chain, and moving its first thing to the end would cut the walk short.
+      # There, a full pool drops the spawn, as a `:drop` pool always does.
       def spawn_recycling(values)
         slot = Build.var_ref(slot_var)
+        take_oldest = Build.if_(not_walking,
+                                Build.set(slot_var, Build.var_ref(head_var)),
+                                Build.set(unlink_var, Build.var_ref(head_var)),
+                                Build.call(unlink_routine))
         choose = Build.if_(free_available, *claim_free_slot(slot))
-        choose.else = Build.else_(*take_oldest_slot)
+        choose.else = Build.else_(Build.set(slot_var, Build.int(NONE)), take_oldest)
         record(choose)
-        assign_fields(slot, values).each { |node| record(node) }
-        pose_reset_nodes(slot).each { |node| record(node) }
-        record(Build.list_set(born_list, slot, Build.var_ref(seq_var)))
-        record(Build.add(seq_var, Build.int(1)))
+        body = [Build.call(append_routine)] + assign_fields(slot, values) + pose_reset_nodes(slot)
+        record(Build.if_(Build.binop(:!=, Build.var_ref(slot_var), Build.int(NONE)), *body))
       end
 
       # Pop the newest free slot into slot_var, mark it live, and grow the count — the "there
@@ -413,20 +580,6 @@ module RubyGBA
 
       def color_resets = @color_resets ||= []
 
-      # Statements that leave the oldest live instance's slot index in slot_var. Only reached
-      # when the pool is full — every slot is live then — so it's a plain scan for the slot
-      # with the smallest age stamp (ages rise with spawn order, so the smallest is the
-      # oldest); no active check is needed. Bounded by the (small, fixed) capacity.
-      def take_oldest_slot
-        i = Build.var_ref(scan_index_var)
-        [Build.set(slot_var, Build.int(0)),
-         Build.set(oldest_born_var, Build.list_get(born_list, Build.int(0))),
-         Build.repeat(Build.int(@capacity), scan_index_var,
-                      Build.if_(Build.binop(:<, Build.list_get(born_list, i), Build.var_ref(oldest_born_var)),
-                                Build.set(oldest_born_var, Build.list_get(born_list, i)),
-                                Build.set(slot_var, i)))]
-      end
-
       # The list_set nodes that write each field of the instance at +slot+ (omitted fields
       # take their declared default).
       def assign_fields(slot, values)
@@ -448,6 +601,13 @@ module RubyGBA
       end
 
       def record(node) = @builder.record_statement(node)
+
+      # Three variables of one walk's own — the slot it is on, the one it goes to next, and
+      # the last it will visit — so a walk inside another walk of this pool keeps its place.
+      def walk_vars
+        @walks = @walks.to_i + 1
+        %i[at ahead last].map { |part| :"__pool_#{@name}_walk#{@walks}_#{part}" }
+      end
 
       # WHICH INSTANCE A ROUTINE OF THIS POOL IS RUNNING FOR, written at the top of every live
       # pass of a walk. A routine is built once and called from wherever, so the one thing it

@@ -2420,9 +2420,10 @@ module RubyGBA
         # --- reading collections back, for #list and #pool ---
 
         # The lists a pool keeps for itself beside its fields: which slots are live, which are
-        # free, how old each is, which way each faces and where it is in its cycle, and which
+        # free, the chain that says what order they were spawned in and the removals a walk has
+        # not yet let go of, which way each faces and where it is in its cycle, and which
         # colours it draws with. Not fields, so not offered as fields.
-        POOL_BOOKKEEPING = %i[active free born facing frame colors].freeze
+        POOL_BOOKKEEPING = %i[active free next prev retired facing frame colors].freeze
 
         def pool_list(pool, field) = :"__pool_#{pool}_#{field}"
 

@@ -22,7 +22,7 @@
       "data": 0
     },
     "dive": {
-      "code": 51628,
+      "code": 55512,
       "data": 0
     },
     "floating_digits": {
@@ -102,7 +102,7 @@
       "data": 0
     },
     "shmup": {
-      "code": 40044,
+      "code": 42592,
       "data": 0
     },
     "snake": {
@@ -114,7 +114,7 @@
       "data": 0
     },
     "sparks": {
-      "code": 2776,
+      "code": 4192,
       "data": 0
     },
     "sprite_mover": {

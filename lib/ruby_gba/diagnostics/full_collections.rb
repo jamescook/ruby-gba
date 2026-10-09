@@ -14,7 +14,9 @@ module RubyGBA
     # HOLDING ONE FULL is writing the numbers that say how many it holds. A list keeps its length
     # in a variable, so that is the capacity. A pool says which of its slots are live a byte each,
     # and keeps a count and a stack of the free slots beside them, so every slot is marked live,
-    # the count is the capacity and the stack is empty. The items themselves are left as they
+    # the count is the capacity and the stack is empty. Its walk follows a chain through the live
+    # slots in the order they were spawned, so the chain is written too, through every slot from
+    # the first to the last, with no removals waiting on it. The items themselves are left as they
     # are — whatever is in memory past the ones the game put there, usually nothing, and a
     # pool's fields as declared. Every word a game can write clips what it is given rather than
     # going outside memory, so a walk over them is safe. What it is not is always the same price
@@ -48,13 +50,31 @@ module RubyGBA
       def self.pool_held_full(record, pool, active)
         count = record.var_addresses[DSL::Pool.count_var(pool)]
         free = record.lists[DSL::Pool.free_list(pool)]
-        return nil unless count && free # a list that only looks like a pool's column
+        links = %i[next_list prev_list retired_list].map { |name| record.lists[DSL::Pool.public_send(name, pool)] }
+        ends = %i[head_var tail_var].map { |name| record.var_addresses[DSL::Pool.public_send(name, pool)] }
+        return nil unless count && free && links.all? && ends.all? # a list that only looks like a pool's column
 
-        # Four slots to a word. The column is padded to a whole word, so the last word's spare
-        # bytes are the column's own.
-        live = (0...((active.capacity + 3) / 4)).map { |word| [active.base + (word * 4), 0x0101_0101] }
-        Collection.new(label: "pool #{pool.inspect}", capacity: active.capacity,
-                       writes: live + [[count, active.capacity], [free.length_at, 0]])
+        slots = active.capacity
+        after, before, retired = links
+        head, tail = ends
+        none = DSL::Pool::NONE
+        live = words_of(active, Array.new(slots, 1))
+        chain = words_of(after, (1...slots).to_a + [none]) + words_of(before, [none] + (0...(slots - 1)).to_a)
+        Collection.new(label: "pool #{pool.inspect}", capacity: slots,
+                       writes: live + chain + [[count, slots], [free.length_at, 0], [retired.length_at, 0],
+                                               [head, 0], [tail, slots - 1]])
+      end
+
+      # Whole-word writes that put +values+ in +list+'s slots from the first, packed as many to
+      # a word as its slots are narrow. A list is padded to a whole word, so the last word's
+      # spare bytes are the list's own.
+      def self.words_of(list, values)
+        per_word = 4 / list.bytes
+        mask = (1 << (list.bytes * 8)) - 1
+        values.each_slice(per_word).with_index.map do |group, word|
+          packed = group.each_with_index.sum { |value, at| (value & mask) << (at * list.bytes * 8) }
+          [list.base + (word * 4), packed]
+        end
       end
     end
   end

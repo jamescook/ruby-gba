@@ -17,7 +17,7 @@ module RubyGBA
       # Field names that would shadow a Pool/Instance method, so a component can't
       # declare one (it would clash with spawn/remove/each/count/…).
       POOL_RESERVED_FIELDS = %i[active free count slot spawn remove each full index name capacity
-                                func current draw_with].freeze
+                                func current draw_with next prev retired].freeze
 
       # What spawn does when the pool is full: :drop ignores it (a safe no-op),
       # :recycle_oldest reuses the longest-lived instance so a new one always appears.
@@ -328,7 +328,10 @@ module RubyGBA
 
         # Insane capacity: a friendly build error rather than a silent IWRAM overrun.
         slots = Build.round_up_capacity(capacity)
-        bytes = slots * (fields.size + 2) * 4 # field lists + active + free, 4 bytes per slot
+        # The field lists, the active column and the free stack at a word a slot, which is the
+        # most each can be, and the three lists of the chain at the width a slot number takes.
+        chain = 3 * IR::Build::ELEMENT_BYTES.fetch(slot_width(capacity))
+        bytes = slots * (((fields.size + 2) * 4) + chain)
         return unless bytes > POOL_MAX_BYTES
 
         raise ArgumentError,
@@ -436,16 +439,16 @@ module RubyGBA
           ensure_var(pool.tick_var)
           at_boot(Build.set(pool.tick_var, Build.int(0)))
         end
-        # ...but the age stamp is a spawn counter that rises for the whole game, so it stays
-        # a word: narrowing it would wrap, and two instances would then look the same age.
-        at_boot(Build.list_new(pool.born_list, capacity, fast: fast)) if pool.recycle_oldest?
-        ensure_var(pool.count_var)
-        ensure_var(pool.slot_var)
-        at_boot(Build.set(pool.count_var, Build.int(0)))
-        if pool.recycle_oldest?
-          ensure_var(pool.seq_var)
-          at_boot(Build.set(pool.seq_var, Build.int(0))) # the monotonic spawn counter starts at 0
+        # The chain that says what order the things came in holds slot numbers too, and the
+        # removals a walk has not yet taken out of it are a stack of them.
+        [pool.next_list, pool.prev_list, pool.retired_list].each do |list|
+          at_boot(Build.list_new(list, capacity, width: slot_width(capacity), fast: fast))
         end
+        [pool.count_var, pool.head_var, pool.tail_var, pool.walking_var].each do |var|
+          ensure_var(var)
+          at_boot(Build.set(var, Build.int(pool.power_on_value(var))))
+        end
+        pool.chain_scratch_vars.each { |var| ensure_var(var) }
         at_boot(build_pool_fill(pool, capacity))
       end
 
@@ -468,16 +471,19 @@ module RubyGBA
                  else
                    []
                  end
-        [*emptied, build_pool_fill(pool, pool.capacity), *colors, *vars.map { |var| Build.set(var, Build.int(0)) }]
+        [*emptied, build_pool_fill(pool, pool.capacity), *colors,
+         *vars.map { |var| Build.set(var, Build.int(pool.power_on_value(var))) }]
       end
 
       private
 
-      # How wide a slot NUMBER has to be for a pool of this size — the free stack holds one
-      # per entry, and the largest it ever holds is one less than the capacity.
+      # How wide a slot NUMBER has to be for a pool of this size — the free stack and the
+      # chain hold one per entry, and the largest is one less than the capacity. A narrow
+      # slot reads back below nothing past half its range (a byte holds -128 to 127), and the
+      # chain also holds -1 for "no slot", so a byte serves a pool of up to 128.
       def slot_width(capacity)
-        return :byte if capacity <= 256
-        return :half if capacity <= 65_536
+        return :byte if capacity <= 128
+        return :half if capacity <= 32_768
 
         :word
       end
@@ -491,7 +497,8 @@ module RubyGBA
         body = pool.field_names.map { |f| Build.list_push(pool.field_list(f), Build.int(0)) }
         body << Build.list_push(pool.active_list, Build.int(0))
         pool.pose_lists.each { |list| body << Build.list_push(list, Build.int(0)) }
-        body << Build.list_push(pool.born_list, Build.int(0)) if pool.recycle_oldest?
+        body << Build.list_push(pool.next_list, Build.int(DSL::Pool::NONE))
+        body << Build.list_push(pool.prev_list, Build.int(DSL::Pool::NONE))
         body << Build.list_push(pool.free_list, Build.var_ref(index))
         Build.repeat(Build.int(capacity), index, *body)
       end
