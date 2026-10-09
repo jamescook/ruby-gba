@@ -42,6 +42,19 @@ module RubyGBA
             end
           end
 
+          # Run the block's code only while +scene+'s +marker+ things are the ones up — for work
+          # done outside the scene that touches what it put up, like a tint rewriting the colours
+          # of a layer the scene owns.
+          def emit_if_scene_up(marker, scene)
+            number = (@numbers[scene] ||= @numbers.size + 1)
+            @primitives.load_var(ACC, MARKERS.fetch(marker))
+            @emitter.emit(ASM.cmp_imm(ACC, number))
+            skip = @emitter.gensym
+            @emitter.emit_branch(:bcond, skip, cond: :ne)
+            yield
+            @emitter.place_label(skip)
+          end
+
           # Say nobody's +marker+ things are up — for a scene with none of its own, which still
           # takes the last scene's down (see IR::SceneHandover::Arrival).
           def emit_clear_marker(marker)

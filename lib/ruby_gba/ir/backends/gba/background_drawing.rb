@@ -311,15 +311,16 @@ module RubyGBA
           # A walking background put up as declared is back in its first area, tiles and all, so
           # the colours go back to that area's too. One send serves every walking background,
           # since they all start in the same area. Nothing for scenery that stays in one area.
-          def emit_first_area_colors(nodes)
+          def emit_first_area_colors(nodes, up: :unknown)
             walking = @layout.screen.walking_placements(nodes).first
-            emit_area_colors(walking.sets) if walking
+            emit_area_colors(walking.sets, up: up) if walking
           end
 
           # Send in the colours of the area a walking background's set belongs to: the set
           # named by its variable, or, without +from_var+, its first set, which is what a
-          # background put up as declared starts in.
-          def emit_area_colors(swap, from_var: false)
+          # background put up as declared starts in. +up+ is the scene taking over, where this
+          # is part of it doing so (see PaletteTint#emit_recolored_banks).
+          def emit_area_colors(swap, from_var: false, up: :unknown)
             emit_load_data_address(ACC, swap.colors)
             if from_var
               load_var(TMP, swap.var)
@@ -327,7 +328,7 @@ module RubyGBA
               emit(ASM.mul(TMP, SET_STRIDE, TMP)) # how far along the blob that set's table is
               emit(ASM.add_reg(ACC, ACC, TMP))
             end
-            @palette_tint.emit_send_area_colors(swap.color_units)
+            @palette_tint.emit_send_bg_colors(swap.color_units, up: up)
           end
 
           # Point the layer at where the set now in place (r3) counts its tiles from, for sets

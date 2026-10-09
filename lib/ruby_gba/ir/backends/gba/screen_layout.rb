@@ -115,14 +115,16 @@ module RubyGBA
 
           # WHAT ONE SCENE SENDS AS IT TAKES OVER, in one place: its own tile pictures (a
           # SceneTiles, or nil), the screen it has on (a SceneScreen, for a tiled scene), its
-          # own sprite pictures (blob, at, units for each), and the blob of its sprite colour
-          # table (or nil). Each pass that decides one of these fills in its part.
+          # own sprite pictures (blob, at, units for each), and the blobs of its sprite colour
+          # table and its background colour table (or nil). Each pass that decides one of these
+          # fills in its part.
           #
           # +art+ is nil for a scene that owns no sprites, and a list — empty when there is
           # nothing to copy — for one that does, since a scene whose sprites keep one frame at
           # a time still marks its pictures as up (see Drawing#emit_scene_art_upload).
-          SceneSend = Data.define(:tiles, :screen, :art, :obj_palette)
-          NOTHING_SENT = Ractor.make_shareable(SceneSend.new(tiles: nil, screen: nil, art: nil, obj_palette: nil))
+          SceneSend = Data.define(:tiles, :screen, :art, :obj_palette, :bg_palette)
+          NOTHING_SENT = Ractor.make_shareable(SceneSend.new(tiles: nil, screen: nil, art: nil, obj_palette: nil,
+                                                             bg_palette: nil))
 
           AFFINE_MAX_TILES = 256
 
@@ -259,14 +261,18 @@ module RubyGBA
 
           # WHICH GROUPS OF SIXTEEN A LAYER IS DRAWING FROM A LIST OF ITS OWN, so a tint that
           # walks the whole colour table can put those back rather than over: for each, where
-          # the group sits, the variable holding where the layer's current version starts, and
-          # how far along that version this group's list is.
+          # the group sits, the variable holding where the layer's current version starts, how
+          # far along that version this group's list is, and the scene the layer belongs to (nil
+          # for one every scene shows) — since another scene's colours sit in that group while
+          # that scene is up.
           def bg_recolor_restore_banks
-            @backgrounds.each_value.flat_map do |place|
-              next [] unless place.colors
+            @picture.scenery.flat_map do |node|
+              place = @backgrounds[node.name]
+              next [] unless place&.colors
 
               place.colors.banks.each_with_index.map do |bank, at|
-                [BG_PALETTE + (bank * PaletteBanks::BANK_SIZE * 2), place.colors.at, at * BackgroundDrawing::COLOR_LIST_BYTES]
+                [BG_PALETTE + (bank * PaletteBanks::BANK_SIZE * 2), place.colors.at,
+                 at * BackgroundDrawing::COLOR_LIST_BYTES, node.scene]
               end
             end
           end
@@ -296,6 +302,9 @@ module RubyGBA
 
           # Does any scene send a sprite colour table of its own?
           def scene_obj_palettes? = @scene_sends.each_value.any?(&:obj_palette)
+
+          # Does any scene send a background colour table of its own as it takes over?
+          def scene_bg_palettes? = @scene_sends.each_value.any?(&:bg_palette)
 
           # How many of the console's 128 sprite places +nodes+ take between them. Usually
           # one each; a sprite whose picture is bigger than one object takes one per piece.
@@ -455,6 +464,13 @@ module RubyGBA
 
             colors = banks.entries
             @blobs[BG_SHARED_PAL] = colors.pack("v*")
+            # ...and the table each scene with backgrounds of its own sends as it takes over.
+            banks.scenes.each_with_index do |scene, index|
+              blob = :"__bg_palette_scene_#{index}"
+              @blobs[blob] = banks.table(scene).pack("v*")
+              keep_unpacked!(blob)
+              record_scene_send(scene, bg_palette: blob)
+            end
             @blobs[BG_SHARED_CHAR] = everywhere.bytes
             @vram = fullest.vram # what the report reads the room left out of
             @bg_shared = shared_scenery_summary(regular_nodes + affine_nodes, big, colors, boot: everywhere, fullest: fullest)
@@ -657,12 +673,108 @@ module RubyGBA
           #
           # A background that walks between areas takes its colours a different way, since an
           # area's colours go in with its tiles (see #assign_area_banks).
+          #
+          # EACH SCENE'S COLOURS ARE ITS OWN, the way its tile pictures are (see #place_each_scene).
+          # Two scenes are never on screen together, so the colours every scene shows are laid
+          # out first and keep their place throughout, and each scene's own go on from them into
+          # the room the other scenes use too; a scene sends its table as it takes over. So a
+          # title whose light rays keep a group to themselves and a room that fills every other
+          # group fit, where one table for the whole game would not.
           def assign_tile_banks(regular_nodes, affine_nodes)
+            (regular_nodes + affine_nodes).each { |node| validate_tile_sizes!(node.name, node.tiles) }
             walking, staying = regular_nodes.partition(&:several_sets?)
-            banks, big = assign_fixed_tile_banks(staying, affine_nodes)
-            return [banks, big] if walking.empty?
+            refuse_walking_layers_in_two_scenes!(walking)
+            return one_table_for_every_scene(walking, staying, affine_nodes) if !walking.empty? && walking.first.scene.nil?
 
-            [assign_area_banks(walking, banks), big]
+            shared, big = assign_fixed_tile_banks(staying.reject(&:scene), affine_nodes.reject(&:scene))
+            by_scene = { nil => shared }
+            (regular_nodes + affine_nodes).filter_map(&:scene).uniq.each do |scene|
+              own, own_big = assign_fixed_tile_banks(staying.select { |node| node.scene == scene },
+                                                     affine_nodes.select { |node| node.scene == scene },
+                                                     after: shared, scene: scene)
+              by_scene[scene] = own
+              big += own_big
+            end
+            unless walking.empty?
+              scene = walking.first.scene
+              by_scene[scene] = assign_area_banks(walking, by_scene.fetch(scene))
+            end
+            [SceneBanks.new(by_scene: by_scene, scene_of: (regular_nodes + affine_nodes).to_h { |node| [node.name, node.scene] }),
+             big]
+          end
+
+          # ONE TABLE FOR THE WHOLE GAME, for one whose walking backgrounds every scene shows. An
+          # area's colours are up in every scene then, and each area lays its colours out in the
+          # room after what never changes — the same room a scene's own colours would take. So a
+          # scene's colours go in that one table beside every area's, as they all did before
+          # scenes had tables of their own.
+          def one_table_for_every_scene(walking, staying, affine_nodes)
+            fixed, big = assign_fixed_tile_banks(staying, affine_nodes)
+            areas = assign_area_banks(walking, fixed)
+            [SceneBanks.new(by_scene: { nil => areas }, scene_of: {}), big]
+          end
+
+          # Backgrounds that walk between areas read one table of the area they are in, so they
+          # all belong to the screen that table is sent with.
+          def refuse_walking_layers_in_two_scenes!(walking)
+            other = walking.find { |node| node.scene != walking.first.scene }
+            return unless other
+
+            raise LoweringError,
+                  "background :#{walking.first.name} walks between areas in #{scene_phrase(walking.first.scene, 'every scene')}, " \
+                  "and background :#{other.name} walks between areas in #{scene_phrase(other.scene, 'every scene')}. The " \
+                  "backgrounds that walk between areas use the colors of one area at a time, all of them together. To " \
+                  "fix this, declare them in the same scene."
+          end
+
+          # How a message names +scene+: "the scene :title", or +otherwise+ for the scenery every
+          # scene shows.
+          def scene_phrase(scene, otherwise) = scene ? "the scene :#{IR::Modes.strip_scene_prefix(scene)}" : otherwise
+
+          # WHERE A BACKGROUND TILE'S COLOURS ARE, in a game whose scenes each have a table of
+          # background colours: the table of the scene the tile's background belongs to, which
+          # goes on from the one every scene shows. +by_scene+ holds one table per scene, the
+          # one every scene shows under nil; a scene whose backgrounds walk between areas holds
+          # its AreaBanks there.
+          #
+          # Every table comes out the same length (#units), so the one in the console can be
+          # walked with one count whichever it is, as the sprite tables are.
+          class SceneBanks
+            def initialize(by_scene:, scene_of:)
+              @by_scene = by_scene
+              @scene_of = scene_of
+            end
+
+            def placement(key) = table_of(key).placement(key)
+            def known?(key) = table_of(key).known?(key)
+
+            # The table at power-on: the one every scene shows.
+            def entries = table(nil)
+
+            # The scenes that have colours of their own to send.
+            def scenes = @by_scene.keys.compact
+
+            # One scene's whole table, padded to #units.
+            def table(scene) = padded(@by_scene.fetch(scene).entries)
+
+            # One area's whole table, padded to #units, for the scene that walks between areas.
+            def area_entries(area) = padded(areas.area_entries(area))
+
+            # An area's table is already as long as the longest area's, so a walking scene's
+            # first table speaks for all of them.
+            def units = @by_scene.values.map { |banks| banks.entries.size }.max
+
+            private
+
+            def areas = @by_scene.values.find { |banks| banks.is_a?(AreaBanks) }
+
+            def padded(entries) = entries + ([0] * (units - entries.size))
+
+            # A tile's key is its background's name and its place; a background stored the big
+            # way is keyed by its name alone. A name +scene_of+ does not hold is in the table
+            # every scene shows, which is every background in a game kept to one table (see
+            # ScreenLayout#one_table_for_every_scene).
+            def table_of(key) = @by_scene.fetch(@scene_of.fetch(key.is_a?(Array) ? key.first : key, nil))
           end
 
           # THE COLOURS OF A GAME THAT WALKS BETWEEN AREAS, which are one area's at a time.
@@ -772,13 +884,14 @@ module RubyGBA
             def longest = @by_area.values.map { |banks| banks.entries.size }.max
           end
 
-          def assign_fixed_tile_banks(regular_nodes, affine_nodes)
+          # The table +regular_nodes+ and +affine_nodes+ draw from, going on from +after+ for a
+          # scene's own (+scene+ names it for the message), and which of them are stored big.
+          def assign_fixed_tile_banks(regular_nodes, affine_nodes, after: nil, scene: nil)
             nodes = regular_nodes + affine_nodes
-            nodes.each { |node| validate_tile_sizes!(node.name, node.tiles) }
             big = affine_nodes + regular_nodes.reject { |node| every_tile_small?(node) }
 
             loop do
-              banks = PaletteBanks.new(bank_pictures(nodes, big))
+              banks = PaletteBanks.new(bank_pictures(nodes, big), after: after)
               spilled = (regular_nodes - big).reject do |node|
                 node.tiles.each_index.all? { |i| banks.placement(tile_key(node, i)).narrow? }
               end
@@ -787,9 +900,12 @@ module RubyGBA
               big += spilled
             end
           rescue PaletteBanks::Overflow
+            whose = scene ? "The backgrounds of #{scene_phrase(scene, nil)}" : "The tiled backgrounds"
+            shared = scene && @picture.scenery.any? { |node| node.scene.nil? }
+            beside = shared ? " This count includes the backgrounds that every scene shows." : ""
             raise LoweringError,
-                  "The tiled backgrounds use more colors between them than the console's background table " \
-                  "holds (#{PaletteBanks::CAPACITY}). Draw the tiles from fewer different colors."
+                  "#{whose} use more colors between them than the console's background table holds " \
+                  "(#{PaletteBanks::CAPACITY}).#{beside} Draw the tiles from fewer different colors."
           end
 
           def every_tile_small?(node)
@@ -1084,11 +1200,25 @@ module RubyGBA
             list.first(PaletteBanks::BANK_SIZE) + ([0] * [PaletteBanks::BANK_SIZE - list.length, 0].max)
           end
 
+          # Two ways a layer drawn with other colours misses the group of sixteen it needs to
+          # itself: its own tiles hold too many colours, or the other backgrounds on its screen
+          # took every group first. Each says what to change.
           def recolor_colors_message(node)
+            colors = node.tiles.each_index.flat_map { |i| tile_colors(node, i) }.uniq
+            return recolor_crowded_message(node) if colors.size <= PaletteBanks::BANK_COLORS
+
             "background :#{node.name} is told to draw with other colors, and its tiles are drawn from " \
               "too many colors for that. A background can be given other colors only when its tiles " \
               "are drawn from 16 colors or fewer between them. To fix this, draw its tiles from fewer " \
               "colors, or do not give it other colors."
+          end
+
+          def recolor_crowded_message(node)
+            whose = scene_phrase(node.scene, "the game")
+            "background :#{node.name} is told to draw with other colors, so it needs a group of 16 colors " \
+              "of its own. The other backgrounds of #{whose} use all #{PaletteBanks::BANKS} groups, so no group " \
+              "is left for it. To fix this, draw the other backgrounds of #{whose} from fewer different colors, " \
+              "or do not give :#{node.name} other colors."
           end
 
           # Every grid a background can be handed, the one it was declared showing first. A

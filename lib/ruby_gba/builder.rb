@@ -1095,9 +1095,14 @@ module RubyGBA
     # reading shows the top of the screen in one set of colours and the bottom in another.
     def finalize_background_colors
       write_between_frames(@inline_color_nodes, backgrounds_that(&:draws_with_colors?)) do |name, background|
-        Build.if_(Build.binop(:!=, Build.var_ref(background.shown_colors), Build.var_ref(background.live_colors)),
-                  Build.background_colors(name, which: Build.var_ref(background.shown_colors)),
-                  Build.set(background.live_colors, Build.var_ref(background.shown_colors)))
+        write = Build.if_(Build.binop(:!=, Build.var_ref(background.shown_colors), Build.var_ref(background.live_colors)),
+                          Build.background_colors(name, which: Build.var_ref(background.shown_colors)),
+                          Build.set(background.live_colors, Build.var_ref(background.shown_colors)))
+        # Gated to the owning scene, as a scroll is: a scene's backgrounds draw from colour
+        # groups other scenes use while they are up, so a list asked for from elsewhere waits
+        # until its scene is back, and goes in then.
+        gate = background.scene_gate
+        gate ? Build.if_(Build.binop(:==, Build.var_ref(gate[0]), Build.int(gate[1])), write) : write
       end
     end
 

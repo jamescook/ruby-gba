@@ -61,6 +61,10 @@ module RubyGBA
             @scene_entry.layout = value
           end
 
+          # The notes saying whose scenery and sprite pictures are up, for code outside a scene
+          # that touches what the scene put up (see PaletteTint#emit_recolored_banks).
+          attr_reader :scene_entry
+
           # Say no scene's scenery or sprite pictures are up (see SceneEntry#emit_clear_used_markers).
           def emit_clear_used_scene_markers = @scene_entry.emit_clear_used_markers
 
@@ -403,6 +407,10 @@ module RubyGBA
 
             @scene_entry.emit_once_on_arrival(:scenery, name) do
               emit_with_bg_layers_disabled(name) do
+                # Its colours first: the groups its tiles name are this scene's now (see
+                # ScreenLayout#assign_tile_banks).
+                colors = @layout.screen.scene_send(name).bg_palette
+                @palette_tint.emit_send_scene_bg_colors(colors, @layout.screen.bg_shared.palette_units, name) if colors
                 tiles = @layout.screen.scene_send(name).tiles
                 @uploads.emit_dma_blob(tiles.blob, VRAM_START + tiles.offset, tiles.units) if tiles
                 arrival.scenery.each { |node| @background_drawing.emit_background_hardware(node) }
@@ -411,7 +419,7 @@ module RubyGBA
               # The maps just sent are the first ones declared, so what says which map is
               # showing goes back to the first as well (see IR::SceneHandover).
               arrival.map_choices.each { |var| @primitives.store_word_immediate(0, @primitives.var_addr(var)) }
-              @background_drawing.emit_first_area_colors(arrival.scenery) # ...and a walking one to its first area's colours
+              @background_drawing.emit_first_area_colors(arrival.scenery, up: name) # ...and a walking one to its first area's colours
             end
           end
 

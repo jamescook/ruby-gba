@@ -276,6 +276,9 @@ module RubyGBA
         def emit_clamp_blend_steps(most = Console::Hardware::BLD_MAX) = @effects.emit_clamp_blend_steps(most)
         def emit_blend_weights_from_acc = @effects.emit_blend_weights_from_acc
         def emit_plain_dma_blob(blob_name, dest, units) = @uploads.emit_plain_dma_blob(blob_name, dest, units)
+
+        # The notes saying which scene's things are up (see SceneEntry).
+        def scene_entry = @drawing.scene_entry
         def mix_buf0 = @mixer.mix_buf0
         def mix_buf1 = @mixer.mix_buf1
         def voice_base = @mixer.voice_base

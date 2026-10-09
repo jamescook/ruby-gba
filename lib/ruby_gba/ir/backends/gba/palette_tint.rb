@@ -106,7 +106,10 @@ module RubyGBA
             def obj_palette_blob = screen.obj_palette_blob
             def obj_palette_units = screen.obj_palette_units
             def bg_recolor_restore_banks = screen.bg_recolor_restore_banks
-            def walks_areas? = screen&.walks_areas? || false
+            # Does the background colour table in the console change as the game runs — an area
+            # walked into, or a scene that sends its own — so that a walk has to read the
+            # originals of the one in place rather than the one sent at power-on?
+            def bg_tables_take_turns? = (screen&.walks_areas? || screen&.scene_bg_palettes?) || false
           end
 
           # WHERE THE SPRITE COLOURS ON SCREEN NOW CAME FROM, in a game whose scenes each send
@@ -128,34 +131,43 @@ module RubyGBA
             @primitives.store_var(ACC, OBJ_TABLE_AT)
           end
 
-          # Where the background colours the console holds now came from, in a game whose
-          # backgrounds walk between areas: the table of the area they are in. A tint reads the
-          # originals from there, since the one at power-on is the first area's.
+          # Where the background colours the console holds now came from, in a game where they
+          # change as it runs: the table of the area the backgrounds are in, or of the scene up
+          # now. A tint reads the originals from there, since the one at power-on is not it.
           BG_TABLE_AT = :_bg_table_at
 
           # Say that the background table at power-on is the one in place. Nothing for a game
-          # whose backgrounds stay in one area.
+          # with only the one table.
           def emit_record_bg_palette_source
-            return unless @layout.walks_areas?
+            return unless @layout.bg_tables_take_turns?
 
             @emitter.emit_load_data_address(ACC, BG_SHARED_PAL)
             @primitives.store_var(ACC, BG_TABLE_AT)
           end
 
-          # SEND AN AREA'S BACKGROUND COLOURS AS IT IS WALKED INTO. ACC holds where its table
-          # starts. A plain copy, unless this build moves its colour tables — then the table
-          # goes in through whatever tint or fade is in force, the same way a scene's sprite
-          # colours do, so an area walked into on a dark screen arrives dark. It also says this
-          # table is the one a tint reads from now on.
+          # SEND A SCENE'S BACKGROUND COLOURS AS IT TAKES OVER (see
+          # ScreenLayout#assign_tile_banks), the same way an area's go in.
+          def emit_send_scene_bg_colors(blob, units, scene)
+            @emitter.emit_load_data_address(ACC, blob)
+            emit_send_bg_colors(units, up: scene)
+          end
+
+          # SEND A TABLE OF BACKGROUND COLOURS, an area's as it is walked into or a scene's as it
+          # takes over. ACC holds where its table starts. A plain copy, unless this build moves
+          # its colour tables — then the table goes in through whatever tint or fade is in
+          # force, the same way a scene's sprite colours do, so an area or a scene arrived at on
+          # a dark screen arrives dark. It also says this table is the one a tint reads from now
+          # on.
           #
-          # A layer that stays in one area but was told `draw_with` reads some of the groups this
-          # writes over, so those are written again from the list it is drawing with — through
-          # the same tint, which is no change at all when there is none.
-          def emit_send_area_colors(units)
+          # A layer that was told `draw_with` reads some of the groups this writes over, so
+          # those are written again from the list it is drawing with — through the same tint,
+          # which is no change at all when there is none. +up+ is the scene taking over, where it
+          # is known (see #emit_recolored_banks).
+          def emit_send_bg_colors(units, up: :unknown)
             @primitives.store_var(ACC, BG_TABLE_AT)
             if @palette_tint || @layout.bg_recolor_restore_banks.any?
               emit_colors_into_bank(BG_PALETTE, units)
-              return emit_recolored_banks
+              return emit_recolored_banks(up: up)
             end
 
             @emitter.emit(ASM.load_immediate(TMP, REG_DMA3SAD))
@@ -347,7 +359,7 @@ module RubyGBA
           def emit_table_source(reg, blob_name)
             if blob_name == @layout.obj_palette_blob && scene_obj_tables?
               @primitives.load_var(reg, OBJ_TABLE_AT)
-            elsif blob_name == BG_SHARED_PAL && @layout.walks_areas?
+            elsif blob_name == BG_SHARED_PAL && @layout.bg_tables_take_turns?
               @primitives.load_var(reg, BG_TABLE_AT)
             else
               @emitter.emit_load_data_address(reg, blob_name)
@@ -406,18 +418,36 @@ module RubyGBA
           #
           # The layout's +bg_recolor_restore_banks+ are (where the group sits, the variable holding
           # where its layer's current version starts, how far along that version this group's
-          # list is) — nought in that variable meaning the layer has never been told anything,
-          # where the tables already hold the right colours.
-          def emit_recolored_banks
-            @layout.bg_recolor_restore_banks.each do |dest, source_var, along|
-              @primitives.load_var(TINT_SRC, source_var)
-              @emitter.emit(ASM.cmp_imm(TINT_SRC, 0))
-              past = @emitter.gensym
-              @emitter.emit_branch(:bcond, past, cond: :eq)
-              @emitter.emit(ASM.add_imm(TINT_SRC, TINT_SRC, along)) unless along.zero?
-              emit_blend_run(dest, COLORS_IN_A_BANK)
-              @emitter.place_label(past)
+          # list is, the layer's scene) — nought in that variable meaning the layer has never been
+          # told anything, where the tables already hold the right colours.
+          #
+          # A LAYER A SCENE OWNS has its group only while that scene is up: another scene's
+          # colours sit there the rest of the time, and writing the layer's list over them would
+          # recolour that scene's tiles. +up+ is the scene known to be the one up here — the one
+          # taking over — and its layers and the ones every scene shows are written; with +up+
+          # unknown, as in a tint, a scene's layer is written only while its scenery is the one
+          # up.
+          def emit_recolored_banks(up: :unknown)
+            @layout.bg_recolor_restore_banks.each do |dest, source_var, along, scene|
+              next if scene && up != :unknown && scene != up
+
+              if scene && up == :unknown
+                @drawing.scene_entry.emit_if_scene_up(:scenery, scene) { emit_recolored_bank(dest, source_var, along) }
+              else
+                emit_recolored_bank(dest, source_var, along)
+              end
             end
+          end
+
+          # Write one recoloured layer's group again from the list it is showing.
+          def emit_recolored_bank(dest, source_var, along)
+            @primitives.load_var(TINT_SRC, source_var)
+            @emitter.emit(ASM.cmp_imm(TINT_SRC, 0))
+            past = @emitter.gensym
+            @emitter.emit_branch(:bcond, past, cond: :eq)
+            @emitter.emit(ASM.add_imm(TINT_SRC, TINT_SRC, along)) unless along.zero?
+            emit_blend_run(dest, COLORS_IN_A_BANK)
+            @emitter.place_label(past)
           end
 
           # A group of colours a layer's tiles draw from holds sixteen of them.
@@ -501,7 +531,7 @@ module RubyGBA
             # A table that takes turns is put back from the one in place now — a scene's sprite
             # colours, or the area a game walked into — never from the one at power-on.
             taking_turns = (blob == @layout.obj_palette_blob && scene_obj_tables?) ||
-                           (blob == BG_SHARED_PAL && @layout.walks_areas?)
+                           (blob == BG_SHARED_PAL && @layout.bg_tables_take_turns?)
             return @drawing.emit_plain_dma_blob(blob, dest, units) unless taking_turns
 
             emit_table_source(ACC, blob)
