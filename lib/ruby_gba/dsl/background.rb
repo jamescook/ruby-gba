@@ -45,7 +45,7 @@ module RubyGBA
       #   another list of colours is matched against — see {#draw_with}
       def initialize(builder, name:, scroll_x:, scroll_y:, walls: [],
                      cells: [0, 0], tile_index: {}, bitmap: false, map_names: nil,
-                     solid_cells: [], tile_size: [8, 8], node: nil, tile_pictures: [])
+                     solid_cells: [], tile_size: [8, 8], node: nil, tile_pictures: [], walks_areas: false)
         @builder = builder
         @name = name
         @tile_pictures = tile_pictures
@@ -58,6 +58,7 @@ module RubyGBA
         @cells = cells
         @tile_index = tile_index
         @bitmap = bitmap
+        @walks_areas = walks_areas # its maps are in several areas, each drawn from its own tiles
         @map_names = map_names || [name]
       end
 
@@ -80,6 +81,12 @@ module RubyGBA
       # coordinate the game worked out can be off the edge without a test around it.
       def set_tile(col, row, tile)
         refuse_on_bitmap_screen!("set_tile", instead: "Draw over the spot with `blit`")
+        if @walks_areas
+          raise ArgumentError,
+                "background :#{@name} walks between areas, so a tile name can be in more than one area. " \
+                "set_tile cannot change a cell of it. To fix this, give each look of the room a map " \
+                "of its own and use show_map."
+        end
         index = @tile_index[tile]
         raise ArgumentError, unknown_tile_message(tile) if index.nil?
 

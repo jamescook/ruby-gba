@@ -411,6 +411,7 @@ module RubyGBA
               # The maps just sent are the first ones declared, so what says which map is
               # showing goes back to the first as well (see IR::SceneHandover).
               arrival.map_choices.each { |var| @primitives.store_word_immediate(0, @primitives.var_addr(var)) }
+              @background_drawing.emit_first_area_colors(arrival.scenery) # ...and a walking one to its first area's colours
             end
           end
 
@@ -471,6 +472,7 @@ module RubyGBA
             always = scene_handover.always_up
             always.scenery.each { |node| @background_drawing.emit_background_hardware(node) }
             always.map_choices.each { |var| @primitives.store_word_immediate(0, @primitives.var_addr(var)) }
+            @background_drawing.emit_first_area_colors(always.scenery)
             (always.painted_tiles + always.painted_pictures).each do |run|
               @background_drawing.emit_copy_tiles(Build.copy_tiles(run.name))
             end

@@ -47,9 +47,29 @@ module RubyGBA
           # apart two of them sit in that blob: they are all the same size and laid end to
           # end, so the map numbered N starts N of these along. A background declared with one
           # map counts 1 and has nothing to step to.
+          # +sets+ is set on a background whose maps draw from several sets of tiles (see
+          # TileSetSwap), and nil on every other.
           BackgroundPlacement = Data.define(:map, :map_units, :bg, :screen_block, :size,
                                             :priority, :affine, :small, :char_base,
-                                            :map_count, :map_bytes, :grid, :colors)
+                                            :map_count, :map_bytes, :grid, :colors, :sets)
+
+          # BRINGING ANOTHER SET OF TILES IN, for a background that walks between areas. Every
+          # set's tile pictures are in +tiles+, +stride+ bytes each, and one of them at a time
+          # sits +at+ bytes into video memory. +sets_of_maps+ is a byte a map saying which set
+          # it draws from; +char_base_table+ is a byte a set saying where the layer counts that
+          # set's tiles from, for sets that need different starting points (nil where they all
+          # start at one); +var+ says which set is in place now. +colors+ is the whole background
+          # colour table of each set's area, +color_units+ entries each, which goes in with it.
+          TileSetSwap = Data.define(:tiles, :at, :stride, :sets_of_maps, :char_base_table, :var,
+                                    :colors, :color_units)
+
+          # Does any background walk between areas, so that the background colour table in
+          # place is one area's of several (see #assign_area_banks)?
+          def walks_areas? = @backgrounds.values.any?(&:sets)
+
+          # The walking backgrounds of +nodes+, which take the first area's colours back as
+          # they go up as declared.
+          def walking_placements(nodes) = nodes.filter_map { |node| @backgrounds[node.name]&.sets && @backgrounds[node.name] }
 
           # THE OTHER LISTS OF COLOURS A LAYER CAN BE DRAWN FROM, for a background that was
           # told `draw_with`, and nil for every other one.
@@ -624,7 +644,125 @@ module RubyGBA
           #
           # A `screen :rotozoom` layer is always big: its map is one byte a cell, with no
           # room to name a bank. That is the console, not a choice.
+          #
+          # A background that walks between areas takes its colours a different way, since an
+          # area's colours go in with its tiles (see #assign_area_banks).
           def assign_tile_banks(regular_nodes, affine_nodes)
+            walking, staying = regular_nodes.partition(&:several_sets?)
+            banks, big = assign_fixed_tile_banks(staying, affine_nodes)
+            return [banks, big] if walking.empty?
+
+            [assign_area_banks(walking, banks), big]
+          end
+
+          # THE COLOURS OF A GAME THAT WALKS BETWEEN AREAS, which are one area's at a time.
+          #
+          # An area brings its own colours in with its tiles, into the same groups of sixteen
+          # every other area's colours use — so the colours that have to fit in the console's
+          # table are one area's and what never changes, not every area's together. What never
+          # changes is laid out first and keeps its place in every area's table; each area then
+          # goes on from it into the room it left. The backgrounds that draw from one area share
+          # its groups, because they change area on the same frame and read the same table.
+          #
+          # Every walking background must start in the same area, since there is one table at
+          # power-on to hold the colours of whichever area they start in.
+          def assign_area_banks(walking, fixed)
+            refuse_walking_layers_stored_big!(walking)
+            refuse_walking_layers_starting_apart!(walking)
+            areas = walking.flat_map(&:sets).uniq
+            by_area = areas.to_h do |area|
+              pictures = walking.flat_map do |node|
+                set = node.sets.index(area)
+                set ? node.set_tiles(set).map { |i| tile_bank_picture(node, i, nil) } : []
+              end
+              [area, area_palette_banks(area, pictures, fixed)]
+            end
+            AreaBanks.new(fixed: fixed, by_area: by_area, first: walking.first.sets.first,
+                          area_of_key: walking.flat_map { |node| area_keys(node) }.to_h)
+          end
+
+          def area_palette_banks(area, pictures, fixed)
+            banks = PaletteBanks.new(pictures, after: fixed)
+            spilled = pictures.reject { |picture| banks.placement(picture.key).narrow? }
+            return banks if spilled.empty?
+
+            raise LoweringError,
+                  "The area :#{area} draws some tiles from more than 15 colors. A tile of a background that walks " \
+                  "between areas reads one group of 16 colors, the first of them see-through. Draw each tile " \
+                  "from 15 colors or fewer."
+          rescue PaletteBanks::Overflow
+            raise LoweringError,
+                  "The area :#{area} uses more colors than the console's background table has room for beside " \
+                  "the backgrounds that every area shows (#{PaletteBanks::CAPACITY} colors in all). Draw its " \
+                  "tiles from fewer different colors."
+          end
+
+          # Each tile of a walking background, by the key its placement is kept under, and the area it is in.
+          def area_keys(node)
+            node.sets.each_index.flat_map { |set| node.set_tiles(set).map { |i| [tile_key(node, i), node.sets[set]] } }
+          end
+
+          def refuse_walking_layers_stored_big!(walking)
+            recolored = walking.find { |node| !node.recolors.empty? }
+            if recolored
+              raise LoweringError,
+                    "background :#{recolored.name} walks between areas, and the game tells it to draw_with other " \
+                    "colors. A background that walks between areas reads its colors from the area it is in. " \
+                    "To fix this, remove draw_with from it."
+            end
+            big = walking.find { |node| !every_tile_small?(node) }
+            return unless big
+
+            raise LoweringError,
+                  "background :#{big.name} walks between areas, and some of its tiles are drawn from more than 15 " \
+                  "colors. A tile of a background that walks between areas reads one group of 16 colors, the " \
+                  "first of them see-through. To fix this, draw each tile from 15 colors or fewer."
+          end
+
+          def refuse_walking_layers_starting_apart!(walking)
+            other = walking.find { |node| node.sets.first != walking.first.sets.first }
+            return unless other
+
+            raise LoweringError,
+                  "background :#{walking.first.name} starts in the area :#{walking.first.sets.first}, and background " \
+                  ":#{other.name} starts in :#{other.sets.first}. Every background that walks between areas must " \
+                  "start in the same area, because the console holds the colors of one area at a time. To fix this, " \
+                  "give each of them its maps of :#{walking.first.sets.first} first."
+          end
+
+          # WHERE A TILE'S COLOURS ARE, for a game whose backgrounds walk between areas: the
+          # table of the area the tile belongs to, or the one every area shares for anything
+          # else. +entries+ is the table at power-on, the first area's.
+          class AreaBanks
+            def initialize(fixed:, by_area:, first:, area_of_key:)
+              @fixed = fixed
+              @by_area = by_area
+              @first = first
+              @area_of_key = area_of_key
+            end
+
+            def placement(key) = table_of(key).placement(key)
+            def known?(key) = table_of(key).known?(key)
+            def entries = area_entries(@first)
+
+            # One area's whole table, padded to the size the biggest area's needs so that every
+            # area's table can be copied in with the same count.
+            def area_entries(area)
+              entries = @by_area.fetch(area).entries
+              entries + ([0] * (longest - entries.size))
+            end
+
+            private
+
+            def table_of(key)
+              area = @area_of_key[key]
+              area ? @by_area.fetch(area) : @fixed
+            end
+
+            def longest = @by_area.values.map { |banks| banks.entries.size }.max
+          end
+
+          def assign_fixed_tile_banks(regular_nodes, affine_nodes)
             nodes = regular_nodes + affine_nodes
             nodes.each { |node| validate_tile_sizes!(node.name, node.tiles) }
             big = affine_nodes + regular_nodes.reject { |node| every_tile_small?(node) }
@@ -668,13 +806,14 @@ module RubyGBA
                 # swap writes into that bank, so anything else reading it would change colour
                 # along with the layer (see PaletteBanks::Picture#keeps_to).
                 keeps_to = node.recolors.empty? ? nil : node.name
-                node.tiles.each_index.map do |i|
-                  PaletteBanks::Picture.new(key: tile_key(node, i), colors: tile_colors(node, i),
-                                            authored: @bitmaps.fetch(node.tiles[i]).colors,
-                                            keeps_to: keeps_to)
-                end
+                node.tiles.each_index.map { |i| tile_bank_picture(node, i, keeps_to) }
               end
             end.flatten
+          end
+
+          def tile_bank_picture(node, index, keeps_to)
+            PaletteBanks::Picture.new(key: tile_key(node, index), colors: tile_colors(node, index),
+                                      authored: @bitmaps.fetch(node.tiles[index]).colors, keeps_to: keeps_to)
           end
 
           def tile_key(node, index) = [node.name, index]
@@ -781,9 +920,20 @@ module RubyGBA
             small = !big.include?(node)
             painted = node.tiles.each_with_index.select { |tile, _| @painted_runs.key?(tile) }.to_h { |tile, i| [i, tile] }
             refuse_painted_tiles_stored_big!(node) if !small && !painted.empty?
-            stored = store.add(name, tile_pictures(node, banks),
-                               unit: small ? SMALL_TILE_BYTES : BIG_TILE_BYTES, painted: painted, mirrors: true)
-            note_painted_runs(store, node, painted.values)
+            unit = small ? SMALL_TILE_BYTES : BIG_TILE_BYTES
+            # Each set of tiles the background draws from, as how its map names them: one for
+            # nearly every background, and one per area for one that walks between areas.
+            if node.several_sets?
+              refuse_painted_tiles_in_sets!(node) unless painted.empty?
+              drawn = tile_pictures(node, banks)
+              laid = store.add_sets(name, node.sets.each_index.map { |set| node.set_tiles(set).map { |i| drawn[i] } },
+                                    unit: unit)
+              set_stores = laid.stored.each_with_index.map { |stored, set| [stored, node.set_tiles(set).first] }
+            else
+              stored = store.add(name, tile_pictures(node, banks), unit: unit, painted: painted, mirrors: true)
+              note_painted_runs(store, node, painted.values)
+              set_stores = [[stored, 0]]
+            end
 
             # The map: one 16-bit entry per cell, holding the tile to draw there and — for a
             # layer stored the small way — which bank of sixteen that tile reads from. Cells
@@ -792,20 +942,29 @@ module RubyGBA
             # depends on where the layer counts from, and it is 0 for a layer counting from
             # the bottom, which is nearly all of them.
             cols, rows = IR::TileMap.grid(node.map)
-            cell_for = node.tiles.each_index.to_h do |index|
-              bank = small ? banks.placement(tile_key(node, index)).bank : 0
-              [index, stored.number(index) | (bank << BG_BANK_SHIFT)]
+            cells_of_sets = set_stores.each_with_index.map do |(stored, first), set|
+              indices = node.several_sets? ? node.set_tiles(set) : node.tiles.each_index
+              indices.to_h do |index|
+                bank = small ? banks.placement(tile_key(node, index)).bank : 0
+                [index, stored.number(index - first) | (bank << BG_BANK_SHIFT)]
+              end
             end
+            cell_for = cells_of_sets.first
+            stored = set_stores.first.first
             entries = map_entries(node.map, cols, rows, stored.blank) { |index| cell_for.fetch(index) }
 
             grids = every_map(node)
+            map_sets = node.several_sets? ? node.map_sets : [0] * grids.size
             map_blob = :"__bg_map_#{name}"
-            @blobs[map_blob] =
-              grids.map { |map| map_entries(map, cols, rows, stored.blank) { |i| cell_for.fetch(i) }.pack("v*") }
-                   .join
+            @blobs[map_blob] = grids.each_with_index.map do |map, k|
+              set_stored, = set_stores[map_sets[k]]
+              cells = cells_of_sets[map_sets[k]]
+              map_entries(map, cols, rows, set_stored.blank) { |i| cells.fetch(i) }.pack("v*")
+            end.join
             keep_unpacked!(map_blob) if grids.size > 1
             keep_unpacked!(map_blob) if node.scene
             @backgrounds[name] = BackgroundPlacement.new(
+              sets: (tile_set_swap(node, laid, map_sets, banks) if node.several_sets?),
               map: map_blob, map_units: entries.size,
               bg: layer,                           # hardware layer (BG0..BG3), in stack order
               screen_block: store.vram.take_map(entries.size / MAP_ENTRIES_A_BLOCK),
@@ -818,6 +977,38 @@ module RubyGBA
               grid: MapGrid.new(cols: cols, rows: rows, cells: cell_for),
               colors: background_color_lists(node, banks, small)
             )
+          end
+
+          # What it takes to bring one of a background's sets of tiles in (see TileSetSwap): every
+          # set's bytes in one blob, the same length each, so set N starts N lengths along.
+          def tile_set_swap(node, laid, map_sets, banks)
+            tiles = :"__bg_sets_#{node.name}"
+            @blobs[tiles] = laid.bytes.join
+            keep_unpacked!(tiles) # read from the middle, by the set the game walked into
+            sets_of_maps = :"__bg_map_sets_#{node.name}"
+            @blobs[sets_of_maps] = map_sets.pack("C*")
+            keep_unpacked!(sets_of_maps)
+            bases = laid.stored.map(&:char_base)
+            unless bases.uniq.size == 1
+              base_table = :"__bg_set_bases_#{node.name}"
+              @blobs[base_table] = bases.pack("C*")
+              keep_unpacked!(base_table)
+            end
+            colors = :"__bg_set_colors_#{node.name}"
+            tables = node.sets.map { |area| banks.area_entries(area) }
+            @blobs[colors] = tables.flatten.pack("v*")
+            keep_unpacked!(colors)
+            TileSetSwap.new(tiles: tiles, at: laid.start, stride: laid.bytes.first.bytesize,
+                            sets_of_maps: sets_of_maps, char_base_table: base_table,
+                            var: IR::Nodes::Background.set_var(node.name),
+                            colors: colors, color_units: tables.first.size)
+          end
+
+          def refuse_painted_tiles_in_sets!(node)
+            raise LoweringError,
+                  "background :#{node.name} walks between areas, and some of its tiles are painted from a list. " \
+                  "A painted tile cannot change area with the rest. To fix this, show the painted tiles on a " \
+                  "background of their own."
           end
 
           # Lay out the other lists of colours a background can be drawn from (see
@@ -930,6 +1121,10 @@ module RubyGBA
             name = node.name
             tiles = node.tiles
             validate_map_fits!(name, node.map)
+            if node.several_sets?
+              raise LoweringError, "background :#{name} turns or resizes, and it walks between areas. " \
+                                   "A turning background keeps the tiles of one area. To fix this, give it one tileset."
+            end
             if tiles.any? { |tile| @painted_runs.key?(tile) }
               raise LoweringError, "background :#{name} turns or resizes, and it shows tiles the game paints from a " \
                                    "list. A turning background stores every tile with 256 colours, and a painted " \
@@ -976,7 +1171,8 @@ module RubyGBA
               char_base: stored.char_base,
               map_count: grids.size, map_bytes: entries.size,
               grid: nil, # its cells are one byte and hold a tile number alone: no grid of that shape
-              colors: nil # ...and its tiles read the whole table rather than a group of sixteen
+              colors: nil, # ...and its tiles read the whole table rather than a group of sixteen
+              sets: nil
             )
           end
 

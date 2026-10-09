@@ -65,6 +65,30 @@ class TestVideoCopies < Minitest::Test
     assert_operator found.bytes_per_frame, :>, 0
   end
 
+  # Two areas, walked between turn about: every frame brings a whole set of tiles in, and the
+  # set's copy is counted apart from the map's.
+  def test_an_area_walked_into_every_frame_is_counted_apart_from_its_map
+    rom = build do
+      screen :tiled
+      image(:red_art, "#" => :red) { (["#" * 8] * 8).join("\n") }
+      image(:green_art, "#" => :green) { (["#" * 8] * 8).join("\n") }
+      tiles :shrine, "#" => :red_art
+      tiles :clearing, "#" => :green_art
+      rooms = background :rooms, tiles: { shrine: :shrine, clearing: :clearing },
+                                 map: { shrine: { hall: ["##"] }, clearing: { glade: ["##"] } }
+      frame = var :frame, 0
+      game_loop do
+        frame.add! 1
+        rooms.show_map frame & 1
+      end
+    end
+    found = copies(rom).find { |copy| copy.source.include?("set of tiles") }
+
+    refute_nil found, "the set's copy is named"
+    assert_includes found.source, ":rooms"
+    assert_operator found.bytes_per_frame, :>, 0
+  end
+
   INKS = (1..15).map { |i| RubyGBA::Graphics::Color.rgb(i * 2, 31 - (i * 2), 10) }.freeze
 
   # A 64x64 picture in fifteen inks, its pixels drawn at random from its own seed, so no 8x8

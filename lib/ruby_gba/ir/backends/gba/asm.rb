@@ -372,6 +372,12 @@ module RubyGBA
             [0xE7900000 | (rn << 16) | (rd << 12) | (shift << 7) | rm].pack("V")
           end
 
+          # LDRB rd, [rn, rm] — load the unsigned byte +rm+ bytes along from +rn+: a table of
+          # bytes read by number, one instruction.
+          def ldrb_reg(rd, rn, rm)
+            [0xE7D00000 | (rn << 16) | (rd << 12) | rm].pack("V")
+          end
+
           # LDRB rd, [rn, #offset] — load an unsigned byte (0..255) with immediate
           # offset. The B (bit 22) is what makes it a byte load instead of a word.
           def ldrb_offset(rd, rn, offset)

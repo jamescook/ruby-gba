@@ -116,6 +116,44 @@ module RubyGBA
             StoredTiles.new(numbers: numbers, base: base, blank: blank)
           end
 
+          # ONE LAYER DRAWN FROM SEVERAL SETS OF TILES, only one of which is in video memory at a
+          # time: an area's tiles, swapped for the next area's as the game walks between them.
+          #
+          # Every set goes in the SAME room, starting where this run has got to, so the room
+          # this layer takes is its biggest set's and not all of them together — which is the
+          # whole point, since the sets together need not fit. Each set may share a picture
+          # already stored below it, because nothing below ever changes; but nothing stored
+          # after this layer may share one of a set's pictures, because the picture in that
+          # place changes as the sets do. So the sets are laid out in copies of this run, and
+          # this run takes only their room, and the first set's bytes, which are what is in
+          # place when the layer first goes up.
+          #
+          # Returns where the room starts, and for each set how its map names its tiles and the
+          # bytes that go in the room when that set is brought in.
+          SetTiles = Data.define(:start, :stored, :bytes)
+
+          def add_sets(name, drawn_sets, unit:, most: TileVram::MOST_TILES)
+            pad_to(@vram.tile_bytes)
+            start = @bytes.bytesize
+            laid = drawn_sets.map do |drawn|
+              copy = dup
+              [copy.add(name, drawn, unit: unit, most: most, mirrors: true), copy]
+            end
+            room = laid.map { |_, copy| copy.vram.tile_bytes }.max
+            bytes = laid.map { |_, copy| copy.pad_to(room).bytes.byteslice(start..) }
+            @vram.skip_to(room)
+            @bytes << bytes.first
+            @shared += laid.sum { |_, copy| copy.shared - @shared }
+            @mirrored += laid.sum { |_, copy| copy.mirrored - @mirrored }
+            SetTiles.new(start: start, stored: laid.map(&:first), bytes: bytes)
+          end
+
+          # Grow the run with nothing to +offset+, where it falls short of it.
+          def pad_to(offset)
+            @bytes << ("\x00" * (offset - @bytes.bytesize)).b if offset > @bytes.bytesize
+            self
+          end
+
           # Where each painted tile landed, as bytes into video memory, by its picture's name.
           def painted_at = (@painted_at ||= {})
 

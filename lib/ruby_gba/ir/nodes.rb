@@ -60,12 +60,30 @@ module RubyGBA
       # scene takes over, so every one of them goes back to 0, the first map, at that moment:
       # left alone they would name the map chosen on the last visit while the cells hold the
       # first, and choosing that map again would be taken as already done.
+      #
+      # +sets+, on a background whose maps draw from more than one SET of tiles, names each
+      # set; +set_starts+ is where each one's tiles begin in +tiles+, and +map_sets+ says which
+      # set each of +maps+ draws from. A map's cells only ever name tiles of its own set. A
+      # target that has room for only one set at a time brings a map's set in with the map;
+      # one that draws every tile by name needs none of this. All three are absent on a
+      # background drawn from one set.
       class Background
         include Node
         kind :background
         category :draw
         operands name: :name, tiles: :list, map: :list, maps: :list, choice: :list, tile_w: :int,
-                 tile_h: :int, layer: :name, scene: :name, affine: :flag, recolors: :list, palettes: :list
+                 tile_h: :int, layer: :name, scene: :name, affine: :flag, recolors: :list, palettes: :list,
+                 sets: :list, set_starts: :list, map_sets: :list
+
+        # The variable that says which of a background's sets is in place now, one a target
+        # with room for a single set keeps. Named here so every part of the program that resets
+        # it as a scene takes over names the same one.
+        def self.set_var(name) = :"__bg_#{name}_set"
+
+        def several_sets? = !sets.nil? && !sets.empty?
+
+        # Which tiles of +tiles+ belong to set number +set+.
+        def set_tiles(set) = (set_starts[set]...(set_starts[set + 1] || tiles.length))
       end
 
       # A background's tiles all draw from a different list of colours — the whole layer at

@@ -48,6 +48,7 @@ module RubyGBA
             @uploads.emit_dma_blob(BG_SHARED_PAL, BG_PALETTE, @layout.screen.bg_shared.palette_units)  # colors -> palette memory
             @uploads.emit_dma_blob(BG_SHARED_CHAR, VRAM_START, @layout.screen.bg_shared.tile_units)    # pictures -> video memory
             @palette_tint.emit_tint_reset_if_tinting # the table now holds the originals again
+            @palette_tint.emit_record_bg_palette_source # ...the first area's, for a game that walks between areas
           end
 
           # Point one layer's hardware at its data: DMA its map into its own screen block,
@@ -219,13 +220,115 @@ module RubyGBA
             return if bg.nil? || bg.map_count < 2 # no tiled layer, or nothing else to show
 
             done = gensym
+            emit_bring_set_in(node, bg, done) if bg.sets
+            emit_map_copy(node, bg, done)
+            place_label(done)
+          end
+
+          def emit_map_copy(node, bg, done)
             emit_map_source(bg, node.which, done)
             emit(ASM.load_immediate(TMP, REG_DMA3SAD))
             emit(ASM.str(ACC, TMP)) # DMA source = that map in the cartridge
             store_word_immediate(map_vram_address(bg), REG_DMA3DAD)
             @emitter.note_video_copy("handing background :#{node.name} another map", bg.map_units * 2)
             store_word_immediate(bg.map_units | DMA_ENABLE, REG_DMA3CNT) # go: 16-bit, both increment
-            place_label(done)
+          end
+
+          # Where the display's settings are kept while a set of tiles is brought in with the
+          # background layers switched off.
+          SET_SWAP_DISPLAY = :_set_swap_display
+
+          # Registers held while a set is brought in: the set that is coming in, and the size
+          # of one set's colour table. Nothing reading a variable or a cartridge address touches
+          # either, so they last across those.
+          SET_PICKED = 3
+          SET_STRIDE = 2
+
+          # BRING IN THE SET OF TILES THE MAP NUMBERED +which+ DRAWS FROM, for a background that
+          # walks between areas — and the map with it, while the layers are off.
+          #
+          # Every set sits in the same stretch of tile memory, so the set in place is the only
+          # one the console can draw, and a map of another set shown over it would draw every
+          # cell with the wrong picture. So the map is copied in only once its set is, and the
+          # background layers are switched off for both copies: a set is thousands of bytes,
+          # more than the gap between frames always holds, and with the layers off the console
+          # draws the backdrop rather than a part-copied set. Ending with the layers on again is
+          # the same picture the next frame was going to show.
+          #
+          # A map of the set already in place is the plain map copy, and nothing else.
+          def emit_bring_set_in(node, bg, done)
+            swap = bg.sets
+            same = gensym
+            @lowering.value(node.which)
+            emit(ASM.cmp_imm(ACC, bg.map_count))
+            emit_branch(:bcond, done, cond: :hs) # a number naming no map changes nothing
+            emit_load_data_address(TMP, swap.sets_of_maps)
+            emit(ASM.ldrb_reg(SET_PICKED, TMP, ACC)) # the set that map draws from
+            load_var(TMP, swap.var)
+            emit(ASM.cmp_reg(SET_PICKED, TMP))
+            emit_branch(:bcond, same, cond: :eq)
+            emit(ASM.mov_reg(ACC, SET_PICKED))
+            store_var(ACC, swap.var)
+
+            emit(ASM.load_immediate(TMP, REG_DISPCNT))
+            emit(ASM.load_halfword(ACC, TMP))
+            store_var(ACC, SET_SWAP_DISPLAY)
+            emit(ASM.bic_imm(ACC, ACC, BG0_ENABLE | BG1_ENABLE | BG2_ENABLE | BG3_ENABLE))
+            emit(ASM.store_halfword(ACC, TMP))
+
+            emit(ASM.load_immediate(TMP, swap.stride))
+            emit(ASM.mul(ACC, SET_PICKED, TMP)) # r0 = how far along the blob that set starts
+            emit_load_data_address(TMP, swap.tiles)
+            emit(ASM.add_reg(ACC, ACC, TMP))
+            emit(ASM.load_immediate(TMP, REG_DMA3SAD))
+            emit(ASM.str(ACC, TMP))
+            store_word_immediate(VRAM_START + swap.at, REG_DMA3DAD)
+            @emitter.note_video_copy("bringing background :#{node.name} another set of tiles", swap.stride)
+            store_word_immediate((swap.stride / 4) | DMA_ENABLE | DMA_32BIT, REG_DMA3CNT)
+            emit_set_char_base(bg, swap) if swap.char_base_table
+
+            emit_map_copy(node, bg, done)
+            emit_area_colors(swap, from_var: true)
+            load_var(ACC, SET_SWAP_DISPLAY)
+            emit(ASM.load_immediate(TMP, REG_DISPCNT))
+            emit(ASM.store_halfword(ACC, TMP))
+            emit_branch(:b, done)
+            place_label(same)
+          end
+
+          # A walking background put up as declared is back in its first area, tiles and all, so
+          # the colours go back to that area's too. One send serves every walking background,
+          # since they all start in the same area. Nothing for scenery that stays in one area.
+          def emit_first_area_colors(nodes)
+            walking = @layout.screen.walking_placements(nodes).first
+            emit_area_colors(walking.sets) if walking
+          end
+
+          # Send in the colours of the area a walking background's set belongs to: the set
+          # named by its variable, or, without +from_var+, its first set, which is what a
+          # background put up as declared starts in.
+          def emit_area_colors(swap, from_var: false)
+            emit_load_data_address(ACC, swap.colors)
+            if from_var
+              load_var(TMP, swap.var)
+              emit(ASM.load_immediate(SET_STRIDE, swap.color_units * 2))
+              emit(ASM.mul(TMP, SET_STRIDE, TMP)) # how far along the blob that set's table is
+              emit(ASM.add_reg(ACC, ACC, TMP))
+            end
+            @palette_tint.emit_send_area_colors(swap.color_units)
+          end
+
+          # Point the layer at where the set now in place (r3) counts its tiles from, for sets
+          # that start counting from different places.
+          def emit_set_char_base(bg, swap)
+            emit_load_data_address(TMP, swap.char_base_table)
+            emit(ASM.ldrb_reg(ACC, TMP, SET_PICKED))
+            emit(ASM.lsl_imm(ACC, ACC, CHAR_BASE_SHIFT))
+            depth = bg.small ? 0 : BG_256_COLOR
+            emit(ASM.load_immediate(TMP, bg.priority | depth | (bg.screen_block << 8) | bg.size))
+            emit(ASM.orr_reg(ACC, ACC, TMP))
+            emit(ASM.load_immediate(TMP, BG_CNT_REGS[bg.bg]))
+            emit(ASM.store_halfword(ACC, TMP))
           end
 
           # PAINT A RUN OF TILES FROM ITS LIST: one copy, from the list straight into the video

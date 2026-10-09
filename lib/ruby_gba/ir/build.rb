@@ -617,11 +617,17 @@ module RubyGBA
       # whose cells only ever change one at a time (see #set_tile). +choice+ is the variables
       # that say which of them is showing (see Nodes::Background).
       def background(name, tiles:, map:, tile_w:, tile_h:, maps: [], choice: [], layer: nil, scene: nil,
-                     affine: false, recolors: [], palettes: [])
+                     affine: false, recolors: [], palettes: [], sets: [], set_starts: [], map_sets: [])
         Nodes.build(:background, name: name, tiles: tiles, map: map, maps: maps, choice: choice,
                                  recolors: recolors, palettes: palettes,
                                  tile_w: tile_w, tile_h: tile_h, affine: affine, scene: scene,
-                                 **layer_field(layer))
+                                 **layer_field(layer), **tile_set_fields(sets, set_starts, map_sets))
+      end
+
+      # The same idea for a background drawn from several sets of tiles: one drawn from a single
+      # set carries none of the three, so it builds the tree it always did.
+      def tile_set_fields(sets, set_starts, map_sets)
+        sets.empty? ? {} : { sets: sets, set_starts: set_starts, map_sets: map_sets }
       end
 
       # The named background's cells all become the map numbered +which+ — a whole room

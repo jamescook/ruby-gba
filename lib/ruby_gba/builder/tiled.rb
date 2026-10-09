@@ -233,32 +233,38 @@ module RubyGBA
       # Returns a {Background} handle you can scroll (`world.scroll_by dx, dy`).
       #
       # @param name [Symbol] the background's name
-      # @param tiles [Symbol] a tileset defined with {#tiles}
+      # @param tiles [Symbol, Hash] a tileset defined with {#tiles}, or a Hash of area =>
+      #   tileset for a background that walks between areas (see #background_from_sets)
       # @param map [String, Array<String>, Array<Array>, Hash, nil] the grid of tileset
       #   keys — rows of characters, or rows of keys — or a Hash of name => grid for a
-      #   background with several maps
+      #   background with several maps; for one that walks between areas, a Hash of
+      #   area => those, under the names `tiles:` gives
       # @param from [String, Hash, nil] path to a CSV tilemap (a grid of tile numbers), or
       #   a Hash of name => path for a background with several maps
       # @param walls [String, Array<String>, Array<Array>, Hash, nil] which cells stop a
       #   mover, apart from the picture. One grid, or a Hash keyed like `map:`.
       # @return [Background] a handle: scroll_by / scroll_to / show_map
       def background(name, tiles:, map: nil, from: nil, walls: nil)
-        set = @tilesets[tiles] || raise(ArgumentError,
-                                        "background :#{name}: there is no tileset named :#{tiles}. " \
-                                        "Define one first with `tiles :#{tiles}, ...`.")
+        if tiles.is_a?(Hash)
+          set, map_names, drawn, tile_names, grids, sets = background_from_sets(name, tiles, map, from)
+          img_rows = drawn.first.first
+          index_of = {}
+        else
+          set = tileset!(name, tiles)
+          map_names, drawn = background_maps(name, tiles, set, map: map, from: from)
+          # The tile list comes from the TILESET rather than from the map, so every one of a
+          # background's maps has the same one — which is what lets them share a numbering and
+          # take turns in one grid.
+          img_rows, tile_names = drawn.first
 
-        map_names, drawn = background_maps(name, tiles, set, map: map, from: from)
-        # The tile list comes from the TILESET rather than from the map, so every one of a
-        # background's maps has the same one — which is what lets them share a numbering and
-        # take turns in one grid.
-        img_rows, tile_names = drawn.first
-
-        # Number the distinct tiles, then turn each grid of tile images into a grid of
-        # those numbers — nil where a cell is blank. The grid, not a pile of draw calls,
-        # is what the background node carries, so a backend is free to stamp it pixel by
-        # pixel or hand it to tile hardware.
-        index_of = tile_names.each_with_index.to_h
-        grids = drawn.map { |rows, _| rows.map { |row| row.map { |img| img && index_of[img] } } }
+          # Number the distinct tiles, then turn each grid of tile images into a grid of
+          # those numbers — nil where a cell is blank. The grid, not a pile of draw calls,
+          # is what the background node carries, so a backend is free to stamp it pixel by
+          # pixel or hand it to tile hardware.
+          index_of = tile_names.each_with_index.to_h
+          grids = drawn.map { |rows, _| rows.map { |row| row.map { |img| img && index_of[img] } } }
+          sets = nil
+        end
         check_maps_are_one_size!(name, map_names, grids)
 
         # The line that makes the record every later fact about this background is written
@@ -270,14 +276,16 @@ module RubyGBA
         # fresh record would drop them — a scroll it forgot would stop being moved to the
         # gap between frames and would tear where the author wrote it.
         declared = (@backgrounds[name] ||= DeclaredBackground.new)
-        # Which map the game says is showing, and which one is really in the cells.
+        # Which map the game says is showing, and which one is really in the cells — and, for
+        # a background drawn from several sets of tiles, which set is really in tile memory.
         choice = map_names.size > 1 ? [:"__bg_#{name}_map", :"__bg_#{name}_live"] : []
+        choice += [IR::Nodes::Background.set_var(name)] if sets
         declared.node =
           record(Build.background(name, tiles: tile_names, map: grids.first,
                                         maps: map_names.size > 1 ? grids : [], choice: choice,
                                         tile_w: set[:tile_w], tile_h: set[:tile_h],
                                         scene: declaring_scene,
-                                        affine: @screen_mode == :rotozoom))
+                                        affine: @screen_mode == :rotozoom, **(sets || {})))
         # WHICH SCENE THIS BACKGROUND BELONGS TO, so that everything written for it each
         # frame is written only while that scene is the live one. Where a background sits
         # is a property of the console's LAYER rather than of the background, and scenes
@@ -308,7 +316,8 @@ module RubyGBA
                              # rather than by the first room's, wherever it stands.
                              solid_cells: wall_grids(name, map_names, drawn, set, walls),
                              tile_size: [set[:tile_w], set[:tile_h]],
-                             tile_pictures: (set[:by_key].values + set[:by_number].values).uniq)
+                             walks_areas: !sets.nil?,
+                             tile_pictures: sets ? tile_names.uniq : (set[:by_key].values + set[:by_number].values).uniq)
       end
 
       # Make a background able to turn and resize as a whole (see {Background#rotate} /
@@ -526,6 +535,91 @@ module RubyGBA
           background_image_grid(name, tiles, set, map: chars ? one : nil, from: chars ? nil : one)
         end
         [several.keys, drawn]
+      end
+
+      def tileset!(name, tiles)
+        @tilesets[tiles] || raise(ArgumentError,
+                                  "background :#{name}: there is no tileset named :#{tiles}. " \
+                                  "Define one first with `tiles :#{tiles}, ...`.")
+      end
+
+      # A BACKGROUND WHOSE MAPS DRAW FROM SEVERAL SETS OF TILES, which is how a game moves
+      # between areas: `tiles:` names each set by the area it belongs to, and `map:` gives
+      # each area's maps under the same name. The maps are counted in the order written,
+      # area after area, which is the number `show_map` takes.
+      #
+      # Returns what #background works with: a tileset standing for every set at once (for
+      # the walls, read off pictures, and the tile size), the map names, each map's grid of
+      # pictures, every set's tiles one after another, each map as numbers into those, and
+      # the three operands that say which tiles and maps belong to which set.
+      def background_from_sets(name, tiles, map, from)
+        refuse_tile_sets_shape!(name, tiles, map, from)
+        sets = tiles.transform_values { |tileset| tileset!(name, tileset) }
+        refuse_tile_sets_of_two_sizes!(name, tiles, sets)
+
+        map_names = []
+        drawn = []
+        grids = []
+        tile_names = []
+        set_starts = []
+        map_sets = []
+        tiles.each_key.with_index do |area, number|
+          names, area_drawn = background_maps(name, tiles[area], sets[area], map: map[area], from: nil)
+          area_drawn = [area_drawn.first] if names == [name] # one map given as a grid, not a Hash
+          names = [area] if names == [name]
+          start = tile_names.length
+          area_tiles = area_drawn.first.last
+          index_of = area_tiles.each_with_index.to_h { |image, i| [image, start + i] }
+          set_starts << start
+          tile_names.concat(area_tiles)
+          area_drawn.each do |rows, _|
+            grids << rows.map { |row| row.map { |img| img && index_of[img] } }
+            map_sets << number
+          end
+          map_names.concat(names)
+          drawn.concat(area_drawn)
+        end
+        refuse_map_named_twice!(name, map_names)
+
+        every = sets.values
+        merged = { by_key: {}, by_number: {}, tile_w: every.first[:tile_w], tile_h: every.first[:tile_h],
+                   solid_images: every.flat_map { |set| set[:solid_images] || [] }.uniq }
+        [merged, map_names, drawn, tile_names, grids,
+         { sets: tiles.keys, set_starts: set_starts, map_sets: map_sets }]
+      end
+
+      def refuse_tile_sets_shape!(name, tiles, map, from)
+        if from
+          raise ArgumentError,
+                "background :#{name} walks between areas, so it cannot take from:. Give the maps of each area " \
+                "with map:, under the same names as tiles:, like map: { #{tiles.keys.first}: { room: ... } }."
+        end
+        return if map.is_a?(Hash) && map.keys == tiles.keys
+
+        raise ArgumentError,
+              "background :#{name} walks between the areas #{tiles.keys.map(&:inspect).join(', ')}. map: must " \
+              "give the maps of each area under the same names, in the same order, like " \
+              "map: { #{tiles.keys.first}: { room: ... } }."
+      end
+
+      def refuse_tile_sets_of_two_sizes!(name, tiles, sets)
+        sizes = sets.transform_values { |set| [set[:tile_w], set[:tile_h]] }
+        return if sizes.values.uniq.size == 1
+
+        first, other = sizes.keys.first, sizes.keys.find { |area| sizes[area] != sizes.values.first }
+        raise ArgumentError,
+              "background :#{name}: the tiles of the area :#{first} (tileset :#{tiles[first]}) are " \
+              "#{sizes[first].join('x')}, and the tiles of the area :#{other} (tileset :#{tiles[other]}) are " \
+              "#{sizes[other].join('x')}. All the areas of one background must have tiles of one size."
+      end
+
+      def refuse_map_named_twice!(name, map_names)
+        twice = map_names.tally.find { |_, count| count > 1 }&.first
+        return unless twice
+
+        raise ArgumentError,
+              "background :#{name} has two maps named #{twice.inspect}. show_map finds a map by its name, so " \
+              "each map must have a name of its own, in every area."
       end
 
       # ALL OF A BACKGROUND'S MAPS ARE THE SAME SIZE, and that is a rule rather than a
