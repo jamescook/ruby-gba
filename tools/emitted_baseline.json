@@ -2,31 +2,31 @@
   "version": 1,
   "examples": {
     "animate": {
-      "code": 49436,
+      "code": 49460,
       "data": 0
     },
     "bird": {
-      "code": 7532,
+      "code": 7556,
       "data": 0
     },
     "breakout": {
-      "code": 82788,
+      "code": 83024,
       "data": 0
     },
     "buffered_bounce": {
-      "code": 5538,
+      "code": 5562,
       "data": 0
     },
     "corridor": {
-      "code": 8978,
+      "code": 9006,
       "data": 0
     },
     "dive": {
-      "code": 28188,
+      "code": 51628,
       "data": 0
     },
     "floating_digits": {
-      "code": 13048,
+      "code": 13072,
       "data": 0
     },
     "font_styles": {
@@ -38,27 +38,27 @@
       "data": 0
     },
     "grid_cursor": {
-      "code": 8328,
+      "code": 8376,
       "data": 0
     },
     "hero": {
-      "code": 3016,
+      "code": 95976,
       "data": 0
     },
     "jukebox": {
-      "code": 65518,
+      "code": 65622,
       "data": 0
     },
     "lake": {
-      "code": 4068,
+      "code": 4096,
       "data": 0
     },
     "level": {
-      "code": 6312,
+      "code": 6340,
       "data": 0
     },
     "maze": {
-      "code": 4904,
+      "code": 4932,
       "data": 0
     },
     "meadow": {
@@ -66,15 +66,15 @@
       "data": 0
     },
     "pacman": {
-      "code": 16012,
+      "code": 16488,
       "data": 0
     },
     "parallax": {
-      "code": 2116,
+      "code": 2144,
       "data": 0
     },
     "piano": {
-      "code": 28156,
+      "code": 28332,
       "data": 0
     },
     "pixels": {
@@ -82,47 +82,47 @@
       "data": 0
     },
     "pong": {
-      "code": 47678,
+      "code": 51314,
       "data": 0
     },
     "raycaster": {
-      "code": 7032,
+      "code": 7056,
       "data": 0
     },
     "rotozoom_bg": {
-      "code": 3728,
+      "code": 3884,
       "data": 0
     },
     "scroll": {
-      "code": 2388,
+      "code": 2416,
       "data": 0
     },
     "sheet": {
-      "code": 6312,
+      "code": 6340,
       "data": 0
     },
     "shmup": {
-      "code": 34952,
+      "code": 40044,
       "data": 0
     },
     "snake": {
-      "code": 50948,
+      "code": 51008,
       "data": 0
     },
     "snake_buffered": {
-      "code": 40466,
+      "code": 40526,
       "data": 0
     },
     "sparks": {
-      "code": 2752,
+      "code": 2776,
       "data": 0
     },
     "sprite_mover": {
-      "code": 14332,
+      "code": 14356,
       "data": 0
     },
     "tiles": {
-      "code": 7900,
+      "code": 7944,
       "data": 0
     }
   }
