@@ -128,7 +128,7 @@ module RubyGBA
       @screen_mode = nil       # the current display mode (set by `screen`), so `sprite` picks its backend
       @sprites = []            # live software sprites, repainted after every wait_vblank
       @hw_sprites = []         # live hardware sprites, drawn (into the sprite table) after every wait_vblank
-      @pool_objects = []       # a spriteful pool's per-slot sprite object names, drawn among the game sprites
+      @sprite_objects = []     # every sprite and pool slot object, in the order the game declared them
       @hud_objects = []        # tiled-mode text/number glyph sprites, drawn on top after every wait_vblank
       @glyph_images = {}       # [font, char, color] → a cached glyph image name (one 8x8 sprite tile per glyph)
       @verb_owns_text = nil    # the verb drawing its own text right now (a menu's rows), rather than the author placing it
@@ -962,8 +962,12 @@ module RubyGBA
     # scenes are built — a scene declares its sprites/HUD inside its own body (built after
     # the game loop), so the list isn't known when wait_vblank records the node. A frame
     # that ends up with no objects drops the node, so an object-free program is unchanged.
+    #
+    # Sprites and a pool's slots are listed together, in the order the game declared them,
+    # so a pool takes its place among the sprites by the same rule two sprites follow: the
+    # one declared later is in front. The HUD comes last, over all of them.
     def finalize_present_lists
-      names = in_stack_order(@hw_sprites.map(&:object_name) + @pool_objects + @hud_objects)
+      names = in_stack_order(@sprite_objects + @hud_objects)
       @present_nodes.each do |node|
         if names.empty?
           node.parent&.children&.delete(node)

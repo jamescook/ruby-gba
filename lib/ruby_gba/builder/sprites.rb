@@ -398,6 +398,7 @@ module RubyGBA
                                           facing_var: pose_var, facing_dirs: facing_dirs,
                                           frame_var: frame_var, frames_per_dir: frames_per_dir)
         @hw_sprites << handle
+        @sprite_objects << object_name
         handle
       end
 
@@ -656,6 +657,7 @@ module RubyGBA
                                           facing_dirs: {},
                                           clips: clips, clip_off_var: off, clip_len_var: len, frame_var: frame)
         @hw_sprites << handle
+        @sprite_objects << object_name
         handle
       end
 

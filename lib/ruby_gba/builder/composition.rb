@@ -386,7 +386,7 @@ module RubyGBA
                                     scene: declaring_scene, declared: pool.name)
           record(node)
           pool.slot_objects << node
-          @pool_objects << name
+          @sprite_objects << name
         end
         register_pool_animation(pool, capacity, art) if art.animates?
       end

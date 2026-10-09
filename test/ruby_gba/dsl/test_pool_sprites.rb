@@ -207,4 +207,47 @@ class TestPoolSprites < Minitest::Test
     assert v.green?(33, 33), "a pooled sprite drew on the console, got 0x#{format('%04X', v.pixel_gba(33, 33))}"
     assert v.green?(83, 83), "and the second one too"
   end
+
+  # --- where a pool stands among the sprites ---
+
+  # A POOL TAKES ITS DECLARED PLACE AMONG THE SPRITES, the same rule two sprites follow:
+  # declared later is in front. A red pool and a green sprite overlap at (44, 44); whichever
+  # was declared second is the colour there, on the interpreter and on the console.
+  def overlap_program(pool_first:)
+    b = Builder.new
+    b.instance_eval do
+      screen :tiled
+      image(:red_square, "#" => :red) { "########\n" * 8 }
+      image(:green_square, "#" => :green) { "########\n" * 8 }
+      crowd = nil
+      declare_pool = -> { crowd = pool :crowd, x: 0, y: 0, capacity: 1, image: :red_square }
+      declare_pool.call if pool_first
+      sprite :green_square, at: [40, 40]
+      declare_pool.call unless pool_first
+      placed = var :placed, 0
+      game_loop do
+        (placed == 0).then do
+          crowd.spawn(x: 40, y: 40)
+          placed.set! 1
+        end
+      end
+    end
+    b.finalize_program
+    b.program
+  end
+
+  # [interpreter, console]: whether the overlap shows the sprite's green.
+  def green_in_front(prog)
+    rom = ROM.assemble(GBA.new.lower(prog), title: "PORD", code: "BPOR", maker: "01")
+    v = assert_emulator_loads_rom(rom, frames: 6)
+    [Reference.new.run(prog, frames: 4).screen.pixel(44, 44) == GREEN, v.green?(44, 44)]
+  end
+
+  def test_a_sprite_declared_after_a_pool_is_in_front_of_it
+    assert_equal [true, true], green_in_front(overlap_program(pool_first: true))
+  end
+
+  def test_a_pool_declared_after_a_sprite_is_in_front_of_it
+    assert_equal [false, false], green_in_front(overlap_program(pool_first: false))
+  end
 end
