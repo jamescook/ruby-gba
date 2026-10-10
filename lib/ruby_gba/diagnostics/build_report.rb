@@ -126,16 +126,33 @@ module RubyGBA
         return if held_by.each_value.all?(&:empty?)
 
         levels = IR::Backends::GBA::ScreenLayout::MAX_LEVELS
-        printer.puts "  the stack, back to front (the console keeps #{levels} levels):"
-        held_by.each do |layer, held|
-          next if held.empty?
-
-          printer.puts "    #{layer_level(picture, held).ljust(9)}:#{layer.to_s.ljust(12)}" \
-                       "#{layer_holds(picture, layer)}"
+        screens = IR::Stacking.screenfuls(program).reject { |screen| screen.scenery.empty? && screen.objects.empty? }
+        printer.puts "  the stack, back to front (the console keeps #{levels} levels on each screen):"
+        if screens.length == 1
+          screen_stack_lines(screens.first, picture.stack, "    ", printer)
+        else
+          screens.each do |screen|
+            printer.puts "    on scene :#{screen.scene.to_s.delete_prefix('_scene_')}"
+            screen_stack_lines(screen, picture.stack, "      ", printer)
+          end
         end
         transparency_line(program, printer)
-        used = picture.depths.count
-        printer.puts "    #{used} of #{levels} levels used, #{levels - used} free"
+      end
+
+      # One screen's stack: what each layer holds there and on which level, then how many of
+      # the console's levels that screen spends. A scene is a screen of its own, so each
+      # scene spends its own levels and is counted on its own.
+      def screen_stack_lines(screen, stack, indent, printer)
+        levels = IR::Backends::GBA::ScreenLayout::MAX_LEVELS
+        stack.each do |layer|
+          held = (screen.scenery + screen.objects).select { |node| node.layer == layer }.map(&:name)
+          next if held.empty?
+
+          printer.puts "#{indent}#{layer_level(screen, held).ljust(9)}:#{layer.to_s.ljust(12)}" \
+                       "#{layer_holds(screen, layer)}"
+        end
+        used = screen.depths.count
+        printer.puts "#{indent}#{used} of #{levels} levels used, #{levels - used} free"
       end
 
       # Which level a layer landed on. Nearly always one — a layer holding two backgrounds is

@@ -279,4 +279,30 @@ class TestBuildReport < Minitest::Test
                     out.string.index("where your frames went"),
                     "the build half comes first — it is what a reader checks before the numbers"
   end
+
+  # Each scene is a screen of its own with four levels of its own, so two scenes using three
+  # each are three of four apiece, never six of four.
+  def test_the_stack_counts_levels_per_scene
+    rom = RubyGBA.build("SCENESTK") do
+      screen :tiled
+      image(:tile, "#" => :green) { (["#" * 8] * 8).join("\n") }
+      tiles :set, "#" => :tile
+      layers :far, :mid, :near
+      var :state, 0
+      grid = (0...20).map { "#" * 30 }
+      %i[title play].each do |scene_name|
+        scene scene_name do
+          layer(:far) { background :"#{scene_name}_far", tiles: :set, map: grid }
+          layer(:mid) { background :"#{scene_name}_mid", tiles: :set, map: grid }
+          layer(:near) { background :"#{scene_name}_near", tiles: :set, map: grid }
+        end
+      end
+      game_loop { case_var(:state) { when_val 0, :title; when_val 1, :play } }
+    end
+    text = report_for(rom)
+
+    assert_equal 2, text.scan("3 of 4 levels used, 1 free").length, text
+    refute_match(/levels used, -/, text)
+    assert_match(/scene :title.*scene :play/m, text)
+  end
 end
