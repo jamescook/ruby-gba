@@ -104,9 +104,8 @@ module RubyGBA
       # somebody wrote. A statement with a BODY is never spared, wherever it sits, because a
       # body is something the machine goes back into: a routine, a timer's handler, a block
       # run once a row. One of those written above the frame loop looks like setup and is not.
-      # Picked out BY PLACE and never by value: two nodes count as equal when they hold the
-      # same thing, so a statement after the loop that happens to read the same as one before
-      # it would be spared along with it.
+      # Picked out BY PLACE: a statement after the loop that happens to read the same as one
+      # before it is a different statement, and is not spared along with it.
       def moved_names(program, frame)
         at = program.children.index(frame)
         running = program.children.select.with_index { |node, nth| nth >= at || !node.leaf? }

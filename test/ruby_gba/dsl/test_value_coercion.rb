@@ -114,7 +114,7 @@ class TestValueCoercion < Minitest::Test
       halt
     end
 
-    assert_equal with_symbols, with_values,
+    assert_same_shape with_symbols, with_values,
                  "a Value and its :symbol must produce identical IR at every verb"
   end
 

@@ -222,8 +222,8 @@ class TestIRNode < Minitest::Test
   # ========================================================================
 
   def test_wrap_coerces_bare_operands
-    assert_equal int(5),      binop(:+, :a, 5).rhs
-    assert_equal var_ref(:a), binop(:+, :a, 5).lhs
+    assert_same_shape int(5),      binop(:+, :a, 5).rhs
+    assert_same_shape var_ref(:a), binop(:+, :a, 5).lhs
   end
 
   def test_expression_trees_nest
@@ -250,14 +250,14 @@ class TestIRNode < Minitest::Test
     # position and size all flow through value nodes, so a variable coordinate and a
     # size the game works out both work — and a plain number becomes a literal node.
     n = draw_rect_at(:ball_x, 40, :width, :health, :white)
-    assert_equal var_ref(:ball_x), n.x
-    assert_equal int(40), n.y
-    assert_equal var_ref(:width), n.w
-    assert_equal var_ref(:health), n.h
+    assert_same_shape var_ref(:ball_x), n.x
+    assert_same_shape int(40), n.y
+    assert_same_shape var_ref(:width), n.w
+    assert_same_shape var_ref(:health), n.h
 
     fixed = draw_rect_at(:ball_x, 40, 4, 6, :white)
-    assert_equal int(4), fixed.w
-    assert_equal int(6), fixed.h
+    assert_same_shape int(4), fixed.w
+    assert_same_shape int(6), fixed.h
   end
 
   def test_abs_and_negate_abs_are_var_ops
@@ -322,9 +322,27 @@ class TestIRNode < Minitest::Test
   # structural equality & to_h
   # ========================================================================
 
-  def test_structural_equality_ignores_identity
-    assert_equal set(:x, 1), set(:x, 1)
-    refute_equal set(:x, 1), set(:x, 2)
+  # A node is equal only to itself. Two statements that read the same are still two places
+  # in the program, and the builder finds, removes and orders nodes by which one it holds.
+  def test_two_nodes_built_alike_are_two_nodes
+    refute_equal set(:x, 1), set(:x, 1)
+    refute set(:x, 1).eql?(set(:x, 1))
+  end
+
+  def test_removing_one_of_two_alike_statements_keeps_the_other
+    kept = add(:x, 1)
+    dropped = add(:x, 1)
+    body = loop_(kept, dropped)
+    body.children.delete(dropped)
+    assert_equal 1, body.children.size
+    assert_same kept, body.children.first
+  end
+
+  # Comparing two whole trees, which is what a test of a lowering wants, is asked for by name.
+  def test_same_shape_compares_whole_trees
+    assert set(:x, 1).same_shape?(set(:x, 1))
+    refute set(:x, 1).same_shape?(set(:x, 2))
+    refute set(:x, 1).same_shape?(:x)
   end
 
   def test_to_h_snapshots_shape

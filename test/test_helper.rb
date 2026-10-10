@@ -56,6 +56,15 @@ module NodeTypes
   end
 end
 
+# Two IR trees of the same shape. A node is equal only to itself, so a test that builds the
+# tree it expects compares contents by asking for it; the diff on failure is the two trees
+# as nested hashes.
+module TreeAssertions
+  def assert_same_shape(expected, actual, message = nil)
+    assert_equal expected.to_h, actual.to_h, message
+  end
+end
+
 # Shared helpers for tests that exercise the emulator in-process. The emulator backend
 # (ruby-gba-emulator, a headless libmgba probe) is reached through RubyGBA::Diagnostics::Emulator — the one
 # seam — so nothing here names it directly.
@@ -127,6 +136,7 @@ end
 class Minitest::Test # rubocop:disable Style/ClassAndModuleChildren
   include SharedConstants
   include EmulatorSupport
+  include TreeAssertions
 
   # Hand every test to the pool. Minitest runs a class serially until the class asks not to.
   parallelize_me!

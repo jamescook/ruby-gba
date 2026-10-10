@@ -33,7 +33,7 @@ class TestBuilderIR < Minitest::Test
       clamp! :x, 0, 100
     end
 
-    assert_equal program(
+    assert_same_shape program(
       set(:x, 5),
       set(:y, 10),
       add(:x, 3),
@@ -76,7 +76,7 @@ class TestBuilderIR < Minitest::Test
       draw_text "HI", 40, 30, :white
     end
 
-    assert_equal program(
+    assert_same_shape program(
       screen(:bitmap),
       clear_screen(:black),
       pixel(10, 20, :red),
@@ -120,7 +120,7 @@ class TestBuilderIR < Minitest::Test
       end
     end
 
-    assert_equal program(
+    assert_same_shape program(
       set(:x, 0),
       loop_(
         wait_vblank,
@@ -152,7 +152,7 @@ class TestBuilderIR < Minitest::Test
     # A scene is a func named _scene_<name>; case_var is one case node whose
     # clauses point at those scene funcs. The loop opens with the frame boundary the
     # framework puts there, since a game loop runs once per frame.
-    assert_equal program(
+    assert_same_shape program(
       set(:state, 0),
       loop_(
         wait_vblank,
@@ -165,7 +165,7 @@ class TestBuilderIR < Minitest::Test
 
   def test_if_pressed_builds_a_pressed_condition
     got = tree { if_pressed(:start) { set! :go, 1 } }
-    assert_equal program(if_(pressed(:start), set(:go, 1))), got
+    assert_same_shape program(if_(pressed(:start), set(:go, 1))), got
   end
 
   def test_the_built_control_flow_tree_runs_in_the_interpreter
@@ -202,7 +202,7 @@ class TestBuilderIR < Minitest::Test
       stop_music
     end
 
-    assert_equal program(
+    assert_same_shape program(
       enable_sound,
       define_sound(:hit, frequency: 880, duty: :quarter, decay: :fast, volume: 12),
       song(:tune, events: [[0, 262], [30, 0]], total_frames: 60, duty: :half, volume: 12),

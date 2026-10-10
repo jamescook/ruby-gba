@@ -33,7 +33,7 @@ class TestIRDump < Minitest::Test
   def test_round_trips_the_conformance_fixture_structurally
     rebuilt = eval(Dump.source(ConformanceFixture.program)) # rubocop:disable Security/Eval
 
-    assert_equal ConformanceFixture.program, rebuilt
+    assert_same_shape ConformanceFixture.program, rebuilt
   end
 
   def test_round_trips_to_byte_identical_lowered_code
@@ -49,7 +49,7 @@ class TestIRDump < Minitest::Test
     rebuilt = eval(Dump.source(node)) # rubocop:disable Security/Eval
 
     assert_equal Encoding::ASCII_8BIT, rebuilt.bytes.encoding
-    assert_equal node, rebuilt
+    assert_same_shape node, rebuilt
   end
 
   # class_source's whole file, evaluated in a scratch module (so the class it defines

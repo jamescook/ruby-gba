@@ -97,6 +97,7 @@ module RubyGBA
         # an author-time literal of a stated type.
         def operands(**tags)
           @tags = Ractor.make_shareable(tags)
+          @operand_ivars = Ractor.make_shareable(tags.keys.to_h { |name| [name, :"@#{name}"] })
           tags.each_key do |name|
             attr_reader name
 
@@ -120,6 +121,13 @@ module RubyGBA
 
         def tags
           @tags || {}
+        end
+
+        # Each operand's name beside the instance variable that holds it, made once when the
+        # kind is declared. Building that name from a String on every read takes a lock the
+        # whole process shares, so a build running beside others on other cores waited on it.
+        def operand_ivars
+          @operand_ivars || {}
         end
       end
 
@@ -174,9 +182,9 @@ module RubyGBA
       # given: a kind may declare a field that a particular node leaves alone (an `if` with
       # no `else`), and that is not the same as carrying it empty.
       def attrs
-        self.class.tags.keys
-            .select { |name| instance_variable_defined?(:"@#{name}") }
-            .to_h { |name| [name, public_send(name)] }
+        self.class.operand_ivars
+            .select { |_, ivar| instance_variable_defined?(ivar) }
+            .to_h { |name, _| [name, public_send(name)] }
       end
 
       # -- what a node is, for code that walks every kind --
@@ -293,14 +301,18 @@ module RubyGBA
         result
       end
 
-      # Structural equality: same shape, ignoring parent/source. Lets tests say
-      # assert_equal(expected_tree, actual_tree).
-      def ==(other)
+      # Whether +other+ is a tree of the same shape, ignoring parent and source — for a test
+      # that builds the tree it expects and compares. It flattens both trees, so it is for
+      # tests and never for finding a node.
+      #
+      # A node is otherwise equal only to ITSELF (==, eql? and hash are Object's). Two
+      # statements that read the same are still two places in the program, and the builder
+      # finds, removes and orders nodes by which one it holds: comparing by contents there
+      # removed every sibling that read the same, and flattened whole subtrees on every
+      # step — a cost a build paid thousands of times over.
+      def same_shape?(other)
         other.is_a?(Node) && to_h == other.to_h
       end
-      alias eql? ==
-
-      def hash = to_h.hash
 
       # Each operand of this node that holds a name somewhere in it, with what it holds — for
       # a pass looking for where a name is used, which then never reads a game's data. Settled
@@ -332,7 +344,7 @@ module RubyGBA
                 "Declare it with `operands` if this kind should have it."
         end
 
-        public_send(:"#{name}=", value)
+        store_operand(name, value)
       end
 
       # The one door into an operand: hold it still, store it, wire a nested node's parent
@@ -340,7 +352,7 @@ module RubyGBA
       # looking for names does.
       def store_operand(name, value)
         leads, named = operand_flags!(value)
-        instance_variable_set(:"@#{name}", value)
+        instance_variable_set(self.class.operand_ivars.fetch(name), value)
         value.parent = self if value.is_a?(Node)
 
         @node_fields = toggle_field(node_fields, name, leads)
