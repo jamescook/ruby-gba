@@ -460,12 +460,16 @@ module RubyGBA
         # A fresh node per use: an IR node belongs to one parent, so the same read cannot
         # be handed to two statements.
         frame = -> { Build.list_get(pool.frame_list, Build.var_ref(index)) }
-        wrap = Build.if_(Build.binop(:>=, frame.call, Build.int(art.cycle_length)),
-                         Build.list_set(pool.frame_list, Build.var_ref(index), Build.int(0)))
-        step = Build.repeat(Build.int(capacity), index,
-                            Build.list_set(pool.frame_list, Build.var_ref(index),
-                                           Build.binop(:+, frame.call, Build.int(1))),
-                            wrap)
+        # ...and the whole step is built again for each frame boundary it goes at, for the
+        # same reason (see ControlFlow#finalize_animation_steps).
+        step = lambda do
+          wrap = Build.if_(Build.binop(:>=, frame.call, Build.int(art.cycle_length)),
+                           Build.list_set(pool.frame_list, Build.var_ref(index), Build.int(0)))
+          Build.repeat(Build.int(capacity), index,
+                       Build.list_set(pool.frame_list, Build.var_ref(index),
+                                      Build.binop(:+, frame.call, Build.int(1))),
+                       wrap)
+        end
         @pool_animations << { tick: pool.tick_var, rate: art.rate, step: step }
       end
 

@@ -545,6 +545,7 @@ module RubyGBA
       lay_out_save_records
       emit_bodies(emitted, default_screen_mode)
 
+      finalize_animation_steps
       finalize_present_lists
       finalize_pool_stacking
       finalize_background_scrolls

@@ -98,13 +98,11 @@ module RubyGBA
         present_node = Build.present_objects([])
         record(present_node)
         @present_nodes << present_node
-        # Then step every flipbook sprite's pose along its beat, so the next frame
-        # shows the next picture.
-        @animations.each { |anim| advance_animation(anim).each { |node| record(node) } }
-        # ...and every posed pool along its own beat. A pool keeps one counter for the
-        # whole set and a frame per instance, so a frame that is not a step costs one
-        # compare and a step walks the slots.
-        @pool_animations.each { |anim| advance_pool_animation(anim).each { |node| record(node) } }
+        # Every flipbook is stepped along its beat straight after this, so the next frame
+        # shows the next picture. Which flipbooks there are isn't known yet either, for the
+        # same reason, so those steps are put in at finalize too (see
+        # #finalize_animation_steps).
+        #
         # The scroll position of every background the game moves is written here too,
         # right after the wait. Which backgrounds those are isn't known yet, so this
         # only marks the spot (see Builder#finalize_background_scrolls).
@@ -380,12 +378,48 @@ module RubyGBA
 
       # One posed pool's beat: count the frame, and when the beat comes round put the
       # counter back and step every instance on. The step is a walk of the pool's slots,
-      # built where the pool was declared (Composition#register_pool_animation).
+      # said where the pool was declared (Composition#register_pool_animation) and built
+      # afresh for each place it goes, since a node belongs to one place in the tree.
       def advance_pool_animation(anim)
         step = Build.if_(Build.binop(:>=, Build.var_ref(anim[:tick]), Build.int(anim[:rate])),
                          Build.set(anim[:tick], Build.int(0)),
-                         anim[:step])
+                         anim[:step].call)
         [Build.add(anim[:tick], Build.int(1)), step]
+      end
+
+      # STEP EVERY FLIPBOOK ALONG ITS BEAT, straight after each frame's sprites are drawn, so
+      # the next frame shows the next picture: every animated sprite, and every posed pool —
+      # which keeps one counter for the whole set and a frame per instance, so a frame that
+      # is not a step costs one compare and a step walks the slots.
+      #
+      # IT HAS TO BE NOW rather than where the frame boundary was written. A scene declares
+      # its own sprites and pools inside its body, and a scene's body is built after the game
+      # loop that runs it — so stepped as the boundary was recorded, a flipbook declared in a
+      # scene was not known yet and stood on its first picture for ever, with nothing to say
+      # why. By here every body has been built.
+      #
+      # A flipbook is stepped whether or not its scene is up. It costs the same count and
+      # compare either way, and one that kept time while nobody could see it is not a thing
+      # a player can tell from one that did not.
+      #
+      # Called before #finalize_present_lists, which takes a frame's present node away when
+      # the game has no sprites of the console's own to draw: that node is what says where
+      # in the frame this goes.
+      def finalize_animation_steps
+        return if @animations.empty? && @pool_animations.empty?
+
+        @present_nodes.each do |present|
+          container = present.parent
+          at = container&.children&.index(present)
+          next unless at
+
+          steps = @animations.flat_map { |anim| advance_animation(anim) } +
+                  @pool_animations.flat_map { |anim| advance_pool_animation(anim) }
+          steps.each_with_index do |node, offset|
+            container.children.insert(at + 1 + offset, node)
+            node.parent = container
+          end
+        end
       end
 
       # An animation's frame-count or rate as a value node: a Symbol names a variable (a

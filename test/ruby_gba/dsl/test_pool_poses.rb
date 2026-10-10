@@ -103,6 +103,49 @@ class TestPoolPoses < Minitest::Test
     assert_equal RED, Reference.new.run(prog, frames: 5).screen.pixel(22, 22), "and it wraps"
   end
 
+  # A pool declared inside a scene, which is where a game with screens declares its cast. A
+  # scene's body is built after the game loop that runs it, and the pool steps its frames
+  # all the same.
+  def scene_pool_program
+    b = Builder.new
+    b.instance_eval do
+      screen :tiled
+      image(:left1, "#" => :red) { "########\n" * 8 }
+      image(:left2, "#" => :blue) { "########\n" * 8 }
+      var :state, 0
+      scene :play do
+        guards = pool :guard, x: 0, y: 0, capacity: 8, frames: %i[left1 left2], rate: 2
+        placed = var :placed, 0
+        (placed == 0).then do
+          guards.spawn x: 20, y: 20
+          placed.set! 1
+        end
+      end
+      game_loop { case_var(:state) { when_val 0, :play } }
+    end
+    b.finalize_program
+    b.program
+  end
+
+  def test_a_pool_declared_inside_a_scene_cycles_its_frames
+    prog = scene_pool_program
+    shown = (2..7).map { |frames| Reference.new.run(prog, frames: frames).sprites(:guard).map(&:picture) }
+
+    assert_equal [[:left1], [:left2], [:left2], [:left1], [:left1], [:left2]], shown
+  end
+
+  def test_the_console_cycles_a_pool_declared_inside_a_scene
+    rom = ROM.assemble(GBA.new.lower(scene_pool_program), title: "POOLSCENE")
+    v = assert_emulator_loads_rom(rom, frames: 3)
+    seen = Array.new(6) do
+      v.step
+      %i[red blue].find { |color| v.pixel_is?(22, 22, color) }
+    end
+
+    assert_includes seen, :red
+    assert_includes seen, :blue, "the second picture is shown too"
+  end
+
   # The one that decides whether the composition layer is usable for a cast: a walk cycle
   # per direction, chosen per instance.
   def test_two_instances_walk_in_two_directions_at_once
