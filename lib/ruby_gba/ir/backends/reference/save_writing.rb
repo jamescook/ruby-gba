@@ -23,6 +23,11 @@ module RubyGBA
         # What else changes is what any power-on of the game changes — the table of places, and
         # whatever the game itself saves before its first frame. The random numbers are the one
         # kept thing `reset` leaves rolling, so unnamed they are wherever power-on left them.
+        #
+        # A save_var is written the same way, by save_vars_into: on the 32K memory into its own
+        # slot, as the game writes one the moment it changes, after power-on has put the marker
+        # that says the slots are this game's; on flash by saving the record the save_vars are
+        # kept in there, which power-on loaded, so the ones the test leaves out keep their values.
         module SaveWriting
           # The things a test can write into a copy, said in an error that refuses another.
           WRITABLE = "a variable (a number), a list (an Array of numbers) and random_numbers (a number)"
@@ -37,6 +42,13 @@ module RubyGBA
               new(save: image).run(program, frames: 0).write_save_copy(program, record, copy, values)
               image
             end
+
+            # Write the save_vars +values+ (a whole number each, by name) into +image+, the way
+            # the game itself saves one that changed. Returns +image+.
+            def save_vars_into(image, program, **values)
+              new(save: image).run(program, frames: 0).write_save_vars(program, values)
+              image
+            end
           end
 
           # Give record +record+'s kept things +values+ and save copy +copy+, then finish the
@@ -46,7 +58,55 @@ module RubyGBA
             refuse_copy_out_of_range!(name, copy, copies)
             call_func(save_routine(name, :reset)) # the power-on code may have loaded another copy
             values.each { |key, value| put_kept_value(name, kept, key, value) }
+            save_and_finish(name, copy)
+          end
 
+          # Give the save_vars +values+ and save them. Called on an interpreter that has run
+          # +program+ to its first frame (see the module comment).
+          def write_save_vars(program, values)
+            init = program.walk.find { |node| node.kind == :save_init }
+            names = init ? init.vars.map(&:name) : save_var_names_on_flash(program)
+            values.each do |name, value|
+              refuse_unsaved_name!(name, names)
+              refuse_save_var_value!(name, value)
+              @vars[name] = value
+              write_save(SaveLayout.save_var_at(init.vars.find { |var| var.name == name }.slot), value, SAVE_WIDTHS[:word]) if init
+            end
+            save_and_finish(SaveLayout::SAVE_VAR_RECORD, 0) unless init
+            self
+          end
+
+          private
+
+          # On flash the save_vars are the variables their record keeps, beside the count of
+          # them it keeps first.
+          def save_var_names_on_flash(program)
+            node = program.walk.find { |one| one.kind == :save_memory }
+            record = (node&.records || []).find { |one| one.first == SaveLayout::SAVE_VAR_RECORD }
+            return [] unless record
+
+            count = save_routine(SaveLayout::SAVE_VAR_RECORD, :count)
+            record.last.filter_map { |kind, name| name if kind == :var && name != count }
+          end
+
+          def refuse_unsaved_name!(name, names)
+            return if names.include?(name)
+
+            raise ArgumentError, "This program declares no save_vars. Declare one with `save_var :#{name}, 0`." if names.empty?
+
+            raise ArgumentError,
+                  "This program has no save_var :#{name}. Its save_vars are #{names.map { |one| ":#{one}" }.join(', ')}."
+          end
+
+          def refuse_save_var_value!(name, value)
+            return if value.is_a?(Integer)
+
+            raise ArgumentError, "The save_var :#{name} holds a whole number, and the test gave it #{value.inspect}. " \
+                                 "Give :#{name} a whole number."
+          end
+
+          # Save copy +copy+ of record +name+ and finish the save before returning.
+          def save_and_finish(name, copy)
             @vars[save_routine(name, :copy)] = copy
             call_func(save_routine(name, :save))
             # The running save and one waiting behind it, each to the end: two is as many as the
@@ -58,8 +118,6 @@ module RubyGBA
             refuse_save_not_taken!(name) if @vars[save_routine(name, :failed)] == 1
             self
           end
-
-          private
 
           def save_routine(record, piece) = Messages::MadeNames.make(:save_record, record: record, piece: piece)
 
