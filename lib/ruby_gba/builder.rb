@@ -546,6 +546,7 @@ module RubyGBA
       emit_bodies(emitted, default_screen_mode)
 
       finalize_present_lists
+      finalize_pool_stacking
       finalize_background_scrolls
       finalize_background_maps
       refuse_shifted_tile_run_lists!

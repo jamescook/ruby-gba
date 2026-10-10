@@ -17,7 +17,8 @@ module RubyGBA
       # Field names that would shadow a Pool/Instance method, so a component can't
       # declare one (it would clash with spawn/remove/each/count/…).
       POOL_RESERVED_FIELDS = %i[active free count slot spawn remove each full index name capacity
-                                func current draw_with next prev retired].freeze
+                                func current draw_with next prev retired
+                                stacked stackedx stackedy stackedpose stackedcolors].freeze
 
       # What spawn does when the pool is full: :drop ignores it (a safe no-op),
       # :recycle_oldest reuses the longest-lived instance so a new one always appears.
@@ -96,7 +97,7 @@ module RubyGBA
         handle = DSL::Pool.new(self, name, fields, capacity, image: image, hitbox: art&.hitbox, on_full: on_full,
                                                         usually: usual_length(estimate, capacity), art: art)
         setup_pool_storage(handle, capacity, fields, widths, fast)
-        setup_pool_art(handle, capacity, art) if art
+        setup_pool_art(handle, capacity, art, widths, fast) if art
         declared_pools << handle
         handle
       end
@@ -130,15 +131,20 @@ module RubyGBA
 
       # Give +pool+ a hidden slot per instance saying which other list of colours it is drawn
       # with, the first time one is told to draw with one (see Pool#draw_with). Every slot
-      # starts in its own colours, and each slot's sprite reads its own.
+      # starts in its own colours.
       def make_pool_recolorable(pool)
         at_boot(Build.list_new(pool.colors_list, pool.capacity, width: :byte))
         index = :"__pool_#{pool.name}_colors_fill"
         ensure_var(index)
         at_boot(Build.repeat(Build.int(pool.capacity), index,
                              Build.list_push(pool.colors_list, Build.int(Build::NO_RECOLOR))))
-        pool.slot_objects.each_with_index do |node, slot|
-          node.recolor = Build.list_get(pool.colors_list, Build.int(slot))
+        # ...and each of the pool's sprites reads the colours copied for its place in the
+        # drawing order (see Pool#stacked_list), which the copy fills from the slots.
+        stacked = pool.stacked_list(:colors)
+        at_boot(Build.list_new(stacked, pool.capacity, width: :byte))
+        at_boot(Build.repeat(Build.int(pool.capacity), index, Build.list_push(stacked, Build.int(Build::NO_RECOLOR))))
+        pool.stacked_objects.each_with_index do |node, place|
+          node.recolor = pool.stacked_at(:colors, pool.rank_at_place(place))
         end
       end
 
@@ -367,28 +373,78 @@ module RubyGBA
               "pool :#{name} is missing #{missing.map { |f| "#{f}:" }.join(' and ')}."
       end
 
-      # Declare one hardware-sprite object per slot, each bound to the field lists at its
-      # fixed index — so present_objects draws every live slot at its x/y and hides the
-      # dead ones for free. The active flag is scene-gated, so a pool declared in a scene
-      # only shows while that scene is live.
+      # Declare one hardware-sprite object for each thing that can be live at once. Each
+      # shows a PLACE IN THE ORDER the things were spawned in, not a slot (see
+      # Pool#stacked_list): it reads the position and picture copied for its place, so
+      # present_objects draws the live things oldest in front and hides the sprites left
+      # over. The active flag is scene-gated, so a pool declared in a scene only shows while
+      # that scene is live.
       #
-      # WHICH PICTURE a slot shows is read out of the pool's own hidden slots the same
-      # way its position is: the direction it faces and where it is in its cycle are
+      # WHICH PICTURE a thing shows comes out of the pool's own hidden slots the same way
+      # its position does: the direction it faces and where it is in its cycle are
       # per-instance, so ten guards face ten ways and do not march in step.
-      def setup_pool_art(pool, capacity, art)
+      def setup_pool_art(pool, capacity, art, widths = {}, fast = nil)
         (@spriteful_pools ||= []) << pool
-        capacity.times do |slot|
-          name = pool.object_name(slot)
-          node = Build.object(name, poses: art.poses, pose: pool.pose_node(slot),
-                                    x: Build.list_get(pool.field_list(:x), Build.int(slot)),
-                                    y: Build.list_get(pool.field_list(:y), Build.int(slot)),
-                                    active: gated_by_scene(Build.list_get(pool.active_list, Build.int(slot))),
+        setup_pool_stacking(pool, capacity, art, widths, fast)
+        capacity.times do |place|
+          rank = pool.rank_at_place(place)
+          name = pool.object_name(place)
+          node = Build.object(name, poses: art.poses, pose: pool.pose_node(rank),
+                                    x: pool.stacked_at(:x, rank), y: pool.stacked_at(:y, rank),
+                                    active: gated_by_scene(pool.rank_taken(rank)),
                                     scene: declaring_scene, declared: pool.name)
           record(node)
-          pool.slot_objects << node
+          pool.stacked_objects << node
           @sprite_objects << name
         end
         register_pool_animation(pool, capacity, art) if art.animates?
+      end
+
+      # The lists a pool's things are copied into each frame, in the order they are drawn:
+      # where each is, at the width its x and y fields have, and which picture when there is
+      # a choice. Every entry exists from the start, so each can be written by its index. The
+      # colours join them only if the pool is ever told to draw with others (see
+      # #make_pool_recolorable).
+      def setup_pool_stacking(pool, capacity, art, widths, fast)
+        index = :"__pool_#{pool.name}_stacking_fill"
+        [index, pool.stacked_var, pool.stacking_cursor_var, pool.stacking_index_var].each { |var| ensure_var(var) }
+        kept = { x: widths.fetch(:x, :word), y: widths.fetch(:y, :word) }
+        kept[:pose] = art.poses.length <= 128 ? :byte : :half if pool.posed?
+        kept.each { |part, width| at_boot(Build.list_new(pool.stacked_list(part), capacity, width: width, fast: fast)) }
+        at_boot(Build.repeat(Build.int(capacity), index,
+                             *kept.keys.map { |part| Build.list_push(pool.stacked_list(part), Build.int(0)) }))
+        at_boot(Build.set(pool.stacked_var, Build.int(0)))
+      end
+
+      # COPY EACH DRAWING POOL INTO ITS DRAWING ORDER IN THE GAP BEFORE EVERY FRAME, last of
+      # everything that runs there and just before the sprites are drawn — so a thing a
+      # `once_a_frame` body spawned, moved or removed in that same gap is drawn as it now is.
+      #
+      # Each pool's copy is a routine of its own rather than statements in the game loop: the
+      # game loop's body is the first thing kept in the console's quick memory, and a routine
+      # is placed by how much of a frame it takes like any other.
+      #
+      # Called before the passes that put the game's own per-frame work at the boundary, since
+      # each of those inserts straight after the wait and so lands in front of this.
+      def finalize_pool_stacking
+        pools = @spriteful_pools || []
+        return if pools.empty? || @frame_boundaries.empty?
+
+        pools.each do |pool|
+          @functions[pool.stacking_routine] = proc {}
+          push_container(Build.func(pool.stacking_routine)) { pool.stacking_nodes.each { |node| record(node) } }
+        end
+        @frame_boundaries.each do |wait_node|
+          container = wait_node.parent
+          at = container&.children&.index(wait_node)
+          next unless at
+
+          pools.reverse_each do |pool|
+            node = Build.call(pool.stacking_routine)
+            container.children.insert(at + 1, node)
+            node.parent = container
+          end
+        end
       end
 
       # THE POOL'S RHYTHM IS SHARED AND ITS PLACE IN THE CYCLE IS NOT, which is what makes

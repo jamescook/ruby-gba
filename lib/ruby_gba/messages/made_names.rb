@@ -102,6 +102,8 @@ module RubyGBA
                                     words: ->(_) { "copying a run of a table into a list" }),
         told_turn: Kind.new(spelling: "__bg_%{background}_told_%{part}", parts: { background: ANY, part: PLAIN },
                             words: nil),
+        pool_stacking: Kind.new(spelling: "__stacking_pool_%{pool}", parts: { pool: ANY },
+                                words: ->(parts) { "putting the sprites of pool :#{parts[:pool]} oldest in front" }),
         see_through_amounts: Kind.new(spelling: "__see_through_%{layer}", parts: { layer: ANY },
                                       words: ->(parts) { "telling the display how see-through layer :#{parts[:layer]} is" }),
       }.then { |kinds| Ractor.make_shareable(kinds) }

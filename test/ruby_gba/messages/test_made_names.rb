@@ -22,6 +22,7 @@ class TestMadeNames < Minitest::Test
     scene_sprites_shown: { scene: :playing },
     still_sprites: {},
     see_through_amounts: { layer: :rays },
+    pool_stacking: { pool: :guard },
     list_fill_routine: {},
     list_copy_routine: {},
     pose_rows: { number: 2 },
@@ -55,6 +56,7 @@ class TestMadeNames < Minitest::Test
       MadeNames.make(:scene_sprites, scene: :playing) => "moving the sprites of scene :playing",
       MadeNames.make(:still_sprites) => "writing the sprites nothing moves",
       MadeNames.make(:see_through_amounts, layer: :rays) => "telling the display how see-through layer :rays is",
+      MadeNames.make(:pool_stacking, pool: :guard) => "putting the sprites of pool :guard oldest in front",
     }
     said.each { |name, words| assert_equal words, MadeNames.words_for_made_name(name), name.inspect }
     assert_nil MadeNames.words_for_made_name(:jump), "a routine the author named is not one of these"

@@ -24,7 +24,8 @@ module RubyGBA
     # spawn joins the end of it and a removal closes the gap, so `each` visits the oldest
     # first and the newest last, and walks only what is in the chain rather than every slot.
     # That order is what a player can see: things that each roll a random number roll them
-    # one after another, and the first to reach something gets it.
+    # one after another, and the first to reach something gets it. A pool that draws is
+    # drawn in it too, the oldest thing in front (see #stacked_list).
     class Pool
       Build = IR::Build
 
@@ -87,8 +88,93 @@ module RubyGBA
       # dropping the spawn). When true the pool keeps a little extra bookkeeping (below).
       def recycle_oldest? = @on_full == :recycle_oldest
 
-      # The per-slot sprite object's name (one hardware sprite per slot).
-      def object_name(slot) = :"__pool_#{@name}_obj_#{slot}"
+      # The name of one of the pool's sprite objects. There is one for each thing that can be
+      # live at once, and +place+ counts them back to front.
+      def object_name(place) = :"__pool_#{@name}_obj_#{place}"
+
+      # WHAT EACH OF THE POOL'S SPRITES SHOWS IS WORKED OUT EVERY FRAME, from the chain.
+      #
+      # A pool that draws has one sprite for each thing that can be live at once, and where
+      # two sprites overlap the one declared later is in front. If each sprite always showed
+      # the same slot, which of two things was in front would follow the slots they landed
+      # in, and a slot says nothing about when its thing came: a slot given back is the next
+      # one handed out, so the newest thing would sometimes cover an older one and sometimes
+      # not.
+      #
+      # So a sprite shows a PLACE IN THE ORDER rather than a slot. Before each frame is
+      # drawn the chain is walked once, oldest first, and what each live thing looks like —
+      # where it is, which picture, which colours — is copied into lists kept in that order.
+      # The frontmost sprite then shows the first entry, the next one back the second, and a
+      # sprite with no entry left to show is hidden. The oldest thing is in front of every
+      # thing spawned after it, whatever slots they are in.
+      #
+      # THE COPY IS ONE LOOP FOR THE WHOLE POOL, and that is why it is a copy. Each sprite
+      # could instead look up which slot stands at its place and read that slot's fields, but
+      # a sprite's code is written out once per sprite, so every read through a second list
+      # is paid in code for every slot the pool has, in the memory the frame's own code has
+      # to fit — a pool's cost in code would grow with its capacity. Copied, each sprite
+      # reads its own entry exactly as it used to read its own slot, and the pool pays one
+      # loop however big it is, and a few bytes of memory a slot.
+      #
+      # +stacked_list+ names those lists and +stacked_var+ says how many entries they hold.
+      def stacked_list(part) = :"__pool_#{@name}_stacked#{part}"
+      def stacked_var = :"__pool_#{@name}_stacked"
+      def stacking_cursor_var = :"__pool_#{@name}_stacking_at"
+      def stacking_index_var = :"__pool_#{@name}_stacking_pass"
+
+      # What a pool copies for each thing: where it is, then its picture when there is more
+      # than one to choose from, then its colours when it was ever told to draw with others.
+      def stacked_parts
+        parts = %i[x y]
+        parts << :pose if posed?
+        parts << :colors if recolorable?
+        parts
+      end
+
+      # Whether a thing's picture is something to read at all: a pool given one picture
+      # always shows it.
+      def posed? = @art.faces? || @art.animates?
+
+      # The routine that makes the copy (see #stacking_nodes), called before each frame is
+      # drawn.
+      def stacking_routine = Messages::MadeNames.make(:pool_stacking, pool: @name)
+
+      # How many things are older than the one the sprite at +place+ shows. The sprites are
+      # declared back to front, so the last of them shows the oldest thing.
+      def rank_at_place(place) = @capacity - 1 - place
+
+      # One part of the thing with +rank+ older things before it, as a value node.
+      def stacked_at(part, rank) = Build.list_get(stacked_list(part), Build.int(rank))
+
+      # Whether any live thing has +rank+ older things before it, as a value node.
+      def rank_taken(rank) = Build.binop(:>, Build.var_ref(stacked_var), Build.int(rank))
+
+      # The statements that make the copy: walk the chain from its first thing and copy each
+      # live one into the next entry. A dead thing can still be in the chain — one removed
+      # during a walk that a save was made in the middle of — and is passed over.
+      def stacking_nodes
+        at = -> { Build.var_ref(stacking_cursor_var) }
+        copies = stacked_parts.map do |part|
+          Build.list_set(stacked_list(part), Build.var_ref(stacked_var), part_of_slot(part, at))
+        end
+        live = Build.binop(:==, Build.list_get(active_list, at.call), Build.int(1))
+        [Build.set(stacked_var, Build.int(0)),
+         Build.set(stacking_cursor_var, Build.var_ref(head_var)),
+         Build.repeat(Build.int(@capacity), stacking_index_var,
+                      Build.if_(live, *copies, Build.add(stacked_var, Build.int(1))),
+                      Build.set(stacking_cursor_var, Build.list_get(next_list, at.call)),
+                      stop_when: Build.binop(:==, at.call, Build.int(NONE)))]
+      end
+
+      # One part of the thing in the slot +at+ gives, read from the pool's own lists. +at+ is
+      # called for a fresh node at each use, since a node belongs to one statement.
+      def part_of_slot(part, at)
+        case part
+        when :pose then pose_of_slot(at)
+        when :colors then Build.list_get(colors_list, at.call)
+        else Build.list_get(field_list(part), at.call)
+        end
+      end
 
       # --- backing-storage names ---------------------------------------------------
       #
@@ -166,15 +252,19 @@ module RubyGBA
         lists
       end
 
-      # WHICH PICTURE ONE SLOT SHOWS, as a value node. A plain pool always shows its one
-      # picture. A pool that faces reads the slot's direction; one that animates reads its
-      # frame; one that does both composes them — direction * frames-per-direction + frame,
-      # which is the order the pictures were flattened in.
-      def pose_node(slot)
-        at = Build.int(slot)
-        facing = Build.list_get(facing_list, at) if @art.faces?
-        frame = Build.list_get(frame_list, at) if @art.animates?
-        return frame || facing || Build.int(0) unless facing && frame
+      # WHICH PICTURE THE THING WITH +rank+ OLDER THINGS BEFORE IT SHOWS, as a value node. A
+      # pool given one picture always shows it; any other reads the picture copied for that
+      # place in the order.
+      def pose_node(rank) = posed? ? stacked_at(:pose, rank) : Build.int(0)
+
+      # WHICH PICTURE THE THING IN ONE SLOT SHOWS, as a value node. A pool that faces reads
+      # the slot's direction; one that animates reads its frame; one that does both composes
+      # them — direction * frames-per-direction + frame, which is the order the pictures were
+      # flattened in. +at+ gives the slot, called for a fresh node at each use.
+      def pose_of_slot(at)
+        facing = Build.list_get(facing_list, at.call) if @art.faces?
+        frame = Build.list_get(frame_list, at.call) if @art.animates?
+        return frame || facing unless facing && frame
 
         Build.binop(:+, Build.binop(:*, facing, Build.int(@art.per_dir)), frame)
       end
@@ -215,8 +305,9 @@ module RubyGBA
       # only by a pool that was ever told to draw with one.
       def colors_list = :"__pool_#{@name}_colors"
 
-      # The sprite each slot is drawn as, one per slot, for a pool whose instances draw.
-      def slot_objects = @slot_objects ||= []
+      # The sprites the pool's things are drawn as, back to front, for a pool whose instances
+      # draw (see #stacked_list for which thing each one shows).
+      def stacked_objects = @stacked_objects ||= []
 
       # Draw the instance at slot +index+ with other colours — the same verb a sprite has, and
       # the same rules (see HardwareSprite#draw_with). Each instance keeps its own choice.
@@ -229,7 +320,7 @@ module RubyGBA
           end
           @builder.make_pool_recolorable(self)
           recolors = Recolors.new(@builder, subject: "pool :#{@name}", poses: @art.poses)
-          slot_objects.each { |node| recolors.attach_object(node) }
+          stacked_objects.each { |node| recolors.attach_object(node) }
           recolors
         end
         choice = FieldRef.new(builder: @builder, list: colors_list, index: index.node, pool: @name, field: :colors)
