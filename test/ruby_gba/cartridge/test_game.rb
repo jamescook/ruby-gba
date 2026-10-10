@@ -47,6 +47,87 @@ class TestGame < Minitest::Test
     assert_equal Color.resolve(:green), i.screen.pixel(0, 0)
   end
 
+  # A helper that takes a block and hands back a game which uses it. It is a module's own
+  # method on purpose: the game's block then belongs to the module, so nothing about the
+  # block but the block parameter ties it to where it was written.
+  module GameAroundBlock
+    def self.declare(title, &subject)
+      RubyGBA.game(title) do
+        screen :bitmap
+        var :made, subject ? subject.call : -1
+        halt
+      end
+    end
+
+    # The same, with the game's block reading the block parameter one block further in.
+    def self.declare_nested(title, &subject)
+      RubyGBA.game(title) do
+        screen :bitmap
+        var :made, 0
+        func(:make) { set! :made, subject ? subject.call : -1 }
+        call :make
+        halt
+      end
+    end
+
+    # The same, with the game declared one block inside the method that took the block.
+    def self.declare_from_a_block(title, &subject)
+      [title].map do |name|
+        RubyGBA.game(name) do
+          screen :bitmap
+          var :made, subject ? subject.call : -1
+          halt
+        end
+      end.first
+    end
+
+    # A game whose block reaches for nothing, written beside a block parameter it never reads.
+    def self.declare_beside_a_block(title, &_unread)
+      RubyGBA.game(title) do
+        screen :bitmap
+        var :made, 3
+        halt
+      end
+    end
+  end
+
+  # A block parameter is a local like any other, so the game's block sees the block its
+  # method was given — not nothing, which is what a block cut loose from its method read.
+  def test_a_block_parameter_is_captured_by_the_block
+    g = GameAroundBlock.declare("BLOCKARG") { 7 }
+
+    assert_equal 7, Reference.new.run(g.program)[:made]
+  end
+
+  def test_a_block_parameter_is_captured_by_a_block_inside_the_block
+    g = GameAroundBlock.declare_nested("BLOCKIN") { 7 }
+
+    assert_equal 7, Reference.new.run(g.program)[:made]
+  end
+
+  def test_a_block_parameter_is_captured_from_a_block_inside_its_method
+    g = GameAroundBlock.declare_from_a_block("BLOCKOUT") { 7 }
+
+    assert_equal 7, Reference.new.run(g.program)[:made]
+  end
+
+  # Only a block parameter the game's block READS keeps the game on the core that declared
+  # it. One that merely sits beside the block costs nothing, so such a game still builds on
+  # another core.
+  def test_a_block_parameter_the_block_never_reads_does_not_tie_the_game_to_its_core
+    g = GameAroundBlock.declare_beside_a_block("BLOCKBY") { 7 }
+
+    assert Ractor.shareable?(g), "a game that reaches for nothing can cross to another core"
+    assert_equal 3, Ractor.new(g) { |game| Reference.new.run(game.program)[:made] }.value
+  end
+
+  # A block made from a symbol was never written anywhere, so it has no surroundings to read.
+  def test_a_block_made_from_a_symbol_is_still_a_game
+    g = RubyGBA.game("FROMSYMBOL", &:halt)
+
+    refute Reference.new.run(g.program).stopped_at_budget?, "the game is its one verb, and it ran"
+  end
+
   def test_build_rom_returns_a_written_cartridge
     g = RubyGBA.game("ROMTEST", code: "BRMT", maker: "01") do
       screen :bitmap

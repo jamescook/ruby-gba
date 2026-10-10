@@ -42,9 +42,31 @@ module RubyGBA
       # builds perfectly well — on the core that declared it, which is where it was going to
       # be built anyway. So this tries, and keeps what it was given when it cannot.
       private def shareable_if_possible(block)
+        materialize_block_parameters(block)
         Ractor.make_shareable(block)
       rescue Ractor::IsolationError
         block
+      end
+
+      # A BLOCK PARAMETER IS THE ONE LOCAL RUBY DOES NOT CHECK, so it is read here first.
+      #
+      # A method written `def declare(&subject)` is not handed a Proc for +subject+ until
+      # something asks for one: until then the variable is an empty place and the block waits
+      # beside it. Cutting a block loose copies the places it reads, so a game's block that
+      # reads +subject+ was given the empty place — nothing to refuse, since nothing is as
+      # shareable as it gets — and the game read nil where its method's block was, with no
+      # error anywhere.
+      #
+      # Reading every local the block can see asks for that Proc. After that the place holds
+      # one, which cannot be shared, so the block is refused like any other that reaches for
+      # something around it and the game is built on the core that declared it.
+      #
+      # A block made from a method or a symbol has no surroundings to read, and none to lose.
+      private def materialize_block_parameters(block)
+        scope = block.binding
+        scope.local_variables.each { |name| scope.local_variable_get(name) }
+      rescue ArgumentError
+        nil
       end
 
       # The op-tree the DSL block builds — what the headless interpreter runs in tests.
