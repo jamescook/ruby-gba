@@ -520,6 +520,17 @@ class TestFastCodePlacement < Minitest::Test
     assert_charged_at_least_emitted(program, moved: RubyGBA::IR::Backends::GBA::Placement::IRQ_ROUTINE)
   end
 
+  # ...and NO MORE than that, for a routine with nothing in it that can grow: no call out and
+  # no big number. Every byte charged that is not emitted is room the chooser thinks is gone,
+  # and a routine that misses its place by a few bytes misses it entirely.
+  def test_a_routine_that_cannot_grow_is_charged_exactly_what_it_comes_out_at
+    backend = GBA.new
+    backend.lower(looping_program(fast: true))
+    charged, emitted = backend.charged_and_emitted_sizes.fetch(:work)
+
+    assert_equal emitted, charged
+  end
+
   # THE MEASUREMENT HAS TO BE OF THE PROGRAM THAT IS BUILT. A variable gets its address the
   # first time something names it, and the pass that measures emits the routines in the order
   # they were written where the real one emits the kept ones last — so a variable the build

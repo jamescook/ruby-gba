@@ -147,7 +147,10 @@ module RubyGBA
           CROSSING_ADDS_TO_REACH = 4
 
           # Saving the return address on the way in and returning at the end. The game
-          # loop's body measures without these, because inline it needs neither.
+          # loop's body measures without these, because inline it needs neither — and it is
+          # the only routine that does. Every other one, the routine the console interrupts
+          # into among them, is measured as the routine it already is with both instructions
+          # counted, so charging them again was eight bytes of room lost for each one kept.
           ROUTINE_WRAPPER = 8
 
           # Names of the routines that will run from the quick memory. Valid after #lower.
@@ -557,7 +560,8 @@ module RubyGBA
           # calls each holds that could cross.
           def moved_sizes(measured, crossings)
             measured.to_h do |name, size|
-              [name, size + (crossings[name] * CROSS_CALL_GROWTH) + ROUTINE_WRAPPER]
+              wrapper = name == FRAME_ROUTINE ? ROUTINE_WRAPPER : 0
+              [name, size + (crossings[name] * CROSS_CALL_GROWTH) + wrapper]
             end
           end
 
