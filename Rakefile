@@ -60,9 +60,12 @@ unless testopts.split.intersect?(%w[--ractor --no-ractor])
   ENV["TESTOPTS"] = "--ractor #{testopts}".strip
 end
 
+require_relative "test/support/suites"
+
 Rake::TestTask.new(test: %i[compile_emulator clear_coverage]) do |t|
   t.libs << "test" << "lib"
-  t.test_files = FileList["test/**/test_*.rb"]
+  # Not the native backend's tests: those run under test:native below (see TestSuites).
+  t.test_files = TestSuites.main
   # `test` on the load path is what lets every test file open with the one line
   # `require "test_helper"` and get the library, minitest, and the shared names.
   t.description = 'Run the suite (one file with TEST=test/test_foo.rb, one test with ' \
@@ -88,6 +91,29 @@ namespace :test do
     t.libs << "test" << "lib"
     t.test_files = FileList["test/ruby_gba/playthroughs/**/test_*.rb"]
     t.description = "Run the tests of playthroughs, tapes and comparisons"
+  end
+
+  # The native backend's tests, which `rake test` never runs. They compile C, so they need zig,
+  # and a missing zig stops them here with one plain line rather than failing every test in turn.
+  task :zig do
+    next if system("zig", "version", out: File::NULL, err: File::NULL)
+
+    abort "rake test:native needs zig to compile what it tests, and zig was not found. " \
+          "This project installs it through mise: run `mise install` here."
+  end
+
+  # NOT ON RACTORS, unlike `rake test`. Every native test starts child processes — zig, and the
+  # program it builds — which Ruby cannot do from inside a Ractor (the spawn waits for ever), so
+  # each class runs on the main one; and with no class left for the pool, the runner refuses to
+  # start. So this suite runs one test after another, as plain minitest does.
+  task :native_without_ractors do
+    ENV["TESTOPTS"] = "--no-ractor #{GIVEN_TESTOPTS}".strip
+  end
+
+  Rake::TestTask.new(native: %i[zig native_without_ractors]) do |t|
+    t.libs << "test" << "lib"
+    t.test_files = TestSuites.native
+    t.description = "Run the native backend's tests (needs zig; never part of rake test)"
   end
 end
 
