@@ -54,12 +54,19 @@ module RubyGBA
       a standalone Ruby class that reconstructs the IR and lowers it to machine code,
       nothing more. It's paged to your terminal, or written to --output like the .gba
       would be.
+
+      --format=native builds the game as a program for this computer instead: one file
+      with a window, the keyboard as the console's buttons (mGBA's keys), and nothing
+      else to install. It is written next to the game file, named from the title with no
+      extension. It needs zig (`mise install`), and the first one takes a while because
+      it compiles SDL; sound is not played yet.
     TEXT
     option :output, aliases: "-o", banner: "PATH",
                     desc: "Where to write the .gba, or the IR under --format=ir " \
                           "(default: <name>.gba beside the game file, or the pager for IR)"
     option :format, banner: "NAME", default: "game",
-                    desc: "What to emit: game (a .gba cartridge) or ir (a standalone Ruby class holding the IR)"
+                    desc: "What to emit: game (a .gba cartridge), ir (a standalone Ruby class holding the IR), " \
+                          "or native (a program for this computer)"
     option :profile, type: :boolean, default: false,
                      desc: "Also run the game and report what the build made and what it cost (see `profile`)"
     option :stats, type: :boolean, default: false,
@@ -74,8 +81,9 @@ module RubyGBA
       case options[:format]
       when "game" then build_cartridge(game_file)
       when "ir" then build_ir(game_file)
+      when "native" then build_native(game_file)
       else
-        raise Thor::Error, "#{options[:format].inspect} is not a build format. The formats are: game, ir."
+        raise Thor::Error, "#{options[:format].inspect} is not a build format. The formats are: game, ir, native."
       end
     rescue ArgumentError => e
       # A setting the game does not ask for, or one it cannot read: say why, not a backtrace.
@@ -303,6 +311,18 @@ module RubyGBA
       else
         Pager.new.page(source)
       end
+    end
+
+    # The "native" format: the game as a program for this computer, with a window. Written
+    # beside the game file, named like the cartridge with no extension.
+    def build_native(game_file)
+      game = load_game(game_file)
+      path = options[:output] || File.join(File.dirname(File.expand_path(game_file)), game.default_filename.delete_suffix(".gba"))
+      say "Building #{File.basename(path)} for this computer (the first build compiles SDL, which takes a while)"
+      RubyGBA::IR::Backends::Native.new.build_desktop(game, path, settings: given_settings)
+      say "Built #{path}"
+    rescue RubyGBA::IR::Backends::Native::LoweringError, RubyGBA::IR::Backends::Native::Zig::Error => e
+      raise Thor::Error, e.message
     end
 
     # One line on what the build kept in the console's quick memory, for --stats. The
