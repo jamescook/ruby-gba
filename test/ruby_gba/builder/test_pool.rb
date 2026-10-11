@@ -11,6 +11,9 @@ class TestPool < Minitest::Test
   GREEN = Color.resolve(:green)
   BLACK = 0
 
+  # The variable a pool keeps how many of its instances are live in.
+  def live_count_of(pool) = RubyGBA::DSL::Pool.count_var(pool)
+
   # spawn several instances with distinct fields; each draws every live one at its own
   # (x, y). Proves spawn, each, per-instance field reads, and that fields stay paired
   # (each instance draws at ITS own x AND y, never a crossed pair).
@@ -35,7 +38,7 @@ class TestPool < Minitest::Test
     assert_equal GREEN, i.screen.pixel(40, 30)
     assert_equal GREEN, i.screen.pixel(80, 50)
     assert_equal BLACK, i.screen.pixel(200, 100), "nowhere else"
-    assert_equal 3, i[:__pool_bullet_count], "three instances are live"
+    assert_equal 3, i[live_count_of(:bullet)], "three instances are live"
   end
 
   # A row handle's field is a mutable Value: b.y.add! moves it, b.y.clamp! pins it (the
@@ -88,7 +91,7 @@ class TestPool < Minitest::Test
     assert_equal GREEN, i.screen.pixel(10, 40), "the others remain"
     assert_equal GREEN, i.screen.pixel(30, 40)
     assert_equal BLACK, i.screen.pixel(20, 40), "the removed one is gone"
-    assert_equal 2, i[:__pool_thing_count], "the live count dropped by one"
+    assert_equal 2, i[live_count_of(:thing)], "the live count dropped by one"
   end
 
   # spawn on a full pool is a safe no-op: the count never exceeds capacity and nothing
@@ -104,7 +107,7 @@ class TestPool < Minitest::Test
     b.finalize_program
     i = Reference.new.run(b.program)
 
-    assert_equal 3, i[:__pool_p_count], "the pool filled to capacity and the extra spawns were dropped"
+    assert_equal 3, i[live_count_of(:p)], "the pool filled to capacity and the extra spawns were dropped"
   end
 
   # b.index hands back an instance's own slot as a Value. Save it in a variable while
@@ -143,14 +146,6 @@ class TestPool < Minitest::Test
       b.instance_eval { pool :swarm, x: 0, y: 0, capacity: 99_999 }
     end
     assert_match(/#{RubyGBA::Messages::PlainWords::QUICK_MEMORY}/, err.message)
-  end
-
-  def test_a_reserved_field_name_is_a_friendly_error
-    b = Builder.new
-    err = assert_raises(ArgumentError) do
-      b.instance_eval { pool :p, active: 0, capacity: 8 }
-    end
-    assert_match(/reserved/i, err.message)
   end
 
   # Cross-backend: a pool is pure sugar over lists + repeat, so the same program lowers

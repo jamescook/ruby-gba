@@ -47,7 +47,7 @@ class TestPoolRecycle < Minitest::Test
     assert_equal 1, i[:saw2], "the second instance is kept"
     assert_equal 0, i[:saw3], "the third spawn was dropped (pool was full)"
     assert_equal 2, i[:total]
-    assert_equal 2, i[:__pool_thing_count]
+    assert_equal 2, i[RubyGBA::DSL::Pool.count_var(:thing)]
   end
 
   # recycle_oldest: a full spawn replaces the OLDEST instance (tag 1), keeps the rest,
@@ -58,7 +58,7 @@ class TestPoolRecycle < Minitest::Test
     assert_equal 1, i[:saw2], "the newer instance stays"
     assert_equal 1, i[:saw3], "the new spawn appeared"
     assert_equal 2, i[:total], "still exactly capacity live — reused a slot, didn't grow"
-    assert_equal 2, i[:__pool_thing_count]
+    assert_equal 2, i[RubyGBA::DSL::Pool.count_var(:thing)]
   end
 
   # "Oldest" is by spawn age, not slot: remove a middle instance (freeing its slot), spawn
@@ -73,7 +73,7 @@ class TestPoolRecycle < Minitest::Test
     assert_equal 1, i[:saw3], "tag 3 stays"
     assert_equal 1, i[:saw4], "tag 4 (spawned into the freed slot) stays"
     assert_equal 1, i[:saw5], "tag 5 (the newest) appeared"
-    assert_equal 3, i[:__pool_thing_count]
+    assert_equal 3, i[RubyGBA::DSL::Pool.count_var(:thing)]
   end
 
   # An unknown policy is a friendly build error, naming the valid choices.

@@ -150,9 +150,8 @@ class TestPoolWalkOrder < Minitest::Test
   # The slots 1 and 2 landed in, after the walk that rolls.
   private def slots_of_one_and_two(game)
     run = Reference.new.run(game.program, frames: 6)
-    ids = run.list(:__pool_thing_id)
-    live = run.list(:__pool_thing_active)
-    [1, 2].map { |id| (0...ids.length).find { |slot| ids[slot] == id && live[slot] == 1 } }
+    ids = run.pool(:thing, :id) # an entry a slot, nil where the slot is free
+    [1, 2].map { |id| ids.index(id) }
   end
 
   private def rolls(game)

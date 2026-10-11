@@ -90,7 +90,7 @@ module RubyGBA
 
       # The name of one of the pool's sprite objects. There is one for each thing that can be
       # live at once, and +place+ counts them back to front.
-      def object_name(place) = :"__pool_#{@name}_obj_#{place}"
+      def object_name(place) = part_name("obj_#{place}")
 
       # WHAT EACH OF THE POOL'S SPRITES SHOWS IS WORKED OUT EVERY FRAME, from the chain.
       #
@@ -117,10 +117,10 @@ module RubyGBA
       # loop however big it is, and a few bytes of memory a slot.
       #
       # +stacked_list+ names those lists and +stacked_var+ says how many entries they hold.
-      def stacked_list(part) = :"__pool_#{@name}_stacked#{part}"
-      def stacked_var = :"__pool_#{@name}_stacked"
-      def stacking_cursor_var = :"__pool_#{@name}_stacking_at"
-      def stacking_index_var = :"__pool_#{@name}_stacking_pass"
+      def stacked_list(part) = part_name("stacked#{part}")
+      def stacked_var = part_name(:stacked)
+      def stacking_cursor_var = part_name(:stacking_at)
+      def stacking_index_var = part_name(:stacking_pass)
 
       # What a pool copies for each thing: where it is, then its picture when there is more
       # than one to choose from, then its colours when it was ever told to draw with others.
@@ -181,9 +181,18 @@ module RubyGBA
       # Framework-internal: `Builder#pool` (builder/composition.rb) calls these to wire
       # the pool's storage up. They are not part of the pool authoring interface — a
       # game reaches an instance's data through `each`/`spawn`/`field_ref`, never these.
+      #
+      # A FIELD'S LIST AND THE POOL'S OWN ARE SPELLED APART (see Messages::MadeNames), so a
+      # field can be called what the pool calls one of its own — `frame`, `active`, `count` —
+      # and still be a list of its own. +part_name+ is every name of the pool's own: a list,
+      # a variable or a routine.
 
-      def field_list(field) = :"__pool_#{@name}_#{field}"
-      def current_var = :"__pool_#{@name}_current"
+      def field_list(field) = Pool.field_list(@name, field)
+      def part_name(part) = Pool.part_name(@name, part)
+      def self.field_list(name, field) = Messages::MadeNames.make(:pool_field, pool: name, field: field)
+      def self.part_name(name, part) = Messages::MadeNames.make(:pool_part, pool: name, part: part)
+
+      def current_var = part_name(:current)
       def active_list = Pool.active_list(@name)
       def free_list = Pool.free_list(@name)
       def count_var = Pool.count_var(@name)
@@ -192,16 +201,17 @@ module RubyGBA
       # are (a byte each, 1 for live), the stack of slots that are free, and the count. They are
       # what a finished cartridge is written to hold a pool full (see
       # Diagnostics::FullCollections), so they are spelled here once for both.
-      def self.active_list(name) = :"__pool_#{name}_active"
-      def self.free_list(name) = :"__pool_#{name}_free"
-      def self.count_var(name) = :"__pool_#{name}_count"
+      def self.active_list(name) = part_name(name, :active)
+      def self.free_list(name) = part_name(name, :free)
+      def self.count_var(name) = part_name(name, :count)
 
       # The pool whose live-slot column +list+ is, or nil when it is not one.
       def self.named_by_active_list(list)
-        found = list.to_s.match(/\A__pool_(?<pool>.+)_active\z/)
-        found && found[:pool].to_sym
+        kind, parts = Messages::MadeNames.read(list)
+        parts[:pool].to_sym if kind == :pool_part && parts[:part] == "active"
       end
-      def slot_var = :"__pool_#{@name}_slot"
+
+      def slot_var = part_name(:slot)
 
       # The chain the walk follows: for each slot, the slot spawned after it and the one
       # spawned before it, and the first and last of the chain.
@@ -210,11 +220,11 @@ module RubyGBA
       def prev_list = Pool.prev_list(@name)
       def head_var = Pool.head_var(@name)
       def tail_var = Pool.tail_var(@name)
-      def self.next_list(name) = :"__pool_#{name}_next"
-      def self.prev_list(name) = :"__pool_#{name}_prev"
-      def self.retired_list(name) = :"__pool_#{name}_retired"
-      def self.head_var(name) = :"__pool_#{name}_head"
-      def self.tail_var(name) = :"__pool_#{name}_tail"
+      def self.next_list(name) = part_name(name, :next)
+      def self.prev_list(name) = part_name(name, :prev)
+      def self.retired_list(name) = part_name(name, :retired)
+      def self.head_var(name) = part_name(name, :head)
+      def self.tail_var(name) = part_name(name, :tail)
 
       # A THING REMOVED WHILE THE POOL IS BEING WALKED STAYS IN THE CHAIN until the walk is
       # over, and its slot is not free until then either. A walk is following the chain, and
@@ -224,11 +234,11 @@ module RubyGBA
       # takes each one out of the chain and frees its slot. +walking_var+ counts the walks of
       # this pool in progress, since one can run inside another.
       def retired_list = Pool.retired_list(@name)
-      def walking_var = :"__pool_#{@name}_walking"
-      def unlink_var = :"__pool_#{@name}_unlink"
-      def unlink_before_var = :"__pool_#{@name}_before"
-      def unlink_after_var = :"__pool_#{@name}_after"
-      def release_index_var = :"__pool_#{@name}_release"
+      def walking_var = part_name(:walking)
+      def unlink_var = part_name(:unlink)
+      def unlink_before_var = part_name(:before)
+      def unlink_after_var = part_name(:after)
+      def release_index_var = part_name(:release)
 
       # The variables the chain's routines work in, for the build to set aside.
       def chain_scratch_vars = [slot_var, unlink_var, unlink_before_var, unlink_after_var, release_index_var]
@@ -239,9 +249,9 @@ module RubyGBA
       # Pose bookkeeping (allocated only for a pool whose instances face or animate): which
       # way each instance faces, where each is in its cycle, and the one counter that
       # decides when the whole pool steps.
-      def facing_list = :"__pool_#{@name}_facing"
-      def frame_list = :"__pool_#{@name}_frame"
-      def tick_var = :"__pool_#{@name}_tick"
+      def facing_list = part_name(:facing)
+      def frame_list = part_name(:frame)
+      def tick_var = part_name(:tick)
 
       # Which of those two this pool actually keeps — so the boot fill gives every slot one
       # of each, the same way it does for a field.
@@ -303,7 +313,7 @@ module RubyGBA
 
       # Which other list of colours each instance is drawn with (see Instance#draw_with), kept
       # only by a pool that was ever told to draw with one.
-      def colors_list = :"__pool_#{@name}_colors"
+      def colors_list = part_name(:colors)
 
       # The sprites the pool's things are drawn as, back to front, for a pool whose instances
       # draw (see #stacked_list for which thing each one shows).
@@ -577,7 +587,7 @@ module RubyGBA
       def pool_routine(job)
         @pool_routines ||= {}
         @pool_routines[job] ||= begin
-          name = :"__pool_#{@name}_#{job}"
+          name = part_name(job)
           nodes = yield
           builder = @builder
           builder.func(name) { nodes.each { |node| builder.record_statement(node) } }
@@ -697,7 +707,7 @@ module RubyGBA
       # the last it will visit — so a walk inside another walk of this pool keeps its place.
       def walk_vars
         @walks = @walks.to_i + 1
-        %i[at ahead last].map { |part| :"__pool_#{@name}_walk#{@walks}_#{part}" }
+        %i[at ahead last].map { |part| part_name("walk#{@walks}_#{part}") }
       end
 
       # WHICH INSTANCE A ROUTINE OF THIS POOL IS RUNNING FOR, written at the top of every live

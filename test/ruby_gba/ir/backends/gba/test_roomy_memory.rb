@@ -132,8 +132,8 @@ class TestRoomyMemory < Minitest::Test
     end
 
     moved = roomy_of(rom).collections.keys
-    assert_includes moved, :__pool_spark_x, "every one of its columns moved together"
-    assert_includes moved, :__pool_spark_life
+    assert_includes moved, RubyGBA::DSL::Pool.field_list(:spark, :x), "every one of its columns moved together"
+    assert_includes moved, RubyGBA::DSL::Pool.field_list(:spark, :life)
   end
 
   # --- and it has to actually work ---

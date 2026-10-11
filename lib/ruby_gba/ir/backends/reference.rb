@@ -304,8 +304,8 @@ module RubyGBA
         # live. Those are named after the pool, and nothing a game writes should have to know
         # how — so this is asked by pool and field, the two names the game used.
         def pool(name, field)
-          live = @lists[pool_list(name, :active)] or raise ArgumentError, no_such_message("pool", name, pools)
-          values = @lists[pool_list(name, field)] unless POOL_BOOKKEEPING.include?(field)
+          live = @lists[pool_live_list(name)] or raise ArgumentError, no_such_message("pool", name, pools)
+          values = @lists[Messages::MadeNames.make(:pool_field, pool: name, field: field)]
           raise ArgumentError, no_such_message("field", field, pool_fields(name), of: " in pool :#{name}") if values.nil?
 
           values.to_a.zip(live.to_a).map { |value, up| value if up.to_i.nonzero? }
@@ -2419,13 +2419,13 @@ module RubyGBA
 
         # --- reading collections back, for #list and #pool ---
 
-        # The lists a pool keeps for itself beside its fields: which slots are live, which are
-        # free, the chain that says what order they were spawned in and the removals a walk has
-        # not yet let go of, which way each faces and where it is in its cycle, and which
-        # colours it draws with. Not fields, so not offered as fields.
-        POOL_BOOKKEEPING = %i[active free next prev retired facing frame colors].freeze
+        # A pool's field is a list, and so is what the pool keeps for itself beside its fields:
+        # which slots are live, which are free, the order they were spawned in. The two are
+        # spelled apart (see Messages::MadeNames), so a list's name says which it is, and of
+        # which pool.
 
-        def pool_list(pool, field) = :"__pool_#{pool}_#{field}"
+        # The list saying which slots of +pool+ are live.
+        def pool_live_list(pool) = Messages::MadeNames.make(:pool_part, pool: pool, part: :active)
 
         # The lists the game declared itself; the framework's own are named with two
         # underscores in front.
@@ -2433,17 +2433,18 @@ module RubyGBA
 
         def framework_own?(name) = name.start_with?("__")
 
-        def pools = @lists.keys.filter_map { |key| key[/\A__pool_(.+)_active\z/, 1]&.to_sym }
-
-        # A pool's field lists, leaving out its bookkeeping and the lists of any pool whose
-        # name starts with this one's (`:enemy` beside `:enemy_shot`).
-        def pool_fields(pool)
-          longer = pools.select { |other| other.to_s.start_with?("#{pool}_") }
+        def pools
           @lists.keys.filter_map do |key|
-            next if longer.any? { |other| key.to_s.start_with?("__pool_#{other}_") }
+            kind, parts = Messages::MadeNames.read(key)
+            parts[:pool].to_sym if kind == :pool_part && parts[:part] == "active"
+          end
+        end
 
-            field = key[/\A__pool_#{Regexp.escape(pool.to_s)}_(.+)\z/, 1]&.to_sym
-            field unless field.nil? || POOL_BOOKKEEPING.include?(field)
+        # The fields of +pool+.
+        def pool_fields(pool)
+          @lists.keys.filter_map do |key|
+            kind, parts = Messages::MadeNames.read(key)
+            parts[:field].to_sym if kind == :pool_field && parts[:pool] == pool.to_s
           end
         end
 

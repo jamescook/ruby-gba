@@ -14,12 +14,6 @@ module RubyGBA
     module Composition
       Build = IR::Build
 
-      # Field names that would shadow a Pool/Instance method, so a component can't
-      # declare one (it would clash with spawn/remove/each/count/…).
-      POOL_RESERVED_FIELDS = %i[active free count slot spawn remove each full index name capacity
-                                func current draw_with next prev retired
-                                stacked stackedx stackedy stackedpose stackedcolors].freeze
-
       # What spawn does when the pool is full: :drop ignores it (a safe no-op),
       # :recycle_oldest reuses the longest-lived instance so a new one always appears.
       POOL_FULL_POLICIES = %i[drop recycle_oldest].freeze
@@ -93,6 +87,7 @@ module RubyGBA
         validate_pool!(name, capacity, fields)
         validate_on_full!(name, on_full)
         validate_pool_widths!(name, fields, widths)
+        refuse_field_spelled_as_pool_word!(name, facing: facing, frames: frames, rate: rate, fast: fast)
         art = pool_art!(name, image: image, facing: facing, frames: frames, rate: rate, fields: fields)
         handle = DSL::Pool.new(self, name, fields, capacity, image: image, hitbox: art&.hitbox, on_full: on_full,
                                                         usually: usual_length(estimate, capacity), art: art)
@@ -134,7 +129,7 @@ module RubyGBA
       # starts in its own colours.
       def make_pool_recolorable(pool)
         at_boot(Build.list_new(pool.colors_list, pool.capacity, width: :byte))
-        index = :"__pool_#{pool.name}_colors_fill"
+        index = pool.part_name(:colors_fill)
         ensure_var(index)
         at_boot(Build.repeat(Build.int(pool.capacity), index,
                              Build.list_push(pool.colors_list, Build.int(Build::NO_RECOLOR))))
@@ -325,12 +320,8 @@ module RubyGBA
           raise ArgumentError, "pool :#{name} needs a positive capacity. Got #{capacity.inspect}."
         end
 
-        reserved = fields.keys & POOL_RESERVED_FIELDS
-        unless reserved.empty?
-          raise ArgumentError,
-                "pool :#{name} cannot have a field named :#{reserved.first}. That name is reserved because a " \
-                "pool method uses it. Pick a different field name."
-        end
+        refuse_pool_name_with_stray_underscores!(name)
+        refuse_field_named_like_instance_method!(name, fields)
 
         # Insane capacity: a friendly build error rather than a silent IWRAM overrun.
         slots = Build.round_up_capacity(capacity)
@@ -345,6 +336,50 @@ module RubyGBA
               "#{bytes / 1024}KB of the console's #{Messages::PlainWords::QUICK_MEMORY}. This is too much. A pool must " \
               "use much less than #{POOL_MAX_BYTES / 1024}KB. The console has only 32KB of " \
               "#{Messages::PlainWords::QUICK_MEMORY} in total. Use a smaller capacity or fewer fields."
+      end
+
+      # The names the framework makes for a pool put the pool's name before two underscores
+      # (see Messages::MadeNames), so the name itself can hold no pair of them and cannot end
+      # in one — or the lists of one pool could be read as another's.
+      def refuse_pool_name_with_stray_underscores!(name)
+        return if Messages::MadeNames::POOL_NAME.match?(name.to_s)
+
+        raise ArgumentError,
+              "pool #{name.inspect} cannot have that name. A pool name must not end with an underscore, " \
+              "and must not contain two underscores together. Use a name like :guard or :guard_walk."
+      end
+
+      # A field is read off an instance by its name (`guard.hp`), so a field called what an
+      # instance already answers to — `remove`, `index`, `left`, `move` — could never be
+      # read: the name would mean the method. Those are the only names a field cannot have.
+      def refuse_field_named_like_instance_method!(name, fields)
+        taken = fields.keys & DSL::Pool::Instance.public_instance_methods
+        return if taken.empty?
+
+        raise ArgumentError,
+              "pool :#{name} cannot have a field named :#{taken.first}. Each instance of a pool already has a " \
+              "`#{taken.first}` of its own, and `instance.#{taken.first}` means that one. " \
+              "Use a different name for the field."
+      end
+
+      # `pool` HAS WORDS OF ITS OWN — facing:, rate:, fast: and the rest — and a field is written
+      # the same way, so a field spelled like one of them is taken for the pool's word. Most of
+      # them say so where they are checked. These three did not: a number for facing: stopped
+      # the build inside the framework, and a rate: with no pictures to step, or a fast: that is
+      # not a yes or a no, was accepted and no field made.
+      def refuse_field_spelled_as_pool_word!(name, facing:, frames:, rate:, fast:)
+        said = if !facing.nil? && !facing.is_a?(Hash)
+                 "facing: #{facing.inspect}. facing: is a word of the pool. It gives a picture for each " \
+                   "direction, like facing: { left: :walk_left, right: :walk_right }."
+               elsif !rate.nil? && facing.nil? && frames.nil?
+                 "rate: #{rate.inspect}, but no facing: or frames: pictures. rate: is a word of the pool. " \
+                   "It says how many frames each of those pictures is shown."
+               elsif ![true, false, nil].include?(fast)
+                 "fast: #{fast.inspect}. fast: is a word of the pool, and it must be true or false."
+               end
+        return if said.nil?
+
+        raise ArgumentError, "pool :#{name} got #{said} If you want a field, use a different name for it."
       end
 
       def validate_on_full!(name, policy)
@@ -406,7 +441,7 @@ module RubyGBA
       # colours join them only if the pool is ever told to draw with others (see
       # #make_pool_recolorable).
       def setup_pool_stacking(pool, capacity, art, widths, fast)
-        index = :"__pool_#{pool.name}_stacking_fill"
+        index = pool.part_name(:stacking_fill)
         [index, pool.stacked_var, pool.stacking_cursor_var, pool.stacking_index_var].each { |var| ensure_var(var) }
         kept = { x: widths.fetch(:x, :word), y: widths.fetch(:y, :word) }
         kept[:pose] = art.poses.length <= 128 ? :byte : :half if pool.posed?
@@ -455,7 +490,7 @@ module RubyGBA
       # So a frame that is not a step costs one compare, and a step costs a walk of the
       # slots — a rate of six makes that one walk in six.
       def register_pool_animation(pool, capacity, art)
-        index = :"__pool_#{pool.name}_anim"
+        index = pool.part_name(:anim)
         ensure_var(index)
         # A fresh node per use: an IR node belongs to one parent, so the same read cannot
         # be handed to two statements.
@@ -520,7 +555,7 @@ module RubyGBA
       # emptying a pool's lists the way a kept list is emptied would leave it with no slots.
       def pool_refill_nodes(pool)
         lists, vars = pool.saved_lists_and_vars
-        index = :"__pool_#{pool.name}_refill"
+        index = pool.part_name(:refill)
         ensure_var(index)
         emptied = lists.map do |list|
           Build.repeat(Build.list_len(list), index, Build.list_drop(list, from: :back))
@@ -552,7 +587,7 @@ module RubyGBA
       # column, and the slot's own index onto the free stack — so all `capacity` slots
       # exist (length == capacity, every index addressable) and every slot starts free.
       def build_pool_fill(pool, capacity)
-        index = :"__pool_#{pool.name}_fill"
+        index = pool.part_name(:fill)
         ensure_var(index)
         body = pool.field_names.map { |f| Build.list_push(pool.field_list(f), Build.int(0)) }
         body << Build.list_push(pool.active_list, Build.int(0))

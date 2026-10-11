@@ -92,7 +92,7 @@ class TestPoolSprites < Minitest::Test
       end
     end
     i = Reference.new.run(prog)
-    assert_equal 1, i[:__pool_enemy_count], "the off-screen instance was removed, the on-screen one kept"
+    assert_equal 1, i[RubyGBA::DSL::Pool.count_var(:enemy)], "the off-screen instance was removed, the on-screen one kept"
   end
 
   # clamp_to_screen pins an instance on screen using its sprite size — one spawned off

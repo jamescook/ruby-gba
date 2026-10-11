@@ -90,7 +90,10 @@ module RubyGBA
 
           # A pool's slots carry the pool's name as the one they were declared under, and a
           # name of the framework's own.
-          def pool?(node) = node.name.to_s.start_with?("__pool_#{node.declared}_")
+          def pool?(node)
+            kind, parts = Messages::MadeNames.read(node.name)
+            kind == :pool_part && parts[:pool] == node.declared.to_s
+          end
         end
       end
     end

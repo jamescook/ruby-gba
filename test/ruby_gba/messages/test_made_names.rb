@@ -23,6 +23,8 @@ class TestMadeNames < Minitest::Test
     still_sprites: {},
     see_through_amounts: { layer: :rays },
     pool_stacking: { pool: :guard },
+    pool_field: { pool: :guard, field: :hp },
+    pool_part: { pool: :guard, part: :active },
     list_fill_routine: {},
     list_copy_routine: {},
     pose_rows: { number: 2 },
@@ -57,6 +59,8 @@ class TestMadeNames < Minitest::Test
       MadeNames.make(:still_sprites) => "writing the sprites nothing moves",
       MadeNames.make(:see_through_amounts, layer: :rays) => "telling the display how see-through layer :rays is",
       MadeNames.make(:pool_stacking, pool: :guard) => "putting the sprites of pool :guard oldest in front",
+      MadeNames.make(:pool_part, pool: :guard, part: :remove) => "removing an instance of pool :guard",
+      MadeNames.make(:pool_part, pool: :guard_walk, part: :unlink) => "taking an instance of pool :guard_walk out of its order",
     }
     said.each { |name, words| assert_equal words, MadeNames.words_for_made_name(name), name.inspect }
     assert_nil MadeNames.words_for_made_name(:jump), "a routine the author named is not one of these"
@@ -66,7 +70,25 @@ class TestMadeNames < Minitest::Test
   # the framework's own words and into each other's. However they are chosen, no two names
   # made from them are the same name.
   AWKWARD = %i[file jobs places table buffered buffered_tiny tiny playing playing_up up step
-               save all key x x_step].freeze
+               save all key x x_step active field_x].freeze
+
+  # A pool's field and the pool's own list of the same name, and the lists of two pools whose
+  # names and fields spell the same words.
+  def test_a_pools_field_is_never_the_pools_own_list_or_another_pools
+    own = MadeNames.make(:pool_part, pool: :guard, part: :frame)
+    field = MadeNames.make(:pool_field, pool: :guard, field: :frame)
+    refute_equal own, field
+
+    assert_equal [:pool_field, { pool: "guard", field: "walk__x" }],
+                 MadeNames.read(MadeNames.make(:pool_field, pool: :guard, field: :walk__x))
+    assert_equal [:pool_part, { pool: "guard_walk", part: "walk1_at" }],
+                 MadeNames.read(MadeNames.make(:pool_part, pool: :guard_walk, part: :walk1_at))
+  end
+
+  def test_a_pool_name_cannot_end_its_own_names_early
+    %i[guard guard_walk _guard g].each { |name| assert_match MadeNames::POOL_NAME, name.to_s }
+    %i[guard_ guard__walk __guard _].each { |name| refute_match MadeNames::POOL_NAME, name.to_s }
+  end
 
   def test_no_two_names_made_from_different_parts_are_the_same
     made = {}

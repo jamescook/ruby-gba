@@ -103,19 +103,22 @@ class TestIRGuardrailIwramBudget < Minitest::Test
   # A pool's several backing lists collapse into one "pool :name" contributor — the
   # author declared one pool, not five lists.
   def test_a_pool_is_named_as_one_contributor
-    # Emulate a pool's storage: field lists + active + free, all __pool_<name>_*.
+    # Emulate a pool's storage: two field lists and the list of which slots are live. The
+    # field has an underscore in it, which must not be read as part of the pool's name.
     over = Budget::BUDGET_BYTES + Budget::EWRAM_BYTES + (8 * 1024)
     big = over / (3 * Budget::WORD) # split across three lists
+    pool = RubyGBA::DSL::Pool
     prog = program(
       screen(:tiled),
-      list_new(:__pool_enemy_x, big),
-      list_new(:__pool_enemy_y, big),
-      list_new(:__pool_enemy_active, big),
+      list_new(pool.field_list(:enemy, :x), big),
+      list_new(pool.field_list(:enemy, :walk_timer), big),
+      list_new(pool.active_list(:enemy), big),
       loop_(wait_vblank, halt),
     )
     message = findings_for(prog).first.message
-    assert_match(/pool :enemy/, message)
-    refute_match(/__pool_enemy/, message) # the raw storage names never leak to the person
+    assert_match(/pool :enemy\b/, message)
+    refute_match(/pool :enemy_walk/, message)
+    refute_match(/__pool/, message) # the raw storage names never leak to the person
   end
 
   # End to end through the DSL: a program past every memory there is stops the build with

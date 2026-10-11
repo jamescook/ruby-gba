@@ -119,13 +119,13 @@ module RubyGBA
             declarations
           end
 
-          # The contributor label for a list: a pool backing list (named __pool_<pool>_<field>)
-          # reads as its pool; anything else as itself.
+          # The contributor label for a list: a pool's list — a field's, or one of the pool's
+          # own — reads as its pool; anything else as itself.
           def label_for(list_name)
-            text = list_name.to_s
-            return "list :#{list_name}" unless text.start_with?("__pool_")
+            kind, parts = Messages::MadeNames.read(list_name)
+            return "pool :#{parts[:pool]}" if %i[pool_field pool_part].include?(kind)
 
-            "pool :#{text.delete_prefix('__pool_').rpartition('_').first}"
+            "list :#{list_name}"
           end
 
           # The kinds that name a variable, and which of their attributes hold the name(s).

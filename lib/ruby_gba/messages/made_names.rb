@@ -10,9 +10,10 @@ module RubyGBA
     #
     # That is what keeps them apart. A name is spelled with the game's own part (a record's
     # name, a font's, a scene's) after a fixed start that no other kind's start begins with,
-    # or, for a save record, before a double underscore no record name can hold. So a record
-    # called :jobs is a record, not the save queue, and a font called :buffered_tiny cannot
-    # meet the tear-free screen's routine for :tiny.
+    # or, for a save record and a pool, before a double underscore no record's or pool's name
+    # can hold. So a record called :jobs is a record, not the save queue, a font called
+    # :buffered_tiny cannot meet the tear-free screen's routine for :tiny, and the lists of
+    # pool :guard_walk are never the lists of pool :guard.
     #
     # Reading a name back is worked out from the same spelling, so a name made and a name read
     # cannot disagree about where one part ends and the next begins.
@@ -52,6 +53,19 @@ module RubyGBA
       RECORD = "_*[A-Za-z0-9]+(?:_[A-Za-z0-9]+)*"
       PLAIN = "[A-Za-z0-9_]+"
       ANY = ".+"
+
+      # WHAT A POOL CAN BE CALLED: anything that does not hold two underscores in a row or end
+      # in one — which `pool` holds a game to. A pool's own names put its name before TWO
+      # underscores, so held to this shape the first pair of them is always where the name
+      # ends, whatever comes after: a part of the pool's own, or a field called anything.
+      POOL = "(?:_?[^_])+"
+      POOL_NAME = /\A#{POOL}\z/
+
+      # What a report calls each of a pool's routines.
+      POOL_JOBS = { remove: "removing an instance of pool :%s",
+                    release_removed: "freeing the slots of pool :%s that a walk removed",
+                    append: "putting a new instance of pool :%s last in its order",
+                    unlink: "taking an instance of pool :%s out of its order" }.freeze
 
       PLACES_WORDS = "finding where each save_data record lives in save memory"
       DIGIT_WORDS = ->(parts) { "drawing a draw_number's digits (:#{parts[:font]})" }
@@ -104,9 +118,23 @@ module RubyGBA
                             words: nil),
         pool_stacking: Kind.new(spelling: "__stacking_pool_%{pool}", parts: { pool: ANY },
                                 words: ->(parts) { "putting the sprites of pool :#{parts[:pool]} oldest in front" }),
+        # A pool's field is a list, and so is much of what the pool keeps for itself. The two
+        # start differently, so a field called `frame`, `active` or `count` is never the
+        # pool's own list of that name.
+        pool_field: Kind.new(spelling: "__poolfield_%{pool}__%{field}", parts: { pool: POOL, field: ANY },
+                             words: nil),
+        pool_part: Kind.new(spelling: "__pool_%{pool}__%{part}", parts: { pool: POOL, part: PLAIN },
+                            words: lambda do |parts|
+                              job = POOL_JOBS[parts[:part].to_sym]
+                              job && format(job, parts[:pool])
+                            end),
         see_through_amounts: Kind.new(spelling: "__see_through_%{layer}", parts: { layer: ANY },
                                       words: ->(parts) { "telling the display how see-through layer :#{parts[:layer]} is" }),
       }.then { |kinds| Ractor.make_shareable(kinds) }
+
+      # Each kind's spelling as the pattern a name is read back with, worked out once: a
+      # report or a guardrail reads every list and routine of a game back through these.
+      PATTERNS = KINDS.transform_values(&:pattern).then { |patterns| Ractor.make_shareable(patterns) }
 
       def self.kinds = KINDS.keys
 
@@ -119,8 +147,8 @@ module RubyGBA
       # nil for a name the build did not make.
       def self.read(name)
         said = name.to_s
-        KINDS.each do |kind, spelling|
-          found = spelling.pattern.match(said) or next
+        PATTERNS.each do |kind, pattern|
+          found = pattern.match(said) or next
           return [kind, found.named_captures.transform_keys(&:to_sym)]
         end
         nil
