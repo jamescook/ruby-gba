@@ -5,9 +5,9 @@ require "native_comparison"
 require_relative "../../../../../../examples/sparks"
 
 # examples/sparks.rb built for the desktop shows the interpreter's picture pixel for pixel, frame
-# by frame, for long enough that every slot of its pool of sparks has been used and the oldest
-# are being given up for new ones. Each spark rolls its own random numbers, so one walked out of
-# order shows as a spark somewhere else.
+# by frame, for long enough that every slot of its pool of sparks has been used and, for most of
+# the run, the oldest is being given up for each new one. Which spark is the oldest is the order
+# they are kept in, so a pool that kept it wrongly shows as the wrong spark gone.
 class TestSparksPicture < Minitest::Test
   # The native lowering's own tests, which only a native run plays (see TestSuites).
   runs_on :native

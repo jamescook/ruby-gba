@@ -5,25 +5,26 @@ require "native_comparison"
 require_relative "../../../../../../examples/grid_cursor"
 
 # examples/grid_cursor.rb built for the desktop shows the interpreter's picture pixel for pixel,
-# frame by frame, while the cursor is tapped round the board: left twice, up, down held for two
-# frames (one press, so one cell), and up twice more. It ends two cells left of where it began
-# and two up.
+# frame by frame, while the cursor is tapped round the board in all four directions. A button
+# held for two frames is one press, so one cell.
 class TestGridCursorPicture < Minitest::Test
   # The native lowering's own tests, which only a native run plays (see TestSuites).
   runs_on :native
 
   include NativeComparison
 
+  # Left three times and right once, up twice, down held for two frames, and up again: two cells
+  # left of where it began, and two up.
   TAPS = Ractor.make_shareable(
-    { 3 => %i[left], 5 => %i[left], 8 => %i[up], 11 => %i[down], 12 => %i[down], 15 => %i[up], 17 => %i[up] }
+    { 3 => %i[left], 5 => %i[left], 7 => %i[left], 9 => %i[right], 11 => %i[up], 13 => %i[up],
+      15 => %i[down], 16 => %i[down], 18 => %i[up] }
   )
 
   def test_grid_cursor_matches_the_interpreter_through_a_recorded_run
     program = Native.new.checked_program(GridCursor::GAME, err: nil)
 
-    last = assert_native_matches_reference(program, frames: 20, buttons: TAPS)
+    last = assert_native_matches_reference(program, frames: 22, buttons: TAPS)
 
-    untouched = reference_snapshots(program, frames: 20, buttons: {}).last
-    assert untouched.picture != last.picture, "the taps should have moved the cursor in the run compared"
+    assert_equal [(GridCursor::COLS / 2) - 2, (GridCursor::ROWS / 2) - 2], last.variables.values_at(:cx, :cy)
   end
 end

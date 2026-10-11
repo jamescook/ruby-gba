@@ -20,9 +20,6 @@ class TestRotozoomBgPicture < Minitest::Test
   def test_rotozoom_bg_matches_the_interpreter_through_a_recorded_run
     program = Native.new.checked_program(RotozoomBg::GAME, err: nil)
 
-    last = assert_native_matches_reference(program, frames: 134, buttons: TURNS)
-
-    untouched = reference_snapshots(program, frames: 134, buttons: {}).last
-    assert untouched.picture != last.picture, "the board should be turned in the last picture compared"
+    assert_recorded_run_matches_reference program, frames: 134, buttons: TURNS
   end
 end
