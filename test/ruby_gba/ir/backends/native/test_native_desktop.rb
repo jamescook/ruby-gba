@@ -12,9 +12,8 @@ require_relative "../../../../../examples/pong"
 # network and compiles it, which no ordinary run of the suite should have to wait for. One test,
 # because each desktop build is a whole game built with SDL.
 class TestNativeDesktop < Minitest::Test
-  # Starts child processes (zig, and the program it builds), which Ruby cannot do from inside a
-  # Ractor — the spawn waits for ever — so on the main Ractor, not in the pool. See test_helper.
-  runs_on_the_main_ractor!
+  # The native lowering's own tests, which only a native run plays (see TestSuites).
+  runs_on :native
 
   include NativeComparison
 
@@ -37,7 +36,7 @@ class TestNativeDesktop < Minitest::Test
   # picture pixel for pixel.
   def assert_runs_headless_like_the_interpreter(exe)
     input = (1..FRAMES).map { |frame| "#{button_mask(RUN.fetch(frame, []))}\n" }.join
-    actual = parse_snapshots(Native::Zig.run_program(exe, args: ["--headless", FRAMES], input: input))
+    actual = parse_snapshots(Native::Zig.run_program(exe, args: ["--headless", FRAMES, "--every-picture"], input: input))
     expected = reference_snapshots(Native.new.checked_program(PongGame::GAME, err: nil), frames: FRAMES, buttons: RUN)
 
     assert_equal expected.map(&:heading), actual.map(&:heading)

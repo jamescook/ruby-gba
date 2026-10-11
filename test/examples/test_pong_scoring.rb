@@ -15,6 +15,7 @@ require_relative "../../examples/pong"
 # paddle that is either lined up with it (bounce) or out of the way (score), and
 # read the scores back from the interpreter oracle.
 class TestPongScoring < Minitest::Test
+  runs_on :reference, :native
 
   # The example's field/paddle geometry (examples/pong.rb).
   SCREEN_W  = 240
@@ -62,7 +63,7 @@ class TestPongScoring < Minitest::Test
       end
     end
     builder.finalize_program
-    Reference.new.run(builder.program)
+    game_player.run(builder.program)
   end
 
   def test_ball_past_a_mispositioned_player_paddle_scores_for_the_cpu
@@ -117,7 +118,7 @@ class TestPongScoring < Minitest::Test
 
   # The center line's three channels, as red / green / blue.
   def pong_line_at(frames)
-    i = Reference.new
+    i = game_player
     i.input_each_frame { |f| f < 3 ? [:a] : [] } # choose START on the title menu, then hands off
     i.run(Pong.program, frames: frames)
     color = i.screen.pixel(LINE_X, LINE_Y)

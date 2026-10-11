@@ -7,9 +7,8 @@ require "native_comparison"
 # does, at every frame boundary. Each test is a small game built through the DSL; the answer is
 # the interpreter's picture (see NativeComparison).
 class TestNativePicture < Minitest::Test
-  # Starts child processes (zig, and the program it builds), which Ruby cannot do from inside a
-  # Ractor — the spawn waits for ever — so on the main Ractor, not in the pool. See test_helper.
-  runs_on_the_main_ractor!
+  # The native lowering's own tests, which only a native run plays (see TestSuites).
+  runs_on :native
 
   include NativeComparison
 

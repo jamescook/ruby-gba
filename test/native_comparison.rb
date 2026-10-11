@@ -42,7 +42,7 @@ module NativeComparison
   def native_snapshots(program, frames:, buttons:, mode:)
     exe = Native.new.build_headless(program, mode: mode)
     input = (1..frames).map { |frame| "#{button_mask(buttons.fetch(frame, []))}\n" }.join
-    parse_snapshots(Native::Zig.run_program(exe, args: [frames], input: input))
+    parse_snapshots(Native::Zig.run_program(exe, args: [frames, "--every-picture"], input: input))
   end
 
   def reference_snapshots(program, frames:, buttons:)
@@ -63,15 +63,21 @@ module NativeComparison
   # Everything that differs at one moment, said together: a wrong variable usually explains a
   # wrong picture, and seeing both at once says which.
   def assert_same_moment(want, got, mode)
-    # Both ways: a variable the interpreter wrote and the C never printed is a variable the
-    # lowering lost track of, which comparing only what the C printed would never notice.
-    unprinted = (want.variables.keys - got.variables.keys).map { |name| "#{name}: the C does not keep it" }
-    wrong = got.variables.filter_map do |name, value|
-      expected = want.variables.fetch(name, 0)
+    differences = variable_differences(want.variables, got.variables) +
+                  [picture_difference(want.picture, got.picture)].compact
+    assert_empty differences, "at #{got.heading} (#{mode} build)"
+  end
+
+  # Every variable the two disagree on, said as "name: C has 2, Reference 1". Both ways: a
+  # variable the interpreter wrote and the C never printed is a variable the lowering lost track
+  # of, which comparing only what the C printed would never notice.
+  def variable_differences(want, got)
+    unprinted = (want.keys - got.keys).map { |name| "#{name}: the C does not keep it" }
+    wrong = got.filter_map do |name, value|
+      expected = want.fetch(name, 0)
       "#{name}: C has #{value}, Reference #{expected}" if expected != value
     end
-    differences = unprinted + wrong + [picture_difference(want.picture, got.picture)].compact
-    assert_empty differences, "at #{got.heading} (#{mode} build)"
+    unprinted + wrong
   end
 
   def picture_difference(want, got)
@@ -90,7 +96,7 @@ module NativeComparison
   def parse_snapshots(text)
     text.lines.map(&:chomp).slice_before { |line| line.start_with?("frame ") || line == "end" }.map do |heading, *rows|
       picture_line = rows.find { |row| row.start_with?("picture ") }
-      variables = (rows - [picture_line]).to_h { |row| name, value = row.split(" "); [name.to_sym, Integer(value)] }
+      variables = rows.grep(/\Avar /).to_h { |row| _, name, value = row.split(" "); [name.to_sym, Integer(value)] }
       picture = picture_line.delete_prefix("picture ").scan(/\h{4}/).map { |hex| hex.to_i(16) }
       Snapshot.new(heading: heading, variables: variables, picture: picture)
     end

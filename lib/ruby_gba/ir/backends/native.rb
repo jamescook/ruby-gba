@@ -9,6 +9,7 @@ require_relative "native/c"
 require_relative "native/printer"
 require_relative "native/picture"
 require_relative "native/lowering"
+require_relative "native/headless_run"
 
 module RubyGBA
   module IR
@@ -93,15 +94,18 @@ module RubyGBA
         private
 
         # The C on disk, where the compiler can read it, in a folder named for what it holds so
-        # two programs never write over each other.
+        # two programs never write over each other. Written under a name of its own and then
+        # renamed into place, so two threads building the same game at once — tests run side by
+        # side — each put down a whole file and never read half of the other's.
         def write_source(text)
           dir = File.join(Dir.tmpdir, "ruby-gba-native", "src-#{Digest::SHA256.hexdigest(text)[0, 24]}")
           path = File.join(dir, "game.c")
           return path if File.exist?(path)
 
           FileUtils.mkdir_p(dir)
-          File.write("#{path}.#{Process.pid}", text)
-          File.rename("#{path}.#{Process.pid}", path)
+          writing = "#{path}.#{Process.pid}.#{rand(1 << 30)}"
+          File.write(writing, text)
+          File.rename(writing, path)
           path
         end
       end
