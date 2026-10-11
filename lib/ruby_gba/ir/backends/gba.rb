@@ -1399,6 +1399,9 @@ module RubyGBA
         # rotation group instead.
         OBJ_HFLIP = 0x1000
 
+        # attr1 bit 13: draw it upside down, the same way and with the same proviso.
+        OBJ_VFLIP = 0x2000
+
         # attr2 bits 12-15: which palette bank a 4bpp sprite reads. Per SPRITE, so all of
         # its poses share one — unlike a background, where each tile names its own.
         OBJ_BANK_SHIFT = 12

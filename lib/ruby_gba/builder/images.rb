@@ -151,11 +151,23 @@ module RubyGBA
       #
       # @param names [Array<Symbol>] one picture name, several, or a list of them
       # @return [Symbol, Array<Symbol>] a name for one, a list of names for several
-      def mirror(*names)
-        one = names.length == 1 && !names.first.is_a?(Array)
-        turned = names.flatten.map { |source| mirrored_image(source) }
-        one ? turned.first : turned
-      end
+      def mirror(*names) = turned_images(names, :mirrored)
+
+      # THE SAME PICTURE TURNED TOP TO BOTTOM — `mirror`'s other way, for the narrower places
+      # it turns up: a reflection in water, a stalactite drawn from a stalagmite, an arrow
+      # that points up or down.
+      #
+      #   image :spike_up, ...
+      #   sprite :spike, at: [x, y], facing: { up: :spike_up, down: upside_down(:spike_up) }
+      #
+      # It hands back a picture name, or a list for a list, exactly as `mirror` does, and the
+      # two compose: `mirror(upside_down(:arrow))` is the arrow turned both ways. On
+      # `screen :tiled` the turned pose costs no sprite memory, the same as a mirrored one: the
+      # console draws an object upside down for nothing.
+      #
+      # @param names [Array<Symbol>] one picture name, several, or a list of them
+      # @return [Symbol, Array<Symbol>] a name for one, a list of names for several
+      def upside_down(*names) = turned_images(names, :upside_down)
 
       # Pack 5-bit RGB channels (0-31 each) into a 15-bit GBA color.
       # Raises on out-of-range values to catch mistakes early.
@@ -339,39 +351,58 @@ module RubyGBA
         @images[node.name] = [node.width, node.height]
       end
 
-      # The mirror of one picture, made the first time it is asked for and handed back
-      # after that — so mirroring the same art from two sprites makes one picture, not
-      # two. Its visible-pixel box turns round with it, so a character built this way
-      # collides on the art facing either way.
-      def mirrored_image(source)
-        @mirrored_images[source] ||= begin
+      # The two ways a picture can be turned: the verb that asks for each, and the words an
+      # error uses for the motion.
+      TURNS = Ractor.make_shareable({ mirrored: ["mirror", "turn it round"],
+                                      upside_down: ["upside_down", "turn it upside down"] })
+
+      # Hand back the turned picture for each of +names+ — one name for one, a list for
+      # several — which is the whole of `mirror` and `upside_down`.
+      def turned_images(names, way)
+        one = names.length == 1 && !names.first.is_a?(Array)
+        turned = names.flatten.map { |source| turned_image(source, way) }
+        one ? turned.first : turned
+      end
+
+      # One picture turned +way+, made the first time it is asked for and handed back
+      # after that — so turning the same art from two sprites makes one picture, not
+      # two. Its visible-pixel box turns with it, so a character built this way
+      # collides on the art facing either way. +way+ is :mirrored (left to right, the verb
+      # `mirror`) or :upside_down (top to bottom, the verb `upside_down`).
+      def turned_image(source, way)
+        verb, motion = TURNS.fetch(way)
+        @turned_images[[way, source]] ||= begin
           if @painted_colors.key?(source)
             raise ArgumentError,
-                  "mirror names the picture :#{source}, which the game paints from a list. The build does not " \
-                  "know its pixels, so mirror cannot turn it round. To show it turned round, paint the turned " \
+                  "#{verb} names the picture :#{source}, which the game paints from a list. The build does not " \
+                  "know its pixels, so #{verb} cannot #{motion}. To show it turned, paint the turned " \
                   "pixels into a list of its own."
           end
           picture = @pictures[source] ||
                     raise(ArgumentError,
-                          "mirror names the picture :#{source}, which is not defined. Define it first " \
+                          "#{verb} names the picture :#{source}, which is not defined. Define it first " \
                           "with `image :#{source}, ...`.")
-          name = free_mirror_name(source)
-          turned = picture.mirrored
+          name = free_turned_name(source, way)
+          turned = picture.public_send(way)
           record_picture(Build.bitmap(name, width: turned.width, height: turned.height,
                                               pixels: turned.pixels, transparent: turned.transparent,
                                               colors: turned.colors, places: turned.places))
           box_x, box_y, box_w, box_h = @image_bounds[source] || [0, 0, turned.width, turned.height]
-          @image_bounds[name] = [turned.width - box_x - box_w, box_y, box_w, box_h]
+          @image_bounds[name] = if way == :mirrored
+                                  [turned.width - box_x - box_w, box_y, box_w, box_h]
+                                else
+                                  [box_x, turned.height - box_y - box_h, box_w, box_h]
+                                end
           name
         end
       end
 
-      # A name for the mirror that reads like the picture it came from, and that no
+      # A name for the turned picture that reads like the picture it came from, and that no
       # other picture has already taken.
-      def free_mirror_name(source)
-        return :"#{source}_mirrored" unless @images.key?(:"#{source}_mirrored")
+      def free_turned_name(source, way)
+        return :"#{source}_#{way}" unless @images.key?(:"#{source}_#{way}")
 
-        (2..).lazy.map { |n| :"#{source}_mirrored#{n}" }.find { |name| !@images.key?(name) }
+        (2..).lazy.map { |n| :"#{source}_#{way}#{n}" }.find { |name| !@images.key?(name) }
       end
 
       # Draw whichever of +names+ the +showing+ value picks. Written the long way this is

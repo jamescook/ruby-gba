@@ -215,7 +215,7 @@ class TestScreenLayout < Minitest::Test
       game_loop {}
     end
 
-    assert_equal [[[0, 0, 16, 16, false]], [[0, 0, 8, 8, false]]], pieces(layout, :full)
+    assert_equal [[[0, 0, 16, 16, false, false]], [[0, 0, 8, 8, false, false]]], pieces(layout, :full)
   end
 
   # A pose that is another one mirrored keeps no pixels of its own: it points at the
@@ -229,7 +229,22 @@ class TestScreenLayout < Minitest::Test
       game_loop {}
     end
 
-    assert_equal [[[0, 0, 8, 8, false]], [[8, 0, 8, 8, true]]], pieces(layout, :corner)
+    assert_equal [[[0, 0, 8, 8, false, false]], [[8, 0, 8, 8, true, false]]], pieces(layout, :corner)
+  end
+
+  # Turned top to bottom the same way: the pose says to draw it upside down and stands where
+  # the reflection in the other axis falls. Turned both ways it says both.
+  def test_an_upside_down_pose_stands_where_its_reflection_falls
+    corner = art(16, 16) { |x, y| x < 8 && y < 8 }
+    layout = plan do
+      screen :tiled
+      image :corner, width: 16, height: 16, data: corner, transparent: CLEAR
+      sprite :walker, at: [0, 0], frames: [:corner, upside_down(:corner), mirror(upside_down(:corner))], rate: 4
+      game_loop {}
+    end
+
+    assert_equal [[[0, 0, 8, 8, false, false]], [[0, 8, 8, 8, false, true]], [[8, 8, 8, 8, true, true]]],
+                 pieces(layout, :corner)
   end
 
   # A lower place in the sprite table draws in front, and the sprite declared last is

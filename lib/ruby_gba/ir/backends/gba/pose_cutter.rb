@@ -39,6 +39,10 @@ module RubyGBA
         class PoseCutter
           include Console::Hardware
 
+          # A pose that is another pose turned: the pose it is drawn from, and whether the
+          # console reverses it left to right (+across+), top to bottom (+down+), or both.
+          Mirror = Data.define(:source, :across, :down)
+
           def initialize(bitmaps)
             @bitmaps = bitmaps
           end
@@ -64,7 +68,7 @@ module RubyGBA
             end
             mirrors = transformed ? Array.new(node.poses.length) : mirrors_of(node.poses)
             { width: width, height: height, boxes: boxes,
-              mirrors: reflect_mirrored_poses(mirrors, boxes, width) }
+              mirrors: reflect_mirrored_poses(mirrors, boxes, width, height) }
           end
 
           # Pack a sprite's picture into tiles the way sprite hardware reads them: 8x8
@@ -185,15 +189,15 @@ module RubyGBA
           # reflection would have to be drawn eight pixels to the left of the canvas, which
           # the pose table has no way to say. Rare, and costs only the memory the sharing
           # would have saved.
-          def reflect_mirrored_poses(mirrors, boxes, width)
-            mirrors.each_with_index.map do |source, k|
-              next nil if source.nil?
+          def reflect_mirrored_poses(mirrors, boxes, width, height)
+            mirrors.each_with_index.map do |mirror, k|
+              next nil if mirror.nil?
 
-              reflected = boxes[source].map { |box| mirrored_box(box, width) }
-              next nil if reflected.any? { |(x0, _y0, _w, _h)| x0.negative? }
+              reflected = boxes[mirror.source].map { |box| mirrored_box(box, mirror, width, height) }
+              next nil if reflected.any? { |(x0, y0, _w, _h)| x0.negative? || y0.negative? }
 
               boxes[k] = reflected
-              source
+              mirror
             end
           end
 
@@ -211,9 +215,17 @@ module RubyGBA
           # `mirror(:hero_right)` — is then a way to skip drawing the art, not a way to ask
           # for the saving.
           #
-          # Returns the pose each pose mirrors, or nil for one stored in its own right. A
-          # mirror always points at a STORED pose, never at another mirror, so there is
+          # Returns, for each pose, the Mirror it is of another, or nil for one stored in its own
+          # right. A mirror always points at a STORED pose, never at another mirror, so there is
           # never a chain to follow.
+          #
+          # A pose UPSIDE DOWN is the same saving the other way, and the console turns an object
+          # top to bottom for nothing as well — a reflection, a stalactite from a stalagmite, an
+          # arrow pointing either way. So is a pose turned both ways. Left to right is looked for
+          # first, since it is the common one. These are looked for on every sprite, not only one
+          # that said `upside_down`: the look is three hashes of a pose where it was one, at build
+          # time, and a sprite moves onto the per-pose word only where a turned pose was found —
+          # which is where it saves the memory of a whole pose.
           #
           # A pose that repeats an earlier one EXACTLY is not called a mirror, even though a
           # symmetric picture is its own mirror and would answer to the test below. Its
@@ -221,16 +233,18 @@ module RubyGBA
           # a mirror would only add the bit that draws it backwards — three more instructions
           # a frame to reverse a picture that reads the same either way.
           def mirrors_of(poses)
-            seen = {}     # the pixels of every pose stored so far
-            reversed = {} # what a mirror of a stored pose would look like -> that pose
+            seen = {}   # the pixels of every pose stored so far
+            turned = {} # what a stored pose would look like turned -> the Mirror that turns it
             poses.each_with_index.map do |image, k|
               bmp = @bitmaps.fetch(image)
               drawn = pose_identity(bmp)
               next nil if seen.key?(drawn)
-              next reversed[drawn] if reversed.key?(drawn)
+              next turned[drawn] if turned.key?(drawn)
 
               seen[drawn] = k
-              reversed[pose_identity(bmp.mirrored)] ||= k
+              turned[pose_identity(bmp.mirrored)] ||= Mirror.new(source: k, across: true, down: false)
+              turned[pose_identity(bmp.upside_down)] ||= Mirror.new(source: k, across: false, down: true)
+              turned[pose_identity(bmp.mirrored.upside_down)] ||= Mirror.new(source: k, across: true, down: true)
               nil
             end
           end
@@ -244,8 +258,8 @@ module RubyGBA
           # was drawn on. Taken from the source rather than worked out from the mirrored
           # picture's own pixels because that is what the console will actually draw —
           # it reverses the source's box, so this is the window those tiles land in.
-          def mirrored_box((x0, y0, w, h), width)
-            [width - x0 - w, y0, w, h]
+          def mirrored_box((x0, y0, w, h), mirror, width, height)
+            [mirror.across ? width - x0 - w : x0, mirror.down ? height - y0 - h : y0, w, h]
           end
 
           # WHAT ONE POSE DRAWS, as boxes the console can hold — one for a picture that is

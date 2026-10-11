@@ -161,15 +161,16 @@ module RubyGBA
           # sits in the sprite's own entry and the pose is a stride. Once the poses differ
           # in size, four things move with the pose — which tiles, what shape, what size,
           # and how far along to draw it so the picture does not shift. A pose that is
-          # another one MIRRORED breaks the stride too, since its tiles are the pose it
-          # mirrors, and adds a fifth. All five fit in one word: one read a frame and some
-          # shifting, against storing every pose at the biggest one's size and every mirror
-          # a second time.
+          # another one MIRRORED or turned UPSIDE DOWN breaks the stride too, since its tiles
+          # are the pose it was turned from, and adds a bit for each way. All of it fits in
+          # one word: one read a frame and some shifting, against storing every pose at the
+          # biggest one's size and every turned pose a second time.
           #
           #   bits  0..9   the piece's first tile
           #        10..11  shape          12..13  size
           #        14..21  how far right   22..29  how far down (both a whole number of tiles)
-          #           30   draw it mirrored
+          #           30   draw it mirrored, left to right
+          #           31   draw it upside down
           #
           # ONE WORD PER PIECE PER POSE, laid out PIECE FIRST: a picture too big for one
           # object is drawn as several, and each of them reads its own row of this. Piece
@@ -177,6 +178,7 @@ module RubyGBA
           # the piece's row is a constant the build already knows, so a piece costs the same
           # one read whether it is the first or the fourth.
           POSE_MIRRORED = 1 << 30
+          POSE_UPSIDE_DOWN = 1 << 31
 
           # Plan the screen for +program+. Everything it needs is worked out from the
           # program itself; a caller that has already collected the pictures or resolved the
@@ -331,7 +333,7 @@ module RubyGBA
           end
 
           # WHERE EACH PIECE OF A SPRITE STANDS, pose by pose: for every pose, one
-          # [x, y, width, height, mirrored] per piece, measured from the corner of the canvas
+          # [x, y, width, height, mirrored, upside_down] per piece, measured from the corner of the canvas
           # the art was drawn on.
           #
           # Read back out of what the console will actually be given — the per-pose words for a
@@ -342,14 +344,14 @@ module RubyGBA
             sprite = @objects.fetch(name)
             unless sprite.pose_words
               size = OBJ_SIZES.key([sprite.attr0_base >> 14, sprite.attr1_base >> 14])
-              return Array.new(sprite.pose_count) { [[sprite.offset_x, sprite.offset_y, *size, false]] }
+              return Array.new(sprite.pose_count) { [[sprite.offset_x, sprite.offset_y, *size, false, false]] }
             end
 
             (0...sprite.pose_count).map do |pose|
               (0...sprite.pieces).map do |piece|
                 word = sprite.pose_words.fetch((piece * sprite.pose_count) + pose)
                 size = OBJ_SIZES.key([(word >> 10) & 3, (word >> 12) & 3])
-                [*decode_pose_offset(word), *size, word.anybits?(POSE_MIRRORED)]
+                [*decode_pose_offset(word), *size, word.anybits?(POSE_MIRRORED), word.anybits?(POSE_UPSIDE_DOWN)]
               end
             end
           end
@@ -1954,7 +1956,7 @@ module RubyGBA
             written = {} # the bytes of every run so far -> the unit it starts at
             node.poses.each_index do |k|
               if mirrors[k]
-                starts << starts[mirrors[k]].dup # point it at the pose it mirrors and store nothing
+                starts << starts[mirrors[k].source].dup # point it at the pose it mirrors and store nothing
                 next
               end
               starts << encoded[k].map do |bytes|
@@ -2005,7 +2007,7 @@ module RubyGBA
               # that are another pose mirrored, carry a table instead (#object_pose_table),
               # read once a frame.
               alike: alike,
-              mirrors: mirrors, # which poses are drawn backwards, so the draw knows to say so
+              mirrors: mirrors, # which poses are drawn backwards or upside down, so the draw knows to say so
               pose_table: alike ? nil : :"__poses_#{name}",
               pose_words: alike ? nil : object_pose_table(name, boxes, starts, mirrors, tile_index,
                                                           pictures.pieces),
@@ -2045,7 +2047,7 @@ module RubyGBA
                 x0, y0, w, h = list[piece]
                 shape, size = OBJ_SIZES.fetch([w, h])
                 (tile_unit + starts[k][piece]) | (shape << 10) | (size << 12) | (x0 << 14) | (y0 << 22) |
-                  (mirrors[k] ? POSE_MIRRORED : 0)
+                  (mirrors[k]&.across ? POSE_MIRRORED : 0) | (mirrors[k]&.down ? POSE_UPSIDE_DOWN : 0)
               end
             end
             @blobs[blob] = words.pack("V*")
@@ -2108,10 +2110,10 @@ module RubyGBA
             return pose if sprite.frames
             return decode_pose_tile(word) if word
 
-            [sprite.tile_index + (pose * sprite.per_pose), false]
+            [sprite.tile_index + (pose * sprite.per_pose), false, false]
           end
 
-          def decode_pose_tile(word) = [word & 0x3FF, word.anybits?(POSE_MIRRORED)]
+          def decode_pose_tile(word) = [word & 0x3FF, word.anybits?(POSE_MIRRORED), word.anybits?(POSE_UPSIDE_DOWN)]
 
           def decode_pose_offset(word) = [(word >> 14) & 0xFF, (word >> 22) & 0xFF]
 

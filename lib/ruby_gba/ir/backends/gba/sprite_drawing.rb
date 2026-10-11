@@ -450,7 +450,7 @@ module RubyGBA
             mask_into_acc(0x1FF)
             emit(ASM.and_imm(TMP, POSE_WORD, 0x3000))   # size, still at bit 12
             emit(ASM.orr_reg_lsl(ACC, ACC, TMP, 2))     # ...into bit 14
-            emit_pose_mirror_bit if obj.mirrors&.any?
+            emit_pose_flip_bits if obj.mirrors&.any?
             orr_acc(obj.attr1_base) unless obj.attr1_base.zero?
             store_halfword_acc(base + 2)
             store_halfword_acc(mirror + 2) if mirror
@@ -464,12 +464,13 @@ module RubyGBA
             store_halfword_acc(mirror + 4) if mirror
           end
 
-          # Carry "draw this one backwards" from the pose word into the sprite's own
-          # entry. Only emitted for a sprite that actually has a mirrored pose, so a
-          # sprite whose poses merely differ in size pays nothing for it.
-          def emit_pose_mirror_bit
-            emit(ASM.lsr_imm(TMP, POSE_WORD, 18))       # bit 30 down to bit 12...
-            emit(ASM.and_imm(TMP, TMP, OBJ_HFLIP))      # ...and nothing else with it
+          # Carry "draw this one backwards" and "draw it upside down" from the pose word into
+          # the sprite's own entry: the two bits sit side by side in both, so one shift carries
+          # both. Only emitted for a sprite that actually has a turned pose, so a sprite whose
+          # poses merely differ in size pays nothing for it.
+          def emit_pose_flip_bits
+            emit(ASM.lsr_imm(TMP, POSE_WORD, 18))                  # bits 30 and 31 down to 12 and 13...
+            emit(ASM.and_imm(TMP, TMP, OBJ_HFLIP | OBJ_VFLIP))     # ...and nothing else with them
             emit(ASM.orr_reg(ACC, ACC, TMP))
           end
 

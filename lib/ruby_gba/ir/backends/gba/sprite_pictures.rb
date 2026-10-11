@@ -73,7 +73,7 @@ module RubyGBA
           # have holds nothing, which the console draws as nothing.
           def frames
             node.poses.each_index.map do |k|
-              list = encoded[mirrors[k] || k]
+              list = encoded[mirrors[k]&.source || k]
               one_frame_piece_bytes.each_with_index.map { |bytes, piece| (list[piece] || "".b).ljust(bytes, "\0".b) }.join
             end.join.b
           end

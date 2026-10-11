@@ -709,7 +709,7 @@ module RubyGBA
       # trim; a row being drawn always has one, because the frame goes in before the row is
       # written.
       def pose_key(row, rooms)
-        address = rooms[row[:slot]] or return [row[:tile], row[:mirrored_across]]
+        address = rooms[row[:slot]] or return [row[:tile], row[:mirrored_across], row[:mirrored_down]]
 
         var_at(address)
       end

@@ -122,7 +122,7 @@ module RubyGBA
       @images = {}             # image name → [width, height], so a sprite can size itself from its art
       @image_bounds = {}       # image name → [x, y, w, h] box around its visible (non-transparent) pixels, for collision
       @pictures = {}           # image name → its {IR::Assets::Image}, so `mirror` can turn one round
-      @mirrored_images = {}    # image name → the name of its mirror, so mirroring one twice makes one picture
+      @turned_images = {}      # [:mirrored or :upside_down, image name] → the turned picture's name, so turning one twice makes one picture
       @color_lists = {}        # `colors` name → its colours, see-through first, for a sprite told to draw with it
       @tilesets = {}           # tileset name → { by_key:, by_number:, tile_w:, tile_h:, solid_images: } — a tile-image map addressable by the tileset's own keys or by number (a sheet cell)
       @screen_mode = nil       # the current display mode (set by `screen`), so `sprite` picks its backend

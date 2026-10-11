@@ -81,6 +81,14 @@ module RubyGBA
           with(pixels: turned, places: places && mirrored_places)
         end
 
+        # THE SAME PICTURE TURNED TOP TO BOTTOM — its rows in the other order. The other
+        # mirror, and the one place a picture is turned that way, for the same reason as above.
+        def upside_down
+          rows = (0...height).map { |row| pixels.byteslice(row * width * 2, width * 2) }
+          upended = places && (0...height).map { |row| places.byteslice(row * width, width) }.reverse.join.b
+          with(pixels: rows.reverse.join.b, places: upended)
+        end
+
         private
 
         def mirrored_places
