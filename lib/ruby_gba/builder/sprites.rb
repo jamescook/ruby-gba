@@ -164,10 +164,9 @@ module RubyGBA
                                   image: (has_poses ? nil : name), poses: poses,
                                   facing_var: pose_var, facing_dirs: facing_dirs,
                                   frame_var: frame_var, frames_per_dir: frames_per_dir,
-                                  layer: current_layer, source: caller_source_location)
-        @sprites << handle
-        handle.draw_initial if shown
-        handle
+                                  layer: current_layer, source: caller_source_location,
+                                  **routine_sprite_state(id))
+        declare_software_sprite(handle, shown)
       end
 
       # Make a hardware sprite able to turn (see HardwareSprite#face_angle / #turn):
@@ -622,10 +621,129 @@ module RubyGBA
                                   active: active, buffer: buffer, hitbox: box, pixel_perfect: hitbox.nil?,
                                   image: nil, poses: poses, facing_dirs: {},
                                   clips: clips, clip_off_var: off, clip_len_var: len, frame_var: frame,
-                                  layer: current_layer, source: caller_source_location)
+                                  layer: current_layer, source: caller_source_location,
+                                  **routine_sprite_state(id))
+        declare_software_sprite(handle, shown)
+      end
+
+      # The variable every scene writes as its body ends, saying it was the last one to run.
+      SCENE_UP = :__scene_up
+
+      # WHAT A SOFTWARE SPRITE DECLARED INSIDE A ROUTINE KEEPS THAT ONE DECLARED ABOVE THE GAME
+      # LOOP DOES NOT, as the extra arguments its handle takes.
+      #
+      # A sprite declared above the loop is painted where it is declared, one time, and the
+      # repaint before each frame takes it from there. A routine's body — a scene's, most of
+      # all — is built after the loop and runs every pass, so painting the sprite where it is
+      # declared would paint it every pass, each time over the last copy with nothing to rub
+      # that copy out: a trail. So such a sprite is painted by the repaint alone, and keeps a
+      # variable saying whether it is on the picture, which starts at "no".
+      #
+      # A SCENE'S SPRITE WAITS FOR TWO THINGS besides being shown. Its scene has to be the one
+      # the game is in, which is what makes it the scene's. And its scene's body has to have
+      # been the last scene body to run: the frame a scene takes over, the picture is still
+      # the last scene's, and a scene on another kind of screen has not even switched the
+      # display yet — so a sprite painted then would remember pixels that are about to be
+      # replaced and put them back over the new picture a frame later. Waiting one pass gives
+      # the scene its turn to paint first.
+      def routine_sprite_state(id)
+        return {} unless @building_routine
+
+        painted = :"__spr#{id}_drawn"
+        at_boot(Build.set(painted, Build.int(0)))
+        ensure_var(painted)
+        { painted: painted, scene: @building_scene, painted_while: scene_painting_tests }
+      end
+
+      # The variables a sprite declared in the scene being built waits on, each with the value
+      # it must hold; none for a sprite declared anywhere else.
+      def scene_painting_tests
+        return [] unless @current_scene_gate
+
+        [@current_scene_gate, [SCENE_UP, scene_number(@building_scene)]]
+      end
+
+      # The number a scene writes to say its body was the last to run. Nought is no scene yet.
+      def scene_number(name)
+        @scene_numbers[name] ||= @scene_numbers.size + 1
+      end
+
+      # Remember a software sprite, and paint it where it is declared when that is a place
+      # that runs one time (see #routine_sprite_state for the sprite that is not).
+      def declare_software_sprite(handle, shown)
         @sprites << handle
-        handle.draw_initial if shown
+        if @building_routine
+          @routine_sprites << handle
+        elsif shown
+          handle.draw_initial
+        end
         handle
+      end
+
+      # PUT THE TWO REPAINT PASSES AT EVERY FRAME BOUNDARY: every sprite rubbed out from where
+      # it was, front to back, then every sprite drawn where it is, back to front (see
+      # ControlFlow#emit_frame_boundary for why two passes and why in opposite orders).
+      #
+      # It is done here rather than as the boundary is written because the sprites declared
+      # inside routines are only known now, and a sprite in a scene has to take its place in
+      # the same two passes as one declared above the loop — two sprites rubbed out at
+      # different moments would each put back pixels of the other where they overlap.
+      #
+      # Called first of the passes that put work at the boundary: each of those inserts
+      # straight after the wait, so they land in front of this, as they did when the repaint
+      # was written with the boundary.
+      def finalize_sprite_repaints
+        @sprite_repaints.each do |wait_node, declared|
+          container = wait_node.parent
+          at = container&.children&.index(wait_node)
+          next unless at
+
+          repainted = @sprites.select { |sprite| declared.include?(sprite) || @routine_sprites.include?(sprite) }
+          painted = IR::Stacking.order_by_stack(repainted, @layer_stack, &:layer)
+          nodes = painted.reverse.map(&:erase_node) + painted.map(&:draw_node)
+          nodes.each_with_index do |node, offset|
+            container.children.insert(at + 1 + offset, node)
+            node.parent = container
+          end
+        end
+      end
+
+      # HAND THE PICTURE FROM ONE SCENE'S SPRITES TO THE NEXT'S, for a game with software
+      # sprites declared inside scenes. Two statements go into every scene's routine.
+      #
+      # LAST, it says its body ran (see #routine_sprite_state for what waits on that).
+      #
+      # FIRST, it takes the other scenes' sprites off the picture. The repaint already does
+      # that when a scene changes the state from inside its own body: by the next boundary the
+      # old scene is not the one the game is in, and its sprites are rubbed out and not drawn
+      # again. What it cannot see is a state changed between the boundary and the scene — a
+      # button test at the top of the game loop — where the old scene's sprites were drawn
+      # again a moment before the new scene's first pass. So the new scene rubs them out
+      # itself, before it paints anything. A scene on a screen drawn from tiles only forgets
+      # them: the display was replaced as it took over, and what those sprites remember
+      # belongs to the picture that went with it.
+      def finalize_scene_sprite_handover
+        owned = @routine_sprites.select(&:scene)
+        return if owned.empty?
+
+        at_boot(Build.set(SCENE_UP, Build.int(0)))
+        ensure_var(SCENE_UP)
+        routines = @program.children.select { |node| node.kind == :func }.to_h { |func| [func.name, func] }
+        @scene_gates.each_key do |name|
+          routine = routines[name] or next
+
+          leaving = IR::Stacking.order_by_stack(owned.reject { |sprite| sprite.scene == name }, @layer_stack, &:layer)
+          taken_down = leaving.reverse.map { |sprite| painted_screen?(name) ? sprite.erase_node : sprite.forget_painting_node }
+          taken_down.each { |node| node.parent = routine }
+          routine.children.unshift(*taken_down)
+          routine.add_child(Build.set(SCENE_UP, Build.int(scene_number(name))))
+        end
+      end
+
+      # Whether +scene+ draws on a screen the game paints into, where a software sprite's
+      # remembered pixels can be put back.
+      def painted_screen?(scene)
+        !IR::SceneHandover.tiles?(@scene_screens[scene] || :bitmap)
       end
 
       # A hardware (tiled) sprite driven by named animation clips — the console composites

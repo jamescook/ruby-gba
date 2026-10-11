@@ -127,6 +127,11 @@ module RubyGBA
       @tilesets = {}           # tileset name → { by_key:, by_number:, tile_w:, tile_h:, solid_images: } — a tile-image map addressable by the tileset's own keys or by number (a sheet cell)
       @screen_mode = nil       # the current display mode (set by `screen`), so `sprite` picks its backend
       @sprites = []            # live software sprites, repainted after every wait_vblank
+      @sprite_repaints = []    # [wait node, the software sprites declared by then], one per frame boundary
+      @routine_sprites = []    # the software sprites declared inside a routine's body (see Sprites#routine_sprite_state)
+      @building_routine = nil  # the routine whose body is being built, nil while the program block itself runs
+      @scene_numbers = {}      # scene func name → the number that says its body was the last scene to run
+      @scene_screens = {}      # scene func name → the screen its body draws on
       @hw_sprites = []         # live hardware sprites, drawn (into the sprite table) after every wait_vblank
       @sprite_objects = []     # every sprite and pool slot object, in the order the game declared them
       @hud_objects = []        # tiled-mode text/number glyph sprites, drawn on top after every wait_vblank
@@ -545,6 +550,8 @@ module RubyGBA
       lay_out_save_records
       emit_bodies(emitted, default_screen_mode)
 
+      finalize_sprite_repaints
+      finalize_scene_sprite_handover
       finalize_animation_steps
       finalize_present_lists
       finalize_pool_stacking
@@ -592,13 +599,16 @@ module RubyGBA
           # getting none (see Layers#refuse_deferred_layer!).
           @deferred_layer = @routine_layer[name]
           @screen_mode = default_screen_mode
+          @building_routine = name
           push_container(Build.func(name, fast: @func_fast[name])) do
             run_block(&block)
           end
+          @scene_screens[name] = @screen_mode if @building_scene
         ensure
           @building_scene = nil
           @current_scene_gate = nil
           @deferred_layer = nil
+          @building_routine = nil
         end
       end
     end

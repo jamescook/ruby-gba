@@ -70,11 +70,8 @@ class TestSpriteAnimation < Minitest::Test
     assert_equal Color.resolve(:blue), spot(blinker(mode: :tiled, run: 6)), "a few frames on it has flipped"
   end
 
-  # Read two frames in rather than four: a software sprite declared inside a scene is painted
-  # by the scene's own code, after the frame's step, so it shows each picture a frame sooner
-  # than one painted at the frame boundary.
   def test_a_software_sprite_declared_inside_a_scene_cycles
-    assert_equal Color.resolve(:red),  spot(blinker(mode: :bitmap, run: 2, in_scene: true))
+    assert_equal Color.resolve(:red),  spot(blinker(mode: :bitmap, run: 4, in_scene: true))
     assert_equal Color.resolve(:blue), spot(blinker(mode: :bitmap, run: 6, in_scene: true)), "it has flipped"
   end
 
@@ -84,8 +81,8 @@ class TestSpriteAnimation < Minitest::Test
   end
 
   def test_a_flipbook_declared_inside_a_scene_cycles_on_the_console
-    { tiled: 4, bitmap: 2 }.each do |mode, early|
-      red = assert_emulator_loads_rom(rom_for(blinker(mode: mode, run: early, in_scene: true)), frames: early + 2)
+    %i[tiled bitmap].each do |mode|
+      red = assert_emulator_loads_rom(rom_for(blinker(mode: mode, run: 4, in_scene: true)), frames: 6)
       assert red.red?(44, 44), "#{mode}: the first frame renders red, got 0x#{format('%04X', red.pixel_gba(44, 44))}"
       blue = assert_emulator_loads_rom(rom_for(blinker(mode: mode, run: 6, in_scene: true)), frames: 8)
       assert blue.blue?(44, 44), "#{mode}: it has flipped to blue, got 0x#{format('%04X', blue.pixel_gba(44, 44))}"

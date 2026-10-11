@@ -76,14 +76,12 @@ module RubyGBA
       # them. The stale copy then sits there for the rest of the game.
       def emit_frame_boundary
         wait_node = record(Build.wait_vblank)
-        # Each sprite's own painting, recorded on its behalf (see #record_statement) —
-        # the same nodes an author's `blit` builds, but nobody wrote them here.
-        #
-        # Back to front, which is what a declared stack decides. With no layers this is
-        # the order they were declared in, exactly as before.
-        painted = IR::Stacking.order_by_stack(@sprites, @layer_stack, &:layer)
-        painted.reverse_each { |sprite| record_statement(sprite.erase_node) }
-        painted.each { |sprite| record_statement(sprite.draw_node) }
+        # The two passes go straight after the wait, and are put there at finalize (see
+        # Sprites#finalize_sprite_repaints): a sprite declared inside a scene is not known
+        # yet, since a scene's body is built after this loop, and it has to take its place
+        # in both passes among the ones that are. What IS settled here is which of the
+        # sprites declared above the loop this boundary repaints — the ones declared by now.
+        @sprite_repaints << [wait_node, @sprites.dup]
         # Hardware sprites need no erase pass — the console recomposites the whole
         # picture each frame — so it's one step: draw them all from their current
         # positions (later ones sit in front). Tiled-mode text/number glyphs are
