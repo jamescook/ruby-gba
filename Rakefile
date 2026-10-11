@@ -127,7 +127,9 @@ namespace :test do
     ENV[TestSuites::LOWERING_SETTING] = "native"
   end
 
-  Rake::TestTask.new(native: %i[zig native_run]) do |t|
+  # The emulator is built for it too: the cartridge's own sound, in the emulator, is the answer
+  # key for the sound the desktop build makes (test/sound_comparison.rb).
+  Rake::TestTask.new(native: %i[zig compile_emulator native_run]) do |t|
     t.libs << "test" << "lib"
     t.test_files = TestSuites.files(desktop: ENV["SDL"] == "1")
     t.description = "Run the suite on the native lowering: the classes that say `runs_on :native` " \

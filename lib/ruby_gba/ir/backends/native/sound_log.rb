@@ -21,8 +21,9 @@ module RubyGBA
             @songs = program.walk.select { |node| node.kind == :song }.uniq(&:name)
           end
 
-          # Every song the game has, in the order the C numbers them.
-          attr_reader :songs
+          # Every song the game has, and every different beep it makes (an Audio::Sound::Effect
+          # each), in the order the C numbers them.
+          attr_reader :songs, :effects
 
           # The number the C prints for this beep: which of the game's sounds it makes.
           def beep_number(node) = @effects.index(effect_of(node, @defined))

@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require "open3"
+require "tmpdir"
 require "zlib"
 
 module RubyGBA
@@ -61,10 +62,14 @@ module RubyGBA
           # +held+ buttons as the program reads them: a bit each, in the order IR::Buttons lists.
           def self.button_mask(held) = Array(held).sum { |button| 1 << IR::Buttons::NAMES.index(button) }
 
+          # How many numbers a second the sound the program makes comes as (RG_SOUND_RATE).
+          SOUND_RATE = 48_000
+
           # The picture the run ended on, every variable then, each moment of the run, and the
           # sound log in the interpreter's words (see SoundLog) — which, read from an input
-          # script, is the log up to the frame the script is asked about.
-          attr_reader :screen, :vars, :moments, :audio
+          # script, is the log up to the frame the script is asked about. +sound+ is the sound
+          # itself, one speaker's worth as whole numbers, for a run asked to record it.
+          attr_reader :screen, :vars, :moments, :audio, :sound
 
           # The interpreter's options, so a test makes either the same way. +save+ — the save
           # memory a game starts with — is refused until the native lowering can hold one.
@@ -81,6 +86,14 @@ module RubyGBA
           # (#input_each_frame) decides instead when there is one. Gives back self.
           def hold(*buttons)
             @held = buttons
+            self
+          end
+
+          # Keep the sound the run makes, for #sound to give back — every voice, or +only+ square
+          # voice 1 or 2, which is how one voice is heard at a time. Gives back self.
+          def recording_sound(only: nil)
+            @records_sound = true
+            @heard_voice = only
             self
           end
 
@@ -125,9 +138,22 @@ module RubyGBA
 
           private
 
+          # The program's sound is written to a file of its own as it plays, since what it prints
+          # is being read a line at a time, and read back when it has finished.
           def play(exe, frames)
+            return play_frames(exe, frames, []) unless @records_sound
+
+            Dir.mktmpdir("ruby-gba-sound") do |dir|
+              recording = File.join(dir, "sound")
+              heard = @heard_voice ? ["--sound-voice", @heard_voice.to_s] : []
+              play_frames(exe, frames, ["--sound-out", recording, *heard])
+              @sound = File.binread(recording).unpack("s<*")
+            end
+          end
+
+          def play_frames(exe, frames, options)
             @moments = []
-            Open3.popen3(exe, frames.to_s) do |stdin, stdout, stderr, waiter|
+            Open3.popen3(exe, frames.to_s, *options) do |stdin, stdout, stderr, waiter|
               complaint = Thread.new { stderr.read }
               deadline = Process.clock_gettime(Process::CLOCK_MONOTONIC) + LONGEST_RUN_SECONDS
               frame = 0

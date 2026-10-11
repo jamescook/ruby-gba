@@ -149,7 +149,7 @@ module RubyGBA
              *variable_names.map { |name| C::Global.new(name: variable(name)) },
              *list_storage,
              *(@scenes.empty? ? [] : [C::Global.new(name: @names.own("scene"), value: -1)]),
-             *constant_arrays, *picture_data, *@drawing_arrays, title_array, music_table,
+             *constant_arrays, *picture_data, *@drawing_arrays, title_array, music_table, beep_table,
              *@called.map { |name| C::Prototype.new(name: routine(name)) },
              *routine_table_declarations,
              *routines, main,

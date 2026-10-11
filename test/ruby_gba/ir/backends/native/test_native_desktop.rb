@@ -29,6 +29,10 @@ class TestNativeDesktop < Minitest::Test
   )
   MENU_FRAMES = 140
 
+  # SDL's stand-ins for a display and for sound, so the window needs no screen and a test does
+  # not play pong out of the speakers of whoever runs it.
+  NO_SCREEN_OR_SPEAKER = { "SDL_VIDEO_DRIVER" => "dummy", "SDL_AUDIO_DRIVER" => "dummy" }.freeze
+
   def test_the_program_a_player_runs
     Dir.mktmpdir do |dir|
       exe = Native.new.build_desktop(PongGame::GAME, File.join(dir, "pong"), err: nil)
@@ -61,8 +65,7 @@ class TestNativeDesktop < Minitest::Test
   # paddle is at NORMAL's speed — where the interpreter ends given the same buttons.
   def assert_keys_work_the_menus_through_the_window(exe)
     input = (1..MENU_FRAMES).map { |frame| "#{Native::HeadlessRun.button_mask(MENU_RUN.fetch(frame, []))}\n" }.join
-    printed = Native::Zig.run_program(exe, args: ["--scripted-keys", MENU_FRAMES], input: input,
-                                           env: { "SDL_VIDEO_DRIVER" => "dummy" })
+    printed = Native::Zig.run_program(exe, args: ["--scripted-keys", MENU_FRAMES], input: input, env: NO_SCREEN_OR_SPEAKER)
     program = Native.new.checked_program(PongGame::GAME, err: nil)
     expected = reference_snapshots(program, frames: MENU_FRAMES, buttons: MENU_RUN).last.variables
 
@@ -73,7 +76,7 @@ class TestNativeDesktop < Minitest::Test
   # Started normally, with SDL's stand-in display so it needs no screen, it opens its window and
   # is still running a couple of seconds later: nothing stops it but being told to.
   def assert_keeps_running_with_its_window(exe)
-    pid = Process.spawn({ "SDL_VIDEO_DRIVER" => "dummy" }, exe, err: File::NULL)
+    pid = Process.spawn(NO_SCREEN_OR_SPEAKER, exe, err: File::NULL)
     sleep 2
     stopped = Process.wait(pid, Process::WNOHANG)
 
