@@ -66,13 +66,23 @@ class TestNativeRefusals < Minitest::Test
     end
   end
 
-  def test_named_layers_are_refused_by_name
-    assert_refused_picture(/stack of named layers/) do
+  def test_a_see_through_layer_is_refused_by_name
+    assert_refused_picture(/see-through layer/) do
       screen :tiled
       layers :back, :front
-      image :dot, "#" => :red do "##\n##\n" end
-      layer(:front) { sprite :dot, at: [10, 10] }
+      image :dot, "#" => :red do "########\n" * 8 end
+      layer(:front, transparency: 40) { sprite :dot, at: [10, 10] }
       game_loop {}
+    end
+  end
+
+  def test_a_sprite_that_changes_layer_is_refused_by_name
+    assert_refused_picture(/changes layer/) do
+      screen :tiled
+      layers :back, :front
+      image :dot, "#" => :red do "########\n" * 8 end
+      dot = layer(:front) { sprite :dot, at: [10, 10] }
+      game_loop { dot.put_in_layer :back }
     end
   end
 
@@ -82,15 +92,6 @@ class TestNativeRefusals < Minitest::Test
       image :arrow, "#" => :red do "########\n" * 8 end
       arrow = sprite :arrow, at: [10, 10]
       game_loop { arrow.turn 5 }
-    end
-  end
-
-  def test_sprites_over_a_picture_that_stays_are_refused_by_name
-    assert_refused_picture(/sprites over a picture that is not rebuilt every frame/) do
-      screen :tiled
-      image :hero, "#" => :red do "########\n" * 8 end
-      hero = sprite :hero, at: [10, 10]
-      game_loop { hero.move :right }
     end
   end
 

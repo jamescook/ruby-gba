@@ -82,7 +82,9 @@ module RubyGBA
                                            held: :value_of_held, pressed: :value_of_pressed,
                                            chance: :value_of_chance, table_get: :value_of_table_get,
                                            data_byte: :value_of_data_byte, list_get: :value_of_list_get,
-                                           list_len: :value_of_list_len
+                                           list_len: :value_of_list_len,
+                                           # the picture (Picture)
+                                           pixels_overlap: :value_of_pixels_overlap
                                          })
 
           # EVERY KIND THIS BACKEND CANNOT WRITE YET, said out loud rather than found out. Native
@@ -91,7 +93,7 @@ module RubyGBA
           # the list the day it gets a row in STATEMENTS or VALUES.
           NOT_LOWERED_YET = Ractor.make_shareable({
             picture: %i[background_colors blit blit_pose camera copy_owed_tiles copy_tiles
-                        draw_column_at inside pixels_overlap restore_region save_region
+                        draw_column_at inside restore_region save_region
                         scroll_background scroll_rows see_through set_tile show_map],
             saving: %i[save_erase save_init save_read save_store save_sum save_write],
             sound: %i[noise play_from_list play_sample play_sound_effect stop_sample stop_wave wave],

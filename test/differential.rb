@@ -142,7 +142,11 @@ module Differential
   # instruction can tip a routine out of the console's quick memory, which changes the timing
   # and therefore changes what is being compared. The emulator counts arrivals at the loop's
   # own first instruction instead, so nothing is added to the program.
+  #
+  # A comparison with the console is a check of the cartridge, so on a native run the test that
+  # asks for one skips itself here (see EmulatorSupport#require_emulator!).
   def console_picture(program, cf, name, keys)
+    require_emulator!
     mask = keys.sum { |key| KEY_BITS.fetch(key) }
     backend = RubyGBA::IR::Backends::GBA.new
     rom = RubyGBA::Cartridge::ROM.assemble(backend.lower(program), title: name, code: "TEST", maker: "01",
