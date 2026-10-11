@@ -95,21 +95,21 @@ module RubyGBA
 
           # Store the full 32-bit word in r0 to a fixed address.
           def store_word_acc(address)
-            @emitter.emit(ASM.load_immediate(TMP, address))
+            @emitter.emit_number(TMP, address)
             @emitter.emit(ASM.str(ACC, TMP))
           end
 
           # Store the low 16 bits of r0 to a fixed address — for a register that is a
           # halfword wide and holds a value the program worked out as it ran.
           def store_halfword_acc(address)
-            @emitter.emit(ASM.load_immediate(TMP, address))
+            @emitter.emit_number(TMP, address)
             @emitter.emit(ASM.store_halfword(ACC, TMP))
           end
 
           # Write a full 32-bit word to an address.
           def store_word_immediate(value, address)
-            @emitter.emit(ASM.load_immediate(ACC, value))
-            @emitter.emit(ASM.load_immediate(TMP, address))
+            @emitter.emit_number(ACC, value)
+            @emitter.emit_number(TMP, address)
             @emitter.emit(ASM.str(ACC, TMP))
           end
 
@@ -148,7 +148,7 @@ module RubyGBA
           # the engine does not care which of its two ends it hears about first.
           def emit_start_copy_engine(from:, to:, control:)
             refuse_copy_engine_register_clash!(from, to, control)
-            @emitter.emit(ASM.load_immediate(TMP, REG_DMA3SAD))
+            @emitter.emit_number(TMP, REG_DMA3SAD)
             # What a block must leave alone: the engine's address, and a control word that is
             # still waiting for its turn.
             kept = [TMP, *(control.register if control.is_a?(InRegister))]
@@ -208,7 +208,7 @@ module RubyGBA
             elsif ASM.encode_rotated_immediate(imm)
               @emitter.emit(ASM.add_imm(rd, rn, imm))
             else
-              @emitter.emit(ASM.load_immediate(scratch, imm))
+              @emitter.emit_number(scratch, imm)
               @emitter.emit(ASM.add_reg(rd, rn, scratch))
             end
           end
@@ -223,7 +223,8 @@ module RubyGBA
           #     side by side in memory — which is what a pool's fields are — are a step
           #     apart of exactly one list's length, so walking from one field to the next
           #     is an add rather than an address built from scratch.
-          #   * The address built a byte at a time, which is what it always cost.
+          #   * The address in full: built a byte at a time, or, in a routine kept in the
+          #     quick memory, read from that routine's table of numbers (Emit#emit_number).
           #
           # Being WRONG here writes to the wrong place rather than failing, so what may be
           # believed about the register is decided in one place ({AddressRegister}) and
@@ -237,7 +238,7 @@ module RubyGBA
             if step && ASM.encode_rotated_immediate(step.abs)
               @emitter.emit(step.negative? ? ASM.sub_imm(reg, reg, -step) : ASM.add_imm(reg, reg, step))
             else
-              @emitter.emit(ASM.load_immediate(reg, address))
+              @emitter.emit_number(reg, address)
             end
             held.now_holds(address)
           end
@@ -254,7 +255,7 @@ module RubyGBA
             if ASM.encode_rotated_immediate(imm)
               @emitter.emit(ASM.and_imm(rd, rn, imm))
             else
-              @emitter.emit(ASM.load_immediate(scratch, imm))
+              @emitter.emit_number(scratch, imm)
               @emitter.emit(ASM.and_reg(rd, rn, scratch))
             end
           end
@@ -271,7 +272,7 @@ module RubyGBA
               value.call
               refuse_copy_engine_block_overwrite!(*before, kept)
             else
-              @emitter.emit(ASM.load_immediate(ACC, value))
+              @emitter.emit_number(ACC, value)
             end
             @emitter.emit(ASM.str_offset(ACC, TMP, step))
           end

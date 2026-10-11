@@ -57,8 +57,8 @@ module RubyGBA
             stored = 6
             saved = 7
 
-            @emitter.emit(ASM.load_immediate(base, SRAM_START))
-            @emitter.emit(ASM.load_immediate(marker, Int32.wrap(node.magic)))
+            @emitter.emit_number(base, SRAM_START)
+            @emitter.emit_number(marker, Int32.wrap(node.magic))
             emit_load_sram_word(stored, base, IR::SaveLayout::SAVE_VAR_MARKER_AT, scratch: 2) # the marker actually in save memory
             @emitter.emit(ASM.cmp_reg(stored, marker))       # equal? -> the save is real
 
@@ -66,7 +66,7 @@ module RubyGBA
               offset = IR::SaveLayout.save_var_at(var.slot)
               emit_load_sram_word(saved, base, offset, scratch: 2)
               @emitter.emit(ASM.mov_reg_cond(:eq, ACC, saved))       # real save -> take the saved value
-              @emitter.emit(ASM.load_immediate(3, Int32.wrap(var.default)))
+              @emitter.emit_number(3, Int32.wrap(var.default))
               @emitter.emit(ASM.mov_reg_cond(:ne, ACC, 3))           # fresh cartridge -> take the default
               @primitives.store_var(ACC, var.name)                  # into the live variable in IWRAM
               emit_store_word_to_sram(ACC, base, offset, scratch: 3) # and back to save memory
@@ -81,7 +81,7 @@ module RubyGBA
             refuse_save_var_on_flash!
             offset = IR::SaveLayout.save_var_at(node.slot)
             @primitives.load_var(ACC, node.var)
-            @emitter.emit(ASM.load_immediate(TMP, SRAM_START + offset)) # the slot's address
+            @emitter.emit_number(TMP, SRAM_START + offset) # the slot's address
             @emitter.emit(ASM.strb(ACC, TMP))                           # low byte
             [8, 16, 24].each_with_index do |shift, i|
               @emitter.emit(ASM.lsr_imm(2, ACC, shift))

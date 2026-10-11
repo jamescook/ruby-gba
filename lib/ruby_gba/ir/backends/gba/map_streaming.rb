@@ -149,7 +149,7 @@ module RubyGBA
           # cells over the new tiles.
           def emit_stream_fill(bg)
             name = bg.stream.name
-            emit(ASM.load_immediate(ACC, 0))
+            emit_number(ACC, 0)
             store_var(ACC, IR::Nodes::Background.stream_vars(name).last)
             x, y = IR::Nodes::Background.scroll_vars(name)
             emit_stream_view(ViewPlace.new(name, Build.var_ref(x), Build.var_ref(y)), bg)
@@ -166,7 +166,7 @@ module RubyGBA
             emit(ASM.cmp_imm(ACC, bg.map_count))
             emit_branch(:bcond, done, cond: :hs)
             store_var(ACC, streamed)
-            emit(ASM.load_immediate(ACC, 0))
+            emit_number(ACC, 0)
             store_var(ACC, filled)
           end
 
@@ -197,7 +197,7 @@ module RubyGBA
             emit(ASM.ldr_offset(STREAM_BLANK, TMP, 12))
             emit_load_data_address(TMP, stream.maps)
             emit(ASM.add_reg(STREAM_SOURCE, STREAM_SOURCE, TMP))
-            emit(ASM.load_immediate(STREAM_GRID, VRAM_START + (bg.screen_block * SCREENBLOCK_BYTES)))
+            emit_number(STREAM_GRID, VRAM_START + (bg.screen_block * SCREENBLOCK_BYTES))
           end
 
           # Go to +refill+ when the view moved more than MOST_STRIPS cells one way since the grid
@@ -240,16 +240,16 @@ module RubyGBA
 
           # A strip down one column: VIEW_ROWS cells, each a row further down.
           def emit_column_strip
-            emit(ASM.load_immediate(STRIP_COUNT, VIEW_ROWS))
-            emit(ASM.load_immediate(STRIP_ACROSS, 0))
-            emit(ASM.load_immediate(STRIP_DOWN, 1))
+            emit_number(STRIP_COUNT, VIEW_ROWS)
+            emit_number(STRIP_ACROSS, 0)
+            emit_number(STRIP_DOWN, 1)
           end
 
           # A strip along one row: VIEW_COLS cells, each a column further right.
           def emit_row_strip
-            emit(ASM.load_immediate(STRIP_COUNT, VIEW_COLS))
-            emit(ASM.load_immediate(STRIP_ACROSS, 1))
-            emit(ASM.load_immediate(STRIP_DOWN, 0))
+            emit_number(STRIP_COUNT, VIEW_COLS)
+            emit_number(STRIP_ACROSS, 1)
+            emit_number(STRIP_DOWN, 0)
           end
 
           # FILL THE WHOLE VIEW, a row at a time, for the place the view is at now, and say the
@@ -274,7 +274,7 @@ module RubyGBA
             emit(ASM.add_imm(TMP, TMP, VIEW_ROWS))
             emit(ASM.cmp_reg(ACC, TMP))
             emit_branch(:bcond, again, cond: :lt)
-            emit(ASM.load_immediate(ACC, 1))
+            emit_number(ACC, 1)
             store_var(ACC, filled)
           end
 

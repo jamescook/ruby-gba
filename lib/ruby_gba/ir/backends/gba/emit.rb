@@ -58,8 +58,28 @@ module RubyGBA
           # instruction is the number of copies (see Profiler.video_copies_in).
           VideoCopy = Data.define(:at, :source, :bytes)
 
+          # A word of a routine's number table that holds an address — of a blob (:data_word)
+          # or of a place in the code (:label_word) — to be written once that thing is placed.
+          # It is to a table what an AddressLoad is to code: the same answer, wanted as one
+          # word of data instead of as four instructions that build it.
+          TableWord = Data.define(:pos, :kind, :target)
+
+          # The kind of table word that stands in for each kind of address load.
+          TABLE_WORD_FOR = { label_addr: :label_word, data_addr: :data_word }.freeze
+
+          # A LOAD A NUMBER TABLE COULD TAKE: where it sits, how many instructions it is when
+          # built, and the word a table would hold for it — two loads of the same word share
+          # one. Noted in every pass, whether a table is open or not, because the pass that
+          # measures the routines runs with none open and still has to say what each routine
+          # would save (see Placement#tabled_sizes).
+          NumberLoad = Data.define(:pos, :instructions, :word)
+
+          # A number built from fewer instructions than this is left built: as a read and a
+          # word it would be no smaller, and it would be slower.
+          TABLED_FROM = 3
+
           attr_reader :code, :labels, :fixups, :data_blobs, :data_positions, :address_register,
-                      :list_register, :video_copies
+                      :list_register, :video_copies, :number_loads
 
           # How many jumps have been emitted so far. Counted here because this is where a
           # jump is made, and read by {Attribution}, which needs to know whether the code a
@@ -77,6 +97,8 @@ module RubyGBA
             @data_positions = {}   # name -> byte offset of its blob within @code
             @data_links = []       # words inside a blob that hold another blob's address
             @video_copies = []     # run-time copies into video memory, for the profile (see VideoCopy)
+            @number_loads = []     # every load a number table could take (see NumberLoad)
+            @number_table = nil    # the table of the routine being emitted, when it has one
             # Everything that ends up in @code comes through here, and labels are placed
             # here too, so this is the one place that can watch a register's value survive
             # — or stop surviving — from one instruction to the next.
@@ -147,6 +169,63 @@ module RubyGBA
             emit(ASM.bx(reg))
           end
 
+          # --- a routine's number table (see {NumberTable}) ---
+
+          # Give the routine that starts HERE a table for its big numbers. +most_bytes+ is the
+          # most its instructions can come to, which is what decides whether a load is near
+          # enough to the end to read its number rather than build it. +routine+ is its name.
+          def open_number_table(most_bytes:, routine:)
+            raise LoweringError, "a number table is already open: a routine has one, at its own end" if @number_table
+
+            @number_table = NumberTable.new(most_end: pos + most_bytes, routine: routine)
+          end
+
+          # The routine is finished and has returned: write its table here, and tell each read
+          # how far ahead its word turned out to be. A no-op for a routine that had no table.
+          def close_number_table
+            table = @number_table or return
+            @number_table = nil
+            table.reads.each do |read|
+              ahead = table.distance_ahead(read, pos)
+              refuse_unreachable_table_word!(table, ahead)
+              @code[read.pos, 4] = ASM.ldr_offset(read.reg, 15, ahead)
+            end
+            table.words.each { |word| emit_table_word(word) }
+          end
+
+          # A BLOCK OF CODE THAT IS COPIED SOMEWHERE ON ITS OWN — by its two labels, not as part
+          # of the routine around it — has to hold everything it reads. A read from a table
+          # outside the block would, in the copy, name whatever happens to sit that far past
+          # it. Such a block is written out by hand and builds every number, and it is emitted
+          # where no table is open; this is what says so if that ever stops being true.
+          def refuse_open_number_table!(what)
+            return unless @number_table
+
+            raise LoweringError,
+                  "#{what} is copied on its own, so it cannot be emitted inside a routine that keeps " \
+                  "a number table. This is a fault in ruby-gba, not in the game. To build the game now, " \
+                  "build with `fast_code: false`."
+          end
+
+          # Put +value+ in +reg+: read from the routine's table where it has one and the
+          # number is worth it, and built an instruction at a time otherwise.
+          #
+          # THIS IS HOW A NUMBER IS LOADED in anything emitted as part of a routine. What still
+          # writes `emit(ASM.load_immediate(...))` is code written out by hand: the mixer and
+          # the divide routines, which are copied on their own and must build every number
+          # (see #refuse_open_number_table!), and the sound voices, the save chips and the
+          # boot code, where no routine measured had a number worth a table. A new load of
+          # theirs that runs inside a game's routine can use this as well.
+          def emit_number(reg, value)
+            built = ASM.load_immediate(reg, value)
+            instructions = built.bytesize / 4
+            return emit(built) if instructions < TABLED_FROM
+
+            word = value & 0xFFFFFFFF
+            note_number_load(instructions, word)
+            table_takes?(word) ? emit_table_read(reg, word) : emit(built)
+          end
+
           # Second pass: every label and data-blob position is known now, so patch
           # each placeholder — a branch to a label, or a load of a blob's / label's
           # address, or (via +extra_resolvers+) a fixup kind only the caller
@@ -156,6 +235,8 @@ module RubyGBA
               case fix.kind
               when :data_addr then resolve_data_address(fix)
               when :label_addr then resolve_label_address(fix)
+              when :data_word then @code[fix.pos, 4] = [data_address(fix.target)].pack("V")
+              when :label_word then @code[fix.pos, 4] = [label_address(fix.target)].pack("V")
               else
                 resolver = extra_resolvers[fix.kind]
                 resolver ? resolver.call(fix) : resolve_branch(fix)
@@ -225,10 +306,10 @@ module RubyGBA
           end
 
           # Load the run-time address of a named code label into +reg+ (a fixed-size
-          # placeholder patched in the second pass, once the label's position is known).
+          # placeholder patched in the second pass, once the label's position is known) —
+          # or, in a routine with a number table, one read of a word that is.
           def emit_load_label_address(reg, label)
-            @fixups << AddressLoad.new(pos: pos, kind: :label_addr, reg: reg, target: label)
-            emit(ASM.load_immediate_fixed(reg, 0))
+            emit_load_address(reg, :label_addr, label)
           end
 
           # Blobs are copied into palette / video / sound memory by DMA, whose source
@@ -255,18 +336,18 @@ module RubyGBA
           # Load the run-time address of a named blob into +reg+. The address isn't
           # known until the data region is placed, so emit a fixed-size placeholder
           # and record a fixup to patch in the real address. Consumers (a blit's DMA
-          # source, a sequencer's cursor) build on this.
+          # source, a sequencer's cursor) build on this. In a routine with a number table it
+          # is one read of a word, and the word is what is patched.
           def emit_load_data_address(reg, name)
-            @fixups << AddressLoad.new(pos: pos, kind: :data_addr, reg: reg, target: name)
-            emit(ASM.load_immediate_fixed(reg, 0))
+            emit_load_address(reg, :data_addr, name)
           end
 
           # A memory-mapped register / VRAM halfword write — the one ASM primitive
           # nearly every lowering concern reaches for, so it lives beside emit rather
           # than with the rest of Primitives.
           def write_reg16(address, value)
-            emit(ASM.load_immediate(ACC, value))
-            emit(ASM.load_immediate(TMP, address))
+            emit_number(ACC, value)
+            emit_number(TMP, address)
             emit(ASM.store_halfword(ACC, TMP))
           end
 
@@ -280,6 +361,56 @@ module RubyGBA
           # table of addresses only known in the second pass.
           def patch_word(blob, offset, value)
             @code[@data_positions.fetch(blob) + offset, 4] = [value].pack("V")
+          end
+
+          private
+
+          # Load an address the second pass fills in — of code label or blob +target+, as
+          # +kind+ says — as one read of a table word where the routine has a table that
+          # reaches, and as the fixed four instructions otherwise.
+          def emit_load_address(reg, kind, target)
+            word = NumberTable::Address.new(kind: TABLE_WORD_FOR.fetch(kind), target: target)
+            note_number_load(4, word)
+            return emit_table_read(reg, word) if table_takes?(word)
+
+            @fixups << AddressLoad.new(pos: pos, kind: kind, reg: reg, target: target)
+            emit(ASM.load_immediate_fixed(reg, 0))
+          end
+
+          def note_number_load(instructions, word)
+            @number_loads << NumberLoad.new(pos: pos, instructions: instructions, word: word)
+          end
+
+          # Is a table open, and would a read here reach +word+ in it?
+          def table_takes?(word) = !@number_table.nil? && @number_table.reaches?(pos, word)
+
+          # One read of +word+ into +reg+. How far ahead the word is gets written when the
+          # table is; until then the read names the word right after it.
+          def emit_table_read(reg, word)
+            @number_table.note_read(pos, reg, word)
+            emit(ASM.ldr_offset(reg, 15, 0))
+          end
+
+          # One word of a table: the number itself, or room for an address that the second
+          # pass fills in.
+          def emit_table_word(word)
+            return emit([word].pack("V")) unless word.is_a?(NumberTable::Address)
+
+            @fixups << TableWord.new(pos: pos, kind: word.kind, target: word.target)
+            emit([0].pack("V"))
+          end
+
+          # The table is at the routine's end and a read is too far above it. That is a
+          # routine that came out bigger than the most it was said it could be, so every
+          # "does this reach" asked while it was emitted was asked against the wrong end.
+          def refuse_unreachable_table_word!(table, ahead)
+            return if NumberTable.within_reach?(ahead)
+
+            raise LoweringError,
+                  "The routine #{table.routine.inspect} reads a number that is #{ahead} bytes ahead of the " \
+                  "instruction that reads it. The furthest a read can reach is #{NumberTable::FURTHEST} bytes. " \
+                  "The routine came out bigger than the size it was measured at. This is a fault in " \
+                  "ruby-gba, not in the game. To build the game now, build with `fast_code: false`."
           end
         end
       end

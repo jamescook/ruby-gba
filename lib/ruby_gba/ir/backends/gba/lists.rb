@@ -74,7 +74,7 @@ module RubyGBA
             @emitter.emit_branch(:bcond, skip, cond: :lt)           # starts before the list
             # r12 is the address register, borrowed here for a count: the emitter forgets the
             # address it held the moment anything writes it.
-            @emitter.emit(ASM.load_immediate(12, info[:capacity]))
+            @emitter.emit_number(12, info[:capacity])
             @emitter.emit(ASM.sub_reg(12, 12, ACC))                 # r12 = items from +from+ to the end
             @emitter.emit(ASM.cmp_reg(2, 12))
             @emitter.emit(ASM.mov_reg_cond(:gt, 2, 12))             # stop at the end
@@ -113,7 +113,7 @@ module RubyGBA
             @lowering.value(node.at)                                         # r0 = where the run starts
             @emitter.emit(ASM.cmp_imm(ACC, 0))
             @emitter.emit(ASM.mov_imm_cond(:lt, ACC, 0))                     # not before the table
-            @emitter.emit(ASM.load_immediate(TMP, table.count - node.count))
+            @emitter.emit_number(TMP, table.count - node.count)
             @emitter.emit(ASM.cmp_reg(ACC, TMP))
             @emitter.emit(ASM.mov_reg_cond(:gt, ACC, TMP))                   # nor running off its end
             shift = Math.log2(table.elem_bytes).to_i
@@ -122,11 +122,11 @@ module RubyGBA
             @emitter.emit(ASM.add_reg(ACC, TMP, ACC))                        # r0 = where it is in the cartridge
             @primitives.emit_list_base(info[:base])
             @emitter.emit(ASM.mov_reg(TMP, LIST_ADDR))                       # r1 = the list's first slot
-            @emitter.emit(ASM.load_immediate(2, node.count * table.elem_bytes)) # r2 = bytes to copy
+            @emitter.emit_number(2, node.count * table.elem_bytes) # r2 = bytes to copy
             @call_cold.call(COPY_ROUTINE)
-            @emitter.emit(ASM.load_immediate(ACC, 0))
+            @emitter.emit_number(ACC, 0)
             @primitives.store_var(ACC, head_var(node.name)) if info[:ring]
-            @emitter.emit(ASM.load_immediate(ACC, node.count))
+            @emitter.emit_number(ACC, node.count)
             @primitives.store_var(ACC, length_var(node.name))
           end
 
@@ -270,19 +270,19 @@ module RubyGBA
           def emit_start_engine_with_interrupts_held
             e = @emitter
             e.emit(ASM.push(ACC, 2, 3))
-            e.emit(ASM.load_immediate(2, REG_IME))
+            e.emit_number(2, REG_IME)
             e.emit(ASM.load_halfword(ACC, 2))
             e.emit(ASM.push(ACC))                                   # the interrupt switch as it was
-            e.emit(ASM.load_immediate(ACC, 0))
+            e.emit_number(ACC, 0)
             e.emit(ASM.store_halfword(ACC, 2))
-            e.emit(ASM.load_immediate(2, REG_DMA3SAD))
+            e.emit_number(2, REG_DMA3SAD)
             e.emit(ASM.ldr_offset(ACC, 13, 4))
             e.emit(ASM.str_offset(ACC, 2, 0))                       # from
             e.emit(ASM.str_offset(TMP, 2, Primitives::COPY_TO_STEP)) # to
             e.emit(ASM.ldr_offset(ACC, 13, 12))
             e.emit(ASM.str_offset(ACC, 2, Primitives::COPY_START_STEP)) # go; the processor waits
             e.emit(ASM.pop(ACC))
-            e.emit(ASM.load_immediate(2, REG_IME))
+            e.emit_number(2, REG_IME)
             e.emit(ASM.store_halfword(ACC, 2))
             e.emit(ASM.pop(ACC, 2, 3))
           end
@@ -420,7 +420,7 @@ module RubyGBA
           # left as-is — nothing reads them until a push makes them live.
           def emit_list_new(node)
             info = list_info(node.name)
-            @emitter.emit(ASM.load_immediate(ACC, 0))
+            @emitter.emit_number(ACC, 0)
             @primitives.store_var(ACC, head_var(node.name)) if info[:ring]
             @primitives.store_var(ACC, length_var(node.name))
           end
@@ -434,7 +434,7 @@ module RubyGBA
             length = length_var(node.name)
 
             @primitives.load_var(ACC, length)            # r0 = length (the tail offset)
-            @emitter.emit(ASM.load_immediate(TMP, info[:capacity]))
+            @emitter.emit_number(TMP, info[:capacity])
             @emitter.emit(ASM.cmp_reg(ACC, TMP))                  # length - capacity
             skip = @emitter.gensym
             @emitter.emit_branch(:bcond, skip, cond: :ge)         # full => drop the push
@@ -572,7 +572,7 @@ module RubyGBA
             if ASM.encode_rotated_immediate(capacity)
               @emitter.emit(ASM.cmp_imm(ACC, capacity))
             else
-              @emitter.emit(ASM.load_immediate(TMP, capacity))
+              @emitter.emit_number(TMP, capacity)
               @emitter.emit(ASM.cmp_reg(ACC, TMP))
             end
             @emitter.emit(ASM.mov_imm_cond(:hs, ACC, 0))

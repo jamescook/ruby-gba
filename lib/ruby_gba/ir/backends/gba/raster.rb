@@ -247,7 +247,7 @@ module RubyGBA
           def emit_first_row_bend(node)
             @primitives.store_word_immediate(0, @primitives.var_addr(node.row))
             emit_row_offset(node)
-            @emitter.emit(ASM.load_immediate(ADDR, @row_bend_table.fetch(node.name)))
+            @emitter.emit_number(ADDR, @row_bend_table.fetch(node.name))
             @emitter.emit(ASM.store_halfword(ACC, ADDR))
             @primitives.store_halfword_acc(BackgroundDrawing::BG_HOFS_REGS[bg_number(node.name)])
           end
@@ -264,7 +264,7 @@ module RubyGBA
             emit_row_offset(node)
             @primitives.load_var(TMP, node.row)
             @emitter.emit(ASM.lsl_imm(SPARE, TMP, 1))         # two bytes an entry
-            @emitter.emit(ASM.load_immediate(ADDR, base))
+            @emitter.emit_number(ADDR, base)
             @emitter.emit(ASM.add_reg(ADDR, ADDR, SPARE))
             @emitter.emit(ASM.store_halfword(ACC, ADDR))
             @emitter.emit(ASM.add_imm(TMP, TMP, 1))
@@ -295,7 +295,7 @@ module RubyGBA
           # the picture bent like all the others.
           def emit_row_bend_handler
             done = @emitter.gensym
-            @emitter.emit(ASM.load_immediate(TMP, REG_VCOUNT))
+            @emitter.emit_number(TMP, REG_VCOUNT)
             @emitter.emit(ASM.load_halfword(ACC, TMP))         # r0 = the line just finished
             @emitter.emit(ASM.cmp_imm(ACC, LAST_LINE))
             @emitter.emit(ASM.mov_imm_cond(:eq, ACC, 0))       # the last line sets up the next frame's first
@@ -318,7 +318,7 @@ module RubyGBA
           # reads that register as it draws the line, so this is the whole of the handler's
           # work — the number was worked out in the gap between frames.
           def emit_read_row_from_table(node)
-            @emitter.emit(ASM.load_immediate(ADDR, @row_bend_table.fetch(node.name)))
+            @emitter.emit_number(ADDR, @row_bend_table.fetch(node.name))
             @emitter.emit(ASM.add_reg(ADDR, ADDR, SPARE))
             @emitter.emit(ASM.load_halfword(ACC, ADDR))
             @primitives.store_halfword_acc(BackgroundDrawing::BG_HOFS_REGS[bg_number(node.name)])

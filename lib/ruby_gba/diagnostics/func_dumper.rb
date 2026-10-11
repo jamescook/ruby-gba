@@ -12,11 +12,15 @@ module RubyGBA
       # @param rom [ROM] the assembled ROM whose code to read
       # @param func_ranges [Hash{Symbol=>Range}] function name => byte span within
       #   the code, relative to the code start (as the GBA backend records it)
+      # @param tables [Hash{Symbol=>Range}] function name => the part of its span that
+      #   is a table of numbers it reads, not instructions (a routine kept in the console's
+      #   quick memory has one after its return)
       # @param out [IO] where the disassembly is written
       # @param err [IO] where an unknown-function warning is written
-      def initialize(rom, func_ranges, out: $stdout, err: $stderr)
+      def initialize(rom, func_ranges, tables: {}, out: $stdout, err: $stderr)
         @rom = rom
         @func_ranges = func_ranges
+        @tables = tables
         @out = out
         @err = err
         @inspector = Inspector.from_rom(rom)
@@ -35,8 +39,20 @@ module RubyGBA
         range = @func_ranges[actual]
         return @err.puts("[dump_func] :#{name} not found or not emitted") unless range
 
+        table = @tables[actual]
+        code = table ? (range.begin...table.begin) : range
         @out.puts(header(actual, range))
-        disassemble(range).each { |line| @out.puts(line) }
+        disassemble(code).each { |line| @out.puts(line) }
+        numbers(table).each { |line| @out.puts(line) } if table
+      end
+
+      # The words after a routine's return are numbers it reads, so they are shown as
+      # numbers. Read as instructions they would come out as nonsense that looks real.
+      def numbers(table)
+        table.step(4).map do |code_offset|
+          rom_offset = Cartridge::ROM::ENTRY_OFFSET + code_offset
+          format("  0x%04X: .word 0x%08X", rom_offset, @rom.buffer[rom_offset, 4].unpack1("V"))
+        end
       end
 
       def header(name, range)

@@ -412,6 +412,22 @@ class TestInspector < Minitest::Test
     assert_includes out.string, "PUSH"
   end
 
+  # A routine kept in the console's quick memory keeps its big numbers in a table after its
+  # return. Those words are numbers, and read as instructions they would come out as
+  # nonsense that looks real — so the listing shows them as what they are.
+  def test_dump_func_shows_a_number_table_as_numbers
+    out = StringIO.new
+    RubyGBA.build("TEST", validate: false, out: out, err: nil) do
+      func(:my_func, fast: true) { set! :x, 0x12345678 }
+      dump_func :my_func
+      game_loop { call :my_func }
+    end
+
+    listing = out.string.lines.map(&:strip)
+    assert_includes listing.last, ".word 0x12345678"
+    assert_match(/POP/, listing[-2], "the table comes straight after the routine's return")
+  end
+
   def test_dump_func_warns_on_unknown
     err = StringIO.new
     RubyGBA.build("TEST", code: "BTST", maker: "01", validate: false, err: err) do

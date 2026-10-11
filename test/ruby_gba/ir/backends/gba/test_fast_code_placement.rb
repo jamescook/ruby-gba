@@ -520,6 +520,41 @@ class TestFastCodePlacement < Minitest::Test
     assert_charged_at_least_emitted(program, moved: RubyGBA::IR::Backends::GBA::Placement::IRQ_ROUTINE)
   end
 
+  # THE MEASUREMENT HAS TO BE OF THE PROGRAM THAT IS BUILT. A variable gets its address the
+  # first time something names it, and the pass that measures emits the routines in the order
+  # they were written where the real one emits the kept ones last — so a variable the build
+  # made for itself inside a routine (here, each loop's counter) used to land somewhere else
+  # the second time. Where a variable lands decides how many instructions reaching it takes,
+  # so the routine measured was not quite the routine emitted.
+  def test_a_variable_is_at_the_same_address_in_the_measuring_pass_and_the_real_one
+    program = two_loops_program
+    real = GBA.new
+    real.lower(program)
+    measuring = GBA.new
+    measuring.lower(program, fast_funcs: Set.new)
+
+    assert_includes real.iwram_report.funcs, :kept
+    refute_includes real.iwram_report.funcs, :left, "one routine moved and the other did not"
+    assert_operator measuring.var_addresses.size, :>, 2, "the build made variables of its own"
+    assert_equal measuring.var_addresses, real.var_addresses
+  end
+
+  # A routine kept in the quick memory written BEFORE one left in the cartridge, each with a
+  # loop whose counter has to live in memory (two calls in the body take the registers).
+  def two_loops_program
+    builder = Builder.new
+    builder.instance_eval do
+      screen :bitmap
+      total = var :total, 0
+      func(:leaf, fast: false) { total.add! 1 }
+      func(:kept, fast: true) { repeat(3) { call :leaf; call :leaf } }
+      func(:left, fast: false) { repeat(3) { call :leaf; call :leaf } }
+      game_loop { call :kept; call :left }
+    end
+    builder.finalize_program
+    builder.program
+  end
+
   # Lower +program+ and check every routine moved to the quick memory was charged at least
   # what it came out at — +moved+ among them, so the check cannot pass by moving nothing.
   private def assert_charged_at_least_emitted(program, moved:)

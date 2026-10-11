@@ -41,8 +41,11 @@ module RubyGBA
         #
         # WHAT MOVING A ROUTINE COSTS AT THE CALL SITE. A jump straight to a label reaches
         # 32MB; the quick memory is 80MB away from the cartridge. So a call that CROSSES
-        # between the two has to build the address in a register and jump through it —
-        # four instructions instead of one. A call that stays on one side is untouched,
+        # between the two has to get the address into a register and jump through it —
+        # six instructions instead of one from the cartridge, where the address is built,
+        # and three and a word of data from the quick memory, where a routine reads its big
+        # numbers from a table at its own end (see {NumberTable}). A call that stays on one
+        # side is untouched,
         # and since the moved routines are copied as ONE block their distances from each
         # other are preserved, so they call each other exactly as they did before.
         module Placement
@@ -127,6 +130,22 @@ module RubyGBA
           # the Wolfenstein port alone.
           CROSS_CALL_GROWTH = 20
 
+          # ...and the most one can add in a routine that keeps a number table and can reach
+          # it: the address is one read and one word of the table, then the same move and
+          # jump. Four each, less the four-byte branch it replaces.
+          CROSS_CALL_GROWTH_WITH_TABLE = 12
+
+          # WHAT ONE LOAD CAN DO TO THE READS BELOW IT, which is what "does this load reach
+          # its table" has to allow for before the real pass has run (see #tabled_sizes).
+          # A load that became a read is up to three instructions shorter, so everything
+          # below it sits that much further from the routine's measured end; and it may have
+          # put a word in the table ahead of theirs.
+          LOAD_ABOVE_ADDS_TO_REACH = 12 + 4
+
+          # A call that crosses moves nothing nearer the top (its growth is in the measured
+          # size already), but its address may be a word in the table ahead too.
+          CROSSING_ADDS_TO_REACH = 4
+
           # Saving the return address on the way in and returning at the end. The game
           # loop's body measures without these, because inline it needs neither.
           ROUTINE_WRAPPER = 8
@@ -183,11 +202,16 @@ module RubyGBA
             @progress.step("measuring the routines")
             probe = self.class.new(fast_cartridge: @fast_cartridge, progress: @progress)
             probe.lower(program, fast_funcs: Set.new) # measure the program with nothing moved
+            allocate_variables_where_measured(probe)
             # The routines the build makes for its scenes (their moving sprites, a see-through
             # layer's amounts) are nowhere in the program, so the probe is the one that knows
             # them.
             @scene_routines = probe.routines_for_scenes
-            sizes = moved_sizes(program, probe.func_sizes, made_calls: probe.generated_calls_by_routine)
+            crossings = crossing_call_counts(program, probe.generated_calls_by_routine)
+            # What each routine could come to with every number built. Kept, because it is
+            # what says how far a load can be from its routine's end (see #number_table_bound).
+            @built_sizes = moved_sizes(probe.func_sizes, crossings)
+            sizes = tabled_sizes(@built_sizes, probe.number_loads_by_routine, crossings)
             # Every allocation is rounded up to a whole word, so the gap the probe leaves is
             # the gap there really is — there is no alignment slop to keep back for.
             room = probe.iwram_free
@@ -223,13 +247,32 @@ module RubyGBA
           end
 
           # How many calls to a routine the build made for itself each routine holds, read off
-          # the throwaway pass by where each call was written (see #moved_sizes).
+          # the throwaway pass by where each call was written (see #crossing_call_counts).
           def generated_calls_by_routine
             @functions.func_ranges.transform_values { |range| generated_call_sites.count { |pos| range.cover?(pos) } }
                       .select { |_, count| count.positive? }
           end
 
           def generated_call_sites = (@generated_call_sites ||= [])
+
+          # The loads a number table could take in each routine, top to bottom, each placed by
+          # how far into its routine it is. Likewise read off the throwaway pass.
+          def number_loads_by_routine
+            loads = @emit.number_loads
+            @functions.func_ranges.transform_values do |range|
+              loads.select { |load| range.cover?(load.pos) }.map { |load| load.with(pos: load.pos - range.begin) }
+            end
+          end
+
+          # The bound a number table needs for the routine +name+: the most the routine's
+          # instructions can come to, which is what says whether a load is near enough its end
+          # to be a read (see {NumberTable}). Nil for a routine that gets no table — one that
+          # is not being emitted into the quick memory, or one the build never measured.
+          def number_table_bound(name)
+            return nil unless @emitting_hot
+
+            (@built_sizes || {})[name]
+          end
 
           # Once the game loop's body is going to the quick memory it needs a name and a
           # place in the routine table, so that everything downstream — emitting it,
@@ -277,8 +320,8 @@ module RubyGBA
           end
 
           # What each moved routine was CHARGED against what it came out at, for the one
-          # test that can tell whether #moved_sizes is still the upper bound it claims to
-          # be (a charge that is short does not fail here — it fails much later, in
+          # test that can tell whether the charge (#moved_sizes, less what #tabled_sizes
+          # takes off) is still the upper bound it claims to be (a charge that is short does not fail here — it fails much later, in
           # #check_fast_code_fits!, on a game that fits). Valid after #lower.
           def charged_and_emitted_sizes
             @fast_funcs.to_h do |name|
@@ -318,9 +361,10 @@ module RubyGBA
           end
 
           # Call a routine. A call that stays on one side of the cartridge/quick-memory
-          # line is the plain jump it always was; one that crosses has to build the
-          # address and jump through it, because the two are far too far apart for a jump
-          # to reach.
+          # line is the plain jump it always was; one that crosses has to get the address
+          # into a register and jump through it, because the two are far too far apart for a
+          # jump to reach. From the cartridge the address is built; from a routine in the
+          # quick memory it is read from that routine's number table where the read reaches.
           def emit_call_func(name)
             generated_call_sites << @emit.pos if @functions.generated_func?(name)
             target_is_fast = @fast_funcs.include?(name)
@@ -341,7 +385,7 @@ module RubyGBA
           # #emit_call_func's own crossing call uses when the call is running from inside
           # the moved block, since a label back in the cartridge is too far from the quick
           # memory for a relative branch to reach. So it is counted where the measuring
-          # pass writes it, as a call the build made for itself (see #moved_sizes).
+          # pass writes it, as a call the build made for itself (see #crossing_call_counts).
           def emit_call_cold_routine(label)
             generated_call_sites << @emit.pos
             return emit_branch(:bl, label) unless @emitting_hot
@@ -424,6 +468,26 @@ module RubyGBA
                   "cartridge, or build with `fast_code: false` to keep them all there."
           end
 
+          # EVERY VARIABLE GOES WHERE THE MEASURING PASS PUT IT, before this pass mentions one.
+          #
+          # A variable is given its address the first time anything names it, and the two
+          # passes do not name them in the same order: the measuring pass emits every routine
+          # where it was written, and this one emits the routines it keeps in the quick memory
+          # after all the others. So a variable the build made for itself inside a routine —
+          # a loop's counter, a walk's place — landed somewhere else the second time. And where
+          # a variable lands decides what reaching it costs: one within reach of the base
+          # register is a single instruction, one past it needs its whole address, and an
+          # address is one, two or three instructions depending on its bits.
+          #
+          # That made the measurement a measurement of a slightly different program. In a game
+          # with over a thousand variables, routines came out holding address loads the
+          # measuring pass never saw, which is growth nobody charged for; and two loads the
+          # measuring pass saw as one number, sharing a word of a table, need not have been.
+          # Claiming them all here, in the order that pass did, makes them the same numbers.
+          def allocate_variables_where_measured(probe)
+            probe.var_addresses.each_key { |name| var_addr(name) }
+          end
+
           # The routines the author named one way or the other. `fast: true` is taken as
           # an instruction and is placed before anything the framework picked; `fast:
           # false` is taken as an instruction too and is never picked.
@@ -433,17 +497,19 @@ module RubyGBA
           end
 
           # How big each routine will be once moved. A routine measured in the throwaway
-          # pass can only grow, and only in one way — every call it makes to a routine left
-          # behind grows by CROSS_CALL_GROWTH — so charging it for ALL of its calls is an
-          # upper bound. Being a little pessimistic here means the last routine chosen might
-          # have fitted after all; being optimistic would mean a build that overruns the
-          # memory, so this is the direction to be wrong in.
+          # pass GROWS in only one way — every call it makes to a routine left behind grows
+          # by CROSS_CALL_GROWTH — so charging it for ALL of its calls is an upper bound
+          # (#moved_sizes). It also shrinks in one way, by reading its big numbers from a
+          # table, and what is certain of that comes off again (#tabled_sizes). Being a
+          # little pessimistic here means the last routine chosen might have fitted after
+          # all; being optimistic would mean a build that overruns the memory, so this is
+          # the direction to be wrong in.
           #
           # NOT EVERY CROSSING CALL IS A `call` THE AUTHOR WROTE, and each kind that was
           # missed made this an under-estimate rather than an upper bound. Some are invented
           # by the lowering, with no `call` node anywhere to show for them. One is counted
           # from the tree here, and the rest where the measuring pass wrote them (see
-          # #moved_sizes):
+          # #crossing_call_counts):
           #
           # A MULTI-WAY DISPATCH calls the scene it lands on, one call per clause, built out
           # of `call` nodes made while emitting rather than nodes the tree holds (see
@@ -476,7 +542,7 @@ module RubyGBA
           # one, so a save routine holds a call for every byte it reads or writes.
           #
           # +made_calls+ is how many of both, by routine, the interrupt's included.
-          def moved_sizes(program, measured, made_calls: {})
+          def crossing_call_counts(program, made_calls = {})
             calls = Hash.new(0)
             program.walk.each do |node|
               name = node.kind == :loop ? FRAME_ROUTINE : (node.name if node.kind == :func)
@@ -484,9 +550,70 @@ module RubyGBA
             end
             calls[IRQ_ROUTINE] = irq_bodies(program).sum { |node| crossing_calls_in(node) }
             made_calls.each { |name, count| calls[name] += count }
+            calls
+          end
+
+          # +measured+ is each routine's size off the throwaway pass, and +crossings+ how many
+          # calls each holds that could cross.
+          def moved_sizes(measured, crossings)
             measured.to_h do |name, size|
-              [name, size + (calls[name] * CROSS_CALL_GROWTH) + ROUTINE_WRAPPER]
+              [name, size + (crossings[name] * CROSS_CALL_GROWTH) + ROUTINE_WRAPPER]
             end
+          end
+
+          # HOW BIG EACH ROUTINE WILL BE ONCE ITS BIG NUMBERS ARE READ FROM A TABLE, which is
+          # how a routine kept in the quick memory is emitted (see {NumberTable}). The throwaway
+          # pass built every number, so what it measured is too big by exactly what the table
+          # saves — and a routine charged too much is a routine, or the one after it, turned
+          # away from room it would have fitted in.
+          #
+          # THE CHARGE STILL HAS TO BE AN UPPER BOUND, so only a saving that is certain comes
+          # off. A load is read from the table when it is near enough the end of its routine,
+          # and that is decided as the routine is emitted for real, from where the load then
+          # is. So here the question is whether the load reaches WHATEVER happens above it:
+          #
+          #   * every load before it may have become a read, which pulls this one up to three
+          #     instructions nearer the top for each;
+          #   * every one of those, and every call that crosses, may have put a word in the
+          #     table ahead of this load's own.
+          #
+          # That is LOAD_ABOVE_ADDS_TO_REACH for each load above it and CROSSING_ADDS_TO_REACH
+          # for each crossing call, on top of the distance the throwaway pass saw. A load that
+          # reaches even so is one the real pass will read, and its saving is taken: every
+          # instruction it was built from but the one that reads. The table then costs a word
+          # for each DIFFERENT number among those loads, since two loads of one number read
+          # the same word — which is most of what a routine that names one register or one
+          # list over and over gets back. (Two loads are one number in the real pass because
+          # they were one in the measuring pass: see #allocate_variables_where_measured.)
+          #
+          # The routine the console interrupts into is written out by hand and gets no table.
+          def tabled_sizes(built, loads, crossings)
+            built.to_h do |name, size|
+              next [name, size] if name == IRQ_ROUTINE
+
+              [name, size - bytes_saved_by_table(size, loads[name] || [], crossings[name])]
+            end
+          end
+
+          # What a table takes off a routine charged +size+ bytes, holding +loads+ and
+          # +crossings+ calls that could cross.
+          #
+          # A CROSSING CALL IS A LOAD TOO: the address it jumps through is read from the table
+          # like any other (see #emit_call_func), so it grows a call by
+          # CROSS_CALL_GROWTH_WITH_TABLE rather than by CROSS_CALL_GROWTH. Nothing says where
+          # in the routine such a call is — it is counted off the tree, not off the code — so
+          # that is taken only for a routine small enough that a read anywhere in it reaches a
+          # table of every word it could hold.
+          def bytes_saved_by_table(size, loads, crossings)
+            read = loads.each_with_index.select do |load, above|
+              (size - load.pos) + (LOAD_ABOVE_ADDS_TO_REACH * above) + (CROSSING_ADDS_TO_REACH * crossings) <=
+                NumberTable::REACH
+            end.map(&:first)
+            instructions_gone = read.sum { |load| load.instructions - 1 }
+            words_added = read.map(&:word).uniq.size
+            saved = (instructions_gone - words_added) * 4
+            every_read_reaches = size + (4 * (loads.size + crossings)) <= NumberTable::REACH
+            every_read_reaches ? saved + (crossings * (CROSS_CALL_GROWTH - CROSS_CALL_GROWTH_WITH_TABLE)) : saved
           end
 
           def crossing_calls_in(node)

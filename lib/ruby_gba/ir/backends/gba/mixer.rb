@@ -1361,8 +1361,10 @@ module RubyGBA
           # its recording ends; the whole-sample position the slot keeps is worked back out
           # when the voice is put away.
           #
-          # The routine is self-contained and position-independent (relative branches, no
-          # PC-relative literal loads), so it runs the same from IWRAM as from ROM. The one
+          # The routine is self-contained and position-independent (relative branches, every
+          # number built an instruction at a time, nothing read from a table beside it — it is
+          # copied by its own two labels, unlike a routine of the game's, whose table goes with
+          # it), so it runs the same from IWRAM as from ROM. The one
           # input, the destination buffer, arrives in r0 and is stashed on the stack for the
           # last pass. It returns with BX LR.
           #
@@ -1382,6 +1384,7 @@ module RubyGBA
             return unless @plays_samples
 
             e = @emitter
+            e.refuse_open_number_table!("The mix routine")
             e.emit(ASM.loop_forever) # fall-through guard: the routine is only entered via the call
             e.place_label(:__mix_routine)
             start = e.pos

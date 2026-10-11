@@ -27,10 +27,16 @@ module RubyGBA
             @funcs = {}
             @minted = {}
             @func_ranges = {}
+            @number_tables = {}
           end
 
           attr_writer :modes
           attr_reader :funcs, :func_ranges
+
+          # Where each routine's number table is, for the routines that have one: the last
+          # part of the routine's own span, which holds numbers and not instructions. Anything
+          # that reads a routine back as code (dump_func) has to know where the code stops.
+          attr_reader :number_tables
 
           # A ROUTINE THIS BACKEND MADE UP FOR ITSELF, with a block for a body rather than
           # statements of the program — because nothing in the program asked for it. Something
@@ -62,8 +68,14 @@ module RubyGBA
           # One routine: save the return address, run the body, return. Shared by both
           # places routines are emitted, so where a routine lives cannot change what it
           # does.
+          #
+          # A routine going into the quick memory keeps its big numbers in a table after
+          # its return (see {NumberTable}), and the table is part of the routine: it is
+          # inside the span, so it is counted in the routine's size and copied with it.
           def emit_one_function(name, fnode)
             start = @emitter.pos
+            most_bytes = @placement.number_table_bound(name)
+            @emitter.open_number_table(most_bytes: most_bytes, routine: name) if most_bytes
             @emitter.place_label(func_label(name))
             @emitter.emit(ASM.push(14))                          # push {lr}
             minted = @minted[name]
@@ -85,7 +97,10 @@ module RubyGBA
               fnode.children.each { |stmt| @lowering.statement(stmt) }
             end
             @emitter.emit(ASM.pop(15))                           # pop {pc}  (return)
-            @func_ranges[name] = (start...@emitter.pos)          # byte span, for dump_func
+            table_start = @emitter.pos
+            @emitter.close_number_table
+            @number_tables[name] = (table_start...@emitter.pos) if @emitter.pos > table_start
+            @func_ranges[name] = (start...@emitter.pos)          # byte span, table and all
           end
 
           def func_label(name)
@@ -154,7 +169,7 @@ module RubyGBA
           def emit_compare_acc(count)
             return @emitter.emit(ASM.cmp_imm(ACC, count)) if ASM.encode_rotated_immediate(count)
 
-            @emitter.emit(ASM.load_immediate(TMP, count))
+            @emitter.emit_number(TMP, count)
             @emitter.emit(ASM.cmp_reg(ACC, TMP))
           end
         end

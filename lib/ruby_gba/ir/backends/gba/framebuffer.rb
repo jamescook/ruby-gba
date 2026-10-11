@@ -144,17 +144,17 @@ module RubyGBA
           # whichever colour they come out — a handful of instructions, where painting the
           # words under the test and again under its opposite was every pixel of them twice.
           def emit_text_color(node, reg)
-            return @emitter.emit(ASM.load_immediate(reg, yield(node.color))) unless node.picked
+            return @emitter.emit_number(reg, yield(node.color)) unless node.picked
 
             @lowering.value(node.showing) # r0 = the test: not zero picks the second colour
             first = @emitter.gensym
             done = @emitter.gensym
             @emitter.emit(ASM.cmp_imm(ACC, 0))
             @emitter.emit_branch(:bcond, first, cond: :eq)
-            @emitter.emit(ASM.load_immediate(reg, yield(node.picked)))
+            @emitter.emit_number(reg, yield(node.picked))
             @emitter.emit_branch(:b, done)
             @emitter.place_label(first)
-            @emitter.emit(ASM.load_immediate(reg, yield(node.color)))
+            @emitter.emit_number(reg, yield(node.color))
             @emitter.place_label(done)
           end
 
@@ -174,7 +174,7 @@ module RubyGBA
             # step = (picture height << 16) / height, by the shared divide routine —
             # which takes the numerator in TMP and the divisor in ACC, and hands the
             # answer back in ACC.
-            @emitter.emit(ASM.load_immediate(TMP, bmp.height << COLUMN_FIXED))
+            @emitter.emit_number(TMP, bmp.height << COLUMN_FIXED)
             @emitter.emit(ASM.mov_reg(ACC, COLUMN_ROWS))
             @divide.emit_call_divide_routine
             @emitter.emit(ASM.mov_reg(COLUMN_STEP, ACC))
@@ -226,7 +226,7 @@ module RubyGBA
           # rounded and why the far one sometimes wants a second spare row.
           def emit_column_runs(name, bmp, bail)
             unless @stretched_columns.skips_empty_rows?(name)
-              @emitter.emit(ASM.load_immediate(SPARE, 0))
+              @emitter.emit_number(SPARE, 0)
               @emitter.emit(ASM.mov_reg(HIGH, COLUMN_ROWS))
               return yield(bail)
             end
@@ -238,7 +238,7 @@ module RubyGBA
             # on a picture whose height needs one, waits with them.
             held = divide.by_multiply? ? [ACC, COLUMN_Y, COLUMN_ROWS] : [COLUMN_Y, COLUMN_ROWS]
             at = ->(reg) { held.index(reg) * 4 } # where each one waits, since the list has two lengths
-            @emitter.emit(ASM.load_immediate(ACC, divide.magic)) if divide.by_multiply?
+            @emitter.emit_number(ACC, divide.magic) if divide.by_multiply?
             @emitter.emit(ASM.push(*held))
 
             top = @emitter.gensym
@@ -315,7 +315,7 @@ module RubyGBA
             # Stop at the bottom edge, or after the picture's last pixel in this column,
             # whichever comes first — then take off the rows skipped at the top.
             under = @emitter.gensym
-            @emitter.emit(ASM.load_immediate(TMP, clip_bottom))
+            @emitter.emit_number(TMP, clip_bottom)
             @emitter.emit(ASM.sub_reg(TMP, TMP, COLUMN_Y)) # one past the last row that shows
             @emitter.emit(ASM.cmp_reg(TMP, HIGH))
             @emitter.emit_branch(:bcond, under, cond: :le)
@@ -343,11 +343,11 @@ module RubyGBA
             keep = @emitter.gensym
             @emitter.emit(ASM.cmp_imm(reg, 0))
             @emitter.emit_branch(:bcond, keep, cond: :ge)
-            @emitter.emit(ASM.load_immediate(reg, 0))
+            @emitter.emit_number(reg, 0)
             @emitter.place_label(keep)
 
             under = @emitter.gensym
-            @emitter.emit(ASM.load_immediate(TMP, top))
+            @emitter.emit_number(TMP, top)
             @emitter.emit(ASM.cmp_reg(reg, TMP))
             @emitter.emit_branch(:bcond, under, cond: :le)
             @emitter.emit(ASM.mov_reg(reg, TMP))
@@ -402,16 +402,16 @@ module RubyGBA
             top_bit = 1 << (width - 1)
 
             @emitter.emit_load_data_address(1, table) # r1 = the glyph table's ROM address
-            @emitter.emit(ASM.load_immediate(2, font.height))
+            @emitter.emit_number(2, font.height)
             @emitter.emit(ASM.mul(3, 0, 2))          # r3 = digit * height (its row offset)
             @emitter.emit(ASM.add_reg(6, 1, 3))      # r6 = &glyph[digit], row 0
             yield :hold                              # the plot loads its per-glyph register(s)
-            @emitter.emit(ASM.load_immediate(5, 0))  # r5 = row = 0
+            @emitter.emit_number(5, 0)  # r5 = row = 0
 
             row_loop = @emitter.gensym
             @emitter.place_label(row_loop)
             @emitter.emit(ASM.ldrb_offset(7, 6, 0))  # r7 = this row's byte
-            @emitter.emit(ASM.load_immediate(4, 0))  # r4 = col = 0
+            @emitter.emit_number(4, 0)  # r4 = col = 0
 
             col_loop = @emitter.gensym
             @emitter.place_label(col_loop)

@@ -199,7 +199,7 @@ module RubyGBA
             return if @layout.movement.still.empty?
 
             watching = @layout.movement.watching
-            watching ? load_var(ACC, watching) : emit(ASM.load_immediate(ACC, NOTHING_TO_WATCH))
+            watching ? load_var(ACC, watching) : emit_number(ACC, NOTHING_TO_WATCH)
             settled = gensym
             write = gensym
             load_var(TMP, STILL_STATE)
@@ -210,7 +210,7 @@ module RubyGBA
             emit_branch(:bcond, settled, cond: :ne) # ...and they are in the table already
             place_label(write)
             store_var(ACC, STILL_STATE)
-            emit(ASM.load_immediate(TMP, 1))
+            emit_number(TMP, 1)
             store_var(TMP, STILL_UP)
             @lowering.statement(Build.call(STILL_ROUTINE))
             place_label(settled)
@@ -315,7 +315,7 @@ module RubyGBA
             load_var(TMP, depths.scene_var)
             emit(ASM.cmp_imm(TMP, depths.scene_count))
             emit(ASM.mov_imm_cond(:hs, TMP, depths.scene_count))
-            emit(ASM.load_immediate(2, depths.own + 1))  # r2 = one row: each layer, then its own
+            emit_number(2, depths.own + 1)  # r2 = one row: each layer, then its own
             emit(ASM.mul(3, TMP, 2))                       # r3 = the screen's row (rd must differ from rm)
             emit(ASM.add_reg(ACC, ACC, 3))
             emit_load_data_address(TMP, depths.table)
@@ -365,7 +365,7 @@ module RubyGBA
             emit(ASM.cmp_reg(ACC, TMP))
             emit_branch(:bcond, already, cond: :eq)
             store_var(ACC, resident_frame_var(obj))
-            emit(ASM.load_immediate(TMP, obj.frame_bytes))
+            emit_number(TMP, obj.frame_bytes)
             emit(ASM.mul(2, ACC, TMP))                    # r2 = where this frame starts in the blob
             emit_load_data_address(ACC, obj.frames)
             emit(ASM.add_reg(ACC, ACC, 2))                # from the frame in the cartridge
@@ -489,7 +489,7 @@ module RubyGBA
             fixed = const_int(obj.pose)
             if fixed
               at = fixed.between?(0, obj.pose_count - 1) ? row + fixed : row
-              return emit(ASM.load_immediate(POSE_WORD, words[at]))
+              return emit_number(POSE_WORD, words[at])
             end
 
             @lowering.value(obj.pose)
@@ -599,9 +599,9 @@ module RubyGBA
             @lowering.value(obj.scale)                             # r0 = size, in SCALE_ONE-ths
             emit(ASM.cmp_imm(ACC, Affine::MIN_SCALE))
             emit(ASM.mov_imm_cond(:lt, ACC, Affine::MIN_SCALE)) # a size of 0 has no reciprocal
-            emit(ASM.load_immediate(Divide::DIV_NUM, Build::SCALE_ONE * Affine::ONE_TH))
+            emit_number(Divide::DIV_NUM, Build::SCALE_ONE * Affine::ONE_TH)
             emit_call_divide_routine                            # r0 = SCALE_ONE * 256 / size
-            emit(ASM.load_immediate(TMP, Affine::MAX))
+            emit_number(TMP, Affine::MAX)
             emit(ASM.cmp_reg(ACC, TMP))
             emit(ASM.mov_reg_cond(:gt, ACC, TMP))               # too tiny to say: hold at the largest
             store_var(ACC, OBJ_SCALE_RECIP)
@@ -627,12 +627,12 @@ module RubyGBA
             if fixed && !obj.picks_attr2?
               write_reg16(attr2_addr, obj.tile_index + (fixed * obj.per_pose) | obj.attr2_base)
             elsif fixed
-              emit(ASM.load_immediate(ACC, obj.tile_index + (fixed * obj.per_pose) | obj.attr2_base))
+              emit_number(ACC, obj.tile_index + (fixed * obj.per_pose) | obj.attr2_base)
               orr_picked_attr2(obj)
               store_halfword_acc(attr2_addr)
             else
               @lowering.value(obj.pose)                          # r0 = pose index
-              emit(ASM.load_immediate(TMP, obj.per_pose))   # r1 = stride between poses
+              emit_number(TMP, obj.per_pose)   # r1 = stride between poses
               emit(ASM.mul(2, ACC, TMP))                      # r2 = pose * stride (rd must differ from rm)
               emit_add_const(ACC, 2, obj.tile_index, TMP)   # r0 = r2 + base tile
               orr_acc(obj.attr2_base) unless obj.attr2_base.zero?
@@ -643,14 +643,14 @@ module RubyGBA
 
           # r0 &= mask, using a scratch register so any mask width is fine.
           def mask_into_acc(mask)
-            emit(ASM.load_immediate(TMP, mask))
+            emit_number(TMP, mask)
             emit(ASM.and_reg(ACC, ACC, TMP))
           end
 
           # r0 |= value, via a scratch register (values here have bits too high for an
           # inline immediate).
           def orr_acc(value)
-            emit(ASM.load_immediate(TMP, value))
+            emit_number(TMP, value)
             emit(ASM.orr_reg(ACC, ACC, TMP))
           end
         end

@@ -210,7 +210,7 @@ module RubyGBA
 
             @lowering.value(node.count)                  # r0 = count
             @primitives.store_var(ACC, limit)            # limit = count (once)
-            @emitter.emit(ASM.load_immediate(TMP, 0))
+            @emitter.emit_number(TMP, 0)
             @primitives.store_var(TMP, index)            # counter = 0
             @emitter.emit(ASM.cmp_imm(ACC, 0))
             @emitter.emit_branch(:bcond, done, cond: :le) # no passes at all
@@ -347,7 +347,7 @@ module RubyGBA
             done = @emitter.gensym
 
             @lowering.value(node.count)
-            @emitter.emit(ASM.load_immediate(LoopForm::COUNTER, 0))
+            @emitter.emit_number(LoopForm::COUNTER, 0)
             @emitter.emit(ASM.subs_imm(LoopForm::LIMIT, ACC, 0))
             @emitter.emit_branch(:bcond, done, cond: :le)
 

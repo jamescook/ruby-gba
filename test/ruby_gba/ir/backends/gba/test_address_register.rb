@@ -227,23 +227,34 @@ class TestAddressRegister < Minitest::Test
   # Is this an instruction that PUTS AN ADDRESS in the list register? That is a
   # data-processing instruction whose second operand is a plain number and whose answer
   # lands in that register — the MOV and ORRs an address is built from, and the ADD or SUB
-  # that steps from one address to the next, and nothing else the backend emits.
+  # that steps from one address to the next — or a read of the address out of the routine's
+  # number table, which is how a routine kept in the quick memory names one from nothing
+  # (see NumberTable). Nothing else the backend emits.
   #
   # Deliberately narrower than ASM.may_write_register?, which also says yes to every return and every
   # call. Those really do end what is known about the register, and counting them here
   # would drown the thing being counted.
   def writes_list_base?(word)
+    return true if (word & 0xFFFFF000) == (0xE59F0000 | (LIST_ADDR << 12))
+
     ((word >> 26) & 0b11).zero? && !(word & 0x02000000).zero? && ((word >> 12) & 0xF) == LIST_ADDR
   end
 
-  # The length of each RUN of consecutive such instructions inside +func+: how many runs
-  # there are says how often the base had to be named at all, and how long each one is says
-  # whether it was built from nothing or stepped from the address already there.
+  # Is this the one instruction that STEPS the list register from the address it holds to
+  # another: an ADD or a SUB of a plain number, from that register into itself?
+  def steps_list_base?(word)
+    [0xE2800000, 0xE2400000].include?(word & 0xFFF00000) && ((word >> 16) & 0xF) == LIST_ADDR &&
+      ((word >> 12) & 0xF) == LIST_ADDR
+  end
+
+  # Each RUN of consecutive such instructions inside +func+, as the instructions themselves:
+  # how many runs there are says how often the base had to be named at all, and what a run is
+  # made of says whether it was named from nothing or stepped from the address already there.
   def list_base_runs_in(func, &block)
     gba = GBA.new
     gba.lower(dsl_program(&block))
     words = gba.code[gba.func_ranges.fetch(func)].unpack("V*")
-    words.chunk { |w| writes_list_base?(w) }.select(&:first).map { |_, run| run.length }
+    words.chunk { |w| writes_list_base?(w) }.select(&:first).map(&:last)
   end
 
   def test_a_run_of_touches_on_one_collection_names_its_base_once
@@ -291,8 +302,9 @@ class TestAddressRegister < Minitest::Test
       game_loop { call :body }
     end
     assert_equal 2, runs.length, "two lists, so the base is named twice"
-    assert_equal [1], runs.drop(1), "but the second is a step from the first, not a fresh address"
-    assert_operator runs.first, :>, 1, "where naming one from nothing takes more than one"
+    assert_equal [true], runs.last.map { |word| steps_list_base?(word) },
+                 "but the second is one step from the first, not a fresh address"
+    assert(runs.first.none? { |word| steps_list_base?(word) }, "where the first is named from nothing")
   end
 
   def test_a_branch_makes_a_collection_name_its_base_again

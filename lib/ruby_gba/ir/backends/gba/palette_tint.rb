@@ -277,18 +277,18 @@ module RubyGBA
           def emit_tint_state(color, steps, done)
             if steps.is_a?(Integer)
               @primitives.load_var(ACC, TINT_STATE)
-              @emitter.emit(ASM.load_immediate(TMP, tint_state_word(color, steps)))
+              @emitter.emit_number(TMP, tint_state_word(color, steps))
               @emitter.emit(ASM.cmp_reg(ACC, TMP))
               @emitter.emit_branch(:bcond, done, cond: :eq)
               @primitives.store_var(TMP, TINT_STATE)
-              @emitter.emit(ASM.load_immediate(ACC, steps))
+              @emitter.emit_number(ACC, steps)
               return
             end
 
             @lowering.value(steps)
             @drawing.emit_clamp_blend_steps(WALK_STEPS)
             @emitter.emit(ASM.mov_reg(TINT_STEPS, ACC))                      # kept while the state is compared
-            @emitter.emit(ASM.load_immediate(TMP, color << TINT_COLOR_SHIFT))
+            @emitter.emit_number(TMP, color << TINT_COLOR_SHIFT)
             @emitter.emit(ASM.orr_reg(TMP, TMP, ACC))                        # r1 = the state asked for
             @emitter.emit(ASM.cmp_imm(ACC, 0))
             @emitter.emit(ASM.mov_imm_cond(:eq, TMP, 0))                     # ...but no tint is one state
@@ -317,20 +317,20 @@ module RubyGBA
           # r0 holds the steps on the way in; +steps+ is them again when they were written
           # down, and nil when the game works them out.
           def emit_tint_shares(color, steps)
-            @emitter.emit(ASM.load_immediate(TINT_RB, RB_MASK))
-            @emitter.emit(ASM.load_immediate(TINT_G, G_MASK))
-            @emitter.emit(ASM.load_immediate(TINT_KEEP, WALK_STEPS))
+            @emitter.emit_number(TINT_RB, RB_MASK)
+            @emitter.emit_number(TINT_G, G_MASK)
+            @emitter.emit_number(TINT_KEEP, WALK_STEPS)
             @emitter.emit(ASM.sub_reg(TINT_KEEP, TINT_KEEP, ACC)) # 32 thirty-seconds, less the tint's
 
             darken = color == DARKEN
             if steps
-              @emitter.emit(ASM.load_immediate(TINT_ADD, ((color & RB_MASK) * steps) + (darken ? RB_MASK : 0)))
-              return @emitter.emit(ASM.load_immediate(TINT_ADD_G, ((color & G_MASK) * steps) + (darken ? G_MASK : 0)))
+              @emitter.emit_number(TINT_ADD, ((color & RB_MASK) * steps) + (darken ? RB_MASK : 0))
+              return @emitter.emit_number(TINT_ADD_G, ((color & G_MASK) * steps) + (darken ? G_MASK : 0))
             end
 
-            @emitter.emit(ASM.load_immediate(TMP, color & RB_MASK))
+            @emitter.emit_number(TMP, color & RB_MASK)
             @emitter.emit(ASM.mul(TINT_ADD, TMP, ACC))
-            @emitter.emit(ASM.load_immediate(TMP, color & G_MASK))
+            @emitter.emit_number(TMP, color & G_MASK)
             @emitter.emit(ASM.mul(TINT_ADD_G, TMP, ACC))
             return unless darken
 
@@ -368,7 +368,7 @@ module RubyGBA
           # through it: the tables a screen draws through, and the list of colours a layer
           # that can be recoloured is drawing from (see #emit_colors_into_bank).
           def emit_blend_run(dest, units)
-            @emitter.emit(ASM.load_immediate(TINT_DST, dest))
+            @emitter.emit_number(TINT_DST, dest)
             @primitives.emit_add_const(TINT_END, TINT_SRC, units * 2, ACC)
 
             top = @emitter.gensym
@@ -459,9 +459,9 @@ module RubyGBA
             @primitives.load_var(ACC, TINT_STATE)
             @emitter.emit(ASM.lsr_imm(TINT_STEPS, ACC, TINT_COLOR_SHIFT))  # the colour
             @emitter.emit(ASM.and_imm(ACC, ACC, (1 << TINT_COLOR_SHIFT) - 1)) # ...and the steps
-            @emitter.emit(ASM.load_immediate(TINT_RB, RB_MASK))
-            @emitter.emit(ASM.load_immediate(TINT_G, G_MASK))
-            @emitter.emit(ASM.load_immediate(TINT_KEEP, WALK_STEPS))
+            @emitter.emit_number(TINT_RB, RB_MASK)
+            @emitter.emit_number(TINT_G, G_MASK)
+            @emitter.emit_number(TINT_KEEP, WALK_STEPS)
             @emitter.emit(ASM.sub_reg(TINT_KEEP, TINT_KEEP, ACC))
             @emitter.emit(ASM.and_reg(TMP, TINT_STEPS, TINT_RB))
             @emitter.emit(ASM.mul(TINT_ADD, TMP, ACC))
@@ -518,7 +518,7 @@ module RubyGBA
             @primitives.load_var(ACC, TINT_STATE)
             @emitter.emit(ASM.cmp_imm(ACC, 0))
             @emitter.emit_branch(:bcond, skip, cond: :eq)
-            @emitter.emit(ASM.load_immediate(ACC, 0))
+            @emitter.emit_number(ACC, 0)
             @primitives.store_var(ACC, TINT_STATE)
             tint_tables(mode).each { |blob, dest, units| emit_restore_palette_table(blob, dest, units) }
             @emitter.place_label(skip)
@@ -551,7 +551,7 @@ module RubyGBA
           # makes no promise about what is in its memory when it powers on, and a stale
           # value here would make the first tint of the game do nothing at all.
           def emit_tint_state_init
-            @emitter.emit(ASM.load_immediate(ACC, 0))
+            @emitter.emit_number(ACC, 0)
             @primitives.store_var(ACC, TINT_STATE)
           end
 

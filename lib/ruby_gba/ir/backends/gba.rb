@@ -9,6 +9,7 @@ require_relative "gba/sprite_layout" # ...and one attempt at fitting them all in
 require_relative "gba/placed_fade" # a fade that sits at a place in the stack, and the twins holding it off
 require_relative "gba/stretched_columns" # the pictures a stretched column draws, and where each holds pixels
 require_relative "gba/address_register" # what the address register still holds, as code goes past
+require_relative "gba/number_table" # a routine's big numbers, read from a table beside it
 require_relative "gba/emit"
 require_relative "gba/attribution"
 require_relative "gba/lowering"
@@ -235,6 +236,9 @@ module RubyGBA
 
         # Each func's byte span in @code (for dump_func) — lives on @functions.
         def func_ranges = @functions.func_ranges
+
+        # The part of a routine's span that is its number table, by routine name.
+        def number_tables = @functions.number_tables
 
         # The routines this build made for its scenes, each with the scene it works for: the
         # one writing each scene's moving sprites, and the one telling the display how

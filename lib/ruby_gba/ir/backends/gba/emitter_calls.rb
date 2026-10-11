@@ -14,6 +14,7 @@ module RubyGBA
           private
 
           def emit(bytes) = @emitter.emit(bytes)
+          def emit_number(reg, value) = @emitter.emit_number(reg, value)
           def pos = @emitter.pos
           def place_label(name) = @emitter.place_label(name)
           def gensym = @emitter.gensym
@@ -38,7 +39,7 @@ module RubyGBA
           # Store the low halfword of +reg+ to a fixed address (a sibling of
           # store_halfword_acc for when the value isn't in the accumulator).
           def store_halfword_reg(reg, address)
-            emit(ASM.load_immediate(TMP, address))
+            emit_number(TMP, address)
             emit(ASM.store_halfword(reg, TMP))
           end
         end

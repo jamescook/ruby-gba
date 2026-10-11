@@ -58,7 +58,7 @@ module RubyGBA
           # reads the expanded size from the header, so there is no length to pass.
           def emit_bios_decompress(blob_name, dest, swi_number)
             emit_load_data_address(0, blob_name)   # r0 = packed source in the cartridge
-            emit(ASM.load_immediate(1, dest))      # r1 = destination slot
+            emit_number(1, dest)      # r1 = destination slot
             emit(ASM.swi(swi_number << 16))
           end
 

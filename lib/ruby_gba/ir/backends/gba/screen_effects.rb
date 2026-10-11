@@ -258,7 +258,7 @@ module RubyGBA
           # the two sides — a color coming in, or what is behind showing through — and the
           # register does not care, so neither does this.
           def emit_blend_weights_from_acc
-            emit(ASM.load_immediate(TMP, BLD_MAX))
+            emit_number(TMP, BLD_MAX)
             emit(ASM.sub_reg(TMP, TMP, ACC))              # r1 = what is left of the near side
             emit(ASM.orr_reg_lsl(ACC, TMP, ACC, 8))       # ...with the far side's share above it
             store_halfword_acc(REG_BLDALPHA)

@@ -254,16 +254,20 @@ module RubyGBA
           end
 
           def emit_call_routine_at(address)
-            @emitter.emit(ASM.load_immediate(ADDR, address))
+            @emitter.emit_number(ADDR, address)
             @emitter.emit_call_through(ADDR)
           end
 
           # The routine, emitted once into ROM and copied into internal memory at boot. It
-          # is position-independent — relative branches, immediates built by hand, no
-          # PC-relative loads — so it runs the same wherever it is put.
+          # is position-independent — relative branches, every number built an instruction
+          # at a time, nothing read from a table beside it — so it runs the same wherever
+          # it is put. A routine of the game's that goes into the same memory DOES keep
+          # such a table (see NumberTable), and can, because its table is copied with it.
+          # This one is copied by its own two labels, so it has to hold all it reads.
           def emit_divide_routine
             return unless @divide_routine_iwram
 
+            @emitter.refuse_open_number_table!("The divide routine")
             @emitter.emit(ASM.loop_forever) # the routine is only ever entered by the call above
             @emitter.place_label(:__divide_routine)
             start = @emitter.pos
@@ -301,6 +305,7 @@ module RubyGBA
           def emit_divide_fix_routine
             return unless @divide_fix_routine_iwram
 
+            @emitter.refuse_open_number_table!("The routine that divides fractions")
             @emitter.emit(ASM.loop_forever) # the routine is only ever entered by the call above
             @emitter.place_label(:__divide_fix_routine)
             start = @emitter.pos

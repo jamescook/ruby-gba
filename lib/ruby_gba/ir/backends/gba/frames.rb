@@ -82,13 +82,13 @@ module RubyGBA
             under = @emitter.gensym
             @emitter.emit(ASM.cmp_imm(ACC, MOST))
             @emitter.emit_branch(:bcond, under, cond: :le)
-            @emitter.emit(ASM.load_immediate(ACC, MOST))
+            @emitter.emit_number(ACC, MOST)
             @emitter.place_label(under)
 
             over = @emitter.gensym
             @emitter.emit(ASM.cmp_imm(ACC, 1))
             @emitter.emit_branch(:bcond, over, cond: :ge)
-            @emitter.emit(ASM.load_immediate(ACC, 1))
+            @emitter.emit_number(ACC, 1)
             @emitter.place_label(over)
             @primitives.store_var(ACC, STEP)
           end

@@ -187,7 +187,8 @@ module RubyGBA
     # Every phase is over; a disassembly dump is a debugging aid, not a phase.
     progress.done
     unless evaluated.dump_requests.empty?
-      Diagnostics::FuncDumper.new(rom, backend.func_ranges, out: out, err: err).dump(evaluated.dump_requests)
+      Diagnostics::FuncDumper.new(rom, backend.func_ranges, tables: backend.number_tables, out: out, err: err)
+                             .dump(evaluated.dump_requests)
     end
     rom
   ensure

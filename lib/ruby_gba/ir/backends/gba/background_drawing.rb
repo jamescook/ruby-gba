@@ -65,7 +65,7 @@ module RubyGBA
             # A map brought in a strip at a time is put up as its first map, filled around
             # wherever the view is (see MapStreaming).
             if bg.stream
-              emit(ASM.load_immediate(ACC, 0))
+              emit_number(ACC, 0)
               store_var(ACC, IR::Nodes::Background.stream_vars(node.name).first)
               emit_stream_fill(bg)
             else
@@ -167,10 +167,10 @@ module RubyGBA
             emit_branch(:bcond, done, cond: :hs)
 
             emit_cell_index(grid)
-            emit(ASM.load_immediate(TMP, VRAM_START + (bg.screen_block * SCREENBLOCK_BYTES)))
+            emit_number(TMP, VRAM_START + (bg.screen_block * SCREENBLOCK_BYTES))
             emit(ASM.lsl_imm(TILE_ADDR, TILE_ADDR, 1)) # two bytes a cell
             emit(ASM.add_reg(TILE_ADDR, TMP, TILE_ADDR))
-            emit(ASM.load_immediate(ACC, entry))
+            emit_number(ACC, entry)
             emit(ASM.store_halfword(ACC, TILE_ADDR))
             place_label(done)
           end
@@ -279,13 +279,13 @@ module RubyGBA
             emit(ASM.mov_reg(ACC, SET_PICKED))
             store_var(ACC, swap.var)
 
-            emit(ASM.load_immediate(TMP, REG_DISPCNT))
+            emit_number(TMP, REG_DISPCNT)
             emit(ASM.load_halfword(ACC, TMP))
             store_var(ACC, SET_SWAP_DISPLAY)
             emit(ASM.bic_imm(ACC, ACC, BG0_ENABLE | BG1_ENABLE | BG2_ENABLE | BG3_ENABLE))
             emit(ASM.store_halfword(ACC, TMP))
 
-            emit(ASM.load_immediate(TMP, swap.stride))
+            emit_number(TMP, swap.stride)
             emit(ASM.mul(ACC, SET_PICKED, TMP)) # r0 = how far along the blob that set starts
             emit_load_data_address(TMP, swap.tiles)
             emit(ASM.add_reg(ACC, ACC, TMP))
@@ -298,7 +298,7 @@ module RubyGBA
             emit_stream_fill(bg) if bg.stream # ...the view of it, while the layers are still off
             emit_area_colors(swap, from_var: true)
             load_var(ACC, SET_SWAP_DISPLAY)
-            emit(ASM.load_immediate(TMP, REG_DISPCNT))
+            emit_number(TMP, REG_DISPCNT)
             emit(ASM.store_halfword(ACC, TMP))
             emit_branch(:b, done)
             place_label(same)
@@ -320,7 +320,7 @@ module RubyGBA
             emit_load_data_address(ACC, swap.colors)
             if from_var
               load_var(TMP, swap.var)
-              emit(ASM.load_immediate(SET_STRIDE, swap.color_units * 2))
+              emit_number(SET_STRIDE, swap.color_units * 2)
               emit(ASM.mul(TMP, SET_STRIDE, TMP)) # how far along the blob that set's table is
               emit(ASM.add_reg(ACC, ACC, TMP))
             end
@@ -334,9 +334,9 @@ module RubyGBA
             emit(ASM.ldrb_reg(ACC, TMP, SET_PICKED))
             emit(ASM.lsl_imm(ACC, ACC, CHAR_BASE_SHIFT))
             depth = bg.small ? 0 : BG_256_COLOR
-            emit(ASM.load_immediate(TMP, bg.priority | depth | (bg.screen_block << 8) | bg.size))
+            emit_number(TMP, bg.priority | depth | (bg.screen_block << 8) | bg.size)
             emit(ASM.orr_reg(ACC, ACC, TMP))
-            emit(ASM.load_immediate(TMP, BG_CNT_REGS[bg.bg]))
+            emit_number(TMP, BG_CNT_REGS[bg.bg])
             emit(ASM.store_halfword(ACC, TMP))
           end
 
@@ -401,13 +401,13 @@ module RubyGBA
             # engine, and one landing between a row's setup writes would start this copy with
             # the handler's addresses. r2 and r3 hold the walk; this step is only ever the body
             # of the routine that copies, whose callers expect it to use them.
-            emit(ASM.load_immediate(TMP, REG_IME))
+            emit_number(TMP, REG_IME)
             emit(ASM.load_halfword(ACC, TMP))
             emit(ASM.push(ACC))
-            emit(ASM.load_immediate(ACC, 0))
+            emit_number(ACC, 0)
             emit(ASM.store_halfword(ACC, TMP))
             emit_load_label_address(2, table)
-            emit(ASM.load_immediate(3, rows.size))
+            emit_number(3, rows.size)
             place_label(loop_top)
             emit(ASM.ldr_offset(ACC, 2, 0))
             emit(ASM.ldr(ACC, ACC))                 # its pending bits
@@ -426,7 +426,7 @@ module RubyGBA
             # The engine's three registers, written by hand rather than through
             # Primitives#emit_start_copy_engine: the write that starts the copy is each run's
             # own instruction, further down, and that call makes all three in one place.
-            emit(ASM.load_immediate(ADDR, REG_DMA3SAD))
+            emit_number(ADDR, REG_DMA3SAD)
             emit(ASM.ldr_offset(TMP, 2, 8))
             emit(ASM.str_offset(TMP, ADDR, 0))                        # from its list
             emit(ASM.str_offset(ACC, ADDR, Primitives::COPY_TO_STEP)) # to its place
@@ -446,7 +446,7 @@ module RubyGBA
             emit(ASM.subs_imm(3, 3, 1))
             emit_branch(:bcond, loop_top, cond: :ne)
             emit(ASM.pop(ACC))
-            emit(ASM.load_immediate(TMP, REG_IME))
+            emit_number(TMP, REG_IME)
             emit(ASM.store_halfword(ACC, TMP))      # the interrupt switch as it was
             emit_branch(:b, after)
             place_label(table)
@@ -516,7 +516,7 @@ module RubyGBA
             emit_load_data_address(ACC, bg.map)
             return if fixed.zero?
 
-            emit(ASM.load_immediate(TMP, fixed * bg.map_bytes))
+            emit_number(TMP, fixed * bg.map_bytes)
             emit(ASM.add_reg(ACC, ACC, TMP))
           end
 
@@ -528,7 +528,7 @@ module RubyGBA
             if 2**shift == bg.map_bytes
               emit(ASM.lsl_imm(TMP, ACC, shift))
             else
-              emit(ASM.load_immediate(TMP, bg.map_bytes))
+              emit_number(TMP, bg.map_bytes)
               emit(ASM.mul(TMP, ACC, TMP))
             end
           end
@@ -731,9 +731,9 @@ module RubyGBA
             @lowering.value(scale)                                    # r0 = size, in SCALE_ONE-ths
             emit(ASM.cmp_imm(ACC, Affine::MIN_SCALE))
             emit(ASM.mov_imm_cond(:lt, ACC, Affine::MIN_SCALE))
-            emit(ASM.load_immediate(Divide::DIV_NUM, Build::SCALE_ONE * Affine::ONE_TH))
+            emit_number(Divide::DIV_NUM, Build::SCALE_ONE * Affine::ONE_TH)
             emit_call_divide_routine
-            emit(ASM.load_immediate(TMP, Affine::MAX))
+            emit_number(TMP, Affine::MAX)
             emit(ASM.cmp_reg(ACC, TMP))
             emit(ASM.mov_reg_cond(:gt, ACC, TMP))
             store_var(ACC, BG_AFFINE_SCALE_RECIP)
@@ -768,24 +768,24 @@ module RubyGBA
           # is, so a background that is not turning lands in exactly the same place.
           def emit_bg_affine_reference_point(px, py)
             load_var(2, BG_AFFINE_PA)
-            emit(ASM.load_immediate(3, px))
+            emit_number(3, px)
             emit(ASM.mul(4, 2, 3))                       # r4 = PA * px
             load_var(2, BG_AFFINE_PB)
-            emit(ASM.load_immediate(3, py))
+            emit_number(3, py)
             emit(ASM.mul(5, 2, 3))                       # r5 = PB * py
             emit(ASM.add_reg(4, 4, 5))                   # r4 = PA*px + PB*py
-            emit(ASM.load_immediate(ACC, px * Affine::ONE_TH))
+            emit_number(ACC, px * Affine::ONE_TH)
             emit(ASM.sub_reg(ACC, ACC, 4))
             store_word_acc(REG_BG2X)
 
             load_var(2, BG_AFFINE_PC)
-            emit(ASM.load_immediate(3, px))
+            emit_number(3, px)
             emit(ASM.mul(4, 2, 3))                       # r4 = PC * px
             load_var(2, BG_AFFINE_PD)
-            emit(ASM.load_immediate(3, py))
+            emit_number(3, py)
             emit(ASM.mul(5, 2, 3))                       # r5 = PD * py
             emit(ASM.add_reg(4, 4, 5))                   # r4 = PC*px + PD*py
-            emit(ASM.load_immediate(ACC, py * Affine::ONE_TH))
+            emit_number(ACC, py * Affine::ONE_TH)
             emit(ASM.sub_reg(ACC, ACC, 4))
             store_word_acc(REG_BG2Y)
           end

@@ -16,7 +16,7 @@ module RubyGBA
             @tables = tables
           end
 
-          def eval_int(node) = @emitter.emit(ASM.load_immediate(ACC, Int32.wrap(node.value)))
+          def eval_int(node) = @emitter.emit_number(ACC, Int32.wrap(node.value))
           def eval_var_ref(node) = @primitives.load_var(ACC, node.name)
 
           def eval_neg(node)
@@ -33,7 +33,7 @@ module RubyGBA
           # Read VCOUNT — the scanline being drawn right now (0..227) — into the
           # accumulator. A halfword load straight from the display's scanline register.
           def eval_read_scanline(_node = nil)
-            @emitter.emit(ASM.load_immediate(TMP, REG_VCOUNT))
+            @emitter.emit_number(TMP, REG_VCOUNT)
             @emitter.emit(ASM.load_halfword(ACC, TMP))
           end
 
@@ -82,14 +82,14 @@ module RubyGBA
           # emit_clamp uses for a variable, but on r0.
           def emit_clamp_acc(low, high)
             keep_low = @emitter.gensym
-            @emitter.emit(ASM.load_immediate(TMP, low))
+            @emitter.emit_number(TMP, low)
             @emitter.emit(ASM.cmp_reg(ACC, TMP))
             @emitter.emit_branch(:bcond, keep_low, cond: :ge)
             @emitter.emit(ASM.mov_reg(ACC, TMP))
             @emitter.place_label(keep_low)
 
             keep_high = @emitter.gensym
-            @emitter.emit(ASM.load_immediate(TMP, high))
+            @emitter.emit_number(TMP, high)
             @emitter.emit(ASM.cmp_reg(ACC, TMP))
             @emitter.emit_branch(:bcond, keep_high, cond: :le)
             @emitter.emit(ASM.mov_reg(ACC, TMP))
@@ -182,7 +182,7 @@ module RubyGBA
           # straight into a register.
           def emit_clamp_acc_bound(bound, cond:)
             if (fixed = @primitives.const_int(bound))
-              @emitter.emit(ASM.load_immediate(TMP, fixed))
+              @emitter.emit_number(TMP, fixed)
             else
               @emitter.emit(ASM.push(ACC))         # hold the value being clamped
               @lowering.value(bound)               # r0 = the bound
@@ -253,7 +253,7 @@ module RubyGBA
                             else ASM.eor_imm(ACC, ACC, value)
                             end)
             else
-              @emitter.emit(ASM.load_immediate(TMP, value))
+              @emitter.emit_number(TMP, value)
               @emitter.emit(case op
                             when :& then ASM.and_reg(ACC, ACC, TMP)
                             when :| then ASM.orr_reg(ACC, ACC, TMP)
@@ -272,7 +272,7 @@ module RubyGBA
             if Int32.shift_count_in_range?(count)
               @emitter.emit(ASM.lsl_imm(ACC, ACC, count)) if count.positive?
             else
-              @emitter.emit(ASM.load_immediate(ACC, 0))
+              @emitter.emit_number(ACC, 0)
             end
             true
           end
@@ -361,7 +361,7 @@ module RubyGBA
             recipe = Reciprocal.for(divisor)
             @lowering.value(lhs)
             @emitter.emit(ASM.mov_reg(SPARE, ACC))                      # r2 = the numerator, kept
-            @emitter.emit(ASM.load_immediate(TMP, recipe.multiplier))
+            @emitter.emit_number(TMP, recipe.multiplier)
             @emitter.emit(ASM.smull(ACC, HIGH, TMP, SPARE))             # r3:r0 = multiplier * numerator
             @emitter.emit(ASM.add_reg(HIGH, HIGH, SPARE)) if recipe.add_numerator
             @emitter.emit(ASM.asr_imm(HIGH, HIGH, recipe.shift)) if recipe.shift.positive?
@@ -401,7 +401,7 @@ module RubyGBA
           # makes the correction three instructions and no branch.
           def emit_reciprocal_modulo(lhs, size)
             emit_reciprocal_divide(lhs, size)
-            @emitter.emit(ASM.load_immediate(TMP, size))
+            @emitter.emit_number(TMP, size)
             @emitter.emit(ASM.mul(HIGH, ACC, TMP))         # r3 = quotient * size
             @emitter.emit(ASM.sub_reg(ACC, SPARE, HIGH))   # r0 = numerator - that = the leftover
             @emitter.emit(ASM.asr_imm(SPARE, ACC, 31))     # r2 = -1 when the leftover is negative
@@ -413,7 +413,7 @@ module RubyGBA
           # gives for a negative divisor. Every answer but zero moves down by one size;
           # zero stays zero, which is the only reason this needs a branch at all.
           def emit_wrap_to_negative_range(size)
-            @emitter.emit(ASM.load_immediate(TMP, size))
+            @emitter.emit_number(TMP, size)
             done = @emitter.gensym
             @emitter.emit(ASM.cmp_imm(ACC, 0))
             @emitter.emit_branch(:bcond, done, cond: :eq)
@@ -435,7 +435,7 @@ module RubyGBA
             if mask <= 0xFF
               @emitter.emit(ASM.and_imm(reg, reg, mask))
             else
-              @emitter.emit(ASM.load_immediate(TMP, mask))
+              @emitter.emit_number(TMP, mask)
               @emitter.emit(ASM.and_reg(reg, reg, TMP))
             end
           end
@@ -549,9 +549,9 @@ module RubyGBA
             end
             @emitter.emit(ASM.cmp_reg(TMP, ACC))          # lhs - rhs
             done = @emitter.gensym
-            @emitter.emit(ASM.load_immediate(ACC, 0))
+            @emitter.emit_number(ACC, 0)
             @emitter.emit_branch(:bcond, done, cond: false_cond)
-            @emitter.emit(ASM.load_immediate(ACC, 1))
+            @emitter.emit_number(ACC, 1)
             @emitter.place_label(done)
           end
 
@@ -564,13 +564,13 @@ module RubyGBA
             mask = BUTTON_BIT.fetch(button) do
               raise LoweringError, "unknown button #{button.inspect}"
             end
-            @emitter.emit(ASM.load_immediate(TMP, REG_KEYINPUT))
+            @emitter.emit_number(TMP, REG_KEYINPUT)
             @emitter.emit(ASM.load_halfword(ACC, TMP))
             @emitter.emit(ASM.tst_imm(ACC, mask))         # zero flag set => button down
             done = @emitter.gensym
-            @emitter.emit(ASM.load_immediate(ACC, 0))
+            @emitter.emit_number(ACC, 0)
             @emitter.emit_branch(:bcond, done, cond: :ne) # bit not zero => not held => leave 0
-            @emitter.emit(ASM.load_immediate(ACC, 1))
+            @emitter.emit_number(ACC, 1)
             @emitter.place_label(done)
           end
 
@@ -592,7 +592,7 @@ module RubyGBA
           # away everything but the ten button bits (the register's other bits turn into ones
           # when it is turned over). Whatever is left is a button that is down.
           def eval_any_held
-            @emitter.emit(ASM.load_immediate(TMP, REG_KEYINPUT))
+            @emitter.emit_number(TMP, REG_KEYINPUT)
             @emitter.emit(ASM.load_halfword(ACC, TMP))
             @emitter.emit(ASM.mvn_reg(ACC, ACC))
             @emitter.emit(ASM.lsl_imm(ACC, ACC, 32 - KEY_MASK.bit_length))
@@ -610,16 +610,16 @@ module RubyGBA
           def emit_one_unless_zero
             @emitter.emit(ASM.cmp_imm(ACC, 0))
             done = @emitter.gensym
-            @emitter.emit(ASM.load_immediate(ACC, 0))
+            @emitter.emit_number(ACC, 0)
             @emitter.emit_branch(:bcond, done, cond: :eq)
-            @emitter.emit(ASM.load_immediate(ACC, 1))
+            @emitter.emit_number(ACC, 1)
             @emitter.place_label(done)
           end
 
           # Nothing down and nothing pressed before the game runs. Written rather than assumed,
           # because the console makes no promise about what its memory holds at power-on.
           def emit_input_init
-            @emitter.emit(ASM.load_immediate(ACC, 0))
+            @emitter.emit_number(ACC, 0)
             @primitives.store_var(ACC, KEYS_SEEN)
             @primitives.store_var(ACC, KEYS_COLLECTED)
             @primitives.store_var(ACC, KEYS_PRESSED)
@@ -634,7 +634,7 @@ module RubyGBA
           # harmless: what has been seen is forgotten LAST, so whatever the interrupt does in
           # between, the next frame finds every button that is down as newly down.
           def emit_forget_presses
-            @emitter.emit(ASM.load_immediate(ACC, 0))
+            @emitter.emit_number(ACC, 0)
             @primitives.store_var(ACC, KEYS_COLLECTED)
             @primitives.store_var(ACC, KEYS_PRESSED)
             @primitives.store_var(ACC, KEYS_SEEN)
@@ -651,7 +651,7 @@ module RubyGBA
           # own interrupt code saves all three before it gets here and puts them back after, so
           # the game it interrupted finds its registers as it left them.
           def emit_collect_presses
-            @emitter.emit(ASM.load_immediate(TMP, REG_KEYINPUT))
+            @emitter.emit_number(TMP, REG_KEYINPUT)
             @emitter.emit(ASM.load_halfword(ACC, TMP))
             @emitter.emit(ASM.mvn_reg(ACC, ACC))            # invert: 1 bit now means "down"
             @emitter.emit(ASM.lsl_imm(ACC, ACC, 22))        # drop everything above the
@@ -676,7 +676,7 @@ module RubyGBA
           def emit_latch_presses
             @primitives.load_var(ACC, KEYS_COLLECTED)
             @primitives.store_var(ACC, KEYS_PRESSED)
-            @emitter.emit(ASM.load_immediate(ACC, 0))
+            @emitter.emit_number(ACC, 0)
             @primitives.store_var(ACC, KEYS_COLLECTED)
           end
         end

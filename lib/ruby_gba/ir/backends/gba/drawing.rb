@@ -169,7 +169,7 @@ module RubyGBA
           def emit_end_forced_blank
             return unless @layout.waits_for_frames
 
-            emit(ASM.load_immediate(TMP, REG_DISPCNT))
+            emit_number(TMP, REG_DISPCNT)
             emit(ASM.load_halfword(ACC, TMP))
             emit(ASM.bic_imm(ACC, ACC, FORCED_BLANK))
             emit(ASM.store_halfword(ACC, TMP))
@@ -450,7 +450,7 @@ module RubyGBA
 
           # Read the display's settings into ACC, let the block change them, write them back.
           def change_display_control
-            emit(ASM.load_immediate(TMP, REG_DISPCNT))
+            emit_number(TMP, REG_DISPCNT)
             emit(ASM.load_halfword(ACC, TMP))
             yield
             emit(ASM.store_halfword(ACC, TMP))
@@ -605,14 +605,14 @@ module RubyGBA
           # minus the current one).
           def emit_flip
             load_var(ACC, DISPCNT_STATE)
-            emit(ASM.load_immediate(TMP, DISPCNT_FRAME_SELECT))
+            emit_number(TMP, DISPCNT_FRAME_SELECT)
             emit(ASM.eor_reg(ACC, ACC, TMP))            # flip the page-select bit
             store_var(ACC, DISPCNT_STATE)
-            emit(ASM.load_immediate(TMP, REG_DISPCNT))
+            emit_number(TMP, REG_DISPCNT)
             emit(ASM.store_halfword(ACC, TMP))          # the finished page is now shown
 
             load_var(ACC, BACKBUF)
-            emit(ASM.load_immediate(TMP, PAGE_PAIR_SUM))
+            emit_number(TMP, PAGE_PAIR_SUM)
             emit(ASM.sub_reg(ACC, TMP, ACC))            # the other page
             store_var(ACC, BACKBUF)
           end
@@ -636,13 +636,13 @@ module RubyGBA
               emit(ASM.push(ACC))
               @lowering.value(node.x)            # r0 = x
               emit(ASM.pop(TMP))              # r1 = y
-              emit(ASM.load_immediate(2, SCREEN_WIDTH))
+              emit_number(2, SCREEN_WIDTH)
               emit(ASM.mul(3, TMP, 2))        # r3 = y * width
               emit(ASM.add_reg(3, 3, ACC))    # r3 = y*width + x
               emit(ASM.lsl_imm(3, 3, 1))      # r3 = offset * 2 bytes
-              emit(ASM.load_immediate(2, VRAM_START))
+              emit_number(2, VRAM_START)
               emit(ASM.add_reg(3, 2, 3))      # r3 = VRAM address
-              emit(ASM.load_immediate(ACC, color))
+              emit_number(ACC, color)
               emit(ASM.store_halfword(ACC, 3))
             end
           end
@@ -654,7 +654,7 @@ module RubyGBA
 
             x, y, w, h = constant_ints!(node, x: node.x, y: node.y, w: node.w, h: node.h)
             color = Graphics::Color.resolve(node.color)
-            emit(ASM.load_immediate(ACC, color))
+            emit_number(ACC, color)
             h.times do |dy|
               row = y + dy
               next unless (@framebuffer.clip_top...@framebuffer.clip_bottom).cover?(row)
@@ -663,7 +663,7 @@ module RubyGBA
                 col = x + dx
                 next unless (@framebuffer.clip_left...@framebuffer.clip_right).cover?(col)
 
-                emit(ASM.load_immediate(TMP, VRAM_START + ((row * SCREEN_WIDTH) + col) * 2))
+                emit_number(TMP, VRAM_START + ((row * SCREEN_WIDTH) + col) * 2)
                 emit(ASM.store_halfword(ACC, TMP))
               end
             end
@@ -756,7 +756,7 @@ module RubyGBA
               clipped = gensym
               emit(ASM.cmp_imm(COLUMN_X, @framebuffer.clip_left))
               emit_branch(:bcond, clipped, cond: :lt)
-              emit(ASM.load_immediate(TMP, @framebuffer.clip_right - width))
+              emit_number(TMP, @framebuffer.clip_right - width)
               emit(ASM.cmp_reg(COLUMN_X, TMP))
               emit_branch(:bcond, clipped, cond: :gt)
 
@@ -787,11 +787,11 @@ module RubyGBA
 
             # ...to the screen at (x, y), and to the pixels beside it. Their addresses are a
             # fixed distance along from the first, so the row's address is built once.
-            emit(ASM.load_immediate(TMP, SCREEN_WIDTH))
+            emit_number(TMP, SCREEN_WIDTH)
             emit(ASM.mul(TMP, COLUMN_Y, TMP))
             emit(ASM.add_reg(TMP, TMP, COLUMN_X))
             emit(ASM.lsl_imm(TMP, TMP, 1))
-            emit(ASM.load_immediate(SPARE, VRAM_START))
+            emit_number(SPARE, VRAM_START)
             emit(ASM.add_reg(TMP, TMP, SPARE))
             width.times { |dx| emit_column_store(dx, clipped: clipped) }
 
@@ -807,7 +807,7 @@ module RubyGBA
           # the picture's height however the rounding falls.
           def emit_read_column_pixel(bmp, skip)
             emit(ASM.lsr_imm(ACC, COLUMN_POS, COLUMN_FIXED))
-            emit(ASM.load_immediate(TMP, bmp.width * 2))
+            emit_number(TMP, bmp.width * 2)
             emit(ASM.mul(ACC, ACC, TMP))
             emit(ASM.add_reg(ACC, COLUMN_SRC, ACC))
             emit(ASM.load_halfword(ACC, ACC))
@@ -817,7 +817,7 @@ module RubyGBA
             # first-person view keep its shape instead of standing in a black box.
             return unless bmp.transparent
 
-            emit(ASM.load_immediate(TMP, bmp.transparent))
+            emit_number(TMP, bmp.transparent)
             emit(ASM.cmp_reg(ACC, TMP))
             emit_branch(:bcond, skip, cond: :eq)
           end
@@ -903,14 +903,14 @@ module RubyGBA
             keep_right = gensym
             emit(ASM.cmp_imm(ACC, @framebuffer.clip_right))
             emit_branch(:bcond, keep_right, cond: :le)
-            emit(ASM.load_immediate(ACC, @framebuffer.clip_right))
+            emit_number(ACC, @framebuffer.clip_right)
             place_label(keep_right)
 
             # x_reg := max(x_reg, clip_left)
             keep_left = gensym
             emit(ASM.cmp_imm(x_reg, @framebuffer.clip_left))
             emit_branch(:bcond, keep_left, cond: :ge)
-            emit(ASM.load_immediate(x_reg, @framebuffer.clip_left))
+            emit_number(x_reg, @framebuffer.clip_left)
             place_label(keep_left)
 
             # width := right - x_reg. Nothing left of the row to draw at all bails the
@@ -920,7 +920,7 @@ module RubyGBA
             emit(ASM.cmp_imm(TMP, 0))
             emit_branch(:bcond, skip, cond: :le)
             emit(ASM.mov_reg(CONTROL_REG, TMP))
-            emit(ASM.load_immediate(ACC, @framebuffer.dma_fill_control_halfwords(0)))
+            emit_number(ACC, @framebuffer.dma_fill_control_halfwords(0))
             emit(ASM.orr_reg(CONTROL_REG, CONTROL_REG, ACC)) # ...now it is a control word
 
             if height
@@ -957,11 +957,11 @@ module RubyGBA
             emit(ASM.cmp_imm(4, @framebuffer.clip_bottom))
             emit_branch(:bcond, row_skip, cond: :ge)
 
-            emit(ASM.load_immediate(5, SCREEN_WIDTH))
+            emit_number(5, SCREEN_WIDTH)
             emit(ASM.mul(4, 5, 4))           # r4 = width * (y + dy)
             emit(ASM.add_reg(4, 4, x_reg))   # + x
             emit(ASM.lsl_imm(4, 4, 1))       # * 2 bytes per pixel
-            emit(ASM.load_immediate(5, VRAM_START))
+            emit_number(5, VRAM_START)
             emit(ASM.add_reg(4, 4, 5))       # + VRAM base
 
             # To the address just worked out.
@@ -1090,7 +1090,7 @@ module RubyGBA
             emit(ASM.mov_reg(y_reg, ACC))
             case base
             when Symbol  then emit_load_data_address(buf_reg, base)    # r6 = ROM blob address
-            when Integer then emit(ASM.load_immediate(buf_reg, base))  # r6 = RAM buffer address
+            when Integer then emit_number(buf_reg, base)  # r6 = RAM buffer address
             else raise LoweringError, "rect DMA base must be a blob name or a RAM address, got #{base.inspect}"
             end
 
@@ -1109,7 +1109,7 @@ module RubyGBA
               emit(ASM.cmp_imm(x_reg, 0))
               keep_left = gensym
               emit_branch(:bcond, keep_left, cond: :ge)
-              emit(ASM.load_immediate(10, 0))
+              emit_number(10, 0)
               place_label(keep_left)
 
               # visible_right = min(x + width, SCREEN_WIDTH)  -> r11
@@ -1117,7 +1117,7 @@ module RubyGBA
               emit(ASM.cmp_imm(11, SCREEN_WIDTH))
               keep_right = gensym
               emit_branch(:bcond, keep_right, cond: :le)
-              emit(ASM.load_immediate(11, SCREEN_WIDTH))
+              emit_number(11, SCREEN_WIDTH)
               place_label(keep_right)
 
               # visible_width = visible_right - visible_left  -> r4; if <= 0 the row
@@ -1133,11 +1133,11 @@ module RubyGBA
               emit(ASM.add_reg(5, buf_reg, 5))
 
               # screen span address = VRAM + (screen_y*SCREEN_WIDTH + visible_left) * 2 -> r3
-              emit(ASM.load_immediate(2, SCREEN_WIDTH))
+              emit_number(2, SCREEN_WIDTH)
               emit(ASM.mul(3, 9, 2))                    # r3 = screen_y * width
               emit(ASM.add_reg(3, 3, 10))               # + visible_left
               emit(ASM.lsl_imm(3, 3, 1))
-              emit(ASM.load_immediate(2, VRAM_START))
+              emit_number(2, VRAM_START)
               emit(ASM.add_reg(3, 3, 2))
 
               # control = visible_width | DMA_ENABLE (16-bit, source+dest increment).
@@ -1185,7 +1185,7 @@ module RubyGBA
               emit_branch(:bcond, skip_row, cond: :lt)
               emit(ASM.cmp_imm(4, SCREEN_HEIGHT))
               emit_branch(:bcond, skip_row, cond: :ge)
-              emit(ASM.load_immediate(5, SCREEN_WIDTH))
+              emit_number(5, SCREEN_WIDTH)
               emit(ASM.mul(6, 4, 5))                    # r6 = screen_y * width (row base)
 
               lit.each do |col|
@@ -1200,9 +1200,9 @@ module RubyGBA
 
                 emit(ASM.add_reg(7, 6, 7))              # r7 = row_base + screen_x
                 emit(ASM.lsl_imm(7, 7, 1))              # * 2 bytes/pixel
-                emit(ASM.load_immediate(8, VRAM_START))
+                emit_number(8, VRAM_START)
                 emit(ASM.add_reg(7, 7, 8))              # VRAM address
-                emit(ASM.load_immediate(8, color))
+                emit_number(8, color)
                 emit(ASM.store_halfword(8, 7))
 
                 place_label(skip_px)
@@ -1225,7 +1225,7 @@ module RubyGBA
               py = y + dy
               next unless @framebuffer.in_bounds?(px, py)
 
-              emit(ASM.load_immediate(TMP, VRAM_START + ((py * SCREEN_WIDTH) + px) * 2))
+              emit_number(TMP, VRAM_START + ((py * SCREEN_WIDTH) + px) * 2)
               emit(ASM.store_halfword(ACC, TMP))
             end
           end
@@ -1281,9 +1281,9 @@ module RubyGBA
           def emit_draw_digit_data(node, font, width, x, y)
             color = Graphics::Color.resolve(node.color)
             @lowering.value(node.value)             # r0 = the digit (0..9)
-            emit(ASM.load_immediate(1, x))
-            emit(ASM.load_immediate(2, y))
-            emit(ASM.load_immediate(3, color))
+            emit_number(1, x)
+            emit_number(2, y)
+            emit_number(3, color)
             emit_call_cold_routine(digit_routine_label(node.font, font, width))
           end
 
@@ -1340,12 +1340,12 @@ module RubyGBA
           # row/col. Uses r0–r3 as scratch and leaves the loop registers alone.
           def emit_plot_digit_pixel(x_reg, y_reg)
             emit(ASM.add_reg(0, y_reg, 5))        # r0 = screen_y = y + row
-            emit(ASM.load_immediate(1, SCREEN_WIDTH))
+            emit_number(1, SCREEN_WIDTH)
             emit(ASM.mul(2, 0, 1))                # r2 = screen_y * width
             emit(ASM.add_reg(0, x_reg, 4))        # r0 = screen_x = x + col
             emit(ASM.add_reg(2, 2, 0))            # r2 = screen_y*width + screen_x
             emit(ASM.lsl_imm(2, 2, 1))            # * 2 bytes per pixel
-            emit(ASM.load_immediate(1, VRAM_START))
+            emit_number(1, VRAM_START)
             emit(ASM.add_reg(2, 2, 1))            # r2 = the pixel's VRAM address
             emit(ASM.store_halfword(8, 2))        # write the color
           end

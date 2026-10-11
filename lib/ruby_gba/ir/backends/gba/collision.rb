@@ -106,7 +106,7 @@ module RubyGBA
             store_min(PO_X1, PO_AX, a[:w], PO_BX, b[:w])
             store_min(PO_Y1, PO_AY, a[:h], PO_BY, b[:h])
 
-            @emitter.emit(ASM.load_immediate(ACC, 0))
+            @emitter.emit_number(ACC, 0)
             @primitives.store_var(ACC, PO_RES) # default: no overlap
 
             done = @emitter.gensym
@@ -132,7 +132,7 @@ module RubyGBA
           # base + pose*(w*h) — and stash the address.
           def stash_mask_address(pose_node, mask, dest)
             @lowering.value(pose_node) # ACC = pose index
-            @emitter.emit(ASM.load_immediate(TMP, mask[:w] * mask[:h]))
+            @emitter.emit_number(TMP, mask[:w] * mask[:h])
             @emitter.emit(ASM.mul(ACC, TMP, ACC)) # ACC = pose * area
             @emitter.emit_load_data_address(TMP, mask[:blob])
             @emitter.emit(ASM.add_reg(ACC, TMP, ACC)) # ACC = base + pose*area
@@ -211,7 +211,7 @@ module RubyGBA
             load_mask_byte(PO_B_MASK, bw, PO_BX, PO_BY)
             @emitter.emit(ASM.cmp_imm(ACC, 0))
             @emitter.emit_branch(:bcond, next_x, cond: :eq)
-            @emitter.emit(ASM.load_immediate(ACC, 1)) # both solid: a real hit
+            @emitter.emit_number(ACC, 1) # both solid: a real hit
             @primitives.store_var(ACC, PO_RES)
             @emitter.emit_branch(:b, done)
 
@@ -232,7 +232,7 @@ module RubyGBA
             @primitives.load_var(ACC, PO_Y)
             @primitives.load_var(TMP, oy_var)
             @emitter.emit(ASM.sub_reg(ACC, ACC, TMP))     # y - oy
-            @emitter.emit(ASM.load_immediate(TMP, width))
+            @emitter.emit_number(TMP, width)
             @emitter.emit(ASM.mul(ACC, TMP, ACC))         # (y - oy) * width
             @primitives.store_var(ACC, PO_ROW)
             @primitives.load_var(ACC, PO_X)

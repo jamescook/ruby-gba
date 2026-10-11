@@ -37,6 +37,7 @@ module RubyGBA
           # Forwards to @emitter/@primitives, exactly as every other converted
           # collaborator's do (see e.g. {Collision}).
           def emit(bytes) = @emitter.emit(bytes)
+          def emit_number(reg, value) = @emitter.emit_number(reg, value)
           def pos = @emitter.pos
           def place_label(name) = @emitter.place_label(name)
           def gensym = @emitter.gensym
@@ -145,7 +146,7 @@ module RubyGBA
             load_var(base, BACKBUF) # the hidden page base, held for the whole rect
             # A row narrow enough to be written out needs the fill unit in a register, and it
             # is the same unit for every row — so it is loaded once here rather than per row.
-            emit(ASM.load_immediate(RECT_FILL, fill_unit(index))) if direct_fill?(middle_w)
+            emit_number(RECT_FILL, fill_unit(index)) if direct_fill?(middle_w)
 
             # A rect as wide as the screen is one unbroken run of memory: there is no gap
             # to skip between rows, because the next row starts exactly where the last one
@@ -259,7 +260,7 @@ module RubyGBA
           # rect cost the same per row at 2 pixels wide as at 16, because almost none of
           # the cost was the pixels.
           def emit_row_address_setup
-            emit(ASM.load_immediate(RECT_ADDR, SCREEN_WIDTH))
+            emit_number(RECT_ADDR, SCREEN_WIDTH)
             emit(ASM.mul(RECT_ROW, RECT_ADDR, RECT_Y)) # r4 = SCREEN_WIDTH * y, 1 byte/pixel
             load_var(RECT_ADDR, BACKBUF)               # r5 = hidden page base
             emit(ASM.add_reg(RECT_ROW, RECT_ROW, RECT_ADDR))
@@ -380,7 +381,7 @@ module RubyGBA
             emit_branch(:b, done)
 
             place_label(needs_clip)
-            emit(ASM.load_immediate(RECT_MIDDLE, w))
+            emit_number(RECT_MIDDLE, w)
             emit_buffered_rect_clip_and_rows(node, scratch, index)
 
             place_label(done)
@@ -413,7 +414,7 @@ module RubyGBA
 
             @framebuffer.eval_rect_position(node, x_reg: RECT_X, y_reg: RECT_Y,
                                      rows_reg: RECT_ROWS_LEFT, width_reg: RECT_MIDDLE)
-            emit(ASM.load_immediate(RECT_MIDDLE, w)) if w # a fixed width isn't loaded above
+            emit_number(RECT_MIDDLE, w) if w # a fixed width isn't loaded above
 
             emit_buffered_rect_clip_and_rows(node, scratch, index)
           end
@@ -431,13 +432,13 @@ module RubyGBA
             keep_right = gensym
             emit(ASM.cmp_imm(RECT_RIGHT, @framebuffer.clip_right))
             emit_branch(:bcond, keep_right, cond: :le)
-            emit(ASM.load_immediate(RECT_RIGHT, @framebuffer.clip_right))
+            emit_number(RECT_RIGHT, @framebuffer.clip_right)
             place_label(keep_right)
 
             keep_left = gensym
             emit(ASM.cmp_imm(RECT_X, @framebuffer.clip_left))
             emit_branch(:bcond, keep_left, cond: :ge)
-            emit(ASM.load_immediate(RECT_X, @framebuffer.clip_left))
+            emit_number(RECT_X, @framebuffer.clip_left)
             place_label(keep_left)
 
             # A rect the game shrank to nothing, or slid entirely off the area, draws
@@ -459,12 +460,12 @@ module RubyGBA
             emit(ASM.cmp_imm(RECT_MIDDLE, 0))
             emit_branch(:bcond, no_middle, cond: :eq)
             emit(ASM.lsr_imm(RECT_MIDDLE, RECT_MIDDLE, 1)) # two pixels per unit moved
-            emit(ASM.load_immediate(TMP, dma_fill_control_16(0)))
+            emit_number(TMP, dma_fill_control_16(0))
             emit(ASM.orr_reg(RECT_MIDDLE, RECT_MIDDLE, TMP))
             place_label(no_middle)
 
             height = const_int(node.h)
-            emit(ASM.load_immediate(RECT_ROWS_LEFT, height)) if height
+            emit_number(RECT_ROWS_LEFT, height) if height
             emit_row_address_setup
             emit_row_loop(RECT_ROWS_LEFT) do
               emit_buffered_computed_row(index: index, scratch: scratch)
@@ -525,7 +526,7 @@ module RubyGBA
           end
 
           def emit_rect_fill_value(index)
-            emit(ASM.load_immediate(RECT_FILL, (index << 8) | index))
+            emit_number(RECT_FILL, (index << 8) | index)
           end
 
           # Fill the middle of one row of a fits-whole, run-time-positioned rect: +w+
@@ -631,9 +632,9 @@ module RubyGBA
           def emit_draw_digit_data_buffered(node, font, width, x, y)
             index = @layout.palette.index_of(node.color)
             @lowering.value(node.value)             # r0 = the digit (0..9)
-            emit(ASM.load_immediate(1, x))
-            emit(ASM.load_immediate(2, y))
-            emit(ASM.load_immediate(3, index))
+            emit_number(1, x)
+            emit_number(2, y)
+            emit_number(3, index)
             emit_call_cold_routine(digit_routine_label(node.font, font, width))
           end
 
@@ -693,7 +694,7 @@ module RubyGBA
           # #emit_digit_routines); r5/r4 are the live row/col; r0–r3 are scratch.
           def emit_plot_digit_index(x_reg, y_reg, index_reg)
             emit(ASM.add_reg(0, y_reg, 5))          # r0 = screen_y = y + row
-            emit(ASM.load_immediate(1, SCREEN_WIDTH))
+            emit_number(1, SCREEN_WIDTH)
             emit(ASM.mul(2, 0, 1))                  # r2 = screen_y * width
             emit(ASM.add_reg(0, x_reg, 4))          # r0 = screen_x = x + col
             emit(ASM.add_reg(2, 2, 0))              # r2 = byte offset = screen_y*width + screen_x
@@ -768,7 +769,7 @@ module RubyGBA
             @lowering.value(node.y)
             emit(ASM.mov_reg(3, ACC))
 
-            emit(ASM.load_immediate(4, SCREEN_WIDTH))
+            emit_number(4, SCREEN_WIDTH)
             emit(ASM.mul(4, 3, 4))          # r4 = y * width
             emit(ASM.add_reg(4, 4, 2))      # r4 = y*width + x (byte offset)
             load_var(5, BACKBUF)            # r5 = hidden page base
@@ -844,7 +845,7 @@ module RubyGBA
               clipped = gensym
               emit(ASM.cmp_imm(COLUMN_X, @framebuffer.clip_left))
               emit_branch(:bcond, clipped, cond: :lt)
-              emit(ASM.load_immediate(TMP, @framebuffer.clip_right - width))
+              emit_number(TMP, @framebuffer.clip_right - width)
               emit(ASM.cmp_reg(COLUMN_X, TMP))
               emit_branch(:bcond, clipped, cond: :gt)
 
@@ -886,7 +887,7 @@ module RubyGBA
           # address before the page, which is fine — the walk steps forward to it and writes
           # nothing until the row is on screen.
           def emit_column_destination
-            emit(ASM.load_immediate(TMP, SCREEN_WIDTH))
+            emit_number(TMP, SCREEN_WIDTH)
             emit(ASM.mul(COLUMN_DEST, COLUMN_Y, TMP)) # 1 byte a pixel, so this is bytes
             load_var(TMP, BACKBUF)
             emit(ASM.add_reg(COLUMN_DEST, COLUMN_DEST, TMP))
@@ -929,7 +930,7 @@ module RubyGBA
           # cannot run past the picture.
           def emit_read_column_number(bmp, clear, skip)
             emit(ASM.lsr_imm(ACC, COLUMN_POS, COLUMN_FIXED))
-            emit(ASM.load_immediate(TMP, bmp.width))
+            emit_number(TMP, bmp.width)
             emit(ASM.mul(ACC, ACC, TMP))
             emit(ASM.add_reg(ACC, COLUMN_SRC, ACC))
             emit(ASM.ldrb_offset(ACC, ACC, 0))
@@ -938,7 +939,7 @@ module RubyGBA
             # so it means "leave this one alone" and the pair is not touched at all.
             return unless clear
 
-            emit(ASM.load_immediate(TMP, clear))
+            emit_number(TMP, clear)
             emit(ASM.cmp_reg(ACC, TMP))
             emit_branch(:bcond, skip, cond: :eq)
           end
@@ -1085,14 +1086,14 @@ module RubyGBA
             emit(ASM.cmp_imm(BLIT_X, @framebuffer.clip_left))
             keep_left = gensym
             emit_branch(:bcond, keep_left, cond: :ge)
-            emit(ASM.load_immediate(BLIT_LEFT, @framebuffer.clip_left))
+            emit_number(BLIT_LEFT, @framebuffer.clip_left)
             place_label(keep_left)
 
             emit_add_const(BLIT_RIGHT, BLIT_X, bmp.width, SPARE)
             emit(ASM.cmp_imm(BLIT_RIGHT, @framebuffer.clip_right))
             keep_right = gensym
             emit_branch(:bcond, keep_right, cond: :le)
-            emit(ASM.load_immediate(BLIT_RIGHT, @framebuffer.clip_right))
+            emit_number(BLIT_RIGHT, @framebuffer.clip_right)
             place_label(keep_right)
 
             emit(ASM.sub_reg(BLIT_UNITS, BLIT_RIGHT, BLIT_LEFT))
@@ -1108,7 +1109,7 @@ module RubyGBA
             emit_add_const(BLIT_FROM, BLIT_FROM, row * bmp.width, SPARE)
             emit(ASM.add_reg(BLIT_FROM, BLIT_SRC, BLIT_FROM))
 
-            emit(ASM.load_immediate(SPARE, SCREEN_WIDTH))
+            emit_number(SPARE, SCREEN_WIDTH)
             emit(ASM.mul(BLIT_TO, BLIT_ROW_Y, SPARE)) # a byte a pixel, so this is already bytes
             emit(ASM.add_reg(BLIT_TO, BLIT_TO, BLIT_LEFT))
             load_var(SPARE, BACKBUF)
@@ -1119,7 +1120,7 @@ module RubyGBA
           # both stepping forward.
           def emit_blit_row_copy
             emit(ASM.lsr_imm(BLIT_UNITS, BLIT_UNITS, 1))
-            emit(ASM.load_immediate(SPARE, DMA_ENABLE))
+            emit_number(SPARE, DMA_ENABLE)
             emit(ASM.orr_reg(BLIT_UNITS, BLIT_UNITS, SPARE))
             emit_start_copy_engine(from: in_register(BLIT_FROM), to: in_register(BLIT_TO),
                                    control: in_register(BLIT_UNITS))
