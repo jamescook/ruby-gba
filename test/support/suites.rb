@@ -22,7 +22,7 @@ module TestSuites
 
   # The test of the program a player runs, with its window. It builds with SDL, whose first build
   # fetches its source over the network, so it runs only when asked (SDL=1).
-  DESKTOP_TEST = "#{NATIVE_DIR}/test_native_desktop.rb"
+  DESKTOP_TEST = Ractor.make_shareable("#{NATIVE_DIR}/test_native_desktop.rb")
 
   # Everything `rake test:native` runs, and nothing else; the desktop test too when +desktop+.
   def native(desktop: false)

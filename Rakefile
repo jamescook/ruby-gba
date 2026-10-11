@@ -4,6 +4,7 @@
 # it the test runner — declared there, not in the gemspec — is not on the load path.
 require "bundler/setup"
 
+require "etc"
 require "rake/testtask"
 require "rbconfig"
 require_relative "ruby-gba-emulator/lib/ruby_gba_emulator/built_for"
@@ -59,6 +60,13 @@ GIVEN_TESTOPTS = testopts # as the caller wrote them, for a suite that is not ru
 unless testopts.split.intersect?(%w[--ractor --no-ractor])
   ENV["TESTOPTS"] = "--ractor #{testopts}".strip
 end
+
+# HALF THE CORES, NOT ALL OF THEM. The runner starts one worker per core unless told otherwise,
+# which holds the whole machine for the length of the run. The suite is not short of cores: four
+# workers finish it in about the time all of them do, because so much of it waits on things
+# other than arithmetic. So a run leaves the machine usable, and MT_RACTOR_WORKERS still says
+# exactly how many, for anybody who wants more or fewer.
+ENV["MT_RACTOR_WORKERS"] ||= [Etc.nprocessors / 2, 1].max.to_s
 
 require_relative "test/support/suites"
 
