@@ -6,8 +6,8 @@ require_relative "../../../../../examples/pong"
 
 # examples/pong.rb built for the desktop shows the interpreter's picture pixel for pixel, frame
 # by frame, over a recorded run: the zooming title and its menu, START, the zoom away, and a
-# rally with the paddle moved up and down. Its sound is not played yet; nothing it draws or
-# keeps depends on it.
+# rally with the paddle moved up and down. Its sound log — the song, the beeps — matches entry
+# for entry too; nothing comes out of a speaker yet.
 class TestNativePong < Minitest::Test
   # The native lowering's own tests, which only a native run plays (see TestSuites).
   runs_on :native
@@ -28,5 +28,6 @@ class TestNativePong < Minitest::Test
     last = assert_native_matches_reference(program, frames: 160, buttons: RUN)
 
     assert_equal 1, last.variables[:state], "the run should end in the rally"
+    assert(last.sounds.any? { |entry| entry.first == :note }, "the rally's song should be in the log compared")
   end
 end

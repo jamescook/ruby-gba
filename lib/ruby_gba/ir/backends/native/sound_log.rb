@@ -29,8 +29,8 @@ module RubyGBA
 
           def song_number(name) = @songs.index { |song| song.name == name }
 
-          # One printed line ("sound" and what follows) as the interpreter's log entry.
-          def entry(line)
+          # One printed line ("sound" and what follows) read as the interpreter's log entry.
+          def entry_from(line)
             kind, *numbers = line.delete_prefix("sound ").split(" ")
             numbers = numbers.map { |number| Integer(number) }
             case kind

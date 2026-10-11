@@ -36,8 +36,9 @@ class TestNativeDesktop < Minitest::Test
   # picture pixel for pixel.
   def assert_runs_headless_like_the_interpreter(exe)
     input = (1..FRAMES).map { |frame| "#{Native::HeadlessRun.button_mask(RUN.fetch(frame, []))}\n" }.join
-    actual = parse_snapshots(Native::Zig.run_program(exe, args: ["--headless", FRAMES, "--every-picture"], input: input))
-    expected = reference_snapshots(Native.new.checked_program(PongGame::GAME, err: nil), frames: FRAMES, buttons: RUN)
+    program = Native.new.checked_program(PongGame::GAME, err: nil)
+    actual = parse_snapshots(Native::Zig.run_program(exe, args: ["--headless", FRAMES, "--every-picture"], input: input), program)
+    expected = reference_snapshots(program, frames: FRAMES, buttons: RUN)
 
     assert_equal expected.map(&:heading), actual.map(&:heading)
     expected.zip(actual).each { |want, got| assert_same_moment(want, got, :desktop) }

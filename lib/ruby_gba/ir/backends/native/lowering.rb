@@ -68,14 +68,9 @@ module RubyGBA
                                                affine_background: :lower_affine_background,
                                                present_objects: :lower_present_objects,
                                                fade: :lower_fade, tint: :lower_tint,
-                                               # sound (Sound), part of it not played yet
+                                               # sound (Sound)
                                                beep: :lower_beep, enable_sound: :lower_enable_sound,
-                                               play_song: :lower_play_song, stop_music: :lower_stop_music,
-                                               noise: :lower_sound_unplayed, play_from_list: :lower_sound_unplayed,
-                                               play_sample: :lower_sound_unplayed,
-                                               play_sound_effect: :lower_sound_unplayed,
-                                               stop_sample: :lower_sound_unplayed, stop_wave: :lower_sound_unplayed,
-                                               wave: :lower_sound_unplayed
+                                               play_song: :lower_play_song, stop_music: :lower_stop_music
                                              }.merge(Nodes.of_role(:declaration).to_h { |kind| [kind, :lower_nothing] }))
 
           VALUES = Ractor.make_shareable({
@@ -99,6 +94,7 @@ module RubyGBA
                         draw_column_at inside pixels_overlap restore_region save_region
                         scroll_background scroll_rows see_through set_tile show_map],
             saving: %i[save_erase save_init save_read save_store save_sum save_write],
+            sound: %i[noise play_from_list play_sample play_sound_effect stop_sample stop_wave wave],
             timers: %i[on_timer timer_start timer_stop timer_ticks]
           })
 
@@ -130,6 +126,7 @@ module RubyGBA
           # The program as one C file.
           def source
             refuse_unlowered_kinds!
+            refuse_unplayable_songs!
             Printer.new.print_file(top_level)
           end
 
