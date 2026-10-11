@@ -91,6 +91,7 @@ module RubyGBA
         art = pool_art!(name, image: image, facing: facing, frames: frames, rate: rate, fields: fields)
         handle = DSL::Pool.new(self, name, fields, capacity, image: image, hitbox: art&.hitbox, on_full: on_full,
                                                         usually: usual_length(estimate, capacity), art: art)
+        refuse_oversized_pool!(handle, fields, widths)
         setup_pool_storage(handle, capacity, fields, widths, fast)
         setup_pool_art(handle, capacity, art, widths, fast) if art
         declared_pools << handle
@@ -322,20 +323,67 @@ module RubyGBA
 
         refuse_pool_name_with_stray_underscores!(name)
         refuse_field_named_like_instance_method!(name, fields)
+      end
 
-        # Insane capacity: a friendly build error rather than a silent IWRAM overrun.
-        slots = Build.round_up_capacity(capacity)
-        # The field lists, the active column and the free stack at a word a slot, which is the
-        # most each can be, and the three lists of the chain at the width a slot number takes.
-        chain = 3 * IR::Build::ELEMENT_BYTES.fetch(slot_width(capacity))
-        bytes = slots * (((fields.size + 2) * 4) + chain)
+      # AN INSANE CAPACITY IS A FRIENDLY BUILD ERROR rather than memory quietly run out of.
+      #
+      # The pool is counted AS IT IS BUILT: every list it is made from, each exactly
+      # `capacity` slots long and as wide as it was declared. Those are the lists #pool_lists
+      # and #pool_stacking_lists hand to the build, read here rather than added up a second
+      # way — a count kept on its own had drifted until it refused a pool a third the size
+      # of the ceiling, by rounding the capacity up to a power of two (only a list the game
+      # shifts is rounded, and a pool has none) and taking every field for a whole word.
+      #
+      # The one list not in it is the colours an instance is drawn with, a byte a slot, which
+      # a pool gains only when some instance is first told `draw_with` — later than this.
+      def refuse_oversized_pool!(pool, fields, widths)
+        lists = pool_lists(pool, fields, widths)
+        lists = lists.merge(pool_stacking_lists(pool, widths)) if pool.spriteful?
+        bytes = pool.capacity * lists.sum { |_, width| Build::ELEMENT_BYTES.fetch(width) }
         return unless bytes > POOL_MAX_BYTES
 
         raise ArgumentError,
-              "pool :#{name} has #{capacity} instances of #{fields.size} fields each. It needs about " \
+              "pool :#{pool.name} has #{pool.capacity} instances of #{fields.size} fields each. It needs about " \
               "#{bytes / 1024}KB of the console's #{Messages::PlainWords::QUICK_MEMORY}. This is too much. A pool must " \
               "use much less than #{POOL_MAX_BYTES / 1024}KB. The console has only 32KB of " \
-              "#{Messages::PlainWords::QUICK_MEMORY} in total. Use a smaller capacity or fewer fields."
+              "#{Messages::PlainWords::QUICK_MEMORY} in total. To fix this, use a smaller capacity. Or use fewer " \
+              "fields. Or give fields a smaller width, like `widths: { hp: :byte }`."
+      end
+
+      # EVERY LIST A POOL KEEPS ITS INSTANCES IN, and how wide a slot of each is, in the
+      # order they are made: list => width.
+      #
+      # A field is as wide as the game said, a whole word unless `widths:` narrowed it.
+      #
+      # THE POOL'S OWN BOOKKEEPING IS NARROWED WITHOUT BEING ASKED, because unlike a field
+      # the framework knows exactly what these hold. The active column is a yes or a no, so
+      # it is a byte whatever the pool is; the free stack holds slot numbers, so it is as
+      # wide as the largest slot number needs and no wider. Together they are two of a
+      # pool's lists — on one with a dozen fields that is a modest saving, and on a small
+      # one it is a sixth of the whole pool, for nothing anybody has to write.
+      #
+      # A posed pool keeps two more hidden slots beside its fields: which way each instance
+      # faces, and where each is in its cycle. Both are small counts, so both are a byte.
+      #
+      # The chain that says what order the things came in holds slot numbers too, and the
+      # removals a walk has not yet taken out of it are a stack of them.
+      def pool_lists(pool, fields, widths)
+        slot = slot_width(pool.capacity)
+        lists = fields.keys.to_h { |field| [pool.field_list(field), widths.fetch(field, :word)] }
+        lists[pool.active_list] = :byte
+        lists[pool.free_list] = slot
+        pool.pose_lists.each { |list| lists[list] = :byte }
+        [pool.next_list, pool.prev_list, pool.retired_list].each { |list| lists[list] = slot }
+        lists
+      end
+
+      # THE LISTS A DRAWN POOL'S THINGS ARE COPIED INTO EACH FRAME, in the order they are
+      # drawn, as list => width: where each is, at the width its x and y fields have, and
+      # which picture when there is a choice.
+      def pool_stacking_lists(pool, widths)
+        kept = { x: widths.fetch(:x, :word), y: widths.fetch(:y, :word) }
+        kept[:pose] = pool.art.poses.length <= 128 ? :byte : :half if pool.posed?
+        kept.transform_keys { |part| pool.stacked_list(part) }
       end
 
       # The names the framework makes for a pool put the pool's name before two underscores
@@ -420,7 +468,7 @@ module RubyGBA
       # per-instance, so ten guards face ten ways and do not march in step.
       def setup_pool_art(pool, capacity, art, widths = {}, fast = nil)
         (@spriteful_pools ||= []) << pool
-        setup_pool_stacking(pool, capacity, art, widths, fast)
+        setup_pool_stacking(pool, capacity, widths, fast)
         capacity.times do |place|
           rank = pool.rank_at_place(place)
           name = pool.object_name(place)
@@ -435,19 +483,17 @@ module RubyGBA
         register_pool_animation(pool, capacity, art) if art.animates?
       end
 
-      # The lists a pool's things are copied into each frame, in the order they are drawn:
-      # where each is, at the width its x and y fields have, and which picture when there is
-      # a choice. Every entry exists from the start, so each can be written by its index. The
-      # colours join them only if the pool is ever told to draw with others (see
+      # Make the lists a pool's things are copied into each frame (see #pool_stacking_lists).
+      # Every entry exists from the start, so each can be written by its index. The colours
+      # join them only if the pool is ever told to draw with others (see
       # #make_pool_recolorable).
-      def setup_pool_stacking(pool, capacity, art, widths, fast)
+      def setup_pool_stacking(pool, capacity, widths, fast)
         index = pool.part_name(:stacking_fill)
         [index, pool.stacked_var, pool.stacking_cursor_var, pool.stacking_index_var].each { |var| ensure_var(var) }
-        kept = { x: widths.fetch(:x, :word), y: widths.fetch(:y, :word) }
-        kept[:pose] = art.poses.length <= 128 ? :byte : :half if pool.posed?
-        kept.each { |part, width| at_boot(Build.list_new(pool.stacked_list(part), capacity, width: width, fast: fast)) }
+        lists = pool_stacking_lists(pool, widths)
+        lists.each { |list, width| at_boot(Build.list_new(list, capacity, width: width, fast: fast)) }
         at_boot(Build.repeat(Build.int(capacity), index,
-                             *kept.keys.map { |part| Build.list_push(pool.stacked_list(part), Build.int(0)) }))
+                             *lists.keys.map { |list| Build.list_push(list, Build.int(0)) }))
         at_boot(Build.set(pool.stacked_var, Build.int(0)))
       end
 
@@ -512,32 +558,13 @@ module RubyGBA
       # declared inside a scene is still set up once rather than re-created every frame —
       # and fill every slot so each field is randomly addressable from the start.
       def setup_pool_storage(pool, capacity, fields, widths = {}, fast = nil)
-        fields.each_key do |field|
-          check_width_holds_fractions!(pool.name, field, fields[field], widths.fetch(field, :word))
-          at_boot(Build.list_new(pool.field_list(field), capacity,
-                                 width: widths.fetch(field, :word), fast: fast))
+        fields.each { |field, default| check_width_holds_fractions!(pool.name, field, default, widths.fetch(field, :word)) }
+        pool_lists(pool, fields, widths).each do |list, width|
+          at_boot(Build.list_new(list, capacity, width: width, fast: fast))
         end
-
-        # THE POOL'S OWN BOOKKEEPING IS NARROWED WITHOUT BEING ASKED, because unlike a field
-        # the framework knows exactly what these hold. The active column is a yes or a no, so
-        # it is a byte whatever the pool is; the free stack holds slot numbers, so it is as
-        # wide as the largest slot number needs and no wider. Together they are two of a
-        # pool's lists — on one with a dozen fields that is a modest saving, and on a small
-        # one it is a sixth of the whole pool, for nothing anybody has to write.
-        at_boot(Build.list_new(pool.active_list, capacity, width: :byte, fast: fast))
-        at_boot(Build.list_new(pool.free_list, capacity, width: slot_width(capacity), fast: fast))
-        # A posed pool keeps two more hidden slots beside its fields: which way each
-        # instance faces, and where each is in its cycle. Both are small counts, so both
-        # are narrowed without being asked, the same as the active column.
-        pool.pose_lists.each { |list| at_boot(Build.list_new(list, capacity, width: :byte, fast: fast)) }
         if pool.art&.animates?
           ensure_var(pool.tick_var)
           at_boot(Build.set(pool.tick_var, Build.int(0)))
-        end
-        # The chain that says what order the things came in holds slot numbers too, and the
-        # removals a walk has not yet taken out of it are a stack of them.
-        [pool.next_list, pool.prev_list, pool.retired_list].each do |list|
-          at_boot(Build.list_new(list, capacity, width: slot_width(capacity), fast: fast))
         end
         [pool.count_var, pool.head_var, pool.tail_var, pool.walking_var].each do |var|
           ensure_var(var)

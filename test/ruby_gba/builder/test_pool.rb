@@ -148,6 +148,91 @@ class TestPool < Minitest::Test
     assert_match(/#{RubyGBA::Messages::PlainWords::QUICK_MEMORY}/, err.message)
   end
 
+  # THE CEILING IS ON THE POOL AS IT IS BUILT. A pool is a list per field and a few of its
+  # own, each exactly `capacity` slots long and each as wide as it was declared — so that is
+  # what is counted. Counting it bigger refuses a pool that fits.
+
+  def too_big(&game) = assert_raises(ArgumentError) { Builder.new.instance_eval(&game) }.message
+
+  # How many KB the error says the pool needs.
+  def kilobytes_said(message) = message[/about (\d+)KB/, 1].to_i
+
+  # A real game's cast: 145 guards of thirteen fields, ten of them narrowed. By its declared
+  # widths that is 34 bytes a slot, under five kilobytes.
+  def test_a_pool_of_narrow_fields_is_counted_at_the_widths_it_declared
+    builder = Builder.new
+    builder.instance_eval do
+      screen :bitmap
+      pool :guard, a: 0, b: 0, c: 0, d: 0, e: 0, f: 0, g: 0, h: 0, i: 0, j: 0, k: 0, l: 0, m: 0,
+                   capacity: 145,
+                   widths: { a: :byte, b: :byte, c: :byte, d: :byte, e: :byte, f: :byte, g: :byte,
+                             h: :half, i: :half, j: :half }
+      game_loop {}
+    end
+    builder.finalize_program
+
+    assert_operator GBA.new.lower(builder.program).bytesize, :>, 0, "and it builds"
+  end
+
+  # None of a pool's lists is a queue the game shifts, so none is rounded up to a power of
+  # two: 513 slots are 513 slots, not 1024.
+  def test_a_capacity_is_counted_as_given_and_not_rounded_up
+    motes = Builder.new.instance_eval { pool :mote, x: 0, y: 0, vx: 0, vy: 0, capacity: 513 }
+
+    assert_equal 513, motes.capacity
+  end
+
+  def test_many_slots_of_byte_fields_fit_where_word_fields_would_not
+    fields = { a: 0, b: 0, c: 0, d: 0, e: 0, f: 0 }
+    narrow = fields.transform_values { :byte }
+
+    Builder.new.instance_eval { pool :spark, capacity: 600, widths: narrow, **fields }
+    assert_match(/spark/, too_big { pool :spark, capacity: 600, **fields },
+                 "the same pool at a word a field is four times the size")
+  end
+
+  # 1000 slots of four word fields: 16 bytes of fields, a byte saying whether the slot is
+  # live, and four slot numbers of two bytes each (the free stack and the order they came in).
+  def test_a_pool_that_is_too_big_says_the_size_it_would_be_built_at
+    message = too_big { pool :swarm, x: 0, y: 0, vx: 0, vy: 0, capacity: 1000 }
+
+    assert_equal (1000 * (16 + 1 + (4 * 2))) / 1024, kilobytes_said(message)
+  end
+
+  # WHAT IS COUNTED IS WHAT IS BUILT, to the byte. Seven byte fields, the byte that says a
+  # slot is live and four slot numbers of two bytes are sixteen bytes a slot, so 1024 slots
+  # are the ceiling exactly — read here off the lists the build was really handed.
+  def test_a_pool_exactly_at_the_ceiling_is_built_and_one_slot_more_is_refused
+    fields = %i[a b c d e f g].to_h { |field| [field, 0] }
+    narrow = fields.transform_values { :byte }
+    builder = Builder.new
+    builder.instance_eval do
+      screen :bitmap
+      pool :mote, capacity: 1024, widths: narrow, **fields
+      game_loop {}
+    end
+    builder.finalize_program
+    built = builder.program.walk.select { |node| node.kind == :list_new }
+                   .sum { |node| node.capacity * RubyGBA::IR::Build::ELEMENT_BYTES.fetch(node.width) }
+
+    assert_equal RubyGBA::Builder::Composition::POOL_MAX_BYTES, built
+    assert_match(/mote/, too_big { pool :mote, capacity: 1025, widths: narrow, **fields })
+  end
+
+  # A pool with pictures keeps more a slot: which frame each instance is on, and where and
+  # what each is in the order they are drawn. Those are in the count as well.
+  def test_a_pool_with_pictures_is_counted_with_the_lists_its_pictures_need
+    plain = too_big { pool :mote, x: 0, y: 0, capacity: 5000 }
+    drawn = too_big do
+      screen :tiled
+      image :one, width: 8, height: 8, data: Array.new(64, :red)
+      image :two, width: 8, height: 8, data: Array.new(64, :green)
+      pool :mote, x: 0, y: 0, capacity: 5000, frames: %i[one two], rate: 4
+    end
+
+    assert_operator kilobytes_said(drawn), :>, kilobytes_said(plain)
+  end
+
   # Cross-backend: a pool is pure sugar over lists + repeat, so the same program lowers
   # to a ROM and draws its live instances on the console (the emulator).
   def test_a_pool_lowers_and_draws_on_the_console
