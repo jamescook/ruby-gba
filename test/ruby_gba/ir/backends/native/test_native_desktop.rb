@@ -20,11 +20,21 @@ class TestNativeDesktop < Minitest::Test
   RUN = Ractor.make_shareable({ 10 => %i[down], 14 => %i[up], 20 => %i[a] })
   FRAMES = 40
 
+  # The title's menus worked the way a person works them, each button held for several frames:
+  # down to the music row and A to turn it off, down to DIFFICULTY and A to open it, up to NORMAL
+  # and A to choose it.
+  MENU_RUN = Ractor.make_shareable(
+    [[10..15, :down], [30..38, :a], [50..55, :down], [70..78, :a], [95..100, :up], [115..122, :a]]
+      .flat_map { |frames, button| frames.map { |frame| [frame, [button]] } }.to_h
+  )
+  MENU_FRAMES = 140
+
   def test_the_program_a_player_runs
     Dir.mktmpdir do |dir|
       exe = Native.new.build_desktop(PongGame::GAME, File.join(dir, "pong"), err: nil)
 
       assert_runs_headless_like_the_interpreter(exe)
+      assert_keys_work_the_menus_through_the_window(exe)
       assert_keeps_running_with_its_window(exe)
       assert_needs_nothing_installed(exe) if RUBY_PLATFORM.include?("darwin")
     end
@@ -42,6 +52,22 @@ class TestNativeDesktop < Minitest::Test
 
     assert_equal expected.map(&:heading), actual.map(&:heading)
     expected.zip(actual).each { |want, got| assert_same_moment(want, got, :desktop) }
+  end
+
+  # Started with its window (on SDL's stand-in display) and keys pressed from a script: each
+  # press is a key event through SDL, onto the gamepad the keyboard is, and round the window's own
+  # frame loop — the way in that --headless goes round. A key held for several frames must still
+  # count once, so the music ends up off, the difficulty screen is opened and left, and the cpu
+  # paddle is at NORMAL's speed — where the interpreter ends given the same buttons.
+  def assert_keys_work_the_menus_through_the_window(exe)
+    input = (1..MENU_FRAMES).map { |frame| "#{Native::HeadlessRun.button_mask(MENU_RUN.fetch(frame, []))}\n" }.join
+    printed = Native::Zig.run_program(exe, args: ["--scripted-keys", MENU_FRAMES], input: input,
+                                           env: { "SDL_VIDEO_DRIVER" => "dummy" })
+    program = Native.new.checked_program(PongGame::GAME, err: nil)
+    expected = reference_snapshots(program, frames: MENU_FRAMES, buttons: MENU_RUN).last.variables
+
+    assert_equal [0, 0], expected.values_at(:music_on, :state), "the run should turn the music off and come back to the title"
+    assert_empty variable_differences(expected, Native::HeadlessRun.variables_in(printed.lines.map(&:chomp)))
   end
 
   # Started normally, with SDL's stand-in display so it needs no screen, it opens its window and
