@@ -139,7 +139,55 @@ module RubyGBA
             # Turn the sprite layer on alongside the chosen mode when the program has
             # sprites, and pick the simple 1D tile arrangement they're packed for.
             value |= OBJ_ENABLE | OBJ_1D_MAP if @layout.has_objects
-            @emitter.write_reg16(REG_DISPCNT, value | initial_forced_blank_bit)
+            late = late_layer_enable_bits
+            return @emitter.write_reg16(REG_DISPCNT, value | initial_forced_blank_bit) if late.zero?
+
+            emit_display_control_keeping(value & ~late, late)
+          end
+
+          # A LAYER OF A PROGRAM SHOWN AS IT IS DECLARED WAITS FOR ITS OWN BACKGROUND.
+          #
+          # The screen is declared before the backgrounds on it, and a background's own
+          # statement is what copies its map in and tells its layer where that map is. A layer
+          # switched on before then is not blank: its map is taken to be at the very start of
+          # video memory, which is where the tile PICTURES are, so the console draws the art as
+          # though it were a grid for however many rows setting the background up takes.
+          #
+          # A program with a game loop never shows that, because its picture is held off until
+          # the first frame is set up (see #initial_forced_blank_bit). A program with no loop
+          # has nothing holding it off, so there the screen is declared with these layers left
+          # off, and each background switches its own on once it is pointed
+          # (#emit_enable_late_layer). What shows in between is the backdrop.
+          #
+          # Not in a program that changes the hardware from scene to scene: there boot and each
+          # scene's own setup write the display's settings, and `screen` writes nothing.
+          def late_layers?
+            @layout.tiled && !@layout.waits_for_frames && !@layout.modes.switched_per_scene?
+          end
+
+          def late_layer_enable_bits
+            return 0 unless late_layers?
+
+            scene_handover.always_up.scenery.reduce(0) { |bits, node| bits | layer_enable_bit(node) }
+          end
+
+          def layer_enable_bit(background) = BG_ENABLES[@layout.screen.backgrounds.fetch(background.name).bg]
+
+          # Write the display's settings as +value+, keeping whichever of the +late+ layers is
+          # on already: a background written above its `screen` has switched its own on by
+          # now, and writing the whole register would switch it off again for good. The value
+          # goes in a byte at a time, since that is the most one instruction can hold.
+          def emit_display_control_keeping(value, late)
+            change_display_control do
+              emit(ASM.and_imm(ACC, ACC, late))
+              [value & 0x00FF, value & 0xFF00].reject(&:zero?).each { |byte| emit(ASM.orr_imm(ACC, ACC, byte)) }
+            end
+          end
+
+          def emit_enable_late_layer(background)
+            return unless late_layers?
+
+            change_display_control { emit(ASM.orr_imm(ACC, ACC, layer_enable_bit(background))) }
           end
 
           # KEEP THE PICTURE SWITCHED OFF UNTIL THE FIRST FRAME HAS BEEN SET UP.
@@ -1002,6 +1050,7 @@ module RubyGBA
             return if scene_handover.on_arrival?(node)
 
             @background_drawing.emit_background_hardware(node)
+            emit_enable_late_layer(node)
           end
 
           # Bitmap-mode background: no tile hardware, so stamp each non-empty cell with

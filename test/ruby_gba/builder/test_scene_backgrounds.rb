@@ -978,6 +978,9 @@ class TestSceneBackgrounds < Minitest::Test
     early = []
     writes.each do |write|
       if write.address == REG_DISPCNT
+        # With the picture held off nothing is drawn, so nothing has been switched on yet.
+        next if write.value.anybits?(FORCED_BLANK)
+
         early += (layers_on(write.value) - pointed).map { |layer| "layer #{layer} on at row #{write.row}" }
       else
         pointed |= [BGCNT.index(write.address)]
@@ -991,6 +994,62 @@ class TestSceneBackgrounds < Minitest::Test
 
     assert_empty switched_on_before_pointed(writes),
                  "a layer was switched on with no map of its own yet"
+  end
+
+  # ...AND THE SAME AT POWER-ON, for scenery that belongs to the program and to no scene.
+  #
+  # The screen is declared before the backgrounds on it, so the display's settings are
+  # written where `screen` is and each background's own where it is, afterwards. Setting a
+  # background up is a copy of its whole map, so there are rows of the first picture
+  # between the two — and a layer drawn in those rows with nothing pointing it draws the
+  # tile pictures as a grid.
+  private def scenery_of_the_program(looping:, screen_last: false)
+    program do
+      screen :tiled unless screen_last
+      image :sky, "#" => :blue, "." => :transparent do
+        (["##..##.."] * 8).join("\n")
+      end
+      image :brick, "#" => :red, "." => :black do
+        (["#.#.#.#."] * 8).join("\n")
+      end
+      tiles :far, "s" => :sky
+      tiles :near, "b" => :brick
+      background :far, tiles: :far, map: ["s" * 30] * 20
+      background :near, tiles: :near, map: ["b" * 30] * 20
+      screen :tiled if screen_last
+      looping ? game_loop {} : halt
+    end
+  end
+
+  # A program with no game loop never waits for a frame, so nothing holds its picture off
+  # while it sets up: it is shown as it is declared. Each layer has to wait for its own
+  # background instead.
+  def test_a_program_with_no_loop_points_its_layers_before_switching_them_on
+    writes = display_register_writes(scenery_of_the_program(looping: false), name: "BOOTORD", frames: 3)
+
+    assert_empty switched_on_before_pointed(writes),
+                 "a layer was switched on with no map of its own yet"
+    assert_equal [0, 1], layers_on(writes.reverse.find { |w| w.address == REG_DISPCNT }.value),
+                 "and both are on once they have been"
+  end
+
+  # A background written ABOVE its `screen` has switched its layer on by the time the screen
+  # is declared, and declaring the screen must not switch it off again.
+  def test_a_layer_declared_above_its_screen_stays_on
+    program = scenery_of_the_program(looping: false, screen_last: true)
+    v = assert_emulator_loads_rom(assemble_rom(program, name: "BOOTABV"), frames: 3)
+
+    assert_equal [0, 1], layers_on(v.mem16(REG_DISPCNT))
+    assert_backends_agree(program, frames: 2)
+  end
+
+  # A program with a loop keeps its picture off until the first frame is set up, and by
+  # then every layer has been pointed.
+  def test_a_program_with_a_loop_shows_nothing_until_its_layers_are_pointed
+    writes = display_register_writes(scenery_of_the_program(looping: true), name: "BOOTHLD", frames: 3)
+
+    assert_empty switched_on_before_pointed(writes),
+                 "a layer was showing with no map of its own yet"
   end
 
   # THE SIZE A SCENE'S BACKGROUND IS DECLARED AT IS PART OF DECLARING IT.
