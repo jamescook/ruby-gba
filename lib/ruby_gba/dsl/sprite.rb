@@ -64,8 +64,8 @@ module RubyGBA
       # @param layer [Symbol, nil] the layer it was declared in — its place in the stack
       # @param source [String, nil] the line it was declared on ("hero.rb:42"), which the
       #   per-frame repaint carries so the cost report can trace that work to this sprite
-      # @param painted [Symbol, nil] for a sprite declared inside a routine: the variable that is
-      #   1 while the sprite is on the picture (see #erase_node)
+      # @param painted [Symbol] the variable that is 1 while the sprite is on the picture, with
+      #   what it covered remembered (see #erase_node)
       # @param painted_while [Array<Array(Symbol, Integer)>] variables and the value each must
       #   hold for the sprite to be painted, on top of being shown — what a scene's sprite
       #   needs to stay off the picture while its scene is not the one running
@@ -74,7 +74,7 @@ module RubyGBA
                      image: nil, poses: nil, facing_var: nil, facing_dirs: nil,
                      frame_var: nil, frames_per_dir: 1,
                      clips: nil, clip_off_var: nil, clip_len_var: nil, layer: nil, source: nil,
-                     painted: nil, painted_while: [], scene: nil)
+                     painted:, painted_while: [], scene: nil)
         @builder = builder
         @source = source
         @painted = painted
@@ -293,10 +293,8 @@ module RubyGBA
       # Make the sprite vanish cleanly: put back the pixels it was covering and stop
       # repainting it. Guarded so hiding an already-hidden sprite does nothing.
       def hide
-        record(Build.if_(on_picture,
-                         Build.restore_region(@buffer, ref(@old_x), ref(@old_y)),
-                         Build.set(@painted || @active, Build.int(0))))
-        record(Build.set(@active, Build.int(0))) if @painted
+        record(take_off_picture)
+        record(Build.set(@active, Build.int(0)))
         self
       end
 
@@ -304,15 +302,11 @@ module RubyGBA
       # there and draw it, then let the per-frame repaint resume. Guarded so showing
       # an already-visible sprite does nothing.
       #
-      # A sprite declared inside a routine is only marked as shown, and the repaint before
-      # the next frame draws it: whether it may be painted at all is a question about which
-      # scene is running, and that repaint is the one place that asks it.
+      # A scene's sprite shown while its scene may not paint yet is only marked as shown, and
+      # the repaint before a later frame draws it (see Builder::Sprites#sprite_painting_state).
       def show
-        return record_shown if @painted
-
-        record(Build.if_(active_is(0),
-                         Build.set(@active, Build.int(1)),
-                         *save_and_draw_nodes))
+        painting = @painted_while.empty? ? paint_nodes : [Build.if_(all_hold(@painted_while), *paint_nodes)]
+        record(Build.if_(active_is(0), Build.set(@active, Build.int(1)), *painting))
         self
       end
 
@@ -346,31 +340,34 @@ module RubyGBA
       # Both carry the line the sprite was declared on: nobody wrote these statements, and
       # the work they do is this sprite's, so that is where a cost report should point.
       #
-      # WHETHER A SPRITE IS ON THE PICTURE AND WHETHER IT IS SHOWN ARE ONE QUESTION for a
-      # sprite declared above the game loop: it is painted where it is declared, and from
-      # then on it is on the picture exactly while it is shown. They come apart for a sprite
-      # declared inside a routine. A scene's sprite is shown the whole game and painted only
-      # while its scene runs, so it keeps a variable of its own saying whether it is on the
-      # picture right now. Erasing asks that variable, because only a sprite that was drawn
-      # has remembered pixels to put back; drawing asks whether it is shown and whether its
-      # scene is the one running.
+      # WHETHER A SPRITE IS SHOWN AND WHETHER IT IS ON THE PICTURE ARE TWO QUESTIONS, and each
+      # sprite keeps a variable for each. Shown is what the game says with `hide` and `show`.
+      # On the picture is a fact about the pixels: the sprite was drawn, what it covered is
+      # remembered, and nothing has replaced that part of the picture since. They come apart
+      # in two ways. A scene's sprite is shown the whole game and painted only while its scene
+      # runs. And any sprite stops being on the picture the moment the game clears the screen
+      # under it, though it is still shown and will be drawn again.
+      #
+      # Erasing asks the second, because only a sprite that is on the picture has pixels worth
+      # putting back; put back after a clear, they are a square of the picture that went.
+      # Drawing asks the first, and for a scene's sprite whether its scene is the one running.
 
       # Pass one: erase this sprite from where it was last drawn, restoring what it
       # covered. A no-op while the sprite is not on the picture.
       def erase_node
-        Build.if_(on_picture, Build.restore_region(@buffer, ref(@old_x), ref(@old_y)),
-                  *painted_nodes(0)).default_source!(@source)
+        take_off_picture.default_source!(@source)
       end
 
       # Pass two: draw this sprite where it is now, remembering what's freshly under it
       # so the next frame's erase can put it back. A no-op while hidden.
       def draw_node
-        Build.if_(wanted_on_picture, *save_and_draw_nodes, *painted_nodes(1)).default_source!(@source)
+        Build.if_(all_hold(@painted_while, active_is(1)), *paint_nodes).default_source!(@source)
       end
 
       # Say this sprite is not on the picture any more, without putting back what it covered.
-      # For a sprite whose picture was replaced under it: a scene on another kind of screen
-      # took over, and the pixels it remembers belong to a screen that is gone.
+      # For a sprite whose picture was replaced under it: the game cleared the screen, or a
+      # scene on another kind of screen took over, and the pixels it remembers belong to a
+      # picture that is gone.
       def forget_painting_node
         Build.set(@painted, Build.int(0)).default_source!(@source)
       end
@@ -378,7 +375,7 @@ module RubyGBA
       # Draw the sprite for the first time at its start (used by the sprite verb when
       # the sprite begins shown): capture what's under it and draw it there.
       def draw_initial
-        save_and_draw_nodes.each { |node| record(node) }
+        paint_nodes.each { |node| record(node) }
         self
       end
 
@@ -421,25 +418,24 @@ module RubyGBA
 
       # The test that this sprite is drawn on the picture now, with what it covered remembered.
       def on_picture
-        Build.binop(:==, ref(@painted || @active), Build.int(1))
+        Build.binop(:==, ref(@painted), Build.int(1))
       end
 
-      # The test that this sprite belongs on the picture: it is shown, and everything it was
-      # told to wait for holds.
-      def wanted_on_picture
-        @painted_while.reduce(active_is(1)) do |all, (name, value)|
-          Build.binop(:and, all, Build.binop(:==, ref(name), Build.int(value)))
-        end
+      # One test that every variable in +pairs+ holds its value, and +first+ too when given.
+      def all_hold(pairs, first = nil)
+        tests = pairs.map { |name, value| Build.binop(:==, ref(name), Build.int(value)) }
+        [first, *tests].compact.reduce { |all, test| Build.binop(:and, all, test) }
       end
 
-      # The statement that keeps the on-the-picture variable in step, for a sprite with one.
-      def painted_nodes(value)
-        @painted ? [Build.set(@painted, Build.int(value))] : []
+      # Draw the sprite where it is now and say it is on the picture.
+      def paint_nodes
+        [*save_and_draw_nodes, Build.set(@painted, Build.int(1))]
       end
 
-      def record_shown
-        record(Build.set(@active, Build.int(1)))
-        self
+      # Put back what the sprite covered, if it is on the picture, and say it no longer is.
+      def take_off_picture
+        Build.if_(on_picture, Build.restore_region(@buffer, ref(@old_x), ref(@old_y)),
+                  Build.set(@painted, Build.int(0)))
       end
     end
   end

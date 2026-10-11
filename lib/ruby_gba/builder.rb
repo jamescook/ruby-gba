@@ -128,7 +128,7 @@ module RubyGBA
       @screen_mode = nil       # the current display mode (set by `screen`), so `sprite` picks its backend
       @sprites = []            # live software sprites, repainted after every wait_vblank
       @sprite_repaints = []    # [wait node, the software sprites declared by then], one per frame boundary
-      @routine_sprites = []    # the software sprites declared inside a routine's body (see Sprites#routine_sprite_state)
+      @routine_sprites = []    # the software sprites declared inside a routine's body (see Sprites#sprite_painting_state)
       @building_routine = nil  # the routine whose body is being built, nil while the program block itself runs
       @scene_numbers = {}      # scene func name → the number that says its body was the last scene to run
       @scene_screens = {}      # scene func name → the screen its body draws on
@@ -552,6 +552,7 @@ module RubyGBA
 
       finalize_sprite_repaints
       finalize_scene_sprite_handover
+      finalize_sprite_clears
       finalize_animation_steps
       finalize_present_lists
       finalize_pool_stacking

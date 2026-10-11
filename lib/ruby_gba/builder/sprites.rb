@@ -154,9 +154,10 @@ module RubyGBA
 
         # Reserve the backing store (always — its RAM is fixed at build time). A
         # sprite that starts shown is drawn once at its start (capture what's under it
-        # and blit it) so it's on screen before the loop and the buffer is primed for
-        # the first erase; one that starts hidden draws nothing until `show`. (Declare
-        # a sprite AFTER you've drawn its background, so it captures the real scenery.)
+        # and blit it) so it's on screen before the loop; one that starts hidden draws
+        # nothing until `show`. (Declare a sprite AFTER you've drawn its background, so
+        # it captures the real scenery. A `clear_screen` after it is the one thing that
+        # is safe to draw later — see #finalize_sprite_clears.)
         record(Build.backing_buffer(buffer, width: width, height: height))
 
         handle = DSL::Sprite.new(self, x: pos_x, y: pos_y, old_x: old_x, old_y: old_y,
@@ -165,7 +166,7 @@ module RubyGBA
                                   facing_var: pose_var, facing_dirs: facing_dirs,
                                   frame_var: frame_var, frames_per_dir: frames_per_dir,
                                   layer: current_layer, source: caller_source_location,
-                                  **routine_sprite_state(id))
+                                  **sprite_painting_state(id))
         declare_software_sprite(handle, shown)
       end
 
@@ -622,22 +623,26 @@ module RubyGBA
                                   image: nil, poses: poses, facing_dirs: {},
                                   clips: clips, clip_off_var: off, clip_len_var: len, frame_var: frame,
                                   layer: current_layer, source: caller_source_location,
-                                  **routine_sprite_state(id))
+                                  **sprite_painting_state(id))
         declare_software_sprite(handle, shown)
       end
 
       # The variable every scene writes as its body ends, saying it was the last one to run.
       SCENE_UP = :__scene_up
 
-      # WHAT A SOFTWARE SPRITE DECLARED INSIDE A ROUTINE KEEPS THAT ONE DECLARED ABOVE THE GAME
-      # LOOP DOES NOT, as the extra arguments its handle takes.
+      # WHAT A SOFTWARE SPRITE KEEPS TO KNOW WHEN IT MAY BE PAINTED AND WHEN IT HAS PIXELS TO
+      # PUT BACK, as the arguments its handle takes.
       #
-      # A sprite declared above the loop is painted where it is declared, one time, and the
-      # repaint before each frame takes it from there. A routine's body — a scene's, most of
-      # all — is built after the loop and runs every pass, so painting the sprite where it is
-      # declared would paint it every pass, each time over the last copy with nothing to rub
-      # that copy out: a trail. So such a sprite is painted by the repaint alone, and keeps a
-      # variable saying whether it is on the picture, which starts at "no".
+      # EVERY SPRITE keeps a variable saying whether it is on the picture, which starts at
+      # "no". Being shown is not the same thing: a sprite the game cleared the screen under is
+      # still shown and is not on the picture, and what it remembers is a square of the
+      # picture that went (see #finalize_sprite_clears).
+      #
+      # A SPRITE DECLARED INSIDE A ROUTINE is not painted where it is declared. One declared
+      # above the loop is, one time, and the repaint before each frame takes it from there. A
+      # routine's body — a scene's, most of all — is built after the loop and runs every pass,
+      # so painting there would paint every pass, each time over the last copy with nothing to
+      # rub that copy out: a trail. Such a sprite is painted by the repaint alone.
       #
       # A SCENE'S SPRITE WAITS FOR TWO THINGS besides being shown. Its scene has to be the one
       # the game is in, which is what makes it the scene's. And its scene's body has to have
@@ -646,9 +651,7 @@ module RubyGBA
       # display yet — so a sprite painted then would remember pixels that are about to be
       # replaced and put them back over the new picture a frame later. Waiting one pass gives
       # the scene its turn to paint first.
-      def routine_sprite_state(id)
-        return {} unless @building_routine
-
+      def sprite_painting_state(id)
         painted = :"__spr#{id}_drawn"
         at_boot(Build.set(painted, Build.int(0)))
         ensure_var(painted)
@@ -669,7 +672,7 @@ module RubyGBA
       end
 
       # Remember a software sprite, and paint it where it is declared when that is a place
-      # that runs one time (see #routine_sprite_state for the sprite that is not).
+      # that runs one time (see #sprite_painting_state for the sprite that is not).
       def declare_software_sprite(handle, shown)
         @sprites << handle
         if @building_routine
@@ -711,7 +714,7 @@ module RubyGBA
       # HAND THE PICTURE FROM ONE SCENE'S SPRITES TO THE NEXT'S, for a game with software
       # sprites declared inside scenes. Two statements go into every scene's routine.
       #
-      # LAST, it says its body ran (see #routine_sprite_state for what waits on that).
+      # LAST, it says its body ran (see #sprite_painting_state for what waits on that).
       #
       # FIRST, it takes the other scenes' sprites off the picture. The repaint already does
       # that when a scene changes the state from inside its own body: by the next boundary the
@@ -744,6 +747,48 @@ module RubyGBA
       # remembered pixels can be put back.
       def painted_screen?(scene)
         !IR::SceneHandover.tiles?(@scene_screens[scene] || :bitmap)
+      end
+
+      # AFTER THE GAME CLEARS THE WHOLE SCREEN, NO SPRITE IS ON THE PICTURE, and each is told so
+      # straight after the clear.
+      #
+      # A sprite puts back what it covered before it is drawn again. A clear replaces what it
+      # covered, so those pixels are a square of the picture that went, and putting them back
+      # stamps that square on the new field where the sprite stood — for good, since the
+      # sprite then remembers the square as its background. A new round and a change of scene
+      # both clear the screen with sprites on it, so this is the ordinary case and not a rare
+      # one. Told it is off the picture, a sprite puts nothing back, and the repaint before
+      # the next frame draws it over whatever the game painted after the clear — so a wall
+      # drawn on the fresh field where the sprite stands is what the sprite remembers.
+      #
+      # A clear inside an `inside` block clears that area and no more. A sprite outside it is
+      # still on the picture, so that clear is left alone. A sprite INSIDE it is the same
+      # mistake as painting over a sprite by hand, and is not caught here.
+      #
+      # It costs a store per sprite at each clear, and nothing on a frame without one.
+      def finalize_sprite_clears
+        return if @sprites.empty?
+
+        whole_screen_clears.each do |clear|
+          container = clear.parent
+          at = container.children.index(clear)
+          @sprites.each_with_index do |sprite, offset|
+            node = sprite.forget_painting_node
+            container.children.insert(at + 1 + offset, node)
+            node.parent = container
+          end
+        end
+      end
+
+      # Every `clear_screen` in the program that is not held to an area by an `inside` block.
+      def whole_screen_clears
+        @program.walk.select do |node|
+          next false unless node.kind == :clear_screen
+
+          holder = node.parent
+          holder = holder.parent while holder && holder.kind != :inside
+          holder.nil?
+        end
       end
 
       # A hardware (tiled) sprite driven by named animation clips — the console composites

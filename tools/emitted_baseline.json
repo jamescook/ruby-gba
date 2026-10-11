@@ -2,7 +2,7 @@
   "version": 1,
   "examples": {
     "animate": {
-      "code": 49460,
+      "code": 49504,
       "data": 0
     },
     "bird": {
@@ -118,7 +118,7 @@
       "data": 0
     },
     "sprite_mover": {
-      "code": 14356,
+      "code": 14488,
       "data": 0
     },
     "tiles": {
