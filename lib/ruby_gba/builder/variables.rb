@@ -246,10 +246,11 @@ module RubyGBA
       # What one of those says: the line as it was written, the word that changes the variable,
       # and where the same number comes from instead.
       def changing_verb_message(verb, name, rest)
-        written = [name, *rest].compact.map(&:inspect).join(", ")
+        written = DSL::ChangingWord.arguments_text([name, *rest])
         said = written.empty? ? "" : " #{written}"
         DSL::ChangingWord.refusal(written: "#{verb}#{said}", bang: "#{verb}!#{said}",
-                             instead: new_number_advice(verb, name, rest))
+                                  instead: new_number_advice(verb, name, rest),
+                                  at: Messages::AuthorSource.at_author_line)
       end
 
       def new_number_advice(verb, name, rest)

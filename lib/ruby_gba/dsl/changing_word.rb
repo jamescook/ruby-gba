@@ -32,6 +32,19 @@ module RubyGBA
         " To get a new number and keep the variable as it is, write `#{left} #{operator} #{right}`#{tail}."
       end
 
+      # The arguments of a flat verb as the author wrote them: a name with its colon, a number as
+      # itself, a variable's handle by the variable's name. Anything else — a number worked out
+      # on the spot — has no name, and stands as `...`. Inspecting it instead would describe the
+      # whole build, since a handle holds the builder that made it.
+      def arguments_text(arguments)
+        arguments.compact.map do |argument|
+          case argument
+          when Symbol, Numeric, String, true, false then argument.inspect
+          else as_source_text(argument) || "..."
+          end
+        end.join(", ")
+      end
+
       # An operand as the author would write it: a variable by its own name, a number as itself.
       # Nil for anything else, which has no name to be written by.
       def as_source_text(operand)

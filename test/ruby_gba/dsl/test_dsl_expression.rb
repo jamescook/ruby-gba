@@ -183,7 +183,36 @@ class TestDSLExpression < Minitest::Test
     nothing = assert_raises(ArgumentError) { tree { add :v } }
 
     assert_match(/write `v\.add!`\.\z/, worked_out.message.sub(/ \(at .*\)\z/, ""))
-    assert_match(/write `add! :v`\.\z/, nothing.message)
+    assert_match(/write `add! :v`\.\z/, nothing.message.sub(/ \(at .*\)\z/, ""))
+  end
+
+  # A flat verb handed a number worked out on the spot has no name to write that number by,
+  # so the message leaves it out. Describing it instead describes the whole build it holds.
+  def test_a_flat_verb_leaves_out_a_number_it_cannot_name
+    %i[set add sub copy].each do |verb|
+      err = assert_raises(ArgumentError) { tree { v = var(:v, 0); public_send(verb, :w, v + 1) } }
+
+      assert_match(/`#{verb} :w, \.\.\.` does not change a variable/, err.message)
+      assert_match(/write `#{verb}! :w, \.\.\.`/, err.message)
+      refute_match(/#</, err.message)
+      assert_operator err.message.length, :<, 300
+    end
+  end
+
+  # ...and a variable's handle is written by the variable's name.
+  def test_a_flat_verb_names_a_handle_by_its_variable
+    err = assert_raises(ArgumentError) { tree { step = var(:step, 1); add :v, step } }
+
+    assert_match(/`add :v, step` does not change a variable/, err.message)
+    assert_operator err.message.length, :<, 300
+  end
+
+  # The message ends with the line that wrote the verb, which is the one thing a person
+  # migrating a whole game needs from it.
+  def test_a_flat_verb_says_which_line_wrote_it
+    err = assert_raises(ArgumentError) { tree { set :w, 5 } }
+
+    assert_match(/\(at test_dsl_expression\.rb:\d+\)\z/, err.message)
   end
 
   # A pool field is a variable too, and its message names the field.
