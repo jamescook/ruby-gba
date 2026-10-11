@@ -15,6 +15,9 @@ require_relative "../../tools/make_example_assets" # the art's colors, so expect
 # It uses the real ImageMagick adapter and does NOT skip when it's missing: importing
 # is the whole point, so its absence is a real failure.
 class TestLevelExample < Minitest::Test
+  # True of the game however it is played: see TestSuites.
+  runs_on :reference, :native
+
   include RubyGBA::Console::Hardware
 
   Assets = MakeExampleAssets
@@ -40,7 +43,7 @@ class TestLevelExample < Minitest::Test
   # On the interpreter: the CSV's tile numbers render as the room (border brick, open
   # floor), with the imported transparent hero drawn over it.
   def test_the_csv_level_renders_on_the_interpreter
-    s = Reference.new.run(Level.program, max_steps: 400).screen
+    s = game_player.run(Level.program, max_steps: 400).screen
 
     assert_equal BRICK, s.pixel(*BRICK_AT), "CSV tile 1 (brick) paints the wall border"
     assert_equal FLOOR, s.pixel(*FLOOR_AT), "CSV tile 2 (floor) paints the interior"

@@ -9,6 +9,9 @@ require_relative "../../examples/font_styles"
 # custom fonts really are different (distinct glyph pixels), and that it renders on
 # the emulator.
 class TestFontStylesExample < Minitest::Test
+  # True of the game however it is played: see TestSuites.
+  runs_on :reference, :native
+
 
   # The lit pixels of the word band drawn at (8, y), height h — relative coords.
   def word_pixels(screen, y, h, color)
@@ -19,7 +22,7 @@ class TestFontStylesExample < Minitest::Test
   end
 
   def screen
-    @screen ||= Reference.new.run(FontStyles.program).screen
+    @screen ||= game_player.run(FontStyles.program).screen
   end
 
   def test_each_font_renders_in_its_own_colour

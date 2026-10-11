@@ -8,6 +8,9 @@ require_relative "../../examples/fonts"
 # render, that the tiny one is genuinely smaller (fewer pixels, shorter box), and
 # that the tiny draw emits less code — on the interpreter and the emulator.
 class TestFontsExample < Minitest::Test
+  # True of the game however it is played: see TestSuites.
+  runs_on :reference, :native
+
   GREEN = Color.resolve(:green)
 
   # Count green pixels in a horizontal band [y, y+h).
@@ -18,7 +21,7 @@ class TestFontsExample < Minitest::Test
   end
 
   def test_both_numbers_render_and_tiny_is_smaller
-    screen = Reference.new.run(FontsDemo.program).screen
+    screen = game_player.run(FontsDemo.program).screen
     default_px = green_in_band(screen, 18, 7) # the default number's 7-tall band
     tiny_px = green_in_band(screen, 54, 5)    # the tiny number's 5-tall band
 
