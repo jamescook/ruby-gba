@@ -43,6 +43,7 @@ module RubyGBA
                                            })
 
           RUNTIME_DIR = Ractor.make_shareable(File.expand_path("runtime", __dir__))
+          BUILD_FILE = Ractor.make_shareable(File.expand_path("build/build.zig", __dir__))
 
           # Raised when zig is missing or the wrong version, refuses the C it was given, or the
           # program it built stops with an error.
@@ -64,6 +65,23 @@ module RubyGBA
             File.rename(building, exe)
             exe
           end
+
+          # Builds +sources+ (C files in +src_dir+) and SDL3 into one program called +name+, with
+          # zig's build system (build/build.zig), and gives back where it landed under +prefix+.
+          # SDL is fetched and compiled into a cache kept between builds and shared by every
+          # game, so only the first build pays for it.
+          def build_program(src_dir, sources, name:, prefix:)
+            version
+            capture_command("zig", "build", "--build-file", BUILD_FILE,
+                            "--cache-dir", File.join(build_cache_dir, "cache"),
+                            "--pkg-dir", File.join(build_cache_dir, "packages"),
+                            "-p", prefix, "-Dsrc_dir=#{src_dir}", *sources.map { |file| "-Dsources=#{file}" },
+                            "-Dname=#{name}", "-Doptimize=ReleaseFast")
+            File.join(prefix, "bin", name)
+          end
+
+          # Where the desktop builds keep what zig compiled — SDL above all — between builds.
+          def build_cache_dir = File.join(Dir.home, ".cache", "ruby-gba", "native")
 
           # Runs a program this built with +args+, feeding it +input+, and gives back what it
           # printed. One still running after +seconds+ is stopped and reported: a game that loops
@@ -121,7 +139,7 @@ module RubyGBA
             raise Error, "zig was not found. This project installs it through mise: run `mise install`."
           end
 
-          private_class_method :cache_key, :cache_dir, :capture_command
+          private_class_method :cache_key, :cache_dir, :build_cache_dir, :capture_command
         end
       end
     end

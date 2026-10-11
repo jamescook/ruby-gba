@@ -118,8 +118,9 @@ namespace :test do
 
   Rake::TestTask.new(native: %i[zig native_run]) do |t|
     t.libs << "test" << "lib"
-    t.test_files = TestSuites.native
-    t.description = "Run the native backend's tests (needs zig; never part of rake test)"
+    t.test_files = TestSuites.native(desktop: ENV["SDL"] == "1")
+    t.description = "Run the native backend's tests (needs zig; never part of rake test). " \
+                    "SDL=1 also builds and runs the desktop program, with its window"
   end
 end
 

@@ -21,6 +21,9 @@ void rg_game_main(void);
 /* Hands every variable the game keeps to rg_dump_variable, by its Ruby name. */
 void rg_game_dump_variables(void);
 
+/* The game's name, as RubyGBA.game was given it: the window's title. */
+extern const char rg_game_title[];
+
 /* --- what the runtime provides --- */
 
 /* The end of a frame: the picture is shown, the buttons are read, and the game waits for the
