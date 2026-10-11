@@ -5,6 +5,7 @@ require_relative "backends/blocks"
 require_relative "backends/sprite_cut"
 require_relative "backends/reference"
 require_relative "backends/gba"
+require_relative "backends/native"
 
 module RubyGBA
   module IR
@@ -24,6 +25,13 @@ module RubyGBA
     # program means, which the others are checked against. Naming it for its role
     # rather than for the language it happens to be written in also keeps it from
     # reading as "the Ruby one" in a project where every backend is written in Ruby.
+    #
+    # FIRST-CLASS AND TRAILING BACKENDS. Two of them are first-class: GBA and Reference. `rake
+    # test` runs both, and a feature is not done until it works on both. Native (the game as a
+    # desktop program) trails: its tests run under `rake test:native` and never under `rake
+    # test`, and a feature that works on the first two is done without it — what it cannot do
+    # yet is a gap to fill there, never a broken build. (IR::Portability's "tier" is a different
+    # thing: which kinds of node can run anywhere at all.)
     module Backends
     end
   end

@@ -97,7 +97,15 @@ rake test                                                       # the suite
 rake test TEST=test/ruby_gba/dsl/test_thing.rb                  # one file
 rake test TEST=test/ruby_gba/dsl/test_thing.rb TESTOPTS="--name=/pattern/"  # one test
 rake test:playthroughs                                          # one module's tests: every file in test/ruby_gba/playthroughs/
+rake test:native                                                # the native backend, alone
 ```
+
+**`rake test` never runs the native backend's tests** (`test/ruby_gba/ir/backends/native/`),
+and `rake test:native` runs only them. Native trails the other two backends (see the
+cross-backend rule below), and its tests need zig, installed through mise, to compile what they
+test. They start child processes, so they run one after another rather than on Ractors.
+`test/support/suites.rb` holds both file lists, and `test/test_suites.rb` fails if a native test
+ever lands in `rake test`.
 
 The test tree mirrors the code's directories: a test of a file in `lib/ruby_gba/audio/`
 lives in `test/ruby_gba/audio/`, a test of an example in `test/examples/`, a test of a
@@ -256,7 +264,10 @@ Keep the IR **target-agnostic**: `IR::Node` describes *what the program does*, n
 
 **Backends** consume the IR and live under `IR::Backends`, named for the platform they target (the ROM backend is `GBA`, not `Arm` — the target is the whole platform, not just the CPU). `Backends::Reference` runs the IR in Ruby (the headless test oracle — named for its role as the answer key, not for the language, since every backend here happens to be written in Ruby); `Backends::GBA` lowers it to a ROM; a `Backends::JS` could run it in a browser. All honor `IR::Int32`'s signed-32-bit semantics — that shared contract is what keeps them agreeing.
 
-**Cross-backend rule:** a hardware feature (sound, tiles, sprites, paged modes…) isn't *done* until it works on every backend that needs it — the GBA lowering **and** the Ruby interpreter. The moment a feature is on the radar, write down each backend's slice as its own piece of work — even before the details are known — so it can't be forgotten while you're heads-down on the feature elsewhere. Don't lean on this principle to remember; record it.
+**Cross-backend rule:** a hardware feature (sound, tiles, sprites, paged modes…) isn't *done* until it works on every backend that needs it — the GBA lowering **and** the Ruby interpreter. The moment a feature is on the radar, write down each backend's slice as its own piece of work — even before the details are known — so it can't be forgotten while you're heads-down on the feature elsewhere. Don't lean on this principle to remember; record it. The rule holds for the two FIRST-CLASS
+backends only. `Backends::Native` (the game as C, built by zig into a desktop program) TRAILS:
+a feature is done without it, and what it cannot do yet is a gap recorded against it rather
+than a broken build (see the comment atop `IR::Backends`).
 
 **Conformance-fixture obligation:** a new IR feature (a `Node::CATEGORY` kind or a `binop` operator) isn't done until it's added to the kitchen-sink fixture in `test/conformance_fixture.rb`. That one program is run through every backend by `test/ruby_gba/ir/test_cross_backend_conformance.rb`; a backend missing a feature the fixture uses hits its "unsupported" branch and fails. The coverage test asserts the fixture touches every kind/operator, so a forgotten feature fails loudly — but only if you added it to the fixture. Hardware-only kinds (`raw` and `read_scanline` today) are exempt via `HARDWARE_ONLY_KINDS` and kept in an uncalled func. This guards *coverage*; the differential test (behavioral *agreement*) is separate.
 
