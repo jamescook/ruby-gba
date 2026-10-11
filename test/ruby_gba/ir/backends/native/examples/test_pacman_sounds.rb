@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require "test_helper"
+require "native_comparison"
 require "sound_comparison"
 require_relative "../../../../../../examples/pacman"
 
@@ -15,20 +16,16 @@ class TestPacmanSounds < Minitest::Test
   include SoundComparison
 
   # Up through the pellet above him and on into the wall, then left alone until the ghost arrives.
-  #
-  # Held from the first frame and until well after he has reached the wall, because the console
-  # starts its game a frame or two after the desktop build does: a button that goes down or comes
-  # up while it still moves him would reach the two on different passes of the game, and the
-  # ghost would then catch him on a different one.
+  # Held from the first frame until well after he has reached the wall, so the two play the same
+  # game though the console starts a frame or two later (see .claude/rules/testing.md).
   EAT_THEN_WAIT = Ractor.make_shareable(NativeComparison.held_for([1..50, :up]))
 
   def test_the_waka_and_the_catch
     program = Native.new.checked_program(Pacman::GAME, err: nil)
-    native = native_voice(program, :square2, frames: 200, buttons: EAT_THEN_WAIT)
-    heard = (0...native.frame_count).map { |frame| native.loudness(frame) >= HEARD }
+    played = Native::HeadlessRun.new.input_each_frame { |frame| EAT_THEN_WAIT.fetch(frame, []) }.run(program, frames: 200)
 
-    assert_operator heard.each_cons(2).count { |before, now| now && !before }, :>=, 2,
-                    "both beeps should start in the run compared"
+    assert_operator played[:eaten], :>=, 1, "the waka should be in the run compared"
+    assert_operator played[:caught], :>=, 1, "and so should the catch"
     assert_native_sounds_like_the_console program, frames: 200, buttons: EAT_THEN_WAIT, voices: [:square2]
   end
 end

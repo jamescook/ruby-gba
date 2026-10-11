@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require "test_helper"
+require "native_comparison"
 require "sound_comparison"
 require_relative "../../../../../../examples/pong"
 

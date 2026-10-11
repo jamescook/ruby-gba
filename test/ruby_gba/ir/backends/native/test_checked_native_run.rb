@@ -39,7 +39,7 @@ class TestCheckedNativeRun < Minitest::Test
 
     assert_operator interpreter[:x], :>, 2, "the budget should hold a few frames"
     assert_equal interpreter[:x], played[:x]
-    assert_equal interpreter.frame, played.moments.map(&:frame).grep(Integer).max
+    assert_equal interpreter.frame, CheckedNativeRun.last_frame(played.moments)
   end
 
   def test_a_step_budget_on_a_game_that_never_waits_for_the_screen_cannot_be_played
@@ -53,7 +53,7 @@ class TestCheckedNativeRun < Minitest::Test
 
     error = assert_raises(CheckedNativeRun::HeadlessRun::CannotAnswer) { CheckedNativeRun.new.run(program, max_steps: 60) }
 
-    assert_match(/never waits for the screen/, error.message)
+    assert_match(/before it first waits for the screen/, error.message)
   end
 
   def test_the_first_frame_they_disagree_on_is_named_with_what_differs
