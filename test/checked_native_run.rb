@@ -45,7 +45,7 @@ class CheckedNativeRun
     frames ||= Reference::DEFAULT_FRAMES
     interpreter, moments = play_on_interpreter(program, frames)
     difference = self.class.first_difference(moments, @native.moments) ||
-                 self.class.sound_difference(interpreter.audio, @native.audio)
+                 self.class.sounds_difference(interpreter.audio, @native.audio)
     raise Minitest::Assertion, disagreement_message(difference, program, frames) if difference
 
     self
@@ -75,12 +75,6 @@ class CheckedNativeRun
       return "#{heading(reference.frame)}: #{differences.join('; ')}" if differences.any?
     end
     nil
-  end
-
-  # The first entry of the sound log the two disagree on, or nil when every entry is the same.
-  def self.sound_difference(want, got)
-    at = (0...[want.size, got.size].max).find { |index| want[index] != got[index] }
-    at && "entry #{at} of the sound log: C has #{got[at].inspect}, Reference #{want[at].inspect}"
   end
 
   def self.heading(frame) = frame == :end ? "the end of the run" : "frame #{frame}"

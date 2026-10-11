@@ -33,6 +33,31 @@ class TestNativeRefusals < Minitest::Test
     assert_match(/cannot make yet \(saving\)/, error.message)
   end
 
+  # Sound the desktop cannot play yet is refused by name, rather than left out of what it plays.
+  def test_a_sound_not_played_yet_is_refused_by_name
+    program = program_of do
+      enable_sound
+      game_loop { noise :explosion }
+    end
+
+    error = assert_raises(LoweringError) { Native.new.lower(program) }
+    assert_match(/:noise.*cannot make yet \(sound\)/, error.message)
+  end
+
+  def test_a_song_part_off_the_square_wave_is_refused_by_name
+    program = program_of do
+      enable_sound
+      song(:tune) do
+        voice(:pad, plays: :wave) { note :C4, :quarter }
+      end
+      play_song :tune
+      game_loop {}
+    end
+
+    error = assert_raises(LoweringError) { Native.new.lower(program) }
+    assert_match(/song :tune.*wave voice/, error.message)
+  end
+
   # What the desktop's picture cannot draw yet is refused, by name, rather than drawn wrong.
   def test_a_tear_free_screen_is_refused_by_name
     assert_refused_picture(/tear-free screen/) do

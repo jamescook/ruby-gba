@@ -48,9 +48,9 @@ class TestCheckedNativeRun < Minitest::Test
   end
 
   def test_the_first_sound_they_disagree_on_is_named
-    difference = CheckedNativeRun.sound_difference([[:enabled], [:note, :tune, 262]], [[:enabled], [:note, :tune, 294]])
+    difference = CheckedNativeRun.sounds_difference([[:enabled], [:note, :tune, 262]], [[:enabled], [:note, :tune, 294]])
 
     assert_match(/entry 1 of the sound log: C has \[:note, :tune, 294\], Reference \[:note, :tune, 262\]/, difference)
-    assert_nil CheckedNativeRun.sound_difference([[:enabled]], [[:enabled]])
+    assert_nil CheckedNativeRun.sounds_difference([[:enabled]], [[:enabled]])
   end
 end

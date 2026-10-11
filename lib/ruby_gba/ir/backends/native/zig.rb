@@ -101,14 +101,17 @@ module RubyGBA
               end
               out = Thread.new { stdout.read }
               err = Thread.new { stderr.read }
-              unless waiter.join(seconds)
-                Process.kill(:KILL, waiter.pid)
-                raise Error, "#{File.basename(exe)} was still running after #{seconds} seconds, and was stopped"
-              end
+              finished = waiter.join(seconds)
+              Process.kill(:KILL, waiter.pid) unless finished
+              # Everything it printed is read before anything is raised: leaving the block closes
+              # the streams, and a reader still reading one would fail on its own thread.
               writer.join
-              raise Error, "#{File.basename(exe)} stopped (#{waiter.value}):\n#{err.value}" unless waiter.value.success?
+              printed = out.value
+              complaint = err.value
+              raise Error, "#{File.basename(exe)} was still running after #{seconds} seconds, and was stopped" unless finished
+              raise Error, "#{File.basename(exe)} stopped (#{waiter.value}):\n#{complaint}" unless waiter.value.success?
 
-              out.value
+              printed
             end
           end
 

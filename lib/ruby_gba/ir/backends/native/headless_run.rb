@@ -137,7 +137,7 @@ module RubyGBA
                 when /\Aframe (\d+)\z/ then frame = Integer(Regexp.last_match(1))
                                             rows = []
                 when "end" then rows = []
-                when /\Asound / then @audio << @sound_log.entry(line)
+                when /\Asound / then @audio << @sound_log.entry_from(line)
                 when "buttons?" then record_frame_and_send_buttons(stdin, frame, rows)
                 else rows << line
                 end
