@@ -128,8 +128,20 @@ module RubyGBA
         parts = %i[x y]
         parts << :pose if posed?
         parts << :colors if recolorable?
+        parts << :order_key if ordered?
         parts
       end
+
+      # PUT THIS POOL'S THINGS IN AN ORDER THE GAME WORKS OUT (see Builder#draw_in_order).
+      # +key+ is handed an instance and gives back the number that thing is ordered by, so
+      # the number is worked out per thing as the copy above walks them and copied for its
+      # place beside where it is.
+      def order_by(key)
+        @order_key = key
+      end
+
+      # Whether this pool is in a draw order.
+      def ordered? = !@order_key.nil?
 
       # Whether a thing's picture is something to read at all: a pool given one picture
       # always shows it.
@@ -172,6 +184,7 @@ module RubyGBA
         case part
         when :pose then pose_of_slot(at)
         when :colors then Build.list_get(colors_list, at.call)
+        when :order_key then Value.node_for(@order_key.call(Instance.new(self, Value.new(@builder, at.call))))
         else Build.list_get(field_list(part), at.call)
         end
       end

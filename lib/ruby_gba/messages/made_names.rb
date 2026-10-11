@@ -128,6 +128,10 @@ module RubyGBA
                               job = POOL_JOBS[parts[:part].to_sym]
                               job && format(job, parts[:pool])
                             end),
+        draw_order: Kind.new(spelling: "__draw_order_%{number}__%{part}", parts: { number: "\\d+", part: PLAIN },
+                             words: lambda do |parts|
+                               "putting the sprites of draw_in_order ##{parts[:number]} in order" if parts[:part] == "sort"
+                             end),
         see_through_amounts: Kind.new(spelling: "__see_through_%{layer}", parts: { layer: ANY },
                                       words: ->(parts) { "telling the display how see-through layer :#{parts[:layer]} is" }),
       }.then { |kinds| Ractor.make_shareable(kinds) }

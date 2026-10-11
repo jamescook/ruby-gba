@@ -766,7 +766,7 @@ module RubyGBA
         include Node
         kind :present_objects
         category :draw
-        operands names: :list
+        operands names: :list, orders: :list
       end
 
       class Pressed

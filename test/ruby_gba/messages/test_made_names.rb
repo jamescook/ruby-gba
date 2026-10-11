@@ -34,6 +34,7 @@ class TestMadeNames < Minitest::Test
     painted_copies: {},
     canvas_part: { canvas: :box, part: :pixel },
     canvas_font: { font: :tiny, part: :rows },
+    draw_order: { number: 1, part: :sort },
   }.freeze
 
   def test_every_kind_of_name_is_in_the_samples
@@ -59,6 +60,7 @@ class TestMadeNames < Minitest::Test
       MadeNames.make(:still_sprites) => "writing the sprites nothing moves",
       MadeNames.make(:see_through_amounts, layer: :rays) => "telling the display how see-through layer :rays is",
       MadeNames.make(:pool_stacking, pool: :guard) => "putting the sprites of pool :guard oldest in front",
+      MadeNames.make(:draw_order, number: 1, part: :sort) => "putting the sprites of draw_in_order #1 in order",
       MadeNames.make(:pool_part, pool: :guard, part: :remove) => "removing an instance of pool :guard",
       MadeNames.make(:pool_part, pool: :guard_walk, part: :unlink) => "taking an instance of pool :guard_walk out of its order",
     }

@@ -100,6 +100,7 @@ module RubyGBA
             scratch = var_addr(:_oam_clear)
             store_word_immediate(OBJ_HIDDEN_WORD, scratch)
             emit_start_copy_engine(from: scratch, to: OAM_START, control: @framebuffer.dma_fill_control(OAM_SIZE / 4))
+            emit_clear_draw_run_copies
           end
 
           # The routine that writes the sprites nothing moves, and the two things remembered
@@ -132,6 +133,112 @@ module RubyGBA
             emit_write_sprite_rows(node.names - @layout.movement.still - by_scene.flat_map(&:names))
             by_scene.each { |group| emit_scene_sprites(group) }
             emit_refresh_still_sprites
+            @layout.draw_runs.each { |run| emit_copy_draw_run(run) }
+          end
+
+          # A RUN OF THE TABLE DRAWN IN AN ORDER THE GAME WORKS OUT (see Builder#draw_in_order).
+          #
+          # The console decides which of two sprites is in front by where their rows sit in its
+          # table — the lower row in front — and a row's place was fixed when the cartridge was
+          # built. So the sprites of such a run do not write their rows into the table at all.
+          # They write them into a copy of the run kept in work memory, laid out exactly as the
+          # table would have it, every way they always did; and before each frame is drawn the
+          # run is copied into the table in the order the program sorted it into.
+          #
+          # WHY A COPY RATHER THAN WRITING EACH SPRITE STRAIGHT TO ITS NEW ROW: a sprite's row is
+          # not always written. One that never moves is written once, one whose scene is not up
+          # is not written at all — and they are right because a row stays as it was last
+          # written. The copy keeps that true: every row stays where its own sprite put it, and
+          # only the copy into the table moves.
+          #
+          # Only the first three of a row's four halves are copied. The fourth belongs to the
+          # table's groups for turning sprites, which are counted by place, not by sprite.
+          #
+          # +first_slot+ and +slots+ are the run's rows in the table; +staging+ is where the copy
+          # of them is kept; +order+ is where the program keeps its list of the run's sprites in
+          # the order to draw them, back to front, a byte each counting from 0; and +table+ is a
+          # cartridge table of two bytes a sprite — its first row, counted from the run's
+          # first, and how many rows it takes.
+          DrawRun = Data.define(:first_slot, :slots, :staging, :order, :members, :table) do
+            def holds?(slot) = slot >= first_slot && slot < first_slot + slots
+            def staged(slot) = staging + ((slot - first_slot) * 8)
+          end
+
+          # Each ordered run of +program+'s frame, with its copy given a place in +memory+ and
+          # its table put in +blobs+; +lists+ says where the program keeps each list.
+          def self.plan_draw_runs(program, objects:, memory:, blobs:, lists:)
+            present = program.walk.find { |node| node.kind == :present_objects } or return []
+            (present.orders || []).each_with_index.map do |run, k|
+              sprites = run.objects.map { |name| objects.fetch(name) }
+              first = sprites.map(&:slot).min
+              slots = sprites.sum(&:pieces)
+              unless sprites.flat_map { |sprite| (sprite.slot...(sprite.slot + sprite.pieces)).to_a }.sort == (first...(first + slots)).to_a
+                raise LoweringError, "the sprites of a draw_in_order are not side by side in the sprite table"
+              end
+
+              table = :"__draw_run_#{k}"
+              blobs[table] = sprites.flat_map { |sprite| [sprite.slot - first, sprite.pieces] }.pack("C*")
+              DrawRun.new(first_slot: first, slots: slots, staging: memory.alloc(slots * 8),
+                          order: lists.list_info(run.order)[:base], members: sprites.length, table: table)
+            end
+          end
+
+          # Where a sprite's row +piece+ is written: its place in the table, or in the copy of
+          # its run when it is in one.
+          def row_address(first, piece)
+            slot = first + piece
+            run = @layout.draw_runs.find { |each_run| each_run.holds?(slot) }
+            run ? run.staged(slot) : oam_slot(first, piece)
+          end
+
+          # COPY ONE RUN INTO THE TABLE IN ITS ORDER. The program's list says the sprites back
+          # to front, and the table's front is its first row, so the list is read from its end
+          # while the table is written from the run's first row onward.
+          #
+          #   r1  the list, from its last entry back
+          #   r12 one before the list's first entry, where the walk stops
+          #   r2  the table row being written
+          #   r3  the copy being read
+          #   r4  rows left of this sprite
+          def emit_copy_draw_run(run)
+            list = run.order
+            next_sprite = gensym
+            next_row = gensym
+            emit_number(TMP, list + run.members - 1)
+            emit_number(ADDR, list - 1)
+            emit_number(SPARE, OAM_START + (run.first_slot * 8))
+            place_label(next_sprite)
+            emit(ASM.ldrb_offset(ACC, TMP, 0))            # which sprite goes next
+            emit(ASM.sub_imm(TMP, TMP, 1))
+            emit_load_data_address(POSE_WORD, run.table)
+            emit(ASM.add_reg(POSE_WORD, POSE_WORD, ACC))
+            emit(ASM.add_reg(POSE_WORD, POSE_WORD, ACC))  # ...its two bytes in the table
+            emit(ASM.ldrb_offset(HIGH, POSE_WORD, 0))     # its first row in the copy
+            emit(ASM.ldrb_offset(POSE_WORD, POSE_WORD, 1)) # how many rows it takes
+            emit(ASM.lsl_imm(HIGH, HIGH, 3))
+            emit_number(ACC, run.staging)
+            emit(ASM.add_reg(HIGH, HIGH, ACC))
+            place_label(next_row)
+            [0, 2, 4].each do |half|
+              emit(ASM.load_halfword_offset(ACC, HIGH, half))
+              emit(ASM.store_halfword_offset(ACC, SPARE, half))
+            end
+            emit(ASM.add_imm(HIGH, HIGH, 8))
+            emit(ASM.add_imm(SPARE, SPARE, 8))
+            emit(ASM.subs_imm(POSE_WORD, POSE_WORD, 1))
+            emit_branch(:bcond, next_row, cond: :ne)
+            emit(ASM.cmp_reg(TMP, ADDR))
+            emit_branch(:bcond, next_sprite, cond: :ne)
+          end
+
+          # Fill the copy of every ordered run with the "unused slot" marker, for the same
+          # reason the table itself is cleared: a row nothing has written yet would show.
+          # The marker is already in the scratch word the table's own clear left it in.
+          def emit_clear_draw_run_copies
+            @layout.draw_runs.each do |run|
+              emit_start_copy_engine(from: var_addr(:_oam_clear), to: run.staging,
+                                     control: @framebuffer.dma_fill_control(run.slots * 2))
+            end
           end
 
           # The routine that writes one scene's moving sprites (see GBA#prepare_scene_sprites).
@@ -238,7 +345,7 @@ module RubyGBA
             done = gensym
             emit_branch(:bcond, draw, cond: :ne)
             obj.pieces.times do |piece|
-              write_reg16(oam_slot(obj.slot, piece), OBJ_HIDDEN_ATTR0) # active == 0: mark it unused
+              write_reg16(row_address(obj.slot, piece), OBJ_HIDDEN_ATTR0) # active == 0: mark it unused
               write_reg16(oam_slot(twin.slot, piece), OBJ_HIDDEN_ATTR0) if twin # ...and its window
             end
             emit_branch(:b, done)
@@ -250,7 +357,7 @@ module RubyGBA
             # every piece stands at the same place and reads it back from there.
             emit_stash_object_position(obj) if obj.pieces > 1
             obj.pieces.times do |piece|
-              base = oam_slot(obj.slot, piece)
+              base = row_address(obj.slot, piece)
               mirror = twin && oam_slot(twin.slot, piece)
               if obj.transformed
                 emit_draw_object_transformed(obj, base, mirror)

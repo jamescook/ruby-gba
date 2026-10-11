@@ -524,9 +524,21 @@ module RubyGBA
                                    sprite_slots: @screen.sprite_slots,
                                    sprite_offsets: @screen.sprite_offsets,
                                    streamed_sprite_pose_vars: streamed_sprite_pose_vars,
+                                   sprite_runs: sprite_runs,
                                    build_options: { fast_cartridge: @fast_cartridge, fast_code: @fast_code })
         end
 
+
+        # The runs of the sprite table drawn in an order the program works out, said the way a
+        # reader of the finished cartridge needs them (see BuildRecord#sprite_runs).
+        def sprite_runs
+          (@draw_runs || []).map do |run|
+            homes = @emit.data_blobs.fetch(run.table).unpack("C*").each_slice(2).map do |offset, pieces|
+              [run.first_slot + offset, pieces]
+            end
+            RubyGBA::Cartridge::BuildRecord::SpriteRun.new(order: run.order, homes: homes)
+          end
+        end
 
         # WHERE A KEPT-TO-ONE-FRAME SPRITE SAYS WHICH POSE IT IS SHOWING: the address of the
         # variable the cartridge writes as it copies a frame into the sprite's room. Keyed by
@@ -706,6 +718,14 @@ module RubyGBA
           # has to walk the color table instead to leave that layer alone (see IR::Fading).
           @fading = IR::Fading.resolve(program)
           prepare_still_objects(program) if @has_objects
+          # The runs of the sprite table drawn in an order the program works out, each given a
+          # copy in work memory (see SpriteDrawing::DrawRun).
+          @draw_runs = if @has_objects
+                         SpriteDrawing.plan_draw_runs(program, objects: @screen.objects, memory: @memory,
+                                                               blobs: @emit.data_blobs, lists: @lists)
+                       else
+                         []
+                       end
           # Save data reaches the chip too, so it needs the marker that maps it as much as a
           # saved number does.
           @uses_save = program.walk.any? { |node| SAVE_KINDS.include?(node.kind) }
@@ -726,6 +746,7 @@ module RubyGBA
             scene_blend: @scene_blend || {}, movement: @movement || IR::Movement::EVERYTHING_MOVES,
             scene_sprites: @scene_sprites || [],
             waits_for_frames: @uses_vblank,
+            draw_runs: @draw_runs,
           )
           @drawing.layout = layout
           @buffered.layout = layout

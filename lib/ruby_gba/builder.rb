@@ -23,6 +23,7 @@ require_relative "builder/composition"
 require_relative "builder/timers"
 require_relative "builder/sampled_audio"
 require_relative "builder/layers"
+require_relative "builder/draw_order"
 require_relative "builder/settings"
 require_relative "builder/save_program"
 require_relative "builder/save_records"
@@ -77,6 +78,7 @@ module RubyGBA
     include Timers     # timer (a hardware counter running at a chosen rate)
     include SampledAudio # sample (a recorded PCM sound, played via Direct Sound)
     include Layers     # layers, layer (a named place in the stack: what sits in front of what)
+    include DrawOrder  # draw_in_order (sprites drawn in an order the game works out)
     include Settings   # setting (what this build was told: which floors, which screen it boots on)
     include SaveData   # save_data (records of the game's state, saved when the game says so; see Saves)
 
@@ -558,6 +560,7 @@ module RubyGBA
       finalize_animation_steps
       finalize_present_lists
       finalize_pool_stacking
+      finalize_draw_orders # after the pools: a pool's numbers are copied with its things
       finalize_background_scrolls
       finalize_background_maps
       refuse_shifted_tile_run_lists!
@@ -982,12 +985,13 @@ module RubyGBA
     # so a pool takes its place among the sprites by the same rule two sprites follow: the
     # one declared later is in front. The HUD comes last, over all of them.
     def finalize_present_lists
-      names = in_stack_order(@sprite_objects + @hud_objects)
+      names = arrange_draw_orders(in_stack_order(@sprite_objects + @hud_objects))
       @present_nodes.each do |node|
         if names.empty?
           node.parent&.children&.delete(node)
         else
           node.names = names
+          node.orders = draw_order_runs(names)
         end
       end
     end

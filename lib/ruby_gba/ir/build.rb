@@ -826,9 +826,19 @@ module RubyGBA
       # change the screen — right after a vblank — so a moving object is redrawn each
       # frame from its current position with no trail. +names+ lists the objects to
       # present (each declared by #object).
-      def present_objects(names)
-        Nodes.build(:present_objects, names: names)
+      #
+      # +orders+ are runs of +names+ whose order is worked out as the program runs rather
+      # than fixed here: each is a DrawOrder, naming the run's objects back to front as
+      # declared and a list the program keeps them in. Before the objects are drawn, that list
+      # holds the run's objects as positions in +objects+ — 0 for the first — in the order
+      # to draw them, back to front, and the run is drawn in that order instead.
+      def present_objects(names, orders: [])
+        Nodes.build(:present_objects, names: names, orders: orders)
       end
+
+      # One run of a frame's objects drawn in an order the program works out (see
+      # #present_objects).
+      DrawOrder = Data.define(:objects, :order)
 
       # --- backing store (remembering the pixels under a moving object) ---
       #

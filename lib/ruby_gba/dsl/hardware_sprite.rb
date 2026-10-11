@@ -98,6 +98,10 @@ module RubyGBA
       # draw.
       attr_reader :object_name
 
+      # The object node itself, for the build to read where the sprite sits — its layer, its
+      # scene — when it puts sprites in an order (see Builder#draw_in_order).
+      attr_reader :object_node
+
       # Where this sprite sits in the stack — the layer it was declared in, or nil in a
       # game that names no layers. It's read off the object itself rather than kept here
       # as well, so the handle and the program can never disagree about it.

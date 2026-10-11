@@ -1917,7 +1917,7 @@ module RubyGBA
         # screen this frame and recomposite the whole view (scrolled scene, then these
         # objects on top). See #request_repaint.
         def exec_present_objects(node)
-          @drawn = objects_on_screen(node.names)
+          @drawn = objects_on_screen(names_in_draw_order(node))
 
           if @repaints
             snapshot_object_layer
@@ -1934,6 +1934,16 @@ module RubyGBA
           @drawn.each do |on|
             draw_object(on[:object], on[:picture], on[:x], on[:y])
             @obj_prev[on[:object].name] = [on[:x], on[:y]]
+          end
+        end
+
+        # The frame's objects in the order they are drawn: as listed, except that each run the
+        # program puts in order is drawn in the order its list holds (see Build#present_objects).
+        def names_in_draw_order(node)
+          (node.orders || []).reduce(node.names) do |names, run|
+            first = names.index(run.objects.first)
+            ordered = @lists.fetch(run.order).to_a.map { |at| run.objects.fetch(at) }
+            names[0...first] + ordered + names[(first + run.objects.length)..]
           end
         end
 

@@ -664,10 +664,14 @@ module RubyGBA
         end
         moved = @rom.built.sprite_offsets
         rooms = @rom.built.streamed_sprite_pose_vars
+        # A run drawn in an order the game works out moves its sprites' rows about, so a row is
+        # taken back to the sprite's own place before anything is looked up by place.
+        own = (@rom.built.sprite_runs || []).reduce({}) { |found, run| found.merge(run.own_places(method(:mem8))) }
         table = palette(:sprites) # read once for the lot, not once per row
         @probe.sprites.map do |row|
-          name = whose[row[:slot]]
-          dx, dy = moved.dig(row[:slot], pose_key(row, rooms)) || [0, 0]
+          home = own.fetch(row[:slot], row[:slot])
+          name = whose[home]
+          dx, dy = moved.dig(home, pose_key(row, rooms, home)) || [0, 0]
           # Back into the ranges the console keeps these in, so a sprite half off the left edge
           # reads the way its own place reads rather than going negative.
           SpriteRow.new(**row, name: name, piece_x: row[:x], piece_y: row[:y],
@@ -708,8 +712,8 @@ module RubyGBA
       # know. A room nothing has been copied into yet holds no pose at all, and no pose finds no
       # trim; a row being drawn always has one, because the frame goes in before the row is
       # written.
-      def pose_key(row, rooms)
-        address = rooms[row[:slot]] or return [row[:tile], row[:mirrored_across], row[:mirrored_down]]
+      def pose_key(row, rooms, home = row[:slot])
+        address = rooms[home] or return [row[:tile], row[:mirrored_across], row[:mirrored_down]]
 
         var_at(address)
       end

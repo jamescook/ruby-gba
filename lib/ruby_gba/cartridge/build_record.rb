@@ -79,17 +79,41 @@ module RubyGBA
     # +lists+ is where each list landed — its first slot, its capacity, its width, and where its
     # length is kept (see IR::Backends::GBA::Lists#list_places). It is what lets the build measure
     # its game with every collection held full, which is a state a game reaches only in play.
+    # +sprite_runs+ are the runs of that table drawn in an order the game works out (see
+    # Builder#draw_in_order), and they are where +sprite_slots+ stops being the whole answer:
+    # in such a run a sprite's rows move every frame, to whichever place its turn in the order
+    # puts it. Each says where the cartridge keeps the order — a byte per sprite, back to front —
+    # and each sprite's own place and how many places it takes, so a place read off the console
+    # can be taken back to the sprite in it. Empty for a game that orders nothing.
     class BuildRecord < Data.define(:source_program, :placement, :var_addresses, :loop_shapes,
                                     :palette_entries, :column_stretches, :compression,
                                     :build_options, :findings, :emitted, :routines, :video_memory,
                                     :roomy_memory, :timer_handlers, :voices, :sound_drops,
                                     :sprite_slots, :sprite_offsets, :streamed_sprite_pose_vars,
-                                    :video_copies, :lists)
+                                    :video_copies, :lists, :sprite_runs)
       def initialize(findings: [], emitted: nil, routines: {}, video_memory: nil,
                      roomy_memory: nil, timer_handlers: {}, voices: nil, sound_drops: nil,
                      sprite_slots: {}, sprite_offsets: {}, streamed_sprite_pose_vars: {},
-                     video_copies: [], lists: {}, **rest)
+                     video_copies: [], lists: {}, sprite_runs: [], **rest)
         super
+      end
+
+      # One run of the sprite table drawn in an order the game works out: +order+ is the address
+      # of its order, and +homes+ is each of its sprites' own first place and how many places it
+      # takes, in the order the order counts them.
+      SpriteRun = Data.define(:order, :homes) do
+        # Which sprite's own place each place of the run holds now, as { place => own place },
+        # given +byte_at+ to read the cartridge's memory with.
+        def own_places(byte_at)
+          at = homes.map(&:first).min
+          (homes.length - 1).downto(0).each_with_object({}) do |turn, found|
+            first, pieces = homes.fetch(byte_at.call(order + turn))
+            pieces.times do |piece|
+              found[at] = first + piece
+              at += 1
+            end
+          end
+        end
       end
 
       # The two routines a program has no name for: the frame's own body, and the one the
