@@ -17,10 +17,6 @@ typedef struct {
   /* These two never come back (C has no way to say so of a pointer to a function). */
   void (*halt)(void);
   void (*fault)(const char *format, va_list args);
-  /* The buttons down now, and the ones that went down at the last frame boundary, a bit
-   * each in the order rg_runtime.h lists them. */
-  uint32_t (*held)(void);
-  uint32_t (*pressed)(void);
   /* One variable's name and value, which only the windowless driver has anywhere to print. */
   void (*dump_variable)(const char *name, int32_t value);
 } rg_driver;
@@ -28,9 +24,14 @@ typedef struct {
 /* The driver in use; set by whichever main() started the program. */
 extern const rg_driver *rg_active_driver;
 
+/* A driver says which buttons are down, a bit each in the order rg_runtime.h lists them, at
+ * every frame boundary; a button down now and not at the last boundary is pressed for the
+ * frame that is starting (rg_runtime.c works that out, the same for every driver). */
+void rg_buttons_read(uint32_t held);
+
 /* The windowless driver: plays FRAMES frames under the buttons on standard input and prints
- * every frame (see rg_headless.c). Its arguments are argv as main() gets it, without the
- * --headless that chose it. */
+ * every frame (see rg_headless.c). Its arguments are the number of frames, then nothing:
+ * argv as main() gets it, less anything that came before the number. */
 int rg_headless_main(int argc, char **argv);
 
 #endif

@@ -20,13 +20,13 @@ module TestSuites
     Dir.glob("test/**/test_*.rb").sort.reject { |path| path.start_with?("#{NATIVE_DIR}/") }
   end
 
-  # The tests of the program a player runs, with its window. They build with SDL, whose first
-  # build fetches its source over the network, so they run only when asked (SDL=1).
-  DESKTOP_DIR = "#{NATIVE_DIR}/desktop"
+  # The test of the program a player runs, with its window. It builds with SDL, whose first build
+  # fetches its source over the network, so it runs only when asked (SDL=1).
+  DESKTOP_TEST = "#{NATIVE_DIR}/test_native_desktop.rb"
 
-  # Everything `rake test:native` runs, and nothing else; the desktop tests too when +desktop+.
+  # Everything `rake test:native` runs, and nothing else; the desktop test too when +desktop+.
   def native(desktop: false)
     files = Dir.glob("#{NATIVE_DIR}/**/test_*.rb").sort
-    desktop ? files : files.reject { |path| path.start_with?("#{DESKTOP_DIR}/") }
+    desktop ? files : files - [DESKTOP_TEST]
   end
 end

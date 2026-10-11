@@ -103,7 +103,7 @@ class TestNativeInt32Helpers < Minitest::Test
   end
 
   def calculate(mode, cases)
-    exe = Zig.compile([HARNESS], mode: mode)
+    exe = Zig.compile_without_sdl([HARNESS], mode: mode)
     input = cases.map { |name, a, b, c| "#{name} #{a} #{b} #{c}\n" }.join
     Zig.run_program(exe, input: input).lines.map(&:to_i)
   end
