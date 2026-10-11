@@ -179,13 +179,19 @@ cannot hand control back to a host loop each frame. Instead SDL is driven from i
 which would take coroutines. The build uses SDL3's ordinary `main` instead. The game runs on the main
 thread, which is where macOS wants events handled.
 
-**UNVERIFIED (to check in gba-vldy / gba-i2im):** the SDL3 names above are from memory and have not
-been read in SDL3's headers:
-- `SDL_PIXELFORMAT_XBGR1555`
-- `SDL_LOGICAL_PRESENTATION_INTEGER_SCALE`
-- `SDL_OpenAudioDeviceStream` taking signed 8-bit mono at the game's mixing rate
+**Checked against SDL 3.4.18's headers and at run time (2026-10-11):**
+`SDL_PIXELFORMAT_XBGR1555` has red in bits 0-4 (masks R=001f, G=03e0, B=7c00);
+`SDL_SetRenderLogicalPresentation(r, 240, 160, SDL_LOGICAL_PRESENTATION_INTEGER_SCALE)`;
+`SDL_SetTextureScaleMode(tex, SDL_SCALEMODE_NEAREST)`;
+`SDL_OpenAudioDeviceStream(SDL_AUDIO_DEVICE_DEFAULT_PLAYBACK, {SDL_AUDIO_S8, 1, 8192}, NULL, NULL)`
+is accepted by CoreAudio and by the dummy driver; `SDL_GetKeyboardState` indexed by
+`SDL_SCANCODE_*`; `SDL_GetTicksNS` and `SDL_DelayPrecise`. An ordinary `main` that pumps events
+from its own loop works on macOS (`SDL_main.h` defines nothing there; include it in `rg_sdl.c`
+only, for Windows's sake), and `SDL_INIT_VIDEO` and event pumping must stay on main()'s thread.
 
-Whether the ordinary `main` loop needs anything extra on macOS is unchecked too.
+**mGBA's default keys**, the same in its SDL and Qt front ends (mgba `143adf5a`,
+`src/platform/sdl/sdl-events.c:188-198`, `src/platform/qt/InputController.cpp:64-73`): arrows for
+the pad, X = A, Z = B, A = L, S = R, Return = Start, Backspace = Select.
 
 This split also keeps the emitter testable with no window: every emitter test links the headless
 runtime.
