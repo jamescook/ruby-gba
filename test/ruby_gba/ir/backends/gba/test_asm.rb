@@ -6,7 +6,7 @@ class TestASM < Minitest::Test
   A = RubyGBA::IR::Backends::GBA::ASM
 
   # Helper: decode a load_immediate sequence back to the value it loads.
-  # Simulates ARM execution of MOV/ORR with rotated immediates.
+  # Simulates ARM execution of MOV/MVN/ORR with rotated immediates.
   def decode_load_immediate(bytes)
     instructions = bytes.unpack("V*")
     result = 0
@@ -20,6 +20,8 @@ class TestASM < Minitest::Test
       case opcode
       when 0xD  # MOV
         result = rotated
+      when 0xF  # MVN
+        result = ~rotated & 0xFFFFFFFF
       when 0xC  # ORR
         result |= rotated
       else
@@ -102,11 +104,46 @@ class TestASM < Minitest::Test
                  "the same address one slot along really does need its low byte"
   end
 
+  # A NUMBER WHOSE OPPOSITE IS ONE BYTE IS ONE INSTRUCTION. The chip can load the opposite of
+  # a number — every bit turned over — as readily as the number, so "every bit set" is the
+  # opposite of nought rather than four bytes put together one at a time. A mask with one
+  # byte cleared is the same thing, and so is minus one, which is the commonest of them.
+  def test_a_value_whose_opposite_is_one_byte_is_one_instruction
+    [0xFFFFFFFF, 0xFFFFFF00, 0xFFFF00FF, 0x00FFFFFF, 0xFFFFFFFE, 0x3FFFFFFF].each do |value|
+      bytes = A.load_immediate(3, value)
+      assert_equal 1, bytes.bytesize / 4, "0x#{value.to_s(16)}"
+      assert_equal value, decode_load_immediate(bytes), "0x#{value.to_s(16)}"
+      assert_equal 3, rd(unpack(bytes)), "and it lands in the register asked for"
+    end
+  end
+
+  def test_a_value_that_is_one_byte_both_ways_round_is_still_one_instruction
+    bytes = A.load_immediate(0, 0xFF)
+    assert_equal 1, bytes.bytesize / 4
+    assert_equal 0xD, (unpack(bytes) >> 21) & 0xF, "the plain load, not its opposite"
+  end
+
+  def test_a_value_neither_way_round_fits_is_still_built_a_byte_at_a_time
+    assert_equal 4, A.load_immediate(0, 0xDEADBEEF).bytesize / 4
+    assert_equal 2, A.load_immediate(0, 0xFFFF0000).bytesize / 4,
+                 "two bytes set, and its opposite is two bytes too"
+  end
+
+  # THE FIXED LOAD STAYS FOUR, whatever the number. Its size is what lets a slot be set
+  # aside before the number is known and filled in afterwards without moving what follows.
+  def test_the_fixed_load_is_four_instructions_for_every_value
+    [0, 0xFF, 0xFFFFFFFF, 0xFFFFFF00, 0x08001234].each do |value|
+      bytes = A.load_immediate_fixed(0, value)
+      assert_equal 4, bytes.bytesize / 4, "0x#{value.to_s(16)}"
+      assert_equal value, decode_load_immediate(bytes), "0x#{value.to_s(16)}"
+    end
+  end
+
   # Whatever the shape, the sequence still has to come out at the value asked for — the
   # low-byte case above most of all, since it is the one whose first instruction moved.
   def test_every_shape_of_value_still_loads_that_value
     [0, 1, 0xFF, 0x100, 0x6F00, 0x03000000, 0x03006F00, 0x03006F80, 0x0203F000,
-     0xFF00FF00, 0xDEADBEEF, 0xFFFFFFFF].each do |value|
+     0xFF00FF00, 0xDEADBEEF, 0xFFFFFFFF, 0xFFFFFF00, 0xFF00FFFF, 0x7FFFFFFF].each do |value|
       assert_equal value, decode_load_immediate(A.load_immediate(0, value)),
                    "0x#{value.to_s(16)}"
     end

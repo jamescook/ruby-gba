@@ -86,7 +86,8 @@ module RubyGBA
 
           # --- Data processing: immediate ---
 
-          # Load a 32-bit immediate into a register using MOV + ORR sequence.
+          # Load a 32-bit immediate into a register: one instruction where the chip can
+          # name the number, or its opposite, outright, and a MOV + ORR sequence otherwise.
           # ARM immediates are limited to 8 bits rotated, so arbitrary 32-bit
           # values need multiple instructions.
           #
@@ -104,6 +105,13 @@ module RubyGBA
               instructions << (0xE3A00000 | (reg << 12) | encoding)
               return instructions.pack("V*")
             end
+
+            # ...or as its OPPOSITE. The chip loads a number with every bit turned over as
+            # readily as the number itself, so one whose opposite is a single byte is one
+            # instruction too: every bit set is the opposite of nought, where built up it is
+            # all four bytes, and a mask with one byte cleared is the same.
+            opposite = ~value & 0xFFFFFFFF
+            return mvn_imm(reg, opposite) if encode_rotated_immediate(opposite)
 
             # Build up the value byte-by-byte using MOV + ORR.
             # ARM rotated immediate: imm8 ROR (2 * rot4).
