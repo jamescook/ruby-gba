@@ -531,6 +531,50 @@ class TestFastCodePlacement < Minitest::Test
     assert_equal emitted, charged
   end
 
+  # A CALL BETWEEN TWO KEPT ROUTINES IS THE PLAIN CALL IT ALWAYS WAS, so it is not charged
+  # for. A routine is charged for every call it holds as though each crossed out to the
+  # cartridge, because when the charging starts nothing is chosen yet. Once the routine it
+  # calls is kept beside it, that growth never happens — and room still set aside for it is
+  # room the next routine is turned away from.
+  def test_a_call_to_a_routine_kept_beside_it_is_not_charged_as_crossing
+    backend = GBA.new
+    backend.lower(calling_program)
+    charged, emitted = backend.charged_and_emitted_sizes.fetch(:caller)
+
+    assert_includes backend.iwram_report.funcs, :leaf, "the routine it calls is kept too"
+    assert_equal emitted, charged
+  end
+
+  # ...which is the difference between fitting and not. The quick memory here has room for
+  # what the three routines really come to and sixteen bytes over; charged for ten calls
+  # that do not cross, the caller is turned away.
+  def test_routines_that_call_each_other_fit_in_the_room_they_really_take
+    loose = GBA.new
+    loose.lower(calling_program)
+    spare = loose.iwram_report.free_bytes - 16
+    tight = GBA.new
+    tight.lower(calling_program(filler: spare))
+
+    assert_equal %i[__frame caller leaf], tight.iwram_report.funcs.sort
+    assert_empty tight.iwram_report.passed_over
+  end
+
+  # A routine that calls another ten times, both small enough to keep. +filler+ takes that
+  # many bytes of the quick memory away first.
+  def calling_program(filler: nil)
+    builder = Builder.new
+    builder.instance_eval do
+      screen :bitmap
+      total = var :total, 0
+      list :filler, capacity: filler, width: :byte, fast: true if filler
+      func(:leaf) { total.add! 1 }
+      func(:caller) { 10.times { call :leaf } }
+      game_loop { call :caller }
+    end
+    builder.finalize_program
+    builder.program
+  end
+
   # THE MEASUREMENT HAS TO BE OF THE PROGRAM THAT IS BUILT. A variable gets its address the
   # first time something names it, and the pass that measures emits the routines in the order
   # they were written where the real one emits the kept ones last — so a variable the build

@@ -210,23 +210,26 @@ module RubyGBA
             # layer's amounts) are nowhere in the program, so the probe is the one that knows
             # them.
             @scene_routines = probe.routines_for_scenes
-            crossings = crossing_call_counts(program, probe.generated_calls_by_routine)
+            @crossing_targets = crossing_call_targets(program, probe.generated_calls_by_routine)
+            crossings = @crossing_targets.transform_values(&:size).tap { |counts| counts.default = 0 }
+            loads = probe.number_loads_by_routine
             # What each routine could come to with every number built. Kept, because it is
             # what says how far a load can be from its routine's end (see #number_table_bound).
             @built_sizes = moved_sizes(probe.func_sizes, crossings)
-            sizes = tabled_sizes(@built_sizes, probe.number_loads_by_routine, crossings)
+            sizes = tabled_sizes(@built_sizes, loads, crossings)
+            @call_charges = call_charges(@built_sizes, loads, crossings)
             # Every allocation is rounded up to a whole word, so the gap the probe leaves is
             # the gap there really is — there is no alignment slop to keep back for.
             room = probe.iwram_free
-
-            # Kept for the report: what each routine came to, and what a reader will want to
-            # know afterwards is why theirs is not on the list.
-            @routine_sizes = sizes
             @passed_over = []
 
             chosen = Set.new
             room = place_insisted(program, insisted, sizes, room, chosen)
             place_by_frame_cost(program, sizes, room, chosen) if @fast_code
+            # Kept for the report: what each routine came to, and what a reader will want to
+            # know afterwards is why theirs is not on the list. A routine that was kept is
+            # down as what it was charged in the end, its calls to its neighbours given back.
+            @routine_sizes = sizes.merge(chosen.to_h { |name| [name, sizes[name] - bytes_given_back(name, chosen)] })
             chosen
           end
 
@@ -249,13 +252,16 @@ module RubyGBA
             @functions.func_ranges.transform_values(&:size)
           end
 
-          # How many calls to a routine the build made for itself each routine holds, read off
-          # the throwaway pass by where each call was written (see #crossing_call_counts).
+          # The calls to a routine the build made for itself that each routine holds, read off
+          # the throwaway pass by where each call was written (see #crossing_call_targets):
+          # the name of the routine called, or nil for one that always stays in the cartridge.
           def generated_calls_by_routine
-            @functions.func_ranges.transform_values { |range| generated_call_sites.count { |pos| range.cover?(pos) } }
-                      .select { |_, count| count.positive? }
+            @functions.func_ranges.transform_values do |range|
+              generated_call_sites.select { |pos, _| range.cover?(pos) }.map(&:last)
+            end.reject { |_, targets| targets.empty? }
           end
 
+          # Each such call as [where it was written, the routine it calls or nil].
           def generated_call_sites = (@generated_call_sites ||= [])
 
           # The loads a number table could take in each routine, top to bottom, each placed by
@@ -369,7 +375,7 @@ module RubyGBA
           # jump to reach. From the cartridge the address is built; from a routine in the
           # quick memory it is read from that routine's number table where the read reaches.
           def emit_call_func(name)
-            generated_call_sites << @emit.pos if @functions.generated_func?(name)
+            generated_call_sites << [@emit.pos, name] if @functions.generated_func?(name)
             target_is_fast = @fast_funcs.include?(name)
             return emit_branch(:bl, @functions.func_label(name)) if target_is_fast == @emitting_hot
 
@@ -388,9 +394,9 @@ module RubyGBA
           # #emit_call_func's own crossing call uses when the call is running from inside
           # the moved block, since a label back in the cartridge is too far from the quick
           # memory for a relative branch to reach. So it is counted where the measuring
-          # pass writes it, as a call the build made for itself (see #crossing_call_counts).
+          # pass writes it, as a call the build made for itself (see #crossing_call_targets).
           def emit_call_cold_routine(label)
-            generated_call_sites << @emit.pos
+            generated_call_sites << [@emit.pos, nil] # nil: no routine that could be kept beside the caller
             return emit_branch(:bl, label) unless @emitting_hot
 
             emit_load_label_address(ADDR, label)
@@ -512,7 +518,7 @@ module RubyGBA
           # missed made this an under-estimate rather than an upper bound. Some are invented
           # by the lowering, with no `call` node anywhere to show for them. One is counted
           # from the tree here, and the rest where the measuring pass wrote them (see
-          # #crossing_call_counts):
+          # #crossing_call_targets):
           #
           # A MULTI-WAY DISPATCH calls the scene it lands on, one call per clause, built out
           # of `call` nodes made while emitting rather than nodes the tree holds (see
@@ -523,11 +529,18 @@ module RubyGBA
           # A CALL PICKED BY NUMBER is not among them, because it never grows: it jumps
           # through an address read out of a table, whichever memory the routine it lands in
           # was given (see #routine_table).
-          CROSSING_CALL_KINDS = %i[call].freeze
-
-          # ...and a dispatch, whose calls are one per clause rather than one per node.
-          def dispatch_calls_in(node)
-            node.walk.select { |child| child.kind == :case }.sum { |child| child.clauses.length }
+          #
+          # Answers the routine each such call in +node+ names, one entry a call, because
+          # which routine it is decides whether the call crosses in the end (see
+          # #bytes_given_back).
+          def crossing_targets_in(node)
+            node.walk.flat_map do |child|
+              case child.kind
+              when :call then [child.target]
+              when :case then child.clauses.map(&:last)
+              else []
+              end
+            end
           end
 
           # THE CALLS COUNTED WHERE THEY ARE WRITTEN, because no node of the tree says where:
@@ -544,16 +557,52 @@ module RubyGBA
           # examples/breakout.rb. A 128K flash chip is read and written a byte at a time through
           # one, so a save routine holds a call for every byte it reads or writes.
           #
-          # +made_calls+ is how many of both, by routine, the interrupt's included.
-          def crossing_call_counts(program, made_calls = {})
-            calls = Hash.new(0)
+          # +made_calls+ is both kinds, by routine, the interrupt's included: for each call the
+          # routine it names, or nil for one that always stays in the cartridge.
+          #
+          # Answers, for each routine, the routine named by every call in it that COULD cross.
+          def crossing_call_targets(program, made_calls = {})
+            calls = Hash.new { |_, _| [] }
             program.walk.each do |node|
               name = node.kind == :loop ? FRAME_ROUTINE : (node.name if node.kind == :func)
-              calls[name] = crossing_calls_in(node) if name
+              calls[name] = crossing_targets_in(node) if name
             end
-            calls[IRQ_ROUTINE] = irq_bodies(program).sum { |node| crossing_calls_in(node) }
-            made_calls.each { |name, count| calls[name] += count }
+            calls[IRQ_ROUTINE] = irq_bodies(program).flat_map { |node| crossing_targets_in(node) }
+            made_calls.each { |name, targets| calls[name] += targets }
             calls
+          end
+
+          # WHAT EACH ROUTINE WAS CHARGED FOR ONE CALL THAT COULD CROSS, which is what it is
+          # given back for one that turns out not to. The whole growth, unless the routine
+          # is small enough that every read in it reaches its number table — then the charge
+          # already came down to a read and a word (see #bytes_saved_by_table).
+          def call_charges(built, loads, crossings)
+            built.to_h do |name, size|
+              with_table = name != IRQ_ROUTINE && every_read_reaches?(size, loads[name] || [], crossings[name])
+              [name, with_table ? CROSS_CALL_GROWTH_WITH_TABLE : CROSS_CALL_GROWTH]
+            end
+          end
+
+          # A CALL BETWEEN TWO KEPT ROUTINES NEVER GREW, so what +name+ was charged for it
+          # comes back once both are in +chosen+. Every call is charged as though it crossed,
+          # because the charging starts before anything is chosen; but the kept routines are
+          # copied as one block and go on calling each other with the plain jump they were
+          # measured with. Keeping MORE routines can only turn more calls plain, never fewer,
+          # so nothing given back ever has to be taken away again.
+          def bytes_given_back(name, chosen)
+            @call_charges.fetch(name, 0) * @crossing_targets[name].count { |target| chosen.include?(target) }
+          end
+
+          # WHAT KEEPING +name+ ADDS to the room taken, with +chosen+ kept already: its own
+          # charge less its calls to them and to itself, less what each of THEM gets back for
+          # calling it. That is less than its size whenever it has neighbours — which is how
+          # a routine that looked too big for the room comes to fit.
+          def bytes_added_by(name, chosen, sizes)
+            beside = chosen | [name]
+            from_the_rest = chosen.sum do |other|
+              other == name ? 0 : @call_charges.fetch(other, 0) * @crossing_targets[other].count(name)
+            end
+            sizes[name] - bytes_given_back(name, beside) - from_the_rest
           end
 
           # +measured+ is each routine's size off the throwaway pass, and +crossings+ how many
@@ -616,13 +665,15 @@ module RubyGBA
             instructions_gone = read.sum { |load| load.instructions - 1 }
             words_added = read.map(&:word).uniq.size
             saved = (instructions_gone - words_added) * 4
-            every_read_reaches = size + (4 * (loads.size + crossings)) <= NumberTable::REACH
-            every_read_reaches ? saved + (crossings * (CROSS_CALL_GROWTH - CROSS_CALL_GROWTH_WITH_TABLE)) : saved
+            return saved unless every_read_reaches?(size, loads, crossings)
+
+            saved + (crossings * (CROSS_CALL_GROWTH - CROSS_CALL_GROWTH_WITH_TABLE))
           end
 
-          def crossing_calls_in(node)
-            node.walk.count { |child| CROSSING_CALL_KINDS.include?(child.kind) } +
-              dispatch_calls_in(node)
+          # Is a routine charged +size+ small enough that a read anywhere in it reaches a
+          # table holding a word for every load and every crossing call it has?
+          def every_read_reaches?(size, loads, crossings)
+            size + (4 * (loads.size + crossings)) <= NumberTable::REACH
           end
 
           # The trees the console runs on an announcement: every bending background's block
@@ -646,9 +697,10 @@ module RubyGBA
             movable = program.walk.select { |node| node.kind == :func && insisted.include?(node.name) }.map(&:name)
             movable += scene_routines.filter_map { |routine, scene| routine if insisted.include?(scene) && sizes[routine] }
             movable.each do |name|
-              guard_insisted_fits!(name, sizes[name], room)
+              adds = sizes[name] && bytes_added_by(name, chosen, sizes)
+              guard_insisted_fits!(name, adds, room)
               chosen << name
-              room -= sizes[name]
+              room -= adds
             end
             room
           end
@@ -656,33 +708,51 @@ module RubyGBA
           # Then whatever a frame spends the most time in, biggest earner first, within
           # the framework's own share. Anything that will not fit is skipped rather than
           # stopping the fill — a small routine after a large one still gets its chance.
+          #
+          # AND THE LIST IS GONE THROUGH AGAIN WHILE ANYTHING WAS ADDED, because what a routine
+          # takes depends on what is kept beside it (see #bytes_added_by): one turned away
+          # near the top can fit once a routine it calls, or that calls it, has gone in below.
           def place_by_frame_cost(program, sizes, room, chosen)
             forbidden = funcs_marked(program, false)
             # A scene the author kept out of the quick memory keeps what the build made for it
             # out with it: its sprites, and its see-through amounts.
             forbidden += scene_routines.filter_map { |routine, scene| routine if forbidden.include?(scene) }
             ranked = ranked_by_frame_cost(program, sizes)
-            ranked.each_with_index do |name, n|
+            wanted = ranked.reject { |name| forbidden.include?(name) || sizes[name].nil? || !movable?(program, name) }
+            first_time = true
+            loop do
+              kept_before = chosen.size
+              room = place_what_fits(wanted, sizes, room, chosen, named: (ranked if first_time))
+              first_time = false
+              break if chosen.size == kept_before
+            end
+          end
+
+          # Go down +wanted+ once, keeping each routine that fits in +room+, and answer the
+          # room left. Leaves @passed_over as the routines THIS pass turned away, so after the
+          # last pass it is the routines that never fitted.
+          def place_what_fits(wanted, sizes, room, chosen, named: nil)
+            @passed_over = []
+            wanted.each do |name|
               # Say which routine is being weighed, in the words an author would use. The
               # phase is quick now that nothing is priced, but it is the one place a build
               # names the routines it is deciding between, and that is worth seeing.
-              @progress.report_count(n + 1, ranked.length, Messages::PlainWords.routine(name))
-              next if chosen.include?(name) || forbidden.include?(name)
+              @progress.report_count(named.index(name) + 1, named.length, Messages::PlainWords.routine(name)) if named
+              next if chosen.include?(name)
 
-              size = sizes[name]
-              next if size.nil? || !movable?(program, name)
-
+              adds = bytes_added_by(name, chosen, sizes)
               # TOO BIG TO FIT, and worth remembering rather than passing over in silence: this
               # is a routine the frame spends real time in that will run from the cartridge
               # instead, and the report has no other way to find out afterwards.
-              if size > room
-                @passed_over << PassedOver.new(name: name, bytes: size, room: room)
+              if adds > room
+                @passed_over << PassedOver.new(name: name, bytes: adds, room: room)
                 next
               end
 
               chosen << name
-              room -= size
+              room -= adds
             end
+            room
           end
 
           # The trees a name stands for: a routine the author wrote, the loop itself for the
