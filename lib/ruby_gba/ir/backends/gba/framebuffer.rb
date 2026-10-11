@@ -77,7 +77,7 @@ module RubyGBA
           def emit_color_fill_word(color)
             value = Graphics::Color.resolve(color)
             word = (value << 16) | value
-            scratch = @primitives.var_addr(:_dma_scratch)
+            scratch = @primitives.var_addr(Primitives::FILL_SCRATCH)
             @primitives.store_word_immediate(word, scratch)
             scratch
           end

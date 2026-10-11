@@ -680,7 +680,7 @@ module RubyGBA
             color = Graphics::Color.resolve(node.color)
             word = (color << 16) | color
             count = SCREEN_WIDTH * SCREEN_HEIGHT / 2
-            scratch = var_addr(:_dma_scratch)
+            scratch = var_addr(Primitives::FILL_SCRATCH)
 
             store_word_immediate(word, scratch) # hold the fill word in IWRAM
             # From that one fixed word, to the screen.

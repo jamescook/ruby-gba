@@ -8,11 +8,27 @@ module RubyGBA
         class Primitives
           include Console::Hardware
 
+          # THE WORD A FILL READS ITS COLOUR FROM. The console's copying engine fills by
+          # reading the same word over and over, so a fill stores its colour in this one
+          # and hands the engine the word's ADDRESS — as a number, built by instructions.
+          FILL_SCRATCH = :_dma_scratch
+
           def initialize(emitter:, memory:)
             @emitter = emitter
             @memory = memory
             @vars = {}             # variable name -> IWRAM address
             @held_registers = {}
+          end
+
+          # THE FILL'S WORD GETS THE FIRST ADDRESS THERE IS, so this is called before the
+          # program has named anything. How many instructions a number takes depends on its
+          # bits, and the first address of this memory is the only one the chip builds in a
+          # single instruction; most of the others take two or three. Handed out on first
+          # mention like everything else, the word landed wherever the variables named before
+          # the first fill left it, so what EVERY fill in a game cost was settled by something
+          # nobody chose. A program that never fills spends one word of memory on it.
+          def claim_first_address_for_fill_scratch
+            var_addr(FILL_SCRATCH)
           end
 
           # Every variable's allocated address (name => address) — read by GBA#var_addresses.

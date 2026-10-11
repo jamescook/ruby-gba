@@ -318,6 +318,7 @@ module RubyGBA
           @memory = Memory.new(start: IWRAM_START, ceiling: Placement::HOT_CEILING,
                                roomy: EWRAM_START, roomy_ceiling: EWRAM_START + EWRAM_SIZE)
           @primitives = Primitives.new(emitter: @emit, memory: @memory)
+          @primitives.claim_first_address_for_fill_scratch # before anything else names a variable
           @divide = Divide.new(emitter: @emit, memory: @memory, primitives: @primitives,
                                scales_objects: ScreenLayout.method(:scales?))
           @frames = Frames.new(emitter: @emit, primitives: @primitives)

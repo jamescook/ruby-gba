@@ -582,7 +582,7 @@ module RubyGBA
           def emit_index_fill_word(color)
             index = @layout.palette.index_of(color)
             word = index * 0x01010101 # the same index in all four bytes
-            scratch = var_addr(:_dma_scratch)
+            scratch = var_addr(Primitives::FILL_SCRATCH)
             store_word_immediate(word, scratch)
             scratch
           end

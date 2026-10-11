@@ -2,7 +2,7 @@
   "version": 1,
   "examples": {
     "animate": {
-      "code": 48652,
+      "code": 48644,
       "data": 0
     },
     "bird": {
@@ -10,15 +10,15 @@
       "data": 0
     },
     "breakout": {
-      "code": 78916,
+      "code": 75892,
       "data": 0
     },
     "buffered_bounce": {
-      "code": 5354,
+      "code": 5326,
       "data": 0
     },
     "corridor": {
-      "code": 8650,
+      "code": 8602,
       "data": 0
     },
     "dive": {
@@ -26,7 +26,7 @@
       "data": 0
     },
     "floating_digits": {
-      "code": 12944,
+      "code": 12936,
       "data": 0
     },
     "font_styles": {
@@ -38,7 +38,7 @@
       "data": 0
     },
     "grid_cursor": {
-      "code": 7136,
+      "code": 6804,
       "data": 0
     },
     "hero": {
@@ -46,27 +46,27 @@
       "data": 0
     },
     "jukebox": {
-      "code": 65154,
+      "code": 64974,
       "data": 0
     },
     "lake": {
-      "code": 3936,
+      "code": 3944,
       "data": 0
     },
     "level": {
-      "code": 6156,
+      "code": 6164,
       "data": 0
     },
     "maze": {
-      "code": 4780,
+      "code": 4788,
       "data": 0
     },
     "meadow": {
-      "code": 30100,
+      "code": 30108,
       "data": 0
     },
     "pacman": {
-      "code": 16200,
+      "code": 16208,
       "data": 0
     },
     "parallax": {
@@ -82,11 +82,11 @@
       "data": 0
     },
     "pong": {
-      "code": 47446,
+      "code": 45758,
       "data": 0
     },
     "raycaster": {
-      "code": 6772,
+      "code": 6736,
       "data": 0
     },
     "rotozoom_bg": {
@@ -98,7 +98,7 @@
       "data": 0
     },
     "sheet": {
-      "code": 6156,
+      "code": 6164,
       "data": 0
     },
     "shmup": {
@@ -106,19 +106,19 @@
       "data": 0
     },
     "snake": {
-      "code": 43820,
+      "code": 42316,
       "data": 0
     },
     "snake_buffered": {
-      "code": 39986,
+      "code": 39914,
       "data": 0
     },
     "sparks": {
-      "code": 3848,
+      "code": 3828,
       "data": 0
     },
     "sprite_mover": {
-      "code": 13164,
+      "code": 13156,
       "data": 0
     },
     "tiles": {
