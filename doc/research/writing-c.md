@@ -154,22 +154,25 @@ The emitter does not depend on either.
 ### Where SDL sits
 
 **The generated C never names SDL.** The game calls the runtime through one header, `rg_runtime.h`,
-which covers frames, buttons, drawing, sound and saving. Two hand-written implementations link
-against the same generated `game.c`:
+which covers frames, buttons, drawing, sound and saving. `rg_runtime.c` answers those calls by
+handing each to a DRIVER (`rg_driver.h`), picked when the program starts. There are two:
 
-- **`rg_sdl.c` is the build people play.** It owns `main()`: it opens the window and then calls the
-  game's entry routine. `rg_wait_vblank` is where SDL is driven, once per console frame:
+- **`rg_sdl.c`, the window.** It owns `main()` in the build people play: it opens the window and then
+  calls the game's entry routine. Its `wait_vblank` is where SDL is driven, once per console frame:
   - Show the 240x160 picture. It goes into a streaming texture, scaled up by a whole number with
-    nearest-neighbour. The console's colours are 15-bit; SDL3 appears to have a pixel format for
-    them (`SDL_PIXELFORMAT_XBGR1555`), which would avoid converting them.
-  - Pump SDL's events and read the keyboard and gamepad into the set of held buttons.
-  - Hand the frame's mixed sound to an `SDL_AudioStream`. The mixer runs once per shown frame, so
-    this lines up.
+    nearest-neighbour, in the console's own 15-bit colours (`SDL_PIXELFORMAT_XBGR1555`).
+  - Pump SDL's events and read the keyboard into the held buttons.
+  - Hand the frame's mixed sound to an `SDL_AudioStream` (not yet; sound is its own piece of work).
   - Wait on its own clock until the next console frame (about 59.73 a second), not the monitor's
     refresh.
-- **`rg_headless.c` is for tests and fast replay** (gba-srp2). It has no SDL and no window. It reads
-  the held buttons for each frame from a file, writes each frame's picture and variables out for the
-  comparison with Reference, and never sleeps.
+- **`rg_headless.c`, no window**, for tests and fast replay (gba-srp2). It reads the held buttons for
+  each frame from standard input, prints each frame's picture and variables for the comparison with
+  Reference, and never sleeps.
+
+**The build people play carries both.** `./pong` opens the window; `./pong --headless FRAMES` runs the
+windowless driver, so a test can drive the very program a player runs. The tests themselves build
+with the windowless driver alone (`rg_headless_main.c` is that build's `main()`), with zig's compiler
+and no SDL, which keeps them quick and off the network.
 
 **The game owns the loop, so SDL3's callback entry points do not fit.** `wait_vblank` can sit deep
 inside a routine: a program with no `game_loop`, or one built with `frame_sync: :manual`. So the game

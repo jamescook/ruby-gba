@@ -62,8 +62,8 @@ module RubyGBA
       it compiles SDL; sound is not played yet.
     TEXT
     option :output, aliases: "-o", banner: "PATH",
-                    desc: "Where to write the .gba, or the IR under --format=ir " \
-                          "(default: <name>.gba beside the game file, or the pager for IR)"
+                    desc: "Where to write the .gba, the IR under --format=ir, or the program under --format=native " \
+                          "(default: beside the game file, named from its title; the pager for IR)"
     option :format, banner: "NAME", default: "game",
                     desc: "What to emit: game (a .gba cartridge), ir (a standalone Ruby class holding the IR), " \
                           "or native (a program for this computer)"
@@ -314,10 +314,14 @@ module RubyGBA
     end
 
     # The "native" format: the game as a program for this computer, with a window. Written
-    # beside the game file, named like the cartridge with no extension.
+    # beside the game file, named like the cartridge with no extension — or with "-desktop" on
+    # the end where that name is already a folder, as a game split across files often has.
     def build_native(game_file)
       game = load_game(game_file)
-      path = options[:output] || File.join(File.dirname(File.expand_path(game_file)), game.default_filename.delete_suffix(".gba"))
+      path = options[:output] || begin
+        plain = File.join(File.dirname(File.expand_path(game_file)), game.default_filename.delete_suffix(".gba"))
+        File.directory?(plain) ? "#{plain}-desktop" : plain
+      end
       say "Building #{File.basename(path)} for this computer (the first build compiles SDL, which takes a while)"
       RubyGBA::IR::Backends::Native.new.build_desktop(game, path, settings: given_settings)
       say "Built #{path}"

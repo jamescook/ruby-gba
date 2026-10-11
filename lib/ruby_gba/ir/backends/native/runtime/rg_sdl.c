@@ -15,8 +15,10 @@
  * THE CONSOLE'S CLOCK, NOT THE MONITOR'S. The console draws a frame every 280,896 ticks of a
  * clock running at 2^24 ticks a second — a little under sixty frames a second — and a game is
  * written to that pace. So the frames are timed here from that number, whatever rate the monitor
- * refreshes at, and a game that has fallen behind (the computer was busy) starts afresh from now
- * rather than racing to catch up.
+ * refreshes at. A game a frame or two late runs its next frames without waiting until it is back
+ * on time, so a moment's hitch does not slow the game for good; one more than four frames late
+ * (the computer was asleep, the window was being dragged) starts afresh from now instead, rather
+ * than racing through the frames it missed.
  *
  * THE PICTURE is the console's 240x160 screen, its 15-bit colors handed to SDL as they are (SDL
  * has a pixel format for exactly that layout), and scaled up by a whole number with each pixel
@@ -61,7 +63,6 @@ static SDL_Window *window;
 static SDL_Renderer *renderer;
 static SDL_Texture *texture;
 static Uint64 next_frame_ns;
-static uint32_t held, seen, pressed;
 
 static _Noreturn void quit(int status) {
   SDL_Quit();
@@ -95,11 +96,10 @@ static void wait_for_next_frame(void) {
 
 static void read_buttons(void) {
   const bool *down = SDL_GetKeyboardState(NULL);
-  held = 0;
+  uint32_t held = 0;
   for (uint32_t i = 0; i < 10; i++)
     if (down[keys[i]]) held |= 1u << i;
-  pressed = held & ~seen;
-  seen = held;
+  rg_buttons_read(held);
 }
 
 /* The frame boundary: the picture the frame drew is shown, the clock comes round, and the
@@ -132,16 +132,13 @@ static void sdl_fault(const char *format, va_list args) {
   quit(1);
 }
 
-static uint32_t sdl_held(void) { return held; }
-static uint32_t sdl_pressed(void) { return pressed; }
-
 /* A player's window has nobody to print the variables to. */
 static void sdl_dump_variable(const char *name, int32_t value) {
   (void)name;
   (void)value;
 }
 
-static const rg_driver sdl = {sdl_wait_vblank, sdl_halt, sdl_fault, sdl_held, sdl_pressed, sdl_dump_variable};
+static const rg_driver sdl = {sdl_wait_vblank, sdl_halt, sdl_fault, sdl_dump_variable};
 
 static _Noreturn void refuse_to_start(const char *what) {
   fprintf(stderr, "%s could not start: %s (%s)\n", rg_game_title, what, SDL_GetError());
@@ -151,9 +148,12 @@ static _Noreturn void refuse_to_start(const char *what) {
 int main(int argc, char **argv) {
   if (argc > 1 && strcmp(argv[1], "--headless") == 0) return rg_headless_main(argc - 1, argv + 1);
 
-  if (!SDL_Init(SDL_INIT_VIDEO)) refuse_to_start("no window could be opened");
+  if (!SDL_Init(SDL_INIT_VIDEO)) refuse_to_start("the display could not be reached");
+  /* High pixel density asks for the screen's real pixels on a Retina display. Without it the
+   * whole number the picture is scaled by is worked out in the display's larger "points", and the
+   * system then stretches the result to the real pixels itself, smoothing it as it goes. */
   window = SDL_CreateWindow(rg_game_title, RG_SCREEN_WIDTH * START_SCALE, RG_SCREEN_HEIGHT * START_SCALE,
-                            SDL_WINDOW_RESIZABLE);
+                            SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIGH_PIXEL_DENSITY);
   if (!window) refuse_to_start("no window could be opened");
   renderer = SDL_CreateRenderer(window, NULL);
   if (!renderer) refuse_to_start("nothing could draw into the window");

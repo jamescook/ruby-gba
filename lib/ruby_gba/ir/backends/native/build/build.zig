@@ -4,16 +4,15 @@
 //   zig build -Dsrc_dir=/path/to/c -Dsources=game.c -Dsources=rg_sdl.c \
 //             -Dname=pong -Doptimize=ReleaseFast -p /path/to/out
 //
-// leaves /path/to/out/bin/pong. With -Dsdl=true (the default) SDL3 is compiled
-// from its own sources and linked in statically, so the executable needs
-// nothing beside it but the operating system. With -Dsdl=false nothing of SDL
-// is fetched, compiled or linked: that is the headless build the tests run,
-// whose runtime draws into memory instead of a window.
+// leaves /path/to/out/bin/pong. SDL3 is compiled from its own sources and
+// linked in statically, so the executable needs nothing beside it but the
+// operating system. (The tests build without SDL, and without this file: see
+// Native::Zig.compile_without_sdl.)
 //
 // Always pass --cache-dir and --pkg-dir too. Left out, zig writes .zig-cache/
 // and zig-pkg/ next to this file, which is inside the installed gem. Give
-// every game the SAME --cache-dir: compiled SDL is kept there, so it costs
-// about twenty seconds once rather than once per game.
+// every game the SAME --cache-dir: compiled SDL is kept there, so it is
+// compiled once rather than once per game.
 
 const std = @import("std");
 
@@ -24,7 +23,6 @@ pub fn build(b: *std.Build) void {
     const name = b.option([]const u8, "name", "What to call the executable (default: game)") orelse "game";
     const src_dir_option = b.option(std.Build.LazyPath, "src_dir", "Directory holding the C files, and the headers they include");
     const sources_option = b.option([]const []const u8, "sources", "A C file in src_dir to compile; say it once per file");
-    const use_sdl = b.option(bool, "sdl", "Link SDL3 for a window, keyboard and sound (default: true)") orelse true;
 
     // Missing either is a failed build rather than an exit here, so that
     // `zig build --help` still works without them.
@@ -45,23 +43,23 @@ pub fn build(b: *std.Build) void {
     mod.addCSourceFiles(.{
         .root = src_dir,
         .files = sources,
-        .flags = &.{ "-std=c11", "-Wall", "-Wextra", "-Werror" },
+        // The same rules the tests compile the game with (Native::Zig::WARNINGS), so the
+        // program a player runs is held to what the tests checked.
+        .flags = &.{ "-std=c11", "-Wall", "-Wextra", "-Wconversion", "-Wsign-conversion", "-Werror" },
     });
     mod.addIncludePath(src_dir);
 
-    if (use_sdl) {
-        // lazyDependency hands back null on the first pass when SDL has not
-        // been downloaded yet; zig then fetches it and runs this file again.
-        if (b.lazyDependency("sdl", .{
-            .target = target,
-            .optimize = optimize,
-            .preferred_linkage = .static,
-        })) |sdl| {
-            // Linking the library also puts its headers on the include path,
-            // so the runtime writes #include <SDL3/SDL.h>. The macOS
-            // frameworks SDL needs (Cocoa, Metal, CoreAudio...) come with it.
-            mod.linkLibrary(sdl.artifact("SDL3"));
-        }
+    // lazyDependency hands back null on the first pass when SDL has not been
+    // downloaded yet; zig then fetches it and runs this file again.
+    if (b.lazyDependency("sdl", .{
+        .target = target,
+        .optimize = optimize,
+        .preferred_linkage = .static,
+    })) |sdl| {
+        // Linking the library also puts its headers on the include path, so
+        // the runtime writes #include <SDL3/SDL.h>. The macOS frameworks SDL
+        // needs (Cocoa, Metal, CoreAudio...) come with it.
+        mod.linkLibrary(sdl.artifact("SDL3"));
     }
 
     const exe = b.addExecutable(.{ .name = name, .root_module = mod });

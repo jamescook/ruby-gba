@@ -51,12 +51,14 @@ module RubyGBA
 
           module_function
 
-          # Compiles +sources+ (C files on disk) into one program and gives back its path.
-          # +include+ is folders to find headers in; the runtime's own folder is always one.
-          def compile(sources, include: [], mode: :checked)
+          # Compiles +sources+ (C files on disk) into one program, with zig's C compiler alone and
+          # no SDL — which needs no network and takes seconds, so it is what the tests build —
+          # and gives back its path. +include+ is folders to find headers in; the runtime's own
+          # folder is always one.
+          def compile_without_sdl(sources, include: [], mode: :checked)
             folders = [RUNTIME_DIR, *include]
             flags = WARNINGS + OPTIMISE.fetch(mode) + folders.flat_map { |dir| ["-I", dir] }
-            exe = File.join(cache_dir, cache_key(sources, folders, flags), "program")
+            exe = File.join(compiled_programs_dir, cache_key(sources, folders, flags), "program")
             return exe if File.exist?(exe)
 
             FileUtils.mkdir_p(File.dirname(exe))
@@ -69,19 +71,20 @@ module RubyGBA
           # Builds +sources+ (C files in +src_dir+) and SDL3 into one program called +name+, with
           # zig's build system (build/build.zig), and gives back where it landed under +prefix+.
           # SDL is fetched and compiled into a cache kept between builds and shared by every
-          # game, so only the first build pays for it.
-          def build_program(src_dir, sources, name:, prefix:)
+          # game, so only the first build pays for it. Raises, as #version does, on a zig this
+          # was not written against.
+          def build_with_sdl(src_dir, sources, name:, prefix:)
             version
             capture_command("zig", "build", "--build-file", BUILD_FILE,
-                            "--cache-dir", File.join(build_cache_dir, "cache"),
-                            "--pkg-dir", File.join(build_cache_dir, "packages"),
+                            "--cache-dir", File.join(sdl_build_cache_dir, "cache"),
+                            "--pkg-dir", File.join(sdl_build_cache_dir, "packages"),
                             "-p", prefix, "-Dsrc_dir=#{src_dir}", *sources.map { |file| "-Dsources=#{file}" },
                             "-Dname=#{name}", "-Doptimize=ReleaseFast")
-            File.join(prefix, "bin", name)
+            File.join(prefix, "bin", Gem.win_platform? ? "#{name}.exe" : name)
           end
 
           # Where the desktop builds keep what zig compiled — SDL above all — between builds.
-          def build_cache_dir = File.join(Dir.home, ".cache", "ruby-gba", "native")
+          def sdl_build_cache_dir = File.join(Dir.home, ".cache", "ruby-gba", "native")
 
           # Runs a program this built with +args+, feeding it +input+, and gives back what it
           # printed. One still running after +seconds+ is stopped and reported: a game that loops
@@ -126,7 +129,8 @@ module RubyGBA
             digest.hexdigest[0, 24]
           end
 
-          def cache_dir = File.join(Dir.tmpdir, "ruby-gba-native")
+          # Where programs compiled without SDL are kept, by the hash of what made them.
+          def compiled_programs_dir = File.join(Dir.tmpdir, "ruby-gba-native")
 
           # Runs a command to the end and gives back what it printed; a failure raises with
           # what it printed to say why.
@@ -139,7 +143,7 @@ module RubyGBA
             raise Error, "zig was not found. This project installs it through mise: run `mise install`."
           end
 
-          private_class_method :cache_key, :cache_dir, :build_cache_dir, :capture_command
+          private_class_method :cache_key, :compiled_programs_dir, :sdl_build_cache_dir, :capture_command
         end
       end
     end

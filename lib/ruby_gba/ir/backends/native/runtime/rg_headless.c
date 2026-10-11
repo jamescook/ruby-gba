@@ -22,12 +22,7 @@
 #include "rg_screen.h"
 
 static long frames_to_play;
-static long frame;            /* frames started so far */
-static uint32_t held;         /* buttons down now, a bit each */
-static uint32_t seen;         /* ...and at the last frame boundary, to tell a press from a hold */
-static uint32_t pressed;      /* buttons that went down at the last frame boundary */
-
-#define ALL_BUTTONS 0x3FFu
+static long frame; /* frames started so far */
 
 /* The picture as it is shown, as one line: "picture" and then every pixel, row by row, as four
  * hex digits. */
@@ -50,14 +45,11 @@ static _Noreturn void finish(void) {
   exit(0);
 }
 
-/* The buttons for the frame that is starting: read, then compared with the last frame's so a
- * button that has just gone down counts as pressed for this frame only. */
+/* The buttons for the frame that is starting: the next line of standard input. */
 static void read_buttons(void) {
   unsigned long mask = 0;
   if (scanf("%lu", &mask) != 1) mask = 0;
-  held = (uint32_t)mask & ALL_BUTTONS;
-  pressed = held & ~seen;
-  seen = held;
+  rg_buttons_read((uint32_t)mask);
 }
 
 static void headless_wait_vblank(void) {
@@ -79,17 +71,13 @@ static void headless_fault(const char *format, va_list args) {
   exit(1);
 }
 
-static uint32_t headless_held(void) { return held; }
-static uint32_t headless_pressed(void) { return pressed; }
-
 static void headless_dump_variable(const char *name, int32_t value) { printf("%s %d\n", name, (int)value); }
 
-static const rg_driver headless = {headless_wait_vblank, headless_halt, headless_fault, headless_held,
-                                   headless_pressed, headless_dump_variable};
+static const rg_driver headless = {headless_wait_vblank, headless_halt, headless_fault, headless_dump_variable};
 
 int rg_headless_main(int argc, char **argv) {
   if (argc < 2) {
-    fprintf(stderr, "usage: %s FRAMES < buttons\n", argv[0]);
+    fputs("give the number of frames to play, and the buttons for each frame on standard input\n", stderr);
     return 2;
   }
   frames_to_play = strtol(argv[1], NULL, 10);

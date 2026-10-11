@@ -50,8 +50,9 @@ module RubyGBA
         # The runtime's C files each kind of build compiles beside the game's. The desktop build
         # carries the windowless runtime too, so the program a player runs can be driven by a
         # test with --headless.
-        HEADLESS_RUNTIME = %w[rg_headless_main.c rg_headless.c rg_runtime.c rg_screen.c].freeze
-        DESKTOP_RUNTIME = %w[rg_sdl.c rg_headless.c rg_runtime.c rg_screen.c].freeze
+        SHARED_RUNTIME = %w[rg_headless.c rg_runtime.c rg_screen.c].freeze
+        HEADLESS_RUNTIME = (["rg_headless_main.c"] + SHARED_RUNTIME).freeze
+        DESKTOP_RUNTIME = (["rg_sdl.c"] + SHARED_RUNTIME).freeze
 
         # The program written out as C, as one file's text. A program from a game should come
         # through #checked_program first. +title+ is the game's name, for the window.
@@ -63,8 +64,8 @@ module RubyGBA
         # path to it. See that file for how it is run and what it prints. Built with zig on
         # its own, with no SDL to fetch or compile, which is what keeps the tests quick.
         def build_headless(program, mode: :checked)
-          Zig.compile([write_source(lower(program)), *HEADLESS_RUNTIME.map { |file| File.join(Zig::RUNTIME_DIR, file) }],
-                      mode: mode)
+          Zig.compile_without_sdl([write_source(lower(program)), *HEADLESS_RUNTIME.map { |file| File.join(Zig::RUNTIME_DIR, file) }],
+                                  mode: mode)
         end
 
         # +game+ built into ONE program for this computer, with a window, written to +path+: the
@@ -72,13 +73,17 @@ module RubyGBA
         # zig into an executable that needs nothing installed beside it. The first build fetches
         # SDL's source and compiles it, which takes a while once; every build after that reuses it.
         def build_desktop(game, path, settings: {}, err: $stderr)
+          if File.directory?(path)
+            raise LoweringError, "#{path} is a folder, so the program cannot be written there. Name a file instead."
+          end
+
           source = lower(checked_program(game, settings: settings, err: err), title: game.title)
           Dir.mktmpdir("ruby-gba-native") do |dir|
             src = File.join(dir, "src")
             FileUtils.mkdir_p(src)
             File.write(File.join(src, "game.c"), source)
             Dir.glob(File.join(Zig::RUNTIME_DIR, "*")).each { |file| FileUtils.cp(file, src) }
-            exe = Zig.build_program(src, ["game.c", *DESKTOP_RUNTIME], name: "game", prefix: File.join(dir, "out"))
+            exe = Zig.build_with_sdl(src, ["game.c", *DESKTOP_RUNTIME], name: "game", prefix: File.join(dir, "out"))
             FileUtils.cp(exe, path)
           end
           FileUtils.chmod(0o755, path)
