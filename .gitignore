@@ -21,6 +21,9 @@ coverage/
 zig-pkg/
 zig-out/
 
+# Desktop programs built by hand (ruby-gba build game.rb --format=native -o build/game).
+/build/
+
 # beads task-tracker db (dolt server, logs, sockets). Never commit: a shell-metacharacter
 # bug in a bd command once dumped a live secret straight into this db.
 .beads/
