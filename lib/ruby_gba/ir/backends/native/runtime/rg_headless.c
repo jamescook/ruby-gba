@@ -20,6 +20,11 @@
  * picture ("picture-crc"), or with --every-picture the whole picture, for a test that compares
  * every frame pixel by pixel. Without it a frame is a few lines rather than a hundred and fifty
  * thousand characters, which is what lets a long run be driven a frame at a time.
+ *
+ * With --sound-out FILE the sound of every frame played is written to FILE as it is made: one
+ * speaker's worth, RG_SOUND_RATE numbers a second, each two bytes with the low byte first. And
+ * with --sound-voice N only square voice N is in it, which is how a test hears one voice at a
+ * time.
  */
 #include <stdarg.h>
 #include <stdio.h>
@@ -28,10 +33,21 @@
 #include "rg_driver.h"
 #include "rg_runtime.h"
 #include "rg_screen.h"
+#include "rg_sound.h"
 
 static long frames_to_play;
 static long frame; /* frames started so far */
 static int every_picture; /* print the picture at every frame, not only at the end */
+static FILE *sound_out;   /* where each frame's sound is written, if anywhere */
+
+/* The sound of the frame that has just been played, written down. A machine that keeps its
+ * numbers the other way round would write them the other way round; every machine this is built
+ * for keeps the low byte first. */
+static void write_frame_sound(void) {
+  int16_t samples[RG_SOUND_FRAME_MOST];
+  int32_t count = rg_sound_render_frame(samples);
+  if (sound_out) fwrite(samples, sizeof samples[0], (size_t)count, sound_out);
+}
 
 /* The picture as it is shown, as one line: "picture" and then every pixel, row by row, as four
  * hex digits. */
@@ -71,6 +87,7 @@ static void print_moment(const char *heading, int with_picture) {
 static _Noreturn void finish(void) {
   print_moment("end", 1);
   fflush(stdout);
+  if (sound_out) fclose(sound_out);
   exit(0);
 }
 
@@ -82,6 +99,7 @@ static void read_buttons(void) {
 }
 
 static void headless_wait_vblank(void) {
+  write_frame_sound();
   if (frame >= frames_to_play) finish();
   rg_frame_begins();
   frame++;
@@ -119,7 +137,17 @@ int rg_headless_main(int argc, char **argv) {
     return 2;
   }
   frames_to_play = strtol(argv[1], NULL, 10);
-  every_picture = argc > 2 && strcmp(argv[2], "--every-picture") == 0;
+  for (int i = 2; i < argc; i++) {
+    if (strcmp(argv[i], "--every-picture") == 0) every_picture = 1;
+    if (strcmp(argv[i], "--sound-out") == 0 && i + 1 < argc) {
+      sound_out = fopen(argv[i + 1], "wb");
+      if (!sound_out) {
+        fprintf(stderr, "the sound could not be written to %s\n", argv[i + 1]);
+        return 2;
+      }
+    }
+    if (strcmp(argv[i], "--sound-voice") == 0 && i + 1 < argc) rg_sound_hear_only((int32_t)strtol(argv[i + 1], NULL, 10));
+  }
   rg_active_driver = &headless;
   rg_game_main();
   finish();

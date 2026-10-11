@@ -47,12 +47,25 @@ module RubyGBA
             [eval_call("rg_music_follow_level", C::AddressOf.new(variable(Tunes::LEVEL)))]
           end
 
-          # The music volume's rule and every song, as the runtime reads them (the layout is atop
-          # runtime/rg_sound.c). The rule is written here, from IR::Tunes, rather than copied into
-          # the C, so the two can never drift apart.
+          # Every beep the game makes as the runtime reads it: how long one wave lasts, how much
+          # of it is high, how long it holds each step of volume as it fades, and the volume it
+          # starts at. A game with no beeps still has the table, with one silent row.
+          def beep_table
+            rows = @sound_log.effects.map do |effect|
+              [RubyGBA::Audio::Sound.square_wave_ticks(effect.frequency), RubyGBA::Audio::Sound::SQUARE_HIGH_EIGHTHS.fetch(effect.duty),
+               RubyGBA::Audio::Sound::FADE_STEP_SIXTY_FOURTHS.fetch(effect.decay), effect.volume]
+            end
+            C::ConstArray.new(name: @names.own("beeps"), type: "int32_t", values: rows.empty? ? [0, 0, 0, 0] : rows.flatten,
+                              exported: true)
+          end
+
+          # The rules of the music's volume and of the square voices' pitch, and every song, as the
+          # runtime reads them (the layout is atop runtime/rg_sound.c). The rules are written
+          # here, from IR::Tunes and Audio::Sound, rather than copied into the C, so the two can
+          # never drift apart.
           def music_table
             songs = @sound_log.songs.map { |song| encoded_song(song) }
-            header = [Tunes::FULL_LEVEL, Tunes::LEVEL_SHIFT, songs.size]
+            header = [Tunes::FULL_LEVEL, Tunes::LEVEL_SHIFT, RubyGBA::Audio::Sound::SQUARE_CLOCK_HZ, songs.size]
             starts = []
             at = header.size + songs.size # past the header and the starts themselves
             songs.each do |numbers|
@@ -63,16 +76,24 @@ module RubyGBA
                               values: [*header, *starts, *songs.flatten], exported: true)
           end
 
-          # One song as numbers: its length, where it loops from, and each square-wave part's notes
-          # the first time through and every time after. Every song the game declares is written,
-          # played or not, so the numbering is the one SoundLog gives; a song nothing plays is
-          # never refused for its voices, and only its square-wave parts are written.
+          # One song as numbers: its length, where it loops from, and each square-wave part's tone
+          # and its notes the first time through and every time after. Every song the game declares
+          # is written, played or not, so the numbering is the one SoundLog gives; a song nothing
+          # plays is never refused for its voices, and only its square-wave parts are written.
           def encoded_song(song)
             squares = song.voices.zip(Tunes.loop_passes(song)).select { |part, _| Tunes.part_kind(part) == :square }
             [song.total_frames, Tunes.loop_frame(song), squares.size,
              *squares.flat_map do |part, pass|
-               [pass.first.size, pass.again.size, *(pass.first + pass.again).flat_map { |at, pitch, _, volume| [at, pitch, volume || part.volume] }]
+               [RubyGBA::Audio::Sound::SQUARE_HIGH_EIGHTHS.fetch(part.duty), pass.first.size, pass.again.size,
+                *(pass.first + pass.again).flat_map { |note| encoded_note(note, part) }]
              end]
+          end
+
+          # A note as the runtime reads it: when it starts, its pitch (0 is a rest), its volume,
+          # and how many ticks one wave of it lasts on a square voice.
+          def encoded_note(note, part)
+            at, pitch, _, volume = note
+            [at, pitch, volume || part.volume, pitch.zero? ? 0 : RubyGBA::Audio::Sound.square_wave_ticks(pitch)]
           end
         end
       end

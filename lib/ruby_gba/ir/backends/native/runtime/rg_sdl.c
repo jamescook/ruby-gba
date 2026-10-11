@@ -38,7 +38,9 @@
  * where they sit on the keyboard, not by what is printed on them. On a gamepad the buttons are
  * where the console has them: A on the right, B below it.
  *
- * Sound is not played yet.
+ * THE SOUND is made a frame at a time by rg_sound.c and handed to SDL as it is made, which keeps
+ * a little of it waiting so a frame that arrives a moment late is not heard as a gap. A computer
+ * with nothing to play sound through still plays the game.
  */
 #include <SDL3/SDL.h>
 #include <SDL3/SDL_main.h>
@@ -48,6 +50,7 @@
 #include "rg_driver.h"
 #include "rg_runtime.h"
 #include "rg_screen.h"
+#include "rg_sound.h"
 
 /* One frame of the console, in nanoseconds: 280,896 ticks of a 2^24-a-second clock. */
 #define FRAME_NS ((Uint64)280896 * 1000000000ull / 16777216ull)
@@ -94,6 +97,15 @@ static SDL_Renderer *renderer;
 static SDL_Texture *texture;
 static Uint64 next_frame_ns;
 
+static SDL_AudioStream *speaker; /* where the sound goes; none on a computer with no sound */
+
+/* How much sound may be waiting to be played, in frames' worth. Two are put in ahead whenever
+ * there is less than a frame waiting — at the start, or after the game was held up — so a frame
+ * a moment late does not leave the speaker with nothing. More than six waiting means the
+ * speaker is behind the game, and a frame's sound is dropped to let it catch up. */
+#define SOUND_AHEAD_FRAMES 2
+#define SOUND_BEHIND_FRAMES 6
+
 static SDL_Gamepad *pads[MOST_PADS]; /* every gamepad open, the keyboard's among them */
 static SDL_Joystick *keyboard_pad;   /* the gamepad SDL makes up for the keyboard to press */
 static uint32_t keys_down;           /* the keys down now, a bit per button */
@@ -131,6 +143,32 @@ static void present(void) {
   SDL_RenderClear(renderer);
   SDL_RenderTexture(renderer, texture, NULL, NULL);
   SDL_RenderPresent(renderer);
+}
+
+/* The sound of the frame that has just been played goes to the speaker. It is made whether or
+ * not there is a speaker, since making it is what moves the voices on. */
+static void play_frame_sound(void) {
+  int16_t samples[RG_SOUND_FRAME_MOST];
+  int count = (int)rg_sound_render_frame(samples);
+  if (!speaker) return;
+
+  int bytes = count * (int)sizeof samples[0];
+  int waiting = SDL_GetAudioStreamQueued(speaker);
+  if (waiting > SOUND_BEHIND_FRAMES * bytes) return;
+  if (waiting < bytes) {
+    static const int16_t quiet[RG_SOUND_FRAME_MOST];
+    for (int i = 0; i < SOUND_AHEAD_FRAMES; i++) SDL_PutAudioStreamData(speaker, quiet, bytes);
+  }
+  SDL_PutAudioStreamData(speaker, samples, bytes);
+}
+
+/* One speaker's worth of whole numbers, as rg_sound.c makes them; SDL turns that into whatever
+ * the computer's own sound wants. */
+static void open_speaker(void) {
+  if (!SDL_InitSubSystem(SDL_INIT_AUDIO)) return;
+  SDL_AudioSpec made = {SDL_AUDIO_S16, 1, RG_SOUND_RATE};
+  speaker = SDL_OpenAudioDeviceStream(SDL_AUDIO_DEVICE_DEFAULT_PLAYBACK, &made, NULL, NULL);
+  if (speaker) SDL_ResumeAudioStreamDevice(speaker);
 }
 
 /* A gamepad arrived — a real one plugged in, or the keyboard's own — and is read from now on. */
@@ -266,6 +304,7 @@ static _Noreturn void finish_script(void) {
  * buttons for the next frame are read. */
 static void sdl_wait_vblank(void) {
   if (scripted && frames_played >= frames_to_play) finish_script();
+  play_frame_sound();
   rg_frame_begins();
   frames_played++;
   present();
@@ -355,6 +394,7 @@ int main(int argc, char **argv) {
   if (!texture) refuse_to_start("the picture could not be made");
   SDL_SetTextureScaleMode(texture, SDL_SCALEMODE_NEAREST);
   attach_keyboard_pad();
+  open_speaker();
 
   rg_active_driver = &sdl;
   rg_game_main();

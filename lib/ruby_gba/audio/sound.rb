@@ -160,6 +160,32 @@ module RubyGBA
       # reaches an octave lower, which is most of why a tune puts its bass there.)
       SQUARE_LOWEST_HZ = 131_072 / 2048
 
+      # WHAT A SQUARE VOICE SOUNDS LIKE, for a backend that has to make the sound itself rather
+      # than tell a chip to: the pitch it really plays, how thin its tone is, and how fast it
+      # fades. A cartridge writes these to the sound chip as bit patterns (Registers, below); a
+      # desktop build has no chip and builds the wave from the same three facts.
+      #
+      # THE PITCH IS A WHOLE NUMBER OF TICKS, not any frequency at all. The voice counts a clock
+      # of 131,072 ticks a second and one wave lasts a whole number of them, 1 to 2048 — so 440 Hz
+      # is played as 298 ticks a wave, a hair under 440. Every backend has to round the same way
+      # or two voices in tune on one are a beat apart on the other.
+      SQUARE_CLOCK_HZ = 131_072
+      SQUARE_LONGEST_WAVE = 2048
+
+      # How many ticks one wave of a +hz+ note lasts on a square voice.
+      def self.square_wave_ticks(hz)
+        SQUARE_LONGEST_WAVE - (SQUARE_LONGEST_WAVE - (SQUARE_CLOCK_HZ.to_f / hz)).round.clamp(0, SQUARE_LONGEST_WAVE - 1)
+      end
+
+      # How much of each wave is spent high, in eighths: a half wave is the full, hollow tone,
+      # and the narrower ones are thinner and brighter.
+      SQUARE_HIGH_EIGHTHS = { eighth: 1, quarter: 2, half: 4, square: 4, three_quarter: 6 }.freeze
+
+      # How long a fading note holds each of its volume steps, in 64ths of a second — the pace
+      # the voice counts its fade at. A note at volume 15 fading `:fast` is gone in 15/64 of a
+      # second; `:none` never fades.
+      FADE_STEP_SIXTY_FOURTHS = { fast: 1, medium: 3, slow: 5, none: 0 }.freeze
+
       # WHAT THE WAVE VOICE PLAYS, which is one of two things a game can say.
       #
       # A NAME is the usual answer — `wave :triangle, :C4`, `plays: :sine` — and the samples are
@@ -227,8 +253,9 @@ module RubyGBA
           eighth: 0, quarter: 1, half: 2, square: 2, three_quarter: 3
         }.freeze
 
-        # Fade speed → the envelope step the hardware counts down by.
-        DECAY_PRESETS = { fast: 1, medium: 3, slow: 5, none: 0 }.freeze
+        # Fade speed → the envelope step the hardware counts down by, which is the number of
+        # 64ths of a second it holds each volume step for.
+        DECAY_PRESETS = FADE_STEP_SIXTY_FOURTHS
 
         # Noise pitch → the noise generator's shift-clock exponent. The hiss's
         # frequency divides down as the exponent grows, so a bigger number is a
@@ -238,7 +265,7 @@ module RubyGBA
         # The console tunes a channel by a period value, not a frequency:
         # freq_hz = 131072 / (2048 - value). Invert that and keep it in range.
         def frequency_value(freq_hz)
-          (2048 - (131_072.0 / freq_hz)).round.clamp(0, 2047)
+          SQUARE_LONGEST_WAVE - Sound.square_wave_ticks(freq_hz)
         end
 
         def duty_bits(duty)

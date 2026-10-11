@@ -236,6 +236,29 @@ for the emulator (`require_emulator!`, `assert_emulator_loads_rom`) skips itself
 run, since the cartridge is `rake test`'s; any check on the game before it has already run.
 Every skip says why, and a native run ends with the skips counted by reason.
 
+**The sound itself** — what would come out of a speaker — is checked against the cartridge's own,
+in the emulator, with one shared helper for any game (`test/sound_comparison.rb`):
+
+```ruby
+include SoundComparison
+assert_native_sounds_like_the_console(program, frames: 300, buttons: { 3 => [:a], 4 => [:a] })
+```
+
+It plays the game both ways one voice at a time and compares every frame: how loud the voice is,
+its pitch, and how thin or full its tone. The emulator is the answer key there and not the thing
+under test, so the helper asks it directly rather than through `require_emulator!`. Its
+tolerances and the reason for each are written at the top of the file. A small made-up program
+goes in `test/ruby_gba/ir/backends/native/test_native_tones.rb`; a whole example's sound goes in
+a file of its own under `test/ruby_gba/ir/backends/native/examples/`
+(`test_pong_sounds.rb`). The windowless program has no speaker, so for these it writes its sound
+to a temporary file (`--sound-out`) that the helper reads back; a game played in its window
+writes none.
+
+**The window's own input** is tested by pressing keys through SDL (`--scripted-keys`, in
+`test_native_desktop.rb`, under `SDL=1`): each is a real key event, onto the gamepad the keyboard
+is, round the window's frame loop. Feeding buttons to the windowless program goes round all of
+that, so a fault in how the window reads a key shows only there.
+
 A native run puts tests side by side on threads, not Ractors (a Ractor cannot start the child
 processes a native test needs), so it never checks for shared state — `rake test` runs the same
 file and does. The native backend's own tests (`test/ruby_gba/ir/backends/native/`) say
