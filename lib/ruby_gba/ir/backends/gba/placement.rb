@@ -296,17 +296,17 @@ module RubyGBA
           # (The divide routines are copied the slow way still; they are a few hundred
           # bytes and it does not show.)
           def emit_copy_hot_code_to_iwram
-            emit_load_label_address(ACC, HOT_START)
-            emit(ASM.load_immediate(TMP, REG_DMA3SAD))
-            emit(ASM.str(ACC, TMP))              # source = the block, in the cartridge
-            emit_load_fast_address(ACC, HOT_START)
-            emit(ASM.load_immediate(TMP, REG_DMA3DAD))
-            emit(ASM.str(ACC, TMP))              # destination = where it is going
-            # A size rather than an address, so it refers to nothing.
-            @emit.fixups << Emit::AddressLoad.new(pos: pos, kind: :hot_size, reg: ACC, target: nil)
-            emit(ASM.load_immediate_fixed(ACC, 0)) # ...and how much, patched once it is known
-            emit(ASM.load_immediate(TMP, REG_DMA3CNT))
-            emit(ASM.str(ACC, TMP))
+            # None of the three is known yet, so each is a slot filled in once it is: the
+            # block where it sits in the cartridge, where it is going, and how much of it
+            # there is — a size rather than an address, so that one refers to nothing.
+            @primitives.emit_start_copy_engine(
+              from: -> { emit_load_label_address(ACC, HOT_START) },
+              to: -> { emit_load_fast_address(ACC, HOT_START) },
+              control: lambda do
+                @emit.fixups << Emit::AddressLoad.new(pos: pos, kind: :hot_size, reg: ACC, target: nil)
+                emit(ASM.load_immediate_fixed(ACC, 0))
+              end
+            )
           end
 
           # Patch in the transfer's size and start it: whole words, both ends advancing.

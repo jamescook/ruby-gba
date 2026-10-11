@@ -170,10 +170,8 @@ module RubyGBA
               return emit_recolored_banks(up: up)
             end
 
-            @emitter.emit(ASM.load_immediate(TMP, REG_DMA3SAD))
-            @emitter.emit(ASM.str(ACC, TMP))
-            @primitives.store_word_immediate(BG_PALETTE, REG_DMA3DAD)
-            @primitives.store_word_immediate(units | DMA_ENABLE, REG_DMA3CNT)
+            @primitives.emit_start_copy_engine(from: Primitives::InRegister.new(ACC), to: BG_PALETTE,
+                                               control: units | DMA_ENABLE)
           end
 
           # SEND A SCENE'S SPRITE COLOURS AS IT TAKES OVER. A plain copy, unless this build moves
@@ -535,10 +533,8 @@ module RubyGBA
             return @drawing.emit_plain_dma_blob(blob, dest, units) unless taking_turns
 
             emit_table_source(ACC, blob)
-            @emitter.emit(ASM.load_immediate(TMP, REG_DMA3SAD))
-            @emitter.emit(ASM.str(ACC, TMP))
-            @primitives.store_word_immediate(dest, REG_DMA3DAD)
-            @primitives.store_word_immediate(units | DMA_ENABLE, REG_DMA3CNT)
+            @primitives.emit_start_copy_engine(from: Primitives::InRegister.new(ACC), to: dest,
+                                               control: units | DMA_ENABLE)
           end
 
           # A packed table cannot be read entry by entry, so a build that tints keeps its

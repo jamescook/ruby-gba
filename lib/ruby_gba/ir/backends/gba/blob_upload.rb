@@ -41,11 +41,9 @@ module RubyGBA
           # both ends advancing — the same shape as the palette upload. Fills palette
           # and video memory at startup.
           def emit_plain_dma_blob(blob_name, dest, units)
-            emit_load_data_address(ACC, blob_name)
-            emit(ASM.load_immediate(TMP, REG_DMA3SAD))
-            emit(ASM.str(ACC, TMP)) # DMA source = the blob in the cartridge
-            store_word_immediate(dest, REG_DMA3DAD)
-            store_word_immediate(units | DMA_ENABLE, REG_DMA3CNT) # go: 16-bit, both increment
+            emit_load_data_address(ACC, blob_name) # from the blob in the cartridge
+            emit_start_copy_engine(from: in_register(ACC), to: dest,
+                                   control: units | DMA_ENABLE) # 16-bit, both ends advancing
           end
 
           # BIOS decompression routines that expand two bytes at a time. Every slot we

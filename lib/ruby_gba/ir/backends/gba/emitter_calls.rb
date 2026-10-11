@@ -27,6 +27,8 @@ module RubyGBA
           def store_word_acc(address) = @primitives.store_word_acc(address)
           def store_halfword_acc(address) = @primitives.store_halfword_acc(address)
           def store_word_immediate(value, address) = @primitives.store_word_immediate(value, address)
+          def emit_start_copy_engine(from:, to:, control:) = @primitives.emit_start_copy_engine(from: from, to: to, control: control)
+          def in_register(register) = Primitives::InRegister.new(register)
           def const_int(node) = @primitives.const_int(node)
           def constant_ints!(node, **sides) = @primitives.constant_ints!(node, **sides)
           def emit_row_loop(counter, &block) = @primitives.emit_row_loop(counter, &block)

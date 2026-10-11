@@ -192,9 +192,9 @@ module RubyGBA
             scratch = @primitives.var_addr(:_bend_clear)
             @primitives.store_word_immediate(0, scratch)
             @row_bend_table.each do |name, base|
-              @primitives.store_word_immediate(scratch, REG_DMA3SAD) # one word of zeroes, read over and over
-              @primitives.store_word_immediate(base, REG_DMA3DAD)
-              @primitives.store_word_immediate(@framebuffer.dma_fill_control(TABLE_BYTES / 4), REG_DMA3CNT)
+              # From one word of zeroes, read over and over.
+              @primitives.emit_start_copy_engine(from: scratch, to: base,
+                                                 control: @framebuffer.dma_fill_control(TABLE_BYTES / 4))
               next unless copies_row_bends?
 
               @primitives.store_word_immediate(BackgroundDrawing::BG_HOFS_REGS[bg_number(name)], COPIER_DAD[engine_for(name)])

@@ -47,6 +47,8 @@ module RubyGBA
           def const_int(node) = @primitives.const_int(node)
           def constant_ints!(node, **sides) = @primitives.constant_ints!(node, **sides)
           def store_word_immediate(value, address) = @primitives.store_word_immediate(value, address)
+          def emit_start_copy_engine(from:, to:, control:) = @primitives.emit_start_copy_engine(from: from, to: to, control: control)
+          def in_register(register) = Primitives::InRegister.new(register)
           def emit_row_loop(counter, &block) = @primitives.emit_row_loop(counter, &block)
           def emit_add_const(rd, rn, imm, scratch) = @primitives.emit_add_const(rd, rn, imm, scratch)
           def emit_call_cold_routine(label) = @call_cold_routine.call(label)
@@ -62,10 +64,9 @@ module RubyGBA
             end
 
             scratch = emit_index_fill_word(node.color)
-            store_word_immediate(scratch, REG_DMA3SAD)
-            point_dma_dest_at_backbuf
+            load_var(ACC, BACKBUF) # to the hidden page, wherever it is this frame
             count = SCREEN_WIDTH * SCREEN_HEIGHT / 4 # 32-bit words, 4 indices each
-            store_word_immediate(@framebuffer.dma_fill_control(count), REG_DMA3CNT)
+            emit_start_copy_engine(from: scratch, to: in_register(ACC), control: @framebuffer.dma_fill_control(count))
           end
 
           # A rectangle at a constant position/size, filled per row into the hidden
@@ -85,21 +86,21 @@ module RubyGBA
           end
 
           # Up to this many pairs of pixels, writing them out beats starting the block-fill
-          # engine — and up to here it beats it TWICE OVER, in time and in the code it takes.
+          # engine on time — and for most of the way on the code it takes as well.
           #
-          # Counted off the emitted code, a row that starts the engine is fifteen
-          # instructions whatever it then moves, and a row written out is two instructions
-          # plus one per pair. So the written-out row is the SMALLER one up to thirteen
-          # pairs, and it stays the faster one much further than that: starting the engine
-          # costs about what fourteen pairs do — the register writes AND the stall while the
-          # engine copies, which stops the CPU dead — so the engine does not win on time
-          # until a row is nearly thirty pairs wide.
+          # Counted off the emitted code, a row that starts the engine is twelve
+          # instructions whatever it then moves (ten where the row's address is one the chip
+          # can name outright), and a row written out is its address and then one instruction
+          # per pair, which is three plus one per pair for most rows. So the written-out row
+          # is the SMALLER one up to nine pairs, and it stays the faster one further than
+          # that: starting the engine costs the register writes AND the stall while the
+          # engine copies, which stops the CPU dead.
           #
-          # This sits at the point where those two agree, so nothing is traded for anything.
-          # Past it the written-out row is still faster and starts to cost more code, and a
-          # rectangle's rows are unrolled — so going further needs a size budget the
-          # framework does not have, and it would spend the quick memory that a game's hot
-          # routines are competing for.
+          # From ten pairs to this many the written-out row is the bigger of the two, by up to
+          # three instructions a row, and is kept for being the faster. Past here it would
+          # cost more again, and a rectangle's rows are unrolled — so going further needs a
+          # size budget the framework does not have, and it would spend the quick memory that
+          # a game's hot routines are competing for.
           DIRECT_STORE_UNITS = 12
 
           # A class method because the estimate has to price a row the way this decides to
@@ -191,15 +192,12 @@ module RubyGBA
           # block-fill engine, for the reason DIRECT_STORE_UNITS gives: starting the engine
           # costs the same whatever it then moves, so below that width the starting is most
           # of the work. A row of eight pixels goes in as four stores against the engine's
-          # fifteen instructions and its stall.
+          # twelve instructions and its stall.
           def emit_buffered_row_fill(base:, x:, row:, w:, scratch:)
             return emit_buffered_row_stores(base: base, x: x, row: row, w: w) if direct_fill?(w)
 
-            store_word_immediate(scratch, REG_DMA3SAD)
-            emit_add_const(ACC, base, (row * SCREEN_WIDTH) + x, TMP) # + byte offset (1 byte/pixel)
-            emit(ASM.load_immediate(TMP, REG_DMA3DAD))
-            emit(ASM.str(ACC, TMP))                                  # destination = that row
-            store_word_immediate(dma_fill_control_16(w / 2), REG_DMA3CNT)
+            emit_add_const(ACC, base, (row * SCREEN_WIDTH) + x, TMP) # that row: + byte offset (1 byte/pixel)
+            emit_start_copy_engine(from: scratch, to: in_register(ACC), control: dma_fill_control_16(w / 2))
           end
 
           # The same row written out: the fill unit — the palette index in both of its bytes,
@@ -497,11 +495,7 @@ module RubyGBA
             emit_branch(:bcond, skip_middle, cond: :eq)
             emit(ASM.add_reg(RECT_ADDR, RECT_ROW, RECT_X))
             emit(ASM.add_reg(RECT_ADDR, RECT_ADDR, RECT_LEFT)) # past a spliced first pixel
-            store_word_immediate(scratch, REG_DMA3SAD)
-            emit(ASM.load_immediate(TMP, REG_DMA3DAD))
-            emit(ASM.str(RECT_ADDR, TMP))
-            emit(ASM.load_immediate(TMP, REG_DMA3CNT))
-            emit(ASM.str(RECT_MIDDLE, TMP))
+            emit_start_copy_engine(from: scratch, to: in_register(RECT_ADDR), control: in_register(RECT_MIDDLE))
             place_label(skip_middle)
 
             skip_right = gensym
@@ -559,10 +553,7 @@ module RubyGBA
           def emit_buffered_rect_row_dma(offset:, w:, scratch:)
             emit(ASM.add_reg(RECT_ADDR, RECT_ROW, RECT_X))
             emit_add_const(RECT_ADDR, RECT_ADDR, offset, ACC)
-            store_word_immediate(scratch, REG_DMA3SAD)
-            emit(ASM.load_immediate(TMP, REG_DMA3DAD))
-            emit(ASM.str(RECT_ADDR, TMP))
-            store_word_immediate(dma_fill_control_16(w / 2), REG_DMA3CNT)
+            emit_start_copy_engine(from: scratch, to: in_register(RECT_ADDR), control: dma_fill_control_16(w / 2))
           end
 
           # Splice one edge pixel of a fits-whole, run-time-positioned rect into the
@@ -593,13 +584,6 @@ module RubyGBA
             scratch = var_addr(:_dma_scratch)
             store_word_immediate(word, scratch)
             scratch
-          end
-
-          # Point DMA3's destination at the hidden page's base (a run-time value).
-          def point_dma_dest_at_backbuf
-            load_var(ACC, BACKBUF)
-            emit(ASM.load_immediate(TMP, REG_DMA3DAD))
-            emit(ASM.str(ACC, TMP))
           end
 
           # The DMA3 control word for a source-fixed 16-bit fill of +count+ halfwords —
@@ -1137,12 +1121,8 @@ module RubyGBA
             emit(ASM.lsr_imm(BLIT_UNITS, BLIT_UNITS, 1))
             emit(ASM.load_immediate(SPARE, DMA_ENABLE))
             emit(ASM.orr_reg(BLIT_UNITS, BLIT_UNITS, SPARE))
-            emit(ASM.load_immediate(TMP, REG_DMA3SAD))
-            emit(ASM.str(BLIT_FROM, TMP))
-            emit(ASM.load_immediate(TMP, REG_DMA3DAD))
-            emit(ASM.str(BLIT_TO, TMP))
-            emit(ASM.load_immediate(TMP, REG_DMA3CNT))
-            emit(ASM.str(BLIT_UNITS, TMP))
+            emit_start_copy_engine(from: in_register(BLIT_FROM), to: in_register(BLIT_TO),
+                                   control: in_register(BLIT_UNITS))
           end
 
           # WHY THE SCREEN WANTS PAIRS, said the same way in every one of these three. It is

@@ -106,11 +106,55 @@ module RubyGBA
             @emitter.emit(ASM.store_halfword(ACC, TMP))
           end
 
-          # Write a full 32-bit word to an address (used for the DMA registers).
+          # Write a full 32-bit word to an address.
           def store_word_immediate(value, address)
             @emitter.emit(ASM.load_immediate(ACC, value))
             @emitter.emit(ASM.load_immediate(TMP, address))
             @emitter.emit(ASM.str(ACC, TMP))
+          end
+
+          # A value that is already waiting in a register, for {#emit_start_copy_engine}: that
+          # register is written as it stands, where a plain number is loaded first.
+          InRegister = Data.define(:register)
+
+          # How far along from the first of the copying engine's three registers the other
+          # two sit.
+          COPY_TO_STEP = REG_DMA3DAD - REG_DMA3SAD
+          COPY_START_STEP = REG_DMA3CNT - REG_DMA3SAD
+
+          # TELL THE COPYING ENGINE WHAT TO COPY, AND START IT. The console has an engine that
+          # moves a block of memory on its own, far faster than a loop of loads and stores, and
+          # it is told what to do through three registers: where to copy +from+, where +to+,
+          # and a +control+ word saying how much and in what manner. Writing the control word
+          # is what starts it, so that one always goes last.
+          #
+          # THE THREE SIT SIDE BY SIDE IN MEMORY, which is why this is one call and not three
+          # stores. An address is the dear part of a store on this chip — two instructions to
+          # build, where the store itself is one — and a store can name a small step from the
+          # address it is given for nothing. So the first address is built once and the other
+          # two are reached from it: two instructions for the three, not six. A game starts
+          # this engine wherever it clears, fills, copies a row or sends a picture, so it is a
+          # sequence written out hundreds of times over.
+          #
+          # Each of the three is one of:
+          #
+          #   * a number settled while building, which is loaded and written;
+          #   * an {InRegister}, written from where it waits;
+          #   * a block that leaves the number in the accumulator — an address filled in
+          #     later, a size not known yet — which is run and then written.
+          #
+          # Numbers pass through the accumulator on their way, so anything already waiting in
+          # a register is written before the first of them. That is the only reordering, and
+          # the engine does not care which of its two ends it hears about first.
+          def emit_start_copy_engine(from:, to:, control:)
+            refuse_copy_engine_register_clash!(from, to, control)
+            @emitter.emit(ASM.load_immediate(TMP, REG_DMA3SAD))
+            # What a block must leave alone: the engine's address, and a control word that is
+            # still waiting for its turn.
+            kept = [TMP, *(control.register if control.is_a?(InRegister))]
+            waiting, loaded = [[from, 0], [to, COPY_TO_STEP]].partition { |value, _| value.is_a?(InRegister) }
+            (waiting + loaded).each { |value, step| emit_copy_engine_store(value, step, kept) }
+            emit_copy_engine_store(control, COPY_START_STEP, kept)
           end
 
           # The value of an operand the author fixed, or nil if the game works it out. The
@@ -216,6 +260,56 @@ module RubyGBA
           end
 
           private
+
+          # One of the engine's three registers, +step+ along from the first, whose address
+          # is waiting in TMP. +kept+ is the registers a block has to leave as they are.
+          def emit_copy_engine_store(value, step, kept)
+            return @emitter.emit(ASM.str_offset(value.register, TMP, step)) if value.is_a?(InRegister)
+
+            if value.respond_to?(:call)
+              before = [@emitter.pos, @emitter.branches]
+              value.call
+              refuse_copy_engine_block_overwrite!(*before, kept)
+            else
+              @emitter.emit(ASM.load_immediate(ACC, value))
+            end
+            @emitter.emit(ASM.str_offset(ACC, TMP, step))
+          end
+
+          # BEING WRONG HERE WRITES TO THE WRONG PLACE AND SAYS NOTHING, so the ways a caller
+          # could lose a number are refused while building. TMP holds the engine's address
+          # from the first store to the last, and the accumulator is what every loaded number
+          # passes through — so a control word waiting there would be gone by the time it was
+          # written. (What a block may write is checked once it has run; see below.)
+          def refuse_copy_engine_register_clash!(from, to, control)
+            waiting = [from, to, control].grep(InRegister)
+            if waiting.any? { |value| value.register == TMP }
+              raise ArgumentError, "the copying engine's own address is kept in r#{TMP}, so a number " \
+                                   "for it cannot wait there"
+            end
+            return unless control == InRegister.new(ACC) && waiting != [from, to, control]
+
+            raise ArgumentError, "the control word cannot wait in r#{ACC}: the numbers written before " \
+                                 "it are loaded through that register"
+          end
+
+          # A block that works a number out must leave the +kept+ registers as they are, and
+          # that has to be something its instructions can be read for. A jump or a call cannot
+          # be: each is a placeholder until the second pass, and a call reaches a routine that
+          # uses the registers for work of its own. So a block is a straight run or it is
+          # refused.
+          def refuse_copy_engine_block_overwrite!(start, branches, kept)
+            if @emitter.branches != branches
+              raise ArgumentError, "working out a number for the copying engine jumped or called, so " \
+                                   "what it left in the registers cannot be checked"
+            end
+            written = @emitter.code.byteslice(start, @emitter.pos - start).unpack("V*")
+            lost = kept.find { |register| written.any? { |word| ASM.may_write_register?(word, register) } }
+            return unless lost
+
+            raise ArgumentError, "working out a number for the copying engine wrote r#{lost}, which " \
+                                 "holds a number the engine has not been given yet"
+          end
 
           # Put what the load will be read from into the address register: the base of the
           # variable memory when the variable is near enough to it, and the variable's own

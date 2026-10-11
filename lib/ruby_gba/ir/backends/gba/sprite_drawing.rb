@@ -99,9 +99,7 @@ module RubyGBA
           def clear_object_table
             scratch = var_addr(:_oam_clear)
             store_word_immediate(OBJ_HIDDEN_WORD, scratch)
-            store_word_immediate(scratch, REG_DMA3SAD)
-            store_word_immediate(OAM_START, REG_DMA3DAD)
-            store_word_immediate(@framebuffer.dma_fill_control(OAM_SIZE / 4), REG_DMA3CNT)
+            emit_start_copy_engine(from: scratch, to: OAM_START, control: @framebuffer.dma_fill_control(OAM_SIZE / 4))
           end
 
           # The routine that writes the sprites nothing moves, and the two things remembered
@@ -370,15 +368,13 @@ module RubyGBA
             emit(ASM.load_immediate(TMP, obj.frame_bytes))
             emit(ASM.mul(2, ACC, TMP))                    # r2 = where this frame starts in the blob
             emit_load_data_address(ACC, obj.frames)
-            emit(ASM.add_reg(ACC, ACC, 2))
-            emit(ASM.load_immediate(TMP, REG_DMA3SAD))
-            emit(ASM.str(ACC, TMP))                       # source = the frame in the cartridge
-            store_word_immediate(OBJ_TILE_BASE + (obj.tile_index * 32), REG_DMA3DAD)
+            emit(ASM.add_reg(ACC, ACC, 2))                # from the frame in the cartridge
             # Named the way the author named it; the build's own name is all a sprite they named
             # nothing for has.
             declared = @layout.screen.picture.objects.find { |node| node.name == name }&.declared || name
             @emitter.note_video_copy("sending sprite :#{declared} its next frame", obj.frame_bytes)
-            store_word_immediate((obj.frame_bytes / 4) | DMA_ENABLE | DMA_32BIT, REG_DMA3CNT)
+            emit_start_copy_engine(from: in_register(ACC), to: OBJ_TILE_BASE + (obj.tile_index * 32),
+                                   control: (obj.frame_bytes / 4) | DMA_ENABLE | DMA_32BIT)
             place_label(already)
           end
 

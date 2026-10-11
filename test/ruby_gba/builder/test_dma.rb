@@ -146,8 +146,8 @@ class TestDMA < Minitest::Test
 
   private
 
-  # Scan the instruction stream for load_immediate sequences that load
-  # known DMA register addresses, then look for subsequent STR instructions.
+  # Scan the instruction stream for load_immediate sequences that put an address in r1,
+  # then look for the stores made through it.
   # Returns an array of target addresses that were stored to.
   def find_store_targets(rom)
     targets = []
@@ -176,8 +176,10 @@ class TestDMA < Minitest::Test
         elsif opcode == 0xC  # ORR
           @_tracking_r1 = (@_tracking_r1 || 0) | rotated
         end
-      elsif (word & 0x0FF00000) == 0x05800000  # STR rd, [r1] pattern
-        targets << @_tracking_r1 if @_tracking_r1
+      elsif (word & 0x0FFF0000) == 0x05810000  # STR rd, [r1, #step]
+        # The step matters: the engine's three registers sit side by side, so only the first
+        # address is built and the other two are stored a step along from it.
+        targets << (@_tracking_r1 + (word & 0xFFF)) if @_tracking_r1
       end
 
       offset += 4

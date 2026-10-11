@@ -237,12 +237,10 @@ module RubyGBA
           def emit_map_copy(node, bg, done)
             return emit_stream_map_change(node, bg, done) if bg.stream
 
-            emit_map_source(bg, node.which, done)
-            emit(ASM.load_immediate(TMP, REG_DMA3SAD))
-            emit(ASM.str(ACC, TMP)) # DMA source = that map in the cartridge
-            store_word_immediate(map_vram_address(bg), REG_DMA3DAD)
+            emit_map_source(bg, node.which, done) # from that map in the cartridge
             @emitter.note_video_copy("handing background :#{node.name} another map", bg.map_units * 2)
-            store_word_immediate(bg.map_units | DMA_ENABLE, REG_DMA3CNT) # go: 16-bit, both increment
+            emit_start_copy_engine(from: in_register(ACC), to: map_vram_address(bg),
+                                   control: bg.map_units | DMA_ENABLE) # 16-bit, both ends advancing
           end
 
           # Where the display's settings are kept while a set of tiles is brought in with the
@@ -291,11 +289,9 @@ module RubyGBA
             emit(ASM.mul(ACC, SET_PICKED, TMP)) # r0 = how far along the blob that set starts
             emit_load_data_address(TMP, swap.tiles)
             emit(ASM.add_reg(ACC, ACC, TMP))
-            emit(ASM.load_immediate(TMP, REG_DMA3SAD))
-            emit(ASM.str(ACC, TMP))
-            store_word_immediate(VRAM_START + swap.at, REG_DMA3DAD)
             @emitter.note_video_copy("bringing background :#{node.name} another set of tiles", swap.stride)
-            store_word_immediate((swap.stride / 4) | DMA_ENABLE | DMA_32BIT, REG_DMA3CNT)
+            emit_start_copy_engine(from: in_register(ACC), to: VRAM_START + swap.at,
+                                   control: (swap.stride / 4) | DMA_ENABLE | DMA_32BIT)
             emit_set_char_base(bg, swap) if swap.char_base_table
 
             emit_map_copy(node, bg, done)
@@ -364,13 +360,11 @@ module RubyGBA
 
             if run.moves?
               done = gensym
-              emit_painted_run_destination(ScreenLayout::PaintedRun.place_var(name), done)
-            else
-              store_word_immediate(VRAM_START + run.at, REG_DMA3DAD)
+              emit_load_painted_run_place(ScreenLayout::PaintedRun.place_var(name), done)
             end
-            store_word_immediate(list[:base], REG_DMA3SAD)
             @emitter.note_video_copy("painting #{run.what} :#{name}", run.bytes)
-            store_word_immediate((run.bytes / 4) | DMA_ENABLE | DMA_32BIT, REG_DMA3CNT)
+            emit_start_copy_engine(from: list[:base], to: run.moves? ? in_register(ACC) : VRAM_START + run.at,
+                                   control: (run.bytes / 4) | DMA_ENABLE | DMA_32BIT)
             place_label(done) if done
           end
 
@@ -429,10 +423,13 @@ module RubyGBA
             emit(ASM.cmp_imm(ACC, 0))
             emit_branch(:bcond, step, cond: :eq)    # nowhere on this screen
             place_label(direct)
+            # The engine's three registers, written by hand rather than through
+            # Primitives#emit_start_copy_engine: the write that starts the copy is each run's
+            # own instruction, further down, and that call makes all three in one place.
             emit(ASM.load_immediate(ADDR, REG_DMA3SAD))
             emit(ASM.ldr_offset(TMP, 2, 8))
-            emit(ASM.str_offset(TMP, ADDR, 0))      # from its list
-            emit(ASM.str_offset(ACC, ADDR, 4))      # to its place
+            emit(ASM.str_offset(TMP, ADDR, 0))                        # from its list
+            emit(ASM.str_offset(ACC, ADDR, Primitives::COPY_TO_STEP)) # to its place
             emit(ASM.ldr_offset(TMP, 2, 16))        # how much, and go
             emit(ASM.ldr_offset(ACC, 2, 20))
             # Into the run's own step: the processor reads pc as two instructions on, which is
@@ -441,7 +438,7 @@ module RubyGBA
             emit(ASM.nop)
             rows.each do |row|
               @emitter.note_video_copy("painting #{row[:what]} :#{row[:name]}", row[:bytes])
-              emit(ASM.str_offset(TMP, ADDR, 8))
+              emit(ASM.str_offset(TMP, ADDR, Primitives::COPY_START_STEP))
               emit_branch(:b, step)
             end
             place_label(step)
@@ -489,13 +486,11 @@ module RubyGBA
           # the run sits on its screen in a variable (see Drawing#emit_painted_run_places), so
           # the copy goes there. On a screen that does not show the run the variable holds 0,
           # and the copy is skipped — there is nowhere on this screen for it to go, and video
-          # memory at any fixed place would be some other picture's.
-          def emit_painted_run_destination(var, done)
+          # memory at any fixed place would be some other picture's. Leaves that place in ACC.
+          def emit_load_painted_run_place(var, done)
             @primitives.load_var(ACC, var)
             emit(ASM.cmp_imm(ACC, 0))
             emit_branch(:bcond, done, cond: :eq)
-            emit(ASM.load_immediate(TMP, REG_DMA3DAD))
-            emit(ASM.str(ACC, TMP))
           end
 
           # ACC = where the map numbered +which+ starts, or a jump to +done+ if it names no

@@ -118,9 +118,7 @@ module RubyGBA
 
           # Point DMA3 at (source, destination), then kick it off — one filled row.
           def emit_dma_fill_row(source_addr, dest_addr, control)
-            @primitives.store_word_immediate(source_addr, REG_DMA3SAD)
-            @primitives.store_word_immediate(dest_addr, REG_DMA3DAD)
-            @primitives.store_word_immediate(control, REG_DMA3CNT)
+            @primitives.emit_start_copy_engine(from: source_addr, to: dest_addr, control: control)
           end
 
           # Guard the fast block-fill's even-width assumption: it moves two pixels at

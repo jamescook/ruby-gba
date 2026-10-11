@@ -156,12 +156,12 @@ module RubyGBA
             e.emit(ASM.lsr_imm(3, 2, 2))                                     # words
             e.emit(ASM.orr_imm(3, 3, DMA_32BIT))
             e.emit(ASM.orr_imm(3, 3, DMA_ENABLE))
-            emit_start_engine
+            emit_start_engine_with_interrupts_held
             e.emit(ASM.return)
             e.place_label(halves)
             e.emit(ASM.lsr_imm(3, 2, 1))                                     # half-words
             e.emit(ASM.orr_imm(3, 3, DMA_ENABLE))
-            emit_start_engine
+            emit_start_engine_with_interrupts_held
             e.emit(ASM.return)
             e.place_label(bytes)
             e.emit(ASM.ldrb_offset(3, ACC, 0))
@@ -248,7 +248,7 @@ module RubyGBA
             e.emit(ASM.orr_imm(3, 3, DMA_ENABLE))
             e.emit(ASM.orr_imm(3, 3, DMA_32BIT))
             e.emit(ASM.orr_imm(3, 3, DMA_SRC_FIXED))
-            emit_start_engine
+            emit_start_engine_with_interrupts_held
             e.emit(ASM.bic_imm(3, 2, 3))
             e.emit(ASM.add_reg(TMP, TMP, 3))                        # r1 past the words
             e.emit(ASM.and_imm(2, 2, 3))                            # r2 the bytes left
@@ -263,7 +263,11 @@ module RubyGBA
           # switch is put back as it was rather than turned on, which keeps it off where the
           # caller had it off. The processor waits while the engine runs, so the hold covers the
           # copy as well.
-          def emit_start_engine
+          #
+          # The three writes are made by hand rather than through
+          # Primitives#emit_start_copy_engine, which keeps the engine's address in r1 — and r1
+          # is where this routine's destination is handed in.
+          def emit_start_engine_with_interrupts_held
             e = @emitter
             e.emit(ASM.push(ACC, 2, 3))
             e.emit(ASM.load_immediate(2, REG_IME))
@@ -274,9 +278,9 @@ module RubyGBA
             e.emit(ASM.load_immediate(2, REG_DMA3SAD))
             e.emit(ASM.ldr_offset(ACC, 13, 4))
             e.emit(ASM.str_offset(ACC, 2, 0))                       # from
-            e.emit(ASM.str_offset(TMP, 2, 4))                       # to
+            e.emit(ASM.str_offset(TMP, 2, Primitives::COPY_TO_STEP)) # to
             e.emit(ASM.ldr_offset(ACC, 13, 12))
-            e.emit(ASM.str_offset(ACC, 2, 8))                       # go; the processor waits
+            e.emit(ASM.str_offset(ACC, 2, Primitives::COPY_START_STEP)) # go; the processor waits
             e.emit(ASM.pop(ACC))
             e.emit(ASM.load_immediate(2, REG_IME))
             e.emit(ASM.store_halfword(ACC, 2))

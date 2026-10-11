@@ -52,10 +52,10 @@ module RubyGBA
           # picks one by number. It has no +pos+ in the code at all.
           BlobWord = Data.define(:kind, :blob, :offset, :target)
 
-          # A COPY INTO VIDEO MEMORY THE GAME MAKES WHILE IT RUNS: where the instruction that
-          # starts it sits in the code, what the profile calls it, and how many bytes it moves.
-          # Each runs once per copy, so the profile's count of that instruction is the number
-          # of copies (see Profiler.video_copies_in).
+          # A COPY INTO VIDEO MEMORY THE GAME MAKES WHILE IT RUNS: where the run of instructions
+          # that starts it begins in the code, what the profile calls it, and how many bytes it
+          # moves. That run is gone through once per copy, so the profile's count of its first
+          # instruction is the number of copies (see Profiler.video_copies_in).
           VideoCopy = Data.define(:at, :source, :bytes)
 
           attr_reader :code, :labels, :fixups, :data_blobs, :data_positions, :address_register,
@@ -107,9 +107,11 @@ module RubyGBA
             "L#{@label_seq += 1}"
           end
 
-          # The next instruction starts a copy of +bytes+ into video memory that the profile
-          # calls +source+. Called just before the write that starts the copy, and nothing is
-          # emitted for it, so the cartridge is the same whether anybody profiles it or not.
+          # The instructions that follow start a copy of +bytes+ into video memory that the
+          # profile calls +source+. Called at the head of the straight run that ends in the
+          # write starting the copy — nothing may jump into that run or out of it, or the count
+          # is no longer the number of copies. Nothing is emitted for it, so the cartridge is
+          # the same whether anybody profiles it or not.
           def note_video_copy(source, bytes)
             @video_copies << VideoCopy.new(at: pos, source: source, bytes: bytes)
           end

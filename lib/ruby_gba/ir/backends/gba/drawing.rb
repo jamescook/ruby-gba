@@ -575,11 +575,9 @@ module RubyGBA
           # Copy the color table from the cartridge into background palette memory —
           # one DMA of `size` 16-bit entries, source and destination both advancing.
           def upload_palette
-            emit_load_data_address(ACC, PALETTE_BLOB)     # r0 = table address in the cartridge
-            emit(ASM.load_immediate(TMP, REG_DMA3SAD))
-            emit(ASM.str(ACC, TMP))                       # DMA source = the table
-            store_word_immediate(BG_PALETTE, REG_DMA3DAD) # DMA destination = palette memory
-            store_word_immediate(@layout.palette.size | DMA_ENABLE, REG_DMA3CNT) # go: 16-bit, both increment
+            emit_load_data_address(ACC, PALETTE_BLOB) # r0 = table address in the cartridge
+            emit_start_copy_engine(from: in_register(ACC), to: BG_PALETTE, # the table, into palette memory
+                                   control: @layout.palette.size | DMA_ENABLE) # 16-bit, both ends advancing
             @palette_tint.emit_tint_reset_if_tinting # the table now holds the originals again
           end
 
@@ -684,10 +682,9 @@ module RubyGBA
             count = SCREEN_WIDTH * SCREEN_HEIGHT / 2
             scratch = var_addr(:_dma_scratch)
 
-            store_word_immediate(word, scratch)                 # hold the fill word in IWRAM
-            store_word_immediate(scratch, REG_DMA3SAD)          # source: the fixed word
-            store_word_immediate(VRAM_START, REG_DMA3DAD)       # destination: the screen
-            store_word_immediate(@framebuffer.dma_fill_control(count), REG_DMA3CNT) # kick off the transfer
+            store_word_immediate(word, scratch) # hold the fill word in IWRAM
+            # From that one fixed word, to the screen.
+            emit_start_copy_engine(from: scratch, to: VRAM_START, control: @framebuffer.dma_fill_control(count))
           end
 
           # A rectangle at a fixed position and size, filled fast with per-row DMA:
@@ -967,11 +964,8 @@ module RubyGBA
             emit(ASM.load_immediate(5, VRAM_START))
             emit(ASM.add_reg(4, 4, 5))       # + VRAM base
 
-            store_word_immediate(scratch, REG_DMA3SAD)
-            emit(ASM.load_immediate(TMP, REG_DMA3DAD))
-            emit(ASM.str(4, TMP))            # destination is the computed address
-            emit(ASM.load_immediate(TMP, REG_DMA3CNT))
-            emit(ASM.str(CONTROL_REG, TMP))
+            # To the address just worked out.
+            emit_start_copy_engine(from: scratch, to: in_register(4), control: in_register(CONTROL_REG))
 
             place_label(row_skip)
           end
@@ -1152,12 +1146,7 @@ module RubyGBA
               # Direction decides which span is the source: :dest sends the buffer
               # (r5) to the screen (r3); :src reads the screen (r3) into the buffer (r5).
               sad, dad = vram == :dest ? [5, 3] : [3, 5]
-              emit(ASM.load_immediate(TMP, REG_DMA3SAD))
-              emit(ASM.str(sad, TMP))                   # source span
-              emit(ASM.load_immediate(TMP, REG_DMA3DAD))
-              emit(ASM.str(dad, TMP))                   # destination span
-              emit(ASM.load_immediate(TMP, REG_DMA3CNT))
-              emit(ASM.str(4, TMP))                     # kick off the row copy
+              emit_start_copy_engine(from: in_register(sad), to: in_register(dad), control: in_register(4))
 
               place_label(skip)
             end
