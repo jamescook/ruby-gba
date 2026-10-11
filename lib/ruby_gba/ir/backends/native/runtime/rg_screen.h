@@ -31,7 +31,7 @@ enum { RG_BITMAP = 0, RG_TILED = 1, RG_ROTOZOOM = 2 };
 void rg_screen_hold(int32_t held);              /* switched off until the first frame is set up */
 void rg_screen_set(int32_t kind);               /* a `screen` statement */
 void rg_screen_cross_to(int32_t kind);          /* a scene arriving on the screen it draws on */
-void rg_screen_settle(void);                    /* paint the rebuild that is owed, if one is */
+void rg_screen_paint_owed_rebuild(void);        /* rebuild the whole view, if a rebuild is owed */
 
 void rg_screen_clear(int32_t color);
 void rg_screen_fill_rect(int32_t x, int32_t y, int32_t width, int32_t height, int32_t color);
@@ -92,7 +92,13 @@ extern const int32_t rg_game_images[];
 extern const uint16_t rg_game_tile_pixels[];
 
 /* Each background is RG_BG_FIELDS numbers in rg_game_backgrounds, in the order the stack draws
- * them; its map's cells are in rg_game_map_cells, -1 for an empty cell. */
+ * them; its map's cells are in rg_game_map_cells, -1 for an empty cell. Its scene is the number
+ * the game counts that scene by, RG_EVERY_SCENE for scenery every screen shows, or
+ * RG_NEVER_ARRIVES for a scene nothing hands the screen over to (so never shown). */
+#define RG_EVERY_SCENE (-1)
+#define RG_NEVER_ARRIVES (-2)
+/* The most backgrounds a game may have; the build refuses more. */
+#define RG_MAX_BACKGROUNDS 64
 enum {
   RG_BG_TILE_W, RG_BG_TILE_H, RG_BG_MAP_COLS, RG_BG_MAP_ROWS, RG_BG_GRID_COLS, RG_BG_GRID_ROWS,
   RG_BG_MAP_START, RG_BG_TILES_START, RG_BG_SCENE, RG_BG_LEVEL, RG_BG_ON_ARRIVAL, RG_BG_FIELDS
@@ -105,7 +111,11 @@ extern const int16_t rg_game_map_cells[];
 extern const int32_t rg_game_picture_sizes[];
 extern const int32_t rg_game_always_up[];
 
-/* sin(d) in 256ths for d = 0..449, the table every backend turns a picture by (IR::Affine). */
+/* sin(d) in 256ths for d = 0..449, the table every backend turns a picture by (IR::Affine), and
+ * the four numbers that turn it into a matrix: what a size of 1.0 is (Build::SCALE_ONE), what
+ * the matrix calls 1.0 (Affine::ONE_TH), the largest number it holds (Affine::MAX) and the
+ * smallest size (Affine::MIN_SCALE). */
 extern const int32_t rg_game_sines[];
+extern const int32_t rg_game_turn_rules[];
 
 #endif

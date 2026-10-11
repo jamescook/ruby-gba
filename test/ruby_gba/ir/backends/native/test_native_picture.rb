@@ -63,6 +63,50 @@ class TestNativePicture < Minitest::Test
     assert_native_matches_reference program, frames: 14
   end
 
+  # A menu on a bitmap screen is painted into the picture: rows, the cursor, the picked row lit.
+  def test_a_menu_on_a_bitmap_screen_follows_the_cursor
+    program = program_of do
+      screen :bitmap
+      chosen = var :chosen, 0
+      game_loop do
+        clear_screen :black
+        menu :main, at: [60, 40], color: :gray, picked: :white do |m|
+          m.item("PLAY") { chosen.set! 1 }
+          m.item("QUIT") { chosen.set! 2 }
+        end
+      end
+    end
+
+    last = assert_native_matches_reference(program, frames: 8, buttons: { 3 => %i[down], 6 => %i[a] })
+
+    assert_equal 2, last.variables[:chosen]
+  end
+
+  # A scene's own scenery is up only while that scene is: until the scene takes the screen
+  # over, its background is not drawn, and once it has, it is.
+  def test_a_scenes_scenery_shows_only_once_the_scene_takes_over
+    program = program_of do
+      screen :tiled
+      state = var :state, 0
+      ticks = var :ticks, 0
+      image :brick, "#" => :red do "########\n" * 8 end
+      tiles :wall, "#" => :brick
+      scene(:waiting) do
+        ticks.add! 1
+        (ticks >= 3).then { state.set! 1 }
+      end
+      scene(:walled) { background :wall, tiles: :wall, map: ["#" * 30] * 20 }
+      game_loop do
+        case_var :state do
+          when_val 0, :waiting
+          when_val 1, :walled
+        end
+      end
+    end
+
+    assert_native_matches_reference program, frames: 6
+  end
+
   def test_the_screen_is_white_until_the_first_frame
     program = program_of do
       screen :bitmap

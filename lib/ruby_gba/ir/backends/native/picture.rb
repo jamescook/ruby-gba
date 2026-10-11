@@ -16,17 +16,13 @@ module RubyGBA
         # Sound is ignored for now rather than refused: a game's sound changes nothing it draws
         # or keeps, so the rest of the game can be built and checked while the sound is written.
         module Picture
-          # What the interpreter lets an owed rebuild of the picture stay owed across (see
-          # Reference#defers_repaint?). Every other statement paints that rebuild first, so the
-          # C settles it before the same statements.
-          def self.leaves_rebuild_owed?(node)
-            Reference::STEERING.include?(node.kind) || Reference::REPAINTING.include?(node.kind) ||
-              Reference::READ_OVER_THE_PICTURE.include?(node.kind) ||
-              Reference::LEAVE_THE_PICTURE_OWED.include?(node.category)
-          end
-
           # The kinds of screen, as rg_screen.h numbers them.
           SCREEN_KINDS = Ractor.make_shareable({ bitmap: 0, tiled: 1, rotozoom: 2 })
+
+          # rg_screen.h's own numbers for whose a background is, and how many there can be.
+          EVERY_SCENE = -1
+          NEVER_ARRIVES = -2
+          MAX_BACKGROUNDS = 64
 
           # The kinds the interpreter's picture would rebuild whole every frame for (see
           # Reference#collect_definitions). The C only has that way of moving sprites.
@@ -41,7 +37,7 @@ module RubyGBA
             @backgrounds = @stacking.scenery.each_with_index.to_h { |bg, id| [bg.name, id] }
             @objects = by_name(@program.walk, :object)
             @images = {} # picture name -> its number in rg_game_images
-            @art = []    # constant arrays the drawing statements need, written before the routines
+            @drawing_arrays = [] # constant arrays the drawing statements need, written before the routines
             refuse_unsupported_picture!
           end
 
@@ -52,6 +48,7 @@ module RubyGBA
             refuse_picture!("a stack of named layers") if nodes.any? { |n| n.kind == :layers }
             refuse_picture!("a tear-free screen") if nodes.any? { |n| n.kind == :screen && (n.buffered || !Array(n.colors).empty?) }
             refuse_picture!("a fade placed in the stack (fade ... under:)") if nodes.any? { |n| n.kind == :fade && n.under }
+            refuse_picture!("more than #{MAX_BACKGROUNDS} backgrounds") if @backgrounds.size > MAX_BACKGROUNDS
             @stacking.scenery.each { |bg| refuse_unsupported_background!(bg) }
             @objects.each_value { |obj| refuse_unsupported_object!(obj) }
             return if @objects.empty? || rebuilt_every_frame?
@@ -63,7 +60,6 @@ module RubyGBA
             refuse_picture!("a background drawn in other colors (#{bg.name})") unless Array(bg.recolors).empty?
             refuse_picture!("a background with several maps (#{bg.name})") if Array(bg.maps).length > 1
             refuse_picture!("a background bigger than the console's grid (#{bg.name})") if bg.streams?
-            refuse_picture!("more than 64 backgrounds") if @backgrounds.size > 64
           end
 
           def refuse_unsupported_object!(obj)
@@ -92,13 +88,15 @@ module RubyGBA
 
           def picture_data
             [*image_arrays, *background_arrays,
-             export("picture_sizes", "int32_t",
+             runtime_array("picture_sizes", "int32_t",
                     [@backgrounds.size, @stacking.depths.count, @handover.always_up.scenery.length]),
-             export("always_up", "int32_t", @handover.always_up.scenery.map { |bg| @backgrounds.fetch(bg.name) }),
-             export("sines", "int32_t", (0...450).map { |degrees| Affine.sine(degrees) })]
+             runtime_array("always_up", "int32_t", @handover.always_up.scenery.map { |bg| @backgrounds.fetch(bg.name) }),
+             runtime_array("sines", "int32_t", (0...450).map { |degrees| Affine.sine(degrees) }),
+             runtime_array("turn_rules", "int32_t", [Build::SCALE_ONE, Affine::ONE_TH, Affine::MAX, Affine::MIN_SCALE])]
           end
 
-          def export(what, type, values) = C::ConstArray.new(name: @names.own(what), type: type, values: values, exported: true)
+          # An array of numbers rg_screen.c reads by name (rg_game_ and +what+).
+          def runtime_array(what, type, values) = C::ConstArray.new(name: @names.own(what), type: type, values: values, exported: true)
 
           # Every picture a sprite can show: pixels as stored, see-through color or -1.
           def image_arrays
@@ -109,7 +107,7 @@ module RubyGBA
               info.push(pixels.length, image.width, image.height, image.transparent || -1)
               pixels.concat(image.pixels.unpack("v*"))
             end
-            [export("image_pixels", "uint16_t", pixels), export("images", "int32_t", info)]
+            [runtime_array("image_pixels", "uint16_t", pixels), runtime_array("images", "int32_t", info)]
           end
 
           # Every background in the order the stack draws them, its tiles as colors with
@@ -126,11 +124,11 @@ module RubyGBA
               map.each { |row| cells.concat(Array.new(cols) { |c| row[c] || -1 }) }
               grid_cols, grid_rows = TileMap.grid(map)
               [bg.tile_w, bg.tile_h, cols, map.length, grid_cols, grid_rows, map_start, tiles_start,
-               bg.scene ? @scenes.fetch(bg.scene, -2) : -1, @stacking.depths[bg.name],
+               bg.scene ? @scenes.fetch(bg.scene, NEVER_ARRIVES) : EVERY_SCENE, @stacking.depths[bg.name],
                @handover.on_arrival?(bg) ? 1 : 0]
             end
-            [export("tile_pixels", "uint16_t", tile_pixels), export("backgrounds", "int32_t", fields),
-             export("map_cells", "int16_t", cells)]
+            [runtime_array("tile_pixels", "uint16_t", tile_pixels), runtime_array("backgrounds", "int32_t", fields),
+             runtime_array("map_cells", "int16_t", cells)]
           end
 
           def tile_colors(name)
@@ -158,7 +156,7 @@ module RubyGBA
           # over as points rather than worked out from the font as it runs.
           def lower_draw_text(node)
             points = node.fonts.get(node.font).enum_for(:each_pixel, node.text).flat_map { |dx, dy| [dx, dy] }
-            name = art("text_points", "int16_t", points)
+            name = drawing_array("text_points", "int16_t", points)
             ink = node.picked ? call("rg_pick_color", value(node.showing), color(node.color), color(node.picked)) : color(node.color)
             [eval_call("rg_screen_points", value(node.x), value(node.y), ink, name, C::Int.new(points.length / 2))]
           end
@@ -169,7 +167,7 @@ module RubyGBA
             per_digit = (0..9).map { |d| font.enum_for(:each_pixel, d.to_s).flat_map { |dx, dy| [dx, dy] } }
             starts = per_digit.each_with_object([0]) { |points, at| at << (at.last + (points.length / 2)) }
             [eval_call("rg_screen_digit", value(node.value), value(node.x), value(node.y), color(node.color),
-                       art("digit_points", "int16_t", per_digit.flatten), art("digit_starts", "int32_t", starts))]
+                       drawing_array("digit_points", "int16_t", per_digit.flatten), drawing_array("digit_starts", "int32_t", starts))]
           end
 
           # Reference#exec_background: a scene's own scenery on a screen drawn from tiles goes up
@@ -179,7 +177,7 @@ module RubyGBA
             return [] if @handover.on_arrival?(node)
 
             id = C::Int.new(@backgrounds.fetch(node.name))
-            [eval_call("rg_screen_settle"), eval_call(node.scene ? "rg_background_stamp" : "rg_background_put_up", id)]
+            [eval_call("rg_screen_paint_owed_rebuild"), eval_call(node.scene ? "rg_background_stamp" : "rg_background_put_up", id)]
           end
 
           def lower_affine_background(node)
@@ -192,7 +190,7 @@ module RubyGBA
           def lower_present_objects(node)
             placed = node.names.map do |name|
               obj = @objects.fetch(name) { raise LoweringError, "present of undeclared object #{name.inspect}" }
-              poses = art("poses", "int32_t", obj.poses.map { |pose| image_number(pose) })
+              poses = drawing_array("poses", "int32_t", obj.poses.map { |pose| image_number(pose) })
               pose = local_name("pose")
               in_range = call("rg_both", call("rg_ge", pose, C::Int.new(0)), call("rg_lt", pose, C::Int.new(obj.poses.length)))
               add = eval_call("rg_objects_add", C::Index.new(poses, pose), value(obj.x), value(obj.y),
@@ -206,24 +204,28 @@ module RubyGBA
 
           # Reference#exec_fade, for a fade over the whole screen.
           def lower_fade(node)
-            walked = @fading.palette_walk?(node) ? 1 : 0
-            [eval_call("rg_screen_fade", C::Int.new(node.toward == :white ? 1 : 0), fade_steps(node, walked), C::Int.new(walked))]
+            [eval_call("rg_screen_fade", C::Int.new(node.toward == :white ? 1 : 0), fade_steps(node), walks_colors(node))]
           end
 
           # Reference#exec_tint: counted in thirty-seconds however it reaches the screen.
           def lower_tint(node)
-            walked = @fading.palette_walk?(node) ? 1 : 0
-            steps = fade_steps(node, walked)
-            steps = call("rg_mul", steps, C::Int.new(2)) if walked.zero?
+            steps = fade_steps(node)
+            steps = call("rg_mul", steps, C::Int.new(2)) if walks_colors(node).value.zero?
             [eval_call("rg_screen_tint", color(node.color), steps)]
           end
 
-          def fade_steps(node, walked)
-            call("rg_fade_steps", value(node.amount), C::Int.new(node.fraction_bits || -1), C::Int.new(walked))
+          # 1 where this fade or tint walks the colors in thirty-seconds rather than having the
+          # display blend in sixteenths, which the whole program decides (see IR::Fading).
+          def walks_colors(node) = C::Int.new(@fading.palette_walk?(node) ? 1 : 0)
+
+          def fade_steps(node)
+            call("rg_fade_steps", value(node.amount), C::Int.new(node.fraction_bits || -1), walks_colors(node))
           end
 
-          # Sound changes nothing a game draws or keeps, so for now it is not played at all.
-          def lower_silently(_node) = []
+          # A sound statement, written as nothing: sound changes nothing a game draws or keeps, so
+          # for now it is not played at all. (lower_nothing is for declarations, which run nowhere
+          # on any backend; this is for statements that will one day be played here.)
+          def lower_sound_unplayed(_node) = []
 
           # --- a scene taking the screen over (Reference#take_over) ---
 
@@ -251,9 +253,9 @@ module RubyGBA
           def color(name) = C::Int.new(Graphics::Color.resolve(name))
 
           # A constant array for one drawing statement, kept to be written before the routines.
-          def art(what, type, values)
-            name = @names.own("#{what}_#{@art.length + 1}")
-            @art << C::ConstArray.new(name: name, type: type, values: values)
+          def drawing_array(what, type, values)
+            name = @names.own("#{what}_#{@drawing_arrays.length + 1}")
+            @drawing_arrays << C::ConstArray.new(name: name, type: type, values: values)
             name
           end
         end

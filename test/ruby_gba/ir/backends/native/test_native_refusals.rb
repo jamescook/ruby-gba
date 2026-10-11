@@ -34,6 +34,42 @@ class TestNativeRefusals < Minitest::Test
     assert_match(/cannot make yet \(saving\)/, error.message)
   end
 
+  # What the desktop's picture cannot draw yet is refused, by name, rather than drawn wrong.
+  def test_a_tear_free_screen_is_refused_by_name
+    assert_refused_picture(/tear-free screen/) do
+      screen :bitmap, tear_free: true
+      game_loop { clear_screen :black }
+    end
+  end
+
+  def test_named_layers_are_refused_by_name
+    assert_refused_picture(/stack of named layers/) do
+      screen :tiled
+      layers :back, :front
+      image :dot, "#" => :red do "##\n##\n" end
+      layer(:front) { sprite :dot, at: [10, 10] }
+      game_loop {}
+    end
+  end
+
+  def test_a_turning_sprite_is_refused_by_name
+    assert_refused_picture(/turns or resizes/) do
+      screen :tiled
+      image :arrow, "#" => :red do "########\n" * 8 end
+      arrow = sprite :arrow, at: [10, 10]
+      game_loop { arrow.turn 5 }
+    end
+  end
+
+  def test_sprites_over_a_picture_that_stays_are_refused_by_name
+    assert_refused_picture(/sprites over a picture that is not rebuilt every frame/) do
+      screen :tiled
+      image :hero, "#" => :red do "########\n" * 8 end
+      hero = sprite :hero, at: [10, 10]
+      game_loop { hero.move :right }
+    end
+  end
+
   # The desktop build checks a game the way the cartridge build does, so a game the console
   # would refuse is refused here too, by the same friendly error.
   def test_a_game_the_cartridge_build_refuses_is_refused_for_the_desktop
@@ -56,5 +92,13 @@ class TestNativeRefusals < Minitest::Test
     end
 
     assert_native_matches_reference program, frames: 2
+  end
+
+  private
+
+  def assert_refused_picture(message, &block)
+    error = assert_raises(LoweringError) { Native.new.lower(program_of(&block)) }
+    assert_match message, error.message
+    assert_match(/desktop build cannot draw yet/, error.message)
   end
 end

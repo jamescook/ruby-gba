@@ -1830,7 +1830,11 @@ module RubyGBA
         # #exec_fade).
         READ_OVER_THE_PICTURE = %i[fade tint pixelate].freeze
 
-        def defers_repaint?(node)
+        def defers_repaint?(node) = self.class.defers_repaint?(node)
+
+        # The same rule asked of the class, for a backend that has to keep it too: the native
+        # one paints an owed rebuild before exactly the statements this one does.
+        def self.defers_repaint?(node)
           STEERING.include?(node.kind) || REPAINTING.include?(node.kind) ||
             READ_OVER_THE_PICTURE.include?(node.kind) || LEAVE_THE_PICTURE_OWED.include?(node.category)
         end
