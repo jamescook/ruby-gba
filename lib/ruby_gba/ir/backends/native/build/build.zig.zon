@@ -1,0 +1,26 @@
+.{
+    .name = .ruby_gba_native,
+    .version = "0.0.0",
+    // Together with the name, this tells zig this package is the same package
+    // from one build to the next. zig made it up; never edit it by hand.
+    .fingerprint = 0xd2f77b24f63740f1, // Changing this has security and trust implications.
+    .minimum_zig_version = "0.17.0",
+    .dependencies = .{
+        // SDL3, ported to zig's build system by Carl Åstholm, so zig compiles
+        // SDL's own C sources and nothing has to be installed on the machine.
+        // Tag v0.6.0+3.4.18, which is SDL 3.4.18. The hash is of the files
+        // themselves, so a download that differs by one byte is refused.
+        //
+        // Lazy: a headless build (-Dsdl=false) never asks for it, so it needs
+        // neither the network nor the download.
+        .sdl = .{
+            .url = "https://github.com/castholm/SDL/archive/dbcb19aa3583c318556ecae3ecbeb29b102d37c5.tar.gz",
+            .hash = "sdl-0.6.0+3.4.18-SDL--p-gqAGWpnfTLlhs0dgjDtc4P4_CHeNLGY_SX_Fv",
+            .lazy = true,
+        },
+    },
+    .paths = .{
+        "build.zig",
+        "build.zig.zon",
+    },
+}
