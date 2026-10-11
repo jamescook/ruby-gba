@@ -44,16 +44,24 @@ module RubyGBA
           # fails if the emitted routine ever outgrows it.
           # KEPT SNUG, because every byte of it is a byte the routines a frame spends its time in
           # do not get — this reservation and the game's own hot code come out of the same 32K.
-          # The routine emits at 284 to 300 bytes (three of its immediates are the samples-per-frame
+          # The routine emits at 344 to 360 bytes (three of its immediates are the samples-per-frame
           # count or that count in words, each one instruction or two depending on the number, and a
-          # game that shapes a note adds three instructions to slide the gain), so this is about a
-          # quarter as much again for room to grow into. Outgrow it and the build
-          # says so by name rather than running over whatever is next.
+          # game that shapes a note adds instructions to slide the gain), so this leaves a little
+          # room to grow into. Outgrow it and the build says so by name rather than running over
+          # whatever is next.
           #
           # It was 1024, which is four times what the routine has ever needed, and a real game
           # paid for it: on the Wolfenstein port the difference was exactly enough to push the routine
           # that draws every guard and every lamp out of the quick memory.
           MIX_ROUTINE_IWRAM_MAX = 384
+
+          # How many output samples one pass of the inner loop mixes (see #emit_mix_routine). A
+          # frame's samples are whole lots of the sound engine's, sixteen each, so this has to
+          # divide sixteen. Two rather than four because each more is a copy of the body and of
+          # its jump for a recording's end, in the quick memory: four would not fit the room
+          # above, and growing the room takes it from every game that plays a recording, to
+          # save a little under half as much again as two does.
+          SAMPLES_A_PASS = 2
 
           # Timer 0 clocks the mixer's output rate (how fast the DMA hands bytes to the sound
           # FIFO).
@@ -1414,40 +1422,34 @@ module RubyGBA
             e.emit(ASM.mov_reg(7, 3))                         # r7 = the first total
             e.emit(ASM.load_immediate(2, @mixer_spf))         # r2 = output samples to fill
 
+            # SAMPLES_A_PASS SAMPLES EACH TIME ROUND, not one. Counting down and jumping back is
+            # two instructions, and the jump is the dearest thing in the loop, so done once for
+            # every two samples it costs half as much. A frame's samples are always whole lots
+            # of the sound engine's, so they divide by two with nothing over. Each copy
+            # of the body jumps to a place of its own when the recording reaches its end, and
+            # comes back to just past itself.
             sample = e.gensym
-            advance = e.gensym
-            wrapped = e.gensym
             retire = e.gensym
             end_voice = e.gensym
+            wraps = Array.new(SAMPLES_A_PASS) { [e.gensym, e.gensym] } # [where it jumps, where it comes back]
             e.place_label(sample)
-            e.emit(ASM.ldrsb(0, 6))                           # r0 = the voice's raw sample (signed)
-            if @uses_envelopes
-              e.emit(ASM.mul(1, 12, 0))                       # r1 = gain × sample
-              e.emit(ASM.ldrsh(0, 7))                         # r0 = the total so far
-              e.emit(ASM.add_reg_asr(0, 0, 1, VOL_SHIFT + GAIN_FRACTION)) # ...plus that ÷ 64, fraction and all
-              e.emit(ASM.store_halfword_post(0, 7, 2))        # put it back, and on to the next total
-              e.emit(ASM.add_reg(12, 12, LR))                 # the gain slides a sample's worth
-            else
-              e.emit(ASM.mul(1, 0, 12))                       # r1 = sample × volume
-              e.emit(ASM.ldrsh(0, 7))                         # r0 = the total so far
-              e.emit(ASM.add_reg_asr(0, 0, 1, VOL_SHIFT))     # ...plus sample × volume ÷ 64 (:full is unchanged)
-              e.emit(ASM.store_halfword_post(0, 7, 2))        # put it back, and on to the next total
+            wraps.each do |wrapped, back|
+              emit_mix_one_sample
+              e.emit_branch(:bcond, wrapped, cond: :ge)       # reached (or passed) the end
+              e.place_label(back)
             end
-            e.emit(ASM.adds_reg(11, 11, 10))                  # fraction += the step's; a carry is one more sample
-            e.emit(ASM.adc_reg(6, 6, 8))                      # read pointer += whole samples + that carry
-            e.emit(ASM.cmp_reg(6, 9))
-            e.emit_branch(:bcond, wrapped, cond: :ge)         # reached (or passed) the end
-            e.place_label(advance)
-            e.emit(ASM.subs_imm(2, 2, 1))
+            e.emit(ASM.subs_imm(2, 2, SAMPLES_A_PASS))
             e.emit_branch(:bcond, sample, cond: :ne)          # more of the frame to fill
             e.emit_branch(:b, end_voice)
 
-            e.place_label(wrapped)
-            e.emit(ASM.ldr_offset(0, 4, SLOT_LOOP))           # how far back at the end, 0 = play once
-            e.emit(ASM.cmp_imm(0, 0))
-            e.emit_branch(:bcond, retire, cond: :eq)
-            e.emit(ASM.sub_reg(6, 6, 0))                      # back to where it holds from
-            e.emit_branch(:b, advance)
+            wraps.each do |wrapped, back|
+              e.place_label(wrapped)
+              e.emit(ASM.ldr_offset(0, 4, SLOT_LOOP))         # how far back at the end, 0 = play once
+              e.emit(ASM.cmp_imm(0, 0))
+              e.emit_branch(:bcond, retire, cond: :eq)
+              e.emit(ASM.sub_reg(6, 6, 0))                    # back to where it holds from
+              e.emit_branch(:b, back)
+            end
 
             e.place_label(retire)                             # one-shot done: mark idle, stop adding
             e.emit(ASM.load_immediate(0, 0))
@@ -1513,6 +1515,28 @@ module RubyGBA
           end
 
           private
+
+          # One output sample of one voice into its total, and the read pointer moved on, ending
+          # on the compare that says whether the recording has reached its end.
+          def emit_mix_one_sample
+            e = @emitter
+            e.emit(ASM.ldrsb(0, 6))                           # r0 = the voice's raw sample (signed)
+            if @uses_envelopes
+              e.emit(ASM.mul(1, 12, 0))                       # r1 = gain × sample
+              e.emit(ASM.ldrsh(0, 7))                         # r0 = the total so far
+              e.emit(ASM.add_reg_asr(0, 0, 1, VOL_SHIFT + GAIN_FRACTION)) # ...plus that ÷ 64, fraction and all
+              e.emit(ASM.store_halfword_post(0, 7, 2))        # put it back, and on to the next total
+              e.emit(ASM.add_reg(12, 12, LR))                 # the gain slides a sample's worth
+            else
+              e.emit(ASM.mul(1, 0, 12))                       # r1 = sample × volume
+              e.emit(ASM.ldrsh(0, 7))                         # r0 = the total so far
+              e.emit(ASM.add_reg_asr(0, 0, 1, VOL_SHIFT))     # ...plus sample × volume ÷ 64 (:full is unchanged)
+              e.emit(ASM.store_halfword_post(0, 7, 2))        # put it back, and on to the next total
+            end
+            e.emit(ASM.adds_reg(11, 11, 10))                  # fraction += the step's; a carry is one more sample
+            e.emit(ASM.adc_reg(6, 6, 8))                      # read pointer += whole samples + that carry
+            e.emit(ASM.cmp_reg(6, 9))
+          end
 
           # Leave r0 = the address of a free voice slot, or 0 if every one is busy. Uses r0/r1/r2
           # only, so the caller's r3 and r4 survive.
