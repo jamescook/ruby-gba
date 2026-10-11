@@ -5,7 +5,9 @@ require "test_helper"
 # The C arithmetic (runtime/rg_int32.h) gives the answer IR::Int32 gives, for the values where
 # C and Ruby are most likely to part ways: the ends of the range, either side of nought, powers
 # of two, and shift counts on and past the edge — every pair of them, plus a spread of random
-# ones. Int32 is the answer key; nothing here works an answer out a second time.
+# ones. Int32 is the answer key for the arithmetic. The helpers it has no function for (a
+# comparison, joining two conditions, a narrow list slot) are answered the way the interpreter
+# answers them, each said once in #expected.
 #
 # Every calculation goes through one compiled program, once at each of the two settings the
 # native backend is built at: unoptimised with every undefined-behaviour check on (a check that
@@ -103,6 +105,6 @@ class TestNativeInt32Helpers < Minitest::Test
   def calculate(mode, cases)
     exe = Zig.compile([HARNESS], mode: mode)
     input = cases.map { |name, a, b, c| "#{name} #{a} #{b} #{c}\n" }.join
-    Zig.run(exe, input: input).lines.map(&:to_i)
+    Zig.run_program(exe, input: input).lines.map(&:to_i)
   end
 end

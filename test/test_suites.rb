@@ -1,11 +1,11 @@
 # frozen_string_literal: true
 
 require "test_helper"
-require_relative "support/suites"
+require "support/suites"
 
-# `rake test` must never run the native backend's tests: they need zig, and native trails the
-# other two backends on purpose (see TestSuites). This holds the line on the real tree, so a
-# native test filed in the wrong place, or a glob that widens, fails here.
+# The two lists of test files the suites run. That `rake test` really leaves the native ones
+# alone is proved from the other side, by a native test that fails when anything but `rake
+# test:native` starts it (test/ruby_gba/ir/backends/native/test_native_suite.rb).
 class TestSuitesSplit < Minitest::Test
   def test_the_native_suite_has_tests
     refute_empty TestSuites.native

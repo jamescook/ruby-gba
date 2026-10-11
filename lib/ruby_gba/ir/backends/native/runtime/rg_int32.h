@@ -18,8 +18,11 @@
  * one of these. That one rule is what keeps it correct, and also why operator precedence and
  * C's habit of skipping the right side of && never come up.
  *
- * Every function has the name of its Ruby counterpart, prefixed rg_. test_int32_helpers.rb
- * runs each of them against Int32 over the awkward values and a spread of random ones.
+ * The arithmetic ones answer for a function of Int32 each (rg_add for add, rg_and for bit_and,
+ * rg_shl for shift_left, ...); the comparisons, the joining of two conditions and the narrow
+ * list slots answer for what the interpreter does with Int32's numbers, since Int32 has no
+ * function for those. test_int32_helpers.rb runs every one of them against its answer key
+ * over the awkward values and a spread of random ones.
  */
 #ifndef RG_INT32_H
 #define RG_INT32_H
@@ -90,9 +93,10 @@ static inline int32_t rg_mod(int32_t a, int32_t b) {
 
 /* --- numbers that hold a fraction ---
  *
- * Such a number is kept multiplied up by 2**bits. Multiplying two of them multiplies up twice,
- * so the product is worked out at 64 bits (it can need 62) and brought back down by rounding
- * down, then wrapped like any other result. */
+ * Such a number is kept multiplied up by 2**bits, and +bits+ is 0 to 32: the lowering refuses
+ * any other, since the shifts below would mean nothing past that. Multiplying two of them
+ * multiplies up twice, so the product is worked out at 64 bits (the lowest number squared needs
+ * 63 and a sign) and brought back down by rounding down, then wrapped like any other result. */
 static inline int32_t rg_mul_fix(int32_t a, int32_t b, int bits) {
   return rg_i32_of_64(rg_floor_shift_64((int64_t)a * (int64_t)b, bits));
 }

@@ -1,20 +1,17 @@
 # frozen_string_literal: true
 
-# WHICH TEST FILES EACH SUITE RUNS, in one place, so the Rakefile and the test that checks the
-# split read the same answer.
+# WHICH TEST FILES EACH SUITE RUNS, in one place, so the Rakefile and the tests that check the
+# split read the same answer. Why there are two suites is said once, atop IR::Backends: the
+# native backend trails the other two, and its tests need zig.
 #
-# The backends are not all held to the same standard, and the suites are how that is kept. The
-# console and the interpreter are first-class: `rake test` runs them, and a feature is not done
-# until it works on both. The native backend trails: its tests run under `rake test:native` and
-# never under `rake test`, so a feature that lands on the first two and not yet on native is a
-# gap to fill rather than a broken build. Its tests also need zig to compile what they test,
-# which nobody running `rake test` should need. (IR::Backends says the same split once, in the
-# library.)
-#
-# Plain globbing rather than Rake's FileList, because the test that checks this runs in a
-# Ractor and FileList reads a constant of rake's that a Ractor may not.
+# Plain globbing rather than Rake's FileList, because a test that reads this runs in a Ractor
+# and FileList reads a constant of rake's that a Ractor may not.
 module TestSuites
   NATIVE_DIR = "test/ruby_gba/ir/backends/native"
+
+  # Set by `rake test:native` for the run, and by nothing else. A native test that finds it
+  # missing was started by some other suite.
+  NATIVE_RUN = "RUBY_GBA_NATIVE_SUITE"
 
   module_function
 

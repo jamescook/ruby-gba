@@ -15,8 +15,8 @@ module RubyGBA
       #
       # How it writes C, and why that way (doc/research/writing-c.md has the reading behind it):
       #
-      # - The game's arithmetic lives in runtime/rg_int32.h, one C function for every function
-      #   of IR::Int32. C leaves several of the things a game does with numbers undefined —
+      # - The game's arithmetic lives in runtime/rg_int32.h, a C function for each thing IR::Int32
+      #   and the interpreter do with a number. C leaves several of the things a game does with numbers undefined —
       #   running off the end of a number, dividing the lowest number by -1, shifting by 32 —
       #   and an optimising compiler is allowed to assume they never happen. Those functions
       #   work on the unsigned kind of number, which C does promise wraps, and test the rest.

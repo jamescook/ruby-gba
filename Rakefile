@@ -93,24 +93,30 @@ namespace :test do
     t.description = "Run the tests of playthroughs, tapes and comparisons"
   end
 
-  # The native backend's tests, which `rake test` never runs. They compile C, so they need zig,
-  # and a missing zig stops them here with one plain line rather than failing every test in turn.
+  # The native backend's tests, which `rake test` never runs. They compile C, so they need zig
+  # (the version the backend is written against), and a missing or wrong zig stops them here
+  # with one plain line rather than failing every test in turn.
   task :zig do
-    next if system("zig", "version", out: File::NULL, err: File::NULL)
-
-    abort "rake test:native needs zig to compile what it tests, and zig was not found. " \
-          "This project installs it through mise: run `mise install` here."
+    require_relative "lib/ruby_gba/ir/backends/native/zig"
+    RubyGBA::IR::Backends::Native::Zig.version
+  rescue RubyGBA::IR::Backends::Native::Zig::Error => e
+    abort "rake test:native: #{e.message}"
   end
 
   # NOT ON RACTORS, unlike `rake test`. Every native test starts child processes — zig, and the
   # program it builds — which Ruby cannot do from inside a Ractor (the spawn waits for ever), so
   # each class runs on the main one; and with no class left for the pool, the runner refuses to
-  # start. So this suite runs one test after another, as plain minitest does.
-  task :native_without_ractors do
-    ENV["TESTOPTS"] = "--no-ractor #{GIVEN_TESTOPTS}".strip
+  # start. So this suite runs one test after another, as plain minitest does, whatever the
+  # caller said about Ractors. The cost is that a native test is never checked for reaching
+  # state the whole process shares; nothing in this backend keeps any.
+  #
+  # It also marks the run as the native suite's, which test_native_suite.rb checks for.
+  task :native_run do
+    ENV["TESTOPTS"] = (["--no-ractor"] + GIVEN_TESTOPTS.split - %w[--ractor]).uniq.join(" ")
+    ENV[TestSuites::NATIVE_RUN] = "1"
   end
 
-  Rake::TestTask.new(native: %i[zig native_without_ractors]) do |t|
+  Rake::TestTask.new(native: %i[zig native_run]) do |t|
     t.libs << "test" << "lib"
     t.test_files = TestSuites.native
     t.description = "Run the native backend's tests (needs zig; never part of rake test)"
