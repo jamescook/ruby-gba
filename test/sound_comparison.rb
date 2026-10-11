@@ -146,12 +146,9 @@ module SoundComparison
   # console starts a frame or two apart from the desktop build, so hold a button for a few frames
   # rather than one. Every one of +voices+ has to be heard: leave out a voice the run never uses.
   #
-  # For the same reason a button reaches the two on DIFFERENT PASSES of the game, and that is the
-  # whole run's fault to carry where the game is racing something: walk a character for frames
-  # 3 to 30 and the ghost chasing it is two passes further on in one than the other, so it is
-  # caught a frame apart and the sounds are compared a frame out. Hold such a button from frame 1
-  # until what it does has stopped mattering (the character is against a wall, the menu has
-  # moved on), and both play the same game.
+  # For the same reason a button reaches the two on DIFFERENT PASSES of the game, which matters
+  # where the game is racing something of its own; "The console starts its game a frame or two
+  # after the desktop build" in .claude/rules/testing.md says how to hold one so it does not.
   def assert_native_sounds_like_the_console(program, frames:, buttons: {}, voices: VOICES.keys)
     console = voices.to_h { |voice| [voice, console_voice(program, voice, frames: frames + MOST_FRAMES_APART, buttons: buttons)] }
     native = voices.to_h { |voice| [voice, native_voice(program, voice, frames: frames, buttons: buttons)] }

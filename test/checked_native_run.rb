@@ -10,7 +10,8 @@ require "native_comparison"
 # the pixels and variables whoever wrote them thought to look at; this looks at everything, at
 # every frame, so a native lowering that draws something wrong where no test was looking still
 # fails. The buttons are the ones the native run was actually given, so an input script that
-# decided from what the game was doing is replayed exactly, without being asked again.
+# decided from what the game was doing is replayed exactly, without being asked again. (A run by
+# step budget does ask the script once more, beforehand: see #frames_within.)
 #
 # Pictures are compared by a check number for each frame (see HeadlessRun::Moment), which is
 # what keeps a long run cheap; only a run that fails is played again in full, to say where.
@@ -94,8 +95,9 @@ class CheckedNativeRun
     lead = Reference.new.input_each_frame { |frame| buttons_for(frame) }.run(program, max_steps: max_steps)
     return lead.frame unless lead.frame.zero? && lead.stopped_at_budget?
 
-    raise HeadlessRun::CannotAnswer, "this game never waits for the screen, so a step budget is all that " \
-                                     "stops it, and the native lowering keeps no count of its steps"
+    raise HeadlessRun::CannotAnswer, "this game spends the whole step budget before it first waits for the " \
+                                     "screen, so the budget is all that stops it, and the native lowering " \
+                                     "keeps no count of its steps"
   end
 
   def buttons_for(frame) = @script ? Array(@script.call(frame)) : @held

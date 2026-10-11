@@ -13,6 +13,8 @@
 #include "rg_screen.h"
 #include "rg_runtime.h"
 
+#include <stdlib.h>
+
 static uint16_t pixels[RG_SCREEN_WIDTH * RG_SCREEN_HEIGHT];
 static uint16_t shown[RG_SCREEN_WIDTH * RG_SCREEN_HEIGHT];
 
@@ -37,12 +39,13 @@ static int32_t fade_white, fade_steps;
 static enum { TINT_NONE, TINT_TOWARD, TINT_COLOR } tint_mode;
 static int32_t tint_white, tint_color, tint_steps;
 
-/* Scenery up, in the order it went up (Reference @bg_shown). The interpreter's list grows by
- * one every time a background is put up, even one already up; putting the same one up again
- * only paints it again on top, so moving it to the end of this list draws the same picture and
- * keeps the list as short as the game's backgrounds. */
-static int32_t shown_backgrounds[RG_MAX_BACKGROUNDS];
-static int32_t shown_count;
+/* Scenery up, in the order it went up (Reference @bg_shown): one entry for every time a
+ * background is put up, even one already up, exactly as the interpreter keeps it. The repeats
+ * matter once layers are named. The order the stack asks for is worked out among the places the
+ * entries hold in this list, so a background put up twice holds two of them, and leaving the
+ * first out moves every background between the two. */
+static int32_t *shown_backgrounds;
+static int32_t shown_count, shown_room;
 
 /* How a background is turned, once it has been turned or resized at all (Reference @bg_affine). */
 typedef struct { int32_t turned, angle, size, pivot_x, pivot_y; } background_turn;
@@ -73,10 +76,13 @@ static int32_t background_field(int32_t background, int32_t field) {
 
 /* --- the picture itself (Framebuffer) --- */
 
+static int32_t on_screen(int64_t x, int64_t y) {
+  return x >= 0 && x < RG_SCREEN_WIDTH && y >= 0 && y < RG_SCREEN_HEIGHT;
+}
+
 /* Framebuffer#set_pixel: a cell off the screen is dropped. */
 static void set_pixel(int64_t x, int64_t y, int32_t color) {
-  if (x < 0 || x >= RG_SCREEN_WIDTH || y < 0 || y >= RG_SCREEN_HEIGHT) return;
-  target[y * RG_SCREEN_WIDTH + x] = (uint16_t)color;
+  if (on_screen(x, y)) target[y * RG_SCREEN_WIDTH + x] = (uint16_t)color;
 }
 
 /* Framebuffer#clear */
@@ -210,27 +216,81 @@ void rg_background_stamp(int32_t background) {
 /* Reference#request_repaint (a bending background, which would paint at once, is refused). */
 static void request_repaint(void) { owed = 1; }
 
-/* IR::Stacking.order_by_stack: the backgrounds that named a layer, put in the order the declared
- * stack asks for among the places they had; one that named none keeps its place. Two in one
- * layer keep the order they came in. */
-static void order_by_stack(int32_t *backgrounds, int32_t count) {
-  int32_t places[RG_MAX_BACKGROUNDS], named = 0;
-  for (int32_t i = 0; i < count; i++)
-    if (background_field(backgrounds[i], RG_BG_STACK_PLACE) != RG_NO_LAYER) places[named++] = i;
-  for (int32_t i = 1; i < named; i++)
-    for (int32_t j = i; j > 0; j--) {
-      int32_t *front = &backgrounds[places[j]], *behind = &backgrounds[places[j - 1]];
-      if (background_field(*behind, RG_BG_STACK_PLACE) <= background_field(*front, RG_BG_STACK_PLACE)) break;
-      int32_t moved = *front;
-      *front = *behind;
-      *behind = moved;
-    }
-}
+static int32_t stack_place(int32_t background) { return background_field(background, RG_BG_STACK_PLACE); }
 
 /* Reference#behind?: only when both named a layer. */
 static int32_t behind(int32_t a, int32_t b) {
-  int32_t place_a = background_field(a, RG_BG_STACK_PLACE), place_b = background_field(b, RG_BG_STACK_PLACE);
-  return place_a != RG_NO_LAYER && place_b != RG_NO_LAYER && place_a < place_b;
+  return stack_place(a) != RG_NO_LAYER && stack_place(b) != RG_NO_LAYER && stack_place(a) < stack_place(b);
+}
+
+/* One more entry on the list of scenery up. */
+static void remember_put_up(int32_t background) {
+  if (shown_count == shown_room) {
+    if (shown_room >= (1 << 28)) rg_fault("scenery has been put up too many times to remember");
+    shown_room = shown_room ? shown_room * 2 : RG_MAX_BACKGROUNDS;
+    shown_backgrounds = realloc(shown_backgrounds, (size_t)shown_room * sizeof *shown_backgrounds);
+    if (!shown_backgrounds) rg_fault("no memory left to remember the scenery that is up");
+  }
+  shown_backgrounds[shown_count++] = background;
+}
+
+/* Whether an entry of the list is among those being put in order: every one, or (+over+ a
+ * background) only the ones a named layer puts in front of it. */
+static int32_t in_order_asked(int32_t entry, int32_t over) { return over < 0 || behind(over, entry); }
+
+/* Where the LAST entry for +background+ lands once the entries asked for are put in the order the
+ * stack asks for (IR::Stacking.order_by_stack), counting from 0 among them, or -1 when it has no
+ * entry. An entry that named no layer stays where it is. The ones that did are sorted by how far
+ * forward their layers are — two in one layer keeping the order they came in — and handed, in that
+ * order, the places the named entries held. */
+static int64_t last_place_in_stack_order(int32_t background, int32_t over) {
+  int32_t place = stack_place(background);
+  int64_t at = -1, last = -1, further_back = 0, in_its_layer = 0, in_its_layer_by_last = 0;
+  for (int32_t i = 0; i < shown_count; i++) {
+    int32_t entry = shown_backgrounds[i];
+    if (!in_order_asked(entry, over)) continue;
+    at++;
+    if (stack_place(entry) != RG_NO_LAYER && stack_place(entry) < place) further_back++;
+    if (stack_place(entry) != RG_NO_LAYER && stack_place(entry) == place) in_its_layer++;
+    if (entry == background) {
+      last = at;
+      in_its_layer_by_last = in_its_layer;
+    }
+  }
+  if (last < 0 || place == RG_NO_LAYER) return last;
+
+  /* It is the named entry number +nth+ in sorted order, so it takes the place of the named entry
+   * number +nth+ in the order they went up. */
+  int64_t nth = further_back + in_its_layer_by_last - 1, named = -1;
+  at = -1;
+  for (int32_t i = 0; i < shown_count; i++) {
+    int32_t entry = shown_backgrounds[i];
+    if (!in_order_asked(entry, over)) continue;
+    at++;
+    if (stack_place(entry) != RG_NO_LAYER && ++named == nth) return at;
+  }
+  return -1;
+}
+
+/* Reference#in_stack_order over the scenery that is up — all of it, or the part a named layer
+ * puts in front of +over+ — with each one stamped in that order.
+ *
+ * The list can hold a background many times, and stamping one again paints over every stamp of
+ * it before. So only where the last entry for each background lands decides the picture, and
+ * each is stamped once, in the order of those places. */
+static void stamp_in_stack_order(int32_t over) {
+  if (over >= 0 && stack_place(over) == RG_NO_LAYER) return;
+  int32_t backgrounds = rg_game_picture_sizes[RG_SIZE_BACKGROUNDS];
+  int64_t lands[RG_MAX_BACKGROUNDS];
+  for (int32_t bg = 0; bg < backgrounds; bg++) lands[bg] = last_place_in_stack_order(bg, over);
+  for (;;) {
+    int32_t next = -1;
+    for (int32_t bg = 0; bg < backgrounds; bg++)
+      if (lands[bg] >= 0 && (next < 0 || lands[bg] < lands[next])) next = bg;
+    if (next < 0) return;
+    rg_background_stamp(next);
+    lands[next] = -1;
+  }
 }
 
 /* Reference#put_up_background. A stamp only covers where it has solid pixels, so a background a
@@ -238,21 +298,14 @@ static int32_t behind(int32_t a, int32_t b) {
  * are stamped again over it. A turned background is painted through its turn at the next rebuild
  * rather than stamped as drawn. */
 void rg_background_put_up(int32_t background) {
-  int32_t over[RG_MAX_BACKGROUNDS], over_count = 0, kept = 0;
-  for (int32_t i = 0; i < shown_count; i++) {
-    if (behind(background, shown_backgrounds[i])) over[over_count++] = shown_backgrounds[i];
-    if (shown_backgrounds[i] != background) shown_backgrounds[kept++] = shown_backgrounds[i];
-  }
-  shown_backgrounds[kept] = background;
-  shown_count = kept + 1;
+  remember_put_up(background);
   scenery_kept = 0;
   if (turns[background].turned) {
     request_repaint();
     return;
   }
   rg_background_stamp(background);
-  order_by_stack(over, over_count);
-  for (int32_t i = 0; i < over_count; i++) rg_background_stamp(over[i]);
+  stamp_in_stack_order(background);
 }
 
 /* Reference#exec_affine_background: the angle wraps into 0..359 as Ruby's % does. */
@@ -366,7 +419,7 @@ void rg_objects_begin(void) {
 }
 
 static void fault_unless_sprite(int32_t sprite) {
-  if (sprite < 0 || sprite >= RG_MAX_SPRITES) rg_fault("sprite %d, of the %d there is room for", sprite, RG_MAX_SPRITES);
+  if (sprite < 0 || sprite >= RG_MAX_SPRITES) rg_fault("sprite number %d is not one of the %d there is room for", sprite, RG_MAX_SPRITES);
 }
 
 /* Reference#restore_scene_rect and #restore_patch: the scenery put back where this sprite was
@@ -380,8 +433,7 @@ void rg_object_take_off(int32_t sprite, int32_t image) {
   for (int32_t row = 0; row < art.height; row++)
     for (int32_t col = 0; col < art.width; col++) {
       int64_t x = (int64_t)place->x + col, y = (int64_t)place->y + row;
-      if (x < 0 || x >= RG_SCREEN_WIDTH || y < 0 || y >= RG_SCREEN_HEIGHT) continue;
-      pixels[y * RG_SCREEN_WIDTH + x] = scenery[y * RG_SCREEN_WIDTH + x];
+      if (on_screen(x, y)) pixels[y * RG_SCREEN_WIDTH + x] = scenery[y * RG_SCREEN_WIDTH + x];
     }
 }
 
@@ -407,10 +459,13 @@ void rg_objects_end(void) {
   }
 }
 
-/* Reference#collision_sprite: the picture a sprite is showing. */
+/* Reference#collision_sprite: the picture a sprite is showing, read the way the interpreter
+ * reads its list — a number below nought counts back from the last, as Ruby's does — and a
+ * number that still names none is a fault, where the interpreter stops with an error. */
 int32_t rg_pose_image(const int32_t *poses, int32_t count, int32_t pose) {
-  if (pose < 0 || pose >= count) rg_fault("a sprite is showing picture %d of its %d", pose, count);
-  return poses[pose];
+  int64_t at = pose < 0 ? (int64_t)pose + count : pose;
+  if (at < 0 || at >= count) rg_fault("a sprite is showing picture %d of its %d", pose, count);
+  return poses[at];
 }
 
 /* Reference#solid_pixel? */
@@ -498,10 +553,7 @@ void rg_scene_take_down(int32_t brings_scenery) {
   shown_count = kept;
   scenery_kept = 0;
   clear_to(0);
-  int32_t stamped[RG_MAX_BACKGROUNDS];
-  for (int32_t i = 0; i < kept; i++) stamped[i] = shown_backgrounds[i];
-  order_by_stack(stamped, kept);
-  for (int32_t i = 0; i < kept; i++) rg_background_stamp(stamped[i]);
+  stamp_in_stack_order(-1);
 }
 
 /* --- reading it back --- */

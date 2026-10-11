@@ -59,7 +59,9 @@ the directory it sits in and from anyone grepping for a test name. Split it.
 
 **No directory the lib does not have.** A new directory under `test/` is a new
 directory under `lib/` first. That is what stops the tree growing a folder per
-feature.
+feature. The one exception mirrors a directory too, just not lib's:
+`test/ruby_gba/ir/backends/native/examples/` holds the native lowering's checks of each
+program in `examples/` (see "Running a file on the native lowering too").
 
 The shared helpers — `test_helper.rb`, `differential.rb`, `emulator_blend.rb`,
 `mixed_sound.rb`, `conformance_fixture.rb` — stay at `test/`, and are loaded **by bare name**

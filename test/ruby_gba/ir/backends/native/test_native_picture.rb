@@ -206,8 +206,9 @@ class TestNativePicture < Minitest::Test
 
     last = assert_native_matches_reference(program, frames: 6)
 
-    assert_equal Color.resolve(:orange), last.picture[0], "the fence should be over the sky"
-    assert_equal Color.resolve(:cyan), last.picture[3], "and the sky should show between its slats"
+    top_row = last.picture.first(WIDTH)
+    assert_equal Color.resolve(:orange), top_row[0], "the fence should be over the sky"
+    assert_equal Color.resolve(:cyan), top_row[3], "and the sky should show between its slats"
   end
 
   # Scenery a named layer puts in FRONT of a sprite: the whole view is rebuilt from its layers,
@@ -233,7 +234,9 @@ class TestNativePicture < Minitest::Test
   end
 
   # A scene's sprite over the scene's own scenery: the copy of the scenery kept for putting back
-  # under a sprite is made again when the scenery changes.
+  # under a sprite is made again when the scenery changes. The three hand-overs change it three
+  # ways: scenery going up where there was none, one scene's replaced by another's, and scenery
+  # coming down with none to follow.
   def test_a_sprite_over_each_scenes_own_scenery
     program = program_of do
       screen :tiled
@@ -244,29 +247,122 @@ class TestNativePicture < Minitest::Test
       image :ball, "o" => :white, "." => :transparent do "..oooo..\n" * 8 end
       tiles :wall, "#" => :brick
       tiles :lawn, "#" => :moss
+      scene(:nowhere) do
+        ball = sprite :ball, at: [60, 100]
+        ball.move :left, by: 4
+        ticks.add! 1
+        (ticks == 3).then { state.set! 1 }
+      end
       scene(:indoors) do
         background :wall, tiles: :wall, map: ["#" * 30] * 20
         ball = sprite :ball, at: [20, 20]
         ball.move :right, by: 4
         ticks.add! 1
-        (ticks >= 4).then { state.set! 1 }
+        (ticks == 7).then { state.set! 2 }
       end
       scene(:outdoors) do
         background :lawn, tiles: :lawn, map: ["#" * 30] * 10
         ball = sprite :ball, at: [100, 30]
         ball.move :down, by: 4
         ticks.add! 1
-        (ticks >= 8).then { state.set! 0 }
+        (ticks == 11).then { state.set! 0 }
       end
       game_loop do
         case_var :state do
-          when_val 0, :indoors
-          when_val 1, :outdoors
+          when_val 0, :nowhere
+          when_val 1, :indoors
+          when_val 2, :outdoors
         end
       end
     end
 
+    assert_native_matches_reference program, frames: 18
+  end
+
+  # The same background put up twice, with one that named no layer put up between: when a scene's
+  # own scenery comes down, what is left is stamped again in the order the stack asks for, and
+  # that order counts both times the first one went up.
+  def test_a_background_put_up_twice_keeps_its_places_in_the_stack
+    program = program_of do
+      screen :tiled
+      layers :under, :over
+      state = var :state, 0
+      ticks = var :ticks, 0
+      %i[red green blue white].each { |name| image(name, "#" => name) { "########\n" * 8 } }
+      tiles :reds, "#" => :red
+      tiles :greens, "#" => :green
+      tiles :blues, "#" => :blue
+      tiles :whites, "#" => :white
+      func(:put_up_red) { layer(:over) { background :red_band, tiles: :reds, map: ["#" * 10] * 4 } }
+      call :put_up_red
+      background :green_band, tiles: :greens, map: ["     ##########"] * 4
+      layer(:under) { background :blue_band, tiles: :blues, map: ["          ##########"] * 4 }
+      call :put_up_red
+      scene(:with_scenery) do
+        background :floor, tiles: :whites, map: (["    "] * 10) + ["####"]
+        ticks.add! 1
+        (ticks >= 3).then { state.set! 1 }
+      end
+      scene(:without) { ticks.add! 1 }
+      game_loop do
+        case_var :state do
+          when_val 0, :with_scenery
+          when_val 1, :without
+        end
+      end
+    end
+
+    last = assert_native_matches_reference(program, frames: 8)
+
+    assert_equal 1, last.variables[:state], "the run should reach the scene that takes the floor down"
+  end
+
+  # A sprite given a picture for each way it faces, one of them the other mirrored, steps through
+  # a walk as it goes; another shows the pose a number picks, and none for a number past them.
+  def test_sprites_face_animate_mirror_and_show_a_pose_by_number
+    program = program_of do
+      screen :tiled
+      image :step_a, "#" => :yellow, "." => :transparent do "###.....\n" * 8 end
+      image :step_b, "#" => :orange, "." => :transparent do "#####...\n" * 8 end
+      image :lamp_off, "#" => :gray, "." => :transparent do "..####..\n" * 8 end
+      image :lamp_on, "#" => :white, "." => :transparent do ".######.\n" * 8 end
+      walk = %i[step_a step_b]
+      hero = sprite :hero, at: [100, 40], rate: 2, facing: { right: walk, left: mirror(walk) }
+      lamp = sprite :lamp, at: [40, 100], facing: { off: :lamp_off, on: :lamp_on }
+      n = var :n, 0
+      game_loop do
+        (n < 6).then { hero.move :right, by: 3 }.else { hero.move :left, by: 3 }
+        lamp.face %i[off on], showing: n >> 2
+        n.add! 1
+      end
+    end
+
     assert_native_matches_reference program, frames: 14
+
+    seen = reference_snapshots(program, frames: 14, buttons: {}).flat_map(&:picture).uniq
+    %i[yellow orange gray white].each { |name| assert_includes seen, Color.resolve(name), "#{name} should have been drawn" }
+  end
+
+  # Art given as numbers into its list of colors, the list holding one color at two places: drawn
+  # with another list, each pixel takes the color at ITS place, which its color alone cannot say.
+  def test_a_sprite_given_as_places_is_recolored_by_place
+    program = program_of do
+      screen :tiled
+      colors :split, %i[transparent red blue]
+      image :twins, width: 8, height: 8, colors: %i[transparent green green],
+                    places: ([1] * 4 + [2] * 4) * 8
+      twins = sprite :twins, at: [60, 60]
+      n = var :n, 0
+      game_loop do
+        twins.draw_with [:split], showing: n >> 1
+        n.add! 1
+      end
+    end
+
+    assert_native_matches_reference program, frames: 6
+
+    seen = reference_snapshots(program, frames: 6, buttons: {}).flat_map(&:picture).uniq
+    %i[red blue green].each { |name| assert_includes seen, Color.resolve(name), "#{name} should have been drawn" }
   end
 
   def test_the_screen_is_white_until_the_first_frame

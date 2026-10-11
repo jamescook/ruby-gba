@@ -98,6 +98,39 @@ module RubyGBA
         end
       end
 
+      # WHAT COLOR A PIXEL IS DRAWN IN while its picture is drawn with another list of colors:
+      # each place of the picture's own list shows the color at the same place of that list.
+      # A picture whose art was given as places is read by place, which is what a machine that
+      # keeps a number per pixel does with it; one given as colors has only its colors to go
+      # on. One of the two halves is filled in and the other is not, since a picture is one
+      # kind or the other.
+      #
+      # It is the picture's business rather than any one backend's, so a backend that swaps
+      # colors as it draws and one that makes its recolored pictures ahead of time ask the
+      # same rule.
+      Recolor = Data.define(:places, :by_place, :by_color) do
+        # +picture+ (an Image) drawn with the list +swapped+.
+        def self.of(picture, swapped)
+          new(places: picture.places, by_place: swapped,
+              by_color: picture.places ? nil : color_swaps(picture.colors, swapped))
+        end
+
+        # A picture given as COLORS has no places recorded, so its swap is read the only way
+        # left: color to color, and a color its list holds twice is read at the first of
+        # them. The build refuses that where the two places differ in the list being drawn
+        # with, so this is only ever reached where both places agree.
+        def self.color_swaps(own, swapped)
+          (1...own.length).each_with_object({}) { |place, swaps| swaps[own[place]] ||= swapped[place] }
+        end
+
+        # The color pixel +index+ is drawn in, +color+ being the one the picture stores there.
+        def color_for(index, color)
+          return by_place[places.getbyte(index)] || color if places
+
+          by_color.fetch(color, color)
+        end
+      end
+
       # A recorded sound: how many samples a second it was recorded at, how many there are,
       # and the note it was played at when recorded (which is what playing it at another
       # pitch is measured from).

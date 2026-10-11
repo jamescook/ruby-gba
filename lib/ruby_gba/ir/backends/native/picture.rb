@@ -27,8 +27,7 @@ module RubyGBA
           MAX_SPRITES = 512
 
           # The kinds the interpreter's picture is rebuilt whole every frame for (see
-          # Reference#collect_definitions). Any other game's sprites are drawn straight onto a
-          # picture that stays.
+          # Reference#collect_definitions, and #rebuilt_every_frame? for the rest of the rule).
           REBUILT_FOR = %i[tile_run scroll_background scroll_rows affine_background set_tile show_map].freeze
 
           private
@@ -79,7 +78,9 @@ module RubyGBA
           def constant?(node, value) = node.kind == :int && node.value == value
 
           # Reference#collect_definitions and #run: whether the whole view is rebuilt every
-          # frame rather than sprites moved over a picture that stays.
+          # frame — for scenery that can look different next frame, a fade placed in the stack,
+          # or scenery a named layer puts in front of a sprite — rather than sprites drawn
+          # straight onto a picture that stays.
           def rebuilt_every_frame?
             @program.walk.any? { |node| REBUILT_FOR.include?(node.kind) || (node.kind == :fade && node.under) } ||
               Stacking.scenery_over_objects?(@stacking.depths, scenery: @stacking.scenery, objects: @stacking.objects)
@@ -114,9 +115,9 @@ module RubyGBA
 
           # A sprite picture's pixels as the interpreter draws them (Reference#blit_image): the
           # number the picture stores, the color +colors+ puts in its place when the sprite is
-          # drawn with that list (Reference#object_recolor), or NOT_DRAWN where it is see-through.
+          # drawn with that list (Assets::Recolor), or NOT_DRAWN where it is see-through.
           def sprite_pixels(image, colors)
-            recolor = colors && Reference::Recolor.of(image, colors)
+            recolor = colors && Assets::Recolor.of(image, colors)
             Array.new(image.width * image.height) do |at|
               next NOT_DRAWN unless image.drawn_at?(at)
 
@@ -225,7 +226,7 @@ module RubyGBA
           def sprite_placement(obj)
             pose = local_name("pose")
             in_range = call("rg_both", call("rg_ge", pose, C::Int.new(0)), call("rg_lt", pose, C::Int.new(obj.poses.length)))
-            add = eval_call("rg_objects_add", sprite_number(obj), picture_shown(obj, pose), value(obj.x), value(obj.y),
+            add = eval_call("rg_objects_add", sprite_number(obj), picture_drawn(obj, pose), value(obj.x), value(obj.y),
                             C::Int.new(@stacking.depths[obj.name]))
             C::If.new(condition: call("rg_eq", value(obj.active), C::Int.new(1)),
                       body: [C::Block.new([C::Local.new(name: pose, value: value(obj.pose)),
@@ -234,13 +235,14 @@ module RubyGBA
 
           def sprite_number(obj) = C::Int.new(@sprites.fetch(obj.name))
 
-          # Which picture a sprite showing pose number +pose+ is drawn from. Its pictures are a
-          # row of poses in its own colors, then a row for each list it can be drawn with
-          # (Reference#object_recolor), and rg_colors_row says which row it is on now.
-          def picture_shown(obj, pose)
+          # Which picture a sprite showing pose number +pose+ (one of its poses, already checked)
+          # is DRAWN from, in the colors it is drawn with now. Its pictures are a row of poses in
+          # its own colors, then a row for each list it can be drawn with
+          # (Reference#object_recolor), and rg_colors_row says which row it is on.
+          def picture_drawn(obj, pose)
             lists = Array(obj.recolors)
             rows = [nil, *lists].flat_map { |colors| obj.poses.map { |name| image_number(name, colors) } }
-            pictures = drawing_array("poses", "int32_t", rows)
+            pictures = drawing_array("pose_rows", "int32_t", rows)
             return C::Index.new(pictures, pose) if lists.empty?
 
             row = call("rg_colors_row", value(obj.recolor), C::Int.new(lists.length))
@@ -249,11 +251,14 @@ module RubyGBA
 
           # Reference#pixels_overlap?: each side's picture now, and where it is.
           def value_of_pixels_overlap(node)
-            call("rg_pixels_overlap", posed_picture(node.a_poses, node.a_pose), value(node.a_x), value(node.a_y),
-                 posed_picture(node.b_poses, node.b_pose), value(node.b_x), value(node.b_y))
+            call("rg_pixels_overlap", picture_collided(node.a_poses, node.a_pose), value(node.a_x), value(node.a_y),
+                 picture_collided(node.b_poses, node.b_pose), value(node.b_x), value(node.b_y))
           end
 
-          def posed_picture(poses, pose)
+          # Which picture a sprite COLLIDES as: the one of +poses+ its pose names, in its own
+          # colors whatever it is drawn with, since a swap of colors moves no pixel. The pose is
+          # not checked first here; rg_pose_image reads it the way the interpreter does.
+          def picture_collided(poses, pose)
             pictures = drawing_array("poses", "int32_t", poses.map { |name| image_number(name) })
             call("rg_pose_image", pictures, C::Int.new(poses.length), value(pose))
           end
