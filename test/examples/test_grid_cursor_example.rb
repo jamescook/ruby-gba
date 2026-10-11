@@ -10,6 +10,9 @@ require_relative "../../examples/grid_cursor"
 # assert BEHAVIOR (the cursor lights the right cell and leaves nothing behind) on
 # the interpreter, plus an emulator check that it renders and steers on the console.
 class TestGridCursorExample < Minitest::Test
+  # True of the game however it is played: see TestSuites.
+  runs_on :reference, :native
+
   include RubyGBA::Console::Hardware
 
   CELL = GridCursor::CELL
@@ -31,13 +34,13 @@ class TestGridCursorExample < Minitest::Test
   end
 
   def test_the_cursor_starts_lit_in_the_middle
-    screen = Reference.new.run(GridCursor.program, max_steps: 200).screen
+    screen = game_player.run(GridCursor.program, max_steps: 200).screen
     assert_cell_is screen, START_COL, START_ROW, :cyan
   end
 
   def test_a_tap_moves_the_cursor_one_cell_and_leaves_no_trail
     # Tap :left once (a single down-edge on frame 3), then let it settle.
-    screen = Reference.new
+    screen = game_player
                  .input_each_frame { |f| f == 3 ? [:left] : [] }
                  .run(GridCursor.program, max_steps: 3000).screen
 
@@ -48,7 +51,7 @@ class TestGridCursorExample < Minitest::Test
   def test_the_cursor_stays_on_the_board_at_the_edge
     # Hold :left is one tap (pressed fires on the edge only), so a single press can
     # never walk it off the board — and neither can many, thanks to the clamp.
-    i = Reference.new
+    i = game_player
             .input_each_frame { |f| f.even? ? [:left] : [] } # a tap every other frame
             .run(GridCursor.program, max_steps: 20_000)
     assert_operator i[:cx], :>=, 0, "cursor walked off the left edge"

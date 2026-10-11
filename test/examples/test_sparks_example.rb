@@ -10,6 +10,9 @@ require_relative "../../examples/sparks"
 # cost:regimes) reach the walk's own regimes. These assert BEHAVIOUR: sparks appear and
 # fall, on the interpreter and on the console.
 class TestSparksExample < Minitest::Test
+  # True of the game however it is played: see TestSuites.
+  runs_on :reference, :native
+
   YELLOW = Color.resolve(:yellow)
 
   def yellow_rows(screen)
@@ -17,8 +20,8 @@ class TestSparksExample < Minitest::Test
   end
 
   def test_sparks_appear_and_fall_down_the_screen
-    early = yellow_rows(Reference.new.run(Sparks.program, frames: 4).screen)
-    later = yellow_rows(Reference.new.run(Sparks.program, frames: 40).screen)
+    early = yellow_rows(game_player.run(Sparks.program, frames: 4).screen)
+    later = yellow_rows(game_player.run(Sparks.program, frames: 40).screen)
 
     refute_empty early, "sparks are drawn"
     assert_operator later.max, :>, early.max, "and they fall"
@@ -28,7 +31,7 @@ class TestSparksExample < Minitest::Test
   # A full pool recycles its oldest and a spark that leaves the bottom gives its slot back,
   # so the shower never stops: long after every slot has been used, sparks are still there.
   def test_the_shower_keeps_going_once_every_slot_has_been_used
-    screen = Reference.new.run(Sparks.program, frames: Sparks::SLOTS * 4).screen
+    screen = game_player.run(Sparks.program, frames: Sparks::SLOTS * 4).screen
 
     refute_empty yellow_rows(screen)
   end

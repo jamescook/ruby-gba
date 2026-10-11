@@ -15,6 +15,9 @@ require_relative "../../tools/make_example_assets" # the art's colors, so expect
 # It uses the real ImageMagick adapter and does NOT skip when it's missing:
 # importing is the whole point, so its absence is a real failure.
 class TestSheetExample < Minitest::Test
+  # True of the game however it is played: see TestSuites.
+  runs_on :reference, :native
+
   include RubyGBA::Console::Hardware
 
   Assets = MakeExampleAssets
@@ -40,7 +43,7 @@ class TestSheetExample < Minitest::Test
   # transparent hero draws its body while letting the floor show through its cut-out
   # corner.
   def test_imported_tiles_and_sprite_render_on_the_interpreter
-    s = Reference.new.run(Sheet.program, max_steps: 400).screen
+    s = game_player.run(Sheet.program, max_steps: 400).screen
 
     assert_equal BRICK, s.pixel(*BRICK_AT), "the imported brick tile paints the wall"
     assert_equal FLOOR, s.pixel(*FLOOR_AT), "the imported floor tile paints the interior"
