@@ -969,14 +969,15 @@ module RubyGBA
 
       # A tune. At +total_frames+ it comes round again — to its first frame, or to
       # +loop_frame+ when it has one, so an introduction plays once. Played as a sound effect, the
-      # others of its +group+ are the effects it stops (IR::Tunes.priority_of).
+      # others of its +group+ are the effects it stops (IR::Tunes.priority_of). +low_notes_intended+
+      # says a note lower than its voice can play is played at the lowest it can on purpose.
       class Song
         include Node
         kind :song
         declaration!
         category :sound
         operands name: :name, voices: :score, total_frames: :int, loop_frame: :int, priority: :int,
-                 group: :name
+                 group: :name, low_notes_intended: :flag
       end
 
       # A named list of songs that each play ONCE, over the tune playing now, when the program

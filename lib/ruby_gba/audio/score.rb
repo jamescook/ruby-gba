@@ -41,7 +41,15 @@ module RubyGBA
     # a time, the way a character has one voice. Asked for while another of its group sounds, an
     # effect of at least that priority stops it and starts; one of lower priority is not played. A
     # cartridge's engine plays each effect on one of a few players, and the player is the group.
-    Score = Data.define(:parts, :tempo, :ticks_per_beat, :length, :loop_from, :priority, :group)
+    #
+    # LOW NOTES THE ORIGINAL PLAYED THE SAME WAY. The square-wave voice cannot go below 64 Hz, just
+    # under C2, and plays a lower note AT 64 Hz; the build warns about such a note, because in music
+    # written by hand it is a mistake. A cartridge's own sound engine does the same before the
+    # console sees the note, so music decoded off one plays exactly what the original did, and
+    # `low_notes_intended: true` says so: the warning is left out for this Score alone. The sound
+    # does not change — the note is played at the bottom either way.
+    Score = Data.define(:parts, :tempo, :ticks_per_beat, :length, :loop_from, :priority, :group,
+                        :low_notes_intended)
 
     class Score
       # FRAMES A SECOND, the rate the music is played at — the same round figure a song block's
@@ -55,7 +63,8 @@ module RubyGBA
       # note ends — and a note with no length of its own counts as a beat long for that, since
       # it lasts until the next note and the last one has none after it. +loop_from+ is the tick
       # it comes round TO; left out, that is its start.
-      def initialize(parts:, tempo: 120, ticks_per_beat: 24, length: nil, loop_from: nil, priority: 0, group: nil)
+      def initialize(parts:, tempo: 120, ticks_per_beat: 24, length: nil, loop_from: nil, priority: 0, group: nil,
+                     low_notes_intended: false)
         super
       end
 
@@ -69,7 +78,7 @@ module RubyGBA
         ticks = length || last_tick
         total = [frames.at(ticks), 1].max
         song = { voices: parts.map { |part| part.to_voice(frames, total) }, total_frames: total,
-                 priority: priority, group: group }
+                 priority: priority, group: group, low_notes_intended: low_notes_intended }
         return song unless loop_from
 
         Checks.loop_from!(loop_from, ticks) { frames.at(loop_from) < total }
@@ -196,6 +205,10 @@ module RubyGBA
           unless score.group.nil? || score.group.is_a?(Symbol)
             raise ArgumentError, "A Score has the group #{score.group.inspect}. A group is a name, like :voice. " \
                                  "Give `group:` a name, or remove it."
+          end
+          unless [true, false].include?(score.low_notes_intended)
+            raise ArgumentError, "A Score has low_notes_intended: #{score.low_notes_intended.inspect}. It must " \
+                                 "be true or false. Give `low_notes_intended:` true or false, or remove it."
           end
           score.parts.each_with_index { |part, number| part!(part, number) }
         end

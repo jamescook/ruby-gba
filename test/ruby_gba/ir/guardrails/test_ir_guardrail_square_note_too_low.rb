@@ -66,6 +66,34 @@ class TestSquareNoteTooLowGuardrail < Minitest::Test
     assert_match(/2 notes that are too low/, said)
   end
 
+  # MUSIC LIFTED OFF A CARTRIDGE ALREADY PLAYED THESE NOTES AT THE BOTTOM. A cartridge's own sound
+  # engine clamps a key below C2 to C2 before the console ever sees it, so a decoded sound effect
+  # with a note down there is playing what the original played, and every way out the warning
+  # offers would change the sound. A Score says so, and is quiet; a hand-written part beside it
+  # in the same cartridge still warns.
+  def test_a_score_that_says_its_low_notes_are_clamped_is_quiet_and_others_still_warn
+    low = Part.new(notes: [Note.new(at: 0, key: 27)])
+    decoded = RubyGBA::Audio::Score.new(parts: [low], low_notes_intended: true)
+    written = RubyGBA::Audio::Score.new(parts: [low])
+    said = warnings do
+      sfx = sound_effects(:sfx, { death: decoded, thud: written })
+      sfx.play :death
+      sfx.play :thud
+    end
+
+    refute_match(/:death/, said, "the decoded effect plays what the original played")
+    assert_match(/sound effect :thud of :sfx plays a note at 39 Hz/, said)
+    assert_match(/write `low_notes_intended: true` on its Score/, said, "and the warning says how")
+  end
+
+  # ...and the same for a song handed over as a Score.
+  def test_a_song_that_says_its_low_notes_are_intended_is_quiet
+    low = Part.new(notes: [Note.new(at: 0, key: 27)])
+    decoded = RubyGBA::Audio::Score.new(parts: [low], low_notes_intended: true)
+
+    refute_match(/39 Hz/, warnings { songs(:music, { cave: decoded }).play :cave })
+  end
+
   def test_a_song_block_names_the_part_by_its_name
     said = warnings do
       song(:rumble) { voice(:bass) { note 40, :quarter } }

@@ -192,10 +192,8 @@ module RubyGBA
       end
 
       def record_score(member:, score:)
-        song = score.to_song
         @songs[member] = score
-        record(Build.song(member, voices: song[:voices], total_frames: song[:total_frames],
-                                  loop_frame: song[:loop_frame], priority: song[:priority], group: song[:group]))
+        record(Build.song(member, **score.to_song))
         member
       end
 

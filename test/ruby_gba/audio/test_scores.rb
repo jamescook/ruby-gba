@@ -90,6 +90,26 @@ class TestScores < Minitest::Test
     assert_equal({ 2 => [440.0], 12 => [880.0] }, notes_by_frame(program, 15))
   end
 
+  # SAYING A SCORE'S LOW NOTES ARE INTENDED CHANGES WHAT THE BUILD SAYS, NOT WHAT IT BUILDS. A
+  # note below the square-wave voice's 64 Hz is played at 64 Hz either way, because that is all
+  # the voice can do: the cartridge is the same to the byte.
+  def test_saying_the_low_notes_are_intended_builds_the_same_cartridge
+    low = Part.new(notes: [Note.new(at: 0, key: 27), Note.new(at: 24, key: 60)])
+    built = [false, true].map do |intended|
+      program = game([Score.new(parts: [low], low_notes_intended: intended)]) { |music, _| music.play 0 }
+      GBA.new.lower(program)
+    end
+
+    assert_equal built.first, built.last
+  end
+
+  def test_saying_it_with_anything_but_true_or_false_is_a_friendly_error
+    error = assert_raises(ArgumentError) do
+      Score.new(parts: [Part.new(notes: [Note.new(at: 0, key: 60)])], low_notes_intended: :yes).to_song
+    end
+    assert_match(/must be true or false/, error.message)
+  end
+
   # --- picked by a number the game works out ---
 
   def test_the_song_played_is_the_one_a_number_names

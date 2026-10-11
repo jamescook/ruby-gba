@@ -14,6 +14,10 @@ module RubyGBA
         #
         # A part that plays an instrument has no such bottom — a recording is simply read more
         # slowly — which is one of the two ways out the message offers.
+        #
+        # Music decoded off a cartridge is left alone when its Score says `low_notes_intended: true`:
+        # the cartridge's own sound engine played those notes at the bottom too, so every way out
+        # would make it less like the original.
         class SquareNoteTooLow
           NAME = :square_note_too_low
           PLAIN_NAME = "a square-wave note lower than the voice can play"
@@ -25,7 +29,7 @@ module RubyGBA
           LOWEST_NOTE = :"#{%w[C Cs D Ds E F Fs G Gs A As B][LOWEST_KEY % 12]}#{(LOWEST_KEY / 12) - 1}"
 
           def detect(program)
-            program.walk.select { |node| node.kind == :song }.flat_map do |song|
+            program.walk.select { |node| node.kind == :song && !node.low_notes_intended }.flat_map do |song|
               song.voices.each_with_index.filter_map do |part, index|
                 # Only the square voices have this bottom. A recording is read more slowly, and
                 # the wave voice tunes by a sample rate, so it reaches an octave further down.
@@ -52,7 +56,9 @@ module RubyGBA
               "The lowest note that the voice plays correctly is :#{LOWEST_NOTE} (MIDI key #{LOWEST_KEY}). To " \
               "fix this, play #{notes} one or more octaves higher. Or write `plays: :wave` on this part. " \
               "The wave voice goes one octave lower. Or use `plays:` to give the part an instrument. An " \
-              "instrument can play lower notes."
+              "instrument can play lower notes. If this music came from another cartridge, that cartridge also " \
+              "played these notes at #{LOWEST} Hz. For that music, write `low_notes_intended: true` on its " \
+              "Score. The build then does not give this warning."
           end
 
           def midi_key(hz) = (69 + (12 * Math.log2(hz / 440.0))).round
