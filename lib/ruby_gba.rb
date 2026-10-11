@@ -81,8 +81,9 @@ module RubyGBA
   # +settings+ are what this one build is told, read by the game with `setting` (see
   # {Builder::Settings}) — so a variant is a value handed to one build, not something changed
   # for every build in the process.
-  # +save_memory+ is how much save memory the cartridge has, in kilobytes: 32, 64 or 128. Leave
-  # it out and the build picks the smallest that holds the game's save_data records.
+  # +save_memory+ is how much save memory the cartridge has, in kilobytes: 8, 32, 64 or 128. Leave
+  # it out and the build picks the smallest of 32, 64 and 128 that holds the game's save_data
+  # records; 8, the EEPROM, a game has to ask for.
   def self.build(title, code: nil, maker: nil, validate: true, frame_sync: :auto, fast_cartridge: true,
                  fast_code: true, out: $stdout, err: $stderr, progress: Messages::Progress.silent,
                  profile: false, settings: {}, save_memory: nil, &block)

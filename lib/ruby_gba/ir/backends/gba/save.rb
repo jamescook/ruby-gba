@@ -45,13 +45,16 @@ module RubyGBA
           # What the chip says before anything touches save memory (see FlashChip#emit_wake).
           def emit_wake_chip = @chip.emit_wake
 
+          # What the chip does as a pass of the game loop ends (see EepromChip).
+          def emit_chip_end_of_pass = @chip.emit_end_of_pass
+
           # Boot: load the persisted variables, or seed a fresh cartridge with the
           # defaults. Written without a branch — one compare of the stored marker sets
           # the flags, then each variable is filled with either its saved value or its
           # default by a pair of predicated moves. Nothing between the moves touches the
           # flags (loads and shifts don't), so the one compare governs every variable.
           def emit_save_init(node)
-            refuse_save_var_on_flash!
+            refuse_save_var_written_in_place!
             base = 4  # a pointer to the start of save memory, held for the whole routine
             marker = 5
             stored = 6
@@ -78,7 +81,7 @@ module RubyGBA
           # Mirror one variable's current value back to its save slot — emitted right
           # after the variable changes, so the save always matches what the player sees.
           def emit_save_store(node)
-            refuse_save_var_on_flash!
+            refuse_save_var_written_in_place!
             offset = IR::SaveLayout.save_var_at(node.slot)
             @primitives.load_var(ACC, node.var)
             @emitter.emit_number(TMP, SRAM_START + offset) # the slot's address
@@ -115,28 +118,31 @@ module RubyGBA
 
           def chip_for(memory)
             SaveChip.for(memory, emitter: @emitter, lowering: @lowering, call_cold: @call_cold,
-                                 roomy_word: method(:allocate_bank_word))
+                                 roomy_bytes: ->(bytes) { allocate_chip_bytes(memory, bytes) })
           end
 
-          # The word a 128K chip keeps of which bank is showing.
-          def allocate_bank_word
-            @memory.alloc_roomy(4) or
-              raise LoweringError, "This game has 128K of save memory, and the console's roomy memory " \
-                                   "is full, so there is no room for the one word that save memory needs. " \
-                                   "To fix this, make a list or a pool smaller."
+          # The bytes of the roomy memory a chip keeps for itself: the word a 128K chip keeps of
+          # which bank is showing, or the EEPROM's copy of a block.
+          def allocate_chip_bytes(memory, bytes)
+            @memory.alloc_roomy(bytes) or
+              raise LoweringError, "This game has #{memory.kilobytes}K of save memory, and the console's roomy " \
+                                   "memory is full. So there is no room for the #{bytes} bytes that save memory " \
+                                   "needs. To fix this, make a list or a pool smaller."
           end
 
           # These two write a save_var's number straight into save_var's block, which only the
-          # 32K memory has: flash takes a byte only once between two wipes of its block, so a
-          # game on flash keeps its save_vars in a record instead (see Builder::SaveVarRecord)
-          # and never reaches here. This catches a program put together another way.
-          def refuse_save_var_on_flash!
-            return unless @chip.flash?
+          # 32K memory has: flash takes a byte only once between two wipes of its block, and the
+          # EEPROM is written a block at a time, so a game on either keeps its save_vars in a
+          # record instead (see Builder::SaveVarRecord) and never reaches here. This catches a
+          # program put together another way.
+          def refuse_save_var_written_in_place!
+            return unless @save_memory.save_vars_in_record?
 
             raise LoweringError, "This program writes a save_var straight into save memory, and it has " \
-                                 "#{@save_memory.kilobytes}K of save memory, which is flash. Flash cannot take " \
-                                 "a number written in place. To fix this, give the program 32K of save memory, " \
-                                 "or build it with RubyGBA.game, which keeps save_vars in a record on flash."
+                                 "#{@save_memory.kilobytes}K of save memory, which is #{@save_memory.kind_words}. " \
+                                 "On that memory a save_var must be kept in a record. To fix this, give the " \
+                                 "program 32K of save memory, or build it with RubyGBA.game, which keeps " \
+                                 "save_vars in a record there."
           end
 
           # Read four consecutive bytes of save memory (little-endian) into +dest+,

@@ -202,6 +202,66 @@ class TestSaveChip < Minitest::Test
     assert_operator busiest, :<, 100, "a frame of the wipe stays well short of the 228 a frame has"
   end
 
+  # --- the 8K EEPROM ---
+
+  def test_a_save_on_the_eeprom_comes_back_after_the_power_goes_off
+    rom = saving_rom(8)
+    chip = saved_chip(rom, press: 30)
+
+    assert_equal 8 * 1024, chip.memory.size
+    assert_equal 7, hearts_at_power_on(rom, chip, frames: 30)
+  end
+
+  def test_the_console_writes_the_eeprom_the_way_the_interpreter_does
+    rom = saving_rom(8)
+    chip = saved_chip(rom, press: 30)
+    store = SaveImage.new(kilobytes: 8)
+    Reference.new(save: store).input_each_frame { |f| f == 30 ? [:a] : [] }.run(saving_game(8).program, frames: 46)
+
+    refute_empty store.written
+    assert_equal store.written, chip.written, "the same bytes, and no byte only one of them wrote"
+  end
+
+  # A save_var on the EEPROM is kept in a record, as on flash, and comes back the same way. The
+  # record is 64 words, so its save takes a few dozen passes at a block a pass.
+  def test_a_save_var_on_the_eeprom_comes_back_after_the_power_goes_off
+    rom = RubyGBA.game("EEPROMVR", save_memory: 8) do
+      screen :bitmap
+      best = save_var :best, 3
+      game_loop { pressed(:a).then { best.set! 7 } }
+    end.build_rom(out: nil, err: nil, profile: false)
+    chip = assert_emulator_loads_rom(rom, frames: 120, keys: ->(f) { f == 30 ? KEY_A : 0 }).save_image
+
+    assert_equal 3, assert_emulator_loads_rom(rom, frames: 30, vars: rom.var_addresses).var(:best)
+    assert_equal 7, assert_emulator_loads_rom(rom, frames: 30, save: chip, vars: rom.var_addresses).var(:best)
+  end
+
+  # A SECOND SAVE costs what the first did. It goes into the other half, with the first save's
+  # half beside it, and a block of the EEPROM is written for each eight bytes of either — not
+  # for each byte, which is what a save that read the other half as it went would cost.
+  def test_a_second_save_on_the_eeprom_costs_what_the_first_did
+    rom = RubyGBA.game("EEPROMTW", save_memory: 8) do
+      screen :bitmap
+      flags = list :flags, capacity: 600, width: :byte, fast: false
+      file = save_data(:file) { keep flags }
+      game_loop { pressed(:a).then { file[0].save } }
+    end.build_rom(out: nil, err: nil, profile: false)
+    v = assert_emulator_loads_rom(rom, frames: 30, count_passes: true)
+    passes = 2.times.map do
+      before = v.passes
+      v.step(1, keys: KEY_A)
+      v.step(119)
+      v.passes - before
+    end
+
+    assert_operator passes.last, :>=, passes.first - 2, "passes in the 120 frames of each save: #{passes}"
+    assert_operator passes.min, :>=, 110, "a pass of the save fits in its frame: #{passes}"
+  end
+
+  def test_an_eeprom_cartridge_carries_its_marker
+    assert_includes saving_rom(8).buffer, "EEPROM_V124"
+  end
+
   def test_a_flash_cartridge_carries_the_marker_for_its_size
     assert_includes saving_rom(64).buffer, "FLASH512_V131"
     assert_includes saving_rom(128).buffer, "FLASH1M_V103"

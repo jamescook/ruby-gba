@@ -369,7 +369,9 @@ module RubyGBA
           @audio = Audio.new(emitter: @emit, primitives: @primitives, lowering: @lowering, mixer: @mixer,
                              memory: @memory, sounds: @defined_sounds, songs: @songs,
                              frames: @frames, expressions: @expressions, raster: @raster, drawing: self,
-                             uses_pressed: -> { @uses_pressed }, any_buffered: -> { @modes.any_buffered? })
+                             uses_pressed: -> { @uses_pressed }, any_buffered: -> { @modes.any_buffered? },
+                             # an EEPROM's last block of the pass is written back before the console sleeps
+                             end_of_pass: -> { @save.emit_chip_end_of_pass if @uses_save })
           @palette_tint = PaletteTint.new(emitter: @emit, primitives: @primitives, lowering: @lowering,
                                           drawing: self)
           @layer_blend = LayerBlend.new(emitter: @emit, lowering: @lowering, primitives: @primitives,
@@ -430,7 +432,10 @@ module RubyGBA
             list_copy: ->(node) { @lists.emit_list_copy(node, @tables.fetch(node.table)) },
             call: @statements.method(:emit_call), case: @functions.method(:emit_case),
             call_one_of: @functions.method(:emit_call_one_of),
-            raw: @statements.method(:emit_raw), halt: @statements.method(:emit_halt),
+            raw: @statements.method(:emit_raw),
+            # A program that stops finishes what its pass left first, as one that waits for a
+            # frame does: an EEPROM's last block is written back rather than lost.
+            halt: ->(node) { @save.emit_chip_end_of_pass if @uses_save; @statements.emit_halt(node) },
             wait_vblank: @audio.method(:emit_wait_vblank), screen: @drawing.method(:emit_screen),
             pixel: @drawing.method(:emit_pixel), fill_rect: @drawing.method(:emit_fill_rect),
             clear_screen: @drawing.method(:emit_clear_screen), dma_fill_rect: @drawing.method(:emit_dma_fill_rect),

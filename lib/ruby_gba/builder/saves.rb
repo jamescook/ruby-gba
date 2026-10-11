@@ -214,21 +214,21 @@ module RubyGBA
 
       # Lay the records out, now that every routine the game wrote is built (see
       # SaveRecords#lay_out_save_records), which is also when the cartridge's save memory is
-      # picked. Nothing to lay out for a game with no records — unless it named flash save
-      # memory and has a `save_var`, which on flash is kept in a record (see SaveVarRecord).
+      # picked. Nothing to lay out for a game with no records — unless it named flash or the
+      # EEPROM and has a `save_var`, which there is kept in a record (see SaveVarRecord).
       def lay_out_save_records
-        saves if @persisted.any? && IR::SaveLayout.memory(save_memory).flash?
+        saves if @persisted.any? && IR::SaveLayout.memory(save_memory).save_vars_in_record?
         @saves&.lay_out_save_records
-        refuse_flash_save_var_without_loop!
+        refuse_recorded_save_var_without_loop!
       end
 
-      # A save_var on flash is saved on a pass of the game loop after it changes, so a game
-      # with no loop would never save one, and nothing on screen would say so.
-      def refuse_flash_save_var_without_loop!
+      # A save_var on flash or the EEPROM is saved on a pass of the game loop after it changes, so
+      # a game with no loop would never save one, and nothing on screen would say so.
+      def refuse_recorded_save_var_without_loop!
         return unless @saves&.save_vars_in_record? && @frame_boundaries.empty?
 
         raise ArgumentError, "This game has a save_var and #{save_memory}K of save memory, and it has no " \
-                             "game_loop. On 64K or 128K a save_var is saved by the game loop after it " \
+                             "game_loop. On 8K, 64K or 128K a save_var is saved by the game loop after it " \
                              "changes, so without one it is never saved. To fix this, write a game_loop, " \
                              "or give the game 32K of save memory."
       end

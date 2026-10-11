@@ -364,19 +364,19 @@ module RubyGBA
 
         memory = use.fetch(:memory)
         records = use.fetch(:records)
-        kind = memory.flash? ? "flash" : "battery-backed memory"
+        kind = memory.kind_words
         printer.puts "  save memory: #{memory.kilobytes}K of #{kind}, #{save_memory_reason(use)}"
         printer.puts "    kept for save_var: #{format_bytes(memory.table_at)}" if memory.table_at.positive?
         printer.puts "    the table of places: #{format_bytes(memory.data_start - memory.table_at)}" if records.any?
         records.each { |record| printer.puts "    #{record_label(record, copies: true)}: #{format_bytes(record[:bytes])}" }
         printer.puts "    free: #{format_bytes(use.fetch(:free))}"
-        return unless memory.flash?
+        return if memory.battery?
 
-        printer.puts "  on flash a save writes #{memory.bytes_per_pass} bytes a pass, while the game goes on:"
+        printer.puts "  on #{kind} a save writes #{memory.bytes_per_pass} bytes a pass, while the game goes on:"
         use.fetch(:records).each do |record|
           printer.puts "    #{record_label(record)}: about #{save_passes(memory, record[:half])} passes"
         end
-        printer.puts "  a fresh flash cartridge's first power-on takes a few frames, to write the table of places"
+        printer.puts "  a fresh #{kind} cartridge's first power-on takes a few frames, to write the table of places"
       end
 
       # The save memory's facts as one hash, or nil for a program that saves nothing: the
@@ -561,7 +561,7 @@ module RubyGBA
         use = save_memory_use(program) or return nil
 
         memory = use.fetch(:memory)
-        { kilobytes: memory.kilobytes, flash: memory.flash?, asked_for: use.fetch(:asked_for),
+        { kilobytes: memory.kilobytes, flash: memory.flash?, chip: memory.chip.to_s, asked_for: use.fetch(:asked_for),
           records: use.fetch(:records).map { |one| { name: one[:name].to_s, copies: one[:copies], bytes: one[:bytes] } },
           free_bytes: use.fetch(:free) }
       end

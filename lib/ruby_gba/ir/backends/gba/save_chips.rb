@@ -33,15 +33,16 @@ module RubyGBA
 
           SAVE_WIDTH_BYTES = { byte: 1, half: 2, word: 4 }.freeze
 
-          # The chip for +memory+ (an IR::SaveLayout::Memory). +roomy_word+ is called for a word of
-          # the roomy memory, which only a 128K chip needs. +call_cold+ calls a routine in the
+          # The chip for +memory+ (an IR::SaveLayout::Memory). +roomy_bytes+ is called with a count
+          # of bytes of the roomy memory to keep, which only a 128K chip and the EEPROM need. +call_cold+ calls a routine in the
           # cartridge from wherever the code is (see Placement#emit_call_cold_routine).
-          def self.for(memory, emitter:, lowering:, call_cold:, roomy_word:)
+          def self.for(memory, emitter:, lowering:, call_cold:, roomy_bytes:)
             parts = { emitter: emitter, lowering: lowering, call_cold: call_cold }
+            return EepromChip.new(area: roomy_bytes.call(EepromChip::AREA_BYTES), **parts) if memory.eeprom?
             return BatteryChip.new(**parts) unless memory.flash?
             return FlashChip.new(**parts) if memory.size <= 0x10000
 
-            BankedFlashChip.new(bank_word: roomy_word.call, **parts)
+            BankedFlashChip.new(bank_word: roomy_bytes.call(4), **parts)
           end
 
           def initialize(emitter:, lowering:, call_cold:)
@@ -54,6 +55,10 @@ module RubyGBA
 
           # What a chip says before anything touches save memory.
           def emit_wake; end
+
+          # What a chip does at the end of each pass of the game loop, before the console sleeps
+          # until the next frame.
+          def emit_end_of_pass; end
 
           # The chip's own routines, emitted once after all the code.
           def emit_routines; end
@@ -305,10 +310,47 @@ module RubyGBA
           end
         end
 
+        # A CHIP WHOSE PLACES BECOME ADDRESSES ONE BYTE AT A TIME, through a routine of the chip's
+        # own (#emit_place_to_address): r1 holds a place going in and an address the console can
+        # read coming out, and r0, r2 and r3 are left as they were. The 128K flash chip finds the
+        # bank a byte is in; the EEPROM finds its block.
+        module PlaceFoundEachByte
+          # r0 = +count+ bytes from the place node.at, each through the routine. r3 keeps the
+          # place, which the routine leaves alone.
+          def eval_read(node)
+            @lowering.value(node.at)
+            @emitter.emit(ASM.mov_reg(3, ACC))
+            SaveChip::SAVE_WIDTH_BYTES.fetch(node.width).times do |i|
+              @emitter.emit(i.zero? ? ASM.mov_reg(TMP, 3) : ASM.add_imm(TMP, 3, i))
+              emit_place_to_address
+              if i.zero?
+                @emitter.emit(ASM.ldrb_offset(ACC, TMP, 0))
+              else
+                @emitter.emit(ASM.ldrb_offset(2, TMP, 0))
+                @emitter.emit(ASM.orr_reg_lsl(ACC, ACC, 2, 8 * i))
+              end
+            end
+          end
+
+          private
+
+          # The sum keeps the place in r1, and each byte is found through the routine.
+          def emit_sum_start(at) = emit_save_place(at)
+
+          def emit_load_summed_byte
+            @emitter.emit(ASM.push(TMP))
+            emit_place_to_address
+            @emitter.emit(ASM.ldrb_offset(ADDR, TMP, 0))
+            @emitter.emit(ASM.pop(TMP))
+          end
+        end
+
         # A 128K flash chip: a 64K one shown a bank at a time. A word of the roomy memory says
         # which bank is showing, so a run of bytes in one bank switches once rather than at
         # every byte.
         class BankedFlashChip < FlashChip
+          include PlaceFoundEachByte
+
           SIGNATURE = "FLASH1M_V103".b.freeze
           SHOW_BANK_LABEL = "save_flash_show_bank"
 
@@ -330,23 +372,6 @@ module RubyGBA
             @emitter.emit(ASM.str(1, 0))
           end
 
-          # r0 = +count+ bytes from the place node.at, each through the bank routine. r3 keeps the
-          # place, which the routine leaves alone.
-          def eval_read(node)
-            @lowering.value(node.at)
-            @emitter.emit(ASM.mov_reg(3, ACC))
-            SAVE_WIDTH_BYTES.fetch(node.width).times do |i|
-              @emitter.emit(i.zero? ? ASM.mov_reg(TMP, 3) : ASM.add_imm(TMP, 3, i))
-              emit_place_to_address
-              if i.zero?
-                @emitter.emit(ASM.ldrb_offset(ACC, TMP, 0))
-              else
-                @emitter.emit(ASM.ldrb_offset(2, TMP, 0))
-                @emitter.emit(ASM.orr_reg_lsl(ACC, ACC, 2, 8 * i))
-              end
-            end
-          end
-
           def emit_routines
             super
             emit_show_bank_routine
@@ -355,16 +380,6 @@ module RubyGBA
           private
 
           def emit_place_to_address = @call_cold.call(SHOW_BANK_LABEL)
-
-          # The sum keeps the place in r1, and each byte is found through the bank routine.
-          def emit_sum_start(at) = emit_save_place(at)
-
-          def emit_load_summed_byte
-            @emitter.emit(ASM.push(TMP))
-            emit_place_to_address
-            @emitter.emit(ASM.ldrb_offset(ADDR, TMP, 0))
-            @emitter.emit(ASM.pop(TMP))
-          end
 
           # r1, a place in the chip, becomes an address in the 64K window the console sees, and
           # the bank it is in is shown first unless the bank word says it already is. Leaves r0,
@@ -389,6 +404,357 @@ module RubyGBA
             @emitter.emit(ASM.add_reg(TMP, TMP, 2))
             @emitter.emit(ASM.pop(2, 3))
             @emitter.emit(ASM.bx(14))
+          end
+        end
+
+        # AN 8K EEPROM. It is not on the bus the other chips are on: it sits at the start of
+        # EEPROM_AT and is spoken to ONE BIT AT A TIME, a bit in the lowest bit of each halfword
+        # the copying engine moves there or back. It reads and writes a BLOCK of eight bytes
+        # and nothing smaller, numbered from 0 to 1023.
+        #
+        # Reading a block is two copies: out go 17 bits — 1, 1, the block's number in 14 bits
+        # with the highest first, and a 0 — and back come 68, the first four of no meaning and
+        # then the block's 64 bits, the highest bit of its first byte first. Writing one is a
+        # single copy of 81 bits — 1, 0, the number, the 64 bits, a 0 — after which the chip
+        # takes most of half a frame to settle, and a read at EEPROM_AT says when it has: its
+        # lowest bit comes back 1.
+        #
+        # SO THE CHIP IS SEEN THROUGH ONE BLOCK KEPT IN THE ROOMY MEMORY. A place becomes an
+        # address in that copy, and the copy is fetched first when it holds another block; a
+        # byte written goes into the copy, which says it now differs from the chip. The copy goes
+        # back to the chip when another block is wanted, and at the end of every pass of the game
+        # loop, before the console sleeps until the next frame. Writing straight through would
+        # write a whole block for every byte a save writes, and a save writes its bytes one at a
+        # time. So a block is written once for each run of the save through it, the writes reach
+        # the chip in the order the save made them — the checksum that makes a half good still
+        # goes in last — and nothing a pass wrote is still in the copy when the frame ends.
+        #
+        # READS HAVE A BLOCK OF THEIR OWN. A save after the first copies from the older half
+        # while it writes the newer, a byte from one and then a byte to the other; with one copy
+        # each read would throw out the block being written and every byte would cost a block
+        # written back. So a read is served from the block a save writes into when it is that
+        # block — written back first, so what is read is what the chip kept, which is how a save
+        # the chip did not keep is found out — and otherwise from a second block kept only for
+        # reading, which never differs from the chip and is let go when a write lands in it.
+        #
+        # The routines are in the cartridge, called from wherever the code is, and leave every
+        # register as they found it but the ones each says.
+        class EepromChip < SaveChip
+          include PlaceFoundEachByte
+
+          SIGNATURE = "EEPROM_V124\x00".b.freeze
+
+          # Where the chip answers. The console sees it there on a cartridge of 16MB or less,
+          # which every cartridge this builds is.
+          EEPROM_AT = 0x0D000000
+
+          # The block number takes 14 bits on the 8K chip, though only the low ten count.
+          ADDRESS_BITS = 14
+          BLOCK_BITS = 64
+
+          # The bits each of the three moves carries.
+          READ_REQUEST = 2 + ADDRESS_BITS + 1
+          READ_REPLY = 4 + BLOCK_BITS
+          WRITE_REQUEST = 2 + ADDRESS_BITS + BLOCK_BITS + 1
+
+          # The two copies and what is known about them, in the roomy memory: for the one a save
+          # writes into, which block it holds (-1 for none), whether it differs from the chip
+          # and its eight bytes; for the one kept for reading, which block and its bytes; then
+          # room for the longest run of bits, a halfword each.
+          HELD_AT = 0
+          CHANGED_AT = 4
+          BYTES_AT = 8
+          READ_HELD_AT = BYTES_AT + IR::SaveLayout::EEPROM_BLOCK
+          READ_BYTES_AT = READ_HELD_AT + 4
+          BITS_AT = READ_BYTES_AT + IR::SaveLayout::EEPROM_BLOCK
+          AREA_BYTES = BITS_AT + (2 * WRITE_REQUEST) + 2
+
+          # A copying-engine transfer of halfwords that starts as it is written: the enable bit,
+          # every other choice the plain one. In the top half, where the count's register ends.
+          COPY_NOW = 0x8000 << 16
+
+          # The console's wait for the third cartridge window, the one the EEPROM is in: the
+          # longest first access there is, which the chip needs.
+          SLOWEST_THIRD_WINDOW = 0b11 << 8
+
+          # How many times the end of a write asks the chip whether it has settled before giving
+          # up on it, as FlashChip::ASKS does.
+          ASKS = 0x40000
+
+          ADDRESS_LABEL = "save_eeprom_address"
+          PUT_LABEL = "save_eeprom_put"
+          FETCH_LABEL = "save_eeprom_fetch"
+          FETCH_FOR_READING_LABEL = "save_eeprom_fetch_for_reading"
+          WRITE_BACK_LABEL = "save_eeprom_write_back"
+
+          def initialize(area:, **)
+            super(**)
+            @area = area
+          end
+
+          def signature = SIGNATURE
+
+          # Neither copy holds a block yet, and the chip's window is read at the speed it needs.
+          def emit_wake
+            @emitter.emit(ASM.load_immediate(0, REG_WAITCNT))
+            @emitter.emit(ASM.load_halfword(1, 0))
+            @emitter.emit(ASM.orr_imm(1, 1, SLOWEST_THIRD_WINDOW))
+            @emitter.emit(ASM.store_halfword(1, 0))
+            @emitter.emit(ASM.load_immediate(0, @area))
+            @emitter.emit(ASM.mvn_imm(1, 0))
+            @emitter.emit(ASM.str_offset(1, 0, HELD_AT))
+            @emitter.emit(ASM.str_offset(1, 0, READ_HELD_AT))
+            emit_copy_matches_chip(scratch: 1, area: 0)
+          end
+
+          # What a pass wrote reaches the chip before the frame ends.
+          def emit_end_of_pass = @call_cold.call(WRITE_BACK_LABEL)
+
+          # Each byte into the copy, through the put routine: r1 the place, r2 the byte.
+          def emit_write(node)
+            @lowering.value(node.at)                               # r0 = the place
+            @emitter.emit(ASM.push(ACC))
+            @lowering.value(node.value)                            # r0 = what to write
+            @emitter.emit(ASM.pop(TMP))                            # r1 = the place
+            SAVE_WIDTH_BYTES.fetch(node.width).times do |i|
+              @emitter.emit(ASM.add_imm(TMP, TMP, 1)) unless i.zero?
+              @emitter.emit(i.zero? ? ASM.mov_reg(2, ACC) : ASM.lsr_imm(2, ACC, 8 * i)) # r2 = this byte
+              @emitter.emit(ASM.push(TMP))
+              @call_cold.call(PUT_LABEL)
+              @emitter.emit(ASM.pop(TMP))
+            end
+          end
+
+          # An EEPROM is written over as it is, so there is nothing to wipe.
+          def emit_wipe(_node); end
+
+          def emit_routines
+            emit_address_routine
+            emit_put_routine
+            emit_fetch_routine(FETCH_LABEL, held_at: HELD_AT, bytes_at: BYTES_AT)
+            emit_fetch_routine(FETCH_FOR_READING_LABEL, held_at: READ_HELD_AT, bytes_at: READ_BYTES_AT)
+            emit_write_back_routine
+          end
+
+          private
+
+          def emit_place_to_address = @call_cold.call(ADDRESS_LABEL)
+
+          # r1, a place, becomes the address of its byte for READING. From the copy a save writes
+          # into, when it holds the block — written back first, so the byte read is the one the
+          # chip kept, and given up if the chip did not keep it — and otherwise from the copy kept
+          # for reading, fetched when it holds another block. Spends r12; leaves r0, r2 and r3
+          # alone.
+          def emit_address_routine
+            elsewhere = @emitter.gensym
+            reading = @emitter.gensym
+            found = @emitter.gensym
+            @emitter.place_label(ADDRESS_LABEL)
+            @emitter.emit(ASM.push(0, 2, 3, 14))
+            @emitter.emit(ASM.lsr_imm(ADDR, TMP, 3))                  # r12 = the block the place is in
+            @emitter.emit(ASM.load_immediate(2, @area))
+            @emitter.emit(ASM.ldr_offset(3, 2, HELD_AT))
+            @emitter.emit(ASM.cmp_reg(3, ADDR))
+            @emitter.emit_branch(:bcond, elsewhere, cond: :ne)
+            @emitter.emit_branch(:bl, WRITE_BACK_LABEL)
+            @emitter.emit(ASM.ldr_offset(3, 2, HELD_AT))              # still held, unless the chip refused it
+            @emitter.emit(ASM.cmp_reg(3, ADDR))
+            @emitter.emit_branch(:bcond, elsewhere, cond: :ne)
+            @emitter.emit(ASM.load_immediate(0, BYTES_AT))
+            @emitter.emit_branch(:b, found)
+            @emitter.place_label(elsewhere)
+            @emitter.emit(ASM.ldr_offset(3, 2, READ_HELD_AT))
+            @emitter.emit(ASM.cmp_reg(3, ADDR))
+            @emitter.emit_branch(:bcond, reading, cond: :eq)
+            @emitter.emit_branch(:bl, FETCH_FOR_READING_LABEL)
+            @emitter.place_label(reading)
+            @emitter.emit(ASM.load_immediate(0, READ_BYTES_AT))
+            @emitter.place_label(found)                               # r0 = where that copy's bytes are
+            @emitter.emit(ASM.and_imm(TMP, TMP, IR::SaveLayout::EEPROM_BLOCK - 1))
+            @emitter.emit(ASM.add_reg(TMP, TMP, 2))
+            @emitter.emit(ASM.add_reg(TMP, TMP, 0))
+            @emitter.emit(ASM.pop(0, 2, 3, 14))
+            @emitter.emit(ASM.bx(14))
+          end
+
+          # r2's low byte into the copy a save writes into, at the place in r1: that copy written
+          # back and the place's block fetched first when it holds another block, and the copy
+          # kept for reading let go of the block if it holds it, since that is no longer what the
+          # chip will hold. The copy then differs from the chip. Spends r1 and r12; leaves r0, r2
+          # and r3 alone.
+          def emit_put_routine
+            held = @emitter.gensym
+            fresh = @emitter.gensym
+            @emitter.place_label(PUT_LABEL)
+            @emitter.emit(ASM.push(0, 3, 14))
+            @emitter.emit(ASM.lsr_imm(ADDR, TMP, 3))                  # r12 = the block the place is in
+            @emitter.emit(ASM.load_immediate(0, @area))
+            @emitter.emit(ASM.ldr_offset(3, 0, HELD_AT))
+            @emitter.emit(ASM.cmp_reg(3, ADDR))
+            @emitter.emit_branch(:bcond, held, cond: :eq)
+            @emitter.emit_branch(:bl, WRITE_BACK_LABEL)
+            @emitter.emit_branch(:bl, FETCH_LABEL)
+            @emitter.place_label(held)
+            @emitter.emit(ASM.ldr_offset(3, 0, READ_HELD_AT))
+            @emitter.emit(ASM.cmp_reg(3, ADDR))
+            @emitter.emit_branch(:bcond, fresh, cond: :ne)
+            @emitter.emit(ASM.mvn_imm(3, 0))
+            @emitter.emit(ASM.str_offset(3, 0, READ_HELD_AT))
+            @emitter.place_label(fresh)
+            @emitter.emit(ASM.and_imm(TMP, TMP, IR::SaveLayout::EEPROM_BLOCK - 1))
+            @emitter.emit(ASM.add_reg(TMP, TMP, 0))
+            @emitter.emit(ASM.strb_offset(2, TMP, BYTES_AT))
+            @emitter.emit(ASM.load_immediate(3, 1))
+            @emitter.emit(ASM.str_offset(3, 0, CHANGED_AT))
+            @emitter.emit(ASM.pop(0, 3, 14))
+            @emitter.emit(ASM.bx(14))
+          end
+
+          # Read block r12 into the copy whose block number is at +held_at+ and whose bytes are at
+          # +bytes_at+. Fetching into the copy a save writes into also says it matches the chip;
+          # the caller has written that copy back first. Leaves every register alone.
+          def emit_fetch_routine(label, held_at:, bytes_at:)
+            byte = @emitter.gensym
+            bit = @emitter.gensym
+            @emitter.place_label(label)
+            @emitter.emit(ASM.push(0, 1, 2, 3, ADDR, 14))
+            @emitter.emit(ASM.load_immediate(2, @area))
+            @emitter.emit(ASM.str_offset(ADDR, 2, held_at))
+            @emitter.emit(ASM.add_imm(1, 2, BITS_AT))                  # r1 = where the bits go
+            emit_request_start(1, 1)
+            emit_block_number                                          # r12 still the block
+            @emitter.emit(ASM.load_immediate(0, 0))
+            @emitter.emit(ASM.store_halfword(0, 1))                    # the request's last bit
+            emit_copy(from: :bits, to: :chip, count: READ_REQUEST)
+            emit_copy(from: :chip, to: :bits, count: READ_REPLY)
+            # The 64 bits after the first four, eight to a byte, highest first.
+            @emitter.emit(ASM.load_immediate(2, @area))
+            @emitter.emit(ASM.add_imm(1, 2, BITS_AT + 8))              # r1 = the first bit of the block
+            @emitter.emit(ASM.add_imm(3, 2, bytes_at))                 # r3 = where each byte goes
+            @emitter.emit(ASM.load_immediate(14, IR::SaveLayout::EEPROM_BLOCK))
+            @emitter.place_label(byte)
+            @emitter.emit(ASM.load_immediate(ADDR, 0))
+            @emitter.emit(ASM.load_immediate(2, 8))
+            @emitter.place_label(bit)
+            @emitter.emit(ASM.load_halfword(0, 1))
+            @emitter.emit(ASM.add_imm(1, 1, 2))
+            @emitter.emit(ASM.and_imm(0, 0, 1))
+            @emitter.emit(ASM.orr_reg_lsl(ADDR, 0, ADDR, 1))           # r12 = r12 * 2 + this bit
+            @emitter.emit(ASM.subs_imm(2, 2, 1))
+            @emitter.emit_branch(:bcond, bit, cond: :ne)
+            @emitter.emit(ASM.strb_post(ADDR, 3, 1))
+            @emitter.emit(ASM.subs_imm(14, 14, 1))
+            @emitter.emit_branch(:bcond, byte, cond: :ne)
+            emit_copy_matches_chip(scratch: 0, area: 2) if held_at == HELD_AT
+            @emitter.emit(ASM.pop(0, 1, 2, 3, ADDR, 14))
+            @emitter.emit(ASM.bx(14))
+          end
+
+          # Write the copy a save writes into back to the chip if it differs from it, and wait for
+          # the chip to settle. A chip that never settles did not keep the block, so the copy
+          # gives the block up: what is read of it next comes from the chip, and a save's check
+          # that it went in finds out. Leaves every register alone.
+          def emit_write_back_routine
+            done = @emitter.gensym
+            byte = @emitter.gensym
+            bit = @emitter.gensym
+            asked = @emitter.gensym
+            settled = @emitter.gensym
+            @emitter.place_label(WRITE_BACK_LABEL)
+            @emitter.emit(ASM.push(0, 1, 2, 3, ADDR, 14))
+            @emitter.emit(ASM.load_immediate(2, @area))
+            @emitter.emit(ASM.ldr_offset(0, 2, CHANGED_AT))
+            @emitter.emit(ASM.cmp_imm(0, 0))
+            @emitter.emit_branch(:bcond, done, cond: :eq)
+            @emitter.emit(ASM.ldr_offset(ADDR, 2, HELD_AT))
+            @emitter.emit(ASM.add_imm(1, 2, BITS_AT))                  # r1 = where the bits go
+            emit_request_start(1, 0)
+            emit_block_number
+            # The eight bytes, each highest bit first.
+            @emitter.emit(ASM.add_imm(3, 2, BYTES_AT))                 # r3 = the next byte
+            @emitter.emit(ASM.load_immediate(14, IR::SaveLayout::EEPROM_BLOCK))
+            @emitter.place_label(byte)
+            @emitter.emit(ASM.ldrb_offset(ADDR, 3, 0))
+            @emitter.emit(ASM.add_imm(3, 3, 1))
+            @emitter.emit(ASM.load_immediate(2, 7))
+            @emitter.place_label(bit)
+            @emitter.emit(ASM.mov_reg_lsr_reg(0, ADDR, 2))
+            @emitter.emit(ASM.and_imm(0, 0, 1))
+            @emitter.emit(ASM.store_halfword_post(0, 1, 2))
+            @emitter.emit(ASM.subs_imm(2, 2, 1))
+            @emitter.emit_branch(:bcond, bit, cond: :ge)
+            @emitter.emit(ASM.subs_imm(14, 14, 1))
+            @emitter.emit_branch(:bcond, byte, cond: :ne)
+            @emitter.emit(ASM.load_immediate(0, 0))
+            @emitter.emit(ASM.store_halfword(0, 1))                    # the request's last bit
+            emit_copy(from: :bits, to: :chip, count: WRITE_REQUEST)
+            # Ask the chip until it has settled, or it has been asked ASKS times.
+            @emitter.emit(ASM.load_immediate(1, EEPROM_AT))
+            @emitter.emit(ASM.load_immediate(3, ASKS))
+            @emitter.place_label(asked)
+            @emitter.emit(ASM.load_halfword(0, 1))
+            @emitter.emit(ASM.tst_imm(0, 1))
+            @emitter.emit_branch(:bcond, settled, cond: :ne)
+            @emitter.emit(ASM.subs_imm(3, 3, 1))
+            @emitter.emit_branch(:bcond, asked, cond: :ne)
+            @emitter.emit(ASM.load_immediate(2, @area))               # never settled: give the block up
+            @emitter.emit(ASM.mvn_imm(0, 0))
+            @emitter.emit(ASM.str_offset(0, 2, HELD_AT))
+            @emitter.place_label(settled)
+            emit_copy_matches_chip(scratch: 0, area: 2)
+            @emitter.place_label(done)
+            @emitter.emit(ASM.pop(0, 1, 2, 3, ADDR, 14))
+            @emitter.emit(ASM.bx(14))
+          end
+
+          # The copy no longer differs from the chip. Spends +scratch+, and leaves the address of
+          # the copy's area in +area+.
+          def emit_copy_matches_chip(scratch:, area:)
+            @emitter.emit(ASM.load_immediate(area, @area))
+            @emitter.emit(ASM.load_immediate(scratch, 0))
+            @emitter.emit(ASM.str_offset(scratch, area, CHANGED_AT))
+          end
+
+          # The request's first two bits, 1 and then +second+, at r1, which moves on past them.
+          # Spends r0.
+          def emit_request_start(first, second)
+            @emitter.emit(ASM.load_immediate(0, first))
+            @emitter.emit(ASM.store_halfword_post(0, 1, 2))
+            @emitter.emit(ASM.load_immediate(0, second))
+            @emitter.emit(ASM.store_halfword_post(0, 1, 2))
+          end
+
+          # Block r12's number in ADDRESS_BITS bits, highest first, at r1, which moves on past
+          # them. Spends r0 and r3.
+          def emit_block_number
+            bit = @emitter.gensym
+            @emitter.emit(ASM.load_immediate(3, ADDRESS_BITS - 1))
+            @emitter.place_label(bit)
+            @emitter.emit(ASM.mov_reg_lsr_reg(0, ADDR, 3))
+            @emitter.emit(ASM.and_imm(0, 0, 1))
+            @emitter.emit(ASM.store_halfword_post(0, 1, 2))
+            @emitter.emit(ASM.subs_imm(3, 3, 1))
+            @emitter.emit_branch(:bcond, bit, cond: :ge)
+          end
+
+          # The copying engine moves +count+ halfwords between the bits in the roomy memory and the
+          # chip, and the console waits while it does. The interrupts are held off while the engine
+          # is told what to move, so an interrupt that copies something of its own cannot land
+          # between two of those writes. Spends r0, r1, r2 and r3.
+          def emit_copy(from:, to:, count:)
+            ends = { bits: @area + BITS_AT, chip: EEPROM_AT }
+            @emitter.emit(ASM.load_immediate(1, REG_IME))
+            @emitter.emit(ASM.load_halfword(2, 1))                     # r2 = whether interrupts were on
+            @emitter.emit(ASM.load_immediate(0, 0))
+            @emitter.emit(ASM.store_halfword(0, 1))
+            @emitter.emit(ASM.load_immediate(3, REG_DMA3SAD))
+            @emitter.emit(ASM.load_immediate(0, ends.fetch(from)))
+            @emitter.emit(ASM.str_offset(0, 3, 0))
+            @emitter.emit(ASM.load_immediate(0, ends.fetch(to)))
+            @emitter.emit(ASM.str_offset(0, 3, 4))
+            @emitter.emit(ASM.load_immediate(0, COPY_NOW | count))
+            @emitter.emit(ASM.str_offset(0, 3, 8))
+            @emitter.emit(ASM.store_halfword(2, 1))
           end
         end
       end

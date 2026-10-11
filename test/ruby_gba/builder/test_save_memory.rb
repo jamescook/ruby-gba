@@ -54,11 +54,25 @@ class TestSaveMemory < Minitest::Test
     assert_match(/need 64K/, message)
   end
 
+  # THE 8K EEPROM is the one a game has to ask for: it is much slower to write than the others.
+  def test_a_small_game_is_never_given_the_eeprom_unasked
+    refute_includes game(bytes: 10, copies: 1).buffer, "EEPROM_V"
+    assert_includes game(bytes: 10, copies: 1, save_memory: 8).buffer, "EEPROM_V124"
+  end
+
+  def test_records_too_big_for_the_eeprom_say_it_is_the_smallest
+    message = refusal(bytes: 6000, copies: 1, save_memory: 8)
+
+    assert_match(/save_memory: 8/, message)
+    assert_match(/8K, the EEPROM, is the smallest save memory there is/, message)
+    assert_match(/need 32K/, message)
+  end
+
   def test_a_size_no_cartridge_has_is_refused
     message = refusal(bytes: 10, copies: 1, save_memory: 48)
 
     assert_match(/48/, message)
-    assert_match(/32, 64 or 128/, message)
+    assert_match(/8, 32, 64 or 128/, message)
   end
 
   # Room to grow is a reason to name a size the records do not need yet.

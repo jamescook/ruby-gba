@@ -17,16 +17,17 @@ module RubyGBA
     # +frame_sync+ is :auto (the framework paces each game_loop) or :manual (the game places
     # `wait_vblank` itself). +fast_cartridge+ asks the console for quick cartridge timing at boot.
     # +fast_code+ lets the build choose which routines go in the console's quick memory.
-    # +save_memory+ is how much save memory the cartridge has, in kilobytes (32, 64 or 128), or
-    # nil to let the game's save_data records decide.
+    # +save_memory+ is how much save memory the cartridge has, in kilobytes (8, 32, 64 or 128),
+    # or nil to let the game's save_data records decide. 8 is the EEPROM, which only a game that
+    # asks for it gets (see IR::SaveLayout::EEPROM).
     Options = Data.define(:frame_sync, :fast_cartridge, :fast_code, :save_memory) do
       def initialize(frame_sync: :auto, fast_cartridge: true, fast_code: true, save_memory: nil)
         unless %i[auto manual].include?(frame_sync)
           raise ArgumentError, "frame_sync must be :auto or :manual, got #{frame_sync.inspect}"
         end
-        unless save_memory.nil? || IR::SaveLayout::MEMORIES.include?(save_memory)
+        unless save_memory.nil? || IR::SaveLayout::NAMEABLE.include?(save_memory)
           raise ArgumentError, "save_memory: #{save_memory.inspect} is not a size of save memory. A cartridge " \
-                               "has 32, 64 or 128 kilobytes. To fix this, use one of those numbers, or leave " \
+                               "has 8, 32, 64 or 128 kilobytes. To fix this, use one of those numbers, or leave " \
                                "save_memory: out and the build picks the smallest that holds the saves."
         end
 

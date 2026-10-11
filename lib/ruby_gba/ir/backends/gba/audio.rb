@@ -23,7 +23,7 @@ module RubyGBA
           # is just "put this 16-bit value at this register address."
 
           def initialize(emitter:, primitives:, lowering:, mixer:, memory:, sounds:, songs:, frames:, expressions:,
-                          raster:, drawing:, uses_pressed:, any_buffered:)
+                          raster:, drawing:, uses_pressed:, any_buffered:, end_of_pass:)
             @emitter = emitter
             @primitives = primitives
             @lowering = lowering # works out a song's number when the game names it by one
@@ -37,6 +37,7 @@ module RubyGBA
             @drawing = drawing
             @uses_pressed = uses_pressed
             @any_buffered = any_buffered
+            @end_of_pass = end_of_pass # what has to happen before the console sleeps (see #emit_wait_vblank)
             @song_numbers = {} # tune name -> the number the player knows it by (see #prepare_music)
             @lanes = []        # the hardware the player drives (see Lane)
             @effects = []      # every sound effect, highest rank first (see #prepare_sound_effects)
@@ -973,6 +974,9 @@ module RubyGBA
           # (VBlankIntrWait). The interrupt itself was armed once at boot (emit_irq_setup),
           # so this is a single instruction; the CPU draws no power while it waits.
           def emit_wait_vblank(_node = nil)
+            # What the pass has left to finish goes first, in time the console would otherwise
+            # spend asleep (see the end_of_pass the lowering hands over).
+            @end_of_pass.call
             @emitter.emit(ASM.swi(SWI_VBLANK_INTR_WAIT << 16))
 
             # How many frames the pass that just ended really took. First thing after the wait,

@@ -248,9 +248,10 @@ module RubyGBA
         return if named.nil? || IR::SaveLayout.fits?(named, record_halves)
 
         records = "save_data records"
-        records += ", with the record that keeps its save_var numbers on flash," if save_vars_in_record?
+        records += ", with the record that keeps its save_var numbers," if save_vars_in_record?
+        smallest = named == IR::SaveLayout::EEPROM ? " #{named}K, the EEPROM, is the smallest save memory there is." : ""
         raise ArgumentError, "This game asks for `save_memory: #{named}`, and its #{records} need " \
-                             "#{needed_save_memory}K. To fix this, ask for `save_memory: " \
+                             "#{needed_save_memory}K.#{smallest} To fix this, ask for `save_memory: " \
                              "#{needed_save_memory}`, or keep less in each record, or use fewer copies."
       end
 

@@ -73,9 +73,23 @@ module RubyGBA
       # The 32K memory's size.
       SIZE = 0x8000
 
-      # THE SAVE MEMORIES A CARTRIDGE CAN HAVE, in kilobytes: the 32K above, or a flash chip of
+      # THE SAVE MEMORIES THE BUILD PICKS FROM, in kilobytes: the 32K above, or a flash chip of
       # 64K or 128K. Flash keeps a save with no battery, and real cartridges shipped both sizes.
       MEMORIES = [32, 64, 128].freeze
+
+      # AN 8K EEPROM, the smallest chip a cartridge can have, which a game has to ask for. It
+      # needs no battery and was the cheapest chip to put on a cartridge, so retail games with a
+      # small save used it. It is never picked for a game, because it is by far the slowest to
+      # write: it is written eight bytes at a time, and after each eight it takes most of half
+      # a frame to settle. So on it a save is written eight bytes a pass. (The smaller EEPROM,
+      # half a kilobyte, cannot hold the table of places, so it is not one of them.)
+      EEPROM = 8
+
+      # Every save memory a game can name with `save_memory:`.
+      NAMEABLE = [EEPROM, *MEMORIES].freeze
+
+      # An EEPROM is written a block of eight bytes at a time, never a single byte.
+      EEPROM_BLOCK = 8
 
       # Flash is wiped a block at a time before it can be written again, and this is the block.
       # So on flash every half of a record starts on one and covers whole ones: wiping a half
@@ -94,28 +108,67 @@ module RubyGBA
       # own: wiping a half can never touch the one beside it. Flash keeps no block for
       # save_var, whose numbers are kept there in a record like any other (see
       # Builder::SaveVarRecord), so the table starts at the very beginning.
+      #
+      # The EEPROM is packed too, but each half starts on a block of eight bytes and covers whole
+      # ones, since the chip is written a block at a time: writing a half then never writes the
+      # half beside it, which is what keeps a save cut off half way from damaging the other one.
+      # Like flash it keeps its save_vars in a record, since it too wears out a little with every
+      # write and a number changing every frame would wear it out.
       Memory = Data.define(:kilobytes) do
-        def flash? = kilobytes != MEMORIES.first
+        # Battery-backed memory: any byte, written in place, as often as the game likes.
+        def battery? = kilobytes == MEMORIES.first
+
+        # Flash: a byte only once between two wipes of the 4K block it is in.
+        def flash? = kilobytes > MEMORIES.first
+
+        # The EEPROM: eight bytes at a time.
+        def eeprom? = kilobytes == EEPROM
+
+        # Whether a `save_var`'s number is written in place as it changes (battery memory), or
+        # its numbers are kept in a record saved now and then (see Builder::SaveVarRecord).
+        def save_vars_in_record? = !battery?
 
         # How many bytes there are.
         def size = kilobytes * 1024
 
-        # Where the table of places starts.
-        def table_at = flash? ? 0 : START
+        # Where the table of places starts: past save_var's block, on the one memory that has it.
+        def table_at = battery? ? START : 0
 
         # Where records can go: past both halves of the table.
         def data_start = table_at + (2 * room(SaveLayout.half_bytes(TABLE_BODY)))
 
-        # What a half's room is counted in: whole blocks on flash, single bytes in the packed
-        # 32K. Anything that rounds a half to its room — here, or in a routine that works it
-        # out as the game runs — rounds up to a whole number of these.
-        def block = flash? ? SECTOR : 1
+        # What a half's room is counted in: whole blocks on flash and the EEPROM, single bytes
+        # in the packed 32K. Anything that rounds a half to its room — here, or in a routine that
+        # works it out as the game runs — rounds up to a whole number of these.
+        def block
+          return SECTOR if flash?
+          return EEPROM_BLOCK if eeprom?
+
+          1
+        end
 
         # How many bytes of a record's body a background save writes each pass of the game
         # loop: a full-size save file in about five passes on battery memory. A byte of flash
         # takes the chip several hundred cycles where battery memory takes a few, so a pass on
-        # flash writes an eighth as many.
-        def bytes_per_pass = flash? ? 32 : 256
+        # flash writes an eighth as many. A block of the EEPROM takes the chip most of half a
+        # frame, so a pass on it writes one block's worth.
+        def bytes_per_pass
+          return 32 if flash?
+          return EEPROM_BLOCK if eeprom?
+
+          256
+        end
+
+        # Which kind of chip it is: :battery, :flash or :eeprom.
+        def chip
+          return :flash if flash?
+          return :eeprom if eeprom?
+
+          :battery
+        end
+
+        # What the chip is called, where a build says so.
+        def kind_words = { battery: "battery-backed memory", flash: "flash", eeprom: "EEPROM" }.fetch(chip)
 
         # How many bytes a half of +half+ bytes takes, which is how far apart the halves sit.
         def room(half) = ((half + block - 1) / block) * block

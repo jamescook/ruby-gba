@@ -30,6 +30,10 @@ module RubyGBA
     # memory). One added later starts at its default, since the save says it had no slot then.
     # The run is SLOTS words, or room for every save_var a game can have once it outgrows that.
     #
+    # The 8K EEPROM keeps its save_vars this way too. It needs no wipe, but it is written eight
+    # bytes at a time and wears out a little with each write, so a number written in place every
+    # frame would cost a block written every frame — most of half a frame each time.
+    #
     # Nothing in the game says any of this. On the 32K memory there is no record, and a
     # save_var writes through as it always did.
     module SaveVarRecord
@@ -44,7 +48,7 @@ module RubyGBA
       SLOTS = 64
 
       # What an error calls the record, which the game never named.
-      SAVE_VAR_RECORD_WORDS = "the record that keeps the save_var numbers on flash"
+      SAVE_VAR_RECORD_WORDS = "the record that keeps the save_var numbers"
 
       # The statement that notes a saved variable changed, put where the game changed it.
       def save_var_changed_node = Build.set(@save_data.fetch(SAVE_VAR_RECORD).scratch(:changed), sd_int(1))
@@ -55,11 +59,12 @@ module RubyGBA
       private
 
       # Declare the record of the saved variables +saved_vars+ (IR::SavedVar), laid out beside
-      # the records already laid out — if the game has any and its save memory is flash.
-      # +memory+ is the save memory the cartridge has, in kilobytes (see IR::SaveLayout.chosen);
-      # records that fit no memory at all are refused next, whatever this does.
+      # the records already laid out — if the game has any and its save memory keeps them in a
+      # record. +memory+ is the save memory the cartridge has, in kilobytes (see
+      # IR::SaveLayout.chosen); records that fit no memory at all are refused next, whatever this
+      # does.
       def lay_out_save_var_record(saved_vars, memory)
-        return if saved_vars.empty? || !IR::SaveLayout.memory(memory).flash?
+        return if saved_vars.empty? || !IR::SaveLayout.memory(memory).save_vars_in_record?
 
         layout = new_record_layout(SAVE_VAR_RECORD, copies: 1, when_busy: :wait)
         %i[changed spacing count].each { |what| ensure_var(layout.scratch(what)) }

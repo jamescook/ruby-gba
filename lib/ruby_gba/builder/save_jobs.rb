@@ -348,22 +348,38 @@ module RubyGBA
 
       def save_job_piece(layout)
         left = sd_op(:-, sd_int(layout.body), job_var(:run_done))
-        per_pass = @memory.bytes_per_pass
-        set_job_var(:pieces, Build.clamped(left, sd_int(0), sd_int(per_pass)))
+        set_job_var(:pieces, Build.clamped(left, sd_int(0), most_written_this_pass))
         sd_when(sd_op(:!=, job_var(:run_kind), sd_int(ERASE))) do
           body = sd_add(job_var(:run_at), sd_int(IR::SaveLayout::HEADER))
           base = sd_op(:*, job_var(:run_slot), sd_int(layout.body))
+          # A save writes from the snapshot it took and a copy from the half it copies. Only a
+          # copy reads save memory, which matters on the EEPROM: a read there of the block
+          # being written writes it back first (see GBA::EepromChip), so a save that also read
+          # the half it was not using would write a block for every byte.
           repeat(DSL::Value.new(handle, job_var(:pieces))) do |i|
             j = sd_add(job_var(:run_done), i.node)
-            from_buffer = Build.list_get(layout.scratch(:stage), sd_add(base, j))
-            from_copy = sd_read(sd_add(job_var(:run_from), j), :byte)
-            value = sd_op(:+, sd_op(:*, sd_eq(job_var(:run_kind), sd_int(SAVE)), from_buffer),
-                           sd_op(:*, sd_eq(job_var(:run_kind), sd_int(COPY)), from_copy))
-            record(Build.save_write(sd_add(body, j), value, width: :byte))
+            to = sd_add(body, j)
+            sd_when(sd_eq(job_var(:run_kind), sd_int(COPY))) do
+              record(Build.save_write(to, sd_read(sd_add(job_var(:run_from), j), :byte), width: :byte))
+            end.else do
+              record(Build.save_write(to, Build.list_get(layout.scratch(:stage), sd_add(base, j)), width: :byte))
+            end
           end
         end
         set_job_var(:run_done, sd_add(job_var(:run_done), job_var(:pieces)))
         sd_when(sd_op(:>=, job_var(:run_done), sd_int(layout.body))) { set_job_var(:run_phase, CLOSING) }
+      end
+
+      # The most a pass writes of the body (see IR::SaveLayout::Memory#bytes_per_pass). The
+      # EEPROM is written a block at a time, and a half starts on a block, so its body starts
+      # part way into one: a pass that stopped at a block's end each time would write one block,
+      # where eight bytes from wherever the last pass stopped would write two. So on it a pass
+      # writes up to the end of the block the body has reached.
+      def most_written_this_pass
+        return sd_int(@memory.bytes_per_pass) unless @memory.eeprom?
+
+        reached = sd_add(sd_int(IR::SaveLayout::HEADER), job_var(:run_done))
+        sd_op(:-, sd_int(@memory.block), Build.binop(:&, reached, sd_int(@memory.block - 1)))
       end
 
       def save_job_commit(layout)
