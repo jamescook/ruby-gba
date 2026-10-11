@@ -224,9 +224,9 @@ On a `rake test` run `game_player` IS `Reference.new`. On a native run it is a
 native slice), and then the same buttons replayed on the interpreter, failing at the first
 frame where any variable, any pixel or the sound log differs. So an opted-in file's own checks
 are backed by a whole-picture comparison on every frame. The sound log is the interpreter's
-words for what was played. The C keeps that log — nothing comes out of a speaker yet — for
-songs on the square-wave voices, beeps and the music volume so far, and a game that uses any
-other sound is refused by name when it is built.
+words for what was played. The C keeps that log, and plays the sound, for songs on the
+square-wave voices, beeps and the music volume so far, and a game that uses any other sound is
+refused by name when it is built.
 
 Opt a file in once native can play its games, and in chunks that go with the native slice that
 made them pass. What the native player cannot answer yet raises `HeadlessRun::CannotAnswer`
@@ -623,5 +623,5 @@ exact wording (which is free to improve). See the guardrail tests for the shape.
 - `rake test` runs everything; a single file is `rake test TEST=test/the_file.rb`.
 - Integration tests **fail loudly** without the emulator rather than skipping — it is
   required, not optional, so a missing build is a real error and not a quiet pass with the
-  coverage gutted. The one exception is a native run (`rake test:native`), which makes no
-  cartridge: there they skip, saying so, and `rake test` still runs them every time.
+  coverage gutted. The one exception is a native run (`rake test:native`), which is there to
+  test the game as C: there they skip, saying so, and `rake test` still runs them every time.

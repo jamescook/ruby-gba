@@ -24,8 +24,7 @@ class TestNativeDesktop < Minitest::Test
   # down to the music row and A to turn it off, down to DIFFICULTY and A to open it, up to NORMAL
   # and A to choose it.
   MENU_RUN = Ractor.make_shareable(
-    [[10..15, :down], [30..38, :a], [50..55, :down], [70..78, :a], [95..100, :up], [115..122, :a]]
-      .flat_map { |frames, button| frames.map { |frame| [frame, [button]] } }.to_h
+    NativeComparison.held_for([10..15, :down], [30..38, :a], [50..55, :down], [70..78, :a], [95..100, :up], [115..122, :a])
   )
   MENU_FRAMES = 140
 

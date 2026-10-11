@@ -47,16 +47,15 @@ module RubyGBA
             [eval_call("rg_music_follow_level", C::AddressOf.new(variable(Tunes::LEVEL)))]
           end
 
-          # Every beep the game makes as the runtime reads it: how long one wave lasts, how much
-          # of it is high, how long it holds each step of volume as it fades, and the volume it
-          # starts at. A game with no beeps still has the table, with one silent row.
+          # How many beeps the game makes, and each as the runtime reads it: how long one wave
+          # lasts, how much of it is high, the volume it starts at, and how long it holds each step
+          # of volume as it fades.
           def beep_table
             rows = @sound_log.effects.map do |effect|
               [RubyGBA::Audio::Sound.square_wave_ticks(effect.frequency), RubyGBA::Audio::Sound::SQUARE_HIGH_EIGHTHS.fetch(effect.duty),
-               RubyGBA::Audio::Sound::FADE_STEP_SIXTY_FOURTHS.fetch(effect.decay), effect.volume]
+               effect.volume, RubyGBA::Audio::Sound::FADE_STEP_SIXTY_FOURTHS.fetch(effect.decay)]
             end
-            C::ConstArray.new(name: @names.own("beeps"), type: "int32_t", values: rows.empty? ? [0, 0, 0, 0] : rows.flatten,
-                              exported: true)
+            C::ConstArray.new(name: @names.own("beeps"), type: "int32_t", values: [rows.size, *rows.flatten], exported: true)
           end
 
           # The rules of the music's volume and of the square voices' pitch, and every song, as the

@@ -125,6 +125,7 @@ static int scripted;
 static long frames_to_play;
 static long frames_played;
 static uint32_t scripted_keys;
+static int printing_script_end; /* the variables being printed are the script's last word */
 
 static _Noreturn void quit(int status) {
   SDL_Quit();
@@ -295,6 +296,7 @@ static void press_scripted_keys(void) {
 /* A scripted run's last word: every variable, as --headless prints them at its end. */
 static _Noreturn void finish_script(void) {
   puts("end");
+  printing_script_end = 1;
   rg_game_dump_variables();
   fflush(stdout);
   quit(0);
@@ -335,16 +337,17 @@ static void sdl_fault(const char *format, va_list args) {
   quit(1);
 }
 
-/* A player's window has nobody to print the variables to: only a trace and a script's end do. */
+/* A player's window has nobody to print the variables to: only a trace, on the error stream as
+ * it goes, and a script's end, on the output, do. */
 static void sdl_dump_variable(const char *name, int32_t value) {
-  if (scripted) {
+  if (printing_script_end) {
     printf("var %s %d\n", name, (int)value);
   } else if (tracing) {
     fprintf(stderr, " %s=%d", name, (int)value);
   }
 }
 
-/* ...nor the sound log. A window will play the sound itself, from the same player, one day. */
+/* ...nor the log of what was played: the window plays the sound itself. */
 static void sdl_sound_logged(const char *line) { (void)line; }
 
 static const rg_driver sdl = {sdl_wait_vblank, sdl_halt, sdl_fault, sdl_dump_variable, sdl_sound_logged};
@@ -378,7 +381,8 @@ int main(int argc, char **argv) {
     }
   }
 
-  if (!SDL_Init(SDL_INIT_VIDEO | SDL_INIT_GAMEPAD)) refuse_to_start("the display could not be reached");
+  if (!SDL_Init(SDL_INIT_VIDEO)) refuse_to_start("the display could not be reached");
+  if (!SDL_InitSubSystem(SDL_INIT_GAMEPAD)) refuse_to_start("the buttons could not be read");
   /* High pixel density asks for the screen's real pixels on a Retina display. Without it the
    * whole number the picture is scaled by is worked out in the display's larger "points", and the
    * system then stretches the result to the real pixels itself, smoothing it as it goes. */

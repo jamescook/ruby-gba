@@ -133,7 +133,8 @@ namespace :test do
     t.libs << "test" << "lib"
     t.test_files = TestSuites.files(desktop: ENV["SDL"] == "1")
     t.description = "Run the suite on the native lowering: the classes that say `runs_on :native` " \
-                    "(needs zig). SDL=1 also builds and runs the desktop program, with its window"
+                    "(needs zig, and the emulator for its sound). SDL=1 also builds and runs the " \
+                    "desktop program, with its window"
   end
 end
 

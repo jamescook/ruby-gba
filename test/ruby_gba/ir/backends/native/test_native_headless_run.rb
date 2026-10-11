@@ -105,6 +105,13 @@ class TestNativeHeadlessRun < Minitest::Test
     assert_match(/game_state/, error.message)
   end
 
+  # The sound comes as so many numbers a second, and the C and the Ruby each say how many.
+  def test_the_sound_rate_is_the_one_the_runtime_makes_it_at
+    header = File.read(File.join(RubyGBA::IR::Backends::Native::Zig::RUNTIME_DIR, "rg_sound.h"))
+
+    assert_match(/^#define RG_SOUND_RATE #{HeadlessRun::SOUND_RATE}$/, header)
+  end
+
   def test_the_picture_reads_back_a_pixel_at_a_time
     program = program_of do
       screen :bitmap

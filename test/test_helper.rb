@@ -87,8 +87,10 @@ module EmulatorSupport
   # coverage gutted. `rake test` builds it first; run `rake test:emulator` to build it by hand.
   #
   # On a native run it skips instead, and that is not the same thing: a test that reaches for
-  # the emulator is about the cartridge, which `rake test` checks on every run, and the native
-  # lowering makes no cartridge. Any check on the game itself that came before it has run.
+  # the emulator this way is about the cartridge, which `rake test` checks on every run and a
+  # native run is not there to check. Any check on the game itself that came before it has run.
+  # (A native run does use the emulator for one thing — as the answer key for the desktop
+  # build's sound — and asks it directly, not through here: see test/sound_comparison.rb.)
   def require_emulator!
     skip "checks the cartridge in the emulator, which `rake test` runs" if TestSuites.native?
 

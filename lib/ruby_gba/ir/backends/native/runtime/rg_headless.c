@@ -138,15 +138,17 @@ int rg_headless_main(int argc, char **argv) {
   }
   frames_to_play = strtol(argv[1], NULL, 10);
   for (int i = 2; i < argc; i++) {
-    if (strcmp(argv[i], "--every-picture") == 0) every_picture = 1;
-    if (strcmp(argv[i], "--sound-out") == 0 && i + 1 < argc) {
-      sound_out = fopen(argv[i + 1], "wb");
+    if (strcmp(argv[i], "--every-picture") == 0) {
+      every_picture = 1;
+    } else if (strcmp(argv[i], "--sound-out") == 0 && i + 1 < argc) {
+      sound_out = fopen(argv[++i], "wb");
       if (!sound_out) {
-        fprintf(stderr, "the sound could not be written to %s\n", argv[i + 1]);
+        fprintf(stderr, "the sound could not be written to %s\n", argv[i]);
         return 2;
       }
+    } else if (strcmp(argv[i], "--sound-voice") == 0 && i + 1 < argc) {
+      rg_sound_hear_only((int32_t)strtol(argv[++i], NULL, 10));
     }
-    if (strcmp(argv[i], "--sound-voice") == 0 && i + 1 < argc) rg_sound_hear_only((int32_t)strtol(argv[i + 1], NULL, 10));
   }
   rg_active_driver = &headless;
   rg_game_main();
