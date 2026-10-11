@@ -117,6 +117,36 @@ class TestLayerTransparency < Minitest::Test
     assert_equal RED, screen.pixel(*SCENERY_XY), "the floor beside it does not"
   end
 
+  # ONE SEE-THROUGH SPRITE IN A GAME THAT NAMES NO OTHER LAYER — a ghost, a shield bubble —
+  # needs no verb of its own: a stack of one layer holding it is two lines, and nothing else
+  # in the game has to name a layer, since what names none keeps the place it had. The layer
+  # and a per-sprite word would reach the same bit of the sprite's table entry and share the
+  # console's one amount, so a second spelling would only be a second way to ask.
+  def lone_ghost_program
+    tile = SOLID_TILE
+    program do
+      screen :tiled
+      image(:back, "#" => :red) { tile }
+      image(:ghost, "#" => :white) { tile }
+      image(:hero, "#" => :green) { tile }
+      tiles :backset, "#" => :back
+      background :floor, tiles: :backset, map: Array.new(20) { "#" * 30 }
+      sprite :hero, at: [24, 24]
+      layers :ghosts
+      layer(:ghosts, transparency: 50) { sprite :ghost, at: [64, 64] }
+      game_loop { wait_vblank }
+    end
+  end
+
+  def test_one_see_through_sprite_needs_only_a_layer_of_its_own
+    screen = Reference.new.run(lone_ghost_program, frames: 2).screen
+
+    assert_equal HALF_WHITE_OVER_RED, screen.pixel(*SPRITE_XY), "the ghost blends"
+    assert_equal GREEN, screen.pixel(26, 26), "the sprite that named no layer does not"
+    assert_equal RED, screen.pixel(*SCENERY_XY), "nor the floor"
+    assert_backends_agree(lone_ghost_program, frames: 2)
+  end
+
   # --- and the console agrees, which is the point of having two backends ---
 
   def test_the_console_blends_a_see_through_layer_of_scenery_the_same
