@@ -219,14 +219,16 @@ class TestPongScoring < Minitest::Test
 ```
 
 On a `rake test` run `game_player` IS `Reference.new`. On a native run it is a
-`CheckedNativeRun`: the game built as C and driven through the same calls (`input_each_frame`,
-`run`, `[]`, `screen.pixel`), and then the same buttons replayed on the interpreter, failing at
+`CheckedNativeRun`: the game built as C and driven through the same calls (`hold`,
+`input_each_frame`, `run`, `[]`, `vars`, `screen.pixel` so far, growing with each native
+slice), and then the same buttons replayed on the interpreter, failing at
 the first frame where any variable or any pixel differs. So an opted-in file's own checks are
 backed by a whole-picture comparison on every frame.
 
 Opt a file in once native can play its games, and in chunks that go with the native slice that
 made them pass. What the native player cannot answer yet raises `HeadlessRun::CannotAnswer`
-naming the call — the file came too early, or that one test wants a skip. A test that reaches
+naming the call — the file came too early, or that one test wants `skip_on_native "why"` at
+its top, which does nothing on the interpreter's run. A test that reaches
 for the emulator (`require_emulator!`, `assert_emulator_loads_rom`) skips itself on a native
 run, since the cartridge is `rake test`'s; any check on the game before it has already run.
 Every skip says why, and a native run ends with the skips counted by reason.
@@ -595,4 +597,5 @@ exact wording (which is free to improve). See the guardrail tests for the shape.
 - `rake test` runs everything; a single file is `rake test TEST=test/the_file.rb`.
 - Integration tests **fail loudly** without the emulator rather than skipping — it is
   required, not optional, so a missing build is a real error and not a quiet pass with the
-  coverage gutted.
+  coverage gutted. The one exception is a native run (`rake test:native`), which makes no
+  cartridge: there they skip, saying so, and `rake test` still runs them every time.

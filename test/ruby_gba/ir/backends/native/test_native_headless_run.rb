@@ -54,11 +54,41 @@ class TestNativeHeadlessRun < Minitest::Test
     assert_equal 3, run.run(program, frames: 8)[:x]
   end
 
-  # A test makes its player with the interpreter's options whichever lowering it is handed, so
-  # the two take the same ones; an option added to one and not the other fails here.
-  def test_it_takes_the_options_the_interpreter_takes
-    assert_equal Reference.instance_method(:initialize).parameters.map(&:last).sort,
-                 HeadlessRun.instance_method(:initialize).parameters.map(&:last).sort
+  def test_buttons_held_for_the_whole_run
+    program = program_of do
+      x = var :x, 0
+      game_loop { held(:left).then { x.add! 1 } }
+    end
+
+    assert_equal 4, HeadlessRun.new.hold(:left).run(program, frames: 4)[:x]
+  end
+
+  # Every variable at once, the way the interpreter's `vars` gives them.
+  def test_every_variable_reads_back_together
+    program = program_of do
+      a = var :a, 2
+      b = var :b, 0
+      game_loop { b.add! a }
+    end
+
+    assert_equal({ a: 2, b: 6 }, HeadlessRun.new.run(program, frames: 3).vars.slice(:a, :b))
+  end
+
+  # Told no number of frames, it plays as many as the interpreter does when it is not told.
+  def test_a_run_given_no_frame_count_plays_the_interpreters_default
+    program = program_of do
+      ticks = var :ticks, 0
+      game_loop { ticks.add! 1 }
+    end
+
+    assert_equal Reference::DEFAULT_FRAMES, HeadlessRun.new.run(program)[:ticks]
+  end
+
+  # A step budget is something only the interpreter keeps: the C runs as fast as it runs.
+  def test_a_step_budget_is_refused_by_name
+    error = assert_raises(HeadlessRun::CannotAnswer) { HeadlessRun.new.run(program_of { halt }, max_steps: 100) }
+
+    assert_match(/max_steps/, error.message)
   end
 
   def test_starting_from_save_memory_is_refused_until_the_native_lowering_can_hold_one

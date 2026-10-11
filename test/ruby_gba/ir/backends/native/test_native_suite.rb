@@ -19,4 +19,11 @@ class TestNativeSuite < Minitest::Test
 
     assert_match(/emulator/, skipped.message)
   end
+
+  # ...and a test that asks something native cannot answer yet says so, with its reason.
+  def test_a_test_native_cannot_play_yet_skips_with_its_reason
+    skipped = assert_raises(Minitest::Skip) { skip_on_native "reads the sprites by name" }
+
+    assert_match(/reads the sprites by name/, skipped.message)
+  end
 end

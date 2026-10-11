@@ -1,6 +1,5 @@
 # frozen_string_literal: true
 
-require "zlib"
 require "native_comparison"
 
 # What `game_player` hands a test on a native run: the game played as C (Native::HeadlessRun),
@@ -22,18 +21,28 @@ class CheckedNativeRun
   HeadlessRun = RubyGBA::IR::Backends::Native::HeadlessRun
   Moment = HeadlessRun::Moment
 
+  # Every frame's buttons reach the native run through one script, which keeps them for the
+  # replay: the test's own script when it gave one, else whatever it held for the whole run.
   def initialize(save: nil)
     @native = HeadlessRun.new(save: save)
     @played = {}
+    @held = []
+    @native.input_each_frame { |frame| @played[frame] = @script ? Array(@script.call(frame)) : @held }
   end
 
-  def input_each_frame(&script)
-    @native.input_each_frame { |frame| @played[frame] = Array(script.call(frame)) }
+  def hold(*buttons)
+    @held = buttons
     self
   end
 
-  def run(program, frames: Reference::DEFAULT_FRAMES)
-    @native.run(program, frames: frames)
+  def input_each_frame(&script)
+    @script = script
+    self
+  end
+
+  def run(program, max_steps: nil, frames: nil)
+    @native.run(program, max_steps: max_steps, frames: frames)
+    frames ||= Reference::DEFAULT_FRAMES
     difference = self.class.first_difference(interpreter_moments(program, frames), @native.moments)
     raise Minitest::Assertion, disagreement_message(difference, program, frames) if difference
 
@@ -78,8 +87,7 @@ class CheckedNativeRun
   end
 
   def moment_of(interpreter, frame)
-    Moment.new(frame: frame, variables: interpreter.vars.dup,
-               picture: Zlib.crc32(interpreter.screen.shown.pack("v*")))
+    Moment.new(frame: frame, variables: interpreter.vars.dup, picture: HeadlessRun.picture_check(interpreter.screen.shown))
   end
 
   # A picture that differs is played again with every pixel of every frame, to say where.

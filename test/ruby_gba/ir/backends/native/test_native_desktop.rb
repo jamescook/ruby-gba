@@ -35,7 +35,7 @@ class TestNativeDesktop < Minitest::Test
   # Started with --headless it plays a recorded run with no window, and shows the interpreter's
   # picture pixel for pixel.
   def assert_runs_headless_like_the_interpreter(exe)
-    input = (1..FRAMES).map { |frame| "#{button_mask(RUN.fetch(frame, []))}\n" }.join
+    input = (1..FRAMES).map { |frame| "#{Native::HeadlessRun.button_mask(RUN.fetch(frame, []))}\n" }.join
     actual = parse_snapshots(Native::Zig.run_program(exe, args: ["--headless", FRAMES, "--every-picture"], input: input))
     expected = reference_snapshots(Native.new.checked_program(PongGame::GAME, err: nil), frames: FRAMES, buttons: RUN)
 

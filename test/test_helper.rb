@@ -12,8 +12,8 @@ end
 require "minitest/autorun"
 require "minitest/ractor"
 require_relative "../lib/ruby_gba"
-require_relative "support/suites"
-require_relative "support/native_skips" if TestSuites::LOWERING == :native
+require "support/suites"
+require "support/native_skips" if TestSuites.native?
 require "checked_native_run"
 
 # The one require a test file needs. It pulls in minitest and the library, and
@@ -90,7 +90,7 @@ module EmulatorSupport
   # the emulator is about the cartridge, which `rake test` checks on every run, and the native
   # lowering makes no cartridge. Any check on the game itself that came before it has run.
   def require_emulator!
-    skip "checks the cartridge in the emulator, which `rake test` runs" if TestSuites::LOWERING == :native
+    skip "checks the cartridge in the emulator, which `rake test` runs" if TestSuites.native?
 
     RubyGBA::Diagnostics::Emulator.load!
   end
@@ -203,8 +203,15 @@ class Minitest::Test # rubocop:disable Style/ClassAndModuleChildren
   # frame (CheckedNativeRun). +save+ is the save memory the game starts with, as Reference.new
   # takes it.
   def game_player(save: nil)
-    player = TestSuites::LOWERING == :native ? CheckedNativeRun : Reference
+    player = TestSuites.native? ? CheckedNativeRun : Reference
     save ? player.new(save: save) : player.new
+  end
+
+  # A test in an opted-in file that the native lowering cannot play yet skips itself on a
+  # native run, saying +why+ — and a native run ends by counting the skips by reason, so these
+  # cannot pile up unseen. On the interpreter's run it does nothing.
+  def skip_on_native(why)
+    skip "native cannot play this yet: #{why}" if TestSuites.native?
   end
 
   # EVERY FIXTURE A TEST CLASS PARKS IN A CONSTANT IS FROZEN, ALL THE WAY DOWN, the moment it
