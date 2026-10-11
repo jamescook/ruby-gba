@@ -18,6 +18,14 @@ module NativeComparison
   # the sound log up to then.
   Snapshot = Data.define(:heading, :variables, :picture, :sounds)
 
+  # Buttons held the way a person holds them — one button through a run of frames at a time —
+  # as the map of frame to buttons the comparisons take:
+  #
+  #   NativeComparison.held_for([10..15, :down], [30..38, :a])
+  def self.held_for(*spans)
+    spans.flat_map { |frames, button| frames.map { |frame| [frame, [button]] } }.to_h
+  end
+
   # Build a program through the DSL, the way the DSL tests do.
   def program_of(&block)
     builder = Builder.new

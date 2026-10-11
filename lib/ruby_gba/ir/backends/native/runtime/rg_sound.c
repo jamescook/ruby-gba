@@ -38,8 +38,9 @@
  * once: the first list is the whole part, the second what it plays each time it comes round
  * (worked out once, for every backend, by IR::Tunes.loop_passes).
  *
- * rg_game_beeps: four numbers a beep — the ticks one wave lasts, eighths high, 64ths of a second
- * it holds each step of volume (0 never fades), and the volume it starts at.
+ * rg_game_beeps: how many beeps there are, then four numbers a beep — the ticks one wave lasts,
+ * eighths high, the volume it starts at, and the 64ths of a second it holds each step of volume
+ * as it fades (0 never fades).
  */
 #include <stdarg.h>
 #include <stdio.h>
@@ -47,8 +48,8 @@
 #include "rg_driver.h"
 #include "rg_runtime.h"
 
-/* As many square-wave parts as a song can have: the console has two square voices for music. A
- * build refuses a song with more, so this is a guard on the table rather than a rule. */
+/* The console's two square voices. A song has at most that many square-wave parts — the build
+ * refuses one with more — so the same number is also the most parts the player walks. */
 #define VOICES 2
 #define NUMBERS_PER_NOTE 4
 #define NUMBERS_PER_BEEP 4
@@ -86,7 +87,7 @@ typedef struct {
 
 static square_voice squares[VOICES];
 static int32_t heard_only; /* a test listening to one voice: its number, or 0 for both */
-static uint64_t frame_part; /* the part of a sample carried over from the last frame */
+static uint64_t sample_carry; /* the fraction of a sample left over from the last frame */
 
 /* A voice starts a note from the top of its wave. No ticks, or no volume, is silence. */
 static void square_start(int32_t voice, int32_t wave_ticks, int32_t eighths_high, int32_t volume, int32_t fade_64ths) {
@@ -138,10 +139,9 @@ static int32_t square_sample(square_voice *square) {
 void rg_sound_hear_only(int32_t voice) { heard_only = voice; }
 
 int32_t rg_sound_render_frame(int16_t *samples) {
-  frame_part += (uint64_t)RG_SOUND_RATE * FRAME_TICKS;
-  int32_t count = (int32_t)(frame_part >> TICKS_A_SECOND_BITS);
-  frame_part &= ((uint64_t)1 << TICKS_A_SECOND_BITS) - 1;
-  if (count > RG_SOUND_FRAME_MOST) count = RG_SOUND_FRAME_MOST;
+  sample_carry += (uint64_t)RG_SOUND_RATE * FRAME_TICKS;
+  int32_t count = (int32_t)(sample_carry >> TICKS_A_SECOND_BITS);
+  sample_carry &= ((uint64_t)1 << TICKS_A_SECOND_BITS) - 1;
 
   for (int32_t i = 0; i < count; i++) {
     int32_t sum = 0;
@@ -168,9 +168,10 @@ static void log_sound(const char *format, ...) {
 void rg_sound_enabled(void) { log_sound("enabled"); }
 
 void rg_sound_beep(int32_t which) {
-  const int32_t *beep = &rg_game_beeps[which * NUMBERS_PER_BEEP];
+  if (which < 0 || which >= rg_game_beeps[0]) rg_fault("there is no beep number %d", (int)which);
+  const int32_t *beep = &rg_game_beeps[1 + (which * NUMBERS_PER_BEEP)];
   log_sound("beep %d", (int)which);
-  square_start(BEEP_VOICE, beep[0], beep[1], beep[3], beep[2]);
+  square_start(BEEP_VOICE, beep[0], beep[1], beep[2], beep[3]);
 }
 
 /* --- the player --- */
@@ -183,10 +184,15 @@ typedef struct {
   int32_t eighths_high;
 } part_walk;
 
-/* A voice holding a note, and the volume the note was written at (0 for a rest). */
+/* A note a song's part is holding on a voice: the volume it was written at (0 for a rest), and
+ * what it sounds like. Kept here and not read back off the voice, because a beep can borrow the
+ * second voice while the part's note is still being held, and it is the part's note the music
+ * volume sounds again. */
 typedef struct {
   int32_t voice;
   int32_t volume;
+  int32_t wave_ticks;
+  int32_t eighths_high;
 } held_note;
 
 static int32_t wanted = -1;  /* the tune the game last named, or -1 for none */
@@ -235,25 +241,25 @@ static void start_walks(int again) {
  * down, so it never rounds up past what was written. */
 static int32_t scaled_volume(int32_t volume) { return (volume * level) >> LEVEL_SHIFT; }
 
-/* A voice now holds a note written at +volume+ (0 for a rest). */
-static void hold_note(int32_t voice, int32_t volume) {
+/* A voice now holds +note+ for its part. */
+static void hold_note(held_note note) {
   int32_t at = 0;
-  while (at < holding_count && holding[at].voice != voice) at++;
+  while (at < holding_count && holding[at].voice != note.voice) at++;
   if (at == holding_count) holding_count++;
-  holding[at] = (held_note){voice, volume};
-  log_sound("loudness %d %d", (int)voice, (int)scaled_volume(volume));
+  holding[at] = note;
+  log_sound("loudness %d %d", (int)note.voice, (int)scaled_volume(note.volume));
 }
 
 /* The music volume has moved: every voice holding a note takes it. A square voice takes a volume
- * only as a note starts, so the note is sounded again at the new one. */
+ * only as a note starts, so the part's note is sounded again at the new one. */
 static void follow_level(int32_t now) {
   if (now == level) return;
   level = now;
   for (int32_t i = 0; i < holding_count; i++) {
-    if (holding[i].volume <= 0) continue;
-    square_voice *square = &squares[holding[i].voice - 1];
-    log_sound("loudness %d %d", (int)holding[i].voice, (int)scaled_volume(holding[i].volume));
-    square_start(holding[i].voice, square->wave_ticks, square->eighths_high, scaled_volume(holding[i].volume), 0);
+    const held_note *note = &holding[i];
+    if (note->volume <= 0) continue;
+    log_sound("loudness %d %d", (int)note->voice, (int)scaled_volume(note->volume));
+    square_start(note->voice, note->wave_ticks, note->eighths_high, scaled_volume(note->volume), 0);
   }
 }
 
@@ -298,7 +304,7 @@ void rg_music_frame(void) {
     int32_t written = pitch == 0 ? 0 : volume;
     log_sound("note %d %d", (int)playing, (int)pitch);
     log_sound("voice %d %d %d %d", (int)voice, (int)playing, (int)pitch, (int)volume);
-    if (level_variable) hold_note(voice, written);
+    if (level_variable) hold_note((held_note){voice, written, wave_ticks, part->eighths_high});
     square_start(voice, wave_ticks, part->eighths_high, level_variable ? scaled_volume(written) : written, 0);
     part->next++;
   }

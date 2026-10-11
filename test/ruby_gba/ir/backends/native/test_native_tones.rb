@@ -12,11 +12,10 @@ class TestNativeTones < Minitest::Test
   # The native lowering's own tests, which only a native run plays (see TestSuites).
   runs_on :native
 
-  include NativeComparison
   include SoundComparison
 
   # A beep that fades: 440 Hz, a thin quarter wave, dropping a step of volume every 3/64 of a
-  # second until it is gone.
+  # second until it is gone. Beeps play on the second voice.
   def test_a_beep_has_the_consoles_pitch_tone_and_fade
     program = program_of do
       enable_sound
@@ -27,7 +26,7 @@ class TestNativeTones < Minitest::Test
       end
     end
 
-    assert_native_sounds_like_the_console program, frames: 70
+    assert_native_sounds_like_the_console program, frames: 70, voices: [:square2]
   end
 
   # A song in two parts, each on a voice of its own with its own tone and loudness, held notes
@@ -77,5 +76,28 @@ class TestNativeTones < Minitest::Test
     end
 
     assert_native_sounds_like_the_console program, frames: 110, voices: [:square1]
+  end
+
+  # A beep borrows the second voice from a song's second part, and the music is then turned
+  # down while the part's note is still being held: the voice sounds the PART'S note again at the
+  # new volume, not the beep's.
+  def test_a_volume_change_sounds_the_songs_note_again_and_not_a_beeps
+    program = program_of do
+      enable_sound
+      song :tune do
+        tempo 30
+        voice(:melody) { note :A4, :whole }
+        voice(:bass) { duty :quarter; note :E4, :whole }
+      end
+      count = var :count, 0
+      play_song :tune
+      game_loop do
+        count.add! 1
+        (count == 20).then { beep 990, duty: :eighth, decay: :slow }
+        (count == 30).then { music_volume 50 }
+      end
+    end
+
+    assert_native_sounds_like_the_console program, frames: 90
   end
 end
