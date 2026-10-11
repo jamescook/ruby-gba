@@ -29,6 +29,10 @@ module NativeComparison
       actual = native_snapshots(program, frames: frames, buttons: buttons, mode: mode)
       assert_equal expected.map(&:first), actual.map(&:first), "the frame boundaries differ (#{mode} build)"
       expected.zip(actual).each do |(heading, want), (_, got)|
+        # Both ways: a variable the interpreter wrote and the C never printed is a variable the
+        # lowering lost track of, which comparing only what the C printed would never notice.
+        unprinted = want.keys - got.keys
+        assert_empty unprinted, "the C does not keep these variables the interpreter wrote (#{mode} build)"
         wrong = got.filter_map { |name, value| "#{name}: C has #{value}, Reference #{want.fetch(name, 0)}" if want.fetch(name, 0) != value }
         assert_empty wrong, "at #{heading} (#{mode} build)"
       end

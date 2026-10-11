@@ -66,12 +66,29 @@ module RubyGBA
           end
 
           # Runs a program this built with +args+, feeding it +input+, and gives back what it
-          # printed.
-          def run_program(exe, args: [], input: "", env: {})
-            out, err, status = Open3.capture3(env, exe, *args.map(&:to_s), stdin_data: input)
-            raise Error, "#{File.basename(exe)} stopped (#{status}):\n#{err}" unless status.success?
+          # printed. One still running after +seconds+ is stopped and reported: a game that loops
+          # without ever waiting for the screen never ends on its own, where the interpreter
+          # stops it at its step budget.
+          def run_program(exe, args: [], input: "", env: {}, seconds: 60)
+            Open3.popen3(env, exe, *args.map(&:to_s)) do |stdin, stdout, stderr, waiter|
+              writer = Thread.new do
+                stdin.write(input)
+              rescue Errno::EPIPE
+                nil # it stopped reading, which is its business
+              ensure
+                stdin.close
+              end
+              out = Thread.new { stdout.read }
+              err = Thread.new { stderr.read }
+              unless waiter.join(seconds)
+                Process.kill(:KILL, waiter.pid)
+                raise Error, "#{File.basename(exe)} was still running after #{seconds} seconds, and was stopped"
+              end
+              writer.join
+              raise Error, "#{File.basename(exe)} stopped (#{waiter.value}):\n#{err.value}" unless waiter.value.success?
 
-            out
+              out.value
+            end
           end
 
           # The installed zig's version, refusing one this backend was not written against.

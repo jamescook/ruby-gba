@@ -36,7 +36,17 @@ module RubyGBA
       # - It is checked by running, against Backends::Reference, and never by comparing the C
       #   it wrote against C somebody wrote down.
       class Native
-        # The program written out as C, as one file's text.
+        # A game's program, checked exactly the way a cartridge build checks it — by making the
+        # cartridge, every guardrail on, and taking the program that build checked. So nothing
+        # the console would refuse can be built for a desktop instead: a desktop has room for
+        # what the console does not, and a game that only works there is not this library's.
+        # Guardrail warnings are printed to +err+, as the cartridge build prints them.
+        def checked_program(game, settings: {}, err: $stderr)
+          game.build_rom(profile: false, out: nil, err: err, settings: settings).built.source_program
+        end
+
+        # The program written out as C, as one file's text. A program from a game should come
+        # through #checked_program first.
         def lower(program)
           Lowering.new(program).source
         end

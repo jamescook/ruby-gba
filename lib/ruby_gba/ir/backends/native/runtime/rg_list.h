@@ -92,6 +92,12 @@ static inline void rg_list_fill(rg_list *list, int32_t from, int32_t count, int3
  * held so the whole run is inside the table. */
 static inline void rg_list_copy(rg_list *list, const int32_t *table, int32_t table_length, int32_t at,
                                 int32_t count) {
+  /* The build refuses both of these before a cartridge exists; checked here as well, since a
+   * run past either end would read or write memory that belongs to something else. */
+  if (count > list->capacity)
+    rg_fault("a copy of %d entries does not fit list :%s (capacity %d)", (int)count, list->name, (int)list->capacity);
+  if (count > table_length)
+    rg_fault("a copy of %d entries is longer than its table (%d entries)", (int)count, (int)table_length);
   int32_t start = rg_clamp(at, 0, table_length - count);
   list->front = 0;
   list->length = count;

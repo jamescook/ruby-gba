@@ -45,8 +45,8 @@ int32_t rg_pressed(int32_t button);
  * prints them, so a test can compare them with the interpreter's). */
 void rg_dump_variable(const char *name, int32_t value);
 
-/* Calls a routine picked out of an array of them. Its own function so the generated C names
- * every call the same way. */
+/* Calls a routine picked out of an array of them. The C the backend writes names the function
+ * a call goes to, and an entry of an array is not a name, so the entry is handed to this. */
 static inline void rg_call_routine(void (*routine)(void)) { routine(); }
 
 #endif

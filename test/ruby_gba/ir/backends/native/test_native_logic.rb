@@ -1,7 +1,7 @@
 # frozen_string_literal: true
 
 require "test_helper"
-require "ruby_gba/ir/backends/native/native_comparison"
+require "native_comparison"
 
 # A game's logic, written out as C and built with no window, ends every frame with the same
 # variables the interpreter ends it with. Each test is a small game built through the DSL; the
