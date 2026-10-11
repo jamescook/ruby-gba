@@ -17,6 +17,7 @@ module RubyGBA
             @emitter = emitter
             @memory = memory
             @vars = {}             # variable name -> IWRAM address
+            @var_mentions = []     # [where in the code, variable name], one for each time one is named
             @held_registers = {}
           end
 
@@ -38,7 +39,15 @@ module RubyGBA
           # handed out at the near end, which is what keeps them inside the window the
           # note below is about. See {Memory}.
           def var_addr(name)
+            @var_mentions << [@emitter.pos, name]
             @vars[name] ||= @memory.alloc_near_base(4)
+          end
+
+          # The variables named anywhere in +span+ of the code, each once, in the order they
+          # were first named there. This is how the build learns which variables a routine
+          # uses, the ones it made for itself included.
+          def variables_named_in(span)
+            @var_mentions.filter_map { |pos, name| name if span.cover?(pos) }.uniq
           end
 
           # HOW FAR FROM THE BASE A VARIABLE CAN SIT and still be reached by naming the two

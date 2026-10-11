@@ -645,8 +645,11 @@ module RubyGBA
         # out.
         # +fast_funcs+ forces the placement decision instead of working it out. Only the
         # throwaway measuring pass inside {Placement}#choose_fast_funcs passes it, so that
-        # pass cannot set off another one.
-        def lower(program, fast_funcs: nil)
+        # pass cannot set off another one. +variables_first+ is that pass's too: variables
+        # to give addresses to before the program names any, nearest the base first (see
+        # {Placement}#variables_kept_routines_want_nearer).
+        def lower(program, fast_funcs: nil, variables_first: [])
+          variables_first.each { |name| var_addr(name) }
           @fast_funcs = fast_funcs || choose_fast_funcs(program)
           # The throwaway measuring pass keeps the phase its caller named, since from the
           # outside it IS that phase — it is not lowering the program, it is finding out how

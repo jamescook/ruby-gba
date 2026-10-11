@@ -200,12 +200,63 @@ module RubyGBA
             insisted = funcs_marked(program, true)
             return insisted if insisted.empty? && !@fast_code
 
+            probe = measure_routines(program)
+            chosen = choose_from_measurement(program, probe, insisted)
+            nearer = variables_kept_routines_want_nearer(probe, chosen)
+            unless nearer.empty?
+              # MEASURED AGAIN, with those variables where they are going to be. Moving a
+              # variable changes the size of every routine that names it, and the choice
+              # just made was made from the sizes of the other layout. A second measurement
+              # is the only charge that is of the program really built; a game pays for it
+              # only when it has more variables than the base register reaches AND keeps a
+              # routine that uses one past the line.
+              probe = measure_routines(program, variables_first: nearer)
+              chosen = choose_from_measurement(program, probe, insisted)
+            end
+            allocate_variables_where_measured(probe)
+            chosen
+          end
+
+          # Lower the program once with nothing moved, to learn how big each routine comes out
+          # and how much memory is left. +variables_first+ are given their addresses before
+          # anything else names a variable.
+          def measure_routines(program, variables_first: [])
             # The probe reports through the same object this one does, so the measuring pass
             # shows its own progress rather than going quiet for as long as a lowering takes.
             @progress.step("measuring the routines")
             probe = self.class.new(fast_cartridge: @fast_cartridge, progress: @progress)
-            probe.lower(program, fast_funcs: Set.new) # measure the program with nothing moved
-            allocate_variables_where_measured(probe)
+            probe.lower(program, fast_funcs: Set.new, variables_first: variables_first)
+            probe
+          end
+
+          # THE VARIABLES THE KEPT ROUTINES USE, when any of them sits where the base register
+          # cannot reach — every one of them, nearest first in the order they were named,
+          # ready to be claimed before the rest. Empty when nothing needs to move, which is
+          # every game with fewer variables than the register reaches.
+          #
+          # A variable within reach is read in one instruction; one past it needs its whole
+          # address first. Left to the order a program names them in, the ones past the line
+          # are whichever came last, and nothing steered them away from the code that can
+          # least afford them. The routines left in the cartridge take the far places
+          # instead, where a longer read costs cartridge bytes, of which there are millions.
+          def variables_kept_routines_want_nearer(probe, chosen)
+            places = probe.var_addresses
+            far = places.select { |_, address| address - IWRAM_START > Primitives::FURTHEST_FROM_BASE }
+            return [] if far.empty?
+
+            used = chosen.flat_map { |name| probe.variables_named_by(name) }.uniq
+            used.any? { |name| far.key?(name) } ? used : []
+          end
+
+          # The variables the routine +name+ names, read off this pass.
+          def variables_named_by(name)
+            span = @functions.func_ranges[name]
+            span ? @primitives.variables_named_in(span) : []
+          end
+
+          # Pick the routines to keep from what +probe+ measured. Leaves the sizes, the charges
+          # and the routines turned away where the rest of the build and the report read them.
+          def choose_from_measurement(program, probe, insisted)
             # The routines the build makes for its scenes (their moving sprites, a see-through
             # layer's amounts) are nowhere in the program, so the probe is the one that knows
             # them.

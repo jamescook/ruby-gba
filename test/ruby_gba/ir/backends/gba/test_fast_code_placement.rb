@@ -575,6 +575,63 @@ class TestFastCodePlacement < Minitest::Test
     builder.program
   end
 
+  # A VARIABLE A KEPT ROUTINE USES IS ONE THE BASE REGISTER REACHES. A variable within 4K of
+  # the start of the quick memory is read in one instruction, which is room for about a
+  # thousand of them; one past that needs its whole address first. Which ones land past the
+  # line used to be the order the program named them in. A game with more variables than fit
+  # now gives the near places to the routines it keeps in the quick memory, where a byte is
+  # room another routine wanted and an instruction is in the path the frame takes.
+  def test_a_variable_a_kept_routine_uses_is_within_reach_of_the_base
+    backend = GBA.new
+    backend.lower(crowded_program)
+    places = backend.var_addresses
+    reach = RubyGBA::IR::Backends::GBA::Primitives::FURTHEST_FROM_BASE
+    base = RubyGBA::Console::Hardware::IWRAM_START
+
+    assert_operator places.size, :>, 1024, "the program has more variables than the base register reaches"
+    assert_operator places.fetch(:last) - base, :<=, reach, "the kept routine's variable is one it reaches"
+    assert_operator places.fetch(:"v#{CROWD - 1}") - base, :>, reach, "and one nobody kept gave up its place"
+  end
+
+  # ...and what was measured is still what was built: the routines are measured again with
+  # the variables where they will be, so the charge is for that program and not the first.
+  def test_a_crowded_program_is_charged_for_the_layout_it_is_built_with
+    backend = GBA.new
+    backend.lower(crowded_program)
+    charged, emitted = backend.charged_and_emitted_sizes.fetch(:work)
+
+    assert_equal emitted, charged
+  end
+
+  def test_a_crowded_program_still_counts_right_on_the_console
+    program = crowded_program
+    backend = GBA.new
+    rom = ROM.assemble(backend.lower(program), title: "CROWD", maker: "01", built: backend.build_record(program))
+    console = assert_emulator_loads_rom(rom, frames: 8, vars: backend.var_addresses)
+    oracle = Reference.new.run(program, frames: 3)
+
+    assert_operator console.var(:last), :>, 0
+    assert_equal 7, console.var(:"v#{CROWD - 1}"), "a variable that moved out still holds what it was given"
+    assert_equal 7, oracle[:"v#{CROWD - 1}"]
+  end
+
+  CROWD = 1100
+
+  # More variables than the base register reaches, and a kept routine that uses the one
+  # declared last of all.
+  def crowded_program
+    builder = Builder.new
+    builder.instance_eval do
+      screen :bitmap
+      CROWD.times { |n| var :"v#{n}", 7 }
+      last = var :last, 0
+      func(:work, fast: true) { last.add! 1 }
+      game_loop { call :work }
+    end
+    builder.finalize_program
+    builder.program
+  end
+
   # THE MEASUREMENT HAS TO BE OF THE PROGRAM THAT IS BUILT. A variable gets its address the
   # first time something names it, and the pass that measures emits the routines in the order
   # they were written where the real one emits the kept ones last — so a variable the build
