@@ -14,6 +14,13 @@ Gemfile.lock
 # SimpleCov's report, written only under COVERAGE=1
 coverage/
 
+# What zig leaves beside a build.zig when it is not told to put it elsewhere: compiled objects,
+# fetched packages (SDL's whole source tree), and the output. The native backend always points
+# these somewhere else; this is for a zig build run by hand.
+.zig-cache/
+zig-pkg/
+zig-out/
+
 # beads task-tracker db (dolt server, logs, sockets). Never commit: a shell-metacharacter
 # bug in a bd command once dumped a live secret straight into this db.
 .beads/
