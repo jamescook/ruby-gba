@@ -36,9 +36,11 @@ class TestNumberTable < Minitest::Test
     words[index + 2 + (read[:ahead] / 4)]
   end
 
-  def routine(most_bytes: 64)
+  # A routine measured at +measured_bytes+ with every number built, in which a load within
+  # +read_within+ of that measured end is read — the whole routine unless a test says.
+  def routine(measured_bytes: 64, read_within: measured_bytes)
     emitter = Emit.new
-    emitter.open_number_table(most_bytes: most_bytes, routine: :work)
+    emitter.open_number_table(measured_bytes: measured_bytes, read_within: read_within, routine: :work)
     yield emitter
     emitter.emit(A.pop(15))
     emitter.close_number_table
@@ -93,13 +95,14 @@ class TestNumberTable < Minitest::Test
     assert_equal A.load_immediate(0, THREE), emitter.code
   end
 
-  # A read can name a word about four thousand bytes ahead and no further, so a load that
-  # far from the end of its routine is built the way it always was.
+  # A read can name a word about four thousand bytes ahead and no further, so the build
+  # says how near the end of its routine a load has to be, and one further off is built the
+  # way it always was.
   def test_a_load_too_far_from_the_end_of_its_routine_is_built
-    emitter = routine(most_bytes: 6000) do |e|
-      e.emit_number(0, THREE) # six thousand bytes could still follow this one
+    emitter = routine(measured_bytes: 4824, read_within: 3000) do |e|
+      e.emit_number(0, THREE) # 4824 bytes from the end as measured
       e.emit(A.nop * 1200)
-      e.emit_number(1, THREE) # ...and at most twelve hundred this one
+      e.emit_number(1, THREE) # ...and twelve from it
     end
     words = words_of(emitter)
 
@@ -109,14 +112,31 @@ class TestNumberTable < Minitest::Test
     assert_equal THREE, word_named_by(words, late)
   end
 
+  # THE LINE IS COUNTED IN THE ROUTINE AS IT WAS MEASURED, with every number built — not in
+  # the shorter routine the reads leave behind. Three loads of twelve bytes each, measured
+  # at 0, 12 and 24 of a 36-byte routine, and a line 24 bytes from the end: the first is
+  # past it and the other two are inside. The third really sits at 16, not 24, because the
+  # second became a read; it is judged by where it was measured all the same.
+  def test_the_line_is_where_a_load_was_measured_not_where_the_reads_left_it
+    emitter = routine(measured_bytes: 36, read_within: 24) do |e|
+      e.emit_number(0, THREE)
+      e.emit_number(1, THREE + 1)
+      e.emit_number(2, THREE + 2)
+    end
+    words = words_of(emitter)
+
+    assert_nil read_from_table(words[0]), "the first is built: three instructions"
+    assert_equal [THREE + 1, THREE + 2], [3, 4].map { |index| word_named_by(words, index) }
+  end
+
   # --- what stops the build ---
 
-  # Whether a load reaches is settled from the most its routine was promised to come to. A
-  # routine that ran past that would leave a read naming a word it cannot reach, and a read
-  # like that is a wrong number with nothing to say so.
-  def test_a_routine_that_ran_past_what_it_was_promised_stops_the_build
+  # Whether a load is read is settled from the size its routine was measured at. A routine
+  # that ran past that would leave a read naming a word it cannot reach, and a read like
+  # that is a wrong number with nothing to say so.
+  def test_a_routine_that_ran_past_what_it_was_measured_at_stops_the_build
     error = assert_raises(LoweringError) do
-      routine(most_bytes: 64) do |e|
+      routine(measured_bytes: 64) do |e|
         e.emit_number(0, THREE)
         e.emit(A.nop * 1200)
       end
@@ -127,9 +147,11 @@ class TestNumberTable < Minitest::Test
 
   def test_a_second_table_cannot_be_opened_inside_the_first
     emitter = Emit.new
-    emitter.open_number_table(most_bytes: 64, routine: :outer)
+    emitter.open_number_table(measured_bytes: 64, read_within: 64, routine: :outer)
 
-    assert_raises(LoweringError) { emitter.open_number_table(most_bytes: 64, routine: :inner) }
+    assert_raises(LoweringError) do
+      emitter.open_number_table(measured_bytes: 64, read_within: 64, routine: :inner)
+    end
   end
 
   # --- addresses that are not known until everything is placed ---

@@ -74,8 +74,11 @@ module RubyGBA
           # inside the span, so it is counted in the routine's size and copied with it.
           def emit_one_function(name, fnode)
             start = @emitter.pos
-            most_bytes = @placement.number_table_bound(name)
-            @emitter.open_number_table(most_bytes: most_bytes, routine: name) if most_bytes
+            table = @placement.number_table_for(name)
+            if table
+              @emitter.open_number_table(measured_bytes: table.measured_bytes, read_within: table.read_within,
+                                         routine: name)
+            end
             @emitter.place_label(func_label(name))
             @emitter.emit(ASM.push(14))                          # push {lr}
             minted = @minted[name]

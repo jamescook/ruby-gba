@@ -135,17 +135,6 @@ module RubyGBA
           # jump. Four each, less the four-byte branch it replaces.
           CROSS_CALL_GROWTH_WITH_TABLE = 12
 
-          # WHAT ONE LOAD CAN DO TO THE READS BELOW IT, which is what "does this load reach
-          # its table" has to allow for before the real pass has run (see #tabled_sizes).
-          # A load that became a read is up to three instructions shorter, so everything
-          # below it sits that much further from the routine's measured end; and it may have
-          # put a word in the table ahead of theirs.
-          LOAD_ABOVE_ADDS_TO_REACH = 12 + 4
-
-          # A call that crosses moves nothing nearer the top (its growth is in the measured
-          # size already), but its address may be a word in the table ahead too.
-          CROSSING_ADDS_TO_REACH = 4
-
           # Saving the return address on the way in and returning at the end. The game
           # loop's body measures without these, because inline it needs neither — and it is
           # the only routine that does. Every other one, the routine the console interrupts
@@ -264,11 +253,14 @@ module RubyGBA
             @crossing_targets = crossing_call_targets(program, probe.generated_calls_by_routine)
             crossings = @crossing_targets.transform_values(&:size).tap { |counts| counts.default = 0 }
             loads = probe.number_loads_by_routine
-            # What each routine could come to with every number built. Kept, because it is
-            # what says how far a load can be from its routine's end (see #number_table_bound).
-            @built_sizes = moved_sizes(probe.func_sizes, crossings)
-            sizes = tabled_sizes(@built_sizes, loads, crossings)
-            @call_charges = call_charges(@built_sizes, loads, crossings)
+            # What each routine could come to with every number built, and what a table then
+            # does to it.
+            built = moved_sizes(probe.func_sizes, crossings)
+            effects = table_effects(built, loads, crossings)
+            sizes = built.to_h { |name, size| [name, size - effects.fetch(name).saved] }
+            # Kept, because the emitter needs the line each routine's reads were drawn at.
+            @table_effects = effects
+            @call_charges = effects.transform_values(&:call_charge)
             # Every allocation is rounded up to a whole word, so the gap the probe leaves is
             # the gap there really is — there is no alignment slop to keep back for.
             room = probe.iwram_free
@@ -324,14 +316,14 @@ module RubyGBA
             end
           end
 
-          # The bound a number table needs for the routine +name+: the most the routine's
-          # instructions can come to, which is what says whether a load is near enough its end
-          # to be a read (see {NumberTable}). Nil for a routine that gets no table — one that
-          # is not being emitted into the quick memory, or one the build never measured.
-          def number_table_bound(name)
+          # What the routine +name+'s number table goes by — the size the routine was measured
+          # at and how far from that end a load is still read (a {TableEffect}; see
+          # {NumberTable}). Nil for a routine that gets no table: one that is not being
+          # emitted into the quick memory, or one the build never measured.
+          def number_table_for(name)
             return nil unless @emitting_hot
 
-            (@built_sizes || {})[name]
+            (@table_effects || {})[name]
           end
 
           # Once the game loop's body is going to the quick memory it needs a name and a
@@ -380,7 +372,7 @@ module RubyGBA
           end
 
           # What each moved routine was CHARGED against what it came out at, for the one
-          # test that can tell whether the charge (#moved_sizes, less what #tabled_sizes
+          # test that can tell whether the charge (#moved_sizes, less what #table_effects
           # takes off) is still the upper bound it claims to be (a charge that is short does not fail here — it fails much later, in
           # #check_fast_code_fits!, on a game that fits). Valid after #lower.
           def charged_and_emitted_sizes
@@ -560,7 +552,7 @@ module RubyGBA
           # pass GROWS in only one way — every call it makes to a routine left behind grows
           # by CROSS_CALL_GROWTH — so charging it for ALL of its calls is an upper bound
           # (#moved_sizes). It also shrinks in one way, by reading its big numbers from a
-          # table, and what is certain of that comes off again (#tabled_sizes). Being a
+          # table, and what is certain of that comes off again (#table_effects). Being a
           # little pessimistic here means the last routine chosen might have fitted after
           # all; being optimistic would mean a build that overruns the memory, so this is
           # the direction to be wrong in.
@@ -623,17 +615,6 @@ module RubyGBA
             calls
           end
 
-          # WHAT EACH ROUTINE WAS CHARGED FOR ONE CALL THAT COULD CROSS, which is what it is
-          # given back for one that turns out not to. The whole growth, unless the routine
-          # is small enough that every read in it reaches its number table — then the charge
-          # already came down to a read and a word (see #bytes_saved_by_table).
-          def call_charges(built, loads, crossings)
-            built.to_h do |name, size|
-              with_table = name != IRQ_ROUTINE && every_read_reaches?(size, loads[name] || [], crossings[name])
-              [name, with_table ? CROSS_CALL_GROWTH_WITH_TABLE : CROSS_CALL_GROWTH]
-            end
-          end
-
           # A CALL BETWEEN TWO KEPT ROUTINES NEVER GREW, so what +name+ was charged for it
           # comes back once both are in +chosen+. Every call is charged as though it crossed,
           # because the charging starts before anything is chosen; but the kept routines are
@@ -671,36 +652,42 @@ module RubyGBA
           # saves — and a routine charged too much is a routine, or the one after it, turned
           # away from room it would have fitted in.
           #
-          # THE CHARGE STILL HAS TO BE AN UPPER BOUND, so only a saving that is certain comes
-          # off. A load is read from the table when it is near enough the end of its routine,
-          # and that is decided as the routine is emitted for real, from where the load then
-          # is. So here the question is whether the load reaches WHATEVER happens above it:
-          #
-          #   * every load before it may have become a read, which pulls this one up to three
-          #     instructions nearer the top for each;
-          #   * every one of those, and every call that crosses, may have put a word in the
-          #     table ahead of this load's own.
-          #
-          # That is LOAD_ABOVE_ADDS_TO_REACH for each load above it and CROSSING_ADDS_TO_REACH
-          # for each crossing call, on top of the distance the throwaway pass saw. A load that
-          # reaches even so is one the real pass will read, and its saving is taken: every
-          # instruction it was built from but the one that reads. The table then costs a word
-          # for each DIFFERENT number among those loads, since two loads of one number read
-          # the same word — which is most of what a routine that names one register or one
-          # list over and over gets back. (Two loads are one number in the real pass because
-          # they were one in the measuring pass: see #allocate_variables_where_measured.)
+          # THE CHARGE STILL HAS TO BE AN UPPER BOUND, so the saving taken has to be one the
+          # real pass makes. Which loads become reads is settled here, from the measurement
+          # (see #loads_read_from_table), and the emitter is handed the line that was drawn,
+          # so it reads those same loads. Each saves every instruction it was built from but
+          # the one that reads. The table then costs a word for each DIFFERENT number among
+          # them, since two loads of one number read the same word — which is most of what a
+          # routine that names one register or one list over and over gets back. (Two loads
+          # are one number in the real pass because they were one in the measuring pass: see
+          # #allocate_variables_where_measured.)
           #
           # The routine the console interrupts into is written out by hand and gets no table.
-          def tabled_sizes(built, loads, crossings)
+          def table_effects(built, loads, crossings)
             built.to_h do |name, size|
-              next [name, size] if name == IRQ_ROUTINE
+              if name == IRQ_ROUTINE
+                next [name, TableEffect.new(measured_bytes: size, read_within: 0, saved: 0, call_charge: CROSS_CALL_GROWTH)]
+              end
 
-              [name, size - bytes_saved_by_table(size, loads[name] || [], crossings[name])]
+              [name, table_effect(size, loads[name] || [], crossings[name])]
             end
           end
 
-          # What a table takes off a routine charged +size+ bytes, holding +loads+ and
-          # +crossings+ calls that could cross.
+          # WHAT A NUMBER TABLE DOES TO ONE ROUTINE, settled before the routine is emitted
+          # for real:
+          #
+          #   +measured_bytes+  its size with every number built, calls that could cross and
+          #                     all — the routine the distances below are counted in
+          #   +read_within+     how far from the end of THAT routine a load can be and still
+          #                     be read from the table rather than built
+          #   +saved+           the bytes that come off what it is charged
+          #   +call_charge+     what it is still charged for one call that could cross, and
+          #                     so what it is given back for one that does not
+          #                     (see #bytes_given_back)
+          TableEffect = Data.define(:measured_bytes, :read_within, :saved, :call_charge)
+
+          # +size+ is the routine with every number built, +loads+ the loads a table could
+          # take, and +crossings+ how many calls it holds that could cross.
           #
           # A CROSSING CALL IS A LOAD TOO: the address it jumps through is read from the table
           # like any other (see #emit_call_func), so it grows a call by
@@ -708,23 +695,52 @@ module RubyGBA
           # in the routine such a call is — it is counted off the tree, not off the code — so
           # that is taken only for a routine small enough that a read anywhere in it reaches a
           # table of every word it could hold.
-          def bytes_saved_by_table(size, loads, crossings)
-            read = loads.each_with_index.select do |load, above|
-              (size - load.pos) + (LOAD_ABOVE_ADDS_TO_REACH * above) + (CROSSING_ADDS_TO_REACH * crossings) <=
-                NumberTable::REACH
-            end.map(&:first)
-            instructions_gone = read.sum { |load| load.instructions - 1 }
-            words_added = read.map(&:word).uniq.size
-            saved = (instructions_gone - words_added) * 4
-            return saved unless every_read_reaches?(size, loads, crossings)
+          def table_effect(size, loads, crossings)
+            read = loads_read_from_table(size, loads, crossings)
+            gone = read.sum { |load| (load.instructions - 1) * 4 }
+            saved = gone - (4 * read.map(&:word).uniq.size)
+            whole_routine_reaches = read.size == loads.size && size - gone + (4 * crossings) <= NumberTable::REACH
+            unless whole_routine_reaches
+              # THE LINE, counted from the measured end: as far as a read reaches, plus what
+              # the reads below the line save (anything above it has all of them between it
+              # and the table), less room for the crossing calls' words. It falls between the
+              # topmost load that is read and the one above it — and a crossing call's own
+              # address load is read or built by the same line, wherever the call is.
+              within = (NumberTable::REACH - (4 * crossings) + gone).clamp(0, size)
+              return TableEffect.new(measured_bytes: size, read_within: within, saved: saved,
+                                     call_charge: CROSS_CALL_GROWTH)
+            end
 
-            saved + (crossings * (CROSS_CALL_GROWTH - CROSS_CALL_GROWTH_WITH_TABLE))
+            TableEffect.new(measured_bytes: size, read_within: size, call_charge: CROSS_CALL_GROWTH_WITH_TABLE,
+                            saved: saved + (crossings * (CROSS_CALL_GROWTH - CROSS_CALL_GROWTH_WITH_TABLE)))
           end
 
-          # Is a routine charged +size+ small enough that a read anywhere in it reaches a
-          # table holding a word for every load and every crossing call it has?
-          def every_read_reaches?(size, loads, crossings)
-            size + (4 * (loads.size + crossings)) <= NumberTable::REACH
+          # THE LOADS THAT WILL BE READS, worked out from the bottom of the routine up, because
+          # A ROUTINE SHRINKS AS ITS NUMBERS BECOME READS. The last load is nearest the table
+          # and reaches if anything does. Each load above it is further from the end by the
+          # code in between, but nearer by what the reads below it saved — so each is asked
+          # with those taken off, and the first one that still cannot reach ends it, since
+          # everything above that one is further again. The reads are always the bottom of
+          # the routine.
+          #
+          # A WORD IS AS FAR INTO THE TABLE AS THE READS ABOVE IT PUT IT, and that settles
+          # itself for the loads counted here: each read above another is at least one
+          # instruction of code between it and the end, and at most one word in the table
+          # ahead of the other's, so the topmost read is the one that reaches least. What it
+          # cannot see is a call that crosses. Such a call reads its address from the table
+          # too, nothing says where in the routine it is, and one sitting just above the line
+          # can put its word in first — so the topmost read is asked as though every one of
+          # the +crossings+ had.
+          #
+          # The emitter draws the same line, by how far a load is from the measured end (see
+          # NumberTable#reaches?), so these are the loads it reads.
+          def loads_read_from_table(size, loads, crossings)
+            gone_below = 0
+            loads.reverse.take_while do |load|
+              reaches = (size - load.pos) - gone_below + (4 * crossings) <= NumberTable::REACH
+              gone_below += (load.instructions - 1) * 4 if reaches
+              reaches
+            end
           end
 
           # The trees the console runs on an announcement: every bending background's block

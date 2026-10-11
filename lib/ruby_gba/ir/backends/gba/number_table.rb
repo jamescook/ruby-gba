@@ -34,11 +34,21 @@ module RubyGBA
         #
         # WHAT A READ CAN REACH. The distance has twelve bits too, so a word must be
         # within about four thousand bytes of the instruction that reads it. The longest
-        # routines a game keeps in the quick memory are a little over that, so a load
-        # near the top of one cannot reach a table at the bottom and is built the old
-        # way. That has to be settled when the load is emitted, which is before anybody
-        # knows where the routine ends. What IS known then is the most the routine can
-        # come to, and a load that would reach even then is one that reaches.
+        # routines a game keeps in the quick memory are longer than that, so a load near
+        # the top of one cannot reach a table at the bottom and is built the old way.
+        # That has to be settled when the load is emitted, which is before anybody knows
+        # where the routine ends.
+        #
+        # WHERE THE LINE IS, THEN. A routine shrinks as its numbers become reads, so "how
+        # far is the end" keeps changing while the routine is emitted. What does not
+        # change is where a load sits in the routine AS IT WAS MEASURED, with every
+        # number built: that is this load's place plus everything the reads above it
+        # saved. The build works out from the measurement how far from the measured end
+        # a load can be and still reach — every load below it will be a read too, and it
+        # counts what those save — and hands that distance over (+read_within+). A load
+        # nearer the measured end than that is a read; one further is built. The reads
+        # are always the bottom of the routine, and exactly the ones the build charged
+        # the routine for (see Placement#table_effect).
         #
         # Being wrong about that is a read that names the wrong word: a wrong number in
         # a register with nothing to say so. So it is checked again when the table is
@@ -64,29 +74,34 @@ module RubyGBA
           # address are the same word, as two loads of the same number are.
           Address = Data.define(:kind, :target)
 
-          # +most_end+ is the furthest the routine's last instruction can be: where it
-          # starts plus the most it can come to. +routine+ is its name, for the one message
-          # this can cause.
-          def initialize(most_end:, routine:)
-            @most_end = most_end
+          # +measured_end+ is where the routine would end with every number built: where
+          # it starts plus the size it was measured at. +read_within+ is how far from there,
+          # counted in that same all-built routine, a load can be and still be a read.
+          # +routine+ is its name, for the one message this can cause.
+          def initialize(measured_end:, read_within:, routine:)
+            @measured_end = measured_end
+            @read_within = read_within
             @routine = routine
             @words = [] # each a number, or an Address
             @reads = []
+            @saved = 0  # the bytes the reads so far are shorter than the loads they replaced
           end
 
           attr_reader :words, :reads, :routine
 
-          # Would a read at +pos+ reach +word+? Its word is either one already in the
-          # table or the next one along.
-          def reaches?(pos, word)
-            (@most_end - pos) + (4 * place_of(word)) <= REACH
+          # Is a load at +pos+ one to read? +pos+ is where it really is, which is nearer
+          # the top than it was measured by whatever the reads above it saved; adding that
+          # back says where it sat in the routine as measured.
+          def reaches?(pos)
+            @measured_end - (pos + @saved) <= @read_within
           end
 
-          # Note a read at +pos+ into +reg+ of +word+, giving the word a place if it has
-          # none.
-          def note_read(pos, reg, word)
+          # Note a read at +pos+ into +reg+ of +word+, in place of a load that would have
+          # been +built_bytes+ long, giving the word a place if it has none.
+          def note_read(pos, reg, word, built_bytes:)
             @words << word unless @words.include?(word)
             @reads << Read.new(pos: pos, reg: reg, word: @words.index(word))
+            @saved += built_bytes - 4
           end
 
           # How far ahead of +read+ its word is, as the chip counts it, once the table has
@@ -97,10 +112,6 @@ module RubyGBA
 
           # Can the chip name a word that far ahead?
           def self.within_reach?(ahead) = (0..FURTHEST).cover?(ahead)
-
-          private
-
-          def place_of(word) = @words.index(word) || @words.size
         end
       end
     end

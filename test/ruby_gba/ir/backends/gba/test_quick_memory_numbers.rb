@@ -136,6 +136,46 @@ class TestQuickMemoryNumbers < Minitest::Test
     assert_equal [PLAIN, PLAIN], [console.var(:first), console.var(:last)]
   end
 
+  # A ROUTINE THAT ONLY LOOKS TOO LONG. Built an instruction at a time this one is well past
+  # what a read reaches, so its first number used to be built. But a routine SHRINKS as its
+  # numbers become reads, and this one is nearly all numbers: read, it is about half the
+  # length, and its first number is in reach of its end after all. The build counts the
+  # shrinking it is sure of before it asks whether a load reaches.
+  def shrinking_program(fast: true)
+    program_of do
+      screen :bitmap
+      first = var :first, 0
+      rest = var :rest, 0
+      func(:work, fast: fast) do
+        first.set! PLAIN
+        SHRINKING.times { |n| rest.set! PLAIN + 1 + n }
+      end
+      game_loop { call :work }
+    end
+  end
+
+  SHRINKING = 260
+
+  def test_a_routine_that_shrinks_into_reach_reads_every_number
+    built = GBA.new
+    built.lower(shrinking_program(fast: false))
+    backend = GBA.new
+    backend.lower(shrinking_program)
+
+    assert_operator built.func_ranges.fetch(:work).size, :>, 4096, "with every number built it is too long"
+    read = words_read_by(backend, :work)
+    assert_equal SHRINKING + 1, read.size, "every number is read"
+    assert_equal [PLAIN, PLAIN + SHRINKING], [read.first, read.last]
+    charged, emitted = backend.charged_and_emitted_sizes.fetch(:work)
+    assert_equal emitted, charged, "and it is charged for the size it shrank to"
+  end
+
+  def test_the_numbers_of_a_routine_that_shrank_are_right_on_the_console
+    console = console_after(shrinking_program, frames: 6)
+
+    assert_equal [PLAIN, PLAIN + SHRINKING], [console.var(:first), console.var(:rest)]
+  end
+
   # A READ THAT CANNOT REACH ITS WORD STOPS THE BUILD. Whether a load reaches is settled from
   # the most its routine was said it could come to, so the one way to a read that does not
   # reach is that promise being too small — a fault in the build, and one that would
@@ -144,7 +184,9 @@ class TestQuickMemoryNumbers < Minitest::Test
   # on for longer than a read reaches.
   def test_a_read_that_cannot_reach_its_table_stops_the_build
     backend = GBA.new
-    backend.define_singleton_method(:number_table_bound) { |name| super(name) && 64 }
+    backend.define_singleton_method(:number_table_for) do |name|
+      super(name)&.with(measured_bytes: 64, read_within: 64)
+    end
 
     error = assert_raises(GBA::LoweringError) { backend.lower(long_program) }
     assert_match(/:work/, error.message, "it names the routine")

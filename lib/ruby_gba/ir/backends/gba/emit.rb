@@ -71,7 +71,7 @@ module RubyGBA
           # built, and the word a table would hold for it — two loads of the same word share
           # one. Noted in every pass, whether a table is open or not, because the pass that
           # measures the routines runs with none open and still has to say what each routine
-          # would save (see Placement#tabled_sizes).
+          # would save (see Placement#table_effects).
           NumberLoad = Data.define(:pos, :instructions, :word)
 
           # A number built from fewer instructions than this is left built: as a read and a
@@ -171,13 +171,14 @@ module RubyGBA
 
           # --- a routine's number table (see {NumberTable}) ---
 
-          # Give the routine that starts HERE a table for its big numbers. +most_bytes+ is the
-          # most its instructions can come to, which is what decides whether a load is near
-          # enough to the end to read its number rather than build it. +routine+ is its name.
-          def open_number_table(most_bytes:, routine:)
+          # Give the routine that starts HERE a table for its big numbers. +measured_bytes+ is
+          # the size it was measured at with every number built, and +read_within+ how far
+          # from that measured end a load can be and still be read rather than built (see
+          # {NumberTable}). +routine+ is its name.
+          def open_number_table(measured_bytes:, read_within:, routine:)
             raise LoweringError, "a number table is already open: a routine has one, at its own end" if @number_table
 
-            @number_table = NumberTable.new(most_end: pos + most_bytes, routine: routine)
+            @number_table = NumberTable.new(measured_end: pos + measured_bytes, read_within: read_within, routine: routine)
           end
 
           # The routine is finished and has returned: write its table here, and tell each read
@@ -223,7 +224,7 @@ module RubyGBA
 
             word = value & 0xFFFFFFFF
             note_number_load(instructions, word)
-            table_takes?(word) ? emit_table_read(reg, word) : emit(built)
+            table_takes_load? ? emit_table_read(reg, word, built_bytes: built.bytesize) : emit(built)
           end
 
           # Second pass: every label and data-blob position is known now, so patch
@@ -371,7 +372,7 @@ module RubyGBA
           def emit_load_address(reg, kind, target)
             word = NumberTable::Address.new(kind: TABLE_WORD_FOR.fetch(kind), target: target)
             note_number_load(4, word)
-            return emit_table_read(reg, word) if table_takes?(word)
+            return emit_table_read(reg, word, built_bytes: 16) if table_takes_load?
 
             @fixups << AddressLoad.new(pos: pos, kind: kind, reg: reg, target: target)
             emit(ASM.load_immediate_fixed(reg, 0))
@@ -381,13 +382,14 @@ module RubyGBA
             @number_loads << NumberLoad.new(pos: pos, instructions: instructions, word: word)
           end
 
-          # Is a table open, and would a read here reach +word+ in it?
-          def table_takes?(word) = !@number_table.nil? && @number_table.reaches?(pos, word)
+          # Is a table open, and is a load HERE one it reads rather than one that is built?
+          def table_takes_load? = !@number_table.nil? && @number_table.reaches?(pos)
 
-          # One read of +word+ into +reg+. How far ahead the word is gets written when the
-          # table is; until then the read names the word right after it.
-          def emit_table_read(reg, word)
-            @number_table.note_read(pos, reg, word)
+          # One read of +word+ into +reg+, in place of a load +built_bytes+ long. How far
+          # ahead the word is gets written when the table is; until then the read names the
+          # word right after it.
+          def emit_table_read(reg, word, built_bytes:)
+            @number_table.note_read(pos, reg, word, built_bytes: built_bytes)
             emit(ASM.ldr_offset(reg, 15, 0))
           end
 

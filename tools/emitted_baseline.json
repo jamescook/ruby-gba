@@ -18,11 +18,11 @@
       "data": 0
     },
     "corridor": {
-      "code": 8602,
+      "code": 8578,
       "data": 0
     },
     "dive": {
-      "code": 55304,
+      "code": 55296,
       "data": 0
     },
     "floating_digits": {
@@ -82,7 +82,7 @@
       "data": 0
     },
     "pong": {
-      "code": 45758,
+      "code": 45702,
       "data": 0
     },
     "raycaster": {
@@ -102,15 +102,15 @@
       "data": 0
     },
     "shmup": {
-      "code": 41780,
+      "code": 41716,
       "data": 0
     },
     "snake": {
-      "code": 42316,
+      "code": 40496,
       "data": 0
     },
     "snake_buffered": {
-      "code": 39914,
+      "code": 39882,
       "data": 0
     },
     "sparks": {
