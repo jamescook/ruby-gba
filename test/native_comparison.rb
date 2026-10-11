@@ -28,9 +28,9 @@ module NativeComparison
   # +buttons+ maps a frame number (from 1) to the buttons held during it. Gives back the
   # interpreter's last snapshot, so a test can also say the run did something worth comparing —
   # two runs that both left everything at 0 agree too.
-  def assert_native_matches_reference(program, frames: 5, buttons: {}, modes: %i[checked fast])
+  def assert_native_matches_reference(program, frames: 5, buttons: {})
     expected = reference_snapshots(program, frames: frames, buttons: buttons)
-    modes.each do |mode|
+    %i[checked fast].each do |mode|
       actual = native_snapshots(program, frames: frames, buttons: buttons, mode: mode)
       assert_equal expected.map(&:heading), actual.map(&:heading), "the frame boundaries differ (#{mode} build)"
       expected.zip(actual).each { |want, got| assert_same_moment(want, got, mode) }
@@ -60,27 +60,27 @@ module NativeComparison
     Snapshot.new(heading: heading, variables: interpreter.vars.dup, picture: interpreter.screen.shown)
   end
 
+  # Everything that differs at one moment, said together: a wrong variable usually explains a
+  # wrong picture, and seeing both at once says which.
   def assert_same_moment(want, got, mode)
     # Both ways: a variable the interpreter wrote and the C never printed is a variable the
     # lowering lost track of, which comparing only what the C printed would never notice.
-    unprinted = want.variables.keys - got.variables.keys
-    assert_empty unprinted, "the C does not keep these variables the interpreter wrote (#{mode} build)"
+    unprinted = (want.variables.keys - got.variables.keys).map { |name| "#{name}: the C does not keep it" }
     wrong = got.variables.filter_map do |name, value|
       expected = want.variables.fetch(name, 0)
       "#{name}: C has #{value}, Reference #{expected}" if expected != value
     end
-    assert_empty wrong, "at #{got.heading} (#{mode} build)"
-    assert_same_picture(want.picture, got.picture, "at #{got.heading} (#{mode} build)")
+    differences = unprinted + wrong + [picture_difference(want.picture, got.picture)].compact
+    assert_empty differences, "at #{got.heading} (#{mode} build)"
   end
 
-  def assert_same_picture(want, got, where)
-    return if want == got
+  def picture_difference(want, got)
+    return nil if want == got
 
     first = want.each_index.find { |i| want[i] != got[i] }
     differing = want.each_index.count { |i| want[i] != got[i] }
-    flunk "the pictures differ #{where}: #{differing} pixels, the first at " \
-          "(#{first % WIDTH}, #{first / WIDTH}): C shows #{format('%04x', got[first])}, " \
-          "Reference #{format('%04x', want[first])}"
+    "the pictures differ in #{differing} pixels, the first at (#{first % WIDTH}, #{first / WIDTH}): " \
+      "C shows #{format('%04x', got[first])}, Reference #{format('%04x', want[first])}"
   end
 
   def button_mask(held)

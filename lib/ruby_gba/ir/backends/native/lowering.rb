@@ -67,13 +67,13 @@ module RubyGBA
                                                affine_background: :lower_affine_background,
                                                present_objects: :lower_present_objects,
                                                fade: :lower_fade, tint: :lower_tint,
-                                               # sound, which is not played yet (see Picture#lower_silently)
-                                               beep: :lower_silently, enable_sound: :lower_silently,
-                                               noise: :lower_silently, play_from_list: :lower_silently,
-                                               play_sample: :lower_silently, play_song: :lower_silently,
-                                               play_sound_effect: :lower_silently, stop_music: :lower_silently,
-                                               stop_sample: :lower_silently, stop_wave: :lower_silently,
-                                               wave: :lower_silently
+                                               # sound, which is not played yet (see Picture#lower_sound_unplayed)
+                                               beep: :lower_sound_unplayed, enable_sound: :lower_sound_unplayed,
+                                               noise: :lower_sound_unplayed, play_from_list: :lower_sound_unplayed,
+                                               play_sample: :lower_sound_unplayed, play_song: :lower_sound_unplayed,
+                                               play_sound_effect: :lower_sound_unplayed, stop_music: :lower_sound_unplayed,
+                                               stop_sample: :lower_sound_unplayed, stop_wave: :lower_sound_unplayed,
+                                               wave: :lower_sound_unplayed
                                              }.merge(Nodes.of_role(:declaration).to_h { |kind| [kind, :lower_nothing] }))
 
           VALUES = Ractor.make_shareable({
@@ -103,8 +103,10 @@ module RubyGBA
           # How many bytes a slot of a list takes, by the width it was declared with.
           SLOT_BYTES = Ractor.make_shareable({ byte: 1, half: 2, word: 4, nil => 4 })
 
-          def initialize(program)
+          # +title+ is the game's name, for the window.
+          def initialize(program, title: "ruby-gba")
             @program = program
+            @title = title
             @names = Names.new
             @locals = 0
             @funcs = by_name(program.walk, :func)
@@ -147,11 +149,18 @@ module RubyGBA
              *variable_names.map { |name| C::Global.new(name: variable(name)) },
              *list_storage,
              *(@scenes.empty? ? [] : [C::Global.new(name: @names.own("scene"), value: -1)]),
-             *constant_arrays, *picture_data, *@art,
+             *constant_arrays, *picture_data, *@drawing_arrays, title_array,
              *@called.map { |name| C::Prototype.new(name: routine(name)) },
              *routine_table_declarations,
              *routines, main,
              C::Function.new(name: @names.own("dump_variables"), body: dump_variables, exported: true)]
+          end
+
+          # The game's name as a C string. A character outside plain ASCII is written as '?', since
+          # what C keeps a character in may not hold more.
+          def title_array
+            bytes = @title.to_s.each_char.map { |char| char.ord.between?(32, 126) ? char.ord : "?".ord }
+            C::ConstArray.new(name: @names.own("title"), type: "char", values: bytes + [0], exported: true)
           end
 
           # A program that waits for frames shows nothing until its first frame is set up
@@ -281,12 +290,12 @@ module RubyGBA
           end
 
           # Each statement of a body, after where it was written — and, before any statement the
-          # interpreter paints an owed rebuild of the picture for, the same settling (see
-          # Picture.leaves_rebuild_owed?).
+          # interpreter paints an owed rebuild of the picture for, the same painting (see
+          # Reference.defers_repaint?, which this asks rather than keeping a copy of the rule).
           def body_of(node)
             node.children.flat_map do |child|
-              settle = Picture.leaves_rebuild_owed?(child) ? [] : [eval_call("rg_screen_settle")]
-              [*source_comment(child), *settle, *lower(child)]
+              paint = Reference.defers_repaint?(child) ? [] : [eval_call("rg_screen_paint_owed_rebuild")]
+              [*source_comment(child), *paint, *lower(child)]
             end
           end
 

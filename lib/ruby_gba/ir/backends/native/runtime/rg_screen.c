@@ -11,7 +11,7 @@
 #include "rg_screen.h"
 #include "rg_runtime.h"
 
-enum { MAX_BACKGROUNDS = 64, MAX_OBJECTS = 512 };
+enum { MAX_OBJECTS = 512 };
 
 static uint16_t pixels[RG_SCREEN_WIDTH * RG_SCREEN_HEIGHT];
 static uint16_t shown[RG_SCREEN_WIDTH * RG_SCREEN_HEIGHT];
@@ -26,13 +26,16 @@ static int32_t fade_white, fade_steps;
 static enum { TINT_NONE, TINT_TOWARD, TINT_COLOR } tint_mode;
 static int32_t tint_white, tint_color, tint_steps;
 
-/* Scenery up, in the order it went up (Reference @bg_shown). */
-static int32_t shown_backgrounds[MAX_BACKGROUNDS];
+/* Scenery up, in the order it went up (Reference @bg_shown). The interpreter's list grows by
+ * one every time a background is put up, even one already up; putting the same one up again
+ * only paints it again on top, so moving it to the end of this list draws the same picture and
+ * keeps the list as short as the game's backgrounds. */
+static int32_t shown_backgrounds[RG_MAX_BACKGROUNDS];
 static int32_t shown_count;
 
-/* A background turned or resized at least once (Reference @bg_affine), and how. */
-static int32_t turned[MAX_BACKGROUNDS], turn_angle[MAX_BACKGROUNDS], turn_size[MAX_BACKGROUNDS];
-static int32_t turn_pivot_x[MAX_BACKGROUNDS], turn_pivot_y[MAX_BACKGROUNDS];
+/* How a background is turned, once it has been turned or resized at all (Reference @bg_affine). */
+typedef struct { int32_t turned, angle, size, pivot_x, pivot_y; } background_turn;
+static background_turn turns[RG_MAX_BACKGROUNDS];
 
 /* The sprites on screen this frame: being said (drawing), and as the last rebuild draws them. */
 typedef struct { int32_t image, x, y, level; } placed_object;
@@ -192,10 +195,15 @@ void rg_background_stamp(int32_t background) {
 static void request_repaint(void) { owed = 1; }
 
 /* Reference#put_up_background: a turned background is painted through its turn at the next
- * rebuild rather than stamped as drawn. */
+ * rebuild rather than stamped as drawn. The interpreter also stamps again the backgrounds a
+ * named layer puts in front of this one; the build refuses named layers, so there are none. */
 void rg_background_put_up(int32_t background) {
-  if (shown_count < MAX_BACKGROUNDS) shown_backgrounds[shown_count++] = background;
-  if (turned[background]) {
+  int32_t kept = 0;
+  for (int32_t i = 0; i < shown_count; i++)
+    if (shown_backgrounds[i] != background) shown_backgrounds[kept++] = shown_backgrounds[i];
+  shown_backgrounds[kept] = background;
+  shown_count = kept + 1;
+  if (turns[background].turned) {
     request_repaint();
     return;
   }
@@ -204,17 +212,14 @@ void rg_background_put_up(int32_t background) {
 
 /* Reference#exec_affine_background: the angle wraps into 0..359 as Ruby's % does. */
 void rg_background_turn(int32_t background, int32_t angle, int32_t size, int32_t pivot_x, int32_t pivot_y) {
-  turned[background] = 1;
-  turn_angle[background] = (int32_t)floor_mod(angle, 360);
-  turn_size[background] = size;
-  turn_pivot_x[background] = pivot_x;
-  turn_pivot_y[background] = pivot_y;
+  turns[background] = (background_turn){1, (int32_t)floor_mod(angle, 360), size, pivot_x, pivot_y};
   request_repaint();
 }
 
+/* Reference#showing_scenery: scenery every screen shows, and the running scene's own. */
 static int32_t showing(int32_t background) {
   int32_t scene = background_field(background, RG_BG_SCENE);
-  return scene < 0 || scene == current_scene;
+  return scene == RG_EVERY_SCENE || scene == current_scene;
 }
 
 /* Reference#paint_background_window, for a background never turned: the map wraps over the
@@ -237,13 +242,17 @@ static void paint_window(int32_t background) {
   }
 }
 
-/* IR::Affine.matrix: one over the size, in 256ths, held below 0x7FFF; then the sine table. */
-static void affine_matrix(int32_t angle, int32_t size, int64_t *pa, int64_t *pb) {
-  int64_t scale = size < 1 ? 1 : size;
-  int64_t recip = ((int64_t)1 << 16) * 256 / scale;
-  if (recip > 0x7FFF) recip = 0x7FFF;
-  *pa = floor_div(rg_game_sines[angle + 90] * recip, 256);
-  *pb = floor_div(rg_game_sines[angle] * recip, 256);
+/* IR::Affine.matrix: one over the size, held at the largest number the matrix holds; then the
+ * sine table, cos d being sin(d + 90). The numbers come from rg_game_turn_rules, which the build
+ * writes from Ruby's own, so the two cannot drift. */
+static void affine_matrix(int32_t angle, int32_t size, int64_t *turn_cos, int64_t *turn_sin) {
+  int64_t scale_one = rg_game_turn_rules[0], one_th = rg_game_turn_rules[1];
+  int64_t most = rg_game_turn_rules[2], least_size = rg_game_turn_rules[3];
+  int64_t scale = size < least_size ? least_size : size;
+  int64_t recip = scale_one * one_th / scale;
+  if (recip > most) recip = most;
+  *turn_cos = floor_div(rg_game_sines[angle + 90] * recip, one_th);
+  *turn_sin = floor_div(rg_game_sines[angle] * recip, one_th);
 }
 
 /* Reference#paint_affine_background_window: for each screen pixel, work back through the turn
@@ -253,15 +262,16 @@ static void paint_turned_window(int32_t background) {
   int64_t map_w = (int64_t)background_field(background, RG_BG_GRID_COLS) * tile_w;
   int64_t map_h = (int64_t)background_field(background, RG_BG_GRID_ROWS) * tile_h;
   if (map_w == 0 || map_h == 0) return;
-  int64_t pivot_x = turn_pivot_x[background], pivot_y = turn_pivot_y[background];
-  int64_t cos, sin;
-  affine_matrix(turn_angle[background], turn_size[background], &cos, &sin);
+  const background_turn *turn = &turns[background];
+  int64_t pivot_x = turn->pivot_x, pivot_y = turn->pivot_y, one_th = rg_game_turn_rules[1];
+  int64_t turn_cos, turn_sin;
+  affine_matrix(turn->angle, turn->size, &turn_cos, &turn_sin);
   for (int64_t py = 0; py < RG_SCREEN_HEIGHT; py++) {
     int64_t dy = py - pivot_y;
     for (int64_t px = 0; px < RG_SCREEN_WIDTH; px++) {
       int64_t dx = px - pivot_x;
-      int64_t mx = floor_mod(pivot_x + floor_div(cos * dx + sin * dy, 256), map_w);
-      int64_t my = floor_mod(pivot_y + floor_div(-sin * dx + cos * dy, 256), map_h);
+      int64_t mx = floor_mod(pivot_x + floor_div(turn_cos * dx + turn_sin * dy, one_th), map_w);
+      int64_t my = floor_mod(pivot_y + floor_div(-turn_sin * dx + turn_cos * dy, one_th), map_h);
       int32_t cell = map_cell(background, my / tile_h, mx / tile_w);
       if (cell < 0) continue;
       uint16_t color = tile_pixel(background, cell, mx % tile_w, my % tile_h);
@@ -307,7 +317,7 @@ static void repaint_view(void) {
   for (int32_t level = 0; level < levels; level++) {
     for (int32_t bg = 0; bg < backgrounds; bg++) {
       if (!showing(bg) || background_field(bg, RG_BG_LEVEL) != level) continue;
-      if (turned[bg]) paint_turned_window(bg);
+      if (turns[bg].turned) paint_turned_window(bg);
       else paint_window(bg);
     }
     for (int32_t i = 0; i < layer_count; i++)
@@ -316,7 +326,7 @@ static void repaint_view(void) {
 }
 
 /* Reference#paint_owed_repaint */
-void rg_screen_settle(void) {
+void rg_screen_paint_owed_rebuild(void) {
   if (!owed) return;
   owed = 0;
   repaint_view();
@@ -353,10 +363,10 @@ void rg_scene_enter(int32_t scene) { current_scene = scene; }
 void rg_scene_take_down(int32_t brings_scenery) {
   int32_t any_scene_owned = 0;
   for (int32_t i = 0; i < shown_count; i++)
-    if (background_field(shown_backgrounds[i], RG_BG_SCENE) >= 0) any_scene_owned = 1;
+    if (background_field(shown_backgrounds[i], RG_BG_SCENE) != RG_EVERY_SCENE) any_scene_owned = 1;
   if (!any_scene_owned && !brings_scenery) return;
 
-  rg_screen_settle();
+  rg_screen_paint_owed_rebuild();
   int32_t kept = 0;
   for (int32_t i = 0; i < shown_count; i++)
     if (!background_field(shown_backgrounds[i], RG_BG_ON_ARRIVAL)) shown_backgrounds[kept++] = shown_backgrounds[i];
@@ -371,7 +381,7 @@ void rg_scene_take_down(int32_t brings_scenery) {
 
 /* Framebuffer#shown, with what a switched-off display shows (plain white) while held. */
 const uint16_t *rg_screen_shown(void) {
-  rg_screen_settle();
+  rg_screen_paint_owed_rebuild();
   for (int32_t i = 0; i < RG_SCREEN_WIDTH * RG_SCREEN_HEIGHT; i++) shown[i] = held ? (uint16_t)0x7FFF : faded(pixels[i]);
   return shown;
 }
