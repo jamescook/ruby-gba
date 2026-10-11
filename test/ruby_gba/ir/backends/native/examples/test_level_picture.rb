@@ -20,9 +20,6 @@ class TestLevelPicture < Minitest::Test
   def test_level_matches_the_interpreter_through_a_recorded_run
     program = Native.new.checked_program(Level::GAME, err: nil)
 
-    last = assert_native_matches_reference(program, frames: 64, buttons: WALK)
-
-    untouched = reference_snapshots(program, frames: 64, buttons: {}).last
-    assert untouched.picture != last.picture, "the walk should have moved the hero in the run compared"
+    assert_recorded_run_matches_reference program, frames: 64, buttons: WALK
   end
 end

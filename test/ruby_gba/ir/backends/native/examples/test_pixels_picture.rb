@@ -16,7 +16,7 @@ class TestPixelsPicture < Minitest::Test
   def test_pixels_matches_the_interpreter
     program = Native.new.checked_program(Pixels, err: nil)
 
-    last = assert_native_matches_reference(program, frames: 2)
+    last = assert_native_matches_reference(program)
 
     %i[white red yellow cyan magenta].each do |name|
       assert_includes last.picture, Color.resolve(name), "#{name} should be in the picture compared"

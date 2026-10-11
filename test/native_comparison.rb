@@ -47,6 +47,18 @@ module NativeComparison
     expected.last
   end
 
+  # A recorded run of +buttons+: the two agree on every frame of it, and the buttons did
+  # something — the picture the run ends on is not the one the game ends on when it is left
+  # alone. Without that second half a run whose buttons never reach the game compares two games
+  # standing still, and passes. It says the run moved, not that every leg of it did: the comment
+  # on the buttons is where that is worked out.
+  def assert_recorded_run_matches_reference(program, frames:, buttons:)
+    last = assert_native_matches_reference(program, frames: frames, buttons: buttons)
+    untouched = reference_snapshots(program, frames: frames, buttons: {}).last
+    assert untouched.picture != last.picture, "the buttons should have changed the picture the run ends on"
+    last
+  end
+
   # The snapshots the windowless program printed.
   def native_snapshots(program, frames:, buttons:, mode:)
     exe = Native.new.build_headless(program, mode: mode)
