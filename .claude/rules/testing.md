@@ -135,7 +135,9 @@ one after another. Make the code Ractor-friendly rather than silencing the repor
 
 The one honest way out is a test that **changes the whole process on purpose** — registering a
 font or a guardrail, swapping a library method for a stub, declaring a class, asserting about
-the process's own output. That class says `runs_on_the_main_ractor!` at the top, **with a line
+the process's own output — or one that **starts a child process**, which Ruby cannot do from
+inside a Ractor (the spawn waits for ever; `test/tools/test_rakefile.rb` and every native
+backend test do it). That class says `runs_on_the_main_ractor!` at the top, **with a line
 saying why**, and runs before the pool starts. It is not somewhere to park a test nobody has
 looked at.
 

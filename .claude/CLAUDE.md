@@ -98,14 +98,15 @@ rake test TEST=test/ruby_gba/dsl/test_thing.rb                  # one file
 rake test TEST=test/ruby_gba/dsl/test_thing.rb TESTOPTS="--name=/pattern/"  # one test
 rake test:playthroughs                                          # one module's tests: every file in test/ruby_gba/playthroughs/
 rake test:native                                                # the native backend, alone
+rake test:native TEST=test/ruby_gba/ir/backends/native/test_thing.rb  # one native file
 ```
 
 **`rake test` never runs the native backend's tests** (`test/ruby_gba/ir/backends/native/`),
 and `rake test:native` runs only them. Native trails the other two backends (see the
 cross-backend rule below), and its tests need zig, installed through mise, to compile what they
-test. They start child processes, so they run one after another rather than on Ractors.
-`test/support/suites.rb` holds both file lists, and `test/test_suites.rb` fails if a native test
-ever lands in `rake test`.
+test. They start child processes, so they run one after another rather than on Ractors (run one
+through `rake test:native`, never `rake test TEST=`). `test/support/suites.rb` holds both file
+lists, and a native test fails if anything but `rake test:native` runs it.
 
 The test tree mirrors the code's directories: a test of a file in `lib/ruby_gba/audio/`
 lives in `test/ruby_gba/audio/`, a test of an example in `test/examples/`, a test of a

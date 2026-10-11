@@ -15,11 +15,16 @@ module RubyGBA
         # why this backend uses it rather than whatever compiler the machine happens to have:
         # the same zig builds the same program on a Mac, on Linux, and for Windows from either.
         #
-        # A compile takes about a second, so the result is kept and handed back the next time
-        # the same C is asked for with the same settings. The key is a hash of everything that
-        # can change the program — every source, every header in the runtime, every flag, and
-        # zig's own version — so a stale program can never be handed back.
+        # A compile is slow next to everything else a test does, so the result is kept and
+        # handed back the next time the same C is asked for with the same settings. The key is
+        # a hash of the sources, every file in every folder headers are found in, every flag,
+        # and zig's own version, so a change to any of them builds again.
         module Zig
+          # The zig this backend is written against. The SDL package the desktop build fetches
+          # wants this one too, and zig changes enough between versions that "whatever is
+          # installed" is not a promise anybody could keep.
+          VERSION = "0.17."
+
           # What every compile is held to. The generated C is written to give no warnings at
           # all, so any warning is a mistake in the generator and stops the build. The two
           # conversion warnings are the ones that matter most: a number squeezed into something
@@ -39,7 +44,8 @@ module RubyGBA
 
           RUNTIME_DIR = Ractor.make_shareable(File.expand_path("runtime", __dir__))
 
-          # Raised when zig is missing, or refuses the C it was given.
+          # Raised when zig is missing or the wrong version, refuses the C it was given, or the
+          # program it built stops with an error.
           class Error < StandardError; end
 
           module_function
@@ -47,44 +53,48 @@ module RubyGBA
           # Compiles +sources+ (C files on disk) into one program and gives back its path.
           # +include+ is folders to find headers in; the runtime's own folder is always one.
           def compile(sources, include: [], mode: :checked)
-            flags = WARNINGS + OPTIMISE.fetch(mode) + [RUNTIME_DIR, *include].flat_map { |dir| ["-I", dir] }
-            key = cache_key(sources, flags)
-            exe = File.join(cache_dir, key, "program")
+            folders = [RUNTIME_DIR, *include]
+            flags = WARNINGS + OPTIMISE.fetch(mode) + folders.flat_map { |dir| ["-I", dir] }
+            exe = File.join(cache_dir, cache_key(sources, folders, flags), "program")
             return exe if File.exist?(exe)
 
             FileUtils.mkdir_p(File.dirname(exe))
             building = "#{exe}.#{Process.pid}.#{rand(1 << 30)}" # renamed into place once whole
-            run!("zig", "cc", *flags, "-o", building, *sources)
+            capture_command("zig", "cc", *flags, "-o", building, *sources)
             File.rename(building, exe)
             exe
           end
 
-          # Runs a compiled program, feeding it +input+, and gives back what it printed.
-          def run(exe, input: "", env: {})
+          # Runs a program this built, feeding it +input+, and gives back what it printed.
+          def run_program(exe, input: "", env: {})
             out, err, status = Open3.capture3(env, exe, stdin_data: input)
             raise Error, "#{File.basename(exe)} stopped (#{status}):\n#{err}" unless status.success?
 
             out
           end
 
-          def cache_key(sources, flags)
+          # The installed zig's version, refusing one this backend was not written against.
+          def version
+            found = capture_command("zig", "version").strip
+            return found if found.start_with?(VERSION)
+
+            raise Error, "this needs zig #{VERSION}x, and the zig installed is #{found}. Pin it for this " \
+                         "project in mise (zig = \"0.17.0\") and run `mise install`."
+          end
+
+          def cache_key(sources, folders, flags)
             digest = Digest::SHA256.new
             digest << version << "\0" << flags.join("\0")
-            (sources + Dir.glob(File.join(RUNTIME_DIR, "*"))).sort.each do |path|
-              digest << "\0" << File.basename(path) << "\0" << File.binread(path)
-            end
+            files = sources + folders.flat_map { |dir| Dir.glob(File.join(dir, "**", "*")).select { |f| File.file?(f) } }
+            files.uniq.sort.each { |path| digest << "\0" << path << "\0" << File.binread(path) }
             digest.hexdigest[0, 24]
           end
 
-          def cache_dir
-            File.join(Dir.tmpdir, "ruby-gba-native")
-          end
+          def cache_dir = File.join(Dir.tmpdir, "ruby-gba-native")
 
-          def version
-            run!("zig", "version").strip
-          end
-
-          def run!(*command)
+          # Runs a command to the end and gives back what it printed; a failure raises with
+          # what it printed to say why.
+          def capture_command(*command)
             out, err, status = Open3.capture3(*command)
             return out if status.success?
 
@@ -92,6 +102,8 @@ module RubyGBA
           rescue Errno::ENOENT
             raise Error, "zig was not found. This project installs it through mise: run `mise install`."
           end
+
+          private_class_method :cache_key, :cache_dir, :capture_command
         end
       end
     end
