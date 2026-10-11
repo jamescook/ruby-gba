@@ -32,6 +32,8 @@ module TestSuites
 
   module_function
 
+  def native? = LOWERING == :native
+
   # Every test file, for either run; the desktop test too when +desktop+.
   def files(desktop: false)
     found = Dir.glob("test/**/test_*.rb").sort

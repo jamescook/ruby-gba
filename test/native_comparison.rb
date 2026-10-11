@@ -41,7 +41,7 @@ module NativeComparison
   # The snapshots the windowless program printed.
   def native_snapshots(program, frames:, buttons:, mode:)
     exe = Native.new.build_headless(program, mode: mode)
-    input = (1..frames).map { |frame| "#{button_mask(buttons.fetch(frame, []))}\n" }.join
+    input = (1..frames).map { |frame| "#{Native::HeadlessRun.button_mask(buttons.fetch(frame, []))}\n" }.join
     parse_snapshots(Native::Zig.run_program(exe, args: [frames, "--every-picture"], input: input))
   end
 
@@ -89,16 +89,10 @@ module NativeComparison
       "C shows #{format('%04x', got[first])}, Reference #{format('%04x', want[first])}"
   end
 
-  def button_mask(held)
-    Array(held).sum { |button| 1 << RubyGBA::IR::Buttons::NAMES.index(button) }
-  end
-
   def parse_snapshots(text)
     text.lines.map(&:chomp).slice_before { |line| line.start_with?("frame ") || line == "end" }.map do |heading, *rows|
-      picture_line = rows.find { |row| row.start_with?("picture ") }
-      variables = rows.grep(/\Avar /).to_h { |row| _, name, value = row.split(" "); [name.to_sym, Integer(value)] }
-      picture = picture_line.delete_prefix("picture ").scan(/\h{4}/).map { |hex| hex.to_i(16) }
-      Snapshot.new(heading: heading, variables: variables, picture: picture)
+      Snapshot.new(heading: heading, variables: Native::HeadlessRun.variables_in(rows),
+                   picture: Native::HeadlessRun.picture_in(rows))
     end
   end
 end

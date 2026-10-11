@@ -83,7 +83,9 @@ newer, which cannot see a Ruby version change — after switching Ruby, run `rak
 `ruby-gba-emulator/`. The load error tells you which of the two you are looking at.
 
 It is **required, not optional**: if it can't build or load, the emulator-backed tests **fail
-loudly** rather than skipping — `require_emulator!` (in `EmulatorSupport`) raises. Building it
+loudly** rather than skipping — `require_emulator!` (in `EmulatorSupport`) raises. The one run
+they skip on is `rake test:native`, which tests the game as C and makes no cartridge; `rake
+test` runs them every time. Building it
 needs a C compiler and a system libmgba (`brew install mgba` / `apt install libmgba-dev`).
 
 ## Running Tests
