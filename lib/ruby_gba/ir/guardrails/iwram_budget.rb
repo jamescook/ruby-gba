@@ -95,8 +95,8 @@ module RubyGBA
           def list_and_pool_items(program)
             grouped = {}
             list_declarations(program).each do |name, (bytes, node)|
-              item = (grouped[label_for(name)] ||= { label: label_for(name), bytes: 0,
-                                                     node: node, movable: true })
+              label = Messages::MadeNames.collection_words(name)
+              item = (grouped[label] ||= { label: label, bytes: 0, node: node, movable: true })
               item[:bytes] += bytes
             end
             grouped.values
@@ -117,15 +117,6 @@ module RubyGBA
               declarations[node.name] = [(node.capacity * slot) + (2 * WORD), node]
             end
             declarations
-          end
-
-          # The contributor label for a list: a pool's list — a field's, or one of the pool's
-          # own — reads as its pool; anything else as itself.
-          def label_for(list_name)
-            kind, parts = Messages::MadeNames.read(list_name)
-            return "pool :#{parts[:pool]}" if %i[pool_field pool_part].include?(kind)
-
-            "list :#{list_name}"
           end
 
           # The kinds that name a variable, and which of their attributes hold the name(s).

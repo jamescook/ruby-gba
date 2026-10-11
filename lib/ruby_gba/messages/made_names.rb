@@ -158,6 +158,16 @@ module RubyGBA
         nil
       end
 
+      # What a report calls the collection a list belongs to. A pool is a list a field and
+      # several of its own, and the author declared one pool, so each of those reads as its
+      # pool. Any other list reads as itself.
+      def self.collection_words(list_name)
+        kind, parts = read(list_name)
+        return "pool :#{parts[:pool]}" if %i[pool_field pool_part].include?(kind)
+
+        "list :#{list_name}"
+      end
+
       # What a report calls the routine +name+, or nil when it is not one the build made up (or
       # is a made-up variable, which no report names).
       def self.words_for_made_name(name)

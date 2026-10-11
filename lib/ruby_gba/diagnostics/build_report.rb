@@ -339,14 +339,19 @@ module RubyGBA
       #
       # Said only when something is there. A game whose state fits in the quick memory, which
       # is nearly every game, reads nothing about a second memory it never met.
+      #
+      # A pool is a list a field and several of its own, and all of them move together, so a
+      # pool is one line with their bytes added up: the author declared one pool and wrote
+      # none of those lists' names.
       def roomy_memory_lines(roomy, printer)
         return if roomy.nil? || roomy.used.zero?
 
         printer.puts format("  the roomy memory (a read there waits ~%dx longer): %s of %s used, %s free",
                             ROOMY_MEMORY_SLOWDOWN, kilobytes(roomy.used), kilobytes(roomy.total), kilobytes(roomy.free))
-        roomy.collections.each do |name, bytes|
-          printer.puts format("    %8s  :%s", kilobytes(bytes), name)
+        moved = roomy.collections.each_with_object(Hash.new(0)) do |(name, bytes), by_words|
+          by_words[Messages::MadeNames.collection_words(name)] += bytes
         end
+        moved.each { |words, bytes| printer.puts format("    %8s  %s", kilobytes(bytes), words) }
       end
 
       # WHICH SAVE MEMORY THE CARTRIDGE HAS, and what takes it. The build picks 32K, or 64K or

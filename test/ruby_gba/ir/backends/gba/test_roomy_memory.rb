@@ -190,6 +190,28 @@ class TestRoomyMemory < Minitest::Test
     assert_match(/waits/, printed, "and says what that costs")
   end
 
+  # A pool is one list a field and several of its own, under names the build made up. An
+  # author declared one pool, so the report says one pool, with the bytes of all of them.
+  def test_the_report_names_a_pool_that_moved_once_and_by_its_own_name
+    rom = build("POOLSAYS") do
+      screen :bitmap
+      pool :spark, x: 0, y: 0, life: 0, capacity: 64, fast: false
+      world = list :world, capacity: 64, fast: false
+      game_loop { world.push 1 }
+    end
+
+    out = StringIO.new
+    RubyGBA::Diagnostics::BuildReport.render(rom, out: out)
+    printed = out.string
+    moved = roomy_of(rom).collections
+    spark_bytes = moved.sum { |name, bytes| name.to_s.include?("spark") ? bytes : 0 }
+
+    assert_equal 1, printed.scan("pool :spark").size, "one line for the one pool"
+    assert_match(/#{Regexp.escape(format('%.1fK', spark_bytes / 1024.0))}\s+pool :spark/, printed)
+    assert_match(/list :world/, printed, "and a list beside it reads as a list")
+    refute_match(/__pool/, printed, "none of the names the build made up")
+  end
+
   # A game whose state fits reads nothing about a second memory it never met.
   def test_a_game_that_fits_says_nothing_about_it
     rom = build("SMALL") do
