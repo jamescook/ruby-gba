@@ -45,7 +45,7 @@ module RubyGBA
 
           # Sixteen numbers a line, so a table of thousands is still a file a person can scroll.
           def print_const_array(item)
-            line(0, "static const #{item.type} #{item.name.text}[#{[item.values.size, 1].max}] = {")
+            line(0, "#{linkage(item)}const #{item.type} #{item.name.text}[#{[item.values.size, 1].max}] = {")
             values = item.values.empty? ? [0] : item.values
             values.each_slice(16) { |row| line(1, "#{row.map { |v| expression(C::Int.new(v)) }.join(', ')},") }
             line(0, "};")

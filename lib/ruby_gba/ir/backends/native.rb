@@ -6,6 +6,7 @@ require_relative "native/zig"
 require_relative "native/names"
 require_relative "native/c"
 require_relative "native/printer"
+require_relative "native/picture"
 require_relative "native/lowering"
 
 module RubyGBA
@@ -54,7 +55,8 @@ module RubyGBA
         # The program built into a program with no window (runtime/rg_headless.c), and the
         # path to it. See that file for how it is run and what it prints.
         def build_headless(program, mode: :checked)
-          Zig.compile([write_source(lower(program)), File.join(Zig::RUNTIME_DIR, "rg_headless.c")], mode: mode)
+          Zig.compile([write_source(lower(program)), *%w[rg_headless.c rg_screen.c].map { |file| File.join(Zig::RUNTIME_DIR, file) }],
+                      mode: mode)
         end
 
         private

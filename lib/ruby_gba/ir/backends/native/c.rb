@@ -82,8 +82,13 @@ module RubyGBA
             end
           end
 
-          # Numbers fixed when the program is built: a table, a picture.
-          ConstArray = Data.define(:name, :type, :values)
+          # Numbers fixed when the program is built: a table, a picture. +exported+ is for the
+          # art the runtime reads by name (see runtime/rg_screen.h).
+          ConstArray = Data.define(:name, :type, :values, :exported) do
+            def initialize(name:, type:, values:, exported: false)
+              super
+            end
+          end
 
           # A routine taking nothing and giving nothing back. +exported+ is for the few the
           # runtime calls by name; the rest are private to the generated file.
