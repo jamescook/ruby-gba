@@ -11,6 +11,9 @@ require_relative "../../examples/raycaster"
 # carry a fraction). The player stands inside a walled room, so every screen column hits a
 # wall and draws a shaded strip through the eye line.
 class TestRaycasterExample < Minitest::Test
+  # True of the game however it is played: see TestSuites.
+  runs_on :reference, :native
+
   # How many screen columns show a wall — any of the three depth shades — at the horizon.
   def wall_columns(sample)
     (0...240).step(8).count { |x| Raycaster::WALL_SHADES.include?(sample.call(x + 3, 80)) }
@@ -31,7 +34,7 @@ class TestRaycasterExample < Minitest::Test
   end
 
   def test_walls_render_on_the_interpreter
-    interp = Reference.new.run(Raycaster.program, frames: 2)
+    interp = game_player.run(Raycaster.program, frames: 2)
     assert_operator wall_columns(->(x, y) { interp.screen.pixel(x, y) }), :>=, 20,
                     "the surrounding walls should draw a strip in most columns"
   end
@@ -47,7 +50,7 @@ class TestRaycasterExample < Minitest::Test
   # The room has a sky above the eye line and a floor below it. Without those the view is
   # walls on black, and nothing reads as a room.
   def test_the_room_has_a_sky_and_a_floor
-    screen = Reference.new.run(Raycaster.program, frames: 2).screen
+    screen = game_player.run(Raycaster.program, frames: 2).screen
 
     assert_equal Raycaster::SKY, screen.pixel(120, 2), "the top of the view should be sky"
     assert_equal Raycaster::FLOOR, screen.pixel(120, 158), "the bottom should be floor"
@@ -60,7 +63,7 @@ class TestRaycasterExample < Minitest::Test
   # test that says so.
   def test_no_column_is_notched_at_any_viewing_angle
     [1, 3, 6, 10, 16, 24, 32, 48].each do |turning_frames|
-      interp = Reference.new
+      interp = game_player
       interp.input_each_frame { |frame| frame <= turning_frames ? [:right] : [] }
       tops = wall_tops(interp.run(Raycaster.program, frames: turning_frames + 1).screen)
 
@@ -86,9 +89,9 @@ class TestRaycasterExample < Minitest::Test
   def test_holding_up_walks_the_player_forward
     start = (3.5 * CELL).round
     step = (Raycaster::WALK * CELL).round
-    walked = Reference.new.hold(:up).run(Raycaster.program, frames: 6)
+    walked = game_player.hold(:up).run(Raycaster.program, frames: 6)
 
-    assert_equal start, Reference.new.run(Raycaster.program, frames: 6)[:px],
+    assert_equal start, game_player.run(Raycaster.program, frames: 6)[:px],
                  "the player should stand still with nothing held"
     assert_equal start + (6 * step), walked[:px]
     assert_equal start, walked[:py], "walking east should not drift north or south"
@@ -98,7 +101,7 @@ class TestRaycasterExample < Minitest::Test
   # cell 4 rather than pass through it. Held far longer than the 16 steps it takes to get
   # there, so a player who can walk through walls ends up well outside the maze.
   def test_the_player_cannot_walk_through_a_wall
-    interp = Reference.new
+    interp = game_player
     interp.input_each_frame { |frame| frame <= 64 ? [:up] : [] }
     walked = interp.run(Raycaster.program, frames: 70)
 

@@ -64,6 +64,11 @@ module RubyGBA
                                                fill_rect: :lower_fill_rect, dma_fill_rect: :lower_dma_fill_rect,
                                                draw_rect_at: :lower_draw_rect_at, pixel: :lower_pixel,
                                                draw_text: :lower_draw_text, draw_digit: :lower_draw_digit,
+                                               inside: :lower_inside, camera: :lower_camera,
+                                               blit: :lower_blit, blit_pose: :lower_blit_pose,
+                                               draw_column_at: :lower_draw_column_at,
+                                               save_region: :lower_save_region,
+                                               restore_region: :lower_restore_region,
                                                background: :lower_background,
                                                affine_background: :lower_affine_background,
                                                present_objects: :lower_present_objects,
@@ -92,8 +97,7 @@ module RubyGBA
           # which test_native_kind_coverage.rb holds against every kind there is. A kind leaves
           # the list the day it gets a row in STATEMENTS or VALUES.
           NOT_LOWERED_YET = Ractor.make_shareable({
-            picture: %i[background_colors blit blit_pose camera copy_owed_tiles copy_tiles
-                        draw_column_at inside restore_region save_region
+            picture: %i[background_colors copy_owed_tiles copy_tiles
                         scroll_background scroll_rows see_through set_tile show_map],
             saving: %i[save_erase save_init save_read save_store save_sum save_write],
             sound: %i[noise play_from_list play_sample play_sound_effect stop_sample stop_wave wave],

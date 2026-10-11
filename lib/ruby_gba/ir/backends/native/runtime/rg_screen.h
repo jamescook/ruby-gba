@@ -29,13 +29,37 @@ enum { RG_BITMAP = 0, RG_TILED = 1, RG_ROTOZOOM = 2 };
 /* --- what the generated game calls --- */
 
 void rg_screen_hold(int32_t held);              /* switched off until the first frame is set up */
-void rg_screen_set(int32_t kind);               /* a `screen` statement */
-void rg_screen_cross_to(int32_t kind);          /* a scene arriving on the screen it draws on */
+/* A `screen` statement. +two_pages+ is 1 for a tear-free screen: two pictures, the one being
+ * drawn and the one being shown, traded between frames. */
+void rg_screen_set(int32_t kind, int32_t two_pages);
+void rg_screen_cross_to(int32_t kind, int32_t two_pages); /* a scene arriving on the screen it draws on */
 void rg_screen_paint_owed_rebuild(void);        /* rebuild the whole view, if a rebuild is owed */
 
 void rg_screen_clear(int32_t color);
 void rg_screen_fill_rect(int32_t x, int32_t y, int32_t width, int32_t height, int32_t color);
 void rg_screen_pixel(int32_t x, int32_t y, int32_t color);
+
+/* Everything drawn between these two stays inside that part of the screen; what falls outside
+ * is not drawn. The area in force before comes back at the end. */
+void rg_screen_inside(int32_t x, int32_t y, int32_t width, int32_t height);
+void rg_screen_inside_ended(void);
+
+/* Move the window onto the picture: screen (0, 0) shows what was drawn at (x, y). */
+void rg_screen_camera(int32_t x, int32_t y);
+
+/* A picture painted into the picture with its top left at (x, y); and one of +count+ pictures,
+ * picked by +pose+, where a number naming none paints nothing. */
+void rg_screen_blit(int32_t image, int32_t x, int32_t y);
+void rg_screen_blit_pose(const int32_t *poses, int32_t count, int32_t pose, int32_t x, int32_t y);
+
+/* Column +slice+ of a picture, stretched to +height+ rows from +top+ and painted +width+ pixels
+ * across from +x+. */
+void rg_screen_column(int32_t image, int32_t slice, int32_t x, int32_t top, int32_t height, int32_t width);
+
+/* The patch of the picture a sprite on a painted screen is about to cover, +width+ by +height+
+ * at (x, y), kept in buffer number +buffer+; and that patch painted back. */
+void rg_region_save(int32_t buffer, int32_t width, int32_t height, int32_t x, int32_t y);
+void rg_region_restore(int32_t buffer, int32_t width, int32_t height, int32_t x, int32_t y);
 /* Points worked out when the game was built — the pixels of a line of text — as (dx, dy)
  * pairs, painted from (x, y). */
 void rg_screen_points(int32_t x, int32_t y, int32_t color, const int16_t *points, int32_t count);
@@ -95,12 +119,22 @@ static inline int32_t rg_pick_color(int32_t showing, int32_t color, int32_t pick
 
 /* --- what the runtimes call --- */
 
-/* The frame boundary's part in the picture: it is switched on from here. */
+/* The frame boundary's two parts in the picture. As a frame ends, a tear-free screen trades its
+ * pages, before anything that can stop the run there. As the next begins, the picture is
+ * switched on. */
+void rg_screen_frame_ended(void);
 void rg_screen_frame_started(void);
 
 /* The picture as it is SHOWN, rebuilt first if a rebuild is owed: RG_SCREEN_WIDTH times
  * RG_SCREEN_HEIGHT colors, row by row, with the fade or tint in force mixed in. */
 const uint16_t *rg_screen_shown(void);
+
+/* The same page as it is STORED: no window moved over it, no fade or tint. What a test counts
+ * drawn pixels in; a player never sees it. */
+const uint16_t *rg_screen_stored(void);
+
+/* 1 while the screen is tear-free, and so two pages. */
+int32_t rg_screen_two_pages(void);
 
 /* --- the art, from the generated game --- */
 

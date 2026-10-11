@@ -16,7 +16,9 @@
  * own input script in, after the frame before has finished.
  *
  * At the end it prints "end", every variable, and the picture as shown: "picture" and every
- * pixel, row by row, as four hex digits. A frame's moment carries only a check number of its
+ * pixel, row by row, as four hex digits — and then the same page as it is stored ("stored"),
+ * with no window moved over it and no fade mixed in, and how many pages the screen has ("pages",
+ * 2 for a tear-free one). A frame's moment carries only a check number of its
  * picture ("picture-crc"), or with --every-picture the whole picture, for a test that compares
  * every frame pixel by pixel. Without it a frame is a few lines rather than a hundred and fifty
  * thousand characters, which is what lets a long run be driven a frame at a time.
@@ -49,14 +51,15 @@ static void write_frame_sound(void) {
   if (sound_out) fwrite(samples, sizeof samples[0], (size_t)count, sound_out);
 }
 
-/* The picture as it is shown, as one line: "picture" and then every pixel, row by row, as four
- * hex digits. */
-static void print_picture(void) {
-  const uint16_t *shown = rg_screen_shown();
-  fputs("picture ", stdout);
-  for (int32_t i = 0; i < RG_SCREEN_WIDTH * RG_SCREEN_HEIGHT; i++) printf("%04x", (unsigned)shown[i]);
+/* A whole picture as one line: +word+ and then every pixel, row by row, as four hex digits. */
+static void print_pixels(const char *word, const uint16_t *pixels) {
+  printf("%s ", word);
+  for (int32_t i = 0; i < RG_SCREEN_WIDTH * RG_SCREEN_HEIGHT; i++) printf("%04x", (unsigned)pixels[i]);
   fputc('\n', stdout);
 }
+
+/* The picture as it is shown. */
+static void print_picture(void) { print_pixels("picture", rg_screen_shown()); }
 
 /* The picture as it is shown, as one number: the CRC-32 of its pixels, each as two bytes with the
  * low byte first — the CRC zip files use, which Ruby's Zlib.crc32 works out from the same bytes.
@@ -86,6 +89,8 @@ static void print_moment(const char *heading, int with_picture) {
 
 static _Noreturn void finish(void) {
   print_moment("end", 1);
+  print_pixels("stored", rg_screen_stored());
+  printf("pages %d\n", rg_screen_two_pages() ? 2 : 1);
   fflush(stdout);
   if (sound_out) fclose(sound_out);
   exit(0);

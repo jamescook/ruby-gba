@@ -10,6 +10,9 @@ require_relative "../../examples/sprite_mover"
 # everything pattern is gone from the loop — and that it still renders and steers,
 # on the interpreter and on the emulator.
 class TestSpriteMoverExample < Minitest::Test
+  # True of the game however it is played: see TestSuites.
+  runs_on :reference, :native
+
   include RubyGBA::Console::Hardware
 
   FIELD = RubyGBA::Graphics::Color.rgb(4, 6, 14)
@@ -38,7 +41,7 @@ class TestSpriteMoverExample < Minitest::Test
 
   def test_the_heart_shows_up_and_moves_on_the_interpreter
     # Hold left for a while, then it settles against the left clamp.
-    i = Reference.new.input_each_frame { |_f| [:left] }.run(SpriteMover.program, max_steps: 4000)
+    i = game_player.input_each_frame { |_f| [:left] }.run(SpriteMover.program, max_steps: 4000)
     assert_operator i[:__spr1_x], :<, START[0], "holding left didn't move the heart"
     assert color_on?(i.screen, Color.resolve(:red)), "the heart isn't on screen"
     assert color_on?(i.screen, FIELD), "the blue field isn't showing around the heart"
@@ -59,7 +62,7 @@ class TestSpriteMoverExample < Minitest::Test
   POST_ROW = SpriteMover::POST_Y + 2
 
   def steered(direction)
-    Reference.new.input_each_frame { |_f| [direction] }
+    game_player.input_each_frame { |_f| [direction] }
              .run(SpriteMover.program, frames: ON_A_POST).screen
   end
 

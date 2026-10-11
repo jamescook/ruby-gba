@@ -3,9 +3,9 @@
  * method it was ported from, in backends/reference.rb or reference/framebuffer.rb, because that
  * is what decides what is right here.
  *
- * What is NOT here is refused when the game is built rather than drawn wrongly: a tear-free
- * screen's second page, the camera, an area drawing is held inside, a see-through layer, a fade
- * placed in the stack, and sprites that turn or change layer.
+ * What is NOT here is refused when the game is built rather than drawn wrongly: scenery that
+ * scrolls, bends or has its cells or its map changed, a see-through layer, a fade placed in the
+ * stack, and sprites that turn or change layer.
  *
  * A sprite's pictures arrive ready to draw: which of its pixels show, and the colors of each
  * list it can be drawn with, are worked out when the game is built (see native/picture.rb).
@@ -15,12 +15,39 @@
 
 #include <stdlib.h>
 
-static uint16_t pixels[RG_SCREEN_WIDTH * RG_SCREEN_HEIGHT];
-static uint16_t shown[RG_SCREEN_WIDTH * RG_SCREEN_HEIGHT];
+enum { CELLS = RG_SCREEN_WIDTH * RG_SCREEN_HEIGHT };
+
+/* TWO PAGES, OR ONE (Framebuffer#paged=). A tear-free screen is two pictures: the display shows
+ * one while the game draws into the other, and they trade places between frames, so nobody ever
+ * sees a half-drawn picture. Drawing always lands on +pixels+ and the viewer always reads
+ * +viewed+; with one page those are the same picture. */
+static uint16_t first_page[CELLS], second_page[CELLS];
+static uint16_t *pixels = first_page;
+static uint16_t *viewed = first_page;
+static uint16_t shown[CELLS];
 
 /* Where drawing goes: the picture, or for a moment the copy of the scenery kept to put back
  * under a sprite (Reference#drawing_into). */
-static uint16_t *target = pixels;
+static uint16_t *target = first_page;
+
+/* The part of the screen drawing is held inside (Framebuffer#draw_inside), when it is held, and
+ * the areas in force around it, given back as each `inside` ends: a routine with an area of its
+ * own can be called from inside another's. */
+typedef struct { int32_t held_in; int64_t left, top, right, bottom; } drawing_area;
+enum { AREAS_DEEP = 64 };
+static drawing_area area, outer_areas[AREAS_DEEP];
+static int32_t areas_deep;
+
+/* Where the window onto the picture sits (Framebuffer#camera_to): screen (0, 0) shows what was
+ * drawn at (camera_x, camera_y). Nothing drawn moves. */
+static int32_t camera_x, camera_y;
+
+/* The patches of picture saved under bitmap sprites, by buffer number (Reference @backing): each
+ * cell a color, or NO_CELL where the patch hung off what could be read. Nothing until the first
+ * save. */
+enum { NO_CELL = -1 };
+static int32_t **saved_patches;
+static int32_t patches_room;
 
 /* THE SCENERY WITH NOTHING ON IT (Reference @scene_fb): the backdrop and every background up,
  * painted once and kept. A sprite on a picture that is not rebuilt every frame is drawn straight
@@ -80,27 +107,107 @@ static int32_t on_screen(int64_t x, int64_t y) {
   return x >= 0 && x < RG_SCREEN_WIDTH && y >= 0 && y < RG_SCREEN_HEIGHT;
 }
 
-/* Framebuffer#set_pixel: a cell off the screen is dropped. */
+/* Framebuffer#in_bounds?: on the screen, and inside the area drawing is held to when it is. */
+static int32_t in_bounds(int64_t x, int64_t y) {
+  if (!on_screen(x, y)) return 0;
+  return !area.held_in || (x >= area.left && x < area.right && y >= area.top && y < area.bottom);
+}
+
+/* Framebuffer#set_pixel: a cell drawing may not land on is dropped. */
 static void set_pixel(int64_t x, int64_t y, int32_t color) {
-  if (on_screen(x, y)) target[y * RG_SCREEN_WIDTH + x] = (uint16_t)color;
+  if (in_bounds(x, y)) target[y * RG_SCREEN_WIDTH + x] = (uint16_t)color;
 }
-
-/* Framebuffer#clear */
-static void clear_to(int32_t color) {
-  for (int32_t i = 0; i < RG_SCREEN_WIDTH * RG_SCREEN_HEIGHT; i++) target[i] = (uint16_t)color;
-}
-
-void rg_screen_clear(int32_t color) { clear_to(color); }
 
 /* Framebuffer#fill_rect: every cell of the rectangle, each through set_pixel. Walking only the
  * part on the screen paints the same cells. */
-void rg_screen_fill_rect(int32_t x, int32_t y, int32_t width, int32_t height, int32_t color) {
+static void fill_cells(int64_t x, int64_t y, int64_t width, int64_t height, int32_t color) {
   int64_t left = x < 0 ? 0 : x, top = y < 0 ? 0 : y;
-  int64_t right = (int64_t)x + width, bottom = (int64_t)y + height;
+  int64_t right = x + width, bottom = y + height;
   if (right > RG_SCREEN_WIDTH) right = RG_SCREEN_WIDTH;
   if (bottom > RG_SCREEN_HEIGHT) bottom = RG_SCREEN_HEIGHT;
   for (int64_t py = top; py < bottom; py++)
     for (int64_t px = left; px < right; px++) set_pixel(px, py, color);
+}
+
+/* Framebuffer#clear: the whole picture, or the area drawing is held to and no more. */
+static void clear_to(int32_t color) {
+  if (area.held_in) {
+    fill_cells(area.left, area.top, area.right - area.left, area.bottom - area.top, color);
+    return;
+  }
+  for (int32_t i = 0; i < CELLS; i++) target[i] = (uint16_t)color;
+}
+
+void rg_screen_clear(int32_t color) { clear_to(color); }
+
+void rg_screen_fill_rect(int32_t x, int32_t y, int32_t width, int32_t height, int32_t color) {
+  fill_cells(x, y, width, height, color);
+}
+
+/* Reference#exec_inside: the area before is kept, to be given back by rg_screen_inside_ended. */
+void rg_screen_inside(int32_t x, int32_t y, int32_t width, int32_t height) {
+  if (areas_deep >= AREAS_DEEP) rg_fault("more than %d `inside` blocks are open at once", AREAS_DEEP);
+  outer_areas[areas_deep++] = area;
+  area = (drawing_area){1, x, y, (int64_t)x + width, (int64_t)y + height};
+}
+
+void rg_screen_inside_ended(void) { area = outer_areas[--areas_deep]; }
+
+/* Reference#exec_camera */
+void rg_screen_camera(int32_t x, int32_t y) {
+  camera_x = x;
+  camera_y = y;
+}
+
+/* Framebuffer#paged=. Going to two pages, the one drawn so far goes on being drawn into and a
+ * blank one is shown, which is what the console does on the way in. Going back to one, the two
+ * are the page holding the drawing. */
+static void show_pages(int32_t two) {
+  if (two == (pixels != viewed)) return;
+  if (!two) {
+    viewed = pixels;
+    return;
+  }
+  viewed = pixels == first_page ? second_page : first_page;
+  for (int32_t i = 0; i < CELLS; i++) viewed[i] = 0;
+}
+
+/* The buffer's saved patch, with room made for it the first time it is asked for. */
+static int32_t **saved_patch(int32_t buffer) {
+  if (buffer >= patches_room) {
+    int32_t room = buffer + 1;
+    saved_patches = realloc(saved_patches, (size_t)room * sizeof *saved_patches);
+    if (!saved_patches) rg_fault("no memory left for the picture saved under a sprite");
+    for (int32_t i = patches_room; i < room; i++) saved_patches[i] = NULL;
+    patches_room = room;
+  }
+  return &saved_patches[buffer];
+}
+
+/* Reference#exec_save_region: the patch of the picture at (x, y), as it is stored — what is
+ * really in the picture, wherever the window sits. A cell that cannot be read (off the screen,
+ * or outside the area drawing is held to) is remembered as nothing. */
+void rg_region_save(int32_t buffer, int32_t width, int32_t height, int32_t x, int32_t y) {
+  int32_t **patch = saved_patch(buffer);
+  if (!*patch) *patch = malloc((size_t)width * (size_t)height * sizeof **patch);
+  if (!*patch) rg_fault("no memory left for the picture saved under a sprite");
+  for (int32_t row = 0; row < height; row++)
+    for (int32_t col = 0; col < width; col++) {
+      int64_t px = (int64_t)x + col, py = (int64_t)y + row;
+      (*patch)[row * width + col] = in_bounds(px, py) ? pixels[py * RG_SCREEN_WIDTH + px] : NO_CELL;
+    }
+}
+
+/* Reference#exec_restore_region: a patch never saved puts nothing back, and neither does a cell
+ * remembered as nothing. */
+void rg_region_restore(int32_t buffer, int32_t width, int32_t height, int32_t x, int32_t y) {
+  const int32_t *patch = *saved_patch(buffer);
+  if (!patch) return;
+  for (int32_t row = 0; row < height; row++)
+    for (int32_t col = 0; col < width; col++) {
+      int32_t color = patch[row * width + col];
+      if (color != NO_CELL) set_pixel((int64_t)x + col, (int64_t)y + row, color);
+    }
 }
 
 void rg_screen_pixel(int32_t x, int32_t y, int32_t color) { set_pixel(x, y, color); }
@@ -400,15 +507,46 @@ static void blit_image(int32_t image, int32_t x, int32_t y) {
 
 static int32_t rebuilt_whole(void) { return rg_game_picture_sizes[RG_SIZE_REBUILT_WHOLE]; }
 
-/* Reference#scene_framebuffer: the backdrop, and every background showing stamped over it. */
+/* Reference#scene_framebuffer: the backdrop, and every background showing stamped over it. It is
+ * a picture of its own, so an area the game's drawing is held to does not hold this. */
 static void keep_scenery(void) {
   if (scenery_kept) return;
+  drawing_area games = area;
+  area.held_in = 0;
   target = scenery;
   clear_to(0);
   for (int32_t bg = 0; bg < rg_game_picture_sizes[RG_SIZE_BACKGROUNDS]; bg++)
     if (showing(bg)) rg_background_stamp(bg);
   target = pixels;
+  area = games;
   scenery_kept = 1;
+}
+
+/* Reference#exec_blit */
+void rg_screen_blit(int32_t image, int32_t x, int32_t y) { blit_image(image, x, y); }
+
+/* Reference#exec_blit_pose: a number outside the set draws nothing. */
+void rg_screen_blit_pose(const int32_t *poses, int32_t count, int32_t pose, int32_t x, int32_t y) {
+  if (pose >= 0 && pose < count) blit_image(poses[pose], x, y);
+}
+
+/* Reference#exec_draw_column_at: one column of a picture, stretched to +height+ rows. The walk
+ * goes DOWN THE SCREEN and asks which row of the picture belongs at each screen row, the step
+ * held in 65536ths of a picture row and cut off at each step — the console's own rule, so every
+ * pixel lands where the other backends put it. Only the rows on the screen are walked. */
+void rg_screen_column(int32_t image, int32_t slice, int32_t x, int32_t top, int32_t height, int32_t width) {
+  if (height <= 0) return;
+  picture art = picture_of(image);
+  int64_t column = clamp32(slice, 0, art.width - 1);
+  int64_t step = ((int64_t)art.height << 16) / height;
+  int64_t first = top < 0 ? -(int64_t)top : 0;
+  int64_t past = (int64_t)RG_SCREEN_HEIGHT - top < height ? (int64_t)RG_SCREEN_HEIGHT - top : height;
+  for (int64_t row = first; row < past; row++) {
+    int64_t source = clamp32((row * step) >> 16, 0, art.height - 1);
+    int32_t color = art.pixels[source * art.width + column];
+    if (color == RG_NOT_DRAWN) continue;
+    for (int32_t across = 0; across < width; across++) set_pixel((int64_t)x + across, top + row, color);
+  }
 }
 
 /* The start of Reference#exec_present_objects. A game that draws its sprites straight onto the
@@ -433,7 +571,7 @@ void rg_object_take_off(int32_t sprite, int32_t image) {
   for (int32_t row = 0; row < art.height; row++)
     for (int32_t col = 0; col < art.width; col++) {
       int64_t x = (int64_t)place->x + col, y = (int64_t)place->y + row;
-      if (on_screen(x, y)) pixels[y * RG_SCREEN_WIDTH + x] = scenery[y * RG_SCREEN_WIDTH + x];
+      if (on_screen(x, y)) set_pixel(x, y, scenery[y * RG_SCREEN_WIDTH + x]);
     }
 }
 
@@ -514,10 +652,24 @@ void rg_screen_paint_owed_rebuild(void) {
 void rg_screen_hold(int32_t value) { held = value; }
 void rg_screen_frame_started(void) { held = 0; }
 
+/* The top of Reference#advance_frame: a frame boundary is the one safe moment to trade the two
+ * pages of a tear-free screen, so the page just drawn is shown and the game is handed the other
+ * — before anything can stop the run there, so a run that stops on a boundary stops with the
+ * frame it finished on screen. */
+void rg_screen_frame_ended(void) {
+  if (pixels == viewed) return;
+  rg_screen_paint_owed_rebuild();
+  uint16_t *finished = pixels;
+  pixels = viewed;
+  viewed = finished;
+  target = pixels;
+}
+
 /* Reference#exec_screen. Every kind of screen is a display of its own, so any change of kind
  * wipes the picture and takes the scenery down; arriving on a screen drawn from tiles puts up
- * again what every such screen shows (#put_up_always_up). */
-void rg_screen_set(int32_t new_kind) {
+ * again what every such screen shows (#put_up_always_up). A change between one page and two
+ * keeps the same picture and wipes nothing. */
+void rg_screen_set(int32_t new_kind, int32_t two_pages) {
   int32_t crossing = kind >= 0 && kind != new_kind;
   if (crossing) {
     clear_to(0);
@@ -525,13 +677,14 @@ void rg_screen_set(int32_t new_kind) {
     scenery_kept = 0;
   }
   kind = new_kind;
+  show_pages(two_pages);
   if (crossing && new_kind != RG_BITMAP)
     for (int32_t i = 0; i < rg_game_picture_sizes[RG_SIZE_ALWAYS_UP]; i++) rg_background_put_up(rg_game_always_up[i]);
 }
 
 /* Reference#cross_to_scene_screen */
-void rg_screen_cross_to(int32_t new_kind) {
-  if (kind >= 0 && kind != new_kind) rg_screen_set(new_kind);
+void rg_screen_cross_to(int32_t new_kind, int32_t two_pages) {
+  if (kind >= 0 && kind != new_kind) rg_screen_set(new_kind, two_pages);
 }
 
 void rg_scene_enter(int32_t scene) { current_scene = scene; }
@@ -558,9 +711,25 @@ void rg_scene_take_down(int32_t brings_scenery) {
 
 /* --- reading it back --- */
 
-/* Framebuffer#shown, with what a switched-off display shows (plain white) while held. */
+int32_t rg_screen_two_pages(void) { return pixels != viewed; }
+
+/* Framebuffer#to_a: the page a viewer is looking at as it is STORED, with no window moved over
+ * it and no fade or tint mixed in. */
+const uint16_t *rg_screen_stored(void) {
+  rg_screen_paint_owed_rebuild();
+  return viewed;
+}
+
+/* Framebuffer#shown and #pixel: the page a viewer is looking at, read through the window — off
+ * the edge of the picture the backdrop shows — with the fade or tint in force mixed in. A
+ * switched-off display shows plain white. */
 const uint16_t *rg_screen_shown(void) {
   rg_screen_paint_owed_rebuild();
-  for (int32_t i = 0; i < RG_SCREEN_WIDTH * RG_SCREEN_HEIGHT; i++) shown[i] = held ? (uint16_t)0x7FFF : faded(pixels[i]);
+  for (int32_t y = 0; y < RG_SCREEN_HEIGHT; y++)
+    for (int32_t x = 0; x < RG_SCREEN_WIDTH; x++) {
+      int64_t from_x = (int64_t)x + camera_x, from_y = (int64_t)y + camera_y;
+      uint16_t stored = on_screen(from_x, from_y) ? viewed[from_y * RG_SCREEN_WIDTH + from_x] : 0;
+      shown[y * RG_SCREEN_WIDTH + x] = held ? (uint16_t)0x7FFF : faded(stored);
+    }
   return shown;
 }
