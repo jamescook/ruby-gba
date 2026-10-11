@@ -93,12 +93,17 @@ module RubyGBA
             @program = program
             @names = Names.new
             @locals = 0
-            @funcs = program.walk.select { |node| node.kind == :func }.to_h { |node| [node.name, node] }
-            @tables = program.walk.select { |node| node.kind == :table }.to_h { |node| [node.name, node] }
-            @data = program.walk.select { |node| %i[data bitmap].include?(node.kind) }.to_h { |node| [node.name, node] }
+            @funcs = by_name(program.walk, :func)
+            @called = called_routines
+            # Everything a run can reach: the program, and every routine it calls, however
+            # deep. A routine nothing calls is left out of the file altogether, so nothing in it
+            # (a table it reads, a routine it calls) can leave something declared and unused.
+            @reachable = ([program] + @called.map { |name| @funcs.fetch(name) }).flat_map { |root| statements_under(root) }
+            @tables = by_name(program.walk, :table)
+            @data = by_name(program.walk, :data, :bitmap)
             # A list is there, empty, from power-on wherever it is declared (the interpreter
             # gathers them before running), so its storage is the first declaration's.
-            @lists = program.walk.select { |node| node.kind == :list_new }.reverse.to_h { |node| [node.name, node] }
+            @lists = by_name(@reachable.reverse, :list_new)
             @scenes = scene_numbers
           end
 
@@ -112,24 +117,62 @@ module RubyGBA
 
           # --- the file ---
 
-          # Only what something uses is written: the compiler is told to treat an unused
-          # routine or table as a mistake, which it is in C somebody wrote, and a routine nothing
-          # calls never runs (the build has already warned about it).
+          # Only what a run can reach is written: the compiler is told to treat an unused routine
+          # or table as a mistake, which it is in C somebody wrote, and a routine nothing calls
+          # never runs (the build has already warned about it).
           def top_level
-            called = called_routines
-            routines = called.map { |name| C::Function.new(name: routine(name), body: body_of(@funcs.fetch(name))) }
+            routines = @called.map { |name| C::Function.new(name: routine(name), body: body_of(@funcs.fetch(name))) }
             [C::Comment.new("Written by ruby-gba's native backend. Do not edit; build the game again."),
              C::Include.new("rg_int32.h"), C::Include.new("rg_runtime.h"), C::Include.new("rg_list.h"),
              *variable_names.map { |name| C::Global.new(name: variable(name)) },
              *list_storage,
              *(@scenes.empty? ? [] : [C::Global.new(name: @names.own("scene"), value: -1)]),
-             *tables,
-             *called.map { |name| C::Prototype.new(name: routine(name)) },
-             *routine_tables,
+             *constant_arrays,
+             *@called.map { |name| C::Prototype.new(name: routine(name)) },
+             *routine_table_declarations,
              *routines,
              C::Function.new(name: @names.own("main"), body: lower(@program), exported: true),
              C::Function.new(name: @names.own("dump_variables"), body: dump_variables, exported: true)]
           end
+
+          # The statements under +root+ and everything they hold, stopping at a routine's
+          # declaration: a routine's body runs where it is called, not where it is written.
+          def statements_under(root)
+            found = [root]
+            (root.children + root.operand_nodes).each do |node|
+              found.concat(node.kind == :func ? [] : statements_under(node))
+            end
+            found
+          end
+
+          # The routines named by the statements in +nodes+.
+          def routines_named(nodes)
+            nodes.flat_map do |node|
+              case node.kind
+              when :call then [node.target]
+              when :call_one_of then node.targets
+              when :case then node.clauses.map(&:last)
+              else []
+              end
+            end
+          end
+
+          # Every routine a run can reach, following calls from the program into the routines
+          # they call, in the order the routines were declared.
+          def called_routines
+            reached = []
+            waiting = routines_named(statements_under(@program))
+            until waiting.empty?
+              name = waiting.shift
+              next if reached.include?(name) || !@funcs.key?(name)
+
+              reached << name
+              waiting.concat(routines_named(statements_under(@funcs.fetch(name))))
+            end
+            @funcs.keys & reached
+          end
+
+          def by_name(nodes, *kinds) = nodes.select { |node| kinds.include?(node.kind) }.to_h { |node| [node.name, node] }
 
           # Every variable the program names, framework's own included, in the order they
           # first appear.
@@ -144,14 +187,13 @@ module RubyGBA
           end
 
           def dump_variables
-            variable_names.map do |name|
-              C::Eval.new(C::Call.new(function: C::Name.new("rg_dump_variable"),
-                                      args: [C::Text.new(name.to_s), variable(name)]))
-            end
+            variable_names.map { |name| eval_call("rg_dump_variable", C::Text.new(name.to_s), variable(name)) }
           end
 
-          def tables
-            read = @program.walk.filter_map do |node|
+          # The numbers fixed when the program is built that a run reads: tables, and the bytes
+          # of data and pictures.
+          def constant_arrays
+            read = @reachable.filter_map do |node|
               case node.kind
               when :table_get, :data_byte then node.name
               when :list_copy then node.table
@@ -172,24 +214,11 @@ module RubyGBA
             end
           end
 
-          # Every routine something calls, in the order they were declared.
-          def called_routines
-            named = @program.walk.flat_map do |node|
-              case node.kind
-              when :call then [node.target]
-              when :call_one_of then node.targets
-              when :case then node.clauses.map(&:last)
-              else []
-              end
-            end
-            @funcs.keys & named
-          end
-
           # One array of routines for each list a call-by-number picks from.
-          def routine_tables
-            calls = @program.walk.select { |node| node.kind == :call_one_of }
+          def routine_table_declarations
+            calls = @reachable.select { |node| node.kind == :call_one_of }
             calls.map(&:targets).uniq.map do |targets|
-              C::FunctionTable.new(name: routine_table(targets), functions: targets.map { |name| routine(name) })
+              C::FunctionTable.new(name: routine_table_name(targets), functions: targets.map { |name| routine(name) })
             end
           end
 
@@ -203,14 +232,20 @@ module RubyGBA
                     "the console itself, so it cannot be built as a desktop program."
             end
 
-            missing = @program.walk.map(&:kind).uniq.reject do |kind|
+            missing = @reachable.map(&:kind).uniq.reject do |kind|
               STATEMENTS.key?(kind) || VALUES.key?(kind) || %i[else].include?(kind)
             end
             return if missing.empty?
 
+            # Every kind is either written or listed as not yet (test_native_kind_coverage.rb
+            # holds that), so a kind on neither is a mistake in this file, not in the game.
+            unknown = missing - NOT_LOWERED_YET.values.flatten
+            raise LoweringError, "the native backend has no row for #{unknown.map(&:inspect).join(', ')}" unless unknown.empty?
+
             raise LoweringError,
                   "this program uses #{missing.map(&:inspect).join(', ')}, which the desktop build " \
-                  "cannot make yet. The cartridge build can."
+                  "cannot make yet (#{NOT_LOWERED_YET.select { |_, kinds| kinds.intersect?(missing) }.keys.join(', ')}). " \
+                  "The cartridge build can."
           end
 
           # --- statements ---
@@ -293,6 +328,8 @@ module RubyGBA
 
           def lower_call(node) = [C::Eval.new(C::Call.new(function: routine(node.target)))]
 
+          def eval_call(function, *args) = C::Eval.new(call(function, *args))
+
           # One of a list of routines by a number the game works out. The number is checked
           # against the ends of the list before the array is read, so a number naming no
           # routine calls nothing.
@@ -300,9 +337,9 @@ module RubyGBA
             which = local_name("which")
             last = C::Int.new(node.targets.length - 1)
             in_range = call("rg_both", call("rg_ge", which, C::Int.new(0)), call("rg_le", which, last))
-            picked = C::Index.new(routine_table(node.targets), which)
+            picked = C::Index.new(routine_table_name(node.targets), which)
             [C::Block.new([C::Local.new(name: which, value: value(node.which)),
-                           C::If.new(condition: in_range, body: [C::Eval.new(C::Call.new(function: C::Name.new("rg_call_routine"), args: [picked]))])])]
+                           C::If.new(condition: in_range, body: [eval_call("rg_call_routine", picked)])])]
           end
 
           # Picks the scene to run by the variable, read ONCE: a scene usually ends by setting
@@ -312,26 +349,26 @@ module RubyGBA
             state = local_name("state")
             clauses = node.clauses.map do |clause_value, target|
               C::If.new(condition: call("rg_eq", state, C::Int.new(clause_value)),
-                        body: [*take_over(target), C::Eval.new(C::Call.new(function: routine(target)))])
+                        body: [*record_scene_arrival(target), C::Eval.new(C::Call.new(function: routine(target)))])
             end
             [C::Block.new([C::Local.new(name: state, value: variable(node.var)), *clauses])]
           end
 
           # A scene taking over is remembered, so what a scene does as it arrives happens on the
           # frame it changes and not again while it stays.
-          def take_over(scene)
+          def record_scene_arrival(scene)
             current = @names.own("scene")
             number = C::Int.new(@scenes.fetch(scene))
             [C::If.new(condition: call("rg_ne", current, number), body: [C::Assign.new(current, number)])]
           end
 
-          def lower_halt(_node) = [C::Eval.new(C::Call.new(function: C::Name.new("rg_halt")))]
+          def lower_halt(_node) = [eval_call("rg_halt")]
 
           # The runtime ends the frame (shows it, reads the buttons, keeps time), and the frame
           # counters the program can read move on, where the interpreter moves them.
           def lower_wait_vblank(_node)
             count = variable(Frames::COUNT)
-            [C::Eval.new(C::Call.new(function: C::Name.new("rg_wait_vblank"))),
+            [eval_call("rg_wait_vblank"),
              assign(Frames::COUNT, call("rg_add", count, C::Int.new(1))),
              assign(Frames::SEEN, count),
              assign(Frames::STEP, C::Int.new(1))]
@@ -413,7 +450,15 @@ module RubyGBA
           def value_of_list_get(node) = call("rg_list_get", C::AddressOf.new(list(node.name)), value(node.index))
           def value_of_list_len(node) = call("rg_list_length", C::AddressOf.new(list(node.name)))
 
+          # One byte of a named piece of data. The index is a number written in the program, so
+          # one past the end is refused here, where the interpreter would refuse it as it runs.
           def value_of_data_byte(node)
+            data = @data.fetch(node.name) { raise LoweringError, "reference to undefined data #{node.name.inspect}" }
+            length = (data.kind == :data ? data.bytes : data.pixels).bytesize
+            unless node.index.between?(0, length - 1)
+              raise LoweringError, "data_byte index #{node.index} is past the end of #{node.name.inspect}"
+            end
+
             C::Index.new(@names.of(:data, node.name), C::Int.new(node.index))
           end
 
@@ -436,7 +481,7 @@ module RubyGBA
           def variable(name) = @names.of(:variable, name)
           def list(name) = @names.of(:list, name)
           def routine(name) = @names.of(:routine, name)
-          def routine_table(targets) = @names.of(:table_of_routines, targets.join("_"))
+          def routine_table_name(targets) = @names.of(:table_of_routines, targets.join("_"))
           def assign(name, expression) = C::Assign.new(variable(name), expression)
           def call(function, *args) = C::Call.new(function: C::Name.new(function), args: args)
 

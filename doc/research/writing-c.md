@@ -140,9 +140,9 @@ lib/ruby_gba/ir/backends/native/statements.rb One method per statement kind (STA
                                               call into the runtime, which takes the frame.
 lib/ruby_gba/ir/backends/native/runtime/rg_int32.h     Hand-written; mirrors int32.rb.
 lib/ruby_gba/ir/backends/native/runtime/rg_runtime.h   The seam the generated code calls (frames,
-                                                       buttons, drawing, sound, saving). The
-                                                       only header game.c includes besides
-                                                       rg_int32.h.
+                                                       buttons, drawing, sound, saving). With
+                                                       rg_int32.h and rg_list.h (the game's
+                                                       lists), all game.c includes.
 lib/ruby_gba/ir/backends/native/runtime/rg_sdl.c       The SDL3 implementation (later beads).
 lib/ruby_gba/ir/backends/native/runtime/rg_headless.c  The test and replay implementation.
 ```
