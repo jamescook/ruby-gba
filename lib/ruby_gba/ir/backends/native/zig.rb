@@ -65,9 +65,10 @@ module RubyGBA
             exe
           end
 
-          # Runs a program this built, feeding it +input+, and gives back what it printed.
-          def run_program(exe, input: "", env: {})
-            out, err, status = Open3.capture3(env, exe, stdin_data: input)
+          # Runs a program this built with +args+, feeding it +input+, and gives back what it
+          # printed.
+          def run_program(exe, args: [], input: "", env: {})
+            out, err, status = Open3.capture3(env, exe, *args.map(&:to_s), stdin_data: input)
             raise Error, "#{File.basename(exe)} stopped (#{status}):\n#{err}" unless status.success?
 
             out

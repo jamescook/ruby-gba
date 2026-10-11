@@ -1,6 +1,12 @@
 # frozen_string_literal: true
 
+require "digest"
+require "fileutils"
 require_relative "native/zig"
+require_relative "native/names"
+require_relative "native/c"
+require_relative "native/printer"
+require_relative "native/lowering"
 
 module RubyGBA
   module IR
@@ -15,20 +21,46 @@ module RubyGBA
       #
       # How it writes C, and why that way (doc/research/writing-c.md has the reading behind it):
       #
-      # - The game's arithmetic lives in runtime/rg_int32.h, a C function for each thing IR::Int32
-      #   and the interpreter do with a number. C leaves several of the things a game does with numbers undefined —
-      #   running off the end of a number, dividing the lowest number by -1, shifting by 32 —
-      #   and an optimising compiler is allowed to assume they never happen. Those functions
-      #   work on the unsigned kind of number, which C does promise wraps, and test the rest.
+      # - The game's arithmetic lives in runtime/rg_int32.h, a C function for each thing
+      #   IR::Int32 and the interpreter do with a number. C leaves several of the things a game
+      #   does with numbers undefined — running off the end of a number, dividing the lowest
+      #   number by -1, shifting by 32 — and an optimising compiler is allowed to assume they
+      #   never happen. Those functions work on the unsigned kind of number, which C does
+      #   promise wraps, and test the rest.
       # - The C this writes never uses an operator on one of the game's numbers; it calls one
       #   of those functions. That is what keeps it correct, and it is also why the precedence
       #   of C's operators, and && skipping its right side, never come up.
-      # - It never names SDL. The picture, the buttons and the sound go through the runtime,
-      #   which a desktop build links against SDL and a test links against a version that has
-      #   no window at all.
+      # - It never names SDL. The picture, the buttons and the sound go through the runtime
+      #   (runtime/rg_runtime.h), which a desktop build links against SDL and a test links
+      #   against a version that has no window at all.
       # - It is checked by running, against Backends::Reference, and never by comparing the C
       #   it wrote against C somebody wrote down.
       class Native
+        # The program written out as C, as one file's text.
+        def lower(program)
+          Lowering.new(program).source
+        end
+
+        # The program built into a program with no window (runtime/rg_headless.c), and the
+        # path to it. See that file for how it is run and what it prints.
+        def build_headless(program, mode: :checked)
+          Zig.compile([write_source(lower(program)), File.join(Zig::RUNTIME_DIR, "rg_headless.c")], mode: mode)
+        end
+
+        private
+
+        # The C on disk, where the compiler can read it, in a folder named for what it holds so
+        # two programs never write over each other.
+        def write_source(text)
+          dir = File.join(Dir.tmpdir, "ruby-gba-native", "src-#{Digest::SHA256.hexdigest(text)[0, 24]}")
+          path = File.join(dir, "game.c")
+          return path if File.exist?(path)
+
+          FileUtils.mkdir_p(dir)
+          File.write("#{path}.#{Process.pid}", text)
+          File.rename("#{path}.#{Process.pid}", path)
+          path
+        end
       end
     end
   end
