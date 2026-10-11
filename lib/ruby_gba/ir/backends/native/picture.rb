@@ -222,11 +222,6 @@ module RubyGBA
             call("rg_fade_steps", value(node.amount), C::Int.new(node.fraction_bits || -1), walks_colors(node))
           end
 
-          # A sound statement, written as nothing: sound changes nothing a game draws or keeps, so
-          # for now it is not played at all. (lower_nothing is for declarations, which run nowhere
-          # on any backend; this is for statements that will one day be played here.)
-          def lower_sound_unplayed(_node) = []
-
           # --- a scene taking the screen over (Reference#take_over) ---
 
           def scene_arrival(scene)

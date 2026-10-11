@@ -83,7 +83,7 @@ static void read_buttons(void) {
 
 static void headless_wait_vblank(void) {
   if (frame >= frames_to_play) finish();
-  rg_screen_frame_started();
+  rg_frame_begins();
   frame++;
   char heading[32];
   snprintf(heading, sizeof heading, "frame %ld", frame);
@@ -106,7 +106,12 @@ static void headless_fault(const char *format, va_list args) {
  * may well call one `frame`, or `picture`. */
 static void headless_dump_variable(const char *name, int32_t value) { printf("var %s %d\n", name, (int)value); }
 
-static const rg_driver headless = {headless_wait_vblank, headless_halt, headless_fault, headless_dump_variable};
+/* "sound" first, for the same reason a variable's line starts with "var"; printed as it happens,
+ * among the frames, so a test reading the log mid-run sees it up to the frame it is on. */
+static void headless_sound_logged(const char *line) { printf("sound %s\n", line); }
+
+static const rg_driver headless = {headless_wait_vblank, headless_halt, headless_fault, headless_dump_variable,
+                                   headless_sound_logged};
 
 int rg_headless_main(int argc, char **argv) {
   if (argc < 2) {

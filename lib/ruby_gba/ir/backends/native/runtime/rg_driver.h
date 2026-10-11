@@ -19,6 +19,9 @@ typedef struct {
   void (*fault)(const char *format, va_list args);
   /* One variable's name and value, which only the windowless driver has anywhere to print. */
   void (*dump_variable)(const char *name, int32_t value);
+  /* One line of the sound log (rg_sound.h), as it happens; the same, only the windowless driver
+   * prints it. */
+  void (*sound_logged)(const char *line);
 } rg_driver;
 
 /* The driver in use; set by whichever main() started the program. */
@@ -28,6 +31,10 @@ extern const rg_driver *rg_active_driver;
  * every frame boundary; a button down now and not at the last boundary is pressed for the
  * frame that is starting (rg_runtime.c works that out, the same for every driver). */
 void rg_buttons_read(uint32_t held);
+
+/* What every driver does as a frame begins, after deciding to play it: the picture's work for
+ * the frame boundary, then one frame of the music — the interpreter's order. */
+void rg_frame_begins(void);
 
 /* The windowless driver: plays FRAMES frames under the buttons on standard input and prints
  * every frame (see rg_headless.c). Its arguments are the number of frames, then nothing:

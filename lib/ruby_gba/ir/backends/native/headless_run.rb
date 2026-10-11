@@ -35,8 +35,9 @@ module RubyGBA
           end
 
           # Where the game had got to at one frame boundary, or (+frame+ :end) when the run
-          # stopped: every variable, and the picture as a check number (see .picture_check).
-          Moment = Data.define(:frame, :variables, :picture)
+          # stopped: every variable, the picture as a check number (see .picture_check), and how
+          # long the sound log was.
+          Moment = Data.define(:frame, :variables, :picture, :sounds)
 
           # Raised for something a test asks of the interpreter that the native lowering cannot
           # answer yet — which says the test's file was opted into native runs too early, or
@@ -60,14 +61,17 @@ module RubyGBA
           # +held+ buttons as the program reads them: a bit each, in the order IR::Buttons lists.
           def self.button_mask(held) = Array(held).sum { |button| 1 << IR::Buttons::NAMES.index(button) }
 
-          # The picture the run ended on, every variable then, and each moment of the run.
-          attr_reader :screen, :vars, :moments
+          # The picture the run ended on, every variable then, each moment of the run, and the
+          # sound log in the interpreter's words (see SoundLog) — which, read from an input
+          # script, is the log up to the frame the script is asked about.
+          attr_reader :screen, :vars, :moments, :audio
 
           # The interpreter's options, so a test makes either the same way. +save+ — the save
           # memory a game starts with — is refused until the native lowering can hold one.
           def initialize(save: nil)
             @held = []
             @vars = {}
+            @audio = []
             return if save.nil?
 
             raise CannotAnswer, "the native lowering cannot start a game from save memory yet"
@@ -96,6 +100,8 @@ module RubyGBA
             raise CannotAnswer, "the native lowering keeps no step budget, so it cannot run with max_steps" if max_steps
 
             @vars = {}
+            @audio = []
+            @sound_log = SoundLog.new(program)
             play(Native.new.build_headless(program), frames || Reference::DEFAULT_FRAMES)
             self
           end
@@ -131,6 +137,7 @@ module RubyGBA
                 when /\Aframe (\d+)\z/ then frame = Integer(Regexp.last_match(1))
                                             rows = []
                 when "end" then rows = []
+                when /\Asound / then @audio << @sound_log.entry(line)
                 when "buttons?" then record_frame_and_send_buttons(stdin, frame, rows)
                 else rows << line
                 end
@@ -145,7 +152,7 @@ module RubyGBA
           def record_frame_and_send_buttons(stdin, frame, rows)
             @vars = self.class.variables_in(rows)
             check = rows.find { |row| row.start_with?("picture-crc ") }.delete_prefix("picture-crc ").to_i(16)
-            @moments << Moment.new(frame: frame, variables: @vars, picture: check)
+            @moments << Moment.new(frame: frame, variables: @vars, picture: check, sounds: @audio.size)
             stdin.puts(self.class.button_mask(@input_script ? @input_script.call(frame) : @held))
             stdin.flush
           end
@@ -153,7 +160,8 @@ module RubyGBA
           def record_end(rows)
             @vars = self.class.variables_in(rows)
             @screen = Picture.new(shown: self.class.picture_in(rows))
-            @moments << Moment.new(frame: :end, variables: @vars, picture: self.class.picture_check(@screen.shown))
+            @moments << Moment.new(frame: :end, variables: @vars, picture: self.class.picture_check(@screen.shown),
+                                   sounds: @audio.size)
           end
 
           # The next line the program printed, or nil once it has finished; a program still
