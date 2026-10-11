@@ -365,6 +365,198 @@ class TestNativePicture < Minitest::Test
     %i[red blue green].each { |name| assert_includes seen, Color.resolve(name), "#{name} should have been drawn" }
   end
 
+  # A tear-free screen is two pictures shown in turn, and a frame's drawing lands on one of them.
+  # This game only ever adds to what is there, so each picture holds half the bars, and the one
+  # shown is the one finished last: what was painted before the loop is on one page alone.
+  def test_a_tear_free_screen_shows_the_page_finished_last
+    program = program_of do
+      screen :bitmap, tear_free: true
+      n = var :n, 0
+      clear_screen :blue
+      game_loop do
+        draw_rect_at n * 4, 20, 2, 10, :white
+        n.add! 1
+      end
+    end
+
+    assert_native_matches_reference program, frames: 7
+
+    odd, even = reference_snapshots(program, frames: 7, buttons: {}).last(2).map(&:picture)
+    assert odd != even, "the two pages should hold different pictures"
+  end
+
+  # Pictures painted into the picture where the program says: one with see-through pixels, one
+  # hanging off two edges, and one of a set picked by a number that runs past the set.
+  def test_pictures_blitted_onto_a_bitmap_screen
+    program = program_of do
+      screen :bitmap
+      image :ring, "#" => :yellow, "." => :transparent do "########\n#......#\n" * 4 end
+      image :calm, "#" => :green do "####\n" * 4 end
+      image :hurt, "#" => :red do "####\n" * 4 end
+      n = var :n, 0
+      game_loop do
+        clear_screen :blue
+        blit :ring, 20 + n, 30
+        blit :ring, 236, 156 - n
+        blit %i[calm hurt], 100, 100, showing: n >> 1
+        n.add! 1
+      end
+    end
+
+    last = assert_native_matches_reference(program, frames: 6)
+
+    seen = reference_snapshots(program, frames: 6, buttons: {}).flat_map(&:picture).uniq
+    %i[yellow green red].each { |name| assert_includes seen, Color.resolve(name), "#{name} should have been drawn" }
+    refute_includes last.picture, Color.resolve(:green), "a number past the set should draw none of it"
+  end
+
+  # A sprite on a bitmap screen remembers the picture under it and puts it back as it moves, so
+  # it leaves no trail over a field painted once; hidden it is gone, and shown again it is back.
+  def test_a_sprite_on_a_bitmap_screen_leaves_no_trail
+    program = program_of do
+      screen :bitmap
+      image :ball, "o" => :white, "." => :transparent do "..oooo..\n.oooooo.\n" * 4 end
+      clear_screen :blue
+      fill_rect 0, 60, 240, 20, :red
+      fill_rect 200, 0, 2, 160, :yellow # stripes he crosses, so a patch put back a pixel out shows
+      fill_rect 170, 0, 6, 160, :green
+      ball = sprite :ball, at: [228, 50] # starts partly off the right edge
+      n = var :n, 0
+      game_loop do
+        ball.move :left, by: 6
+        ball.move :down, by: 2
+        (n == 5).then { ball.hide }
+        (n == 8).then { ball.show }
+        n.add! 1
+      end
+    end
+
+    last = assert_native_matches_reference(program, frames: 13)
+
+    assert_includes last.picture, Color.resolve(:white), "the ball should be in the last picture compared"
+  end
+
+  # Drawing held inside a part of the screen is cut off at its edges: a clear clears that part, a
+  # rectangle and a picture crossing an edge lose what falls outside, and drawing after the block
+  # is free again.
+  def test_drawing_held_inside_an_area_is_cut_off_at_its_edges
+    program = program_of do
+      screen :bitmap
+      image :ring, "#" => :yellow, "." => :transparent do "########\n#......#\n" * 4 end
+      n = var :n, 0
+      game_loop do
+        clear_screen :black
+        inside 40, 30, 100, 60 do
+          clear_screen :blue
+          draw_rect_at 30 + n * 3, 20, 30, 20, :red
+          blit :ring, 136, 86 - n
+        end
+        draw_rect_at 0, 150, 240, 4, :white
+        n.add! 1
+      end
+    end
+
+    last = assert_native_matches_reference(program, frames: 6)
+
+    assert_equal Color.resolve(:black), last.picture[0], "outside the area the clear before it should stand"
+    assert_includes last.picture, Color.resolve(:white), "and drawing after the block should land anywhere"
+  end
+
+  # The window moved over the picture: nothing is redrawn, the picture slides, and the backdrop
+  # shows where the window is off its edge. A shake moves it for a few frames and puts it back.
+  def test_the_window_moves_over_the_picture
+    program = program_of do
+      screen :bitmap
+      n = var :n, 0
+      clear_screen :blue
+      fill_rect 100, 60, 40, 40, :yellow
+      game_loop do
+        (n < 5).then { camera n * 7, n * -3 }
+        (n == 5).then { camera 0, 0 }
+        (n == 6).then { shake_screen intensity: 3, frames: 4 }
+        n.add! 1
+      end
+    end
+
+    assert_native_matches_reference program, frames: 12
+
+    seen = reference_snapshots(program, frames: 12, buttons: {}).map(&:picture)
+    assert_includes seen[4], Color.resolve(:black), "the backdrop should show past the picture's edge"
+    assert_operator seen.uniq.length, :>, 5, "the picture should be somewhere new on most frames"
+  end
+
+  # One column of a picture stretched to a height the game works out: taller than the screen,
+  # shorter than the picture, nothing at all, and several pixels across.
+  def test_a_column_of_a_picture_stretched_to_a_height
+    program = program_of do
+      screen :bitmap
+      image :wall, "r" => :red, "g" => :green, "b" => :blue, "." => :transparent do
+        "rgb.\ngbr.\nbrg.\nrrgg\n"
+      end
+      n = var :n, 0
+      game_loop do
+        clear_screen :black
+        draw_column_at :wall, slice: n & 3, x: 20, top: 80 - n * 30, height: n * 60, width: 3
+        draw_column_at :wall, slice: 1, x: 60 + n, top: 70, height: 3
+        draw_column_at :wall, slice: 9, x: 100, top: 150, height: 40 - n * 10
+        n.add! 1
+      end
+    end
+
+    last = assert_native_matches_reference(program, frames: 6)
+
+    assert_includes last.picture, Color.resolve(:red), "the tall column should be in the last picture compared"
+  end
+
+  # A picture drawn when it changes and then left alone, on one page and on two: the tear-free
+  # screen has to be painted once for each of its pages, or the two show different scores.
+  def test_a_picture_kept_showing_on_one_page_and_on_two
+    [false, true].each do |tear_free|
+      program = program_of do
+        screen :bitmap, tear_free: tear_free
+        score = var :score, 0
+        n = var :n, 0
+        clear_screen :black
+        bar = keep_showing(:bar) { draw_rect_at 10, 10, score * 4, 6, :green }
+        game_loop do
+          (n == 2).then { score.set! 5 }
+          (n == 2).then { bar.changed }
+          bar.draw
+          n.add! 1
+        end
+      end
+
+      last = assert_native_matches_reference(program, frames: 8)
+
+      assert_includes last.picture, Color.resolve(:green), "the bar should be showing (tear_free: #{tear_free})"
+    end
+  end
+
+  # A field cleared under a sprite on a painted screen: nothing of the old field is put back, and
+  # the sprite is drawn again over whatever was painted after the clear.
+  def test_a_field_cleared_under_a_bitmap_sprite
+    program = program_of do
+      screen :bitmap
+      image :ball, "o" => :white, "." => :transparent do "..oooo..\n.oooooo.\n" * 4 end
+      clear_screen :blue
+      ball = sprite :ball, at: [100, 70]
+      n = var :n, 0
+      game_loop do
+        ball.move :right, by: 3
+        (n == 4).then do
+          clear_screen :red
+          fill_rect 90, 60, 60, 30, :green
+        end
+        n.add! 1
+      end
+    end
+
+    last = assert_native_matches_reference(program, frames: 9)
+
+    assert_includes last.picture, Color.resolve(:white), "the ball should be drawn over the new field"
+    refute_includes last.picture, Color.resolve(:blue), "and nothing of the old field should be put back"
+  end
+
   def test_the_screen_is_white_until_the_first_frame
     program = program_of do
       screen :bitmap

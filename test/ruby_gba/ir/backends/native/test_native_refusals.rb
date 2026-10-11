@@ -59,13 +59,6 @@ class TestNativeRefusals < Minitest::Test
   end
 
   # What the desktop's picture cannot draw yet is refused, by name, rather than drawn wrong.
-  def test_a_tear_free_screen_is_refused_by_name
-    assert_refused_picture(/tear-free screen/) do
-      screen :bitmap, tear_free: true
-      game_loop { clear_screen :black }
-    end
-  end
-
   def test_a_see_through_layer_is_refused_by_name
     assert_refused_picture(/see-through layer/) do
       screen :tiled

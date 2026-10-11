@@ -39,6 +39,7 @@ module RubyGBA
             @backgrounds = @stacking.scenery.each_with_index.to_h { |bg, id| [bg.name, id] }
             @objects = by_name(@program.walk, :object)
             @sprites = @objects.each_key.with_index.to_h # sprite name -> the number rg_screen.c knows it by
+            @patches = by_name(@program.walk, :backing_buffer) # the patches of picture saved under bitmap sprites
             @images = {} # [picture name, the list of colors it is drawn with or nil] -> its number in rg_game_images
             @drawing_arrays = [] # constant arrays the drawing statements need, written before the routines
             refuse_unsupported_picture!
@@ -49,7 +50,6 @@ module RubyGBA
           def refuse_unsupported_picture!
             nodes = @program.walk.to_a
             refuse_picture!("a see-through layer") if nodes.any? { |n| n.kind == :layers && !n.see_through.empty? }
-            refuse_picture!("a tear-free screen") if nodes.any? { |n| n.kind == :screen && (n.buffered || !Array(n.colors).empty?) }
             refuse_picture!("a fade placed in the stack (fade ... under:)") if nodes.any? { |n| n.kind == :fade && n.under }
             refuse_picture!("more than #{MAX_BACKGROUNDS} backgrounds") if @backgrounds.size > MAX_BACKGROUNDS
             refuse_picture!("more than #{MAX_SPRITES} sprites") if @sprites.size > MAX_SPRITES
@@ -160,8 +160,50 @@ module RubyGBA
 
           # --- the drawing statements ---
 
-          def lower_screen(node) = [eval_call("rg_screen_set", C::Int.new(SCREEN_KINDS.fetch(node.mode)))]
+          # A tear-free screen is two pages. The list of colors one can be given changes nothing
+          # that is drawn: a color is still named, and the build has already refused one the
+          # list does not hold.
+          def lower_screen(node)
+            [eval_call("rg_screen_set", C::Int.new(SCREEN_KINDS.fetch(node.mode)), C::Int.new(node.buffered ? 1 : 0))]
+          end
+
           def lower_clear_screen(node) = [eval_call("rg_screen_clear", color(node.color))]
+
+          # Reference#exec_inside: the edges are numbers written in the program.
+          def lower_inside(node)
+            [eval_call("rg_screen_inside", *[node.x, node.y, node.w, node.h].map { |edge| C::Int.new(edge) }),
+             *body_of(node), eval_call("rg_screen_inside_ended")]
+          end
+
+          def lower_camera(node) = [eval_call("rg_screen_camera", value(node.x), value(node.y))]
+
+          def lower_blit(node)
+            [eval_call("rg_screen_blit", C::Int.new(image_number(node.name)), value(node.x), value(node.y))]
+          end
+
+          def lower_blit_pose(node)
+            pictures = drawing_array("poses", "int32_t", node.poses.map { |name| image_number(name) })
+            [eval_call("rg_screen_blit_pose", pictures, C::Int.new(node.poses.length), value(node.index),
+                       value(node.x), value(node.y))]
+          end
+
+          def lower_draw_column_at(node)
+            [eval_call("rg_screen_column", C::Int.new(image_number(node.name)), value(node.slice), value(node.x),
+                       value(node.top), value(node.height), C::Int.new(node.width || 1))]
+          end
+
+          def lower_save_region(node) = [patch_call("rg_region_save", node)]
+          def lower_restore_region(node) = [patch_call("rg_region_restore", node)]
+
+          # Reference#backing_for: a patch is kept in the buffer the program declared for it,
+          # which says how big it is.
+          def patch_call(function, node)
+            buffer = @patches.fetch(node.buffer) do
+              raise LoweringError, "backing buffer #{node.buffer.inspect} is used and never declared"
+            end
+            eval_call(function, C::Int.new(@patches.keys.index(node.buffer)), C::Int.new(buffer.width),
+                      C::Int.new(buffer.height), value(node.x), value(node.y))
+          end
 
           def lower_fill_rect(node)
             [eval_call("rg_screen_fill_rect", *[node.x, node.y, node.w, node.h].map { |n| value(n) }, color(node.color))]
@@ -295,8 +337,8 @@ module RubyGBA
                        lower_screen(arrival.screen)
                      else
                        mode = Modes::SCREEN_OF_MODE.fetch(arrival.mode)
-                       refuse_picture!("a tear-free screen") if arrival.mode == Modes::BUFFERED
-                       [eval_call("rg_screen_cross_to", C::Int.new(SCREEN_KINDS.fetch(mode)))]
+                       [eval_call("rg_screen_cross_to", C::Int.new(SCREEN_KINDS.fetch(mode)),
+                                  C::Int.new(arrival.mode == Modes::BUFFERED ? 1 : 0))]
                      end
             [eval_call("rg_scene_enter", C::Int.new(@scenes.fetch(scene))), *screen,
              eval_call("rg_scene_take_down", C::Int.new(arrival.scenery.empty? ? 0 : 1)),

@@ -24,7 +24,11 @@ void rg_buttons_read(uint32_t now) {
   seen = held;
 }
 
-void rg_wait_vblank(void) { rg_active_driver->wait_vblank(); }
+/* The frame the game drew has ended, whoever is driving and whether or not the run stops here. */
+void rg_wait_vblank(void) {
+  rg_screen_frame_ended();
+  rg_active_driver->wait_vblank();
+}
 
 void rg_frame_begins(void) {
   rg_screen_frame_started();

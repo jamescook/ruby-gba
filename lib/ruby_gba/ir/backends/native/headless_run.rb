@@ -24,15 +24,18 @@ module RubyGBA
           # ever waiting for the screen never ends on its own.
           LONGEST_RUN_SECONDS = 60
 
-          # The picture the run ended on, as the player would see it, read the way the
-          # interpreter's screen is: #pixel gives the colour at (x, y), nil off the screen, and
-          # #shown every pixel row by row.
-          Picture = Data.define(:shown) do
+          # The picture the run ended on, read the way the interpreter's screen is: #pixel gives
+          # the colour at (x, y) as the player would see it, nil off the screen, #shown every
+          # pixel that way row by row, and #to_a every pixel as it is STORED — no window moved
+          # over the picture and no fade mixed in.
+          Picture = Data.define(:shown, :stored) do
             def pixel(x, y)
               return nil unless x.between?(0, Screen::WIDTH - 1) && y.between?(0, Screen::HEIGHT - 1)
 
               shown[(y * Screen::WIDTH) + x]
             end
+
+            def to_a = stored.dup
           end
 
           # Where the game had got to at one frame boundary, or (+frame+ :end) when the run
@@ -50,9 +53,10 @@ module RubyGBA
             rows.grep(/\Avar /).to_h { |row| _, name, value = row.split(" "); [name.to_sym, Integer(value)] }
           end
 
-          # The whole picture printed among +rows+ ("picture" and four hex digits a pixel).
-          def self.picture_in(rows)
-            rows.find { |row| row.start_with?("picture ") }.delete_prefix("picture ").scan(/\h{4}/).map { |hex| hex.to_i(16) }
+          # The whole picture printed among +rows+ ("picture" and four hex digits a pixel), or
+          # the one printed after another +word+.
+          def self.picture_in(rows, word = "picture")
+            rows.find { |row| row.start_with?("#{word} ") }.delete_prefix("#{word} ").scan(/\h{4}/).map { |hex| hex.to_i(16) }
           end
 
           # A picture as the one number the program prints for it each frame: the CRC-32 of its
@@ -70,6 +74,9 @@ module RubyGBA
           # script, is the log up to the frame the script is asked about. +sound+ is the sound
           # itself, one speaker's worth as whole numbers, for a run asked to record it.
           attr_reader :screen, :vars, :moments, :audio, :sound
+
+          # Whether the screen the run ended on is tear-free, as the interpreter answers it.
+          attr_reader :buffered
 
           # The interpreter's options, so a test makes either the same way. +save+ — the save
           # memory a game starts with — is refused until the native lowering can hold one.
@@ -185,7 +192,8 @@ module RubyGBA
 
           def record_end(rows)
             @vars = self.class.variables_in(rows)
-            @screen = Picture.new(shown: self.class.picture_in(rows))
+            @screen = Picture.new(shown: self.class.picture_in(rows), stored: self.class.picture_in(rows, "stored"))
+            @buffered = rows.include?("pages 2")
             @moments << Moment.new(frame: :end, variables: @vars, picture: self.class.picture_check(@screen.shown),
                                    sounds: @audio.size)
           end

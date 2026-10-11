@@ -12,6 +12,9 @@ require_relative "../../examples/corridor"
 # it is a real game that draws a real picture, and it is heavy enough that a change which
 # pushed it over would be caught here.
 class TestCorridorExample < Minitest::Test
+  # True of the game however it is played: see TestSuites.
+  runs_on :reference, :native
+
   include RubyGBA::Console::Hardware
 
   # RubyGBA.build runs the guardrails and the ROM-image validation, so a clean build IS
@@ -23,7 +26,7 @@ class TestCorridorExample < Minitest::Test
   # It is a first-person view, so a settled frame shows sky above the eye line, floor below it,
   # and walls in between — and the status bar underneath, which is the part `inside` protects.
   def test_it_draws_a_view_with_a_status_bar_under_it
-    i = Reference.new.run(Corridor.program, frames: 4)
+    i = game_player.run(Corridor.program, frames: 4)
     pixels = i.screen.to_a
 
     assert_includes pixels, Corridor::SKY, "sky above the eye line"
@@ -37,7 +40,7 @@ class TestCorridorExample < Minitest::Test
   # bottom — reaches the bar. Written as a check on the picture rather than on the clip, since
   # the picture is what an author sees.
   def test_the_view_never_reaches_into_the_bar
-    i = Reference.new.run(Corridor.program, frames: 4)
+    i = game_player.run(Corridor.program, frames: 4)
     view_colors = [Corridor::SKY, Corridor::FLOOR, *Corridor::WALL_SHADES]
 
     (Corridor::VIEW_H...160).each do |y|

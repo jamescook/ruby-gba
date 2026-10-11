@@ -10,13 +10,15 @@ require_relative "../../examples/floating_digits"
 # These assert BEHAVIOR — the digits render in their colors and actually move — on
 # the interpreter, with an emulator check that it renders on the console.
 class TestFloatingDigitsExample < Minitest::Test
+  # True of the game however it is played: see TestSuites.
+  runs_on :reference, :native
 
   SW = FloatingDigits::SCREEN_W
   SH = FloatingDigits::SCREEN_H
 
   # Run the program on the interpreter for a fixed budget (deterministic — there's
   # no input), enough for every digit to have been drawn a few frames in.
-  def run_to(steps) = Reference.new.run(FloatingDigits.program, max_steps: steps)
+  def run_to(steps) = game_player.run(FloatingDigits.program, max_steps: steps)
 
   # Whether +color+ is painted anywhere on the screen.
   def color_on?(screen, color)

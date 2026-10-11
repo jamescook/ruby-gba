@@ -222,8 +222,8 @@ class TestPongScoring < Minitest::Test
 
 On a `rake test` run `game_player` IS `Reference.new`. On a native run it is a
 `CheckedNativeRun`: the game built as C and driven through the same calls (`hold`,
-`input_each_frame`, `run`, `[]`, `vars`, `screen.pixel`, `audio` so far, growing with each
-native slice), and then the same buttons replayed on the interpreter, failing at the first
+`input_each_frame`, `run`, `[]`, `vars`, `screen.pixel`, `screen.to_a`, `audio` so far, growing
+with each native slice), and then the same buttons replayed on the interpreter, failing at the first
 frame where any variable, any pixel or the sound log differs. So an opted-in file's own checks
 are backed by a whole-picture comparison on every frame. A run by step budget
 (`run(program, max_steps: 400)`) plays there too, with nothing to change: a budget is the

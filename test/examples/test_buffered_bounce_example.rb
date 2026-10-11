@@ -11,6 +11,9 @@ require_relative "../../examples/buffered_bounce"
 # clean (which runs the guardrails and ROM-image checks) and actually renders its
 # balls on a blue field, on both backends, so it can't rot into a black screen.
 class TestBufferedBounceExample < Minitest::Test
+  # True of the game however it is played: see TestSuites.
+  runs_on :reference, :native
+
   include RubyGBA::Console::Hardware
 
   BALL_COLORS = %i[yellow cyan magenta].freeze
@@ -25,7 +28,7 @@ class TestBufferedBounceExample < Minitest::Test
   # On the reference interpreter, a settled frame shows the blue field and all
   # three balls — the promise that buffered drawing lands the same pixels.
   def test_it_renders_the_balls_on_a_blue_field
-    i = Reference.new.run(BufferedBounce.program)
+    i = game_player.run(BufferedBounce.program)
     assert i.buffered, "the demo opts into double buffering"
 
     pixels = i.screen.to_a

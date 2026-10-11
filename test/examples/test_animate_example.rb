@@ -10,6 +10,8 @@ require_relative "../../examples/animate"
 # valid and renders; that the flipbook actually cycles over time is pinned in
 # test_sprite_animation.rb.
 class TestAnimateExample < Minitest::Test
+  # True of the game however it is played: see TestSuites.
+  runs_on :reference, :native
 
   # The coin's centre column is gold on every frame of the spin (only its width
   # changes), so it's a stable point to find it.
@@ -20,7 +22,7 @@ class TestAnimateExample < Minitest::Test
   end
 
   def test_the_coin_renders
-    s = Reference.new.run(Animate.program, max_steps: 200).screen
+    s = game_player.run(Animate.program, max_steps: 200).screen
     assert_equal Color.resolve(:yellow), s.pixel(*CENTRE), "the coin renders in the middle"
   end
 
