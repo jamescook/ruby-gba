@@ -5,16 +5,27 @@
  *
  * What is NOT here is refused when the game is built rather than drawn wrongly: a tear-free
  * screen's second page, the camera, an area drawing is held inside, a see-through layer, a fade
- * placed in the stack, a stack of named layers, sprites that turn or are drawn in other colors,
- * and the cheaper way the interpreter has of moving sprites over a picture that never changes.
+ * placed in the stack, and sprites that turn or change layer.
+ *
+ * A sprite's pictures arrive ready to draw: which of its pixels show, and the colors of each
+ * list it can be drawn with, are worked out when the game is built (see native/picture.rb).
  */
 #include "rg_screen.h"
 #include "rg_runtime.h"
 
-enum { MAX_OBJECTS = 512 };
-
 static uint16_t pixels[RG_SCREEN_WIDTH * RG_SCREEN_HEIGHT];
 static uint16_t shown[RG_SCREEN_WIDTH * RG_SCREEN_HEIGHT];
+
+/* Where drawing goes: the picture, or for a moment the copy of the scenery kept to put back
+ * under a sprite (Reference#drawing_into). */
+static uint16_t *target = pixels;
+
+/* THE SCENERY WITH NOTHING ON IT (Reference @scene_fb): the backdrop and every background up,
+ * painted once and kept. A sprite on a picture that is not rebuilt every frame is drawn straight
+ * onto it, so before it is drawn somewhere new the patch it covered is put back from here. Made
+ * again whenever the scenery changes. */
+static uint16_t scenery[RG_SCREEN_WIDTH * RG_SCREEN_HEIGHT];
+static int32_t scenery_kept;
 
 static int32_t held;            /* switched off until the first frame (Framebuffer#held=) */
 static int32_t kind = -1;       /* the kind of screen up; none before the first `screen` */
@@ -38,9 +49,14 @@ typedef struct { int32_t turned, angle, size, pivot_x, pivot_y; } background_tur
 static background_turn turns[RG_MAX_BACKGROUNDS];
 
 /* The sprites on screen this frame: being said (drawing), and as the last rebuild draws them. */
-typedef struct { int32_t image, x, y, level; } placed_object;
-static placed_object drawing[MAX_OBJECTS], layer[MAX_OBJECTS];
+typedef struct { int32_t sprite, image, x, y, level; } placed_object;
+static placed_object drawing[RG_MAX_SPRITES], layer[RG_MAX_SPRITES];
 static int32_t drawing_count, layer_count;
+
+/* Where each sprite was last drawn straight onto the picture, by its number, so that patch can
+ * be put back before it is drawn again (Reference @obj_prev). */
+typedef struct { int32_t drawn, x, y; } drawn_place;
+static drawn_place last_drawn[RG_MAX_SPRITES];
 
 /* --- small arithmetic --- */
 
@@ -60,12 +76,12 @@ static int32_t background_field(int32_t background, int32_t field) {
 /* Framebuffer#set_pixel: a cell off the screen is dropped. */
 static void set_pixel(int64_t x, int64_t y, int32_t color) {
   if (x < 0 || x >= RG_SCREEN_WIDTH || y < 0 || y >= RG_SCREEN_HEIGHT) return;
-  pixels[y * RG_SCREEN_WIDTH + x] = (uint16_t)color;
+  target[y * RG_SCREEN_WIDTH + x] = (uint16_t)color;
 }
 
 /* Framebuffer#clear */
 static void clear_to(int32_t color) {
-  for (int32_t i = 0; i < RG_SCREEN_WIDTH * RG_SCREEN_HEIGHT; i++) pixels[i] = (uint16_t)color;
+  for (int32_t i = 0; i < RG_SCREEN_WIDTH * RG_SCREEN_HEIGHT; i++) target[i] = (uint16_t)color;
 }
 
 void rg_screen_clear(int32_t color) { clear_to(color); }
@@ -194,20 +210,49 @@ void rg_background_stamp(int32_t background) {
 /* Reference#request_repaint (a bending background, which would paint at once, is refused). */
 static void request_repaint(void) { owed = 1; }
 
-/* Reference#put_up_background: a turned background is painted through its turn at the next
- * rebuild rather than stamped as drawn. The interpreter also stamps again the backgrounds a
- * named layer puts in front of this one; the build refuses named layers, so there are none. */
+/* IR::Stacking.order_by_stack: the backgrounds that named a layer, put in the order the declared
+ * stack asks for among the places they had; one that named none keeps its place. Two in one
+ * layer keep the order they came in. */
+static void order_by_stack(int32_t *backgrounds, int32_t count) {
+  int32_t places[RG_MAX_BACKGROUNDS], named = 0;
+  for (int32_t i = 0; i < count; i++)
+    if (background_field(backgrounds[i], RG_BG_STACK_PLACE) != RG_NO_LAYER) places[named++] = i;
+  for (int32_t i = 1; i < named; i++)
+    for (int32_t j = i; j > 0; j--) {
+      int32_t *front = &backgrounds[places[j]], *behind = &backgrounds[places[j - 1]];
+      if (background_field(*behind, RG_BG_STACK_PLACE) <= background_field(*front, RG_BG_STACK_PLACE)) break;
+      int32_t moved = *front;
+      *front = *behind;
+      *behind = moved;
+    }
+}
+
+/* Reference#behind?: only when both named a layer. */
+static int32_t behind(int32_t a, int32_t b) {
+  int32_t place_a = background_field(a, RG_BG_STACK_PLACE), place_b = background_field(b, RG_BG_STACK_PLACE);
+  return place_a != RG_NO_LAYER && place_b != RG_NO_LAYER && place_a < place_b;
+}
+
+/* Reference#put_up_background. A stamp only covers where it has solid pixels, so a background a
+ * named layer puts BEHIND one already up would land in front of it; the ones it belongs behind
+ * are stamped again over it. A turned background is painted through its turn at the next rebuild
+ * rather than stamped as drawn. */
 void rg_background_put_up(int32_t background) {
-  int32_t kept = 0;
-  for (int32_t i = 0; i < shown_count; i++)
+  int32_t over[RG_MAX_BACKGROUNDS], over_count = 0, kept = 0;
+  for (int32_t i = 0; i < shown_count; i++) {
+    if (behind(background, shown_backgrounds[i])) over[over_count++] = shown_backgrounds[i];
     if (shown_backgrounds[i] != background) shown_backgrounds[kept++] = shown_backgrounds[i];
+  }
   shown_backgrounds[kept] = background;
   shown_count = kept + 1;
+  scenery_kept = 0;
   if (turns[background].turned) {
     request_repaint();
     return;
   }
   rg_background_stamp(background);
+  order_by_stack(over, over_count);
+  for (int32_t i = 0; i < over_count; i++) rg_background_stamp(over[i]);
 }
 
 /* Reference#exec_affine_background: the angle wraps into 0..359 as Ruby's % does. */
@@ -282,38 +327,115 @@ static void paint_turned_window(int32_t background) {
 
 /* --- sprites --- */
 
+/* One picture: where its pixels start, and its size. */
+typedef struct { const int32_t *pixels; int32_t width, height; } picture;
+
+static picture picture_of(int32_t image) {
+  const int32_t *info = rg_game_images + RG_IMAGE_FIELDS * image;
+  return (picture){rg_game_image_pixels + info[0], info[1], info[2]};
+}
+
 /* Reference#blit_image: a see-through pixel is skipped, and each other one goes on as stored. */
 static void blit_image(int32_t image, int32_t x, int32_t y) {
-  const int32_t *info = rg_game_images + 4 * image;
-  int32_t start = info[0], width = info[1], height = info[2], see_through = info[3];
-  for (int32_t row = 0; row < height; row++)
-    for (int32_t col = 0; col < width; col++) {
-      uint16_t color = rg_game_image_pixels[start + row * width + col];
-      if (see_through >= 0 && color == see_through) continue;
-      set_pixel((int64_t)x + col, (int64_t)y + row, color);
+  picture art = picture_of(image);
+  for (int32_t row = 0; row < art.height; row++)
+    for (int32_t col = 0; col < art.width; col++) {
+      int32_t color = art.pixels[row * art.width + col];
+      if (color != RG_NOT_DRAWN) set_pixel((int64_t)x + col, (int64_t)y + row, color);
     }
 }
 
-void rg_objects_begin(void) { drawing_count = 0; }
+static int32_t rebuilt_whole(void) { return rg_game_picture_sizes[RG_SIZE_REBUILT_WHOLE]; }
 
-void rg_objects_add(int32_t image, int32_t x, int32_t y, int32_t level) {
-  if (drawing_count >= MAX_OBJECTS) rg_fault("more than %d sprites on screen at once", MAX_OBJECTS);
-  drawing[drawing_count++] = (placed_object){image, x, y, level};
+/* Reference#scene_framebuffer: the backdrop, and every background showing stamped over it. */
+static void keep_scenery(void) {
+  if (scenery_kept) return;
+  target = scenery;
+  clear_to(0);
+  for (int32_t bg = 0; bg < rg_game_picture_sizes[RG_SIZE_BACKGROUNDS]; bg++)
+    if (showing(bg)) rg_background_stamp(bg);
+  target = pixels;
+  scenery_kept = 1;
 }
 
-/* Reference#exec_present_objects on a picture that is rebuilt whole: the sprites on screen now
- * are kept (#snapshot_object_layer) and the rebuild is owed. */
+/* The start of Reference#exec_present_objects. A game that draws its sprites straight onto the
+ * picture has the scenery under them kept from here, as the interpreter does. */
+void rg_objects_begin(void) {
+  drawing_count = 0;
+  if (!rebuilt_whole()) keep_scenery();
+}
+
+static void fault_unless_sprite(int32_t sprite) {
+  if (sprite < 0 || sprite >= RG_MAX_SPRITES) rg_fault("sprite %d, of the %d there is room for", sprite, RG_MAX_SPRITES);
+}
+
+/* Reference#restore_scene_rect and #restore_patch: the scenery put back where this sprite was
+ * last drawn. All of a sprite's pictures are one size, so any of them says how big the patch is. */
+void rg_object_take_off(int32_t sprite, int32_t image) {
+  fault_unless_sprite(sprite);
+  drawn_place *place = &last_drawn[sprite];
+  if (!place->drawn) return;
+  place->drawn = 0;
+  picture art = picture_of(image);
+  for (int32_t row = 0; row < art.height; row++)
+    for (int32_t col = 0; col < art.width; col++) {
+      int64_t x = (int64_t)place->x + col, y = (int64_t)place->y + row;
+      if (x < 0 || x >= RG_SCREEN_WIDTH || y < 0 || y >= RG_SCREEN_HEIGHT) continue;
+      pixels[y * RG_SCREEN_WIDTH + x] = scenery[y * RG_SCREEN_WIDTH + x];
+    }
+}
+
+void rg_objects_add(int32_t sprite, int32_t image, int32_t x, int32_t y, int32_t level) {
+  fault_unless_sprite(sprite);
+  if (drawing_count >= RG_MAX_SPRITES) rg_fault("more than %d sprites on screen at once", RG_MAX_SPRITES);
+  drawing[drawing_count++] = (placed_object){sprite, image, x, y, level};
+}
+
+/* The rest of Reference#exec_present_objects. On a picture that is rebuilt whole, the sprites on
+ * screen now are kept (#snapshot_object_layer) and the rebuild is owed. On one that is not, each
+ * is drawn where it is now, and where that was is remembered for taking it off again. */
 void rg_objects_end(void) {
-  for (int32_t i = 0; i < drawing_count; i++) layer[i] = drawing[i];
-  layer_count = drawing_count;
-  request_repaint();
+  if (rebuilt_whole()) {
+    for (int32_t i = 0; i < drawing_count; i++) layer[i] = drawing[i];
+    layer_count = drawing_count;
+    request_repaint();
+    return;
+  }
+  for (int32_t i = 0; i < drawing_count; i++) {
+    blit_image(drawing[i].image, drawing[i].x, drawing[i].y);
+    last_drawn[drawing[i].sprite] = (drawn_place){1, drawing[i].x, drawing[i].y};
+  }
+}
+
+/* Reference#collision_sprite: the picture a sprite is showing. */
+int32_t rg_pose_image(const int32_t *poses, int32_t count, int32_t pose) {
+  if (pose < 0 || pose >= count) rg_fault("a sprite is showing picture %d of its %d", pose, count);
+  return poses[pose];
+}
+
+/* Reference#solid_pixel? */
+static int32_t solid_pixel(picture art, int64_t col, int64_t row) {
+  return art.pixels[row * art.width + col] != RG_NOT_DRAWN;
+}
+
+/* Reference#pixels_overlap?: only the rectangle where the two boxes overlap is walked. */
+int32_t rg_pixels_overlap(int32_t a_image, int32_t a_x, int32_t a_y, int32_t b_image, int32_t b_x, int32_t b_y) {
+  picture a = picture_of(a_image), b = picture_of(b_image);
+  int64_t left = a_x > b_x ? a_x : b_x, top = a_y > b_y ? a_y : b_y;
+  int64_t a_right = (int64_t)a_x + a.width, b_right = (int64_t)b_x + b.width;
+  int64_t a_bottom = (int64_t)a_y + a.height, b_bottom = (int64_t)b_y + b.height;
+  int64_t right = a_right < b_right ? a_right : b_right, bottom = a_bottom < b_bottom ? a_bottom : b_bottom;
+  for (int64_t y = top; y < bottom; y++)
+    for (int64_t x = left; x < right; x++)
+      if (solid_pixel(a, x - a_x, y - a_y) && solid_pixel(b, x - b_x, y - b_y)) return 1;
+  return 0;
 }
 
 /* --- the whole view, rebuilt (Reference#repaint_view) --- */
 
 static void repaint_view(void) {
   clear_to(0);
-  int32_t backgrounds = rg_game_picture_sizes[0], levels = rg_game_picture_sizes[1];
+  int32_t backgrounds = rg_game_picture_sizes[RG_SIZE_BACKGROUNDS], levels = rg_game_picture_sizes[RG_SIZE_DEPTHS];
   for (int32_t level = 0; level < levels; level++) {
     for (int32_t bg = 0; bg < backgrounds; bg++) {
       if (!showing(bg) || background_field(bg, RG_BG_LEVEL) != level) continue;
@@ -345,10 +467,11 @@ void rg_screen_set(int32_t new_kind) {
   if (crossing) {
     clear_to(0);
     shown_count = 0;
+    scenery_kept = 0;
   }
   kind = new_kind;
   if (crossing && new_kind != RG_BITMAP)
-    for (int32_t i = 0; i < rg_game_picture_sizes[2]; i++) rg_background_put_up(rg_game_always_up[i]);
+    for (int32_t i = 0; i < rg_game_picture_sizes[RG_SIZE_ALWAYS_UP]; i++) rg_background_put_up(rg_game_always_up[i]);
 }
 
 /* Reference#cross_to_scene_screen */
@@ -373,8 +496,12 @@ void rg_scene_take_down(int32_t brings_scenery) {
   if (kept == shown_count) return;
 
   shown_count = kept;
+  scenery_kept = 0;
   clear_to(0);
-  for (int32_t i = 0; i < kept; i++) rg_background_stamp(shown_backgrounds[i]);
+  int32_t stamped[RG_MAX_BACKGROUNDS];
+  for (int32_t i = 0; i < kept; i++) stamped[i] = shown_backgrounds[i];
+  order_by_stack(stamped, kept);
+  for (int32_t i = 0; i < kept; i++) rg_background_stamp(stamped[i]);
 }
 
 /* --- reading it back --- */

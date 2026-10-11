@@ -12,6 +12,9 @@ require_relative "../../examples/pacman"
 # the whole stack renders and behaves — on the interpreter oracle and on real
 # hardware. (Facing correctness itself is pinned in test_hardware_sprite_facing.rb.)
 class TestPacmanExample < Minitest::Test
+  # True of the game however it is played: see TestSuites.
+  runs_on :reference, :native
+
   include RubyGBA::Console::Hardware
   include Differential
 
@@ -30,7 +33,7 @@ class TestPacmanExample < Minitest::Test
   # Pac (yellow), a pellet (white), and the ghost (red) all render over the room —
   # three hardware sprites of different colors composited on the tiled background.
   def test_pac_the_pellets_and_the_ghost_all_render
-    s = Reference.new.run(Pacman.program, max_steps: 400).screen
+    s = game_player.run(Pacman.program, max_steps: 400).screen
     assert any_pixel?(s, :yellow, START_X..(START_X + Pacman::SIZE), START_Y..(START_Y + Pacman::SIZE)),
            "Pac-Man renders in the middle"
     px, py = Pacman::PELLET_SPOTS.first
@@ -41,7 +44,7 @@ class TestPacmanExample < Minitest::Test
 
   # Holding left walks Pac left of where he started — he's found in yellow there.
   def test_steering_moves_pac
-    s = Reference.new.input_each_frame { [:left] }.run(Pacman.program, max_steps: 400).screen
+    s = game_player.input_each_frame { [:left] }.run(Pacman.program, max_steps: 400).screen
     assert any_pixel?(s, :yellow, 64..104, START_Y..(START_Y + Pacman::SIZE)),
            "holding left should walk Pac left of centre"
   end
@@ -50,14 +53,14 @@ class TestPacmanExample < Minitest::Test
   # before the ghost (starting in a far corner) is any threat. overlaps? fires and
   # the eaten count climbs. Both are sprites, so there are no boxes.
   def test_eating_a_pellet
-    r = Reference.new.input_each_frame { [:up] }.run(Pacman.program, max_steps: 1000)
+    r = game_player.input_each_frame { [:up] }.run(Pacman.program, max_steps: 1000)
     assert_operator r[:eaten], :>=, 1, "walking into a pellet should eat it"
   end
 
   # Leave Pac still and the ghost, creeping toward him each frame, eventually catches
   # him — collision across two moving hardware sprites, driving the whole loop.
   def test_the_ghost_catches_an_idle_pac
-    r = Reference.new.run(Pacman.program, max_steps: 4000)
+    r = game_player.run(Pacman.program, max_steps: 4000)
     assert_operator r[:caught], :>=, 1, "the chasing ghost should catch a still Pac"
   end
 
@@ -69,8 +72,8 @@ class TestPacmanExample < Minitest::Test
   def pac_centre(screen) = screen.pixel(START_X + 8, START_Y + 8)
 
   def test_a_caught_pac_blinks_white_then_is_yellow_again
-    assert_equal Color.resolve(:white), pac_centre(Reference.new.run(Pacman.program, frames: CAUGHT_AND_WHITE).screen)
-    assert_equal Color.resolve(:yellow), pac_centre(Reference.new.run(Pacman.program, frames: BLINK_OVER).screen)
+    assert_equal Color.resolve(:white), pac_centre(game_player.run(Pacman.program, frames: CAUGHT_AND_WHITE).screen)
+    assert_equal Color.resolve(:yellow), pac_centre(game_player.run(Pacman.program, frames: BLINK_OVER).screen)
   end
 
   # --- Hardware (the emulator): it renders and steers on the console ---

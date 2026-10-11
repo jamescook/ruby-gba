@@ -1713,9 +1713,7 @@ module RubyGBA
         # ways of reading one — by the place each pixel was drawn at, or by its colour where
         # the art recorded no places — are the picture's business rather than the layer's.
         def tile_recolor(name, bmp, swapped)
-          @recolor_maps[[name, swapped]] ||=
-            Recolor.new(places: bmp.places, by_place: swapped,
-                        by_color: bmp.places ? nil : color_swap_map(bmp.colors, swapped))
+          @recolor_maps[[name, swapped]] ||= Recolor.of(bmp, swapped)
         end
 
         # THE COLOURS A BACKGROUND'S TILES ARE DRAWN FROM THIS FRAME: the step the game last
@@ -2299,12 +2297,9 @@ module RubyGBA
           which = eval_value(obj.recolor)
           return nil unless which >= 0 && which < lists.length
 
-          bmp = @bitmaps.fetch(image)
           swapped = lists[which]
           swapped = colors_held_by(swapped) if swapped.is_a?(Symbol)
-          @recolor_maps[[image, swapped]] ||=
-            Recolor.new(places: bmp.places, by_place: swapped,
-                        by_color: bmp.places ? nil : color_swap_map(bmp.colors, swapped))
+          @recolor_maps[[image, swapped]] ||= Recolor.of(@bitmaps.fetch(image), swapped)
         end
 
         # THE COLOURS A NAMED LIST HOLDS NOW: the set the program last said, or the ones it was
@@ -2321,19 +2316,28 @@ module RubyGBA
           @held_colors[node.name] = eval_value(node.which)
         end
 
-        # A picture given as COLOURS has no places recorded, so its swap is read the only way
-        # left: colour to colour, and a colour its list holds twice is read at the first of
-        # them. The build refuses that where the two places differ in the list being drawn
-        # with, so this is only ever reached where both places agree.
-        def color_swap_map(own, swapped)
-          (1...own.length).each_with_object({}) { |place, map| map[own[place]] ||= swapped[place] }
-        end
-
         # WHAT COLOUR A PIXEL IS DRAWN IN while an object draws with another list. A picture
         # whose art was given as places is read by place, which is what the console does with
         # it; one given as colours has only its colours to go on. One of the two halves is
         # filled in and the other is not, since a picture is one kind or the other.
+        #
+        # Asked by the native backend too, which works its recoloured pictures out with it when
+        # the game is built rather than keeping a second reading of the rule.
         Recolor = Data.define(:places, :by_place, :by_color) do
+          # +picture+ (an Assets::Image) drawn with the list +swapped+.
+          def self.of(picture, swapped)
+            new(places: picture.places, by_place: swapped,
+                by_color: picture.places ? nil : swap_by_color(picture.colors, swapped))
+          end
+
+          # A picture given as COLOURS has no places recorded, so its swap is read the only way
+          # left: colour to colour, and a colour its list holds twice is read at the first of
+          # them. The build refuses that where the two places differ in the list being drawn
+          # with, so this is only ever reached where both places agree.
+          def self.swap_by_color(own, swapped)
+            (1...own.length).each_with_object({}) { |place, map| map[own[place]] ||= swapped[place] }
+          end
+
           def color_for(index, color)
             return by_place[places.getbyte(index)] || color if places
 

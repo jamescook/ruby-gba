@@ -2,13 +2,13 @@
 
 require "test_helper"
 require "native_comparison"
-require_relative "../../../../../examples/pong"
+require_relative "../../../../../../examples/pong"
 
 # examples/pong.rb built for the desktop shows the interpreter's picture pixel for pixel, frame
 # by frame, over a recorded run: the zooming title and its menu, START, the zoom away, and a
 # rally with the paddle moved up and down. Its sound log — the song, the beeps — matches entry
-# for entry too; nothing comes out of a speaker yet.
-class TestNativePong < Minitest::Test
+# for entry too; what comes out of the speaker is test_pong_sounds.rb's.
+class TestPongPicture < Minitest::Test
   # The native lowering's own tests, which only a native run plays (see TestSuites).
   runs_on :native
 

@@ -12,20 +12,23 @@ module RubyGBA
         # the art is worked out HERE, in Ruby, with the interpreter's own readings of it — which
         # pixel of a tile shows what is behind, which color a pixel of a picture is — so the C
         # never has a second opinion about a pixel.
-        #
-        # Sound is ignored for now rather than refused: a game's sound changes nothing it draws
-        # or keeps, so the rest of the game can be built and checked while the sound is written.
         module Picture
           # The kinds of screen, as rg_screen.h numbers them.
           SCREEN_KINDS = Ractor.make_shareable({ bitmap: 0, tiled: 1, rotozoom: 2 })
 
-          # rg_screen.h's own numbers for whose a background is, and how many there can be.
+          # rg_screen.h's own numbers: whose a background is (RG_EVERY_SCENE, RG_NEVER_ARRIVES),
+          # a background that named no layer, a pixel of a sprite's picture that is not drawn,
+          # and how many backgrounds and sprites there is room for.
           EVERY_SCENE = -1
           NEVER_ARRIVES = -2
+          NO_LAYER = -1
+          NOT_DRAWN = -1
           MAX_BACKGROUNDS = 64
+          MAX_SPRITES = 512
 
-          # The kinds the interpreter's picture would rebuild whole every frame for (see
-          # Reference#collect_definitions). The C only has that way of moving sprites.
+          # The kinds the interpreter's picture is rebuilt whole every frame for (see
+          # Reference#collect_definitions). Any other game's sprites are drawn straight onto a
+          # picture that stays.
           REBUILT_FOR = %i[tile_run scroll_background scroll_rows affine_background set_tile show_map].freeze
 
           private
@@ -36,7 +39,8 @@ module RubyGBA
             @fading = Fading.resolve(@program)
             @backgrounds = @stacking.scenery.each_with_index.to_h { |bg, id| [bg.name, id] }
             @objects = by_name(@program.walk, :object)
-            @images = {} # picture name -> its number in rg_game_images
+            @sprites = @objects.each_key.with_index.to_h # sprite name -> the number rg_screen.c knows it by
+            @images = {} # [picture name, the list of colors it is drawn with or nil] -> its number in rg_game_images
             @drawing_arrays = [] # constant arrays the drawing statements need, written before the routines
             refuse_unsupported_picture!
           end
@@ -45,15 +49,13 @@ module RubyGBA
 
           def refuse_unsupported_picture!
             nodes = @program.walk.to_a
-            refuse_picture!("a stack of named layers") if nodes.any? { |n| n.kind == :layers }
+            refuse_picture!("a see-through layer") if nodes.any? { |n| n.kind == :layers && !n.see_through.empty? }
             refuse_picture!("a tear-free screen") if nodes.any? { |n| n.kind == :screen && (n.buffered || !Array(n.colors).empty?) }
             refuse_picture!("a fade placed in the stack (fade ... under:)") if nodes.any? { |n| n.kind == :fade && n.under }
             refuse_picture!("more than #{MAX_BACKGROUNDS} backgrounds") if @backgrounds.size > MAX_BACKGROUNDS
+            refuse_picture!("more than #{MAX_SPRITES} sprites") if @sprites.size > MAX_SPRITES
             @stacking.scenery.each { |bg| refuse_unsupported_background!(bg) }
             @objects.each_value { |obj| refuse_unsupported_object!(obj) }
-            return if @objects.empty? || rebuilt_every_frame?
-
-            refuse_picture!("sprites over a picture that is not rebuilt every frame")
           end
 
           def refuse_unsupported_background!(bg)
@@ -63,7 +65,6 @@ module RubyGBA
           end
 
           def refuse_unsupported_object!(obj)
-            refuse_picture!("a sprite drawn in other colors (#{obj.declared})") unless Array(obj.recolors).empty?
             refuse_picture!("a sprite that changes layer (#{obj.declared})") unless Array(obj.layers).empty?
             return if constant?(obj.angle, 0) && constant?(obj.scale, Build::SCALE_ONE)
 
@@ -89,7 +90,8 @@ module RubyGBA
           def picture_data
             [*image_arrays, *background_arrays,
              runtime_array("picture_sizes", "int32_t",
-                    [@backgrounds.size, @stacking.depths.count, @handover.always_up.scenery.length]),
+                    [@backgrounds.size, @stacking.depths.count, @handover.always_up.scenery.length,
+                     rebuilt_every_frame? ? 1 : 0]),
              runtime_array("always_up", "int32_t", @handover.always_up.scenery.map { |bg| @backgrounds.fetch(bg.name) }),
              runtime_array("sines", "int32_t", (0...450).map { |degrees| Affine.sine(degrees) }),
              runtime_array("turn_rules", "int32_t", [Build::SCALE_ONE, Affine::ONE_TH, Affine::MAX, Affine::MIN_SCALE])]
@@ -98,16 +100,32 @@ module RubyGBA
           # An array of numbers rg_screen.c reads by name (rg_game_ and +what+).
           def runtime_array(what, type, values) = C::ConstArray.new(name: @names.own(what), type: type, values: values, exported: true)
 
-          # Every picture a sprite can show: pixels as stored, see-through color or -1.
+          # Every picture a sprite can show, once for each list of colors it is drawn with.
           def image_arrays
             pixels = []
             info = []
-            @images.each_key do |name|
-              image = Assets::Image.of(@data.fetch(name))
-              info.push(pixels.length, image.width, image.height, image.transparent || -1)
-              pixels.concat(image.pixels.unpack("v*"))
+            @images.each_key do |name, colors|
+              image = picture_named(name)
+              info.push(pixels.length, image.width, image.height)
+              pixels.concat(sprite_pixels(image, colors))
             end
-            [runtime_array("image_pixels", "uint16_t", pixels), runtime_array("images", "int32_t", info)]
+            [runtime_array("image_pixels", "int32_t", pixels), runtime_array("images", "int32_t", info)]
+          end
+
+          # A sprite picture's pixels as the interpreter draws them (Reference#blit_image): the
+          # number the picture stores, the color +colors+ puts in its place when the sprite is
+          # drawn with that list (Reference#object_recolor), or NOT_DRAWN where it is see-through.
+          def sprite_pixels(image, colors)
+            recolor = colors && Reference::Recolor.of(image, colors)
+            Array.new(image.width * image.height) do |at|
+              next NOT_DRAWN unless image.drawn_at?(at)
+
+              recolor ? recolor.color_for(at, image.raw_at(at)) : image.raw_at(at)
+            end
+          end
+
+          def picture_named(name)
+            Assets::Image.of(@data.fetch(name) { raise LoweringError, "a sprite shows the picture #{name.inspect}, which is not defined" })
           end
 
           # Every background in the order the stack draws them, its tiles as colors with
@@ -125,7 +143,7 @@ module RubyGBA
               grid_cols, grid_rows = TileMap.grid(map)
               [bg.tile_w, bg.tile_h, cols, map.length, grid_cols, grid_rows, map_start, tiles_start,
                bg.scene ? @scenes.fetch(bg.scene, NEVER_ARRIVES) : EVERY_SCENE, @stacking.depths[bg.name],
-               @handover.on_arrival?(bg) ? 1 : 0]
+               @handover.on_arrival?(bg) ? 1 : 0, @stacking.stack.index(bg.layer) || NO_LAYER]
             end
             [runtime_array("tile_pixels", "uint16_t", tile_pixels), runtime_array("backgrounds", "int32_t", fields),
              runtime_array("map_cells", "int16_t", cells)]
@@ -136,7 +154,8 @@ module RubyGBA
             Array.new(image.width * image.height) { |i| image.tile_see_through_at?(i) ? 0xFFFF : image.color_at(i) }
           end
 
-          def image_number(name) = @images[name] ||= @images.size
+          # The number of the picture +name+ as drawn with the list +colors+, or with its own.
+          def image_number(name, colors = nil) = @images[[name, colors]] ||= @images.size
 
           # --- the drawing statements ---
 
@@ -185,21 +204,58 @@ module RubyGBA
                        value(node.scale), C::Int.new(node.around_x), C::Int.new(node.around_y))]
           end
 
-          # Reference#exec_present_objects and #objects_on_screen: each sprite that is switched
-          # on and whose pose names one of its pictures, where it is now.
+          # Reference#exec_present_objects: every sprite the frame draws is taken off the picture,
+          # then each one that is shown is put where it is now.
           def lower_present_objects(node)
-            placed = node.names.map do |name|
-              obj = @objects.fetch(name) { raise LoweringError, "present of undeclared object #{name.inspect}" }
-              poses = drawing_array("poses", "int32_t", obj.poses.map { |pose| image_number(pose) })
-              pose = local_name("pose")
-              in_range = call("rg_both", call("rg_ge", pose, C::Int.new(0)), call("rg_lt", pose, C::Int.new(obj.poses.length)))
-              add = eval_call("rg_objects_add", C::Index.new(poses, pose), value(obj.x), value(obj.y),
-                              C::Int.new(@stacking.depths[obj.name]))
-              C::If.new(condition: call("rg_eq", value(obj.active), C::Int.new(1)),
-                        body: [C::Block.new([C::Local.new(name: pose, value: value(obj.pose)),
-                                             C::If.new(condition: in_range, body: [add])])])
+            drawn = node.names.map do |name|
+              @objects.fetch(name) { raise LoweringError, "present of undeclared object #{name.inspect}" }
             end
-            [eval_call("rg_objects_begin"), *placed, eval_call("rg_objects_end")]
+            [eval_call("rg_objects_begin"), *drawn.map { |obj| sprite_removal(obj) },
+             *drawn.map { |obj| sprite_placement(obj) }, eval_call("rg_objects_end")]
+          end
+
+          # Any of a sprite's pictures says how big a patch it covered; the interpreter reads
+          # the first (Reference#restore_scene_rect).
+          def sprite_removal(obj)
+            eval_call("rg_object_take_off", sprite_number(obj), C::Int.new(image_number(obj.poses.first)))
+          end
+
+          # Reference#objects_on_screen: a sprite is drawn when it is switched on and its pose
+          # names one of its pictures.
+          def sprite_placement(obj)
+            pose = local_name("pose")
+            in_range = call("rg_both", call("rg_ge", pose, C::Int.new(0)), call("rg_lt", pose, C::Int.new(obj.poses.length)))
+            add = eval_call("rg_objects_add", sprite_number(obj), picture_shown(obj, pose), value(obj.x), value(obj.y),
+                            C::Int.new(@stacking.depths[obj.name]))
+            C::If.new(condition: call("rg_eq", value(obj.active), C::Int.new(1)),
+                      body: [C::Block.new([C::Local.new(name: pose, value: value(obj.pose)),
+                                           C::If.new(condition: in_range, body: [add])])])
+          end
+
+          def sprite_number(obj) = C::Int.new(@sprites.fetch(obj.name))
+
+          # Which picture a sprite showing pose number +pose+ is drawn from. Its pictures are a
+          # row of poses in its own colors, then a row for each list it can be drawn with
+          # (Reference#object_recolor), and rg_colors_row says which row it is on now.
+          def picture_shown(obj, pose)
+            lists = Array(obj.recolors)
+            rows = [nil, *lists].flat_map { |colors| obj.poses.map { |name| image_number(name, colors) } }
+            pictures = drawing_array("poses", "int32_t", rows)
+            return C::Index.new(pictures, pose) if lists.empty?
+
+            row = call("rg_colors_row", value(obj.recolor), C::Int.new(lists.length))
+            C::Index.new(pictures, call("rg_add", call("rg_mul", row, C::Int.new(obj.poses.length)), pose))
+          end
+
+          # Reference#pixels_overlap?: each side's picture now, and where it is.
+          def value_of_pixels_overlap(node)
+            call("rg_pixels_overlap", posed_picture(node.a_poses, node.a_pose), value(node.a_x), value(node.a_y),
+                 posed_picture(node.b_poses, node.b_pose), value(node.b_x), value(node.b_y))
+          end
+
+          def posed_picture(poses, pose)
+            pictures = drawing_array("poses", "int32_t", poses.map { |name| image_number(name) })
+            call("rg_pose_image", pictures, C::Int.new(poses.length), value(pose))
           end
 
           # Reference#exec_fade, for a fade over the whole screen.

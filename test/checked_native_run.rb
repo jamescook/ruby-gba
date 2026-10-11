@@ -27,7 +27,7 @@ class CheckedNativeRun
     @native = HeadlessRun.new(save: save)
     @played = {}
     @held = []
-    @native.input_each_frame { |frame| @played[frame] = @script ? Array(@script.call(frame)) : @held }
+    @native.input_each_frame { |frame| @played[frame] = buttons_for(frame) }
   end
 
   def hold(*buttons)
@@ -40,9 +40,13 @@ class CheckedNativeRun
     self
   end
 
+  # +frames+ as the interpreter counts them. A step budget alone (+max_steps+) is the
+  # interpreter's own measure, and the C keeps no count of its steps — so the interpreter says
+  # how many frames fit in the budget, and the C plays that many. Beside +frames+ a budget only
+  # guards one frame of the interpreter, and means nothing here.
   def run(program, max_steps: nil, frames: nil)
-    @native.run(program, max_steps: max_steps, frames: frames)
-    frames ||= Reference::DEFAULT_FRAMES
+    frames ||= max_steps ? frames_within(program, max_steps) : Reference::DEFAULT_FRAMES
+    @native.run(program, frames: frames)
     interpreter, moments = play_on_interpreter(program, frames)
     difference = self.class.first_difference(moments, @native.moments) ||
                  self.class.sounds_difference(interpreter.audio, @native.audio)
@@ -81,6 +85,20 @@ class CheckedNativeRun
   def self.last_frame(moments) = moments.map(&:frame).grep(Integer).max || 0
 
   private
+
+  # How many frames the interpreter plays in +max_steps+ steps: it stops a game on the frame
+  # boundary after the budget runs out, so a run by budget is a run of that many whole frames.
+  # The buttons are asked of the test's own script here and again on the native run, so a script
+  # that reads the game sees it as it stood before this run.
+  def frames_within(program, max_steps)
+    lead = Reference.new.input_each_frame { |frame| buttons_for(frame) }.run(program, max_steps: max_steps)
+    return lead.frame unless lead.frame.zero? && lead.stopped_at_budget?
+
+    raise HeadlessRun::CannotAnswer, "this game never waits for the screen, so a step budget is all that " \
+                                     "stops it, and the native lowering keeps no count of its steps"
+  end
+
+  def buttons_for(frame) = @script ? Array(@script.call(frame)) : @held
 
   # The interpreter played on the same buttons, and its moments.
   def play_on_interpreter(program, frames)

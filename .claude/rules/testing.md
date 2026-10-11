@@ -223,7 +223,10 @@ On a `rake test` run `game_player` IS `Reference.new`. On a native run it is a
 `input_each_frame`, `run`, `[]`, `vars`, `screen.pixel`, `audio` so far, growing with each
 native slice), and then the same buttons replayed on the interpreter, failing at the first
 frame where any variable, any pixel or the sound log differs. So an opted-in file's own checks
-are backed by a whole-picture comparison on every frame. The sound log is the interpreter's
+are backed by a whole-picture comparison on every frame. A run by step budget
+(`run(program, max_steps: 400)`) plays there too, with nothing to change: a budget is the
+interpreter's own measure, and it stops a game on a frame boundary, so the interpreter is asked
+how many frames fit in the budget and the C plays that many. The sound log is the interpreter's
 words for what was played. The C keeps that log, and plays the sound, for songs on the
 square-wave voices, beeps and the music volume so far, and a game that uses any other sound is
 refused by name when it is built.
@@ -232,9 +235,18 @@ Opt a file in once native can play its games, and in chunks that go with the nat
 made them pass. What the native player cannot answer yet raises `HeadlessRun::CannotAnswer`
 naming the call — the file came too early, or that one test wants `skip_on_native "why"` at
 its top, which does nothing on the interpreter's run. A test that reaches
-for the emulator (`require_emulator!`, `assert_emulator_loads_rom`) skips itself on a native
+for the emulator (`require_emulator!`, `assert_emulator_loads_rom`, or a comparison with the
+console through `Differential`) skips itself on a native
 run, since the cartridge is `rake test`'s; any check on the game before it has already run.
 Every skip says why, and a native run ends with the skips counted by reason.
+
+**A whole example on native gets files of its own**, beside the opted-in tests in
+`test/examples/`, under `test/ruby_gba/ir/backends/native/examples/`: `test_<game>_picture.rb`
+plays a recorded run of buttons and compares every variable, every pixel and the sound log with
+the interpreter's on every frame, and `test_<game>_sounds.rb` compares what comes out of the
+speaker with the cartridge's (below). `test_pong_*.rb` and `test_pacman_*.rb` are the worked
+examples. A small made-up program for one feature goes in `test_native_picture.rb` or
+`test_native_tones.rb` instead, and never requires an example.
 
 **The sound itself** — what would come out of a speaker — is checked against the cartridge's own,
 in the emulator, with one shared helper for any game (`test/sound_comparison.rb`):
@@ -253,6 +265,14 @@ a file of its own under `test/ruby_gba/ir/backends/native/examples/`
 (`test_pong_sounds.rb`). The windowless program has no speaker, so for these it writes its sound
 to a temporary file (`--sound-out`) that the helper reads back; a game played in its window
 writes none.
+
+**The console starts its game a frame or two after the desktop build**, and the helper lines
+the two up on when each first makes a sound. What it cannot line up is a button that lands on a
+different pass of the game in each: walk a character for frames 3 to 30 while something chases
+it, and the chaser is two passes further on in one than the other, so it is caught a frame apart
+and every sound after that is a frame out. That reads exactly like a fault in the sound. Hold
+such a button from frame 1 until what it does has stopped mattering — the character is against
+a wall, the menu has moved on (`test_pacman_sounds.rb`).
 
 **The window's own input** is tested by pressing keys through SDL (`--scripted-keys`, in
 `test_native_desktop.rb`, under `SDL=1`): each is a real key event, onto the gamepad the keyboard
