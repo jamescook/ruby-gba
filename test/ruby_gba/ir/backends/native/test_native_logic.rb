@@ -186,7 +186,7 @@ class TestNativeLogic < Minitest::Test
       end
     end
 
-    final = assert_native_matches_reference program, frames: 9
+    final = assert_native_matches_reference(program, frames: 9).variables
 
     assert_equal [60, 4, -56], final.values_at(:first, :size, :squeezed)
   end
@@ -209,7 +209,7 @@ class TestNativeLogic < Minitest::Test
       end
     end
 
-    final = assert_native_matches_reference program, frames: 8
+    final = assert_native_matches_reference(program, frames: 8).variables
 
     assert_operator final[:alive], :>, 0
     assert_operator final[:total], :>, 0

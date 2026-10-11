@@ -16,6 +16,8 @@ module RubyGBA
         # program itself as rg_game_main (the runtime calls it once, at power-on), and
         # rg_game_dump_variables, which a test build uses to print where every variable stands.
         class Lowering
+          include Picture
+
           # The variables the framework keeps the frame count in (see IR::Frames). Written at
           # every frame boundary, where the interpreter writes them.
           FRAME_VARIABLES = [Frames::COUNT, Frames::SEEN, Frames::STEP].freeze
@@ -55,7 +57,23 @@ module RubyGBA
                                                halt: :lower_halt, wait_vblank: :lower_wait_vblank,
                                                list_new: :lower_list_new, list_push: :lower_list_push,
                                                list_drop: :lower_list_drop, list_set: :lower_list_set,
-                                               list_fill: :lower_list_fill, list_copy: :lower_list_copy
+                                               list_fill: :lower_list_fill, list_copy: :lower_list_copy,
+                                               # the picture (Picture)
+                                               screen: :lower_screen, clear_screen: :lower_clear_screen,
+                                               fill_rect: :lower_fill_rect, dma_fill_rect: :lower_dma_fill_rect,
+                                               draw_rect_at: :lower_draw_rect_at, pixel: :lower_pixel,
+                                               draw_text: :lower_draw_text, draw_digit: :lower_draw_digit,
+                                               background: :lower_background,
+                                               affine_background: :lower_affine_background,
+                                               present_objects: :lower_present_objects,
+                                               fade: :lower_fade, tint: :lower_tint,
+                                               # sound, which is not played yet (see Picture#lower_silently)
+                                               beep: :lower_silently, enable_sound: :lower_silently,
+                                               noise: :lower_silently, play_from_list: :lower_silently,
+                                               play_sample: :lower_silently, play_song: :lower_silently,
+                                               play_sound_effect: :lower_silently, stop_music: :lower_silently,
+                                               stop_sample: :lower_silently, stop_wave: :lower_silently,
+                                               wave: :lower_silently
                                              }.merge(Nodes.of_role(:declaration).to_h { |kind| [kind, :lower_nothing] }))
 
           VALUES = Ractor.make_shareable({
@@ -75,13 +93,9 @@ module RubyGBA
           # which test_native_kind_coverage.rb holds against every kind there is. A kind leaves
           # the list the day it gets a row in STATEMENTS or VALUES.
           NOT_LOWERED_YET = Ractor.make_shareable({
-            picture: %i[affine_background background background_colors blit blit_pose camera
-                        clear_screen copy_owed_tiles copy_tiles dma_fill_rect draw_column_at
-                        draw_digit draw_rect_at draw_text fade fill_rect inside pixel
-                        pixels_overlap present_objects restore_region save_region screen
-                        scroll_background scroll_rows see_through set_tile show_map tint],
-            sound: %i[beep enable_sound noise play_from_list play_sample play_song
-                      play_sound_effect stop_music stop_sample stop_wave wave],
+            picture: %i[background_colors blit blit_pose camera copy_owed_tiles copy_tiles
+                        draw_column_at inside pixels_overlap restore_region save_region
+                        scroll_background scroll_rows see_through set_tile show_map],
             saving: %i[save_erase save_init save_read save_store save_sum save_write],
             timers: %i[on_timer timer_start timer_stop timer_ticks]
           })
@@ -105,6 +119,7 @@ module RubyGBA
             # gathers them before running), so its storage is the first declaration's.
             @lists = by_name(@reachable.reverse, :list_new)
             @scenes = scene_numbers
+            prepare_picture
           end
 
           # The program as one C file.
@@ -120,19 +135,30 @@ module RubyGBA
           # Only what a run can reach is written: the compiler is told to treat an unused routine
           # or table as a mistake, which it is in C somebody wrote, and a routine nothing calls
           # never runs (the build has already warned about it).
+          #
+          # The routines are written first, because writing them is what finds the art they draw
+          # with; the art then goes above them in the file.
           def top_level
             routines = @called.map { |name| C::Function.new(name: routine(name), body: body_of(@funcs.fetch(name))) }
+            main = C::Function.new(name: @names.own("main"), body: [*power_on, *lower(@program)], exported: true)
             [C::Comment.new("Written by ruby-gba's native backend. Do not edit; build the game again."),
              C::Include.new("rg_int32.h"), C::Include.new("rg_runtime.h"), C::Include.new("rg_list.h"),
+             C::Include.new("rg_screen.h"),
              *variable_names.map { |name| C::Global.new(name: variable(name)) },
              *list_storage,
              *(@scenes.empty? ? [] : [C::Global.new(name: @names.own("scene"), value: -1)]),
-             *constant_arrays,
+             *constant_arrays, *picture_data, *@art,
              *@called.map { |name| C::Prototype.new(name: routine(name)) },
              *routine_table_declarations,
-             *routines,
-             C::Function.new(name: @names.own("main"), body: lower(@program), exported: true),
+             *routines, main,
              C::Function.new(name: @names.own("dump_variables"), body: dump_variables, exported: true)]
+          end
+
+          # A program that waits for frames shows nothing until its first frame is set up
+          # (Reference#run): the console's picture is switched off until then.
+          def power_on
+            waits = @program.walk.any? { |node| node.kind == :wait_vblank }
+            waits ? [eval_call("rg_screen_hold", C::Int.new(1))] : []
           end
 
           # The statements under +root+ and everything they hold, stopping at a routine's
@@ -254,7 +280,15 @@ module RubyGBA
             send(STATEMENTS.fetch(node.kind), node)
           end
 
-          def body_of(node) = node.children.flat_map { |child| [*source_comment(child), *lower(child)] }
+          # Each statement of a body, after where it was written — and, before any statement the
+          # interpreter paints an owed rebuild of the picture for, the same settling (see
+          # Picture.leaves_rebuild_owed?).
+          def body_of(node)
+            node.children.flat_map do |child|
+              settle = Picture.leaves_rebuild_owed?(child) ? [] : [eval_call("rg_screen_settle")]
+              [*source_comment(child), *settle, *lower(child)]
+            end
+          end
 
           # Where in the game a statement was written, for a person reading the C.
           def source_comment(node)
@@ -354,12 +388,13 @@ module RubyGBA
             [C::Block.new([C::Local.new(name: state, value: variable(node.var)), *clauses])]
           end
 
-          # A scene taking over is remembered, so what a scene does as it arrives happens on the
-          # frame it changes and not again while it stays.
+          # A scene taking over is remembered, so what a scene does as it arrives — its screen, its
+          # scenery — happens on the frame it changes and not again while it stays.
           def record_scene_arrival(scene)
             current = @names.own("scene")
             number = C::Int.new(@scenes.fetch(scene))
-            [C::If.new(condition: call("rg_ne", current, number), body: [C::Assign.new(current, number)])]
+            [C::If.new(condition: call("rg_ne", current, number),
+                       body: [C::Assign.new(current, number), *scene_arrival(scene)])]
           end
 
           def lower_halt(_node) = [eval_call("rg_halt")]
