@@ -441,6 +441,7 @@ module RubyGBA
             @sample_clock = Timers.sample_clock(common_sample_rate(program))
             @mixer_rate = @sample_clock.rate
             @mixer_spf = @sample_clock.samples_a_frame
+            refuse_samples_not_whole_passes!
             @mix_buf0 = @memory.alloc_roomy(buffer_bytes)
             @mix_buf1 = @memory.alloc_roomy(buffer_bytes)
             # WHAT GOES IN THE QUICK MEMORY is decided by how often the mix touches it. The
@@ -1424,8 +1425,9 @@ module RubyGBA
 
             # SAMPLES_A_PASS SAMPLES EACH TIME ROUND, not one. Counting down and jumping back is
             # two instructions, and the jump is the dearest thing in the loop, so done once for
-            # every two samples it costs half as much. A frame's samples are always whole lots
-            # of the sound engine's, so they divide by two with nothing over. Each copy
+            # every SAMPLES_A_PASS samples it costs that much less. A frame's samples are always
+            # whole lots of the sound engine's, so they divide with nothing over (and the build
+            # stops if they ever do not — #refuse_samples_not_whole_passes!). Each copy
             # of the body jumps to a place of its own when the recording reaches its end, and
             # comes back to just past itself.
             sample = e.gensym
@@ -1515,6 +1517,17 @@ module RubyGBA
           end
 
           private
+
+          # The mix's inner loop counts down SAMPLES_A_PASS at a time and stops only at nought, so
+          # a frame's samples that are not a whole number of passes would run it past the end of
+          # the totals with nothing to say so. They always are today (see Timers.sample_clock);
+          # this is what says so the day they are not.
+          def refuse_samples_not_whole_passes!
+            return if (@mixer_spf % SAMPLES_A_PASS).zero?
+
+            raise LoweringError, "the mixer makes #{@mixer_spf} samples a frame, which is not a whole number of " \
+                                 "its passes of #{SAMPLES_A_PASS}"
+          end
 
           # One output sample of one voice into its total, and the read pointer moved on, ending
           # on the compare that says whether the recording has reached its end.
