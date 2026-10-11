@@ -711,6 +711,10 @@ module RubyGBA
         end
       end
 
+      # The variable every scene writes as its body ends, saying whether it draws on a screen
+      # the game paints into (1) or one drawn from tiles (0).
+      PAINTED_SCREEN_UP = :__painted_screen_up
+
       # HAND THE PICTURE FROM ONE SCENE'S SPRITES TO THE NEXT'S, for a game with software
       # sprites declared inside scenes. Two statements go into every scene's routine.
       #
@@ -725,22 +729,50 @@ module RubyGBA
       # itself, before it paints anything. A scene on a screen drawn from tiles only forgets
       # them: the display was replaced as it took over, and what those sprites remember
       # belongs to the picture that went with it.
+      #
+      # THE SPRITES EVERY SCENE SHOWS — declared above the loop, or inside a `func` — need
+      # the same care in a game where some scene is drawn from tiles. Such a sprite is painted
+      # into a picture, and a tiled scene has none: the memory a painted screen keeps its
+      # pixels in is where a tiled one keeps its tile pictures, so painting the sprite there
+      # writes a sprite's worth of pixels over the tiles. So each scene also says which kind
+      # of screen it draws on, those sprites wait for a painted one, and a tiled scene forgets
+      # them as it starts. A game whose scenes are all painted has none of this.
       def finalize_scene_sprite_handover
         owned = @routine_sprites.select(&:scene)
-        return if owned.empty?
+        shared = @scene_gates.each_key.all? { |name| painted_screen?(name) } ? [] : @sprites - owned
+        return if owned.empty? && shared.empty?
 
-        at_boot(Build.set(SCENE_UP, Build.int(0)))
-        ensure_var(SCENE_UP)
+        start_at_boot(SCENE_UP, 0) if owned.any?
+        if shared.any?
+          start_at_boot(PAINTED_SCREEN_UP, IR::SceneHandover.tiles?(@default_screen_mode || :bitmap) ? 0 : 1)
+          shared.each { |sprite| sprite.wait_to_paint(PAINTED_SCREEN_UP, 1) }
+        end
         routines = @program.children.select { |node| node.kind == :func }.to_h { |func| [func.name, func] }
         @scene_gates.each_key do |name|
           routine = routines[name] or next
 
-          leaving = IR::Stacking.order_by_stack(owned.reject { |sprite| sprite.scene == name }, @layer_stack, &:layer)
-          taken_down = leaving.reverse.map { |sprite| painted_screen?(name) ? sprite.erase_node : sprite.forget_painting_node }
+          taken_down = sprites_taken_down_by(name, owned, shared)
           taken_down.each { |node| node.parent = routine }
           routine.children.unshift(*taken_down)
-          routine.add_child(Build.set(SCENE_UP, Build.int(scene_number(name))))
+          routine.add_child(Build.set(SCENE_UP, Build.int(scene_number(name)))) if owned.any?
+          routine.add_child(Build.set(PAINTED_SCREEN_UP, Build.int(painted_screen?(name) ? 1 : 0))) if shared.any?
         end
+      end
+
+      # The statements +scene+ starts with to take off the picture what is not its to show:
+      # on a painted screen the other scenes' sprites, front first, each putting back what it
+      # covered; on a screen drawn from tiles every software sprite, forgotten where it stood.
+      def sprites_taken_down_by(scene, owned, shared)
+        others = owned.reject { |sprite| sprite.scene == scene }
+        return (others + shared).map(&:forget_painting_node) unless painted_screen?(scene)
+
+        IR::Stacking.order_by_stack(others, @layer_stack, &:layer).reverse.map(&:erase_node)
+      end
+
+      # Declare a hidden variable that starts the game holding +value+.
+      def start_at_boot(name, value)
+        at_boot(Build.set(name, Build.int(value)))
+        ensure_var(name)
       end
 
       # Whether +scene+ draws on a screen the game paints into, where a software sprite's

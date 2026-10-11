@@ -132,6 +132,7 @@ module RubyGBA
       @building_routine = nil  # the routine whose body is being built, nil while the program block itself runs
       @scene_numbers = {}      # scene func name → the number that says its body was the last scene to run
       @scene_screens = {}      # scene func name → the screen its body draws on
+      @default_screen_mode = nil # the screen the program block left set, which every routine's body starts on
       @hw_sprites = []         # live hardware sprites, drawn (into the sprite table) after every wait_vblank
       @sprite_objects = []     # every sprite and pool slot object, in the order the game declared them
       @hud_objects = []        # tiled-mode text/number glyph sprites, drawn on top after every wait_vblank
@@ -541,6 +542,7 @@ module RubyGBA
       # or the default, never by which scene happened to be built before it. That's what
       # lets `sprite`/`draw_text`/`draw_number` pick software vs hardware per scene.
       default_screen_mode = @screen_mode
+      @default_screen_mode = default_screen_mode
 
       emitted = {}
       emit_bodies(emitted, default_screen_mode)
@@ -550,8 +552,8 @@ module RubyGBA
       lay_out_save_records
       emit_bodies(emitted, default_screen_mode)
 
+      finalize_scene_sprite_handover # first: it settles what each sprite waits for before it is painted
       finalize_sprite_repaints
-      finalize_scene_sprite_handover
       finalize_sprite_clears
       finalize_animation_steps
       finalize_present_lists

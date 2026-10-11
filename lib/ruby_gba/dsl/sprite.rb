@@ -80,6 +80,7 @@ module RubyGBA
         @painted = painted
         @painted_while = painted_while
         @scene = scene
+        @show_nodes = [] # every `show` written so far, so #wait_to_paint can reach them
         @layer = layer             # the layer it was declared in, or nil if the game names none
         @image = image             # a plain sprite draws this one image
         @poses = poses             # a faceted sprite draws poses[pose index] instead
@@ -305,9 +306,23 @@ module RubyGBA
       # A scene's sprite shown while its scene may not paint yet is only marked as shown, and
       # the repaint before a later frame draws it (see Builder::Sprites#sprite_painting_state).
       def show
-        painting = @painted_while.empty? ? paint_nodes : [Build.if_(all_hold(@painted_while), *paint_nodes)]
-        record(Build.if_(active_is(0), Build.set(@active, Build.int(1)), *painting))
+        @show_nodes << record(Build.if_(active_is(0), *show_nodes))
         self
+      end
+
+      # Make this sprite wait for +name+ to hold +value+ before it is painted, on top of
+      # whatever it waits for already. For something only known once the whole game is
+      # declared: that some scene draws on a screen with no picture to paint a sprite into
+      # (see Builder::Sprites#finalize_scene_sprite_handover).
+      #
+      # A `show` paints on the spot, and the ones already written did not know to wait, so
+      # each is given its statements again.
+      def wait_to_paint(name, value)
+        @painted_while = [*@painted_while, [name, value]]
+        @show_nodes.each do |shown|
+          shown.children.clear
+          show_nodes.each { |node| shown.add_child(node) }
+        end
       end
 
       # A sprite on a tiled screen can be drawn with another list of colours
@@ -425,6 +440,12 @@ module RubyGBA
       def all_hold(pairs, first = nil)
         tests = pairs.map { |name, value| Build.binop(:==, ref(name), Build.int(value)) }
         [first, *tests].compact.reduce { |all, test| Build.binop(:and, all, test) }
+      end
+
+      # What `show` does to a hidden sprite: mark it shown, and paint it now if it may be.
+      def show_nodes
+        painting = @painted_while.empty? ? paint_nodes : [Build.if_(all_hold(@painted_while), *paint_nodes)]
+        [Build.set(@active, Build.int(1)), *painting]
       end
 
       # Draw the sprite where it is now and say it is on the picture.
