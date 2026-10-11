@@ -5,9 +5,8 @@ require "native_comparison"
 
 # What a desktop build refuses, and that it says so in plain words before anything is written.
 class TestNativeRefusals < Minitest::Test
-  # Starts child processes (zig, and the program it builds), which Ruby cannot do from inside a
-  # Ractor — the spawn waits for ever — so on the main Ractor, not in the pool. See test_helper.
-  runs_on_the_main_ractor!
+  # The native lowering's own tests, which only a native run plays (see TestSuites).
+  runs_on :native
 
   include NativeComparison
 

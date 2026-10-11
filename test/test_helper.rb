@@ -12,6 +12,9 @@ end
 require "minitest/autorun"
 require "minitest/ractor"
 require_relative "../lib/ruby_gba"
+require_relative "support/suites"
+require_relative "support/native_skips" if TestSuites::LOWERING == :native
+require "checked_native_run"
 
 # The one require a test file needs. It pulls in minitest and the library, and
 # hands every test the names and helpers that nearly all of them want, so a test
@@ -82,7 +85,13 @@ module EmulatorSupport
   # Ensure the emulator is available, failing loudly if it isn't. It is required to verify
   # ROMs, so a missing build is a real error, not a reason to silently skip and pass with the
   # coverage gutted. `rake test` builds it first; run `rake test:emulator` to build it by hand.
+  #
+  # On a native run it skips instead, and that is not the same thing: a test that reaches for
+  # the emulator is about the cartridge, which `rake test` checks on every run, and the native
+  # lowering makes no cartridge. Any check on the game itself that came before it has run.
   def require_emulator!
+    skip "checks the cartridge in the emulator, which `rake test` runs" if TestSuites::LOWERING == :native
+
     RubyGBA::Diagnostics::Emulator.load!
   end
 
@@ -160,6 +169,42 @@ class Minitest::Test # rubocop:disable Style/ClassAndModuleChildren
         reporter.record klass.new(method_name).run
       end
     end
+  end
+
+  # WHICH LOWERINGS THIS CLASS'S TESTS ARE TRUE OF. A run tests one lowering (TestSuites), and a
+  # class whose lowerings do not include it runs nothing on that run. A class that says nothing
+  # is the interpreter's alone: that is every class nobody has opted in, so the native run is
+  # only ever the files the native lowering can play.
+  #
+  # Opting a file in is this line and `game_player` in place of `Reference.new`. Nothing a test
+  # asserts changes, and a test that reaches for the emulator skips itself on a native run.
+  def self.runs_on(*lowerings)
+    unknown = lowerings - TestSuites::LOWERINGS
+    raise ArgumentError, "runs_on #{unknown.inspect}: the lowerings are #{TestSuites::LOWERINGS.inspect}" if unknown.any?
+
+    @lowerings = Ractor.make_shareable(lowerings)
+  end
+
+  def self.lowerings
+    @lowerings || (superclass.respond_to?(:lowerings) ? superclass.lowerings : %i[reference])
+  end
+
+  # In front of minitest's own list of a class's tests, rather than in place of it, so `super`
+  # is still minitest's.
+  module TestsForThisLowering
+    def runnable_methods
+      lowerings.include?(TestSuites::LOWERING) ? super : []
+    end
+  end
+  singleton_class.prepend(TestsForThisLowering)
+
+  # What plays a game in this run: the interpreter on a `rake test` run, and on a native run the
+  # game built as C, driven through the same calls and checked against the interpreter frame by
+  # frame (CheckedNativeRun). +save+ is the save memory the game starts with, as Reference.new
+  # takes it.
+  def game_player(save: nil)
+    player = TestSuites::LOWERING == :native ? CheckedNativeRun : Reference
+    save ? player.new(save: save) : player.new
   end
 
   # EVERY FIXTURE A TEST CLASS PARKS IN A CONSTANT IS FROZEN, ALL THE WAY DOWN, the moment it

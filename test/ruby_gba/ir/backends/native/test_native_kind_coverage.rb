@@ -7,6 +7,8 @@ require "test_helper"
 # backends are held to every kind by test_kind_coverage.rb; this backend trails them, so it is
 # held to saying what it is missing instead.
 class TestNativeKindCoverage < Minitest::Test
+  # The native lowering's own tests, which only a native run plays (see TestSuites).
+  runs_on :native
   Nodes = RubyGBA::IR::Nodes
   Portability = RubyGBA::IR::Portability
   Lowering = RubyGBA::IR::Backends::Native::Lowering

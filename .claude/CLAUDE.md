@@ -97,16 +97,20 @@ rake test                                                       # the suite
 rake test TEST=test/ruby_gba/dsl/test_thing.rb                  # one file
 rake test TEST=test/ruby_gba/dsl/test_thing.rb TESTOPTS="--name=/pattern/"  # one test
 rake test:playthroughs                                          # one module's tests: every file in test/ruby_gba/playthroughs/
-rake test:native                                                # the native backend, alone
-rake test:native TEST=test/ruby_gba/ir/backends/native/test_thing.rb  # one native file
+rake test:native                                                # the suite on the native lowering
+rake test:native TEST=test/examples/test_pong_scoring.rb       # one file on the native lowering
 ```
 
-**`rake test` never runs the native backend's tests** (`test/ruby_gba/ir/backends/native/`),
-and `rake test:native` runs only them. Native trails the other two backends (see the
-cross-backend rule below), and its tests need zig, installed through mise, to compile what they
-test. They start child processes, so they run one after another rather than on Ractors (run one
-through `rake test:native`, never `rake test TEST=`). `test/support/suites.rb` holds both file
-lists, and a native test fails if anything but `rake test:native` runs it.
+**A run tests one lowering.** `rake test` plays every game on the interpreter and checks the
+cartridge in the emulator; `rake test:native` plays them as C (`Backends::Native`), and needs
+zig, installed through mise. Both load every test file, and a class runs only on the lowerings
+it names — `runs_on :reference, :native` — or on the interpreter alone when it names none.
+Native trails the other two backends (see the cross-backend rule below), so a file is opted in
+once native can play its games, and its tests are never rewritten for it: the class names both
+lowerings and says `game_player` where it said `Reference.new`. On a native run that hands it
+the game as C, checked against the interpreter on every frame; a test that reaches for the
+emulator skips itself. `.claude/rules/testing.md` has the details, and `test/support/suites.rb`
+the setting.
 
 The test tree mirrors the code's directories: a test of a file in `lib/ruby_gba/audio/`
 lives in `test/ruby_gba/audio/`, a test of an example in `test/examples/`, a test of a

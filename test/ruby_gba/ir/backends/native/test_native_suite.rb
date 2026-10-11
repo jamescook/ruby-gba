@@ -1,15 +1,22 @@
 # frozen_string_literal: true
 
 require "test_helper"
-require "support/suites"
 
-# Fails when anything but `rake test:native` runs it. It sits with the native backend's tests,
-# so the day `rake test` starts picking those up — a glob widened, an exclusion dropped — this
-# is one of the files it picks up, and it says so.
+# Names only the native lowering, so it fails if anything but `rake test:native` runs it. Every
+# test in this folder names only native too, and `rake test` loads them all: this is the one that
+# says so the day the filter stops working. Its other side is test/test_suites.rb.
 class TestNativeSuite < Minitest::Test
-  def test_only_rake_test_native_runs_the_native_tests
-    assert_equal "1", ENV.fetch(TestSuites::NATIVE_RUN, nil),
-                 "a native backend test ran outside `rake test:native`; `rake test` must leave " \
-                 "#{TestSuites::NATIVE_DIR} alone"
+  runs_on :native
+
+  def test_a_class_that_names_only_native_runs_only_on_a_native_run
+    assert_equal :native, TestSuites::LOWERING,
+                 "a test class that said `runs_on :native` alone ran on a #{TestSuites::LOWERING} run"
+  end
+
+  # A file opted into native runs keeps its tests of the cartridge, which skip themselves here.
+  def test_a_test_of_the_cartridge_skips_itself_on_a_native_run_and_says_why
+    skipped = assert_raises(Minitest::Skip) { require_emulator! }
+
+    assert_match(/emulator/, skipped.message)
   end
 end

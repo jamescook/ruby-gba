@@ -72,8 +72,9 @@ require_relative "test/support/suites"
 
 Rake::TestTask.new(test: %i[compile_emulator clear_coverage]) do |t|
   t.libs << "test" << "lib"
-  # Not the native backend's tests: those run under test:native below (see TestSuites).
-  t.test_files = TestSuites.main
+  # Every file, run on the interpreter; a class that names only native runs nothing here (see
+  # TestSuites).
+  t.test_files = TestSuites.files
   # `test` on the load path is what lets every test file open with the one line
   # `require "test_helper"` and get the library, minitest, and the shared names.
   t.description = 'Run the suite (one file with TEST=test/test_foo.rb, one test with ' \
@@ -101,9 +102,9 @@ namespace :test do
     t.description = "Run the tests of playthroughs, tapes and comparisons"
   end
 
-  # The native backend's tests, which `rake test` never runs. They compile C, so they need zig
-  # (the version the backend is written against), and a missing or wrong zig stops them here
-  # with one plain line rather than failing every test in turn.
+  # The suite run on the native lowering: every class that names it with `runs_on`. They compile
+  # C, so they need zig (the version the backend is written against), and a missing or wrong zig
+  # stops them here with one plain line rather than failing every test in turn.
   task :zig do
     require_relative "lib/ruby_gba/ir/backends/native/zig"
     RubyGBA::IR::Backends::Native::Zig.version
@@ -111,24 +112,26 @@ namespace :test do
     abort "rake test:native: #{e.message}"
   end
 
-  # NOT ON RACTORS, unlike `rake test`. Every native test starts child processes — zig, and the
-  # program it builds — which Ruby cannot do from inside a Ractor (the spawn waits for ever), so
-  # each class runs on the main one; and with no class left for the pool, the runner refuses to
-  # start. So this suite runs one test after another, as plain minitest does, whatever the
-  # caller said about Ractors. The cost is that a native test is never checked for reaching
-  # state the whole process shares; nothing in this backend keeps any.
+  # ON THREADS, NOT RACTORS, unlike `rake test`. Every native test starts child processes — zig,
+  # and the program it builds — which Ruby cannot do from inside a Ractor (the spawn waits for
+  # ever), and can from a thread. So this run is plain minitest's, whatever the caller said about
+  # Ractors: tests side by side on threads, as many as `rake test` has workers, each mostly
+  # waiting on a program of its own. The cost is that a native run never checks a test for
+  # reaching state the whole process shares; a file opted in from the main suite is still
+  # checked for it by `rake test`, and the native lowering's own tests keep none.
   #
-  # It also marks the run as the native suite's, which test_native_suite.rb checks for.
+  # It also says the run is the native lowering's, which every test reads (TestSuites::LOWERING).
   task :native_run do
     ENV["TESTOPTS"] = (["--no-ractor"] + GIVEN_TESTOPTS.split - %w[--ractor]).uniq.join(" ")
-    ENV[TestSuites::NATIVE_RUN] = "1"
+    ENV["MT_CPU"] ||= ENV.fetch("MT_RACTOR_WORKERS")
+    ENV[TestSuites::LOWERING_SETTING] = "native"
   end
 
   Rake::TestTask.new(native: %i[zig native_run]) do |t|
     t.libs << "test" << "lib"
-    t.test_files = TestSuites.native(desktop: ENV["SDL"] == "1")
-    t.description = "Run the native backend's tests (needs zig; never part of rake test). " \
-                    "SDL=1 also builds and runs the desktop program, with its window"
+    t.test_files = TestSuites.files(desktop: ENV["SDL"] == "1")
+    t.description = "Run the suite on the native lowering: the classes that say `runs_on :native` " \
+                    "(needs zig). SDL=1 also builds and runs the desktop program, with its window"
   end
 end
 

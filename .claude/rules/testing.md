@@ -136,8 +136,8 @@ one after another. Make the code Ractor-friendly rather than silencing the repor
 The one honest way out is a test that **changes the whole process on purpose** — registering a
 font or a guardrail, swapping a library method for a stub, declaring a class, asserting about
 the process's own output — or one that **starts a child process**, which Ruby cannot do from
-inside a Ractor (the spawn waits for ever; `test/tools/test_rakefile.rb` and every native
-backend test do it). That class says `runs_on_the_main_ractor!` at the top, **with a line
+inside a Ractor (the spawn waits for ever; `test/tools/test_rakefile.rb` does it — a native
+test does too, and runs only on the native run, which uses threads instead). That class says `runs_on_the_main_ractor!` at the top, **with a line
 saying why**, and runs before the pool starts. It is not somewhere to park a test nobody has
 looked at.
 
@@ -196,6 +196,45 @@ observable screen result, run the *same* program on each and assert identical
 pixels — see `test/ruby_gba/builder/test_blit_clipping.rb` (`assert_same_pixels`)
 and the two `*_at_the_left_edge` tests in
 `test/ruby_gba/dsl/test_sprite_mover.rb` as the worked examples.
+
+## Running a file on the native lowering too
+
+The native backend (`Backends::Native`, the game as C) trails the two above, and it is checked
+with the tests that already exist rather than with copies of them. A run of the suite tests ONE
+lowering (`test/support/suites.rb`): `rake test` the interpreter, `rake test:native` the C. A
+class runs only on the lowerings it names, and on the interpreter alone when it names none —
+which is every file until somebody opts it in.
+
+Opting a file in is two edits, and no assertion changes:
+
+```ruby
+class TestPongScoring < Minitest::Test
+  runs_on :reference, :native        # this class's tests are true of both
+
+  def pong_line_at(frames)
+    i = game_player                  # was Reference.new; takes save: the same way
+    i.input_each_frame { |f| f < 3 ? [:a] : [] }
+    i.run(Pong.program, frames: frames)
+    ...
+```
+
+On a `rake test` run `game_player` IS `Reference.new`. On a native run it is a
+`CheckedNativeRun`: the game built as C and driven through the same calls (`input_each_frame`,
+`run`, `[]`, `screen.pixel`), and then the same buttons replayed on the interpreter, failing at
+the first frame where any variable or any pixel differs. So an opted-in file's own checks are
+backed by a whole-picture comparison on every frame.
+
+Opt a file in once native can play its games, and in chunks that go with the native slice that
+made them pass. What the native player cannot answer yet raises `HeadlessRun::CannotAnswer`
+naming the call — the file came too early, or that one test wants a skip. A test that reaches
+for the emulator (`require_emulator!`, `assert_emulator_loads_rom`) skips itself on a native
+run, since the cartridge is `rake test`'s; any check on the game before it has already run.
+Every skip says why, and a native run ends with the skips counted by reason.
+
+A native run puts tests side by side on threads, not Ractors (a Ractor cannot start the child
+processes a native test needs), so it never checks for shared state — `rake test` runs the same
+file and does. The native backend's own tests (`test/ruby_gba/ir/backends/native/`) say
+`runs_on :native` alone, and `rake test` loads them and runs nothing in them.
 
 ## Which frame's numbers the picture was drawn from
 

@@ -9,9 +9,8 @@ require_relative "../../../../../examples/pong"
 # rally with the paddle moved up and down. Its sound is not played yet; nothing it draws or
 # keeps depends on it.
 class TestNativePong < Minitest::Test
-  # Starts child processes (zig, and the program it builds), which Ruby cannot do from inside a
-  # Ractor — the spawn waits for ever — so on the main Ractor, not in the pool. See test_helper.
-  runs_on_the_main_ractor!
+  # The native lowering's own tests, which only a native run plays (see TestSuites).
+  runs_on :native
 
   include NativeComparison
 
