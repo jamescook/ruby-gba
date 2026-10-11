@@ -17,6 +17,7 @@ module RubyGBA
         # rg_game_dump_variables, which a test build uses to print where every variable stands.
         class Lowering
           include Picture
+          include Sound
 
           # The variables the framework keeps the frame count in (see IR::Frames). Written at
           # every frame boundary, where the interpreter writes them.
@@ -67,11 +68,12 @@ module RubyGBA
                                                affine_background: :lower_affine_background,
                                                present_objects: :lower_present_objects,
                                                fade: :lower_fade, tint: :lower_tint,
-                                               # sound, which is not played yet (see Picture#lower_sound_unplayed)
-                                               beep: :lower_sound_unplayed, enable_sound: :lower_sound_unplayed,
+                                               # sound (Sound), part of it not played yet
+                                               beep: :lower_beep, enable_sound: :lower_enable_sound,
+                                               play_song: :lower_play_song, stop_music: :lower_stop_music,
                                                noise: :lower_sound_unplayed, play_from_list: :lower_sound_unplayed,
-                                               play_sample: :lower_sound_unplayed, play_song: :lower_sound_unplayed,
-                                               play_sound_effect: :lower_sound_unplayed, stop_music: :lower_sound_unplayed,
+                                               play_sample: :lower_sound_unplayed,
+                                               play_sound_effect: :lower_sound_unplayed,
                                                stop_sample: :lower_sound_unplayed, stop_wave: :lower_sound_unplayed,
                                                wave: :lower_sound_unplayed
                                              }.merge(Nodes.of_role(:declaration).to_h { |kind| [kind, :lower_nothing] }))
@@ -122,6 +124,7 @@ module RubyGBA
             @lists = by_name(@reachable.reverse, :list_new)
             @scenes = scene_numbers
             prepare_picture
+            prepare_sound
           end
 
           # The program as one C file.
@@ -145,11 +148,11 @@ module RubyGBA
             main = C::Function.new(name: @names.own("main"), body: [*power_on, *lower(@program)], exported: true)
             [C::Comment.new("Written by ruby-gba's native backend. Do not edit; build the game again."),
              C::Include.new("rg_int32.h"), C::Include.new("rg_runtime.h"), C::Include.new("rg_list.h"),
-             C::Include.new("rg_screen.h"),
+             C::Include.new("rg_screen.h"), C::Include.new("rg_sound.h"),
              *variable_names.map { |name| C::Global.new(name: variable(name)) },
              *list_storage,
              *(@scenes.empty? ? [] : [C::Global.new(name: @names.own("scene"), value: -1)]),
-             *constant_arrays, *picture_data, *@drawing_arrays, title_array,
+             *constant_arrays, *picture_data, *@drawing_arrays, title_array, music_table,
              *@called.map { |name| C::Prototype.new(name: routine(name)) },
              *routine_table_declarations,
              *routines, main,
@@ -167,7 +170,7 @@ module RubyGBA
           # (Reference#run): the console's picture is switched off until then.
           def power_on
             waits = @program.walk.any? { |node| node.kind == :wait_vblank }
-            waits ? [eval_call("rg_screen_hold", C::Int.new(1))] : []
+            [*(waits ? [eval_call("rg_screen_hold", C::Int.new(1))] : []), *sound_power_on]
           end
 
           # The statements under +root+ and everything they hold, stopping at a routine's

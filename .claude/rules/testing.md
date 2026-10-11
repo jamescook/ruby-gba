@@ -220,10 +220,13 @@ class TestPongScoring < Minitest::Test
 
 On a `rake test` run `game_player` IS `Reference.new`. On a native run it is a
 `CheckedNativeRun`: the game built as C and driven through the same calls (`hold`,
-`input_each_frame`, `run`, `[]`, `vars`, `screen.pixel` so far, growing with each native
-slice), and then the same buttons replayed on the interpreter, failing at
-the first frame where any variable or any pixel differs. So an opted-in file's own checks are
-backed by a whole-picture comparison on every frame.
+`input_each_frame`, `run`, `[]`, `vars`, `screen.pixel`, `audio` so far, growing with each
+native slice), and then the same buttons replayed on the interpreter, failing at the first
+frame where any variable, any pixel or the sound log differs. So an opted-in file's own checks
+are backed by a whole-picture comparison on every frame. The sound log is the interpreter's
+words for what was played; the C plays songs on the square-wave voices, beeps and the music
+volume so far, and keeps everything else out of its log, so a file that uses the rest fails
+that comparison rather than passing on a guess.
 
 Opt a file in once native can play its games, and in chunks that go with the native slice that
 made them pass. What the native player cannot answer yet raises `HeadlessRun::CannotAnswer`

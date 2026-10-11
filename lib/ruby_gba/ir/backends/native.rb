@@ -8,6 +8,8 @@ require_relative "native/names"
 require_relative "native/c"
 require_relative "native/printer"
 require_relative "native/picture"
+require_relative "native/sound_log"
+require_relative "native/sound"
 require_relative "native/lowering"
 require_relative "native/headless_run"
 
@@ -51,7 +53,7 @@ module RubyGBA
         # The runtime's C files each kind of build compiles beside the game's. The desktop build
         # carries the windowless runtime too, so the program a player runs can be driven by a
         # test with --headless.
-        SHARED_RUNTIME = %w[rg_headless.c rg_runtime.c rg_screen.c].freeze
+        SHARED_RUNTIME = %w[rg_headless.c rg_runtime.c rg_screen.c rg_sound.c].freeze
         HEADLESS_RUNTIME = (["rg_headless_main.c"] + SHARED_RUNTIME).freeze
         DESKTOP_RUNTIME = (["rg_sdl.c"] + SHARED_RUNTIME).freeze
 

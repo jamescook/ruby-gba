@@ -15,6 +15,7 @@ require_relative "../../examples/pong"
 # The MUSIC row is the part that could not be written before: what it SAYS depends on the
 # setting, so the row carries the list of things it can say and the variable that decides.
 class TestPongTitle < Minitest::Test
+  runs_on :reference, :native
   Fonts = RubyGBA::Graphics::Fonts
 
   ROW_START = 90       # the menu's first row (examples/pong.rb: `at: [menu_x, 90]`)
@@ -32,7 +33,7 @@ class TestPongTitle < Minitest::Test
   end
 
   def title(frames, &keys)
-    i = Reference.new
+    i = game_player
     i = i.input_each_frame(&keys) if keys
     i.run(Pong.program, frames: frames)
     i
@@ -161,7 +162,7 @@ class TestPongTitle < Minitest::Test
   end
 
   def play_to_the_next_game
-    i = Reference.new
+    i = game_player
     over_at = over = left = nil
     i.input_each_frame do |f|
       next(f < 3 ? [:a] : [:up]) unless over_at || i[:state] == 3

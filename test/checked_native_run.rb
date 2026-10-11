@@ -43,7 +43,9 @@ class CheckedNativeRun
   def run(program, max_steps: nil, frames: nil)
     @native.run(program, max_steps: max_steps, frames: frames)
     frames ||= Reference::DEFAULT_FRAMES
-    difference = self.class.first_difference(interpreter_moments(program, frames), @native.moments)
+    interpreter, moments = play_on_interpreter(program, frames)
+    difference = self.class.first_difference(moments, @native.moments) ||
+                 self.class.sound_difference(interpreter.audio, @native.audio)
     raise Minitest::Assertion, disagreement_message(difference, program, frames) if difference
 
     self
@@ -67,9 +69,18 @@ class CheckedNativeRun
     want.zip(got).each do |reference, native|
       differences = variable_differences(reference.variables, native.variables)
       differences << "the picture differs" if reference.picture != native.picture
+      if reference.sounds != native.sounds
+        differences << "the sound log holds #{native.sounds} entries in the C and #{reference.sounds} in Reference"
+      end
       return "#{heading(reference.frame)}: #{differences.join('; ')}" if differences.any?
     end
     nil
+  end
+
+  # The first entry of the sound log the two disagree on, or nil when every entry is the same.
+  def self.sound_difference(want, got)
+    at = (0...[want.size, got.size].max).find { |index| want[index] != got[index] }
+    at && "entry #{at} of the sound log: C has #{got[at].inspect}, Reference #{want[at].inspect}"
   end
 
   def self.heading(frame) = frame == :end ? "the end of the run" : "frame #{frame}"
@@ -77,17 +88,19 @@ class CheckedNativeRun
 
   private
 
-  def interpreter_moments(program, frames)
+  # The interpreter played on the same buttons, and its moments.
+  def play_on_interpreter(program, frames)
     interpreter = Reference.new
     moments = []
     interpreter.input_each_frame { |frame| @played.fetch(frame, []) }
                .each_vblank { |frame| moments << moment_of(interpreter, frame) }
                .run(program, frames: frames)
-    moments << moment_of(interpreter, :end)
+    [interpreter, moments << moment_of(interpreter, :end)]
   end
 
   def moment_of(interpreter, frame)
-    Moment.new(frame: frame, variables: interpreter.vars.dup, picture: HeadlessRun.picture_check(interpreter.screen.shown))
+    Moment.new(frame: frame, variables: interpreter.vars.dup, picture: HeadlessRun.picture_check(interpreter.screen.shown),
+               sounds: interpreter.audio.size)
   end
 
   # A picture that differs is played again with every pixel of every frame, to say where.

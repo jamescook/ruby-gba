@@ -27,20 +27,30 @@ class TestCheckedNativeRun < Minitest::Test
   end
 
   def test_the_first_frame_they_disagree_on_is_named_with_what_differs
-    agreed = Moment.new(frame: 1, variables: { x: 0 }, picture: 7)
-    want = [agreed, Moment.new(frame: 2, variables: { x: 1 }, picture: 7), Moment.new(frame: 3, variables: { x: 2 }, picture: 9)]
-    got = [agreed, Moment.new(frame: 2, variables: { x: 2 }, picture: 8), Moment.new(frame: 3, variables: { x: 2 }, picture: 9)]
+    agreed = Moment.new(frame: 1, variables: { x: 0 }, picture: 7, sounds: 0)
+    want = [agreed, Moment.new(frame: 2, variables: { x: 1 }, picture: 7, sounds: 1),
+            Moment.new(frame: 3, variables: { x: 2 }, picture: 9, sounds: 1)]
+    got = [agreed, Moment.new(frame: 2, variables: { x: 2 }, picture: 8, sounds: 2),
+           Moment.new(frame: 3, variables: { x: 2 }, picture: 9, sounds: 1)]
 
     difference = CheckedNativeRun.first_difference(want, got)
 
     assert_match(/frame 2/, difference)
     assert_match(/x: C has 2, Reference 1/, difference)
     assert_match(/picture/, difference)
+    assert_match(/sound log holds 2 entries in the C and 1/, difference)
   end
 
   def test_runs_that_agree_have_no_difference
-    same = [Moment.new(frame: 1, variables: { x: 0 }, picture: 7)]
+    same = [Moment.new(frame: 1, variables: { x: 0 }, picture: 7, sounds: 0)]
 
     assert_nil CheckedNativeRun.first_difference(same, same)
+  end
+
+  def test_the_first_sound_they_disagree_on_is_named
+    difference = CheckedNativeRun.sound_difference([[:enabled], [:note, :tune, 262]], [[:enabled], [:note, :tune, 294]])
+
+    assert_match(/entry 1 of the sound log: C has \[:note, :tune, 294\], Reference \[:note, :tune, 262\]/, difference)
+    assert_nil CheckedNativeRun.sound_difference([[:enabled]], [[:enabled]])
   end
 end

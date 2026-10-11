@@ -5,6 +5,8 @@
 #include <stdlib.h>
 #include "rg_runtime.h"
 #include "rg_driver.h"
+#include "rg_screen.h"
+#include "rg_sound.h"
 
 const rg_driver *rg_active_driver;
 
@@ -23,6 +25,11 @@ void rg_buttons_read(uint32_t now) {
 }
 
 void rg_wait_vblank(void) { rg_active_driver->wait_vblank(); }
+
+void rg_frame_begins(void) {
+  rg_screen_frame_started();
+  rg_music_frame();
+}
 
 /* A driver's halt and fault never come back; abort() is only there to say so to the compiler. */
 _Noreturn void rg_halt(void) {

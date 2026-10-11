@@ -105,7 +105,7 @@ static void read_buttons(void) {
 /* The frame boundary: the picture the frame drew is shown, the clock comes round, and the
  * buttons for the next frame are read. */
 static void sdl_wait_vblank(void) {
-  rg_screen_frame_started();
+  rg_frame_begins();
   present();
   read_events();
   wait_for_next_frame();
@@ -138,7 +138,10 @@ static void sdl_dump_variable(const char *name, int32_t value) {
   (void)value;
 }
 
-static const rg_driver sdl = {sdl_wait_vblank, sdl_halt, sdl_fault, sdl_dump_variable};
+/* ...nor the sound log. A window will play the sound itself, from the same player, one day. */
+static void sdl_sound_logged(const char *line) { (void)line; }
+
+static const rg_driver sdl = {sdl_wait_vblank, sdl_halt, sdl_fault, sdl_dump_variable, sdl_sound_logged};
 
 static _Noreturn void refuse_to_start(const char *what) {
   fprintf(stderr, "%s could not start: %s (%s)\n", rg_game_title, what, SDL_GetError());

@@ -90,7 +90,8 @@ module NativeComparison
   end
 
   def parse_snapshots(text)
-    text.lines.map(&:chomp).slice_before { |line| line.start_with?("frame ") || line == "end" }.map do |heading, *rows|
+    lines = text.lines.map(&:chomp).grep_v(/\Asound /) # the sound log, which CheckedNativeRun compares
+    lines.slice_before { |line| line.start_with?("frame ") || line == "end" }.map do |heading, *rows|
       Snapshot.new(heading: heading, variables: Native::HeadlessRun.variables_in(rows),
                    picture: Native::HeadlessRun.picture_in(rows))
     end
