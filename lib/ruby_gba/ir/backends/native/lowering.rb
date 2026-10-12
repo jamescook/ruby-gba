@@ -118,15 +118,17 @@ module RubyGBA
             @locals = 0
             @funcs = by_name(program.walk, :func)
             # The bend each background's rows are given: the last one written for it, wherever
-            # that is, since it stands from power-on (Reference#collect_definitions).
-            @bends = by_name(program.walk, :scroll_rows)
+            # that is, since it stands from power-on (Reference#collect_definitions). One written
+            # for a background the game does not have is never asked for.
+            written = by_name(program.walk, :scroll_rows)
+            @bend_written = !written.empty?
+            @bends = written.slice(*by_name(program.walk, :background).keys)
             @called = called_routines
             # Everything a run can reach: the program, every routine it calls, however deep, and
             # what each bend runs as its background is painted. A routine nothing calls is left
             # out of the file altogether, so nothing in it (a table it reads, a routine it calls)
             # can leave something declared and unused.
-            @reachable = [program, *@called.map { |name| @funcs.fetch(name) }, *@bends.values]
-                         .flat_map { |root| statements_under(root) }
+            @reachable = statements_from(program, *@called.map { |name| @funcs.fetch(name) }, *@bends.values)
             @tables = by_name(program.walk, :table)
             @data = by_name(program.walk, :data, :bitmap)
             # A list is there, empty, from power-on wherever it is declared (the interpreter
@@ -152,10 +154,12 @@ module RubyGBA
           # or table as a mistake, which it is in C somebody wrote, and a routine nothing calls
           # never runs (the build has already warned about it).
           #
-          # The routines are written first, because writing them is what finds the art they draw
-          # with; the art then goes above them in the file.
+          # The routines are written first, the ones the picture asks the game through among
+          # them, because writing them is what finds the art they draw with; the art then goes
+          # above them in the file.
           def top_level
             routines = @called.map { |name| C::Function.new(name: routine(name), body: body_of(@funcs.fetch(name))) }
+            answers = [see_through_amounts, bend_offsets]
             main = C::Function.new(name: @names.own("main"), body: [*power_on, *lower(@program)], exported: true)
             [C::Comment.new("Written by ruby-gba's native backend. Do not edit; build the game again."),
              C::Include.new("rg_int32.h"), C::Include.new("rg_runtime.h"), C::Include.new("rg_list.h"),
@@ -166,7 +170,7 @@ module RubyGBA
              *constant_arrays, *picture_data, *@drawing_arrays, title_array, music_table, beep_table,
              *@called.map { |name| C::Prototype.new(name: routine(name)) },
              *routine_table_declarations,
-             *routines, see_through_amounts, row_bends, main,
+             *routines, *answers, main,
              C::Function.new(name: @names.own("dump_variables"), body: dump_variables, exported: true)]
           end
 
@@ -185,14 +189,22 @@ module RubyGBA
           end
 
           # The statements under +root+ and everything they hold, stopping at a routine's
-          # declaration: a routine's body runs where it is called, not where it is written.
+          # declaration and at a bend: a routine's body runs where it is called and a bend's as
+          # its background is painted, not where either is written. The bend itself is still a
+          # statement there; what it holds is found by asking for the bend as a root.
           def statements_under(root)
             found = [root]
             (root.children + root.operand_nodes).each do |node|
-              found.concat(node.kind == :func ? [] : statements_under(node))
+              found.concat(case node.kind
+                           when :func then []
+                           when :scroll_rows then [node]
+                           else statements_under(node)
+                           end)
             end
             found
           end
+
+          def statements_from(*roots) = roots.flat_map { |root| statements_under(root) }
 
           # The routines named by the statements in +nodes+.
           def routines_named(nodes)
@@ -210,7 +222,7 @@ module RubyGBA
           # bend runs into the routines they call, in the order the routines were declared.
           def called_routines
             reached = []
-            waiting = routines_named([@program, *@bends.values].flat_map { |root| statements_under(root) })
+            waiting = routines_named(statements_from(@program, *@bends.values))
             until waiting.empty?
               name = waiting.shift
               next if reached.include?(name) || !@funcs.key?(name)
@@ -424,7 +436,7 @@ module RubyGBA
 
           # The runtime ends the frame (shows it, reads the buttons, keeps time), and the frame
           # counters the program can read move on, where the interpreter moves them. Last, a
-          # game that bends a background has its picture built again
+          # game with a bend written in it asks for its picture to be built again
           # (Reference#repaint_bent_backgrounds).
           def lower_wait_vblank(_node)
             count = variable(Frames::COUNT)
@@ -432,7 +444,7 @@ module RubyGBA
              assign(Frames::COUNT, call("rg_add", count, C::Int.new(1))),
              assign(Frames::SEEN, count),
              assign(Frames::STEP, C::Int.new(1)),
-             *(@bends.empty? ? [] : [eval_call("rg_screen_rows_bent")])]
+             *(@bend_written ? [eval_call("rg_screen_request_rebuild")] : [])]
           end
 
           # --- lists (runtime/rg_list.h does the work and the checking) ---
