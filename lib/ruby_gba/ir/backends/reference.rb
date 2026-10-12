@@ -275,6 +275,10 @@ module RubyGBA
           # over the finished one. That is the rebuild path too.
           @repaints ||= node.walk.any? { |child| child.kind == :fade && child.under }
           @repaints ||= see_through_picture_changes?(node)
+          # A see-through sprite is mixed with the scenery under it and never with another
+          # sprite, so a screen that has one keeps its scenery apart (see
+          # Framebuffer#keep_scenery).
+          @screen.keep_scenery if see_through_sprites?
           # A program that waits for frames shows nothing until the first one has been set up:
           # everything said before the game loop reaches the screen by work done between
           # frames, so the picture is held off until then — the console does the same (see
@@ -415,6 +419,11 @@ module RubyGBA
           program.walk.any? do |child|
             child.kind == :see_through || (child.kind == :fade && !@fading.palette_walk?(child))
           end
+        end
+
+        # Is anything in the see-through layer a sprite?
+        def see_through_sprites?
+          !@see_through.nil? && @objects.each_value.any? { |obj| @see_through.key?(obj.layer) }
         end
 
         # REFUSE A PROGRAM THE CONSOLE COULD NOT SHOW, before drawing a frame of it.
@@ -1870,10 +1879,14 @@ module RubyGBA
         # Turn the see-through blend on for a thing in the see-through layer, and off for
         # everything else. The picture is painted back to front, so "blend with what is
         # already in the buffer" is the display's own "blend with the layer directly
-        # beneath" — the stack does not have to be consulted a second time.
+        # beneath" — the stack does not have to be consulted a second time. The one thing
+        # already in the buffer that the display would not blend with is another sprite,
+        # so the screen is told when the thing is a sprite, and mixes it with the scenery it
+        # keeps apart instead (see Framebuffer#keep_scenery).
         def set_see_through_for(name)
           layer = see_through_layer_of(name)
-          @screen.set_paint_see_through(layer && !fading? ? see_through_weights(layer) : nil)
+          @screen.set_paint_see_through(layer && !fading? ? see_through_weights(layer) : nil,
+                                        sprite: @objects.key?(name))
         end
 
         # How much of a see-through layer and of what is behind it the display takes, in steps,

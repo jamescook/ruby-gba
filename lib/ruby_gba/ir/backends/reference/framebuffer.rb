@@ -45,6 +45,8 @@ module RubyGBA
             @paint_toward = nil
             @paint_steps = 0
             @through = nil
+            @scenery = nil
+            @painting_sprite = false
             @blending = false
             @area = nil
           end
@@ -180,12 +182,35 @@ module RubyGBA
           # #set_paint_fade with a different color: a fade mixes toward a color that is the
           # same everywhere, and a see-through layer mixes toward whatever happens to be
           # underneath at that pixel. And it works BECAUSE the picture is painted back to
-          # front — "blend with whatever is already there" and the display's own "blend
-          # with the layer directly beneath" are then the same rule, so nothing about the
-          # stack has to be modelled a second time.
-          def set_paint_see_through(weights)
+          # front — for scenery, "blend with whatever is already there" and the display's
+          # own "blend with the layer directly beneath" are then the same rule, so nothing
+          # about the stack has to be modelled a second time.
+          #
+          # +sprite+ says that what is painted from here on is a sprite's. A sprite is the one
+          # thing that rule is wrong for, and it is mixed with the scenery kept apart instead
+          # (see #keep_scenery).
+          def set_paint_see_through(weights, sprite: false)
             @through = weights
+            @painting_sprite = sprite
             @blending = blending?
+          end
+
+          # KEEP THE SCENERY WITH NO SPRITES ON IT, beside the picture — for a screen with a
+          # see-through layer of sprites.
+          #
+          # "Blend with what is already there" is right for scenery and wrong for a sprite
+          # over another sprite. A display puts all its sprites into one layer before it
+          # blends anything: at each pixel only the front sprite is kept, and a see-through
+          # one is then mixed with the layer beneath that, which is scenery or the backdrop.
+          # A sprite behind it is never part of the mix. So a see-through sprite has to be
+          # mixed with the picture as it would be with no sprite on it, and that is what is
+          # kept here: every paint that is not a sprite's lands on both.
+          #
+          # The picture is painted back to front, so when a sprite is painted the scenery
+          # kept here is the scenery behind it and none of what is in front, which is the
+          # layer the display would mix it with.
+          def keep_scenery
+            @scenery ||= @pixels.dup
           end
 
           # The color shown at screen (x, y) — the stored cell the window currently puts
@@ -233,7 +258,9 @@ module RubyGBA
             return unless in_bounds?(x, y)
 
             at = (y * @width) + x
-            @pixels[at] = blend_into_cell(at, color)
+            color = blend_into_cell(at, color)
+            @pixels[at] = color
+            @scenery[at] = color if @scenery && !@painting_sprite
           end
 
           # Paint a horizontal run of cells: +count+ of them starting at (x, y), read
@@ -246,12 +273,17 @@ module RubyGBA
           # the cost when a whole scrolling scene is repainted every frame.
           def paint_row(x, y, colors, from:, count:)
             base = (y * @width) + x
+            scenery = @painting_sprite ? nil : @scenery
             i = 0
             while i < count
               color = colors[from + i]
-              # The blend is asked for inline rather than through #blend_into_cell, which would be
-              # a method call per pixel on the path that repaints the whole scene.
-              @pixels[base + i] = @blending ? blend_into_cell(base + i, color) : color if color
+              if color
+                # The blend is asked for inline rather than through #blend_into_cell, which would
+                # be a method call per pixel on the path that repaints the whole scene.
+                color = blend_into_cell(base + i, color) if @blending
+                @pixels[base + i] = color
+                scenery[base + i] = color if scenery
+              end
               i += 1
             end
           end
@@ -269,9 +301,10 @@ module RubyGBA
           # Paint the entire screen one color — or, where drawing is held to a part of it, that
           # part and no more.
           def clear(color)
-            return @pixels.fill(apply_placed_fade(color)) unless @area
+            return fill_rect(@area[0], @area[1], @area[2] - @area[0], @area[3] - @area[1], color) if @area
 
-            fill_rect(@area[0], @area[1], @area[2] - @area[0], @area[3] - @area[1], color)
+            @scenery&.fill(apply_placed_fade(color))
+            @pixels.fill(apply_placed_fade(color))
           end
 
           # A flat, row-major copy of every cell of the page being SHOWN, as it is stored —
@@ -359,13 +392,15 @@ module RubyGBA
           end
 
           # One color on its way into the cell at +at+: the blend a placed fade asks for,
-          # then the blend a see-through layer asks for against what is already there.
-          # Untouched when neither is on, which is the usual case.
+          # then the blend a see-through layer asks for against what is under it — what is
+          # already there for scenery, and the scenery alone for a sprite (see
+          # #keep_scenery). Untouched when neither is on, which is the usual case.
           def blend_into_cell(at, color)
             color = apply_placed_fade(color)
             return color unless @through
 
-            mix_see_through(color, @pixels[at], *@through)
+            under = @painting_sprite && @scenery ? @scenery : @pixels
+            mix_see_through(color, under[at], *@through)
           end
 
           # A see-through layer's color over what is under it: +near+ steps of the one and

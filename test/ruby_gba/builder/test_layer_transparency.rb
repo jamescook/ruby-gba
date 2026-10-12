@@ -16,6 +16,8 @@ require "stringio"
 # shows through it, anything in front draws solid, and where the layer has a see-through
 # tile what is behind shows plain. Every one of those is what a reader guesses and also
 # what the console does, so the tests below read as the picture rather than as a rule.
+# The one thing a reader would not guess is that a see-through sprite never shows another
+# sprite through it, only scenery; that has tests of its own below.
 class TestLayerTransparency < Minitest::Test
   include Differential
 
@@ -145,6 +147,86 @@ class TestLayerTransparency < Minitest::Test
     assert_equal GREEN, screen.pixel(26, 26), "the sprite that named no layer does not"
     assert_equal RED, screen.pixel(*SCENERY_XY), "nor the floor"
     assert_backends_agree(lone_ghost_program, frames: 2)
+  end
+
+  # A SEE-THROUGH SPRITE SHOWS THE SCENERY UNDER IT, NEVER ANOTHER SPRITE. Of all the
+  # sprites at a pixel the console draws the front one and no other, and only then mixes
+  # it with the layer beneath, which is scenery or the backdrop. So a ghost passing over
+  # the hero hides the hero where it covers them, and the floor shows through instead.
+  #
+  # A green hero, a white ghost over their corner, and a blue ghost over the white one's
+  # corner. With +scrolling+ the floor is striped and moves a pixel a pass, which is the
+  # other of the two ways the interpreter builds a picture — and stripes, so that scenery
+  # kept a pixel out of place under a ghost is a different colour from the right one.
+  def ghost_over_hero_program(scrolling: false)
+    tile = SOLID_TILE
+    stripes = (["###....."] * 8).join("\n")
+    program do
+      screen :tiled
+      image(:back, "#" => :red, "." => :yellow) { scrolling ? stripes : tile }
+      image(:ghost, "#" => :white) { tile }
+      image(:wisp, "#" => :blue) { tile }
+      image(:hero, "#" => :green) { tile }
+      tiles :backset, "#" => :back
+      floor = background :floor, tiles: :backset, map: Array.new(32) { "#" * 32 }
+      sprite :hero, at: [60, 60]
+      layers :ghosts
+      layer(:ghosts, transparency: 50) do
+        sprite :ghost, at: [64, 64]
+        sprite :wisp, at: [68, 68]
+      end
+      game_loop { floor.scroll_by 1, 0 if scrolling }
+    end
+  end
+
+  HERO_ALONE = [61, 61].freeze
+  GHOST_OVER_HERO = [65, 65].freeze
+  WISP_OVER_GHOST = [69, 69].freeze
+
+  # Blue over red, half way, as HALF_WHITE_OVER_RED is white over red: the number the
+  # console was measured to give for this program, not one worked out.
+  HALF_BLUE_OVER_RED = 0x3C0F
+
+  def test_a_see_through_sprite_over_another_sprite_shows_the_scenery_and_not_the_sprite
+    screen = Reference.new.run(ghost_over_hero_program, frames: 3).screen
+
+    assert_equal GREEN, screen.pixel(*HERO_ALONE), "the hero, where nothing covers them"
+    assert_equal HALF_WHITE_OVER_RED, screen.pixel(*GHOST_OVER_HERO), "the ghost hides the hero it covers"
+    assert_equal HALF_BLUE_OVER_RED, screen.pixel(*WISP_OVER_GHOST), "and the wisp hides the ghost it covers"
+  end
+
+  def test_both_backends_draw_a_see_through_sprite_over_another_sprite_the_same
+    assert_backends_agree(ghost_over_hero_program, frames: 2)
+    [3, 6, 11].each { |frames| assert_backends_agree(ghost_over_hero_program(scrolling: true), frames: frames) }
+  end
+
+  # The same ghost over the same hero with a fence in the stack: a layer of scenery whose
+  # tiles are blue bars with gaps between them. +stack+ says where the fence stands. In
+  # front of both, the ghost shows through the gaps mixed with the floor. Between the two,
+  # the ghost is mixed with a bar where there is one and with the floor through a gap, and
+  # the hero behind the gap is still not seen.
+  def ghost_and_fence_program(stack)
+    tile = SOLID_TILE
+    program do
+      screen :tiled
+      image(:back, "#" => :red) { tile }
+      image(:bars, "#" => :blue, "." => :transparent) { (["##..##.."] * 8).join("\n") }
+      image(:ghost, "#" => :white) { tile }
+      image(:hero, "#" => :green) { tile }
+      tiles :backset, "#" => :back
+      tiles :fenceset, "#" => :bars
+      layers(*stack)
+      layer(:deep) { background :floor, tiles: :backset, map: Array.new(20) { "#" * 30 } }
+      layer(:fence) { background :fence, tiles: :fenceset, map: Array.new(20) { "#" * 30 } }
+      layer(:actors) { sprite :hero, at: [60, 60] }
+      layer(:ghosts, transparency: 50) { sprite :ghost, at: [64, 64] }
+      game_loop { wait_vblank }
+    end
+  end
+
+  def test_both_backends_draw_it_the_same_with_scenery_in_front_of_or_between_the_two
+    assert_backends_agree(ghost_and_fence_program(%i[deep actors ghosts fence]), frames: 2)
+    assert_backends_agree(ghost_and_fence_program(%i[deep actors fence ghosts]), frames: 2)
   end
 
   # --- and the console agrees, which is the point of having two backends ---
