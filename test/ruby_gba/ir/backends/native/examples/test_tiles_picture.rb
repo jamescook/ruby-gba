@@ -6,8 +6,9 @@ require_relative "../../../../../../examples/tiles"
 
 # examples/tiles.rb built for the desktop shows the interpreter's picture pixel for pixel, frame
 # by frame, through a walk round its three rooms: the door in the hall opened, on to the cavern
-# and the meadow, a step further that there is no room for, back to the hall, where the door is
-# shut again because the room came back as declared, and the door opened once more.
+# and the meadow, a step further that there is no room for, and back to the hall, where the door
+# is shut again because the room came back as declared. There the door is shut once more, which
+# changes nothing, and then opened.
 class TestTilesPicture < Minitest::Test
   # The native lowering's own tests, which only a native run plays (see TestSuites).
   runs_on :native

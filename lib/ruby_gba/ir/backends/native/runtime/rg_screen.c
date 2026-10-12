@@ -319,13 +319,16 @@ static int32_t in_map(int32_t background, int64_t row, int64_t col) {
   return row >= 0 && row < map_rows(background) && col >= 0 && col < map_cols(background);
 }
 
+/* Where a cell of the map is among its cells, which are kept row after row. */
+static int64_t cell_place(int32_t background, int64_t row, int64_t col) { return row * map_cols(background) + col; }
+
 /* Reference#map_of: what a cell holds NOW, in the run's own copy where there is one. Below nought
  * where it holds no tile. */
 static int32_t map_cell(int32_t background, int64_t row, int64_t col) {
   if (!in_map(background, row, col)) return RG_CELL_EMPTY;
   const int16_t *own = cells_now[background].cells;
   const int16_t *cells = own ? own : rg_game_map_cells + map_now(background)[RG_MAP_CELLS];
-  return cells[row * map_cols(background) + col];
+  return cells[cell_place(background, row, col)];
 }
 
 /* The background's cells become the run's own copy of map number +which+ of its maps, as that
@@ -487,7 +490,7 @@ void rg_background_scroll(int32_t background, int32_t x, int32_t y) {
 void rg_background_set_tile(int32_t background, int32_t col, int32_t row, int32_t tile) {
   if (!cells_now[background].cells) copy_map(background, 0);
   if (!in_map(background, row, col)) return;
-  int16_t *cell = &cells_now[background].cells[(int64_t)row * map_cols(background) + col];
+  int16_t *cell = &cells_now[background].cells[cell_place(background, row, col)];
   if (*cell == tile) return;
   *cell = (int16_t)tile;
   request_repaint();
@@ -495,7 +498,7 @@ void rg_background_set_tile(int32_t background, int32_t col, int32_t row, int32_
 
 /* Reference#exec_show_map */
 void rg_background_show_map(int32_t background, int32_t which) {
-  if (which < 0 || which >= background_field(background, RG_BG_MAPS)) return;
+  if (which < 0 || which >= background_field(background, RG_BG_SHOWABLE_MAPS)) return;
   copy_map(background, which);
   request_repaint();
 }
@@ -556,7 +559,7 @@ static void affine_matrix(int32_t angle, int32_t size, int64_t *turn_cos, int64_
 }
 
 /* Reference#paint_affine_background_window: for each screen pixel, work back through the turn
- * to the map pixel that lands there. */
+ * to the map pixel that lands there, from wherever the background is scrolled to. */
 static void paint_turned_window(int32_t background) {
   int32_t tile_w = background_field(background, RG_BG_TILE_W), tile_h = background_field(background, RG_BG_TILE_H);
   int64_t map_w = (int64_t)background_field(background, RG_BG_GRID_COLS) * tile_w;
@@ -570,8 +573,8 @@ static void paint_turned_window(int32_t background) {
     int64_t dy = py - pivot_y;
     for (int64_t px = 0; px < RG_SCREEN_WIDTH; px++) {
       int64_t dx = px - pivot_x;
-      int64_t mx = floor_mod(pivot_x + floor_div(turn_cos * dx + turn_sin * dy, one_th), map_w);
-      int64_t my = floor_mod(pivot_y + floor_div(-turn_sin * dx + turn_cos * dy, one_th), map_h);
+      int64_t mx = floor_mod(scrolls[background].x + pivot_x + floor_div(turn_cos * dx + turn_sin * dy, one_th), map_w);
+      int64_t my = floor_mod(scrolls[background].y + pivot_y + floor_div(-turn_sin * dx + turn_cos * dy, one_th), map_h);
       int32_t cell = map_cell(background, my / tile_h, mx / tile_w);
       if (cell < 0) continue;
       uint16_t color = tile_pixel(background, cell, mx % tile_w, my % tile_h);

@@ -613,9 +613,9 @@ class TestNativePicture < Minitest::Test
     refute_includes last.picture, Color.resolve(:blue), "and nothing of the old field should be put back"
   end
 
-  # Two backgrounds scrolled at their own speeds under a sprite. The far one goes left, below
-  # nought and past where its picture comes round again; the near one goes up and off the rows it
-  # was written with. So both edges of the grid a background scrolls over are crossed, each way.
+  # Two backgrounds scrolled at their own speeds under a sprite. Each scrolls over a grid 256
+  # pixels each way and comes round again at its edges. The far one goes left, below nought, and
+  # down past 256; the near one goes right past 256 and up, below nought.
   def test_backgrounds_scroll_at_their_own_speeds_and_come_round_again
     program = program_of do
       screen :tiled
@@ -628,15 +628,39 @@ class TestNativePicture < Minitest::Test
       near = background :near, tiles: :near, map: ["|   |     |"] * 20
       ball = sprite :ball, at: [100, 60]
       game_loop do
-        far.scroll_by(-37, 0)
-        near.scroll_by(5, -9)
+        far.scroll_by(-37, 41)
+        near.scroll_by(43, -9)
         ball.move :right, by: 1
       end
     end
 
-    assert_native_matches_reference program, frames: 9
+    last = assert_native_matches_reference(program, frames: 10)
 
-    assert_operator different_pictures_in(program, frames: 9), :>=, 9, "every frame should show the scenery somewhere new"
+    assert_operator different_pictures_in(program, frames: 10), :>=, 10, "every frame should show the scenery somewhere new"
+    assert_operator last.variables[:__bg_far_sy], :>, 256, "the far one should have gone down past where it comes round"
+    assert_operator last.variables[:__bg_near_sx], :>, 256, "and the near one right past where it does"
+  end
+
+  # A turned background that is also scrolled. The builder refuses a game that says both, so the
+  # scroll is written here as the statement itself; the interpreter draws one, and so must the C.
+  def test_a_turned_background_is_scrolled_too
+    program = program_of do
+      screen :tiled
+      image :brick, "#" => :red, "o" => :orange do "#o######\n" * 8 end
+      image :floor, "#" => :blue do "########\n" * 8 end
+      tiles :room, "#" => :brick, "." => :floor
+      room = background :room, tiles: :room, map: ["#..#...#" * 4] * 32
+      n = var :n, 0
+      game_loop do
+        room.rotate 30
+        record_statement(RubyGBA::IR::Build.scroll_background(:room, x: RubyGBA::IR::Build.var_ref(:n), y: RubyGBA::IR::Build.int(5)))
+        n.add! 7
+      end
+    end
+
+    assert_native_matches_reference program, frames: 6
+
+    assert_operator different_pictures_in(program, frames: 6), :>=, 5, "the scroll should move the turned picture"
   end
 
   # Cells of the scenery become other tiles as the game counts: a wall grows over floor and over
@@ -669,7 +693,7 @@ class TestNativePicture < Minitest::Test
     assert_equal Color.resolve(:red), last.picture[(1 * 8 * WIDTH) + (2 * 8)], "and a wall grown where there was nothing"
   end
 
-  # A background handed its maps by a number read off a list: out to the second, back to the
+  # A background handed its maps by a number read off a table: out to the second, back to the
   # first, on to the third, and then a number that names none. A cell changed in the first map is
   # as declared again when that map comes back, and a cell changed in the second shows while the
   # second does.
@@ -766,8 +790,8 @@ class TestNativePicture < Minitest::Test
   end
 
   # A background with a small map and one bigger than any grid the console has. Neither comes
-  # round again: the window is walked off every edge of each, and past an edge the layer behind
-  # shows.
+  # round again. The window is walked over each in six steps, from left of and above its first
+  # cell to right of and below its last, and past an edge the layer behind shows.
   def test_a_map_bigger_than_the_grid_shows_nothing_past_its_edges
     field = Array.new(66) { |row| Array.new(70) { |col| ((row + col) % 3).zero? ? "." : "#" }.join }
     program = program_of do
@@ -781,20 +805,25 @@ class TestNativePicture < Minitest::Test
       world = background :world, tiles: :land, map: { hut: ["####", "#..#", "####"], field: field }
       n = var :n, 0
       game_loop do
-        world.show_map n / 4
-        world.scroll_to (n * 67) - 100, (n * 53) - 60
+        world.show_map n / 6
+        world.scroll_to ((n % 6) * 150) - 100, ((n % 6) * 130) - 60
         n.add! 1
       end
     end
 
+    # The picture at the start of frame k was drawn from n = k - 3.
     moments = reference_snapshots(program, frames: 15, buttons: {})
+    drawn_from = ->(n) { moments[n + 2].picture }
 
     assert_native_matches_reference program, frames: 15
 
-    assert_equal Color.resolve(:cyan), moments[2].picture[0], "the sky should show left of and above the hut"
-    assert_includes moments[2].picture, Color.resolve(:orange), "with the hut in view"
-    refute_includes moments[6].picture, Color.resolve(:cyan), "the field should fill the view from its middle"
-    assert_equal [Color.resolve(:cyan)], moments.last.picture.uniq, "and nothing of it comes round again past its far corner"
+    assert_equal Color.resolve(:cyan), drawn_from.call(0)[0], "the sky should show left of and above the hut"
+    assert_includes drawn_from.call(0), Color.resolve(:orange), "with the hut in view"
+    assert_equal [Color.resolve(:cyan)], drawn_from.call(1).uniq, "and nothing of the hut past its far corner"
+    assert_equal Color.resolve(:cyan), drawn_from.call(6)[0], "the sky should show left of and above the field"
+    assert_includes drawn_from.call(6), Color.resolve(:green), "with the field in view"
+    refute_includes drawn_from.call(8), Color.resolve(:cyan), "the field should fill the view from its middle"
+    assert_equal [Color.resolve(:cyan)], drawn_from.call(11).uniq, "and nothing of it comes round again past its far corner"
   end
 
   # A sprite put in a layer by a number, over two backgrounds with gaps in them: in front of both
@@ -830,9 +859,10 @@ class TestNativePicture < Minitest::Test
   end
 
   # A pool whose instances are sprites, over still scenery: one spawned every other frame, each
-  # drifting its own way and overlapping the one before, until the pool is full and its oldest is
-  # used again, with one taken out as it passes a line. Where two overlap the older is in front,
-  # and a sprite declared after the pool is in front of them all.
+  # drifting its own way and overlapping the one before. The ones that drift neither way are
+  # taken out as they pass a line, and the others stay until the pool is full and its oldest is
+  # used again. Where two overlap the older is in front, and a sprite declared after the pool is
+  # in front of them all.
   def test_a_pool_of_sprites_is_drawn_oldest_in_front
     program = program_of do
       screen :tiled
@@ -849,19 +879,20 @@ class TestNativePicture < Minitest::Test
         drops.each do |drop|
           drop.x.add! drop.drift
           drop.y.add! 3
-          ((drop.y > 44) & (drop.drift == 0)).then { drop.remove }
+          ((drop.y > 30) & (drop.drift == 0)).then { drop.remove }
         end
         n.add! 1
       end
     end
 
-    moments = reference_snapshots(program, frames: 16, buttons: {})
-    drops = moments.map { |moment| moment.picture.count(Color.resolve(:white)) }
+    moments = reference_snapshots(program, frames: 18, buttons: {})
+    whites = moments.map { |moment| moment.picture.count(Color.resolve(:white)) }
 
-    assert_native_matches_reference program, frames: 16
+    assert_native_matches_reference program, frames: 18
 
-    assert_operator drops.max, :>, 2 * 32 - 16, "three drops should have been out at once, overlapping"
-    assert_operator drops.uniq.length, :>, 3, "and the number showing should have gone up and down"
+    # A drop's top half is 32 white pixels, and no drop covers another's.
+    assert_operator whites.max, :>, 2 * 32, "three drops should have been out at once"
+    assert_operator whites[12], :<, whites[11], "and one should have been taken out as it passed the line"
   end
 
   # A mover is stopped by the walls of the map its background is showing. The same push to the

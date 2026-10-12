@@ -81,6 +81,25 @@ class TestNativeRefusals < Minitest::Test
     end
   end
 
+  # Two scenes may each declare a background by the same name; the desktop build would draw the
+  # second one's map for both.
+  def test_two_backgrounds_with_one_name_are_refused_by_name
+    assert_refused_picture(/two backgrounds with one name \(room\)/) do
+      screen :tiled
+      var :state, 0
+      image :brick, "#" => :red do "########\n" * 8 end
+      tiles :wall, "#" => :brick
+      scene(:first) { background :room, tiles: :wall, map: ["##  "] }
+      scene(:second) { background :room, tiles: :wall, map: ["  ##"] }
+      game_loop do
+        case_var :state do
+          when_val 0, :first
+          when_val 1, :second
+        end
+      end
+    end
+  end
+
   def test_a_turning_sprite_is_refused_by_name
     assert_refused_picture(/turns or resizes/) do
       screen :tiled

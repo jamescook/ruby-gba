@@ -74,8 +74,8 @@ void rg_screen_digit(int32_t value, int32_t x, int32_t y, int32_t color, const i
 
 void rg_background_stamp(int32_t background);
 void rg_background_put_up(int32_t background);
-/* Put a background's window at (x, y) of its map, in pixels: the picture slides, and comes round
- * again at the edge of the grid it scrolls over. */
+/* Put a background's window at (x, y) of its map, in pixels: the picture slides. Whether it comes
+ * round again is the background's (RG_BG_NEVER_WRAPS, below). */
 void rg_background_scroll(int32_t background, int32_t x, int32_t y);
 /* One cell becomes tile number +tile+ of the background's tiles. A cell the map does not have is
  * left alone. */
@@ -115,7 +115,7 @@ int32_t rg_pixels_overlap(int32_t a_image, int32_t a_x, int32_t a_y, int32_t b_i
 /* Where choice number +which+ is in a row that holds a sprite's own first and then +others+ more:
  * the lists of colors it can be drawn with, or the layers it can be put in. A number naming none
  * of the others is its own. */
-static inline int32_t rg_pick_or_own(int32_t which, int32_t others) { return which >= 0 && which < others ? which + 1 : 0; }
+static inline int32_t rg_place_of_choice(int32_t which, int32_t others) { return which >= 0 && which < others ? which + 1 : 0; }
 
 /* A fade toward black (0) or white (1), in sixteenths of the display or, when +walked+, in
  * thirty-seconds of a walk through the colors (see Backends::FadeSteps). */
@@ -174,8 +174,8 @@ extern const uint16_t rg_game_tile_pixels[];
  * game declared, or RG_NO_LAYER for one that named none.
  *
  * Its maps are entries of rg_game_maps from RG_BG_FIRST_MAP on, the first being the one it shows
- * when the game starts. RG_BG_MAPS is how many of them it can be handed while the game runs,
- * which is none for a background declared with one map.
+ * when the game starts. RG_BG_SHOWABLE_MAPS is how many of them it can be handed while the game
+ * runs, which is none for a background declared with one map.
  *
  * A background scrolls over a grid of RG_BG_GRID_COLS by RG_BG_GRID_ROWS cells and its picture
  * comes round again at that grid's edge, unless RG_BG_NEVER_WRAPS is 1: one with a map too big
@@ -187,7 +187,7 @@ extern const uint16_t rg_game_tile_pixels[];
 /* The most backgrounds a game may have; the build refuses more. */
 #define RG_MAX_BACKGROUNDS 64
 enum {
-  RG_BG_TILE_W, RG_BG_TILE_H, RG_BG_FIRST_MAP, RG_BG_MAPS, RG_BG_GRID_COLS, RG_BG_GRID_ROWS,
+  RG_BG_TILE_W, RG_BG_TILE_H, RG_BG_FIRST_MAP, RG_BG_SHOWABLE_MAPS, RG_BG_GRID_COLS, RG_BG_GRID_ROWS,
   RG_BG_NEVER_WRAPS, RG_BG_TILES_START, RG_BG_SCENE, RG_BG_LEVEL, RG_BG_ON_ARRIVAL, RG_BG_STACK_PLACE,
   RG_BG_FIELDS
 };
