@@ -40,7 +40,7 @@ class TestNativeCheckerFlags < Minitest::Test
   end
 
   def test_the_windows_file_passes_once_sdl_has_been_fetched
-    skip "SDL has not been fetched on this machine: build a game for the desktop once" if Zig.sdl_include_dirs.empty?
+    skip "SDL has not been fetched on this machine: build a game for the desktop once" if Zig.sdl_include_dir.nil?
 
     assert_nil complaints_about(File.join(Zig::RUNTIME_DIR, WINDOW_FILE))
   end
@@ -78,9 +78,23 @@ class TestNativeCheckerFlags < Minitest::Test
 
     2.times do
       Native.new.build_headless(program)
+      written = File.readlines(Zig::CHECKER_FLAGS_FILE, chomp: true)
 
-      assert_equal Zig.checker_flags, File.readlines(Zig::CHECKER_FLAGS_FILE, chomp: true)
+      # The build's warnings and the runtime's folder, which never change during a run. SDL's
+      # folder is left out of this one: the window's test may be fetching SDL at this moment.
+      assert_empty [*Zig::WARNINGS, "-I#{Zig::RUNTIME_DIR}"] - written
+      refute_includes written, "-Wnothing"
     end
+  ensure
+    Zig.refresh_checker_flags # whatever happened above, the real file is not left wrong
+  end
+
+  # The desktop build's own list of warnings is a copy kept in build/build.zig. It has to be the
+  # list a test's compile and the checker are handed, or the three hold the code to different things.
+  def test_the_desktop_build_holds_the_code_to_the_same_warnings
+    build_file = File.read(Zig::BUILD_FILE)
+
+    assert_empty(Zig::WARNINGS.reject { |flag| build_file.include?(%("#{flag}")) })
   end
 
   def test_they_hold_the_code_to_what_the_build_does
