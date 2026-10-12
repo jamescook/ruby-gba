@@ -50,7 +50,11 @@ class TestDslReference < Minitest::Test
   # hook behind `face ..., showing:` on a sprite and a pool instance, documented on `sprite`.
   # make_object_layer_choosable and refuse_unknown_layers! are the hooks behind `put_in_layer` on a
   # sprite, documented under Layers.
+  # remember_sprite_recolors and remember_background_draws_with are the hooks behind `recolor`:
+  # a sprite, a pool and a background say which lists they draw with, so a list that changes
+  # can find them. The cheat-sheet documents `recolor`; nobody writes these.
   SKIP = %i[variables var_address debug_halted? make_object_rotatable make_object_scalable
+            remember_sprite_recolors remember_background_draws_with
             record_row_bend make_background_affine screen_pages keep_showing_pictures
             tile_collision_routine play_from_list play_sound_effect
             declare_instance_routine record_walk_instance_writes pool_walk_scratch_var

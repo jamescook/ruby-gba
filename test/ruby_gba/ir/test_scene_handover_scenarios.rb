@@ -117,6 +117,24 @@ class TestSceneHandoverScenarios < Minitest::Test
     Scenario.new(name: :always_up_painted_sprite_across_a_bitmap_screen, program: :always_up_painted_sprite,
                  frames: LOOK_BACK_FROM_BITMAP, probe: [0, 0], color: :white,
                  console_frames: LOOK_BACK_FROM_BITMAP + 1),
+    Scenario.new(name: :list_recolored_while_its_scene_is_up, program: :recolored_sprite_then_another_scenes_sprite,
+                 frames: SCENE_AWAY, probe: [120, 80], color: :blue),
+    Scenario.new(name: :other_scenes_colors_while_a_recolored_list_is_away,
+                 program: :recolored_sprite_then_another_scenes_sprite,
+                 frames: LOOK_AWAY, probe: [120, 80], color: :red),
+    Scenario.new(name: :recolored_list_back_with_its_scene, program: :recolored_sprite_then_another_scenes_sprite,
+                 frames: LOOK_BACK, probe: [120, 80], color: :blue),
+    Scenario.new(name: :list_not_yet_recolored_before_its_scene_leaves, program: :list_recolored_while_its_scene_is_away,
+                 frames: SCENE_AWAY, probe: [120, 80], color: :red),
+    Scenario.new(name: :list_recolored_while_away_shows_when_its_scene_is_back,
+                 program: :list_recolored_while_its_scene_is_away,
+                 frames: LOOK_BACK, probe: [120, 80], color: :blue),
+    Scenario.new(name: :recolored_list_back_after_a_bitmap_screen, program: :recolored_sprite_then_a_bitmap_screen,
+                 frames: LOOK_BACK_FROM_BITMAP, probe: [120, 80], color: :blue,
+                 console_frames: LOOK_BACK_FROM_BITMAP + 1),
+    Scenario.new(name: :always_up_recolored_list_across_a_bitmap_screen, program: :always_up_recolored_sprite,
+                 frames: LOOK_BACK_FROM_BITMAP, probe: [120, 80], color: :blue,
+                 console_frames: LOOK_BACK_FROM_BITMAP + 1),
   ].freeze
 
   SCENARIOS.each_with_index do |scenario, i|
@@ -174,6 +192,14 @@ class TestSceneHandoverScenarios < Minitest::Test
       image(:blue_art, "#" => :blue) { SOLID }
       image(:red_box, "#" => :red) { BOX }
       image(:blue_box, "#" => :blue) { BOX }
+    end
+
+    # A red 16x16 box with a list of its own, a list :slot holding the same red, and a list
+    # :sea holding blue: a sprite drawn with :slot is red until :slot is recoloured with :sea.
+    def slot_box
+      image :slot_box, width: 16, height: 16, data: Array.new(256, :red), colors: %i[transparent red]
+      colors :slot, %i[transparent red]
+      colors :sea, %i[transparent blue]
     end
 
     # Two tiles' worth of pixels, all see-through, and the colour list they are drawn from.
@@ -462,6 +488,73 @@ class TestSceneHandoverScenarios < Minitest::Test
       tag = image :tag, from: canvas, width: 16, height: 8, colors: :ink
       sprite :tag, at: [0, 0]
       across_a_bitmap_screen { |tick| (tick == 2).then { canvas[0] = 0x01; tag.changed } }
+    end
+  end
+
+  # A sprite drawn with a list of colours that is told to hold blue on frame 2, in one scene,
+  # and a red sprite in the same place in another. The list's colours are in the console only
+  # while its scene is up, and back in that scene it still holds the blue it was told.
+  private def recolored_sprite_then_another_scenes_sprite
+    built do
+      screen :tiled
+      red_and_blue_art
+      slot_box
+      state = var :state, 0
+      tick = var :tick, 0
+      scene(:slot_room) do
+        sprite(:slot_box, at: [112, 72]).draw_with :slot
+        (tick == 2).then { recolor :slot, :sea }
+        (tick == SCENE_AWAY).then { state.set! 1 }
+      end
+      scene(:red_room) do
+        sprite :red_box, at: [112, 72]
+        (tick == SCENE_BACK).then { state.set! 0 }
+      end
+      two_scene_loop(tick, :slot_room, :red_room)
+    end
+  end
+
+  # The same, with the list told to hold blue on frame 6, while the other scene is up: the
+  # other scene's sprite keeps its red, and the list shows blue once its own scene is back.
+  private def list_recolored_while_its_scene_is_away
+    built do
+      screen :tiled
+      red_and_blue_art
+      slot_box
+      state = var :state, 0
+      tick = var :tick, 0
+      scene(:slot_room) do
+        sprite(:slot_box, at: [112, 72]).draw_with :slot
+        (tick == SCENE_AWAY).then { state.set! 1 }
+      end
+      scene(:red_room) do
+        sprite :red_box, at: [112, 72]
+        (tick == 6).then { recolor :slot, :sea }
+        (tick == SCENE_BACK).then { state.set! 0 }
+      end
+      two_scene_loop(tick, :slot_room, :red_room)
+    end
+  end
+
+  # A tiled scene's sprite drawn with a list told to hold blue on frame 2, away to the bitmap
+  # screen and back.
+  private def recolored_sprite_then_a_bitmap_screen
+    built do
+      screen :tiled
+      slot_box
+      across_a_bitmap_screen(tiled: -> { sprite(:slot_box, at: [112, 72]).draw_with :slot }) do |tick|
+        (tick == 2).then { recolor :slot, :sea }
+      end
+    end
+  end
+
+  # The same for a sprite every tiled screen shows.
+  private def always_up_recolored_sprite
+    built do
+      screen :tiled
+      slot_box
+      sprite(:slot_box, at: [112, 72]).draw_with :slot
+      across_a_bitmap_screen { |tick| (tick == 2).then { recolor :slot, :sea } }
     end
   end
 end

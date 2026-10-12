@@ -189,6 +189,8 @@ module RubyGBA
           @row_bends = {}          # background name -> :scroll_rows node giving each row its own offset
           @bg_affine = {}          # background name -> the Turn it is being drawn under this frame
           @bg_colors = {}          # ...and which of the lists of colours it was given is drawing it
+          @color_lists = {}        # a list of colours that can hold other colours -> its declaration
+          @held_colors = {}        # ...and which of its other sets it holds now
           @obj_layer = []          # sprites to composite over a scrolling scene, in draw order (later = in front)
           @fade_placed = nil       # [layer, toward, amount] while a fade sits under a layer rather than over everything
           @names_above_placed_fade = {} # layer -> the names a fade under it leaves alone
@@ -470,6 +472,8 @@ module RubyGBA
               # Reserve the patch. `pixels` stays nil until the first save_region
               # fills it — a restore before any save has nothing to put back.
               @backing[n.name] = { width: n.width, height: n.height, pixels: nil }
+            when :color_list
+              @color_lists[n.name] = n
             when :object
               # Register the object, so present_objects can find its picture and the
               # variables holding where it is and whether it's shown.
@@ -606,6 +610,7 @@ module RubyGBA
           scroll_background: :exec_scroll_background,
           affine_background: :exec_affine_background,
           background_colors: :exec_background_colors,
+          color_list_holds: :exec_color_list_holds,
           scroll_rows: :exec_scroll_rows,
           camera: :exec_camera,
           fade: :exec_fade,
@@ -2004,9 +2009,24 @@ module RubyGBA
 
           bmp = @bitmaps.fetch(image)
           swapped = lists[which]
+          swapped = colors_held_by(swapped) if swapped.is_a?(Symbol)
           @recolor_maps[[image, swapped]] ||=
             Recolor.new(places: bmp.places, by_place: swapped,
                         by_color: bmp.places ? nil : color_swap_map(bmp.colors, swapped))
+        end
+
+        # THE COLOURS A NAMED LIST HOLDS NOW: the set the program last said, or the ones it was
+        # declared with — which is also what a number naming no set means.
+        def colors_held_by(name)
+          list = @color_lists.fetch(name) { raise ProgramError, "drawn with undeclared list of colors #{name.inspect}" }
+          which = @held_colors.fetch(name, Build::NO_RECOLOR)
+          which >= 0 && which < list.recolors.length ? list.recolors[which] : list.colors
+        end
+
+        # A list of colours holds the set numbered +which+ from now on. Nothing is painted
+        # here: everything drawn with the list reads it as it is next drawn.
+        def exec_color_list_holds(node)
+          @held_colors[node.name] = eval_value(node.which)
         end
 
         # A picture given as COLOURS has no places recorded, so its swap is read the only way

@@ -500,6 +500,7 @@ module RubyGBA
           next own if name.nil?
 
           drawn_from_it = @tile_pictures.select { |pose| @builder.list_drawn_from(pose) == own }
+          @builder.remember_background_draws_with(name, error_subject)
           @builder.colors_to_draw_with([name], poses: drawn_from_it, subject: error_subject).first
         end
       end

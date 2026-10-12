@@ -106,6 +106,7 @@ module RubyGBA
             def obj_palette_blob = screen.obj_palette_blob
             def obj_palette_units = screen.obj_palette_units
             def bg_recolor_restore_banks = screen.bg_recolor_restore_banks
+            def obj_recolor_restore_banks = screen.obj_recolor_restore_banks
             # Does the background colour table in the console change as the game runs — an area
             # walked into, or a scene that sends its own — so that a walk has to read the
             # originals of the one in place rather than the one sent at power-on?
@@ -179,12 +180,72 @@ module RubyGBA
           # the same way a layer's other colours do (see #emit_colors_into_bank), because a
           # plain copy into a screen that is meant to be dark would bring this scene's sprites
           # in at full brightness. It also says this table is the one to walk from now on.
-          def emit_send_scene_obj_palette(blob, units)
-            return @drawing.emit_plain_dma_blob(blob, OBJ_PALETTE, units) unless @palette_tint
+          #
+          # A list of colours that changes has a group in this table, and the table holds the
+          # colours the list was DECLARED with. So each such group is written again from the set
+          # its list holds now (see #emit_recolored_obj_banks). +scene+ is the one taking over.
+          def emit_send_scene_obj_palette(blob, units, scene)
+            unless @palette_tint
+              @drawing.emit_plain_dma_blob(blob, OBJ_PALETTE, units)
+              return emit_changed_obj_lists_again(up: scene)
+            end
 
             @emitter.emit_load_data_address(ACC, blob)
             @primitives.store_var(ACC, OBJ_TABLE_AT)
             emit_colors_into_bank(OBJ_PALETTE, units)
+            emit_recolored_obj_banks(up: scene)
+          end
+
+          # The same, for a caller that has just put the sprite colours back as they were drawn
+          # and walked nothing: the table every scene shows going up again on a change of
+          # screen, a scene's own going in by a plain copy. Nothing for a build with no list
+          # that changes.
+          def emit_changed_obj_lists_again(up:)
+            return if @layout.obj_recolor_restore_banks.empty?
+
+            emit_tint_shares_from_state
+            emit_recolored_obj_banks(up: up)
+          end
+
+          # AT POWER-ON, BEFORE ANYTHING READS THEM: no list of sprite colours has been told to
+          # hold anything, and no tint is in force. Written rather than assumed, since the
+          # console makes no promise about what is in its memory when it powers on — and both
+          # are read early. A game that starts on a tiled screen and changes screen kind sets
+          # its sprites up through the same code a change of screen does, which puts back the
+          # set each list holds (see Drawing#emit_objects_again), before the program's own
+          # first statement has run. A stale word there would copy sixteen colours from
+          # wherever it pointed, and nothing would ever put them right. Every copy of a set
+          # goes in through the tint in force, so a build that never tints reads that too.
+          # Nothing for a build with no list that changes.
+          def emit_changed_lists_at_power_on
+            lists = @layout.screen.color_lists
+            return if lists.empty?
+
+            emit_tint_state_init
+            @emitter.emit_number(ACC, 0)
+            lists.each_value { |list| @primitives.store_var(ACC, list.source_var) }
+          end
+
+          # PUT THE SET A CHANGING LIST NOW HOLDS INTO THE GROUP ITS SPRITES READ, through
+          # whatever tint is in force (see #emit_colors_into_bank for why). +list+ is where the
+          # list landed (see ScreenLayout::ChangingColors); the variable it names already holds
+          # where the set starts.
+          #
+          # A LIST ONE SCENE OWNS has its group only while that scene's sprite colours are the
+          # ones up, and another scene's colours sit there the rest of the time. So the write
+          # waits: the variable is kept either way, and the set goes in as the scene takes
+          # over (see #emit_send_scene_obj_palette).
+          def emit_changed_list_colors(list)
+            return emit_list_colors_into(list.group_at, list.source_var) unless list.scene
+
+            @drawing.scene_entry.emit_if_scene_up(:art, list.scene) do
+              emit_list_colors_into(list.group_at, list.source_var)
+            end
+          end
+
+          def emit_list_colors_into(dest, source_var)
+            @primitives.load_var(ACC, source_var)
+            emit_colors_into_bank(dest, COLORS_IN_A_BANK)
           end
 
           def initialize(emitter:, primitives:, lowering:, drawing:)
@@ -264,6 +325,7 @@ module RubyGBA
             emit_tint_shares(color, steps)
             tint_tables(mode).each { |blob, dest, units| emit_tint_table(blob, dest, units) }
             emit_recolored_banks # ...and put back what those walks wrote over
+            emit_recolored_obj_banks if walks_obj_table?(mode)
             @emitter.place_label(done)
           end
 
@@ -426,11 +488,26 @@ module RubyGBA
           # unknown, as in a tint, a scene's layer is written only while its scenery is the one
           # up.
           def emit_recolored_banks(up: :unknown)
-            @layout.bg_recolor_restore_banks.each do |dest, source_var, along, scene|
+            emit_recolored_banks_of(@layout.bg_recolor_restore_banks, :scenery, up)
+          end
+
+          # THE SAME AGREEMENT FOR SPRITES: a list of sprite colours that changes has a group of
+          # its own, and whatever has just rewritten the sprite colours — a tint's walk, a scene
+          # sending its table — put the colours the list was DECLARED with there. So each such
+          # group is written again from the set its list holds now. A list one scene owns is
+          # held to that scene the way a layer is, by whose sprite colours are up.
+          def emit_recolored_obj_banks(up: :unknown)
+            emit_recolored_banks_of(@layout.obj_recolor_restore_banks, :art, up)
+          end
+
+          # +marker+ is the note that says whose groups are up (see SceneEntry): the scenery's
+          # for a layer, the sprite pictures' for a list of sprite colours.
+          def emit_recolored_banks_of(banks, marker, up)
+            banks.each do |dest, source_var, along, scene|
               next if scene && up != :unknown && scene != up
 
               if scene && up == :unknown
-                @drawing.scene_entry.emit_if_scene_up(:scenery, scene) { emit_recolored_bank(dest, source_var, along) }
+                @drawing.scene_entry.emit_if_scene_up(marker, scene) { emit_recolored_bank(dest, source_var, along) }
               else
                 emit_recolored_bank(dest, source_var, along)
               end
@@ -490,6 +567,11 @@ module RubyGBA
             tables
           end
 
+          # Is the sprite colour table one of the tables a tint on this screen moves?
+          def walks_obj_table?(mode)
+            tint_tables(mode).any? { |blob, _dest, _units| blob == @layout.obj_palette_blob }
+          end
+
           # Every table this build has, whichever screen reads it.
           def all_tint_tables
             (tint_tables(IR::Modes::BUFFERED) + tint_tables(IR::Modes::TILED)).uniq
@@ -521,6 +603,7 @@ module RubyGBA
             @emitter.emit_number(ACC, 0)
             @primitives.store_var(ACC, TINT_STATE)
             tint_tables(mode).each { |blob, dest, units| emit_restore_palette_table(blob, dest, units) }
+            emit_changed_obj_lists_again(up: :unknown) if walks_obj_table?(mode)
             @emitter.place_label(skip)
           end
 

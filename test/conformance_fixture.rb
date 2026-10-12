@@ -285,12 +285,20 @@ module ConformanceFixture
                           # either does both through the same matrix.
                           angle: B.int(45), scale: B.int(B::SCALE_ONE * 3 / 2),
                           # ...drawn with another list of colours, picked by a number the
-                          # program works out, rather than its own.
-                          recolor: B.binop(:-, B.var_ref(:x), B.var_ref(:x)), recolors: [[0x0000, 0x7C00]],
+                          # program works out, rather than its own. The second it can be drawn
+                          # with is a list by name, whose colours change as the program runs.
+                          recolor: B.binop(:-, B.var_ref(:x), B.var_ref(:x)),
+                          recolors: [[0x0000, 0x7C00], :fixture_slot],
                           layer: :actors, # ...in front of the scenery,
                           # ...and put in the scenery's own layer by the number a variable
                           # holds — still drawn over that scenery, which it shares.
                           layers: [:scenery], layer_pick: :x),
+
+      # That list: the colours it holds at the start, and one other set. Told to hold the set
+      # a variable picks, which here names none of them, so it holds what it was declared
+      # with — what this pins is that every backend can declare such a list and be told.
+      B.color_list(:fixture_slot, colors: [0x0000, 0x03E0], recolors: [[0x0000, 0x001F]]),
+      B.color_list_holds(:fixture_slot, which: B.var_ref(:y)),
 
       B.present_objects([:hero_obj]),   # draw the declared objects for this frame
       B.save_region(:under, :x, :y),    # remember the pixels under a moving object

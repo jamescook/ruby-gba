@@ -149,6 +149,16 @@ module RubyGBA
           # Where a sprite's banks are kept, and which entry is its own colours.
           RecolorBanks = Data.define(:table, :own)
 
+          # WHERE A LIST OF COLOURS THAT CHANGES LANDED (see IR::Nodes::ColorList). +blob+ is the
+          # sets it can hold, laid end to end in the cartridge sixteen colours each, with the
+          # colours it was declared with last; +count+ is how many sets come before those.
+          # +group_at+ is where the group of sixteen its sprites read sits in the console's
+          # table of sprite colours — the list's alone, since the colours are written into it
+          # as the game runs. +source_var+ is the variable holding where the set in force
+          # starts. +scene+ is the scene whose table of sprite colours the group is in, or nil
+          # when it is in the one every scene shows.
+          ChangingColors = Data.define(:blob, :count, :group_at, :source_var, :scene)
+
           # Where a sprite's depths are kept, and which entry is the layer it was declared in.
           # +scene_var+, where the depths differ from screen to screen, is the variable that picks
           # the screen, and the table holds +scene_count+ rows for its values and one for any other.
@@ -245,6 +255,10 @@ module RubyGBA
             @obj_pictures = {}    # name -> its pictures, cut and encoded
             @scene_sends = {}     # scene -> what it sends as it takes over (see SceneSend)
             @placed_fade = PlacedFade.new(@picture, program)
+            # The lists of colours that change as the game runs, as declared; and where each
+            # one a sprite draws with landed (see #place_changing_color_lists).
+            @color_list_nodes = program.walk.select { |node| node.kind == :color_list }.to_h { |node| [node.name, node] }
+            @color_lists = {}
             # Each tile the game paints from a list, by its picture's name -> its run; and
             # where each run landed in video memory (see #note_painted_runs).
             runs = program.walk.select { |node| node.kind == :tile_run }
@@ -278,6 +292,15 @@ module RubyGBA
               end
             end
           end
+
+          # THE SAME FOR SPRITES: each group of sixteen that a list of colours which changes is
+          # written into, in the same four parts, so whatever rewrites the sprite colours — a
+          # tint, a scene sending its own — can put the set in force back.
+          def obj_recolor_restore_banks
+            @color_lists.each_value.map { |list| [list.group_at, list.source_var, 0, list.scene] }
+          end
+
+          attr_reader :color_lists # name -> where a changing list of sprite colours landed (see ChangingColors)
 
           attr_reader :picture, :screenfuls # how the picture stacks, whole and one screen at a time
           attr_reader :handover # what each scene puts up as it takes over (see IR::SceneHandover)
@@ -1717,15 +1740,18 @@ module RubyGBA
           # Drawing#emit_scene_art_upload). So the budget is one screen's, not the game's. A game
           # whose sprites belong to no scene has the one table, exactly as before.
           def build_shared_object_palette(nodes)
+            homes = changing_color_list_homes(nodes)
             everywhere = nodes.reject(&:scene)
-            @obj_banks = { nil => object_banks(everywhere) }
+            @obj_banks = { nil => object_banks(everywhere, lists: homes.select { |_name, scene| scene.nil? }.keys) }
             scene_palettes = {}
             nodes.filter_map(&:scene).uniq.each_with_index do |scene, index|
               in_scene = nodes.select { |node| node.scene == scene }
-              @obj_banks[scene] = object_banks(in_scene, after: @obj_banks[nil], scene: scene)
+              @obj_banks[scene] = object_banks(in_scene, after: @obj_banks[nil], scene: scene,
+                                                         lists: homes.select { |_name, home| home == scene }.keys)
               scene_palettes[scene] = :"__obj_palette_scene_#{index}"
             end
             nodes.each { |node| recolor_banks_fit!(node) }
+            place_changing_color_lists(homes)
 
             # Every table the same length, so walking the one on screen (a tint, a fade that moves
             # the colours) is the same walk whichever it is.
@@ -1742,8 +1768,55 @@ module RubyGBA
             end
           end
 
-          # The colour table +nodes+ draw from, going on from +after+ for a scene's own.
-          def object_banks(nodes, after: nil, scene: nil)
+          # WHICH TABLE EACH CHANGING LIST'S GROUP GOES IN: name -> the scene, or nil for the table
+          # every scene shows. A list only one scene's sprites draw with takes a group while
+          # that scene is up and gives it back to the others. One that sprites of several
+          # scenes draw with — or a sprite every scene shows — keeps one group throughout, so
+          # the colours it holds are in the same place whichever scene asks.
+          def changing_color_list_homes(nodes)
+            users = Hash.new { |hash, name| hash[name] = [] }
+            nodes.each do |node|
+              node.recolors.grep(Symbol).uniq.each { |name| users[declared_color_list!(name, node).name] << node.scene }
+            end
+            users.transform_values { |scenes| scenes.uniq.one? ? scenes.first : nil }
+          end
+
+          # The declaration of the changing list +name+ that +node+ is drawn with.
+          def declared_color_list!(name, node)
+            @color_list_nodes.fetch(name) do
+              raise LoweringError,
+                    "sprite object #{node.name.inspect} is drawn with undeclared list of colors #{name.inspect}"
+            end
+          end
+
+          # Lay each changing list's sets out in the cartridge and say where its group landed.
+          def place_changing_color_lists(homes)
+            homes.each do |name, scene|
+              node = @color_list_nodes.fetch(name)
+              blob = :"__color_sets_#{name}"
+              @blobs[blob] = (node.recolors + [node.colors]).flat_map { |set| pad_to_bank(set) }.pack("v*")
+              keep_unpacked!(blob) # picked out of by a number the game works out, so it stays where it is put
+              bank = @obj_banks.fetch(scene).placement(color_list_key(name)).bank
+              @color_lists[name] = ChangingColors.new(blob: blob, count: node.recolors.length,
+                                                      group_at: OBJ_PALETTE + (bank * PaletteBanks::BANK_SIZE * 2),
+                                                      source_var: IR::Nodes::ColorList.source_var(name), scene: scene)
+            end
+          end
+
+          # What a changing list's group is asked for by.
+          def color_list_key(name) = [:color_list, name]
+
+          # What the group one of a sprite's other lists landed in is asked for by: the list's
+          # own where it is one that changes, since every sprite drawn with it reads the same
+          # group, and otherwise the sprite's.
+          def recolor_key(node, index)
+            list = node.recolors[index]
+            list.is_a?(Symbol) ? color_list_key(list) : [:recolor, node.name, index]
+          end
+
+          # The colour table +nodes+ draw from, going on from +after+ for a scene's own. +lists+
+          # are the changing lists whose groups go in this table.
+          def object_banks(nodes, after: nil, scene: nil, lists: [])
             pictures = nodes.map do |node|
               colors = []
               node.poses.each do |image|
@@ -1755,7 +1828,7 @@ module RubyGBA
               end
               PaletteBanks::Picture.new(key: node.name, colors: colors, authored: authored_palette(node))
             end
-            pictures += recolor_pictures(nodes)
+            pictures += recolor_pictures(nodes) + changing_list_pictures(lists)
             PaletteBanks.new(pictures, after: after)
           rescue PaletteBanks::Overflow
             raise LoweringError, object_colors_overflow_message(pictures, scene)
@@ -1773,9 +1846,23 @@ module RubyGBA
           # thirty slots of a pool) that name the same list share its bank.
           def recolor_pictures(nodes)
             nodes.flat_map do |node|
-              node.recolors.each_with_index.map do |list, index|
+              node.recolors.each_with_index.filter_map do |list, index|
+                next if list.is_a?(Symbol) # a list that changes has one group, its own (see below)
+
                 PaletteBanks::Picture.new(key: [:recolor, node.name, index], colors: [], authored: list)
               end
+            end
+          end
+
+          # A LIST THAT CHANGES TAKES ONE GROUP, AND SHARES IT WITH NOTHING. Its colours are
+          # written into the group as the game runs, so anything else reading those sixteen —
+          # a picture that happens to use the same colours, another list declared the same —
+          # would change colour with it. However many sets pass through it, and however many
+          # sprites draw with it, it is the one group.
+          def changing_list_pictures(names)
+            names.map do |name|
+              PaletteBanks::Picture.new(key: color_list_key(name), colors: [],
+                                        authored: @color_list_nodes.fetch(name).colors, keeps_to: color_list_key(name))
             end
           end
 
@@ -1785,7 +1872,7 @@ module RubyGBA
           def recolor_banks_fit!(node)
             return if node.recolors.empty?
 
-            keys = [node.name, *node.recolors.each_index.map { |index| [:recolor, node.name, index] }]
+            keys = [node.name, *node.recolors.each_index.map { |index| recolor_key(node, index) }]
             return if keys.all? { |key| obj_banks_for(node).placement(key).narrow? }
 
             raise LoweringError,
@@ -1793,7 +1880,8 @@ module RubyGBA
                   "#{PaletteBanks::BANKS} groups of colors the console holds for sprites. Each different list " \
                   "takes one group, and so does each sprite with different colors.#{shared_sprites_note(node.scene)} " \
                   "To fix this, tell sprites to draw_with fewer different lists, or give more sprites the same " \
-                  "`colors:` list."
+                  "`colors:` list. Or tell the sprites to draw_with one list. Then change the colors that " \
+                  "list holds with `recolor`."
           end
 
           # Which sprites ran out. Only one scene's sprites are on screen at a time, so a scene
@@ -1819,7 +1907,7 @@ module RubyGBA
           def sprite_recolor_bank_table(node)
             return nil if node.recolors.empty?
 
-            banks = [*node.recolors.each_index.map { |index| obj_banks_for(node).placement([:recolor, node.name, index]).bank },
+            banks = [*node.recolors.each_index.map { |index| obj_banks_for(node).placement(recolor_key(node, index)).bank },
                      obj_banks_for(node).placement(node.name).bank]
             blob = :"__recolor_banks_#{banks.join('_')}"
             @blobs[blob] = banks.map { |bank| bank << OBJ_BANK_SHIFT }.pack("V*")

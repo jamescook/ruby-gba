@@ -334,6 +334,41 @@ module RubyGBA
         operands color: :color
       end
 
+      # A NAMED LIST OF COLOURS THAT CAN BE TOLD TO HOLD OTHER COLOURS as the program runs.
+      # An Object names one in its +recolors+ where a plain list of colours would go, and is
+      # then drawn in whatever the list holds at that moment — so one list dresses many
+      # different things in turn.
+      #
+      # +colors+ is what it holds when the program starts, the see-through place first.
+      # +recolors+ is every other set of colours it can be told to hold, in the order
+      # ColorListHolds counts them. A list of colours nothing ever changes has no node at
+      # all: an Object carries its colours outright.
+      class ColorList
+        include Node
+        kind :color_list
+        declaration!
+        category :data
+        operands name: :name, colors: :list, recolors: :list
+
+        # A variable for a target that keeps the colours somewhere of its own and has to
+        # put them back there — after it has rewritten that place for some other reason —
+        # to say which set is in force. Nought is "nothing has been said yet"; what goes
+        # there otherwise is that target's business alone. Named here so the program and
+        # the target name the same one.
+        def self.source_var(name) = :"__colors_#{name}_at"
+      end
+
+      # A ColorList holds another set of colours from now on, and everything drawn with it
+      # shows them. +which+ counts from 0 through the list's +recolors+ and may be worked out
+      # as the program runs; a number naming none of them is the colours it was declared
+      # with.
+      class ColorListHolds
+        include Node
+        kind :color_list_holds
+        category :draw
+        operands name: :name, which: :value
+      end
+
       class Copy
         include Node
         kind :copy
@@ -695,7 +730,9 @@ module RubyGBA
         # +recolors+ is every other list of colours it can be drawn with, and +recolor+ says
         # which of them it is drawn with now, counting from 0; any other number draws it in
         # its own. A pixel keeps its place in the picture's own list, so drawn with another
-        # list it shows whatever colour that list holds at the same place.
+        # list it shows whatever colour that list holds at the same place. Each entry is the
+        # colours themselves, or the name of a ColorList, whose colours can change as the
+        # program runs.
         # +name+ is this thing's own identity, handed out as the program is built, and
         # +declared+ is what the AUTHOR called it. They differ because one author's name can
         # stand for many of these — every slot of a pool is one — and because some are drawn

@@ -8,6 +8,7 @@ require_relative "builder/sound"
 require_relative "builder/music"
 require_relative "builder/text"
 require_relative "builder/images"
+require_relative "builder/color_lists"
 require_relative "builder/sprites"
 require_relative "builder/sprite_import"
 require_relative "builder/input"
@@ -63,6 +64,7 @@ module RubyGBA
     include Music      # song, play_song, stop_music
     include Text       # draw_text, draw_number
     include Images     # image, blit, rgb, rgb8, color
+    include ColorLists # recolor (a list of sprite colours that holds other colours as the game runs)
     include Sprites    # sprite (software + hardware, facing/frames/clip animation, hitboxes)
     include SpriteImport # sprite art adapters (sheets, Aseprite) feeding the sprite builder
     include Input      # if_held, if_pressed, held, pressed
@@ -126,6 +128,9 @@ module RubyGBA
       @pictures = {}           # image name → its {IR::Assets::Image}, so `mirror` can turn one round
       @turned_images = {}      # [:mirrored or :upside_down, image name] → the turned picture's name, so turning one twice makes one picture
       @color_lists = {}        # `colors` name → its colours, see-through first, for a sprite told to draw with it
+      @changing_color_lists = {} # `colors` name → what the build keeps about a list told to hold other colours (see ColorLists)
+      @sprite_recolors = []    # every sprite's and pool's other colours, to find who draws with a changing list
+      @lists_backgrounds_draw_with = {} # `colors` name → the background drawn with it, which a changing list cannot reach
       @tilesets = {}           # tileset name → { by_key:, by_number:, tile_w:, tile_h:, solid_images: } — a tile-image map addressable by the tileset's own keys or by number (a sheet cell)
       @screen_mode = nil       # the current display mode (set by `screen`), so `sprite` picks its backend
       @sprites = []            # live software sprites, repainted after every wait_vblank
@@ -567,6 +572,7 @@ module RubyGBA
       refuse_filled_shifted_lists!
       finalize_tile_copies
       finalize_background_colors
+      finalize_changing_color_lists
       finalize_background_affine
       finalize_layer_blend
       finalize_per_frame_routines
@@ -1059,19 +1065,21 @@ module RubyGBA
       @backgrounds.select { |_name, background| yield(background) }
     end
 
-    # PUT A PER-BACKGROUND WRITE IN THE GAP BETWEEN FRAMES, at every frame boundary there
-    # is — the shared half of the three passes above and below, which differ only in which
-    # backgrounds they are about and what each one's write says.
+    # PUT A WRITE PER THING IN THE GAP BETWEEN FRAMES, at every frame boundary there is — the
+    # shared half of the passes above and below, which differ only in what they are about
+    # (the backgrounds that scroll, the ones handed a map, the lists of colours that change)
+    # and what each one's write says. +things+ is those, by name; the block is handed each
+    # name and what is kept about it, and gives back the write.
     #
     # +inline_nodes+ are the writes recorded where the author called for them, dropped here
     # because there is a better place to put them. A program with no frame boundary keeps
     # them: nothing is pacing it, so there is no gap to move them to.
     #
-    # The backgrounds are written back to front, because each write is inserted directly
-    # after the wait and so pushes the one before it further along — reversing puts them
-    # back in the order they were declared.
-    def write_between_frames(inline_nodes, backgrounds)
-      return if backgrounds.empty? || @frame_boundaries.empty?
+    # They are written back to front, because each write is inserted directly after the wait
+    # and so pushes the one before it further along — reversing puts them back in the order
+    # they were declared.
+    def write_between_frames(inline_nodes, things)
+      return if things.empty? || @frame_boundaries.empty?
 
       inline_nodes.each { |node| node.parent&.children&.delete(node) }
 
@@ -1080,12 +1088,24 @@ module RubyGBA
         at = container&.children&.index(wait_node)
         next unless at
 
-        backgrounds.reverse_each do |name, background|
-          node = yield(name, background)
+        things.reverse_each do |name, thing|
+          node = yield(name, thing)
           container.children.insert(at + 1, node)
           node.parent = container
         end
       end
+    end
+
+    # A WRITE MADE ONLY ON A FRAME WHERE THE ANSWER CHANGED. +said+ is the variable holding
+    # what the game last said, and +in_force+ the one holding what the write last put in
+    # place; they differ exactly on the frame to write on, and the write then makes them
+    # agree. See #finalize_background_maps for why it is two variables and not a write
+    # where the game said it.
+    def write_if_changed(said:, in_force:, write:)
+      # A fresh var_ref each time: no node is ever shared between two places in the tree.
+      Build.if_(Build.binop(:!=, Build.var_ref(said), Build.var_ref(in_force)),
+                write,
+                Build.set(in_force, Build.var_ref(said)))
     end
 
     # COPY A WHOLE MAP INTO A BACKGROUND'S CELLS, in the gap between frames, and only on a
@@ -1105,10 +1125,8 @@ module RubyGBA
     # differ exactly on the frame the answer changed, which is the frame to copy on.
     def finalize_background_maps
       write_between_frames(@inline_map_nodes, backgrounds_that(&:swaps_maps?)) do |name, background|
-        # A fresh var_ref each time: no node is ever shared between two places in the tree.
-        Build.if_(Build.binop(:!=, Build.var_ref(background.shown_map), Build.var_ref(background.live_map)),
-                  Build.show_map(name, which: Build.var_ref(background.shown_map)),
-                  Build.set(background.live_map, Build.var_ref(background.shown_map)))
+        write_if_changed(said: background.shown_map, in_force: background.live_map,
+                         write: Build.show_map(name, which: Build.var_ref(background.shown_map)))
       end
     end
 
@@ -1121,9 +1139,8 @@ module RubyGBA
     # reading shows the top of the screen in one set of colours and the bottom in another.
     def finalize_background_colors
       write_between_frames(@inline_color_nodes, backgrounds_that(&:draws_with_colors?)) do |name, background|
-        write = Build.if_(Build.binop(:!=, Build.var_ref(background.shown_colors), Build.var_ref(background.live_colors)),
-                          Build.background_colors(name, which: Build.var_ref(background.shown_colors)),
-                          Build.set(background.live_colors, Build.var_ref(background.shown_colors)))
+        write = write_if_changed(said: background.shown_colors, in_force: background.live_colors,
+                                 write: Build.background_colors(name, which: Build.var_ref(background.shown_colors)))
         # Gated to the owning scene, as a scroll is: a scene's backgrounds draw from colour
         # groups other scenes use while they are up, so a list asked for from elsewhere waits
         # until its scene is back, and goes in then.

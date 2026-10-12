@@ -94,6 +94,9 @@ module RubyGBA
         copy_tiles: :free,
         copy_owed_tiles: :free,
         background_colors: :free,
+        # ...or a list of colours holding other colours, which reaches every sprite drawn
+        # with it, at whatever depth each one is.
+        color_list_holds: :free,
         affine_background: :free,
         scroll_rows: :free,
         blit_pose: :free,

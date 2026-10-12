@@ -668,6 +668,19 @@ module RubyGBA
         Nodes.build(:background_colors, name: name, which: to_value_node(which))
       end
 
+      # A named list of colours that can be told to hold other colours as the program runs
+      # (see Nodes::ColorList): +colors+ at the start, and +recolors+ the other sets.
+      def color_list(name, colors:, recolors: [])
+        Nodes.build(:color_list, name: name, colors: colors, recolors: recolors)
+      end
+
+      # The named list of colours holds the set numbered +which+ from now on, and everything
+      # drawn with the list shows it. +which+ counts from 0 through the list's other sets and
+      # is a value operand; a number naming none of them is the colours it was declared with.
+      def color_list_holds(name, which:)
+        Nodes.build(:color_list_holds, name: name, which: to_value_node(which))
+      end
+
       # Turn and resize the named background as a whole, this frame — the affine
       # counterpart to scroll_background's plain pan. +angle+ is degrees clockwise from
       # upright; +scale+ is 1.0 at the size it was drawn, following the same value

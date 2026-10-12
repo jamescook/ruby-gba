@@ -122,6 +122,50 @@ module RubyGBA
           # because nothing at all can change once its sprites are up.
           NOTHING_TO_WATCH = 0
 
+          # A LIST OF SPRITE COLOURS HOLDS ANOTHER SET: put that set into the group of sixteen
+          # the sprites drawn with the list read.
+          #
+          # Not a sprite is touched. A sprite's row says which group its pixels pick their
+          # colours from, and every sprite drawn with this list names the same one — so
+          # changing the sixteen entries there changes all of them at once, and costs the same
+          # however many there are. That is what lets one group dress a goblin in one room and
+          # a bat in the next: the group is a slot, and this fills it.
+          #
+          # WHY THE GROUP IS THE LIST'S OWN: the write lands in the table, where anything else
+          # reading those sixteen would change colour too (see
+          # ScreenLayout#changing_list_pictures).
+          #
+          # WHEN it happens is decided above this: the framework puts the copy in the gap
+          # between frames, which is where the sprites' rows are written too, on the frame the
+          # answer changed and no other (see Builder::ColorLists).
+          #
+          # A number naming none of the sets hands over the colours the list was declared
+          # with, which sit last in the blob — so that case is a conditional move rather than a
+          # branch. Where the set starts is remembered as well as written, because a tint, a
+          # scene taking over and a change of screen all put the declared colours back in this
+          # group, and each then reads this to put the set in force back (see
+          # PaletteTint#emit_recolored_obj_banks).
+          def emit_color_list_holds(node)
+            list = @layout.screen.color_lists[node.name]
+            return if list.nil? # no sprite on a tiled screen draws with it
+
+            @lowering.value(node.which)
+            # One unsigned compare catches both ends: a negative number reads as a very large
+            # one, so anything outside 0...count fails the same test.
+            emit_number(TMP, list.count)
+            emit(ASM.cmp_reg(ACC, TMP))
+            emit(ASM.mov_reg_cond(:hs, ACC, TMP))
+            emit(ASM.lsl_imm(TMP, ACC, COLOR_SET_SHIFT))
+            emit_load_data_address(ACC, list.blob)
+            emit(ASM.add_reg(ACC, ACC, TMP))
+            store_var(ACC, list.source_var)
+            @palette_tint.emit_changed_list_colors(list)
+          end
+
+          # A set is sixteen colours of two bytes each, so the set numbered N starts 32 * N
+          # along the blob.
+          COLOR_SET_SHIFT = 5
+
           # Draw this frame's sprites: write each named object's current position and
           # visibility into its slot in the sprite table. Runs right after the vblank
           # (when changing the table is safe), so a moving sprite lands at its new spot

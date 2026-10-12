@@ -450,6 +450,7 @@ module RubyGBA
             copy_tiles: @background_drawing.method(:emit_copy_tiles),
             copy_owed_tiles: @background_drawing.method(:emit_copy_owed_tiles),
             background_colors: @background_drawing.method(:emit_background_colors),
+            color_list_holds: @sprite_drawing.method(:emit_color_list_holds),
             present_objects: @sprite_drawing.method(:emit_present_objects), save_region: @drawing.method(:emit_save_region),
             restore_region: @drawing.method(:emit_restore_region), enable_sound: @audio.method(:emit_enable_sound),
             beep: @audio.method(:emit_beep),
@@ -771,6 +772,7 @@ module RubyGBA
           emit_mixer_boot if @mixer.plays_samples? # start the sound DMA + clock; voices added by `play`
           emit_irq_setup if uses_irq? # arm the interrupts the program needs (VBlank and/or timers)
           emit_input_init if @uses_pressed
+          @palette_tint.emit_changed_lists_at_power_on # before the screen is set up, which may read them
           @drawing.emit_boot_screen if @modes.switched_per_scene? # set the boot mode (+ palette for buffered)
           # Upload the tiled assets once at boot only when the program stays in tiled
           # mode. When it crosses the bitmap/tiled boundary, a bitmap scene overwrites

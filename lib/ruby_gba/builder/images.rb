@@ -271,7 +271,10 @@ module RubyGBA
       # whites), so this is refused rather than drawn wrong; art given as places says which
       # place each pixel meant and is never in doubt, and so is a picture painted from a list,
       # whose bytes are places.
-      def refuse_ambiguous_color_places!(own:, swapped:, name:, poses:, subject:)
+      #
+      # +through+ names the list the sprite really draws with, where +name+ is a set that
+      # list is told to hold (see ColorLists#recolor) rather than a list the sprite named.
+      def refuse_ambiguous_color_places!(own:, swapped:, name:, poses:, subject:, through: nil)
         guessed = poses.reject { |pose| @painted_colors.key?(pose) || @pictures.fetch(pose).places }
         return if guessed.empty?
 
@@ -283,13 +286,14 @@ module RubyGBA
 
         raise ArgumentError,
               ambiguous_places_message(color: color, places: places, list: name,
-                                   picture: guessed.first, subject: subject)
+                                   picture: guessed.first, subject: subject, through: through)
       end
 
-      def ambiguous_places_message(color:, places:, list:, picture:, subject:)
+      def ambiguous_places_message(color:, places:, list:, picture:, subject:, through: nil)
         spelled = places.map { |place| "place #{place}" }
         both = "#{spelled[0..-2].join(', ')} and #{spelled.last}"
-        "#{subject} was told to draw_with :#{list}. Its own list has #{Graphics::Color.name_for(color)} at " \
+        told = through ? "draws with :#{through}, which was told to hold :#{list}" : "was told to draw_with :#{list}"
+        "#{subject} #{told}. Its own list has #{Graphics::Color.name_for(color)} at " \
           "#{both}, and :#{list} has a different color at each of those places. The picture holds a " \
           "color for each pixel, not a place, so nothing records which place a pixel came from. To fix " \
           "this, give :#{list} one color for #{both}. Or give :#{picture} its pixels as places: " \

@@ -346,13 +346,27 @@ module RubyGBA
           def enter_tiled_mode(held = 0)
             @background_drawing.reset_bg2_affine_if_needed
             @background_drawing.emit_boot_backgrounds if @layout.tiled && !@layout.screen.backgrounds.empty? # shared BG palette + tile pictures
-            @sprite_drawing.emit_boot_objects if @layout.has_objects                             # sprite palette + tiles, and clear OAM
+            emit_objects_again
             @layer_blend.emit_restore_layer_blend if @layer_blend.see_through?     # ...and which one is see-through
             value = tiled_dispcnt
             value |= OBJ_ENABLE | OBJ_1D_MAP if @layout.has_objects
             @emitter.write_reg16(REG_DISPCNT, value | held)
             @primitives.store_word_immediate(MODE_TILED, @primitives.var_addr(MODE_STATE))
             @scene_entry.emit_clear_used_markers # a new display: nothing any scene put up is there
+          end
+
+          # Send the sprites' colours and pictures again and clear their table, coming back to a
+          # screen that draws sprites from one that painted over the memory they live in. The
+          # colours that go up are the ones the game was built with, so a list of sprite colours
+          # that has been told to hold others since is given them again. A game that starts on
+          # such a screen comes through here at power-on too, before its own first statement,
+          # which is why what this reads is written before the screen is set up at all (see
+          # PaletteTint#emit_changed_lists_at_power_on).
+          def emit_objects_again
+            return unless @layout.has_objects
+
+            @sprite_drawing.emit_boot_objects # sprite palette + tiles, and clear the sprite table
+            @palette_tint.emit_changed_obj_lists_again(up: nil)
           end
 
           # Switch the hardware into the affine layer (Mode 2): re-upload the shared BG
@@ -364,7 +378,7 @@ module RubyGBA
           def enter_affine_mode(held = 0)
             @background_drawing.reset_bg2_affine_matrix # the one-time "no turn, no resize yet" starting matrix
             @background_drawing.emit_boot_backgrounds if @layout.tiled && !@layout.screen.backgrounds.empty?
-            @sprite_drawing.emit_boot_objects if @layout.has_objects
+            emit_objects_again
             @layer_blend.emit_restore_layer_blend if @layer_blend.see_through?
             value = MODE_2 | BG2_ENABLE
             value |= OBJ_ENABLE | OBJ_1D_MAP if @layout.has_objects
@@ -590,7 +604,7 @@ module RubyGBA
             @scene_entry.emit_once_on_arrival(:art, name) do
               # Its colours first: the groups its sprites name are this scene's now (see
               # ScreenLayout#build_shared_object_palette).
-              @palette_tint.emit_send_scene_obj_palette(colors, @layout.screen.obj_palette_units) if colors
+              @palette_tint.emit_send_scene_obj_palette(colors, @layout.screen.obj_palette_units, name) if colors
               art.each { |blob, at, units| @uploads.emit_dma_blob(blob, SpriteDrawing::OBJ_TILE_BASE + (at * 32), units * 16) }
               @sprite_drawing.emit_reset_resident_frames(rooms)
               # A picture the game paints goes up from its list as it is now: the scene before
