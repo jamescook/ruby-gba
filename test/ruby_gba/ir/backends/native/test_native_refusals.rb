@@ -100,15 +100,6 @@ class TestNativeRefusals < Minitest::Test
     end
   end
 
-  def test_a_turning_sprite_is_refused_by_name
-    assert_refused_picture(/turns or resizes/) do
-      screen :tiled
-      image :arrow, "#" => :red do "########\n" * 8 end
-      arrow = sprite :arrow, at: [10, 10]
-      game_loop { arrow.turn 5 }
-    end
-  end
-
   # The desktop build checks a game the way the cartridge build does, so a game the console
   # would refuse is refused here too, by the same friendly error.
   def test_a_game_the_cartridge_build_refuses_is_refused_for_the_desktop

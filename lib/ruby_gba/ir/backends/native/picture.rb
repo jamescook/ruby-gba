@@ -67,7 +67,6 @@ module RubyGBA
               refuse_picture!("a frame that ends inside an `inside` block")
             end
             @stacking.scenery.each { |bg| refuse_unsupported_background!(bg) }
-            @objects.each_value { |obj| refuse_unsupported_object!(obj) }
           end
 
           # Whether a frame can end while +node+ is running: it waits for the screen itself, or
@@ -85,12 +84,6 @@ module RubyGBA
 
           def refuse_unsupported_background!(bg)
             refuse_picture!("a background drawn in other colors (#{bg.name})") unless Array(bg.recolors).empty?
-          end
-
-          def refuse_unsupported_object!(obj)
-            return if constant?(obj.angle, 0) && constant?(obj.scale, Build::SCALE_ONE)
-
-            refuse_picture!("a sprite that turns or resizes (#{obj.declared})")
           end
 
           def refuse_picture!(what)
@@ -321,9 +314,13 @@ module RubyGBA
           end
 
           # Any of a sprite's pictures says how big a patch it covered; the interpreter reads
-          # the first (Reference#restore_scene_rect).
+          # the first (Reference#restore_scene_rect). One that turns or resizes covered more,
+          # and how much more depends on whether its size ever changes.
           def sprite_removal(obj)
-            eval_call("rg_object_take_off", sprite_number(obj), C::Int.new(image_number(obj.poses.first)))
+            patch = [sprite_number(obj), C::Int.new(image_number(obj.poses.first))]
+            return eval_call("rg_object_take_off", *patch) unless turns_or_resizes?(obj)
+
+            eval_call("rg_object_take_off_turned", *patch, yes_or_no(!constant?(obj.scale, Build::SCALE_ONE)))
           end
 
           # Reference#objects_on_screen: a sprite is drawn when it is switched on and its pose
@@ -331,12 +328,20 @@ module RubyGBA
           def sprite_placement(obj)
             pose = local_name("pose")
             in_range = call("rg_both", call("rg_ge", pose, C::Int.new(0)), call("rg_lt", pose, C::Int.new(obj.poses.length)))
-            add = eval_call("rg_objects_add", sprite_number(obj), picture_drawn(obj, pose), value(obj.x), value(obj.y),
-                            level_drawn_at(obj))
+            placed = [sprite_number(obj), picture_drawn(obj, pose), value(obj.x), value(obj.y), level_drawn_at(obj)]
+            add = if turns_or_resizes?(obj)
+                    eval_call("rg_objects_add_turned", *placed, value(obj.angle), value(obj.scale))
+                  else
+                    eval_call("rg_objects_add", *placed)
+                  end
             C::If.new(condition: call("rg_eq", value(obj.active), C::Int.new(1)),
                       body: [C::Block.new([C::Local.new(name: pose, value: value(obj.pose)),
                                            C::If.new(condition: in_range, body: [add])])])
           end
+
+          # Reference#object_transformed?: a sprite turns or resizes unless both its angle and
+          # its size are still the numbers every sprite starts with.
+          def turns_or_resizes?(obj) = !(constant?(obj.angle, 0) && constant?(obj.scale, Build::SCALE_ONE))
 
           def sprite_number(obj) = C::Int.new(@sprites.fetch(obj.name))
 

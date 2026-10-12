@@ -9,7 +9,7 @@ require_relative "../../examples/bird"
 # Proves it builds a clean ROM and the bird actually renders over the sky, on the
 # interpreter oracle and on the console.
 class TestBirdExample < Minitest::Test
-  runs_on :reference
+  runs_on :reference, :native
 
   SKY = RubyGBA::Graphics::Color.rgb(12, 18, 28) # the background tile color
 
@@ -29,7 +29,7 @@ class TestBirdExample < Minitest::Test
   end
 
   def test_the_bird_renders_on_the_interpreter
-    interp = Reference.new.run(Bird.program, frames: 3)
+    interp = game_player.run(Bird.program, frames: 3)
     assert bird_over_sky?(->(x, y) { interp.screen.pixel(x, y) }), "the bird should be drawn over the sky"
   end
 
@@ -56,7 +56,7 @@ class TestBirdExample < Minitest::Test
   # The size the console is being told to draw the bird at, as the multiple the example
   # writes — read off the variable the pulse walks.
   def drawn_size(frames)
-    interp = Reference.new.run(Bird.program, frames: frames, max_steps: 50_000_000)
+    interp = game_player.run(Bird.program, frames: frames, max_steps: 50_000_000)
     interp[:__obj1_scale] / RubyGBA::IR::Build::SCALE_ONE.to_f
   end
 end

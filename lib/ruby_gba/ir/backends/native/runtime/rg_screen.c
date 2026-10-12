@@ -6,8 +6,7 @@
  * What is NOT here is refused when the game is built rather than drawn wrongly (see
  * Picture#refuse_unsupported_picture! and Lowering::NOT_LOWERED_YET, which are the whole list):
  * scenery that bends, is drawn in other colors or is painted from a list; a see-through layer; a
- * fade placed in the stack; sprites that turn or resize; and a frame that ends while drawing is
- * held inside an area.
+ * fade placed in the stack; and a frame that ends while drawing is held inside an area.
  *
  * A sprite's pictures arrive ready to draw: which of its pixels show, and the colors of each
  * list it can be drawn with, are worked out when the game is built (see native/picture.rb).
@@ -92,8 +91,9 @@ static background_scroll scrolls[RG_MAX_BACKGROUNDS];
 typedef struct { int32_t turned, angle, size, pivot_x, pivot_y; } background_turn;
 static background_turn turns[RG_MAX_BACKGROUNDS];
 
-/* The sprites on screen this frame: being said (drawing), and as the last rebuild draws them. */
-typedef struct { int32_t sprite, image, x, y, level; } placed_object;
+/* The sprites on screen this frame: being said (drawing), and as the last rebuild draws them.
+ * One that turns or resizes carries its angle and its size for this frame. */
+typedef struct { int32_t sprite, image, x, y, level, turns, angle, size; } placed_object;
 static placed_object drawing[RG_MAX_SPRITES], layer[RG_MAX_SPRITES];
 static int32_t drawing_count, layer_count;
 
@@ -603,6 +603,41 @@ static void blit_image(int32_t image, int32_t x, int32_t y) {
     }
 }
 
+/* Reference#blit_image_transformed: a picture turned +angle+ degrees clockwise and drawn at
+ * +size+, about its own middle, its top left as drawn at (x, y).
+ *
+ * The console does not turn the picture and stamp it down. It walks the patch of screen the
+ * sprite can cover and, for each pixel of it, works BACK through the turn to the pixel of the
+ * picture that lands there; one that falls outside the picture is not drawn. The patch is twice
+ * the picture each way, centered on it, so a corner swung out by the turn has room, and a
+ * picture grown past twice its size is cut off at that box. A screen pixel is taken at its whole
+ * coordinate and the answer rounded down, which is what puts every edge pixel where the other
+ * backends put it. */
+static void blit_image_turned(int32_t image, int32_t x, int32_t y, int32_t angle, int32_t size) {
+  picture art = picture_of(image);
+  int64_t width = art.width, height = art.height, one_th = rg_game_turn_rules[1];
+  int64_t turn_cos, turn_sin;
+  affine_matrix((int32_t)floor_mod(angle, 360), size, &turn_cos, &turn_sin);
+  int64_t left = (int64_t)x - width / 2, top = (int64_t)y - height / 2;
+  for (int64_t iy = 0; iy < height * 2; iy++) {
+    int64_t dy = iy - height;
+    for (int64_t ix = 0; ix < width * 2; ix++) {
+      int64_t dx = ix - width;
+      int64_t from_x = floor_div(turn_cos * dx + turn_sin * dy, one_th) + width / 2;
+      int64_t from_y = floor_div(-turn_sin * dx + turn_cos * dy, one_th) + height / 2;
+      if (from_x < 0 || from_x >= width || from_y < 0 || from_y >= height) continue;
+      int32_t color = art.pixels[from_y * width + from_x];
+      if (color != RG_NOT_DRAWN) set_pixel(left + ix, top + iy, color);
+    }
+  }
+}
+
+/* Reference#draw_object and #paint_snapshot_object */
+static void draw_placed(const placed_object *placed) {
+  if (placed->turns) blit_image_turned(placed->image, placed->x, placed->y, placed->angle, placed->size);
+  else blit_image(placed->image, placed->x, placed->y);
+}
+
 static int32_t rebuilt_whole(void) { return rg_game_picture_sizes[RG_SIZE_REBUILT_WHOLE]; }
 
 /* Reference#scene_framebuffer: the backdrop, and every background showing stamped over it. It is
@@ -658,25 +693,73 @@ static void fault_unless_sprite(int32_t sprite) {
   if (sprite < 0 || sprite >= RG_MAX_SPRITES) rg_fault("sprite number %d is not one of the %d there is room for", sprite, RG_MAX_SPRITES);
 }
 
-/* Reference#restore_scene_rect and #restore_patch: the scenery put back where this sprite was
- * last drawn. All of a sprite's pictures are one size, so any of them says how big the patch is. */
-void rg_object_take_off(int32_t sprite, int32_t image) {
-  fault_unless_sprite(sprite);
-  drawn_place *place = &last_drawn[sprite];
-  if (!place->drawn) return;
-  place->drawn = 0;
-  picture art = picture_of(image);
-  for (int32_t row = 0; row < art.height; row++)
-    for (int32_t col = 0; col < art.width; col++) {
-      int64_t x = (int64_t)place->x + col, y = (int64_t)place->y + row;
+/* Reference#restore_patch: the scenery put back over a patch of the picture. */
+static void restore_patch(int64_t left, int64_t top, int64_t width, int64_t height) {
+  for (int64_t row = 0; row < height; row++)
+    for (int64_t col = 0; col < width; col++) {
+      int64_t x = left + col, y = top + row;
       if (on_screen(x, y)) set_pixel(x, y, scenery[y * RG_SCREEN_WIDTH + x]);
     }
 }
 
-void rg_objects_add(int32_t sprite, int32_t image, int32_t x, int32_t y, int32_t level) {
+/* Where a sprite was last drawn straight onto the picture, forgotten as it is handed over; NULL
+ * when it is not on the picture. */
+static const drawn_place *place_taken_off(int32_t sprite) {
+  fault_unless_sprite(sprite);
+  drawn_place *place = &last_drawn[sprite];
+  if (!place->drawn) return NULL;
+  place->drawn = 0;
+  return place;
+}
+
+/* Reference#restore_scene_rect: the scenery put back where this sprite was last drawn. All of a
+ * sprite's pictures are one size, so any of them says how big the patch is. */
+void rg_object_take_off(int32_t sprite, int32_t image) {
+  const drawn_place *place = place_taken_off(sprite);
+  if (!place) return;
+  picture art = picture_of(image);
+  restore_patch(place->x, place->y, art.width, art.height);
+}
+
+/* The whole number whose square is the largest not over +value+ (Ruby's Integer.sqrt). */
+static int64_t whole_root(int64_t value) {
+  int64_t root = 0;
+  while ((root + 1) * (root + 1) <= value) root++;
+  return root;
+}
+
+/* Reference#restore_scene_rect and #transformed_footprint, for a sprite that turns or resizes.
+ * The patch has to hold the picture at whatever angle and size it was last drawn, since the
+ * putting back cannot depend on knowing which. One that only turns reaches no further from its
+ * middle than half its own diagonal, so a square that wide does; one that +resizes+ has no bound
+ * short of the whole box the display gives it, twice the picture each way. */
+void rg_object_take_off_turned(int32_t sprite, int32_t image, int32_t resizes) {
+  const drawn_place *place = place_taken_off(sprite);
+  if (!place) return;
+  picture art = picture_of(image);
+  int64_t width = art.width, height = art.height;
+  int64_t middle_x = (int64_t)place->x + width / 2, middle_y = (int64_t)place->y + height / 2;
+  if (resizes) {
+    restore_patch(middle_x - width, middle_y - height, width * 2, height * 2);
+    return;
+  }
+  int64_t side = whole_root(width * width + height * height) + 2;
+  restore_patch(middle_x - side / 2, middle_y - side / 2, side, side);
+}
+
+static placed_object *place_added(int32_t sprite) {
   fault_unless_sprite(sprite);
   if (drawing_count >= RG_MAX_SPRITES) rg_fault("more than %d sprites on screen at once", RG_MAX_SPRITES);
-  drawing[drawing_count++] = (placed_object){sprite, image, x, y, level};
+  return &drawing[drawing_count++];
+}
+
+void rg_objects_add(int32_t sprite, int32_t image, int32_t x, int32_t y, int32_t level) {
+  *place_added(sprite) = (placed_object){sprite, image, x, y, level, 0, 0, 0};
+}
+
+void rg_objects_add_turned(int32_t sprite, int32_t image, int32_t x, int32_t y, int32_t level, int32_t angle,
+                           int32_t size) {
+  *place_added(sprite) = (placed_object){sprite, image, x, y, level, 1, angle, size};
 }
 
 /* The rest of Reference#exec_present_objects. On a picture that is rebuilt whole, the sprites on
@@ -690,7 +773,7 @@ void rg_objects_end(void) {
     return;
   }
   for (int32_t i = 0; i < drawing_count; i++) {
-    blit_image(drawing[i].image, drawing[i].x, drawing[i].y);
+    draw_placed(&drawing[i]);
     last_drawn[drawing[i].sprite] = (drawn_place){1, drawing[i].x, drawing[i].y};
   }
 }
@@ -734,7 +817,7 @@ static void repaint_view(void) {
       else paint_window(bg);
     }
     for (int32_t i = 0; i < layer_count; i++)
-      if (layer[i].level == level) blit_image(layer[i].image, layer[i].x, layer[i].y);
+      if (layer[i].level == level) draw_placed(&layer[i]);
   }
 }
 
