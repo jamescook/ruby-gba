@@ -15,15 +15,25 @@ class TestLakePicture < Minitest::Test
   include NativeComparison
 
   FRAMES = 140
+  GLINT = RubyGBA::Graphics::Color.rgb(28, 27, 17) # the brightest color of the sun's reflection
 
   # The lake reads no buttons, so there is no run of them to record: it is left alone.
   def test_lake_matches_the_interpreter_through_two_waves
     program = Native.new.checked_program(Lake::GAME, err: nil)
     moments = reference_snapshots(program, frames: FRAMES, buttons: {})
 
-    last = assert_native_matches_reference(program, frames: FRAMES)
+    assert_native_matches_reference(program, frames: FRAMES)
 
-    assert_operator last.variables[:phase], :>, Lake::WAVE_ROWS * 2, "the wave should have rolled all the way down twice"
+    # The sun's reflection is drawn as a straight pillar, so where its brightest color starts
+    # on each row of the water says how far across that row sits.
+    snake = ->(moment) { moment.picture.each_slice(WIDTH).map { |row| row.index(GLINT) } }
+    now = snake.call(moments.last)
+    a_quarter_wave_ago = snake.call(moments[-1 - (Lake::WAVE_ROWS / 4)])
+    rows_moved = now.zip(a_quarter_wave_ago).count { |here, there| here && there && here != there }
+
+    assert_operator now.compact.uniq.length, :>=, 2 * Lake::SWAY, "the pillar should snake from side to side"
+    # More rows than three jellyfish drifting over the pillar could account for.
+    assert_operator rows_moved, :>=, 50, "and the snake should travel down the water"
     across = moments.map { |moment| moment.variables.values_at(:__obj2_x, :__obj3_x) }.transpose
 
     assert(across.all? { |places| places.each_cons(2).any? { |before, after| after < before } },

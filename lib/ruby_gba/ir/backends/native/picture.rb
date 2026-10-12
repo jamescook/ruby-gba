@@ -213,19 +213,19 @@ module RubyGBA
           # The routine rg_screen.c calls for how far across one row of a bent background sits
           # (Reference#row_bend_offset), answering for the background it is asked about: the row
           # goes into the bend's variable, what its block says to run runs, and the offset is
-          # worked out from there. A bend that names no background is never asked for.
-          def row_bends
-            answers = @bends.values.select { |bend| @backgrounds.key?(bend.name) }.map do |bend|
-              C::If.new(condition: call("rg_row_bend_asked", C::Int.new(@backgrounds.fetch(bend.name))),
-                        body: [assign(bend.row, call("rg_row_bend_row")), *body_of(bend),
-                               eval_call("rg_row_bend_answer", value(bend.offset))])
+          # worked out from there.
+          def bend_offsets
+            answers = @bends.each_value.map do |bend|
+              C::If.new(condition: call("rg_bend_asked", C::Int.new(@backgrounds.fetch(bend.name))),
+                        body: [assign(bend.row, call("rg_bend_line")), *body_of(bend),
+                               eval_call("rg_bend_answer", value(bend.offset))])
             end
-            C::Function.new(name: @names.own("row_bends"), body: answers, exported: true)
+            C::Function.new(name: @names.own("bend_offsets"), body: answers, exported: true)
           end
 
           # Reference#exec_scroll_rows: the bend stands from power-on, so where it is written
           # only asks for the picture to be built again.
-          def lower_scroll_rows(_node) = [eval_call("rg_screen_rows_bent")]
+          def lower_scroll_rows(_node) = [eval_call("rg_screen_request_rebuild")]
 
           # A map's cells, row after row: the number of the tile, or CELL_EMPTY where the map
           # has none. A map is a rectangle (the builder refuses any other).

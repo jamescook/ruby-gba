@@ -1361,9 +1361,9 @@ class TestNativePicture < Minitest::Test
 
     assert_native_matches_reference program, frames: 9
 
-    top_tile = moments.last.picture.each_slice(240).first(8)
+    top_rows = moments.last.picture.each_slice(WIDTH).first(8)
 
-    assert_operator top_tile.uniq.length, :>=, 5, "rows drawn from the same row of art should sit at different places across"
+    assert_operator top_rows.uniq.length, :>=, 5, "rows drawn from the same row of art should sit at different places across"
     after_the_first_pass = moments.drop(2).map(&:picture)
 
     assert_equal after_the_first_pass.length, after_the_first_pass.uniq.length, "and the bend should be somewhere new on every frame"
@@ -1411,12 +1411,61 @@ class TestNativePicture < Minitest::Test
     assert_native_matches_reference program, frames: 10
 
     counts = moments.map { |moment| moment.variables[:asked] }
+    asked_in_pass = counts.each_cons(2).map { |before, after| after - before }
+    # The shore arrives on the pass after the game picks it, so a pass has the shore up from its
+    # start when the game had picked it by the start of the pass before.
+    shore_up_from_the_start = moments.map { |moment| moment.variables[:state] == 1 }.each_cons(2).map { |before, now| before && now }
 
-    assert_operator counts.last, :>, counts.first, "the block should have been asked"
     assert(counts.all? { |count| (count % 160).zero? }, "once for every row of the screen each time: #{counts.inspect}")
-    assert_operator counts.uniq.length, :<=, counts.length - 2, "and not at all while the shore is up: #{counts.inspect}"
-    assert_operator counts.each_cons(2).map { |before, after| after - before }.max, :>, 160,
-                    "more than once in a frame that scrolls and puts sprites on: #{counts.inspect}"
+    assert_includes shore_up_from_the_start, true, "the run should hold a pass with the shore up throughout"
+    asked_in_pass.drop(1).zip(shore_up_from_the_start).each_with_index do |(asked, shore), pass|
+      assert_equal shore, asked.zero?, "pass #{pass + 2}: asked #{asked} times, shore up from its start: #{shore} (#{counts.inspect})"
+    end
+    assert_operator asked_in_pass.max, :>, 160, "more than once in a frame that scrolls and puts sprites on: #{counts.inspect}"
+  end
+
+  # A bend said twice for one background: the second stands and the first never runs. The one
+  # that stands asks whether two sprites touch. A third is written for a background that is not
+  # there (as the statement itself, since the builder has no way to say it) and never runs
+  # either. The routines the two that never run would have called are called by nothing else.
+  def test_only_the_bend_that_stands_is_asked
+    program = program_of do
+      screen :tiled
+      image :reed, "|" => :white, "~" => :blue, "." => :transparent do "~|~~....\n" * 8 end
+      image :ball, "o" => :red, "." => :transparent do "..oooo..\n" * 8 end
+      tiles :water, "~" => :reed
+      water = background :water, tiles: :water, map: ["~ ~~ ~~~ ~~~~"] * 24
+      ball = sprite :ball, at: [20, 60]
+      coin = sprite :ball, at: [60, 62]
+      replaced = var :replaced, 0
+      nowhere = var :nowhere, 0
+      touching = var :touching, 0
+      var :ghost_row, 0
+      lonely = table :lonely, [4, 9, 2, 7]
+      func(:count_replaced) { replaced.add! 1 }
+      func(:count_nowhere) { nowhere.add! 1 }
+      water.scroll_each_row do |row|
+        call :count_replaced
+        lonely[row % 4]
+      end
+      water.scroll_each_row do |row|
+        ball.overlaps?(coin).then { touching.add! 1 }
+        (row % 6) + touching
+      end
+      build = RubyGBA::IR::Build
+      record_statement(build.scroll_rows(:nothing_by_this_name, row: :ghost_row, offset: build.int(3), body: [build.call(:count_nowhere)]))
+      game_loop { ball.move :right, by: 4 }
+    end
+
+    moments = reference_snapshots(program, frames: 14, buttons: {})
+
+    assert_native_matches_reference program, frames: 14
+
+    touching = moments.map { |moment| moment.variables[:touching] }
+
+    assert_operator touching.last, :>, 0, "the bend that stands should have found the sprites touching: #{touching.inspect}"
+    assert_equal touching.last, touching[-2], "and apart again by the end: #{touching.inspect}"
+    assert_equal [0, 0], moments.last.variables.values_at(:replaced, :nowhere), "the other two should never have run"
   end
 
   # A background too big for the console's grid, bent. The builder refuses a game that says
@@ -1448,7 +1497,11 @@ class TestNativePicture < Minitest::Test
     asked_each_frame = moments.map { |moment| moment.variables[:asked] }.each_cons(2).map { |before, after| after - before }
 
     assert_operator asked_each_frame.uniq.length, :>=, 3, "the rows the map reaches change as it scrolls down: #{asked_each_frame.inspect}"
-    assert_operator moments.drop(2).map(&:picture).uniq.length, :>=, 5, "and the picture should move"
+    # Every row of the map and of its art is the same, so unbent the rows of the screen it
+    # covers would all match the row above.
+    rows_unlike_the_one_above = moments.map { |moment| moment.picture.each_slice(WIDTH).each_cons(2).count { |above, row| above != row } }
+
+    assert_operator rows_unlike_the_one_above.max, :>=, 150, "each row should sit further across than the one above: #{rows_unlike_the_one_above.inspect}"
   end
 
   def test_the_screen_is_white_until_the_first_frame

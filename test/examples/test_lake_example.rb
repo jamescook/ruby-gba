@@ -109,6 +109,7 @@ class TestLakeExample < Minitest::Test
                         .map { |shade| blend(BELL, shade) }.freeze
 
   def test_the_console_blends_the_jellyfish_into_the_lake
+    require_emulator!
     seen = RubyGBA::Diagnostics::Verifier.new(assemble_rom(Lake.program, name: "LAKE"), frames: 9).frame_gba.uniq
     blended = seen.any? do |shown|
       BELL_OVER_ANY_WATER.any? { |want| within_slack?(want, shown, EMULATOR_BLEND_SLACK) }

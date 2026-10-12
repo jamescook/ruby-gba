@@ -504,13 +504,13 @@ void rg_background_stamp(int32_t background) {
 
 static int32_t bent_background_showing(void) {
   for (int32_t bg = 0; bg < rg_game_picture_sizes[RG_SIZE_BACKGROUNDS]; bg++)
-    if (showing(bg) && background_field(bg, RG_BG_ROWS_BENT)) return 1;
+    if (showing(bg) && background_field(bg, RG_BG_BENT)) return 1;
   return 0;
 }
 
 /* Reference#request_repaint: a rebuild of the whole view is owed, and painted when something
  * needs the picture. With a bent background showing it is painted now instead. Painting one runs
- * the game's own block for every row, which reads the game's variables and may change them, so
+ * the game's own block line by line, which reads the game's variables and may change them, so
  * putting it off would change the game. */
 static void request_repaint(void) {
   if (bent_background_showing()) {
@@ -521,7 +521,8 @@ static void request_repaint(void) {
   keep_shares_for_owed_rebuild();
 }
 
-void rg_screen_rows_bent(void) { request_repaint(); }
+/* Reference#exec_scroll_rows and #repaint_bent_backgrounds: both only ask. */
+void rg_screen_request_rebuild(void) { request_repaint(); }
 
 /* Reference#exec_see_through: the amounts have been worked out again for the frame about to be
  * drawn. The painting reads them itself; what this owes is the picture, since one that neither
@@ -678,24 +679,23 @@ static void paint_map_pixel(int32_t background, int64_t mx, int64_t my, int64_t 
   *into = into_cell(color, *into);
 }
 
-/* The background and the row the game is being asked about, when it is being asked, and how far
- * across it answered. */
-enum { NO_BACKGROUND = -1 };
-static int32_t bend_asked_of = NO_BACKGROUND, bend_asked_row, bend_answered;
+/* The background and the line of the screen the game is being asked about, when it is being
+ * asked, and how far across it answered. */
+static struct { int32_t background, py, offset; } asked_bend = {NOBODY_ASKED, 0, 0};
 
-int32_t rg_row_bend_asked(int32_t background) { return background == bend_asked_of; }
-int32_t rg_row_bend_row(void) { return bend_asked_row; }
-void rg_row_bend_answer(int32_t offset) { bend_answered = offset; }
+int32_t rg_bend_asked(int32_t background) { return background == asked_bend.background; }
+int32_t rg_bend_line(void) { return asked_bend.py; }
+void rg_bend_answer(int32_t offset) { asked_bend.offset = offset; }
 
-/* Reference#row_bend_offset: how far across screen row +row+ of a background sits, on top of its
- * scroll. Nought for a background the game does not bend. */
-static int64_t row_bend(int32_t background, int32_t row) {
-  if (!background_field(background, RG_BG_ROWS_BENT)) return 0;
-  bend_asked_of = background;
-  bend_asked_row = row;
-  rg_game_row_bends();
-  bend_asked_of = NO_BACKGROUND;
-  return bend_answered;
+/* Reference#row_bend_offset: how far across line +py+ of the screen a background sits, on top of
+ * its scroll. Nought for a background the game does not bend. */
+static int64_t bend_at(int32_t background, int64_t py) {
+  if (!background_field(background, RG_BG_BENT)) return 0;
+  asked_bend.background = background;
+  asked_bend.py = (int32_t)py;
+  rg_game_bend_offsets();
+  asked_bend.background = NOBODY_ASKED;
+  return asked_bend.offset;
 }
 
 /* Reference#paint_streamed_background_window: a background with a map too big for any grid, or
@@ -708,7 +708,7 @@ static void paint_window_without_wrapping(int32_t background) {
   for (int64_t py = 0; py < RG_SCREEN_HEIGHT; py++) {
     int64_t my = (int64_t)scrolls[background].y + py;
     if (my < 0 || my >= map_h) continue;
-    int64_t off_x = (int64_t)scrolls[background].x + row_bend(background, (int32_t)py);
+    int64_t off_x = (int64_t)scrolls[background].x + bend_at(background, py);
     for (int64_t px = 0; px < RG_SCREEN_WIDTH; px++) {
       int64_t mx = off_x + px;
       if (mx >= 0) paint_map_pixel(background, mx, my, px, py);
@@ -729,7 +729,7 @@ static void paint_window(int32_t background) {
   if (map_w == 0 || map_h == 0) return;
   int64_t off_y = floor_mod(scrolls[background].y, map_h);
   for (int64_t py = 0; py < RG_SCREEN_HEIGHT; py++) {
-    int64_t off_x = floor_mod((int64_t)scrolls[background].x + row_bend(background, (int32_t)py), map_w);
+    int64_t off_x = floor_mod((int64_t)scrolls[background].x + bend_at(background, py), map_w);
     for (int64_t px = 0; px < RG_SCREEN_WIDTH; px++)
       paint_map_pixel(background, (off_x + px) % map_w, (off_y + py) % map_h, px, py);
   }
