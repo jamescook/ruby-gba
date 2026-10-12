@@ -84,7 +84,6 @@ module RubyGBA
           end
 
           def refuse_unsupported_object!(obj)
-            refuse_picture!("a sprite that changes layer (#{obj.declared})") unless Array(obj.layers).empty?
             return if constant?(obj.angle, 0) && constant?(obj.scale, Build::SCALE_ONE)
 
             refuse_picture!("a sprite that turns or resizes (#{obj.declared})")
@@ -329,7 +328,7 @@ module RubyGBA
             pose = local_name("pose")
             in_range = call("rg_both", call("rg_ge", pose, C::Int.new(0)), call("rg_lt", pose, C::Int.new(obj.poses.length)))
             add = eval_call("rg_objects_add", sprite_number(obj), picture_drawn(obj, pose), value(obj.x), value(obj.y),
-                            C::Int.new(@stacking.depths[obj.name]))
+                            level_drawn_at(obj))
             C::If.new(condition: call("rg_eq", value(obj.active), C::Int.new(1)),
                       body: [C::Block.new([C::Local.new(name: pose, value: value(obj.pose)),
                                            C::If.new(condition: in_range, body: [add])])])
@@ -337,17 +336,28 @@ module RubyGBA
 
           def sprite_number(obj) = C::Int.new(@sprites.fetch(obj.name))
 
+          # Reference#object_level: how deep a sprite sits now. One that can be put in other
+          # layers has a level for each, after the one it was declared at, and the number its
+          # layer variable holds picks among them.
+          def level_drawn_at(obj)
+            levels = Stacking.levels_of(@stacking.depths, obj)
+            return C::Int.new(levels.first) if levels.one?
+
+            pick = call("rg_pick_or_own", variable(obj.layer_pick), C::Int.new(levels.length - 1))
+            C::Index.new(drawing_array("levels", "int32_t", levels), pick)
+          end
+
           # Which picture a sprite showing pose number +pose+ (one of its poses, already checked)
           # is DRAWN from, in the colors it is drawn with now. Its pictures are a row of poses in
           # its own colors, then a row for each list it can be drawn with
-          # (Reference#object_recolor), and rg_colors_row says which row it is on.
+          # (Reference#object_recolor), and rg_pick_or_own says which row it is on.
           def picture_drawn(obj, pose)
             lists = Array(obj.recolors)
             rows = [nil, *lists].flat_map { |colors| obj.poses.map { |name| image_number(name, colors) } }
             pictures = drawing_array("pose_rows", "int32_t", rows)
             return C::Index.new(pictures, pose) if lists.empty?
 
-            row = call("rg_colors_row", value(obj.recolor), C::Int.new(lists.length))
+            row = call("rg_pick_or_own", value(obj.recolor), C::Int.new(lists.length))
             C::Index.new(pictures, call("rg_add", call("rg_mul", row, C::Int.new(obj.poses.length)), pose))
           end
 

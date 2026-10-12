@@ -112,10 +112,10 @@ int32_t rg_pose_image(const int32_t *poses, int32_t count, int32_t pose);
 /* Do two sprites' DRAWN pixels touch — one that is not see-through in each, on the same spot? */
 int32_t rg_pixels_overlap(int32_t a_image, int32_t a_x, int32_t a_y, int32_t b_image, int32_t b_x, int32_t b_y);
 
-/* A sprite told to draw with list number +which+ of the +lists+ of colors it was given shows
- * that list's row of its pictures, which come after its own row; a number naming none of them
- * shows its own. */
-static inline int32_t rg_colors_row(int32_t which, int32_t lists) { return which >= 0 && which < lists ? which + 1 : 0; }
+/* Where choice number +which+ is in a row that holds a sprite's own first and then +others+ more:
+ * the lists of colors it can be drawn with, or the layers it can be put in. A number naming none
+ * of the others is its own. */
+static inline int32_t rg_pick_or_own(int32_t which, int32_t others) { return which >= 0 && which < others ? which + 1 : 0; }
 
 /* A fade toward black (0) or white (1), in sixteenths of the display or, when +walked+, in
  * thirty-seconds of a walk through the colors (see Backends::FadeSteps). */
