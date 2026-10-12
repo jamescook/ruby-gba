@@ -75,6 +75,7 @@ module RubyGBA
                                                set_tile: :lower_set_tile, show_map: :lower_show_map,
                                                present_objects: :lower_present_objects,
                                                fade: :lower_fade, tint: :lower_tint,
+                                               see_through: :lower_see_through,
                                                # sound (Sound)
                                                beep: :lower_beep, enable_sound: :lower_enable_sound,
                                                play_song: :lower_play_song, stop_music: :lower_stop_music
@@ -99,7 +100,7 @@ module RubyGBA
           # which test_native_kind_coverage.rb holds against every kind there is. A kind leaves
           # the list the day it gets a row in STATEMENTS or VALUES.
           NOT_LOWERED_YET = Ractor.make_shareable({
-            picture: %i[background_colors copy_owed_tiles copy_tiles scroll_rows see_through],
+            picture: %i[background_colors copy_owed_tiles copy_tiles scroll_rows],
             saving: %i[save_erase save_init save_read save_store save_sum save_write],
             sound: %i[noise play_from_list play_sample play_sound_effect stop_sample stop_wave wave],
             timers: %i[on_timer timer_start timer_stop timer_ticks]
@@ -159,7 +160,7 @@ module RubyGBA
              *constant_arrays, *picture_data, *@drawing_arrays, title_array, music_table, beep_table,
              *@called.map { |name| C::Prototype.new(name: routine(name)) },
              *routine_table_declarations,
-             *routines, main,
+             *routines, see_through_amounts, main,
              C::Function.new(name: @names.own("dump_variables"), body: dump_variables, exported: true)]
           end
 

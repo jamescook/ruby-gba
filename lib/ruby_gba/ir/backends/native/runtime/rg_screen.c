@@ -5,8 +5,8 @@
  *
  * What is NOT here is refused when the game is built rather than drawn wrongly (see
  * Picture#refuse_unsupported_picture! and Lowering::NOT_LOWERED_YET, which are the whole list):
- * scenery that bends, is drawn in other colors or is painted from a list; a see-through layer; a
- * fade placed in the stack; and a frame that ends while drawing is held inside an area.
+ * scenery that bends, is drawn in other colors or is painted from a list; a fade placed in the
+ * stack; and a frame that ends while drawing is held inside an area.
  *
  * A sprite's pictures arrive ready to draw: which of its pixels show, and the colors of each
  * list it can be drawn with, are worked out when the game is built (see native/picture.rb).
@@ -68,6 +68,14 @@ static int32_t fade_white, fade_steps;
 static enum { TINT_NONE, TINT_TOWARD, TINT_COLOR } tint_mode;
 static int32_t tint_white, tint_color, tint_steps;
 
+/* WHAT IS PAINTED FROM HERE ON IS MIXED with what is already in the cell (Framebuffer @through):
+ * so many sixteenths of what is painted, so many of what is under it. On only while one thing in
+ * a see-through layer is being painted. The picture is painted back to front, so "what is
+ * already there" is what the display would find directly behind the layer. */
+typedef struct { int32_t painted, under; } shares;
+static int32_t mixing;
+static shares mixed_by;
+
 /* Scenery up, in the order it went up (Reference @bg_shown): one entry for every time a
  * background is put up, even one already up, exactly as the interpreter keeps it. The repeats
  * matter once layers are named. The order the stack asks for is worked out among the places the
@@ -127,9 +135,34 @@ static int32_t in_bounds(int64_t x, int64_t y) {
   return !area.in_force || (x >= area.left && x < area.right && y >= area.top && y < area.bottom);
 }
 
+/* Five bits of a color widened to eight by repeating its top bits underneath, so the brightest
+ * stays the brightest (Framebuffer#widen_channel). */
+static int32_t widened(int32_t channel) { return (channel << 3) | (channel >> 2); }
+
+/* Framebuffer#mix_see_through: a see-through layer's color over what is under it. Each channel
+ * is widened to eight bits first, its share of each side added and only then the sixteenth
+ * dropped, and the answer taken back to five bits. The two shares need not add to a whole; past
+ * one, a channel stops at its brightest. */
+static uint16_t mixed_with_under(int32_t color, uint16_t under) {
+  int32_t out = 0;
+  for (int32_t channel = 0; channel < 3; channel++) {
+    int32_t have = widened((color >> (5 * channel)) & 0x1F), below = widened((under >> (5 * channel)) & 0x1F);
+    int32_t mix = (have * mixed_by.painted + below * mixed_by.under) / 16;
+    out |= ((mix > 255 ? 255 : mix) >> 3) << (5 * channel);
+  }
+  return (uint16_t)out;
+}
+
+/* Framebuffer#blend_into_cell: a color on its way into a cell holding +under+. */
+static uint16_t into_cell(int32_t color, uint16_t under) {
+  return mixing ? mixed_with_under(color, under) : (uint16_t)color;
+}
+
 /* Framebuffer#set_pixel: a cell drawing may not land on is dropped. */
 static void set_pixel(int64_t x, int64_t y, int32_t color) {
-  if (in_bounds(x, y)) target[y * RG_SCREEN_WIDTH + x] = (uint16_t)color;
+  if (!in_bounds(x, y)) return;
+  uint16_t *cell = &target[y * RG_SCREEN_WIDTH + x];
+  *cell = into_cell(color, *cell);
 }
 
 /* Framebuffer#fill_rect: every cell of the rectangle, each through set_pixel. Walking only the
@@ -241,6 +274,93 @@ void rg_screen_digit(int32_t value, int32_t x, int32_t y, int32_t color, const i
   rg_screen_points(x, y, color, points + 2 * starts[value], starts[value + 1] - starts[value]);
 }
 
+/* --- see-through layers --- */
+
+static int32_t showing(int32_t background);
+static void request_repaint(void);
+
+static int32_t see_through_layers(void) { return rg_game_picture_sizes[RG_SIZE_SEE_THROUGH]; }
+
+static int32_t see_through_field(int32_t layer, int32_t field) {
+  return rg_game_see_through[layer * RG_ST_FIELDS + field];
+}
+
+/* The layer the game is being asked about, and what it answered. */
+static int32_t asked_layer = RG_SOLID;
+static int32_t answered_shows, answered_behind;
+
+int32_t rg_see_through_asked(int32_t layer) { return layer == asked_layer; }
+
+void rg_see_through_answer(int32_t shows, int32_t behind) {
+  answered_shows = shows;
+  answered_behind = behind;
+}
+
+/* IR::SeeThrough.nearest_steps and .floor_steps: an amount out of 100 as sixteenths. */
+static int32_t nearest_sixteenths(int32_t amount) { return clamp32(floor_div((int64_t)amount * 16 + 50, 100), 0, 16); }
+static int32_t whole_sixteenths(int32_t amount) { return clamp32(floor_div((int64_t)amount * 16, 100), 0, 16); }
+
+/* Reference#live_see_through_weights, through IR::SeeThrough.weights: a layer's two shares from
+ * its amounts as the game works them out now. Given one amount, what is behind takes its share
+ * rounded down and the layer whatever is left of a whole; given two, each is taken to the
+ * nearest sixteenth. */
+static shares shares_now(int32_t layer) {
+  asked_layer = layer;
+  rg_game_see_through_amounts();
+  asked_layer = RG_SOLID;
+  if (see_through_field(layer, RG_ST_ONE_AMOUNT)) {
+    int32_t under = whole_sixteenths(answered_behind);
+    return (shares){16 - under, under};
+  }
+  return (shares){nearest_sixteenths(answered_shows), nearest_sixteenths(answered_behind)};
+}
+
+/* The shares each layer had when the rebuild now owed was asked for (Reference @owed_weights),
+ * for the layers they were kept for. */
+typedef struct { int32_t kept; shares at; } kept_shares;
+static kept_shares owed_shares[RG_MAX_SEE_THROUGH];
+
+/* Reference#layer_has_anything?: a background showing now, or a sprite anywhere, since whether
+ * a sprite is shown is a variable too. */
+static int32_t layer_holds_anything(int32_t layer) {
+  if (see_through_field(layer, RG_ST_HOLDS_A_SPRITE)) return 1;
+  for (int32_t bg = 0; bg < rg_game_picture_sizes[RG_SIZE_BACKGROUNDS]; bg++)
+    if (showing(bg) && background_field(bg, RG_BG_SEE_THROUGH) == layer) return 1;
+  return 0;
+}
+
+/* Reference#capture_see_through_weights. A rebuild is painted later than it is asked for, and
+ * the game's variables can move in between, so the amounts a game works out are read when the
+ * rebuild is asked for and the painting uses those. Only for a layer with something in it that
+ * could be on screen: the others are never painted, and nothing is worked out that painting
+ * would not have worked out. */
+static void keep_shares_for_owed_rebuild(void) {
+  for (int32_t layer = 0; layer < see_through_layers(); layer++) {
+    owed_shares[layer].kept = !see_through_field(layer, RG_ST_WRITTEN) && layer_holds_anything(layer);
+    if (owed_shares[layer].kept) owed_shares[layer].at = shares_now(layer);
+  }
+}
+
+static void forget_kept_shares(void) {
+  for (int32_t layer = 0; layer < see_through_layers(); layer++) owed_shares[layer].kept = 0;
+}
+
+/* Reference#fading?: is a fade in force that takes the display's blend? The display blends two
+ * layers together or moves the whole picture toward a color, one or the other, so while such a
+ * fade runs a see-through layer is solid. A fade that walks the colors sets no fade amount and
+ * is never found here. The copy of the scenery kept to put back under sprites is a picture of
+ * its own, which no fade was ever set on, so painting into it never finds one either. */
+static int32_t fade_takes_the_blend(void) { return target != scenery && fade_steps > 0; }
+
+/* Reference#set_see_through_for: mixing on for a thing in a see-through layer, off for anything
+ * else. +layer+ is RG_SOLID for a thing in none. */
+static void mix_as_layer(int32_t layer) {
+  mixing = layer != RG_SOLID && !fade_takes_the_blend();
+  if (mixing) mixed_by = owed_shares[layer].kept ? owed_shares[layer].at : shares_now(layer);
+}
+
+static void mix_nothing(void) { mixing = 0; }
+
 /* --- effects over the finished picture (Framebuffer#faded) --- */
 
 /* Framebuffer#blend: each channel moved a truncated share of the way to black or white. */
@@ -273,8 +393,11 @@ static uint16_t faded(uint16_t color) {
 }
 
 /* Reference#exec_fade (the whole-screen kinds), through Framebuffer#fade_steps_to or, for a
- * fade that walks the colors, #tint_steps_to. */
+ * fade that walks the colors, #tint_steps_to. A fade that takes the display's blend takes it from
+ * a see-through layer and hands it back as it lifts, so the picture is built again at each of
+ * those two moments: the layer is solid on one side of them and see-through on the other. */
 void rg_screen_fade(int32_t toward_white, int32_t steps, int32_t walked) {
+  int32_t took_the_blend = fade_takes_the_blend();
   if (walked) {
     tint_mode = TINT_TOWARD;
     tint_white = toward_white;
@@ -285,6 +408,7 @@ void rg_screen_fade(int32_t toward_white, int32_t steps, int32_t walked) {
     fade_steps = steps;
     tint_mode = TINT_NONE;
   }
+  if (see_through_layers() > 0 && fade_takes_the_blend() != took_the_blend) request_repaint();
 }
 
 /* Framebuffer#tint_steps_to */
@@ -359,6 +483,7 @@ static uint16_t tile_pixel(int32_t background, int32_t cell, int64_t tx, int64_t
 /* Reference#stamp_background: the whole map onto the picture, cell by cell. */
 void rg_background_stamp(int32_t background) {
   int32_t tile_w = background_field(background, RG_BG_TILE_W), tile_h = background_field(background, RG_BG_TILE_H);
+  mix_as_layer(background_field(background, RG_BG_SEE_THROUGH));
   for (int32_t row = 0; row < map_rows(background); row++) {
     for (int32_t col = 0; col < map_cols(background); col++) {
       int32_t cell = map_cell(background, row, col);
@@ -370,10 +495,30 @@ void rg_background_stamp(int32_t background) {
         }
     }
   }
+  mix_nothing();
 }
 
 /* Reference#request_repaint (a bending background, which would paint at once, is refused). */
-static void request_repaint(void) { owed = 1; }
+static void request_repaint(void) {
+  owed = 1;
+  keep_shares_for_owed_rebuild();
+}
+
+/* Reference#exec_see_through: the amounts have been worked out again for the frame about to be
+ * drawn. The painting reads them itself; what this owes is the picture, since one that neither
+ * moves nor scrolls would otherwise keep the amounts it was painted with.
+ *
+ * In a game whose sprites are drawn straight onto the picture, that rebuild has no sprites in
+ * it: only a game rebuilt every frame keeps them for one (rg_objects_end). The interpreter's
+ * comes out the same way, and this is held to the interpreter. */
+void rg_see_through_told(int32_t layer) {
+  static struct { int32_t told; shares at; } last[RG_MAX_SEE_THROUGH];
+  shares now = shares_now(layer);
+  if (last[layer].told && last[layer].at.painted == now.painted && last[layer].at.under == now.under) return;
+  last[layer].told = 1;
+  last[layer].at = now;
+  request_repaint();
+}
 
 static int32_t stack_place(int32_t background) { return background_field(background, RG_BG_STACK_PLACE); }
 
@@ -510,7 +655,9 @@ static void paint_map_pixel(int32_t background, int64_t mx, int64_t my, int64_t 
   int32_t cell = map_cell(background, my / tile_h, mx / tile_w);
   if (cell < 0) return;
   uint16_t color = tile_pixel(background, cell, mx % tile_w, my % tile_h);
-  if (color != RG_SEE_THROUGH) pixels[py * RG_SCREEN_WIDTH + px] = color;
+  if (color == RG_SEE_THROUGH) return;
+  uint16_t *into = &pixels[py * RG_SCREEN_WIDTH + px];
+  *into = into_cell(color, *into);
 }
 
 /* Reference#paint_streamed_background_window: a background with a map too big for any grid, or
@@ -775,7 +922,9 @@ void rg_objects_end(void) {
     return;
   }
   for (int32_t i = 0; i < drawing_count; i++) {
+    mix_as_layer(rg_game_sprite_see_through[drawing[i].sprite]);
     draw_placed(&drawing[i]);
+    mix_nothing();
     last_drawn[drawing[i].sprite] = (drawn_place){1, drawing[i].x, drawing[i].y};
   }
 }
@@ -815,12 +964,17 @@ static void repaint_view(void) {
   for (int32_t level = 0; level < levels; level++) {
     for (int32_t bg = 0; bg < backgrounds; bg++) {
       if (!showing(bg) || background_field(bg, RG_BG_LEVEL) != level) continue;
+      mix_as_layer(background_field(bg, RG_BG_SEE_THROUGH));
       if (turns[bg].turned) paint_turned_window(bg);
       else paint_window(bg);
     }
-    for (int32_t i = 0; i < layer_count; i++)
-      if (layer[i].level == level) draw_placed(&layer[i]);
+    for (int32_t i = 0; i < layer_count; i++) {
+      if (layer[i].level != level) continue;
+      mix_as_layer(rg_game_sprite_see_through[layer[i].sprite]);
+      draw_placed(&layer[i]);
+    }
   }
+  mix_nothing();
 }
 
 /* Reference#paint_owed_repaint */
@@ -828,6 +982,7 @@ void rg_screen_paint_owed_rebuild(void) {
   if (!owed) return;
   owed = 0;
   repaint_view();
+  forget_kept_shares();
 }
 
 /* --- screens and scenes --- */

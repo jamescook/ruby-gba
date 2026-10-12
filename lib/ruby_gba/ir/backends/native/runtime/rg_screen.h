@@ -126,6 +126,21 @@ int32_t rg_pixels_overlap(int32_t a_image, int32_t a_x, int32_t a_y, int32_t b_i
  * of the others is its own. */
 static inline int32_t rg_place_of_choice(int32_t which, int32_t others) { return which >= 0 && which < others ? which + 1 : 0; }
 
+/* A SEE-THROUGH LAYER is mixed with what is behind it as the picture is painted: so much of the
+ * layer, so much of what is already there (IR::SeeThrough). How much is two amounts the game
+ * may work out as it runs, so the picture asks the game for them when it needs them, by calling
+ * rg_game_see_through_amounts with one layer in mind. The game answers for the layer that is
+ * asked about:
+ *
+ *   if (rg_see_through_asked(0)) rg_see_through_answer(shows, behind);
+ *
+ * rg_see_through_told is the game saying, before a frame is drawn, that a layer's amounts have
+ * been worked out again: the picture is rebuilt when they differ from the ones last told. */
+void rg_see_through_told(int32_t layer);
+int32_t rg_see_through_asked(int32_t layer);
+void rg_see_through_answer(int32_t shows, int32_t behind);
+void rg_game_see_through_amounts(void);
+
 /* A fade toward black (0) or white (1), in sixteenths of the display or, when +walked+, in
  * thirty-seconds of a walk through the colors (see Backends::FadeSteps). */
 void rg_screen_fade(int32_t toward_white, int32_t steps, int32_t walked);
@@ -170,6 +185,19 @@ extern const int32_t rg_game_images[];
 #define RG_IMAGE_FIELDS 3
 /* The most sprites a game may have; the build refuses more. */
 #define RG_MAX_SPRITES 512
+/* For each sprite, by its number: which see-through layer it was declared in, counting through
+ * rg_game_see_through, or RG_SOLID. */
+#define RG_SOLID (-1)
+extern const int32_t rg_game_sprite_see_through[];
+
+/* Each layer the game can be seen through is RG_ST_FIELDS numbers in rg_game_see_through: 1 when
+ * both its amounts are numbers written in the program, 1 when it was given one amount (how much
+ * of what is behind shows, the layer taking the rest of a whole) rather than two, and 1 when any
+ * sprite was declared in it. */
+enum { RG_ST_WRITTEN, RG_ST_ONE_AMOUNT, RG_ST_HOLDS_A_SPRITE, RG_ST_FIELDS };
+extern const int32_t rg_game_see_through[];
+/* The most see-through layers a game may have; the build refuses more. */
+#define RG_MAX_SEE_THROUGH 16
 
 /* Background tiles, as colors, with RG_SEE_THROUGH where the layer behind shows. No color is that
  * number, since a tile's color is fifteen bits. */
@@ -189,7 +217,10 @@ extern const uint16_t rg_game_tile_pixels[];
  * A background scrolls over a grid of RG_BG_GRID_COLS by RG_BG_GRID_ROWS cells and its picture
  * comes round again at that grid's edge, unless RG_BG_NEVER_WRAPS is 1: one with a map too big
  * for any grid, or with maps of different sizes, shows nothing past the edge of its map
- * (IR::TileMap). */
+ * (IR::TileMap).
+ *
+ * RG_BG_SEE_THROUGH is which see-through layer it is in, counting through rg_game_see_through,
+ * or RG_SOLID. */
 #define RG_EVERY_SCENE (-1)
 #define RG_NEVER_ARRIVES (-2)
 #define RG_NO_LAYER (-1)
@@ -198,7 +229,7 @@ extern const uint16_t rg_game_tile_pixels[];
 enum {
   RG_BG_TILE_W, RG_BG_TILE_H, RG_BG_FIRST_MAP, RG_BG_SHOWABLE_MAPS, RG_BG_GRID_COLS, RG_BG_GRID_ROWS,
   RG_BG_NEVER_WRAPS, RG_BG_TILES_START, RG_BG_SCENE, RG_BG_LEVEL, RG_BG_ON_ARRIVAL, RG_BG_STACK_PLACE,
-  RG_BG_FIELDS
+  RG_BG_SEE_THROUGH, RG_BG_FIELDS
 };
 extern const int32_t rg_game_backgrounds[];
 
@@ -211,8 +242,9 @@ extern const int32_t rg_game_maps[];
 extern const int16_t rg_game_map_cells[];
 
 /* [how many backgrounds, how many depths the picture is built at, how many backgrounds every
- * screen drawn from tiles shows, 1 for a game whose whole view is rebuilt from its layers] */
-enum { RG_SIZE_BACKGROUNDS, RG_SIZE_DEPTHS, RG_SIZE_ALWAYS_UP, RG_SIZE_REBUILT_WHOLE };
+ * screen drawn from tiles shows, 1 for a game whose whole view is rebuilt from its layers, how
+ * many layers it can be seen through] */
+enum { RG_SIZE_BACKGROUNDS, RG_SIZE_DEPTHS, RG_SIZE_ALWAYS_UP, RG_SIZE_REBUILT_WHOLE, RG_SIZE_SEE_THROUGH };
 extern const int32_t rg_game_picture_sizes[];
 extern const int32_t rg_game_always_up[];
 
