@@ -315,9 +315,11 @@ that. A desktop build started with `--frame-times` says at its end, on the error
 paced its frames (the monitor, or the console's clock), how far apart its pictures were handed
 to the display, which gaps were more than two milliseconds from the middle one, and whether any
 sound was thrown away or ran dry. A stutter is a clump of uneven gaps that comes round every few
-seconds; scattered single ones are the computer being busy. `--refresh-rate 144` paces it as
-for a monitor of that rate, whatever this one's is, so the other kinds of monitor can be tried
-on the one there is. The rule that picks the pacing from a monitor's rate, and the limit that
+seconds; scattered single ones are the computer being busy. `--refresh-rate 144` makes it
+choose its pacing as for a monitor of that rate, so the code each kind of monitor gets can be
+run on the one there is. It is only the choice that is pretended: the real monitor still
+refreshes at its own rate, so `--refresh-rate 120` on a 60Hz monitor shows each picture for two
+of its refreshes and plays the game at half speed. The rule that picks the pacing from a monitor's rate, and the limit that
 stands behind the monitor while the window is hidden, are plain arithmetic in
 `runtime/rg_pacing.h` and tested as that (`test_native_pacing.rb`).
 

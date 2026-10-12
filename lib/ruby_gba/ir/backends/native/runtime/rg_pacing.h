@@ -17,7 +17,8 @@
  * would make more of it than is played.
  *
  * Any other monitor (seventy-five a second, a hundred and forty-four) cannot show the console's
- * frames evenly whatever is done: each picture is up for two refreshes, or three, as they fall.
+ * frames evenly whatever is done: each picture is up for one refresh or two on the first of
+ * those, and for two or three on the second, as they fall.
  * Those keep the console's clock, which at least keeps the game at its own speed. A picture
  * still WAITS FOR A REFRESH there, so that the monitor never shows the top of one picture over
  * the bottom of the one before — but only on a monitor faster than the console, where the wait
@@ -78,8 +79,13 @@ static inline rg_pacing rg_pacing_for(double refreshes_a_second) {
  * picture does not always wait for the very next refresh: a display may take a few pictures into
  * a queue first and only then start holding the game to its pace, and a limit with no slack
  * would keep that queue from ever filling, so the monitor would never get to pace anything.
+ *
+ * How much faster is two parts in a hundred, and not less, because a monitor's rate is not always
+ * said exactly: one a little under sixty a second can say fifty-nine, which is more than one part
+ * in a hundred out, and a limit set from that with less room would hold the game below the
+ * monitor's real pace. The stutter would be back.
  */
-#define RG_FASTEST_PERCENT_OVER_MONITOR 1
+#define RG_FASTEST_PERCENT_OVER_MONITOR 2
 #define RG_FRAMES_LET_THROUGH 4
 
 /* One frame at that fastest pace, in nanoseconds, for a game the monitor paces. */

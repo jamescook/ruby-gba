@@ -53,36 +53,39 @@ class TestNativePacing < Minitest::Test
   end
 
   # Showing a picture waits for nothing while the window is hidden, so where the monitor paces
-  # the game a limit stands behind it: a hundredth faster than the monitor's own frames, with
+  # the game a limit stands behind it: two hundredths faster than the monitor's own frames, with
   # four frames let through at once. A frame here comes round a millisecond after the one before
   # unless the limit holds it, on a 60Hz monitor and on a 120Hz one, where a frame is two
   # refreshes and so the same sixtieth of a second.
+  #
+  # The first frame and the four let through come a millisecond apart. The sixth is held until a
+  # fastest frame after the first, and each of the rest a fastest frame after the one before: 595
+  # held, the last of them 595 fastest frames after the first, which came a millisecond in.
   def test_a_game_nothing_is_holding_is_held_to_a_shade_over_the_monitors_pace
-    fastest_frame = 1_000_000_000 / 60.0 / 1.01
+    fastest_frame = 1_000_000_000 / 60.0 / 1.02
 
     [60, 120].each do |rate|
-      held, took = frames_played(rate, gap: 1_000_000, count: 600)
+      held, took = frames_played(rate, [1_000_000, 600])
 
-      assert_operator held, :>=, 595, "all but the few let through should have been held (#{rate}Hz)"
-      assert_in_delta 598 * fastest_frame, took, 3 * fastest_frame, "600 frames should take about 600 of the fastest frame (#{rate}Hz)"
+      assert_equal 595, held, "all but the first and the four let through should have been held (#{rate}Hz)"
+      assert_in_delta (595 * fastest_frame) + 1_000_000, took, 1_000, "and those a fastest frame apart (#{rate}Hz)"
     end
   end
 
   # ...and a game the monitor IS holding, a frame every sixtieth of a second, is never held by it.
   def test_a_game_the_monitor_is_holding_is_left_alone
-    held, took = frames_played(60, gap: 16_666_667, count: 600)
+    held, took = frames_played(60, [16_666_667, 600])
 
     assert_equal [0, 600 * 16_666_667], [held, took]
   end
 
-  # However long the game stood still (ten seconds here, then running free), no more than the
-  # few frames let through come at once.
+  # However long the game stood still, no more than the four frames let through come at once
+  # afterwards. One frame comes ten seconds late, and then twenty a millisecond apart: four of
+  # those get through, and the other sixteen are held.
   def test_a_long_pause_earns_no_more_than_the_few_frames_let_through
-    stalled, = frames_played(60, gap: 10_000_000_000, count: 1)
-    then_free, = frames_played(60, gap: 1_000_000, count: 20)
+    late, then_free, = frames_played(60, [10_000_000_000, 1], [1_000_000, 20])
 
-    assert_equal 0, stalled
-    assert_operator then_free, :>=, 15, "after the first few, every frame should be held"
+    assert_equal [0, 16], [late, then_free]
   end
 
   private
@@ -94,9 +97,10 @@ class TestNativePacing < Minitest::Test
     rates.zip(answers.map { |refreshes, waits, speed| [refreshes.to_i, waits.to_i, speed.to_f] }).to_h
   end
 
-  # +count+ frames on a monitor of +rate+, each coming round +gap+ nanoseconds after the one
-  # before unless the limit holds it longer: how many the limit held, and how long they all took.
-  def frames_played(rate, gap:, count:) = asked(["frames #{rate} #{gap} #{count}"]).first.map(&:to_i)
+  # One run of frames on a monitor of +rate+, in +legs+ of [gap, count]: count frames, each
+  # coming round gap nanoseconds after the one before unless the limit holds it longer. Gives how
+  # many frames of each leg the limit held, and then how long the whole run took.
+  def frames_played(rate, *legs) = asked(["frames #{rate} #{legs.length} #{legs.flatten.join(' ')}"]).first.map(&:to_i)
 
   # The harness's answers to +questions+, a line each, split into words — at both of the
   # settings the backend is built at, which have to agree.
