@@ -16,7 +16,8 @@ class TestBirdPicture < Minitest::Test
   FLIGHT = Ractor.make_shareable(
     NativeComparison.held_for([2..25, :right], [26..50, :up], [51..90, :down], [91..110, :left])
   )
-  # One drift out and back is two and a half seconds; this is most of the way out.
+  # One drift from furthest to nearest and back is two and a half seconds, 150 frames: this is
+  # all the way to its nearest and most of the way back.
   FRAMES = 120
 
   def test_bird_matches_the_interpreter_through_a_recorded_run
@@ -27,7 +28,7 @@ class TestBirdPicture < Minitest::Test
 
     assert_recorded_run_matches_reference(program, frames: FRAMES, buttons: FLIGHT)
 
-    assert_equal [0, 335, 25, 0], tilts.drop(1).chunk_while { |a, b| a == b }.map(&:first),
+    assert_equal [0, 335, 25, 0], tilts.chunk_while { |a, b| a == b }.map(&:first),
                  "level, nose up for the climb, nose down for the dive, level again"
     one = RubyGBA::IR::Build::SCALE_ONE
     assert_operator sizes.min, :<, one * 0.8, "it should have been drawn well under its own size"

@@ -103,7 +103,8 @@ void rg_scene_take_down(int32_t brings_scenery);
  * A sprite that turns or resizes is said with the two _turned ones: +angle+ in degrees clockwise
  * from upright, +size+ counted as the game counts a size (rg_game_turn_rules says what 1.0 is),
  * both about the middle of its picture. Taking one off puts back every pixel it could have
- * covered, which is more of them when it +resizes+ than when it only turns. */
+ * covered: the whole box the display gives it when it +resizes+, and a square as wide as its
+ * own diagonal when it only turns. */
 void rg_objects_begin(void);
 void rg_object_take_off(int32_t sprite, int32_t image);
 void rg_object_take_off_turned(int32_t sprite, int32_t image, int32_t resizes);
