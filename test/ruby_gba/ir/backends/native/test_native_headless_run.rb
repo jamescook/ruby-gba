@@ -125,4 +125,28 @@ class TestNativeHeadlessRun < Minitest::Test
     assert_equal Color.resolve(:green), run.screen.pixel(10, 20)
     assert_equal Color.resolve(:black), run.screen.pixel(11, 20)
   end
+
+  # The picture as it is STORED is not the one shown once the window has moved or a fade is on:
+  # to_a gives the stored one, as the interpreter's does, and whether the screen is tear-free
+  # reads back too.
+  def test_the_stored_picture_and_the_kind_of_screen_read_back_as_the_interpreters_do
+    program = program_of do
+      screen :bitmap, tear_free: true
+      game_loop do
+        clear_screen :blue
+        draw_rect_at 100, 60, 40, 40, :yellow
+        camera 30, 10
+        fade :black, 50
+      end
+    end
+    interpreter = Reference.new.run(program, frames: 3)
+
+    run = HeadlessRun.new.run(program, frames: 3)
+
+    assert_equal interpreter.screen.to_a, run.screen.to_a
+    assert_equal interpreter.screen.shown, run.screen.shown
+    refute_equal run.screen.shown.first(40), run.screen.to_a.first(40), "the faded picture is not the stored one"
+    assert_equal interpreter.buffered, run.buffered
+    assert run.buffered, "this screen is tear-free"
+  end
 end

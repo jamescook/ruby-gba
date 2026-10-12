@@ -14,6 +14,8 @@ class TestAnimatePicture < Minitest::Test
 
   include NativeComparison
 
+  # Right for fourteen frames and then down for fifteen, from the middle of the screen, while
+  # the coin goes on spinning.
   WALK = Ractor.make_shareable(NativeComparison.held_for([2..15, :right], [16..30, :down]))
 
   def test_animate_matches_the_interpreter_through_a_recorded_run

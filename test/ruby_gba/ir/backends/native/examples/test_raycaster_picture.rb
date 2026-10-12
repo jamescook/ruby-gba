@@ -14,6 +14,8 @@ class TestRaycasterPicture < Minitest::Test
 
   include NativeComparison
 
+  # A turn to the left for nine frames, forward for twenty (a step is only taken into an empty
+  # cell, so a wall may end the walk early), then a turn back to the right for ten.
   WALK = Ractor.make_shareable(
     NativeComparison.held_for([2..10, :left], [11..30, :up], [31..40, :right])
   )

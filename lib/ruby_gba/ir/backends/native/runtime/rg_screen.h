@@ -58,8 +58,8 @@ void rg_screen_column(int32_t image, int32_t slice, int32_t x, int32_t top, int3
 
 /* The patch of the picture a sprite on a painted screen is about to cover, +width+ by +height+
  * at (x, y), kept in buffer number +buffer+; and that patch painted back. */
-void rg_region_save(int32_t buffer, int32_t width, int32_t height, int32_t x, int32_t y);
-void rg_region_restore(int32_t buffer, int32_t width, int32_t height, int32_t x, int32_t y);
+void rg_patch_save(int32_t buffer, int32_t width, int32_t height, int32_t x, int32_t y);
+void rg_patch_restore(int32_t buffer, int32_t width, int32_t height, int32_t x, int32_t y);
 /* Points worked out when the game was built — the pixels of a line of text — as (dx, dy)
  * pairs, painted from (x, y). */
 void rg_screen_points(int32_t x, int32_t y, int32_t color, const int16_t *points, int32_t count);

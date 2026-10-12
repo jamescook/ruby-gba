@@ -3,9 +3,11 @@
  * method it was ported from, in backends/reference.rb or reference/framebuffer.rb, because that
  * is what decides what is right here.
  *
- * What is NOT here is refused when the game is built rather than drawn wrongly: scenery that
- * scrolls, bends or has its cells or its map changed, a see-through layer, a fade placed in the
- * stack, and sprites that turn or change layer.
+ * What is NOT here is refused when the game is built rather than drawn wrongly (see
+ * Picture#refuse_unsupported_picture! and Lowering::NOT_LOWERED_YET, which are the whole list):
+ * scenery that scrolls, bends, is drawn in other colors, is painted from a list, or has its cells
+ * or its map changed; a see-through layer; a fade placed in the stack; sprites that turn, resize
+ * or change layer; and a frame that ends while drawing is held inside an area.
  *
  * A sprite's pictures arrive ready to draw: which of its pixels show, and the colors of each
  * list it can be drawn with, are worked out when the game is built (see native/picture.rb).
@@ -33,7 +35,7 @@ static uint16_t *target = first_page;
 /* The part of the screen drawing is held inside (Framebuffer#draw_inside), when it is held, and
  * the areas in force around it, given back as each `inside` ends: a routine with an area of its
  * own can be called from inside another's. */
-typedef struct { int32_t held_in; int64_t left, top, right, bottom; } drawing_area;
+typedef struct { int32_t in_force; int64_t left, top, right, bottom; } drawing_area;
 enum { AREAS_DEEP = 64 };
 static drawing_area area, outer_areas[AREAS_DEEP];
 static int32_t areas_deep;
@@ -110,7 +112,7 @@ static int32_t on_screen(int64_t x, int64_t y) {
 /* Framebuffer#in_bounds?: on the screen, and inside the area drawing is held to when it is. */
 static int32_t in_bounds(int64_t x, int64_t y) {
   if (!on_screen(x, y)) return 0;
-  return !area.held_in || (x >= area.left && x < area.right && y >= area.top && y < area.bottom);
+  return !area.in_force || (x >= area.left && x < area.right && y >= area.top && y < area.bottom);
 }
 
 /* Framebuffer#set_pixel: a cell drawing may not land on is dropped. */
@@ -131,7 +133,7 @@ static void fill_cells(int64_t x, int64_t y, int64_t width, int64_t height, int3
 
 /* Framebuffer#clear: the whole picture, or the area drawing is held to and no more. */
 static void clear_to(int32_t color) {
-  if (area.held_in) {
+  if (area.in_force) {
     fill_cells(area.left, area.top, area.right - area.left, area.bottom - area.top, color);
     return;
   }
@@ -151,6 +153,9 @@ void rg_screen_inside(int32_t x, int32_t y, int32_t width, int32_t height) {
   area = (drawing_area){1, x, y, (int64_t)x + width, (int64_t)y + height};
 }
 
+/* A frame never ends between the two: the build refuses a game where one could, because the
+ * interpreter reads the screen through the area then (Framebuffer#pixel) and gives the area back
+ * if the run stops there, and neither is done here. */
 void rg_screen_inside_ended(void) { area = outer_areas[--areas_deep]; }
 
 /* Reference#exec_camera */
@@ -187,7 +192,7 @@ static int32_t **saved_patch(int32_t buffer) {
 /* Reference#exec_save_region: the patch of the picture at (x, y), as it is stored — what is
  * really in the picture, wherever the window sits. A cell that cannot be read (off the screen,
  * or outside the area drawing is held to) is remembered as nothing. */
-void rg_region_save(int32_t buffer, int32_t width, int32_t height, int32_t x, int32_t y) {
+void rg_patch_save(int32_t buffer, int32_t width, int32_t height, int32_t x, int32_t y) {
   int32_t **patch = saved_patch(buffer);
   if (!*patch) *patch = malloc((size_t)width * (size_t)height * sizeof **patch);
   if (!*patch) rg_fault("no memory left for the picture saved under a sprite");
@@ -200,7 +205,7 @@ void rg_region_save(int32_t buffer, int32_t width, int32_t height, int32_t x, in
 
 /* Reference#exec_restore_region: a patch never saved puts nothing back, and neither does a cell
  * remembered as nothing. */
-void rg_region_restore(int32_t buffer, int32_t width, int32_t height, int32_t x, int32_t y) {
+void rg_patch_restore(int32_t buffer, int32_t width, int32_t height, int32_t x, int32_t y) {
   const int32_t *patch = *saved_patch(buffer);
   if (!patch) return;
   for (int32_t row = 0; row < height; row++)
@@ -511,14 +516,14 @@ static int32_t rebuilt_whole(void) { return rg_game_picture_sizes[RG_SIZE_REBUIL
  * a picture of its own, so an area the game's drawing is held to does not hold this. */
 static void keep_scenery(void) {
   if (scenery_kept) return;
-  drawing_area games = area;
-  area.held_in = 0;
+  drawing_area outer = area;
+  area.in_force = 0;
   target = scenery;
   clear_to(0);
   for (int32_t bg = 0; bg < rg_game_picture_sizes[RG_SIZE_BACKGROUNDS]; bg++)
     if (showing(bg)) rg_background_stamp(bg);
   target = pixels;
-  area = games;
+  area = outer;
   scenery_kept = 1;
 }
 

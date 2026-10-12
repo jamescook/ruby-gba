@@ -59,6 +59,12 @@ module NativeComparison
     last
   end
 
+  # How many different pictures the interpreter shows over a run with nothing held: what a test
+  # of a game that moves by itself says "it moved" with.
+  def different_pictures_in(program, frames:)
+    reference_snapshots(program, frames: frames, buttons: {}).map(&:picture).uniq.length
+  end
+
   # The snapshots the windowless program printed.
   def native_snapshots(program, frames:, buttons:, mode:)
     exe = Native.new.build_headless(program, mode: mode)

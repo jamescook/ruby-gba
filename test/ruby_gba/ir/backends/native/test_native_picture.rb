@@ -385,6 +385,25 @@ class TestNativePicture < Minitest::Test
     assert odd != even, "the two pages should hold different pictures"
   end
 
+  # A tear-free screen told which colors it shows draws exactly what one that was not told does:
+  # the list is the console's business, and a color is still named.
+  def test_a_tear_free_screen_given_its_colors
+    program = program_of do
+      screen :bitmap, tear_free: true, colors: %i[black blue white red]
+      n = var :n, 0
+      game_loop do
+        clear_screen :blue
+        draw_rect_at 20 + n * 4, 30, 10, 10, :white
+        draw_rect_at 100, 80 - n * 2, 6, 6, :red
+        n.add! 1
+      end
+    end
+
+    last = assert_native_matches_reference(program, frames: 5)
+
+    %i[blue white red].each { |name| assert_includes last.picture, Color.resolve(name), "#{name} should be drawn" }
+  end
+
   # Pictures painted into the picture where the program says: one with see-through pixels, one
   # hanging off two edges, and one of a set picked by a number that runs past the set.
   def test_pictures_blitted_onto_a_bitmap_screen
@@ -420,7 +439,7 @@ class TestNativePicture < Minitest::Test
       fill_rect 0, 60, 240, 20, :red
       fill_rect 200, 0, 2, 160, :yellow # stripes he crosses, so a patch put back a pixel out shows
       fill_rect 170, 0, 6, 160, :green
-      ball = sprite :ball, at: [228, 50] # starts partly off the right edge
+      ball = sprite :ball, at: [236, 50] # starts partly off the right edge
       n = var :n, 0
       game_loop do
         ball.move :left, by: 6
@@ -460,6 +479,43 @@ class TestNativePicture < Minitest::Test
 
     assert_equal Color.resolve(:black), last.picture[0], "outside the area the clear before it should stand"
     assert_includes last.picture, Color.resolve(:white), "and drawing after the block should land anywhere"
+  end
+
+  # A game with a tear-free scene, a plain painted one and one drawn from tiles: the two pages
+  # come and go with the scenes, and each scene's picture is its own.
+  def test_a_tear_free_scene_beside_a_plain_one_and_a_tiled_one
+    program = program_of do
+      state = var :state, 0
+      ticks = var :ticks, 0
+      image :brick, "#" => :red do "########\n" * 8 end
+      tiles :wall, "#" => :brick
+      scene(:tear_free) do
+        screen :bitmap, tear_free: true
+        draw_rect_at ticks * 6, 20, 4, 10, :white
+      end
+      scene(:plain) do
+        screen :bitmap
+        draw_rect_at ticks * 6, 60, 4, 10, :yellow
+      end
+      scene(:tiled) do
+        screen :tiled
+        background :wall, tiles: :wall, map: ["#" * 30] * 4
+      end
+      game_loop do
+        ticks.add! 1
+        state.set! ticks / 4 % 3
+        case_var :state do
+          when_val 0, :tear_free
+          when_val 1, :plain
+          when_val 2, :tiled
+        end
+      end
+    end
+
+    assert_native_matches_reference program, frames: 26
+
+    seen = reference_snapshots(program, frames: 26, buttons: {}).flat_map(&:picture).uniq
+    %i[white yellow red].each { |name| assert_includes seen, Color.resolve(name), "#{name} should have been drawn" }
   end
 
   # The window moved over the picture: nothing is redrawn, the picture slides, and the backdrop
