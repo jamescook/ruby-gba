@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require "test_helper"
+require "stringio"
 
 # Names only the native lowering, so it fails if anything but `rake test:native` runs it. Every
 # test in this folder names only native too, and `rake test` loads them all: this is the one that
@@ -18,6 +19,18 @@ class TestNativeSuite < Minitest::Test
     skipped = assert_raises(Minitest::Skip) { require_emulator! }
 
     assert_match(/emulator/, skipped.message)
+  end
+
+  # The classes a native run leaves to the interpreter print nothing as it goes, so it ends by
+  # counting every class each way.
+  def test_a_native_run_ends_by_counting_the_classes_each_way
+    said = StringIO.new
+
+    NativeSkips.new(said).report
+
+    assert_match(/^\s*\d+  on both lowerings$/, said.string)
+    assert_match(/^\s*[1-9]\d*  on the native lowering alone$/, said.string, "this class is one of them")
+    assert_match(/^\s*\d+  on the interpreter alone, so not played here/, said.string)
   end
 
   # ...and a test that asks something native cannot answer yet says so, with its reason.

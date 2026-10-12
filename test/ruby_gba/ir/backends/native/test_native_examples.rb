@@ -51,7 +51,10 @@ class TestNativeExamples < Minitest::Test
 
   private
 
+  # A file that plays the game on the interpreter by name, or that asks for `game_player` in a
+  # class the native run never plays. A file that does neither — its tests are all of the
+  # cartridge, in the emulator — has nothing for the game as C to play, and is left alone.
   def left_to_the_interpreter?(text)
-    text.include?("Reference.new") || (text.include?("game_player") && !text.match?(/^\s*runs_on :reference, :native$/))
+    text.include?("Reference.new") || (text.include?("game_player") && !text.match?(/^\s*runs_on :reference, :native\s*(#.*)?$/))
   end
 end
