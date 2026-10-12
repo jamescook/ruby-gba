@@ -44,7 +44,7 @@ module RubyGBA
                                                  clamp: ->(n) { [n.var] }, copy: ->(n) { [n.dest, n.src] },
                                                  var_ref: ->(n) { [n.name] }, repeat: ->(n) { [n.index].compact },
                                                  every: ->(n) { [n.counter] }, after: ->(n) { [n.counter] },
-                                                 case: ->(n) { [n.var] }
+                                                 case: ->(n) { [n.var] }, scroll_rows: ->(n) { [n.row] }
                                                })
 
           STATEMENTS = Ractor.make_shareable({
@@ -72,6 +72,7 @@ module RubyGBA
                                                background: :lower_background,
                                                affine_background: :lower_affine_background,
                                                scroll_background: :lower_scroll_background,
+                                               scroll_rows: :lower_scroll_rows,
                                                set_tile: :lower_set_tile, show_map: :lower_show_map,
                                                present_objects: :lower_present_objects,
                                                fade: :lower_fade, tint: :lower_tint,
@@ -100,7 +101,7 @@ module RubyGBA
           # which test_native_kind_coverage.rb holds against every kind there is. A kind leaves
           # the list the day it gets a row in STATEMENTS or VALUES.
           NOT_LOWERED_YET = Ractor.make_shareable({
-            picture: %i[background_colors copy_owed_tiles copy_tiles scroll_rows],
+            picture: %i[background_colors copy_owed_tiles copy_tiles],
             saving: %i[save_erase save_init save_read save_store save_sum save_write],
             sound: %i[noise play_from_list play_sample play_sound_effect stop_sample stop_wave wave],
             timers: %i[on_timer timer_start timer_stop timer_ticks]
@@ -116,11 +117,16 @@ module RubyGBA
             @names = Names.new
             @locals = 0
             @funcs = by_name(program.walk, :func)
+            # The bend each background's rows are given: the last one written for it, wherever
+            # that is, since it stands from power-on (Reference#collect_definitions).
+            @bends = by_name(program.walk, :scroll_rows)
             @called = called_routines
-            # Everything a run can reach: the program, and every routine it calls, however
-            # deep. A routine nothing calls is left out of the file altogether, so nothing in it
-            # (a table it reads, a routine it calls) can leave something declared and unused.
-            @reachable = ([program] + @called.map { |name| @funcs.fetch(name) }).flat_map { |root| statements_under(root) }
+            # Everything a run can reach: the program, every routine it calls, however deep, and
+            # what each bend runs as its background is painted. A routine nothing calls is left
+            # out of the file altogether, so nothing in it (a table it reads, a routine it calls)
+            # can leave something declared and unused.
+            @reachable = [program, *@called.map { |name| @funcs.fetch(name) }, *@bends.values]
+                         .flat_map { |root| statements_under(root) }
             @tables = by_name(program.walk, :table)
             @data = by_name(program.walk, :data, :bitmap)
             # A list is there, empty, from power-on wherever it is declared (the interpreter
@@ -160,7 +166,7 @@ module RubyGBA
              *constant_arrays, *picture_data, *@drawing_arrays, title_array, music_table, beep_table,
              *@called.map { |name| C::Prototype.new(name: routine(name)) },
              *routine_table_declarations,
-             *routines, see_through_amounts, main,
+             *routines, see_through_amounts, row_bends, main,
              C::Function.new(name: @names.own("dump_variables"), body: dump_variables, exported: true)]
           end
 
@@ -200,11 +206,11 @@ module RubyGBA
             end
           end
 
-          # Every routine a run can reach, following calls from the program into the routines
-          # they call, in the order the routines were declared.
+          # Every routine a run can reach, following calls from the program and from what each
+          # bend runs into the routines they call, in the order the routines were declared.
           def called_routines
             reached = []
-            waiting = routines_named(statements_under(@program))
+            waiting = routines_named([@program, *@bends.values].flat_map { |root| statements_under(root) })
             until waiting.empty?
               name = waiting.shift
               next if reached.include?(name) || !@funcs.key?(name)
@@ -417,13 +423,16 @@ module RubyGBA
           def lower_halt(_node) = [eval_call("rg_halt")]
 
           # The runtime ends the frame (shows it, reads the buttons, keeps time), and the frame
-          # counters the program can read move on, where the interpreter moves them.
+          # counters the program can read move on, where the interpreter moves them. Last, a
+          # game that bends a background has its picture built again
+          # (Reference#repaint_bent_backgrounds).
           def lower_wait_vblank(_node)
             count = variable(Frames::COUNT)
             [eval_call("rg_wait_vblank"),
              assign(Frames::COUNT, call("rg_add", count, C::Int.new(1))),
              assign(Frames::SEEN, count),
-             assign(Frames::STEP, C::Int.new(1))]
+             assign(Frames::STEP, C::Int.new(1)),
+             *(@bends.empty? ? [] : [eval_call("rg_screen_rows_bent")])]
           end
 
           # --- lists (runtime/rg_list.h does the work and the checking) ---

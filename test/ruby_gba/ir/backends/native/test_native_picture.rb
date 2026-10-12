@@ -1340,6 +1340,117 @@ class TestNativePicture < Minitest::Test
     assert_operator moments.map(&:picture).uniq.length, :>=, 5, "the pool, then the shrine's glow growing, then the pool again"
   end
 
+  # Every row of a background sits its own distance across, read from a table the game moves
+  # along each frame. Nothing else in the game draws or moves, and the ground behind is still.
+  def test_a_background_bends_row_by_row_and_the_bend_travels
+    program = program_of do
+      screen :tiled
+      image :turf, "#" => :green, "o" => :yellow do "#o######\n" * 8 end
+      image :reed, "|" => :white, "~" => :blue, "." => :transparent do "~|~~....\n" * 8 end
+      tiles :ground, "#" => :turf
+      tiles :water, "~" => :reed
+      background :ground, tiles: :ground, map: ["#" * 30] * 20
+      water = background :water, tiles: :water, map: ["~ ~~ ~~~ ~~~~"] * 24
+      sway = table :sway, [0, 1, 3, 6, -2, -5, 0, 2]
+      phase = var :phase, 0
+      water.scroll_each_row { |row| sway[(row + phase) % 8] }
+      game_loop { phase.add! 1 }
+    end
+
+    moments = reference_snapshots(program, frames: 9, buttons: {})
+
+    assert_native_matches_reference program, frames: 9
+
+    top_tile = moments.last.picture.each_slice(240).first(8)
+
+    assert_operator top_tile.uniq.length, :>=, 5, "rows drawn from the same row of art should sit at different places across"
+    after_the_first_pass = moments.drop(2).map(&:picture)
+
+    assert_equal after_the_first_pass.length, after_the_first_pass.uniq.length, "and the bend should be somewhere new on every frame"
+  end
+
+  # The block that bends the water also counts each time it is asked, so the count says how
+  # often the picture was built: for every scroll and every time the sprites are put on while
+  # the water is up, and never on the screen that does not show it. The water is scrolled as
+  # well as bent, by rows that sit further across than the grid is wide and below nought.
+  def test_a_bend_is_worked_out_each_time_the_picture_is_built
+    program = program_of do
+      screen :tiled
+      image :turf, "#" => :green, "o" => :yellow do "#o######\n" * 8 end
+      image :reed, "|" => :white, "~" => :blue, "." => :transparent do "~|~~....\n" * 8 end
+      image :ball, "o" => :red, "." => :transparent do "..oooo..\n" * 8 end
+      tiles :ground, "#" => :turf
+      tiles :water, "~" => :reed
+      asked = var :asked, 0
+      state = var :state, 0
+      n = var :n, 0
+      ball = sprite :ball, at: [20, 60]
+      scene(:lake) do
+        water = background :water, tiles: :water, map: ["~ ~~ ~~~ ~~~~"] * 24
+        water.scroll_each_row do |row|
+          asked.add! 1
+          ((row * 37) % 700) - 300 + n
+        end
+        water.scroll_by(-5, 3)
+      end
+      scene(:shore) { background :ground, tiles: :ground, map: ["# ##"] * 20 }
+      game_loop do
+        case_var :state do
+          when_val 0, :lake
+          when_val 1, :shore
+        end
+        ball.move :right, by: 3
+        (n == 3).then { state.set! 1 }
+        (n == 6).then { state.set! 0 }
+        n.add! 1
+      end
+    end
+
+    moments = reference_snapshots(program, frames: 10, buttons: {})
+
+    assert_native_matches_reference program, frames: 10
+
+    counts = moments.map { |moment| moment.variables[:asked] }
+
+    assert_operator counts.last, :>, counts.first, "the block should have been asked"
+    assert(counts.all? { |count| (count % 160).zero? }, "once for every row of the screen each time: #{counts.inspect}")
+    assert_operator counts.uniq.length, :<=, counts.length - 2, "and not at all while the shore is up: #{counts.inspect}"
+    assert_operator counts.each_cons(2).map { |before, after| after - before }.max, :>, 160,
+                    "more than once in a frame that scrolls and puts sprites on: #{counts.inspect}"
+  end
+
+  # A background too big for the console's grid, bent. The builder refuses a game that says
+  # both, so the bend is written here as the statement itself; the interpreter draws one, asking
+  # only for the rows the map reaches, and so must the C.
+  def test_a_background_bigger_than_the_grid_is_bent_too
+    program = program_of do
+      screen :tiled
+      image :reed, "|" => :white, "~" => :blue, "." => :transparent do "~|~~....\n" * 8 end
+      tiles :water, "~" => :reed
+      water = background :water, tiles: :water, map: ["~ ~~ ~~~ ~~~~" * 6] * 70
+      var :asked, 0
+      var :row, 0
+      n = var :n, 0
+      build = RubyGBA::IR::Build
+      record_statement(build.scroll_rows(:water, row: :row,
+                                                 offset: build.binop(:-, build.binop(:*, build.var_ref(:row), build.int(3)), build.int(200)),
+                                                 body: [build.add(:asked, build.int(1))]))
+      game_loop do
+        water.scroll_to (n * 40) - 60, (n * 90) - 100
+        n.add! 1
+      end
+    end
+
+    moments = reference_snapshots(program, frames: 9, buttons: {})
+
+    assert_native_matches_reference program, frames: 9
+
+    asked_each_frame = moments.map { |moment| moment.variables[:asked] }.each_cons(2).map { |before, after| after - before }
+
+    assert_operator asked_each_frame.uniq.length, :>=, 3, "the rows the map reaches change as it scrolls down: #{asked_each_frame.inspect}"
+    assert_operator moments.drop(2).map(&:picture).uniq.length, :>=, 5, "and the picture should move"
+  end
+
   def test_the_screen_is_white_until_the_first_frame
     program = program_of do
       screen :bitmap
