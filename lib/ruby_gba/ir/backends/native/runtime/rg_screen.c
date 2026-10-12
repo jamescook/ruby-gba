@@ -93,7 +93,7 @@ static background_turn turns[RG_MAX_BACKGROUNDS];
 
 /* The sprites on screen this frame: being said (drawing), and as the last rebuild draws them.
  * One that turns or resizes carries its angle and its size for this frame. */
-typedef struct { int32_t sprite, image, x, y, level, turns, angle, size; } placed_object;
+typedef struct { int32_t sprite, image, x, y, level, turned, angle, size; } placed_object;
 static placed_object drawing[RG_MAX_SPRITES], layer[RG_MAX_SPRITES];
 static int32_t drawing_count, layer_count;
 
@@ -634,7 +634,7 @@ static void blit_image_turned(int32_t image, int32_t x, int32_t y, int32_t angle
 
 /* Reference#draw_object and #paint_snapshot_object */
 static void draw_placed(const placed_object *placed) {
-  if (placed->turns) blit_image_turned(placed->image, placed->x, placed->y, placed->angle, placed->size);
+  if (placed->turned) blit_image_turned(placed->image, placed->x, placed->y, placed->angle, placed->size);
   else blit_image(placed->image, placed->x, placed->y);
 }
 
@@ -702,9 +702,9 @@ static void restore_patch(int64_t left, int64_t top, int64_t width, int64_t heig
     }
 }
 
-/* Where a sprite was last drawn straight onto the picture, forgotten as it is handed over; NULL
- * when it is not on the picture. */
-static const drawn_place *place_taken_off(int32_t sprite) {
+/* Forgets where a sprite was last drawn straight onto the picture, and hands that place over for
+ * the scenery to be put back there; NULL when it is not on the picture. */
+static const drawn_place *forget_drawn_place(int32_t sprite) {
   fault_unless_sprite(sprite);
   drawn_place *place = &last_drawn[sprite];
   if (!place->drawn) return NULL;
@@ -715,7 +715,7 @@ static const drawn_place *place_taken_off(int32_t sprite) {
 /* Reference#restore_scene_rect: the scenery put back where this sprite was last drawn. All of a
  * sprite's pictures are one size, so any of them says how big the patch is. */
 void rg_object_take_off(int32_t sprite, int32_t image) {
-  const drawn_place *place = place_taken_off(sprite);
+  const drawn_place *place = forget_drawn_place(sprite);
   if (!place) return;
   picture art = picture_of(image);
   restore_patch(place->x, place->y, art.width, art.height);
@@ -734,7 +734,7 @@ static int64_t whole_root(int64_t value) {
  * middle than half its own diagonal, so a square that wide does; one that +resizes+ has no bound
  * short of the whole box the display gives it, twice the picture each way. */
 void rg_object_take_off_turned(int32_t sprite, int32_t image, int32_t resizes) {
-  const drawn_place *place = place_taken_off(sprite);
+  const drawn_place *place = forget_drawn_place(sprite);
   if (!place) return;
   picture art = picture_of(image);
   int64_t width = art.width, height = art.height;
@@ -747,19 +747,21 @@ void rg_object_take_off_turned(int32_t sprite, int32_t image, int32_t resizes) {
   restore_patch(middle_x - side / 2, middle_y - side / 2, side, side);
 }
 
-static placed_object *place_added(int32_t sprite) {
-  fault_unless_sprite(sprite);
+/* One more sprite on screen this frame. */
+static void add_placed(placed_object placed) {
+  fault_unless_sprite(placed.sprite);
   if (drawing_count >= RG_MAX_SPRITES) rg_fault("more than %d sprites on screen at once", RG_MAX_SPRITES);
-  return &drawing[drawing_count++];
+  drawing[drawing_count++] = placed;
 }
 
 void rg_objects_add(int32_t sprite, int32_t image, int32_t x, int32_t y, int32_t level) {
-  *place_added(sprite) = (placed_object){sprite, image, x, y, level, 0, 0, 0};
+  add_placed((placed_object){.sprite = sprite, .image = image, .x = x, .y = y, .level = level});
 }
 
 void rg_objects_add_turned(int32_t sprite, int32_t image, int32_t x, int32_t y, int32_t level, int32_t angle,
                            int32_t size) {
-  *place_added(sprite) = (placed_object){sprite, image, x, y, level, 1, angle, size};
+  add_placed((placed_object){.sprite = sprite, .image = image, .x = x, .y = y, .level = level,
+                             .turned = 1, .angle = angle, .size = size});
 }
 
 /* The rest of Reference#exec_present_objects. On a picture that is rebuilt whole, the sprites on
