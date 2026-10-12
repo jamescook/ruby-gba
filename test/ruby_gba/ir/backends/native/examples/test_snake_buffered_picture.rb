@@ -16,6 +16,8 @@ class TestSnakeBufferedPicture < Minitest::Test
 
   GAME_OVER = 2
 
+  # START on the title, then one turn up and one turn left (the snake goes on the way it was
+  # turned), and nothing after: it meets a wall well before the run ends, which the test checks.
   PLAY = Ractor.make_shareable(
     NativeComparison.held_for([3..4, :start], [20..22, :up], [40..42, :left])
   )

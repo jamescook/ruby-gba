@@ -39,7 +39,10 @@ module RubyGBA
             @backgrounds = @stacking.scenery.each_with_index.to_h { |bg, id| [bg.name, id] }
             @objects = by_name(@program.walk, :object)
             @sprites = @objects.each_key.with_index.to_h # sprite name -> the number rg_screen.c knows it by
-            @patches = by_name(@program.walk, :backing_buffer) # the patches of picture saved under bitmap sprites
+            # The patches of picture saved under sprites on a painted screen, as the program
+            # declared them, and the number rg_screen.c knows each by.
+            @patches = by_name(@program.walk, :backing_buffer)
+            @patch_numbers = @patches.each_key.with_index.to_h
             @images = {} # [picture name, the list of colors it is drawn with or nil] -> its number in rg_game_images
             @drawing_arrays = [] # constant arrays the drawing statements need, written before the routines
             refuse_unsupported_picture!
@@ -53,8 +56,24 @@ module RubyGBA
             refuse_picture!("a fade placed in the stack (fade ... under:)") if nodes.any? { |n| n.kind == :fade && n.under }
             refuse_picture!("more than #{MAX_BACKGROUNDS} backgrounds") if @backgrounds.size > MAX_BACKGROUNDS
             refuse_picture!("more than #{MAX_SPRITES} sprites") if @sprites.size > MAX_SPRITES
+            if nodes.any? { |n| n.kind == :inside && frame_ends_under?(n) }
+              refuse_picture!("a frame that ends inside an `inside` block")
+            end
             @stacking.scenery.each { |bg| refuse_unsupported_background!(bg) }
             @objects.each_value { |obj| refuse_unsupported_object!(obj) }
+          end
+
+          # Whether a frame can end while +node+ is running: it waits for the screen itself, or
+          # calls a routine that does. The interpreter reads the screen through the area an
+          # `inside` holds drawing to when it is read while the block is open (Framebuffer#pixel),
+          # and the C reads the whole screen, so a game that ends a frame there is refused.
+          def frame_ends_under?(node, asked = [])
+            statements = statements_under(node)
+            return true if statements.any? { |statement| statement.kind == :wait_vblank }
+
+            (routines_named(statements) - asked).any? do |name|
+              @funcs.key?(name) && frame_ends_under?(@funcs.fetch(name), asked << name)
+            end
           end
 
           def refuse_unsupported_background!(bg)
@@ -164,7 +183,7 @@ module RubyGBA
           # that is drawn: a color is still named, and the build has already refused one the
           # list does not hold.
           def lower_screen(node)
-            [eval_call("rg_screen_set", C::Int.new(SCREEN_KINDS.fetch(node.mode)), C::Int.new(node.buffered ? 1 : 0))]
+            [eval_call("rg_screen_set", C::Int.new(SCREEN_KINDS.fetch(node.mode)), yes_or_no(node.buffered))]
           end
 
           def lower_clear_screen(node) = [eval_call("rg_screen_clear", color(node.color))]
@@ -192,16 +211,16 @@ module RubyGBA
                        value(node.top), value(node.height), C::Int.new(node.width || 1))]
           end
 
-          def lower_save_region(node) = [patch_call("rg_region_save", node)]
-          def lower_restore_region(node) = [patch_call("rg_region_restore", node)]
+          def lower_save_region(node) = [patch_statement("rg_patch_save", node)]
+          def lower_restore_region(node) = [patch_statement("rg_patch_restore", node)]
 
           # Reference#backing_for: a patch is kept in the buffer the program declared for it,
           # which says how big it is.
-          def patch_call(function, node)
+          def patch_statement(function, node)
             buffer = @patches.fetch(node.buffer) do
               raise LoweringError, "backing buffer #{node.buffer.inspect} is used and never declared"
             end
-            eval_call(function, C::Int.new(@patches.keys.index(node.buffer)), C::Int.new(buffer.width),
+            eval_call(function, C::Int.new(@patch_numbers.fetch(node.buffer)), C::Int.new(buffer.width),
                       C::Int.new(buffer.height), value(node.x), value(node.y))
           end
 
@@ -338,7 +357,7 @@ module RubyGBA
                      else
                        mode = Modes::SCREEN_OF_MODE.fetch(arrival.mode)
                        [eval_call("rg_screen_cross_to", C::Int.new(SCREEN_KINDS.fetch(mode)),
-                                  C::Int.new(arrival.mode == Modes::BUFFERED ? 1 : 0))]
+                                  yes_or_no(arrival.mode == Modes::BUFFERED))]
                      end
             [eval_call("rg_scene_enter", C::Int.new(@scenes.fetch(scene))), *screen,
              eval_call("rg_scene_take_down", C::Int.new(arrival.scenery.empty? ? 0 : 1)),
@@ -349,6 +368,9 @@ module RubyGBA
           # --- small pieces ---
 
           def color(name) = C::Int.new(Graphics::Color.resolve(name))
+
+          # 1 or 0, which is how a yes or a no is handed to the C.
+          def yes_or_no(answer) = C::Int.new(answer ? 1 : 0)
 
           # A constant array for one drawing statement, kept to be written before the routines.
           def drawing_array(what, type, values)

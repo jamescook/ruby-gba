@@ -14,9 +14,6 @@ require_relative "../../examples/snake_buffered"
 # renders its title and playing board on the console — through Mode 4's auto
 # palette and page flip, with the whole board repainted each frame.
 class TestSnakeBufferedExample < Minitest::Test
-  # True of the game however it is played: see TestSuites.
-  runs_on :reference, :native
-
   include RubyGBA::Console::Hardware
 
   # RubyGBA.build runs the guardrails and validation, so a clean build IS the check.

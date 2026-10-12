@@ -59,6 +59,18 @@ class TestNativeRefusals < Minitest::Test
   end
 
   # What the desktop's picture cannot draw yet is refused, by name, rather than drawn wrong.
+  #
+  # A frame that ends while drawing is held inside an area: the interpreter reads the screen
+  # through that area then, and the desktop build reads all of it.
+  def test_a_frame_that_ends_inside_a_held_area_is_refused_by_name
+    assert_refused_picture(/frame that ends inside an `inside` block/) do
+      screen :bitmap
+      clear_screen :blue
+      n = var :n, 0
+      inside(40, 30, 100, 60) { game_loop { n.add! 1 } }
+    end
+  end
+
   def test_a_see_through_layer_is_refused_by_name
     assert_refused_picture(/see-through layer/) do
       screen :tiled
