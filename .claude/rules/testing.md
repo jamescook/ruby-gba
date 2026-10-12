@@ -222,8 +222,8 @@ class TestPongScoring < Minitest::Test
 
 On a `rake test` run `game_player` IS `Reference.new`. On a native run it is a
 `CheckedNativeRun`: the game built as C and driven through the same calls (`hold`,
-`input_each_frame`, `run`, `[]`, `vars`, `screen.pixel`, `screen.to_a`, `audio` so far, growing
-with each native slice), and then the same buttons replayed on the interpreter, failing at the first
+`input_each_frame`, `run`, `[]`, `vars`, `screen.pixel`, `screen.to_a`, `buffered`, `audio` so
+far, growing with each native slice), and then the same buttons replayed on the interpreter, failing at the first
 frame where any variable, any pixel or the sound log differs. So an opted-in file's own checks
 are backed by a whole-picture comparison on every frame. A run by step budget
 (`run(program, max_steps: 400)`) plays there too, with nothing to change: a budget is the
@@ -280,6 +280,17 @@ a wall, the menu has moved on (`test_pacman_sounds.rb`).
 `test_native_desktop.rb`, under `SDL=1`): each is a real key event, onto the gamepad the keyboard
 is, round the window's frame loop. Feeding buttons to the windowless program goes round all of
 that, so a fault in how the window reads a key shows only there.
+
+**An editor's complaints about the runtime's C are not the build's.** A C checker in an editor
+(or the one that reports after an edit here) reads `lib/ruby_gba/ir/backends/native/runtime/`
+on its own. Every native build — a test's, or a game built for the desktop — keeps a
+`compile_flags.txt` above that folder holding the build's own flags and header folders
+(`Native::Zig.checker_flags`), so the checker holds the code to what the build does and finds
+SDL's headers, and nobody runs anything to get it. What that cannot cure: after a header is edited
+the checker can go on reading it at its old positions and report nonsense, such as "invalid
+suffix on integer constant" on a line that only names a number the header defines. Ask the
+compiler itself before believing it, which takes under a second:
+`rake test:native TEST=test/ruby_gba/ir/backends/native/test_native_checker_flags.rb`.
 
 A native run puts tests side by side on threads, not Ractors (a Ractor cannot start the child
 processes a native test needs), so it never checks for shared state — `rake test` runs the same
