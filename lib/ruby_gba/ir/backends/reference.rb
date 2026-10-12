@@ -248,6 +248,7 @@ module RubyGBA
           @save.use_memory!(SaveLayout.memory_of(node))
           refuse_too_many_layers!(node)
           refuse_too_many_sprites!(node)
+          refuse_poses_with_different_colors!(node)
           refuse_two_see_through_layers!(node)
           # How the picture stacks: what scenery and objects there are, in what order,
           # and how deep each sits. Scenery in FRONT of an object means the save-under
@@ -408,6 +409,14 @@ module RubyGBA
         # the console has 128 places. See Guardrails::Checks::TooManySprites.
         def refuse_too_many_sprites!(node)
           refusal = Guardrails::Checks::TooManySprites.new.refusal_message(node)
+          raise ProgramError, refusal if refusal
+        end
+
+        # ...and about a sprite's colors: this picture paints each of a sprite's pictures in
+        # whatever colors it holds, and the console draws them all from one list. See
+        # Guardrails::Checks::PosesWithDifferentColors.
+        def refuse_poses_with_different_colors!(node)
+          refusal = Guardrails::Checks::PosesWithDifferentColors.new.refusal_message(node)
           raise ProgramError, refusal if refusal
         end
 

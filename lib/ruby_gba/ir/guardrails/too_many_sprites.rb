@@ -47,7 +47,7 @@ module RubyGBA
 
           def message(sprites)
             letters, rest = sprites.partition { |node| node.declared.nil? }
-            pooled, declared = rest.partition { |node| pool?(node) }
+            pooled, declared = rest.partition { |node| SpriteWords.pool?(node) }
             shares = [letters_sentence(letters), *pool_sentences(pooled), declared_sentence(declared)].compact
             "This game has #{sprites.size} sprites. The console has places for #{MOST}, and each " \
               "sprite takes one for the whole game, in every scene. #{shares.join(' ')} " \
@@ -86,13 +86,6 @@ module RubyGBA
 
             " A pool takes one place for each instance it can hold. For a pool, give it a " \
               "smaller `capacity:`."
-          end
-
-          # A pool's slots carry the pool's name as the one they were declared under, and a
-          # name of the framework's own.
-          def pool?(node)
-            kind, parts = Messages::MadeNames.read(node.name)
-            kind == :pool_part && parts[:pool] == node.declared.to_s
           end
         end
       end

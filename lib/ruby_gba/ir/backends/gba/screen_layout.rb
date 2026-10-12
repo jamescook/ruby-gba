@@ -1502,9 +1502,10 @@ module RubyGBA
           # about which sprite is on top.
           def prepare_objects(program)
             nodes = @picture.objects
-            # The guardrail of the same name has the rule and the words; this is the lowering's
-            # own invariant, for a program that reached it without passing the guardrails.
-            refusal = Guardrails::Checks::TooManySprites.new.refusal_message(program)
+            # The guardrails have these two rules and their words; this is the lowering's own
+            # invariant, for a program that reached it without passing the guardrails.
+            refusal = Guardrails::Checks::TooManySprites.new.refusal_message(program) ||
+                      Guardrails::Checks::PosesWithDifferentColors.new.refusal_message(program)
             raise LoweringError, refusal if refusal
             build_shared_object_palette(nodes)
             # EVERY SPRITE'S PICTURES, cut into the rectangles the console draws and encoded,
@@ -1882,20 +1883,19 @@ module RubyGBA
             LayerDepths.new(table: blob, own: node.layers.length, scene_var: scene_var, scene_count: scene_count)
           end
 
-          # The table a sprite's art came with, where its poses all name the same one.
+          # The table a sprite's art came with, or nil where the framework works one out.
           # Art made somewhere else on this console arrives as numbers picking out of its
           # own sixteen, so the order is the whole point and the framework must not
-          # rearrange it. Poses that disagree is a friendly error rather than a silent
-          # choice of one of them.
+          # rearrange it. Every pose names the same one: pictures the game declared with lists
+          # that disagree were refused before any sprite was laid out (see #prepare_objects).
+          # What is left to stop here is a picture the game paints from a list standing beside
+          # other poses, in a program that skipped the guardrail refusing that.
           def authored_palette(node)
-            by_table = node.poses.group_by { |image| @bitmaps.fetch(image).colors }
-            return by_table.keys.first if by_table.size == 1
+            tables = node.poses.map { |image| @bitmaps.fetch(image).colors }.uniq
+            return tables.first if tables.size == 1
 
-            named = by_table.values.map { |images| ":#{images.first}" }.first(3).join(" and ")
             raise LoweringError,
-                  "The pictures one sprite shows were given different `colors:` lists (#{named}). All the " \
-                  "pictures a sprite shows are drawn from one table of colors. So give them all the same " \
-                  "list, or give none of them a list and the framework works the table out."
+                  "sprite object #{node.name.inspect} shows pictures drawn from different lists of colors"
           end
 
           # Every non-see-through color in a sprite picture, first-seen order, deduped.

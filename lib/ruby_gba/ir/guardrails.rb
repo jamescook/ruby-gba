@@ -312,7 +312,9 @@ require_relative "guardrails/layer_invisible"
 require_relative "guardrails/layer_solid_while_fading"
 require_relative "guardrails/stack_not_honored"
 require_relative "guardrails/too_many_background_layers"
+require_relative "guardrails/sprite_words" # shared by the two sprite checks below
 require_relative "guardrails/too_many_sprites"
+require_relative "guardrails/poses_with_different_colors"
 require_relative "guardrails/see_through_per_screen"
 require_relative "guardrails/routine_never_called"
 
@@ -350,6 +352,7 @@ module RubyGBA
         Checks::LayerSolidWhileFading.new,
         Checks::TooManyBackgroundLayers.new,
         Checks::TooManySprites.new,
+        Checks::PosesWithDifferentColors.new,
         Checks::SeeThroughPerScreen.new,
         Checks::ScreenInsideScene.new,
         Checks::PaintedPictureWithOtherPoses.new,

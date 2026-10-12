@@ -519,21 +519,4 @@ class TestPictureStorage < Minitest::Test
     assert_match(/:ship/, error.message)
     assert_match(/see-through/i, error.message, "it says what the first entry means")
   end
-
-  def test_poses_given_different_lists_is_a_friendly_error
-    art = striped(FIFTEEN)
-    other = striped(FIFTEEN.reverse)
-    error = assert_raises(GBA::LoweringError) do
-      build("POSES") do
-        screen :tiled
-        image :left, width: 16, height: 16, data: art, colors: [:transparent, *FIFTEEN]
-        image :right, width: 16, height: 16, data: other, colors: [:transparent, *FIFTEEN.reverse]
-        sprite :hero, at: [0, 0], facing: { left: :left, right: :right }
-        game_loop {}
-      end
-    end
-    assert_match(/:left/, error.message, "it names the pictures that disagree")
-    assert_match(/:right/, error.message)
-    assert_match(/colors:/, error.message)
-  end
 end
