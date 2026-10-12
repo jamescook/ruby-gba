@@ -9,6 +9,8 @@ require "test_helper"
 # build always refused that. The interpreter drew it, each picture in its own colors, so a
 # game's own tests were green for a game that could not be built.
 class TestIRGuardrailPosesWithDifferentColors < Minitest::Test
+  runs_on :reference
+
   Guardrails = RubyGBA::IR::Guardrails
 
   WARM = [:transparent, :red, :orange].freeze

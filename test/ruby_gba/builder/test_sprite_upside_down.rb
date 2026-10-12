@@ -11,6 +11,8 @@ require "differential"
 # the same distance from the bottom turned over. So the tests compare the two backends on
 # frames showing each turned pose, where the interpreter draws the turned picture's own pixels.
 class TestSpriteUpsideDown < Minitest::Test
+  runs_on :reference
+
   include Differential
 
   CANVAS = 32

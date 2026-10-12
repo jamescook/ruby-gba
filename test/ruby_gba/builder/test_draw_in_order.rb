@@ -11,6 +11,8 @@ require "differential"
 # Two blocks overlap at OVERLAP. The enemy is declared first, so without an order the hero
 # (declared after it) is always in front. Which colour shows there is the whole answer.
 class TestDrawInOrder < Minitest::Test
+  runs_on :reference
+
   include Differential
 
   RED = RubyGBA::Graphics::Color.resolve(:red)

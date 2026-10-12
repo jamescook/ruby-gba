@@ -18,6 +18,8 @@ require "zlib"
 # taken from the routine mixing ONE sample each time round, which is the form whose sound was
 # right before it changed. A deliberate change to what the mix plays takes the number again.
 class TestMixerSound < Minitest::Test
+  runs_on :reference
+
   PLAYED = 0x5C0E1079
 
   def rom
