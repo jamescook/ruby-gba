@@ -934,6 +934,107 @@ class TestNativePicture < Minitest::Test
                  "the way down is open, then shut beside the pillar under the gap, then open again"
   end
 
+  # A sprite that turns, over still scenery: at another angle every frame, about its own middle,
+  # hanging off the left edge at first, hidden for two frames, and leaving no trail.
+  def test_a_sprite_turns_over_still_scenery_and_leaves_no_trail
+    program = program_of do
+      screen :tiled
+      image :brick, "#" => :red, "." => :blue do "#.#.#.#.\n.#.#.#.#\n" * 4 end
+      image :arrow, "w" => :white, "y" => :yellow, "." => :transparent do
+        ["wwwwwwwwwwww....", "wwwwwwwwwwwwyy..", "wwwwwwwwwwwwyyyy", "wwwwwwwwwwwwyyyy",
+         "wwwwwwwwwwwwyyyy", "wwwwwwwwwwwwyy..", "wwwwwwwwwwww....", "................"].join("\n")
+      end
+      tiles :wall, "#" => :brick
+      background :wall, tiles: :wall, map: ["#" * 30] * 20
+      arrow = sprite :arrow, at: [-6, 30]
+      n = var :n, 0
+      game_loop do
+        arrow.turn 37
+        arrow.move :right, by: 4
+        (n == 5).then { arrow.hide }
+        (n == 7).then { arrow.show }
+        n.add! 1
+      end
+    end
+
+    moments = reference_snapshots(program, frames: 14, buttons: {})
+    rows_holding_white = moments.map { |moment| moment.picture.each_slice(WIDTH).count { |row| row.include?(Color.resolve(:white)) } }
+
+    assert_native_matches_reference program, frames: 14
+
+    assert_operator rows_holding_white.max, :>, 8, "the arrow is 7 rows tall as drawn, and turned it should stand taller"
+    assert_includes rows_holding_white, 0, "and it should have been hidden for a while"
+  end
+
+  # A sprite that grows from under half its size to past twice it, where the box the console
+  # gives it cuts its edges off, turning as it goes and drawn in another list of colors on some
+  # frames. It is drawn straight onto still scenery, so what it covered is put back each frame.
+  def test_a_sprite_resizes_as_it_turns_and_is_drawn_in_other_colors
+    program = program_of do
+      screen :tiled
+      colors :hot, %i[transparent red orange]
+      image :turf, "#" => :green, "." => :blue do "##..##..\n..##..##\n" * 4 end
+      image :gem, "." => :transparent, "a" => :white, "b" => :yellow, colors: %i[transparent white yellow] do
+        ("aaaaaaaabbbbbbbb\n" * 8) + ("bbbbbbbbaaaaaaaa\n" * 4) + ("................\n" * 4)
+      end
+      tiles :lawn, "#" => :turf
+      background :lawn, tiles: :lawn, map: ["#" * 30] * 20
+      gem = sprite :gem, at: [100, 60]
+      size = var :size, 0.4
+      n = var :n, 0
+      game_loop do
+        gem.scale size
+        gem.face_angle n * 50
+        gem.draw_with %i[hot], showing: (n / 3) % 2
+        size.add! 0.2
+        n.add! 1
+      end
+    end
+
+    moments = reference_snapshots(program, frames: 13, buttons: {})
+    covered = moments.map { |moment| moment.picture.count { |color| ![Color.resolve(:green), Color.resolve(:blue)].include?(color) } }
+
+    assert_native_matches_reference program, frames: 13
+
+    assert_operator covered[3], :<, 16 * 12 / 2, "it should start well under the size it was drawn at"
+    assert_operator covered[9], :>, 16 * 12 * 2, "and grow to well over it"
+    seen = moments.flat_map(&:picture).uniq
+    %i[white red].each { |name| assert_includes seen, Color.resolve(name), "#{name} should have been drawn" }
+  end
+
+  # A turning, growing sprite on a picture that is rebuilt every frame: between a ground that
+  # scrolls under it and a fence with gaps that scrolls over it.
+  def test_a_sprite_turns_between_scenery_that_scrolls
+    program = program_of do
+      screen :tiled
+      layers :ground, :actors, :fence
+      image :turf, "#" => :green, "." => :blue do "##..##..\n..##..##\n" * 4 end
+      image :post, "#" => :red, "." => :transparent do "##......\n" * 8 end
+      image :kite, "w" => :white, "c" => :cyan, "." => :transparent do
+        ("wwwwwwwwcccccccc\n" * 8) + ("cccc....wwww....\n" * 8)
+      end
+      tiles :lawn, "#" => :turf
+      tiles :posts, "#" => :post
+      ground = layer(:ground) { background :lawn, tiles: :lawn, map: ["#" * 32] * 32 }
+      fence = layer(:fence) { background :posts, tiles: :posts, map: ["#" * 32] * 32 }
+      kite = layer(:actors) { sprite :kite, at: [226, 70] }
+      n = var :n, 0
+      game_loop do
+        ground.scroll_by 1, 2
+        fence.scroll_by(-3, 0)
+        kite.turn(-29)
+        kite.scale.add! 0.125
+        kite.move :left, by: 6
+        n.add! 1
+      end
+    end
+
+    last = assert_native_matches_reference(program, frames: 12)
+
+    assert_includes last.picture, Color.resolve(:white), "the kite should be in the last picture compared"
+    assert_operator different_pictures_in(program, frames: 12), :>=, 11, "and every frame should have shown it somewhere new"
+  end
+
   def test_the_screen_is_white_until_the_first_frame
     program = program_of do
       screen :bitmap

@@ -98,10 +98,18 @@ void rg_scene_take_down(int32_t brings_scenery);
  * What the end does with them is the game's, settled when it was built (rg_game_picture_sizes):
  * a game whose scenery moves, turns or sits in front of a sprite has its whole view rebuilt from
  * its layers, and taking a sprite off does nothing. Any other game keeps its scenery as it is and
- * draws the sprites straight onto it, so taking one off puts back the scenery it was covering. */
+ * draws the sprites straight onto it, so taking one off puts back the scenery it was covering.
+ *
+ * A sprite that turns or resizes is said with the two _turned ones: +angle+ in degrees clockwise
+ * from upright, +size+ counted as the game counts a size (rg_game_turn_rules says what 1.0 is),
+ * both about the middle of its picture. Taking one off puts back every pixel it could have
+ * covered, which is more of them when it +resizes+ than when it only turns. */
 void rg_objects_begin(void);
 void rg_object_take_off(int32_t sprite, int32_t image);
+void rg_object_take_off_turned(int32_t sprite, int32_t image, int32_t resizes);
 void rg_objects_add(int32_t sprite, int32_t image, int32_t x, int32_t y, int32_t level);
+void rg_objects_add_turned(int32_t sprite, int32_t image, int32_t x, int32_t y, int32_t level, int32_t angle,
+                           int32_t size);
 void rg_objects_end(void);
 
 /* Which of a sprite's pictures it is showing, for a collision: number +pose+ of +count+, read as
