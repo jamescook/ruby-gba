@@ -310,6 +310,17 @@ a wall, the menu has moved on (`test_pacman_sounds.rb`).
 is, round the window's frame loop. Feeding buttons to the windowless program goes round all of
 that, so a fault in how the window reads a key shows only there.
 
+**How evenly the window shows its pictures** cannot be seen by a test, and a stutter is exactly
+that. A desktop build started with `--frame-times` says at its end, on the error stream, what
+paced its frames (the monitor, or the console's clock), how far apart its pictures were handed
+to the display, which gaps were more than two milliseconds from the middle one, and whether any
+sound was thrown away or ran dry. A stutter is a clump of uneven gaps that comes round every few
+seconds; scattered single ones are the computer being busy. `--refresh-rate 144` paces it as
+for a monitor of that rate, whatever this one's is, so the other kinds of monitor can be tried
+on the one there is. The rule that picks the pacing from a monitor's rate, and the limit that
+stands behind the monitor while the window is hidden, are plain arithmetic in
+`runtime/rg_pacing.h` and tested as that (`test_native_pacing.rb`).
+
 **An editor's complaints about the runtime's C are not the build's.** A C checker in an editor
 (or the one that reports after an edit here) reads `lib/ruby_gba/ir/backends/native/runtime/`
 on its own. Every native build — a test's, or a game built for the desktop — keeps a

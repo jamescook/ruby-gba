@@ -2,6 +2,7 @@
 
 require "test_helper"
 require "native_comparison"
+require "open3"
 require "tmpdir"
 require_relative "../../../../../examples/pong"
 
@@ -38,6 +39,7 @@ class TestNativeDesktop < Minitest::Test
 
       assert_runs_headless_like_the_interpreter(exe)
       assert_keys_work_the_menus_through_the_window(exe)
+      assert_says_how_evenly_its_pictures_were_shown(exe)
       assert_keeps_running_with_its_window(exe)
       assert_needs_nothing_installed(exe) if RUBY_PLATFORM.include?("darwin")
     end
@@ -70,6 +72,22 @@ class TestNativeDesktop < Minitest::Test
 
     assert_equal [0, 0], expected.values_at(:music_on, :state), "the run should turn the music off and come back to the title"
     assert_empty variable_differences(expected, Native::HeadlessRun.variables_in(printed.lines.map(&:chomp)))
+  end
+
+  # Asked for its frame times, it says on the error stream what paced the frames and how far
+  # apart the pictures were handed over, which is the only way to see a stutter without looking
+  # at a screen. Whatever paced them (the stand-in display says what it likes about its rate),
+  # the game was paced: a second's worth of frames takes about a second, never a moment.
+  def assert_says_how_evenly_its_pictures_were_shown(exe)
+    started = Process.clock_gettime(Process::CLOCK_MONOTONIC)
+    _printed, said, status = Open3.capture3(NO_SCREEN_OR_SPEAKER, exe, "--scripted-keys", "60", "--frame-times", stdin_data: "0\n" * 60)
+    took = Process.clock_gettime(Process::CLOCK_MONOTONIC) - started
+
+    assert_predicate status, :success?, said
+    assert_match(/^pacing: the (monitor|console's clock)/, said)
+    assert_match(/^pictures: 60, [\d.]+ to [\d.]+ ms apart, [\d.]+ in the middle$/, said)
+    assert_match(/^uneven \(more than 2 ms from the middle\): \d+/, said)
+    assert_operator took, :>, 0.8, "sixty frames should take about a second"
   end
 
   # Started normally, with SDL's stand-in display so it needs no screen, it opens its window and
