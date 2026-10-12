@@ -797,6 +797,112 @@ class TestNativePicture < Minitest::Test
     assert_equal [Color.resolve(:cyan)], moments.last.picture.uniq, "and nothing of it comes round again past its far corner"
   end
 
+  # A sprite put in a layer by a number, over two backgrounds with gaps in them: in front of both
+  # where it was declared, between them, behind both, and where it was declared again for a
+  # number that names no layer.
+  def test_a_sprite_is_put_in_another_layer_by_a_number
+    program = program_of do
+      screen :tiled
+      layers :stairs, :ground, :walking, :scenery, :upper
+      image :plank, "#" => :green, "." => :transparent do "####....\n" * 8 end
+      image :rail, "#" => :orange, "." => :transparent do ("########\n" * 3) + ("........\n" * 5) end
+      image :hero, "h" => :white do "hhhhhhhh\n" * 8 end
+      tiles :floor, "#" => :plank
+      tiles :rails, "#" => :rail
+      layer(:ground) { background :floor, tiles: :floor, map: ["#" * 30] * 20 }
+      layer(:scenery) { background :rails, tiles: :rails, map: ["#" * 30] * 20 }
+      hero = layer(:upper) { sprite :hero, at: [40, 40] }
+      n = var :n, 0
+      game_loop do
+        hero.put_in_layer %i[walking stairs], showing: (n / 2) - 1
+        hero.move :right, by: 1
+        n.add! 1
+      end
+    end
+
+    moments = reference_snapshots(program, frames: 10, buttons: {})
+    whites = moments.map { |moment| moment.picture.count(Color.resolve(:white)) }
+
+    assert_native_matches_reference program, frames: 10
+
+    assert_equal [64, 40, 20, 64], whites.drop(2).chunk_while { |a, b| a == b }.map(&:first),
+                 "the whole hero, then what shows under the rails, then what shows past the planks too, then all of it"
+  end
+
+  # A pool whose instances are sprites, over still scenery: one spawned every other frame, each
+  # drifting its own way and overlapping the one before, until the pool is full and its oldest is
+  # used again, with one taken out as it passes a line. Where two overlap the older is in front,
+  # and a sprite declared after the pool is in front of them all.
+  def test_a_pool_of_sprites_is_drawn_oldest_in_front
+    program = program_of do
+      screen :tiled
+      image :turf, "#" => :green do "########\n" * 8 end
+      image :drop, "w" => :white, "c" => :cyan, "." => :transparent do ("wwwwwwww\n" * 4) + (".cccccc.\n" * 4) end
+      image :hat, "#" => :red, "." => :transparent do "..####..\n" * 8 end
+      tiles :lawn, "#" => :turf
+      background :lawn, tiles: :lawn, map: ["#" * 30] * 20
+      drops = pool :drop, x: 0, y: 0, drift: 0, capacity: 3, image: :drop, on_full: :recycle_oldest
+      sprite :hat, at: [44, 30]
+      n = var :n, 0
+      game_loop do
+        every(2) { drops.spawn(x: 40 + n, y: 20, drift: (n % 3) - 1) }
+        drops.each do |drop|
+          drop.x.add! drop.drift
+          drop.y.add! 3
+          ((drop.y > 44) & (drop.drift == 0)).then { drop.remove }
+        end
+        n.add! 1
+      end
+    end
+
+    moments = reference_snapshots(program, frames: 16, buttons: {})
+    drops = moments.map { |moment| moment.picture.count(Color.resolve(:white)) }
+
+    assert_native_matches_reference program, frames: 16
+
+    assert_operator drops.max, :>, 2 * 32 - 16, "three drops should have been out at once, overlapping"
+    assert_operator drops.uniq.length, :>, 3, "and the number showing should have gone up and down"
+  end
+
+  # A mover is stopped by the walls of the map its background is showing. The same push to the
+  # right stops at a wall of the first map, and goes on once the second map, which has floor
+  # there, is handed over.
+  def test_a_mover_is_stopped_by_the_walls_of_the_map_showing
+    program = program_of do
+      screen :tiled
+      image :brick, "#" => :red do "########\n" * 8 end
+      image :floor, "#" => :blue do "########\n" * 8 end
+      image :hero, "h" => :white do "hhhhhhhh\n" * 8 end
+      tiles :rooms, "#" => :brick, "." => :floor, solid: ["#"]
+      rooms = background :rooms, tiles: :rooms, map: {
+        shut: ["##########", "#....#...#", "#....#...#", "##########"],
+        open: ["##########", "#........#", "#....#...#", "##########"]
+      }
+      hero = sprite :hero, at: [8, 8]
+      hero.blocked_by rooms
+      n = var :n, 0
+      reached = var :reached, 0
+      below = var :below, 0
+      game_loop do
+        hero.move :right, by: 2
+        (n == 24).then { rooms.show_map :open }
+        hero.can_move?(:down, by: 8).then { below.set! 1 }.else { below.set! 0 }
+        reached.set! hero.x
+        n.add! 1
+      end
+    end
+
+    moments = reference_snapshots(program, frames: 50, buttons: {})
+    reached = moments.map { |moment| moment.variables[:reached] }
+
+    assert_native_matches_reference program, frames: 50
+
+    assert_equal 32, reached[24], "the wall of the first map should have stopped him"
+    assert_equal 64, reached.last, "and he should have walked through where the second map has floor, to its far wall"
+    assert_equal [1, 0, 1], moments.drop(2).map { |moment| moment.variables[:below] }.chunk_while { |a, b| a == b }.map(&:first),
+                 "the way down is open, then shut beside the pillar under the gap, then open again"
+  end
+
   def test_the_screen_is_white_until_the_first_frame
     program = program_of do
       screen :bitmap

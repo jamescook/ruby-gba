@@ -6,8 +6,8 @@
  * What is NOT here is refused when the game is built rather than drawn wrongly (see
  * Picture#refuse_unsupported_picture! and Lowering::NOT_LOWERED_YET, which are the whole list):
  * scenery that bends, is drawn in other colors or is painted from a list; a see-through layer; a
- * fade placed in the stack; sprites that turn, resize or change layer; and a frame that ends
- * while drawing is held inside an area.
+ * fade placed in the stack; sprites that turn or resize; and a frame that ends while drawing is
+ * held inside an area.
  *
  * A sprite's pictures arrive ready to draw: which of its pixels show, and the colors of each
  * list it can be drawn with, are worked out when the game is built (see native/picture.rb).

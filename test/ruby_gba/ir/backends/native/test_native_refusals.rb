@@ -81,16 +81,6 @@ class TestNativeRefusals < Minitest::Test
     end
   end
 
-  def test_a_sprite_that_changes_layer_is_refused_by_name
-    assert_refused_picture(/changes layer/) do
-      screen :tiled
-      layers :back, :front
-      image :dot, "#" => :red do "########\n" * 8 end
-      dot = layer(:front) { sprite :dot, at: [10, 10] }
-      game_loop { dot.put_in_layer :back }
-    end
-  end
-
   def test_a_turning_sprite_is_refused_by_name
     assert_refused_picture(/turns or resizes/) do
       screen :tiled
