@@ -13,7 +13,7 @@ Gem::Specification.new do |spec|
 
   # compile_flags.txt is written for an editor on the machine it names folders on (see
   # Native::Zig), so it is no part of the gem.
-  spec.files         = Dir.glob("{lib,test,bin}/**/*").select { |f| File.file?(f) && File.basename(f) != "compile_flags.txt" } +
+  spec.files         = Dir.glob("{lib,test,bin}/**/*").select { |f| File.file?(f) && !File.basename(f).start_with?("compile_flags.txt") } +
                        %w[ruby-gba.gemspec Rakefile]
   spec.bindir        = "bin"
   spec.executables   = ["ruby-gba"]
