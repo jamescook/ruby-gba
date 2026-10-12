@@ -15,7 +15,7 @@ require_relative "../../examples/lake"
 # colour in the art, and on screen it comes out as several, each one that colour mixed
 # with whatever the water happens to be doing underneath.
 class TestLakeExample < Minitest::Test
-  runs_on :reference
+  runs_on :reference, :native
 
   include Differential
 
@@ -48,7 +48,7 @@ class TestLakeExample < Minitest::Test
   BELL_OVER_GLINT = blend(BELL, GLINT)
 
   def screen_at(frames)
-    Reference.new.run(Lake.program, frames: frames).screen
+    game_player.run(Lake.program, frames: frames).screen
   end
 
   def colors_on(screen)

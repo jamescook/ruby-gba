@@ -173,7 +173,7 @@ module RubyGBA
                bg.streams? ? 1 : 0, tiles_start,
                bg.scene ? @scenes.fetch(bg.scene, NEVER_ARRIVES) : EVERY_SCENE, @stacking.depths[bg.name],
                @handover.on_arrival?(bg) ? 1 : 0, @stacking.stack.index(bg.layer) || NO_LAYER,
-               see_through_number(bg)]
+               see_through_number(bg), @bends.key?(bg.name) ? 1 : 0]
             end
             [runtime_array("tile_pixels", "uint16_t", tile_pixels), runtime_array("backgrounds", "int32_t", fields),
              runtime_array("maps", "int32_t", maps), runtime_array("map_cells", "int16_t", cells)]
@@ -209,6 +209,23 @@ module RubyGBA
           def lower_see_through(node)
             [eval_call("rg_see_through_told", C::Int.new(@see_through_numbers.fetch(node.layer)))]
           end
+
+          # The routine rg_screen.c calls for how far across one row of a bent background sits
+          # (Reference#row_bend_offset), answering for the background it is asked about: the row
+          # goes into the bend's variable, what its block says to run runs, and the offset is
+          # worked out from there. A bend that names no background is never asked for.
+          def row_bends
+            answers = @bends.values.select { |bend| @backgrounds.key?(bend.name) }.map do |bend|
+              C::If.new(condition: call("rg_row_bend_asked", C::Int.new(@backgrounds.fetch(bend.name))),
+                        body: [assign(bend.row, call("rg_row_bend_row")), *body_of(bend),
+                               eval_call("rg_row_bend_answer", value(bend.offset))])
+            end
+            C::Function.new(name: @names.own("row_bends"), body: answers, exported: true)
+          end
+
+          # Reference#exec_scroll_rows: the bend stands from power-on, so where it is written
+          # only asks for the picture to be built again.
+          def lower_scroll_rows(_node) = [eval_call("rg_screen_rows_bent")]
 
           # A map's cells, row after row: the number of the tile, or CELL_EMPTY where the map
           # has none. A map is a rectangle (the builder refuses any other).

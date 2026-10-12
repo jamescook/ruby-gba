@@ -5,8 +5,8 @@
  *
  * What is NOT here is refused when the game is built rather than drawn wrongly (see
  * Picture#refuse_unsupported_picture! and Lowering::NOT_LOWERED_YET, which are the whole list):
- * scenery that bends, is drawn in other colors or is painted from a list; a fade placed in the
- * stack; and a frame that ends while drawing is held inside an area.
+ * scenery that is drawn in other colors or is painted from a list; a fade placed in the stack;
+ * and a frame that ends while drawing is held inside an area.
  *
  * A sprite's pictures arrive ready to draw: which of its pixels show, and the colors of each
  * list it can be drawn with, are worked out when the game is built (see native/picture.rb).
@@ -278,6 +278,7 @@ void rg_screen_digit(int32_t value, int32_t x, int32_t y, int32_t color, const i
 
 static int32_t showing(int32_t background);
 static void request_repaint(void);
+static void repaint_view(void);
 
 static int32_t see_through_layers(void) { return rg_game_picture_sizes[RG_SIZE_SEE_THROUGH]; }
 
@@ -501,11 +502,26 @@ void rg_background_stamp(int32_t background) {
   mix_nothing();
 }
 
-/* Reference#request_repaint (a bending background, which would paint at once, is refused). */
+static int32_t bent_background_showing(void) {
+  for (int32_t bg = 0; bg < rg_game_picture_sizes[RG_SIZE_BACKGROUNDS]; bg++)
+    if (showing(bg) && background_field(bg, RG_BG_ROWS_BENT)) return 1;
+  return 0;
+}
+
+/* Reference#request_repaint: a rebuild of the whole view is owed, and painted when something
+ * needs the picture. With a bent background showing it is painted now instead. Painting one runs
+ * the game's own block for every row, which reads the game's variables and may change them, so
+ * putting it off would change the game. */
 static void request_repaint(void) {
+  if (bent_background_showing()) {
+    repaint_view();
+    return;
+  }
   owed = 1;
   keep_shares_for_owed_rebuild();
 }
+
+void rg_screen_rows_bent(void) { request_repaint(); }
 
 /* Reference#exec_see_through: the amounts have been worked out again for the frame about to be
  * drawn. The painting reads them itself; what this owes is the picture, since one that neither
@@ -662,16 +678,39 @@ static void paint_map_pixel(int32_t background, int64_t mx, int64_t my, int64_t 
   *into = into_cell(color, *into);
 }
 
+/* The background and the row the game is being asked about, when it is being asked, and how far
+ * across it answered. */
+enum { NO_BACKGROUND = -1 };
+static int32_t bend_asked_of = NO_BACKGROUND, bend_asked_row, bend_answered;
+
+int32_t rg_row_bend_asked(int32_t background) { return background == bend_asked_of; }
+int32_t rg_row_bend_row(void) { return bend_asked_row; }
+void rg_row_bend_answer(int32_t offset) { bend_answered = offset; }
+
+/* Reference#row_bend_offset: how far across screen row +row+ of a background sits, on top of its
+ * scroll. Nought for a background the game does not bend. */
+static int64_t row_bend(int32_t background, int32_t row) {
+  if (!background_field(background, RG_BG_ROWS_BENT)) return 0;
+  bend_asked_of = background;
+  bend_asked_row = row;
+  rg_game_row_bends();
+  bend_asked_of = NO_BACKGROUND;
+  return bend_answered;
+}
+
 /* Reference#paint_streamed_background_window: a background with a map too big for any grid, or
  * with maps of different sizes, does not come round again. Past any edge of the map it is
- * showing there are no cells: left of it and above it by the test here, right of it and below
- * it because the map has no such cell to read. */
+ * showing there are no cells: left of it, above it and below it by the tests here, right of it
+ * because the map has no such cell to read. A bent one is asked only about the rows its map
+ * reaches. */
 static void paint_window_without_wrapping(int32_t background) {
+  int64_t map_h = (int64_t)map_rows(background) * background_field(background, RG_BG_TILE_H);
   for (int64_t py = 0; py < RG_SCREEN_HEIGHT; py++) {
     int64_t my = (int64_t)scrolls[background].y + py;
-    if (my < 0) continue;
+    if (my < 0 || my >= map_h) continue;
+    int64_t off_x = (int64_t)scrolls[background].x + row_bend(background, (int32_t)py);
     for (int64_t px = 0; px < RG_SCREEN_WIDTH; px++) {
-      int64_t mx = (int64_t)scrolls[background].x + px;
+      int64_t mx = off_x + px;
       if (mx >= 0) paint_map_pixel(background, mx, my, px, py);
     }
   }
@@ -688,10 +727,12 @@ static void paint_window(int32_t background) {
   int64_t map_w = (int64_t)background_field(background, RG_BG_GRID_COLS) * background_field(background, RG_BG_TILE_W);
   int64_t map_h = (int64_t)background_field(background, RG_BG_GRID_ROWS) * background_field(background, RG_BG_TILE_H);
   if (map_w == 0 || map_h == 0) return;
-  int64_t off_x = floor_mod(scrolls[background].x, map_w), off_y = floor_mod(scrolls[background].y, map_h);
-  for (int64_t py = 0; py < RG_SCREEN_HEIGHT; py++)
+  int64_t off_y = floor_mod(scrolls[background].y, map_h);
+  for (int64_t py = 0; py < RG_SCREEN_HEIGHT; py++) {
+    int64_t off_x = floor_mod((int64_t)scrolls[background].x + row_bend(background, (int32_t)py), map_w);
     for (int64_t px = 0; px < RG_SCREEN_WIDTH; px++)
       paint_map_pixel(background, (off_x + px) % map_w, (off_y + py) % map_h, px, py);
+  }
 }
 
 /* IR::Affine.matrix: one over the size, held at the largest number the matrix holds; then the

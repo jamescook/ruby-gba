@@ -86,6 +86,24 @@ void rg_background_show_map(int32_t background, int32_t which);
 /* +pivot_x+, +pivot_y+: the point on screen it turns around, which the statement says. */
 void rg_background_turn(int32_t background, int32_t angle, int32_t size, int32_t pivot_x, int32_t pivot_y);
 
+/* A BENT BACKGROUND has every row of the screen at its own distance across, on top of where the
+ * background is scrolled to (RG_BG_ROWS_BENT, below). How far is the game's to work out, row by
+ * row, each time the background is painted, so the picture asks by calling rg_game_row_bends
+ * with one background and one row in mind. The game answers for the background that is asked
+ * about, after running whatever its block says to run first:
+ *
+ *   if (rg_row_bend_asked(2)) { row = rg_row_bend_row(); ...; rg_row_bend_answer(offset); }
+ *
+ * The block may change the game's variables, so it runs exactly as often as the interpreter runs
+ * it: while a bent background is showing, the picture is rebuilt at once every time a rebuild is
+ * asked for, never later. rg_screen_rows_bent asks for one, where the game says the bend
+ * (Reference#exec_scroll_rows) and again after every frame (#repaint_bent_backgrounds). */
+void rg_screen_rows_bent(void);
+int32_t rg_row_bend_asked(int32_t background);
+int32_t rg_row_bend_row(void);
+void rg_row_bend_answer(int32_t offset);
+void rg_game_row_bends(void);
+
 /* A scene taking over: remembered, then its screen, then what comes down. */
 void rg_scene_enter(int32_t scene);
 void rg_scene_take_down(int32_t brings_scenery);
@@ -221,7 +239,7 @@ extern const uint16_t rg_game_tile_pixels[];
  * (IR::TileMap).
  *
  * RG_BG_SEE_THROUGH is which see-through layer it is in, counting through rg_game_see_through,
- * or RG_SOLID. */
+ * or RG_SOLID. RG_BG_ROWS_BENT is 1 for one whose rows the game bends (rg_game_row_bends). */
 #define RG_EVERY_SCENE (-1)
 #define RG_NEVER_ARRIVES (-2)
 #define RG_NO_LAYER (-1)
@@ -230,7 +248,7 @@ extern const uint16_t rg_game_tile_pixels[];
 enum {
   RG_BG_TILE_W, RG_BG_TILE_H, RG_BG_FIRST_MAP, RG_BG_SHOWABLE_MAPS, RG_BG_GRID_COLS, RG_BG_GRID_ROWS,
   RG_BG_NEVER_WRAPS, RG_BG_TILES_START, RG_BG_SCENE, RG_BG_LEVEL, RG_BG_ON_ARRIVAL, RG_BG_STACK_PLACE,
-  RG_BG_SEE_THROUGH, RG_BG_FIELDS
+  RG_BG_SEE_THROUGH, RG_BG_ROWS_BENT, RG_BG_FIELDS
 };
 extern const int32_t rg_game_backgrounds[];
 
