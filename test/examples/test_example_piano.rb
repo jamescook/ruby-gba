@@ -12,6 +12,7 @@ require_relative "../../examples/piano"
 # sample, re-pitched across the keys and summed by the software mixer. This pins
 # that behavior on the interpreter, and that it renders and sounds on the emulator.
 class TestExamplePiano < Minitest::Test
+  runs_on :reference
 
   YELLOW = Color.resolve(:yellow)
   WHITE  = Color.resolve(:white)

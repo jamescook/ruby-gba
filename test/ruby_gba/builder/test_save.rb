@@ -8,6 +8,7 @@ require "test_helper"
 # both backends: the reference interpreter models a power cycle with an injected save
 # store, and the console (the emulator) writes real SRAM the test reads straight back.
 class TestSave < Minitest::Test
+  runs_on :reference
 
   GBA  = RubyGBA::IR::Backends::GBA
   SAVE_MAGIC = 0x53415631 # "SAV1", the marker written alongside the saved values

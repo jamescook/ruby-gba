@@ -10,6 +10,8 @@ require "differential"
 # on both backends, and the rules a newcomer would trip over: a letter that crosses from one
 # tile into the next, and a meter that empties without leaving its old length behind.
 class TestCanvas < Minitest::Test
+  runs_on :reference
+
   include Differential
 
   WHITE = RubyGBA::Graphics::Color.resolve(:white)

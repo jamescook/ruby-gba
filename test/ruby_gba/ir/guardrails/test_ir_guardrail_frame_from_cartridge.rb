@@ -9,6 +9,8 @@ require "stringio"
 # worth — and nothing about the symptom points at the cause, because the cause is the SIZE
 # of code in the loop, not the work it does.
 class TestFrameFromCartridgeGuardrail < Minitest::Test
+  runs_on :reference
+
   # A loop with a large piece of code in it that seldom runs. +cold_in_a_func+ moves that code
   # into a routine of its own, marked so the chooser leaves it in the cartridge — the fix the
   # warning names.

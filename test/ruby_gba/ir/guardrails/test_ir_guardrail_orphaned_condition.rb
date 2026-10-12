@@ -12,6 +12,8 @@ require "stringio"
 # (.then / .else) or folded into another (& / |). The builder tracks every
 # Condition and reports the unused ones at build-finalize.
 class TestIRGuardrailOrphanedCondition < Minitest::Test
+  runs_on :reference
+
   Guardrails = RubyGBA::IR::Guardrails
 
   # The Conditions a build block left unused (the builder's leftover "pending" set).

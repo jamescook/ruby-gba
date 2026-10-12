@@ -14,6 +14,8 @@ require "differential"
 # that memory from whatever runs every frame: a file-select screen shown once pushed the
 # playing scene out, and the whole of play then ran from the cartridge.
 class TestSceneSpriteWrites < Minitest::Test
+  runs_on :reference
+
   include Differential
   include RubyGBA::Console::Hardware
 

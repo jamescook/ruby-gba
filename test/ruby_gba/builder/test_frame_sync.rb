@@ -17,6 +17,7 @@ require "stringio"
 # runs its body exactly once per frame, and an unpaced loop spins until the step
 # budget cuts it off.
 class TestFrameSync < Minitest::Test
+  runs_on :reference
 
   FRAMES = 5
 

@@ -13,6 +13,8 @@ require "test_helper"
 # These tests put the answer on screen as a marker, so what is asserted is where the
 # marker landed — which is exactly what a game would get wrong.
 class TestFractionMath < Minitest::Test
+  runs_on :reference
+
   ONE = 65_536          # 1.0, with 16 fraction bits
   ONE_AND_A_HALF = 3 * ONE / 2
   MARKER_Y = 40

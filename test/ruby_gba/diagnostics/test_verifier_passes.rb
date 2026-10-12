@@ -16,6 +16,8 @@ require "test_helper"
 # instruction can tip a routine out of the console's quick memory and change the timing being
 # measured.
 class TestVerifierPasses < Minitest::Test
+  runs_on :reference
+
   # A loop that counts its own passes, so the emulator's count has something exact to be
   # checked against. The counter is the last thing in the body, so it says how many passes
   # FINISHED — which is what #passes reports.

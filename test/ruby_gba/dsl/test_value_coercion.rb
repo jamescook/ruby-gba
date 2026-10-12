@@ -8,6 +8,8 @@ require "test_helper"
 # property is interchangeability: a Value and its :symbol build the SAME IR at
 # every verb, so you can hold Values and pass them anywhere.
 class TestValueCoercion < Minitest::Test
+  runs_on :reference
+
   include RubyGBA::IR::Build
 
   Value = RubyGBA::DSL::Value

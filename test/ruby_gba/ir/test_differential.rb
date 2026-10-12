@@ -17,6 +17,8 @@ require_relative "../../differential"
 # See test/differential.rb for the helper and for why the console runs a couple of
 # frames longer than the interpreter for the same picture.
 class TestDifferential < Minitest::Test
+  runs_on :reference
+
   # Makes a test class of its own, to check what a mismatch reports. Making a class is a
   # change to the whole process, so on the main Ractor. See test_helper.
   runs_on_the_main_ractor!

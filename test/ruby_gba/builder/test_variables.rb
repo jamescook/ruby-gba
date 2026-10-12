@@ -7,6 +7,8 @@ require "test_helper"
 # and introspection. The behavior of the operations themselves — that `add`
 # really adds — is covered by the backend tests, which run the lowered ROM.
 class TestVariables < Minitest::Test
+  runs_on :reference
+
   include RubyGBA::Console::Hardware
 
   # Build through the DSL and hand back the Builder for inspection.

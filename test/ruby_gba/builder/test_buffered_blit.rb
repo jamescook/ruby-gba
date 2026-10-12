@@ -16,6 +16,8 @@ require "differential"
 # program on both screens and demand the same pixels, rather than pinning numbers that
 # only say what today's code does.
 class TestBufferedBlit < Minitest::Test
+  runs_on :reference
+
   include RubyGBA::IR::Build
   include Differential
 

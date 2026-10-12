@@ -11,6 +11,8 @@ require "stringio"
 # that one pointed at a stream says the phases in order with what each took, and that a phase
 # reporting tens of thousands of times does not turn into tens of thousands of lines.
 class TestProgress < Minitest::Test
+  runs_on :reference
+
   # Registers into the library itself, which changes the whole process — so on the
   # main Ractor, not in the pool. See test_helper.
   runs_on_the_main_ractor!

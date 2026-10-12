@@ -12,6 +12,8 @@ require "open3"
 # Each case runs the real `rake test` over one quick test of another file, so it cannot run
 # itself again. (One real test and not none: the Ractor runner stops a run with nothing in it.)
 class TestRakefile < Minitest::Test
+  runs_on :reference
+
   # Starts child processes, which Ruby cannot do from inside a Ractor — the spawn waits for
   # ever — so on the main Ractor, not in the pool. See test_helper.
   runs_on_the_main_ractor!

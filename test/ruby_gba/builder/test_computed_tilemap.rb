@@ -15,6 +15,8 @@ require_relative "../../../tools/make_example_assets" # colors of the imported t
 # same argument and the same tileset; only the two rules change. `nil` is the blank
 # cell in an Array row, which is what a space is in a String row.
 class TestComputedTilemap < Minitest::Test
+  runs_on :reference
+
   Assets = MakeExampleAssets
 
   SHEET = File.expand_path("../../../examples/assets/tiles.png", __dir__) # brick = tile 1, floor = tile 2

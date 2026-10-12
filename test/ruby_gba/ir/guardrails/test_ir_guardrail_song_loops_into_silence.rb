@@ -8,6 +8,8 @@ require "stringio"
 # a note from the loop point to the end, that repeat is silence: the music stops after its first
 # time through. The build refuses such a song and says where it loops from.
 class TestSongLoopsIntoSilenceGuardrail < Minitest::Test
+  runs_on :reference
+
   include RubyGBA::IR::Build
 
   Check = RubyGBA::IR::Guardrails::Checks::SongLoopsIntoSilence

@@ -12,6 +12,8 @@ require "differential"
 # memory first, for every scene. So a title screen kept out of that memory on purpose still
 # spent it, and a game whose playing scene had a little room to spare lost its place.
 class TestSeeThroughAmountsPlacement < Minitest::Test
+  runs_on :reference
+
   include Differential
 
   FRAME = RubyGBA::Cartridge::BuildRecord::FRAME_ROUTINE

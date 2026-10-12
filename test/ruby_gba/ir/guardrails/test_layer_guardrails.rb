@@ -21,6 +21,8 @@ require "stringio"
 # The model these guard — which layer each declaration lands in — is test_layers.rb.
 # The errors `fade ... under:` raises are with the feature, in test_fade_under_layer.rb.
 class TestLayerGuardrails < Minitest::Test
+  runs_on :reference
+
   Checks = RubyGBA::IR::Guardrails::Checks
 
   # A program plus the software sprites the build collected. Both, because a software

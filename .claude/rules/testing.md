@@ -79,6 +79,8 @@ moment a file moves.
 require "test_helper"
 
 class TestThing < Minitest::Test
+  runs_on :reference   # or `runs_on :reference, :native`: every class says (see below)
+
   def test_it_does_the_thing
     ...
   end
@@ -204,8 +206,29 @@ and the two `*_at_the_left_edge` tests in
 The native backend (`Backends::Native`, the game as C) trails the two above, and it is checked
 with the tests that already exist rather than with copies of them. A run of the suite tests ONE
 lowering (`test/support/suites.rb`): `rake test` the interpreter, `rake test:native` the C. A
-class runs only on the lowerings it names, and on the interpreter alone when it names none —
-which is every file until somebody opts it in.
+class runs only on the lowerings it names.
+
+**Every test class has to name them**, on a line straight after its `class` line:
+
+```ruby
+runs_on :reference             # only the interpreter and the cartridge play these
+runs_on :reference, :native    # the game built as C plays them too
+runs_on :native                # the native lowering's own tests
+```
+
+A class with tests that says nothing stops the run before a test is played, naming the class
+and its file. Saying nothing used to mean "the interpreter alone", and that read the same
+whether the native lowering could not play the tests yet or nobody had looked — so a new test
+file starts with `runs_on :reference` when native has no part in what it tests (the cartridge's
+machine code, a guardrail's wording, the emulator), and with both when it plays a game native
+can build. A native run ends by counting the classes each way.
+
+**An example that becomes buildable is not left behind.** `ruby tools/native_examples.rb` lists
+the examples the native lowering can write as C today and what each of the others is refused
+for. `test_native_examples.rb` fails when one that builds has no recorded run
+(`native/examples/test_<example>_picture.rb`) or has a test file in `test/examples/` that still
+says `Reference.new`. So when a native feature lands, run the tool: every example it newly
+lists is work the next native run will ask for.
 
 Opting a file in is two edits, and no assertion changes:
 
@@ -289,7 +312,7 @@ on its own. Every native build — a test's, or a game built for the desktop —
 SDL's headers, and nobody runs anything to get it. What that cannot cure: after a header is edited
 the checker can go on reading it at its old positions and report nonsense, such as "invalid
 suffix on integer constant" on a line that only names a number the header defines. Ask the
-compiler itself before believing it, which takes under a second:
+compiler itself before believing it, which takes a few seconds:
 `rake test:native TEST=test/ruby_gba/ir/backends/native/test_native_checker_flags.rb`.
 
 A native run puts tests side by side on threads, not Ractors (a Ractor cannot start the child

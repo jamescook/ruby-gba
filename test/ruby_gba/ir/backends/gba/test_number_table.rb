@@ -13,6 +13,8 @@ require "test_helper"
 # This file is the table on its own: what is read, what is still built, and what stops the
 # build. That a whole game comes out right is test_quick_memory_numbers.rb.
 class TestNumberTable < Minitest::Test
+  runs_on :reference
+
   A = RubyGBA::IR::Backends::GBA::ASM
   Emit = RubyGBA::IR::Backends::GBA::Emit
   LoweringError = RubyGBA::IR::Backends::GBA::LoweringError

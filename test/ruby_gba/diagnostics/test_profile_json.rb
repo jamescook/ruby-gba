@@ -15,6 +15,8 @@ require "stringio"
 # the estimate is gone. What is left is two kinds of fact — what the build made, and what the
 # run counted.
 class TestProfileJson < Minitest::Test
+  runs_on :reference
+
   include EmulatorSupport
 
   def setup

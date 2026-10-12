@@ -13,6 +13,8 @@ require "stringio"
 # These are behaviour tests on real cartridges: a program that draws far too much tears, one
 # that draws little does not, and a screen with no framebuffer says so rather than answering.
 class TestTearing < Minitest::Test
+  runs_on :reference
+
   include EmulatorSupport
 
   # A program that repaints a band the full width of the screen in a different colour every

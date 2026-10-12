@@ -15,6 +15,8 @@ require "test_helper"
 # direction and the place in the cycle are PER INSTANCE: a hidden slot beside the fields, the
 # pool's own bookkeeping rather than something to declare.
 class TestPoolPoses < Minitest::Test
+  runs_on :reference
+
   RED = Color.resolve(:red)
   BLUE = Color.resolve(:blue)
   GREEN = Color.resolve(:green)

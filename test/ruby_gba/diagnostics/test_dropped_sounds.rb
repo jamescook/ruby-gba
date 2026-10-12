@@ -13,6 +13,8 @@ require "stringio"
 # Whether it happens depends entirely on play (a burst of explosions, a chord of music under
 # them), so no build can see it. Only a run can, and `rom.profile` is where a run reports.
 class TestDroppedSounds < Minitest::Test
+  runs_on :reference
+
   include EmulatorSupport
 
   VOICES = RubyGBA::Audio::Sound::MIXER_VOICES

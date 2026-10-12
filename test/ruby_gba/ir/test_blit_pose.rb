@@ -8,6 +8,8 @@ require "test_helper"
 # different image at the same spot. Asserted on the interpreter and on the emulator, and
 # the two backends must agree.
 class TestBlitPose < Minitest::Test
+  runs_on :reference
+
   include RubyGBA::IR::Build
 
   # Two 2x2 poses: one solid red, one solid green. Index picks which one draws.

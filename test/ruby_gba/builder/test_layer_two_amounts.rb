@@ -11,6 +11,8 @@ require "differential"
 # The console mixes in sixteenths, so an amount is rounded to the nearest one: 94 is 15/16
 # and 63 is 10/16, the pair a retail cartridge's file-select window is drawn with.
 class TestLayerTwoAmounts < Minitest::Test
+  runs_on :reference
+
   include Differential
 
   def program(&block)

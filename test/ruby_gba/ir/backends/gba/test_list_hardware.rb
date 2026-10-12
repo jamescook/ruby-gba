@@ -13,6 +13,8 @@ require "test_helper"
 # with no sugar in the way. `each` is DSL sugar over repeat + list_get, so here we
 # spell that loop out: repeat(list_len, :i) { draw at list_get(:i) }.
 class TestListHardware < Minitest::Test
+  runs_on :reference
+
   include RubyGBA::IR::Build
 
   ROW = 40 # the row every marker is drawn on

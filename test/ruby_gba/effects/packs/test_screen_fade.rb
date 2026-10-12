@@ -11,6 +11,8 @@ require "test_helper"
 # lifts. The picture underneath never changes, which is exactly what makes a fade cheap
 # and also what makes a fade left un-lifted so hard to spot by eye.
 class TestScreenFade < Minitest::Test
+  runs_on :reference
+
   WHITE = RubyGBA::Graphics::Color.resolve(:white)
   RED = RubyGBA::Graphics::Color.resolve(:red)
   GREEN = RubyGBA::Graphics::Color.resolve(:green)

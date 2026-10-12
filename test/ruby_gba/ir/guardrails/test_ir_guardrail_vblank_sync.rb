@@ -9,6 +9,8 @@ require "stringio"
 # assert the *behavior* — which loops warn and which don't, via reachability —
 # and that the warning reaches RubyGBA.build's err stream so a real build nudges.
 class TestIRGuardrailVblankSync < Minitest::Test
+  runs_on :reference
+
   include RubyGBA::IR::Build
 
   Guardrails = RubyGBA::IR::Guardrails

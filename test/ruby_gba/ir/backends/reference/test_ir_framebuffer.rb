@@ -6,6 +6,8 @@ require "test_helper"
 # backend draws into. No IR, no interpreter here: just the screen model and its
 # edge-clipping promise.
 class TestIRFramebuffer < Minitest::Test
+  runs_on :reference
+
   Framebuffer = RubyGBA::IR::Backends::Reference::Framebuffer
 
   def test_defaults_to_gba_bitmap_dimensions

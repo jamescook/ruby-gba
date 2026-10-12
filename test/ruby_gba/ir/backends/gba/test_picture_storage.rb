@@ -14,6 +14,8 @@ require "differential"
 # which a picture got, and these tests are about what that is worth and about the one thing that
 # must never change: the pixels on screen.
 class TestPictureStorage < Minitest::Test
+  runs_on :reference
+
   include Differential
 
   # Sixteen colours is one too many for a bank (the sixteenth slot means see-through), so a

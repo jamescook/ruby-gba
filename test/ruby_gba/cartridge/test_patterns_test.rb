@@ -3,6 +3,8 @@
 require "test_helper"
 
 class TestTestPatterns < Minitest::Test
+  runs_on :reference
+
   def test_solid_fill_builds
     rom = RubyGBA::Cartridge::TestPatterns.solid_fill(:red)
     assert_kind_of RubyGBA::Cartridge::ROM, rom
@@ -38,6 +40,7 @@ class TestTestPatterns < Minitest::Test
 end
 
 class TestTestPatternsRendering < Minitest::Test
+  runs_on :reference
 
   def setup
     require_emulator!

@@ -9,6 +9,7 @@ require "test_helper"
 # Pinned on the reference interpreter (the oracle); the shmup example exercises them
 # on real hardware.
 class TestSpriteScreenEdges < Minitest::Test
+  runs_on :reference
 
   # Place an 8x8 sprite at (px, py) and record `predicate.then { flag = 1 }`; return
   # the flag (1 if the predicate held at that position, else 0). The sprite starts on

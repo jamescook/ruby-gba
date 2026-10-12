@@ -14,6 +14,8 @@ require "differential"
 # question at the one place a cell is painted, and the console works the same edges out again
 # inside every shape. So the two agreeing over the whole screen is the proof.
 class TestInside < Minitest::Test
+  runs_on :reference
+
   include EmulatorSupport
 
   BARS = %i[red red green green blue blue white white].freeze

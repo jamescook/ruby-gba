@@ -9,6 +9,7 @@ require "tempfile"
 # mono PCM the sampled-audio hardware plays, keeping the file's own rate. The decoder is
 # unit-tested; the DSL path is pinned on the interpreter and the emulator.
 class TestWavImport < Minitest::Test
+  runs_on :reference
 
   Wav = RubyGBA::Audio::Wav
 

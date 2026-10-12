@@ -11,6 +11,8 @@ require "emulator_blend"
 # the other way from red, so one gray faded a quarter of the way to black is 24, 23, 23 —
 # and this holds it to that at every value, amount and channel.
 class TestEmulatorBlend < Minitest::Test
+  runs_on :reference
+
   Framebuffer = RubyGBA::IR::Backends::Reference::Framebuffer
 
   CHANNELS = (0..31).to_a.freeze

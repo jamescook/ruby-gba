@@ -13,6 +13,8 @@ require "differential"
 # BY PLACE: the two places are one colour in the art and two different colours in the list it is
 # drawn with, so the picture has to remember which of them each pixel meant.
 class TestPicturePlaces < Minitest::Test
+  runs_on :reference
+
   include Differential
 
   # Red twice, at places 1 and 3, with green between them.

@@ -7,6 +7,8 @@ require "test_helper"
 # these tests pin the single source of truth and guard the backends against
 # quietly drifting from it.
 class TestIRContracts < Minitest::Test
+  runs_on :reference
+
   Buttons = RubyGBA::IR::Buttons
   Screen = RubyGBA::IR::Screen
 

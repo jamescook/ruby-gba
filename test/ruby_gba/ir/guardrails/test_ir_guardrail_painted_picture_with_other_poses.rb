@@ -8,6 +8,8 @@ require "stringio"
 # that shows it. Mixed in among ordinary pictures as one pose of several, it has no place in
 # sprite memory on the console, so the build refuses it rather than stopping with no word of why.
 class TestIRGuardrailPaintedPictureWithOtherPoses < Minitest::Test
+  runs_on :reference
+
   Check = RubyGBA::IR::Guardrails::Checks::PaintedPictureWithOtherPoses
 
   def program(&block)

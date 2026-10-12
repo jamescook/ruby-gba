@@ -8,6 +8,7 @@ require "test_helper"
 # (no rates/voices/mixer detail exposed). Pinned on the interpreter (chords are several
 # voices; notes play live from input) and on the emulator (a chord is three distinct pitched voices).
 class TestInstrument < Minitest::Test
+  runs_on :reference
 
   NOTES = RubyGBA::Audio::Music::NOTE_FREQUENCIES
 

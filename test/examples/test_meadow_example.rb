@@ -19,6 +19,8 @@ require_relative "../../examples/meadow"
 # off the game's `room` variable: the room a frame draws is the one the variable held a
 # frame before (see "Which frame's numbers the picture was drawn from" in the testing rules).
 class TestMeadowExample < Minitest::Test
+  runs_on :reference
+
   include Differential
 
   WIDTH = 240

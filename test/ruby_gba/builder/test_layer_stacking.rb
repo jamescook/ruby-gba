@@ -9,6 +9,8 @@ require_relative "../../differential"
 # that must end up on top is written first, so it would be underneath if the stack were
 # being ignored. A test where the two orders agree proves nothing at all.
 class TestLayerStacking < Minitest::Test
+  runs_on :reference
+
   include Differential
 
   RED = RubyGBA::Graphics::Color.resolve(:red)

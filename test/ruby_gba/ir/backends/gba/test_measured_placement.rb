@@ -14,6 +14,8 @@ require "tmpdir"
 # reachable through a scene the game does not boot into, so a build that measures it and a
 # build that guesses cannot land in the same place.
 class TestMeasuredPlacement < Minitest::Test
+  runs_on :reference
+
   include EmulatorSupport
 
   Placement = RubyGBA::IR::Backends::GBA::Placement

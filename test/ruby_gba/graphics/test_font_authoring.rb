@@ -6,6 +6,7 @@ require "test_helper"
 # These assert a custom font registers, renders its own glyphs (interpreter + the emulator),
 # and that malformed art is a friendly error.
 class TestFontAuthoring < Minitest::Test
+  runs_on :reference
 
   Fonts = RubyGBA::Graphics::Fonts
 

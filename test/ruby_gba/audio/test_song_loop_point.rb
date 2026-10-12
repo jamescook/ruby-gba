@@ -11,6 +11,8 @@ require "test_helper"
 # A note held across the loop point is sounded again there on every pass after the first, and a
 # part that is silent there is silenced there, whatever the end of the song left it doing.
 class TestSongLoopPoint < Minitest::Test
+  runs_on :reference
+
   Score = RubyGBA::Audio::Score
   Part = Score::Part
   Note = Score::Note

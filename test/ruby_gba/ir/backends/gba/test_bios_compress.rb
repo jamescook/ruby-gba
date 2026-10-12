@@ -11,6 +11,7 @@ require "stringio"
 # ever shrinks, and its output is safe for the video-memory expander) and then boot
 # a real ROM whose tiles are packed, to confirm the hardware expands them correctly.
 class TestBiosCompress < Minitest::Test
+  runs_on :reference
 
   Pack = RubyGBA::IR::Backends::GBA::BiosCompress
 

@@ -6,7 +6,7 @@
 # A run tests ONE lowering. `rake test` plays every game on the interpreter (Backends::Reference)
 # and checks the console through the emulator where a test asks for it; `rake test:native` plays
 # them as C (Backends::Native). Both load every test file, and a test class runs only on the
-# lowerings it names with `runs_on` (test_helper.rb) — the interpreter alone when it names none.
+# lowerings it names with `runs_on` (test_helper.rb), which every class with tests has to say.
 # Native trails the other two (see atop IR::Backends), so a file is opted in once the native
 # lowering can play the games in it, and never before.
 #
@@ -38,5 +38,53 @@ module TestSuites
   def files(desktop: false)
     found = Dir.glob("test/**/test_*.rb").sort
     desktop ? found : found - [DESKTOP_TEST]
+  end
+
+  # --- every class says where it runs ---
+  #
+  # A class that said nothing used to be the interpreter's alone. That made silence mean two
+  # things nobody could tell apart: "the native lowering cannot play these yet" and "nobody has
+  # looked". So a class with tests has to say (`runs_on`, in test_helper.rb), and a run with one
+  # that has not is stopped before a test is played, naming it.
+
+  # The classes among +classes+ that have tests and never said which lowerings they run on. A
+  # class with no tests of its own — minitest's, or one that only holds shared helpers — has
+  # nothing to run anywhere, and is left alone.
+  def classes_naming_no_lowering(classes)
+    classes.select { |klass| klass.lowerings.nil? && tests?(klass) }
+  end
+
+  # What to say about them, or nil when every class has said.
+  def unnamed_lowerings_message(classes)
+    silent = classes_naming_no_lowering(classes)
+    return nil if silent.empty?
+
+    "These test classes do not say which lowerings their tests run on:\n" \
+      "#{silent.map { |klass| "  #{klass.name}#{where_declared(klass)}\n" }.sort.join}" \
+      "Each test class must say. Add `runs_on :reference` for tests that only the interpreter and " \
+      "the cartridge play. Add `runs_on :reference, :native` when the game built as C can play them " \
+      "too, and use `game_player` where the tests say `Reference.new`. " \
+      ".claude/rules/testing.md has the rule."
+  end
+
+  # How many classes with tests run where: on both lowerings, on the native one alone, on the
+  # interpreter alone.
+  def classes_by_lowerings(classes)
+    counts = { both: 0, native_only: 0, interpreter_only: 0 }
+    classes.select { |klass| tests?(klass) && klass.lowerings }.each do |klass|
+      native = klass.lowerings.include?(:native)
+      counts[native && klass.lowerings.include?(:reference) ? :both : (native ? :native_only : :interpreter_only)] += 1
+    end
+    counts
+  end
+
+  def tests?(klass) = klass.public_instance_methods.any? { |name| name.start_with?("test_") }
+
+  # " (file:line)" for a class with a name Ruby can find, and nothing for one without.
+  def where_declared(klass)
+    file, line = Object.const_source_location(klass.name.to_s)
+    file ? " (#{file.delete_prefix("#{Dir.pwd}/")}:#{line})" : ""
+  rescue NameError
+    ""
   end
 end

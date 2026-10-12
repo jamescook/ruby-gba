@@ -15,6 +15,8 @@ require "differential"
 #   * on the ground floor, between the two, the arch covers him and the floor does not;
 #   * on the stairs, behind both, he shows nowhere, since the floor is solid.
 class TestSpriteLayerChoice < Minitest::Test
+  runs_on :reference
+
   include Differential
 
   RED = RubyGBA::Graphics::Color.resolve(:red)

@@ -174,28 +174,34 @@ class Minitest::Test # rubocop:disable Style/ClassAndModuleChildren
   end
 
   # WHICH LOWERINGS THIS CLASS'S TESTS ARE TRUE OF. A run tests one lowering (TestSuites), and a
-  # class whose lowerings do not include it runs nothing on that run. A class that says nothing
-  # is the interpreter's alone: that is every class nobody has opted in, so the native run is
-  # only ever the files the native lowering can play.
+  # class whose lowerings do not include it runs nothing on that run.
   #
-  # Opting a file in is this line and `game_player` in place of `Reference.new`. Nothing a test
-  # asserts changes, and a test that reaches for the emulator skips itself on a native run.
+  # EVERY CLASS WITH TESTS HAS TO SAY. `runs_on :reference` is tests that only the interpreter
+  # and the cartridge play; `runs_on :reference, :native` is tests the game built as C plays too;
+  # `runs_on :native` is the native lowering's own. A class that says nothing stops the run
+  # before it starts (RefuseUnnamedLowerings below), because silence read the same whether the
+  # native lowering could not play the tests yet or nobody had looked.
+  #
+  # Opting a file in is the second form and `game_player` in place of `Reference.new`. Nothing
+  # a test asserts changes, and a test that reaches for the emulator skips itself on a native run.
   def self.runs_on(*lowerings)
     unknown = lowerings - TestSuites::LOWERINGS
     raise ArgumentError, "runs_on #{unknown.inspect}: the lowerings are #{TestSuites::LOWERINGS.inspect}" if unknown.any?
+    raise ArgumentError, "runs_on needs a lowering: #{TestSuites::LOWERINGS.inspect}" if lowerings.empty?
 
     @lowerings = Ractor.make_shareable(lowerings)
   end
 
+  # What this class said, or the class it inherits from did; nil for one that never said.
   def self.lowerings
-    @lowerings || (superclass.respond_to?(:lowerings) ? superclass.lowerings : %i[reference])
+    @lowerings || (superclass.respond_to?(:lowerings) ? superclass.lowerings : nil)
   end
 
   # In front of minitest's own list of a class's tests, rather than in place of it, so `super`
   # is still minitest's.
   module TestsForThisLowering
     def runnable_methods
-      lowerings.include?(TestSuites::LOWERING) ? super : []
+      lowerings&.include?(TestSuites::LOWERING) ? super : []
     end
   end
   singleton_class.prepend(TestsForThisLowering)
@@ -257,4 +263,19 @@ class Minitest::Test # rubocop:disable Style/ClassAndModuleChildren
   rescue Ractor::IsolationError
     nil
   end
+end
+
+# A RUN WITH A CLASS THAT NEVER SAID WHERE IT RUNS DOES NOT START (see Minitest::Test.runs_on and
+# TestSuites.unnamed_lowerings_message). Asked once, when every test file has been loaded and
+# before a test is played, so every such class is named together rather than one a run.
+module Minitest
+  module RefuseUnnamedLowerings
+    def run(args = [])
+      message = TestSuites.unnamed_lowerings_message(Minitest::Runnable.runnables)
+      abort message if message
+
+      super
+    end
+  end
+  singleton_class.prepend(RefuseUnnamedLowerings)
 end

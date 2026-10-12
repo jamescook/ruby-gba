@@ -12,6 +12,8 @@ require "test_helper"
 # the slicing happens at BUILD time and bakes real images into the program — so the same
 # imported art is checked on the interpreter oracle AND on real hardware (the emulator).
 class TestFacingSheet < Minitest::Test
+  runs_on :reference
+
   include RubyGBA::Console::Hardware
 
   Image = RubyGBA::Graphics::Image

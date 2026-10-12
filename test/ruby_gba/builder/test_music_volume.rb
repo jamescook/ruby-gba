@@ -8,6 +8,8 @@ require "test_helper"
 # is playing, while it plays — a settings screen's music slider, and the level `fade_music_out`
 # walks down to silence.
 class TestMusicVolume < Minitest::Test
+  runs_on :reference
+
   # A song holding one long note at volume 12 — on the first square voice, or on whichever voice
   # +plays+ names — and a game that runs +body+ on each pass with the pass number. The game names
   # the song on every pass, or with +named_once+ on its first pass only and then whenever +body+

@@ -10,6 +10,8 @@ require_relative "../../conformance_fixture"
 # behind another. Complementary to the differential test (gba-cbw), which checks
 # the backends AGREE on output; this one checks they all COVER every feature.
 class TestCrossBackendConformance < Minitest::Test
+  runs_on :reference
+
   Node = RubyGBA::IR::Node
   ROMValidator = RubyGBA::Cartridge::ROMValidator
 

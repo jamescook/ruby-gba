@@ -12,6 +12,8 @@ require "test_helper"
 # the WAVE ITSELF ever makes. A note cut dead leaves the speaker wherever the wave was, and that
 # jump is several times the wave's own. A note that fades does not.
 class TestNoteEnvelope < Minitest::Test
+  runs_on :reference
+
   include EmulatorSupport
 
   # A second of a sine, cut at a zero crossing so the recording itself has no step in it.

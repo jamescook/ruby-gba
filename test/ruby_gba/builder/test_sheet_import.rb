@@ -10,6 +10,8 @@ require "test_helper"
 #   - the verbs, that imported cells become drawable tiles / animating frames.
 # The whole path against real PNGs (on both backends) is test_sheet_example.rb.
 class TestSheetImport < Minitest::Test
+  runs_on :reference
+
   Image = RubyGBA::Graphics::Image
 
   RED  = Color.rgb8(255, 0, 0) # 0x001F

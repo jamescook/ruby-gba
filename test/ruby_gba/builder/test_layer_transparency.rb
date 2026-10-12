@@ -19,6 +19,8 @@ require "stringio"
 # The one thing a reader would not guess is that a see-through sprite never shows another
 # sprite through it, only scenery; that has tests of its own below.
 class TestLayerTransparency < Minitest::Test
+  runs_on :reference
+
   include Differential
 
   RED = RubyGBA::Graphics::Color.resolve(:red)

@@ -12,6 +12,7 @@ require "test_helper"
 # makes it efficient and scrollable is the next slice. The user code here does not
 # change when that lands.)
 class TestTiledBackground < Minitest::Test
+  runs_on :reference
 
   # A 4x4 solid tile of one color, as ASCII art (small, so the grid math is easy
   # to read: cell (c, r) covers x 4c..4c+3, y 4r..4r+3).

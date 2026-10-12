@@ -11,6 +11,8 @@ require "differential"
 # amounts. A fade that agreed only roughly between backends would make every
 # fade-related pixel test a guess.
 class TestFade < Minitest::Test
+  runs_on :reference
+
   include Differential
 
   Guardrails = RubyGBA::IR::Guardrails

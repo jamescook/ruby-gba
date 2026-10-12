@@ -11,6 +11,7 @@ require "test_helper"
 # frame called a game that ran at 32fps "fine". The programs below are the same shape
 # boiled down — nearly free at rest, over budget while a button is down.
 class TestAnalyzerInput < Minitest::Test
+  runs_on :reference
 
   Analyzer = RubyGBA::Diagnostics::Analyzer
 

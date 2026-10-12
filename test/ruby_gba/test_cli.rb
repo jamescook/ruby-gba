@@ -12,6 +12,8 @@ require "json"
 # its dependency) stays out of every other test. Everything else builds ROMs through
 # the library (RubyGBA.game / RubyGBA.build) with no CLI involved.
 class TestCLI < Minitest::Test
+  runs_on :reference
+
   # Which Ruby to launch, asked once here. Asking reads Ruby's own table of how it was
   # built, which is not something a worker may touch — and these tests run in a pool.
   RUBY = RbConfig.ruby.freeze

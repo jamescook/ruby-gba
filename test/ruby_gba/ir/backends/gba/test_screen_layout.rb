@@ -10,6 +10,8 @@ require "test_helper"
 # of it stands — so a slot handed out wrong fails here by name instead of as a picture that
 # looks slightly off.
 class TestScreenLayout < Minitest::Test
+  runs_on :reference
+
   RED = Color.rgb(31, 0, 0)
   CLEAR = Color.rgb(1, 1, 1)
 

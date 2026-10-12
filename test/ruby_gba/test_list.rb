@@ -8,6 +8,8 @@ require "test_helper"
 # variables it leaves behind. Overflow / underflow / out-of-range surface as
 # friendly ProgramErrors, checked headlessly.
 class TestList < Minitest::Test
+  runs_on :reference
+
   Build = RubyGBA::IR::Build
 
   # Run a DSL block through the interpreter and hand back the finished run, so a
@@ -244,6 +246,8 @@ class TestList < Minitest::Test
   # --- Build-level: the constructors and the capacity rule ---
 
   class BuildContract < Minitest::Test
+    runs_on :reference
+
     Build = RubyGBA::IR::Build
 
     def test_list_new_stores_the_capacity_it_was_given

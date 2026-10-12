@@ -8,6 +8,8 @@ require "test_helper"
 # The flash tests turn the power off by taking the chip's bytes out of one run and starting a
 # second run from them, which is what the player does by switching the console off and on.
 class TestSaveChip < Minitest::Test
+  runs_on :reference
+
   include RubyGBA::Console::Hardware
 
   # The frame A is pressed on. A fresh flash chip has its table of places written at the first

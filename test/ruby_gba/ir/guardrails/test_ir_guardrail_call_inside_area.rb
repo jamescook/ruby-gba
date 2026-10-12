@@ -18,6 +18,7 @@ require "stringio"
 # the hardware behavior now that the guardrail stops such a program from being
 # built at all.
 class TestIRGuardrailCallInsideArea < Minitest::Test
+  runs_on :reference
 
   Check = RubyGBA::IR::Guardrails::Checks::CallInsideArea
 

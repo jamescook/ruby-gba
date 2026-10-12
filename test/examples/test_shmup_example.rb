@@ -14,6 +14,8 @@ require_relative "../../examples/shmup"
 # enemy touching the ship calls the HUD's hit), and losing the last ship switches scenes —
 # on the interpreter oracle and on real hardware.
 class TestShmupExample < Minitest::Test
+  runs_on :reference
+
   include Differential
 
   CYAN = Color.resolve(:cyan)       # the ship (player.rb)

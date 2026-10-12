@@ -7,6 +7,7 @@ require "test_helper"
 # clocks the rate, a second timer interrupts at the end to stop it). All hidden behind
 # sample/play/stop. Pinned on the interpreter (the audio log) and on the emulator (real sound).
 class TestDirectSound < Minitest::Test
+  runs_on :reference
 
   LoweringError = RubyGBA::IR::Backends::GBA::LoweringError
 

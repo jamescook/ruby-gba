@@ -13,6 +13,8 @@ require_relative "../../../../differential"
 # invisible twins of them; the interpreter paints back to front and blends each thing as
 # it goes. Only the result is the contract.
 class TestFadeUnderLayer < Minitest::Test
+  runs_on :reference
+
   include Differential
 
   WHITE = RubyGBA::Graphics::Color.resolve(:white)

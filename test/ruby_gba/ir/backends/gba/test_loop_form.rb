@@ -18,6 +18,8 @@ require "tmpdir"
 # that matters: a loop that got the fast shape has to produce exactly what the slow one would,
 # and that is asserted against the reference interpreter and against the console.
 class TestLoopForm < Minitest::Test
+  runs_on :reference
+
   LoopForm = RubyGBA::IR::Backends::GBA::LoopForm
 
   def program_with(&block)

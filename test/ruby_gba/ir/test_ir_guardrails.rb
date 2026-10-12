@@ -7,6 +7,8 @@ require "test_helper"
 # Tested here with a stub check so the plumbing is exercised independently of any
 # real footgun (those get their own tests).
 class TestIRGuardrails < Minitest::Test
+  runs_on :reference
+
   include RubyGBA::IR::Build
 
   Guardrails = RubyGBA::IR::Guardrails

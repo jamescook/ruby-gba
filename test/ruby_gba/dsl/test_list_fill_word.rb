@@ -7,6 +7,8 @@ require "test_helper"
 # set to one value when the box opens, which a loop setting them one at a time spends most of
 # a frame on.
 class TestListFillWord < Minitest::Test
+  runs_on :reference
+
   SIZE = 3328
 
   # A byte list of SIZE items, all 0, filled each pass as +fill+ says, with a few items read

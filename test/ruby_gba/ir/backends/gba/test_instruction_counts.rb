@@ -9,6 +9,8 @@ require "stringio"
 # claims it rests on: the counts are exclusive, they are per USE of a shared node, and a
 # node whose code does not run the way it is written says so.
 class TestInstructionCounts < Minitest::Test
+  runs_on :reference
+
   def counts(&block)
     b = Builder.new
     b.instance_eval(&block)

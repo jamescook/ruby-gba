@@ -18,6 +18,7 @@ require "test_helper"
 # scrolling. Its column of pixels has to come out one flat color: two colors in a
 # column means the picture sheared, and where it changes is where the write landed.
 class TestScrollTearing < Minitest::Test
+  runs_on :reference
 
   # A field of alternating 8px red and blue columns, scrolled 8px further every
   # frame — so any horizontal shift changes which color sits at a given x, and a

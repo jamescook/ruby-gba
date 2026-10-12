@@ -9,6 +9,7 @@ require "test_helper"
 # slot with the oldest stamp — true age, not slot position, so it stays correct even
 # after removes shuffle the free slots. Pinned on the interpreter and on the emulator.
 class TestPoolRecycle < Minitest::Test
+  runs_on :reference
 
   GREEN = Color.resolve(:green)
   BLACK = 0

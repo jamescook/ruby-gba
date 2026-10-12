@@ -18,6 +18,8 @@ require "test_helper"
 # give it room"; `fast: true` insists. It is the same word `func` already takes for the same
 # question about code.
 class TestRoomyMemory < Minitest::Test
+  runs_on :reference
+
   def build(title, &block)
     RubyGBA.build(title, code: "B#{title[0, 3]}", maker: "01",
                          out: StringIO.new, err: StringIO.new, &block)

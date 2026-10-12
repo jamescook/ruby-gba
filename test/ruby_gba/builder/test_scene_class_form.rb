@@ -12,6 +12,7 @@ require_relative "../../fixtures/scene_classes/play_screen"
 # scene) and dispatch with case_var. No base class, no registrar, no magic — this test
 # proves only the active screen's presentation shows and only its update runs.
 class TestSceneClassForm < Minitest::Test
+  runs_on :reference
 
   GREEN = Color.resolve(:green) # TitleScreen's marker
   CYAN = Color.resolve(:cyan)   # PlayScreen's marker

@@ -14,6 +14,8 @@ require "test_helper"
 # through the auto-built palette, presented after a page flip) has to match.
 # Programs are built straight from IR::Build so the lowering is what's under test.
 class TestBufferedMode4 < Minitest::Test
+  runs_on :reference
+
   include RubyGBA::IR::Build
 
   # A blue field with three diagnostic squares in distinct colors at known spots —
