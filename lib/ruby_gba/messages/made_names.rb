@@ -116,6 +116,10 @@ module RubyGBA
                                     words: ->(_) { "copying a run of a table into a list" }),
         told_turn: Kind.new(spelling: "__bg_%{background}_told_%{part}", parts: { background: ANY, part: PLAIN },
                             words: nil),
+        set_swap: Kind.new(spelling: "__set_swap_%{background}", parts: { background: ANY },
+                           words: ->(parts) { "bringing background :#{parts[:background]} another set of tiles" }),
+        view_along_map: Kind.new(spelling: "__view_along_map_%{background}", parts: { background: ANY },
+                                 words: ->(parts) { "bringing the view of background :#{parts[:background]} along its map" }),
         pool_stacking: Kind.new(spelling: "__stacking_pool_%{pool}", parts: { pool: ANY },
                                 words: ->(parts) { "putting the sprites of pool :#{parts[:pool]} oldest in front" }),
         # A pool's field is a list, and so is much of what the pool keeps for itself. The two

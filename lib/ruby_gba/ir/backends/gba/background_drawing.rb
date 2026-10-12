@@ -19,7 +19,8 @@ module RubyGBA
           include EmitterCalls
           include MapStreaming
 
-          def initialize(emitter:, primitives:, lowering:, divide:, raster:, palette_tint:, uploads:, lists:)
+          def initialize(emitter:, primitives:, lowering:, divide:, raster:, palette_tint:, uploads:, lists:,
+                         call_cold_routine:)
             @emitter = emitter
             @primitives = primitives
             @lowering = lowering
@@ -28,10 +29,15 @@ module RubyGBA
             @raster = raster
             @palette_tint = palette_tint
             @uploads = uploads
+            @call_cold_routine = call_cold_routine
             @layout = nil
           end
 
           attr_writer :layout
+
+          # Call a routine that always stays in the cartridge, from wherever this code is kept
+          # (see Placement#emit_call_cold_routine).
+          def emit_call_cold_routine(label) = @call_cold_routine.call(label)
 
           # The per-layer control and scroll registers, indexed by BG number (0..3), so a
           # layer configures and scrolls its own hardware layer.
@@ -229,7 +235,7 @@ module RubyGBA
             return if bg.nil? || bg.map_count < 2 # no tiled layer, or nothing else to show
 
             done = gensym
-            emit_bring_set_in(node, bg, done) if bg.sets
+            emit_call_set_swap_if_changing(node, bg, done) if bg.sets
             emit_map_copy(node, bg, done)
             place_label(done)
           end
@@ -247,14 +253,56 @@ module RubyGBA
           # background layers switched off.
           SET_SWAP_DISPLAY = :_set_swap_display
 
+          # ...and where the number of the map coming in is kept while its set is brought in.
+          SET_SWAP_MAP = :_set_swap_map
+
           # Registers held while a set is brought in: the set that is coming in, and the size
           # of one set's colour table. Nothing reading a variable or a cartridge address touches
           # either, so they last across those.
           SET_PICKED = 3
           SET_STRIDE = 2
 
-          # BRING IN THE SET OF TILES THE MAP NUMBERED +which+ DRAWS FROM, for a background that
-          # walks between areas — and the map with it, while the layers are off.
+          # IS THE MAP NUMBERED +which+ OF ANOTHER SET OF TILES THAN THE ONE IN PLACE? Then call
+          # the routine that brings that set in, and the map with it (see
+          # #emit_set_swap_routines). A map of the set already in place falls through to the
+          # plain map copy, and nothing else.
+          #
+          # THIS IS ALL OF IT THAT THE CALLER HOLDS, and the caller is the game loop: the gap
+          # between frames, which every frame of every screen passes through and which is the
+          # first thing kept in the console's quick memory. A game changes area a handful of
+          # times an hour. Written out here, bringing a set in was the larger part of the loop
+          # of a game that walks between areas, once for each background that does — code that
+          # took the quick memory from routines every frame of play runs.
+          def emit_call_set_swap_if_changing(node, bg, done)
+            same = gensym
+            @lowering.value(node.which)
+            emit(ASM.cmp_imm(ACC, bg.map_count))
+            emit_branch(:bcond, done, cond: :hs) # a number naming no map changes nothing
+            emit_load_data_address(TMP, bg.sets.sets_of_maps)
+            emit(ASM.ldrb_reg(SET_PICKED, TMP, ACC)) # the set that map draws from
+            load_var(TMP, bg.sets.var)
+            emit(ASM.cmp_reg(SET_PICKED, TMP))
+            emit_branch(:bcond, same, cond: :eq)
+            # The routine is handed the map's number and its set, in the registers that hold
+            # them here already.
+            emit_call_cold_routine(set_swap_routine_label(node.name, bg))
+            emit_branch(:b, done)
+            place_label(same)
+          end
+
+          # The label of the routine that brings one of +name+'s sets in, reserved the first
+          # time a map of that background is shown and emitted once, later, by
+          # #emit_set_swap_routines — however many places show it a map.
+          def set_swap_routine_label(name, bg)
+            @pending_set_swaps ||= {}
+            @pending_set_swaps[name] ||= bg
+            Messages::MadeNames.make(:set_swap, background: name)
+          end
+
+          # BRING IN THE SET OF TILES A MAP DRAWS FROM, for a background that walks between
+          # areas — and the map with it, while the layers are off. One routine a background,
+          # emitted after the program's own code and reached only by the call above, which
+          # hands it the map's number.
           #
           # Every set sits in the same stretch of tile memory, so the set in place is the only
           # one the console can draw, and a map of another set shown over it would draw every
@@ -264,18 +312,32 @@ module RubyGBA
           # draws the backdrop rather than a part-copied set. Ending with the layers on again is
           # the same picture the next frame was going to show.
           #
-          # A map of the set already in place is the plain map copy, and nothing else.
-          def emit_bring_set_in(node, bg, done)
+          # It always runs from the cartridge. Most of what it costs is the copies, which the
+          # console stops the processor for wherever the code asking for them runs from. The
+          # view of a big map is filled by that background's own routine, which the build can
+          # keep in the quick memory (see MapStreaming#emit_stream_view_routine). What is left
+          # running from the cartridge is the colours of a game that tints or fades, blended
+          # one at a time.
+          def emit_set_swap_routines
+            (@pending_set_swaps || {}).each do |name, bg|
+              label = Messages::MadeNames.make(:set_swap, background: name)
+              emit(ASM.loop_forever) # fall-through guard: only ever entered by the call
+              place_label(label)
+              emit(ASM.push(14))
+              emit_bring_set_in(name, bg)
+              emit(ASM.pop(15))
+              # Where it ends, so a profile of the finished game can name it (see
+              # GBA#lowered_routine_addresses).
+              place_label(:"#{label}_end")
+            end
+          end
+
+          # The body of that routine. The map's number arrives in the first register and the
+          # set it draws from in SET_PICKED. The caller has made sure the number names a map,
+          # so the test the map copy below makes of it again never fails here.
+          def emit_bring_set_in(name, bg)
             swap = bg.sets
-            same = gensym
-            @lowering.value(node.which)
-            emit(ASM.cmp_imm(ACC, bg.map_count))
-            emit_branch(:bcond, done, cond: :hs) # a number naming no map changes nothing
-            emit_load_data_address(TMP, swap.sets_of_maps)
-            emit(ASM.ldrb_reg(SET_PICKED, TMP, ACC)) # the set that map draws from
-            load_var(TMP, swap.var)
-            emit(ASM.cmp_reg(SET_PICKED, TMP))
-            emit_branch(:bcond, same, cond: :eq)
+            store_var(ACC, SET_SWAP_MAP)
             emit(ASM.mov_reg(ACC, SET_PICKED))
             store_var(ACC, swap.var)
 
@@ -289,19 +351,20 @@ module RubyGBA
             emit(ASM.mul(ACC, SET_PICKED, TMP)) # r0 = how far along the blob that set starts
             emit_load_data_address(TMP, swap.tiles)
             emit(ASM.add_reg(ACC, ACC, TMP))
-            @emitter.note_video_copy("bringing background :#{node.name} another set of tiles", swap.stride)
+            routine = Messages::MadeNames.make(:set_swap, background: name)
+            @emitter.note_video_copy(Messages::MadeNames.words_for_made_name(routine), swap.stride)
             emit_start_copy_engine(from: in_register(ACC), to: VRAM_START + swap.at,
                                    control: (swap.stride / 4) | DMA_ENABLE | DMA_32BIT)
             emit_set_char_base(bg, swap) if swap.char_base_table
 
-            emit_map_copy(node, bg, done)
+            layers_back_on = gensym
+            emit_map_copy(Build.show_map(name, which: Build.var_ref(SET_SWAP_MAP)), bg, layers_back_on)
             emit_stream_fill(bg) if bg.stream # ...the view of it, while the layers are still off
             emit_area_colors(swap, from_var: true)
+            place_label(layers_back_on)
             load_var(ACC, SET_SWAP_DISPLAY)
             emit_number(TMP, REG_DISPCNT)
             emit(ASM.store_halfword(ACC, TMP))
-            emit_branch(:b, done)
-            place_label(same)
           end
 
           # A walking background put up as declared is back in its first area, tiles and all, so
@@ -802,7 +865,7 @@ module RubyGBA
             # interpreter's harmless handling.
             bg = @layout.screen.backgrounds[node.name]
             bg_num = bg&.bg || 0
-            emit_stream_view(node, bg) if bg&.stream # the cells around the view, before the view moves
+            emit_stream_view(node.name, node.x, node.y) if bg&.stream # the cells around the view, before the view moves
             # A bending layer's sideways position is settled row by row instead, and every
             # one of those rows already has this scroll in it (see Raster). Writing it here
             # too would only undo the top row's bend until the display asked for the next.

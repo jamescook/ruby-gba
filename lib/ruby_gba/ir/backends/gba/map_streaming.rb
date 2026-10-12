@@ -76,11 +76,35 @@ module RubyGBA
           # filled for, the column and row the view is at now, and the row a fill has reached.
           def stream_var(name, what) = :"_stream_#{name}_#{what}"
 
-          # BRING THE CELLS AROUND THE VIEW IN, for a background whose map is brought into view a
-          # strip at a time, before its scroll registers are written. +node+ is the scroll write,
-          # whose x and y are where the view is now, in the map's own pixels.
-          def emit_stream_view(node, bg)
-            name = node.name
+          # The routine that brings one such background's view along its map (see
+          # #emit_stream_view_routine). Named for the background, so a report and a measured
+          # profile can say whose it is.
+          def self.view_routine(name) = Messages::MadeNames.make(:view_along_map, background: name)
+
+          # BRING THE CELLS AROUND THE VIEW IN, for the background +name+ whose map is brought
+          # into view a strip at a time, before its scroll registers are written. +x+ and +y+
+          # are the values that say where the view is now, in the map's own pixels.
+          #
+          # What is written here is where the view is and a call. The work is a routine of the
+          # background's own, because it is wanted in three places — the scroll write every
+          # frame, the background going up, and an area's tiles coming in — and written out at
+          # each it was the larger part of all three.
+          def emit_stream_view(name, x, y)
+            emit_view_cell(x, stream_var(name, :want_col))
+            emit_view_cell(y, stream_var(name, :want_row))
+            @lowering.statement(Build.call(MapStreaming.view_routine(name)))
+          end
+
+          # THE BODY OF THAT ROUTINE: compare the cell the view is at now with the cell the grid
+          # was last filled for, and copy in the strips between the two, or the whole view.
+          #
+          # It is a routine the build places like one somebody wrote, by what a frame spends in
+          # it, so a game that scrolls a big map can keep it in the quick memory while there is
+          # room. That matters most on the frame the whole view is filled: twenty-one rows of
+          # thirty-one cells, a handful of instructions a cell, in a gap the layers are switched
+          # off for.
+          def emit_stream_view_routine(name)
+            bg = @layout.screen.backgrounds.fetch(name)
             refill = gensym
             columns_left = gensym
             rows_down = gensym
@@ -88,8 +112,6 @@ module RubyGBA
             done = gensym
             strip = gensym
 
-            emit_view_cell(node.x, stream_var(name, :want_col))
-            emit_view_cell(node.y, stream_var(name, :want_row))
             emit_stream_source(bg)
 
             filled = IR::Nodes::Background.stream_vars(name).last
@@ -129,7 +151,7 @@ module RubyGBA
             emit_view_fill(name, filled, strip)
 
             # The copy of one strip, called from each place above. It sits here, jumped over,
-            # so it moves wherever the code around it is put.
+            # so it moves wherever the routine around it is put.
             place_label(done)
             after = gensym
             emit_branch(:b, after)
@@ -137,10 +159,6 @@ module RubyGBA
             emit_strip_routine(name)
             place_label(after)
           end
-
-          # Where a background's view is, as the scroll write names it: the background, and the
-          # two values its place is read from.
-          ViewPlace = Struct.new(:name, :x, :y)
 
           # FILL THE WHOLE VIEW NOW, from the place the background's view is at and the map it
           # names, rather than in the scroll write later in the gap. For the moments the layers
@@ -152,7 +170,7 @@ module RubyGBA
             emit_number(ACC, 0)
             store_var(ACC, IR::Nodes::Background.stream_vars(name).last)
             x, y = IR::Nodes::Background.scroll_vars(name)
-            emit_stream_view(ViewPlace.new(name, Build.var_ref(x), Build.var_ref(y)), bg)
+            emit_stream_view(name, Build.var_ref(x), Build.var_ref(y))
           end
 
           # HAND THE BACKGROUND ANOTHER MAP: say which map the strips come from now, and that the
@@ -285,7 +303,7 @@ module RubyGBA
           def emit_strip_routine(name)
             again = gensym
             blank = gensym
-            @emitter.note_video_copy("bringing the view of background :#{name} along its map", 2)
+            @emitter.note_video_copy(Messages::MadeNames.words_for_made_name(MapStreaming.view_routine(name)), 2)
             place_label(again)
             emit(ASM.mov_reg(ACC, STREAM_BLANK))
             # One unsigned compare catches both ends: a negative column or row reads as a very

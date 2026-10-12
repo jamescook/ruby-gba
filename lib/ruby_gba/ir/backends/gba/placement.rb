@@ -250,6 +250,7 @@ module RubyGBA
             # layer's amounts) are nowhere in the program, so the probe is the one that knows
             # them.
             @scene_routines = probe.routines_for_scenes
+            @routines_placed_with_frame = probe.map_view_routines
             @crossing_targets = crossing_call_targets(program, probe.generated_calls_by_routine)
             crossings = @crossing_targets.transform_values(&:size).tap { |counts| counts.default = 0 }
             loads = probe.number_loads_by_routine
@@ -432,7 +433,9 @@ module RubyGBA
 
           # Call a routine that never itself moves to the quick memory — always in the
           # cartridge, whichever call reaches it: the digit routines (see
-          # Drawing#emit_digit_routines) and a flash chip's byte routines (see SaveChip).
+          # Drawing#emit_digit_routines), a flash chip's byte routines (see SaveChip) and the
+          # routine that brings a background another set of tiles (see
+          # BackgroundDrawing#emit_set_swap_routines).
           # Plain when the call is cold too, and the same address-and-jump-through
           # #emit_call_func's own crossing call uses when the call is running from inside
           # the moved block, since a label back in the cartridge is too far from the quick
@@ -589,16 +592,19 @@ module RubyGBA
           # THE CALLS COUNTED WHERE THEY ARE WRITTEN, because no node of the tree says where:
           #
           # Calls to routines the build made for itself — each scene's moving sprites, the
-          # sprites nothing moves, a see-through layer's amounts. Most are made by the frame, in
-          # the gap after the picture, but a see-through layer's amounts are told again
-          # wherever something puts the blend back: a scene taking over the display, a fade
-          # lifting.
+          # sprites nothing moves, a see-through layer's amounts, a big map's view brought
+          # along. Most are made by the frame, in the gap after the picture, but a see-through
+          # layer's amounts are told again wherever something puts the blend back (a scene
+          # taking over the display, a fade lifting), and a big map's view is filled again
+          # wherever its background goes up or an area's tiles come in.
           #
           # Calls to routines that always stay in the cartridge (#emit_call_cold_routine). A
           # run-time digit shares one glyph-drawing routine per font, so a game with a score on
           # screen calls it once per digit place — a couple of hundred bytes in
           # examples/breakout.rb. A 128K flash chip is read and written a byte at a time through
-          # one, so a save routine holds a call for every byte it reads or writes.
+          # one, so a save routine holds a call for every byte it reads or writes. A background
+          # that walks between areas calls one wherever it is shown a map, to bring an area's
+          # tiles in.
           #
           # +made_calls+ is both kinds, by routine, the interrupt's included: for each call the
           # routine it names, or nil for one that always stays in the cartridge.
@@ -859,9 +865,12 @@ module RubyGBA
           def ranked_by_frame_cost(program, sizes)
             @progress.step("choosing what goes in the quick memory")
             names = placeable_names(program, sizes)
-            return @routine_profile.order_by_work(names).select { |name| @routine_profile.worth_quick_memory?(name) } if @routine_profile
-
-            reachable_first(program, names)
+            ranked = if @routine_profile
+                       @routine_profile.order_by_work(names).select { |name| @routine_profile.worth_quick_memory?(name) }
+                     else
+                       reachable_first(program, names)
+                     end
+            beside_frame_routine(ranked, sizes)
           end
 
           # Everything that could be moved: the routines somebody wrote, plus the two nobody
@@ -878,6 +887,29 @@ module RubyGBA
           # amounts — by name, with the scene each works for (the frame's own routine for a
           # see-through layer no one scene owns). Empty until the measuring pass has run.
           def scene_routines = @scene_routines || {}
+
+          # The routines that are the frame's own work, written once and called: the one that
+          # brings each big map's view along (see GBA#prepare_map_view_routines). Empty until
+          # the measuring pass has run.
+          def routines_placed_with_frame = @routines_placed_with_frame || []
+
+          # THE FRAME'S OWN ROUTINES GO RIGHT AFTER THE FRAME'S, whatever they measured.
+          #
+          # Bringing a big map's view along was written out in the frame's routine, so it was
+          # kept in the quick memory whenever the frame was. As a routine of its own it would
+          # be weighed by what a frame was measured to spend in it, and that measure is taken
+          # with nobody playing: the view stands still, and the routine does a few dozen
+          # instructions finding that out. Its real work is on the frames the view moves, and
+          # most of all on the frame a whole view is filled, which shows the backdrop over
+          # its top rows when the fill runs at the cartridge's speed. So it keeps the place
+          # the frame has, as it had when it was part of the frame.
+          def beside_frame_routine(ranked, sizes)
+            own = routines_placed_with_frame.select { |name| sizes[name].to_i.positive? }
+            return ranked if own.empty? || !ranked.include?(FRAME_ROUTINE)
+
+            rest = ranked - own
+            rest.insert(rest.index(FRAME_ROUTINE) + 1, *own)
+          end
 
           # WHAT THE BUILD MADE FOR A SCENE GOES RIGHT AFTER THE SCENE, when nothing has been
           # measured. The frame calls such a routine on the frames the scene runs, so it is

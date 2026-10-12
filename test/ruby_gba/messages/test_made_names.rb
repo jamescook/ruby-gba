@@ -29,6 +29,8 @@ class TestMadeNames < Minitest::Test
     list_copy_routine: {},
     pose_rows: { number: 2 },
     told_turn: { background: :field, part: :size },
+    set_swap: { background: :ground },
+    view_along_map: { background: :ground },
     tile_run_tile: { run: :box, number: 3 },
     tile_run_pending: { number: 0 },
     painted_copies: {},
@@ -61,6 +63,8 @@ class TestMadeNames < Minitest::Test
       MadeNames.make(:see_through_amounts, layer: :rays) => "telling the display how see-through layer :rays is",
       MadeNames.make(:pool_stacking, pool: :guard) => "putting the sprites of pool :guard oldest in front",
       MadeNames.make(:draw_order, number: 1, part: :sort) => "putting the sprites of draw_in_order #1 in order",
+      MadeNames.make(:set_swap, background: :ground) => "bringing background :ground another set of tiles",
+      MadeNames.make(:view_along_map, background: :ground) => "bringing the view of background :ground along its map",
       MadeNames.make(:pool_part, pool: :guard, part: :remove) => "removing an instance of pool :guard",
       MadeNames.make(:pool_part, pool: :guard_walk, part: :unlink) => "taking an instance of pool :guard_walk out of its order",
     }

@@ -251,6 +251,11 @@ module RubyGBA
                                 .merge(@layer_blend.amount_routines)
         end
 
+        # The routines that bring a big map's view along (see #prepare_map_view_routines), by
+        # name. Read by the placement, which keeps them beside the frame's own routine; its
+        # copy, read off the measuring pass, is Placement#routines_placed_with_frame.
+        def map_view_routines = @map_view_routines || []
+
         # The emitted machine code / the label table / where each embedded blob landed
         # — read straight from @emit, which is where they actually live (see {Emit}).
         def code = @emit.code
@@ -387,7 +392,8 @@ module RubyGBA
                                               palette_tint: @palette_tint, uploads: @uploads)
           @background_drawing = BackgroundDrawing.new(emitter: @emit, primitives: @primitives, lowering: @lowering,
                                                       divide: @divide, raster: @raster,
-                                                      palette_tint: @palette_tint, uploads: @uploads, lists: @lists)
+                                                      palette_tint: @palette_tint, uploads: @uploads, lists: @lists,
+                                                      call_cold_routine: method(:emit_call_cold_routine))
           @drawing = Drawing.new(emitter: @emit, primitives: @primitives, lowering: @lowering,
                                  divide: @divide, framebuffer: @framebuffer, raster: @raster,
                                  palette_tint: @palette_tint, layer_blend: @layer_blend, buffered: @buffered,
@@ -714,6 +720,7 @@ module RubyGBA
           @layer_blend.amount_routines.each_key do |name|
             @functions.define_generated_func(name) { @layer_blend.emit_amounts_routine(name) }
           end
+          prepare_map_view_routines(program)
           @scene_blend = @tiled ? @layer_blend.blend_control_by_scene(@modes) : {}
           # ...which is what decides whether a fade may use the display's blend at all, or
           # has to walk the color table instead to leave that layer alone (see IR::Fading).
@@ -808,6 +815,7 @@ module RubyGBA
           # digit routine one of them alone reaches would still be unregistered any earlier.
           @drawing.emit_digit_routines  # the shared glyph loop each font's draw_number/draw_digit calls
           @buffered.emit_digit_routines # ...and its tear-free counterpart
+          @background_drawing.emit_set_swap_routines # bringing another set of tiles in, a routine a background
           @lists.emit_fill_routine # the one routine every list_fill calls, for the same reason
           @lists.emit_copy_routine # ...and every list_copy
           emit_data_region
@@ -1476,6 +1484,22 @@ module RubyGBA
           end
           @scene_sprites.each do |group|
             @functions.define_generated_func(SpriteDrawing.sprites_routine(group.scene)) { @sprite_drawing.emit_write_sprite_rows(group.names) }
+          end
+        end
+
+        # THE ROUTINE EACH BIG MAP'S VIEW IS BROUGHT ALONG BY, one for each background whose map
+        # is bigger than the console's grid (see MapStreaming).
+        #
+        # It is the frame's own work, whichever scene owns the background: the scroll write
+        # that calls it is in the gap after the picture, which is the frame's routine. It is a
+        # routine only so that it is written once, so the chooser is told to keep it where
+        # the frame's routine is kept (see Placement#beside_frame_routine).
+        def prepare_map_view_routines(program)
+          streamed = program.walk.select { |node| node.kind == :background && @screen.backgrounds[node.name]&.stream }
+          @map_view_routines = streamed.map do |node|
+            MapStreaming.view_routine(node.name).tap do |routine|
+              @functions.define_generated_func(routine) { @background_drawing.emit_stream_view_routine(node.name) }
+            end
           end
         end
 

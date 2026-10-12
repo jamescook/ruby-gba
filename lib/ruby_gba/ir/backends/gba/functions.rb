@@ -48,7 +48,8 @@ module RubyGBA
           # each, which it reads off the program, and this one is not in there to be read — so
           # it stays in the cartridge unless the chooser is told about it by name, which it is
           # for each scene's moving sprites and each see-through layer's amounts (see
-          # Placement#scene_routines).
+          # Placement#scene_routines), and for each big map's view (see
+          # Placement#routines_placed_with_frame).
           def define_generated_func(name, &body)
             @funcs[name] = Build.func(name)
             @minted[name] = body
