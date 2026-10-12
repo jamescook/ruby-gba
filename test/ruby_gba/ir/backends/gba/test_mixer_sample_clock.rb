@@ -21,6 +21,8 @@ require "stringio"
 # Both are measured here on the console rather than argued about, because both were argued about
 # first and only one of them was right.
 class TestMixerSampleClock < Minitest::Test
+  runs_on :reference
+
   Timers = GBA::Timers
 
   # Rates worth asking for: two that a real cartridge records at, the framework's own default,

@@ -15,6 +15,8 @@ require "test_helper"
 # has no clock and is never late by itself; a test tells it a pass took several frames, and
 # test_music_keeps_time.rb holds it to the same answer.
 class TestMixerKeepsTime < Minitest::Test
+  runs_on :reference
+
   RATE = 8000
   SLICE = (RATE + 59) / 60 # what the hardware plays in one frame
   LASTS = 10               # ...so a clip this many slices long should take ten frames

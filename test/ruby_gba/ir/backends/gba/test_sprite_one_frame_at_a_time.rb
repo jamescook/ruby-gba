@@ -10,6 +10,8 @@ require "differential"
 # animations can fill that on its own, and then nobody else fits beside it, even though it
 # only ever shows one frame at a time.
 class TestSpriteOneFrameAtATime < Minitest::Test
+  runs_on :reference
+
   include Differential
 
   SPRITE_MEMORY = 32 * 1024

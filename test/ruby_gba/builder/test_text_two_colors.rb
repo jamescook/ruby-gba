@@ -14,6 +14,8 @@ require_relative "../../differential"
 # that changes colour. So these tests check the PICTURE on both screens, and the sprite
 # COUNT on the tiled one — the saving is the whole reason the form exists.
 class TestTextTwoColors < Minitest::Test
+  runs_on :reference
+
   include Differential
 
   Fonts = RubyGBA::Graphics::Fonts

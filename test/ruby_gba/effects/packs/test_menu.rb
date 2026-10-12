@@ -12,6 +12,8 @@ require_relative "../../../differential"
 # distinct colours for the same reason: "picked" is a colour on the screen, not a
 # flag in memory.
 class TestMenu < Minitest::Test
+  runs_on :reference
+
   include Differential
 
   X = 60           # where the labels start

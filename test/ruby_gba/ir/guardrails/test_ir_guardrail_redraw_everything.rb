@@ -8,6 +8,8 @@ require "test_helper"
 # cost weights); it only looks at the steady per-frame path, so a once-per-round
 # repaint behind a press is (correctly) left alone.
 class TestRedrawEverythingGuardrail < Minitest::Test
+  runs_on :reference
+
   Check = RubyGBA::IR::Guardrails::Checks::RedrawEverything
   Build = RubyGBA::IR::Build
 

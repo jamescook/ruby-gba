@@ -11,6 +11,8 @@ require "stringio"
 # randomize) belongs in the loop, and a deliberate edge-gated re-seed is fine, so
 # neither is flagged.
 class TestIRGuardrailSeedInLoop < Minitest::Test
+  runs_on :reference
+
   include RubyGBA::IR::Build
 
   Guardrails = RubyGBA::IR::Guardrails

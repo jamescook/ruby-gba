@@ -106,7 +106,9 @@ rake test:native TEST=test/examples/test_pong_scoring.rb       # one file on the
 **A run tests one lowering.** `rake test` plays every game on the interpreter and checks the
 cartridge in the emulator; `rake test:native` plays them as C (`Backends::Native`), and needs
 zig, installed through mise. Both load every test file, and a class runs only on the lowerings
-it names — `runs_on :reference, :native` — or on the interpreter alone when it names none.
+it names. **Every test class has to name them** — `runs_on :reference` for tests only the
+interpreter and the cartridge play, `runs_on :reference, :native` for ones the game as C plays
+too — and a class that says nothing stops the run before it starts, naming the class.
 Native trails the other two backends (see the cross-backend rule below), so a file is opted in
 once native can play its games, and its tests are never rewritten for it: the class names both
 lowerings and says `game_player` where it said `Reference.new`. On a native run that hands it

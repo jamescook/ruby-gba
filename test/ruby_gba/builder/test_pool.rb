@@ -7,6 +7,7 @@ require "test_helper"
 # with a mutable row handle, remove retires one. Behind the scenes it's parallel lists
 # + a repeat, so the fields can never desync. Pinned on the reference interpreter.
 class TestPool < Minitest::Test
+  runs_on :reference
 
   GREEN = Color.resolve(:green)
   BLACK = 0

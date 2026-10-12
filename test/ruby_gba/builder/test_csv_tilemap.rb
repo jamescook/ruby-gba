@@ -13,6 +13,8 @@ require_relative "../../../tools/make_example_assets" # colors of the imported t
 # (the example test cross-checks the sheet-import path on real hardware); here we drive
 # the parsing and the number->tile mapping through the DSL surface.
 class TestCsvTilemap < Minitest::Test
+  runs_on :reference
+
   Assets = MakeExampleAssets
 
   SHEET = File.expand_path("../../../examples/assets/tiles.png", __dir__) # brick = tile 1, floor = tile 2

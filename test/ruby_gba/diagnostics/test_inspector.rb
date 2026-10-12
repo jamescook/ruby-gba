@@ -5,6 +5,8 @@ require "test_helper"
 require "stringio"
 
 class TestInspector < Minitest::Test
+  runs_on :reference
+
   # Helper: disassemble a single instruction word via Inspector internals.
   def disasm(word)
     inspector = RubyGBA::Diagnostics::Inspector.from_rom(minimal_rom)

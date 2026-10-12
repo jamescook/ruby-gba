@@ -10,6 +10,8 @@ require "stringio"
 # game being built on the framework reads out of a retail cartridge wants seven to nine, and
 # twelve at the most, with the game's own sounds beside them.
 class TestSongParts < Minitest::Test
+  runs_on :reference
+
   NOTES = RubyGBA::Audio::Music::NOTE_FREQUENCIES
   STEP_ONE = GBA::Mixer::STEP_ONE
   VOICES = RubyGBA::Audio::Sound::MIXER_VOICES

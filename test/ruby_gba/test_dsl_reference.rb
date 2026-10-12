@@ -8,6 +8,8 @@ require "test_helper"
 # verb and says how to fix it. A crude but effective coverage check (it looks for
 # the verb name as a word; it doesn't police the signature).
 class TestDslReference < Minitest::Test
+  runs_on :reference
+
   SHEET = File.expand_path("../../.claude/rules/dsl-reference.md", __dir__)
 
   # The DSL verbs are the public methods the concern modules mix into Builder…

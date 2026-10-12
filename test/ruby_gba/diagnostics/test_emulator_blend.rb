@@ -24,6 +24,8 @@ require "differential"
 # test_fade.rb walks all seventeen levels on the console's red channel, which is the one
 # the emulator computes as written.
 class TestEmulatorBlend < Minitest::Test
+  runs_on :reference
+
   include Differential
 
   Framebuffer = RubyGBA::IR::Backends::Reference::Framebuffer

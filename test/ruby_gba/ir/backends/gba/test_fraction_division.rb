@@ -11,6 +11,8 @@ require "test_helper"
 # wrapped, and a numerator written into the program takes the cheap path without changing
 # any of that.
 class TestFractionDivision < Minitest::Test
+  runs_on :reference
+
   Int32 = RubyGBA::IR::Int32
   Build = RubyGBA::IR::Build
 

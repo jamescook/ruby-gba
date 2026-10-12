@@ -12,6 +12,8 @@ require "test_helper"
 # a fixed number of frames, and check how often (and when) the block fired. A
 # the emulator test confirms the schedule holds on real hardware.
 class TestTimers < Minitest::Test
+  runs_on :reference
+
   include RubyGBA::Console::Hardware
 
   Build = RubyGBA::IR::Build

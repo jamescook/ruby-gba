@@ -9,6 +9,8 @@ require "stringio"
 # and a Score's MIDI keys reach it easily. The build warns, naming the note and the lowest one that
 # sounds right, and still builds: the song plays, one note of it wrong.
 class TestSquareNoteTooLowGuardrail < Minitest::Test
+  runs_on :reference
+
   include RubyGBA::IR::Build
 
   Check = RubyGBA::IR::Guardrails::Checks::SquareNoteTooLow

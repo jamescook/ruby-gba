@@ -14,6 +14,8 @@ require "differential"
 # the interpreter always clipped correctly, so any pixel the console painted outside
 # where the interpreter did is exactly the wrap this test exists to catch.
 class TestDrawRectAtClipping < Minitest::Test
+  runs_on :reference
+
   include Differential
 
   AREA = [40, 30, 120, 80].freeze # x, y, w, h — well off every edge of the screen

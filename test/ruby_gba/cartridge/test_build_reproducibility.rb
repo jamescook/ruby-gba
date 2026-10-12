@@ -36,6 +36,8 @@ require_relative "../../../examples/snake_buffered"
 # twice was measured at several seconds and gets slower with each one added, while
 # finding nothing these don't.
 class TestBuildReproducibility < Minitest::Test
+  runs_on :reference
+
   # Registers into the library itself, which changes the whole process — so on the
   # main Ractor, not in the pool. See test_helper.
   runs_on_the_main_ractor!

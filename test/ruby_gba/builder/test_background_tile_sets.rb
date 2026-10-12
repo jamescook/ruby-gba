@@ -8,6 +8,8 @@ require "differential"
 # to another area brings that area's set in. Each set fits the console's tile memory on
 # its own; the sets together need not.
 class TestBackgroundTileSets < Minitest::Test
+  runs_on :reference
+
   include Differential
 
   RED = Color.resolve(:red)

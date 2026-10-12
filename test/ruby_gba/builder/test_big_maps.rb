@@ -9,6 +9,8 @@ require "differential"
 # cells coming into view as the view moves. Nothing in the program says so: the map is
 # written at its size and scrolled like any other.
 class TestBigMaps < Minitest::Test
+  runs_on :reference
+
   include Differential
 
   RED = Color.resolve(:red)

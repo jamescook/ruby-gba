@@ -6,6 +6,8 @@ require "test_helper"
 # holding a direction. Proves image (ASCII art + transparency) + blit +
 # held-input move a sprite, on both backends.
 class TestSpriteMover < Minitest::Test
+  runs_on :reference
+
   include RubyGBA::Console::Hardware
 
   # A heart that starts at (100, 60), slides right while :right is held, and halts

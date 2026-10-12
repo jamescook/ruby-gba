@@ -9,6 +9,7 @@ require "test_helper"
 # paints exactly its own square, at the right place, in the right color, and
 # nothing else moves" — asserted on the interpreter's screen.
 class TestGrid < Minitest::Test
+  runs_on :reference
 
   def interpret_screen(&block)
     builder = Builder.new

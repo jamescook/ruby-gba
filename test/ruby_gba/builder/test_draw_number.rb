@@ -8,6 +8,7 @@ require "test_helper"
 # runtime digit machinery must land the same pixels as the trusted text path, in
 # the interpreter and on real hardware.
 class TestDrawNumber < Minitest::Test
+  runs_on :reference
 
   Build = RubyGBA::IR::Build
 

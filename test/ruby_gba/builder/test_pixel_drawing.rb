@@ -5,6 +5,8 @@ require "test_helper"
 require "tempfile"
 
 class TestPixelDrawing < Minitest::Test
+  runs_on :reference
+
   def test_display_bitmap_sets_mode3
     rom = RubyGBA.build("DISPTEST") do
       screen :bitmap

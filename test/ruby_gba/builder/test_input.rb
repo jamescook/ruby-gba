@@ -3,6 +3,8 @@
 require "test_helper"
 
 class TestInput < Minitest::Test
+  runs_on :reference
+
   include RubyGBA::Console::Hardware
 
   def build(validate: false, &block)

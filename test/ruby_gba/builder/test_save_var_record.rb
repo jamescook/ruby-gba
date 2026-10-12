@@ -6,6 +6,8 @@ require "test_helper"
 # record of their own that saves itself a pass after one of them changes, rather than written
 # in place as they are on 32K.
 class TestSaveVarRecord < Minitest::Test
+  runs_on :reference
+
   include RubyGBA::Console::Hardware
 
   # The frame A is pressed on: after the first power-on of a fresh chip has written its table.

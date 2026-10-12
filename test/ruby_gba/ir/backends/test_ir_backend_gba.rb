@@ -7,6 +7,8 @@ require "test_helper"
 # the emulator-backed tests actually run the ROM and read pixels off the screen (and
 # skip when the emulator isn't installed).
 class TestIRBackendGBA < Minitest::Test
+  runs_on :reference
+
   include RubyGBA::IR::Build
 
   # Lower a program to machine code, then assemble it into a runnable ROM.

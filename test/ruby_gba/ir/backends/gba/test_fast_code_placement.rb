@@ -12,6 +12,8 @@ require "differential"
 # same pixels, on the interpreter and on the console, whether its code runs from the
 # cartridge or not. Everything else is the placement being visible and steerable.
 class TestFastCodePlacement < Minitest::Test
+  runs_on :reference
+
   include Differential
 
   Placement = RubyGBA::IR::Backends::GBA::Placement

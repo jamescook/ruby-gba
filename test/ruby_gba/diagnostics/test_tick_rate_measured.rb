@@ -7,6 +7,8 @@ require "test_helper"
 # The half that cannot be faked: finding each timer's handler inside the one routine
 # the console interrupts into, and counting the ticks that really arrived.
 class TestTickRateMeasured < Minitest::Test
+  runs_on :reference
+
   include EmulatorSupport
 
   def setup

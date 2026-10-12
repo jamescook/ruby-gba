@@ -6,6 +6,8 @@ require "test_helper"
 # tell one cartridge from another, so a made-up code that belongs to a real one is a
 # cartridge wearing somebody else's name and somebody else's save hardware.
 class TestGameCode < Minitest::Test
+  runs_on :reference
+
   CODE = RubyGBA::Cartridge::ROM::HEADER_CODE
   MAKER = RubyGBA::Cartridge::ROM::HEADER_MAKER
 

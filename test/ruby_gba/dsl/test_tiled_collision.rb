@@ -8,6 +8,8 @@ require "test_helper"
 # and agree by construction — asserted here on the interpreter oracle and on hardware.
 # `can_move?` exposes the same test for manual control.
 class TestTiledCollision < Minitest::Test
+  runs_on :reference
+
   include RubyGBA::Console::Hardware
 
   # A 10x5-tile room, floor everywhere but one wall tile at cell (4, 2) -> px (32, 16).

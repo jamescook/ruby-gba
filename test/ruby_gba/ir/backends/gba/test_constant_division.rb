@@ -11,6 +11,8 @@ require "test_helper"
 # still exactly right — the whole trick rests on a rounded reciprocal being close enough
 # for every numerator there is — and that the shortcut is really being taken.
 class TestConstantDivision < Minitest::Test
+  runs_on :reference
+
   Reciprocal = RubyGBA::IR::Backends::GBA::Reciprocal
   Int32 = RubyGBA::IR::Int32
 

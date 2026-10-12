@@ -7,6 +7,8 @@ require "test_helper"
 # needed. Static text contributes its exact (folded) characters; draw_number
 # contributes 0-9.
 class TestGlyphUsage < Minitest::Test
+  runs_on :reference
+
   Usage = RubyGBA::IR::GlyphUsage
   Fonts = RubyGBA::Graphics::Fonts
 

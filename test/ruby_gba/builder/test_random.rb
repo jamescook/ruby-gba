@@ -12,6 +12,8 @@ require "test_helper"
 # the emulator test confirms the same draws land on real hardware, which (running the
 # same IR) also proves the two backends produce an identical sequence.
 class TestRandom < Minitest::Test
+  runs_on :reference
+
   include RubyGBA::Console::Hardware
 
   Build = RubyGBA::IR::Build

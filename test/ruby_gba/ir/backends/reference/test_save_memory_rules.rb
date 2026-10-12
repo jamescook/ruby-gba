@@ -10,6 +10,8 @@ require "test_helper"
 # kind and corrupts saves on the second, so the interpreter refuses it here, where a test sees
 # it, rather than leaving it for a player to find.
 class TestSaveMemoryRules < Minitest::Test
+  runs_on :reference
+
   B = RubyGBA::IR::Build
 
   private def run_program(*statements)

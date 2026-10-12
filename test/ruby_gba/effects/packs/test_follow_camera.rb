@@ -10,6 +10,8 @@ require "test_helper"
 # has not moved on screen, and that the scenery has. Reading only one of them would pass
 # for a game where nothing happens at all.
 class TestFollowCamera < Minitest::Test
+  runs_on :reference
+
   RED = RubyGBA::Graphics::Color.resolve(:red)
   BLUE = RubyGBA::Graphics::Color.resolve(:blue)
   GREEN = RubyGBA::Graphics::Color.resolve(:green)

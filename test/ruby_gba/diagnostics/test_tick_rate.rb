@@ -7,6 +7,8 @@ require "test_helper"
 # The rule is a pure comparison, so it is tested as one here. The half that has to
 # run on the console is in test_tick_rate_measured.rb.
 class TestTickRateRule < Minitest::Test
+  runs_on :reference
+
   TickRate = RubyGBA::Diagnostics::TickRate
 
   def read(asked:, ticks:, seconds: 1.0)

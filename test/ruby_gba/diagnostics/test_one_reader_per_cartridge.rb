@@ -19,6 +19,7 @@ require "test_helper"
 # So the framework's reader is built on the low-level handle rather than beside it, and everything
 # comes off the one object.
 class TestOneReaderPerCartridge < Minitest::Test
+  runs_on :reference
 
   def running(game, frames: 4)
     assert_emulator_loads_rom(game.build_rom(out: nil, err: nil, profile: false), frames: frames)

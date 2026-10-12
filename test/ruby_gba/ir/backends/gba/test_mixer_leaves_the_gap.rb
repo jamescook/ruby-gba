@@ -9,6 +9,8 @@ require "stringio"
 # picture had started, so its top rows showed last frame's sprites. A console test only: the
 # interpreter has no gap and no clock.
 class TestMixerLeavesTheGap < Minitest::Test
+  runs_on :reference
+
   # A screen of 228 lines, 68 of them the gap: a frame busier than this share is busier than
   # the gap alone could hold, so the mixing cannot have fitted inside it.
   GAP_SHARE = 68.0 / 228

@@ -15,6 +15,8 @@ require "test_helper"
 # ride inside an instruction, a shift count worked out as the game runs, a count past
 # the end of the number — so those are what the programs are built out of.
 class TestBitOperations < Minitest::Test
+  runs_on :reference
+
   Int32 = RubyGBA::IR::Int32
   B = RubyGBA::IR::Build
 

@@ -9,6 +9,8 @@ require "stringio"
 # note's pitch, through the mixer, and a rest silences it. The part names the instrument, never a
 # channel — which voice it uses is the framework's business.
 class TestSongInstruments < Minitest::Test
+  runs_on :reference
+
   NOTES = RubyGBA::Audio::Music::NOTE_FREQUENCIES
   STEP_ONE = GBA::Mixer::STEP_ONE
 

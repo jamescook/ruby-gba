@@ -9,6 +9,7 @@ require "test_helper"
 # result — a marker drawn only when the shapes actually touch — on the interpreter
 # and on real hardware.
 class TestOverlaps < Minitest::Test
+  runs_on :reference
 
   Condition = RubyGBA::DSL::Condition
 

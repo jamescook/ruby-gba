@@ -7,6 +7,8 @@ require "test_helper"
 # so the game treats it the same as its own: good, read by peek and load, saved over, erased
 # and copied like any other.
 class TestSaveInto < Minitest::Test
+  runs_on :reference
+
   private def built(save_memory: nil, &block)
     save_memory ? RubyGBA.game("PUTSAVE", save_memory: save_memory, &block) : RubyGBA.game("PUTSAVE", &block)
   end

@@ -8,6 +8,8 @@ require "test_helper"
 # same way a tune is, and each plays over the room's music without stopping it. When the effect
 # and the song want the same voice, the one with the higher priority sounds on it.
 class TestSoundEffects < Minitest::Test
+  runs_on :reference
+
   Score = RubyGBA::Audio::Score
   Part = Score::Part
   Note = Score::Note

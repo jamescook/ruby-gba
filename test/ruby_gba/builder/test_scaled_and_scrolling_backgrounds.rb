@@ -16,6 +16,8 @@ require "test_helper"
 # because the program turns it, and the build picks the hardware that holds what was
 # declared.
 class TestScaledAndScrollingBackgrounds < Minitest::Test
+  runs_on :reference
+
   # A solid 8x8 tile of one colour, so a cell's colour is the whole assertion.
   def solid_tile(builder, name, color)
     builder.image(name, "#" => color) { "########\n" * 8 }

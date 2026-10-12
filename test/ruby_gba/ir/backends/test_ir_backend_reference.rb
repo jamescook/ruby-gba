@@ -7,6 +7,8 @@ require "test_helper"
 # simulated hardware (framebuffer, input) is exercised separately in
 # test_ir_backend_ruby_hardware.rb; here there's no screen and no gamepad.
 class TestIRBackendReference < Minitest::Test
+  runs_on :reference
+
   include RubyGBA::IR::Build
 
   Int32 = RubyGBA::IR::Int32

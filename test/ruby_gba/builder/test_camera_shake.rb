@@ -11,6 +11,7 @@ require "test_helper"
 # the same drawing SHOWS somewhere else while the shake runs, and shows back in its
 # original place once it ends.
 class TestCameraShake < Minitest::Test
+  runs_on :reference
 
   RED = RubyGBA::Graphics::Color.resolve(:red)
   BLUE = RubyGBA::Graphics::Color.resolve(:blue)

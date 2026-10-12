@@ -8,6 +8,8 @@ require "differential"
 # title screen and a room each get the whole table beside what every scene shows, the way a
 # scene's tile pictures already take turns with the other scenes'.
 class TestSceneBackgroundColors < Minitest::Test
+  runs_on :reference
+
   include Differential
 
   OWN = %i[transparent red green].freeze

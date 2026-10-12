@@ -12,6 +12,8 @@ require "test_helper"
 # hardware-only, this is also what holds that promise: a portable kind the interpreter
 # cannot run is a failure, not a default.
 class TestKindCoverage < Minitest::Test
+  runs_on :reference
+
   Nodes = RubyGBA::IR::Nodes
   Portability = RubyGBA::IR::Portability
 

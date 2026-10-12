@@ -9,6 +9,8 @@ require "test_helper"
 # `sprite.scale`, so it needs no backend of its own; that it runs on the oracle at all is
 # the evidence for that.
 class TestPulsePack < Minitest::Test
+  runs_on :reference
+
   BLOCK = (["#" * 16] * 16).join("\n")
 
   # One second, so half a cycle is 30 frames and the numbers below are easy to place.

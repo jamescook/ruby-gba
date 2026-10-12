@@ -16,6 +16,8 @@ require "stringio"
 # that each instance of a pool keeps its own, and that the set of names is complete even when
 # one of them is first used deep inside another routine.
 class TestNameVariables < Minitest::Test
+  runs_on :reference
+
   include Differential
 
   def program_with(&block)

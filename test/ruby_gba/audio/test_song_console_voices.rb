@@ -14,6 +14,8 @@ require "tmpdir"
 # busy song reaches for them before it reaches for another recording, and the voices it does not
 # spend stay free for the game's own sounds.
 class TestSongConsoleVoices < Minitest::Test
+  runs_on :reference
+
   include RubyGBA::Console::Hardware
 
   Registers = RubyGBA::Audio::Sound::Registers

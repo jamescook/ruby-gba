@@ -7,6 +7,8 @@ require "test_helper"
 # edge. Asserted by tracking landmark tiles as the view moves — on the interpreter
 # oracle and on real hardware. The dev never touches a scroll register.
 class TestBackgroundScroll < Minitest::Test
+  runs_on :reference
+
   include RubyGBA::Console::Hardware
 
   # A 32x32-tile world (256x256, bigger than the 240x160 screen and wrapping at 256).

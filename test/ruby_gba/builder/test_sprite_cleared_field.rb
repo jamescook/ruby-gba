@@ -11,6 +11,8 @@ require "differential"
 # left once both backends have been seen to draw the same picture: any white is a square of
 # the old field that came back.
 class TestSpriteClearedField < Minitest::Test
+  runs_on :reference
+
   include Differential
 
   SIDE = 8

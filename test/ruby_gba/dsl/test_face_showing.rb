@@ -8,6 +8,8 @@ require "differential"
 # number, and written as a test per pose it is code that grows with the poses. This reads the
 # pose out of a table instead, so a hundred poses cost what three do.
 class TestFaceShowing < Minitest::Test
+  runs_on :reference
+
   include Differential
 
   # A 16x8 picture with a mark at column +n+, so which pose shows can be told from a pixel.

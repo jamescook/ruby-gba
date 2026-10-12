@@ -8,6 +8,8 @@ require "stringio"
 # moment the screen finishes a picture, and a program with no wait has no such moments. Advisory,
 # like the other "no frames to run on" warnings — the build still produces a ROM.
 class TestSongNeedsFramesGuardrail < Minitest::Test
+  runs_on :reference
+
   include RubyGBA::IR::Build
 
   Check = RubyGBA::IR::Guardrails::Checks::SongNeedsFrames

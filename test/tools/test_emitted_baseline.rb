@@ -13,6 +13,8 @@ require_relative "../../tools/emitted_baseline"
 # never compile anything. Measuring the real corpus takes about three seconds, which
 # is what the rake task is for; it is not something the suite should pay on every run.
 class TestEmittedBaseline < Minitest::Test
+  runs_on :reference
+
   Baseline = Emitted::Baseline
   Verdict = Emitted::Baseline::Verdict
 

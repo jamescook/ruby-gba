@@ -11,6 +11,8 @@ require "test_helper"
 # number, a digit per thing: 123 is 1, then 2, then 3. The interpreter and the console must
 # read the same number.
 class TestPoolWalkOrder < Minitest::Test
+  runs_on :reference
+
   # A game whose pool of +capacity+ things is walked once a pass, the order written into
   # :order, and the order the first pass's walk wrote kept in :first. +setup+ runs before the
   # loop; +pass+ runs in the loop before the walk, given the pool and the pass number;

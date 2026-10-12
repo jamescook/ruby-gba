@@ -15,6 +15,8 @@ require "stringio"
 # variable, from a pooled instance's own field, and inside a loop), and that what it costs does
 # not grow with the length of the list.
 class TestCallOneOf < Minitest::Test
+  runs_on :reference
+
   include Differential
 
   # A script format's worth of instructions — the size the real case is.

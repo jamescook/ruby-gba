@@ -9,6 +9,8 @@ require "test_helper"
 # pictures out of the console's video memory, and getting the same answer the
 # player would get by looking at the screen.
 class TestFlickerMeasured < Minitest::Test
+  runs_on :reference
+
   include EmulatorSupport
 
   def setup

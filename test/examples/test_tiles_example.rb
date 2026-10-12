@@ -10,6 +10,7 @@ require_relative "../../examples/tiles"
 # renders the room — the right tile in the right cell — on the interpreter oracle
 # and on real hardware.
 class TestTilesExample < Minitest::Test
+  runs_on :reference
 
   # Points chosen from the map (examples/tiles.rb), one per tile kind:
   #   (3,3)    — inside the top-left wall tile (cell 0,0)

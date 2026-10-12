@@ -7,6 +7,8 @@ require "test_helper"
 # voice beeps play on, so the two cut each other off — a silent footgun unless you
 # know the console has only so many voices. Advisory: the build still produces a ROM.
 class TestChannelConflictGuardrail < Minitest::Test
+  runs_on :reference
+
   include RubyGBA::IR::Build
 
   Check = RubyGBA::IR::Guardrails::Checks::ChannelConflict

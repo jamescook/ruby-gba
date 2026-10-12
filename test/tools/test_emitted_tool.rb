@@ -21,6 +21,8 @@ require_relative "../../tools/emitted"
 # a test of git — and it would need git installed to say anything at all. The tool
 # itself is how we know that part works.
 class TestEmittedTool < Minitest::Test
+  runs_on :reference
+
   Measurement = Emitted::Measurement
   Row = Emitted::Row
   Report = Emitted::Report

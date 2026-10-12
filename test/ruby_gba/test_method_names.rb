@@ -7,6 +7,8 @@ require "test_helper"
 # kept turning up in names that told the reader nothing — articles and prose, a vague verb with no
 # object, a two-letter abbreviation, a whole sentence. See "Naming methods" in .claude/CLAUDE.md.
 class TestMethodNames < Minitest::Test
+  runs_on :reference
+
   LIB = File.expand_path("../../lib", __dir__)
 
   # `the_`, `an_`, and a lone `a_` read as prose. "a frame" meaning "per frame" is a rate, not an

@@ -3,6 +3,8 @@
 require "test_helper"
 
 class TestColor < Minitest::Test
+  runs_on :reference
+
   def test_rgb_packs_channels
     # Red in low bits, green in middle, blue in high bits
     assert_equal 0x001F, RubyGBA::Graphics::Color.rgb(31, 0, 0)   # full red

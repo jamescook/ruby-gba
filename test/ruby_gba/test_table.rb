@@ -7,6 +7,7 @@ require "test_helper"
 # the reference interpreter — the fast oracle — including signedness and the
 # out-of-range safety rule. The hardware lowering is checked with the emulator separately.
 class TestTable < Minitest::Test
+  runs_on :reference
 
   def interpret(&block)
     b = Builder.new

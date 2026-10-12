@@ -11,6 +11,8 @@ require "stringio"
 # runs on the real build path — with the same Finding/Fix contract the builtins
 # use — and stops running once cleared.
 class TestGuardrailRegistry < Minitest::Test
+  runs_on :reference
+
   # Registers into the library itself, which changes the whole process — so on the
   # main Ractor, not in the pool. See test_helper.
   runs_on_the_main_ractor!

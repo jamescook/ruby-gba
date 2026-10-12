@@ -9,6 +9,8 @@ require_relative "../../test_helper"
 # and to no other. Getting that wrong is quiet in a way most failures are not: the binary is
 # there, every timestamp says it is current, and the only thing that knows is the loader.
 class TestEmulatorSeam < Minitest::Test
+  runs_on :reference
+
   # About how the emulator gets FOUND AND LOADED — which script Ruby was started with, what
   # this Ruby was built for, what is already loaded. All facts about the process, so on the
   # main Ractor. See test_helper.

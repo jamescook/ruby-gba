@@ -11,6 +11,8 @@ require "tmpdir"
 # another must never run at all, because those are the two answers a profile has to get right:
 # it has to point at the work, and it must not invent any.
 class TestProfiler < Minitest::Test
+  runs_on :reference
+
   include EmulatorSupport
 
   # One routine doing nearly all the work, one doing almost none, and one nothing calls.

@@ -8,6 +8,8 @@ require "test_helper"
 # it's the lowering under test, not the DSL surface — on the interpreter oracle AND on
 # real hardware, since a feature isn't done until both backends agree.
 class TestPixelsOverlap < Minitest::Test
+  runs_on :reference
+
   include RubyGBA::IR::Build
 
   TRANSPARENT = 0x8000
