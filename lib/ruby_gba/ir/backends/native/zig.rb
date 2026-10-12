@@ -56,6 +56,7 @@ module RubyGBA
           # and gives back its path. +include+ is folders to find headers in; the runtime's own
           # folder is always one.
           def compile_without_sdl(sources, include: [], mode: :checked)
+            keep_checker_flags_fresh
             folders = [RUNTIME_DIR, *include]
             flags = WARNINGS + OPTIMISE.fetch(mode) + folders.flat_map { |dir| ["-I", dir] }
             exe = File.join(compiled_programs_dir, cache_key(sources, folders, flags), "program")
@@ -80,11 +81,76 @@ module RubyGBA
                             "--pkg-dir", File.join(sdl_build_cache_dir, "packages"),
                             "-p", prefix, "-Dsrc_dir=#{src_dir}", *sources.map { |file| "-Dsources=#{file}" },
                             "-Dname=#{name}", "-Doptimize=ReleaseFast")
+            keep_checker_flags_fresh # after the build, which is what fetches SDL and its headers
             File.join(prefix, "bin", Gem.win_platform? ? "#{name}.exe" : name)
           end
 
           # Where the desktop builds keep what zig compiled — SDL above all — between builds.
           def sdl_build_cache_dir = File.join(Dir.home, ".cache", "ruby-gba", "native")
+
+          # --- for an editor's C checker ---
+          #
+          # An editor that checks C as it is typed (clangd is the usual one) reads the runtime's
+          # files on its own, knowing nothing of how they are built. With no flags it holds them
+          # to none of the build's warnings, and with no folders to find headers in it reports
+          # every name SDL declares as one nobody declared. It looks in a C file's folder, and
+          # then each folder above it, for a compile_flags.txt, one flag to a line, and reads
+          # the file with those.
+          #
+          # So the flags are written from here, where the build's own are, and the two cannot
+          # drift. The file names folders on this machine, so it is written rather than checked
+          # in — and NOBODY RUNS ANYTHING TO GET IT: every build looks at it and writes it again
+          # when it is out of date (#keep_checker_flags_fresh). A fresh checkout has it after its
+          # first build, the build that fetches SDL adds SDL's folder to it, and a change to the
+          # build's flags reaches it on the next build. It sits one folder above the runtime and
+          # not in it, because every file in the runtime's folder is part of what a compile is
+          # remembered by (#cache_key).
+          #
+          # WHAT THE FLAGS DO NOT CURE. A checker keeps its reading of a header between edits.
+          # When a header changes and it has not caught up, it reads the file's new text at the
+          # old positions and reports nonsense from the middle of a comment ("invalid suffix on
+          # integer constant", on a line that only names a number the header defines). That
+          # goes when it reads the header again, and it is not a fault in the code. To ask the
+          # compiler itself, which is quick:
+          #
+          #   rake test:native TEST=test/ruby_gba/ir/backends/native/test_native_checker_flags.rb
+
+          CHECKER_FLAGS_FILE = Ractor.make_shareable(File.expand_path("compile_flags.txt", __dir__))
+
+          # What the build holds the runtime to, and where its headers are found: its own folder,
+          # and SDL's once a desktop build has fetched it.
+          def checker_flags = WARNINGS + [RUNTIME_DIR, *sdl_include_dirs].map { |dir| "-I#{dir}" }
+
+          # Writes them to +path+ unless it already holds exactly them, and says whether it
+          # wrote. The file is put in place whole, so a checker never reads half of one.
+          def refresh_checker_flags(path = CHECKER_FLAGS_FILE)
+            wanted = checker_flags.map { |flag| "#{flag}\n" }.join
+            return false if File.exist?(path) && File.read(path) == wanted
+
+            writing = "#{path}.#{Process.pid}.#{rand(1 << 30)}"
+            File.write(writing, wanted)
+            File.rename(writing, path)
+            true
+          end
+
+          # What every build does about that file. Only in a checkout of the source, which is
+          # where somebody works on the runtime's C: a gem that has been installed is not
+          # written into. And a folder that cannot be written is no reason to stop a build.
+          def keep_checker_flags_fresh
+            refresh_checker_flags if source_checkout?
+          rescue SystemCallError
+            nil
+          end
+
+          def source_checkout? = File.exist?(File.expand_path("../../../../../.git", __dir__))
+
+          # The folders SDL's headers were fetched into, newest last; none before the first
+          # desktop build on this machine.
+          def sdl_include_dirs
+            Dir.glob(File.join(sdl_build_cache_dir, "packages", "*", "include"))
+               .select { |dir| File.exist?(File.join(dir, "SDL3", "SDL.h")) }
+               .sort_by { |dir| File.mtime(dir) }
+          end
 
           # Runs a program this built with +args+, feeding it +input+, and gives back what it
           # printed. One still running after +seconds+ is stopped and reported: a game that loops
@@ -146,7 +212,8 @@ module RubyGBA
             raise Error, "zig was not found. This project installs it through mise: run `mise install`."
           end
 
-          private_class_method :cache_key, :compiled_programs_dir, :sdl_build_cache_dir, :capture_command
+          private_class_method :cache_key, :compiled_programs_dir, :sdl_build_cache_dir, :capture_command,
+                               :keep_checker_flags_fresh, :source_checkout?
         end
       end
     end

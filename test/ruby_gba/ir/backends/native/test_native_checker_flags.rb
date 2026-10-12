@@ -1,0 +1,90 @@
+# frozen_string_literal: true
+
+require "test_helper"
+require "native_comparison"
+require "open3"
+require "tmpdir"
+
+# The flags an editor's C checker is handed for the native runtime (Zig.checker_flags, kept in a
+# compile_flags.txt above it by every build) are enough to read every one of its files the way
+# the build does: the build's own warnings, and the folders its headers are found in.
+class TestNativeCheckerFlags < Minitest::Test
+  # The native lowering's own tests, which only a native run plays (see TestSuites).
+  runs_on :native
+
+  include NativeComparison
+
+  Zig = RubyGBA::IR::Backends::Native::Zig
+
+  # The window's file reads SDL's headers, which are on the machine only once a desktop build
+  # has fetched SDL; every other file needs nothing but the runtime's own folder.
+  WINDOW_FILE = "rg_sdl.c"
+
+  def runtime_files = Dir.glob(File.join(Zig::RUNTIME_DIR, "*.c")).sort
+
+  # What the compiler says about one file read with those flags and nothing else, or nil when it
+  # has nothing to say. The file is compiled on its own into something thrown away, which is the
+  # nearest zig comes to only checking it.
+  def complaints_about(file)
+    Dir.mktmpdir do |dir|
+      _out, err, status = Open3.capture3("zig", "cc", "-c", *Zig.checker_flags, "-o", File.join(dir, "checked.o"), file)
+      status.success? ? nil : "#{File.basename(file)}:\n#{err}"
+    end
+  end
+
+  def test_every_file_of_the_runtime_passes_a_check_under_them
+    checked = runtime_files.reject { |file| File.basename(file) == WINDOW_FILE }
+
+    refute_empty checked
+    assert_empty checked.filter_map { |file| complaints_about(file) }
+  end
+
+  def test_the_windows_file_passes_once_sdl_has_been_fetched
+    skip "SDL has not been fetched on this machine: build a game for the desktop once" if Zig.sdl_include_dirs.empty?
+
+    assert_nil complaints_about(File.join(Zig::RUNTIME_DIR, WINDOW_FILE))
+  end
+
+  def test_they_are_written_one_to_a_line_for_the_checker_to_read
+    Dir.mktmpdir do |dir|
+      path = File.join(dir, "compile_flags.txt")
+
+      assert Zig.refresh_checker_flags(path), "a file that is not there should be written"
+      assert_equal Zig.checker_flags, File.readlines(path, chomp: true)
+    end
+  end
+
+  def test_a_file_that_is_already_right_is_left_alone_and_a_wrong_one_is_put_right
+    Dir.mktmpdir do |dir|
+      path = File.join(dir, "compile_flags.txt")
+      Zig.refresh_checker_flags(path)
+
+      refute Zig.refresh_checker_flags(path), "nothing changed, so nothing should be written"
+
+      File.write(path, "-Wnothing\n")
+      assert Zig.refresh_checker_flags(path), "a file that has gone out of date should be written again"
+      assert_equal Zig.checker_flags, File.readlines(path, chomp: true)
+    end
+  end
+
+  # Nobody runs anything to get the file: building a game as C is what keeps it right, whether
+  # or not that game has been built before.
+  def test_building_a_game_as_c_puts_a_stale_file_right
+    program = program_of do
+      x = var :x, 0
+      game_loop { x.add! 1 }
+    end
+    File.write(Zig::CHECKER_FLAGS_FILE, "-Wnothing\n")
+
+    2.times do
+      Native.new.build_headless(program)
+
+      assert_equal Zig.checker_flags, File.readlines(Zig::CHECKER_FLAGS_FILE, chomp: true)
+    end
+  end
+
+  def test_they_hold_the_code_to_what_the_build_does
+    assert_empty Zig::WARNINGS - Zig.checker_flags
+    assert_includes Zig.checker_flags, "-I#{Zig::RUNTIME_DIR}"
+  end
+end
