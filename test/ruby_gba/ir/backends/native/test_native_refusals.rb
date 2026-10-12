@@ -71,13 +71,13 @@ class TestNativeRefusals < Minitest::Test
     end
   end
 
-  def test_a_see_through_layer_is_refused_by_name
-    assert_refused_picture(/see-through layer/) do
+  def test_a_fade_placed_in_the_stack_is_refused_by_name
+    assert_refused_picture(/fade placed in the stack/) do
       screen :tiled
       layers :back, :front
       image :dot, "#" => :red do "########\n" * 8 end
-      layer(:front, transparency: 40) { sprite :dot, at: [10, 10] }
-      game_loop {}
+      layer(:front) { sprite :dot, at: [10, 10] }
+      game_loop { fade :black, 50, under: :front }
     end
   end
 

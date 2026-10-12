@@ -28,6 +28,10 @@ module RubyGBA
           MAP_FIELDS = 3
           MAX_BACKGROUNDS = 64
           MAX_SPRITES = 512
+          # A thing in no see-through layer (RG_SOLID), and how many of those layers there is
+          # room for (RG_MAX_SEE_THROUGH).
+          SOLID = -1
+          MAX_SEE_THROUGH = 16
 
           # The kinds the interpreter's picture is rebuilt whole every frame for (see
           # Reference#collect_definitions, and #rebuilt_every_frame? for the rest of the rule).
@@ -42,6 +46,9 @@ module RubyGBA
             @backgrounds = @stacking.scenery.each_with_index.to_h { |bg, id| [bg.name, id] }
             @objects = by_name(@program.walk, :object)
             @sprites = @objects.each_key.with_index.to_h # sprite name -> the number rg_screen.c knows it by
+            # The layers the game can be seen through, and the number rg_screen.c knows each by.
+            @see_through = SeeThrough.layers(@program)
+            @see_through_numbers = @see_through.each_with_index.to_h { |layer, number| [layer.name, number] }
             # The patches of picture saved under sprites on a painted screen, as the program
             # declared them, and the number rg_screen.c knows each by.
             @patches = by_name(@program.walk, :backing_buffer)
@@ -55,8 +62,8 @@ module RubyGBA
 
           def refuse_unsupported_picture!
             nodes = @program.walk.to_a
-            refuse_picture!("a see-through layer") if nodes.any? { |n| n.kind == :layers && !n.see_through.empty? }
             refuse_picture!("a fade placed in the stack (fade ... under:)") if nodes.any? { |n| n.kind == :fade && n.under }
+            refuse_picture!("more than #{MAX_SEE_THROUGH} see-through layers") if @see_through.size > MAX_SEE_THROUGH
             refuse_picture!("more than #{MAX_BACKGROUNDS} backgrounds") if @backgrounds.size > MAX_BACKGROUNDS
             # The interpreter keeps a background's scroll and cells by its name and draws each
             # declaration; rg_screen.c knows a background by one number, which a name here gives.
@@ -105,10 +112,10 @@ module RubyGBA
           # --- the art, for rg_screen.c ---
 
           def picture_data
-            [*image_arrays, *background_arrays,
+            [*image_arrays, *background_arrays, *see_through_arrays,
              runtime_array("picture_sizes", "int32_t",
                     [@backgrounds.size, @stacking.depths.count, @handover.always_up.scenery.length,
-                     rebuilt_every_frame? ? 1 : 0]),
+                     rebuilt_every_frame? ? 1 : 0, @see_through.size]),
              runtime_array("always_up", "int32_t", @handover.always_up.scenery.map { |bg| @backgrounds.fetch(bg.name) }),
              runtime_array("sines", "int32_t", (0...450).map { |degrees| Affine.sine(degrees) }),
              runtime_array("turn_rules", "int32_t", [Build::SCALE_ONE, Affine::ONE_TH, Affine::MAX, Affine::MIN_SCALE])]
@@ -165,10 +172,42 @@ module RubyGBA
               [bg.tile_w, bg.tile_h, first_map, Array(bg.maps).length, grid_cols, grid_rows,
                bg.streams? ? 1 : 0, tiles_start,
                bg.scene ? @scenes.fetch(bg.scene, NEVER_ARRIVES) : EVERY_SCENE, @stacking.depths[bg.name],
-               @handover.on_arrival?(bg) ? 1 : 0, @stacking.stack.index(bg.layer) || NO_LAYER]
+               @handover.on_arrival?(bg) ? 1 : 0, @stacking.stack.index(bg.layer) || NO_LAYER,
+               see_through_number(bg)]
             end
             [runtime_array("tile_pixels", "uint16_t", tile_pixels), runtime_array("backgrounds", "int32_t", fields),
              runtime_array("maps", "int32_t", maps), runtime_array("map_cells", "int16_t", cells)]
+          end
+
+          # Each see-through layer as rg_screen.h's three flags (Reference#fixed_see_through?,
+          # SeeThroughLayer#split, Reference#layer_has_anything?), and for every sprite the
+          # see-through layer it was declared in.
+          def see_through_arrays
+            flags = @see_through.flat_map do |layer|
+              [layer.shows.kind == :int && layer.behind.kind == :int, layer.split,
+               @objects.each_value.any? { |obj| obj.layer == layer.name }].map { |flag| flag ? 1 : 0 }
+            end
+            [runtime_array("see_through", "int32_t", flags),
+             runtime_array("sprite_see_through", "int32_t", @objects.each_value.map { |obj| see_through_number(obj) })]
+          end
+
+          # Reference#see_through_layer_of: the see-through layer a background or a sprite was
+          # declared in, by its number, or SOLID.
+          def see_through_number(thing) = @see_through_numbers.fetch(thing.layer, SOLID)
+
+          # The routine rg_screen.c calls for a see-through layer's two amounts as they are now
+          # (Reference#live_see_through_weights), answering for the layer it is asked about.
+          def see_through_amounts
+            answers = @see_through.each_with_index.map do |layer, number|
+              C::If.new(condition: call("rg_see_through_asked", C::Int.new(number)),
+                        body: [eval_call("rg_see_through_answer", value(layer.shows), value(layer.behind))])
+            end
+            C::Function.new(name: @names.own("see_through_amounts"), body: answers, exported: true)
+          end
+
+          # Reference#exec_see_through
+          def lower_see_through(node)
+            [eval_call("rg_see_through_told", C::Int.new(@see_through_numbers.fetch(node.layer)))]
           end
 
           # A map's cells, row after row: the number of the tile, or CELL_EMPTY where the map

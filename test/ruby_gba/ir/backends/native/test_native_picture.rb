@@ -1035,6 +1035,303 @@ class TestNativePicture < Minitest::Test
     assert_operator different_pictures_in(program, frames: 12), :>=, 11, "and every frame should have shown it somewhere new"
   end
 
+  # Water you can see the floor through, on a picture that stays: the water's gaps show the floor
+  # plain, a sprite in front of the water is solid, and a sprite moves over it leaving no trail.
+  def test_a_see_through_background_shows_what_is_behind_it
+    program = program_of do
+      screen :tiled
+      layers :floor, :water, :swimmers
+      image :slab, "#" => :red, "." => :yellow do "####....\n....####\n" * 4 end
+      image :wave, "~" => :blue, "." => :transparent do "~~~~~~..\n" * 8 end
+      image :duck, "d" => :white, "." => :transparent do "..dddd..\n.dddddd.\n" * 4 end
+      tiles :slabs, "#" => :slab
+      tiles :waves, "~" => :wave
+      layer(:floor) { background :slabs, tiles: :slabs, map: ["#" * 30] * 20 }
+      layer(:water, transparency: 40) { background :waves, tiles: :waves, map: ["~" * 30] * 20 }
+      duck = layer(:swimmers) { sprite :duck, at: [20, 40] }
+      game_loop do
+        duck.move :right, by: 5
+        duck.move :down, by: 1
+      end
+    end
+
+    last = assert_native_matches_reference(program, frames: 8)
+
+    drawn = %i[red yellow blue white].map { |name| Color.resolve(name) }
+    assert_operator last.picture.count { |color| !drawn.include?(color) }, :>, 240 * 160 / 2,
+                    "most of the picture should be water mixed with the floor under it"
+    assert_includes last.picture, Color.resolve(:white), "the duck is in front of the water, so it is solid"
+    assert_includes last.picture, Color.resolve(:red), "and the floor shows plain through the water's gaps"
+  end
+
+  # Sprites you can see through, their two amounts said apart so that they glow: two of them
+  # crossing each other over scenery that stays, drawn straight onto it and taken off again.
+  def test_see_through_sprites_cross_over_still_scenery
+    program = program_of do
+      screen :tiled
+      layers :ground, :ghosts
+      image :turf, "#" => :green, "." => :blue do "##..##..\n..##..##\n" * 4 end
+      image :ghost, "g" => :gray, "e" => :red, "." => :transparent do
+        ("..gggggggggggg..\n" * 4) + ("gggeeggggeeggggg\n" * 4) + ("gggggggggggggggg\n" * 8)
+      end
+      tiles :lawn, "#" => :turf
+      layer(:ground) { background :lawn, tiles: :lawn, map: ["#" * 30] * 20 }
+      left, right = layer(:ghosts, shows: 60, shows_behind: 100) do
+        [sprite(:ghost, at: [60, 50]), sprite(:ghost, at: [100, 56])]
+      end
+      n = var :n, 0
+      game_loop do
+        left.move :right, by: 4
+        right.move :left, by: 4
+        (n == 6).then { right.hide }
+        n.add! 1
+      end
+    end
+
+    moments = reference_snapshots(program, frames: 10, buttons: {})
+
+    assert_native_matches_reference program, frames: 10
+
+    assert_operator moments.map { |moment| moment.picture.uniq.length }.max, :>=, 6,
+                    "a ghost over the turf, and a ghost over a ghost over the turf, are colors of their own"
+    refute_includes moments.last.picture, Color.resolve(:gray), "no ghost should be drawn solid"
+  end
+
+  # The same ghosts where the ground scrolls under them, so the whole view is rebuilt every
+  # frame: one of them turning, and both showing less of themselves as the game goes on.
+  def test_see_through_sprites_over_scenery_that_scrolls
+    program = program_of do
+      screen :tiled
+      layers :ground, :ghosts
+      image :turf, "#" => :green, "." => :blue do "##..##..\n..##..##\n" * 4 end
+      image :ghost, "g" => :gray, "e" => :red, "." => :transparent do
+        ("..gggggggggggg..\n" * 4) + ("gggeeggggeeggggg\n" * 4) + ("gggggggggggggggg\n" * 8)
+      end
+      tiles :lawn, "#" => :turf
+      n = var :n, 0
+      ground = layer(:ground) { background :lawn, tiles: :lawn, map: ["#" * 32] * 32 }
+      left, right = layer(:ghosts, shows: 90 - (n * 6), shows_behind: 70) do
+        [sprite(:ghost, at: [60, 50]), sprite(:ghost, at: [100, 56])]
+      end
+      game_loop do
+        ground.scroll_by 3, 1
+        left.move :right, by: 4
+        right.move :left, by: 4
+        right.turn 20
+        n.add! 1
+      end
+    end
+
+    moments = reference_snapshots(program, frames: 10, buttons: {})
+
+    assert_native_matches_reference program, frames: 10
+
+    refute_includes moments.last.picture, Color.resolve(:gray), "no ghost should be drawn solid"
+    assert_operator moments.flat_map(&:picture).uniq.length, :>=, 20, "and they should have faded through several amounts"
+  end
+
+  # Mist whose amount the game works out, over ground that scrolls, so the whole view is rebuilt
+  # every frame: it thickens, clears altogether, and comes back.
+  def test_a_see_through_amount_the_game_works_out
+    program = program_of do
+      screen :tiled
+      layers :ground, :walkers, :mist
+      image :turf, "#" => :green, "." => :orange do "##..##..\n..##..##\n" * 4 end
+      image :fog, "f" => :white, "." => :transparent do "ffffff..\n" * 8 end
+      image :hero, "h" => :red do "hhhhhhhh\n" * 8 end
+      tiles :lawn, "#" => :turf
+      tiles :fogs, "f" => :fog
+      thick = var :thick, 0
+      ground = layer(:ground) { background :lawn, tiles: :lawn, map: ["#" * 32] * 32 }
+      layer(:walkers) { sprite :hero, at: [116, 76] }
+      layer(:mist, transparency: 100 - thick) { background :fogs, tiles: :fogs, map: ["f" * 30] * 20 }
+      n = var :n, 0
+      game_loop do
+        ground.scroll_by 2, 1
+        thick.set! (n % 6) * 20
+        n.add! 1
+      end
+    end
+
+    moments = reference_snapshots(program, frames: 14, buttons: {})
+    whites = moments.map { |moment| moment.picture.count(Color.resolve(:white)) }
+
+    assert_native_matches_reference program, frames: 14
+
+    assert_operator moments.flat_map(&:picture).uniq.length, :>=, 12, "the mist should have been drawn at several thicknesses"
+    assert_equal 0, whites.min, "it is never solid"
+    assert_includes moments[3].picture, Color.resolve(:red), "and with no mist at all the hero under it shows plain"
+  end
+
+  # Mist over a picture that STAYS, with a sprite in front of it drawn straight onto the picture:
+  # nothing scrolls and no scenery is in front of a sprite, so only the amount changing, on some
+  # frames and not on others, has the picture built again.
+  def test_a_see_through_amount_changes_over_a_picture_that_stays
+    program = program_of do
+      screen :tiled
+      layers :ground, :mist, :walkers
+      image :turf, "#" => :green, "." => :orange do "##..##..\n..##..##\n" * 4 end
+      image :fog, "f" => :white, "." => :transparent do "ffffff..\n" * 8 end
+      image :hero, "h" => :red, "." => :transparent do "hhhhhh..\n" * 8 end
+      tiles :lawn, "#" => :turf
+      tiles :fogs, "f" => :fog
+      thick = var :thick, 30
+      layer(:ground) { background :lawn, tiles: :lawn, map: ["#" * 30] * 20 }
+      hero = layer(:walkers) { sprite :hero, at: [40, 76] }
+      layer(:mist, shows: thick, shows_behind: 100 - thick) { background :fogs, tiles: :fogs, map: ["f" * 30] * 20 }
+      n = var :n, 0
+      game_loop do
+        hero.move :right, by: 3
+        ((n % 3) == 0).then { thick.add! 15 }
+        n.add! 1
+      end
+    end
+
+    assert_native_matches_reference program, frames: 12
+
+    assert_operator different_pictures_in(program, frames: 12), :>=, 8
+  end
+
+  # A game with a see-through layer fades by walking its colors, so the layer goes on showing
+  # what is behind it while the whole picture darkens, flashes and is tinted.
+  def test_a_fade_and_a_tint_over_a_see_through_layer
+    program = program_of do
+      screen :tiled
+      layers :floor, :water
+      image :slab, "#" => :red, "." => :yellow do "####....\n....####\n" * 4 end
+      image :wave, "~" => :cyan, "." => :transparent do "~~~~~~..\n" * 8 end
+      tiles :slabs, "#" => :slab
+      tiles :waves, "~" => :wave
+      floor = layer(:floor) { background :slabs, tiles: :slabs, map: ["#" * 32] * 32 }
+      layer(:water, shows: 94, shows_behind: 63) { background :waves, tiles: :waves, map: ["~" * 30] * 20 }
+      n = var :n, 0
+      level = var :level, 0.0
+      game_loop do
+        floor.scroll_by 1, 0
+        (n < 6).then { fade :black, n * 15 }
+        (n == 6).then { fade :white, level }
+        (n == 8).then { fade :black, 0 }
+        (n == 9).then { tint :green, 40 }
+        (n == 11).then { flash_screen :red }
+        level.add! 12.5
+        n.add! 1
+      end
+    end
+
+    assert_native_matches_reference program, frames: 18
+
+    assert_operator different_pictures_in(program, frames: 18), :>=, 12
+  end
+
+  # A layer named see-through that shows all of itself is solid, so a fade over it is the
+  # display's own. Seeing through and fading are one unit of the display, and it does one of
+  # them: the picture is built again as the fade comes on and as it lifts.
+  def test_a_fade_over_a_layer_that_shows_all_of_itself
+    program = program_of do
+      screen :tiled
+      layers :floor, :glass, :walkers
+      image :slab, "#" => :red, "." => :yellow do "####....\n....####\n" * 4 end
+      image :pane, "p" => rgb8(40, 80, 120), "." => :transparent do "pppppp..\n" * 8 end
+      image :hero, "h" => :white do "hhhhhhhh\n" * 8 end
+      tiles :slabs, "#" => :slab
+      tiles :panes, "p" => :pane
+      layer(:floor) { background :slabs, tiles: :slabs, map: ["#" * 30] * 20 }
+      layer(:glass, transparency: 0) { background :panes, tiles: :panes, map: ["p" * 30] * 20 }
+      hero = layer(:walkers) { sprite :hero, at: [30, 30] }
+      n = var :n, 0
+      game_loop do
+        hero.move :right, by: 4
+        (n == 3).then { fade :black, 50 }
+        (n == 6).then { fade :black, 0 }
+        n.add! 1
+      end
+    end
+
+    last = assert_native_matches_reference(program, frames: 10)
+
+    assert_includes last.picture, Color.resolve(:white), "the hero should be back once the fade has lifted"
+  end
+
+  # A fade set on a painted screen is the display's own, and it is still on when a scene drawn
+  # from tiles takes over. While it is, that scene's water is solid; the water shows the floor
+  # again once the fade lifts. A sprite moves over it the whole time.
+  def test_a_see_through_layer_is_solid_under_a_fade_the_display_does
+    program = program_of do
+      layers :floor, :water, :swimmers
+      image :slab, "#" => :red, "." => :yellow do "####....\n....####\n" * 4 end
+      image :wave, "~" => :blue, "." => :transparent do "~~~~~~..\n" * 8 end
+      image :duck, "d" => :white, "." => :transparent do "..dddd..\n.dddddd.\n" * 4 end
+      tiles :slabs, "#" => :slab
+      tiles :waves, "~" => :wave
+      state = var :state, 0
+      n = var :n, 0
+      scene(:title) do
+        screen :bitmap
+        clear_screen :green
+        (n == 1).then { fade :black, 25 }
+      end
+      scene(:pool) do
+        screen :tiled
+        layer(:floor) { background :slabs, tiles: :slabs, map: ["#" * 30] * 20 }
+        layer(:water, transparency: 40) { background :waves, tiles: :waves, map: ["~" * 30] * 20 }
+        duck = layer(:swimmers) { sprite :duck, at: [20, 40] }
+        duck.move :right, by: 5
+        (n == 8).then { fade :black, 0 }
+      end
+      game_loop do
+        case_var :state do
+          when_val 0, :title
+          when_val 1, :pool
+        end
+        (n == 3).then { state.set! 1 }
+        n.add! 1
+      end
+    end
+
+    moments = reference_snapshots(program, frames: 13, buttons: {})
+
+    assert_native_matches_reference program, frames: 13
+
+    darker_blue = 24 << 10 # blue, a quarter of the way to black
+    assert_includes moments[7].picture, darker_blue, "under the fade the water should be solid"
+    refute_includes moments.last.picture, Color.resolve(:blue), "and with the fade lifted it shows the floor through it"
+  end
+
+  # A see-through layer on each of two screens that take turns: the game says how see-through
+  # both are before every frame, and each scene shows its own.
+  def test_a_see_through_layer_on_each_of_two_scenes
+    program = program_of do
+      screen :tiled
+      layers :floor, :water, :glow
+      image :slab, "#" => :red, "." => :yellow do "####....\n....####\n" * 4 end
+      image :wave, "~" => :blue, "." => :transparent do "~~~~~~..\n" * 8 end
+      image :ray, "r" => :white, "." => :transparent do "..rr....\n" * 8 end
+      tiles :slabs, "#" => :slab
+      tiles :waves, "~" => :wave
+      tiles :rays, "r" => :ray
+      state = var :state, 0
+      n = var :n, 0
+      layer(:floor) { background :slabs, tiles: :slabs, map: ["#" * 30] * 20 }
+      scene(:pool) { layer(:water, transparency: 50) { background :waves, tiles: :waves, map: ["~" * 30] * 20 } }
+      scene(:shrine) { layer(:glow, shows: 20 + (n * 5), shows_behind: 100) { background :rays, tiles: :rays, map: ["r" * 30] * 20 } }
+      game_loop do
+        case_var :state do
+          when_val 0, :pool
+          when_val 1, :shrine
+        end
+        (n == 3).then { state.set! 1 }
+        (n == 7).then { state.set! 0 }
+        n.add! 1
+      end
+    end
+
+    moments = reference_snapshots(program, frames: 11, buttons: {})
+
+    assert_native_matches_reference program, frames: 11
+
+    assert_operator moments.map(&:picture).uniq.length, :>=, 5, "the pool, then the shrine's glow growing, then the pool again"
+  end
+
   def test_the_screen_is_white_until_the_first_frame
     program = program_of do
       screen :bitmap
