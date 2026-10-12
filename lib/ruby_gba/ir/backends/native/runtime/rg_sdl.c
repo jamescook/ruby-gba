@@ -6,7 +6,8 @@
  *   ./pong --trace 2> buttons.log        play it, and write down what the window made of the buttons
  *   ./pong --scripted-keys FRAMES < keys play FRAMES frames with keys pressed from a script (tests)
  *   ./pong --frame-times                 play it, and say at the end how evenly its pictures were shown
- *   ./pong --refresh-rate 144            pace it as for a monitor of that rate, whatever this one's is
+ *   ./pong --refresh-rate 144            choose its pacing as for a monitor of that rate (this one still
+ *                                        refreshes at its own, so a rate above it plays the game slow)
  *
  * THE GAME OWNS THE LOOP. A game waits for the next frame wherever it likes — at the top of its
  * game loop, or deep inside a routine that runs before the loop starts — so it cannot hand
@@ -138,7 +139,12 @@ static SDL_AudioStream *speaker; /* where the sound goes; none on a computer wit
 /* Between those two ends, the sound is played a shade faster or slower to keep this many frames'
  * worth waiting (see keep_sound_in_step): what there is just after two were put in ahead of one. */
 #define SOUND_WAITING_FRAMES (SOUND_AHEAD_FRAMES + 1)
-#define SOUND_NUDGE_MOST 0.01
+/* The most it is played faster or slower for that, in parts of a hundred. It has to be more than
+ * the game can run ahead of the sound, which is as far as the limit behind the monitor lets it
+ * run ahead of the monitor: a nudge that only just matched would settle with as much sound
+ * waiting as is thrown away. */
+#define SOUND_NUDGE_MOST_PERCENT 3
+_Static_assert(SOUND_NUDGE_MOST_PERCENT > RG_FASTEST_PERCENT_OVER_MONITOR, "the sound could not keep up with the game");
 
 static SDL_Gamepad *pads[MOST_PADS]; /* every gamepad open, the keyboard's among them */
 static SDL_Joystick *keyboard_pad;   /* the gamepad SDL makes up for the keyboard to press */
@@ -168,6 +174,9 @@ static int by_length(const void *a, const void *b) {
   return (one > other) - (one < other);
 }
 
+/* Whether a gap between two pictures is more than two milliseconds from the middle one. */
+static int uneven_gap(Uint64 gap, Uint64 middle) { return (gap > middle ? gap - middle : middle - gap) > 2000000; }
+
 /* --frame-times' last word, on the error stream: what paced the frames, whether the sound kept
  * step, and how far apart the pictures were handed to the display. An even run has them all
  * within a millisecond or two of the middle one; the pictures after which a gap was further out
@@ -181,36 +190,32 @@ static void report_frame_times(void) {
     fprintf(stderr, "pacing: the console's clock, each picture %s\n",
             pacing.waits_for_refresh ? "waiting for a refresh" : "handed over as it is finished");
   }
-  /* The first of those is the start: there is none waiting before any is made. */
   if (speaker) {
+    /* Quiet is put in once at the start of any run: there is no sound waiting before any is made. */
     fprintf(stderr, "sound: %ld frames thrown away with too much waiting, %ld times quiet was put in with too little\n",
             sound_frames_dropped, sound_ran_dry);
   }
   if (shown_count < 2) return;
 
-  size_t gaps = shown_count - 1;
-  Uint64 *sorted = malloc(gaps * sizeof *sorted);
-  if (!sorted) return;
-  for (size_t i = 0; i < gaps; i++) sorted[i] = shown_at_ns[i + 1] - shown_at_ns[i];
-  qsort(sorted, gaps, sizeof *sorted, by_length);
-  Uint64 middle = sorted[gaps / 2];
+  /* The gaps between one picture and the next, in the order they came and sorted by length. */
+  size_t count = shown_count - 1;
+  Uint64 *gaps = malloc(2 * count * sizeof *gaps);
+  if (!gaps) return;
+  Uint64 *sorted = gaps + count;
+  for (size_t i = 0; i < count; i++) sorted[i] = gaps[i] = shown_at_ns[i + 1] - shown_at_ns[i];
+  qsort(sorted, count, sizeof *sorted, by_length);
+  Uint64 middle = sorted[count / 2];
   fprintf(stderr, "pictures: %zu, %.2f to %.2f ms apart, %.2f in the middle\n", shown_count, in_ms(sorted[0]),
-          in_ms(sorted[gaps - 1]), in_ms(middle));
-  free(sorted);
+          in_ms(sorted[count - 1]), in_ms(middle));
 
-  const Uint64 even_ns = 2000000;
   size_t uneven = 0;
-  for (size_t i = 0; i < gaps; i++) {
-    Uint64 gap = shown_at_ns[i + 1] - shown_at_ns[i];
-    if ((gap > middle ? gap - middle : middle - gap) > even_ns) uneven++;
-  }
+  for (size_t i = 0; i < count; i++) uneven += (size_t)uneven_gap(gaps[i], middle);
   fprintf(stderr, "uneven (more than 2 ms from the middle): %zu", uneven);
   if (uneven) fprintf(stderr, ", after pictures");
-  for (size_t i = 0; i < gaps; i++) {
-    Uint64 gap = shown_at_ns[i + 1] - shown_at_ns[i];
-    if ((gap > middle ? gap - middle : middle - gap) > even_ns) fprintf(stderr, " %zu", i + 1);
-  }
+  for (size_t i = 0; i < count; i++)
+    if (uneven_gap(gaps[i], middle)) fprintf(stderr, " %zu", i + 1);
   fputc('\n', stderr);
+  free(gaps);
 }
 
 static _Noreturn void quit(int status) {
@@ -225,7 +230,8 @@ static _Noreturn void refuse_to_start(const char *what) {
 }
 
 /* Works out what paces the frames from the monitor the window is on now, and tells the display
- * and the speaker.
+ * whether a picture is to wait for a refresh. The speaker follows the pacing as each frame's
+ * sound is handed over (keep_sound_in_step).
  *
  * The display is only ever asked to wait for ONE refresh a picture. A picture meant for several
  * is handed over that many times instead (see present): every way SDL has of drawing can wait for
@@ -277,14 +283,15 @@ static void present(void) {
  * piles up until some has to be thrown away, or runs dry, and either is a click.
  *
  * So the pace is nudged by how much is waiting: faster the more there is past what should be
- * waiting, slower the less, and never by more than SOUND_NUDGE_MOST of itself, which is too
- * little to hear as a change of pitch. */
+ * waiting, slower the less, and never by more than SOUND_NUDGE_MOST_PERCENT of itself. On a
+ * monitor that is pacing the game the nudge is a small part of that, too little to hear as a
+ * change of pitch. */
 static void keep_sound_in_step(int waiting, int frame_bytes) {
   double wanted = (double)(SOUND_WAITING_FRAMES * frame_bytes);
   double over = ((double)waiting - wanted) / wanted;
   if (over > 1.0) over = 1.0;
   if (over < -1.0) over = -1.0;
-  SDL_SetAudioStreamFrequencyRatio(speaker, (float)(pacing.speed * (1.0 + SOUND_NUDGE_MOST * over)));
+  SDL_SetAudioStreamFrequencyRatio(speaker, (float)(pacing.speed * (1.0 + SOUND_NUDGE_MOST_PERCENT / 100.0 * over)));
 }
 
 /* The sound of the frame that has just been played goes to the speaker. It is made whether or

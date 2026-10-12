@@ -76,17 +76,20 @@ class TestNativeDesktop < Minitest::Test
 
   # Asked for its frame times, it says on the error stream what paced the frames and how far
   # apart the pictures were handed over, which is the only way to see a stutter without looking
-  # at a screen. Whatever paced them (the stand-in display says what it likes about its rate),
-  # the game was paced: a second's worth of frames takes about a second, never a moment.
+  # at a screen. The stand-in display says nothing of its rate, so it is told to pace as for a
+  # monitor that refreshes sixty times a second: the monitor then paces the game, a picture every
+  # sixtieth of a second, and a second's worth of frames takes about a second.
   def assert_says_how_evenly_its_pictures_were_shown(exe)
     started = Process.clock_gettime(Process::CLOCK_MONOTONIC)
-    _printed, said, status = Open3.capture3(NO_SCREEN_OR_SPEAKER, exe, "--scripted-keys", "60", "--frame-times", stdin_data: "0\n" * 60)
+    _printed, said, status = Open3.capture3(NO_SCREEN_OR_SPEAKER, exe, "--scripted-keys", "60", "--frame-times",
+                                            "--refresh-rate", "60", stdin_data: "0\n" * 60)
     took = Process.clock_gettime(Process::CLOCK_MONOTONIC) - started
 
     assert_predicate status, :success?, said
-    assert_match(/^pacing: the (monitor|console's clock)/, said)
-    assert_match(/^pictures: 60, [\d.]+ to [\d.]+ ms apart, [\d.]+ in the middle$/, said)
+    assert_match(/^pacing: the monitor, 1 refreshes a picture/, said)
     assert_match(/^uneven \(more than 2 ms from the middle\): \d+/, said)
+    middle = said[/^pictures: 60, [\d.]+ to [\d.]+ ms apart, ([\d.]+) in the middle$/, 1]
+    assert_in_delta 1000.0 / 60, middle.to_f, 1.5, "the pictures should be a sixtieth of a second apart: #{said}"
     assert_operator took, :>, 0.8, "sixty frames should take about a second"
   end
 
