@@ -19,7 +19,7 @@ require_relative "../../examples/meadow"
 # off the game's `room` variable: the room a frame draws is the one the variable held a
 # frame before (see "Which frame's numbers the picture was drawn from" in the testing rules).
 class TestMeadowExample < Minitest::Test
-  runs_on :reference
+  runs_on :reference, :native
 
   include Differential
 
@@ -32,7 +32,7 @@ class TestMeadowExample < Minitest::Test
   # reach the cabin door, go through it, and walk a little way down the path.
   def pictures_of_walk_out(frames = 70)
     (1..frames).map do |n|
-      screen = Reference.new.hold(:down).run(Meadow.program, frames: n).screen
+      screen = game_player.hold(:down).run(Meadow.program, frames: n).screen
       Array.new(HEIGHT) { |y| Array.new(WIDTH) { |x| screen.pixel(x, y) } }
     end
   end
@@ -70,7 +70,7 @@ class TestMeadowExample < Minitest::Test
   end
 
   def test_holding_down_walks_out_of_the_cabin_into_the_meadow
-    run = Reference.new.hold(:down).run(Meadow.program, frames: 70)
+    run = game_player.hold(:down).run(Meadow.program, frames: 70)
     assert_equal 1, run[:room], "out of the door and into the meadow"
     assert_operator run[:view_y], :>, 0, "the view follows the hero down the path"
   end
@@ -78,7 +78,7 @@ class TestMeadowExample < Minitest::Test
   # The door is not a cut any more: the hero stops in it, and the cabin stays the room
   # for the frames the picture takes to break up.
   def test_the_hero_stops_in_the_doorway_while_the_picture_breaks_up
-    stopped = (1..50).map { |n| Reference.new.hold(:down).run(Meadow.program, frames: n)[:hero_y] }
+    stopped = (1..50).map { |n| game_player.hold(:down).run(Meadow.program, frames: n)[:hero_y] }
                      .each_cons(2).find_index { |before, after| before == after }
     pictures, broke_up, swapped = walk_through_door
 

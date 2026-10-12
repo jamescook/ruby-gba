@@ -18,11 +18,14 @@ module RubyGBA
 
           # rg_screen.h's own numbers: whose a background is (RG_EVERY_SCENE, RG_NEVER_ARRIVES),
           # a background that named no layer, a pixel of a sprite's picture that is not drawn,
-          # and how many backgrounds and sprites there is room for.
+          # a cell of a map with no tile, and how many backgrounds and sprites there is room for.
           EVERY_SCENE = -1
           NEVER_ARRIVES = -2
           NO_LAYER = -1
           NOT_DRAWN = -1
+          CELL_EMPTY = -1
+          # How many numbers say one map (RG_MAP_FIELDS): where its cells start, its columns, its rows.
+          MAP_FIELDS = 3
           MAX_BACKGROUNDS = 64
           MAX_SPRITES = 512
 
@@ -78,8 +81,6 @@ module RubyGBA
 
           def refuse_unsupported_background!(bg)
             refuse_picture!("a background drawn in other colors (#{bg.name})") unless Array(bg.recolors).empty?
-            refuse_picture!("a background with several maps (#{bg.name})") if Array(bg.maps).length > 1
-            refuse_picture!("a background bigger than the console's grid (#{bg.name})") if bg.streams?
           end
 
           def refuse_unsupported_object!(obj)
@@ -149,24 +150,36 @@ module RubyGBA
           end
 
           # Every background in the order the stack draws them, its tiles as colors with
-          # RG_SEE_THROUGH where the layer behind shows (Reference#tile_colors), and its map.
+          # RG_SEE_THROUGH where the layer behind shows (Reference#tile_colors), and every map
+          # it can show, the one it starts with first.
           def background_arrays
             tile_pixels = []
             cells = []
+            maps = []
             fields = @stacking.scenery.flat_map do |bg|
               tiles_start = tile_pixels.length
               bg.tiles.each { |tile| tile_pixels.concat(tile_colors(tile)) }
-              map = bg.map
-              cols = map.map(&:length).max || 0
-              map_start = cells.length
-              map.each { |row| cells.concat(Array.new(cols) { |c| row[c] || -1 }) }
-              grid_cols, grid_rows = TileMap.grid(map)
-              [bg.tile_w, bg.tile_h, cols, map.length, grid_cols, grid_rows, map_start, tiles_start,
+              first_map = maps.length / MAP_FIELDS
+              bg.every_map.each do |map|
+                maps.push(cells.length, *TileMap.size_of(map))
+                cells.concat(map_cells(map))
+              end
+              # A background that never comes round again has no grid to come round at.
+              grid_cols, grid_rows = bg.streams? ? [0, 0] : TileMap.grid(bg.map)
+              [bg.tile_w, bg.tile_h, first_map, Array(bg.maps).length, grid_cols, grid_rows,
+               bg.streams? ? 1 : 0, tiles_start,
                bg.scene ? @scenes.fetch(bg.scene, NEVER_ARRIVES) : EVERY_SCENE, @stacking.depths[bg.name],
                @handover.on_arrival?(bg) ? 1 : 0, @stacking.stack.index(bg.layer) || NO_LAYER]
             end
             [runtime_array("tile_pixels", "uint16_t", tile_pixels), runtime_array("backgrounds", "int32_t", fields),
-             runtime_array("map_cells", "int16_t", cells)]
+             runtime_array("maps", "int32_t", maps), runtime_array("map_cells", "int16_t", cells)]
+          end
+
+          # A map's cells, row after row: the number of the tile, or CELL_EMPTY where the map
+          # has none. A map is a rectangle (the builder refuses any other).
+          def map_cells(map)
+            cols, = TileMap.size_of(map)
+            map.flat_map { |row| Array.new(cols) { |col| row[col] || CELL_EMPTY } }
           end
 
           def tile_colors(name)
@@ -182,8 +195,18 @@ module RubyGBA
           # A tear-free screen is two pages. The list of colors one can be given changes nothing
           # that is drawn: a color is still named, and the build has already refused one the
           # list does not hold.
-          def lower_screen(node)
-            [eval_call("rg_screen_set", C::Int.new(SCREEN_KINDS.fetch(node.mode)), yes_or_no(node.buffered))]
+          def lower_screen(node) = screen_change("rg_screen_set", node.mode, node.buffered)
+
+          # A change of screen, by `screen` or by a scene arriving on its own. The C says when
+          # that put the scenery every screen shows up again as declared, and what says which
+          # map each of those backgrounds shows then goes back to the first, which is the end of
+          # Reference#put_up_always_up.
+          def screen_change(function, screen, two_pages)
+            change = call(function, C::Int.new(SCREEN_KINDS.fetch(screen)), yes_or_no(two_pages))
+            choices = @handover.always_up.map_choices
+            return [C::Eval.new(change)] if choices.empty?
+
+            [C::If.new(condition: change, body: choices.map { |var| assign(var, C::Int.new(0)) })]
           end
 
           def lower_clear_screen(node) = [eval_call("rg_screen_clear", color(node.color))]
@@ -259,6 +282,24 @@ module RubyGBA
 
             id = C::Int.new(@backgrounds.fetch(node.name))
             [eval_call("rg_screen_paint_owed_rebuild"), eval_call(node.scene ? "rg_background_stamp" : "rg_background_put_up", id)]
+          end
+
+          def lower_scroll_background(node)
+            [eval_call("rg_background_scroll", background_number(node), value(node.x), value(node.y))]
+          end
+
+          def lower_set_tile(node)
+            [eval_call("rg_background_set_tile", background_number(node), value(node.col), value(node.row),
+                       C::Int.new(node.tile))]
+          end
+
+          def lower_show_map(node) = [eval_call("rg_background_show_map", background_number(node), value(node.which))]
+
+          # The number rg_screen.c knows the background a statement names by.
+          def background_number(node)
+            C::Int.new(@backgrounds.fetch(node.name) do
+              raise LoweringError, "#{node.kind} of undeclared background #{node.name.inspect}"
+            end)
           end
 
           def lower_affine_background(node)
@@ -355,9 +396,8 @@ module RubyGBA
             screen = if arrival.screen
                        lower_screen(arrival.screen)
                      else
-                       mode = Modes::SCREEN_OF_MODE.fetch(arrival.mode)
-                       [eval_call("rg_screen_cross_to", C::Int.new(SCREEN_KINDS.fetch(mode)),
-                                  yes_or_no(arrival.mode == Modes::BUFFERED))]
+                       screen_change("rg_screen_cross_to", Modes::SCREEN_OF_MODE.fetch(arrival.mode),
+                                     arrival.mode == Modes::BUFFERED)
                      end
             [eval_call("rg_scene_enter", C::Int.new(@scenes.fetch(scene))), *screen,
              eval_call("rg_scene_take_down", C::Int.new(arrival.scenery.empty? ? 0 : 1)),

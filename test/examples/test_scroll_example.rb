@@ -9,7 +9,7 @@ require_relative "../../examples/scroll"
 # than the screen. This confirms the example is valid and the world renders; the
 # scrolling and wrapping themselves are pinned in test_background_scroll.rb.
 class TestScrollExample < Minitest::Test
-  runs_on :reference
+  runs_on :reference, :native
 
   # The lake sits at map cols 12-19, rows 10-14 -> pixels x 96..159, y 80..119, all on
   # screen at the starting (0,0) offset.
@@ -22,7 +22,7 @@ class TestScrollExample < Minitest::Test
   end
 
   def test_the_world_renders
-    s = Reference.new.run(Scroll.program, max_steps: 200).screen
+    s = game_player.run(Scroll.program, max_steps: 200).screen
     blue = RubyGBA::Graphics::Color.resolve(:blue)
     assert blue_in_lake?(->(x, y) { s.pixel(x, y) == blue }), "the lake renders in the middle of the world"
   end
