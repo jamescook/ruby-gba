@@ -14,13 +14,17 @@ class TestSuitesSplit < Minitest::Test
 
   # A stand-in for a test class: what it is called, what it said to `runs_on` (nil for nothing),
   # and its methods.
-  Stand = Struct.new(:name, :lowerings, :public_instance_methods)
+  StandInClass = Struct.new(:name, :lowerings, :public_instance_methods)
+  # ...and for a class minitest runs that is no Minitest::Test, so was never asked.
+  NeverAsked = Struct.new(:name, :public_instance_methods)
 
-  SILENT = Stand.new("TestSilent", nil, %i[test_something helper])
-  HELPERS_ONLY = Stand.new("SharedSetup", nil, %i[setup helper])
-  INTERPRETER = Stand.new("TestInterpreter", %i[reference], %i[test_a])
-  BOTH = Stand.new("TestBoth", %i[reference native], %i[test_a])
-  NATIVE = Stand.new("TestNative", %i[native], %i[test_a])
+  SILENT = StandInClass.new("TestSilent", nil, %i[test_something helper])
+  SILENT_BENCHMARK = StandInClass.new("BenchSilent", nil, %i[bench_something])
+  HELPERS_ONLY = StandInClass.new("SharedSetup", nil, %i[setup helper])
+  INTERPRETER = StandInClass.new("TestInterpreter", %i[reference], %i[test_a])
+  BOTH = StandInClass.new("TestBoth", %i[reference native], %i[test_a])
+  NATIVE = StandInClass.new("TestNative", %i[native], %i[test_a])
+  OUTSIDER = NeverAsked.new("SomebodyElsesRunnable", %i[test_a])
 
   def test_a_class_that_names_only_the_interpreter_runs_only_there
     assert_equal :reference, TestSuites::LOWERING,
@@ -32,6 +36,18 @@ class TestSuitesSplit < Minitest::Test
   # about, and it is found before the run starts.
   def test_a_class_with_tests_that_names_no_lowering_is_found
     assert_equal [SILENT], TestSuites.classes_naming_no_lowering([SILENT, HELPERS_ONLY, INTERPRETER, BOTH, NATIVE])
+  end
+
+  # A benchmark's `bench_` methods are tests too, and a runnable that is not a Minitest::Test
+  # has no `runs_on` to say: the one is found, and the other is named rather than crashed on.
+  def test_a_silent_benchmark_and_a_runnable_that_was_never_asked_are_both_found
+    assert_equal [SILENT_BENCHMARK, OUTSIDER], TestSuites.classes_naming_no_lowering([SILENT_BENCHMARK, OUTSIDER, BOTH])
+  end
+
+  def test_runs_on_wants_a_lowering_it_knows
+    assert_raises(ArgumentError) { self.class.runs_on }
+    assert_raises(ArgumentError) { self.class.runs_on :cartridge }
+    assert_equal %i[reference], self.class.lowerings, "a refused line should change nothing"
   end
 
   def test_the_run_is_refused_in_plain_words_naming_each_such_class
@@ -48,7 +64,7 @@ class TestSuitesSplit < Minitest::Test
 
   # What a native run says at its end, so the classes it did not play are counted in plain sight.
   def test_the_classes_are_counted_by_where_they_run
-    counts = TestSuites.classes_by_lowerings([INTERPRETER, INTERPRETER, BOTH, NATIVE, HELPERS_ONLY])
+    counts = TestSuites.class_counts_by_lowerings([INTERPRETER, INTERPRETER, BOTH, NATIVE, HELPERS_ONLY])
 
     assert_equal({ both: 1, native_only: 1, interpreter_only: 2 }, counts)
   end

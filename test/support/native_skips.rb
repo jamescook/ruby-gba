@@ -10,8 +10,8 @@
 # that skips four. Said as a count per reason on every native run, the pile is in plain sight.
 #
 # The classes that name the interpreter alone are quieter still: they run nothing here and print
-# nothing. Every class has to say where it runs (TestSuites), so they can be counted, and the
-# count is how far the native lowering is from playing the whole suite.
+# nothing. Every class has to say where it runs (TestSuites), so they can be counted, and on a
+# run of the whole suite the count is how far the native lowering is from playing all of it.
 #
 # A reporter rather than anything kept by the tests, because it reads results the runner already
 # hands it and so keeps nothing the tests could share.
@@ -28,7 +28,7 @@ class NativeSkips < Minitest::AbstractReporter
 
   def report
     report_skips
-    report_classes(TestSuites.classes_by_lowerings(Minitest::Runnable.runnables))
+    report_classes(TestSuites.class_counts_by_lowerings(Minitest::Runnable.runnables))
   end
 
   private
@@ -40,11 +40,13 @@ class NativeSkips < Minitest::AbstractReporter
     @reasons.sort_by { |reason, count| [-count, reason] }.each { |reason, count| @io.puts format("%5d  %s", count, reason) }
   end
 
+  # Of the classes this run loaded: every one on a whole run, and one file's when a single file
+  # was asked for with TEST=.
   def report_classes(counts)
-    @io.puts "\nTest classes, by where they run:"
+    @io.puts "\nTest classes this run loaded, by where they run:"
     @io.puts format("%5d  on both lowerings", counts.fetch(:both))
     @io.puts format("%5d  on the native lowering alone", counts.fetch(:native_only))
-    @io.puts format("%5d  on the interpreter alone, so not played here (they say `runs_on :reference`)",
+    @io.puts format("%5d  on the interpreter alone, so not played here (`runs_on :reference`)",
                     counts.fetch(:interpreter_only))
   end
 end

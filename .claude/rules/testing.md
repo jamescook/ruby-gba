@@ -226,9 +226,15 @@ can build. A native run ends by counting the classes each way.
 **An example that becomes buildable is not left behind.** `ruby tools/native_examples.rb` lists
 the examples the native lowering can write as C today and what each of the others is refused
 for. `test_native_examples.rb` fails when one that builds has no recorded run
-(`native/examples/test_<example>_picture.rb`) or has a test file in `test/examples/` that still
-says `Reference.new`. So when a native feature lands, run the tool: every example it newly
+(`native/examples/test_<example>_picture.rb`), or when a test file in `test/examples/` whose
+examples all build still plays them on the interpreter by name (`Reference.new`), or asks for
+`game_player` in a class that does not name both lowerings. A file whose tests are all of the
+cartridge, in the emulator, has nothing for the game as C to play and stays
+`runs_on :reference`. So when a native feature lands, run the tool: every example it newly
 lists is work the next native run will ask for.
+
+A class inherits what the class above it said, so a subclass of a test class that has said
+need not say again.
 
 Opting a file in is two edits, and no assertion changes:
 

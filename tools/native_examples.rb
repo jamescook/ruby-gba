@@ -33,11 +33,11 @@ module NativeExamples
   def self.verdicts
     RubyGBA.singleton_class.prepend(NoteGames)
     Dir.glob(File.join(EXAMPLES, "*.rb")).sort.map do |path|
-      [File.basename(path, ".rb"), refusal_of(path)]
+      [File.basename(path, ".rb"), refusal_after_loading(path)]
     end
   end
 
-  def self.refusal_of(path)
+  def self.refusal_after_loading(path)
     before = declared.length
     require path
     games = declared[before..]

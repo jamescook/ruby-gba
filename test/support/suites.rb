@@ -48,10 +48,11 @@ module TestSuites
   # that has not is stopped before a test is played, naming it.
 
   # The classes among +classes+ that have tests and never said which lowerings they run on. A
-  # class with no tests of its own — minitest's, or one that only holds shared helpers — has
-  # nothing to run anywhere, and is left alone.
+  # class with no tests — minitest's own, or one that only holds shared helpers — has nothing to
+  # run anywhere, and is left alone. A class inherits what the class above it said, so a
+  # subclass of one that has said need not say again.
   def classes_naming_no_lowering(classes)
-    classes.select { |klass| klass.lowerings.nil? && tests?(klass) }
+    classes.select { |klass| tests?(klass) && lowerings_of(klass).nil? }
   end
 
   # What to say about them, or nil when every class has said.
@@ -67,18 +68,29 @@ module TestSuites
       ".claude/rules/testing.md has the rule."
   end
 
-  # How many classes with tests run where: on both lowerings, on the native one alone, on the
-  # interpreter alone.
-  def classes_by_lowerings(classes)
+  # How many of +classes+ run where, of the ones with tests: on both lowerings, on the native
+  # one alone, on the interpreter alone.
+  def class_counts_by_lowerings(classes)
     counts = { both: 0, native_only: 0, interpreter_only: 0 }
-    classes.select { |klass| tests?(klass) && klass.lowerings }.each do |klass|
-      native = klass.lowerings.include?(:native)
-      counts[native && klass.lowerings.include?(:reference) ? :both : (native ? :native_only : :interpreter_only)] += 1
+    classes.each do |klass|
+      named = tests?(klass) && lowerings_of(klass)
+      counts[where_named(named)] += 1 if named
     end
     counts
   end
 
-  def tests?(klass) = klass.public_instance_methods.any? { |name| name.start_with?("test_") }
+  def where_named(lowerings)
+    return :interpreter_only unless lowerings.include?(:native)
+
+    lowerings.include?(:reference) ? :both : :native_only
+  end
+
+  # What a class said to `runs_on`, or nil: for one that never said, and for one that is not a
+  # Minitest::Test at all and so was never asked.
+  def lowerings_of(klass) = klass.respond_to?(:lowerings) ? klass.lowerings : nil
+
+  # A test is a method minitest runs: `test_`, or `bench_` in a benchmark class.
+  def tests?(klass) = klass.public_instance_methods.any? { |name| name.start_with?("test_", "bench_") }
 
   # " (file:line)" for a class with a name Ruby can find, and nothing for one without.
   def where_declared(klass)
