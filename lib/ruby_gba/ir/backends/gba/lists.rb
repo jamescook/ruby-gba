@@ -345,11 +345,13 @@ module RubyGBA
             [@memory.alloc(want), false]
           end
 
+          # Said in the author's own words for it: a pool is several lists with names of the
+          # framework's own, and the author declared one pool.
           def no_room_message(name, want)
-            "list #{name.inspect} needs #{want} bytes and neither of the console's work memories has " \
-              "room left. It has 32K of quick memory (which also holds the code kept there) and 256K " \
-              "of roomy memory, and both are full. Use a smaller capacity, or narrower items " \
-              "(`width: :byte`)."
+            "#{Messages::MadeNames.collection_words(name)} needs #{want} bytes more and neither of the " \
+              "console's work memories has room left. It has 32K of quick memory (which also holds the " \
+              "code kept there) and 256K of roomy memory, and both are full. Use a smaller capacity, or " \
+              "narrower items (`width: :byte`)."
           end
 
           # The collections that ended up in the roomy memory, and how big each is — the

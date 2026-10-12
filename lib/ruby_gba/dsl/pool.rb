@@ -64,6 +64,7 @@ module RubyGBA
         @on_full = on_full
         @usually = usually
         @art = art
+        @fast = nil
         # A field declared with a NAME — `state: :idle` — holds one of a set of them, exactly as
         # a variable declared with one does, and each instance keeps its own. The set belongs to
         # the field rather than to an instance: thirty guards can each be in a different state,
@@ -80,6 +81,12 @@ module RubyGBA
       # The sprite image live instances draw (nil for a pure-data pool), and the collision
       # box derived from it (nil when there's no size).
       attr_reader :image, :hitbox, :art
+
+      # Which of the console's two work memories the pool's lists are kept in, the way a
+      # list's `fast:` says it: false for out of the quick one, true to insist on it, nil
+      # for the build to decide. Settled by the build once it knows how big the pool is (see
+      # Builder::Composition#pool), and read by the lists a pool only gains later.
+      attr_accessor :fast
 
       # Whether instances draw themselves as sprites.
       def spriteful? = !@art.nil?

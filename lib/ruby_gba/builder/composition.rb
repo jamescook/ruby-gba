@@ -18,11 +18,15 @@ module RubyGBA
       # :recycle_oldest reuses the longest-lived instance so a new one always appears.
       POOL_FULL_POLICIES = %i[drop recycle_oldest].freeze
 
-      # A single pool must fit comfortably within IWRAM (the GBA's 32KB of fast RAM).
-      # This is the cheap first-line ceiling that turns an insane capacity into a
-      # friendly build error; the thorough whole-program budget (vars + lists + several
-      # pools adding up) is a separate guardrail.
-      POOL_MAX_BYTES = 16 * 1024
+      # THE MOST OF THE QUICK MEMORY ONE POOL MAY TAKE. The console has 32KB of it, and it is
+      # also where the code a frame spends its time in is kept, so a pool that took most of
+      # it would push that code out to the cartridge and slow the whole game, with nothing
+      # in the program to say why. A pool bigger than this is kept in the console's other
+      # work memory, which is eight times the size and slower to read (see #pool). A pool
+      # bigger than that memory is refused at its own line, and a game whose collections do
+      # not fit the two memories together is refused by the whole-program check
+      # (IR::Guardrails::Checks::IwramBudget), which adds up everything it declares.
+      POOL_MAX_QUICK_BYTES = 16 * 1024
 
       # Declare a pool of a component. Name the fields with their defaults and give a
       # capacity (the most instances live at once):
@@ -72,8 +76,16 @@ module RubyGBA
       # guards face ten ways and do not march in step. That is the pool's own
       # bookkeeping — a hidden slot beside the fields, not something to declare.
       #
+      # WHICH OF THE CONSOLE'S TWO WORK MEMORIES A POOL IS KEPT IN is the build's to decide,
+      # as it is for a list: the quick one for what a frame touches while there is room, the
+      # roomier one for the rest. `fast: false` says the pool is cold and gives the quick
+      # memory back; `fast: true` insists on it. A pool bigger than POOL_MAX_QUICK_BYTES cannot
+      # share the quick memory, so it is kept in the roomier one whatever a frame does with
+      # it, and `fast: true` on such a pool is a friendly error.
+      #
       # @param name [Symbol] the pool's name
       # @param capacity [Integer] the most instances that can be live at once
+      # @param fast [Boolean, nil] false to keep it out of the quick memory, true to insist on it
       # @param image [Symbol, nil] the sprite image each live instance draws
       # @param facing [Hash{Symbol=>Symbol,Array}, nil] direction => picture, or => frames
       # @param frames [Array<Symbol>, nil] same-size pictures to cycle as an animation
@@ -91,7 +103,15 @@ module RubyGBA
         art = pool_art!(name, image: image, facing: facing, frames: frames, rate: rate, fields: fields)
         handle = DSL::Pool.new(self, name, fields, capacity, image: image, hitbox: art&.hitbox, on_full: on_full,
                                                         usually: usual_length(estimate, capacity), art: art)
-        refuse_oversized_pool!(handle, fields, widths)
+        # A pool too big to share the quick memory is kept out of it, as though the game had
+        # said `fast: false` — unless it said `fast: true`, which is then a friendly error.
+        bytes = pool_bytes(handle, fields, widths)
+        refuse_pool_no_memory_holds!(handle, fields.size, bytes) if bytes > Console::Hardware::EWRAM_SIZE
+        if bytes > POOL_MAX_QUICK_BYTES
+          refuse_oversized_fast_pool!(handle, fields.size, bytes) if fast
+          fast = false
+        end
+        handle.fast = fast # the lists a pool gains later go where the rest of it went
         setup_pool_storage(handle, capacity, fields, widths, fast)
         setup_pool_art(handle, capacity, art, widths, fast) if art
         declared_pools << handle
@@ -129,7 +149,7 @@ module RubyGBA
       # with, the first time one is told to draw with one (see Pool#draw_with). Every slot
       # starts in its own colours.
       def make_pool_recolorable(pool)
-        at_boot(Build.list_new(pool.colors_list, pool.capacity, width: :byte))
+        at_boot(Build.list_new(pool.colors_list, pool.capacity, width: :byte, fast: pool.fast))
         index = pool.part_name(:colors_fill)
         ensure_var(index)
         at_boot(Build.repeat(Build.int(pool.capacity), index,
@@ -137,7 +157,7 @@ module RubyGBA
         # ...and each of the pool's sprites reads the colours copied for its place in the
         # drawing order (see Pool#stacked_list), which the copy fills from the slots.
         stacked = pool.stacked_list(:colors)
-        at_boot(Build.list_new(stacked, pool.capacity, width: :byte))
+        at_boot(Build.list_new(stacked, pool.capacity, width: :byte, fast: pool.fast))
         at_boot(Build.repeat(Build.int(pool.capacity), index, Build.list_push(stacked, Build.int(Build::NO_RECOLOR))))
         pool.stacked_objects.each_with_index do |node, place|
           node.recolor = pool.stacked_at(:colors, pool.rank_at_place(place))
@@ -325,29 +345,46 @@ module RubyGBA
         refuse_field_named_like_instance_method!(name, fields)
       end
 
-      # AN INSANE CAPACITY IS A FRIENDLY BUILD ERROR rather than memory quietly run out of.
-      #
-      # The pool is counted AS IT IS BUILT: every list it is made from, each exactly
-      # `capacity` slots long and as wide as it was declared. Those are the lists #pool_lists
-      # and #pool_stacking_lists hand to the build, read here rather than added up a second
-      # way — a count kept on its own had drifted until it refused a pool a third the size
-      # of the ceiling, by rounding the capacity up to a power of two (only a list the game
-      # shifts is rounded, and a pool has none) and taking every field for a whole word.
+      # HOW MUCH MEMORY A POOL TAKES, counted AS IT IS BUILT: every list it is made from, each
+      # exactly `capacity` slots long and as wide as it was declared. Those are the lists
+      # #pool_lists and #pool_stacking_lists hand to the build, read here rather than added up
+      # a second way — a count kept on its own had drifted until it refused a pool a third the
+      # size of the ceiling, by rounding the capacity up to a power of two (only a list the
+      # game shifts is rounded, and a pool has none) and taking every field for a whole word.
       #
       # The one list not in it is the colours an instance is drawn with, a byte a slot, which
       # a pool gains only when some instance is first told `draw_with` — later than this.
-      def refuse_oversized_pool!(pool, fields, widths)
+      def pool_bytes(pool, fields, widths)
         lists = pool_lists(pool, fields, widths)
         lists = lists.merge(pool_stacking_lists(pool, widths)) if pool.spriteful?
-        bytes = pool.capacity * lists.sum { |_, width| Build::ELEMENT_BYTES.fetch(width) }
-        return unless bytes > POOL_MAX_BYTES
+        pool.capacity * lists.sum { |_, width| Build::ELEMENT_BYTES.fetch(width) }
+      end
 
+      # A POOL BIGGER THAN THE ROOMIER MEMORY FITS NOWHERE. A pool over the ceiling is kept
+      # there whole, so this is the most one pool can be, whatever else the game declares.
+      # It is refused here, at the line that wrote it and by its own name: the whole-program
+      # check asks only whether everything fits the two memories added together, which a
+      # pool a little over this size still does.
+      def refuse_pool_no_memory_holds!(pool, field_count, bytes)
         raise ArgumentError,
-              "pool :#{pool.name} has #{pool.capacity} instances of #{fields.size} fields each. It needs about " \
-              "#{bytes / 1024}KB of the console's #{Messages::PlainWords::QUICK_MEMORY}. This is too much. A pool must " \
-              "use much less than #{POOL_MAX_BYTES / 1024}KB. The console has only 32KB of " \
-              "#{Messages::PlainWords::QUICK_MEMORY} in total. To fix this, use a smaller capacity. Or use fewer " \
+              "pool :#{pool.name} has #{pool.capacity} instances of #{field_count} fields each. It needs about " \
+              "#{bytes / 1024}KB. A pool this big is kept in the roomier memory of the console, which holds " \
+              "#{Console::Hardware::EWRAM_SIZE / 1024}KB. To fix this, use a smaller capacity. Or use fewer " \
               "fields. Or give fields a smaller width, like `widths: { hp: :byte }`."
+      end
+
+      # A POOL THAT INSISTS ON THE QUICK MEMORY AND IS TOO BIG TO SHARE IT. `fast: true` is
+      # the game saying it knows better than the build where the pool goes, so the build does
+      # not quietly put it somewhere else: it says why not, and what gives the pool room.
+      def refuse_oversized_fast_pool!(pool, field_count, bytes)
+        quick = Messages::PlainWords::QUICK_MEMORY
+        raise ArgumentError,
+              "pool :#{pool.name} has #{pool.capacity} instances of #{field_count} fields each. It needs about " \
+              "#{bytes / 1024}KB. `fast: true` keeps a pool in the console's #{quick}, and a pool there can use " \
+              "#{POOL_MAX_QUICK_BYTES / 1024}KB at most. The console has only 32KB of #{quick} in total, and " \
+              "the game's code is kept there too. To fix this, remove `fast: true`. Then the build keeps the " \
+              "pool in the roomier memory of the console, which is slower to read. Or use a smaller capacity. " \
+              "Or use fewer fields. Or give fields a smaller width, like `widths: { hp: :byte }`."
       end
 
       # EVERY LIST A POOL KEEPS ITS INSTANCES IN, and how wide a slot of each is, in the

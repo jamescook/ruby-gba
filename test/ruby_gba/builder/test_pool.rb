@@ -140,17 +140,131 @@ class TestPool < Minitest::Test
 
   # --- baked guardrails (build-time, friendly errors) ---
 
-  def test_an_insane_capacity_is_a_friendly_error
-    b = Builder.new
-    err = assert_raises(ArgumentError) do
-      b.instance_eval { pool :swarm, x: 0, y: 0, capacity: 99_999 }
+  # A POOL TOO BIG TO SHARE THE QUICK MEMORY. The console has 32K of quick memory, which the
+  # game's hot code lives in too, and 256K of roomier memory. A pool over the ceiling is kept
+  # in the roomier one, where it fits: it is refused only when the game insists on the quick
+  # one, and a capacity too big for both memories is the whole-program check's to refuse.
+
+  # The lists a pool was built from, as the program declares them.
+  def lists_of(program) = program.walk.select { |node| node.kind == :list_new }
+
+  # A cartridge with a pool :crowd of +capacity+ things of four whole-number fields: 25 bytes
+  # a thing, counting the pool's own bookkeeping.
+  def crowd_cartridge(capacity:, **words)
+    RubyGBA.build("CROWD", out: StringIO.new, err: StringIO.new) do
+      screen :bitmap
+      pool :crowd, x: 0, y: 0, vx: 0, vy: 0, capacity: capacity, **words
+      game_loop {}
     end
-    assert_match(/#{RubyGBA::Messages::PlainWords::QUICK_MEMORY}/, err.message)
   end
 
-  # THE CEILING IS ON THE POOL AS IT IS BUILT. A pool is a list per field and a few of its
+  # How many bytes of the pool :crowd the built cartridge keeps in the roomier memory.
+  def crowd_bytes_in_roomier_memory(rom)
+    placed = rom.built.roomy_memory&.collections || {}
+    placed.sum { |list, bytes| RubyGBA::Messages::MadeNames.collection_words(list) == "pool :crowd" ? bytes : 0 }
+  end
+
+  # 25,000 bytes: more than the ceiling, and far less than the roomier memory holds.
+  def test_a_pool_said_to_be_cold_is_not_held_to_the_quick_memorys_ceiling
+    assert_equal 25_000, crowd_bytes_in_roomier_memory(crowd_cartridge(capacity: 1000, fast: false)),
+                 "the whole of it is in the roomier memory"
+  end
+
+  # Nobody has to say so: a pool that cannot share the quick memory goes where it fits.
+  def test_a_pool_over_the_ceiling_goes_in_the_roomier_memory_without_being_told
+    assert_equal 25_000, crowd_bytes_in_roomier_memory(crowd_cartridge(capacity: 1000))
+  end
+
+  # ...and one under it stays in the quick memory, as it always did.
+  def test_a_pool_under_the_ceiling_stays_in_the_quick_memory
+    assert_equal 0, crowd_bytes_in_roomier_memory(crowd_cartridge(capacity: 32))
+  end
+
+  def test_a_pool_over_the_ceiling_that_insists_on_the_quick_memory_is_refused
+    message = too_big { pool :crowd, x: 0, y: 0, vx: 0, vy: 0, capacity: 1000, fast: true }
+
+    assert_match(/pool :crowd/, message)
+    assert_includes message, RubyGBA::Messages::PlainWords::QUICK_MEMORY, "it names the memory the game asked for"
+    assert_match(/remove `fast: true`/, message, "and the way out that keeps the capacity")
+  end
+
+  # A POOL NO MEMORY CAN HOLD is refused at its own line, by name. The roomier memory is
+  # 256K and a pool over the ceiling is kept there whole, so one bigger than that fits
+  # nowhere — whatever else the game declares, and whether or not it said `fast: false`.
+  # 10,800 things of 25 bytes are 270,000 bytes: more than the roomier memory, and less than
+  # the two memories added together, which is all the whole-program check asks about.
+  def test_a_pool_bigger_than_the_roomier_memory_is_refused_by_name
+    [{}, { fast: false }].each do |words|
+      message = too_big { pool :crowd, x: 0, y: 0, vx: 0, vy: 0, capacity: 10_800, **words }
+
+      assert_match(/pool :crowd/, message)
+      assert_match(/roomier memory/, message, "it names the memory the pool would be kept in")
+      assert_equal 270_000 / 1024, kilobytes_said(message)
+    end
+  end
+
+  def test_an_insane_capacity_is_a_friendly_error
+    assert_match(/pool :swarm/, too_big { pool :swarm, x: 0, y: 0, capacity: 99_999 })
+  end
+
+  # Two pools that each fit the roomier memory and do not fit it together: 135,000 bytes
+  # apiece. The one left with no room is named as the pool the game declared, not as one of
+  # the lists the framework made it from.
+  def test_pools_that_fill_the_roomier_memory_between_them_are_named_as_pools
+    error = assert_raises(GBA::LoweringError) do
+      RubyGBA.build("TWO", out: StringIO.new, err: StringIO.new) do
+        screen :bitmap
+        pool :left, x: 0, y: 0, vx: 0, vy: 0, capacity: 5400
+        pool :right, x: 0, y: 0, vx: 0, vy: 0, capacity: 5400
+        game_loop {}
+      end
+    end
+
+    assert_match(/pool :(left|right)/, error.message)
+    refute_match(/__pool/, error.message, "no name of the framework's own")
+  end
+
+  # A pool that draws its instances spends a sprite on each, and the console draws 128: that
+  # is what stops a big one that would fit in memory. The words are the sprite check's own
+  # and are tested with it; what is pinned here is that such a pool does not build.
+  def test_a_big_pool_that_draws_its_instances_does_not_build
+    err = StringIO.new
+    assert_raises(RubyGBA::ROMError) do
+      RubyGBA.build("FLOCK", out: StringIO.new, err: err) do
+        screen :tiled
+        image(:dot, "#" => :white) { "########\n" * 8 }
+        pool :flock, x: 0, y: 0, capacity: 1000, image: :dot, fast: false
+        game_loop {}
+      end
+    end
+
+    assert_match(/pool :flock/, err.string, "the pool is named as what takes the sprites")
+  end
+
+  # Every list of a pool said to be cold is kept out of the quick memory, the colours its
+  # instances are drawn with among them — a list the pool only gains when one is first told
+  # `draw_with`, after the rest are declared.
+  def test_a_cold_pool_keeps_the_colors_its_instances_draw_with_out_of_the_quick_memory_too
+    rom = RubyGBA.build("COLD", out: StringIO.new, err: StringIO.new) do
+      screen :tiled
+      image :dot, width: 8, height: 8, data: Array.new(64, :red), colors: %i[transparent red]
+      colors :hurt, %i[transparent white]
+      crowd = pool :crowd, x: 0, y: 0, capacity: 8, image: :dot, fast: false
+      crowd.spawn x: 40, y: 40
+      game_loop { crowd.each { |one| one.draw_with :hurt } }
+    end
+    placed = rom.built.roomy_memory.collections
+    quick = rom.built.lists.keys.select do |list|
+      RubyGBA::Messages::MadeNames.collection_words(list) == "pool :crowd" && !placed.key?(list)
+    end
+
+    assert_empty quick, "these lists of the pool are still in the quick memory"
+  end
+
+  # THE COUNT IS OF THE POOL AS IT IS BUILT. A pool is a list per field and a few of its
   # own, each exactly `capacity` slots long and each as wide as it was declared — so that is
-  # what is counted. Counting it bigger refuses a pool that fits.
+  # what is counted. Counting it bigger refuses a pool that fits. These insist on the quick
+  # memory, which is what holds a pool to the ceiling.
 
   def too_big(&game) = assert_raises(ArgumentError) { Builder.new.instance_eval(&game) }.message
 
@@ -186,15 +300,15 @@ class TestPool < Minitest::Test
     fields = { a: 0, b: 0, c: 0, d: 0, e: 0, f: 0 }
     narrow = fields.transform_values { :byte }
 
-    Builder.new.instance_eval { pool :spark, capacity: 600, widths: narrow, **fields }
-    assert_match(/spark/, too_big { pool :spark, capacity: 600, **fields },
+    Builder.new.instance_eval { pool :spark, capacity: 600, widths: narrow, fast: true, **fields }
+    assert_match(/spark/, too_big { pool :spark, capacity: 600, fast: true, **fields },
                  "the same pool at a word a field is four times the size")
   end
 
   # 1000 slots of four word fields: 16 bytes of fields, a byte saying whether the slot is
   # live, and four slot numbers of two bytes each (the free stack and the order they came in).
   def test_a_pool_that_is_too_big_says_the_size_it_would_be_built_at
-    message = too_big { pool :swarm, x: 0, y: 0, vx: 0, vy: 0, capacity: 1000 }
+    message = too_big { pool :swarm, x: 0, y: 0, vx: 0, vy: 0, capacity: 1000, fast: true }
 
     assert_equal (1000 * (16 + 1 + (4 * 2))) / 1024, kilobytes_said(message)
   end
@@ -208,26 +322,25 @@ class TestPool < Minitest::Test
     builder = Builder.new
     builder.instance_eval do
       screen :bitmap
-      pool :mote, capacity: 1024, widths: narrow, **fields
+      pool :mote, capacity: 1024, widths: narrow, fast: true, **fields
       game_loop {}
     end
     builder.finalize_program
-    built = builder.program.walk.select { |node| node.kind == :list_new }
-                   .sum { |node| node.capacity * RubyGBA::IR::Build::ELEMENT_BYTES.fetch(node.width) }
+    built = lists_of(builder.program).sum { |node| node.capacity * RubyGBA::IR::Build::ELEMENT_BYTES.fetch(node.width) }
 
-    assert_equal RubyGBA::Builder::Composition::POOL_MAX_BYTES, built
-    assert_match(/mote/, too_big { pool :mote, capacity: 1025, widths: narrow, **fields })
+    assert_equal RubyGBA::Builder::Composition::POOL_MAX_QUICK_BYTES, built
+    assert_match(/mote/, too_big { pool :mote, capacity: 1025, widths: narrow, fast: true, **fields })
   end
 
   # A pool with pictures keeps more a slot: which frame each instance is on, and where and
   # what each is in the order they are drawn. Those are in the count as well.
   def test_a_pool_with_pictures_is_counted_with_the_lists_its_pictures_need
-    plain = too_big { pool :mote, x: 0, y: 0, capacity: 5000 }
+    plain = too_big { pool :mote, x: 0, y: 0, capacity: 5000, fast: true }
     drawn = too_big do
       screen :tiled
       image :one, width: 8, height: 8, data: Array.new(64, :red)
       image :two, width: 8, height: 8, data: Array.new(64, :green)
-      pool :mote, x: 0, y: 0, capacity: 5000, frames: %i[one two], rate: 4
+      pool :mote, x: 0, y: 0, capacity: 5000, frames: %i[one two], rate: 4, fast: true
     end
 
     assert_operator kilobytes_said(drawn), :>, kilobytes_said(plain)
@@ -254,5 +367,29 @@ class TestPool < Minitest::Test
     v = assert_emulator_loads_rom(rom, frames: 6)
     assert v.green?(21, 21), "a pooled instance drew on the console, got 0x#{format('%04X', v.pixel_gba(21, 21))}"
     assert v.green?(61, 61), "and the second one too"
+  end
+
+  # The same from the roomier memory: a pool too big for the quick one is spawned into,
+  # walked and read there like any other, the last of its thousand slots included.
+  def test_a_pool_in_the_roomier_memory_draws_on_the_console
+    b = Builder.new
+    b.instance_eval do
+      screen :bitmap
+      crowd = pool :crowd, x: 0, y: 0, vx: 0, vy: 0, capacity: 1000
+      # Each one tagged with the order it was spawned in, so the first and the last can be
+      # picked out whatever slots they landed in.
+      repeat(1000) { |i| crowd.spawn x: i % 200, y: 20, vx: i }
+      crowd.each { |one| ((one.vx == 0) | (one.vx == 999)).then { draw_rect_at one.x, one.y, 4, 4, :green } }
+      game_loop {}
+    end
+    b.finalize_program
+
+    i = Reference.new.run(b.program, frames: 2)
+    assert_equal [GREEN, GREEN], [i.screen.pixel(1, 21), i.screen.pixel(200, 21)], "the interpreter draws both"
+
+    # Filling and walking a thousand slots takes the console several frames.
+    v = assert_emulator_loads_rom(assemble_rom(b.program, name: "CROWD"), frames: 40)
+    assert v.green?(1, 21), "the first of the crowd drew, got 0x#{format('%04X', v.pixel_gba(1, 21))}"
+    assert v.green?(200, 21), "and the last, got 0x#{format('%04X', v.pixel_gba(200, 21))}"
   end
 end
