@@ -180,8 +180,8 @@ module RubyGBA
           end
 
           # Each see-through layer as rg_screen.h's three flags (Reference#fixed_see_through?,
-          # SeeThroughLayer#split, Reference#layer_has_anything?), and for every sprite the
-          # see-through layer it was declared in.
+          # SeeThroughLayer#split, and the half of Reference#layer_has_anything? that asks
+          # about sprites), and for every sprite the see-through layer it was declared in.
           def see_through_arrays
             flags = @see_through.flat_map do |layer|
               [layer.shows.kind == :int && layer.behind.kind == :int, layer.split,

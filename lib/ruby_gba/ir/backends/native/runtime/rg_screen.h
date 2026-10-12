@@ -135,7 +135,8 @@ static inline int32_t rg_place_of_choice(int32_t which, int32_t others) { return
  *   if (rg_see_through_asked(0)) rg_see_through_answer(shows, behind);
  *
  * rg_see_through_told is the game saying, before a frame is drawn, that a layer's amounts have
- * been worked out again: the picture is rebuilt when they differ from the ones last told. */
+ * been worked out again: the picture is rebuilt when they come to other sixteenths than the
+ * ones last told. */
 void rg_see_through_told(int32_t layer);
 int32_t rg_see_through_asked(int32_t layer);
 void rg_see_through_answer(int32_t shows, int32_t behind);
@@ -194,7 +195,7 @@ extern const int32_t rg_game_sprite_see_through[];
  * both its amounts are numbers written in the program, 1 when it was given one amount (how much
  * of what is behind shows, the layer taking the rest of a whole) rather than two, and 1 when any
  * sprite was declared in it. */
-enum { RG_ST_WRITTEN, RG_ST_ONE_AMOUNT, RG_ST_HOLDS_A_SPRITE, RG_ST_FIELDS };
+enum { RG_ST_AMOUNTS_WRITTEN, RG_ST_ONE_AMOUNT, RG_ST_HOLDS_A_SPRITE, RG_ST_FIELDS };
 extern const int32_t rg_game_see_through[];
 /* The most see-through layers a game may have; the build refuses more. */
 #define RG_MAX_SEE_THROUGH 16
