@@ -259,6 +259,10 @@ module RubyGBA
           # way a scrolling scene is.
           @picture = IR::Stacking.picture(node)
           @handover = IR::SceneHandover.of(node)
+          # Does the game show both a painted screen and one drawn from tiles, at different
+          # times? Then the painted one is left alone by what rebuilds the other (see
+          # #request_repaint).
+          @changes_screen_kind = IR::Modes.resolve(node).crosses_display_systems?
           # Which part of the display each fade in this program uses. Settled here rather
           # than asked per fade, because the answer is about the whole program (see
           # IR::Fading) and a fade walked over frames runs on every one of them.
@@ -270,6 +274,7 @@ module RubyGBA
           # front alone, so it has to be applied while the picture is built rather than
           # over the finished one. That is the rebuild path too.
           @repaints ||= node.walk.any? { |child| child.kind == :fade && child.under }
+          @repaints ||= see_through_picture_changes?(node)
           # A program that waits for frames shows nothing until the first one has been set up:
           # everything said before the game loop reaches the screen by work done between
           # frames, so the picture is held off until then — the console does the same (see
@@ -390,6 +395,28 @@ module RubyGBA
 
         private
 
+        # CAN WHAT IS SEEN THROUGH A LAYER CHANGE WHILE NOTHING MOVES? Then the picture is one
+        # that is built again from the scenery, like a scrolled one, and the sprites have to
+        # be kept for that build rather than painted once onto a picture that stays.
+        #
+        # Two things do it. A see-through amount the game works out, which is told again
+        # before each frame (the only program with a :see_through statement). And a fade the
+        # display itself does, in a program with a see-through layer: the display blends two
+        # layers or fades the picture, never both, so the layer is solid while the fade is on
+        # and see-through again when it lifts (see #exec_fade).
+        #
+        # A PICTURE THAT STAYS CANNOT HOLD EITHER. Its sprites are painted onto it once and
+        # are not kept to paint again, and the copy of the scenery it keeps to put back where
+        # a sprite was (see #scene_framebuffer) is painted into a buffer of its own, which
+        # knows of no fade and holds the layer as it was seen through when the copy was made.
+        def see_through_picture_changes?(program)
+          return false unless @see_through
+
+          program.walk.any? do |child|
+            child.kind == :see_through || (child.kind == :fade && !@fading.palette_walk?(child))
+          end
+        end
+
         # REFUSE A PROGRAM THE CONSOLE COULD NOT SHOW, before drawing a frame of it.
         #
         # This interpreter is the answer key: a game's own tests run here because it is
@@ -509,12 +536,13 @@ module RubyGBA
               # tree at all (even a branch never taken) is enough to know the scene needs
               # full repaints, the same over-approximation scroll_background makes.
               @repaints = true
-            when :set_tile, :show_map
+            when :set_tile, :show_map, :background_colors
               # A background whose cells can change is a background that can look
               # different next frame, so the settled-scene shortcut no longer holds and
               # the picture is rebuilt from the map each frame — the same
               # over-approximation, for the same reason. A whole map handed over at once
-              # is the same story on a larger scale.
+              # is the same story on a larger scale, and so is the whole of it drawn from
+              # another list of colours.
               @repaints = true
             end
           end
@@ -1670,7 +1698,15 @@ module RubyGBA
         # bends its backdrop is no reason for the file screen after it to paint every frame.
         # What is showing only changes through a statement that settles an owed repaint first,
         # so the answer cannot go stale while a repaint is owed.
+        #
+        # A PAINTED SCREEN IS NEVER BUILT AGAIN, in a game that also has screens drawn from
+        # tiles. Its picture is whatever the program painted there, a title painted once
+        # among them, and building the view from scenery would wipe that — the display such a
+        # screen is shown on reads the painted picture and nothing else. What asks while one
+        # is up is the machinery of the game's other screens, which runs every frame whichever
+        # is showing. The scenery of the screen that follows is put up as that screen arrives.
         def request_repaint
+          return if @screen_mode == :bitmap && @changes_screen_kind
           return repaint_view if showing_scenery.any? { |bg| @row_bends.key?(bg.name) }
 
           @picture_owed = true

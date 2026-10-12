@@ -57,6 +57,42 @@ class TestBackgroundDrawsWith < Minitest::Test
     assert_backends_agree(a_wall_of_bars { |rays| rays.draw_with :shimmer }, frames: 3)
   end
 
+  # A SPRITE IN FRONT OF A WALL THAT SHIMMERS, where nothing scrolls. The wall changes colours
+  # every other frame while a blue walker moves a pixel every frame: the walker is drawn on
+  # every one of them, the frames the wall changed on included.
+  private def a_walker_in_front_of_a_shimmering_wall
+    builder = Builder.new
+    builder.instance_eval do
+      screen :tiled
+      image :bar, width: 8, height: 8, data: BAR, colors: OWN
+      image :walker, width: 8, height: 8, data: Array.new(64, :blue)
+      colors :shimmer, SHIMMER
+      tiles :wall, "#" => :bar
+      rays = background :rays, tiles: :wall, map: Array.new(20) { "#" * 30 }
+      walker = sprite :walker, at: [40, 40]
+      pass = var :pass, 0
+      game_loop do
+        pass.add! 1
+        walker.x.add! 1
+        rays.draw_with [:shimmer], showing: pass % 2
+      end
+    end
+    builder.finalize_program
+    builder.program
+  end
+
+  def test_a_sprite_stays_drawn_when_the_wall_behind_it_changes_colors
+    (2..7).each do |frames|
+      shown = Reference.new.run(a_walker_in_front_of_a_shimmering_wall, frames: frames).screen.shown
+
+      assert_equal 64, shown.count(Color.resolve(:blue)), "the walker's 64 pixels after #{frames} frames"
+    end
+  end
+
+  def test_the_console_draws_the_same_walker_and_wall
+    (3..7).each { |frames| assert_backends_agree(a_walker_in_front_of_a_shimmering_wall, frames: frames) }
+  end
+
   # Tiles the game paints from a list keep their pixels as places, so a layer of them is
   # recoloured by place the same way. The list paints one tile in the bar's two halves.
   private def a_wall_of_painted_bars

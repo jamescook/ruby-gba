@@ -94,6 +94,48 @@ class TestLayerTwoAmounts < Minitest::Test
     (2..6).each { |frames| assert_backends_agree(stepping_program, frames: frames) }
   end
 
+  # A WALKER IN FRONT OF MIST THAT THICKENS, on a picture where nothing scrolls. The mist's
+  # amounts step every third frame while the walker moves a pixel every frame: the walker is
+  # drawn on every one of those frames, the ones where the mist changed included.
+  def walker_in_front_of_thickening_mist
+    tile = SOLID_TILE
+    program do
+      screen :tiled
+      image(:dim_floor, "#" => rgb(20, 4, 30)) { tile }
+      image(:dim_pane, "#" => rgb(16, 8, 2)) { tile }
+      image(:walker, "#" => :red) { tile }
+      tiles :floors, "d" => :dim_floor
+      tiles :panes, "d" => :dim_pane
+      step = var :step, 0
+      pass = var :pass, 0
+      layers :ground, :mist, :walkers
+      layer(:ground) { background :floor, tiles: :floors, map: Array.new(20) { "d" * 30 } }
+      layer(:mist, shows: 57 - (step * 6), shows_behind: 57 + (step * 6)) do
+        background :pane, tiles: :panes, map: Array.new(20) { "d" * 30 }
+      end
+      walker = layer(:walkers) { sprite :walker, at: [40, 40] }
+      game_loop do
+        pass.add! 1
+        walker.x.add! 1
+        ((pass % 3) == 0).then { step.add! 1 }
+      end
+    end
+  end
+
+  RED = RubyGBA::Graphics::Color.resolve(:red)
+
+  def test_a_sprite_stays_drawn_when_the_mist_behind_it_changes
+    (2..9).each do |frames|
+      shown = Reference.new.run(walker_in_front_of_thickening_mist, frames: frames).screen.shown
+
+      assert_equal 64, shown.count(RED), "the walker's 64 pixels after #{frames} frames"
+    end
+  end
+
+  def test_the_console_draws_the_same_walker_and_mist
+    (3..8).each { |frames| assert_backends_agree(walker_in_front_of_thickening_mist, frames: frames) }
+  end
+
   # A layer of SPRITES takes the same two amounts: the console blends each sprite in the
   # layer through its own table entry rather than naming a layer, and the shares are the
   # same register.

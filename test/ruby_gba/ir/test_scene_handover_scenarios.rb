@@ -117,6 +117,9 @@ class TestSceneHandoverScenarios < Minitest::Test
     Scenario.new(name: :always_up_painted_sprite_across_a_bitmap_screen, program: :always_up_painted_sprite,
                  frames: LOOK_BACK_FROM_BITMAP, probe: [0, 0], color: :white,
                  console_frames: LOOK_BACK_FROM_BITMAP + 1),
+    Scenario.new(name: :bitmap_title_painted_once_stays_beside_a_room_that_scrolls,
+                 program: :title_painted_once_then_a_scrolling_room,
+                 frames: 5, probe: [120, 80], color: :blue, console_frames: 5 + 2),
     Scenario.new(name: :list_recolored_while_its_scene_is_up, program: :recolored_sprite_then_another_scenes_sprite,
                  frames: SCENE_AWAY, probe: [120, 80], color: :blue),
     Scenario.new(name: :other_scenes_colors_while_a_recolored_list_is_away,
@@ -488,6 +491,31 @@ class TestSceneHandoverScenarios < Minitest::Test
       tag = image :tag, from: canvas, width: 16, height: 8, colors: :ink
       sprite :tag, at: [0, 0]
       across_a_bitmap_screen { |tick| (tick == 2).then { canvas[0] = 0x01; tag.changed } }
+    end
+  end
+
+  # A title on the bitmap screen that paints itself blue on its first frame and then leaves
+  # the picture alone, in a game whose tiled room scrolls under a sprite. A room that scrolls
+  # is built again from its scenery every frame; the title has no scenery, only what it
+  # painted, and that is still there on the frames after.
+  private def title_painted_once_then_a_scrolling_room
+    built do
+      screen :tiled
+      red_and_blue_art
+      tiles :set, "#" => :red_art
+      state = var :state, 0
+      tick = var :tick, 0
+      scene(:title) do
+        screen :bitmap
+        (tick == 1).then { clear_screen :blue }
+        (tick == 9).then { state.set! 1 }
+      end
+      scene(:room) do
+        field = background :field, tiles: :set, map: Array.new(20) { "#" * 30 }
+        sprite :blue_box, at: [112, 72]
+        field.scroll_by 1, 0
+      end
+      two_scene_loop(tick, :title, :room)
     end
   end
 

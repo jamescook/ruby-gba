@@ -375,6 +375,105 @@ class TestLayerTransparency < Minitest::Test
     end
   end
 
+  # A FADE THE DISPLAY DOES, LEFT ON FROM A BITMAP SCREEN. A bitmap screen holds a whole
+  # colour in every pixel, so a fade there is the display's own, and it stays until it is
+  # lifted. The title is blue, faded half way to black; from the fifth pass a room takes
+  # over, with mist over its floor and a walker in front of the mist. The display fades the
+  # picture or sees through a layer, never both, so while the fade is on the mist is solid
+  # and dark with everything else.
+  #
+  # +paints+ says how the title paints its blue: every pass, or on its first pass and then
+  # left alone, which is how a title that draws nothing more is written. +room_at+ is the
+  # pass the room takes over on.
+  def faded_title_then_misty_room(paints: :every_pass, room_at: 4)
+    tile = SOLID_TILE
+    program do
+      screen :tiled
+      image(:dim_floor, "#" => rgb(20, 4, 30)) { tile }
+      image(:dim_pane, "#" => rgb(16, 8, 2)) { tile }
+      image(:walker, "#" => :red) { tile }
+      tiles :floors, "d" => :dim_floor
+      tiles :panes, "d" => :dim_pane
+      where = var :where, 0
+      pass = var :pass, 0
+      layers :ground, :mist, :walkers
+      scene :title do
+        screen :bitmap
+        paints == :once ? (pass == 1).then { clear_screen :blue } : clear_screen(:blue)
+        fade :black, 50
+      end
+      scene :room do
+        layer(:ground) { background :floor, tiles: :floors, map: Array.new(20) { "d" * 30 } }
+        layer(:mist, transparency: 50) { background :pane, tiles: :panes, map: Array.new(20) { "d" * 30 } }
+        layer(:walkers) { sprite :walker, at: [40, 40] }.x.add! 1
+      end
+      game_loop do
+        pass.add! 1
+        (pass == room_at).then { where.set! 1 }
+        case_var(:where) do
+          when_val 0, :title
+          when_val 1, :room
+        end
+      end
+    end
+  end
+
+  def rgb5(r, g, b) = r | (g << 5) | (b << 10)
+
+  # Blue half way to black, and the pane's own colour half way to black: the mist drawn
+  # solid under the fade.
+  BLUE_FADED = [0, 0, 16].freeze
+  SOLID_MIST_FADED = [8, 4, 1].freeze
+
+  # A picture painted once is still there under the fade on the frames after. A bitmap
+  # screen has no scenery to build a picture from again, so nothing may ask it to.
+  def test_a_fade_leaves_a_picture_painted_once_on_a_bitmap_screen
+    title = faded_title_then_misty_room(paints: :once, room_at: 12)
+
+    [3, 6].each do |frames|
+      assert_equal [rgb5(*BLUE_FADED)], Reference.new.run(title, frames: frames).screen.shown.uniq
+      assert_backends_agree(title, frames: frames, console_frames: frames + 2, blended: true)
+    end
+  end
+
+  # The walker has moved on from where it started, and what is left there is the mist as the
+  # rest of the screen shows it — not a patch of the mist drawn see-through.
+  def test_a_sprite_leaves_the_solid_mist_behind_it_under_a_fade
+    shown = Reference.new.run(faded_title_then_misty_room, frames: 14).screen.shown
+
+    assert_equal rgb5(*SOLID_MIST_FADED), shown[(41 * 240) + 41], "where the walker started"
+    assert_equal [rgb5(*SOLID_MIST_FADED), rgb5(16, 0, 0)].sort, shown.uniq.sort,
+                 "one colour of mist everywhere, and the walker's red, both half way to black"
+  end
+
+  # KNOWN TO DISAGREE, filed and not fixed: the console drops the fade as the room takes
+  # over, and shows the mist see-through at full brightness where the interpreter shows it
+  # solid and dark. Pinned exactly — the count and what the console shows — so this fails the
+  # day the console keeps the fade, and then it becomes assert_backends_agree.
+  def test_the_console_drops_a_fade_left_on_as_a_see_through_screen_takes_over
+    oracle, console, = backend_pictures(faded_title_then_misty_room, frames: 8, console_frames: 9)
+    see_through_at_full_brightness = Reference.new.run(scene_mist_with_no_fade, frames: 8).screen.pixel(200, 100)
+
+    assert_equal 240 * 160, mismatched_pixels(oracle, console, slack: 1).size
+    assert_equal see_through_at_full_brightness, console[(100 * 240) + 200]
+  end
+
+  # The same room with no title and no fade: what the mist looks like seen through.
+  def scene_mist_with_no_fade
+    tile = SOLID_TILE
+    program do
+      screen :tiled
+      image(:dim_floor, "#" => rgb(20, 4, 30)) { tile }
+      image(:dim_pane, "#" => rgb(16, 8, 2)) { tile }
+      tiles :floors, "d" => :dim_floor
+      tiles :panes, "d" => :dim_pane
+      layers :ground, :mist
+      layer(:ground) { background :floor, tiles: :floors, map: Array.new(20) { "d" * 30 } }
+      layer(:mist, transparency: 50) { background :pane, tiles: :panes, map: Array.new(20) { "d" * 30 } }
+      game_loop { wait_vblank }
+    end
+  end
+
   # A TINT does not take the blend, and the warning above sends people here — so it is a
   # promise the suite has to keep. On a tiled screen a tint moves the colors themselves
   # rather than asking the display to blend, so the layer keeps seeing through them: a
