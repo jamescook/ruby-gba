@@ -58,6 +58,10 @@ module RubyGBA
             refuse_picture!("a see-through layer") if nodes.any? { |n| n.kind == :layers && !n.see_through.empty? }
             refuse_picture!("a fade placed in the stack (fade ... under:)") if nodes.any? { |n| n.kind == :fade && n.under }
             refuse_picture!("more than #{MAX_BACKGROUNDS} backgrounds") if @backgrounds.size > MAX_BACKGROUNDS
+            # The interpreter keeps a background's scroll and cells by its name and draws each
+            # declaration; rg_screen.c knows a background by one number, which a name here gives.
+            shared = @stacking.scenery.map(&:name).tally.select { |_, times| times > 1 }.keys
+            refuse_picture!("two backgrounds with one name (#{shared.first})") unless shared.empty?
             refuse_picture!("more than #{MAX_SPRITES} sprites") if @sprites.size > MAX_SPRITES
             if nodes.any? { |n| n.kind == :inside && frame_ends_under?(n) }
               refuse_picture!("a frame that ends inside an `inside` block")
@@ -198,8 +202,8 @@ module RubyGBA
 
           # A change of screen, by `screen` or by a scene arriving on its own. The C says when
           # that put the scenery every screen shows up again as declared, and what says which
-          # map each of those backgrounds shows then goes back to the first, which is the end of
-          # Reference#put_up_always_up.
+          # map each of those backgrounds shows then goes back to the first, as
+          # Reference#put_up_always_up puts it back.
           def screen_change(function, screen, two_pages)
             change = call(function, C::Int.new(SCREEN_KINDS.fetch(screen)), yes_or_no(two_pages))
             choices = @handover.always_up.map_choices
@@ -302,7 +306,7 @@ module RubyGBA
           end
 
           def lower_affine_background(node)
-            [eval_call("rg_background_turn", C::Int.new(@backgrounds.fetch(node.name)), value(node.angle),
+            [eval_call("rg_background_turn", background_number(node), value(node.angle),
                        value(node.scale), C::Int.new(node.around_x), C::Int.new(node.around_y))]
           end
 
@@ -343,21 +347,21 @@ module RubyGBA
             levels = Stacking.levels_of(@stacking.depths, obj)
             return C::Int.new(levels.first) if levels.one?
 
-            pick = call("rg_pick_or_own", variable(obj.layer_pick), C::Int.new(levels.length - 1))
+            pick = call("rg_place_of_choice", variable(obj.layer_pick), C::Int.new(levels.length - 1))
             C::Index.new(drawing_array("levels", "int32_t", levels), pick)
           end
 
           # Which picture a sprite showing pose number +pose+ (one of its poses, already checked)
           # is DRAWN from, in the colors it is drawn with now. Its pictures are a row of poses in
           # its own colors, then a row for each list it can be drawn with
-          # (Reference#object_recolor), and rg_pick_or_own says which row it is on.
+          # (Reference#object_recolor), and rg_place_of_choice says which row it is on.
           def picture_drawn(obj, pose)
             lists = Array(obj.recolors)
             rows = [nil, *lists].flat_map { |colors| obj.poses.map { |name| image_number(name, colors) } }
             pictures = drawing_array("pose_rows", "int32_t", rows)
             return C::Index.new(pictures, pose) if lists.empty?
 
-            row = call("rg_pick_or_own", value(obj.recolor), C::Int.new(lists.length))
+            row = call("rg_place_of_choice", value(obj.recolor), C::Int.new(lists.length))
             C::Index.new(pictures, call("rg_add", call("rg_mul", row, C::Int.new(obj.poses.length)), pose))
           end
 
