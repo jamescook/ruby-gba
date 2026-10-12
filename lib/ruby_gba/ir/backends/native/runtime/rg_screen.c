@@ -102,8 +102,8 @@ static background_turn turns[RG_MAX_BACKGROUNDS];
 /* The sprites on screen this frame: being said (drawing), and as the last rebuild draws them.
  * One that turns or resizes carries its angle and its size for this frame. */
 typedef struct { int32_t sprite, image, x, y, level, turned, angle, size; } placed_object;
-static placed_object drawing[RG_MAX_SPRITES], layer[RG_MAX_SPRITES];
-static int32_t drawing_count, layer_count;
+static placed_object drawing[RG_MAX_SPRITES], sprite_layer[RG_MAX_SPRITES];
+static int32_t drawing_count, sprite_layer_count;
 
 /* Where each sprite was last drawn straight onto the picture, by its number, so that patch can
  * be put back before it is drawn again (Reference @obj_prev). */
@@ -285,15 +285,17 @@ static int32_t see_through_field(int32_t layer, int32_t field) {
   return rg_game_see_through[layer * RG_ST_FIELDS + field];
 }
 
-/* The layer the game is being asked about, and what it answered. */
-static int32_t asked_layer = RG_SOLID;
-static int32_t answered_shows, answered_behind;
+/* The layer the game is being asked about, when it is being asked, and the two amounts it
+ * answered with. */
+enum { NOBODY_ASKED = -1 };
+static int32_t asked_layer = NOBODY_ASKED;
+static struct { int32_t shows, behind; } answered;
 
 int32_t rg_see_through_asked(int32_t layer) { return layer == asked_layer; }
 
 void rg_see_through_answer(int32_t shows, int32_t behind) {
-  answered_shows = shows;
-  answered_behind = behind;
+  answered.shows = shows;
+  answered.behind = behind;
 }
 
 /* IR::SeeThrough.nearest_steps and .floor_steps: an amount out of 100 as sixteenths. */
@@ -307,18 +309,19 @@ static int32_t whole_sixteenths(int32_t amount) { return clamp32(floor_div((int6
 static shares shares_now(int32_t layer) {
   asked_layer = layer;
   rg_game_see_through_amounts();
-  asked_layer = RG_SOLID;
+  asked_layer = NOBODY_ASKED;
   if (see_through_field(layer, RG_ST_ONE_AMOUNT)) {
-    int32_t under = whole_sixteenths(answered_behind);
+    int32_t under = whole_sixteenths(answered.behind);
     return (shares){16 - under, under};
   }
-  return (shares){nearest_sixteenths(answered_shows), nearest_sixteenths(answered_behind)};
+  return (shares){nearest_sixteenths(answered.shows), nearest_sixteenths(answered.behind)};
 }
 
-/* The shares each layer had when the rebuild now owed was asked for (Reference @owed_weights),
- * for the layers they were kept for. */
+/* A layer's shares as they were at some moment, for the layers they were kept for: when the
+ * rebuild now owed was asked for (Reference @owed_weights), and when the game last said it had
+ * worked the amounts out again (@see_through_shown). */
 typedef struct { int32_t kept; shares at; } kept_shares;
-static kept_shares owed_shares[RG_MAX_SEE_THROUGH];
+static kept_shares owed_shares[RG_MAX_SEE_THROUGH], told_shares[RG_MAX_SEE_THROUGH];
 
 /* Reference#layer_has_anything?: a background showing now, or a sprite anywhere, since whether
  * a sprite is shown is a variable too. */
@@ -336,7 +339,7 @@ static int32_t layer_holds_anything(int32_t layer) {
  * would not have worked out. */
 static void keep_shares_for_owed_rebuild(void) {
   for (int32_t layer = 0; layer < see_through_layers(); layer++) {
-    owed_shares[layer].kept = !see_through_field(layer, RG_ST_WRITTEN) && layer_holds_anything(layer);
+    owed_shares[layer].kept = !see_through_field(layer, RG_ST_AMOUNTS_WRITTEN) && layer_holds_anything(layer);
     if (owed_shares[layer].kept) owed_shares[layer].at = shares_now(layer);
   }
 }
@@ -423,7 +426,7 @@ void rg_screen_tint(int32_t color, int32_t steps) {
 int32_t rg_fade_steps(int32_t amount, int32_t fraction_bits, int32_t walked) {
   int32_t levels = walked ? 32 : 16;
   if (fraction_bits < 0) {
-    int32_t sixteenths = clamp32(floor_div((int64_t)amount * 16, 100), 0, 16);
+    int32_t sixteenths = whole_sixteenths(amount);
     return walked ? sixteenths * 2 : sixteenths;
   }
   return clamp32(floor_div((int64_t)amount * levels, (int64_t)100 << fraction_bits), 0, levels);
@@ -512,11 +515,10 @@ static void request_repaint(void) {
  * it: only a game rebuilt every frame keeps them for one (rg_objects_end). The interpreter's
  * comes out the same way, and this is held to the interpreter. */
 void rg_see_through_told(int32_t layer) {
-  static struct { int32_t told; shares at; } last[RG_MAX_SEE_THROUGH];
   shares now = shares_now(layer);
-  if (last[layer].told && last[layer].at.painted == now.painted && last[layer].at.under == now.under) return;
-  last[layer].told = 1;
-  last[layer].at = now;
+  kept_shares *told = &told_shares[layer];
+  if (told->kept && told->at.painted == now.painted && told->at.under == now.under) return;
+  *told = (kept_shares){1, now};
   request_repaint();
 }
 
@@ -916,8 +918,8 @@ void rg_objects_add_turned(int32_t sprite, int32_t image, int32_t x, int32_t y, 
  * is drawn where it is now, and where that was is remembered for taking it off again. */
 void rg_objects_end(void) {
   if (rebuilt_whole()) {
-    for (int32_t i = 0; i < drawing_count; i++) layer[i] = drawing[i];
-    layer_count = drawing_count;
+    for (int32_t i = 0; i < drawing_count; i++) sprite_layer[i] = drawing[i];
+    sprite_layer_count = drawing_count;
     request_repaint();
     return;
   }
@@ -968,10 +970,10 @@ static void repaint_view(void) {
       if (turns[bg].turned) paint_turned_window(bg);
       else paint_window(bg);
     }
-    for (int32_t i = 0; i < layer_count; i++) {
-      if (layer[i].level != level) continue;
-      mix_as_layer(rg_game_sprite_see_through[layer[i].sprite]);
-      draw_placed(&layer[i]);
+    for (int32_t i = 0; i < sprite_layer_count; i++) {
+      if (sprite_layer[i].level != level) continue;
+      mix_as_layer(rg_game_sprite_see_through[sprite_layer[i].sprite]);
+      draw_placed(&sprite_layer[i]);
     }
   }
   mix_nothing();

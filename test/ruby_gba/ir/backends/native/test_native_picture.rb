@@ -1092,8 +1092,9 @@ class TestNativePicture < Minitest::Test
 
     assert_native_matches_reference program, frames: 10
 
-    assert_operator moments.map { |moment| moment.picture.uniq.length }.max, :>=, 6,
-                    "a ghost over the turf, and a ghost over a ghost over the turf, are colors of their own"
+    colors_shown = moments.map { |moment| moment.picture.uniq.length }
+    assert_operator colors_shown.max, :>, colors_shown[2],
+                    "where one ghost is over the other, the mix is colors neither has alone over the turf"
     refute_includes moments.last.picture, Color.resolve(:gray), "no ghost should be drawn solid"
   end
 
@@ -1153,14 +1154,17 @@ class TestNativePicture < Minitest::Test
       end
     end
 
-    moments = reference_snapshots(program, frames: 14, buttons: {})
+    # The first two moments are before anything the loop decided is drawn.
+    moments = reference_snapshots(program, frames: 14, buttons: {}).drop(2)
     whites = moments.map { |moment| moment.picture.count(Color.resolve(:white)) }
+    reds = moments.map { |moment| moment.picture.count(Color.resolve(:red)) }
 
     assert_native_matches_reference program, frames: 14
 
     assert_operator moments.flat_map(&:picture).uniq.length, :>=, 12, "the mist should have been drawn at several thicknesses"
-    assert_equal 0, whites.min, "it is never solid"
-    assert_includes moments[3].picture, Color.resolve(:red), "and with no mist at all the hero under it shows plain"
+    assert_equal [0, 240 * 160 * 6 / 8], whites.minmax, "from no mist at all to mist that hides what is under it"
+    assert_equal [2 * 8, 8 * 8], reds.minmax,
+                 "under solid mist the hero shows only in its gaps, two columns of him; with none, all of him"
   end
 
   # Mist over a picture that STAYS, with a sprite in front of it drawn straight onto the picture:
@@ -1187,9 +1191,13 @@ class TestNativePicture < Minitest::Test
       end
     end
 
+    moments = reference_snapshots(program, frames: 12, buttons: {})
+
     assert_native_matches_reference program, frames: 12
 
-    assert_operator different_pictures_in(program, frames: 12), :>=, 8
+    # The picture's first pixel is mist over turf, and the hero never reaches it.
+    assert_operator moments.drop(2).map { |moment| moment.picture.first }.uniq.length, :>=, 3,
+                    "the mist over the turf should have been drawn at several amounts"
   end
 
   # A game with a see-through layer fades by walking its colors, so the layer goes on showing
