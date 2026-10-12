@@ -30,9 +30,13 @@ enum { RG_BITMAP = 0, RG_TILED = 1, RG_ROTOZOOM = 2 };
 
 void rg_screen_hold(int32_t held);              /* switched off until the first frame is set up */
 /* A `screen` statement. +two_pages+ is 1 for a tear-free screen: two pictures, the one being
- * drawn and the one being shown, traded between frames. */
-void rg_screen_set(int32_t kind, int32_t two_pages);
-void rg_screen_cross_to(int32_t kind, int32_t two_pages); /* a scene arriving on the screen it draws on */
+ * drawn and the one being shown, traded between frames.
+ *
+ * Both answer 1 when the scenery every screen drawn from tiles shows was put up again, as
+ * declared, because a screen of another kind had replaced the display. The game then puts what
+ * says which map each of those backgrounds shows back to the first. */
+int32_t rg_screen_set(int32_t kind, int32_t two_pages);
+int32_t rg_screen_cross_to(int32_t kind, int32_t two_pages); /* a scene arriving on the screen it draws on */
 void rg_screen_paint_owed_rebuild(void);        /* rebuild the whole view, if a rebuild is owed */
 
 void rg_screen_clear(int32_t color);
@@ -70,6 +74,15 @@ void rg_screen_digit(int32_t value, int32_t x, int32_t y, int32_t color, const i
 
 void rg_background_stamp(int32_t background);
 void rg_background_put_up(int32_t background);
+/* Put a background's window at (x, y) of its map, in pixels: the picture slides, and comes round
+ * again at the edge of the grid it scrolls over. */
+void rg_background_scroll(int32_t background, int32_t x, int32_t y);
+/* One cell becomes tile number +tile+ of the background's tiles. A cell the map does not have is
+ * left alone. */
+void rg_background_set_tile(int32_t background, int32_t col, int32_t row, int32_t tile);
+/* Every cell becomes map number +which+ of the background's maps, as it was declared. A number
+ * naming none of them leaves the cells alone. */
+void rg_background_show_map(int32_t background, int32_t which);
 /* +pivot_x+, +pivot_y+: the point on screen it turns around, which the statement says. */
 void rg_background_turn(int32_t background, int32_t angle, int32_t size, int32_t pivot_x, int32_t pivot_y);
 
@@ -155,22 +168,37 @@ extern const int32_t rg_game_images[];
 extern const uint16_t rg_game_tile_pixels[];
 
 /* Each background is RG_BG_FIELDS numbers in rg_game_backgrounds, in the order the stack draws
- * them; its map's cells are in rg_game_map_cells, -1 for an empty cell. Its scene is the number
- * the game counts that scene by, RG_EVERY_SCENE for scenery every screen shows, or
- * RG_NEVER_ARRIVES for a scene nothing hands the screen over to (so never shown). Its place in
- * the stack is how far forward the layer it named is among the layers the game declared, or
- * RG_NO_LAYER for one that named none. */
+ * them. Its scene is the number the game counts that scene by, RG_EVERY_SCENE for scenery every
+ * screen shows, or RG_NEVER_ARRIVES for a scene nothing hands the screen over to (so never
+ * shown). Its place in the stack is how far forward the layer it named is among the layers the
+ * game declared, or RG_NO_LAYER for one that named none.
+ *
+ * Its maps are entries of rg_game_maps from RG_BG_FIRST_MAP on, the first being the one it shows
+ * when the game starts. RG_BG_MAPS is how many of them it can be handed while the game runs,
+ * which is none for a background declared with one map.
+ *
+ * A background scrolls over a grid of RG_BG_GRID_COLS by RG_BG_GRID_ROWS cells and its picture
+ * comes round again at that grid's edge, unless RG_BG_NEVER_WRAPS is 1: one with a map too big
+ * for any grid, or with maps of different sizes, shows nothing past the edge of its map
+ * (IR::TileMap). */
 #define RG_EVERY_SCENE (-1)
 #define RG_NEVER_ARRIVES (-2)
 #define RG_NO_LAYER (-1)
 /* The most backgrounds a game may have; the build refuses more. */
 #define RG_MAX_BACKGROUNDS 64
 enum {
-  RG_BG_TILE_W, RG_BG_TILE_H, RG_BG_MAP_COLS, RG_BG_MAP_ROWS, RG_BG_GRID_COLS, RG_BG_GRID_ROWS,
-  RG_BG_MAP_START, RG_BG_TILES_START, RG_BG_SCENE, RG_BG_LEVEL, RG_BG_ON_ARRIVAL, RG_BG_STACK_PLACE,
+  RG_BG_TILE_W, RG_BG_TILE_H, RG_BG_FIRST_MAP, RG_BG_MAPS, RG_BG_GRID_COLS, RG_BG_GRID_ROWS,
+  RG_BG_NEVER_WRAPS, RG_BG_TILES_START, RG_BG_SCENE, RG_BG_LEVEL, RG_BG_ON_ARRIVAL, RG_BG_STACK_PLACE,
   RG_BG_FIELDS
 };
 extern const int32_t rg_game_backgrounds[];
+
+/* Each map is RG_MAP_FIELDS numbers in rg_game_maps: where its cells start in rg_game_map_cells,
+ * and how many columns and rows it has. Its cells are row after row, each the number of a tile
+ * or RG_CELL_EMPTY where the map has none. */
+#define RG_CELL_EMPTY (-1)
+enum { RG_MAP_CELLS, RG_MAP_COLS, RG_MAP_ROWS, RG_MAP_FIELDS };
+extern const int32_t rg_game_maps[];
 extern const int16_t rg_game_map_cells[];
 
 /* [how many backgrounds, how many depths the picture is built at, how many backgrounds every

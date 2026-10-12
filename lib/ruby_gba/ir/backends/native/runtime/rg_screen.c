@@ -5,9 +5,9 @@
  *
  * What is NOT here is refused when the game is built rather than drawn wrongly (see
  * Picture#refuse_unsupported_picture! and Lowering::NOT_LOWERED_YET, which are the whole list):
- * scenery that scrolls, bends, is drawn in other colors, is painted from a list, or has its cells
- * or its map changed; a see-through layer; a fade placed in the stack; sprites that turn, resize
- * or change layer; and a frame that ends while drawing is held inside an area.
+ * scenery that bends, is drawn in other colors or is painted from a list; a see-through layer; a
+ * fade placed in the stack; sprites that turn, resize or change layer; and a frame that ends
+ * while drawing is held inside an area.
  *
  * A sprite's pictures arrive ready to draw: which of its pixels show, and the colors of each
  * list it can be drawn with, are worked out when the game is built (see native/picture.rb).
@@ -16,6 +16,7 @@
 #include "rg_runtime.h"
 
 #include <stdlib.h>
+#include <string.h>
 
 enum { CELLS = RG_SCREEN_WIDTH * RG_SCREEN_HEIGHT };
 
@@ -75,6 +76,17 @@ static int32_t tint_white, tint_color, tint_steps;
  * first out moves every background between the two. */
 static int32_t *shown_backgrounds;
 static int32_t shown_count, shown_room;
+
+/* WHAT EACH BACKGROUND'S CELLS HOLD NOW (Reference @bg_maps): which of its maps, and the run's
+ * own copy of that map's cells, made the first time one of them is changed or another map is
+ * handed over. Until then they are the first map's, read where the game declared them. */
+typedef struct { int32_t which; int16_t *cells; } background_cells;
+static background_cells cells_now[RG_MAX_BACKGROUNDS];
+
+/* Where each background's window sits over its map, in pixels (Reference @bg_scroll): the screen's
+ * top left shows the map's (x, y). Nought until the game scrolls it. */
+typedef struct { int32_t x, y; } background_scroll;
+static background_scroll scrolls[RG_MAX_BACKGROUNDS];
 
 /* How a background is turned, once it has been turned or resized at all (Reference @bg_affine). */
 typedef struct { int32_t turned, angle, size, pivot_x, pivot_y; } background_turn;
@@ -295,11 +307,43 @@ int32_t rg_fade_steps(int32_t amount, int32_t fraction_bits, int32_t walked) {
 
 /* --- scenery --- */
 
+/* The map a background's cells hold now, as its entry of rg_game_maps. */
+static const int32_t *map_now(int32_t background) {
+  return rg_game_maps + RG_MAP_FIELDS * (background_field(background, RG_BG_FIRST_MAP) + cells_now[background].which);
+}
+
+static int32_t map_cols(int32_t background) { return map_now(background)[RG_MAP_COLS]; }
+static int32_t map_rows(int32_t background) { return map_now(background)[RG_MAP_ROWS]; }
+
+static int32_t in_map(int32_t background, int64_t row, int64_t col) {
+  return row >= 0 && row < map_rows(background) && col >= 0 && col < map_cols(background);
+}
+
+/* Reference#map_of: what a cell holds NOW, in the run's own copy where there is one. Below nought
+ * where it holds no tile. */
 static int32_t map_cell(int32_t background, int64_t row, int64_t col) {
-  if (row < 0 || row >= background_field(background, RG_BG_MAP_ROWS)) return -1;
-  if (col < 0 || col >= background_field(background, RG_BG_MAP_COLS)) return -1;
-  int64_t at = background_field(background, RG_BG_MAP_START) + row * background_field(background, RG_BG_MAP_COLS) + col;
-  return rg_game_map_cells[at];
+  if (!in_map(background, row, col)) return RG_CELL_EMPTY;
+  const int16_t *own = cells_now[background].cells;
+  const int16_t *cells = own ? own : rg_game_map_cells + map_now(background)[RG_MAP_CELLS];
+  return cells[row * map_cols(background) + col];
+}
+
+/* The background's cells become the run's own copy of map number +which+ of its maps, as that
+ * map was declared (Reference#mutable_map, and the copy in #exec_show_map). */
+static void copy_map(int32_t background, int32_t which) {
+  free(cells_now[background].cells);
+  cells_now[background] = (background_cells){which, NULL};
+  size_t count = (size_t)map_cols(background) * (size_t)map_rows(background);
+  int16_t *copy = malloc((count ? count : 1) * sizeof *copy);
+  if (!copy) rg_fault("no memory left for a background's own copy of its map");
+  memcpy(copy, rg_game_map_cells + map_now(background)[RG_MAP_CELLS], count * sizeof *copy);
+  cells_now[background].cells = copy;
+}
+
+/* The cells are the first map again, as declared (Reference's @bg_maps.delete). */
+static void forget_own_cells(int32_t background) {
+  free(cells_now[background].cells);
+  cells_now[background] = (background_cells){0, NULL};
 }
 
 /* One pixel of a cell's tile, or RG_SEE_THROUGH (Reference#background_pixel). */
@@ -312,8 +356,8 @@ static uint16_t tile_pixel(int32_t background, int32_t cell, int64_t tx, int64_t
 /* Reference#stamp_background: the whole map onto the picture, cell by cell. */
 void rg_background_stamp(int32_t background) {
   int32_t tile_w = background_field(background, RG_BG_TILE_W), tile_h = background_field(background, RG_BG_TILE_H);
-  for (int32_t row = 0; row < background_field(background, RG_BG_MAP_ROWS); row++) {
-    for (int32_t col = 0; col < background_field(background, RG_BG_MAP_COLS); col++) {
+  for (int32_t row = 0; row < map_rows(background); row++) {
+    for (int32_t col = 0; col < map_cols(background); col++) {
       int32_t cell = map_cell(background, row, col);
       if (cell < 0) continue;
       for (int32_t ty = 0; ty < tile_h; ty++)
@@ -410,6 +454,7 @@ static void stamp_in_stack_order(int32_t over) {
  * are stamped again over it. A turned background is painted through its turn at the next rebuild
  * rather than stamped as drawn. */
 void rg_background_put_up(int32_t background) {
+  if (background_field(background, RG_BG_ON_ARRIVAL)) forget_own_cells(background);
   remember_put_up(background);
   scenery_kept = 0;
   if (turns[background].turned) {
@@ -432,24 +477,69 @@ static int32_t showing(int32_t background) {
   return scene == RG_EVERY_SCENE || scene == current_scene;
 }
 
-/* Reference#paint_background_window, for a background never turned: the map wraps over the
- * console's whole grid, and a row or cell past the map shows what is behind. */
-static void paint_window(int32_t background) {
+/* Reference#exec_scroll_background */
+void rg_background_scroll(int32_t background, int32_t x, int32_t y) {
+  scrolls[background] = (background_scroll){x, y};
+  request_repaint();
+}
+
+/* Reference#exec_set_tile: the copy is made even when the cell turns out not to be there. */
+void rg_background_set_tile(int32_t background, int32_t col, int32_t row, int32_t tile) {
+  if (!cells_now[background].cells) copy_map(background, 0);
+  if (!in_map(background, row, col)) return;
+  int16_t *cell = &cells_now[background].cells[(int64_t)row * map_cols(background) + col];
+  if (*cell == tile) return;
+  *cell = (int16_t)tile;
+  request_repaint();
+}
+
+/* Reference#exec_show_map */
+void rg_background_show_map(int32_t background, int32_t which) {
+  if (which < 0 || which >= background_field(background, RG_BG_MAPS)) return;
+  copy_map(background, which);
+  request_repaint();
+}
+
+/* The map's pixel at (mx, my), neither below nought, put on the picture at (px, py). Where the
+ * map has no cell or no tile, or the tile is see-through, what is behind stays. */
+static void paint_map_pixel(int32_t background, int64_t mx, int64_t my, int64_t px, int64_t py) {
   int32_t tile_w = background_field(background, RG_BG_TILE_W), tile_h = background_field(background, RG_BG_TILE_H);
-  int64_t map_w = (int64_t)background_field(background, RG_BG_GRID_COLS) * tile_w;
-  int64_t map_h = (int64_t)background_field(background, RG_BG_GRID_ROWS) * tile_h;
-  if (map_w == 0 || map_h == 0) return;
+  int32_t cell = map_cell(background, my / tile_h, mx / tile_w);
+  if (cell < 0) return;
+  uint16_t color = tile_pixel(background, cell, mx % tile_w, my % tile_h);
+  if (color != RG_SEE_THROUGH) pixels[py * RG_SCREEN_WIDTH + px] = color;
+}
+
+/* Reference#paint_streamed_background_window: a background with a map too big for any grid, or
+ * with maps of different sizes, does not come round again. Past any edge of the map it is
+ * showing there are no cells: left of it and above it by the test here, right of it and below
+ * it because the map has no such cell to read. */
+static void paint_window_without_wrapping(int32_t background) {
   for (int64_t py = 0; py < RG_SCREEN_HEIGHT; py++) {
-    int64_t my = py % map_h;
-    if (my / tile_h >= background_field(background, RG_BG_MAP_ROWS)) continue;
+    int64_t my = (int64_t)scrolls[background].y + py;
+    if (my < 0) continue;
     for (int64_t px = 0; px < RG_SCREEN_WIDTH; px++) {
-      int64_t mx = px % map_w;
-      int32_t cell = map_cell(background, my / tile_h, mx / tile_w);
-      if (cell < 0) continue;
-      uint16_t color = tile_pixel(background, cell, mx % tile_w, my % tile_h);
-      if (color != RG_SEE_THROUGH) pixels[py * RG_SCREEN_WIDTH + px] = color;
+      int64_t mx = (int64_t)scrolls[background].x + px;
+      if (mx >= 0) paint_map_pixel(background, mx, my, px, py);
     }
   }
+}
+
+/* Reference#paint_background_window, for a background never turned: the window sits where the
+ * background is scrolled to, the map wraps over the console's whole grid, and a row or cell past
+ * the map shows what is behind. */
+static void paint_window(int32_t background) {
+  if (background_field(background, RG_BG_NEVER_WRAPS)) {
+    paint_window_without_wrapping(background);
+    return;
+  }
+  int64_t map_w = (int64_t)background_field(background, RG_BG_GRID_COLS) * background_field(background, RG_BG_TILE_W);
+  int64_t map_h = (int64_t)background_field(background, RG_BG_GRID_ROWS) * background_field(background, RG_BG_TILE_H);
+  if (map_w == 0 || map_h == 0) return;
+  int64_t off_x = floor_mod(scrolls[background].x, map_w), off_y = floor_mod(scrolls[background].y, map_h);
+  for (int64_t py = 0; py < RG_SCREEN_HEIGHT; py++)
+    for (int64_t px = 0; px < RG_SCREEN_WIDTH; px++)
+      paint_map_pixel(background, (off_x + px) % map_w, (off_y + py) % map_h, px, py);
 }
 
 /* IR::Affine.matrix: one over the size, held at the largest number the matrix holds; then the
@@ -672,9 +762,9 @@ void rg_screen_frame_ended(void) {
 
 /* Reference#exec_screen. Every kind of screen is a display of its own, so any change of kind
  * wipes the picture and takes the scenery down; arriving on a screen drawn from tiles puts up
- * again what every such screen shows (#put_up_always_up). A change between one page and two
- * keeps the same picture and wipes nothing. */
-void rg_screen_set(int32_t new_kind, int32_t two_pages) {
+ * again what every such screen shows, as declared (#put_up_always_up), and says so. A change
+ * between one page and two keeps the same picture and wipes nothing. */
+int32_t rg_screen_set(int32_t new_kind, int32_t two_pages) {
   int32_t crossing = kind >= 0 && kind != new_kind;
   if (crossing) {
     clear_to(0);
@@ -683,13 +773,17 @@ void rg_screen_set(int32_t new_kind, int32_t two_pages) {
   }
   kind = new_kind;
   show_pages(two_pages);
-  if (crossing && new_kind != RG_BITMAP)
-    for (int32_t i = 0; i < rg_game_picture_sizes[RG_SIZE_ALWAYS_UP]; i++) rg_background_put_up(rg_game_always_up[i]);
+  if (!crossing || new_kind == RG_BITMAP) return 0;
+  for (int32_t i = 0; i < rg_game_picture_sizes[RG_SIZE_ALWAYS_UP]; i++) {
+    forget_own_cells(rg_game_always_up[i]);
+    rg_background_put_up(rg_game_always_up[i]);
+  }
+  return 1;
 }
 
 /* Reference#cross_to_scene_screen */
-void rg_screen_cross_to(int32_t new_kind, int32_t two_pages) {
-  if (kind >= 0 && kind != new_kind) rg_screen_set(new_kind, two_pages);
+int32_t rg_screen_cross_to(int32_t new_kind, int32_t two_pages) {
+  return kind >= 0 && kind != new_kind ? rg_screen_set(new_kind, two_pages) : 0;
 }
 
 void rg_scene_enter(int32_t scene) { current_scene = scene; }

@@ -12,7 +12,7 @@ require_relative "../../examples/parallax"
 # far" is pinned in test_background_layers.rb; this confirms the example itself renders
 # and scrolls, on the interpreter oracle and on real hardware.
 class TestParallaxExample < Minitest::Test
-  runs_on :reference
+  runs_on :reference, :native
 
   include RubyGBA::Console::Hardware
 
@@ -35,7 +35,7 @@ class TestParallaxExample < Minitest::Test
   # grass along the bottom, a tree standing on it — and the tree's transparent corner
   # lets the sky show right beside its leaves.
   def test_the_layers_compose_at_rest
-    s = Reference.new.run(Parallax.program, max_steps: 300).screen
+    s = game_player.run(Parallax.program, max_steps: 300).screen
     assert_equal SKY,   s.pixel(4, 4),     "the far sky shows at the top, through the see-through near layer"
     assert_equal GRASS, s.pixel(4, 148),   "the near layer's grass shows along the bottom"
     assert_equal LEAF,  s.pixel(10, 138),  "a near-layer tree stands on the grass"
@@ -45,8 +45,8 @@ class TestParallaxExample < Minitest::Test
   # Hold right and the near layer slides (2px/frame): after 8 frames its trees have
   # moved 16px, so a tree now stands where sky was, while the sky still fills the top.
   def test_scrolling_slides_the_near_layer
-    s = Reference.new.input_each_frame { |f| f <= 8 ? [:right] : [] }.run(Parallax.program, max_steps: 400).screen
-    refute_equal LEAF, Reference.new.run(Parallax.program, max_steps: 300).screen.pixel(34, 138),
+    s = game_player.input_each_frame { |f| f <= 8 ? [:right] : [] }.run(Parallax.program, max_steps: 400).screen
+    refute_equal LEAF, game_player.run(Parallax.program, max_steps: 300).screen.pixel(34, 138),
                  "sanity: at rest there's no tree leaf at x34"
     assert_equal LEAF, s.pixel(34, 138), "a tree has slid over to x34 as the near layer scrolled"
     assert_equal SKY,  s.pixel(4, 4),    "the sky still fills the top"

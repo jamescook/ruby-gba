@@ -613,6 +613,190 @@ class TestNativePicture < Minitest::Test
     refute_includes last.picture, Color.resolve(:blue), "and nothing of the old field should be put back"
   end
 
+  # Two backgrounds scrolled at their own speeds under a sprite. The far one goes left, below
+  # nought and past where its picture comes round again; the near one goes up and off the rows it
+  # was written with. So both edges of the grid a background scrolls over are crossed, each way.
+  def test_backgrounds_scroll_at_their_own_speeds_and_come_round_again
+    program = program_of do
+      screen :tiled
+      image :turf, "#" => :green, "o" => :yellow do ("#o######\n" * 3) + ("########\n" * 5) end
+      image :post, "#" => :orange, "." => :transparent do "..####..\n" * 8 end
+      image :ball, "o" => :white, "." => :transparent do "..oooo..\n" * 8 end
+      tiles :far, "#" => :turf
+      tiles :near, "|" => :post
+      far = background :far, tiles: :far, map: ["# ## ### ####"] * 12
+      near = background :near, tiles: :near, map: ["|   |     |"] * 20
+      ball = sprite :ball, at: [100, 60]
+      game_loop do
+        far.scroll_by(-37, 0)
+        near.scroll_by(5, -9)
+        ball.move :right, by: 1
+      end
+    end
+
+    assert_native_matches_reference program, frames: 9
+
+    assert_operator different_pictures_in(program, frames: 9), :>=, 9, "every frame should show the scenery somewhere new"
+  end
+
+  # Cells of the scenery become other tiles as the game counts: a wall grows over floor and over
+  # cells that held nothing, and another opens. A cell off any edge of the map is left alone.
+  def test_cells_of_a_background_change_while_the_game_runs
+    program = program_of do
+      screen :tiled
+      image :brick, "#" => :red, "o" => :orange do "#o######\n" * 8 end
+      image :floor, "#" => :blue do "########\n" * 8 end
+      image :ball, "o" => :white, "." => :transparent do "..oooo..\n" * 8 end
+      tiles :room, "#" => :brick, "." => :floor
+      room = background :room, tiles: :room, map: ["##########", "#  ......#", "#........#", "##########"]
+      n = var :n, 0
+      ball = sprite :ball, at: [20, 4]
+      game_loop do
+        room.set_tile n, 1, "#"
+        room.set_tile 9 - n, 3, "."
+        room.set_tile 10, 1, "." # one past the right edge, which is the next row's first cell in memory
+        room.set_tile(-1, 2, ".")
+        room.set_tile 1, -1, "."
+        room.set_tile 1, 4, "."
+        n.add! 1
+        ball.move :right, by: 2
+      end
+    end
+
+    last = assert_native_matches_reference(program, frames: 7)
+
+    assert_equal Color.resolve(:blue), last.picture[(3 * 8 * WIDTH) + (9 * 8)], "the bottom wall should have opened"
+    assert_equal Color.resolve(:red), last.picture[(1 * 8 * WIDTH) + (2 * 8)], "and a wall grown where there was nothing"
+  end
+
+  # A background handed its maps by a number read off a list: out to the second, back to the
+  # first, on to the third, and then a number that names none. A cell changed in the first map is
+  # as declared again when that map comes back, and a cell changed in the second shows while the
+  # second does.
+  def test_a_background_is_handed_another_of_its_maps
+    program = program_of do
+      screen :tiled
+      image :brick, "#" => :red, "o" => :orange do "#o######\n" * 8 end
+      image :floor, "#" => :blue do "########\n" * 8 end
+      image :pond, "#" => :cyan do "########\n" * 8 end
+      tiles :rooms, "#" => :brick, "." => :floor, "~" => :pond
+      rooms = background :rooms, tiles: :rooms, map: {
+        hall: ["######", "#....#", "#....#", "######"],
+        cave: ["##..##", "#.~~.#", "#.~~.#", "##..##"],
+        pool: ["~~~~~~", "~....~", "~....~", "~~~~~~"]
+      }
+      order = table :order, [0, 0, 1, 1, 0, 0, 2, 2, 5, 5, 5]
+      n = var :n, 0
+      game_loop do
+        (n == 1).then { rooms.set_tile 2, 1, "~" }
+        (n == 3).then { rooms.set_tile 0, 0, "." }
+        rooms.show_map order[n]
+        n.add! 1
+      end
+    end
+
+    moments = reference_snapshots(program, frames: 11, buttons: {})
+    corner = ->(moment) { moment.picture[0] }
+    changed = ->(moment) { moment.picture[(1 * 8 * WIDTH) + (2 * 8)] }
+
+    assert_native_matches_reference program, frames: 11
+
+    assert_equal %i[red blue cyan].map { |name| Color.resolve(name) }, moments.map(&corner).uniq.first(3),
+                 "the hall, then the cave with its corner opened, then the pool"
+    assert_equal Color.resolve(:cyan), changed.call(moments[2]), "the cell changed in the hall should show there"
+    assert_equal Color.resolve(:blue), changed.call(moments[6]), "and be as declared when the hall comes back"
+    assert_equal moments[8].picture, moments.last.picture, "a number naming no map should leave the pool up"
+  end
+
+  # Scenery left showing its second map with a cell changed is as declared the next time it is
+  # put up. A scene's own is put up when the scene takes over again; what every screen shows
+  # stays as the game left it through that, and is put up again only once a painted screen has
+  # been between. After that it can be handed its second map again, which it could not if what
+  # says which map it shows had been left saying the second.
+  def test_scenery_goes_back_up_as_declared
+    program = program_of do
+      screen :tiled
+      state = var :state, 0
+      ticks = var :ticks, 0
+      image :brick, "#" => :red, "o" => :orange do "#o######\n" * 8 end
+      image :floor, "#" => :blue do "########\n" * 8 end
+      image :pond, "#" => :cyan do "########\n" * 8 end
+      tiles :rooms, "#" => :brick, "." => :floor, "~" => :pond
+      shared = background :shared, tiles: :rooms, map: { first: ["      ####"] * 2, second: ["      ...."] * 2 }
+      order = table :order, [0, 0, 0, 0, 0, 1, 1, 1, 0, 0, 0, 2, 2, 2, 0, 0, 0, 0]
+      scene(:room) do
+        own = background :own, tiles: :rooms, map: { first: ["####"] * 2, second: ["...."] * 2 }
+        (ticks == 2).then do
+          own.show_map 1
+          shared.show_map 1
+        end
+        (ticks == 3).then do
+          own.set_tile 0, 0, "~"
+          shared.set_tile 9, 0, "~"
+        end
+        (ticks == 15).then { shared.show_map 1 }
+      end
+      scene(:bare) {}
+      scene(:painted) do
+        screen :bitmap
+        fill_rect 100, 100, 20, 20, :yellow
+      end
+      game_loop do
+        ticks.add! 1
+        state.set! order[ticks]
+        case_var :state do
+          when_val 0, :room
+          when_val 1, :bare
+          when_val 2, :painted
+        end
+      end
+    end
+
+    moments = reference_snapshots(program, frames: 18, buttons: {})
+    own_corner = ->(moment) { moment.picture[0] }
+    shared_corner = ->(moment) { moment.picture[9 * 8] }
+
+    assert_native_matches_reference program, frames: 18
+
+    assert_equal Color.resolve(:cyan), own_corner.call(moments[4]), "the scene's own cell should have changed"
+    assert_equal Color.resolve(:red), own_corner.call(moments[9]), "and be as declared when the scene is back"
+    assert_equal Color.resolve(:cyan), shared_corner.call(moments[9]), "while what every screen shows is as it was left"
+    assert_equal Color.resolve(:red), shared_corner.call(moments[14]), "until a painted screen has been between"
+    assert_equal Color.resolve(:blue), shared_corner.call(moments.last), "after which it can be handed its second map again"
+  end
+
+  # A background with a small map and one bigger than any grid the console has. Neither comes
+  # round again: the window is walked off every edge of each, and past an edge the layer behind
+  # shows.
+  def test_a_map_bigger_than_the_grid_shows_nothing_past_its_edges
+    field = Array.new(66) { |row| Array.new(70) { |col| ((row + col) % 3).zero? ? "." : "#" }.join }
+    program = program_of do
+      screen :tiled
+      image :turf, "#" => :green, "o" => :yellow do "#o######\n" * 8 end
+      image :path, "#" => :orange do "########\n" * 8 end
+      image :cloud, "#" => :cyan do "########\n" * 8 end
+      tiles :land, "#" => :turf, "." => :path
+      tiles :sky, "#" => :cloud
+      background :sky, tiles: :sky, map: ["#" * 30] * 20
+      world = background :world, tiles: :land, map: { hut: ["####", "#..#", "####"], field: field }
+      n = var :n, 0
+      game_loop do
+        world.show_map n / 4
+        world.scroll_to (n * 67) - 100, (n * 53) - 60
+        n.add! 1
+      end
+    end
+
+    moments = reference_snapshots(program, frames: 15, buttons: {})
+
+    assert_native_matches_reference program, frames: 15
+
+    assert_equal Color.resolve(:cyan), moments[2].picture[0], "the sky should show left of and above the hut"
+    assert_includes moments[2].picture, Color.resolve(:orange), "with the hut in view"
+    refute_includes moments[6].picture, Color.resolve(:cyan), "the field should fill the view from its middle"
+    assert_equal [Color.resolve(:cyan)], moments.last.picture.uniq, "and nothing of it comes round again past its far corner"
+  end
+
   def test_the_screen_is_white_until_the_first_frame
     program = program_of do
       screen :bitmap

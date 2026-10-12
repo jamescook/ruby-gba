@@ -10,7 +10,7 @@ require_relative "../../examples/tiles"
 # renders the room — the right tile in the right cell — on the interpreter oracle
 # and on real hardware.
 class TestTilesExample < Minitest::Test
-  runs_on :reference
+  runs_on :reference, :native
 
   # Points chosen from the map (examples/tiles.rb), one per tile kind:
   #   (3,3)    — inside the top-left wall tile (cell 0,0)
@@ -21,7 +21,7 @@ class TestTilesExample < Minitest::Test
   GRASS = [152, 24].freeze
 
   def test_each_tile_kind_lands_where_the_map_puts_it
-    i = Reference.new.run(Tiles.program)
+    i = game_player.run(Tiles.program)
     assert_equal Color.resolve(:gray),  i.screen.pixel(*WALL),  "the wall border renders gray"
     assert_equal Color.resolve(:blue),  i.screen.pixel(*WATER), "the water pool renders blue"
     assert_equal Color.resolve(:green), i.screen.pixel(*GRASS), "the grass patch renders green"
