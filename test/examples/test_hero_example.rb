@@ -14,8 +14,6 @@ require_relative "../../examples/hero"
 # off. Asserted on the interpreter oracle and on real hardware. The player never touches
 # object memory, tile numbers, a scroll register or save memory.
 class TestHeroExample < Minitest::Test
-  include RubyGBA::Console::Hardware
-
   CENTER = [120, 80].freeze # the middle of the screen, where the hero's body always sits
 
   # The game opens on its file screen. A on the first frame picks FILE 1, whose menu opens
@@ -30,6 +28,14 @@ class TestHeroExample < Minitest::Test
     xs.any? { |x| ys.any? { |y| yield(x, y) } }
   end
 
+  # --- Driving the game ---
+  #
+  # The tests that run on the console bring the game to a place with a script (see
+  # `console_after`, below): what to press, said the way a person would say it. The ones
+  # that run on the interpreter, here, still say which button is down on which frame. That
+  # is not a choice between two styles: a script plays in the emulator and does not play
+  # on the interpreter yet, so these keep their own input until it does.
+
   # Start a new game, then play +frames+ more, holding what the block gives for each frame
   # of the walk (counted from 1).
   def play(frames:, store: SaveImage.new, &walk)
@@ -42,6 +48,35 @@ class TestHeroExample < Minitest::Test
   # frame from power-on.
   def power_on(store, frames:, presses: {})
     Reference.new(save: store).input_each_frame { |f| Array(presses[f]) }.run(Hero.program, frames: frames)
+  end
+
+  # THE WAY INTO THE GAME ON THE CONSOLE, as a lead-in every console test here starts with:
+  # the game opens on its file screen, A picks FILE 1, whose menu opens on NEW GAME since
+  # the file is empty, and A again starts the game. Nothing in it is counted, so each
+  # test's own script begins with the hero standing in the world.
+  def new_game_lead_in
+    RubyGBA.playthrough "hero: a new game" do
+      wait frames: 10
+      press :a
+      wait frames: 4
+      press :a
+      wait frames: 4
+    end
+  end
+
+  # THE CARTRIDGE AS IT SHIPS, built the way `ruby examples/hero.rb` builds it: measured, and
+  # its code placed by what the measuring found. The tests that say the game really renders
+  # on the console run this one, since it is the one a player gets.
+  def shipped_hero = Hero.build_rom(err: StringIO.new)
+
+  # The same game built without the measuring, which is quicker and is the same game: for
+  # the tests that are about what the game does and not about how it was laid out.
+  def unmeasured_hero = Hero.build_rom(err: StringIO.new, profile: false)
+
+  # The running cartridge after +steps+ have been played on a console from a new game, as
+  # the last frame left it.
+  def console_after(name, rom, &steps)
+    RubyGBA.playthrough("hero: #{name}", &steps).play(rom, lead_in: new_game_lead_in).game
   end
 
   def test_the_example_builds_clean
@@ -141,11 +176,12 @@ class TestHeroExample < Minitest::Test
     assert_equal white, walked.pixel(*now), "where the hero is now, 40 steps of 2 pixels east"
   end
 
-  # The console's frames are counted from power-on rather than from the first pass of the
-  # game, so it starts its game the way the other console tests here do (NEW_GAME, below).
+  # On the console: A opens the sign, and its words type in while the map keeps its dot.
   def test_the_console_draws_the_sign_and_the_map_as_the_interpreter_does
-    keys = NEW_GAME.call(->(f) { f.between?(2, 3) ? KEY_A : 0 })
-    v = assert_emulator_loads_rom(Hero.build_rom(err: StringIO.new, profile: false), frames: 40, keys: keys)
+    v = console_after "read the sign", unmeasured_hero do
+      press :a
+      wait frames: 26
+    end
 
     assert v.pixel_is?(MAP_CORNER[0] + (Hero::START_X / 8), MAP_CORNER[1] + (Hero::START_Y / 8), :white), "the map's first dot"
     assert WORDS[:xs].any? { |x| WORDS[:ys].any? { |y| v.pixel_is?(x, y, :white) } }, "the sign's words"
@@ -163,8 +199,12 @@ class TestHeroExample < Minitest::Test
 
   def test_the_console_shows_the_map_on_the_file_screen_too
     start = [MAP_CORNER[0] + (Hero::START_X / 8), MAP_CORNER[1] + (Hero::START_Y / 8)]
-    keys = NEW_GAME.call(->(f) { f <= 16 ? KEY_RIGHT : (f.between?(18, 19) ? KEY_SELECT : 0) })
-    v = assert_emulator_loads_rom(Hero.build_rom(err: StringIO.new, profile: false), frames: 40, keys: keys)
+    v = console_after "walk, then back to the file screen", unmeasured_hero do
+      hold :right, frames: 16
+      wait frames: 1
+      press :select
+      wait frames: 12
+    end
 
     refute v.red?(*CENTER), "on the file screen"
     assert v.pixel_is?(*start, :white), "the map's first dot, got 0x#{format('%04X', v.pixel_gba(*start))}"
@@ -230,15 +270,26 @@ class TestHeroExample < Minitest::Test
   end
 
   # The console: a new game, a walk, START to save, SELECT back to the file screen, and
-  # CONTINUE — to the same place the interpreter's hero reaches with the same presses.
+  # CONTINUE — to the same place the interpreter's hero reaches with the same walk. The
+  # interpreter is told its presses by frame, as every interpreter test here is, and the
+  # console by a script; what the two share is the walk itself, seventeen frames of RIGHT.
   def test_the_console_saves_and_continues_the_same_walk
     presses = { 4 => :a, 6 => :a, 30 => :start, 34 => :select, 38 => :a, 42 => :a }
     walk = ->(f) { presses.fetch(f) { f.between?(8, 24) ? :right : nil } }
     oracle = Reference.new.input_each_frame { |f| Array(walk.call(f)) }.run(Hero.program, frames: 50)
 
-    keys = { a: KEY_A, start: KEY_START, select: KEY_SELECT, up: KEY_UP, right: KEY_RIGHT }
-    rom = Hero.build_rom(err: StringIO.new, profile: false)
-    v = assert_emulator_loads_rom(rom, frames: 56, keys: ->(f) { keys.fetch(walk.call(f), 0) }, vars: rom.var_addresses)
+    v = console_after "walk, save, and continue", unmeasured_hero do
+      hold :right, frames: 17
+      wait frames: 5
+      press :start
+      wait frames: 3
+      press :select
+      wait frames: 3
+      press :a
+      wait frames: 3
+      press :a
+      wait frames: 14
+    end
 
     %i[px py steps].each { |name| assert_equal oracle[name], v.var(name), name.to_s }
     assert v.red?(*CENTER), "the hero is back on screen after continuing"
@@ -246,11 +297,9 @@ class TestHeroExample < Minitest::Test
 
   # --- Hardware (the emulator): the follow-cam really renders and scrolls ---
 
-  # The console opens on the file screen too, so every run below picks FILE 1 and NEW GAME first.
-  NEW_GAME = ->(keys) { ->(f) { f.between?(3, 4) || f.between?(7, 8) ? KEY_A : (f > 10 ? keys.call(f - 10) : 0) } }
-
   def test_the_follow_cam_renders_on_the_console
-    v = assert_emulator_loads_rom(Hero.build_rom(err: StringIO.new), frames: 16, keys: NEW_GAME.call(->(_) { 0 }))
+    v = console_after("stand", shipped_hero) { wait frames: 6 }
+
     assert v.red?(*CENTER),
            "the hero renders centered on hardware, got 0x#{format('%04X', v.pixel_gba(*CENTER))}"
     assert blue_in?(70..105, 72..92) { |x, y| v.blue?(x, y) },
@@ -259,9 +308,9 @@ class TestHeroExample < Minitest::Test
 
   # The console draws the mist over the hero too, and works the amount out as it goes.
   def test_the_mist_thickens_over_the_hero_on_the_console
-    rom = Hero.build_rom(err: StringIO.new)
-    clear = assert_emulator_loads_rom(rom, frames: 40, keys: NEW_GAME.call(->(_) { 0 })).pixel_gba(*CENTER)
-    misted = assert_emulator_loads_rom(rom, frames: 40, keys: NEW_GAME.call(->(_) { KEY_UP })).pixel_gba(*CENTER)
+    rom = shipped_hero
+    clear = console_after("stand", rom) { wait frames: 30 }.pixel_gba(*CENTER)
+    misted = console_after("walk north", rom) { hold :up, frames: 30 }.pixel_gba(*CENTER)
 
     assert_equal Color.resolve(:red), clear, "the air is clear until the hero walks north"
     assert_operator misted, :>, clear,
@@ -269,8 +318,11 @@ class TestHeroExample < Minitest::Test
   end
 
   def test_the_world_scrolls_under_the_hero_on_the_console
-    v = assert_emulator_loads_rom(Hero.build_rom(err: StringIO.new), frames: 55,
-                                                                     keys: NEW_GAME.call(->(f) { f <= 30 ? KEY_RIGHT : 0 }))
+    v = console_after "walk east", shipped_hero do
+      hold :right, frames: 30
+      wait frames: 15
+    end
+
     assert v.red?(*CENTER),
            "the hero is still centered after walking, got 0x#{format('%04X', v.pixel_gba(*CENTER))}"
     assert blue_in?(8..46, 72..92) { |x, y| v.blue?(x, y) },
