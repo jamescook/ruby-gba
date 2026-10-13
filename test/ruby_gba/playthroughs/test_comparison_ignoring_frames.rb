@@ -11,6 +11,8 @@ require "comparison_games"
 # and, later, draws three specks for good: two differences, on frames asked of that cartridge
 # on its own.
 class TestComparisonIgnoringFrames < Minitest::Test
+  runs_on :reference
+
   include ComparisonGames
 
   private def flashing_then_specked = walker(turns_red_at: 15, red_for: 3, specks: 3)

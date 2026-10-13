@@ -14,6 +14,8 @@ require_relative "../../../examples/hero"
 # purpose. Where the two first differ is worked out by playing a cartridge on its own and
 # asking the game — never read off the comparison, which is the thing being tested.
 class TestComparison < Minitest::Test
+  runs_on :reference
+
   include ComparisonGames
 
   # A white square on a tiled screen, put there one of two ways: as a tile of a background,

@@ -14,6 +14,8 @@ require "stringio"
 #
 # What the two backends DRAW as an area arrives is in test/ruby_gba/builder/test_big_maps.rb.
 class TestTileSetSwap < Minitest::Test
+  runs_on :reference
+
   FRAME_ROUTINE = RubyGBA::Cartridge::BuildRecord::FRAME_ROUTINE
 
   # A ground and a layer of scenery over it, each with two maps bigger than the console's

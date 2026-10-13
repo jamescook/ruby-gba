@@ -8,6 +8,8 @@ require "differential"
 # goblin in one room and a bat in the next: the list is a slot, and `recolor` says what
 # is in it.
 class TestRecolor < Minitest::Test
+  runs_on :reference
+
   include Differential
 
   OWN = [:transparent, :red, :green].freeze

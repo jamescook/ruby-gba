@@ -14,6 +14,8 @@ require "png_reading"
 # after the box has walked. What each showed on the drifting frame is found by playing it on
 # its own to that frame.
 class TestComparisonDriftReport < Minitest::Test
+  runs_on :reference
+
   include ComparisonGames
   include PNGReading
 

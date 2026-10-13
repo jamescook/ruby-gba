@@ -9,6 +9,8 @@ require "png_reading"
 # script or by a tape, saying how many frames went by and where each moment fell, and
 # writing what was asked for: pictures, the tape, the save memory.
 class TestCommandLinePlay < Minitest::Test
+  runs_on :reference
+
   include CLIPlaying
   include PNGReading
 

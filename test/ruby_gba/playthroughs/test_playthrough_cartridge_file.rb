@@ -16,6 +16,8 @@ require_relative "../../../examples/hero"
 # build record behind: a white box that walks two pixels a frame from column 20 while RIGHT is
 # down. Nothing anybody else made is ever played.
 class TestPlaythroughCartridgeFile < Minitest::Test
+  runs_on :reference
+
   include ComparisonGames
 
   # The walker written to a file in a folder of its own. The block is handed the file's path

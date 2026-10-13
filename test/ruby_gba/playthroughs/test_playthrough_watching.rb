@@ -13,6 +13,8 @@ require "png_reading"
 # The game under test says how far along it is: it ticks once a frame, and it paints the screen
 # red from its tenth tick, blue before.
 class TestPlaythroughWatching < Minitest::Test
+  runs_on :reference
+
   include PNGReading
 
   private def ticking_game
