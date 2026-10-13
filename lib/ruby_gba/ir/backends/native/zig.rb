@@ -169,28 +169,26 @@ module RubyGBA
           # printed. One still running after +seconds+ is stopped and reported: a game that loops
           # without ever waiting for the screen never ends on its own, where the interpreter
           # stops it at its step budget.
+          #
+          # WHAT IT READS AND PRINTS ARE FILES, read back once it has ended, and not pipes read
+          # while it runs. A pipe holds a little and then makes the program wait for its reader,
+          # and a reader in Ruby takes its turn again for every piece, behind every other thread
+          # that is busy, since Ruby runs one thread at a time. Beside a few busy threads a
+          # program that ends in a second took minutes that way, and +seconds+ ran out on a
+          # program that was only waiting to be read. Through files its run is its own.
           def run_program(exe, args: [], input: "", env: {}, seconds: 60)
-            Open3.popen3(env, exe, *args.map(&:to_s)) do |stdin, stdout, stderr, waiter|
-              writer = Thread.new do
-                stdin.write(input)
-              rescue Errno::EPIPE
-                nil # it stopped reading, which is its business
-              ensure
-                stdin.close
-              end
-              out = Thread.new { stdout.read }
-              err = Thread.new { stderr.read }
+            Dir.mktmpdir("ruby-gba-run") do |dir|
+              fed, printed, complained = %w[fed printed complained].map { |name| File.join(dir, name) }
+              File.binwrite(fed, input)
+              pid = Process.spawn(env, exe, *args.map(&:to_s), in: fed, out: printed, err: complained)
+              waiter = Process.detach(pid)
               finished = waiter.join(seconds)
-              Process.kill(:KILL, waiter.pid) unless finished
-              # Everything it printed is read before anything is raised: leaving the block closes
-              # the streams, and a reader still reading one would fail on its own thread.
-              writer.join
-              printed = out.value
-              complaint = err.value
+              Process.kill(:KILL, pid) unless finished
+              status = waiter.value
               raise Error, "#{File.basename(exe)} was still running after #{seconds} seconds, and was stopped" unless finished
-              raise Error, "#{File.basename(exe)} stopped (#{waiter.value}):\n#{complaint}" unless waiter.value.success?
+              raise Error, "#{File.basename(exe)} stopped (#{status}):\n#{File.read(complained)}" unless status.success?
 
-              printed
+              File.read(printed)
             end
           end
 

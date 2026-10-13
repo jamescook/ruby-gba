@@ -20,9 +20,13 @@ module RubyGBA
         # The class methods read what the program prints, a line at a time, and are the one
         # place that knows how it prints it.
         class HeadlessRun
-          # How long one run may take before it is taken to be stuck: a game that loops without
-          # ever waiting for the screen never ends on its own.
-          LONGEST_RUN_SECONDS = 60
+          # How long the program may go without printing a line before it is taken to be stuck: a
+          # game that loops without ever waiting for the screen never ends on its own.
+          #
+          # It is the silence that is timed, and not the whole run. Every frame's answer waits
+          # its turn among Ruby's threads, which run one at a time, so a run of many frames
+          # beside busy threads takes far longer than the game does, and is not stuck.
+          LONGEST_SILENCE_SECONDS = 60
 
           # The picture the run ended on, read the way the interpreter's screen is: #pixel gives
           # the colour at (x, y) as the player would see it, nil off the screen, #shown every
@@ -81,6 +85,7 @@ module RubyGBA
           # The interpreter's options, so a test makes either the same way. +save+ — the save
           # memory a game starts with — is refused until the native lowering can hold one.
           def initialize(save: nil)
+            @longest_silence = LONGEST_SILENCE_SECONDS
             @held = []
             @vars = {}
             @audio = []
@@ -93,6 +98,14 @@ module RubyGBA
           # (#input_each_frame) decides instead when there is one. Gives back self.
           def hold(*buttons)
             @held = buttons
+            self
+          end
+
+          # Stop the program once it has printed nothing for +seconds+, in place of
+          # LONGEST_SILENCE_SECONDS. This player's own, for a test of the limit itself. Gives
+          # back self.
+          def stopping_when_silent_for(seconds)
+            @longest_silence = seconds
             self
           end
 
@@ -162,10 +175,12 @@ module RubyGBA
             @moments = []
             Open3.popen3(exe, frames.to_s, *options) do |stdin, stdout, stderr, waiter|
               complaint = Thread.new { stderr.read }
-              deadline = Process.clock_gettime(Process::CLOCK_MONOTONIC) + LONGEST_RUN_SECONDS
+              # A program that is stopped has its streams closed under this reader, which is
+              # reported where the program is (#next_line) and not a second time from here.
+              complaint.report_on_exception = false
               frame = 0
               rows = []
-              while (line = next_line(stdout, deadline, waiter, exe))
+              while (line = next_line(stdout, waiter, exe))
                 case line
                 when /\Aframe (\d+)\z/ then frame = Integer(Regexp.last_match(1))
                                             rows = []
@@ -198,13 +213,12 @@ module RubyGBA
                                    sounds: @audio.size)
           end
 
-          # The next line the program printed, or nil once it has finished; a program still
-          # running at +deadline+ is stopped.
-          def next_line(stdout, deadline, waiter, exe)
-            remaining = deadline - Process.clock_gettime(Process::CLOCK_MONOTONIC)
-            unless remaining.positive? && stdout.wait_readable(remaining)
+          # The next line the program printed, or nil once it has finished; a program that has
+          # printed nothing for as long as it may stay silent is stopped.
+          def next_line(stdout, waiter, exe)
+            unless stdout.wait_readable(@longest_silence)
               Process.kill(:KILL, waiter.pid)
-              raise Zig::Error, "#{File.basename(exe)} was still running after #{LONGEST_RUN_SECONDS} seconds, and was stopped"
+              raise Zig::Error, "#{File.basename(exe)} printed nothing for #{@longest_silence} seconds, and was stopped"
             end
             stdout.gets&.chomp
           end
