@@ -169,18 +169,18 @@ class TestPlaythroughSaves < Minitest::Test
 
   # --- a save that cannot be one, each refused before anything is played ---
 
-  # A save file is as big as the chip it is the memory of. A file of any other size is
-  # something else given in its place — a tape, here — or the save of a chip this
-  # framework's cartridges do not have. Either way it says how big the file is and how big
-  # one can be.
-  def test_a_file_that_is_not_the_size_of_any_save_memory_is_refused
+  # A save file is as big as the chip it is the memory of, and this cartridge's is known. A
+  # file of any other size is something else given in its place — a tape, here — and is
+  # refused with how big it is and how big this cartridge's save memory is.
+  def test_a_file_that_is_not_the_size_of_the_cartridges_save_memory_is_refused
     Dir.mktmpdir("saves") do |folder|
-      path = walk_and_save(4).play(hero).tape.write(File.join(folder, "walk.tape"))
-      err = assert_raises(ArgumentError) { file_screen.play(nil, save: path) }
+      cartridge = hero
+      path = walk_and_save(4).play(cartridge).tape.write(File.join(folder, "walk.tape"))
+      err = assert_raises(ArgumentError) { file_screen.play(cartridge, save: path) }
 
       assert_match(/walk\.tape/, err.message)
       assert_match(/#{File.size(path)} bytes/, err.message)
-      assert_match(/8K, 32K, 64K, 128K/, err.message)
+      assert_match(/32K/, err.message)
     end
   end
 

@@ -192,10 +192,14 @@ module RubyGBA
       #
       # Ruby's bug: https://bugs.ruby-lang.org/issues/22382. Once a release with the fix is the
       # oldest Ruby this supports, File.binwrite is safe again.
-      def write(path)
+      def write(path) = self.class.write_bytes(path, @buffer)
+
+      # Write +bytes+ to a file that way: for a cartridge's own bytes, and for anything else
+      # that is a frozen string several Ractors may write at once.
+      def self.write_bytes(path, bytes)
         File.open(path, "wb") do |file|
-          written = file.syswrite(@buffer)
-          written += file.syswrite(@buffer.byteslice(written..)) while written < @buffer.bytesize
+          written = file.syswrite(bytes)
+          written += file.syswrite(bytes.byteslice(written..)) while written < bytes.bytesize
         end
       end
 

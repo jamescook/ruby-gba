@@ -37,7 +37,8 @@ module RubyGBA
     # FRAMES ARE COUNTED FROM 1. Frame 1 is the first one the playthrough plays, and a moment
     # is the frame that had just been played when the script named it.
     #
-    # It plays in the emulator, on the cartridge the build made. Without the emulator it stops
+    # It plays in the emulator, on a cartridge the build made or on a cartridge file — which
+    # is how a cartridge the framework did not build is played. Without the emulator it stops
     # where the cartridge is opened, with what to install.
     class Playthrough
       # What playing one gave back. +frames+ is how many were played, +moments+ the frame each
@@ -80,7 +81,7 @@ module RubyGBA
       # since a script says its moments where it is declared.
       def compare(first, second, **settings)
         comparison = Comparison.new(first, second, moment_names, **settings)
-        comparison.run(play(first).tape)
+        comparison.run(play(comparison.first).tape)
       end
 
       # The names of the moments the script declares, in the order it declares them.
@@ -88,52 +89,83 @@ module RubyGBA
 
       # A console switched on with +cartridge+ in it and no frame played yet: the reader over
       # one running cartridge that everything here plays on and asks. +save+ is what the
-      # cartridge's save memory holds, an IR::SaveImage. It is a copy that goes into the
-      # console, so the one handed over is as it was afterwards and can start another.
+      # cartridge's save memory holds. It is a copy that goes into the console, so the one
+      # handed over is as it was afterwards and can start another.
       def self.power_on(cartridge, save: nil)
+        cartridge = cartridge_from(cartridge)
         Verifier.new(cartridge, frames: 0, vars: cartridge.var_addresses, save: save&.dup)
       end
 
-      # THE SAVE MEMORY A PLAYING OF +cartridge+ STARTS WITH, from what was handed over: the
-      # save another playing handed back, or the path of a save file, which is that memory
-      # byte for byte. Nothing handed over is no save, and a cartridge nobody has played.
-      #
-      # It is a copy, sized for the cartridge. A chip cannot change size, so a save from a
-      # cartridge with more or less save memory than this one is refused here, before the
-      # console is switched on.
-      def self.starting_save(given, cartridge)
-        return if given.nil?
+      # THE CARTRIDGE THAT WAS HANDED OVER, which is one the build made or the path of a
+      # cartridge file — a cartridge somebody else made, or one of this framework's written
+      # to disk. A path is read into a CartridgeFile, which can be run and looked at like
+      # any other and has no names for anything in it. A cartridge passes straight through,
+      # so asking twice reads a file once.
+      def self.cartridge_from(given)
+        return given if given.respond_to?(:buffer) && given.respond_to?(:built)
 
-        save = given.is_a?(IR::SaveImage) ? given.dup : save_file_at(given)
-        program = cartridge.source_program
-        save.use_memory!(IR::SaveLayout.memory_of(program)) if program
-        save
+        unless path?(given)
+          raise ArgumentError, "A playthrough was given #{given.inspect} to play. It must be a cartridge the build made " \
+                               "(`RubyGBA.build`, `game.build_rom`), or the path of a cartridge file."
+        end
+        if bytes_given_as_path?(given)
+          raise ArgumentError, "A playthrough was given #{given.bytesize} bytes of data to play, and not the path of a " \
+                               "cartridge file. Write the bytes to a file, and give the path of that file."
+        end
+        CartridgeFile.new(given)
+      end
+
+      # THE SAVE THAT WAS HANDED OVER, as save memory: the save another playing handed back,
+      # or the path of a save file, which is that memory byte for byte. Nothing handed over
+      # is no save, and a cartridge nobody has played.
+      #
+      # A save the framework has a model of is copied, so what was handed over is left as it
+      # was. One it only has the bytes of cannot be changed, and is handed on as it is.
+      def self.save_from(given)
+        return given if given.nil? || given.is_a?(SaveBytes)
+        return given.dup if given.is_a?(IR::SaveImage)
+
+        unless path?(given)
+          raise ArgumentError, "`save:` was #{given.inspect}. It must be the save a playthrough handed back " \
+                               "(`played.save`), or the path of a save file."
+        end
+        if bytes_given_as_path?(given)
+          raise ArgumentError, "`save:` was #{given.bytesize} bytes of data, and not the path of a save file. To start from " \
+                               "the bytes of a save, give `RubyGBA::IR::SaveImage.from_sav(bytes)`."
+        end
+        raise ArgumentError, "There is no save file at #{given}. Give the path of a save file." unless File.file?(given)
+
+        SaveBytes.save_holding(File.binread(given), from: "The save file at #{given}")
+      end
+
+      # +save+ MADE TO FIT +cartridge+, or refused. A cartridge this framework built says how
+      # much save memory it has, and a chip cannot change size: a save of another size came
+      # from another game, or is not a save at all. A cartridge it did not build says
+      # nothing, so its save is taken as it comes.
+      def self.save_fitted_to(cartridge, save)
+        program = cartridge.source_program or return save
+        memory = IR::SaveLayout.memory_of(program)
+        if save.is_a?(SaveBytes)
+          raise ArgumentError, "#{save.from} is #{save.bytesize} bytes, and this cartridge has #{memory.kilobytes}K of " \
+                               "save memory. A save file is as big as its cartridge's save memory. " \
+                               "Give a save that came from this game."
+        end
+        save.tap { |fitted| fitted.use_memory!(memory) }
       rescue IR::SaveImage::WrongSize => e
         raise ArgumentError, "The save is #{e.save_kilobytes}K, and this cartridge has #{e.program_kilobytes}K of save " \
                              "memory. A save fits only a cartridge with the same size of save memory. " \
                              "Give a save that came from this game."
       end
 
-      # A path is short and a save is thousands of bytes, so text that long is the bytes of
-      # a save handed over where its path was meant. It is named for what it is and not
-      # printed.
+      # A path is short and a cartridge or a save is thousands of bytes, so text that long,
+      # or text with a nought byte in it, is the bytes themselves handed over where a path
+      # was meant. They are named for what they are and not printed.
       LONGEST_PATH = 4096
       private_constant :LONGEST_PATH
 
-      def self.save_file_at(path)
-        unless path.is_a?(String) || path.respond_to?(:to_path)
-          raise ArgumentError, "`save:` was #{path.inspect}. It must be the save a playthrough handed back " \
-                               "(`played.save`), or the path of a save file."
-        end
-        if path.is_a?(String) && (path.bytesize > LONGEST_PATH || path.include?("\0"))
-          raise ArgumentError, "`save:` was #{path.bytesize} bytes of data, and not the path of a save file. To start from " \
-                               "the bytes of a save, give `RubyGBA::IR::SaveImage.from_sav(bytes)`."
-        end
-        raise ArgumentError, "There is no save file at #{path}. Give the path of a save file." unless File.file?(path)
-
-        IR::SaveImage.read_sav(path)
-      end
-      private_class_method :save_file_at
+      def self.path?(given) = (given.is_a?(String) && !given.empty?) || given.respond_to?(:to_path)
+      def self.bytes_given_as_path?(given) = given.is_a?(String) && (given.bytesize > LONGEST_PATH || given.include?("\0"))
+      private_class_method :path?, :bytes_given_as_path?
 
       # ONE PLAYING, as it goes: the cartridge running, and a tape of every press made on it so
       # far. Each step plays itself on this. +title+ is the name of what is being played, for
@@ -141,12 +173,15 @@ module RubyGBA
       class Playing
         # Play +steps+ on +cartridge+ from power-on, and hand back what that came to.
         #
-        # The save and the folder for pictures are made ready first, so one that will not do
-        # is refused before the console is switched on.
+        # Everything handed over is made ready first, so what will not do is refused before
+        # the console is switched on: the save, then the folder for pictures, then the
+        # cartridge. A save has to fit its cartridge, so with one the cartridge is looked at
+        # early, and a save of the wrong size is refused before a folder is made for nothing.
         def self.play(title, steps, cartridge, save: nil, pictures_in: nil, &at_each_moment)
-          save = Playthrough.starting_save(save, cartridge)
+          save = Playthrough.save_from(save)
+          save = Playthrough.save_fitted_to(cartridge = Playthrough.cartridge_from(cartridge), save) if save
           folder = PictureFolder.at(pictures_in, steps.flat_map(&:names))
-          playing = new(title, cartridge, at_each_moment, save: save, folder: folder)
+          playing = new(title, Playthrough.cartridge_from(cartridge), at_each_moment, save: save, folder: folder)
           steps.each { |step| step.play(playing) }
           playing.played
         end
@@ -156,8 +191,8 @@ module RubyGBA
         # moment is written (see PictureFolder), or nil for none to be written.
         def initialize(title, cartridge, at_each_moment, save:, folder:)
           @title = title
-          @cartridge = cartridge
-          @game = Playthrough.power_on(cartridge, save: save)
+          @cartridge = Playthrough.cartridge_from(cartridge)
+          @game = Playthrough.power_on(@cartridge, save: save)
           @save = save
           @at_each_moment = at_each_moment
           @folder = folder
@@ -225,7 +260,15 @@ module RubyGBA
         def played
           tape = Tape.recorded_on(@cartridge, @taping.steps, save: @save)
           Played.new(frames: tape.frames, moments: tape.moments, game: @game, tape: tape,
-                     pictures: @pictures, picture_files: @picture_files, save: @game.save_image)
+                     pictures: @pictures, picture_files: @picture_files, save: save_left)
+        end
+
+        # The cartridge's save memory as the last frame left it, or nil for a cartridge with
+        # none. Whatever size it is: a cartridge somebody else made can keep a save of a
+        # size the framework has no model of, and that one comes back as its bytes.
+        def save_left
+          bytes = @game.save_bytes
+          bytes && SaveBytes.save_holding(bytes, from: "The save this playthrough left")
         end
       end
 

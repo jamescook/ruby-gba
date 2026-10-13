@@ -47,16 +47,25 @@ module RubyGBA
       # read here, so a setting that makes no sense is refused before a frame is played.
       def initialize(first, second, moments, ignoring_frames: [], **how_alike)
         refuse_unknown_settings!(how_alike.keys)
-        @first = first
-        @second = second
         @ignored = IgnoredFrames.new(ignoring_frames, moments)
         @likeness = Likeness.new(**how_alike)
+        @handed_over = [first, second]
       end
+
+      # THE TWO CARTRIDGES, each one the build made or a cartridge file read from its path.
+      # They are looked at together, the first time either is wanted, so a second cartridge
+      # that is not there is found before the first is played and not after — and after the
+      # settings, which need no cartridge to be wrong.
+      def cartridges = @cartridges ||= @handed_over.map { |given| Playthrough.cartridge_from(given) }
+
+      # The first cartridge: the one a script is played on alone, to make the tape both are
+      # then played on.
+      def first = cartridges.first
 
       # Play both on +tape+ and compare them, and say what was found.
       def run(tape)
         ignored = @ignored.frame_ranges_on(tape)
-        pair = SideBySide.new(Playthrough.power_on(@first), Playthrough.power_on(@second), @likeness, ignored)
+        pair = SideBySide.new(*cartridges.map { |cartridge| Playthrough.power_on(cartridge) }, @likeness, ignored)
         tape.steps.each do |step|
           step.play(pair)
           break if pair.drift

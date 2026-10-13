@@ -20,6 +20,8 @@ require_relative "diagnostics/build_report" # the exact half of a profile: what 
 require_relative "diagnostics/full_collections" # every list and pool, and how to hold each one full
 require_relative "diagnostics/profiler" # ...and the measured half: where the frames went
 require_relative "diagnostics/routine_profile"
+require_relative "diagnostics/cartridge_file" # a cartridge that is only its file, with no record of its build
+require_relative "diagnostics/save_bytes" # ...and a save of a kind the framework has no model of, kept as its bytes
 require_relative "diagnostics/playthrough" # a game driven with nobody at the controls, from a script
 require_relative "diagnostics/playthrough_tape" # ...and the presses it made, written down to play again
 require_relative "diagnostics/playthrough_picture_folder" # ...and the folder its pictures are written into

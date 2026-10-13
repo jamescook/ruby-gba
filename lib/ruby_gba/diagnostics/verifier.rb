@@ -251,8 +251,16 @@ module RubyGBA
       # emulator keeps it in, which holds all of it. A cartridge with no save chip has nothing
       # in that file, and nil is what it hands back.
       def save_image
+        bytes = save_bytes
+        bytes && IR::SaveImage.from_sav(bytes, from: "The bytes of this cartridge's save memory")
+      end
+
+      # The save chip as it is now, as the bytes of the file the emulator keeps it in, or nil
+      # for a cartridge with no save chip. This is every chip there is, whatever its size;
+      # {#save_image} is the same bytes as a chip the framework has a model of.
+      def save_bytes
         ensure_rendered!
-        IR::SaveImage.read_sav(save_path) if File.size?(save_path)
+        File.binread(save_path) if File.size?(save_path)
       end
 
       # How many times the game read the pad while the console ran it — what the emulator saw,
@@ -283,6 +291,8 @@ module RubyGBA
       # a hardware register is not a whole number in a program.
       def var(name)
         unless @var_addresses
+          refuse_missing_build_record!("where its variables are", or_else: "or hand the Verifier where they are: " \
+                                                                         "`vars: backend.var_addresses`")
           raise ArgumentError,
                 "no variable map given — build the Verifier with `vars: backend.var_addresses` to read a variable"
         end
@@ -670,15 +680,33 @@ module RubyGBA
       private
 
       # The cartridge's record of where it keeps its voices, or nil for a program that plays no
-      # samples. A cartridge assembled without its build record cannot answer, and that is a
-      # setup mistake in the test rather than a fact about the sound — so it says how to fix it.
+      # samples. A cartridge with no build record cannot answer.
       def voice_table!
-        unless @rom.built
-          raise ArgumentError,
-                "This ROM does not know where it keeps its voices. Assemble it with its build " \
-                "record, then read the voices: ROM.assemble(code, ..., built: backend.build_record(program))."
-        end
+        refuse_missing_build_record!("where it keeps its voices")
         @rom.built.voices
+      end
+
+      # WHAT A CARTRIDGE WITH NO BUILD RECORD SAYS WHEN ASKED FOR WHAT ONLY THE BUILD KNEW:
+      # which variable is where, which sprite is which, where a routine or a voice is. All
+      # of that is worked out as a cartridge is built and kept beside it, never in it.
+      #
+      # There are two ways to have none, and they want different words. A cartridge that was
+      # not built here — somebody else's, or one of this framework's once it is only a file
+      # — never had one to give, which is a fact about the cartridge: it is told what can be
+      # read instead. One assembled here from machine code, with the record left out, is a
+      # slip in a test: it is told how to put the record in. +or_else+ is another way round
+      # for that second case.
+      def refuse_missing_build_record!(what, or_else: nil)
+        return if @rom.built
+
+        unless @rom.is_a?(Cartridge::ROM)
+          raise ArgumentError, "This cartridge was not built here, so nothing says #{what}. A build works that out, and " \
+                               "it is kept beside the cartridge and never in the file. Read the cartridge's memory by " \
+                               "address (`mem8`, `mem16`, `mem32`) or its screen (`pixel_gba`, `frame_gba`) instead."
+        end
+        raise ArgumentError, "This cartridge was assembled without its build record, so nothing says #{what}. Assemble it " \
+                             "with the record: `ROM.assemble(code, ..., built: backend.build_record(program))`" \
+                             "#{", #{or_else}" if or_else}."
       end
 
       # Every row of the console's table, each with the name of the sprite the game declared it
@@ -744,15 +772,10 @@ module RubyGBA
         var_at(address)
       end
 
-      # Which places the build gave each declared sprite. A cartridge assembled without its
-      # build record cannot say, and that is a setup mistake in the test rather than a fact
-      # about the game — so it says how to fix it.
+      # Which places the build gave each declared sprite. A cartridge with no build record
+      # cannot say.
       def sprite_slots!
-        unless @rom.built
-          raise ArgumentError,
-                "This ROM does not know which of its sprites is which. Assemble it with its build " \
-                "record: ROM.assemble(code, ..., built: backend.build_record(program))."
-        end
+        refuse_missing_build_record!("which of its sprites is which")
         @rom.built.sprite_slots
       end
 
@@ -760,11 +783,7 @@ module RubyGBA
       # where it sits in the cartridge when it was copied into the console's quick memory, so
       # only the build record can say.
       def routine_start!(routine)
-        unless @rom.built
-          raise ArgumentError,
-                "This ROM does not know where its routines are. Assemble it with its build record: " \
-                "ROM.assemble(code, ..., built: backend.build_record(program))."
-        end
+        refuse_missing_build_record!("where its routines are")
         span = @rom.built.routines[routine] or
           raise ArgumentError, "This ROM has no routine #{routine.inspect}. " \
                                "Its routines are: #{@rom.built.routines.keys.map(&:inspect).join(', ')}."
@@ -774,11 +793,7 @@ module RubyGBA
       # ...and where it counts what it could not play. Same rule: only the build knows, because
       # the counters are hidden variables.
       def sound_drop_counters!
-        unless @rom.built
-          raise ArgumentError,
-                "This ROM does not know where it counts the sounds it dropped. Assemble it with " \
-                "its build record: ROM.assemble(code, ..., built: backend.build_record(program))."
-        end
+        refuse_missing_build_record!("where it counts the sounds it dropped")
         @rom.built.sound_drops
       end
 
@@ -895,11 +910,7 @@ module RubyGBA
       # program with no game loop has no such routine, and that is an answer rather than an
       # error — see {#passes}.
       def watch_game_loop_passes!
-        unless @rom.built
-          raise ArgumentError,
-                "This ROM does not know where its game loop is, so its passes cannot be counted. " \
-                "Assemble it with its build record: ROM.assemble(code, ..., built: backend.build_record(program))."
-        end
+        refuse_missing_build_record!("where its game loop is, so its passes cannot be counted")
         span = @rom.built.routines[Cartridge::BuildRecord::FRAME_ROUTINE]
         return unless span
 
