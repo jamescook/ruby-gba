@@ -35,7 +35,8 @@ module RubyGBA
 
           # The kinds the interpreter's picture is rebuilt whole every frame for (see
           # Reference#collect_definitions, and #rebuilt_every_frame? for the rest of the rule).
-          REBUILT_FOR = %i[tile_run scroll_background scroll_rows affine_background set_tile show_map].freeze
+          REBUILT_FOR = %i[tile_run scroll_background scroll_rows affine_background set_tile show_map
+                           background_colors].freeze
 
           private
 
@@ -80,7 +81,6 @@ module RubyGBA
             if nodes.any? { |n| n.kind == :inside && frame_ends_under?(n) }
               refuse_picture!("a frame that ends inside an `inside` block")
             end
-            @stacking.scenery.each { |bg| refuse_unsupported_background!(bg) }
           end
 
           # Whether a frame can end while +node+ is running: it waits for the screen itself, or
@@ -94,10 +94,6 @@ module RubyGBA
             (routines_named(statements) - asked).any? do |name|
               @funcs.key?(name) && frame_ends_under?(@funcs.fetch(name), asked << name)
             end
-          end
-
-          def refuse_unsupported_background!(bg)
-            refuse_picture!("a background drawn in other colors (#{bg.name})") unless Array(bg.recolors).empty?
           end
 
           def refuse_picture!(what)
@@ -174,14 +170,18 @@ module RubyGBA
 
           # Every background in the order the stack draws them, its tiles as colors with
           # RG_SEE_THROUGH where the layer behind shows (Reference#tile_colors), and every map
-          # it can show, the one it starts with first.
+          # it can show, the one it starts with first. A background that can be drawn from other
+          # lists of colors has its tiles written again for each step it can be told, after the
+          # ones in the colors they were drawn in.
           def background_arrays
             tile_pixels = []
             cells = []
             maps = []
             fields = @stacking.scenery.flat_map do |bg|
               tiles_start = tile_pixels.length
-              bg.tiles.each { |tile| tile_pixels.concat(tile_colors(tile)) }
+              [nil, *color_swaps(bg)].each do |swaps|
+                bg.tiles.each { |tile| tile_pixels.concat(tile_colors(tile, swaps)) }
+              end
               first_map = maps.length / MAP_FIELDS
               bg.every_map.each do |map|
                 maps.push(cells.length, *TileMap.size_of(map))
@@ -193,7 +193,8 @@ module RubyGBA
                bg.streams? ? 1 : 0, tiles_start,
                bg.scene ? @scenes.fetch(bg.scene, NEVER_ARRIVES) : EVERY_SCENE, @stacking.depths[bg.name],
                @handover.on_arrival?(bg) ? 1 : 0, stack_place(bg.layer),
-               see_through_number(bg), @bends.key?(bg.name) ? 1 : 0, fade_place(bg)]
+               see_through_number(bg), @bends.key?(bg.name) ? 1 : 0, fade_place(bg),
+               bg.tiles.length, color_swaps(bg).length]
             end
             [runtime_array("tile_pixels", "uint16_t", tile_pixels), runtime_array("backgrounds", "int32_t", fields),
              runtime_array("maps", "int32_t", maps), runtime_array("map_cells", "int16_t", cells)]
@@ -274,9 +275,23 @@ module RubyGBA
             map.flat_map { |row| Array.new(cols) { |col| row[col] || CELL_EMPTY } }
           end
 
-          def tile_colors(name)
+          # Reference#background_swap, for every step a background can be told: each of the lists
+          # its tiles were drawn from, to the list that step draws it with instead, or to nil
+          # where that list stays as drawn.
+          def color_swaps(bg) = Array(bg.recolors).map { |step| bg.palettes.zip(step).to_h }
+
+          # Reference#tile_colors: a tile's pixels as colors, or as the colors +swaps+ gives the
+          # list it was drawn from. A swap goes by place, and is read off the pixel as drawn, so
+          # what is see-through stays see-through whatever the other list holds there.
+          def tile_colors(name, swaps = nil)
             image = Assets::Image.of(@data.fetch(name))
-            Array.new(image.width * image.height) { |i| image.tile_see_through_at?(i) ? 0xFFFF : image.color_at(i) }
+            swapped = swaps && swaps[image.colors]
+            recolor = swapped && Assets::Recolor.of(image, swapped)
+            Array.new(image.width * image.height) do |i|
+              next 0xFFFF if image.tile_see_through_at?(i)
+
+              recolor ? recolor.color_for(i, image.color_at(i)) : image.color_at(i)
+            end
           end
 
           # The number of the picture +name+ as drawn with the list +colors+, or with its own.
@@ -386,6 +401,11 @@ module RubyGBA
           end
 
           def lower_show_map(node) = [eval_call("rg_background_show_map", background_number(node), value(node.which))]
+
+          # Reference#exec_background_colors
+          def lower_background_colors(node)
+            [eval_call("rg_background_draw_with", background_number(node), value(node.which))]
+          end
 
           # The number rg_screen.c knows the background a statement names by.
           def background_number(node)

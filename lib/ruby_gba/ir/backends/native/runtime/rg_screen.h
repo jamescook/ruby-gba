@@ -83,6 +83,10 @@ void rg_background_set_tile(int32_t background, int32_t col, int32_t row, int32_
 /* Every cell becomes map number +which+ of the background's maps, as it was declared. A number
  * naming none of them leaves the cells alone. */
 void rg_background_show_map(int32_t background, int32_t which);
+/* Every tile of the background is drawn from now on with step number +which+ of the lists of
+ * colors it can be told (RG_BG_COLOR_STEPS of them). A number naming none of them is the colors
+ * it was drawn in. */
+void rg_background_draw_with(int32_t background, int32_t which);
 /* +pivot_x+, +pivot_y+: the point on screen it turns around, which the statement says. */
 void rg_background_turn(int32_t background, int32_t angle, int32_t size, int32_t pivot_x, int32_t pivot_y);
 
@@ -259,7 +263,12 @@ extern const uint16_t rg_game_tile_pixels[];
  * RG_BG_FADE_PLACE is the furthest forward a placed fade's layer can be and still leave it as
  * drawn, or RG_NO_LAYER when every placed fade reaches it. That is its own place in the stack,
  * unless something else was declared by its name further forward: the interpreter knows what a
- * placed fade leaves alone by name, so the two are left or reached together. */
+ * placed fade leaves alone by name, so the two are left or reached together.
+ *
+ * Its tiles are RG_BG_TILES pictures in rg_game_tile_pixels from RG_BG_TILES_START on, in the
+ * colors they were drawn in. One that can be drawn from other lists of colors has the same
+ * pictures again after those, once for each of the RG_BG_COLOR_STEPS steps it can be told, a
+ * step swapping the colors by the place each pixel was drawn at. */
 #define RG_EVERY_SCENE (-1)
 #define RG_NEVER_ARRIVES (-2)
 #define RG_NO_LAYER (-1)
@@ -268,7 +277,7 @@ extern const uint16_t rg_game_tile_pixels[];
 enum {
   RG_BG_TILE_W, RG_BG_TILE_H, RG_BG_FIRST_MAP, RG_BG_SHOWABLE_MAPS, RG_BG_GRID_COLS, RG_BG_GRID_ROWS,
   RG_BG_NEVER_WRAPS, RG_BG_TILES_START, RG_BG_SCENE, RG_BG_LEVEL, RG_BG_ON_ARRIVAL, RG_BG_STACK_PLACE,
-  RG_BG_SEE_THROUGH, RG_BG_BENT, RG_BG_FADE_PLACE, RG_BG_FIELDS
+  RG_BG_SEE_THROUGH, RG_BG_BENT, RG_BG_FADE_PLACE, RG_BG_TILES, RG_BG_COLOR_STEPS, RG_BG_FIELDS
 };
 extern const int32_t rg_game_backgrounds[];
 
