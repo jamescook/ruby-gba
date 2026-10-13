@@ -11,7 +11,7 @@ require "differential"
 # Two blocks overlap at OVERLAP. The enemy is declared first, so without an order the hero
 # (declared after it) is always in front. Which colour shows there is the whole answer.
 class TestDrawInOrder < Minitest::Test
-  runs_on :reference
+  runs_on :reference, :native
 
   include Differential
 
@@ -45,7 +45,7 @@ class TestDrawInOrder < Minitest::Test
     end
   end
 
-  def shown(prog, frames: 2) = Reference.new.run(prog, frames: frames).screen.pixel(*OVERLAP)
+  def shown(prog, frames: 2) = game_player.run(prog, frames: frames).screen.pixel(*OVERLAP)
 
   def test_without_an_order_the_later_sprite_is_always_in_front
     assert_equal GREEN, shown(two_program(54, ordered: false))
