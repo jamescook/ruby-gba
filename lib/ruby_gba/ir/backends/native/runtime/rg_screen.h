@@ -262,8 +262,11 @@ extern const int16_t rg_game_map_cells[];
 
 /* [how many backgrounds, how many depths the picture is built at, how many backgrounds every
  * screen drawn from tiles shows, 1 for a game whose whole view is rebuilt from its layers, how
- * many layers it can be seen through] */
-enum { RG_SIZE_BACKGROUNDS, RG_SIZE_DEPTHS, RG_SIZE_ALWAYS_UP, RG_SIZE_REBUILT_WHOLE, RG_SIZE_SEE_THROUGH };
+ * many layers it can be seen through, 1 for a game that shows more than one kind of screen] */
+enum {
+  RG_SIZE_BACKGROUNDS, RG_SIZE_DEPTHS, RG_SIZE_ALWAYS_UP, RG_SIZE_REBUILT_WHOLE, RG_SIZE_SEE_THROUGH,
+  RG_SIZE_SCREEN_KINDS_CHANGE
+};
 extern const int32_t rg_game_picture_sizes[];
 extern const int32_t rg_game_always_up[];
 
