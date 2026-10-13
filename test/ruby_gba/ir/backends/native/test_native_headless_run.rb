@@ -63,6 +63,44 @@ class TestNativeHeadlessRun < Minitest::Test
     assert_equal 4, HeadlessRun.new.hold(:left).run(program, frames: 4)[:x]
   end
 
+  # A RUN THAT IS SLOW IS NOT A RUN THAT IS STUCK. The game is talked to a frame at a time, and
+  # each answer waits its turn among Ruby's threads, so beside busy ones a run of many frames
+  # takes far longer than the game does. What is timed is how long the program goes without
+  # saying anything, which a slow run never does for long. Here the buttons are slow to come, as
+  # they are when this thread is waiting its turn: the whole run takes longer than the limit,
+  # and no one frame comes near it. (The limit is seconds and not a fraction of one because a
+  # busy machine can keep a program from starting for that long.)
+  def test_a_run_slower_than_the_limit_is_not_taken_to_be_stuck
+    program = program_of do
+      ticks = var :ticks, 0
+      game_loop { ticks.add! 1 }
+    end
+    run = HeadlessRun.new.stopping_when_silent_for(3)
+    run.input_each_frame do |_frame|
+      sleep 0.4
+      []
+    end
+
+    assert_equal 10, run.run(program, frames: 10)[:ticks]
+  end
+
+  # And one that is stuck is stopped: a game that never waits for the screen never ends a frame,
+  # so it prints nothing at all.
+  def test_a_game_that_never_reaches_a_frame_is_stopped
+    builder = Builder.new(options: RubyGBA::Cartridge::Options.new(frame_sync: :manual))
+    builder.instance_eval do
+      x = var :x, 0
+      game_loop { x.add! 1 }
+    end
+    builder.finalize_program
+
+    error = assert_raises(RubyGBA::IR::Backends::Native::Zig::Error) do
+      HeadlessRun.new.stopping_when_silent_for(1).run(builder.program, frames: 3)
+    end
+
+    assert_match(/printed nothing for 1 seconds, and was stopped/, error.message)
+  end
+
   # Every variable at once, the way the interpreter's `vars` gives them.
   def test_every_variable_reads_back_together
     program = program_of do
