@@ -1027,22 +1027,27 @@ void rg_objects_end(void) {
   }
 }
 
-/* Reference#names_in_draw_order: a place the order list holds, read the way the interpreter
- * reads a run's objects (Array#fetch) — a number below nought counts back from the last — and a
- * number that still names none is a fault, where the interpreter stops with an error. */
-int32_t rg_place_in_ordered_run(int32_t at, int32_t count) {
-  int64_t place = at < 0 ? (int64_t)at + count : at;
-  if (place < 0 || place >= count) rg_fault("a draw order names sprite %d of the %d it puts in order", at, count);
+/* Which of a row of +count+ things the number +said+ names, read the way the interpreter reads
+ * a Ruby array: a number below nought counts back from the last. NO_PLACE when it still names
+ * none, which is where the interpreter stops with an error. */
+enum { NO_PLACE = -1 };
+static int64_t place_named(int32_t said, int32_t count) {
+  int64_t place = said < 0 ? (int64_t)said + count : said;
+  return place >= 0 && place < count ? place : NO_PLACE;
+}
+
+/* Reference#names_in_draw_order: the sprite of a run that the order list names next. */
+int32_t rg_place_in_ordered_run(int32_t said, int32_t count) {
+  int64_t place = place_named(said, count);
+  if (place == NO_PLACE) rg_fault("a draw order names sprite %d of the %d it puts in order", said, count);
   return (int32_t)place;
 }
 
-/* Reference#collision_sprite: the picture a sprite is showing, read the way the interpreter
- * reads its list — a number below nought counts back from the last, as Ruby's does — and a
- * number that still names none is a fault, where the interpreter stops with an error. */
+/* Reference#collision_sprite: the picture a sprite is showing. */
 int32_t rg_pose_image(const int32_t *poses, int32_t count, int32_t pose) {
-  int64_t at = pose < 0 ? (int64_t)pose + count : pose;
-  if (at < 0 || at >= count) rg_fault("a sprite is showing picture %d of its %d", pose, count);
-  return poses[at];
+  int64_t place = place_named(pose, count);
+  if (place == NO_PLACE) rg_fault("a sprite is showing picture %d of its %d", pose, count);
+  return poses[place];
 }
 
 /* Reference#solid_pixel? */

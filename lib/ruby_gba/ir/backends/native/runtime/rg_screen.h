@@ -131,10 +131,11 @@ void rg_objects_add_turned(int32_t sprite, int32_t image, int32_t x, int32_t y, 
                            int32_t size);
 void rg_objects_end(void);
 
-/* Which sprite of a run the game puts in order is drawn next: place +at+ of the run's +count+, as
- * the list the game keeps the order in holds it, read as the interpreter reads it. A number below
- * nought counts back from the last, and one that still names none is a fault. */
-int32_t rg_place_in_ordered_run(int32_t at, int32_t count);
+/* Which sprite of a run the game puts in order is drawn next: the one the number +said+ names of
+ * the run's +count+, as the list the game keeps the order in holds it, read as the interpreter
+ * reads it. A number below nought counts back from the last, and one that still names none is a
+ * fault. */
+int32_t rg_place_in_ordered_run(int32_t said, int32_t count);
 
 /* Which of a sprite's pictures it is showing, for a collision: number +pose+ of +count+, read as
  * the interpreter reads it. A number below nought counts back from the last, and one that still

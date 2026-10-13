@@ -379,11 +379,13 @@ module RubyGBA
           # Reference#exec_present_objects: every sprite the frame draws is taken off the picture,
           # then each one that is shown is put where it is now.
           def lower_present_objects(node)
-            drawn = node.names.map do |name|
-              @objects.fetch(name) { raise LoweringError, "present of undeclared object #{name.inspect}" }
-            end
+            drawn = node.names.map { |name| presented_object(name) }
             [eval_call("rg_objects_begin"), *drawn.map { |obj| sprite_removal(obj) },
              *placements_in_draw_order(node), eval_call("rg_objects_end")]
+          end
+
+          def presented_object(name)
+            @objects.fetch(name) { raise LoweringError, "present of undeclared object #{name.inspect}" }
           end
 
           # Reference#names_in_draw_order: the frame's sprites placed as listed, except that each
@@ -392,25 +394,35 @@ module RubyGBA
           def placements_in_draw_order(node)
             runs = Array(node.orders)
             runs.each { |run| refuse_scattered_run!(node, run) }
+            refuse_sprite_in_two_runs!(runs)
             starts = runs.to_h { |run| [run.objects.first, run] }
             inside_a_run = runs.flat_map(&:objects)
             node.names.flat_map do |name|
               next [ordered_run_placement(starts.fetch(name))] if starts.key?(name)
               next [] if inside_a_run.include?(name)
 
-              [sprite_placement(@objects.fetch(name))]
+              [sprite_placement(presented_object(name))]
             end
           end
 
           # The interpreter swaps a run in by position: as many names as the run has, from where
-          # its first is listed. Those are the run's own sprites in every program the builder
-          # makes, and the C below places them by name, so a tree where they are not is refused.
+          # its first is listed, and one run after another. In every program the builder makes
+          # those names are the run's own sprites and no sprite is in two runs, and only then is
+          # placing each run's sprites by name, as the C below does, the same thing. So a tree
+          # that is not like that is refused, by this and by #refuse_sprite_in_two_runs!.
           def refuse_scattered_run!(node, run)
             first = node.names.index(run.objects.first)
             return if first && node.names[first, run.objects.length] == run.objects
 
             raise LoweringError, "a run of sprites drawn in a worked-out order (#{run.order.inspect}) is not " \
                                  "side by side in the frame's draw list"
+          end
+
+          def refuse_sprite_in_two_runs!(runs)
+            shared, = runs.flat_map(&:objects).tally.find { |_, times| times > 1 }
+            return unless shared
+
+            raise LoweringError, "sprite #{shared.inspect} is in two runs drawn in a worked-out order"
           end
 
           # One run: for each place the order list holds, back to front, the sprite it names is
@@ -421,7 +433,7 @@ module RubyGBA
             index = local_name("index")
             place = local_name("place")
             placed = run.objects.each_with_index.map do |name, at|
-              C::If.new(condition: call("rg_eq", place, C::Int.new(at)), body: [sprite_placement(@objects.fetch(name))])
+              C::If.new(condition: call("rg_eq", place, C::Int.new(at)), body: [sprite_placement(presented_object(name))])
             end
             read_place = call("rg_place_in_ordered_run", call("rg_list_get", order, index), C::Int.new(run.objects.length))
             C::Block.new([C::Local.new(name: count, value: call("rg_list_length", order)),
