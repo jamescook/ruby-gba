@@ -37,4 +37,10 @@ module PNGReading
     width, = png_size(png)
     png_rows(png)[(y * ((width * 3) + 1)) + 1 + (x * 3), 3]
   end
+
+  # Every pixel of such a picture as [red, green, blue], a row at a time from the top.
+  def png_pixels(png)
+    width, = png_size(png)
+    png_rows(png).each_slice((width * 3) + 1).flat_map { |row| row.drop(1).each_slice(3).to_a }
+  end
 end

@@ -85,7 +85,9 @@ module RubyGBA
 
         # Play the tape on +cartridge+, exactly as a playthrough plays its script: the block is
         # handed each moment's name and the running cartridge, and what comes back is the same.
-        def play(cartridge, &at_each_moment) = Playing.play(title, steps, cartridge, &at_each_moment)
+        def play(cartridge, pictures_in: nil, &at_each_moment)
+          Playing.play(title, steps, cartridge, pictures_in: pictures_in, &at_each_moment)
+        end
 
         # Play the tape on +first+ and on +second+ together, comparing the two pictures after
         # every frame. +settings+ say how alike they have to be, and which stretches of the

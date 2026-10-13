@@ -43,8 +43,11 @@ module RubyGBA
       # What playing one gave back. +frames+ is how many were played, +moments+ the frame each
       # named moment fell on, and +game+ the cartridge as the last frame left it — the same
       # reader a test of a running cartridge uses, so anything can be asked of it. +tape+ is
-      # the presses that were made, written down (see Tape).
-      Played = Data.define(:frames, :moments, :game, :tape)
+      # the presses that were made, written down (see Tape). +pictures+ is the screen at each
+      # named moment: every pixel's colour, a row at a time from the top, which is how
+      # Graphics::PNG takes one. +picture_files+ is where each of those was written as a PNG,
+      # by moment — nothing at all unless the playing was asked to write them.
+      Played = Data.define(:frames, :moments, :game, :tape, :pictures, :picture_files)
 
       attr_reader :name
 
@@ -59,8 +62,11 @@ module RubyGBA
 
       # Play the script on +cartridge+, from power-on. At each named moment the block is
       # handed the moment's name and the running cartridge, so the game can be asked about
-      # exactly there.
-      def play(cartridge, &at_each_moment) = Playing.play(@name, @steps, cartridge, &at_each_moment)
+      # exactly there. +pictures_in+ is a folder to write the screen at each moment into, as
+      # a PNG named for the moment; left out, no file is written.
+      def play(cartridge, pictures_in: nil, &at_each_moment)
+        Playing.play(@name, @steps, cartridge, pictures_in: pictures_in, &at_each_moment)
+      end
 
       # Play the script on +first+ to learn its presses, then play +first+ and +second+ side
       # by side on those presses, comparing the two pictures after every frame. +settings+ say
@@ -85,18 +91,27 @@ module RubyGBA
       # an error to say whose playing it was.
       class Playing
         # Play +steps+ on +cartridge+ from power-on, and hand back what that came to.
-        def self.play(title, steps, cartridge, &at_each_moment)
-          playing = new(title, cartridge, at_each_moment)
+        #
+        # The folder for pictures is made ready first, so one that will not do is refused
+        # before the console is switched on.
+        def self.play(title, steps, cartridge, pictures_in: nil, &at_each_moment)
+          folder = PictureFolder.at(pictures_in, steps.flat_map(&:names))
+          playing = new(title, cartridge, at_each_moment, folder)
           steps.each { |step| step.play(playing) }
           playing.played
         end
 
-        def initialize(title, cartridge, at_each_moment)
+        # +folder+ is where the picture at each moment is written (see PictureFolder), or
+        # nil for none to be written.
+        def initialize(title, cartridge, at_each_moment, folder)
           @title = title
           @cartridge = cartridge
           @game = Playthrough.power_on(cartridge)
           @at_each_moment = at_each_moment
+          @folder = folder
           @taping = Tape::Taping.new
+          @pictures = {}
+          @picture_files = {}
         end
 
         # Play +frames+ frames with +buttons+ down, and write that on the tape.
@@ -125,9 +140,7 @@ module RubyGBA
         # makes: the picture is what the error points at, so it has to be there after the
         # playing is gone.
         def write_picture_of_frame
-          path = File.join(Dir.mktmpdir("playthrough"), "frame-#{@taping.frames}.png")
-          Graphics::PNG.write(path, width: Console::Hardware::SCREEN_WIDTH, height: Console::Hardware::SCREEN_HEIGHT,
-                                    pixels: @game.frame_gba)
+          PictureFolder.new(Dir.mktmpdir("playthrough"), []).write("frame-#{@taping.frames}", @game.frame_gba)
         end
 
         # A watching block has to answer yes or no. Ruby takes every number for yes, nought
@@ -142,9 +155,16 @@ module RubyGBA
                 "like `(game.var(:flags) & 4) != 0`."
         end
 
-        # Give the frame just played a name, and hand the game over to whoever is watching.
+        # Give the frame just played a name, keep the picture of it, and hand the game over
+        # to whoever is watching. The picture is taken now because it cannot be taken later:
+        # the console goes on to its next frame and this one is gone.
+        #
+        # A picture asked for as a file is written now too, and not when the playing ends:
+        # a playthrough that gives up further on leaves the pictures of how far it got.
         def mark(name)
           @taping.moment(name)
+          @pictures[name] = @game.frame_gba
+          @picture_files[name] = @folder.write(name, @pictures[name]) if @folder
           @at_each_moment&.call(name, @game)
         end
 
@@ -152,7 +172,8 @@ module RubyGBA
         # two can never disagree.
         def played
           tape = Tape.recorded_on(@cartridge, @taping.steps)
-          Played.new(frames: tape.frames, moments: tape.moments, game: @game, tape: tape)
+          Played.new(frames: tape.frames, moments: tape.moments, game: @game, tape: tape,
+                     pictures: @pictures, picture_files: @picture_files)
         end
       end
 
