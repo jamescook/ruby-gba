@@ -169,6 +169,14 @@ void rg_game_see_through_amounts(void);
 /* A fade toward black (0) or white (1), in sixteenths of the display or, when +walked+, in
  * thirty-seconds of a walk through the colors (see Backends::FadeSteps). */
 void rg_screen_fade(int32_t toward_white, int32_t steps, int32_t walked);
+/* The same fade PLACED IN THE STACK: what is behind the layer it names fades, and that layer and
+ * everything in front of it are left as drawn. +line+ is how far forward that layer is among the
+ * layers the game declared, or RG_NO_LAYER when it is none of them, and then everything fades.
+ * A thing is in front of the line by the layer it was declared in (rg_game_backgrounds'
+ * RG_BG_STACK_PLACE, and rg_game_sprite_stack_places for each sprite by its number); one that
+ * named no layer is always behind it. */
+void rg_screen_fade_under(int32_t line, int32_t toward_white, int32_t steps, int32_t walked);
+extern const int32_t rg_game_sprite_stack_places[];
 /* A tint toward +color+, in thirty-seconds. */
 void rg_screen_tint(int32_t color, int32_t steps);
 /* How far +amount+ (a percentage, or with +fraction_bits+ >= 0 a fraction of one) is, in steps. */
