@@ -10,6 +10,7 @@ require_relative "diagnostics/video_memory" # how much room the pictures took, a
 require_relative "diagnostics/inspector" # a finished ROM taken apart: header, and the code disassembled
 require_relative "diagnostics/func_dumper"
 require_relative "diagnostics/emulator" # the one seam to the emulator backend; swap emulators here
+require_relative "diagnostics/recorded_sound" # the sound of a run, the older part of it in a scratch file
 require_relative "diagnostics/verifier" # ...and reading real pixels and real sound back through it
 require_relative "diagnostics/tearing"
 require_relative "diagnostics/flicker"

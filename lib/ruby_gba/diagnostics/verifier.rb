@@ -51,7 +51,13 @@ module RubyGBA
       # @param save [IR::SaveImage, nil] what the cartridge's save memory holds when the console
       #   is turned on — the same save memory the interpreter reads and writes, so a save one
       #   backend wrote can be handed to the other. nil is a fresh chip.
-      def initialize(rom, frames: 2, keys: nil, vars: nil, count_passes: false, save: nil)
+      # @param sound [RecordedSound] where the sound of the run is kept. Left out, the reader
+      #   holds a minute of play in memory and writes older sound to a scratch file in the
+      #   machine's temporary files. Hand one over to say how many frames are held, or where
+      #   the file goes: `sound: RecordedSound.new(frames_in_memory: 600, folder: "scratch")`.
+      #   Every sound reader answers for the whole run either way.
+      def initialize(rom, frames: 2, keys: nil, vars: nil, count_passes: false, save: nil, sound: RecordedSound.new)
+        refuse_sound_not_recorded_sound!(sound)
         @rom = rom
         @save = save
         @frames = frames
@@ -62,8 +68,7 @@ module RubyGBA
         @rendered = false
         @played = 0
         @pixels = nil
-        @audio = nil
-        @audio_by_frame = nil
+        @sound = sound
         @width = SCREEN_WIDTH
         @height = SCREEN_HEIGHT
         Emulator.load! # fail fast if the emulator backend isn't built
@@ -583,16 +588,20 @@ module RubyGBA
       # --- audio ---
       #
       # The counterpart to reading pixels: read the sound that actually came out.
-      # The emulator mixes each frame to stereo PCM and we concatenate the whole run, so
+      # The emulator mixes each frame to stereo PCM and we keep the whole run, so
       # these ask "what did the speaker do?" rather than trusting the ROM's bytes.
+      #
+      # THE WHOLE RUN, HOWEVER LONG. The sound of a long run is mostly in a scratch file and
+      # not in memory (see RecordedSound), and each of these reads it back from there. So
+      # asking is cheap for a run of seconds and costs a read of the file for one of minutes:
+      # a script that asks on every frame of a long playthrough reads it that many times.
+      # The energy readers go through it a frame at a time; #audio_samples hands back every
+      # sample at once, which for a long run is all of it in memory after all.
 
       # Total absolute amplitude across every PCM sample captured — 0 is perfect
       # silence. A deliberately crude "did any sound come out?" measure that doesn't
       # care about pitch or waveform, only whether the hardware made noise.
-      def audio_energy
-        ensure_rendered!
-        @audio.unpack("s<*").sum(&:abs)
-      end
+      def audio_energy = audio_energy_by_frame.sum
 
       # The sound itself: one Integer per 16-bit sample, the two channels interleaved.
       #
@@ -602,7 +611,7 @@ module RubyGBA
       # total energy as a clean one.
       def audio_samples
         ensure_rendered!
-        @audio.unpack("s<*")
+        @sound.bytes.unpack("s<*")
       end
 
       # True when the run produced no sound at all (energy exactly 0).
@@ -624,7 +633,7 @@ module RubyGBA
       # hole looks like from here.
       def audio_energy_by_frame
         ensure_rendered!
-        @audio_by_frame.map { |chunk| chunk.unpack("s<*").sum(&:abs) }
+        @sound.each_frame.map { |frame| frame.unpack("s<*").sum(&:abs) }
       end
 
       # Dump a text grid showing what colors are on screen.
@@ -872,8 +881,6 @@ module RubyGBA
         @probe = Emulator.probe(@tempfile.path, save_dir: self.class.save_dir)
         @rendered = true
         watch_game_loop_passes! if @count_passes
-        @audio = +"".b
-        @audio_by_frame = []
         play(@frames)
       end
 
@@ -884,26 +891,35 @@ module RubyGBA
       # The frames go over in one go when the same buttons are held throughout, which is the
       # usual case and which reads the picture once rather than once per frame. Input that
       # changes frame by frame has to be handed over a frame at a time, so it is.
+      #
+      # A LONG RUN OF FRAMES IS PLAYED IN SEVERAL STEPS, none longer than the frames of sound
+      # this reader holds in memory. The emulator holds the sound of a step until the step
+      # ends, so an hour played as one step would be an hour of sound in memory on its way to
+      # a reader that was built not to hold it.
       def play(count, holding: nil)
         return unless count.positive?
 
-        if (holding || @keys).respond_to?(:call)
-          count.times do |frame|
-            @probe.step(1, keys: keys_for(@played + frame, holding: holding))
-            append_played_audio
-          end
-        else
-          @probe.step(count, keys: keys_for(@played, holding: holding))
-          append_played_audio
+        changing = (holding || @keys).respond_to?(:call)
+        (changing ? Array.new(count, 1) : frames_in_steps(count)).each do |frames|
+          @probe.step(frames, keys: keys_for(@played, holding: holding))
+          @sound.keep(@probe.audio_by_frame)
+          @played += frames
         end
-        @played += count
         @pixels = @probe.frame_buffer
       end
 
-      # The sound of the frames just played, kept beside the sound of the run so far.
-      def append_played_audio
-        @audio_by_frame.concat(@probe.audio_by_frame)
-        @audio << @probe.audio_buffer
+      # +count+ frames as the steps they are played in, none longer than the sound kept in memory.
+      def frames_in_steps(count)
+        whole, rest = count.divmod(@sound.frames_in_memory)
+        Array.new(whole, @sound.frames_in_memory) + (rest.zero? ? [] : [rest])
+      end
+
+      def refuse_sound_not_recorded_sound!(given)
+        return if given.is_a?(RecordedSound)
+
+        raise ArgumentError, "`sound:` was #{given.inspect}. It must be a RecordedSound, which says how many frames " \
+                             "of sound the reader holds in memory: " \
+                             "`sound: RubyGBA::Diagnostics::RecordedSound.new(frames_in_memory: 600)`."
       end
 
       # Watch for arrivals at the game loop's first instruction, before any frame runs. A

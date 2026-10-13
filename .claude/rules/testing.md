@@ -338,6 +338,18 @@ holding is a cut rather than a rest — the mix steps and drifts back over about
 so step well past that before asking whether it went quiet. The sound readers cover the whole
 run, so inside a block use `audio_energy_by_frame.last(n)` rather than the total.
 
+**The sound of a long run is not all in memory, and nothing that reads it can tell.** A reader
+holds a minute of play at most. Once it holds more, it writes all of it to the end of a scratch
+file in the machine's temporary files and starts again from nothing; the file is removed when
+the reader is collected, or when the program ends. Every sound reader still answers for the
+whole run. A run of a minute or less writes no file, which is nearly every test here. What it
+costs is on the asking: each sound reader reads the file back, so ask once after a long run
+rather than on every frame of it — and `audio_samples` hands back every sample at once, which
+for a long run is all of it in memory after all. To hold another number of frames, or to put
+the file somewhere else (a machine can keep its temporary files in memory), hand the reader
+its sound: `Verifier.new(rom, sound: RubyGBA::Diagnostics::RecordedSound.new(frames_in_memory:
+600, folder: "scratch"))`.
+
 `v.var` is **the number the program counted to**, so a count taken below nothing reads below
 nothing and matches `i[:hurt]` for the same frame. A variable here is a signed whole number by
 definition, so nothing has to be asked or guessed; `v.mem32` stays the raw word, because an
