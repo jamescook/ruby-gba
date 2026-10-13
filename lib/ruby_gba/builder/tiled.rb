@@ -413,7 +413,8 @@ module RubyGBA
         ensure_var(row_var)
         node = Build.scroll_rows(name, row: row_var, offset: Build.int(0))
         offset = nil
-        push_container(node) { offset = block.call(DSL::Value.new(self, Build.var_ref(row_var))) }
+        # The row is handed over, and a bend the same on every row never reads it.
+        push_container(node) { offset = block.call(DSL::Value.handed_to_block(self, Build.var_ref(row_var))) }
         node.offset = DSL::Value.node_for(offset)
         node
       end

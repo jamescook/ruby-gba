@@ -66,8 +66,11 @@ module RubyGBA
       #
       # +bang_spelling+ is how the author would change the variable this was worked out from instead —
       # see #bang_spelling.
+      #
+      # +tracked+ is false for a number the framework built without being asked (see
+      # .handed_to_block).
       def initialize(builder, node, name: nil, fraction_bits: nil, declaring: nil, mixing: nil,
-                     names: nil, bang_spelling: nil)
+                     names: nil, bang_spelling: nil, tracked: true)
         @builder = builder
         @node = node
         @name = name
@@ -75,11 +78,22 @@ module RubyGBA
         @scale = Scale.new(bits: fraction_bits, declaring: declaring, mixing: mixing, names: names)
         # Only an expression is tracked, and only an expression pays for the stack walk
         # that pins the author's line — a handle can never be the orphan this is for.
-        return if handle? || !@builder.respond_to?(:track_expression)
+        return if handle? || !tracked || !@builder.respond_to?(:track_expression)
 
         @source = Messages::AuthorSource.author_source
         @builder.track_expression(self)
       end
+
+      # A NUMBER THE FRAMEWORK BUILDS TO HAND TO AN AUTHOR'S BLOCK: the row a bend is working
+      # out, the instance a pool's routine runs on. A block is free to ignore what it is
+      # handed — a bend the same on every row, a routine with nothing to say about its
+      # instance — and a number the author never asked for is not one the author threw away.
+      # So it is not tracked as one (see Builder#track_expression), and every number the
+      # block works out FROM it still is.
+      #
+      # Not a handle: it names no place the author may write to, and nothing here pretends
+      # it does.
+      def self.handed_to_block(builder, node) = new(builder, node, tracked: false)
 
       # The IR value node behind this handle (a var_ref, an int, or a binop).
       attr_reader :node

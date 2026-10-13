@@ -30,6 +30,12 @@ module RubyGBA
         # an unparented expression behind and looked exactly like this mistake. The rules
         # live in {Scale} now, which a list and a pool field ask directly.
         #
+        # The other way it broke was a number built to HAND TO a block: the instance a pool's
+        # routine runs on, the row a bend is working out, the thing a drawing order is asked
+        # about. A block that had no use for it left it unparented, and its author was told
+        # they had thrown a number away. Those are built by Value.handed_to_block now, which
+        # this never hears about.
+        #
         # It reports errors, not warnings. An expression built and dropped did nothing at
         # all, and there is no legitimate reason to write one — unlike a statement, it has
         # no effect to be had.

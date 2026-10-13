@@ -115,6 +115,32 @@ class TestPoolRoutines < Minitest::Test
     assert_backends_agree(program, frames: 3)
   end
 
+  # A ROUTINE WITH NOTHING IN IT is a real routine: a kind of thing with nothing to do, in a
+  # cast where every thing is told to do its part. It is called for each thing and changes
+  # nothing either backend draws, and the routine called after it still runs for the right one.
+  def test_a_routine_with_an_empty_body_changes_nothing_on_either_backend
+    program = program_with do
+      screen :bitmap
+      clear_screen :black
+      things = pool :thing, x: 0, y: 0, capacity: 2
+      things.func(:waits) { |_thing| }
+      things.func(:draws) { |thing| draw_rect_at thing.x, thing.y, 4, 4, :green }
+      things.spawn(x: 20, y: 30)
+      things.spawn(x: 60, y: 30)
+      b = self
+      game_loop do
+        things.each do
+          b.call :waits
+          b.call :draws
+        end
+      end
+    end
+    seen = Reference.new.run(program, frames: 3).screen
+
+    assert_equal [Color.resolve(:green)] * 2, [seen.pixel(21, 31), seen.pixel(61, 31)]
+    assert_backends_agree(program, frames: 3)
+  end
+
   # --- a pool that declares no routine pays nothing ---
 
   # The walk writes down which instance it is on only for a pool whose routines read it. A

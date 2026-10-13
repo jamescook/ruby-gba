@@ -191,7 +191,9 @@ module RubyGBA
         case part
         when :pose then pose_of_slot(at)
         when :colors then Build.list_get(colors_list, at.call)
-        when :order_key then Value.node_for(@order_key.call(Instance.new(self, Value.new(@builder, at.call))))
+        when :order_key
+          # The thing is handed over, and a key the same for every thing of the pool never reads it.
+          Value.node_for(@order_key.call(Instance.new(self, Value.handed_to_block(@builder, at.call))))
         else Build.list_get(field_list(part), at.call)
         end
       end
@@ -495,7 +497,11 @@ module RubyGBA
       def instance_routines = @instance_routines ||= []
 
       # One instance of this pool, as a routine of its own sees it: the one the walk is on.
-      def current_instance = Instance.new(self, Value.new(@builder, Build.var_ref(current_var)))
+      #
+      # This is built for every such routine before its body runs, and a routine with nothing
+      # to say about its instance never reads it. So its slot is a number handed over rather
+      # than one worked out: left unused, it is not the game's to be blamed for.
+      def current_instance = Instance.new(self, Value.handed_to_block(@builder, Build.var_ref(current_var)))
 
       # How many instances are live right now, as a {Value}.
       def count = Value.new(@builder, Build.var_ref(count_var))

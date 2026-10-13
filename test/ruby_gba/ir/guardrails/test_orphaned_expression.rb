@@ -191,7 +191,95 @@ class TestOrphanedExpression < Minitest::Test
     }
   end
 
+  # --- what the framework hands a block is not the author's to have thrown away ---
+
+  # A ROUTINE OF A POOL IS HANDED THE INSTANCE THE WALK IS ON, and it is the framework that
+  # builds that instance's place for it. A routine with nothing to say about its instance —
+  # a kind of thing with no picture, in a cast that each run a routine to draw — left that
+  # unused, and the game was told it had worked out a number and thrown it away.
+  def test_a_pool_routine_that_does_nothing_with_its_instance_is_not_reported
+    assert_nothing_reported {
+      screen :bitmap
+      things = pool :things, x: 0, y: 0, capacity: 2
+      things.func(:thing_waits) { |_thing| }
+      game_loop { things.each { call :thing_waits } }
+    }
+  end
+
+  # A bend is handed the row it is working out, and a bend the same on every row ignores it.
+  def test_a_row_bend_that_ignores_its_row_is_not_reported
+    assert_nothing_reported {
+      screen :tiled
+      image(:bar, "#" => :red) { (["#" * 8] * 8).join("\n") }
+      tiles :stripes, "#" => :bar
+      water = background :water, tiles: :stripes, map: Array.new(20) { "#" * 30 }
+      drift = var :drift, 0
+      water.scroll_each_row { |_row| drift }
+      game_loop { drift.add! 1 }
+    }
+  end
+
+  # A drawing order's block is handed each thing of a pool, and one that keeps every thing of
+  # that pool at one depth ignores it.
+  def test_a_drawing_order_that_ignores_a_pools_thing_is_not_reported
+    assert_nothing_reported {
+      screen :tiled
+      image(:block, "#" => :red) { (["#" * 16] * 16).join("\n") }
+      hero = sprite :block, at: [40, 40]
+      puffs = pool :puff, x: 0, y: 0, capacity: 2, image: :block
+      draw_in_order(hero, puffs) { |thing| thing == hero ? hero.y : 200 }
+      game_loop { hero.move :down, by: 1 }
+    }
+  end
+
+  # What a routine is handed is still not a variable of the game's: the number of the slot its
+  # instance is in can be read and worked from, and not written over.
+  def test_the_slot_a_pool_routine_is_handed_cannot_be_written_over
+    error = assert_raises(ArgumentError) do
+      findings_for do
+        screen :bitmap
+        things = pool :things, x: 0, y: 0, capacity: 2
+        things.func(:thing_jumps) { |thing| thing.index.set! 1 }
+        game_loop { things.each { call :thing_jumps } }
+      end
+    end
+
+    assert_match(/only a variable can be changed/, error.message)
+  end
+
+  # ...and a number that really is worked out and dropped inside such a routine still is
+  # reported, at the routine's own line.
+  def test_a_number_thrown_away_inside_a_pool_routine_is_reported_at_its_line
+    line = nil
+    findings = findings_for do
+      screen :bitmap
+      things = pool :things, x: 0, y: 0, capacity: 2
+      things.func(:thing_drifts) do |thing|
+        line = __LINE__ + 1
+        thing.x + 1
+      end
+      game_loop { things.each { call :thing_drifts } }
+    end
+
+    assert_equal 1, findings.size
+    assert_match(/test_orphaned_expression\.rb:#{line}\z/, findings.first.source)
+  end
+
   # --- the real build path ---
+
+  # The smallest game that used to be stopped: a pool, a routine with nothing in it, a walk.
+  def test_a_game_whose_pool_routine_is_empty_builds
+    err = StringIO.new
+    rom = RubyGBA.build("EMPTY", err: err, out: StringIO.new) do
+      screen :bitmap
+      things = pool :things, x: 0, y: 0, capacity: 2
+      things.func(:thing_waits) { |_thing| }
+      game_loop { things.each { call :thing_waits } }
+    end
+
+    assert rom, "the game builds"
+    refute_match(/did nothing with it/, err.string)
+  end
 
   def test_it_stops_a_real_build_and_says_where
     err = StringIO.new
