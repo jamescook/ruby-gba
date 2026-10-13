@@ -547,6 +547,23 @@ module RubyGBA
   class << self
     # Declare a playthrough: a game driven with nobody at the controls, from the steps in the
     # block. Nothing is played yet; see {Diagnostics::Playthrough#play}.
-    def playthrough(name, &script) = Diagnostics::Playthrough.new(name, &script)
+    #
+    # It is also remembered, so a file that only declares playthroughs can be loaded and
+    # asked what it declared — which is how the command line plays a script file.
+    def playthrough(name, &script)
+      Diagnostics::Playthrough.new(name, &script).tap do |declared|
+        Ractor.current[:ruby_gba_registered_playthroughs] = registered_playthroughs + [declared]
+      end
+    end
+
+    # Every playthrough declared so far, in the order they were. Kept for each core
+    # separately, as the declared games are: a test that declares one on one core is not
+    # seen from another.
+    def registered_playthroughs = Ractor.current[:ruby_gba_registered_playthroughs] || [].freeze
+
+    # Forget them, so that what a file declares can be told from what came before it.
+    def forget_registered_playthroughs!
+      Ractor.current[:ruby_gba_registered_playthroughs] = nil
+    end
   end
 end
