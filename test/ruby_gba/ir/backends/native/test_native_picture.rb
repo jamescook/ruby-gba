@@ -1623,6 +1623,113 @@ class TestNativePicture < Minitest::Test
     assert_equal [Color.resolve(:red), Color.resolve(:white)], last.picture.uniq.sort, "the floor should not have faded"
   end
 
+  # A background drawn from another list of colors while the game runs: every pixel keeps the
+  # place it was drawn at and shows that place of the other list. Then its own colors again.
+  def test_a_background_is_drawn_with_another_list_of_colors
+    program = program_of do
+      screen :tiled
+      colors :day, %i[transparent blue white]
+      colors :dusk, %i[transparent orange red]
+      image :sky, width: 8, height: 8, colors: :day, places: ([1] * 4 + [2] * 4) * 8
+      tiles :skies, "s" => :sky
+      sky = background :sky, tiles: :skies, map: ["s" * 30] * 20
+      n = var :n, 0
+      game_loop do
+        (n == 3).then { sky.draw_with :dusk }
+        (n == 6).then { sky.draw_with :own }
+        n.add! 1
+      end
+    end
+
+    moments = reference_snapshots(program, frames: 10, buttons: {})
+
+    assert_native_matches_reference program, frames: 10
+
+    colors_of = ->(moment) { moment.picture.uniq.sort }
+    assert_equal %i[blue white].map { |name| Color.resolve(name) }.sort, colors_of.(moments[2]), "its own colors first"
+    assert_equal %i[orange red].map { |name| Color.resolve(name) }.sort, colors_of.(moments[5]), "then the other list's"
+    assert_equal colors_of.(moments[2]), colors_of.(moments.last), "and its own again"
+  end
+
+  # One of several lists, picked by a number the game counts, over scenery that scrolls: the
+  # shimmer steps through its lists, and a number past the last of them is its own colors.
+  def test_a_background_is_drawn_with_one_of_several_lists_by_a_number
+    program = program_of do
+      screen :tiled
+      colors :dim, %i[transparent blue]
+      colors :pale, %i[transparent cyan]
+      colors :bright, %i[transparent white]
+      image :shaft, "|" => :blue, "." => :transparent, colors: :dim do "..||....\n" * 8 end
+      image :deep, "#" => :black do "########\n" * 8 end
+      tiles :shafts, "|" => :shaft
+      tiles :water, "#" => :deep
+      background :water, tiles: :water, map: ["#" * 30] * 20
+      light = background :light, tiles: :shafts, map: ["|" * 32] * 32
+      n = var :n, 0
+      game_loop do
+        light.scroll_by 1, 0
+        light.draw_with %i[pale bright], showing: (n >> 1) - 1
+        n.add! 1
+      end
+    end
+
+    moments = reference_snapshots(program, frames: 12, buttons: {})
+
+    assert_native_matches_reference program, frames: 12
+
+    lit = moments.map { |moment| (moment.picture.uniq - [Color.resolve(:black)]).first }
+    assert_equal %i[blue cyan white blue].map { |name| Color.resolve(name) }, lit.compact.chunk_while { |a, b| a == b }.map(&:first),
+                 "its own colors for a number below the lists, each list in turn, and its own again past them"
+  end
+
+  # A layer whose tiles are drawn from two lists, stepped together by one number, with a list the
+  # steps leave out staying as drawn. Under it all, a fade over the whole screen and then one
+  # placed in the stack reach the colors it is drawn with now.
+  def test_a_background_drawn_from_several_lists_steps_them_together_under_a_fade
+    program = program_of do
+      screen :tiled
+      layers :backdrop, :ui
+      colors :sea, %i[transparent blue]
+      colors :sky, %i[transparent cyan]
+      colors :sand, %i[transparent yellow]
+      colors :sea_dusk, %i[transparent red]
+      colors :sky_dusk, %i[transparent orange]
+      colors :sea_night, %i[transparent black]
+      colors :sky_night, %i[transparent gray]
+      image :wave, width: 8, height: 8, colors: :sea, places: [1] * 64
+      image :cloud, width: 8, height: 8, colors: :sky, places: [1] * 64
+      image :beach, width: 8, height: 8, colors: :sand, places: [1] * 64
+      image :digit, "#" => :white do "########\n" * 8 end
+      tiles :shore, "~" => :wave, "c" => :cloud, "." => :beach
+      backdrop = layer(:backdrop) { background :shore, tiles: :shore, map: ["c" * 30] * 6 + ["~" * 30] * 8 + ["." * 30] * 6 }
+      layer(:ui) { sprite :digit, at: [8, 8] }
+      n = var :n, 0
+      game_loop do
+        backdrop.draw_with({ sea: %i[sea_dusk sea_night], sky: %i[sky_dusk sky_night] }, showing: (n >> 2) - 1)
+        (n == 8).then { fade :black, 50 }
+        (n == 10).then { fade :black, 50, under: :ui }
+        n.add! 1
+      end
+    end
+
+    moments = reference_snapshots(program, frames: 14, buttons: {})
+
+    assert_native_matches_reference program, frames: 14
+
+    # The sky, the sea and the sand, each read at one pixel, as they change over the run.
+    seen = moments.map { |moment| [[4, 4], [4, 60], [4, 150]].map { |x, y| moment.picture[(y * WIDTH) + x] } }
+    as_named = ->(*names) { names.map { |name| Color.resolve(name) } }
+    # Half way to black, each channel loses half of itself, rounded down.
+    darkened = ->(*names) { as_named.(*names).map { |color| (0..2).sum { |c| (((color >> (5 * c)) & 31) - (((color >> (5 * c)) & 31) / 2)) << (5 * c) } } }
+    assert_equal [as_named.(:cyan, :blue, :yellow), as_named.(:orange, :red, :yellow),
+                  darkened.(:orange, :red, :yellow), darkened.(:gray, :black, :yellow), darkened.(:cyan, :blue, :yellow)],
+                 seen.chunk_while { |a, b| a == b }.map(&:first),
+                 "as drawn; the sky and the sea stepped together and the sand left alone; that darkened by a fade " \
+                 "over the screen; the next step darkened by a fade placed in the stack; and past the last step, " \
+                 "its own colors under that fade"
+    assert_includes moments.last.picture, Color.resolve(:white), "the placed fade leaves the score in front of it as drawn"
+  end
+
   # A see-through layer on each of two screens that take turns: the game says how see-through
   # both are before every frame, and each scene shows its own.
   def test_a_see_through_layer_on_each_of_two_scenes

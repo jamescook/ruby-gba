@@ -5,7 +5,7 @@
  *
  * What is NOT here is refused when the game is built rather than drawn wrongly (see
  * Picture#refuse_unsupported_picture! and Lowering::NOT_LOWERED_YET, which are the whole list):
- * scenery that is drawn in other colors or is painted from a list; a list of sprite colors that
+ * scenery that is painted from a list; a list of sprite colors that
  * changes as the game runs; and a frame that ends while drawing is held inside an area.
  *
  * A sprite's pictures arrive ready to draw: which of its pixels show, and the colors of each
@@ -114,6 +114,11 @@ static background_cells cells_now[RG_MAX_BACKGROUNDS];
  * top left shows the map's (x, y). Nought until the game scrolls it. */
 typedef struct { int32_t x, y; } background_scroll;
 static background_scroll scrolls[RG_MAX_BACKGROUNDS];
+
+/* Which set of its tiles each background is drawn from now (Reference @bg_colors): 0 for the
+ * colors they were drawn in, which is where every background starts and what a number naming no
+ * step means, or one more than the step the game last named. */
+static int32_t tile_sets_in[RG_MAX_BACKGROUNDS];
 
 /* How a background is turned, once it has been turned or resized at all (Reference @bg_affine). */
 typedef struct { int32_t turned, angle, size, pivot_x, pivot_y; } background_turn;
@@ -573,10 +578,13 @@ static void forget_own_cells(int32_t background) {
   cells_now[background] = (background_cells){0, NULL};
 }
 
-/* One pixel of a cell's tile, or RG_SEE_THROUGH (Reference#background_pixel). */
+/* One pixel of a cell's tile, or RG_SEE_THROUGH (Reference#background_pixel), in the colors the
+ * background is drawn with now (Reference#tile_colors): its tiles as drawn with each step come
+ * one whole set after another. */
 static uint16_t tile_pixel(int32_t background, int32_t cell, int64_t tx, int64_t ty) {
   int32_t tile_w = background_field(background, RG_BG_TILE_W), tile_h = background_field(background, RG_BG_TILE_H);
-  int64_t at = background_field(background, RG_BG_TILES_START) + (int64_t)cell * tile_w * tile_h + ty * tile_w + tx;
+  int64_t tile = (int64_t)tile_sets_in[background] * background_field(background, RG_BG_TILES) + cell;
+  int64_t at = background_field(background, RG_BG_TILES_START) + tile * tile_w * tile_h + ty * tile_w + tx;
   return rg_game_tile_pixels[at];
 }
 
@@ -765,6 +773,14 @@ void rg_background_set_tile(int32_t background, int32_t col, int32_t row, int32_
 void rg_background_show_map(int32_t background, int32_t which) {
   if (which < 0 || which >= background_field(background, RG_BG_SHOWABLE_MAPS)) return;
   copy_map(background, which);
+  request_repaint();
+}
+
+/* Reference#exec_background_colors: nothing about the map or the pictures changes, and the next
+ * rebuild reads the tiles in the colors named. The interpreter keeps the number and works out
+ * what it names as it paints; which step a number names never changes, so it is worked out here. */
+void rg_background_draw_with(int32_t background, int32_t which) {
+  tile_sets_in[background] = rg_place_of_choice(which, background_field(background, RG_BG_COLOR_STEPS));
   request_repaint();
 }
 

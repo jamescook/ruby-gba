@@ -52,8 +52,11 @@ module NativeComparison
   # +buttons+ maps a frame number (from 1) to the buttons held during it. Gives back the
   # interpreter's last snapshot, so a test can also say the run did something worth comparing —
   # two runs that both left everything at 0 agree too.
-  def assert_native_matches_reference(program, frames: 5, buttons: {})
-    expected = reference_snapshots(program, frames: frames, buttons: buttons)
+  #
+  # +played+ is the interpreter's snapshots of this same run, for a test that has already played
+  # it to read them: a long run of a game the interpreter is slow at is then played once.
+  def assert_native_matches_reference(program, frames: 5, buttons: {}, played: nil)
+    expected = played || reference_snapshots(program, frames: frames, buttons: buttons)
     %i[checked fast].each do |mode|
       actual = native_snapshots(program, frames: frames, buttons: buttons, mode: mode)
       assert_equal expected.map(&:heading), actual.map(&:heading), "the frame boundaries differ (#{mode} build)"
