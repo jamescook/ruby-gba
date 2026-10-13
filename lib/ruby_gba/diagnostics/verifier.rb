@@ -165,6 +165,17 @@ module RubyGBA
       # of the display — a background where the other has a sprite — is the same picture.
       def same_picture_as?(other) = picture! == other.picture_held
 
+      # Every pixel that is a different colour here from what +other+, another running
+      # cartridge, is showing: each as [x, y], a row at a time from the top.
+      #
+      # This is the slow question — it looks at all 38,400 pixels of both pictures — so ask
+      # {#same_picture_as?} first and this only of two pictures that are not the same.
+      def pixels_differing_from(other)
+        ours = picture!.unpack("V*")
+        theirs = other.picture_held.unpack("V*")
+        (0...ours.size).filter_map { |at| at.divmod(@width).reverse unless ours[at] == theirs[at] }
+      end
+
       # The picture as the emulator holds it, for another reader to compare its own against.
       protected def picture_held = picture!
 

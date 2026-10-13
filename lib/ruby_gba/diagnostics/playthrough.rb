@@ -63,9 +63,13 @@ module RubyGBA
       def play(cartridge, &at_each_moment) = Playing.play(@name, @steps, cartridge, &at_each_moment)
 
       # Play the script on +first+ to learn its presses, then play +first+ and +second+ side
-      # by side on those presses, comparing the two pictures after every frame (see
-      # Comparison).
-      def compare(first, second) = play(first).tape.compare(first, second)
+      # by side on those presses, comparing the two pictures after every frame. +how_alike+
+      # says how alike they have to be (see Comparison), and it is read before the script is
+      # played, so a setting that makes no sense does not cost a playing to find.
+      def compare(first, second, **how_alike)
+        comparison = Comparison.new(first, second, **how_alike)
+        comparison.run(play(first).tape)
+      end
 
       # A console switched on with +cartridge+ in it and no frame played yet: the reader over
       # one running cartridge that everything here plays on and asks.

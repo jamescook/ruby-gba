@@ -17,7 +17,11 @@ class TestComparison < Minitest::Test
   # down, and the ground turns red once the game has ticked +turns_red_at+ times. It also
   # counts its paces, +counts_by+ for each frame it walks: a number a script can watch that
   # the picture does not show.
-  private def walker(speed: 2, turns_red_at: 100_000, counts_by: 1)
+  #
+  # Two more things can be changed about it, for a difference of a known size and a known
+  # length: the ground stays red for +red_for+ ticks and then goes back, and from tick
+  # +SPECKS_FROM+ it draws +specks+ white pixels in a row, far from the box.
+  private def walker(speed: 2, turns_red_at: 100_000, red_for: 100_000, counts_by: 1, specks: 0)
     RubyGBA.build("WALKER", out: StringIO.new, err: StringIO.new) do
       screen :bitmap
       ticks = var :ticks, 0
@@ -29,11 +33,23 @@ class TestComparison < Minitest::Test
           x.add! speed
           paces.add! counts_by
         end
-        (ticks >= turns_red_at).then { clear_screen :red }.else { clear_screen :blue }
+        ((ticks >= turns_red_at) & (ticks < turns_red_at + red_for)).then { clear_screen :red }.else { clear_screen :blue }
         draw_rect_at x, 60, 8, 8, :white
+        (ticks >= SPECKS_FROM).then { specks.times { |speck| pixel SPECK_X + speck, SPECK_Y, :white } }
       end
     end
   end
+
+  SPECKS_FROM = 30
+  SPECK_X = 100
+  SPECK_Y = 100
+
+  # Whether a cartridge has drawn its specks. White with blue under it, because the whole
+  # screen is white before a game's first frame.
+  private def specks_showing?(game) = game.white?(SPECK_X, SPECK_Y) && game.blue?(SPECK_X, SPECK_Y + 1)
+
+  # How many pixels the screen has: what a share of a frame is a share of.
+  PIXELS = 240 * 160
 
   # A white square on a tiled screen, put there one of two ways: as a tile of a background,
   # or as a sprite standing where that tile would be. The console builds the same picture
@@ -82,6 +98,11 @@ class TestComparison < Minitest::Test
   private def first_frame(cartridge, tape)
     each_frame_of(cartridge, tape) { |game, frame| return frame if yield(game) }
     nil
+  end
+
+  # Every frame something is true of a cartridge while a tape is played on it.
+  private def frames_where(cartridge, tape)
+    [].tap { |found| each_frame_of(cartridge, tape) { |game, frame| found << frame if yield(game) } }
   end
 
   # Every picture a cartridge shows while a tape is played on it, each as the colours on
@@ -198,6 +219,209 @@ class TestComparison < Minitest::Test
     assert_includes shown.last, Color.resolve(:white), "the square is on screen"
     assert shown == pictures_of(as_a_sprite, tape), "the two show the same colours on every frame"
     refute waiting.compare(as_a_tile, as_a_sprite).drift?
+  end
+
+  # --- how alike two pictures have to be ---
+
+  # A FEW PIXELS OUT IS DRIFT UNLESS THAT SHARE OF THE SCREEN MAY DIFFER. One of these two
+  # draws three pixels the other does not, from a frame asked of it on its own. With nothing
+  # said that is drift; so it is while fewer than three may differ; and once three may, the
+  # two are alike for the whole script.
+  def test_a_few_pixels_out_is_drift_until_that_share_may_differ
+    waiting = RubyGBA.playthrough("wait") { wait frames: 50 }
+    plain = walker
+    specked = walker(specks: 3)
+    specked_on = first_frame(specked, waiting.play(plain).tape) { |game| specks_showing?(game) }
+
+    assert_operator specked_on, :>, SPECKS_FROM
+    assert_equal specked_on, waiting.compare(plain, specked).drift.frame
+    assert_equal specked_on, waiting.compare(plain, specked, share_may_differ: Rational(2, PIXELS)).drift.frame
+    refute waiting.compare(plain, specked, share_may_differ: Rational(3, PIXELS)).drift?, "exactly that many is still alike"
+    refute waiting.compare(plain, specked, share_may_differ: 0.01).drift?
+  end
+
+  # A SHARE WRITTEN AS A DECIMAL MEANS THE PIXELS IT WAS WORKED OUT FROM. Fifty-five pixels
+  # of the screen, written `55.0 / 38_400`, is a number that multiplied back up comes out a
+  # hair under fifty-five — so it is the shares that are compared, never a count worked back.
+  def test_a_share_written_as_a_decimal_allows_the_pixels_it_was_worked_out_from
+    waiting = RubyGBA.playthrough("wait") { wait frames: 50 }
+    plain = walker
+    specked = walker(specks: 55)
+
+    assert_operator (55.0 / PIXELS) * PIXELS, :<, 55, "the number that makes this worth a test"
+    refute waiting.compare(plain, specked, share_may_differ: 55.0 / PIXELS).drift?
+    assert waiting.compare(plain, specked, share_may_differ: 54.0 / PIXELS).drift?
+  end
+
+  # THE TWO SETTINGS TOGETHER: a frame has to be over the share, for that many frames running.
+  def test_the_share_and_the_frames_in_a_row_are_asked_together
+    waiting = RubyGBA.playthrough("wait") { wait frames: 50 }
+    plain = walker
+    specked = walker(specks: 3)
+    tape = waiting.play(plain).tape
+    specked_on = first_frame(specked, tape) { |game| specks_showing?(game) }
+    over_the_share = tape.compare(plain, specked, share_may_differ: Rational(2, PIXELS), frames_in_a_row: 4)
+
+    assert_equal specked_on, over_the_share.drift.frame
+    assert_equal specked_on + 3, over_the_share.frames
+    refute tape.compare(plain, specked, share_may_differ: Rational(3, PIXELS), frames_in_a_row: 4).drift?
+  end
+
+  # A DIFFERENCE HAS TO LAST AS MANY FRAMES IN A ROW AS WAS ASKED FOR. One of these two turns
+  # its ground red for three frames and then back. Asked for three in a row that is drift,
+  # reported on the first of the three and found on the last; asked for four it is not.
+  def test_a_difference_is_drift_once_it_lasts_the_frames_in_a_row_asked_for
+    waiting = RubyGBA.playthrough "wait" do
+      wait frames: 10
+      moment :settled
+      wait frames: 50
+    end
+    plain = walker
+    flashing = walker(turns_red_at: 25, red_for: 3)
+    red_on = frames_where(flashing, waiting.play(plain).tape) { |game| game.red?(0, 0) }
+    lasting = waiting.compare(plain, flashing, frames_in_a_row: 3)
+
+    assert_equal 3, red_on.size, "the ground is red for three frames"
+    assert_equal red_on.first, waiting.compare(plain, flashing).drift.frame, "with nothing said, one frame is enough"
+    assert_equal red_on.first, lasting.drift.frame, "the first frame of the stretch"
+    assert_equal :settled, lasting.drift.moment
+    assert_equal red_on.last, lasting.frames, "found once the third had been seen"
+    refute waiting.compare(plain, flashing, frames_in_a_row: 4).drift?
+  end
+
+  # THE MOMENT REPORTED IS THE ONE BEFORE THE STRETCH BEGAN, not the last one named by the
+  # time the stretch had lasted long enough. This script names a moment on the second of
+  # the three red frames, so the stretch runs across it and across two of the script's steps.
+  def test_a_moment_named_inside_a_stretch_is_not_the_moment_before_it
+    plain = walker
+    flashing = walker(turns_red_at: 25, red_for: 3)
+    waiting = RubyGBA.playthrough("wait") { wait frames: 60 }
+    red_on = frames_where(flashing, waiting.play(plain).tape) { |game| game.red?(0, 0) }
+    marked = RubyGBA.playthrough "a moment in the middle of the flash" do
+      wait frames: 10
+      moment :settled
+      wait frames: red_on[1] - 10
+      moment :mid_flash
+      wait frames: 20
+    end
+    drift = marked.compare(plain, flashing, frames_in_a_row: 3).drift
+
+    assert_equal red_on[1], marked.play(plain).moments[:mid_flash]
+    assert_equal red_on.first, drift.frame
+    assert_equal :settled, drift.moment
+  end
+
+  # A STRETCH THAT ENDS IS FORGOTTEN: the frames of one do not count toward the next. This
+  # cartridge's ground is red for three frames, the two are alike again, and then it draws
+  # its specks for good. Asked for four in a row, the drift is where the specks begin.
+  def test_a_stretch_that_ended_does_not_count_toward_the_next
+    waiting = RubyGBA.playthrough("wait") { wait frames: 60 }
+    plain = walker
+    flashing_then_specked = walker(turns_red_at: 15, red_for: 3, specks: 3)
+    tape = waiting.play(plain).tape
+    red_on = frames_where(flashing_then_specked, tape) { |game| game.red?(0, 0) }
+    specked_on = first_frame(flashing_then_specked, tape) { |game| specks_showing?(game) }
+
+    assert_operator specked_on, :>, red_on.last + 1, "the two are alike between the flash and the specks"
+    assert_equal specked_on, waiting.compare(plain, flashing_then_specked, frames_in_a_row: 4).drift.frame
+  end
+
+  # A stretch the tape runs out on, before it has lasted long enough, is not drift.
+  def test_a_stretch_the_tape_runs_out_on_is_not_drift
+    waiting = RubyGBA.playthrough("wait") { wait frames: 40 }
+    plain = walker
+    turning = walker(turns_red_at: 25)
+
+    assert waiting.compare(plain, turning).drift?, "the two do differ before the tape ends"
+    refute waiting.compare(plain, turning, frames_in_a_row: 100).drift?
+  end
+
+  # A PART OF THE SCREEN CAN BE LEFT OUT OF THE COUNT. The quicker of these two boxes pulls
+  # ahead along one strip of the screen: rows 60 to 67, and never past column 87. With that
+  # strip left out the two are alike; in two pieces, the same. Left out only as far as
+  # column 49, they drift on the first frame the quicker box shows past it.
+  def test_a_difference_inside_a_rectangle_left_out_is_not_drift
+    slow = walker(speed: 2)
+    fast = walker(speed: 3)
+    past_column_49_on = first_frame(fast, walk_right.play(slow).tape) { |game| game.white?(50, 60) && game.blue?(50, 59) }
+    too_narrow = walk_right.compare(slow, fast, ignoring_rectangles: [[20, 60, 30, 8]])
+
+    refute walk_right.compare(slow, fast, ignoring_rectangles: [[20, 60, 68, 8]]).drift?
+    refute walk_right.compare(slow, fast, ignoring_rectangles: [[20, 60, 30, 8], [50, 60, 38, 8]]).drift?
+    assert_equal past_column_49_on, too_narrow.drift.frame
+    assert_operator past_column_49_on, :>, walk_right.compare(slow, fast).drift.frame, "later than with nothing left out"
+  end
+
+  # THE SHARE IS A SHARE OF THE PIXELS LOOKED AT. With the top half of the screen left out
+  # there are 19,200 left, and three pixels out among them is three in 19,200: a share
+  # worked out against the whole screen would be half as strict as it says.
+  def test_the_share_is_of_the_pixels_that_are_looked_at
+    waiting = RubyGBA.playthrough("wait") { wait frames: 50 }
+    plain = walker
+    specked = walker(specks: 3)
+    bottom_half = { ignoring_rectangles: [[0, 0, 240, 80]] }
+
+    assert_operator SPECK_Y, :>=, 80, "the specks are in the half that is looked at"
+    refute waiting.compare(plain, specked, share_may_differ: Rational(3, PIXELS / 2), **bottom_half).drift?
+    assert waiting.compare(plain, specked, share_may_differ: Rational(3, PIXELS), **bottom_half).drift?
+  end
+
+  # --- a setting that makes no sense, each refused before a frame is played ---
+  #
+  # These hand over no cartridges at all, which is the proof of "before": had anything been
+  # played, it would have failed on that first.
+
+  def test_a_setting_compare_does_not_have_is_refused_with_the_ones_it_has
+    err = assert_raises(ArgumentError) { walk_right.compare(nil, nil, pixels_differing: 0.1) }
+
+    assert_match(/pixels_differing/, err.message)
+    assert_match(/share_may_differ/, err.message)
+    assert_match(/frames_in_a_row/, err.message)
+    assert_match(/ignoring_rectangles/, err.message)
+  end
+
+  def test_a_share_of_pixels_outside_nought_to_one_is_refused
+    [-0.1, 1.5, "half", nil, true, Float::NAN, Float::INFINITY, Complex(0.5, 0)].each do |wrong|
+      err = assert_raises(ArgumentError) { walk_right.compare(nil, nil, share_may_differ: wrong) }
+
+      assert_match(/share_may_differ/, err.message)
+      assert_match(/from 0 to 1/, err.message)
+    end
+  end
+
+  def test_a_count_of_frames_in_a_row_below_one_is_refused
+    [0, -2, 1.5, "3"].each do |wrong|
+      err = assert_raises(ArgumentError) { walk_right.compare(nil, nil, frames_in_a_row: wrong) }
+
+      assert_match(/frames_in_a_row/, err.message)
+      assert_match(/whole number, 1 or more/, err.message)
+    end
+  end
+
+  # A rectangle is four whole numbers, and the commonest slip is one rectangle written
+  # without the list around it.
+  def test_a_rectangle_that_is_not_four_whole_numbers_is_refused_with_how_to_write_one
+    [[0, 128, 240, 32], [[0, 128, 240]], [[0, 0, 0, 8]], [[0, 0, 8.5, 8]], "bar", nil, {}].each do |wrong|
+      err = assert_raises(ArgumentError) { walk_right.compare(nil, nil, ignoring_rectangles: wrong) }
+
+      assert_match(/ignoring_rectangles/, err.message)
+      assert_match(/\[\[0, 128, 240, 32\]\]/, err.message, "it shows one written out")
+    end
+  end
+
+  def test_a_rectangle_that_reaches_off_the_screen_is_refused
+    [[[230, 0, 20, 10]], [[0, 150, 10, 20]], [[-1, 0, 10, 10]]].each do |wrong|
+      err = assert_raises(ArgumentError) { walk_right.compare(nil, nil, ignoring_rectangles: wrong) }
+
+      assert_match(/off the screen/, err.message)
+      assert_match(/240/, err.message)
+      assert_match(/160/, err.message)
+    end
+  end
+
+  # A rectangle that reaches the very edge of the screen is on it.
+  def test_a_rectangle_up_to_the_edge_of_the_screen_is_taken
+    assert_equal 60, walk_right.compare(walker, walker, ignoring_rectangles: [[0, 0, 240, 160]]).frames
   end
 
   # A TAPE IS COMPARED IN PLACE OF A SCRIPT, here one read back from the text of a file: the
