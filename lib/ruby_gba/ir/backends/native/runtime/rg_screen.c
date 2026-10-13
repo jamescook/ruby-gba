@@ -6,8 +6,7 @@
  * What is NOT here is refused when the game is built rather than drawn wrongly (see
  * Picture#refuse_unsupported_picture! and Lowering::NOT_LOWERED_YET, which are the whole list):
  * scenery that is drawn in other colors or is painted from a list; a list of sprite colors that
- * changes as the game runs; a fade placed in the stack; and a frame that ends while drawing is
- * held inside an area.
+ * changes as the game runs; and a frame that ends while drawing is held inside an area.
  *
  * A sprite's pictures arrive ready to draw: which of its pixels show, and the colors of each
  * list it can be drawn with, are worked out when the game is built (see native/picture.rb).
@@ -68,6 +67,17 @@ static int32_t current_scene = -1;
 static int32_t fade_white, fade_steps;
 static enum { TINT_NONE, TINT_TOWARD, TINT_COLOR } tint_mode;
 static int32_t tint_white, tint_color, tint_steps;
+
+/* A FADE PLACED IN THE STACK, while one is in force (Reference @fade_placed): how far forward the
+ * layer it sits under is among the layers the game declared, which way it fades, and how far. It
+ * cannot be laid over the finished picture as the screen is read, since what is in front of its
+ * line has to come through as drawn. So it is painted in as the view is rebuilt. */
+typedef struct { int32_t in_force, line, toward_white, steps; } fade_in_the_stack;
+static fade_in_the_stack placed_fade;
+
+/* WHAT IS PAINTED FROM HERE ON IS FADED on its way in (Framebuffer @paint_toward), by the placed
+ * fade in force. On only while the view is rebuilt, for the things behind that fade's line. */
+static int32_t fading_what_is_painted;
 
 /* WHAT IS PAINTED FROM HERE ON IS MIXED with what is already in the cell (Framebuffer @through):
  * so many sixteenths of what is painted, so many of what is under it. On only while one thing in
@@ -163,9 +173,19 @@ static uint16_t mixed_with_under(int32_t color, uint16_t under) {
   return (uint16_t)out;
 }
 
-/* Framebuffer#blend_into_cell: a color on its way into a cell holding +under+. */
+static uint16_t blend(uint16_t color, int32_t white, int32_t steps, int32_t out_of);
+
+/* Framebuffer#apply_placed_fade: a color as it is painted while a placed fade reaches it. */
+static uint16_t faded_as_painted(int32_t color) {
+  if (!fading_what_is_painted) return (uint16_t)color;
+  return blend((uint16_t)color, placed_fade.toward_white, placed_fade.steps, 16);
+}
+
+/* Framebuffer#blend_into_cell: a color on its way into a cell holding +under+. The fade a placed
+ * fade asks for first, then the mix a see-through layer asks for. */
 static uint16_t into_cell(int32_t color, uint16_t under) {
-  return mixing ? mixed_with_under(color, under) : (uint16_t)color;
+  uint16_t painted = faded_as_painted(color);
+  return mixing ? mixed_with_under(painted, under) : painted;
 }
 
 /* Reference#see_through_sprites?: is any sprite in a see-through layer? Asked for every pixel
@@ -214,9 +234,10 @@ static void clear_to(int32_t color) {
     fill_cells(area.left, area.top, area.right - area.left, area.bottom - area.top, color);
     return;
   }
-  for (int32_t i = 0; i < CELLS; i++) target[i] = (uint16_t)color;
+  uint16_t painted = faded_as_painted(color);
+  for (int32_t i = 0; i < CELLS; i++) target[i] = painted;
   if (!keeps_picture_without_sprites()) return;
-  for (int32_t i = 0; i < CELLS; i++) picture_without_sprites[i] = (uint16_t)color;
+  for (int32_t i = 0; i < CELLS; i++) picture_without_sprites[i] = painted;
 }
 
 void rg_screen_clear(int32_t color) { clear_to(color); }
@@ -387,8 +408,14 @@ static void forget_kept_shares(void) {
  * layers together or moves the whole picture toward a color, one or the other, so while such a
  * fade runs a see-through layer is solid. A fade that walks the colors sets no fade amount and
  * is never found here. The copy of the scenery kept to put back under sprites is a picture of
- * its own, which no fade was ever set on, so painting into it never finds one either. */
-static int32_t fade_takes_the_blend(void) { return target != scenery && fade_steps > 0; }
+ * its own, which no fade was ever set on, so painting into it never finds one either.
+ *
+ * A fade placed in the stack is the game's and not either picture's, and takes the blend
+ * whichever is being painted. */
+static int32_t fade_takes_the_blend(void) {
+  if (placed_fade.in_force) return placed_fade.steps > 0;
+  return target != scenery && fade_steps > 0;
+}
 
 /* Reference#set_see_through_for, for scenery: mixing on for a thing in a see-through layer, off
  * for anything else. +layer+ is RG_SOLID for a thing in none. */
@@ -441,12 +468,20 @@ static uint16_t faded(uint16_t color) {
   return blend(color, fade_white, fade_steps, 16);
 }
 
-/* Reference#exec_fade (the whole-screen kinds), through Framebuffer#fade_steps_to or, for a
- * fade that walks the colors, #tint_steps_to. A fade that takes the display's blend takes it from
- * a see-through layer and hands it back as it lifts, so the picture is built again at each of
- * those two moments: the layer is solid on one side of them and see-through on the other. */
-void rg_screen_fade(int32_t toward_white, int32_t steps, int32_t walked) {
-  int32_t took_the_blend = fade_takes_the_blend();
+/* Reference#exec_fade, through Framebuffer#fade_steps_to or, for a fade that walks the colors,
+ * #tint_steps_to. +placed+ is the fade as one placed in the stack, in force or not.
+ *
+ * Over the whole screen it is laid over the picture as the screen is read, so nothing drawn
+ * changes. Placed in the stack it is painted into the picture, so the picture is built again
+ * right here, and again by the fade that takes a placed one's place, which has to take it back
+ * out.
+ *
+ * A fade that takes the display's blend takes it from a see-through layer and hands it back as
+ * it lifts, so the picture is built again at each of those two moments as well: the layer is
+ * solid on one side of them and see-through on the other. */
+static void fade_to(fade_in_the_stack placed, int32_t toward_white, int32_t steps, int32_t walked) {
+  int32_t took_the_blend = fade_takes_the_blend(), was_placed = placed_fade.in_force;
+  placed_fade = placed;
   if (walked) {
     tint_mode = TINT_TOWARD;
     tint_white = toward_white;
@@ -454,22 +489,34 @@ void rg_screen_fade(int32_t toward_white, int32_t steps, int32_t walked) {
     fade_steps = 0;
   } else {
     fade_white = toward_white;
-    fade_steps = steps;
+    fade_steps = placed.in_force ? 0 : steps;
     tint_mode = TINT_NONE;
   }
-  if (see_through_layers() > 0 && fade_takes_the_blend() != took_the_blend) request_repaint();
+  int32_t blend_changed_hands = see_through_layers() > 0 && fade_takes_the_blend() != took_the_blend;
+  if (was_placed || placed.in_force || blend_changed_hands) request_repaint();
+}
+
+void rg_screen_fade(int32_t toward_white, int32_t steps, int32_t walked) {
+  fade_to((fade_in_the_stack){0}, toward_white, steps, walked);
+}
+
+void rg_screen_fade_under(int32_t line, int32_t toward_white, int32_t steps, int32_t walked) {
+  fade_to((fade_in_the_stack){1, line, toward_white, steps}, toward_white, steps, walked);
 }
 
 /* Reference#exec_tint, through Framebuffer#tint_steps_to. A tint takes the place of whatever
- * fade was in force, and a fade that goes may have been holding a see-through layer solid, so
- * the picture is built again when one does. */
+ * fade was in force, one placed in the stack included. A fade that goes may have been holding a
+ * see-through layer solid, or have been painted into the picture, so the picture is built again
+ * when one does. */
 void rg_screen_tint(int32_t color, int32_t steps) {
-  int32_t took_the_blend = fade_takes_the_blend();
+  int32_t took_the_blend = fade_takes_the_blend(), was_placed = placed_fade.in_force;
+  placed_fade.in_force = 0;
   tint_mode = TINT_COLOR;
   tint_color = color;
   tint_steps = steps;
   fade_steps = 0;
-  if (see_through_layers() > 0 && fade_takes_the_blend() != took_the_blend) request_repaint();
+  int32_t blend_changed_hands = see_through_layers() > 0 && fade_takes_the_blend() != took_the_blend;
+  if (was_placed || blend_changed_hands) request_repaint();
 }
 
 /* Backends::FadeSteps.steps */
@@ -1070,23 +1117,37 @@ int32_t rg_pixels_overlap(int32_t a_image, int32_t a_x, int32_t a_y, int32_t b_i
 
 /* --- the whole view, rebuilt (Reference#repaint_view) --- */
 
+/* The fade half of Reference#set_blend_for: a placed fade reaches a thing unless the layer it
+ * was declared in is the fade's own or one in front of it. +place+ is how far forward that
+ * layer is, or RG_NO_LAYER for a thing that named none, and for the backdrop, which is behind
+ * everything. A fade under a layer the game never declared reaches everything. */
+static void fade_as_placed_at(int32_t place) {
+  int32_t in_front_of_the_line = placed_fade.line != RG_NO_LAYER && place != RG_NO_LAYER && place >= placed_fade.line;
+  fading_what_is_painted = placed_fade.in_force && !in_front_of_the_line;
+}
+
 static void repaint_view(void) {
+  mix_nothing();
+  fade_as_placed_at(RG_NO_LAYER);
   clear_to(0);
   int32_t backgrounds = rg_game_picture_sizes[RG_SIZE_BACKGROUNDS], levels = rg_game_picture_sizes[RG_SIZE_DEPTHS];
   for (int32_t level = 0; level < levels; level++) {
     for (int32_t bg = 0; bg < backgrounds; bg++) {
       if (!showing(bg) || background_field(bg, RG_BG_LEVEL) != level) continue;
       mix_as_layer(background_field(bg, RG_BG_SEE_THROUGH));
+      fade_as_placed_at(stack_place(bg));
       if (turns[bg].turned) paint_turned_window(bg);
       else paint_window(bg);
     }
     for (int32_t i = 0; i < sprite_layer_count; i++) {
       if (sprite_layer[i].level != level) continue;
       mix_as_sprite(sprite_layer[i].sprite);
+      fade_as_placed_at(rg_game_sprite_stack_places[sprite_layer[i].sprite]);
       draw_placed(&sprite_layer[i]);
     }
   }
   mix_nothing();
+  fading_what_is_painted = 0;
 }
 
 /* Reference#paint_owed_repaint */

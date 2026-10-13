@@ -71,16 +71,6 @@ class TestNativeRefusals < Minitest::Test
     end
   end
 
-  def test_a_fade_placed_in_the_stack_is_refused_by_name
-    assert_refused_picture(/fade placed in the stack/) do
-      screen :tiled
-      layers :back, :front
-      image :dot, "#" => :red do "########\n" * 8 end
-      layer(:front) { sprite :dot, at: [10, 10] }
-      game_loop { fade :black, 50, under: :front }
-    end
-  end
-
   # A sprite's pictures are worked out once, in each list of colors it can be drawn with; a list
   # the game gives other colors as it runs has no such picture.
   def test_a_list_of_colors_that_changes_is_refused_by_name

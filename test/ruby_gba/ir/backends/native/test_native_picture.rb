@@ -1425,6 +1425,139 @@ class TestNativePicture < Minitest::Test
     refute_includes moments.last.picture, Color.resolve(:blue), "and with the fade lifted it shows the floor through it"
   end
 
+  # A fade placed in the stack: what is behind the layer it names goes dark, and that layer and
+  # everything in front of it stay as drawn. Here the line falls between two backgrounds, and
+  # the fade deepens a little each frame until the floor is gone.
+  def test_a_fade_placed_between_two_backgrounds
+    program = program_of do
+      screen :tiled
+      layers :floor, :frame
+      image :slab, "#" => :red, "." => :yellow do "####....\n....####\n" * 4 end
+      image :bar, "=" => :white, "." => :transparent do ("========\n" * 2) + ("........\n" * 6) end
+      tiles :slabs, "#" => :slab
+      tiles :bars, "=" => :bar
+      layer(:floor) { background :slabs, tiles: :slabs, map: ["#" * 30] * 20 }
+      layer(:frame) { background :bars, tiles: :bars, map: ["=" * 30] * 20 }
+      n = var :n, 0
+      game_loop do
+        fade :black, n * 10, under: :frame
+        n.add! 1
+      end
+    end
+
+    moments = reference_snapshots(program, frames: 13, buttons: {})
+
+    assert_native_matches_reference program, frames: 13
+
+    assert_operator moments.map(&:picture).uniq.length, :>=, 8, "the floor should have darkened through several amounts"
+    assert_equal [Color.resolve(:black), Color.resolve(:white)], moments.last.picture.uniq.sort,
+                 "at the end the floor is black and the bars in front of the line are as drawn"
+  end
+
+  # The line falling between sprites, and the fade going toward white: the score in front of it
+  # stays as drawn while the player behind it, the ground, and a sprite that named no layer all
+  # go white. Then a plain fade takes the placed one's place, and reaches the score too.
+  def test_a_fade_placed_between_sprites
+    program = program_of do
+      screen :tiled
+      layers :ground, :players, :score
+      image :turf, "#" => :green do "########\n" * 8 end
+      image :hero, "#" => :red do "########\n" * 8 end
+      image :digit, "#" => :blue do "########\n" * 8 end
+      image :stray, "#" => :orange do "########\n" * 8 end
+      tiles :lawn, "#" => :turf
+      layer(:ground) { background :lawn, tiles: :lawn, map: ["#" * 30] * 20 }
+      hero = layer(:players) { sprite :hero, at: [40, 40] }
+      layer(:score) { sprite :digit, at: [100, 8] }
+      sprite :stray, at: [160, 100]
+      n = var :n, 0
+      game_loop do
+        hero.move :right, by: 3
+        (n < 8).then { fade :white, n * 15, under: :score }
+        (n == 8).then { fade :white, 100 }
+        n.add! 1
+      end
+    end
+
+    moments = reference_snapshots(program, frames: 12, buttons: {})
+
+    assert_native_matches_reference program, frames: 12
+
+    white = Color.resolve(:white)
+    placed = moments[8].picture
+    assert_equal [Color.resolve(:blue), white], placed.uniq.sort, "everything but the score should be white under the placed fade"
+    assert_equal [white], moments.last.picture.uniq, "and the score too once a fade over the whole screen takes its place"
+  end
+
+  # A placed fade walked over frames, out and back in, as a game goes to its game-over screen and
+  # comes back: the field and the ship in it go dark and return, and the score never changes.
+  def test_a_placed_fade_walked_out_and_back_in
+    program = program_of do
+      screen :tiled
+      layers :field, :ships, :ui
+      image :star, "*" => :yellow, "." => :transparent do "...*....\n" * 8 end
+      image :ship, "#" => :red do "########\n" * 8 end
+      image :digit, "#" => :white do "########\n" * 8 end
+      tiles :stars, "*" => :star
+      field = layer(:field) { background :stars, tiles: :stars, map: ["*" * 32] * 32 }
+      ship = layer(:ships) { sprite :ship, at: [40, 60] }
+      layer(:ui) { sprite :digit, at: [8, 8] }
+      n = var :n, 0
+      game_loop do
+        field.scroll_by 0, 1
+        ship.move :right, by: 2
+        (n == 2).then { fade_out frames: 8, under: :ui }
+        (n == 14).then { fade_in }
+        n.add! 1
+      end
+    end
+
+    moments = reference_snapshots(program, frames: 26, buttons: {})
+
+    assert_native_matches_reference program, frames: 26
+
+    white = Color.resolve(:white)
+    assert_equal [Color.resolve(:black), white], moments[13].picture.uniq.sort, "faded out, only the score should show"
+    assert_includes moments.last.picture, Color.resolve(:red), "the ship should be back once the fade has come in"
+    drawn = moments.drop(1) # a sprite is first drawn in the gap after the first frame
+    assert_equal [64], drawn.map { |moment| moment.picture.count(white) }.uniq, "the score should never have changed"
+  end
+
+  # A placed fade and a see-through layer both want the display's one blend, and the fade has it:
+  # the water is solid while the fade is on, and shows the floor again when a tint takes the
+  # fade's place.
+  def test_a_placed_fade_holds_a_see_through_layer_solid_until_a_tint_takes_its_place
+    program = program_of do
+      screen :tiled
+      layers :floor, :water, :ui
+      image :slab, "#" => :red, "." => :yellow do "####....\n....####\n" * 4 end
+      image :wave, "~" => :blue, "." => :transparent do "~~~~~~..\n" * 8 end
+      image :digit, "#" => :white do "########\n" * 8 end
+      tiles :slabs, "#" => :slab
+      tiles :waves, "~" => :wave
+      layer(:floor) { background :slabs, tiles: :slabs, map: ["#" * 30] * 20 }
+      layer(:water, transparency: 40) { background :waves, tiles: :waves, map: ["~" * 30] * 20 }
+      layer(:ui) { sprite :digit, at: [8, 8] }
+      n = var :n, 0
+      game_loop do
+        (n == 2).then { fade :black, 25, under: :ui }
+        (n == 6).then { tint :red, 0 }
+        n.add! 1
+      end
+    end
+
+    moments = reference_snapshots(program, frames: 10, buttons: {})
+
+    assert_native_matches_reference program, frames: 10
+
+    blue = Color.resolve(:blue)
+    darker_blue = 24 << 10 # blue, a quarter of the way to black
+    refute_includes moments[1].picture, blue, "before the fade the water shows the floor through it"
+    assert_includes moments[5].picture, darker_blue, "under the fade the water should be solid, and darker"
+    refute_includes moments.last.picture, darker_blue, "and with the fade gone it is not"
+    refute_includes moments.last.picture, blue, "and shows the floor through it again"
+  end
+
   # A see-through layer on each of two screens that take turns: the game says how see-through
   # both are before every frame, and each scene shows its own.
   def test_a_see_through_layer_on_each_of_two_scenes

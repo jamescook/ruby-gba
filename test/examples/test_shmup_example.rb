@@ -14,9 +14,12 @@ require_relative "../../examples/shmup"
 # enemy touching the ship calls the HUD's hit), and losing the last ship switches scenes —
 # on the interpreter oracle and on real hardware.
 class TestShmupExample < Minitest::Test
-  runs_on :reference
+  runs_on :reference, :native
 
   include Differential
+
+  # Why a test that watches the game frame by frame is not played as C.
+  EVERY_FRAME = "it reads the game at every frame (each_vblank), which the native player cannot answer yet"
 
   CYAN = Color.resolve(:cyan)       # the ship (player.rb)
   RED = Color.resolve(:red)         # an enemy (enemies.rb) / the GAME OVER banner
@@ -95,7 +98,7 @@ class TestShmupExample < Minitest::Test
 
   # Each file's part draws while playing: the ship, the HUD, and the enemies all appear.
   def test_every_part_renders_on_the_interpreter
-    s = Reference.new.run(Shmup.program, frames: RENDER).screen
+    s = game_player.run(Shmup.program, frames: RENDER).screen
     assert_equal CYAN, s.pixel(119, 132), "the ship (player.rb) renders"
     assert_equal WHITE, s.pixel(9, 4), "the HUD SCORE text (hud.rb) renders"
     assert red_somewhere?(s), "an enemy (enemies.rb) renders"
@@ -106,8 +109,8 @@ class TestShmupExample < Minitest::Test
   # (The ship may be glowing warm by then, having been hit on the way, so its hull is either.)
   def test_holding_right_drives_the_ship_from_its_own_file
     hull = [CYAN, *WARM]
-    still = Reference.new.run(Shmup.program, frames: MOVE).screen
-    right = Reference.new.hold(:right).run(Shmup.program, frames: MOVE).screen
+    still = game_player.run(Shmup.program, frames: MOVE).screen
+    right = game_player.hold(:right).run(Shmup.program, frames: MOVE).screen
     refute_includes hull, still.pixel(231, 133), "at rest the ship isn't at the right edge"
     assert_includes hull, right.pixel(231, 133), "holding right, the ship moved there"
   end
@@ -115,7 +118,7 @@ class TestShmupExample < Minitest::Test
   # The parts collaborate across files: an enemy that drifts into the ship calls the
   # HUD's `hit`, so a life is lost. (Per-pixel collision, between two files' sprites.)
   def test_parts_collaborate_across_files
-    i = Reference.new.run(Shmup.program, frames: MOVE)
+    i = game_player.run(Shmup.program, frames: MOVE)
     assert_operator i[:lives], :<, 3, "an enemy reached the ship — enemies.rb called hud.hit"
   end
 
@@ -125,8 +128,9 @@ class TestShmupExample < Minitest::Test
 
   # The colour of the ship's hull, frame by frame, alongside how many ships are left.
   def ship_hull_by_frame(frames)
+    skip_on_native EVERY_FRAME
     seen = []
-    i = Reference.new
+    i = game_player
     i.each_vblank { |_f| seen << [i[:lives], i.screen.pixel(119, 146)] } # the hull, not the cockpit
     i.run(Shmup.program, frames: frames)
     seen
@@ -156,8 +160,9 @@ class TestShmupExample < Minitest::Test
   # it is hurt, none of its magenta hull is on screen and a hull's worth of warm is. (An
   # enemy is orange or red too, but three of them are a fraction of the cruiser.)
   def test_the_boss_glows_warm_when_a_shot_lands
+    skip_on_native EVERY_FRAME
     hurt = []
-    i = Reference.new.input_each_frame { |f| (f % 20).zero? ? [:a] : [] }
+    i = game_player.input_each_frame { |f| (f % 20).zero? ? [:a] : [] }
     i.each_vblank do |_f|
       # Past the frame the shot landed on, which is drawn before the boss's pass has glowed.
       next unless i[:boss_flash].between?(1, Shmup::Boss::HURT - 2) && i[:boss_hits].positive?
@@ -184,7 +189,7 @@ class TestShmupExample < Minitest::Test
   # stop being presented (they belong to the playing scene) and the GAME OVER banner —
   # which belongs to the game-over scene — appears. No per-draw visibility flag anywhere.
   def test_losing_every_ship_shows_the_game_over_screen
-    i = Reference.new.run(Shmup.program, frames: TO_GAME_OVER)
+    i = game_player.run(Shmup.program, frames: TO_GAME_OVER)
     assert_equal GAME_OVER, i[:state], "the last ship lost switched to the game-over scene"
     assert_equal 0, i[:lives]
 
@@ -199,8 +204,9 @@ class TestShmupExample < Minitest::Test
   # is placed under :ui, so it reaches the field and everything moving in it and stops
   # there. Caught mid-dim, before the scene actually switches.
   def test_the_score_stays_readable_while_the_field_fades_out
+    skip_on_native EVERY_FRAME
     dimming = []
-    i = Reference.new
+    i = game_player
     # The pixels, not the screen: the screen is one object the run keeps painting over.
     i.each_vblank do |_f|
       dimming << [i.screen.pixel(9, 4), i.screen.pixel(119, 132)] if i[:leaving] == 1
@@ -215,9 +221,10 @@ class TestShmupExample < Minitest::Test
   # START on the game-over screen begins a fresh game — full ships again. (A brief START
   # tap every 40 frames: ignored while playing, and the first tap after game over restarts.)
   def test_start_restarts_a_fresh_game_after_game_over
+    skip_on_native EVERY_FRAME
     saw_game_over = false
     restored = false
-    i = Reference.new.input_each_frame { |f| (f % 40).zero? && !f.zero? ? [:start] : [] }
+    i = game_player.input_each_frame { |f| (f % 40).zero? && !f.zero? ? [:start] : [] }
     i.each_vblank do |_f|
       saw_game_over = true if i[:state] == GAME_OVER
       restored = true if saw_game_over && i[:lives] == 3 # ships back to full after game over
@@ -245,8 +252,9 @@ class TestShmupExample < Minitest::Test
   # It is on screen as one picture, wider than any single sprite the console can draw, and
   # the whole of it moves together — same width in both frames, further left in the second.
   def test_the_boss_arrives_and_the_whole_picture_moves_together
+    skip_on_native EVERY_FRAME
     spans = {}
-    i = Reference.new
+    i = game_player
     i.each_vblank { |f| spans[f] = magenta_span(i.screen) }
     i.run(Shmup.program, frames: BOSS_FACING_LEFT + 30)
 
@@ -262,8 +270,9 @@ class TestShmupExample < Minitest::Test
   # Facing the other way is the same picture mirrored about the WHOLE canvas, not about
   # each piece: the gun arm swaps ends instead of every piece turning inside out.
   def test_the_boss_turns_round_as_one_picture
+    skip_on_native EVERY_FRAME
     seen = {}
-    i = Reference.new
+    i = game_player
     i.each_vblank do |f|
       next unless [BOSS_FACING_LEFT, BOSS_FACING_RIGHT].include?(f)
 
@@ -280,11 +289,12 @@ class TestShmupExample < Minitest::Test
   # drew first — and the last one kills it, which pays the bonus. (Fired on a beat: `pressed`
   # is a press edge, so a held button is one shot however long it is held.)
   def test_shooting_the_boss_wears_it_down_and_killing_it_pays_the_bonus
+    skip_on_native EVERY_FRAME
     arrived = false
     worn_down = false
     bonus_paid = false
     score = 0
-    i = Reference.new.input_each_frame { |f| (f % 20).zero? ? [:a] : [] }
+    i = game_player.input_each_frame { |f| (f % 20).zero? ? [:a] : [] }
     i.each_vblank do |_f|
       arrived = true if i[:boss_hits] == Shmup::Boss::HITS
       worn_down = true if arrived && i[:boss_hits].zero?

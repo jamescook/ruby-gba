@@ -62,7 +62,6 @@ module RubyGBA
 
           def refuse_unsupported_picture!
             nodes = @program.walk.to_a
-            refuse_picture!("a fade placed in the stack (fade ... under:)") if nodes.any? { |n| n.kind == :fade && n.under }
             # A sprite drawn with such a list holds the list's name where its colors would be,
             # and its pictures here are worked out once, in colors that never change.
             changing = nodes.find { |n| n.kind == :color_list }
@@ -128,7 +127,7 @@ module RubyGBA
           # --- the art, for rg_screen.c ---
 
           def picture_data
-            [*image_arrays, *background_arrays, *see_through_arrays,
+            [*image_arrays, *background_arrays, *see_through_arrays, sprite_stack_places,
              runtime_array("picture_sizes", "int32_t",
                     [@backgrounds.size, @stacking.depths.count, @handover.always_up.scenery.length,
                      rebuilt_every_frame? ? 1 : 0, @see_through.size,
@@ -189,7 +188,7 @@ module RubyGBA
               [bg.tile_w, bg.tile_h, first_map, Array(bg.maps).length, grid_cols, grid_rows,
                bg.streams? ? 1 : 0, tiles_start,
                bg.scene ? @scenes.fetch(bg.scene, NEVER_ARRIVES) : EVERY_SCENE, @stacking.depths[bg.name],
-               @handover.on_arrival?(bg) ? 1 : 0, @stacking.stack.index(bg.layer) || NO_LAYER,
+               @handover.on_arrival?(bg) ? 1 : 0, stack_place(bg.layer),
                see_through_number(bg), @bends.key?(bg.name) ? 1 : 0]
             end
             [runtime_array("tile_pixels", "uint16_t", tile_pixels), runtime_array("backgrounds", "int32_t", fields),
@@ -206,6 +205,12 @@ module RubyGBA
             end
             [runtime_array("see_through", "int32_t", flags),
              runtime_array("sprite_see_through", "int32_t", @objects.each_value.map { |obj| see_through_number(obj) })]
+          end
+
+          # For every sprite, how far forward the layer it was declared in is, which is what says
+          # whether a fade placed in the stack reaches it.
+          def sprite_stack_places
+            runtime_array("sprite_stack_places", "int32_t", @objects.each_value.map { |obj| stack_place(obj.layer) })
           end
 
           # Reference#see_through_layer_of: the see-through layer a background or a sprite was
@@ -514,10 +519,18 @@ module RubyGBA
             call("rg_pose_image", pictures, C::Int.new(poses.length), value(pose))
           end
 
-          # Reference#exec_fade, for a fade over the whole screen.
+          # Reference#exec_fade: over the whole screen, or placed in the stack under a layer, which
+          # rg_screen.c knows by how far forward it is (IR::Stacking.at_or_above).
           def lower_fade(node)
-            [eval_call("rg_screen_fade", C::Int.new(node.toward == :white ? 1 : 0), fade_steps(node), walks_colors(node))]
+            fade = [C::Int.new(node.toward == :white ? 1 : 0), fade_steps(node), walks_colors(node)]
+            return [eval_call("rg_screen_fade", *fade)] unless node.under
+
+            [eval_call("rg_screen_fade_under", C::Int.new(stack_place(node.under)), *fade)]
           end
+
+          # How far forward a layer is among the layers the game declared, or NO_LAYER for a name
+          # that is none of them, and for a thing that named no layer.
+          def stack_place(layer) = @stacking.stack.index(layer) || NO_LAYER
 
           # Reference#exec_tint: counted in thirty-seconds however it reaches the screen.
           def lower_tint(node)
