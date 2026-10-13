@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+require "tmpdir" # here and not where it is used: see the note at the top of the verifier
+
 module RubyGBA
   module Diagnostics
     # A GAME DRIVEN WITH NOBODY AT THE CONTROLS, from a script that says what to press.
@@ -28,6 +30,10 @@ module RubyGBA
     # frame goes round once for each, and then a button down for forty frames is seen forty
     # times. One that does not fit takes two frames a trip, or three, and sees it fewer.
     #
+    # ...OR IT WATCHES THE GAME. Counting is exact and brittle: the day a screen takes a frame
+    # longer to come up, every step after it is a frame out. So a step can instead wait until
+    # something is true of the game, and the script carries on from the frame it first is.
+    #
     # FRAMES ARE COUNTED FROM 1. Frame 1 is the first one the playthrough plays, and a moment
     # is the frame that had just been played when the script named it.
     #
@@ -54,15 +60,18 @@ module RubyGBA
       # handed the moment's name and the running cartridge, so the game can be asked about
       # exactly there.
       def play(cartridge, &at_each_moment)
-        playing = Playing.new(Verifier.new(cartridge, frames: 0, vars: cartridge.var_addresses), at_each_moment)
+        game = Verifier.new(cartridge, frames: 0, vars: cartridge.var_addresses)
+        playing = Playing.new(@name, game, at_each_moment)
         @steps.each { |step| step.play(playing) }
         playing.played
       end
 
       # ONE PLAYING OF A SCRIPT, as it goes: the cartridge, how many frames it has played, and
-      # the moments named so far. Each step of the script plays itself on this.
+      # the moments named so far. Each step of the script plays itself on this. +title+ is the
+      # playthrough's name, for an error to say whose playing it was.
       class Playing
-        def initialize(game, at_each_moment)
+        def initialize(title, game, at_each_moment)
+          @title = title
           @game = game
           @at_each_moment = at_each_moment
           @frames = 0
@@ -75,6 +84,42 @@ module RubyGBA
           @frames += frames
         end
 
+        # Play a frame at a time with the buttons of +key_mask+ down, until the block says yes
+        # of the game. The game is asked after each frame, so this stops on the first frame
+        # the answer is yes. After +within+ frames of no it gives up (see GaveUp).
+        def hold_until(key_mask, words, within)
+          within.times do
+            hold(key_mask, 1)
+            answer = yield(@game)
+            refuse_non_boolean_answer!(words, answer)
+            return if answer
+          end
+          raise GaveUp.new(title: @title, words: words, waited: within, frame: @frames, picture: write_picture_of_frame)
+        end
+
+        # The screen as it is now, written where a person can open it.
+        #
+        # In a folder of its own that nothing takes away, unlike everything else a playing
+        # makes: the picture is what the error points at, so it has to be there after the
+        # playing is gone.
+        def write_picture_of_frame
+          path = File.join(Dir.mktmpdir("playthrough"), "frame-#{@frames}.png")
+          Graphics::PNG.write(path, width: Console::Hardware::SCREEN_WIDTH, height: Console::Hardware::SCREEN_HEIGHT,
+                                    pixels: @game.frame_gba)
+        end
+
+        # A watching block has to answer yes or no. Ruby takes every number for yes, nought
+        # included, so a block that answers one — `flags & 4`, the way the test is written in
+        # C — would end the wait on its first frame whatever the game was doing.
+        def refuse_non_boolean_answer!(words, answer)
+          return if [true, false].include?(answer)
+
+          raise ArgumentError,
+                "The block that waits until #{words}, in playthrough #{@title.inspect}, answered #{answer.inspect}. " \
+                "It must answer true or false. To ask about a number, compare it, " \
+                "like `(game.var(:flags) & 4) != 0`."
+        end
+
         # Give the frame just played a name, and hand the game over to whoever is watching.
         def mark(name)
           @moments[name] = @frames
@@ -84,14 +129,40 @@ module RubyGBA
         def played = Played.new(frames: @frames, moments: @moments, game: @game)
       end
 
+      # A WAIT THAT NEVER ENDED. The script waited for something to be true of the game, and
+      # after as many frames as it was willing to wait it still was not. A playthrough that
+      # hung there would say nothing at all, so it stops and says which wait it was, the frame
+      # it gave up on, and where it left a picture of the screen at that frame — which is
+      # usually the whole answer: the game is on a screen the script did not expect.
+      class GaveUp < StandardError
+        attr_reader :words, :frame, :picture
+
+        # The picture's path gets a line of its own, so it can be copied whole.
+        def initialize(title:, words:, waited:, frame:, picture:)
+          @words = words
+          @frame = frame
+          @picture = picture
+          super("Playthrough #{title.inspect} waited until #{words}. That did not happen in #{waited} frames. " \
+                "It stopped on frame #{frame}. Look at the screen on that frame first:\n#{picture}\n" \
+                "If the game is where you expect and needs longer, give the step a bigger `within:`.")
+        end
+      end
+
+      # The buttons as the console reads them: one bit apiece, each named for its button.
+      def self.key_mask(buttons)
+        buttons.reduce(0) { |mask, button| mask | Console::Hardware.const_get(:"KEY_#{button.upcase}") }
+      end
+
       # Buttons kept down for a number of frames — none at all, for a wait.
       Hold = Data.define(:buttons, :frames) do
-        def play(playing) = playing.hold(key_mask, frames)
+        def play(playing) = playing.hold(Playthrough.key_mask(buttons), frames)
+      end
 
-        # The buttons as the console reads them: one bit apiece, each named for its button.
-        def key_mask
-          buttons.reduce(0) { |mask, button| mask | Console::Hardware.const_get(:"KEY_#{button.upcase}") }
-        end
+      # Buttons kept down — or none — until something is true of the game. +words+ say what,
+      # for a person; +condition+ is asked of the running cartridge after each frame; +within+
+      # is how many frames to go on asking.
+      Watch = Data.define(:buttons, :words, :within, :condition) do
+        def play(playing) = playing.hold_until(Playthrough.key_mask(buttons), words, within, &condition)
       end
 
       # A name for the frame that has just been played.
@@ -100,8 +171,8 @@ module RubyGBA
       end
 
       # THE STEPS OF A SCRIPT, as the block writes them. Each word here is one a script can
-      # say; what they add up to is a plain list, in order, of buttons held for some frames and
-      # moments named along the way.
+      # say; what they add up to is a plain list, in order: buttons held for a count of frames,
+      # buttons held until something is true of the game, and moments named along the way.
       #
       # The block is run with this as itself, so `press` and `hold` need nothing written in
       # front of them. A local variable from around the block is still in reach inside it; a
@@ -141,6 +212,28 @@ module RubyGBA
           self
         end
 
+        # How many frames a step that watches the game goes on asking, unless it says: ten
+        # seconds of play.
+        LONGEST_WAIT = 600
+
+        # Let frames go by with nothing pressed until the block says yes of the game. +words+
+        # say what is being waited for, in the middle of a sentence: "the file menu is up".
+        # The block is handed the running cartridge and asked after every frame, so the script
+        # carries on from the first frame the answer is yes. It always plays one frame at least.
+        def wait_until(words, within: LONGEST_WAIT, &condition)
+          add_watch_step(:wait_until, Watch.new(buttons: [], words: words, within: within, condition: condition))
+        end
+
+        # The same, with the buttons down while it waits: walk right until the hero is at the
+        # door. They come up when the wait ends. The words come first, as they do in
+        # `wait_until`, and the buttons after.
+        def hold_until(words, *buttons, within: LONGEST_WAIT, &condition)
+          refuse_watch_without_words!(:hold_until, words) # first: a button written first is the words missing
+          refuse_missing_buttons!(:hold_until, buttons, otherwise: "wait_until")
+          refuse_unknown_buttons!(:hold_until, buttons)
+          add_watch_step(:hold_until, Watch.new(buttons: buttons, words: words, within: within, condition: condition))
+        end
+
         # Name the frame that has just been played, so it can be asked for afterwards.
         def moment(name)
           refuse_moment_before_first_frame!(name)
@@ -152,30 +245,58 @@ module RubyGBA
 
         private
 
-        def refuse_missing_buttons!(word, buttons)
+        # +step_name+ is the step as the script wrote it, for the errors to quote.
+        def add_watch_step(step_name, watch)
+          refuse_watch_without_words!(step_name, watch.words)
+          refuse_watch_without_block!(step_name, watch)
+          refuse_invalid_frame_count!(step_name, watch.within, keyword: "within:")
+          @steps << watch
+          self
+        end
+
+        # The words are what a wait that never ends has to say for itself.
+        def refuse_watch_without_words!(step_name, words)
+          return if words.is_a?(String) && !words.strip.empty?
+
+          raise ArgumentError,
+                "`#{step_name}` in playthrough #{@title.inspect} must start with a few words that say what it " \
+                "waits for, like `#{step_name}(\"the file menu is up\")`. It was given #{words.inspect}."
+        end
+
+        def refuse_watch_without_block!(step_name, watch)
+          return if watch.condition
+
+          raise ArgumentError,
+                "`#{step_name}(#{watch.words.inspect})` in playthrough #{@title.inspect} has no block. " \
+                "Give it a block that reads the game and is true when the wait is over, " \
+                "like `{ |game| game.var(:screen) == 1 }`."
+        end
+
+        # +otherwise+ is the step that does the same with nothing pressed.
+        def refuse_missing_buttons!(step_name, buttons, otherwise: "wait")
           return unless buttons.empty?
 
           raise ArgumentError,
-                "`#{word}` in playthrough #{@title.inspect} names no button. " \
-                "Name one or more of #{button_list}. To let frames go by with nothing pressed, use `wait`."
+                "`#{step_name}` in playthrough #{@title.inspect} names no button. " \
+                "Name one or more of #{button_list}. To let frames go by with nothing pressed, use `#{otherwise}`."
         end
 
-        def refuse_unknown_buttons!(word, buttons)
+        def refuse_unknown_buttons!(step_name, buttons)
           unknown = buttons.find { |button| !IR::Buttons.known?(button) } or return
 
           raise ArgumentError,
-                "`#{word} #{unknown.inspect}` in playthrough #{@title.inspect} names a button " \
+                "`#{step_name} #{unknown.inspect}` in playthrough #{@title.inspect} names a button " \
                 "the console does not have. The buttons are #{button_list}."
         end
 
         def button_list = IR::Buttons::NAMES.map(&:inspect).join(", ")
 
-        def refuse_invalid_frame_count!(word, frames)
+        def refuse_invalid_frame_count!(step_name, frames, keyword: "frames:")
           return if frames.is_a?(Integer) && frames >= 1
 
           raise ArgumentError,
-                "`#{word}` in playthrough #{@title.inspect} was given frames: #{frames.inspect}. " \
-                "frames: must be a whole number, 1 or more."
+                "`#{step_name}` in playthrough #{@title.inspect} was given #{keyword} #{frames.inspect}. " \
+                "#{keyword} must be a whole number, 1 or more."
         end
 
         # A moment is the frame just played, and before the first step there is none. Every

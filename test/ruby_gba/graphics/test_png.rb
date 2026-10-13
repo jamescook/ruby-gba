@@ -2,7 +2,7 @@
 
 require "test_helper"
 require "tmpdir"
-require "zlib"
+require "png_reading"
 
 # WRITING A PICTURE TO A FILE. The framework reads art out of PNG files; this is the other
 # direction — a screen, or any block of the console's colours, written as a PNG a person can
@@ -15,6 +15,8 @@ class TestPNG < Minitest::Test
   # start from inside a Ractor — the spawn can wait for ever — so on the main Ractor, not in
   # the pool. See test_helper.
   runs_on_the_main_ractor!
+
+  include PNGReading
 
   PNG = RubyGBA::Graphics::PNG
   Image = RubyGBA::Graphics::Image
@@ -109,11 +111,10 @@ class TestPNG < Minitest::Test
   # stays full, and half way is 132.
   def test_the_bytes_are_a_truecolour_png
     png = PNG.encode(width: 2, height: 1, pixels: [WHITE, 16])
-    rows = Zlib::Inflate.inflate(chunk(png, "IDAT"))
 
     assert_equal [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A], png.bytes.first(8)
-    assert_equal [0, 255, 255, 255, 132, 0, 0], rows.bytes
-    assert_equal [2, 1, 8, 2], chunk(png, "IHDR").unpack("N2C2"), "width, height, 8 bits a channel, truecolour"
+    assert_equal [0, 255, 255, 255, 132, 0, 0], png_rows(png)
+    assert_equal [2, 1, 8, 2], png_chunk(png, "IHDR").unpack("N2C2"), "width, height, 8 bits a channel, truecolour"
   end
 
   # A picture with the wrong number of pixels would be written sheared, every row after the
@@ -123,18 +124,5 @@ class TestPNG < Minitest::Test
 
     assert_match(/3 pixels/, err.message)
     assert_match(/4/, err.message, "and it says how many a 2 by 2 picture has")
-  end
-
-  # The data of the first chunk of +type+ in a PNG: after the 8-byte signature, each chunk is
-  # its length, its type, its data and a check.
-  private def chunk(png, type)
-    at = 8
-    while at < png.bytesize
-      length = png.byteslice(at, 4).unpack1("N")
-      return png.byteslice(at + 8, length) if png.byteslice(at + 4, 4) == type
-
-      at += 12 + length
-    end
-    flunk "no #{type} chunk in the PNG"
   end
 end

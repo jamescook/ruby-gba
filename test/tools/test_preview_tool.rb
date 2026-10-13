@@ -2,7 +2,7 @@
 
 require "test_helper"
 
-require "zlib"
+require "png_reading"
 require_relative "../../tools/preview"
 
 # The preview tool (tools/preview.rb): runs a program on the interpreter, captures its
@@ -10,6 +10,7 @@ require_relative "../../tools/preview"
 # pin the two things that could silently produce a broken page — the frame capture and
 # the pictures in the page — plus the CLI's example lookup.
 class TestPreviewTool < Minitest::Test
+  include PNGReading
 
   # A tiny program that paints the screen red and loops, so a capture has real frames.
   def red_loop
@@ -66,9 +67,8 @@ class TestPreviewTool < Minitest::Test
   def test_the_page_holds_each_frame_as_a_picture_of_what_was_drawn
     page = Preview.html(Preview.capture(red_loop, frames: 3), title: "x")
     last = page.scan(%r{data:image/png;base64,([A-Za-z0-9+/=]+)}).flatten.last.unpack1("m0")
-    rows = Zlib::Inflate.inflate(idat(last))
 
-    assert_equal ([0] + ([255, 0, 0] * 240)) * 160, rows.bytes, "the whole of the last frame is red"
+    assert_equal ([0] + ([255, 0, 0] * 240)) * 160, png_rows(last), "the whole of the last frame is red"
   end
 
   def test_html_inlines_one_png_per_frame_and_a_canvas
@@ -88,19 +88,5 @@ class TestPreviewTool < Minitest::Test
   def test_load_example_resolves_a_module_with_a_program
     assert_respond_to Preview.load_example("parallax"), :program
     assert_raises(ArgumentError) { Preview.load_example("no_such_example") }
-  end
-
-  # The bytes of a PNG's single IDAT (image data) chunk, walking the chunk list past
-  # the 8-byte signature: each chunk is length(4) + type(4) + data + crc(4).
-  def idat(png)
-    pos = 8
-    while pos < png.bytesize
-      len = png.byteslice(pos, 4).unpack1("N")
-      type = png.byteslice(pos + 4, 4)
-      return png.byteslice(pos + 8, len) if type == "IDAT"
-
-      pos += 12 + len
-    end
-    flunk "no IDAT chunk in the PNG"
   end
 end
