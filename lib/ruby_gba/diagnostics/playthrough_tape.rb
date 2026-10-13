@@ -66,10 +66,24 @@ module RubyGBA
         # title in the cartridge's own header and a checksum of every byte of it. +save+ is
         # the save memory the cartridge held when the console was switched on, or nil.
         def self.recorded_on(cartridge, steps, save:)
-          header_title = cartridge.buffer.byteslice(Cartridge::Header::HEADER_TITLE, Cartridge::ROM::TITLE_LENGTH)
+          title, checksum = title_and_checksum_of(cartridge)
           starts_from = save ? format("a save 0x%08X", Zlib.crc32(save.to_sav)) : POWER_ON
-          new(title: printable(header_title), checksum: Zlib.crc32(cartridge.buffer), starts_from: starts_from, steps: steps)
+          new(title: title, checksum: checksum, starts_from: starts_from, steps: steps)
         end
+
+        # What a person tells one cartridge from another by: the title in its own heading,
+        # and a checksum of every byte of it, which says which build of that game it is.
+        def self.title_and_checksum_of(cartridge)
+          header_title = cartridge.buffer.byteslice(Cartridge::Header::HEADER_TITLE, Cartridge::ROM::TITLE_LENGTH)
+          [printable(header_title), Zlib.crc32(cartridge.buffer)]
+        end
+
+        # Those two as they are written for a person, on a tape and in a report: `HERO 0x5C0FFEE5`.
+        def self.label(title, checksum) = "#{title} #{format('0x%08X', checksum)}"
+        def self.label_of(cartridge) = label(*title_and_checksum_of(cartridge))
+
+        # The cartridge this tape was recorded on, written the same way.
+        def recorded_on_label = Tape.label(title, checksum)
 
         # A header's title as a line a person can read. The header holds twelve bytes, padded
         # with noughts, and a cartridge somebody else made can hold anything in them — so a
@@ -130,6 +144,61 @@ module RubyGBA
                                "cartridges from power-on, so it cannot play this tape. Record the tape from power-on."
         end
 
+        # THE TAPE AS FAR AS +frame+ AND NO FURTHER: the same presses, ending on that frame. It
+        # is how a moment part way through is got back to — play this, and the cartridge is
+        # on that frame. A hold the frame falls inside is cut short there. A moment is kept
+        # when the frame it names was played, the last frame included. A frame past the end
+        # of the tape is the whole tape.
+        def up_to(frame)
+          refuse_frame_below_one!(frame)
+          with(steps: steps_up_to(frame))
+        end
+
+        private def refuse_frame_below_one!(frame)
+          return if frame.is_a?(Integer) && frame >= 1
+
+          raise ArgumentError, "A tape was asked for its frames up to #{frame.inspect}. Frames are counted from 1, " \
+                               "so give a whole number, 1 or more."
+        end
+
+        # A moment after a hold that was cut short named a later frame than the cut, so
+        # nothing after the cut is kept. One after a hold that ended on the frame names that
+        # frame, and is.
+        private def steps_up_to(frame)
+          played = 0
+          steps.each_with_object([]) do |step, kept|
+            left = frame - played
+            return kept if left.zero? && step.frames.positive?
+            return kept << step.with(frames: left) if step.frames > left
+
+            kept << step
+            played += step.frames
+          end
+        end
+
+        # A run of frames with the same buttons down: +frames+ is the range of them,
+        # counted from 1, and +buttons+ what was down.
+        Stretch = Data.define(:frames, :buttons)
+
+        # WHAT WAS DOWN ON EACH OF THE FRAMES +frames+, a range of frame numbers: one
+        # Stretch for each run of them with the same buttons down, in order. A moment
+        # between two lines of the same buttons does not split a run, since a moment is
+        # no frames long; and a run that reaches outside the range is cut to it.
+        def presses_within(frames)
+          ends_on = 0
+          steps.each_with_object([]) do |step, runs|
+            next if step.frames.zero?
+
+            starts_on = ends_on + 1
+            ends_on += step.frames
+            inside = [starts_on, frames.begin].max..[ends_on, frames.end].min
+            next if inside.none?
+
+            longer = runs.last&.buttons == step.buttons
+            longer ? runs[-1] = runs.last.with(frames: runs.last.frames.begin..inside.end) : runs << Stretch.new(frames: inside, buttons: step.buttons)
+          end
+        end
+
         # How many frames the tape plays.
         def frames = steps.sum(&:frames)
 
@@ -144,7 +213,7 @@ module RubyGBA
 
         # The tape as the text of a file.
         def to_s
-          heading = [FIRST_LINE, "recorded on: #{title} #{format('0x%08X', checksum)}", "starts from: #{starts_from}", ""]
+          heading = [FIRST_LINE, "recorded on: #{recorded_on_label}", "starts from: #{starts_from}", ""]
           (heading + steps.map(&:tape_line)).join("\n") << "\n"
         end
 

@@ -31,8 +31,11 @@ module RubyGBA
       # Where the two stopped being alike: the first frame of a stretch of differing frames
       # long enough to count. +moment+ is the last moment named before that frame was played,
       # for a person to place the frame by: nil when none had been. A moment that names the
-      # very frame is not before it.
-      Drift = Data.define(:frame, :moment)
+      # very frame is not before it. +report+ is the folder a report of it was written into
+      # (see DriftReport), or nil when the comparison was given nowhere to write one.
+      Drift = Data.define(:frame, :moment, :report) do
+        def initialize(frame:, moment:, report: nil) = super
+      end
 
       # What a comparison found. +frames+ is how many frames were played, and +drift+ where
       # the two stopped being alike — nil when they never did.
@@ -40,15 +43,32 @@ module RubyGBA
         def drift? = !drift.nil?
       end
 
+      # A DRIFT WAS FOUND AND ITS REPORT COULD NOT BE WRITTEN. The place is looked at before
+      # a frame is played, so this is the rare case of a disk that filled, or something that
+      # changed while the two were playing. The finding is the part that cost the playing,
+      # so the error still holds it: +drift+ is where the two stopped being alike.
+      class ReportNotWritten < StandardError
+        attr_reader :drift
+
+        def initialize(drift, folder, why)
+          @drift = drift
+          super("The two cartridges drifted on frame #{drift.frame}. The report of that drift could not be written " \
+                "in #{folder}: #{why}. Give `reports_in:` the path of a folder that can be written to.")
+        end
+      end
+
       # +moments+ is the names of the moments the playthrough declares, in order: what the
       # script or the tape says they are, and not a setting a caller can give.
       # +ignoring_frames+ is the stretches of it that are not looked at (see IgnoredFrames),
-      # and +how_alike+ what a Likeness takes: how alike two pictures have to be. All of it is
-      # read here, so a setting that makes no sense is refused before a frame is played.
-      def initialize(first, second, moments, ignoring_frames: [], **how_alike)
+      # and +how_alike+ what a Likeness takes: how alike two pictures have to be. +reports_in+
+      # is a folder to write a report of the drift into (see DriftReport), or nil for none.
+      # All of it is read here, so a setting that makes no sense is refused before a frame
+      # is played.
+      def initialize(first, second, moments, ignoring_frames: [], reports_in: nil, **how_alike)
         refuse_unknown_settings!(how_alike.keys)
         @ignored = IgnoredFrames.new(ignoring_frames, moments)
         @likeness = Likeness.new(**how_alike)
+        @reports_in = DriftReport.place_for(reports_in)
         @handed_over = [first, second]
       end
 
@@ -65,16 +85,29 @@ module RubyGBA
       # Play both on +tape+ and compare them, and say what was found.
       def run(tape)
         ignored = @ignored.frame_ranges_on(tape)
-        pair = SideBySide.new(*cartridges.map { |cartridge| Playthrough.power_on(cartridge) }, @likeness, ignored)
+        consoles = cartridges.map { |cartridge| Playthrough.power_on(cartridge) }
+        pair = SideBySide.new(*consoles, @likeness, ignored, keeping_pictures: !@reports_in.nil?)
         tape.steps.each do |step|
           step.play(pair)
           break if pair.drift
         end
-        Result.new(frames: pair.frames, drift: pair.drift)
+        Result.new(frames: pair.frames, drift: drift_with_report(pair, tape))
       end
 
-      # Every setting a comparison has: the ones that say how alike, and the one of its own.
-      def self.settings = [*Likeness::SETTINGS, :ignoring_frames]
+      # The drift the pair found, with a report of it written if there is somewhere to
+      # write one, and the folder it went into noted on the drift.
+      private def drift_with_report(pair, tape)
+        drift = pair.drift
+        return drift unless drift && @reports_in
+
+        report = DriftReport.new(drift, pair.pictures_at_drift, tape: tape, cartridges: cartridges,
+                                                               differing: @likeness.differing_places(*pair.pictures_at_drift),
+                                                               settings: @likeness.sentences + @ignored.sentences(tape))
+        drift.with(report: report.write_in(@reports_in))
+      end
+
+      # Every setting a comparison has: the ones that say how alike, and the ones of its own.
+      def self.settings = [*Likeness::SETTINGS, :ignoring_frames, :reports_in]
 
       private def refuse_unknown_settings!(given)
         unknown = given - Likeness::SETTINGS
@@ -105,7 +138,8 @@ module RubyGBA
           refuse_malformed_rectangles!(ignoring_rectangles)
           @share_may_differ = share_may_differ
           @frames_in_a_row = frames_in_a_row
-          @looked_at = pixels_outside(ignoring_rectangles.map { |corner_and_size| Rectangle.new(*corner_and_size) })
+          @ignored_rectangles = ignoring_rectangles.map { |corner_and_size| Rectangle.new(*corner_and_size) }
+          @looked_at = pixels_outside(@ignored_rectangles)
           @pixels_looked_at = @looked_at.count(true)
         end
 
@@ -125,6 +159,28 @@ module RubyGBA
         # Whether +frames+ differing frames, one after another, are drift.
         def drift_after?(frames) = frames >= @frames_in_a_row
 
+        # Where two pictures differ, of the places that are looked at. This is for two
+        # screens that were kept, each a screenful of colours a row at a time, and what
+        # comes back is where in that list the two hold different colours. (Two consoles
+        # still running are asked through `alike?`, which does not copy their screens out.)
+        def differing_places(first, second)
+          (0...first.size).select { |at| @looked_at[at] && first[at] != second[at] }
+        end
+
+        # THE SETTINGS IN FORCE, AS SENTENCES, for a report a person reads. A comparison's
+        # numbers mean nothing read against the wrong settings, so it says them every time.
+        def sentences
+          looked_at = @pixels_looked_at == WIDTH * HEIGHT ? "pixels" : "pixels that were looked at"
+          words = if @share_may_differ.zero?
+                    ["A frame differed when one of the #{looked_at} was a different colour."]
+                  else
+                    ["A frame differed when more than #{percent_allowed} percent of the #{looked_at} were a different colour."]
+                  end
+          words << "#{@frames_in_a_row} frames in a row had to differ before it was drift." if @frames_in_a_row > 1
+          words << "These parts of the screen were not looked at: #{@ignored_rectangles.map(&:in_words).join('; ')}." if @ignored_rectangles.any?
+          words
+        end
+
         WIDTH = Console::Hardware::SCREEN_WIDTH
         HEIGHT = Console::Hardware::SCREEN_HEIGHT
         private_constant :WIDTH, :HEIGHT
@@ -134,12 +190,18 @@ module RubyGBA
           def columns = x...(x + width)
           def rows = y...(y + height)
           def on_screen? = x >= 0 && y >= 0 && columns.end <= WIDTH && rows.end <= HEIGHT
+          def in_words = "#{width} by #{height} pixels from column #{x}, row #{y}"
         end
         private_constant :Rectangle
 
         private
 
         def strict? = @share_may_differ.zero? && @pixels_looked_at == WIDTH * HEIGHT
+
+        # The share as a percentage a person reads: `1`, `0.5`, and for one pixel of the
+        # screen `0.0026041667`. It is written out in full and never with an exponent,
+        # which is how a very small number is otherwise printed.
+        def percent_allowed = format("%.10f", @share_may_differ * 100.0).sub(/\.?0+\z/, "")
 
         # The share of the pixels looked at that are a different colour in the two pictures.
         # It is the shares that are compared and never a count worked back out of one: a
@@ -211,15 +273,24 @@ module RubyGBA
       class SideBySide
         attr_reader :frames, :drift
 
+        # The two screens on the frame the drift began, each a screenful of colours. They
+        # are kept from the first frame of every stretch of differing frames, because by
+        # the time a stretch is long enough to be called drift both consoles have moved on
+        # and that frame cannot be asked for again. Nil unless the pair was told to keep
+        # them: copying two screens out is only worth doing for a report.
+        attr_reader :pictures_at_drift
+
         # +ignored+ is the stretches that are not looked at, as ranges of frame numbers.
-        def initialize(first, second, likeness, ignored)
+        def initialize(first, second, likeness, ignored, keeping_pictures:)
           @first = first
           @second = second
           @likeness = likeness
           @ignored = ignored
+          @keeping_pictures = keeping_pictures
           @frames = 0
           @moment = nil
           @differing_since = nil
+          @pictures_at_drift = nil
           @drift = nil
         end
 
@@ -243,8 +314,13 @@ module RubyGBA
         private def extend_or_end_differing_stretch
           return @differing_since = nil if ignored_frame? || @likeness.alike?(@first, @second)
 
-          @differing_since ||= Drift.new(frame: @frames, moment: @moment)
+          start_differing_stretch unless @differing_since
           @drift = @differing_since if @likeness.drift_after?(@frames - @differing_since.frame + 1)
+        end
+
+        private def start_differing_stretch
+          @differing_since = Drift.new(frame: @frames, moment: @moment)
+          @pictures_at_drift = [@first.frame_gba, @second.frame_gba] if @keeping_pictures
         end
 
         private def ignored_frame? = @ignored.any? { |stretch| stretch.cover?(@frames) }

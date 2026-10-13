@@ -216,6 +216,77 @@ class TestPlaythroughTape < Minitest::Test
     assert_equal tape.steps, played.tape.steps, "and it is the tape its own playing makes"
   end
 
+  # A TAPE CUT AT A FRAME IS THE SAME PRESSES UP TO THAT FRAME AND NO FURTHER, which is how a
+  # frame part way through is got back to. A hold the frame falls inside is cut short. A
+  # moment is kept when the frame it names is still on the tape — the very last frame
+  # included — and dropped when it is not.
+  def test_a_tape_cut_at_a_frame_ends_on_it_and_keeps_the_moments_before
+    tape = Tape.parse(<<~TAPE)
+      ruby-gba tape 1
+      recorded on: ANYTHING 0x00000000
+      starts from: power-on
+
+      10 -
+      moment settled
+      20 right
+      moment walked
+      5 -
+    TAPE
+    cut = ->(frame) { tape.up_to(frame).to_s.lines.drop(4).map(&:chomp) }
+
+    assert_equal ["10 -", "moment settled", "5 right"], cut.call(15), "cut inside the hold, and :walked is past it"
+    assert_equal ["10 -", "moment settled", "20 right", "moment walked"], cut.call(30), "the moment on the last frame stays"
+    assert_equal ["10 -", "moment settled"], cut.call(10)
+    assert_equal ["4 -"], cut.call(4)
+    assert_equal tape, tape.up_to(35)
+    assert_equal tape, tape.up_to(1000), "a frame past the end is the whole tape"
+    assert_equal tape.to_s.lines.first(3), tape.up_to(4).to_s.lines.first(3), "its heading is still that tape's"
+  end
+
+  # Cut at frame 15, it plays to frame 15: the game has ticked as often as on the whole tape
+  # at that frame.
+  def test_a_tape_cut_at_a_frame_plays_to_that_frame
+    game = ticking_game
+    whole = RubyGBA.playthrough("wait") { wait frames: 40 }.play(game).tape
+    ticks_after = ->(tape) { tape.play(game).game.var(:ticks) }
+
+    assert_equal 15, whole.up_to(15).frames
+    assert_equal 25, ticks_after.call(whole) - ticks_after.call(whole.up_to(15)), "twenty-five frames fewer, twenty-five ticks fewer"
+  end
+
+  # WHAT WAS DOWN ON A RANGE OF FRAMES, a stretch for each run with the same buttons down. A
+  # moment between two lines of the same buttons is no frames long, so it does not split a
+  # run; and a run that starts before the range or ends after it is cut to the range.
+  def test_a_tape_says_what_was_down_on_a_range_of_frames
+    tape = Tape.parse(<<~TAPE)
+      ruby-gba tape 1
+      recorded on: ANYTHING 0x00000000
+      starts from: power-on
+
+      10 -
+      moment settled
+      5 -
+      20 right up
+      1 a
+      4 -
+    TAPE
+    down_on = ->(frames) { tape.presses_within(frames).map { |stretch| [stretch.frames, stretch.buttons] } }
+
+    assert_equal [[1..15, []], [16..35, %i[right up]], [36..36, [:a]], [37..40, []]], down_on.call(1..40)
+    assert_equal [[12..15, []], [16..20, %i[right up]]], down_on.call(12..20), "cut at both ends"
+    assert_equal [[36..36, [:a]]], down_on.call(36..36)
+    assert_equal [[37..40, []]], down_on.call(37..500), "a range that runs past the end stops where the tape does"
+  end
+
+  def test_a_tape_cut_before_its_first_frame_is_refused
+    tape = RubyGBA.playthrough("one frame") { wait frames: 1 }.play(ticking_game).tape
+    [0, -3, 1.5, nil].each do |wrong|
+      err = assert_raises(ArgumentError) { tape.up_to(wrong) }
+
+      assert_match(/counted from 1/, err.message)
+    end
+  end
+
   # A tape holds nothing but names and numbers, so every core can read one: it can be kept in
   # a constant of a test, where a script with a watching step cannot.
   def test_a_tape_can_be_shared_between_cores

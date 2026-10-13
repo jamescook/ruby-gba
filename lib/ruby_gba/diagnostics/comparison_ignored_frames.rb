@@ -52,9 +52,40 @@ module RubyGBA
           end
         end
 
+        # THE STRETCHES AS SENTENCES, for a report a person reads, and in words a person
+        # says: `frames 1 to 120`, and for one written in moments the moments and then the
+        # frames those came to on +tape+. A list of one sentence, or of none when no
+        # stretch was left out.
+        def sentences(tape)
+          named = tape.moments
+          stretches = @numbered.map { |frames| frames_in_words(frames) } + @named.map do |stretch|
+            "#{moments_in_words(stretch)} (#{frames_in_words(between(stretch) { |name| named.fetch(name) })})"
+          end
+          return [] if stretches.empty?
+
+          ["These stretches of the playthrough were not looked at: #{stretches.join('; ')}."]
+        end
+
         private
 
         def ends_of(stretch) = [stretch.begin, stretch.end].compact
+
+        # A range of frames as a person says it. Three dots leave the last frame out, so
+        # the last frame said is the one before it.
+        def frames_in_words(frames)
+          first = frames.begin || 1
+          return "frame #{first} to the end" unless frames.end
+
+          last = frames.exclude_end? ? frames.end - 1 : frames.end
+          first == last ? "frame #{first}" : "frames #{first} to #{last}"
+        end
+
+        def moments_in_words(stretch)
+          from = stretch.begin ? "the moment #{stretch.begin}" : "the start"
+          return "from #{from} to the end" unless stretch.end
+
+          "from #{from} to #{'just before ' if stretch.exclude_end?}the moment #{stretch.end}"
+        end
 
         # A range of moment names as the same range of numbers: the block says what number a
         # name stands for, and an end left open stays open.
