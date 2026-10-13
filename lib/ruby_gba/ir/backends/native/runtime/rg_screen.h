@@ -170,13 +170,11 @@ void rg_game_see_through_amounts(void);
  * thirty-seconds of a walk through the colors (see Backends::FadeSteps). */
 void rg_screen_fade(int32_t toward_white, int32_t steps, int32_t walked);
 /* The same fade PLACED IN THE STACK: what is behind the layer it names fades, and that layer and
- * everything in front of it are left as drawn. +line+ is how far forward that layer is among the
- * layers the game declared, or RG_NO_LAYER when it is none of them, and then everything fades.
- * A thing is in front of the line by the layer it was declared in (rg_game_backgrounds'
- * RG_BG_STACK_PLACE, and rg_game_sprite_stack_places for each sprite by its number); one that
- * named no layer is always behind it. */
-void rg_screen_fade_under(int32_t line, int32_t toward_white, int32_t steps, int32_t walked);
-extern const int32_t rg_game_sprite_stack_places[];
+ * everything in front of it are left as drawn. +layer_place+ is how far forward that layer is
+ * among the layers the game declared, or RG_NO_LAYER when it is none of them, and then
+ * everything fades. Each thing says how far forward such a layer can be and still leave it as
+ * drawn (RG_BG_FADE_PLACE, rg_game_sprite_fade_places). */
+void rg_screen_fade_under(int32_t layer_place, int32_t toward_white, int32_t steps, int32_t walked);
 /* A tint toward +color+, in thirty-seconds. */
 void rg_screen_tint(int32_t color, int32_t steps);
 /* How far +amount+ (a percentage, or with +fraction_bits+ >= 0 a fraction of one) is, in steps. */
@@ -222,6 +220,9 @@ extern const int32_t rg_game_images[];
  * rg_game_see_through, or RG_SOLID. */
 #define RG_SOLID (-1)
 extern const int32_t rg_game_sprite_see_through[];
+/* For each sprite, by its number: the furthest forward a placed fade's layer can be and still
+ * leave it as drawn, as RG_BG_FADE_PLACE says for a background. */
+extern const int32_t rg_game_sprite_fade_places[];
 
 /* Each layer the game can be seen through is RG_ST_FIELDS numbers in rg_game_see_through: 1 when
  * both its amounts are numbers written in the program, 1 when it was given one amount (how much
@@ -253,7 +254,12 @@ extern const uint16_t rg_game_tile_pixels[];
  * (IR::TileMap).
  *
  * RG_BG_SEE_THROUGH is which see-through layer it is in, counting through rg_game_see_through,
- * or RG_SOLID. RG_BG_BENT is 1 for one the game bends (rg_game_bend_offsets). */
+ * or RG_SOLID. RG_BG_BENT is 1 for one the game bends (rg_game_bend_offsets).
+ *
+ * RG_BG_FADE_PLACE is the furthest forward a placed fade's layer can be and still leave it as
+ * drawn, or RG_NO_LAYER when every placed fade reaches it. That is its own place in the stack,
+ * unless something else was declared by its name further forward: the interpreter knows what a
+ * placed fade leaves alone by name, so the two are left or reached together. */
 #define RG_EVERY_SCENE (-1)
 #define RG_NEVER_ARRIVES (-2)
 #define RG_NO_LAYER (-1)
@@ -262,7 +268,7 @@ extern const uint16_t rg_game_tile_pixels[];
 enum {
   RG_BG_TILE_W, RG_BG_TILE_H, RG_BG_FIRST_MAP, RG_BG_SHOWABLE_MAPS, RG_BG_GRID_COLS, RG_BG_GRID_ROWS,
   RG_BG_NEVER_WRAPS, RG_BG_TILES_START, RG_BG_SCENE, RG_BG_LEVEL, RG_BG_ON_ARRIVAL, RG_BG_STACK_PLACE,
-  RG_BG_SEE_THROUGH, RG_BG_BENT, RG_BG_FIELDS
+  RG_BG_SEE_THROUGH, RG_BG_BENT, RG_BG_FADE_PLACE, RG_BG_FIELDS
 };
 extern const int32_t rg_game_backgrounds[];
 

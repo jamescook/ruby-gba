@@ -1540,8 +1540,49 @@ class TestNativePicture < Minitest::Test
       layer(:ui) { sprite :digit, at: [8, 8] }
       n = var :n, 0
       game_loop do
-        (n == 2).then { fade :black, 25, under: :ui }
-        (n == 6).then { tint :red, 0 }
+        (n == 2).then { fade :black, 0, under: :ui }
+        (n == 4).then { fade :black, 25, under: :ui }
+        (n == 8).then { tint :red, 0 }
+        n.add! 1
+      end
+    end
+
+    moments = reference_snapshots(program, frames: 12, buttons: {})
+
+    assert_native_matches_reference program, frames: 12
+
+    blue = Color.resolve(:blue)
+    darker_blue = 24 << 10 # blue, a quarter of the way to black
+    refute_includes moments[1].picture, blue, "before the fade the water shows the floor through it"
+    refute_includes moments[3].picture, blue, "and under a placed fade of nothing, which takes no blend"
+    assert_includes moments[7].picture, darker_blue, "under the fade the water should be solid, and darker"
+    refute_includes moments.last.picture, darker_blue, "and with the fade gone it is not"
+    refute_includes moments.last.picture, blue, "and shows the floor through it again"
+  end
+
+  # The line falling in the middle of the stack, with no scenery at all: the backdrop and the
+  # sprite behind the line fade, and the sprite in the line's own layer and the one in front of
+  # it do not. A sprite put in the front layer as the game runs is still reached, since the line
+  # goes by the layer a thing was declared in. Then the fade is placed under the front layer
+  # instead, and reaches the middle one too.
+  def test_a_fade_placed_under_a_middle_layer_over_the_bare_backdrop
+    block = "########\n" * 8
+    program = program_of do
+      screen :tiled
+      layers :back, :middle, :front
+      image(:far, "#" => :red) { block }
+      image(:mid, "#" => :green) { block }
+      image(:near, "#" => :blue) { block }
+      image(:mover, "#" => :orange) { block }
+      layer(:back) { sprite :far, at: [20, 20] }
+      layer(:middle) { sprite :mid, at: [60, 20] }
+      layer(:front) { sprite :near, at: [100, 20] }
+      mover = layer(:back) { sprite :mover, at: [140, 20] }
+      n = var :n, 0
+      game_loop do
+        mover.put_in_layer :front
+        (n == 2).then { fade :white, 50, under: :middle }
+        (n == 6).then { fade :white, 50, under: :front }
         n.add! 1
       end
     end
@@ -1550,12 +1591,36 @@ class TestNativePicture < Minitest::Test
 
     assert_native_matches_reference program, frames: 10
 
-    blue = Color.resolve(:blue)
-    darker_blue = 24 << 10 # blue, a quarter of the way to black
-    refute_includes moments[1].picture, blue, "before the fade the water shows the floor through it"
-    assert_includes moments[5].picture, darker_blue, "under the fade the water should be solid, and darker"
-    refute_includes moments.last.picture, darker_blue, "and with the fade gone it is not"
-    refute_includes moments.last.picture, blue, "and shows the floor through it again"
+    # Half way to white, a channel at nought is 15 and one at its brightest stays there.
+    at = ->(moment, x, y) { moment.picture[(y * WIDTH) + x] }
+    under_middle = moments[5]
+    assert_equal 15 | (15 << 5) | (15 << 10), at.(under_middle, 200, 100), "the backdrop should be half way to white"
+    assert_equal 31 | (15 << 5) | (15 << 10), at.(under_middle, 24, 24), "and so should the sprite behind the line"
+    assert_equal Color.resolve(:green), at.(under_middle, 64, 24), "the sprite in the line's own layer is as drawn"
+    assert_equal Color.resolve(:blue), at.(under_middle, 104, 24), "and so is the one in front of it"
+    refute_equal Color.resolve(:orange), at.(under_middle, 144, 24), "one declared behind the line fades wherever it is put"
+    assert_equal 15 | (31 << 5) | (15 << 10), at.(moments.last, 64, 24), "under the front layer the middle sprite fades too"
+    assert_equal Color.resolve(:blue), at.(moments.last, 104, 24), "and the front one still does not"
+  end
+
+  # What a placed fade leaves as drawn, the interpreter knows by NAME, and a background can be
+  # given the name the build made for a sprite. The two then stand or fall together: here the
+  # floor is behind the line, and is left as drawn because the score sharing its name is in front.
+  def test_a_placed_fade_leaves_a_background_that_shares_a_kept_sprites_name
+    program = program_of do
+      screen :tiled
+      layers :floor, :ui
+      image :slab, "#" => :red do "########\n" * 8 end
+      image :digit, "#" => :white do "########\n" * 8 end
+      tiles :slabs, "#" => :slab
+      digit = layer(:ui) { sprite :digit, at: [8, 8] }
+      layer(:floor) { background digit.object_name, tiles: :slabs, map: ["#" * 30] * 20 }
+      game_loop { fade :black, 50, under: :ui }
+    end
+
+    last = assert_native_matches_reference(program, frames: 4)
+
+    assert_equal [Color.resolve(:red), Color.resolve(:white)], last.picture.uniq.sort, "the floor should not have faded"
   end
 
   # A see-through layer on each of two screens that take turns: the game says how see-through

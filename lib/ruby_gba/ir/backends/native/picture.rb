@@ -49,6 +49,10 @@ module RubyGBA
             # The layers the game can be seen through, and the number rg_screen.c knows each by.
             @see_through = SeeThrough.layers(@program)
             @see_through_numbers = @see_through.each_with_index.to_h { |layer, number| [layer.name, number] }
+            # By name, the furthest forward anything of that name was declared (see #fade_place).
+            @fade_places = (@stacking.scenery + @stacking.objects).group_by(&:name).transform_values do |named|
+              named.filter_map { |thing| @stacking.stack.index(thing.layer) }.max || NO_LAYER
+            end
             # The patches of picture saved under sprites on a painted screen, as the program
             # declared them, and the number rg_screen.c knows each by.
             @patches = by_name(@program.walk, :backing_buffer)
@@ -127,7 +131,7 @@ module RubyGBA
           # --- the art, for rg_screen.c ---
 
           def picture_data
-            [*image_arrays, *background_arrays, *see_through_arrays, sprite_stack_places,
+            [*image_arrays, *background_arrays, *see_through_arrays, sprite_fade_places_array,
              runtime_array("picture_sizes", "int32_t",
                     [@backgrounds.size, @stacking.depths.count, @handover.always_up.scenery.length,
                      rebuilt_every_frame? ? 1 : 0, @see_through.size,
@@ -189,7 +193,7 @@ module RubyGBA
                bg.streams? ? 1 : 0, tiles_start,
                bg.scene ? @scenes.fetch(bg.scene, NEVER_ARRIVES) : EVERY_SCENE, @stacking.depths[bg.name],
                @handover.on_arrival?(bg) ? 1 : 0, stack_place(bg.layer),
-               see_through_number(bg), @bends.key?(bg.name) ? 1 : 0]
+               see_through_number(bg), @bends.key?(bg.name) ? 1 : 0, fade_place(bg)]
             end
             [runtime_array("tile_pixels", "uint16_t", tile_pixels), runtime_array("backgrounds", "int32_t", fields),
              runtime_array("maps", "int32_t", maps), runtime_array("map_cells", "int16_t", cells)]
@@ -207,11 +211,25 @@ module RubyGBA
              runtime_array("sprite_see_through", "int32_t", @objects.each_value.map { |obj| see_through_number(obj) })]
           end
 
-          # For every sprite, how far forward the layer it was declared in is, which is what says
-          # whether a fade placed in the stack reaches it.
-          def sprite_stack_places
-            runtime_array("sprite_stack_places", "int32_t", @objects.each_value.map { |obj| stack_place(obj.layer) })
+          # For every sprite, whether a fade placed in the stack reaches it (see #fade_place).
+          def sprite_fade_places_array
+            runtime_array("sprite_fade_places", "int32_t", @objects.each_value.map { |obj| fade_place(obj) })
           end
+
+          # How far forward a layer is among the layers the game declared, or NO_LAYER for a name
+          # that is none of them, and for a thing that named no layer.
+          def stack_place(layer) = @stacking.stack.index(layer) || NO_LAYER
+
+          # IR::Stacking.at_or_above, asked of one thing ahead of time: the furthest forward a
+          # placed fade's layer can be and still leave +thing+ as drawn, or NO_LAYER when every
+          # placed fade reaches it.
+          #
+          # The interpreter takes the NAMES of everything declared in the fade's layer or in
+          # front of it, scenery and sprites in one list, and leaves a thing as drawn when its
+          # name is among them (Reference#set_blend_for). So two things with one name are left or
+          # reached together, by whichever of them was declared further forward, and that is the
+          # place given here.
+          def fade_place(thing) = @fade_places.fetch(thing.name, NO_LAYER)
 
           # Reference#see_through_layer_of: the see-through layer a background or a sprite was
           # declared in, by its number, or SOLID.
@@ -527,10 +545,6 @@ module RubyGBA
 
             [eval_call("rg_screen_fade_under", C::Int.new(stack_place(node.under)), *fade)]
           end
-
-          # How far forward a layer is among the layers the game declared, or NO_LAYER for a name
-          # that is none of them, and for a thing that named no layer.
-          def stack_place(layer) = @stacking.stack.index(layer) || NO_LAYER
 
           # Reference#exec_tint: counted in thirty-seconds however it reaches the screen.
           def lower_tint(node)
