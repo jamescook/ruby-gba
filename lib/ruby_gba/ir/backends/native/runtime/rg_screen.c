@@ -72,11 +72,11 @@ static int32_t tint_white, tint_color, tint_steps;
  * layer it sits under is among the layers the game declared, which way it fades, and how far. It
  * cannot be laid over the finished picture as the screen is read, since what is in front of its
  * line has to come through as drawn. So it is painted in as the view is rebuilt. */
-typedef struct { int32_t in_force, line, toward_white, steps; } fade_in_the_stack;
+typedef struct { int32_t in_force, layer_place, toward_white, steps; } fade_in_the_stack;
 static fade_in_the_stack placed_fade;
 
 /* WHAT IS PAINTED FROM HERE ON IS FADED on its way in (Framebuffer @paint_toward), by the placed
- * fade in force. On only while the view is rebuilt, for the things behind that fade's line. */
+ * fade in force. On only while the view is rebuilt, for the things that fade reaches. */
 static int32_t fading_what_is_painted;
 
 /* WHAT IS PAINTED FROM HERE ON IS MIXED with what is already in the cell (Framebuffer @through):
@@ -469,7 +469,7 @@ static uint16_t faded(uint16_t color) {
 }
 
 /* Reference#exec_fade, through Framebuffer#fade_steps_to or, for a fade that walks the colors,
- * #tint_steps_to. +placed+ is the fade as one placed in the stack, in force or not.
+ * #tint_steps_to. +placed+ is 1 for a fade placed in the stack under the layer at +layer_place+.
  *
  * Over the whole screen it is laid over the picture as the screen is read, so nothing drawn
  * changes. Placed in the stack it is painted into the picture, so the picture is built again
@@ -479,9 +479,9 @@ static uint16_t faded(uint16_t color) {
  * A fade that takes the display's blend takes it from a see-through layer and hands it back as
  * it lifts, so the picture is built again at each of those two moments as well: the layer is
  * solid on one side of them and see-through on the other. */
-static void fade_to(fade_in_the_stack placed, int32_t toward_white, int32_t steps, int32_t walked) {
+static void fade_to(int32_t placed, int32_t layer_place, int32_t toward_white, int32_t steps, int32_t walked) {
   int32_t took_the_blend = fade_takes_the_blend(), was_placed = placed_fade.in_force;
-  placed_fade = placed;
+  placed_fade = (fade_in_the_stack){.in_force = placed, .layer_place = layer_place, .toward_white = toward_white, .steps = steps};
   if (walked) {
     tint_mode = TINT_TOWARD;
     tint_white = toward_white;
@@ -489,19 +489,19 @@ static void fade_to(fade_in_the_stack placed, int32_t toward_white, int32_t step
     fade_steps = 0;
   } else {
     fade_white = toward_white;
-    fade_steps = placed.in_force ? 0 : steps;
+    fade_steps = placed ? 0 : steps;
     tint_mode = TINT_NONE;
   }
   int32_t blend_changed_hands = see_through_layers() > 0 && fade_takes_the_blend() != took_the_blend;
-  if (was_placed || placed.in_force || blend_changed_hands) request_repaint();
+  if (was_placed || placed || blend_changed_hands) request_repaint();
 }
 
 void rg_screen_fade(int32_t toward_white, int32_t steps, int32_t walked) {
-  fade_to((fade_in_the_stack){0}, toward_white, steps, walked);
+  fade_to(0, RG_NO_LAYER, toward_white, steps, walked);
 }
 
-void rg_screen_fade_under(int32_t line, int32_t toward_white, int32_t steps, int32_t walked) {
-  fade_to((fade_in_the_stack){1, line, toward_white, steps}, toward_white, steps, walked);
+void rg_screen_fade_under(int32_t layer_place, int32_t toward_white, int32_t steps, int32_t walked) {
+  fade_to(1, layer_place, toward_white, steps, walked);
 }
 
 /* Reference#exec_tint, through Framebuffer#tint_steps_to. A tint takes the place of whatever
@@ -1117,37 +1117,41 @@ int32_t rg_pixels_overlap(int32_t a_image, int32_t a_x, int32_t a_y, int32_t b_i
 
 /* --- the whole view, rebuilt (Reference#repaint_view) --- */
 
-/* The fade half of Reference#set_blend_for: a placed fade reaches a thing unless the layer it
- * was declared in is the fade's own or one in front of it. +place+ is how far forward that
- * layer is, or RG_NO_LAYER for a thing that named none, and for the backdrop, which is behind
- * everything. A fade under a layer the game never declared reaches everything. */
-static void fade_as_placed_at(int32_t place) {
-  int32_t in_front_of_the_line = placed_fade.line != RG_NO_LAYER && place != RG_NO_LAYER && place >= placed_fade.line;
-  fading_what_is_painted = placed_fade.in_force && !in_front_of_the_line;
+/* The fade half of Reference#set_blend_for, for the thing about to be painted: the placed fade
+ * in force reaches it unless that fade's layer is no further forward than +fade_place+, which is
+ * the furthest forward such a layer can be and still leave the thing as drawn (RG_BG_FADE_PLACE).
+ * That is RG_NO_LAYER for a thing every placed fade reaches, and for the backdrop, which is
+ * behind everything. A fade under a layer the game never declared reaches everything. */
+static void fade_unless_left_as_drawn(int32_t fade_place) {
+  int32_t under = placed_fade.layer_place;
+  int32_t left_as_drawn = under != RG_NO_LAYER && fade_place != RG_NO_LAYER && fade_place >= under;
+  fading_what_is_painted = placed_fade.in_force && !left_as_drawn;
 }
+
+static void fade_nothing(void) { fading_what_is_painted = 0; }
 
 static void repaint_view(void) {
   mix_nothing();
-  fade_as_placed_at(RG_NO_LAYER);
+  fade_unless_left_as_drawn(RG_NO_LAYER);
   clear_to(0);
   int32_t backgrounds = rg_game_picture_sizes[RG_SIZE_BACKGROUNDS], levels = rg_game_picture_sizes[RG_SIZE_DEPTHS];
   for (int32_t level = 0; level < levels; level++) {
     for (int32_t bg = 0; bg < backgrounds; bg++) {
       if (!showing(bg) || background_field(bg, RG_BG_LEVEL) != level) continue;
       mix_as_layer(background_field(bg, RG_BG_SEE_THROUGH));
-      fade_as_placed_at(stack_place(bg));
+      fade_unless_left_as_drawn(background_field(bg, RG_BG_FADE_PLACE));
       if (turns[bg].turned) paint_turned_window(bg);
       else paint_window(bg);
     }
     for (int32_t i = 0; i < sprite_layer_count; i++) {
       if (sprite_layer[i].level != level) continue;
       mix_as_sprite(sprite_layer[i].sprite);
-      fade_as_placed_at(rg_game_sprite_stack_places[sprite_layer[i].sprite]);
+      fade_unless_left_as_drawn(rg_game_sprite_fade_places[sprite_layer[i].sprite]);
       draw_placed(&sprite_layer[i]);
     }
   }
   mix_nothing();
-  fading_what_is_painted = 0;
+  fade_nothing();
 }
 
 /* Reference#paint_owed_repaint */
