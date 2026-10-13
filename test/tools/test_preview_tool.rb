@@ -6,9 +6,9 @@ require "zlib"
 require_relative "../../tools/preview"
 
 # The preview tool (tools/preview.rb): runs a program on the interpreter, captures its
-# frames, and encodes each as a PNG in a self-contained HTML page you can watch. These
+# frames, and puts each as a PNG in a self-contained HTML page you can watch. These
 # pin the two things that could silently produce a broken page — the frame capture and
-# the PNG bytes — plus the CLI's example lookup.
+# the pictures in the page — plus the CLI's example lookup.
 class TestPreviewTool < Minitest::Test
 
   # A tiny program that paints the screen red and loops, so a capture has real frames.
@@ -59,17 +59,16 @@ class TestPreviewTool < Minitest::Test
     refute at_x16.call(Preview.capture(prog, frames: 10)), "left alone the block never reaches x16"
   end
 
-  def test_png_encodes_the_pixels_as_truecolor
-    frame = { width: 2, height: 2, pixels: [0x001F, 0x03E0, 0x7C00, 0x7FFF] } # red, green, blue, white
-    png = Preview.png(frame)
-    assert_equal Preview::PNG_SIGNATURE, png.byteslice(0, 8), "starts with the PNG signature"
+  # The pictures in the page are the frames that were captured: the last one, taken back out
+  # of the page and read by the PNG format's own rules, is the red screen the program drew —
+  # 160 rows, each a byte saying it is stored as it stands and then 240 red pixels. (How a
+  # picture is written is the library's, and is tested there.)
+  def test_the_page_holds_each_frame_as_a_picture_of_what_was_drawn
+    page = Preview.html(Preview.capture(red_loop, frames: 3), title: "x")
+    last = page.scan(%r{data:image/png;base64,([A-Za-z0-9+/=]+)}).flatten.last.unpack1("m0")
+    rows = Zlib::Inflate.inflate(idat(last))
 
-    raw = Zlib::Inflate.inflate(idat(png))
-    expected = [
-      0, 255, 0, 0, 0, 255, 0,        # row 0: filter byte, red, green
-      0, 0, 0, 255, 255, 255, 255,    # row 1: filter byte, blue, white
-    ].pack("C*")
-    assert_equal expected, raw, "each 15-bit color expands to 8-bit RGB, one filter byte per row"
+    assert_equal ([0] + ([255, 0, 0] * 240)) * 160, rows.bytes, "the whole of the last frame is red"
   end
 
   def test_html_inlines_one_png_per_frame_and_a_canvas

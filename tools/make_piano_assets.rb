@@ -1,9 +1,6 @@
 # frozen_string_literal: true
 
-require "zlib"
-
 require_relative "../lib/ruby_gba"
-require_relative "preview"
 
 # Generate the art and sound examples/piano.rb imports: a left hand drawn in a few
 # poses, and one recorded piano note.
@@ -99,7 +96,7 @@ module MakePianoAssets
       draw_finger(put, FINGER_CX[k], tip)
     end
 
-    rgba_png(HAND_W, HAND_H, rgb, alpha)
+    RubyGBA::Graphics::PNG.encode(width: HAND_W, height: HAND_H, pixels: rgb, alpha: alpha)
   end
 
   # The back of the hand: a filled block outlined on top and sides. The bottom is
@@ -157,23 +154,6 @@ module MakePianoAssets
     data_chunk = "data".b + [data.bytesize].pack("V") + data
     body = "WAVE".b + fmt_chunk + data_chunk
     "RIFF".b + [body.bytesize].pack("V") + body
-  end
-
-  # Encode an RGBA (truecolor + alpha) PNG — same shape as the preview tool's RGB
-  # encoder, plus an alpha byte per pixel (color type 6), so ImageMagick reads it
-  # back to the exact console colors, cut out where it's transparent.
-  def rgba_png(width, height, rgb, alpha)
-    raw = (+"").b
-    height.times do |y|
-      raw << 0.chr # filter type 0 (none)
-      width.times do |x|
-        r, g, b = Preview.rgb(rgb[(y * width) + x])
-        raw << r.chr << g.chr << b.chr << alpha[(y * width) + x].chr
-      end
-    end
-    ihdr = [width, height].pack("N2") << [8, 6, 0, 0, 0].pack("C5") # 8-bit, RGBA, no interlace
-    Preview::PNG_SIGNATURE + Preview.chunk("IHDR", ihdr) +
-      Preview.chunk("IDAT", Zlib::Deflate.deflate(raw)) + Preview.chunk("IEND", "".b)
   end
 end
 

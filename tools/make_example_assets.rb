@@ -1,9 +1,6 @@
 # frozen_string_literal: true
 
-require "zlib"
-
 require_relative "../lib/ruby_gba"
-require_relative "preview"
 
 # Generate the PNG art the `sheet` importer example reads (examples/sheet.rb).
 #
@@ -83,7 +80,7 @@ module MakeExampleAssets
   end
 
   # A 16x8 sheet: brick tile in cells 0, floor tile in cell 1 (each 8x8). Opaque,
-  # so it encodes as a plain RGB PNG through the preview tool's encoder.
+  # so it is a plain PNG with no see-through part.
   def tiles_png
     pixels = Array.new(16 * 8, FLOOR)
     8.times do |y|
@@ -92,7 +89,7 @@ module MakeExampleAssets
         pixels[(y * 16) + 8 + x] = floor_pixel(x, y)      # right cell
       end
     end
-    Preview.png(width: 16, height: 8, pixels: pixels)
+    RubyGBA::Graphics::PNG.encode(width: 16, height: 8, pixels: pixels)
   end
 
   # A brick body with mortar along the top edge and a staggered vertical seam — a
@@ -121,7 +118,7 @@ module MakeExampleAssets
     4.times do |frame|
       draw_hero_frame(rgb, alpha, frame * 16, width, frame)
     end
-    rgba_png(width, 16, rgb, alpha)
+    RubyGBA::Graphics::PNG.encode(width: width, height: 16, pixels: rgb, alpha: alpha)
   end
 
   # Draw one walk frame into the sheet at column offset +ox+. The head and body are
@@ -142,24 +139,6 @@ module MakeExampleAssets
       left.each { |x| put.call(x, y, HERO_LO) }
       right.each { |x| put.call(x, y, HERO_LO) }
     end
-  end
-
-  # Encode an RGBA (truecolor + alpha) PNG. Same shape as the preview tool's RGB
-  # encoder, plus a fourth alpha byte per pixel and color type 6. Each 15-bit color
-  # is expanded to 8-bit channels the same way, so ImageMagick reads it back to the
-  # exact console colors it started from.
-  def rgba_png(width, height, rgb, alpha)
-    raw = (+"").b
-    height.times do |y|
-      raw << 0.chr # filter type 0 (none)
-      width.times do |x|
-        r, g, b = Preview.rgb(rgb[(y * width) + x])
-        raw << r.chr << g.chr << b.chr << alpha[(y * width) + x].chr
-      end
-    end
-    ihdr = [width, height].pack("N2") << [8, 6, 0, 0, 0].pack("C5") # 8-bit, RGBA, no interlace
-    Preview::PNG_SIGNATURE + Preview.chunk("IHDR", ihdr) +
-      Preview.chunk("IDAT", Zlib::Deflate.deflate(raw)) + Preview.chunk("IEND", "".b)
   end
 end
 

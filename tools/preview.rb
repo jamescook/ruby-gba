@@ -1,7 +1,5 @@
 # frozen_string_literal: true
 
-require "zlib"
-
 require_relative "../lib/ruby_gba"
 
 # Preview — turn a run of a program into a picture you can watch.
@@ -17,8 +15,8 @@ require_relative "../lib/ruby_gba"
 #   Preview.write("out.html", frames, title: "My Game", scale: 3)
 #
 # It leans on the interpreter's frame-by-frame hook (Backends::Reference#each_vblank) to
-# grab each settled frame, then encodes each as a PNG (via Ruby's built-in zlib) so the
-# page stays small and needs nothing but a browser.
+# grab each settled frame, then has the library write each as a PNG (RubyGBA::Graphics::PNG)
+# so the page stays small and needs nothing but a browser.
 module Preview
   Reference = RubyGBA::IR::Backends::Reference
 
@@ -97,50 +95,12 @@ module Preview
     "<!doctype html>\n<html lang=\"en\"><head><meta charset=\"utf-8\"><title>#{escape(title)}</title></head>\n<body>\n#{body}</body></html>\n"
   end
 
-  # --- encoding a frame to a PNG data URI (truecolor, via zlib) ---
-
-  # A frame ({ width:, height:, pixels: [15-bit colors] }) as a "data:image/png..." URI.
+  # A frame ({ width:, height:, pixels: [15-bit colors] }) as a "data:image/png..." URI,
+  # the picture itself made by the library's own PNG writer.
   # pack("m0") is base64 with no line breaks — the same bytes the base64 library would
   # give, without depending on it (Ruby 4 dropped it from the default gems).
   def self.png_data_uri(frame)
-    "data:image/png;base64,#{[png(frame)].pack('m0')}"
-  end
-
-  PNG_SIGNATURE = Ractor.make_shareable([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A].pack("C*"))
-
-  # Encode a frame as a PNG image (8-bit truecolor RGB). Each 15-bit BGR555 color is
-  # expanded to 8-bit-per-channel RGB; the scanlines (each prefixed with a "no filter"
-  # byte) are deflated into the single image-data chunk.
-  def self.png(frame)
-    w = frame[:width]
-    h = frame[:height]
-    pixels = frame[:pixels]
-    raw = (+"").b
-    h.times do |y|
-      raw << 0.chr # filter type 0 (none) for this scanline
-      w.times do |x|
-        r, g, b = rgb(pixels[(y * w) + x] || 0)
-        raw << r.chr << g.chr << b.chr
-      end
-    end
-
-    ihdr = [w, h].pack("N2") << [8, 2, 0, 0, 0].pack("C5") # 8-bit depth, truecolor, no interlace
-    PNG_SIGNATURE + chunk("IHDR", ihdr) + chunk("IDAT", Zlib::Deflate.deflate(raw)) + chunk("IEND", "".b)
-  end
-
-  # One PNG chunk: length, type, data, and a CRC over the type and data.
-  def self.chunk(type, data)
-    body = type.b + data
-    [data.bytesize].pack("N") + body + [Zlib.crc32(body)].pack("N")
-  end
-
-  # Expand a 15-bit BGR555 color into 8-bit-per-channel RGB (each 5-bit channel scaled
-  # up so full-scale stays full-scale).
-  def self.rgb(color)
-    r5 =  color        & 0x1F
-    g5 = (color >>  5) & 0x1F
-    b5 = (color >> 10) & 0x1F
-    [(r5 << 3) | (r5 >> 2), (g5 << 3) | (g5 >> 2), (b5 << 3) | (b5 >> 2)]
+    "data:image/png;base64,#{[RubyGBA::Graphics::PNG.encode(**frame)].pack('m0')}"
   end
 
   def self.uris_json(uris)
