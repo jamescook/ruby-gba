@@ -88,8 +88,9 @@ module RubyGBA
         def play(cartridge, &at_each_moment) = Playing.play(title, steps, cartridge, &at_each_moment)
 
         # Play the tape on +first+ and on +second+ together, comparing the two pictures after
-        # every frame. +how_alike+ says how alike they have to be (see Comparison).
-        def compare(first, second, **how_alike) = Comparison.new(first, second, **how_alike).run(self)
+        # every frame. +settings+ say how alike they have to be, and which stretches of the
+        # tape are not looked at (see Comparison).
+        def compare(first, second, **settings) = Comparison.new(first, second, moments.keys, **settings).run(self)
 
         # How many frames the tape plays.
         def frames = steps.sum(&:frames)

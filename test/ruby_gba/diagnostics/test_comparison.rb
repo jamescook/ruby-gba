@@ -2,6 +2,7 @@
 
 require "test_helper"
 require "stringio"
+require "comparison_games"
 require_relative "../../../examples/hero"
 
 # A COMPARISON: TWO CARTRIDGES PLAYED SIDE BY SIDE ON THE SAME PRESSES, and the first frame on
@@ -13,43 +14,7 @@ require_relative "../../../examples/hero"
 # purpose. Where the two first differ is worked out by playing a cartridge on its own and
 # asking the game — never read off the comparison, which is the thing being tested.
 class TestComparison < Minitest::Test
-  # A white box on a coloured ground. The box walks +speed+ pixels a frame while RIGHT is
-  # down, and the ground turns red once the game has ticked +turns_red_at+ times. It also
-  # counts its paces, +counts_by+ for each frame it walks: a number a script can watch that
-  # the picture does not show.
-  #
-  # Two more things can be changed about it, for a difference of a known size and a known
-  # length: the ground stays red for +red_for+ ticks and then goes back, and from tick
-  # +SPECKS_FROM+ it draws +specks+ white pixels in a row, far from the box.
-  private def walker(speed: 2, turns_red_at: 100_000, red_for: 100_000, counts_by: 1, specks: 0)
-    RubyGBA.build("WALKER", out: StringIO.new, err: StringIO.new) do
-      screen :bitmap
-      ticks = var :ticks, 0
-      x = var :x, 20
-      paces = var :paces, 0
-      game_loop do
-        ticks.add! 1
-        held(:right).then do
-          x.add! speed
-          paces.add! counts_by
-        end
-        ((ticks >= turns_red_at) & (ticks < turns_red_at + red_for)).then { clear_screen :red }.else { clear_screen :blue }
-        draw_rect_at x, 60, 8, 8, :white
-        (ticks >= SPECKS_FROM).then { specks.times { |speck| pixel SPECK_X + speck, SPECK_Y, :white } }
-      end
-    end
-  end
-
-  SPECKS_FROM = 30
-  SPECK_X = 100
-  SPECK_Y = 100
-
-  # Whether a cartridge has drawn its specks. White with blue under it, because the whole
-  # screen is white before a game's first frame.
-  private def specks_showing?(game) = game.white?(SPECK_X, SPECK_Y) && game.blue?(SPECK_X, SPECK_Y + 1)
-
-  # How many pixels the screen has: what a share of a frame is a share of.
-  PIXELS = 240 * 160
+  include ComparisonGames
 
   # A white square on a tiled screen, put there one of two ways: as a tile of a background,
   # or as a sprite standing where that tile would be. The console builds the same picture
@@ -72,37 +37,6 @@ class TestComparison < Minitest::Test
 
   private def hero(**settings)
     Hero.build_rom(out: StringIO.new, err: StringIO.new, profile: false, settings: settings)
-  end
-
-  private def walk_right
-    RubyGBA.playthrough "wait, then walk right" do
-      wait frames: 10
-      moment :standing
-      hold :right, frames: 20
-      moment :walked
-      wait frames: 30
-    end
-  end
-
-  # A CARTRIDGE PLAYED ON ITS OWN, a frame at a time, with the buttons a tape says — the long
-  # way round, with no comparison in it. The block is handed the running cartridge after
-  # each frame and the number of that frame, counted from 1.
-  private def each_frame_of(cartridge, tape)
-    game = RubyGBA::Diagnostics::Verifier.new(cartridge, frames: 0, vars: cartridge.var_addresses)
-    tape.steps.flat_map { |step| [step] * step.frames }.each.with_index(1) do |step, frame|
-      yield game.step(1, keys: RubyGBA::Diagnostics::Playthrough.key_mask(step.buttons)), frame
-    end
-  end
-
-  # The first frame something is true of a cartridge while a tape is played on it.
-  private def first_frame(cartridge, tape)
-    each_frame_of(cartridge, tape) { |game, frame| return frame if yield(game) }
-    nil
-  end
-
-  # Every frame something is true of a cartridge while a tape is played on it.
-  private def frames_where(cartridge, tape)
-    [].tap { |found| each_frame_of(cartridge, tape) { |game, frame| found << frame if yield(game) } }
   end
 
   # Every picture a cartridge shows while a tape is played on it, each as the colours on
@@ -378,6 +312,7 @@ class TestComparison < Minitest::Test
     assert_match(/share_may_differ/, err.message)
     assert_match(/frames_in_a_row/, err.message)
     assert_match(/ignoring_rectangles/, err.message)
+    assert_match(/ignoring_frames/, err.message)
   end
 
   def test_a_share_of_pixels_outside_nought_to_one_is_refused

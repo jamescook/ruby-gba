@@ -23,3 +23,4 @@ require_relative "diagnostics/routine_profile"
 require_relative "diagnostics/playthrough" # a game driven with nobody at the controls, from a script
 require_relative "diagnostics/playthrough_tape" # ...and the presses it made, written down to play again
 require_relative "diagnostics/comparison" # two cartridges played side by side on the same presses
+require_relative "diagnostics/comparison_ignored_frames" # ...and the stretches of the playing it does not look at

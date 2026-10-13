@@ -34,24 +34,29 @@ module RubyGBA
       # very frame is not before it.
       Drift = Data.define(:frame, :moment)
 
-      # What a comparison found. +frames+ is how many frames were played and compared, and
-      # +drift+ where the two stopped being alike — nil when they never did.
+      # What a comparison found. +frames+ is how many frames were played, and +drift+ where
+      # the two stopped being alike — nil when they never did.
       Result = Data.define(:frames, :drift) do
         def drift? = !drift.nil?
       end
 
-      # +how_alike+ is what a Likeness takes: how alike two pictures have to be. It is read
-      # here, so a setting that makes no sense is refused before a frame is played.
-      def initialize(first, second, **how_alike)
+      # +moments+ is the names of the moments the playthrough declares, in order: what the
+      # script or the tape says they are, and not a setting a caller can give.
+      # +ignoring_frames+ is the stretches of it that are not looked at (see IgnoredFrames),
+      # and +how_alike+ what a Likeness takes: how alike two pictures have to be. All of it is
+      # read here, so a setting that makes no sense is refused before a frame is played.
+      def initialize(first, second, moments, ignoring_frames: [], **how_alike)
         refuse_unknown_settings!(how_alike.keys)
         @first = first
         @second = second
+        @ignored = IgnoredFrames.new(ignoring_frames, moments)
         @likeness = Likeness.new(**how_alike)
       end
 
       # Play both on +tape+ and compare them, and say what was found.
       def run(tape)
-        pair = SideBySide.new(Playthrough.power_on(@first), Playthrough.power_on(@second), @likeness)
+        ignored = @ignored.frame_ranges_on(tape)
+        pair = SideBySide.new(Playthrough.power_on(@first), Playthrough.power_on(@second), @likeness, ignored)
         tape.steps.each do |step|
           step.play(pair)
           break if pair.drift
@@ -59,12 +64,15 @@ module RubyGBA
         Result.new(frames: pair.frames, drift: pair.drift)
       end
 
+      # Every setting a comparison has: the ones that say how alike, and the one of its own.
+      def self.settings = [*Likeness::SETTINGS, :ignoring_frames]
+
       private def refuse_unknown_settings!(given)
         unknown = given - Likeness::SETTINGS
         return if unknown.empty?
 
         raise ArgumentError, "A comparison has no setting named #{unknown.map(&:inspect).join(' or ')}. " \
-                             "Its settings are #{Likeness::SETTINGS.map { |name| "`#{name}:`" }.join(', ')}."
+                             "Its settings are #{Comparison.settings.map { |name| "`#{name}:`" }.join(', ')}."
       end
 
       # HOW ALIKE TWO PICTURES HAVE TO BE to count as the same. With nothing said, every pixel
@@ -194,10 +202,12 @@ module RubyGBA
       class SideBySide
         attr_reader :frames, :drift
 
-        def initialize(first, second, likeness)
+        # +ignored+ is the stretches that are not looked at, as ranges of frame numbers.
+        def initialize(first, second, likeness, ignored)
           @first = first
           @second = second
           @likeness = likeness
+          @ignored = ignored
           @frames = 0
           @moment = nil
           @differing_since = nil
@@ -219,13 +229,16 @@ module RubyGBA
 
         # A stretch of differing frames is remembered from its first frame — where it began,
         # and the moment before that — and is the drift once it has lasted long enough. A
-        # frame alike again ends the stretch.
+        # frame alike again ends the stretch, and so does a frame that is not looked at:
+        # nothing is known about that one, so the frames either side of it are not in a row.
         private def extend_or_end_differing_stretch
-          return @differing_since = nil if @likeness.alike?(@first, @second)
+          return @differing_since = nil if ignored_frame? || @likeness.alike?(@first, @second)
 
           @differing_since ||= Drift.new(frame: @frames, moment: @moment)
           @drift = @differing_since if @likeness.drift_after?(@frames - @differing_since.frame + 1)
         end
+
+        private def ignored_frame? = @ignored.any? { |stretch| stretch.cover?(@frames) }
       end
       private_constant :SideBySide
     end

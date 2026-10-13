@@ -63,13 +63,18 @@ module RubyGBA
       def play(cartridge, &at_each_moment) = Playing.play(@name, @steps, cartridge, &at_each_moment)
 
       # Play the script on +first+ to learn its presses, then play +first+ and +second+ side
-      # by side on those presses, comparing the two pictures after every frame. +how_alike+
-      # says how alike they have to be (see Comparison), and it is read before the script is
-      # played, so a setting that makes no sense does not cost a playing to find.
-      def compare(first, second, **how_alike)
-        comparison = Comparison.new(first, second, **how_alike)
+      # by side on those presses, comparing the two pictures after every frame. +settings+ say
+      # how alike they have to be, and which stretches of the playthrough are not looked at
+      # (see Comparison). They are read before the script is played, so one that makes no
+      # sense does not cost a playing to find — a stretch that names a moment included,
+      # since a script says its moments where it is declared.
+      def compare(first, second, **settings)
+        comparison = Comparison.new(first, second, moment_names, **settings)
         comparison.run(play(first).tape)
       end
+
+      # The names of the moments the script declares, in the order it declares them.
+      def moment_names = @steps.flat_map(&:names)
 
       # A console switched on with +cartridge+ in it and no frame played yet: the reader over
       # one running cartridge that everything here plays on and asks.
@@ -195,6 +200,7 @@ module RubyGBA
       # is how many frames to go on asking.
       Watch = Data.define(:buttons, :words, :within, :condition) do
         def play(playing) = playing.hold_until(buttons, words, within, &condition)
+        def names = []
       end
 
       # A name for the frame that has just been played. As a line of a tape it plays no frames,
