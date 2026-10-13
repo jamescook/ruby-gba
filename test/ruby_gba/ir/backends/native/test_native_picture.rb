@@ -343,6 +343,27 @@ class TestNativePicture < Minitest::Test
     %i[yellow orange gray white].each { |name| assert_includes seen, Color.resolve(name), "#{name} should have been drawn" }
   end
 
+  # A pose that is another turned top to bottom, and one turned both ways: the red end of a flag
+  # drawn at its top left is then at the bottom left, and at the bottom right.
+  def test_a_sprite_shows_a_pose_turned_upside_down
+    program = program_of do
+      screen :tiled
+      image :flag, "r" => :red, "b" => :blue, "." => :transparent do
+        "rrrr....\n#{"b.......\n" * 7}"
+      end
+      sprite :flag, at: [80, 60], rate: 2, frames: [:flag, upside_down(:flag), mirror(upside_down(:flag))]
+      game_loop {}
+    end
+
+    assert_native_matches_reference program, frames: 8
+
+    corners = { top_left: [80, 60], bottom_left: [80, 67], bottom_right: [87, 67], top_right: [87, 60] }
+    red_seen_at = reference_snapshots(program, frames: 8, buttons: {}).flat_map do |moment|
+      corners.select { |_, (x, y)| moment.picture[(y * 240) + x] == Color.resolve(:red) }.keys
+    end
+    assert_equal %i[top_left bottom_left bottom_right], red_seen_at.uniq
+  end
+
   # Art given as numbers into its list of colors, the list holding one color at two places: drawn
   # with another list, each pixel takes the color at ITS place, which its color alone cannot say.
   def test_a_sprite_given_as_places_is_recolored_by_place

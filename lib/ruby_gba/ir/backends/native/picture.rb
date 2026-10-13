@@ -383,7 +383,52 @@ module RubyGBA
               @objects.fetch(name) { raise LoweringError, "present of undeclared object #{name.inspect}" }
             end
             [eval_call("rg_objects_begin"), *drawn.map { |obj| sprite_removal(obj) },
-             *drawn.map { |obj| sprite_placement(obj) }, eval_call("rg_objects_end")]
+             *placements_in_draw_order(node), eval_call("rg_objects_end")]
+          end
+
+          # Reference#names_in_draw_order: the frame's sprites placed as listed, except that each
+          # run the game puts in order is placed in the order its list holds now. A run stands
+          # where its first sprite is listed and takes the place of as many names as it has.
+          def placements_in_draw_order(node)
+            runs = Array(node.orders)
+            runs.each { |run| refuse_scattered_run!(node, run) }
+            starts = runs.to_h { |run| [run.objects.first, run] }
+            inside_a_run = runs.flat_map(&:objects)
+            node.names.flat_map do |name|
+              next [ordered_run_placement(starts.fetch(name))] if starts.key?(name)
+              next [] if inside_a_run.include?(name)
+
+              [sprite_placement(@objects.fetch(name))]
+            end
+          end
+
+          # The interpreter swaps a run in by position: as many names as the run has, from where
+          # its first is listed. Those are the run's own sprites in every program the builder
+          # makes, and the C below places them by name, so a tree where they are not is refused.
+          def refuse_scattered_run!(node, run)
+            first = node.names.index(run.objects.first)
+            return if first && node.names[first, run.objects.length] == run.objects
+
+            raise LoweringError, "a run of sprites drawn in a worked-out order (#{run.order.inspect}) is not " \
+                                 "side by side in the frame's draw list"
+          end
+
+          # One run: for each place the order list holds, back to front, the sprite it names is
+          # placed.
+          def ordered_run_placement(run)
+            order = C::AddressOf.new(list(run.order))
+            count = local_name("count")
+            index = local_name("index")
+            place = local_name("place")
+            placed = run.objects.each_with_index.map do |name, at|
+              C::If.new(condition: call("rg_eq", place, C::Int.new(at)), body: [sprite_placement(@objects.fetch(name))])
+            end
+            read_place = call("rg_place_in_ordered_run", call("rg_list_get", order, index), C::Int.new(run.objects.length))
+            C::Block.new([C::Local.new(name: count, value: call("rg_list_length", order)),
+                          C::Local.new(name: index, value: C::Int.new(0)),
+                          C::While.new(condition: call("rg_lt", index, count),
+                                       body: [C::Local.new(name: place, value: read_place), *placed,
+                                              C::Assign.new(index, call("rg_add", index, C::Int.new(1)))])])
           end
 
           # Any of a sprite's pictures says how big a patch it covered; the interpreter reads

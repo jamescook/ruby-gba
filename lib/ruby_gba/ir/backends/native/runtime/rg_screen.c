@@ -1027,6 +1027,15 @@ void rg_objects_end(void) {
   }
 }
 
+/* Reference#names_in_draw_order: a place the order list holds, read the way the interpreter
+ * reads a run's objects (Array#fetch) — a number below nought counts back from the last — and a
+ * number that still names none is a fault, where the interpreter stops with an error. */
+int32_t rg_place_in_ordered_run(int32_t at, int32_t count) {
+  int64_t place = at < 0 ? (int64_t)at + count : at;
+  if (place < 0 || place >= count) rg_fault("a draw order names sprite %d of the %d it puts in order", at, count);
+  return (int32_t)place;
+}
+
 /* Reference#collision_sprite: the picture a sprite is showing, read the way the interpreter
  * reads its list — a number below nought counts back from the last, as Ruby's does — and a
  * number that still names none is a fault, where the interpreter stops with an error. */
