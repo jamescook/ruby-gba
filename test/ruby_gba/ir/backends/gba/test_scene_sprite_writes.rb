@@ -90,6 +90,100 @@ class TestSceneSpriteWrites < Minitest::Test
     refute_includes funcs, FILES_SPRITES
   end
 
+  # A game shaped like a room of an adventure: a pool of +things+ that each pick one of two
+  # pictures and one of two lists of colours, declared in the scene the game is played in.
+  # The second picture trims smaller than the first, so the things do not all draw alike.
+  # A thing is spawned on each of the first passes, and the third is taken away again, so
+  # the pool has a gap in it.
+  private def cast(things:, spawned: things)
+    built do
+      screen :tiled
+      colors :worn, %i[transparent red green blue]
+      colors :faded, %i[transparent blue red green]
+      image :tall, width: 16, height: 16, places: Array.new(256, 1), colors: :worn
+      image :short, width: 16, height: 16, places: Array.new(256) { |i| i < 128 ? 0 : 2 }, colors: :worn
+      made = var :made, 0
+      var :where, 0
+      scene :playing do
+        crowd = pool :thing, x: 0, y: 0, picture: 0, wears: 0, capacity: things, facing: { tall: :tall, short: :short }
+        (made < spawned).then do
+          crowd.spawn(x: (made * 20) + 4, y: (made * 12) + 4, picture: made % 2, wears: made / 2 % 2)
+          made.add! 1
+        end
+        crowd.each do |thing|
+          thing.x.add! 1
+          thing.face %i[tall short], showing: thing.picture
+          thing.draw_with %i[worn faded], showing: thing.wears
+          ((made == spawned) & (thing.index == 2)).then { thing.remove }
+        end
+      end
+      game_loop { case_var(:where) { when_val 0, :playing } }
+    end
+  end
+
+  # A POOL'S SPRITES ARE ONE WRITE, GONE ROUND. Every sprite of a pool is written the same
+  # way, from the same lists, and differs from the next only in which entry it reads and
+  # which row of the console's table it writes. So the routine holds the write once and goes
+  # round it: a room of forty-five things costs the code a room of twenty does — but for the
+  # numbers the round starts from, which take an instruction or two more to load as they get
+  # bigger — and twenty cost less than two copies of the write a pool of one gets.
+  def test_a_pools_sprites_cost_the_routine_the_same_however_many_there_are
+    one, twenty, forty_five = [1, 20, 45].map { |things| placement_of(cast(things: things)).sizes[PLAYING_SPRITES] }
+
+    assert_operator forty_five - twenty, :<=, 16,
+                    "forty-five things (#{forty_five} bytes) must cost the routine what twenty do (#{twenty})"
+    assert_operator twenty, :<, one * 2, "and twenty (#{twenty}) less than two copies of the one (#{one})"
+  end
+
+  # ...and going round it writes what the copies wrote: each thing where it stands, in its
+  # own picture and its own colours, the gap a removed thing left closed up, and the places
+  # nothing is using hidden.
+  def test_a_pool_written_by_one_write_draws_each_thing_as_the_oracle_does
+    [2, 5, 9].each { |f| assert_backends_agree(cast(things: 8, spawned: 6), frames: f) }
+  end
+
+  # Planks too wide for one of the console's objects, so each is drawn as two standing side by
+  # side, in a pool no scene owns — so the frame's own body writes them. +dimmed+ puts small
+  # ones in a layer a fade is placed behind, with a post the fade does reach, so the line
+  # falls between sprites and each thing kept out has a window of its own to keep the fade
+  # off it.
+  private def planks(capacity:, dimmed: false)
+    built do
+      screen :tiled
+      layers :world, :ui if dimmed
+      image :plank, width: 72, height: 8, data: Array.new(72 * 8) { |i| (i % 72) < 64 ? RED : GREEN }
+      image :block, width: 8, height: 8, data: Array.new(64, GREEN)
+      made = var :made, 0
+      declare = -> { pool :plank, x: 0, y: 0, capacity: capacity, image: dimmed ? :block : :plank }
+      layer(:world) { sprite(:block, at: [100, 120]) } if dimmed
+      stack = dimmed ? layer(:ui, &declare) : declare.call
+      fade :black, 100, under: :ui if dimmed # all the way: the emulator rounds a part fade its own way (see EmulatorBlend)
+      game_loop do
+        (made < 4).then do
+          stack.spawn(x: (made * 30) + 4, y: (made * 20) + 8)
+          made.add! 1
+        end
+        stack.each { |plank| plank.x.add! 1 }
+      end
+    end
+  end
+
+  # The one write covers every object a thing is drawn as, so a thing of two objects is still
+  # one thing: the code does not grow with the pool, and each plank stands whole.
+  def test_a_pool_of_things_drawn_as_several_objects_is_one_write_and_stands_whole
+    few = placement_of(planks(capacity: 5)).sizes[FRAME]
+    many = placement_of(planks(capacity: 20)).sizes[FRAME]
+
+    assert_operator many - few, :<=, 16, "twenty planks (#{many} bytes) must cost the frame what five do (#{few})"
+    [3, 7].each { |f| assert_backends_agree(planks(capacity: 5), frames: f) }
+  end
+
+  # A thing kept out of a placed fade has a window of its own at a place going round one
+  # write cannot reach, so those are still written one by one — and still drawn right.
+  def test_a_pool_kept_out_of_a_placed_fade_is_still_drawn_right
+    [3, 7].each { |f| assert_backends_agree(planks(capacity: 5, dimmed: true), frames: f) }
+  end
+
   # The chooser adds up what each routine will come to once moved, and the game loop now
   # calls the sprite routines on every frame. A call that crosses between the two memories
   # grows, so each of those calls has to be charged for.

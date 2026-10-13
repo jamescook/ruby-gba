@@ -11,8 +11,10 @@ module RubyGBA
         # `Object` is a name Ruby already has and shadowing it inside a namespace is a trap
         # nobody needs.
         #
-        # It is built once, in ScreenLayout#object_record, and read in two files: this backend's own
-        # sizing and error messages, and the drawing that emits the per-frame writes. Named
+        # It is built once, in ScreenLayout#object_record, and read in three files: this backend's
+        # own sizing and error messages, the drawing that emits the per-frame writes, and
+        # SpriteRepeats, which finds the sprites that one write can serve and hands the drawing
+        # a copy of the first one's record reading a variable where its own number was. Named
         # fields rather than a Hash because it has twenty-eight of them, most nil in the
         # ordinary case — the shape where a misspelling reads as nil and turns up as a black
         # screen a long way from the cause.
@@ -78,6 +80,23 @@ module RubyGBA
           # Does a frame work out part of this sprite's third word, rather than all of it
           # being settled when the cartridge is built?
           def picks_attr2? = !recolor_banks.nil? || !layer_depths.nil?
+
+          # WHAT TWO SPRITES MUST HAVE THE SAME FOR ONE WRITE TO SERVE BOTH (see SpriteRepeats):
+          # every field settled while building that the write of a row reads. Any field not
+          # named in one of the two lists below is one of them, so a field added to this
+          # record is compared until somebody says otherwise.
+          def shared_fields = to_h.except(*self.class.worked_out_fields, *self.class.unshared_fields)
+
+          # The fields that hold a sum the game works out as it runs, and not a number. A new
+          # field that holds one belongs here: left out, it is compared as it stands, no two
+          # sprites hold the same one, and no write ever serves two.
+          def self.worked_out_fields = %i[x y active pose angle scale recolor layer_pick]
+
+          # The fields that are a sprite's own and that the write of its row never reads by
+          # name: its place in the table, which a repeat steps along; the pictures it sends
+          # to sprite memory, which only the first sprite showing a picture has; and the name
+          # of its table of poses, which is a table apiece holding the same +pose_words+.
+          def self.unshared_fields = %i[slot tiles tile_units pose_table]
 
           # WHICH POSE IS IN THE ROOM, for a sprite kept to one frame at a time — the name of the
           # variable the cartridge keeps it in, written as each frame is copied in. Every pose of

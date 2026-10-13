@@ -22,6 +22,7 @@ require_relative "gba/functions"
 require_relative "gba/emitter_calls" # the bare-name calls every file that writes drawing code makes
 require_relative "gba/blob_upload" # copying data out of the cartridge into video memory
 require_relative "gba/screen_effects" # the camera, fades and tints: the whole picture, not what is in it
+require_relative "gba/sprite_repeats" # which sprites are one sprite written out several times
 require_relative "gba/sprite_drawing" # writing the rows of the console's sprite table
 require_relative "gba/map_streaming" # a map bigger than the grid, brought into view a strip at a time
 require_relative "gba/background_drawing" # putting background layers up, and changing them as the game runs

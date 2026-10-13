@@ -329,10 +329,88 @@ module RubyGBA
           # the console's quick memory. A picture too big for one of the console's objects is
           # drawn as several, so a title screen's lettering is a dozen of them and more; the
           # whole of that was code saying that nothing had changed.
+          #
+          # SPRITES THAT ARE ONE WRITE ARE WRITTEN BY GOING ROUND IT (see SpriteRepeats): a
+          # pool's, which differ only in which entry of the pool's lists each reads.
           def emit_write_sprite_rows(names)
-            names.each do |name|
-              emit_present_object(@layout.screen.objects.fetch(name), twin: placed_fade.fade_window_for(name), name: name)
+            sprites = @layout.screen.objects
+            repeats = SpriteRepeats.new(sprites: sprites, row_of: ->(name) { row_address(sprites.fetch(name).slot, 0) },
+                                        alone: ->(name) { must_be_written_alone?(sprites.fetch(name), name) })
+            repeats.among(names).each do |part|
+              next emit_sprite_repeat(part) if part.is_a?(SpriteRepeat)
+
+              emit_present_object(sprites.fetch(part), twin: placed_fade.fade_window_for(part), name: part)
             end
+          end
+
+          # THE SPRITES ONE WRITE CANNOT SERVE, whatever they look like. Each has something of
+          # its own at a place worked out from where it sits in the table, which going round
+          # one write cannot reach: a window that keeps it out of a placed fade, or a room in
+          # sprite memory its frames are copied into. (A sprite that turns has a group of the
+          # table of its own as well, but that is a field of its record, so no two of those
+          # are ever found to be one write in the first place.)
+          #
+          # And one drawn as more objects than a store can reach across from the first: a
+          # store of a half names its address as a register and a distance under 256 bytes.
+          def must_be_written_alone?(sprite, name)
+            !placed_fade.fade_window_for(name).nil? || !sprite.frames.nil? || sprite.pieces > MAX_PIECES_OF_REPEATED_SPRITE
+          end
+
+          # Rows are 8 bytes, so the last half of the 32nd is 252 bytes on from the first.
+          MAX_PIECES_OF_REPEATED_SPRITE = 32
+
+          # Where the row being written is kept while a repeat is gone round.
+          REPEAT_ROW = :__sprite_repeat_row
+
+          # A ROW OF THE CONSOLE'S TABLE TO WRITE: at an address settled while building, for a
+          # sprite written on its own...
+          FixedRow = Data.define(:address)
+
+          # ...or +offset+ bytes on from wherever a repeat has got to, which only the running
+          # game knows.
+          MovingRow = Data.define(:offset)
+
+          # WRITE EVERY SPRITE OF A REPEAT BY GOING ROUND ONE WRITE. Two variables carry the
+          # round: the entry of the pool's lists this sprite reads, which the write's own sums
+          # name (see SpriteRepeats::INDEX), and the address of the row it writes. They are
+          # kept in memory and not in registers because working out where a sprite stands is
+          # free to use every register there is.
+          #
+          # What it costs against a copy apiece is a load of the row's address before each
+          # store, and stepping the two variables — a handful of instructions a sprite.
+          def emit_sprite_repeat(repeat)
+            again = gensym
+            emit_number(ACC, repeat.first_index)
+            store_var(ACC, SpriteRepeats::INDEX)
+            emit_number(ACC, repeat.first_row)
+            store_var(ACC, REPEAT_ROW)
+            place_label(again)
+            emit_present_object(repeat.sprite, rows: Array.new(repeat.sprite.pieces) { |piece| MovingRow.new(offset: piece * 8) })
+            load_var(ACC, REPEAT_ROW)
+            emit_add_const(ACC, ACC, repeat.row_step, TMP)
+            store_var(ACC, REPEAT_ROW)
+            load_var(ACC, SpriteRepeats::INDEX)
+            emit_add_const(ACC, ACC, repeat.index_step, TMP)
+            store_var(ACC, SpriteRepeats::INDEX)
+            emit_number(TMP, repeat.index_after)
+            emit(ASM.cmp_reg(ACC, TMP))
+            emit_branch(:bcond, again, cond: :ne)
+          end
+
+          # Store the low half of r0 in the half of +row+ that starts +half+ bytes into it.
+          def emit_store_acc_in_row(row, half)
+            return store_halfword_acc(row.address + half) if row.is_a?(FixedRow)
+
+            load_var(TMP, REPEAT_ROW)
+            emit(ASM.store_halfword_offset(ACC, TMP, row.offset + half))
+          end
+
+          # Store +number+, settled while building, in that half of +row+.
+          def emit_store_number_in_row(row, half, number)
+            return write_reg16(row.address + half, number) if row.is_a?(FixedRow)
+
+            emit_number(ACC, number)
+            emit_store_acc_in_row(row, half)
           end
 
           # WRITE THE STILL SPRITES, ON THE FRAMES WHERE THAT CAN MATTER AND NO OTHERS.
@@ -382,14 +460,18 @@ module RubyGBA
           # shoulder — so this walks the pieces, and a sprite the console can draw in one
           # go is simply the case where there is one of them. The pieces take a run of
           # slots from the sprite's own, so the whole thing keeps one place in the stack.
-          def emit_present_object(obj, twin: nil, name: nil)
+          #
+          # +rows+ is where each piece's row is written: the sprite's own places in the table,
+          # unless it is one of a run and the run says where it has got to.
+          def emit_present_object(obj, twin: nil, name: nil, rows: nil)
+            rows ||= Array.new(obj.pieces) { |piece| FixedRow.new(address: row_address(obj.slot, piece)) }
             @lowering.value(obj.active)
             emit(ASM.cmp_imm(ACC, 0))
             draw = gensym
             done = gensym
             emit_branch(:bcond, draw, cond: :ne)
             obj.pieces.times do |piece|
-              write_reg16(row_address(obj.slot, piece), OBJ_HIDDEN_ATTR0) # active == 0: mark it unused
+              emit_store_number_in_row(rows[piece], 0, OBJ_HIDDEN_ATTR0) # active == 0: mark it unused
               write_reg16(oam_slot(twin.slot, piece), OBJ_HIDDEN_ATTR0) if twin # ...and its window
             end
             emit_branch(:b, done)
@@ -401,12 +483,12 @@ module RubyGBA
             # every piece stands at the same place and reads it back from there.
             emit_stash_object_position(obj) if obj.pieces > 1
             obj.pieces.times do |piece|
-              base = row_address(obj.slot, piece)
+              row = rows[piece]
               mirror = twin && oam_slot(twin.slot, piece)
               if obj.transformed
-                emit_draw_object_transformed(obj, base, mirror)
+                emit_draw_object_transformed(obj, row, mirror)
               else
-                emit_draw_object_upright(obj, base, mirror, piece)
+                emit_draw_object_upright(obj, row, mirror, piece)
               end
             end
             emit_hide_twin_unless_faded(twin, obj.pieces) if twin
@@ -530,8 +612,8 @@ module RubyGBA
           end
 
           # An upright sprite: position and size straight into its slot.
-          def emit_draw_object_upright(obj, base, mirror = nil, piece = 0)
-            return emit_draw_object_sized_poses(obj, base, mirror, piece) unless obj.alike
+          def emit_draw_object_upright(obj, row, mirror = nil, piece = 0)
+            return emit_draw_object_sized_poses(obj, row, mirror, piece) unless obj.alike
 
             # attr0 = (y & 0xFF) | shape + 256-color flag. The offset is where this pose
             # sits inside the canvas it was drawn on — added back so trimming the blank
@@ -540,18 +622,18 @@ module RubyGBA
             emit_add_const(ACC, ACC, obj.offset_y, TMP) unless obj.offset_y.zero?
             mask_into_acc(0xFF)
             orr_acc(obj.attr0_base)
-            store_halfword_acc(base)
+            emit_store_acc_in_row(row, 0)
             emit_copy_attr0_to_twin(mirror)
             # attr1 = (x & 0x1FF) | size
             @lowering.value(obj.x)
             emit_add_const(ACC, ACC, obj.offset_x, TMP) unless obj.offset_x.zero?
             mask_into_acc(0x1FF)
             orr_acc(obj.attr1_base)
-            store_halfword_acc(base + 2)
+            emit_store_acc_in_row(row, 2)
             store_halfword_acc(mirror + 2) if mirror
             # attr2 = which tiles to draw = this sprite's base tile + pose * stride
             # (palette bank/priority left at 0). A fixed pose folds to a constant.
-            emit_object_tile_number(obj, base + 4)
+            emit_object_tile_number(obj, row)
             store_halfword_acc(mirror + 4) if mirror
           end
 
@@ -579,7 +661,7 @@ module RubyGBA
             store_var(ACC, POSE_DRAW_X)
           end
 
-          def emit_draw_object_sized_poses(obj, base, mirror = nil, piece = 0)
+          def emit_draw_object_sized_poses(obj, row, mirror = nil, piece = 0)
             # A sprite of several pieces had this done once for all of them, by the caller.
             emit_stash_object_position(obj) if obj.pieces == 1
             emit_load_pose_word(obj, piece)
@@ -591,7 +673,7 @@ module RubyGBA
             emit(ASM.and_imm(TMP, POSE_WORD, 0x0C00))   # shape, still at bit 10
             emit(ASM.orr_reg_lsl(ACC, ACC, TMP, 4))     # ...into bit 14
             orr_acc(obj.attr0_base) unless obj.attr0_base.zero?
-            store_halfword_acc(base)
+            emit_store_acc_in_row(row, 0)
             emit_copy_attr0_to_twin(mirror)
             # attr1 = (x + how far right) & 0x1FF, then the size out of bits 12..13.
             load_var(ACC, POSE_DRAW_X)
@@ -603,7 +685,7 @@ module RubyGBA
             emit(ASM.orr_reg_lsl(ACC, ACC, TMP, 2))     # ...into bit 14
             emit_pose_flip_bits if obj.mirrors&.any?
             orr_acc(obj.attr1_base) unless obj.attr1_base.zero?
-            store_halfword_acc(base + 2)
+            emit_store_acc_in_row(row, 2)
             store_halfword_acc(mirror + 2) if mirror
             # attr2 = the pose's own first tile, out of bits 0..9. Two shifts rather than a
             # mask: a ten-bit mask is not one of the immediates this chip can carry.
@@ -611,7 +693,7 @@ module RubyGBA
             emit(ASM.lsr_imm(ACC, ACC, 22))
             orr_acc(obj.attr2_base) unless obj.attr2_base.zero?
             orr_picked_attr2(obj)
-            store_halfword_acc(base + 4)
+            emit_store_acc_in_row(row, 4)
             store_halfword_acc(mirror + 4) if mirror
           end
 
@@ -685,7 +767,7 @@ module RubyGBA
           # picture stays centered where an upright one would sit and pivots on its own
           # center, turn on the rotate/scale and double-size bits, point attr1 at the
           # affine group, then fill that group with this frame's matrix.
-          def emit_draw_object_transformed(obj, base, mirror = nil)
+          def emit_draw_object_transformed(obj, row, mirror = nil)
             half_w = obj.width / 2
             half_h = obj.height / 2
             # attr0 = ((y - half_h) & 0xFF) | rotate/scale + double-size + shape/color
@@ -693,18 +775,18 @@ module RubyGBA
             emit(ASM.sub_imm(ACC, ACC, half_h)) unless half_h.zero?
             mask_into_acc(0xFF)
             orr_acc(obj.attr0_base | OBJ_ROTSCALE | OBJ_DOUBLE_SIZE)
-            store_halfword_acc(base)
+            emit_store_acc_in_row(row, 0)
             emit_copy_attr0_to_twin(mirror)
             # attr1 = ((x - half_w) & 0x1FF) | size | affine-group index (bits 9..13)
             @lowering.value(obj.x)
             emit(ASM.sub_imm(ACC, ACC, half_w)) unless half_w.zero?
             mask_into_acc(0x1FF)
             orr_acc(obj.attr1_base | (obj.affine_slot << 9))
-            store_halfword_acc(base + 2)
+            emit_store_acc_in_row(row, 2)
             # The twin points at the same affine group, so it turns and resizes with the
             # sprite and the hole stays the shape of the picture.
             store_halfword_acc(mirror + 2) if mirror
-            emit_object_tile_number(obj, base + 4)
+            emit_object_tile_number(obj, row)
             store_halfword_acc(mirror + 4) if mirror
             emit_object_affine_matrix(obj)
           end
@@ -773,15 +855,16 @@ module RubyGBA
           # Write a sprite's tile number (attr2) for this frame. The sprite's poses sit
           # back to back in tile memory, so the pose it's showing is base + pose*stride.
           # A constant pose (the common single-pose sprite) folds to a plain write; a
-          # variable pose (facing / animation) is computed at run time.
-          def emit_object_tile_number(obj, attr2_addr)
+          # variable pose (facing / animation) is computed at run time. It is the third half
+          # of the sprite's +row+.
+          def emit_object_tile_number(obj, row)
             fixed = const_int(obj.pose)
             if fixed && !obj.picks_attr2?
-              write_reg16(attr2_addr, obj.tile_index + (fixed * obj.per_pose) | obj.attr2_base)
+              emit_store_number_in_row(row, 4, obj.tile_index + (fixed * obj.per_pose) | obj.attr2_base)
             elsif fixed
               emit_number(ACC, obj.tile_index + (fixed * obj.per_pose) | obj.attr2_base)
               orr_picked_attr2(obj)
-              store_halfword_acc(attr2_addr)
+              emit_store_acc_in_row(row, 4)
             else
               @lowering.value(obj.pose)                          # r0 = pose index
               emit_number(TMP, obj.per_pose)   # r1 = stride between poses
@@ -789,7 +872,7 @@ module RubyGBA
               emit_add_const(ACC, 2, obj.tile_index, TMP)   # r0 = r2 + base tile
               orr_acc(obj.attr2_base) unless obj.attr2_base.zero?
               orr_picked_attr2(obj)
-              store_halfword_acc(attr2_addr)
+              emit_store_acc_in_row(row, 4)
             end
           end
 

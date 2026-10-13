@@ -302,8 +302,8 @@ module RubyGBA
       end
 
       # Whether +other+ is a tree of the same shape, ignoring parent and source — for a test
-      # that builds the tree it expects and compares. It flattens both trees, so it is for
-      # tests and never for finding a node.
+      # that builds the tree it expects and compares, and for a pass asking whether two small
+      # sums are the same sum. It flattens both trees, so it is never for finding a node.
       #
       # A node is otherwise equal only to ITSELF (==, eql? and hash are Object's). Two
       # statements that read the same are still two places in the program, and the builder
@@ -322,6 +322,16 @@ module RubyGBA
       # The nodes held directly in this node's operands — a value it reads, an `.else` — for a
       # walk that has to carry something down to them, which #walk cannot.
       def operand_nodes = node_fields.flat_map { |field| Array(public_send(field)).flatten.grep(Node) }
+
+      # Put +fresh+ in the operand of this node that holds +old+ itself, and say whether there
+      # was one. A node held inside a list is not such an operand, and is left where it is.
+      def replace_operand(old, fresh)
+        field, = attrs.find { |_name, held| held.equal?(old) }
+        return false if field.nil?
+
+        store_operand(field, fresh)
+        true
+      end
 
       def inspect
         parts = [kind.inspect]
