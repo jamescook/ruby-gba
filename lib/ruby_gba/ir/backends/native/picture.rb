@@ -63,6 +63,10 @@ module RubyGBA
           def refuse_unsupported_picture!
             nodes = @program.walk.to_a
             refuse_picture!("a fade placed in the stack (fade ... under:)") if nodes.any? { |n| n.kind == :fade && n.under }
+            # A sprite drawn with such a list holds the list's name where its colors would be,
+            # and its pictures here are worked out once, in colors that never change.
+            changing = nodes.find { |n| n.kind == :color_list }
+            refuse_picture!("a list of colors that changes as the game runs (#{changing.name})") if changing
             refuse_picture!("more than #{MAX_SEE_THROUGH} see-through layers") if @see_through.size > MAX_SEE_THROUGH
             refuse_picture!("more than #{MAX_BACKGROUNDS} backgrounds") if @backgrounds.size > MAX_BACKGROUNDS
             # The interpreter keeps a background's scroll and cells by its name and draws each
@@ -102,11 +106,23 @@ module RubyGBA
 
           # Reference#collect_definitions and #run: whether the whole view is rebuilt every
           # frame — for scenery that can look different next frame, a fade placed in the stack,
-          # or scenery a named layer puts in front of a sprite — rather than sprites drawn
-          # straight onto a picture that stays.
+          # what is seen through a layer changing while nothing moves, or scenery a named layer
+          # puts in front of a sprite — rather than sprites drawn straight onto a picture that
+          # stays.
           def rebuilt_every_frame?
             @program.walk.any? { |node| REBUILT_FOR.include?(node.kind) || (node.kind == :fade && node.under) } ||
+              see_through_picture_changes? ||
               Stacking.scenery_over_objects?(@stacking.depths, scenery: @stacking.scenery, objects: @stacking.objects)
+          end
+
+          # Reference#see_through_picture_changes?: an amount the game works out, or a fade the
+          # display itself does, which holds a see-through layer solid for as long as it is on.
+          def see_through_picture_changes?
+            return false if @see_through.empty?
+
+            @program.walk.any? do |node|
+              node.kind == :see_through || (node.kind == :fade && !@fading.palette_walk?(node))
+            end
           end
 
           # --- the art, for rg_screen.c ---
@@ -115,7 +131,8 @@ module RubyGBA
             [*image_arrays, *background_arrays, *see_through_arrays,
              runtime_array("picture_sizes", "int32_t",
                     [@backgrounds.size, @stacking.depths.count, @handover.always_up.scenery.length,
-                     rebuilt_every_frame? ? 1 : 0, @see_through.size]),
+                     rebuilt_every_frame? ? 1 : 0, @see_through.size,
+                     Modes.resolve(@program).crosses_display_systems? ? 1 : 0]),
              runtime_array("always_up", "int32_t", @handover.always_up.scenery.map { |bg| @backgrounds.fetch(bg.name) }),
              runtime_array("sines", "int32_t", (0...450).map { |degrees| Affine.sine(degrees) }),
              runtime_array("turn_rules", "int32_t", [Build::SCALE_ONE, Affine::ONE_TH, Affine::MAX, Affine::MIN_SCALE])]

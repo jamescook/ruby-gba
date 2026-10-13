@@ -81,6 +81,20 @@ class TestNativeRefusals < Minitest::Test
     end
   end
 
+  # A sprite's pictures are worked out once, in each list of colors it can be drawn with; a list
+  # the game gives other colors as it runs has no such picture.
+  def test_a_list_of_colors_that_changes_is_refused_by_name
+    assert_refused_picture(/list of colors that changes as the game runs \(slot\)/) do
+      screen :tiled
+      image :ship, width: 8, height: 8, data: Array.new(64, :red), colors: %i[transparent red]
+      colors :slot, %i[transparent blue]
+      colors :warm, %i[transparent yellow]
+      ship = sprite :ship, at: [40, 40]
+      ship.draw_with :slot
+      game_loop { recolor :slot, :warm }
+    end
+  end
+
   # Two scenes may each declare a background by the same name; the desktop build would draw the
   # second one's map for both.
   def test_two_backgrounds_with_one_name_are_refused_by_name

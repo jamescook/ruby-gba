@@ -1093,8 +1093,9 @@ class TestNativePicture < Minitest::Test
     assert_native_matches_reference program, frames: 10
 
     colors_shown = moments.map { |moment| moment.picture.uniq.length }
-    assert_operator colors_shown.max, :>, colors_shown[2],
-                    "where one ghost is over the other, the mix is colors neither has alone over the turf"
+    assert_equal colors_shown[2], colors_shown.max,
+                 "where one ghost is over the other it is mixed with the turf and never with the ghost behind, " \
+                 "so no color shows that a ghost alone over the turf does not"
     refute_includes moments.last.picture, Color.resolve(:gray), "no ghost should be drawn solid"
   end
 

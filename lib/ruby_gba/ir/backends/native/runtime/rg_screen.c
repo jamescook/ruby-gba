@@ -5,8 +5,9 @@
  *
  * What is NOT here is refused when the game is built rather than drawn wrongly (see
  * Picture#refuse_unsupported_picture! and Lowering::NOT_LOWERED_YET, which are the whole list):
- * scenery that is drawn in other colors or is painted from a list; a fade placed in the stack;
- * and a frame that ends while drawing is held inside an area.
+ * scenery that is drawn in other colors or is painted from a list; a list of sprite colors that
+ * changes as the game runs; a fade placed in the stack; and a frame that ends while drawing is
+ * held inside an area.
  *
  * A sprite's pictures arrive ready to draw: which of its pixels show, and the colors of each
  * list it can be drawn with, are worked out when the game is built (see native/picture.rb).
@@ -75,6 +76,15 @@ static int32_t tint_white, tint_color, tint_steps;
 typedef struct { int32_t painted, under; } shares;
 static int32_t mixing;
 static shares mixed_by;
+
+/* THE PICTURE WITH NO SPRITES ON IT, kept beside the picture (Framebuffer @scenery) in a game
+ * with a sprite in a see-through layer. "Mix with what is already there" is wrong for a sprite
+ * over another sprite: a display puts all its sprites into one layer before it mixes anything,
+ * so a see-through one is mixed with the scenery or the backdrop under it and never with a
+ * sprite behind it. Every paint that is not a sprite's lands here as well as on the picture, and
+ * a sprite is mixed with this. One copy, whichever page is being drawn. */
+static uint16_t picture_without_sprites[CELLS];
+static int32_t painting_sprite; /* what is painted from here on is a sprite's (Framebuffer @painting_sprite) */
 
 /* Scenery up, in the order it went up (Reference @bg_shown): one entry for every time a
  * background is put up, even one already up, exactly as the interpreter keeps it. The repeats
@@ -158,11 +168,33 @@ static uint16_t into_cell(int32_t color, uint16_t under) {
   return mixing ? mixed_with_under(color, under) : (uint16_t)color;
 }
 
-/* Framebuffer#set_pixel: a cell drawing may not land on is dropped. */
+/* Reference#see_through_sprites?: is any sprite in a see-through layer? Asked for every pixel
+ * painted, and the answer is the game's and never changes, so it is worked out once. */
+static int32_t sprites_seen_through(void) {
+  static int32_t answer = -1;
+  if (answer >= 0) return answer;
+  answer = 0;
+  for (int32_t layer = 0; layer < rg_game_picture_sizes[RG_SIZE_SEE_THROUGH]; layer++)
+    if (rg_game_see_through[layer * RG_ST_FIELDS + RG_ST_HOLDS_A_SPRITE]) answer = 1;
+  return answer;
+}
+
+/* Whether the picture with no sprites on it is kept beside what is being drawn into
+ * (Framebuffer#keep_scenery). The copy of the scenery kept to put back under sprites is a picture
+ * of its own, which keeps none. */
+static int32_t keeps_picture_without_sprites(void) { return target != scenery && sprites_seen_through(); }
+
+/* Framebuffer#set_pixel: a cell drawing may not land on is dropped. A sprite is mixed with the
+ * picture as it is with no sprite on it, where that is kept, and anything else with what is
+ * already in the cell. */
 static void set_pixel(int64_t x, int64_t y, int32_t color) {
   if (!in_bounds(x, y)) return;
-  uint16_t *cell = &target[y * RG_SCREEN_WIDTH + x];
-  *cell = into_cell(color, *cell);
+  int64_t at = y * RG_SCREEN_WIDTH + x;
+  int32_t kept = keeps_picture_without_sprites();
+  const uint16_t *under = kept && painting_sprite ? picture_without_sprites : target;
+  uint16_t painted = into_cell(color, under[at]);
+  target[at] = painted;
+  if (kept && !painting_sprite) picture_without_sprites[at] = painted;
 }
 
 /* Framebuffer#fill_rect: every cell of the rectangle, each through set_pixel. Walking only the
@@ -183,6 +215,8 @@ static void clear_to(int32_t color) {
     return;
   }
   for (int32_t i = 0; i < CELLS; i++) target[i] = (uint16_t)color;
+  if (!keeps_picture_without_sprites()) return;
+  for (int32_t i = 0; i < CELLS; i++) picture_without_sprites[i] = (uint16_t)color;
 }
 
 void rg_screen_clear(int32_t color) { clear_to(color); }
@@ -356,14 +390,25 @@ static void forget_kept_shares(void) {
  * its own, which no fade was ever set on, so painting into it never finds one either. */
 static int32_t fade_takes_the_blend(void) { return target != scenery && fade_steps > 0; }
 
-/* Reference#set_see_through_for: mixing on for a thing in a see-through layer, off for anything
- * else. +layer+ is RG_SOLID for a thing in none. */
+/* Reference#set_see_through_for, for scenery: mixing on for a thing in a see-through layer, off
+ * for anything else. +layer+ is RG_SOLID for a thing in none. */
 static void mix_as_layer(int32_t layer) {
+  painting_sprite = 0;
   mixing = layer != RG_SOLID && !fade_takes_the_blend();
   if (mixing) mixed_by = owed_shares[layer].kept ? owed_shares[layer].at : shares_now(layer);
 }
 
-static void mix_nothing(void) { mixing = 0; }
+/* Reference#set_see_through_for, for a sprite: the same, and what is painted is a sprite's, so
+ * it is mixed with the picture as it is with no sprite on it and stays off that picture. */
+static void mix_as_sprite(int32_t sprite) {
+  mix_as_layer(rg_game_sprite_see_through[sprite]);
+  painting_sprite = 1;
+}
+
+static void mix_nothing(void) {
+  mixing = 0;
+  painting_sprite = 0;
+}
 
 /* --- effects over the finished picture (Framebuffer#faded) --- */
 
@@ -415,12 +460,16 @@ void rg_screen_fade(int32_t toward_white, int32_t steps, int32_t walked) {
   if (see_through_layers() > 0 && fade_takes_the_blend() != took_the_blend) request_repaint();
 }
 
-/* Framebuffer#tint_steps_to */
+/* Reference#exec_tint, through Framebuffer#tint_steps_to. A tint takes the place of whatever
+ * fade was in force, and a fade that goes may have been holding a see-through layer solid, so
+ * the picture is built again when one does. */
 void rg_screen_tint(int32_t color, int32_t steps) {
+  int32_t took_the_blend = fade_takes_the_blend();
   tint_mode = TINT_COLOR;
   tint_color = color;
   tint_steps = steps;
   fade_steps = 0;
+  if (see_through_layers() > 0 && fade_takes_the_blend() != took_the_blend) request_repaint();
 }
 
 /* Backends::FadeSteps.steps */
@@ -511,8 +560,14 @@ static int32_t bent_background_showing(void) {
 /* Reference#request_repaint: a rebuild of the whole view is owed, and painted when something
  * needs the picture. With a bent background showing it is painted now instead. Painting one runs
  * the game's own block line by line, which reads the game's variables and may change them, so
- * putting it off would change the game. */
+ * putting it off would change the game.
+ *
+ * A painted screen is never built again, in a game that also has screens drawn from tiles. Its
+ * picture is whatever the game painted there, and building the view from scenery would wipe it.
+ * What asks while one is up is the machinery of the game's other screens, which runs every frame
+ * whichever is showing. */
 static void request_repaint(void) {
+  if (kind == RG_BITMAP && rg_game_picture_sizes[RG_SIZE_SCREEN_KINDS_CHANGE]) return;
   if (bent_background_showing()) {
     repaint_view();
     return;
@@ -528,9 +583,8 @@ void rg_screen_request_rebuild(void) { request_repaint(); }
  * drawn. The painting reads them itself; what this owes is the picture, since one that neither
  * moves nor scrolls would otherwise keep the amounts it was painted with.
  *
- * In a game whose sprites are drawn straight onto the picture, that rebuild has no sprites in
- * it: only a game rebuilt every frame keeps them for one (rg_objects_end). The interpreter's
- * comes out the same way, and this is held to the interpreter. */
+ * A game that says this is one whose whole view is rebuilt (Picture#see_through_picture_changes?),
+ * so its sprites are kept for the rebuild rather than drawn once onto a picture that stays. */
 void rg_see_through_told(int32_t layer) {
   shares now = shares_now(layer);
   kept_shares *told = &told_shares[layer];
@@ -677,6 +731,7 @@ static void paint_map_pixel(int32_t background, int64_t mx, int64_t my, int64_t 
   if (color == RG_SEE_THROUGH) return;
   uint16_t *into = &pixels[py * RG_SCREEN_WIDTH + px];
   *into = into_cell(color, *into);
+  if (sprites_seen_through()) picture_without_sprites[py * RG_SCREEN_WIDTH + px] = *into;
 }
 
 /* The background and the line of the screen the game is being asked about, when it is being
@@ -965,7 +1020,7 @@ void rg_objects_end(void) {
     return;
   }
   for (int32_t i = 0; i < drawing_count; i++) {
-    mix_as_layer(rg_game_sprite_see_through[drawing[i].sprite]);
+    mix_as_sprite(drawing[i].sprite);
     draw_placed(&drawing[i]);
     mix_nothing();
     last_drawn[drawing[i].sprite] = (drawn_place){1, drawing[i].x, drawing[i].y};
@@ -1013,7 +1068,7 @@ static void repaint_view(void) {
     }
     for (int32_t i = 0; i < sprite_layer_count; i++) {
       if (sprite_layer[i].level != level) continue;
-      mix_as_layer(rg_game_sprite_see_through[sprite_layer[i].sprite]);
+      mix_as_sprite(sprite_layer[i].sprite);
       draw_placed(&sprite_layer[i]);
     }
   }
