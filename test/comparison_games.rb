@@ -26,9 +26,14 @@ module ComparisonGames
   # Two more things can be changed about it, for a difference of a known size and a known
   # length: the ground stays red for +red_for+ ticks and then goes back, and from tick
   # +SPECKS_FROM+ it draws +specks+ white pixels in a row, far from the box.
-  def walker(speed: 2, turns_red_at: 100_000, red_for: 100_000, counts_by: 1, specks: 0)
+  #
+  # And one that changes nothing a player could see: +spare_variables+ more variables
+  # declared ahead of its own, which moves where each of its own is kept in memory. That
+  # is two cartridges that keep the same thing in different places.
+  def walker(speed: 2, turns_red_at: 100_000, red_for: 100_000, counts_by: 1, specks: 0, spare_variables: 0)
     RubyGBA.build("WALKER", out: StringIO.new, err: StringIO.new) do
       screen :bitmap
+      spare_variables.times { |spare| var :"spare#{spare}", 0 }
       ticks = var :ticks, 0
       x = var :x, 20
       paces = var :paces, 0

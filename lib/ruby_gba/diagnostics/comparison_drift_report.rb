@@ -75,15 +75,15 @@ module RubyGBA
 
         # +drift+ is where the two stopped being alike and +pictures+ their two screens on
         # that frame. +tape+ is the presses both were played on, +cartridges+ the two that
-        # were played, +differing+ where in a picture the two differ (see
-        # Likeness#differing_places), and +settings+ the sentences that say how alike the
-        # two had to be.
-        def initialize(drift, pictures, tape:, cartridges:, differing:, settings:)
+        # were played, +pixels_differing+ where in a picture the two differ (see
+        # Likeness#differing_places), and +settings+ the sentences that say what was
+        # compared and how alike the two had to be.
+        def initialize(drift, pictures, tape:, cartridges:, pixels_differing:, settings:)
           @drift = drift
           @first, @second = pictures
           @tape = tape
           @cartridges = cartridges
-          @differing = differing
+          @pixels_differing = pixels_differing
           @settings = settings
         end
 
@@ -110,7 +110,7 @@ module RubyGBA
         # where on the screen things are, and every pixel that differs in the mark's colour.
         def difference_picture
           marked = @first.map { |colour| greyed(colour) }
-          @differing.each { |at| marked[at] = MARK }
+          @pixels_differing.each { |at| marked[at] = MARK }
           marked
         end
 
@@ -125,13 +125,15 @@ module RubyGBA
           [
             "The two cartridges drifted on frame #{@drift.frame}.",
             moment_sentence,
-            "#{@differing.size} of the pixels that were looked at differed on that frame.",
+            differed_sentence,
+            "The two screens differed in #{@pixels_differing.size} pixels on that frame.",
             "",
+            *readings_lines,
             "What was played",
             *@cartridges.zip(%w[first second]).map { |cartridge, which| "  the #{which} cartridge: #{Playthrough::Tape.label_of(cartridge)}" },
             "  the tape: #{@tape.frames} frames, recorded on #{@tape.recorded_on_label}",
             "",
-            "How alike the two had to be",
+            "What was compared, and how alike the two had to be",
             *@settings.map { |sentence| "  #{sentence}" },
             "",
             "The presses of the last second",
@@ -148,6 +150,26 @@ module RubyGBA
           return "No moment was named before that frame." unless @drift.moment
 
           "The moment named before that frame was #{@drift.moment}, on frame #{@tape.moments.fetch(@drift.moment)}."
+        end
+
+        def differed_sentence
+          things = @drift.differed.map { |what| what == PICTURE ? "the picture" : "the reading #{what}" }
+          "What differed on that frame: #{things.join(', ')}."
+        end
+
+        # Every named reading on both cartridges, the ones that agree as well: a number a
+        # pixel out is easier to chase than a picture that looks wrong, and the ones that
+        # agree say what the difference is NOT.
+        def readings_lines
+          return [] if @drift.readings.empty?
+
+          apart = Readings.differing(@drift.readings)
+          lines = @drift.readings.map do |name, (ours, theirs)|
+            next "  #{name}: #{ours.inspect} on both." unless apart.include?(name)
+
+            "  #{name}: #{ours.inspect} on the first cartridge, #{theirs.inspect} on the second. They differ."
+          end
+          ["The readings on that frame", *lines, ""]
         end
 
         # What was down on the drifting frame and on the frames of the second before it, a

@@ -26,15 +26,25 @@ module RubyGBA
     # stops at the first drift. One frame out is nearly always every frame after it out too,
     # so the first is the one worth having.
     #
+    # AND NAMED READINGS, where it is given any: numbers read off both running cartridges
+    # after every frame, each its own way (see Readings). Which of the two is compared —
+    # the picture, the readings, or both — is a list said where the comparison is made (see
+    # Compared).
+    #
     # +first+ and +second+ are the two cartridges.
     class Comparison
       # Where the two stopped being alike: the first frame of a stretch of differing frames
       # long enough to count. +moment+ is the last moment named before that frame was played,
       # for a person to place the frame by: nil when none had been. A moment that names the
-      # very frame is not before it. +report+ is the folder a report of it was written into
-      # (see DriftReport), or nil when the comparison was given nowhere to write one.
-      Drift = Data.define(:frame, :moment, :report) do
-        def initialize(frame:, moment:, report: nil) = super
+      # very frame is not before it. +differed+ is what differed from that frame for as
+      # long as it took to count: `:picture`, and the name of each reading that did.
+      # +readings+ is every named reading on both cartridges on that frame, whether it
+      # differed or not — each name with its pair of values, the first cartridge's and the
+      # second's. +report+ is the folder a report of
+      # it was written into (see DriftReport), or nil when the comparison was given nowhere
+      # to write one.
+      Drift = Data.define(:frame, :moment, :differed, :readings, :report) do
+        def initialize(frame:, moment:, differed:, readings:, report: nil) = super
       end
 
       # What a comparison found. +frames+ is how many frames were played, and +drift+ where
@@ -42,6 +52,14 @@ module RubyGBA
       Result = Data.define(:frames, :drift) do
         def drift? = !drift.nil?
       end
+
+      # What the picture is called wherever what differed is listed, beside the names of
+      # the readings.
+      PICTURE = :picture
+
+      # A READING'S OWN BLOCK STOPPED WITH AN ERROR, part way through the playing. The
+      # message says which reading and which cartridge; the block's own error is its cause.
+      class ReadingFailed < StandardError; end
 
       # A DRIFT WAS FOUND AND ITS REPORT COULD NOT BE WRITTEN. The place is looked at before
       # a frame is played, so this is the rare case of a disk that filled, or something that
@@ -60,14 +78,17 @@ module RubyGBA
       # +moments+ is the names of the moments the playthrough declares, in order: what the
       # script or the tape says they are, and not a setting a caller can give.
       # +ignoring_frames+ is the stretches of it that are not looked at (see IgnoredFrames),
-      # and +how_alike+ what a Likeness takes: how alike two pictures have to be. +reports_in+
-      # is a folder to write a report of the drift into (see DriftReport), or nil for none.
-      # All of it is read here, so a setting that makes no sense is refused before a frame
-      # is played.
-      def initialize(first, second, moments, ignoring_frames: [], reports_in: nil, **how_alike)
+      # and +how_alike+ what a Likeness takes: how alike two pictures have to be. +readings+
+      # is the named readings (see Readings) and +comparing+ the list of what is compared
+      # (see Compared), nil for nothing said. +reports_in+ is a folder to write a report of
+      # the drift into (see DriftReport), or nil for none. All of it is read here, so a
+      # setting that makes no sense is refused before a frame is played.
+      def initialize(first, second, moments, ignoring_frames: [], readings: {}, comparing: nil, reports_in: nil, **how_alike)
         refuse_unknown_settings!(how_alike.keys)
         @ignored = IgnoredFrames.new(ignoring_frames, moments)
         @likeness = Likeness.new(**how_alike)
+        @readings = Readings.new(readings)
+        @compared = Compared.new(comparing, @likeness, @readings)
         @reports_in = DriftReport.place_for(reports_in)
         @handed_over = [first, second]
       end
@@ -75,8 +96,13 @@ module RubyGBA
       # THE TWO CARTRIDGES, each one the build made or a cartridge file read from its path.
       # They are looked at together, the first time either is wanted, so a second cartridge
       # that is not there is found before the first is played and not after — and after the
-      # settings, which need no cartridge to be wrong.
-      def cartridges = @cartridges ||= @handed_over.map { |given| Playthrough.cartridge_from(given) }
+      # settings, which need no cartridge to be wrong. A reading that is a variable's name
+      # is looked up on them here too, since that is the first moment there is a cartridge
+      # to look it up on.
+      def cartridges
+        @cartridges ||= @handed_over.map { |given| Playthrough.cartridge_from(given) }
+                                    .tap { |pair| @readings.refuse_unreadable_on!(pair) }
+      end
 
       # The first cartridge: the one a script is played on alone, to make the tape both are
       # then played on.
@@ -86,7 +112,7 @@ module RubyGBA
       def run(tape)
         ignored = @ignored.frame_ranges_on(tape)
         consoles = cartridges.map { |cartridge| Playthrough.power_on(cartridge) }
-        pair = SideBySide.new(*consoles, @likeness, ignored, keeping_pictures: !@reports_in.nil?)
+        pair = SideBySide.new(*consoles, @compared, ignored, keeping_pictures: !@reports_in.nil?)
         tape.steps.each do |step|
           step.play(pair)
           break if pair.drift
@@ -101,13 +127,13 @@ module RubyGBA
         return drift unless drift && @reports_in
 
         report = DriftReport.new(drift, pair.pictures_at_drift, tape: tape, cartridges: cartridges,
-                                                               differing: @likeness.differing_places(*pair.pictures_at_drift),
-                                                               settings: @likeness.sentences + @ignored.sentences(tape))
+                                                               pixels_differing: @likeness.differing_places(*pair.pictures_at_drift),
+                                                               settings: @compared.sentences + @ignored.sentences(tape))
         drift.with(report: report.write_in(@reports_in))
       end
 
       # Every setting a comparison has: the ones that say how alike, and the ones of its own.
-      def self.settings = [*Likeness::SETTINGS, :ignoring_frames, :reports_in]
+      def self.settings = [*Likeness::SETTINGS, :ignoring_frames, :readings, :comparing, :reports_in]
 
       private def refuse_unknown_settings!(given)
         unknown = given - Likeness::SETTINGS
@@ -167,18 +193,23 @@ module RubyGBA
           (0...first.size).select { |at| @looked_at[at] && first[at] != second[at] }
         end
 
-        # THE SETTINGS IN FORCE, AS SENTENCES, for a report a person reads. A comparison's
-        # numbers mean nothing read against the wrong settings, so it says them every time.
-        def sentences
+        # HOW ALIKE THE PICTURES HAD TO BE, AS SENTENCES, for a report a person reads.
+        def picture_sentences
           looked_at = @pixels_looked_at == WIDTH * HEIGHT ? "pixels" : "pixels that were looked at"
           words = if @share_may_differ.zero?
                     ["A frame differed when one of the #{looked_at} was a different colour."]
                   else
                     ["A frame differed when more than #{percent_allowed} percent of the #{looked_at} were a different colour."]
                   end
-          words << "#{@frames_in_a_row} frames in a row had to differ before it was drift." if @frames_in_a_row > 1
           words << "These parts of the screen were not looked at: #{@ignored_rectangles.map(&:in_words).join('; ')}." if @ignored_rectangles.any?
           words
+        end
+
+        # How many differing frames in a row it took, as a sentence, where that was more
+        # than one. It is its own sentence because it holds whatever is compared, a reading
+        # as much as the picture.
+        def run_length_sentences
+          @frames_in_a_row > 1 ? ["#{@frames_in_a_row} frames in a row had to differ before it was drift."] : []
         end
 
         WIDTH = Console::Hardware::SCREEN_WIDTH
@@ -268,28 +299,40 @@ module RubyGBA
 
       # TWO RUNNING CARTRIDGES PLAYED AS ONE. The lines of a tape play themselves on this as
       # they do on a single playing: a hold goes to both with the same buttons down, a frame
-      # at a time, and the two pictures are compared after each. It stops playing on the
-      # frame that makes a drift of it, part way through a hold if that is where it falls.
+      # at a time, and the two are compared after each. It stops playing on the frame that
+      # makes a drift of it, part way through a hold if that is where it falls.
+      #
+      # EACH THING THAT IS COMPARED COUNTS ITS OWN FRAMES IN A ROW — the picture, and each
+      # reading. Asking for several frames in a row is asking that one frame of flicker is
+      # not called drift, and a picture that flickers for one frame followed by a count
+      # that is out for the next is two flickers and no drift. Counted together they would
+      # be two frames in a row.
       class SideBySide
         attr_reader :frames, :drift
 
-        # The two screens on the frame the drift began, each a screenful of colours. They
-        # are kept from the first frame of every stretch of differing frames, because by
-        # the time a stretch is long enough to be called drift both consoles have moved on
-        # and that frame cannot be asked for again. Nil unless the pair was told to keep
-        # them: copying two screens out is only worth doing for a report.
+        # The two screens on the frame the drift began, each a screenful of colours. Nil
+        # unless the pair was told to keep them: copying two screens out is only worth
+        # doing for a report.
         attr_reader :pictures_at_drift
 
-        # +ignored+ is the stretches that are not looked at, as ranges of frame numbers.
-        def initialize(first, second, likeness, ignored, keeping_pictures:)
+        # THE FRAME A THING BEGAN TO DIFFER ON, and what is kept from it: the moment before,
+        # every reading, and the two screens when they are kept. All of it is taken on that
+        # frame, because by the time the thing has differed long enough to be called drift
+        # both consoles have played on and the frame cannot be asked for again.
+        Beginning = Data.define(:frame, :moment, :readings, :pictures)
+        private_constant :Beginning
+
+        # +compared+ is what is compared on each frame, and +ignored+ the stretches that are
+        # not looked at, as ranges of frame numbers.
+        def initialize(first, second, compared, ignored, keeping_pictures:)
           @first = first
           @second = second
-          @likeness = likeness
+          @compared = compared
           @ignored = ignored
           @keeping_pictures = keeping_pictures
           @frames = 0
           @moment = nil
-          @differing_since = nil
+          @began = {}
           @pictures_at_drift = nil
           @drift = nil
         end
@@ -307,20 +350,35 @@ module RubyGBA
 
         def mark(name) = @moment = name
 
-        # A stretch of differing frames is remembered from its first frame — where it began,
-        # and the moment before that — and is the drift once it has lasted long enough. A
-        # frame alike again ends the stretch, and so does a frame that is not looked at:
-        # nothing is known about that one, so the frames either side of it are not in a row.
+        # A thing that differs is remembered from the frame it began to, and is the drift
+        # once it has differed on every frame since for long enough. A frame on which it is
+        # alike again ends its stretch, and so does a frame that is not looked at: nothing
+        # is known about that one, so the frames either side of it are not in a row.
         private def extend_or_end_differing_stretch
-          return @differing_since = nil if ignored_frame? || @likeness.alike?(@first, @second)
-
-          start_differing_stretch unless @differing_since
-          @drift = @differing_since if @likeness.drift_after?(@frames - @differing_since.frame + 1)
+          seen = @compared.seen_on(@first, @second) unless ignored_frame?
+          differed = seen ? seen.differed : []
+          @began.keep_if { |thing, _beginning| differed.include?(thing) }
+          start_differing_stretches(differed - @began.keys, seen)
+          record_drift_of(@began.select { |_thing, beginning| @compared.drift_after?(@frames - beginning.frame + 1) })
         end
 
-        private def start_differing_stretch
-          @differing_since = Drift.new(frame: @frames, moment: @moment)
-          @pictures_at_drift = [@first.frame_gba, @second.frame_gba] if @keeping_pictures
+        # Things that begin to differ on one frame share what is kept from it.
+        private def start_differing_stretches(things, seen)
+          return if things.empty?
+
+          pictures = [@first.frame_gba, @second.frame_gba] if @keeping_pictures
+          beginning = Beginning.new(frame: @frames, moment: @moment, readings: seen.readings, pictures: pictures)
+          things.each { |thing| @began[thing] = beginning }
+        end
+
+        # +lasted+ is the things that have now differed for long enough, each with the frame
+        # it began on. They all began on the same frame: one that began sooner would have
+        # been the drift a frame ago.
+        private def record_drift_of(lasted)
+          beginning = lasted.values.first or return
+
+          @drift = Drift.new(frame: beginning.frame, moment: beginning.moment, differed: lasted.keys, readings: beginning.readings)
+          @pictures_at_drift = beginning.pictures
         end
 
         private def ignored_frame? = @ignored.any? { |stretch| stretch.cover?(@frames) }

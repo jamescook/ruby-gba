@@ -27,4 +27,6 @@ require_relative "diagnostics/playthrough_tape" # ...and the presses it made, wr
 require_relative "diagnostics/playthrough_picture_folder" # ...and the folder its pictures are written into
 require_relative "diagnostics/comparison" # two cartridges played side by side on the same presses
 require_relative "diagnostics/comparison_ignored_frames" # ...and the stretches of the playing it does not look at
+require_relative "diagnostics/comparison_readings" # ...and the numbers it reads off both and compares by name
+require_relative "diagnostics/comparison_compared" # ...and the list of what it compares: the picture, the readings
 require_relative "diagnostics/comparison_drift_report" # ...and the folder it writes for a drift it finds
