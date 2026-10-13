@@ -1719,8 +1719,7 @@ class TestNativePicture < Minitest::Test
     # The sky, the sea and the sand, each read at one pixel, as they change over the run.
     seen = moments.map { |moment| [[4, 4], [4, 60], [4, 150]].map { |x, y| moment.picture[(y * WIDTH) + x] } }
     as_named = ->(*names) { names.map { |name| Color.resolve(name) } }
-    # Half way to black, each channel loses half of itself, rounded down.
-    darkened = ->(*names) { as_named.(*names).map { |color| (0..2).sum { |c| (((color >> (5 * c)) & 31) - (((color >> (5 * c)) & 31) / 2)) << (5 * c) } } }
+    darkened = ->(*names) { as_named.(*names).map { |color| half_way_to_black(color) } }
     assert_equal [as_named.(:cyan, :blue, :yellow), as_named.(:orange, :red, :yellow),
                   darkened.(:orange, :red, :yellow), darkened.(:gray, :black, :yellow), darkened.(:cyan, :blue, :yellow)],
                  seen.chunk_while { |a, b| a == b }.map(&:first),
@@ -1728,6 +1727,59 @@ class TestNativePicture < Minitest::Test
                  "over the screen; the next step darkened by a fade placed in the stack; and past the last step, " \
                  "its own colors under that fade"
     assert_includes moments.last.picture, Color.resolve(:white), "the placed fade leaves the score in front of it as drawn"
+  end
+
+  # A color under a fade of half toward black: each of its three channels, five bits apiece,
+  # loses half of itself, rounded down.
+  def half_way_to_black(color)
+    (0..2).sum do |channel|
+      level = (color >> (5 * channel)) & 31
+      (level - (level / 2)) << (5 * channel)
+    end
+  end
+
+  # A scene's own background, drawn with another list, while the scene goes and comes back. Its
+  # art is given as places, with one color at two of them and a place that is see-through, so
+  # each pixel can only be recolored right by the place it was drawn at. Coming back, the scene
+  # puts the background up again, and later hands it another map.
+  def test_a_scenes_background_drawn_with_another_list_as_the_scene_comes_back
+    program = program_of do
+      screen :tiled
+      colors :day, %i[transparent blue blue white]
+      colors :dusk, %i[transparent orange red yellow]
+      image :sky, width: 8, height: 8, colors: :day, places: [0, 1, 2, 3, 0, 1, 2, 3] * 8
+      tiles :skies, "s" => :sky
+      state = var :state, 0
+      n = var :n, 0
+      scene(:outside) do
+        sky = background :sky, tiles: :skies, map: { whole: ["s" * 30] * 20, half: ["s" * 15] * 20 }
+        (n == 2).then { sky.draw_with :dusk }
+        (n == 11).then { sky.show_map :half }
+      end
+      scene(:inside) { n.add! 0 }
+      game_loop do
+        case_var :state do
+          when_val 0, :outside
+          when_val 1, :inside
+        end
+        (n == 5).then { state.set! 1 }
+        (n == 7).then { state.set! 0 }
+        n.add! 1
+      end
+    end
+
+    moments = reference_snapshots(program, frames: 15, buttons: {})
+
+    assert_native_matches_reference program, frames: 15, played: moments
+
+    black = Color.resolve(:black)
+    shown = ->(*names) { [black, *names.map { |name| Color.resolve(name) }].sort }
+    seen = moments.map { |moment| moment.picture.uniq.sort }.chunk_while { |a, b| a == b }.map(&:first)
+    assert_equal [[black], shown.(:blue, :white), shown.(:orange, :red, :yellow), [black], shown.(:orange, :red, :yellow)], seen,
+                 "nothing before the scene's first frame, then its own colors, the other list's by place, nothing " \
+                 "while the scene is away, and the other list's again"
+    assert_equal moments[9].picture.count(black) + (15 * 20 * 48), moments.last.picture.count(black),
+                 "and the map it is handed last, half as wide, is still drawn in them"
   end
 
   # A see-through layer on each of two screens that take turns: the game says how see-through

@@ -179,7 +179,8 @@ module RubyGBA
             maps = []
             fields = @stacking.scenery.flat_map do |bg|
               tiles_start = tile_pixels.length
-              [nil, *color_swaps(bg)].each do |swaps|
+              steps = color_swaps(bg)
+              [nil, *steps].each do |swaps|
                 bg.tiles.each { |tile| tile_pixels.concat(tile_colors(tile, swaps)) }
               end
               first_map = maps.length / MAP_FIELDS
@@ -194,7 +195,7 @@ module RubyGBA
                bg.scene ? @scenes.fetch(bg.scene, NEVER_ARRIVES) : EVERY_SCENE, @stacking.depths[bg.name],
                @handover.on_arrival?(bg) ? 1 : 0, stack_place(bg.layer),
                see_through_number(bg), @bends.key?(bg.name) ? 1 : 0, fade_place(bg),
-               bg.tiles.length, color_swaps(bg).length]
+               bg.tiles.length, steps.length]
             end
             [runtime_array("tile_pixels", "uint16_t", tile_pixels), runtime_array("backgrounds", "int32_t", fields),
              runtime_array("maps", "int32_t", maps), runtime_array("map_cells", "int16_t", cells)]
