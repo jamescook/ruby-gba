@@ -10,8 +10,9 @@ module RubyGBA
       #
       #   first.png, second.png   the two screens on the frame the drift began
       #   difference.png          the first screen greyed, with every pixel that differs marked
-      #   report.txt              the frame, the moment before it, the last second of presses,
-      #                           what was compared and how alike it had to be
+      #   report.txt              the frame, how long the drift lasted, the moment before it,
+      #                           every named reading, the last second of presses, what was
+      #                           compared and how alike it had to be
       #   to-the-drift.tape       every press up to that frame
       #
       # WHY A TAPE AND NOT ONLY A PICTURE. A picture says what the two screens were. The tape
@@ -124,6 +125,7 @@ module RubyGBA
         def text
           [
             "The two cartridges drifted on frame #{@drift.frame}.",
+            lasted_sentence,
             moment_sentence,
             differed_sentence,
             "The two screens differed in #{@pixels_differing.size} pixels on that frame.",
@@ -144,6 +146,18 @@ module RubyGBA
             "  #{DIFFERENCE}: the first screen in grey, with each pixel that differed in magenta.",
             "  #{TAPE}: every press up to frame #{@drift.frame}. Play it on a cartridge to be on that frame again.",
           ].join("\n") << "\n"
+        end
+
+        # How long the drift lasted and how it ended, which only a comparison that carried
+        # on finds out.
+        def lasted_sentence
+          last = @drift.last_frame
+          case @drift.ended
+          when :back_in_step then "The drift lasted to frame #{last}. The two were back within the settings on frame #{last + 1}."
+          when :not_looked_at then "The drift lasted to frame #{last}. Frame #{last + 1} was not looked at."
+          when :tape_ran_out then "The drift lasted to frame #{last}, the last frame of the tape."
+          else "The comparison stopped at this drift, so how long it lasted is not known."
+          end
         end
 
         def moment_sentence

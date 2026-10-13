@@ -23,8 +23,10 @@ module RubyGBA
     # when the first has stopped, and the two differ from that frame on.
     #
     # EVERY PIXEL OF EVERY FRAME, unless told how alike is alike enough (see Likeness), and it
-    # stops at the first drift. One frame out is nearly always every frame after it out too,
-    # so the first is the one worth having.
+    # stops at the first drift unless it is told to carry on. One frame out is nearly always
+    # every frame after it out too, so the first is the one worth having — and where it is
+    # not, `carrying_on: true` plays to the end and `result.drifts` lists every stretch of
+    # drift, which says whether the two came back into step.
     #
     # AND NAMED READINGS, where it is given any: numbers read off both running cartridges
     # after every frame, each its own way (see Readings). Which of the two is compared —
@@ -36,21 +38,40 @@ module RubyGBA
       # Where the two stopped being alike: the first frame of a stretch of differing frames
       # long enough to count. +moment+ is the last moment named before that frame was played,
       # for a person to place the frame by: nil when none had been. A moment that names the
-      # very frame is not before it. +differed+ is what differed from that frame for as
-      # long as it took to count: `:picture`, and the name of each reading that did.
-      # +readings+ is every named reading on both cartridges on that frame, whether it
-      # differed or not — each name with its pair of values, the first cartridge's and the
-      # second's. +report+ is the folder a report of
-      # it was written into (see DriftReport), or nil when the comparison was given nowhere
-      # to write one.
-      Drift = Data.define(:frame, :moment, :differed, :readings, :report) do
-        def initialize(frame:, moment:, differed:, readings:, report: nil) = super
+      # very frame is not before it. +differed+ is what differed for long enough to count
+      # while the drift lasted, in the order each began to: `:picture`, and the name of
+      # each reading that did. +readings+ is every named reading on both cartridges on the
+      # frame it began, whether it differed or not — each name with its pair of values,
+      # the first cartridge's and the second's.
+      #
+      # +last_frame+ is the last frame of the stretch and +ended+ how it ended, for a
+      # comparison that carried on: `:back_in_step` when the next frame was one on which
+      # the two were within the settings again, `:not_looked_at` when the next frame was
+      # one the comparison was told to leave out, and `:tape_ran_out` when it was still
+      # going on the last frame of the tape. A comparison that stops at its first drift
+      # never finds out how long it lasted, and there both are nil.
+      #
+      # +report+ is the folder a report of it was written into (see DriftReport), or nil
+      # when the comparison was given nowhere to write one.
+      Drift = Data.define(:frame, :last_frame, :ended, :moment, :differed, :readings, :report) do
+        def initialize(frame:, moment:, differed:, readings:, last_frame: nil, ended: nil, report: nil) = super
+
+        # The frames of the stretch as a range, first to last, or nil where the last is
+        # not known.
+        def stretch = last_frame && (frame..last_frame)
+
+        # Whether the two came back within the settings after it.
+        def back_in_step? = ended == :back_in_step
       end
 
-      # What a comparison found. +frames+ is how many frames were played, and +drift+ where
-      # the two stopped being alike — nil when they never did.
-      Result = Data.define(:frames, :drift) do
-        def drift? = !drift.nil?
+      # What a comparison found. +frames+ is how many frames were played, and +drifts+ every
+      # stretch of drift that was found, in the order they happened: none when the two
+      # never differed, and one at most unless the comparison was asked to carry on.
+      Result = Data.define(:frames, :drifts) do
+        def drift? = drifts.any?
+
+        # Where the two FIRST stopped being alike — nil when they never did.
+        def drift = drifts.first
       end
 
       # What the picture is called wherever what differed is listed, beside the names of
@@ -64,15 +85,21 @@ module RubyGBA
       # A DRIFT WAS FOUND AND ITS REPORT COULD NOT BE WRITTEN. The place is looked at before
       # a frame is played, so this is the rare case of a disk that filled, or something that
       # changed while the two were playing. The finding is the part that cost the playing,
-      # so the error still holds it: +drift+ is where the two stopped being alike.
+      # so the error still holds it: +drift+ is where the two stopped being alike, and
+      # +earlier+ the drifts a comparison that carried on had found before that one, whose
+      # reports were written.
       class ReportNotWritten < StandardError
-        attr_reader :drift
+        attr_reader :drift, :earlier
 
         def initialize(drift, folder, why)
           @drift = drift
+          @earlier = []
           super("The two cartridges drifted on frame #{drift.frame}. The report of that drift could not be written " \
                 "in #{folder}: #{why}. Give `reports_in:` the path of a folder that can be written to.")
         end
+
+        # The same error, holding the drifts found before the one it is about.
+        def after(earlier) = tap { @earlier = earlier }
       end
 
       # +moments+ is the names of the moments the playthrough declares, in order: what the
@@ -80,15 +107,19 @@ module RubyGBA
       # +ignoring_frames+ is the stretches of it that are not looked at (see IgnoredFrames),
       # and +how_alike+ what a Likeness takes: how alike two pictures have to be. +readings+
       # is the named readings (see Readings) and +comparing+ the list of what is compared
-      # (see Compared), nil for nothing said. +reports_in+ is a folder to write a report of
-      # the drift into (see DriftReport), or nil for none. All of it is read here, so a
-      # setting that makes no sense is refused before a frame is played.
-      def initialize(first, second, moments, ignoring_frames: [], readings: {}, comparing: nil, reports_in: nil, **how_alike)
+      # (see Compared), nil for nothing said. +carrying_on+ says whether to play on past the
+      # first drift and list every stretch of it. +reports_in+ is a folder to write a
+      # report of each drift into (see DriftReport), or nil for none. All of it is read
+      # here, so a setting that makes no sense is refused before a frame is played.
+      def initialize(first, second, moments, ignoring_frames: [], readings: {}, comparing: nil, carrying_on: false,
+                     reports_in: nil, **how_alike)
         refuse_unknown_settings!(how_alike.keys)
         @ignored = IgnoredFrames.new(ignoring_frames, moments)
         @likeness = Likeness.new(**how_alike)
         @readings = Readings.new(readings)
         @compared = Compared.new(comparing, @likeness, @readings)
+        refuse_non_boolean_carrying_on!(carrying_on)
+        @carrying_on = carrying_on
         @reports_in = DriftReport.place_for(reports_in)
         @handed_over = [first, second]
       end
@@ -112,28 +143,36 @@ module RubyGBA
       def run(tape)
         ignored = @ignored.frame_ranges_on(tape)
         consoles = cartridges.map { |cartridge| Playthrough.power_on(cartridge) }
-        pair = SideBySide.new(*consoles, @compared, ignored, keeping_pictures: !@reports_in.nil?)
+        reporter = ->(drift, pictures) { drift_with_report(drift, pictures, tape) } if @reports_in
+        pair = SideBySide.new(*consoles, @compared, ignored, carrying_on: @carrying_on, reporter: reporter)
         tape.steps.each do |step|
           step.play(pair)
-          break if pair.drift
+          break if pair.stopped?
         end
-        Result.new(frames: pair.frames, drift: drift_with_report(pair, tape))
+        pair.end_playing
+        Result.new(frames: pair.frames, drifts: pair.drifts)
+      rescue ReportNotWritten => e
+        raise e.after(pair.drifts)
       end
 
-      # The drift the pair found, with a report of it written if there is somewhere to
-      # write one, and the folder it went into noted on the drift.
-      private def drift_with_report(pair, tape)
-        drift = pair.drift
-        return drift unless drift && @reports_in
-
-        report = DriftReport.new(drift, pair.pictures_at_drift, tape: tape, cartridges: cartridges,
-                                                               pixels_differing: @likeness.differing_places(*pair.pictures_at_drift),
-                                                               settings: @compared.sentences + @ignored.sentences(tape))
+      # A drift with its report written, and the folder it went into noted on it.
+      # +pictures+ is the two screens on the frame it began.
+      private def drift_with_report(drift, pictures, tape)
+        report = DriftReport.new(drift, pictures, tape: tape, cartridges: cartridges,
+                                                  pixels_differing: @likeness.differing_places(*pictures),
+                                                  settings: @compared.sentences + @ignored.sentences(tape))
         drift.with(report: report.write_in(@reports_in))
       end
 
       # Every setting a comparison has: the ones that say how alike, and the ones of its own.
-      def self.settings = [*Likeness::SETTINGS, :ignoring_frames, :readings, :comparing, :reports_in]
+      def self.settings = [*Likeness::SETTINGS, :ignoring_frames, :readings, :comparing, :carrying_on, :reports_in]
+
+      private def refuse_non_boolean_carrying_on!(given)
+        return if [true, false].include?(given)
+
+        raise ArgumentError, "`carrying_on:` was #{given.inspect}. It must be true or false. Give `carrying_on: true` to " \
+                             "play on past the first drift and list each one."
+      end
 
       private def refuse_unknown_settings!(given)
         unknown = given - Likeness::SETTINGS
@@ -299,42 +338,65 @@ module RubyGBA
 
       # TWO RUNNING CARTRIDGES PLAYED AS ONE. The lines of a tape play themselves on this as
       # they do on a single playing: a hold goes to both with the same buttons down, a frame
-      # at a time, and the two are compared after each. It stops playing on the frame that
-      # makes a drift of it, part way through a hold if that is where it falls.
+      # at a time, and the two are compared after each. Unless it is carrying on, it stops
+      # playing on the frame that makes a drift of it, part way through a hold if that is
+      # where it falls.
       #
       # EACH THING THAT IS COMPARED COUNTS ITS OWN FRAMES IN A ROW — the picture, and each
       # reading. Asking for several frames in a row is asking that one frame of flicker is
       # not called drift, and a picture that flickers for one frame followed by a count
       # that is out for the next is two flickers and no drift. Counted together they would
       # be two frames in a row.
+      #
+      # CARRYING ON. Unless it is told to carry on, the pair stops at its first drift. Told
+      # to, it plays on, and that drift is under way for as long as something goes on
+      # differing that has differed for long enough: the frame on which nothing has is the
+      # frame the two are back within the settings, and the drift's last frame is the one
+      # before it.
+      #
+      # NO FRAME IS IN TWO DRIFTS. A thing that began to differ while a drift was under
+      # way, or on the very frame after it, and goes on long enough to count, is the same
+      # drift going on and not a second one that began inside the first. That cannot be
+      # known on the frame the first thing stops, so a drift is not ended there: its last
+      # frame is noted, and it is ended once nothing that could still join it is differing.
       class SideBySide
-        attr_reader :frames, :drift
+        attr_reader :frames
 
-        # The two screens on the frame the drift began, each a screenful of colours. Nil
-        # unless the pair was told to keep them: copying two screens out is only worth
-        # doing for a report.
-        attr_reader :pictures_at_drift
+        # Every drift that has ended, in the order they happened.
+        attr_reader :drifts
 
         # THE FRAME A THING BEGAN TO DIFFER ON, and what is kept from it: the moment before,
         # every reading, and the two screens when they are kept. All of it is taken on that
         # frame, because by the time the thing has differed long enough to be called drift
         # both consoles have played on and the frame cannot be asked for again.
         Beginning = Data.define(:frame, :moment, :readings, :pictures)
-        private_constant :Beginning
+
+        # A drift that has not ended, with the two screens on the frame it began.
+        UnderWay = Struct.new(:drift, :pictures)
+
+        # Where a drift under way seems to have ended, and how: the frame before the one on
+        # which nothing had differed for long enough.
+        Lull = Data.define(:last_frame, :ended)
+        private_constant :Beginning, :UnderWay, :Lull
 
         # +compared+ is what is compared on each frame, and +ignored+ the stretches that are
-        # not looked at, as ranges of frame numbers.
-        def initialize(first, second, compared, ignored, keeping_pictures:)
+        # not looked at, as ranges of frame numbers. +reporter+ is handed each drift as it
+        # ends, with the two screens on the frame it began, and hands the drift back with
+        # its report noted — or is nil, and then no screen is copied out, which is only
+        # worth doing for a report.
+        def initialize(first, second, compared, ignored, carrying_on:, reporter:)
           @first = first
           @second = second
           @compared = compared
           @ignored = ignored
-          @keeping_pictures = keeping_pictures
+          @carrying_on = carrying_on
+          @reporter = reporter
           @frames = 0
           @moment = nil
           @began = {}
-          @pictures_at_drift = nil
-          @drift = nil
+          @under_way = nil
+          @lull = nil
+          @drifts = []
         end
 
         def hold(buttons, frames)
@@ -343,42 +405,87 @@ module RubyGBA
             @first.step(1, keys: keys)
             @second.step(1, keys: keys)
             @frames += 1
-            extend_or_end_differing_stretch
-            return if @drift
+            extend_or_end_differing_stretches
+            return if stopped?
           end
         end
 
         def mark(name) = @moment = name
 
-        # A thing that differs is remembered from the frame it began to, and is the drift
-        # once it has differed on every frame since for long enough. A frame on which it is
+        # Whether the pair plays no further: it has its first drift, and was not told to
+        # carry on.
+        def stopped? = !@carrying_on && @drifts.any?
+
+        # The tape has run out: end the drift that is under way, if one is. It ended where
+        # it had seemed to, or it was still going and ran to the last frame that was played.
+        def end_playing
+          return end_drift_under_way(@lull.last_frame, @lull.ended) if @lull
+
+          end_drift_under_way(@frames, :tape_ran_out)
+        end
+
+        # A thing that differs is remembered from the frame it began to, and is drift once
+        # it has differed on every frame since for long enough. A frame on which it is
         # alike again ends its stretch, and so does a frame that is not looked at: nothing
         # is known about that one, so the frames either side of it are not in a row.
-        private def extend_or_end_differing_stretch
+        private def extend_or_end_differing_stretches
           seen = @compared.seen_on(@first, @second) unless ignored_frame?
           differed = seen ? seen.differed : []
           @began.keep_if { |thing, _beginning| differed.include?(thing) }
           start_differing_stretches(differed - @began.keys, seen)
-          record_drift_of(@began.select { |_thing, beginning| @compared.drift_after?(@frames - beginning.frame + 1) })
+          lasted = @began.select { |_thing, beginning| @compared.drift_after?(@frames - beginning.frame + 1) }
+          return start_drift_of(lasted) unless @under_way
+
+          lasted.empty? ? end_drift_once_settled : carry_drift_on(lasted.keys)
+        end
+
+        # The drift goes on, and whatever has now differed for long enough is part of it —
+        # which is also how a drift that had seemed to end turns out not to have.
+        private def carry_drift_on(things)
+          @lull = nil
+          @under_way.drift = @under_way.drift.with(differed: @under_way.drift.differed | things)
+        end
+
+        # Nothing has differed for long enough on this frame, so the drift seems to have
+        # ended on the frame before. It is ended for good once nothing is still differing
+        # that began before this frame was over: such a thing may yet count, and then it
+        # was one drift all along.
+        private def end_drift_once_settled
+          @lull ||= Lull.new(last_frame: @frames - 1, ended: ignored_frame? ? :not_looked_at : :back_in_step)
+          return if @began.any? { |_thing, beginning| beginning.frame <= @lull.last_frame + 1 }
+
+          end_drift_under_way(@lull.last_frame, @lull.ended)
         end
 
         # Things that begin to differ on one frame share what is kept from it.
         private def start_differing_stretches(things, seen)
           return if things.empty?
 
-          pictures = [@first.frame_gba, @second.frame_gba] if @keeping_pictures
+          pictures = [@first.frame_gba, @second.frame_gba] if @reporter
           beginning = Beginning.new(frame: @frames, moment: @moment, readings: seen.readings, pictures: pictures)
           things.each { |thing| @began[thing] = beginning }
         end
 
         # +lasted+ is the things that have now differed for long enough, each with the frame
-        # it began on. They all began on the same frame: one that began sooner would have
-        # been the drift a frame ago.
-        private def record_drift_of(lasted)
+        # it began on. With no drift under way they all began on the same frame: one that
+        # began sooner would have been the drift a frame ago.
+        private def start_drift_of(lasted)
           beginning = lasted.values.first or return
 
-          @drift = Drift.new(frame: beginning.frame, moment: beginning.moment, differed: lasted.keys, readings: beginning.readings)
-          @pictures_at_drift = beginning.pictures
+          drift = Drift.new(frame: beginning.frame, moment: beginning.moment, differed: lasted.keys, readings: beginning.readings)
+          @under_way = UnderWay.new(drift, beginning.pictures)
+          end_drift_under_way(nil, nil) unless @carrying_on
+        end
+
+        # +last_frame+ is the last frame of the drift and +ended+ how it ended — both nil
+        # for a pair that stops at its first drift and so never finds out.
+        private def end_drift_under_way(last_frame, ended)
+          open = @under_way or return
+
+          @under_way = nil
+          @lull = nil
+          drift = open.drift.with(last_frame: last_frame, ended: ended)
+          @drifts << (@reporter ? @reporter.call(drift, open.pictures) : drift)
         end
 
         private def ignored_frame? = @ignored.any? { |stretch| stretch.cover?(@frames) }
