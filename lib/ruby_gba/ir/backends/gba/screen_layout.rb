@@ -1241,8 +1241,8 @@ module RubyGBA
           def recolor_crowded_message(node)
             whose = scene_phrase(node.scene, "the game")
             "background :#{node.name} is told to draw with other colors, so it needs a group of 16 colors " \
-              "of its own. The other backgrounds of #{whose} use all #{PaletteBanks::BANKS} groups, so no group " \
-              "is left for it. To fix this, draw the other backgrounds of #{whose} from fewer different colors, " \
+              "of its own. The other backgrounds of #{whose} use every group that " \
+              "backgrounds can have, so no group is left for it. To fix this, draw the other backgrounds of #{whose} from fewer different colors, " \
               "or do not give :#{node.name} other colors."
           end
 
@@ -1829,7 +1829,9 @@ module RubyGBA
               PaletteBanks::Picture.new(key: node.name, colors: colors, authored: authored_palette(node))
             end
             pictures += recolor_pictures(nodes) + changing_list_pictures(lists)
-            PaletteBanks.new(pictures, after: after)
+            # Nothing is ever drawn from the first entry of the sprites' table, so its first
+            # group is a group like any other.
+            PaletteBanks.new(pictures, after: after, first_entry_shown: false)
           rescue PaletteBanks::Overflow
             raise LoweringError, object_colors_overflow_message(pictures, scene)
           end

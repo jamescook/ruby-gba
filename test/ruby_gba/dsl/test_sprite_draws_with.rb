@@ -400,6 +400,47 @@ class TestSpriteDrawsWith < Minitest::Test
     assert_match(/groups of colors/, error.message)
   end
 
+  # SIXTEEN IS EXACTLY ENOUGH: the ship's own colours and fifteen lists, one group each, with
+  # nothing left over. The first group of the table is one of the sixteen. Its first entry is
+  # never drawn, as in every group, so sprites can have it.
+  #
+  # The ship walks through every list, a new one each pass, so whichever of them landed in
+  # the first group is shown. The screen has no scenery, so everywhere but the ship is the
+  # backdrop, which is a colour of the scenery's table and has to stay as it was. Each list
+  # is written with magenta first, the place that means see-through: that is the colour
+  # sitting on the first entry of the sprites' table, where nothing draws it.
+  def ship_drawn_with_fifteen_lists
+    builder = Builder.new
+    builder.instance_eval do
+      screen :tiled
+      image :ship, width: 8, height: 8, data: SHIP, colors: OWN
+      names = (1..15).map { |n| colors :"pulse#{n}", [:magenta, RubyGBA::Graphics::Color.rgb(n * 2, 31 - n, n), :white] }
+      ship = sprite :ship, at: [40, 40]
+      step = var :step, -1
+      game_loop do
+        ship.draw_with names, showing: step
+        step.add! 1
+      end
+    end
+    builder.finalize_program
+    builder.program
+  end
+
+  def test_a_sprite_and_fifteen_lists_take_all_sixteen_groups
+    walking = ship_drawn_with_fifteen_lists
+    # Pass 1 shows the ship's own colours and passes 2 to 16 a list each.
+    (2..17).each { |frames| assert_backends_agree(walking, frames: frames) }
+
+    console = assert_emulator_loads_rom(assemble_rom(walking, name: "SIXTEEN"), frames: 2)
+    worn = Array.new(17) do
+      console.step
+      console.sprites(:ship).first.palette
+    end
+
+    assert_equal 16, worn.uniq.size, "the ship wore sixteen different groups"
+    assert_equal Color.resolve(:black), console.pixel_gba(120, 120), "the colour behind everything is as it was"
+  end
+
   # --- scenes take turns with the groups ---
 
   # THE SIXTEEN GROUPS ARE ONE SCENE'S, NOT THE WHOLE GAME'S, the way a scene's pictures and

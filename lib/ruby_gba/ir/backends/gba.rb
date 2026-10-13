@@ -1370,7 +1370,8 @@ module RubyGBA
         BG_256_COLOR = 0x0080
 
         # A map entry's bits 12-15: which palette bank this cell's tile draws from. Per
-        # TILE, not per layer — so one 4bpp background can span all sixteen banks.
+        # TILE, not per layer — so one 4bpp background can span every bank it is given
+        # (fifteen of the sixteen, see PaletteBanks, since the first holds the backdrop).
         BG_BANK_SHIFT = 12
 
         # A map entry's bits 10 and 11: draw this cell's tile reversed left to right, and

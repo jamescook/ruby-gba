@@ -57,6 +57,37 @@ class TestBackgroundDrawsWith < Minitest::Test
     assert_backends_agree(a_wall_of_bars { |rays| rays.draw_with :shimmer }, frames: 3)
   end
 
+  # THE COLOUR BEHIND EVERYTHING IS NOT ONE OF THE LAYER'S. The very first entry of the
+  # scenery's table is the backdrop, shown wherever no layer draws. A list's first place
+  # means see-through and is never drawn, but the colour written there is still a colour:
+  # were the layer's set of sixteen the first one in the table, writing a list into it
+  # would write that colour onto the backdrop. So a layer never gets the first set.
+  #
+  # A wall with gaps, drawn from a list written with magenta first and told to draw with
+  # one written with cyan first. The gaps show the backdrop.
+  private def a_wall_with_gaps_and_lists_that_start_with_a_colour
+    builder = Builder.new
+    builder.instance_eval do
+      screen :tiled
+      image :bar, width: 8, height: 8, data: BAR, colors: %i[magenta red green]
+      colors :shimmer, %i[cyan yellow white]
+      tiles :wall, "#" => :bar
+      rays = background :rays, tiles: :wall, map: Array.new(20) { "# " * 15 }
+      game_loop { rays.draw_with :shimmer }
+    end
+    builder.finalize_program
+    builder.program
+  end
+
+  def test_a_list_that_starts_with_a_colour_leaves_the_backdrop_as_it_was
+    wall = a_wall_with_gaps_and_lists_that_start_with_a_colour
+    v = assert_emulator_loads_rom(assemble_rom(wall, name: "BGBACK"), frames: 4)
+
+    assert_equal Color.resolve(:yellow), v.pixel_gba(1, 1), "the wall is drawn with the other list"
+    assert_equal Color.resolve(:black), v.pixel_gba(9, 1), "and the gap beside it is still the backdrop"
+    assert_backends_agree(wall, frames: 4)
+  end
+
   # A SPRITE IN FRONT OF A WALL THAT SHIMMERS, where nothing scrolls. The wall changes colours
   # every other frame while a blue walker moves a pixel every frame: the walker is drawn on
   # every one of them, the frames the wall changed on included.

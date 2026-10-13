@@ -42,7 +42,9 @@ module RubyGBA
         # table. A wide picture may use any slot; a narrow one needs a whole run of
         # sixteen. So the wide colours are packed from slot 1 up, and the banks are
         # handed out from the first whole group of sixteen above them. A game whose
-        # pictures are all narrow puts nothing in the way and gets all sixteen banks.
+        # sprite pictures are all narrow puts nothing in the way and gets all sixteen
+        # banks. Its scenery gets fifteen, because the first entry of that table is the
+        # backdrop and no bank may sit on it (see +first_entry_shown+ on #initialize).
         #
         # ---------------------------------------------------------------------------
         # IF YOU ALREADY KNOW THIS CONSOLE, here is the same thing in its own words. The
@@ -127,13 +129,24 @@ module RubyGBA
           # take turns with each other: every picture it placed keeps exactly the place it
           # had, and these go in the room it left (see #allocate_after). Without it, this is
           # the whole table.
-          def initialize(pictures, after: nil)
+          #
+          # +first_entry_shown+ says the very first entry of this table is a colour the
+          # display SHOWS, which is true of one of the console's two tables and not the other.
+          # The scenery's table keeps the backdrop there, the colour behind every layer. The
+          # sprites' table keeps nothing there that is ever drawn. A bank laid in the first
+          # group puts its own see-through slot on that entry, and a list written into the
+          # bank as the game runs writes its first colour there — harmless for sprites, and a
+          # change of backdrop for scenery. So only a table whose first entry is not shown
+          # hands its first group out as a bank (see #first_free_bank). A table that goes on
+          # from another is the same table, and takes the answer from it.
+          def initialize(pictures, after: nil, first_entry_shown: true)
             @pictures = pictures
             @placements = {}
             @entries = [0x0000] # slot 0: the see-through slot every picture shares
             @wide_slots = {}    # a wide colour -> the slot it sits in
             @laid = []          # the banks, as laid, for a table that goes on from this one
             @bank_base = 0      # ...and the group the first of them sits in
+            @first_entry_shown = after ? after.first_entry_shown : first_entry_shown
             after ? allocate_after(after) : allocate
           end
 
@@ -152,12 +165,21 @@ module RubyGBA
           protected
 
           # What a table going on from this one needs to know about it.
-          attr_reader :placements, :wide_slots, :laid, :bank_base
+          attr_reader :placements, :wide_slots, :laid, :bank_base, :first_entry_shown
 
-          # The first whole group of sixteen above the wide colours — the first one nothing
-          # here uses. A game with no wide pictures starts at 0 and gets every bank. Protected
-          # rather than private, because #allocate_after asks it of the table it goes on from.
+          # The first whole group of sixteen above everything laid out so far — the first one
+          # nothing here uses. Protected rather than private, because #allocate_after asks it
+          # of the table it goes on from.
+          #
+          # A TABLE WITH NOTHING IN IT YET holds only the see-through slot, and that slot is
+          # the first one of the first group. Whether the rest of that group can be a bank is
+          # the one place the two tables differ: where the first entry is never drawn, it can,
+          # and a game with no wide pictures gets all sixteen banks. Where the first entry is
+          # the backdrop, the banks start at the second group and there are fifteen, and the
+          # first group is left for wide colours, which never touch its first entry.
           def first_free_bank
+            return 0 if @entries.size == 1 && !@first_entry_shown
+
             (@entries.size + BANK_SIZE - 1) / BANK_SIZE
           end
 
