@@ -32,6 +32,12 @@ module RubyGBA
     # ticks once, then everything from there to the end over and over. Without it, the whole song
     # repeats.
     #
+    # A SONG THAT ENDS says `plays_once: true`: at its end its parts go quiet and it is not heard
+    # again until the game stops the music and names it, or names another song first. Music
+    # decoded off a cartridge knows which kind each song is, since a track there ends either with
+    # a mark that sends it back or with one that stops it. A sound effect plays once whatever
+    # this says.
+    #
     # PRIORITY decides who sounds when a sound effect and the song, or two sound effects, want
     # the same one of the console's voices at once: the higher number takes it (see
     # IR::Tunes.song_rank). A cartridge's own sound engine carries one on every sequence, so a decoder
@@ -48,7 +54,7 @@ module RubyGBA
     # console sees the note, so music decoded off one plays exactly what the original did, and
     # `low_notes_intended: true` says so: the warning is left out for this Score alone. The sound
     # does not change — the note is played at the bottom either way.
-    Score = Data.define(:parts, :tempo, :ticks_per_beat, :length, :loop_from, :priority, :group,
+    Score = Data.define(:parts, :tempo, :ticks_per_beat, :length, :loop_from, :plays_once, :priority, :group,
                         :low_notes_intended)
 
     class Score
@@ -62,9 +68,10 @@ module RubyGBA
       # +length+ is where the song comes round again, in ticks. Left out, it is where the last
       # note ends — and a note with no length of its own counts as a beat long for that, since
       # it lasts until the next note and the last one has none after it. +loop_from+ is the tick
-      # it comes round TO; left out, that is its start.
-      def initialize(parts:, tempo: 120, ticks_per_beat: 24, length: nil, loop_from: nil, priority: 0, group: nil,
-                     low_notes_intended: false)
+      # it comes round TO; left out, that is its start. A song that +plays_once+ does not come
+      # round, and +length+ is where it ends.
+      def initialize(parts:, tempo: 120, ticks_per_beat: 24, length: nil, loop_from: nil, plays_once: false,
+                     priority: 0, group: nil, low_notes_intended: false)
         super
       end
 
@@ -78,7 +85,8 @@ module RubyGBA
         ticks = length || last_tick
         total = [frames.at(ticks), 1].max
         song = { voices: parts.map { |part| part.to_voice(frames, total) }, total_frames: total,
-                 priority: priority, group: group, low_notes_intended: low_notes_intended }
+                 priority: priority, group: group, low_notes_intended: low_notes_intended,
+                 plays_once: plays_once }
         return song unless loop_from
 
         Checks.loop_from!(loop_from, ticks) { frames.at(loop_from) < total }
@@ -206,11 +214,26 @@ module RubyGBA
             raise ArgumentError, "A Score has the group #{score.group.inspect}. A group is a name, like :voice. " \
                                  "Give `group:` a name, or remove it."
           end
-          unless [true, false].include?(score.low_notes_intended)
-            raise ArgumentError, "A Score has low_notes_intended: #{score.low_notes_intended.inspect}. It must " \
-                                 "be true or false. Give `low_notes_intended:` true or false, or remove it."
-          end
+          true_or_false!(:low_notes_intended, score.low_notes_intended)
+          plays_once!(score)
           score.parts.each_with_index { |part, number| part!(part, number) }
+        end
+
+        # A song either comes round or ends, so one that plays once has no place to come round to.
+        def plays_once!(score)
+          true_or_false!(:plays_once, score.plays_once)
+          return unless score.plays_once && score.loop_from
+
+          raise ArgumentError, "A Score has `plays_once: true` and `loop_from:`. A song that plays once " \
+                               "ends, and does not loop. Remove one of them."
+        end
+
+        # A word a Score says with true or false.
+        def true_or_false!(word, said)
+          return if [true, false].include?(said)
+
+          raise ArgumentError, "A Score has #{word}: #{said.inspect}. It must be true or false. " \
+                               "Give `#{word}:` true or false, or remove it."
         end
 
         def priority!(priority)

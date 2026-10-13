@@ -111,6 +111,17 @@ module RubyGBA
       # The frame a song goes back to at its end: 0, unless it has a loop point.
       def loop_frame(song) = song.loop_frame || 0
 
+      # DOES THE SONG PLAY ONCE, and end rather than come round? One that does lasts exactly its
+      # length, and a song node that says so and names a loop frame as well still ends. On the
+      # frame after its last, its parts go quiet the way they do when the program stops the
+      # music, and from then on no tune is playing — though the program may go on naming this
+      # one, since naming the tune already named changes nothing. It is heard again when the
+      # program stops the music and names it, or names another tune first.
+      #
+      # Every backend takes those steps in that order, because the frame a song goes quiet on
+      # is one a player can hear.
+      def plays_once?(song) = song.plays_once ? true : false
+
       # WHO SOUNDS ON A VOICE TWO PLAYERS WANT AT ONCE — the song and a sound effect, or two
       # effects — as one number each, so a single comparison settles it on every backend.
       #
@@ -186,7 +197,10 @@ module RubyGBA
       # tail of +first+ unless the part holds a note across the loop frame.
       Pass = Data.define(:first, :again)
 
+      # A song that ends has no later pass, and nothing to be put right for one.
       def loop_passes(song)
+        return song.voices.map { |part| Pass.new(part.events, []) } if plays_once?(song)
+
         from = loop_frame(song)
         if from.positive? && from >= song.total_frames
           raise ArgumentError, "song #{song.name.inspect} loops from frame #{from}, and is #{song.total_frames} frames long"

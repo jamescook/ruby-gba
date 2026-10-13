@@ -41,6 +41,7 @@ module RubyGBA
             @stops_seen = 0     # ...and how many of those this has acted on
             @wanted = nil       # the tune the program last named (nil = none)
             @playing = nil      # ...and the one this is on, which catches up each frame
+            @ended = nil        # a tune that played once and reached its end (IR::Tunes.plays_once?)
             @frame = 0          # how far into that tune, in frames
             @events = []        # the events each of its parts is walking now
             @cursors = []       # each of its parts' next event
@@ -120,7 +121,8 @@ module RubyGBA
           # Then each part plays its next note if that note is due on this frame (frequency 0 is
           # a rest), and the frame moves on, wrapping at the song's length so the tune loops —
           # back to its loop frame, where every part carries on from its list for the passes
-          # after the first (IR::Tunes#loop_passes).
+          # after the first (IR::Tunes#loop_passes). A tune that plays once ends there instead
+          # (IR::Tunes.plays_once?).
           #
           # A part that plays a recording sounds each note on a voice of the mixer, which a note
           # starts from the top and a rest stops. The voice ages in the frame it starts, because
@@ -295,25 +297,44 @@ module RubyGBA
           # The tune the program asked for has changed, or it said stop: silence what was
           # playing and start the new one from its first frame. A voice a sound effect holds is
           # the effect's, and is left alone.
+          #
+          # A TUNE THAT ENDED (IR::Tunes.plays_once?) is looked at first. While the program still names
+          # it and has not said stop, nothing plays: its parts go quiet on the frame after its
+          # last, and it stays that way. Anything else the program says forgets the end, and is
+          # then caught up with as usual.
           def switch_to_wanted_song
+            if @ended
+              if @wanted == @ended && @stops == @stops_seen
+                silence_song if @playing
+                return @playing = nil
+              end
+              @ended = nil
+            end
             return if @wanted == @playing && @stops == @stops_seen
 
             @stops_seen = @stops
-            @log << [:stop_music] if @playing
-            @holders.each_key { |channel| @holders[channel] = 0 if (@holders[channel] & IR::Tunes::ORDER_MASK).zero? }
-            @sounding.clear
-            @mixer.release_all_music
+            silence_song if @playing
             @playing = @wanted
             @frame = 0
             @events = @playing ? passes(@playing).map(&:first) : []
             @cursors = Array.new(@events.size, 0)
           end
 
+          # Every voice the tune holds goes quiet and is free. Harmless when it holds none.
+          def silence_song
+            @log << [:stop_music]
+            @holders.each_key { |channel| @holders[channel] = 0 if (@holders[channel] & IR::Tunes::ORDER_MASK).zero? }
+            @sounding.clear
+            @mixer.release_all_music
+          end
+
           # At the song's end, back to its loop frame, with every part carrying on from the
-          # list it uses for the passes after the first.
+          # list it uses for the passes after the first — or, for a song that ends, no further:
+          # the next frame is the one its parts go quiet on.
           def advance_song_frame(song)
             @frame += 1
             return if @frame < song.total_frames
+            return @ended = @playing if IR::Tunes.plays_once?(song)
 
             @frame = IR::Tunes.loop_frame(song)
             @events = passes(@playing).map(&:again)

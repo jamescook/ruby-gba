@@ -33,6 +33,8 @@ module RubyGBA
           # A loop point at or past the end is refused where it is written — `loop_from:` or
           # `loop_from_here` — in the unit it was written in, so it is not this check's to name.
           def silent_repeat?(song)
+            return false if Tunes.plays_once?(song) # it never comes round, so it has no repeat
+
             from = Tunes.loop_frame(song)
             return false unless from.positive? && from < song.total_frames
 

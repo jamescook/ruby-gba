@@ -277,16 +277,20 @@ module RubyGBA
       # +loop_frame:+ is where the song goes back to at its end, so what comes before it
       # plays once — an introduction. Left out, the song loops from its start.
       #
+      # +plays_once:+ says the song does not come round at all: at its end its parts go quiet,
+      # and it stays ended until the program stops the music or names another tune.
+      #
       # +low_notes_intended:+ says a note lower than its voice can play is meant to be played at
       # the lowest it can, as the music's source played it (see Audio::Score).
       def song(name, total_frames:, voices: nil, events: nil, duty: :half, volume: 12, loop_frame: nil, priority: nil,
-               group: nil, low_notes_intended: false)
+               group: nil, low_notes_intended: false, plays_once: false)
         voices ||= [Audio::Music::Part.new(events: events, duty: duty, volume: volume)]
-        looping = loop_frame ? { loop_frame: loop_frame } : {}
-        looping[:priority] = priority if priority
-        looping[:group] = group if group
-        looping[:low_notes_intended] = true if low_notes_intended
-        Nodes.build(:song, name: name, voices: voices, total_frames: total_frames, **looping)
+        said = loop_frame ? { loop_frame: loop_frame } : {}
+        said[:priority] = priority if priority
+        said[:group] = group if group
+        said[:low_notes_intended] = true if low_notes_intended
+        said[:plays_once] = true if plays_once
+        Nodes.build(:song, name: name, voices: voices, total_frames: total_frames, **said)
       end
 
       # A named list of songs, each played once as a sound effect when it is asked for.

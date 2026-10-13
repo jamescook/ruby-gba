@@ -161,6 +161,242 @@ class TestScores < Minitest::Test
     assert_equal({ 2 => [NOTES[:C4]] }, notes_by_frame(program, 25))
   end
 
+  # --- a song that plays once ---
+
+  # Two notes ten frames apart in a song twenty frames long, which says it plays once.
+  def two_notes_once(**options)
+    Score.new(tempo: 150, length: 20, plays_once: true, **options,
+              parts: [Part.new(notes: [Note.new(at: 0, key: :C4), Note.new(at: 10, key: :E4)])])
+  end
+
+  # It ends where its length says and is not heard again, though the game goes on naming it
+  # every pass: naming the song already named changes nothing, whether or not it has ended.
+  def test_a_song_that_plays_once_does_not_come_round
+    program = game([two_notes_once]) { |music, _| music.play 0 }
+
+    assert_equal({ 2 => [NOTES[:C4]], 12 => [NOTES[:E4]] }, notes_by_frame(program, 70))
+  end
+
+  # A song that has ended is started the way any song is started over: stop the music and name
+  # it, in the same pass or a later one.
+  def test_a_song_that_ended_starts_over_after_a_stop
+    program = game([two_notes_once]) do |music, pass|
+      (pass == 40).then { stop_music }
+      music.play 0
+    end
+
+    assert_equal({ 2 => [NOTES[:C4]], 12 => [NOTES[:E4]], 41 => [NOTES[:C4]], 51 => [NOTES[:E4]] },
+                 notes_by_frame(program, 70), "stopped and named on pass 40, it plays once more and ends again")
+  end
+
+  # The stop and the naming can be passes apart.
+  def test_a_song_that_ended_starts_over_when_named_some_passes_after_a_stop
+    program = game([two_notes_once]) do |music, pass|
+      (pass < 40).then { music.play 0 }
+      (pass == 40).then { stop_music }
+      (pass >= 45).then { music.play 0 }
+    end
+
+    assert_equal({ 2 => [NOTES[:C4]], 12 => [NOTES[:E4]], 46 => [NOTES[:C4]], 56 => [NOTES[:E4]] },
+                 notes_by_frame(program, 70))
+  end
+
+  # ...or name another song first.
+  def test_a_song_that_ended_starts_over_after_another_song
+    program = game([two_notes_once, notes_every_ten_ticks(:G4)]) do |music, pass|
+      track = var :track, 0
+      (pass == 40).then { track.set! 1 }
+      (pass == 45).then { track.set! 0 }
+      music.play track
+    end
+
+    assert_equal({ 2 => [NOTES[:C4]], 12 => [NOTES[:E4]], 41 => [NOTES[:G4]], 46 => [NOTES[:C4]], 56 => [NOTES[:E4]] },
+                 notes_by_frame(program, 70))
+  end
+
+  # One note held for the whole of a song twenty frames long.
+  def held_note(plays: nil, **options)
+    Score.new(tempo: 150, length: 20, **options, parts: [Part.new(plays: plays, notes: [Note.new(at: 0, key: :C5)])])
+  end
+
+  # The console's speaker says the same: the held note sounds, then nothing does for the rest
+  # of the run — where the same song left to come round is still sounding at the end of it.
+  def test_the_console_goes_quiet_when_a_song_that_plays_once_ends
+    energy = lambda do |score|
+      rom = assemble_rom(game([score]) { |music, _| music.play 0 }, name: "SCOREONCE")
+      assert_emulator_loads_rom(rom, frames: 70).audio_energy_by_frame
+    end
+    once = energy.call(held_note(plays_once: true))
+    round = energy.call(held_note)
+    loud = round.max / 4
+
+    assert_operator once[8..18].min, :>, loud, "the note sounds while the song plays (#{once.inspect})"
+    assert_operator once[30..].max, :<, loud, "and nothing sounds once it has ended (#{once.inspect})"
+    assert_operator round[30..].min, :>, loud, "a song that comes round is still sounding (#{round.inspect})"
+  end
+
+  # A part that plays a recording gives its mixer voice back at the end, and takes none again.
+  def test_the_console_frees_the_voices_of_a_song_that_plays_once
+    rom = assemble_rom(game([held_note(plays: :piano, plays_once: true)]) { |music, _| music.play 0 }, name: "SCOREFREE")
+    console = assert_emulator_loads_rom(rom, frames: 12)
+
+    assert_equal [:piano], console.voices.map(&:sample)
+    console.step(20)
+    assert_empty console.voices, "the song has ended"
+    console.step(30)
+    assert_empty console.voices, "and has not started again"
+  end
+
+  # Which recordings are sounding on each of sixty frames, on the interpreter and then on the
+  # console, each counted from the first frame any is — so the two are laid side by side
+  # whatever frame each one started on.
+  def recordings_by_frame(program)
+    i = Reference.new
+    interpreted = []
+    i.each_vblank { interpreted << i.active_samples.sort }
+    i.run(program, frames: 70)
+    console = assert_emulator_loads_rom(assemble_rom(program, name: "SCOREEDGE"), frames: 1)
+    on_console = Array.new(70) do
+      console.step
+      console.voices.map(&:sample).sort
+    end
+    [interpreted, on_console].map { |seen| seen.drop_while(&:empty?).first(60) }
+  end
+
+  # It lasts exactly its length on both: the voice holding the note sounds for twenty frames.
+  def test_a_song_that_plays_once_lasts_its_length_on_both_backends
+    program = game([held_note(plays: :piano, plays_once: true)]) { |music, _| music.play 0 }
+    heard = ([[:piano]] * 20) + ([[]] * 40)
+
+    assert_equal [heard, heard], recordings_by_frame(program)
+  end
+
+  # THE FRAME IT ENDS ON is where the two backends could part. Another song named on the pass
+  # the player takes up on that very frame follows it with no gap and no overlap; named a pass
+  # sooner, it cuts the last frame off.
+  def test_another_song_named_as_it_ends_follows_it_on_both_backends
+    scores = [held_note(plays: :piano, plays_once: true), notes_every_ten_ticks(:G4, plays: :harp)]
+    named_on = lambda do |on|
+      game(scores) do |music, pass|
+        track = var :track, 0
+        (pass == on).then { track.set! 1 }
+        music.play track
+      end
+    end
+    as_it_ends = ([[:piano]] * 20) + ([[:harp]] * 40)
+    a_pass_sooner = ([[:piano]] * 19) + ([[:harp]] * 41)
+
+    assert_equal [as_it_ends, as_it_ends], recordings_by_frame(named_on.call(21))
+    assert_equal [a_pass_sooner, a_pass_sooner], recordings_by_frame(named_on.call(20))
+  end
+
+  # ...and stopped and named again on that pass, it plays straight through a second time.
+  def test_a_stop_and_a_play_as_it_ends_plays_it_again_on_both_backends
+    program = game([held_note(plays: :piano, plays_once: true)]) do |music, pass|
+      (pass == 21).then { stop_music }
+      music.play 0
+    end
+    twice = ([[:piano]] * 40) + ([[]] * 20)
+
+    assert_equal [twice, twice], recordings_by_frame(program)
+  end
+
+  # A sound effect goes on being played after the song has ended, and while it plays: with no
+  # tune playing, every effect is the player's to play.
+  def test_sound_effects_play_during_and_after_a_song_that_plays_once
+    song = held_note(plays: :piano, plays_once: true)
+    ping = Score.new(tempo: 150, length: 6, parts: [Part.new(plays: :harp, notes: [Note.new(at: 0, key: :G4)])])
+    b = Builder.new
+    b.instance_eval do
+      screen :bitmap
+      enable_sound
+      instrument :piano, pcm: [60, -60] * 4000, rate: 8000, note: :C4
+      instrument :harp, pcm: [40, -40] * 4000, rate: 8000, note: :C4
+      music = songs :music, [song]
+      sfx = sound_effects :sfx, { ping: ping }
+      pass = var :pass, 0
+      game_loop do
+        pass.add! 1
+        music.play 0
+        ((pass == 10) | (pass == 30)).then { sfx.play :ping }
+      end
+    end
+    b.finalize_program
+    heard = ([[:piano]] * 9) + ([%i[harp piano]] * 6) + ([[:piano]] * 5) + ([[]] * 9) + ([[:harp]] * 6) + ([[]] * 25)
+
+    assert_equal [heard, heard], recordings_by_frame(b.program)
+  end
+
+  # The fades reach it as they reach any song: faded out and back in before it ends, its note
+  # steps through the same volumes as the same song left to come round, down to nothing and
+  # back to the written 12.
+  def test_the_music_fades_reach_a_song_that_plays_once
+    volumes = lambda do |score|
+      program = game([score]) do |music, pass|
+        music.play 0
+        (pass == 4).then { fade_music_out frames: 4 }
+        (pass == 12).then { fade_music_in frames: 4 }
+      end
+      Reference.new.run(program, frames: 20).audio.select { |entry| entry[0] == :loudness }.map(&:last)
+    end
+    once = volumes.call(held_note(plays_once: true))
+
+    assert_equal volumes.call(held_note), once
+    assert_includes once, 0
+    assert_equal [12, 12], [once.first, once.last]
+  end
+
+  # The music volume reaches it like any song while it plays: halved on pass 8, the held note
+  # is set again at half. Moved after the song has ended, it sets nothing, since nothing is held.
+  def test_the_music_volume_reaches_a_song_that_plays_once_until_it_ends
+    program = game([held_note(plays_once: true)]) do |music, pass|
+      music.play 0
+      (pass == 8).then { music_volume 50 }
+      (pass == 40).then { music_volume 100 }
+    end
+    set = Reference.new.run(program, frames: 60).audio.select { |entry| entry[0] == :loudness }.map { |entry| entry.drop(1) }
+    energy = assert_emulator_loads_rom(assemble_rom(program, name: "SCOREVOL"), frames: 60).audio_energy_by_frame
+
+    assert_equal [[1, 12], [1, 6]], set, "the first square voice, at the written 12 and then at half"
+    assert_operator energy[13..19].max, :<, energy[4..8].min, "quieter on the console too (#{energy.inspect})"
+    assert_operator energy[45..].max, :<, energy[13..19].min / 4, "and silent after the end (#{energy.inspect})"
+  end
+
+  # Stopped and named again long after it ended, the console plays it from its first note: the
+  # voice is back, and near the start of the recording.
+  def test_the_console_starts_a_song_that_ended_over_on_a_stop_and_a_play
+    program = game([held_note(plays: :piano, plays_once: true)]) do |music, pass|
+      (pass == 40).then { stop_music }
+      music.play 0
+    end
+    console = assert_emulator_loads_rom(assemble_rom(program, name: "SCOREBACK"), frames: 36)
+
+    assert_empty console.voices, "ended, and still named every pass"
+    console.step(12)
+    assert_equal [:piano], console.voices.map(&:sample)
+    assert_operator console.voices.first.position, :<, RECORDED_AT / 4, "from its first note"
+  end
+
+  # ...and the same after another song has been named: that one plays, and then the song that
+  # ended plays from its first note.
+  def test_the_console_starts_a_song_that_ended_over_after_another_song
+    scores = [held_note(plays: :piano, plays_once: true), notes_every_ten_ticks(:G4, plays: :harp)]
+    program = game(scores) do |music, pass|
+      track = var :track, 0
+      (pass == 40).then { track.set! 1 }
+      (pass == 50).then { track.set! 0 }
+      music.play track
+    end
+    console = assert_emulator_loads_rom(assemble_rom(program, name: "SCORENEXT"), frames: 36)
+
+    assert_empty console.voices, "ended"
+    console.step(10)
+    assert_equal [:harp], console.voices.map(&:sample), "the other song"
+    console.step(12)
+    assert_equal [:piano], console.voices.map(&:sample)
+    assert_operator console.voices.first.position, :<, RECORDED_AT / 4, "from its first note"
+  end
+
   # --- a note's length, instrument and loudness ---
 
   def test_a_note_with_a_length_goes_quiet_when_it_runs_out
@@ -259,6 +495,36 @@ class TestScores < Minitest::Test
     song = notes_every_ten_ticks(:C4)
     message = build_error { songs(:music, [song, song]).play 5 }
     assert_match(/2 songs/, message)
+  end
+
+  def test_a_song_that_plays_once_and_loops_is_a_friendly_error
+    both = Score.new(parts: [Part.new(notes: [Note.new(at: 0, key: :C4), Note.new(at: 48, key: :E4)])],
+                     plays_once: true, loop_from: 24)
+
+    assert_match(/plays once.*does not loop/m, build_error { songs :music, [both] })
+  end
+
+  def test_saying_plays_once_with_anything_but_true_or_false_is_a_friendly_error
+    odd = Score.new(parts: [Part.new(notes: [Note.new(at: 0, key: :C4)])], plays_once: 1)
+
+    assert_match(/plays_once.*must be true or false/m, build_error { songs :music, [odd] })
+  end
+
+  # A sound effect plays once whatever its Score says, so one that says so is taken as it is:
+  # a decoder hands over the same Score whether the game plays it as a song or as an effect.
+  def test_a_sound_effect_may_say_it_plays_once
+    b = Builder.new
+    effect = two_notes_once
+    b.instance_eval do
+      screen :bitmap
+      enable_sound
+      sfx = sound_effects :sfx, { ping: effect }
+      game_loop { pressed(:a).then { sfx.play :ping } }
+    end
+    b.finalize_program
+    i = Reference.new.input_each_frame { |frame| frame == 3 ? [:a] : [] }.run(b.program, frames: 40)
+
+    assert_equal [NOTES[:C4], NOTES[:E4]], i.audio.select { |entry| entry[0] == :note }.map(&:last).reject(&:zero?)
   end
 
   def test_a_name_the_list_does_not_have_is_a_friendly_error

@@ -55,7 +55,9 @@ module ConformanceFixture
              ]),
       # a song only a list names, which loops from frame 1 with a note held across it
       B.song(:theme, events: [[0, 330], [2, 392]], total_frames: 4, loop_frame: 1),
-      B.song_list(:tracks, [:theme]),                      # ...the list, picked from by number below
+      # ...and one that plays once and ends rather than coming round
+      B.song(:finale, events: [[0, 294]], total_frames: 2, plays_once: true),
+      B.song_list(:tracks, %i[theme finale]),              # ...the list, picked from by number below
       # a sound effect over the tune, on the square voice and the noise voice, with a priority and
       # a group of its own
       B.song(:hit, total_frames: 3, priority: 68, group: :sword, voices: [

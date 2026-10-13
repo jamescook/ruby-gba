@@ -112,6 +112,9 @@ module RubyGBA
           # reach the player as a stop — which is how a tune starts over from its first note.
           MUSIC_STOPS = :__music_stops
           MUSIC_STOPS_SEEN = :__music_stops_seen
+          # A tune that played once and reached its end, by number (0 = none). Belongs to the
+          # player alone, like everything here but WANTED (see #emit_keep_ended_tune_silent).
+          MUSIC_ENDED = :__music_ended
 
           # Each lane's next event, as a byte offset into the score.
           def self.music_cursor(lane) = :"__music_cursor_#{lane}"
@@ -186,6 +189,9 @@ module RubyGBA
           # has no part on the wave voice), then each lane's first event.
           ENTRY_LANES_USED = 4
           ENTRY_LOOP = 8
+          # What a tune that plays once has where its loop table would be: it does not come round
+          # at all. Everything in the score starts on a whole word, so no table is ever at 1.
+          ENTRY_PLAYS_ONCE = 1
           ENTRY_WAVE = 12
           ENTRY_STARTS = 16
 
@@ -326,6 +332,8 @@ module RubyGBA
             # and none of the working-out for one is emitted.
             @scales = program.walk.any? { |node| node.kind == :set && node.var == IR::Tunes::LEVEL }
             @loops = IR::Tunes.played_songs(program).any? { |song| IR::Tunes.loop_frame(song).positive? }
+            # A game whose every tune comes round emits nothing for one that ends.
+            @any_plays_once = IR::Tunes.played_songs(program).any? { |song| IR::Tunes.plays_once?(song) }
             recorded = IR::Tunes.most_recorded_parts(program)
             if recorded > RubyGBA::Audio::Sound::MIXER_VOICES # refused before this by Guardrails::Checks::SongTooManyParts
               raise LoweringError, "a song has #{recorded} recorded parts, and the mixer has #{RubyGBA::Audio::Sound::MIXER_VOICES} voices"
@@ -629,6 +637,8 @@ module RubyGBA
           # which recording, how fast to read it, how loud. The frame moves on, and at the tune's
           # length it goes back to 0 with every cursor back at its lane's first event — the tune
           # loops — or, for a tune with an introduction, back to its loop frame (#emit_loop_back).
+          # A tune that plays once does neither: it is noted as ended, and the next frame's
+          # catching-up silences it (#emit_keep_ended_tune_silent).
           #
           # SAFE TO SHARE WITH THE GAME because the game only ever writes WANTED, with a single
           # store, and this only ever reads it. Everything else here belongs to the player alone
@@ -651,14 +661,13 @@ module RubyGBA
 
             @primitives.load_var(value, MUSIC_WANTED)
             @primitives.load_var(playing, MUSIC_PLAYING)
+            if @any_plays_once
+              emit_keep_ended_tune_silent(base: base, at: at, wanted: value, scratch: frame, playing: playing,
+                                          done: done)
+            end
             @emitter.emit(ASM.cmp_reg(value, playing))
             @emitter.emit_branch(:bcond, changed, cond: :ne)
-            if @counts_stops # ...or the same tune, stopped and named again since last frame
-              @primitives.load_var(ACC, MUSIC_STOPS)
-              @primitives.load_var(TMP, MUSIC_STOPS_SEEN)
-              @emitter.emit(ASM.cmp_reg(ACC, TMP))
-              @emitter.emit_branch(:bcond, changed, cond: :ne)
-            end
+            emit_branch_on_unseen_stop(changed) # ...or the same tune, stopped and named again since last frame
 
             # The same tune as last frame — or still none.
             @emitter.emit(ASM.cmp_imm(playing, 0))
@@ -712,6 +721,7 @@ module RubyGBA
             @emitter.emit(ASM.ldr(ACC, at))                 # the tune's length
             @emitter.emit(ASM.cmp_reg(frame, ACC))
             @emitter.emit_branch(:bcond, onward, cond: :lt) # not at the end yet
+            emit_store_ended_tune(at, playing, onward) if @any_plays_once
             emit_loop_back(base, at, frame, onward) if @loops
             @emitter.emit(ASM.load_immediate(frame, 0))     # round again from the top
             emit_rewind_lanes(base, at, playing)
@@ -1050,6 +1060,68 @@ module RubyGBA
               @emitter.emit(ASM.ldr_offset(ACC, at, ENTRY_STARTS + (4 * number)))
               @primitives.store_var(ACC, self.class.music_cursor(number))
             end
+          end
+
+          # A TUNE THAT PLAYED ONCE AND ENDED, looked at before the player catches up with the game
+          # (IR::Tunes.plays_once? has the rule every backend keeps).
+          #
+          # While the game still names that tune and has not said stop, nothing plays. The first
+          # such frame is the one after the tune's last, and that is where its parts go quiet —
+          # the same silencing a change of tune does — and the player is left on no tune, so a
+          # sound the game makes later on one of those voices is never silenced a second time.
+          #
+          # Anything else the game said forgets the end and falls through, where it is caught up
+          # with as usual: another tune, no tune, or a stop and the same tune named again, which
+          # starts it from its first note.
+          #
+          # It costs a game with such a tune a load and a compare each frame, and a game with
+          # none of them nothing.
+          def emit_keep_ended_tune_silent(base:, at:, wanted:, scratch:, playing:, done:)
+            none = @emitter.gensym
+            forget = @emitter.gensym
+            @primitives.load_var(ACC, MUSIC_ENDED)
+            @emitter.emit(ASM.cmp_imm(ACC, 0))
+            @emitter.emit_branch(:bcond, none, cond: :eq)
+            @emitter.emit(ASM.cmp_reg(wanted, ACC))
+            @emitter.emit_branch(:bcond, forget, cond: :ne)
+            emit_branch_on_unseen_stop(forget)
+
+            @emitter.emit(ASM.cmp_imm(playing, 0))
+            @emitter.emit_branch(:bcond, done, cond: :eq) # silenced on an earlier frame
+            @emitter.emit_load_data_address(base, MUSIC_SCORE)
+            emit_silence_tune(base, at, scratch, playing)
+            @emitter.emit(ASM.load_immediate(playing, 0))
+            @primitives.store_var(playing, MUSIC_PLAYING)
+            @emitter.emit_branch(:b, done)
+
+            @emitter.place_label(forget)
+            @emitter.emit(ASM.load_immediate(ACC, 0))
+            @primitives.store_var(ACC, MUSIC_ENDED)
+            @emitter.place_label(none)
+          end
+
+          # Go to +label+ when the game has said stop_music since the player last acted on one.
+          # Nothing, in a game that never says it.
+          def emit_branch_on_unseen_stop(label)
+            return unless @counts_stops
+
+            @primitives.load_var(ACC, MUSIC_STOPS)
+            @primitives.load_var(TMP, MUSIC_STOPS_SEEN)
+            @emitter.emit(ASM.cmp_reg(ACC, TMP))
+            @emitter.emit_branch(:bcond, label, cond: :ne)
+          end
+
+          # AT THE END OF A TUNE THAT PLAYS ONCE: note which tune ended and go no further. Its
+          # last frame's notes are left sounding for that frame, as a tune that comes round
+          # leaves them. +at+ holds the tune's directory entry.
+          def emit_store_ended_tune(at, playing, onward)
+            round = @emitter.gensym
+            @emitter.emit(ASM.ldr_offset(ACC, at, ENTRY_LOOP))
+            @emitter.emit(ASM.cmp_imm(ACC, ENTRY_PLAYS_ONCE))
+            @emitter.emit_branch(:bcond, round, cond: :ne)
+            @primitives.store_var(playing, MUSIC_ENDED)
+            @emitter.emit_branch(:b, onward)
+            @emitter.place_label(round)
           end
 
           # AT THE END OF A TUNE THAT LOOPS FROM A POINT: back to its loop frame, with each lane
@@ -1529,7 +1601,9 @@ module RubyGBA
                                 end
               end
               loop_at = 0
-              if IR::Tunes.loop_frame(song).positive?
+              if IR::Tunes.plays_once?(song)
+                loop_at = ENTRY_PLAYS_ONCE
+              elsif IR::Tunes.loop_frame(song).positive?
                 loop_at = events_at + events.bytesize
                 events << [IR::Tunes.loop_frame(song), *again].pack("V*")
               end
