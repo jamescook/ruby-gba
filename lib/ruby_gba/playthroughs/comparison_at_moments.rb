@@ -1,7 +1,7 @@
 # frozen_string_literal: true
 
 module RubyGBA
-  module Diagnostics
+  module Playthroughs
     class Comparison
       # TWO CARTRIDGES COMPARED AT EACH NAMED MOMENT, after the same script has played each
       # of them on its own.

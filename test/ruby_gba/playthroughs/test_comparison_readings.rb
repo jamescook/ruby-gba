@@ -236,7 +236,7 @@ class TestComparisonReadings < Minitest::Test
   # to nothing: both cartridges divide nought by nought until the walk begins.
   def test_two_readings_that_are_both_not_a_number_are_the_same
     ratio = { ratio: ->(game) { 0.0 / game.var(:paces) } }
-    not_a_number_at_first = ratio[:ratio].call(RubyGBA::Diagnostics::Playthrough.power_on(walker).step(1))
+    not_a_number_at_first = ratio[:ratio].call(RubyGBA::Playthroughs::Playthrough.power_on(walker).step(1))
 
     assert_predicate not_a_number_at_first, :nan?
     refute walk_right.compare(walker, walker, readings: ratio).drift?
@@ -249,7 +249,7 @@ class TestComparisonReadings < Minitest::Test
     wrong = { hearts: [:paces, ->(game) { game.var(:hearts) }] }
 
     [{}, { comparing: [:picture] }].each do |settings|
-      err = assert_raises(RubyGBA::Diagnostics::Comparison::ReadingFailed) { walk_right.compare(walker, walker, readings: wrong, **settings) }
+      err = assert_raises(RubyGBA::Playthroughs::Comparison::ReadingFailed) { walk_right.compare(walker, walker, readings: wrong, **settings) }
 
       assert_match(/:hearts/, err.message)
       assert_match(/second cartridge/, err.message)

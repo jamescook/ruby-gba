@@ -91,7 +91,7 @@ module ComparisonGames
   def each_frame_of(cartridge, tape)
     game = RubyGBA::Diagnostics::Verifier.new(cartridge, frames: 0, vars: cartridge.var_addresses)
     tape.steps.flat_map { |step| [step] * step.frames }.each.with_index(1) do |step, frame|
-      yield game.step(1, keys: RubyGBA::Diagnostics::Playthrough.key_mask(step.buttons)), frame
+      yield game.step(1, keys: RubyGBA::Playthroughs::Playthrough.key_mask(step.buttons)), frame
     end
   end
 

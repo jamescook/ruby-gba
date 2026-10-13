@@ -134,7 +134,7 @@ class TestPlaythroughSaves < Minitest::Test
     cartridge = hero
     from_power_on = walk_and_save(20).play(cartridge)
     from_a_save = walk_and_save(8).play(cartridge, save: from_power_on.save).tape
-    read_back = RubyGBA::Diagnostics::Playthrough::Tape.parse(from_a_save.to_s)
+    read_back = RubyGBA::Playthroughs::Tape.parse(from_a_save.to_s)
 
     assert_match(/^starts from: power-on$/, from_power_on.tape.to_s)
     assert_includes from_a_save.to_s.lines.map(&:chomp), format("starts from: a save 0x%08X", Zlib.crc32(from_power_on.save.to_sav))

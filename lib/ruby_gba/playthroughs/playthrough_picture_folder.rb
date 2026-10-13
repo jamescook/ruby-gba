@@ -3,7 +3,7 @@
 require "fileutils" # here and not where it is used: see the note at the top of the verifier
 
 module RubyGBA
-  module Diagnostics
+  module Playthroughs
     class Playthrough
       # THE FOLDER A PLAYING WRITES ITS PICTURES INTO: the screen at each named moment, as a
       # PNG named for the moment.

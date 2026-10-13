@@ -1,7 +1,7 @@
 # frozen_string_literal: true
 
 module RubyGBA
-  module Diagnostics
+  module Playthroughs
     class Comparison
       # THE REPORT OF A DRIFT ON A FRAME, for a comparison on the same tape: both cartridges
       # were on that frame, played with the same presses.

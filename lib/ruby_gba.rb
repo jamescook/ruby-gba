@@ -1,7 +1,7 @@
 # frozen_string_literal: true
 
 require_relative "ruby_gba/version"
-# THE WHOLE LIBRARY, IN TWELVE LINES, and this is the only place that says so. Each one loads a
+# THE WHOLE LIBRARY, A LINE FOR EACH MODULE, and this is the only place that says so. Each one loads a
 # module through a front door of its own (or, for version and pager, a single file); what is
 # inside a module is that module's business and is listed in its own front door.
 #
@@ -13,6 +13,8 @@ require_relative "ruby_gba/version"
 #   ir needs AUDIO, because a backend sizes its music player from what a tune is.
 #   dsl needs IR, because a handle a game holds is a way of building a node.
 #   effects needs BUILDER, because an effect pack adds verbs to it.
+#   playthroughs needs CONSOLE and GRAPHICS, because a comparison takes the size of the screen
+#     and the colour it marks a difference in while its classes are being defined.
 #
 # Everything else is free to move. Adding a require here means a new module, not a new file —
 # a file goes in its own module's front door.
@@ -26,6 +28,7 @@ require_relative "ruby_gba/dsl" # the handles a game holds: a Value, a Sprite, a
 require_relative "ruby_gba/builder" # ...and the verbs that hand them back
 require_relative "ruby_gba/effects" # the verb/effect pack registry, and the packs that ship on by default
 require_relative "ruby_gba/diagnostics" # reading a built or running cartridge back
+require_relative "ruby_gba/playthroughs" # ...and playing one with nobody at the controls, or two side by side
 require_relative "ruby_gba/pager" # a long report shown a screen at a time
 
 module RubyGBA

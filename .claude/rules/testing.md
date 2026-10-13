@@ -43,6 +43,12 @@ many tests; a folder per lib file would be a folder per test.
   instructions, frames, dropped sounds) belongs to the file that makes that
   number: usually a backend file, or `test/ruby_gba/diagnostics/` for the profiler
   and the reports.
+- A test of a command belongs to the file that does the command's work, which is
+  not always `cli.rb`. `ruby-gba play` and `ruby-gba compare` are declared in
+  `cli.rb` and done by `lib/ruby_gba/playthroughs/command_line.rb`, so their tests
+  are in `test/ruby_gba/playthroughs/` with the rest of that module's — which is
+  what lets `rake test:playthroughs` be one folder. They still run the real
+  command in a process of its own, so what `cli.rb` declares is tested with it.
 
 It is never about which backend a test asserts against. A test that checks the
 same behaviour on the headless interpreter and on the emulator is one test of one
@@ -99,6 +105,7 @@ own (see "Ractors" below). `TEST=` names one file, `TESTOPTS=` one test:
 rake test                                                       # the suite
 rake test TEST=test/ruby_gba/dsl/test_thing.rb                  # one file
 rake test TEST=test/ruby_gba/dsl/test_thing.rb TESTOPTS="--name=/pattern/"  # one test; -n /pat/ trips shell quoting
+rake test:playthroughs                                          # one module: every test in test/ruby_gba/playthroughs/
 bundle exec ruby -Itest test/ruby_gba/dsl/test_thing.rb         # one file, no rake (plain minitest)
 ```
 

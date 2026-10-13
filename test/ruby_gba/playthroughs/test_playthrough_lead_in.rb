@@ -15,7 +15,7 @@ require "comparison_games"
 class TestPlaythroughLeadIn < Minitest::Test
   include ComparisonGames
 
-  Tape = RubyGBA::Diagnostics::Playthrough::Tape
+  Tape = RubyGBA::Playthroughs::Tape
 
   # A PLAYTHROUGH AFTER A LEAD-IN COUNTS ITS FRAMES FROM THE END OF THE LEAD-IN, and its tape
   # holds its own presses and none of the lead-in's. So a walker with a logo, led in past
@@ -187,7 +187,7 @@ class TestPlaythroughLeadIn < Minitest::Test
       wait_until("the ground is red", within: 5) { |game| game.red?(0, 0) }
     end
 
-    err = assert_raises(RubyGBA::Diagnostics::Playthrough::GaveUp) do
+    err = assert_raises(RubyGBA::Playthroughs::GaveUp) do
       walk_right.compare(walker, walker, lead_ins: [nil, until_red])
     end
 

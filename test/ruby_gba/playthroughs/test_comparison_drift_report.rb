@@ -94,7 +94,7 @@ class TestComparisonDriftReport < Minitest::Test
     second = turning
 
     with_report(first, second) do |result, _reports|
-      tape = RubyGBA::Diagnostics::Playthrough::Tape.read(File.join(result.drift.report, "to-the-drift.tape"))
+      tape = RubyGBA::Playthroughs::Tape.read(File.join(result.drift.report, "to-the-drift.tape"))
 
       assert_equal result.drift.frame, tape.frames
       assert_equal({ standing: 10, walked: 30 }, tape.moments, "the moments before the drift are still on it")
@@ -195,7 +195,7 @@ class TestComparisonDriftReport < Minitest::Test
       refute began == reached, "the box walked on while the ground was red"
       assert png_in(folder, "second.png") == began
       assert png_in(folder, "first.png") == png_colours_of(screen_on(first, tape, red_on.first))
-      assert_equal red_on.first, RubyGBA::Diagnostics::Playthrough::Tape.read(File.join(folder, "to-the-drift.tape")).frames
+      assert_equal red_on.first, RubyGBA::Playthroughs::Tape.read(File.join(folder, "to-the-drift.tape")).frames
     end
   end
 
@@ -265,7 +265,7 @@ class TestComparisonDriftReport < Minitest::Test
 
     Dir.mktmpdir("drift") do |somewhere|
       File.write(File.join(somewhere, "frame-0000#{on}"), "in the way")
-      err = assert_raises(RubyGBA::Diagnostics::Comparison::ReportNotWritten) { walk_right.compare(first, second, reports_in: somewhere) }
+      err = assert_raises(RubyGBA::Playthroughs::Comparison::ReportNotWritten) { walk_right.compare(first, second, reports_in: somewhere) }
 
       assert_equal on, err.drift.frame
       assert_match(/drifted on frame #{on}\b/, err.message)

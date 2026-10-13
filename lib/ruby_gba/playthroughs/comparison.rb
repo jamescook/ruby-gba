@@ -1,7 +1,7 @@
 # frozen_string_literal: true
 
 module RubyGBA
-  module Diagnostics
+  module Playthroughs
     # TWO CARTRIDGES PLAYED SIDE BY SIDE ON THE SAME PRESSES, and where their pictures stop
     # being the same.
     #
@@ -192,7 +192,7 @@ module RubyGBA
         # error has no way to know there were two.
         private def saying_which_cartridge
           yield
-        rescue Playthrough::GaveUp => e
+        rescue GaveUp => e
           raise e.exception("On the #{which} cartridge of the comparison: #{e.message}")
         end
       end

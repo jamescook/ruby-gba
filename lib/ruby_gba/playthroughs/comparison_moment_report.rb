@@ -1,7 +1,7 @@
 # frozen_string_literal: true
 
 module RubyGBA
-  module Diagnostics
+  module Playthroughs
     class Comparison
       # THE REPORT OF A DRIFT AT A NAMED MOMENT, for a comparison on the same script, in
       # which each cartridge was played by itself:

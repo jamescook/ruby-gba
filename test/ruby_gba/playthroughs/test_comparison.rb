@@ -364,7 +364,7 @@ class TestComparison < Minitest::Test
   def test_a_tape_is_compared_in_place_of_a_script
     slow = walker(speed: 2)
     fast = walker(speed: 3)
-    tape = RubyGBA::Diagnostics::Playthrough::Tape.parse(walk_right.play(slow).tape.to_s)
+    tape = RubyGBA::Playthroughs::Tape.parse(walk_right.play(slow).tape.to_s)
     moved_on = first_frame(slow, tape) { |game| !game.white?(20, 60) }
     result = tape.compare(slow, fast)
 

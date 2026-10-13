@@ -101,7 +101,7 @@ class TestPlaythroughPictures < Minitest::Test
     end
 
     Dir.mktmpdir("pictures") do |folder|
-      assert_raises(RubyGBA::Diagnostics::Playthrough::GaveUp) { stuck.play(walker, pictures_in: folder) }
+      assert_raises(RubyGBA::Playthroughs::GaveUp) { stuck.play(walker, pictures_in: folder) }
       assert_equal %w[settled.png], Dir.children(folder)
     end
   end

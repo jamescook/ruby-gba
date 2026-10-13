@@ -1,7 +1,7 @@
 # frozen_string_literal: true
 
 module RubyGBA
-  module Diagnostics
+  module Playthroughs
     class Comparison
       # THE STRETCHES OF A PLAYTHROUGH A COMPARISON DOES NOT LOOK AT. Both cartridges are
       # still played through them, since the game has to get to the other side; what differs

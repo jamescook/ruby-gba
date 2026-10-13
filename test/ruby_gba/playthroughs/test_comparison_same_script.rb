@@ -33,7 +33,7 @@ class TestComparisonSameScript < Minitest::Test
   private def arrives_on(cartridge)
     game = RubyGBA::Diagnostics::Verifier.new(cartridge, frames: 0, vars: cartridge.var_addresses)
     game.step(10)
-    right = RubyGBA::Diagnostics::Playthrough.key_mask([:right])
+    right = RubyGBA::Playthroughs::Playthrough.key_mask([:right])
     (11..).find { game.step(1, keys: right).var(:x) >= 60 }
   end
 
@@ -194,7 +194,7 @@ class TestComparisonSameScript < Minitest::Test
       result = walk_to_sixty.compare(first, second, same: :script, frames_apart: 20, readings: { paces: :paces }, reports_in: somewhere)
       folder = result.drift.report
       lines = File.read(File.join(folder, "report.txt")).lines.map(&:strip)
-      tapes = %w[first second].map { |side| RubyGBA::Diagnostics::Playthrough::Tape.read(File.join(folder, "#{side}-to-the-moment.tape")) }
+      tapes = %w[first second].map { |side| RubyGBA::Playthroughs::Tape.read(File.join(folder, "#{side}-to-the-moment.tape")) }
 
       assert_equal File.join(somewhere, "moment-arrived"), folder
       assert_equal %w[difference.png first-to-the-moment.tape first.png report.txt second-to-the-moment.tape second.png], Dir.children(folder).sort
@@ -217,7 +217,7 @@ class TestComparisonSameScript < Minitest::Test
   def test_a_report_that_cannot_be_written_still_holds_the_drifts_found_before_it
     Dir.mktmpdir("drift") do |somewhere|
       File.write(File.join(somewhere, "moment-arrived"), "in the way")
-      err = assert_raises(RubyGBA::Diagnostics::Comparison::ReportNotWritten) do
+      err = assert_raises(RubyGBA::Playthroughs::Comparison::ReportNotWritten) do
         walk_to_sixty.compare(walker, quick(turns_red_at: 1), same: :script, carrying_on: true, reports_in: somewhere)
       end
 
@@ -257,7 +257,7 @@ class TestComparisonSameScript < Minitest::Test
       moment :arrived
     end
 
-    err = assert_raises(RubyGBA::Diagnostics::Playthrough::GaveUp) { impatient.compare(walker, walker(speed: 1), same: :script) }
+    err = assert_raises(RubyGBA::Playthroughs::GaveUp) { impatient.compare(walker, walker(speed: 1), same: :script) }
 
     assert_match(/second cartridge/, err.message)
     assert_match(/the box is at sixty/, err.message)

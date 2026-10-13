@@ -11,7 +11,7 @@ require_relative "../../../examples/hero"
 # on. Playing a script makes one, and any cartridge can be fed one in place of a script, which
 # is what lets two cartridges be given exactly the same presses on exactly the same frames.
 class TestPlaythroughTape < Minitest::Test
-  Tape = RubyGBA::Diagnostics::Playthrough::Tape
+  Tape = RubyGBA::Playthroughs::Tape
 
   # A game that ticks once a frame, moves two pixels across for every frame RIGHT is down, and
   # counts presses of A. Its first tick is on its second frame: the first frame is the

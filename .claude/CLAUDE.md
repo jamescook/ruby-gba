@@ -96,6 +96,7 @@ and a test that reaches state the whole process shares is reported rather than t
 rake test                                                       # the suite
 rake test TEST=test/ruby_gba/dsl/test_thing.rb                  # one file
 rake test TEST=test/ruby_gba/dsl/test_thing.rb TESTOPTS="--name=/pattern/"  # one test
+rake test:playthroughs                                          # one module's tests: every file in test/ruby_gba/playthroughs/
 ```
 
 The test tree mirrors the code's directories: a test of a file in `lib/ruby_gba/audio/`
@@ -157,7 +158,7 @@ Test each layer the way a player experiences it, not by restating the code.
 
 ### Where a lib file goes
 
-`lib/ruby_gba/` is seven modules, each a directory, by what a file IS — never by what it
+`lib/ruby_gba/` is these modules, each a directory, by what a file IS — never by what it
 happens to touch:
 
 | directory | module | a file goes here when… |
@@ -168,12 +169,20 @@ happens to touch:
 | `console/` | `RubyGBA::Console` | it names the console's hardware — where its memory is, its register addresses and flags (`Hardware`) |
 | `cartridge/` | `RubyGBA::Cartridge` | it turns a checked program into cartridge bytes (`ROM`, `Header`, `GameCode`) |
 | `diagnostics/` | `RubyGBA::Diagnostics` | it reads a built or running cartridge back (`Verifier`, `Profiler`, `BuildReport`) |
+| `playthroughs/` | `RubyGBA::Playthroughs` | it plays a finished cartridge with nobody at the controls, or two side by side to find where they differ (`Playthrough`, `Tape`, `Comparison`, `CommandLine`) |
 | `messages/` | `RubyGBA::Messages` | it is how a build talks to the author while it builds (`PlainWords`, `Progress`, `BuildOutput`, `AuthorSource`) |
 
-The last two both say things to a person, so the line between them is which way each one
-faces. `diagnostics/` needs a finished cartridge before it has anything to say. `messages/`
-is reached from the guardrails, the builder and the lowering — all of which run while there
-is no cartridge yet — so a file that names the emulator can never belong there.
+`diagnostics/` and `messages/` both say things to a person, so the line between them is which
+way each one faces. `diagnostics/` needs a finished cartridge before it has anything to say.
+`messages/` is reached from the guardrails, the builder and the lowering — all of which run
+while there is no cartridge yet — so a file that names the emulator can never belong there.
+
+`diagnostics/` and `playthroughs/` both run a cartridge, and the line between them is the same
+kind of line. `diagnostics/` READS one back: the reader over a running cartridge, the sound it
+recorded, a cartridge that is only its file. `playthroughs/` DRIVES one, through that reader:
+what to press, on which frames, and what two cartridges made of the same presses. What
+`ruby-gba play` and `ruby-gba compare` do with their options is there too (`CommandLine`), so
+their tests sit with the rest of the module's and `rake test:playthroughs` is one folder.
 
 The directory and the module always match: a file in `audio/` defines its classes inside
 `module RubyGBA; module Audio`. A file whose home is not obvious goes where its CALLERS would
@@ -181,10 +190,10 @@ look for it, and a new directory per feature is the flat list again one level do
 isn't one.
 
 **Every directory has a front door beside it** — `audio.rb` next to `audio/`, and the same for
-all ten — which requires that directory's files and nothing else's. So **a new file is
+every one — which requires that directory's files and nothing else's. So **a new file is
 required in its own module's front door, never in `lib/ruby_gba.rb`**, which names modules
-only: twelve lines for the whole library. The order of those twelve is not free, and the
-comment above them says which steps are real dependencies between modules and why.
+only: a line for each, and that is the whole library. The order of those lines is not free, and
+the comment above them says which steps are real dependencies between modules and why.
 
 What stays at the top besides the front doors: `version.rb`, and `cli.rb` and `pager.rb`, the
 command-line program, which `bin/ruby-gba` requires and the library never does. `RubyGBA.game`

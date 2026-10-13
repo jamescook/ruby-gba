@@ -238,7 +238,7 @@ class TestComparisonCarryingOn < Minitest::Test
       assert_equal Dir.children(somewhere).sort, [of_the_reading, of_the_ground].map { |folder| File.basename(folder) }
       result.drifts.each do |drift|
         assert_equal %w[difference.png first.png report.txt second.png to-the-drift.tape], Dir.children(drift.report).sort
-        assert_equal drift.frame, RubyGBA::Diagnostics::Playthrough::Tape.read(File.join(drift.report, "to-the-drift.tape")).frames
+        assert_equal drift.frame, RubyGBA::Playthroughs::Tape.read(File.join(drift.report, "to-the-drift.tape")).frames
       end
       assert_equal [BLUE, RED], [of_the_reading, of_the_ground].map { |folder| png_pixels(File.binread(File.join(folder, "second.png"))).first }
       assert_includes report_lines(of_the_reading), "What differed on that frame: the reading late."
@@ -281,7 +281,7 @@ class TestComparisonCarryingOn < Minitest::Test
 
     Dir.mktmpdir("drift") do |somewhere|
       File.write(File.join(somewhere, "frame-0000#{red_on.first}"), "in the way")
-      err = assert_raises(RubyGBA::Diagnostics::Comparison::ReportNotWritten) do
+      err = assert_raises(RubyGBA::Playthroughs::Comparison::ReportNotWritten) do
         tape.compare(first, second, readings: out_for_a_while, carrying_on: true, reports_in: somewhere)
       end
 

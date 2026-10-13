@@ -80,6 +80,15 @@ namespace :test do
   task :emulator do
     Dir.chdir(EMULATOR_DIR) { sh({ "TESTOPTS" => GIVEN_TESTOPTS }, "rake", "test") }
   end
+
+  # The tests of playing a game with nobody at the controls, which are every test in one
+  # folder: the folder that mirrors lib/ruby_gba/playthroughs. They are in the suite as
+  # well; this is for working on that one module without waiting for the rest.
+  Rake::TestTask.new(playthroughs: %i[compile_emulator clear_coverage]) do |t|
+    t.libs << "test" << "lib"
+    t.test_files = FileList["test/ruby_gba/playthroughs/**/test_*.rb"]
+    t.description = "Run the tests of playthroughs, tapes and comparisons"
+  end
 end
 
 desc "Did a compiler change alter what it emits? Build every example twice (rake emitted REF=HEAD~3 ONLY=pong)"

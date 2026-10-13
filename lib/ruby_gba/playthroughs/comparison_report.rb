@@ -3,7 +3,7 @@
 require "fileutils" # here and not where it is used: see the note at the top of the verifier
 
 module RubyGBA
-  module Diagnostics
+  module Playthroughs
     class Comparison
       # A DRIFT, WRITTEN DOWN FOR SOMEBODY TO LOOK AT: one folder, holding what it takes to
       # see what went wrong and to get back to it.
@@ -136,7 +136,7 @@ module RubyGBA
             "",
             *readings_lines,
             "What was played",
-            *@cartridges.zip(SIDES).map { |cartridge, side| "  the #{side} cartridge: #{Playthrough::Tape.label_of(cartridge)}" },
+            *@cartridges.zip(SIDES).map { |cartridge, side| "  the #{side} cartridge: #{Tape.label_of(cartridge)}" },
             *played_lines.map { |line| "  #{line}" },
             "",
             "What was compared, and how alike the two had to be",

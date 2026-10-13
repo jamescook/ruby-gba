@@ -79,7 +79,7 @@ class TestPlaythroughWatching < Minitest::Test
 
   # --- a wait that never ends ---
 
-  GaveUp = RubyGBA::Diagnostics::Playthrough::GaveUp
+  GaveUp = RubyGBA::Playthroughs::GaveUp
 
   # A wait for something that never comes, given up on +frame+: the error, with the folder its
   # picture was left in taken away once the block has looked at it.

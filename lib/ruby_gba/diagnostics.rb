@@ -23,14 +23,3 @@ require_relative "diagnostics/profiler" # ...and the measured half: where the fr
 require_relative "diagnostics/routine_profile"
 require_relative "diagnostics/cartridge_file" # a cartridge that is only its file, with no record of its build
 require_relative "diagnostics/save_bytes" # ...and a save of a kind the framework has no model of, kept as its bytes
-require_relative "diagnostics/playthrough" # a game driven with nobody at the controls, from a script
-require_relative "diagnostics/playthrough_tape" # ...and the presses it made, written down to play again
-require_relative "diagnostics/playthrough_picture_folder" # ...and the folder its pictures are written into
-require_relative "diagnostics/comparison" # two cartridges played side by side on the same presses
-require_relative "diagnostics/comparison_ignored_frames" # ...and the stretches of the playing it does not look at
-require_relative "diagnostics/comparison_readings" # ...and the numbers it reads off both and compares by name
-require_relative "diagnostics/comparison_compared" # ...and the list of what it compares: the picture, the readings
-require_relative "diagnostics/comparison_at_moments" # ...and the other way to compare: the same script on each
-require_relative "diagnostics/comparison_report" # ...and the folder it writes for a drift it finds
-require_relative "diagnostics/comparison_drift_report" # ......of a drift on a frame, on the same tape
-require_relative "diagnostics/comparison_moment_report" # ......and of a drift at a moment, on the same script

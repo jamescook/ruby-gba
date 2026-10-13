@@ -1,7 +1,7 @@
 # frozen_string_literal: true
 
 module RubyGBA
-  module Diagnostics
+  module Playthroughs
     class Comparison
       # THE NAMED READINGS OF A COMPARISON: things read off the two running cartridges on
       # every frame that is looked at, each under a name a person chose.

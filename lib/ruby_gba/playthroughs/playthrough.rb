@@ -3,7 +3,7 @@
 require "tmpdir" # here and not where it is used: see the note at the top of the verifier
 
 module RubyGBA
-  module Diagnostics
+  module Playthroughs
     # A GAME DRIVEN WITH NOBODY AT THE CONTROLS, from a script that says what to press.
     #
     #   walk = RubyGBA.playthrough "walk to the signpost" do
@@ -110,7 +110,7 @@ module RubyGBA
       # handed over is as it was afterwards and can start another.
       def self.power_on(cartridge, save: nil)
         cartridge = cartridge_from(cartridge)
-        Verifier.new(cartridge, frames: 0, vars: cartridge.var_addresses, save: save&.dup)
+        Diagnostics::Verifier.new(cartridge, frames: 0, vars: cartridge.var_addresses, save: save&.dup)
       end
 
       # A CONSOLE SWITCHED ON AND BROUGHT TO WHERE PLAYING SHOULD BEGIN: holding +save+, and
@@ -152,7 +152,7 @@ module RubyGBA
           raise ArgumentError, "A playthrough was given #{given.bytesize} bytes of data to play, and not the path of a " \
                                "cartridge file. Write the bytes to a file, and give the path of that file."
         end
-        CartridgeFile.new(given)
+        Diagnostics::CartridgeFile.new(given)
       end
 
       # THE SAVE THAT WAS HANDED OVER, as save memory: the save another playing handed back,
@@ -162,7 +162,7 @@ module RubyGBA
       # A save the framework has a model of is copied, so what was handed over is left as it
       # was. One it only has the bytes of cannot be changed, and is handed on as it is.
       def self.save_from(given)
-        return given if given.nil? || given.is_a?(SaveBytes)
+        return given if given.nil? || given.is_a?(Diagnostics::SaveBytes)
         return given.dup if given.is_a?(IR::SaveImage)
 
         unless path?(given)
@@ -175,7 +175,7 @@ module RubyGBA
         end
         raise ArgumentError, "There is no save file at #{given}. Give the path of a save file." unless File.file?(given)
 
-        SaveBytes.save_holding(File.binread(given), from: "The save file at #{given}")
+        Diagnostics::SaveBytes.save_holding(File.binread(given), from: "The save file at #{given}")
       end
 
       # +save+ MADE TO FIT +cartridge+, or refused. A cartridge this framework built says how
@@ -185,7 +185,7 @@ module RubyGBA
       def self.save_fitted_to(cartridge, save)
         program = cartridge.source_program or return save
         memory = IR::SaveLayout.memory_of(program)
-        if save.is_a?(SaveBytes)
+        if save.is_a?(Diagnostics::SaveBytes)
           raise ArgumentError, "#{save.from} is #{save.bytesize} bytes, and this cartridge has #{memory.kilobytes}K of " \
                                "save memory. A save file is as big as its cartridge's save memory. " \
                                "Give a save that came from this game."
@@ -317,26 +317,7 @@ module RubyGBA
         # size the framework has no model of, and that one comes back as its bytes.
         def save_left
           bytes = @game.save_bytes
-          bytes && SaveBytes.save_holding(bytes, from: "The save this playthrough left")
-        end
-      end
-
-      # A WAIT THAT NEVER ENDED. The script waited for something to be true of the game, and
-      # after as many frames as it was willing to wait it still was not. A playthrough that
-      # hung there would say nothing at all, so it stops and says which wait it was, the frame
-      # it gave up on, and where it left a picture of the screen at that frame — which is
-      # usually the whole answer: the game is on a screen the script did not expect.
-      class GaveUp < StandardError
-        attr_reader :words, :frame, :picture
-
-        # The picture's path gets a line of its own, so it can be copied whole.
-        def initialize(title:, words:, waited:, frame:, picture:)
-          @words = words
-          @frame = frame
-          @picture = picture
-          super("Playthrough #{title.inspect} waited until #{words}. That did not happen in #{waited} frames. " \
-                "It stopped on frame #{frame}. Look at the screen on that frame first:\n#{picture}\n" \
-                "If the game is where you expect and needs longer, give the step a bigger `within:`.")
+          bytes && Diagnostics::SaveBytes.save_holding(bytes, from: "The save this playthrough left")
         end
       end
 
@@ -542,16 +523,35 @@ module RubyGBA
         }.freeze
       end
     end
+
+    # A WAIT THAT NEVER ENDED. The script waited for something to be true of the game, and
+    # after as many frames as it was willing to wait it still was not. A playthrough that
+    # hung there would say nothing at all, so it stops and says which wait it was, the frame
+    # it gave up on, and where it left a picture of the screen at that frame — which is
+    # usually the whole answer: the game is on a screen the script did not expect.
+    class GaveUp < StandardError
+      attr_reader :words, :frame, :picture
+
+      # The picture's path gets a line of its own, so it can be copied whole.
+      def initialize(title:, words:, waited:, frame:, picture:)
+        @words = words
+        @frame = frame
+        @picture = picture
+        super("Playthrough #{title.inspect} waited until #{words}. That did not happen in #{waited} frames. " \
+              "It stopped on frame #{frame}. Look at the screen on that frame first:\n#{picture}\n" \
+              "If the game is where you expect and needs longer, give the step a bigger `within:`.")
+      end
+    end
   end
 
   class << self
     # Declare a playthrough: a game driven with nobody at the controls, from the steps in the
-    # block. Nothing is played yet; see {Diagnostics::Playthrough#play}.
+    # block. Nothing is played yet; see {Playthroughs::Playthrough#play}.
     #
     # It is also remembered, so a file that only declares playthroughs can be loaded and
     # asked what it declared — which is how the command line plays a script file.
     def playthrough(name, &script)
-      Diagnostics::Playthrough.new(name, &script).tap do |declared|
+      Playthroughs::Playthrough.new(name, &script).tap do |declared|
         Ractor.current[:ruby_gba_registered_playthroughs] = registered_playthroughs + [declared]
       end
     end

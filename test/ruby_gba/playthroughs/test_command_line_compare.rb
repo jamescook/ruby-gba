@@ -13,7 +13,7 @@ require "cli_playing"
 # four pixels a frame where the game walks two, and the red one turns its ground red on its
 # forty-fifth tick, after the walk. Each is there as a cartridge file and as a game file,
 # since only a game file has variables with names.
-class TestCLICompare < Minitest::Test
+class TestCommandLineCompare < Minitest::Test
   include CLIPlaying
 
   AGREED = 0
@@ -271,7 +271,7 @@ class TestCLICompare < Minitest::Test
 
       assert_match(/compare FIRST SECOND/, list)
       %w[--script --playthrough --tape --set].each { |option| assert_includes help, option }
-      RubyGBA::Diagnostics::Comparison.settings.each { |setting| assert_includes help, "--#{setting.to_s.tr('_', '-')}" }
+      RubyGBA::Playthroughs::Comparison.settings.each { |setting| assert_includes help, "--#{setting.to_s.tr('_', '-')}" }
     end
   end
 end

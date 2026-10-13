@@ -1,7 +1,7 @@
 # frozen_string_literal: true
 
 module RubyGBA
-  module Diagnostics
+  module Playthroughs
     class Comparison
       # WHAT A COMPARISON COMPARES ON EACH FRAME: the picture, the named readings, or both.
       #
