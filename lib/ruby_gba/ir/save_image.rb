@@ -58,9 +58,20 @@ module RubyGBA
         @memory ||= program_memory
         return if @memory == program_memory
 
-        raise ArgumentError, "This save memory is #{@memory.kilobytes}K, and the program has " \
-                             "#{program_memory.kilobytes}K. Make a SaveImage for this program with " \
-                             "kilobytes: #{program_memory.kilobytes}."
+        raise WrongSize.new(@memory.kilobytes, program_memory.kilobytes)
+      end
+
+      # Raised when save memory of one size is handed to a program that has another. It
+      # keeps the two sizes, for whoever handed the save over to say it in their own words.
+      class WrongSize < ArgumentError
+        attr_reader :save_kilobytes, :program_kilobytes
+
+        def initialize(save_kilobytes, program_kilobytes)
+          @save_kilobytes = save_kilobytes
+          @program_kilobytes = program_kilobytes
+          super("This save memory is #{save_kilobytes}K, and the program has #{program_kilobytes}K. " \
+                "Make a SaveImage for this program with kilobytes: #{program_kilobytes}.")
+        end
       end
 
       # The +width+ bytes at +at+, lowest first, as an unsigned number.
@@ -192,6 +203,28 @@ module RubyGBA
 
       # The whole chip as the bytes of a .sav file, which is how an emulator is handed one.
       def to_sav = read_bytes(0, memory.size).pack("C*")
+
+      # Write the whole chip to +path+ as a .sav file. The path is handed back.
+      def write_sav(path)
+        File.binwrite(path, to_sav)
+        path
+      end
+
+      # A chip holding the bytes of a .sav file, and as big as they are. Save memory comes
+      # in a few sizes and a .sav file is exactly one of them, so bytes of any other length
+      # are something else. +from+ says where they came from, for the error to name.
+      def self.from_sav(bytes, from: "These bytes")
+        kilobytes = SaveLayout::NAMEABLE.find { |size| bytes.bytesize == size * 1024 }
+        unless kilobytes
+          raise ArgumentError, "#{from} are #{bytes.bytesize} bytes long. A save file is as big as its cartridge's save " \
+                               "memory, which here is #{SaveLayout::NAMEABLE.map { |size| "#{size}K" }.join(', ')}."
+        end
+        held = bytes.each_byte.with_index.reject { |byte, _| byte == FRESH_BYTE }
+        new(kilobytes: kilobytes, bytes: held.to_h { |byte, at| [at, byte] })
+      end
+
+      # The chip the .sav file at +path+ holds.
+      def self.read_sav(path) = from_sav(File.binread(path), from: "The bytes of the file at #{path}")
 
       private
 

@@ -46,8 +46,10 @@ module RubyGBA
       # the presses that were made, written down (see Tape). +pictures+ is the screen at each
       # named moment: every pixel's colour, a row at a time from the top, which is how
       # Graphics::PNG takes one. +picture_files+ is where each of those was written as a PNG,
-      # by moment — nothing at all unless the playing was asked to write them.
-      Played = Data.define(:frames, :moments, :game, :tape, :pictures, :picture_files)
+      # by moment — nothing at all unless the playing was asked to write them. +save+ is the
+      # cartridge's save memory as the last frame left it (an IR::SaveImage), to write to a
+      # file or to start another playing from; nil for a cartridge that has none.
+      Played = Data.define(:frames, :moments, :game, :tape, :pictures, :picture_files, :save)
 
       attr_reader :name
 
@@ -62,10 +64,12 @@ module RubyGBA
 
       # Play the script on +cartridge+, from power-on. At each named moment the block is
       # handed the moment's name and the running cartridge, so the game can be asked about
-      # exactly there. +pictures_in+ is a folder to write the screen at each moment into, as
-      # a PNG named for the moment; left out, no file is written.
-      def play(cartridge, pictures_in: nil, &at_each_moment)
-        Playing.play(@name, @steps, cartridge, pictures_in: pictures_in, &at_each_moment)
+      # exactly there. +save+ is what the cartridge's save memory holds when the console is
+      # switched on; left out, it is a cartridge nobody has played. +pictures_in+ is a folder
+      # to write the screen at each moment into, as a PNG named for the moment; left out, no
+      # file is written.
+      def play(cartridge, save: nil, pictures_in: nil, &at_each_moment)
+        Playing.play(@name, @steps, cartridge, save: save, pictures_in: pictures_in, &at_each_moment)
       end
 
       # Play the script on +first+ to learn its presses, then play +first+ and +second+ side
@@ -83,8 +87,53 @@ module RubyGBA
       def moment_names = @steps.flat_map(&:names)
 
       # A console switched on with +cartridge+ in it and no frame played yet: the reader over
-      # one running cartridge that everything here plays on and asks.
-      def self.power_on(cartridge) = Verifier.new(cartridge, frames: 0, vars: cartridge.var_addresses)
+      # one running cartridge that everything here plays on and asks. +save+ is what the
+      # cartridge's save memory holds, an IR::SaveImage. It is a copy that goes into the
+      # console, so the one handed over is as it was afterwards and can start another.
+      def self.power_on(cartridge, save: nil)
+        Verifier.new(cartridge, frames: 0, vars: cartridge.var_addresses, save: save&.dup)
+      end
+
+      # THE SAVE MEMORY A PLAYING OF +cartridge+ STARTS WITH, from what was handed over: the
+      # save another playing handed back, or the path of a save file, which is that memory
+      # byte for byte. Nothing handed over is no save, and a cartridge nobody has played.
+      #
+      # It is a copy, sized for the cartridge. A chip cannot change size, so a save from a
+      # cartridge with more or less save memory than this one is refused here, before the
+      # console is switched on.
+      def self.starting_save(given, cartridge)
+        return if given.nil?
+
+        save = given.is_a?(IR::SaveImage) ? given.dup : save_file_at(given)
+        program = cartridge.source_program
+        save.use_memory!(IR::SaveLayout.memory_of(program)) if program
+        save
+      rescue IR::SaveImage::WrongSize => e
+        raise ArgumentError, "The save is #{e.save_kilobytes}K, and this cartridge has #{e.program_kilobytes}K of save " \
+                             "memory. A save fits only a cartridge with the same size of save memory. " \
+                             "Give a save that came from this game."
+      end
+
+      # A path is short and a save is thousands of bytes, so text that long is the bytes of
+      # a save handed over where its path was meant. It is named for what it is and not
+      # printed.
+      LONGEST_PATH = 4096
+      private_constant :LONGEST_PATH
+
+      def self.save_file_at(path)
+        unless path.is_a?(String) || path.respond_to?(:to_path)
+          raise ArgumentError, "`save:` was #{path.inspect}. It must be the save a playthrough handed back " \
+                               "(`played.save`), or the path of a save file."
+        end
+        if path.is_a?(String) && (path.bytesize > LONGEST_PATH || path.include?("\0"))
+          raise ArgumentError, "`save:` was #{path.bytesize} bytes of data, and not the path of a save file. To start from " \
+                               "the bytes of a save, give `RubyGBA::IR::SaveImage.from_sav(bytes)`."
+        end
+        raise ArgumentError, "There is no save file at #{path}. Give the path of a save file." unless File.file?(path)
+
+        IR::SaveImage.read_sav(path)
+      end
+      private_class_method :save_file_at
 
       # ONE PLAYING, as it goes: the cartridge running, and a tape of every press made on it so
       # far. Each step plays itself on this. +title+ is the name of what is being played, for
@@ -92,21 +141,24 @@ module RubyGBA
       class Playing
         # Play +steps+ on +cartridge+ from power-on, and hand back what that came to.
         #
-        # The folder for pictures is made ready first, so one that will not do is refused
-        # before the console is switched on.
-        def self.play(title, steps, cartridge, pictures_in: nil, &at_each_moment)
+        # The save and the folder for pictures are made ready first, so one that will not do
+        # is refused before the console is switched on.
+        def self.play(title, steps, cartridge, save: nil, pictures_in: nil, &at_each_moment)
+          save = Playthrough.starting_save(save, cartridge)
           folder = PictureFolder.at(pictures_in, steps.flat_map(&:names))
-          playing = new(title, cartridge, at_each_moment, folder)
+          playing = new(title, cartridge, at_each_moment, save: save, folder: folder)
           steps.each { |step| step.play(playing) }
           playing.played
         end
 
-        # +folder+ is where the picture at each moment is written (see PictureFolder), or
-        # nil for none to be written.
-        def initialize(title, cartridge, at_each_moment, folder)
+        # +save+ is what the cartridge's save memory holds as the console is switched on,
+        # or nil for a cartridge nobody has played. +folder+ is where the picture at each
+        # moment is written (see PictureFolder), or nil for none to be written.
+        def initialize(title, cartridge, at_each_moment, save:, folder:)
           @title = title
           @cartridge = cartridge
-          @game = Playthrough.power_on(cartridge)
+          @game = Playthrough.power_on(cartridge, save: save)
+          @save = save
           @at_each_moment = at_each_moment
           @folder = folder
           @taping = Tape::Taping.new
@@ -171,9 +223,9 @@ module RubyGBA
         # What this playing came to. The frames and the moments are the tape's own, so the
         # two can never disagree.
         def played
-          tape = Tape.recorded_on(@cartridge, @taping.steps)
+          tape = Tape.recorded_on(@cartridge, @taping.steps, save: @save)
           Played.new(frames: tape.frames, moments: tape.moments, game: @game, tape: tape,
-                     pictures: @pictures, picture_files: @picture_files)
+                     pictures: @pictures, picture_files: @picture_files, save: @game.save_image)
         end
       end
 

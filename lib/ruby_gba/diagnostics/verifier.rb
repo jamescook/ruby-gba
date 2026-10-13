@@ -248,12 +248,11 @@ module RubyGBA
       # turning the console off leaves. Hand it to another run's `save:` to turn it on again.
       #
       # The bus shows a 128K flash chip a bank at a time, so the chip is read from the file the
-      # emulator keeps it in, which holds all of it.
+      # emulator keeps it in, which holds all of it. A cartridge with no save chip has nothing
+      # in that file, and nil is what it hands back.
       def save_image
         ensure_rendered!
-        bytes = File.binread(save_path).bytes
-        held = bytes.each_with_index.reject { |byte, _| byte == IR::SaveImage::FRESH_BYTE }
-        IR::SaveImage.new(kilobytes: bytes.length / 1024, bytes: held.to_h { |byte, at| [at, byte] })
+        IR::SaveImage.read_sav(save_path) if File.size?(save_path)
       end
 
       # How many times the game read the pad while the console ran it — what the emulator saw,

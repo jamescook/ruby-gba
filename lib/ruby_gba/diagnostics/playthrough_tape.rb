@@ -39,6 +39,10 @@ module RubyGBA
       # bytes say which game and which build the tape came from. Nothing checks them against
       # the cartridge it is played on: playing a tape on a different cartridge is the point.
       #
+      # WHERE IT STARTED IS HELD TO. The third line says `power-on`, or `a save` for a
+      # cartridge that held one when the console was switched on. The same presses from
+      # power-on are a different game, so a tape recorded from a save is played from one.
+      #
       # +steps+ are the lines in order — each a Hold or a Moment, the same steps a script is
       # made of, so a tape is played by the same playing a script is.
       Tape = Data.define(:title, :checksum, :starts_from, :steps)
@@ -50,14 +54,21 @@ module RubyGBA
         # How a stretch of frames with no button down is written.
         NOTHING_DOWN = "-"
 
-        # Where a playthrough starts, as the tape says it. Power-on is the one place there is.
+        # Where a playthrough starts, as the tape says it: the console switched on with a
+        # cartridge nobody has played, or with one holding a save. A save is said with a
+        # checksum of its bytes, like the cartridge's, for a person to tell which save the
+        # tape goes with. The save itself is not in the tape: a tape is the presses, and
+        # played on another cartridge it wants that one's own.
         POWER_ON = "power-on"
+        A_SAVE = /\Aa save 0x\h{8}\z/
 
-        # The tape of +steps+ played on +cartridge+ from power-on. What it says it was recorded
-        # on is the title in the cartridge's own header and a checksum of every byte of it.
-        def self.recorded_on(cartridge, steps)
+        # The tape of +steps+ played on +cartridge+. What it says it was recorded on is the
+        # title in the cartridge's own header and a checksum of every byte of it. +save+ is
+        # the save memory the cartridge held when the console was switched on, or nil.
+        def self.recorded_on(cartridge, steps, save:)
           header_title = cartridge.buffer.byteslice(Cartridge::Header::HEADER_TITLE, Cartridge::ROM::TITLE_LENGTH)
-          new(title: printable(header_title), checksum: Zlib.crc32(cartridge.buffer), starts_from: POWER_ON, steps: steps)
+          starts_from = save ? format("a save 0x%08X", Zlib.crc32(save.to_sav)) : POWER_ON
+          new(title: printable(header_title), checksum: Zlib.crc32(cartridge.buffer), starts_from: starts_from, steps: steps)
         end
 
         # A header's title as a line a person can read. The header holds twelve bytes, padded
@@ -85,14 +96,39 @@ module RubyGBA
 
         # Play the tape on +cartridge+, exactly as a playthrough plays its script: the block is
         # handed each moment's name and the running cartridge, and what comes back is the same.
-        def play(cartridge, pictures_in: nil, &at_each_moment)
-          Playing.play(title, steps, cartridge, pictures_in: pictures_in, &at_each_moment)
+        #
+        # A tape recorded from a save is played from one: from power-on it would be the same
+        # presses on a different game.
+        def play(cartridge, save: nil, pictures_in: nil, &at_each_moment)
+          refuse_missing_save!(save)
+          Playing.play(title, steps, cartridge, save: save, pictures_in: pictures_in, &at_each_moment)
         end
 
         # Play the tape on +first+ and on +second+ together, comparing the two pictures after
         # every frame. +settings+ say how alike they have to be, and which stretches of the
         # tape are not looked at (see Comparison).
-        def compare(first, second, **settings) = Comparison.new(first, second, moments.keys, **settings).run(self)
+        #
+        # Both start from power-on, so a tape recorded from a save cannot be compared.
+        def compare(first, second, **settings)
+          refuse_comparing_from_save!
+          Comparison.new(first, second, moments.keys, **settings).run(self)
+        end
+
+        def recorded_from_save? = starts_from != POWER_ON
+
+        private def refuse_missing_save!(save)
+          return unless recorded_from_save? && save.nil?
+
+          raise ArgumentError, "This tape was recorded on a cartridge that started from a save. From power-on, the same " \
+                               "presses play a different game. Give the save to start from: `tape.play(cartridge, save: ...)`."
+        end
+
+        private def refuse_comparing_from_save!
+          return unless recorded_from_save?
+
+          raise ArgumentError, "This tape was recorded on a cartridge that started from a save. A comparison starts both " \
+                               "cartridges from power-on, so it cannot play this tape. Record the tape from power-on."
+        end
 
         # How many frames the tape plays.
         def frames = steps.sum(&:frames)
@@ -181,9 +217,11 @@ module RubyGBA
           end
 
           def read_starts_from
-            return POWER_ON if @lines[2] == "starts from: #{POWER_ON}"
+            said = @lines[2].to_s.delete_prefix("starts from: ")
+            return said if @lines[2] != said && (said == POWER_ON || A_SAVE.match?(said))
 
-            raise_unreadable_line!(3, "Line 3 must say where the playthrough starts: `starts from: #{POWER_ON}`.")
+            raise_unreadable_line!(3, "Line 3 must say where the playthrough starts: `starts from: #{POWER_ON}`, " \
+                                      "or `starts from: a save 0x5C0FFEE5` with the checksum of the save.")
           end
 
           def read_step(line, number)
