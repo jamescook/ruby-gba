@@ -9,12 +9,13 @@ require "test_helper"
 #
 # It no longer traps into the console's divide routine. A routine of our own does the
 # same long division, so what these tests care about is that the ANSWERS are unchanged
-# across every sign and both ends of the range, that dividing by zero still behaves the
-# way it did, and that a program which never needs the routine does not carry it.
+# across every sign and both ends of the range, that dividing by zero gives the one
+# answer both backends are held to, and that a program which never needs the routine does
+# not carry it.
 class TestRuntimeDivision < Minitest::Test
   Int32 = RubyGBA::IR::Int32
 
-  DIVISORS = [1, -1, 2, -2, 3, -3, 7, 10, 60, 100, 256, 1000, 65_536,
+  DIVISORS = [0, 1, -1, 2, -2, 3, -3, 7, 10, 60, 100, 256, 1000, 65_536,
               1_000_000, Int32::MAX, Int32::MIN].freeze
 
   def numerators(divisor)
@@ -70,27 +71,48 @@ class TestRuntimeDivision < Minitest::Test
     end
   end
 
-  # Dividing by zero has no answer. What the console did before was hand back 1 or -1
-  # following the numerator, with the numerator left over, and it still does — a program
-  # with this fault in it behaves as it always did, and above all does not hang.
-  def test_dividing_by_zero_behaves_as_it_did
+  # Dividing by zero has no answer, so one is defined: 1 or -1 following the numerator,
+  # with the numerator left over. A program with this fault in it must not hang the
+  # console, and the interpreter has to say what the console will show rather than stop.
+  # Each case is worked out twice, by a zero the game works out and by one written down,
+  # since a written divisor goes through the build's own shortcuts first.
+  BY_ZERO = {
+    up: [:/, 1234, 1],
+    down: [:/, -1234, -1],
+    none: [:/, 0, 1],
+    left: [:%, 1234, 1234],
+    left_below: [:%, -1234, -1234],
+    left_none: [:%, 0, 0],
+  }.freeze
+
+  def by_zero_program
     build = RubyGBA::IR::Build
-    program = build.program(
-      build.set(:zero, build.int(0)),
-      build.set(:up, build.binop(:/, build.int(1234), build.var_ref(:zero))),
-      build.set(:down, build.binop(:/, build.int(-1234), build.var_ref(:zero))),
-      build.set(:none, build.binop(:/, build.int(0), build.var_ref(:zero))),
-      build.set(:left, build.binop(:%, build.int(1234), build.var_ref(:zero))),
-      build.halt,
-    )
+    statements = BY_ZERO.flat_map do |name, (op, n, _want)|
+      [build.set(:n, build.int(n)),
+       build.set(name, build.binop(op, build.var_ref(:n), build.var_ref(:zero))),
+       build.set(:"#{name}_written", build.binop(op, build.var_ref(:n), build.int(0)))]
+    end
+    build.program(build.set(:zero, build.int(0)), *statements, build.halt)
+  end
+
+  def test_the_interpreter_gives_the_defined_answer_for_a_zero_divisor
+    interpreter = Reference.new.run(by_zero_program)
+
+    BY_ZERO.each do |name, (op, n, want)|
+      assert_equal want, interpreter[name], "#{n} #{op} a zero the game works out"
+      assert_equal want, interpreter[:"#{name}_written"], "#{n} #{op} 0"
+    end
+  end
+
+  def test_the_console_gives_the_defined_answer_for_a_zero_divisor
     backend = GBA.new
-    rom = ROM.assemble(backend.lower(program), title: "DIVZERO", code: "BDVZ", maker: "01")
+    rom = ROM.assemble(backend.lower(by_zero_program), title: "DIVZERO")
     v = assert_emulator_loads_rom(rom, frames: 3, vars: backend.var_addresses)
 
-    assert_equal 1, Int32.wrap(v.var(:up))
-    assert_equal(-1, Int32.wrap(v.var(:down)))
-    assert_equal 1, Int32.wrap(v.var(:none))
-    assert_equal 1234, Int32.wrap(v.var(:left))
+    BY_ZERO.each do |name, (op, n, want)|
+      assert_equal want, Int32.wrap(v.var(name)), "#{n} #{op} a zero the game works out, on the console"
+      assert_equal want, Int32.wrap(v.var(:"#{name}_written")), "#{n} #{op} 0 on the console"
+    end
   end
 
   # --- the routine is carried only when it is needed ---------------------------

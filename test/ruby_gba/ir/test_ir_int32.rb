@@ -89,6 +89,37 @@ class TestIRInt32 < Minitest::Test
     assert_equal 0, Int32.mul_fix(1 << 20, 1 << 20, 8) # 2**40 >> 8 is 2**32, which wraps to 0
   end
 
+  # --- dividing by nought: there is no answer, so one is defined ---
+
+  # 1 or -1, following the numerator, and nought counts as not below nought. A game on a
+  # console cannot stop with an error, so the answer key gives what the console gives.
+  def test_div_by_zero_is_one_signed_like_the_numerator
+    assert_equal 1, Int32.div(1234, 0)
+    assert_equal(-1, Int32.div(-1234, 0))
+    assert_equal 1, Int32.div(0, 0)
+    assert_equal 1, Int32.div(Int32::MAX, 0)
+    assert_equal(-1, Int32.div(Int32::MIN, 0))
+  end
+
+  def test_mod_by_zero_leaves_the_numerator_as_it_was
+    assert_equal 1234, Int32.mod(1234, 0)
+    assert_equal(-1234, Int32.mod(-1234, 0))
+    assert_equal 0, Int32.mod(0, 0)
+    assert_equal Int32::MIN, Int32.mod(Int32::MIN, 0)
+  end
+
+  # The same 1 or -1 as a plain divide, and NOT one whole: with sixteen fraction bits the
+  # answer reads as the smallest fraction there is.
+  def test_div_fix_by_zero_is_a_bare_one_signed_like_the_numerator
+    one = 1 << 16
+
+    assert_equal 1, Int32.div_fix(3 * one, 0, 16)
+    assert_equal(-1, Int32.div_fix(-3 * one, 0, 16))
+    assert_equal 1, Int32.div_fix(0, 0, 16)
+    assert_equal(-1, Int32.div_fix(-160, 0, 32))
+    assert_equal 1, Int32.div_fix(7, 0, 0)
+  end
+
   # --- the acceptance criterion: a signed compare near the boundary ---
   def test_cmp_is_signed_not_unsigned
     # 0xFFFF_FFFF is -1, so it is LESS than 1 — the opposite of an unsigned

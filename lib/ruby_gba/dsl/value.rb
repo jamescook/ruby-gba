@@ -165,6 +165,7 @@ module RubyGBA
       # rather than wrapped, so dividing by something very close to zero gives the biggest
       # number there is instead of a negative one.
       def /(other)
+        refuse_zero_divisor!(:/, other)
         bits = Fraction.bits_of(other)
         if fraction? && bits
           same_scale!(bits, "divide")
@@ -190,6 +191,7 @@ module RubyGBA
       # right one. Wrapping onto a range that is a power of two (64, 256, 512) costs one
       # instruction; any other range is a real division.
       def %(other)
+        refuse_zero_divisor!(:%, other)
         scaled(Build.binop(:%, @node, node_at_scale(other, Fraction.bits_of(other))), @scale.bits)
       end
 
@@ -507,6 +509,32 @@ module RubyGBA
               "`#{op} #{count}` moves every bit off the end of the number. A whole " \
               "number here has 32 bits. So the answer is the same whatever the number " \
               "holds. #{advice}#{at_dsl_line}"
+      end
+
+      # A ZERO WRITTEN INTO THE PROGRAM as the number to divide by. Like the shift above it
+      # is a mistake the build can read, and always a mistake: there is no answer, so the
+      # game would be handed 1 or -1 (see IR::Int32.quotient_by_zero) and carry on with it.
+      #
+      # A divisor the GAME works out is left alone, since that one can come to nought on
+      # some frame nobody foresaw. What it gives then is pinned, and the same everywhere.
+      #
+      # A fraction too small to keep counts as a written zero, because zero is what it is
+      # stored as: a number here keeps a fixed count of fraction bits and rounds to them.
+      def refuse_zero_divisor!(op, other)
+        return unless other.is_a?(Numeric)
+
+        too_small = other.is_a?(Float) && !other.zero? && Fraction.scale(other, Fraction.bits_of(other)).zero?
+        return unless other.zero? || too_small
+
+        advice =
+          if too_small
+            "The number #{other} is too small to keep, so it is kept as 0. Write a bigger number."
+          else
+            "Write a number that is not 0."
+          end
+        raise ArgumentError,
+              "`#{op} #{other}` divides by zero. A division by zero has no answer. " \
+              "#{advice}#{at_dsl_line}"
       end
 
       # A number that HOLDS A FRACTION keeps that fraction in its own low bits, so a bit

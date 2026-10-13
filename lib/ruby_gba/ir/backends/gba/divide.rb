@@ -430,7 +430,9 @@ module RubyGBA
           # Dividing by zero has no answer, and this gives back what the console's own
           # routine gave: 1 or -1 following the numerator's sign, with the numerator
           # itself left over. A program that does this has a fault in it either way; what
-          # matters is that it behaves as it always did and does not hang.
+          # matters is that it behaves as it always did and does not hang. That answer is
+          # the one every backend gives (see Int32.quotient_by_zero), so it is not this
+          # routine's to change.
           def emit_divide_by_zero
             @emitter.emit(ASM.load_immediate(DIV_DEN, 1))
             @emitter.emit(ASM.cmp_imm(DIV_NUM, 0))

@@ -33,6 +33,12 @@ class TestFractionDivision < Minitest::Test
     [-160, 5 * ONE / 2, 32],
     [7, 3, 0],                         # no widening at all is an ordinary division
     [-7, 3, 0],
+    [3 * ONE, 0, 16],                  # divided by nought: a bare 1 or -1, not held at an end
+    [-3 * ONE, 0, 16],
+    [0, 0, 16],
+    [160, 0, 32],
+    [-160, 0, 32],
+    [-7, 0, 0],
   ].freeze
 
   # One program that works out every case twice: once with both sides worked out as it
@@ -79,6 +85,17 @@ class TestFractionDivision < Minitest::Test
     assert_equal Int32::MAX, Int32.div_fix(ONE, 1, 16)
     assert_equal Int32::MIN, Int32.div_fix(-ONE, 1, 16)
     assert_equal Int32::MAX, Int32.div_fix(Int32::MIN, -1, 0), "the one overflow a plain divide has"
+  end
+
+  # Dividing by nought is NOT held at the end of the range the way dividing by nearly
+  # nought is. It gives a bare 1 or -1 following the numerator, the same as a plain divide,
+  # which a number holding a fraction reads as the smallest fraction there is. The sweep
+  # above checks the console gives the same; a game that can reach this gives its divisor
+  # a floor instead.
+  def test_dividing_by_zero_gives_a_bare_one_rather_than_the_end_of_the_range
+    assert_equal 1, Int32.div_fix(3 * ONE, 0, 16)
+    assert_equal(-1, Int32.div_fix(-3 * ONE, 0, 16))
+    refute_equal Int32::MAX, Int32.div_fix(ONE, 0, 16)
   end
 
   # ...AND WHAT BEING HELD THERE DOES NOT SURVIVE, which is the trap and is worth pinning because

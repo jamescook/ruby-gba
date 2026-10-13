@@ -91,9 +91,15 @@ module RubyGBA
       # away is a wall thousands of pixels high — and of the two wrong answers available,
       # "as tall as a number goes" is the one that still looks like a wall. Wrapping
       # would make it negative, which looks like nothing at all.
+      #
+      # Dividing by nought is NOT that case, and is not held anywhere: it gives the same
+      # bare 1 or -1 a plain divide by nought does (see #quotient_by_zero), which a number
+      # carrying a fraction reads as the smallest fraction there is rather than as one.
       def div_fix(a, b, bits)
         numerator = wrap(a) << bits # widened, so #div's own wrapping cannot be used here
         divisor = wrap(b)
+        return quotient_by_zero(numerator) if divisor.zero?
+
         quotient = numerator.abs / divisor.abs
         quotient = -quotient if numerator.negative? != divisor.negative?
         quotient.clamp(MIN, MAX)
@@ -181,9 +187,27 @@ module RubyGBA
       def div(a, b)
         a = wrap(a)
         b = wrap(b)
+        return quotient_by_zero(a) if b.zero?
+
         quotient = a.abs / b.abs
         quotient = -quotient if a.negative? != b.negative?
         wrap(quotient)
+      end
+
+      # WHAT DIVIDING BY NOUGHT GIVES, which is a decision, because there is no answer to
+      # find: 1, or -1 for a numerator below nought. Nought itself is not below nought, so
+      # nought over nought is 1.
+      #
+      # Ruby stops the program instead, and this declines to follow it. A game running on
+      # a console has nobody to stop for — it carries on with whatever number came back —
+      # so a backend that stopped here would be describing a game that does not exist. The
+      # program has a fault in it either way. What matters is that every backend shows the
+      # same fault, so the one a person can step through shows what the others will do.
+      #
+      # 1 and -1 because that is the answer games have already been played against, and
+      # no other is right enough to be worth changing it for.
+      def quotient_by_zero(numerator)
+        numerator.negative? ? -1 : 1
       end
 
       # What is left over after division — with RUBY's meaning, not the one that falls
@@ -200,10 +224,14 @@ module RubyGBA
       # Ruby's meaning wins here because the audience knows Ruby. It does mean `/` and
       # `%` do not decompose consistently on negatives, which is a deliberate and
       # documented wrinkle rather than an oversight.
+      #
+      # Nothing can be taken out of a number nought at a time, so what is left over after
+      # dividing by nought is the whole numerator, sign and all. Like #quotient_by_zero it is
+      # an answer every backend gives rather than a place any of them stops.
       def mod(a, b)
         a = wrap(a)
         b = wrap(b)
-        raise ZeroDivisionError, "cannot take what is left over after dividing by zero" if b.zero?
+        return a if b.zero?
 
         wrap(a.modulo(b))
       end

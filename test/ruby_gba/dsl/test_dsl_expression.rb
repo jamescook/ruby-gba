@@ -373,6 +373,45 @@ class TestDSLExpression < Minitest::Test
     assert_equal UNDRAWN, pixel_at(i, 26, 20), "a floored -4 would land here"
   end
 
+  # A divisor the game works out can come to nought on some frame, and then there is no
+  # answer to give — so one is defined, and it is the same on both backends: 1 (or -1 for
+  # a number below nought), and for `%` the number itself. +50 keeps the markers on screen.
+  def test_dividing_by_a_worked_out_zero_gives_the_same_number_on_both_backends
+    program = tree do
+      screen :bitmap
+      clear_screen :black
+      nought = var :nought, 0
+      over = var :over, 0
+      under = var :under, 0
+      left = var :left, 0
+      over.set!(var(:up, 30) / nought + 50)
+      under.set!(var(:down, -30) / nought + 50)
+      left.set!(var(:step, 80) % nought)
+      draw_rect_at over, 10, 2, 2, :green
+      draw_rect_at under, 20, 2, 2, :red
+      draw_rect_at left, 30, 2, 2, :white
+      halt
+    end
+    i = Reference.new.run(program)
+
+    assert_equal [51, 49, 80], [i[:over], i[:under], i[:left]]
+    assert_equal Color.resolve(:green), pixel_at(i, 51, 10)
+    assert_equal Color.resolve(:red), pixel_at(i, 49, 20)
+    assert_equal Color.resolve(:white), pixel_at(i, 80, 30)
+    assert_backends_agree(program, frames: 2)
+  end
+
+  # A nought WRITTEN as the divisor is a mistake the build can read, so it says so.
+  def test_dividing_by_a_written_zero_is_a_friendly_error
+    { "/ 0" => ->(x) { x / 0 }, "% 0" => ->(x) { x % 0 }, "/ 0.0" => ->(x) { x.to_f / 0.0 },
+      "/ a fraction too small to keep" => ->(x) { x.to_f / 0.000001 } }.each do |written, work|
+      err = assert_raises(ArgumentError, written) { tree { work.call(var(:x, 20)) } }
+
+      assert_match(/divides by zero/, err.message, written)
+      assert_match(/test_dsl_expression\.rb:\d+/, err.message, "#{written} should say which line wrote it")
+    end
+  end
+
   # ---- .then { } / .else { } ----
 
   def test_then_draws_when_true

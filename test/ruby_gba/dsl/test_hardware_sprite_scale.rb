@@ -196,7 +196,7 @@ class TestHardwareSpriteScale < Minitest::Test
 
   # A size of zero can still arrive at run time (the build-time error only catches one
   # written down), so the shared matrix rules hold it at the smallest size rather than
-  # dividing by zero — which the two backends would answer differently.
+  # dividing by zero, which has no size to give.
   def test_a_size_of_zero_at_run_time_is_held_rather_than_divided_by
     affine = RubyGBA::IR::Affine
     assert_equal affine.reciprocal(affine::MIN_SCALE), affine.reciprocal(0)

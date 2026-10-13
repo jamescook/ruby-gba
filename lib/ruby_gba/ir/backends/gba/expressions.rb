@@ -301,8 +301,9 @@ module RubyGBA
           # divisor is the same division with the answer flipped (truncation is symmetric
           # about zero, so flipping after is the same as dividing by the negative); and
           # anything else multiplies by a reciprocal worked out at build time. Only 1, -1
-          # and 0 are left to the console's divide routine — the first two have nothing
-          # to gain and the third has to fail the way it always did.
+          # and 0 are left to the divide routine — the first two have nothing to gain,
+          # and the third has no answer to find, so it gets the one every backend gives
+          # (see IR::Int32.quotient_by_zero).
           def emit_constant_divide(lhs, divisor)
             return false if divisor.abs <= 1
 
