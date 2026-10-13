@@ -34,6 +34,21 @@ module NativeComparison
     builder.program
   end
 
+  # +program+ with runs of its frame's sprites drawn in the order a list holds, written onto the
+  # statement that draws them. The builder writes a run only beside the routine that keeps its
+  # list in order, so a test of what the list may hold writes the run itself. The block is handed
+  # the names the frame draws, and gives back each run as [the names in it, its list].
+  def with_draw_orders_written_by_hand(program)
+    program.walk.select { |node| node.kind == :present_objects }.each do |drawn|
+      runs = yield(drawn.names).map { |names, list| RubyGBA::IR::Build::DrawOrder.new(objects: names, order: list) }
+      ordered = RubyGBA::IR::Build.present_objects(drawn.names, orders: runs)
+      beside = drawn.parent.children
+      beside[beside.index(drawn)] = ordered
+      ordered.parent = drawn.parent
+    end
+    program
+  end
+
   # +buttons+ maps a frame number (from 1) to the buttons held during it. Gives back the
   # interpreter's last snapshot, so a test can also say the run did something worth comparing —
   # two runs that both left everything at 0 agree too.

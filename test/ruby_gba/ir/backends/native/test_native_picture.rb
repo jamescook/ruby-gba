@@ -359,9 +359,107 @@ class TestNativePicture < Minitest::Test
 
     corners = { top_left: [80, 60], bottom_left: [80, 67], bottom_right: [87, 67], top_right: [87, 60] }
     red_seen_at = reference_snapshots(program, frames: 8, buttons: {}).flat_map do |moment|
-      corners.select { |_, (x, y)| moment.picture[(y * 240) + x] == Color.resolve(:red) }.keys
+      corners.select { |_, (x, y)| moment.picture[(y * WIDTH) + x] == Color.resolve(:red) }.keys
     end
     assert_equal %i[top_left bottom_left bottom_right], red_seen_at.uniq
+  end
+
+  # Sprites drawn in an order the game works out, over ground that scrolls, so the whole view is
+  # rebuilt every frame. Two pairs, each put in order on its own. In the first whoever stands
+  # lower is in front, so the walker coming down is behind the post until its feet pass the
+  # post's. In the second whoever stands higher is, so the runner going up is behind the stone
+  # until its feet pass the stone's. Each then walks clear of the spot the test watches.
+  def test_sprites_in_a_worked_out_order_over_scenery_that_scrolls
+    block = "#{'#' * 16}\n" * 16
+    program = program_of do
+      screen :tiled
+      image :turf, "#" => :green, "." => :blue do "##..##..\n..##..##\n" * 4 end
+      image(:post, "#" => :red) { block }
+      image(:walker, "#" => :white) { block }
+      image(:stone, "#" => :yellow) { block }
+      image(:runner, "#" => :orange) { block }
+      tiles :lawn, "#" => :turf
+      ground = background :lawn, tiles: :lawn, map: ["#" * 32] * 32
+      post = sprite :post, at: [60, 60]
+      walker = sprite :walker, at: [68, 50]
+      stone = sprite :stone, at: [140, 60]
+      runner = sprite :runner, at: [148, 70]
+      draw_in_order post, walker
+      draw_in_order stone, runner, front: :lowest
+      game_loop do
+        ground.scroll_by 2, 1
+        walker.move :down, by: 2
+        runner.move :up, by: 2
+      end
+    end
+
+    assert_native_matches_reference program, frames: 12
+
+    moments = reference_snapshots(program, frames: 12, buttons: {})
+    assert_equal %i[red white red], colors_in_turn(moments, [70, 66], %i[red white]),
+                 "the walker goes behind the post, then in front of it, then clear of that spot"
+    assert_equal %i[yellow orange yellow], colors_in_turn(moments, [150, 72], %i[yellow orange]),
+                 "and the runner behind the stone, then in front of it, then clear"
+  end
+
+  # Two blocks that overlap, the red one listed first, and a list a test keeps an order in by hand.
+  def two_blocks_and_a_list(&game)
+    block = "#{'#' * 16}\n" * 16
+    program = program_of do
+      screen :tiled
+      image(:back, "#" => :red) { block }
+      image(:fore, "#" => :green) { block }
+      sprite :back, at: [60, 60]
+      sprite :fore, at: [68, 64]
+      instance_exec(list(:order, capacity: 4, width: :byte), &game)
+    end
+    with_draw_orders_written_by_hand(program) { |names| [[names, :order]] }
+  end
+
+  # What the list of a draw order may hold is read as the interpreter reads it: a place below
+  # nought counts back from the last, so -1 is the green block and it goes down first, under the
+  # red one. And a list shorter than its run draws only the sprites it names.
+  def test_a_draw_order_holds_places_as_the_interpreter_reads_them
+    program = two_blocks_and_a_list do |order|
+      order.push(-1)
+      order.push 0
+      n = var :n, 0
+      game_loop do
+        (n == 3).then do
+          order[0] = 0
+          order[1] = 1
+        end
+        (n == 6).then { order.pop }
+        n.add! 1
+      end
+    end
+
+    assert_native_matches_reference program, frames: 10
+
+    moments = reference_snapshots(program, frames: 10, buttons: {})
+    assert_equal %i[red green red], colors_in_turn(moments, [70, 66], %i[red green]),
+                 "red in front, then green, then red alone once the list names only it"
+    assert_equal Color.resolve(:black), moments.last.picture[(70 * WIDTH) + 80], "the green block is not drawn at the end"
+  end
+
+  # A place that names none of the run's sprites stops the game, as it stops the interpreter.
+  def test_a_draw_order_naming_no_sprite_stops_the_game
+    program = two_blocks_and_a_list do |order|
+      order.push 0
+      order.push 2
+      game_loop {}
+    end
+
+    assert_raises(IndexError) { reference_snapshots(program, frames: 3, buttons: {}) }
+    error = assert_raises(Native::Zig::Error) { native_snapshots(program, frames: 3, buttons: {}, mode: :checked) }
+    assert_match(/draw order names sprite 2 of the 2/, error.message)
+  end
+
+  # The colors of +names+ seen at one pixel over a run, in the order they were first seen and
+  # seen again: [:red, :white] for a pixel that was red for a while and then white.
+  def colors_in_turn(moments, (x, y), names)
+    by_color = names.to_h { |name| [Color.resolve(name), name] }
+    moments.filter_map { |moment| by_color[moment.picture[(y * WIDTH) + x]] }.chunk_while { |a, b| a == b }.map(&:first)
   end
 
   # Art given as numbers into its list of colors, the list holding one color at two places: drawn
