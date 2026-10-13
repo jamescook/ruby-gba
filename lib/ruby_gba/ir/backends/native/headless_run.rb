@@ -20,13 +20,15 @@ module RubyGBA
         # The class methods read what the program prints, a line at a time, and are the one
         # place that knows how it prints it.
         class HeadlessRun
-          # How long the program may go without printing a line before it is taken to be stuck: a
-          # game that loops without ever waiting for the screen never ends on its own.
+          # How long the program may take to reach its next frame before it is taken to be stuck:
+          # a game that loops without ever waiting for the screen never ends on its own.
           #
-          # It is the silence that is timed, and not the whole run. Every frame's answer waits
-          # its turn among Ruby's threads, which run one at a time, so a run of many frames
-          # beside busy threads takes far longer than the game does, and is not stuck.
-          LONGEST_SILENCE_SECONDS = 60
+          # It is each frame that is timed, and not the whole run. Every frame's answer waits its
+          # turn among Ruby's threads, which run one at a time, so a run of many frames beside
+          # busy threads takes far longer than the game does, and is not stuck. Nor is it how
+          # long the program stays silent: one stuck in a loop can go on printing, a line for
+          # every sound it makes on the way round.
+          LONGEST_FRAME_SECONDS = 60
 
           # The picture the run ended on, read the way the interpreter's screen is: #pixel gives
           # the colour at (x, y) as the player would see it, nil off the screen, #shown every
@@ -85,7 +87,7 @@ module RubyGBA
           # The interpreter's options, so a test makes either the same way. +save+ — the save
           # memory a game starts with — is refused until the native lowering can hold one.
           def initialize(save: nil)
-            @longest_silence = LONGEST_SILENCE_SECONDS
+            @longest_frame = LONGEST_FRAME_SECONDS
             @held = []
             @vars = {}
             @audio = []
@@ -101,11 +103,11 @@ module RubyGBA
             self
           end
 
-          # Stop the program once it has printed nothing for +seconds+, in place of
-          # LONGEST_SILENCE_SECONDS. This player's own, for a test of the limit itself. Gives
-          # back self.
-          def stopping_when_silent_for(seconds)
-            @longest_silence = seconds
+          # Give the program +seconds+ to reach each frame before it is stopped, in place of
+          # LONGEST_FRAME_SECONDS. This player's own, for a test of the limit itself. Gives back
+          # self.
+          def allowing_each_frame(seconds)
+            @longest_frame = seconds
             self
           end
 
@@ -180,7 +182,8 @@ module RubyGBA
               complaint.report_on_exception = false
               frame = 0
               rows = []
-              while (line = next_line(stdout, waiter, exe))
+              expect_next_frame
+              while (line = next_line(stdout, waiter, exe, frame))
                 case line
                 when /\Aframe (\d+)\z/ then frame = Integer(Regexp.last_match(1))
                                             rows = []
@@ -203,6 +206,14 @@ module RubyGBA
             @moments << Moment.new(frame: frame, variables: @vars, picture: check, sounds: @audio.size)
             stdin.puts(self.class.button_mask(@input_script ? @input_script.call(frame) : @held))
             stdin.flush
+            expect_next_frame
+          end
+
+          # The program has just been started, or handed a frame's buttons: from now it has
+          # LONGEST_FRAME_SECONDS to reach the next frame. However long a test's input script
+          # took to decide is its own time, and is not counted.
+          def expect_next_frame
+            @frame_due = Process.clock_gettime(Process::CLOCK_MONOTONIC) + @longest_frame
           end
 
           def record_end(rows)
@@ -214,11 +225,14 @@ module RubyGBA
           end
 
           # The next line the program printed, or nil once it has finished; a program that has
-          # printed nothing for as long as it may stay silent is stopped.
-          def next_line(stdout, waiter, exe)
-            unless stdout.wait_readable(@longest_silence)
+          # had as long as a frame may take since +frame+, and has not reached the next, is
+          # stopped.
+          def next_line(stdout, waiter, exe, frame)
+            remaining = @frame_due - Process.clock_gettime(Process::CLOCK_MONOTONIC)
+            unless remaining.positive? && stdout.wait_readable(remaining)
               Process.kill(:KILL, waiter.pid)
-              raise Zig::Error, "#{File.basename(exe)} printed nothing for #{@longest_silence} seconds, and was stopped"
+              raise Zig::Error, "#{File.basename(exe)} had not reached the frame after frame #{frame} " \
+                                "in #{@longest_frame} seconds, and was stopped"
             end
             stdout.gets&.chomp
           end
