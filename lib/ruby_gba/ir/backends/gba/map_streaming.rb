@@ -165,12 +165,15 @@ module RubyGBA
           # are switched off — a scene taking over, an area's tiles coming in — so the view is
           # whole by the time they are on again, and no part of the frame shows the last room's
           # cells over the new tiles.
-          def emit_stream_fill(bg)
+          #
+          # +at_corner+ fills round the map's top-left corner instead, for a background that
+          # is being put up and whose scroll is put back there with it.
+          def emit_stream_fill(bg, at_corner: false)
             name = bg.stream.name
             emit_number(ACC, 0)
             store_var(ACC, IR::Nodes::Background.stream_vars(name).last)
-            x, y = IR::Nodes::Background.scroll_vars(name)
-            emit_stream_view(name, Build.var_ref(x), Build.var_ref(y))
+            x, y = at_corner ? [Build.int(0), Build.int(0)] : IR::Nodes::Background.scroll_vars(name).map { |var| Build.var_ref(var) }
+            emit_stream_view(name, x, y)
           end
 
           # HAND THE BACKGROUND ANOTHER MAP: say which map the strips come from now, and that the

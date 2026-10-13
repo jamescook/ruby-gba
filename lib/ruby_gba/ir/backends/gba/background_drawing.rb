@@ -68,12 +68,17 @@ module RubyGBA
             bg = @layout.screen.backgrounds.fetch(node.name)
             return emit_affine_background_hardware(bg) if bg.affine
 
-            # A map brought in a strip at a time is put up as its first map, filled around
-            # wherever the view is (see MapStreaming).
+            # A map brought in a strip at a time is put up as its first map, filled round the
+            # top-left corner (see MapStreaming). The corner, and not wherever the game last
+            # put the view: the scroll is put back to the corner a few lines down, and that
+            # is what the display shows until the gap after this pass, when the game's own
+            # place for the view is written and the cells round that are brought in. Filled
+            # round the place the view was left, a scene coming back showed that place's
+            # cells at the corner for a frame.
             if bg.stream
               emit_number(ACC, 0)
               store_var(ACC, IR::Nodes::Background.stream_vars(node.name).first)
-              emit_stream_fill(bg)
+              emit_stream_fill(bg, at_corner: true)
             else
               @uploads.emit_dma_blob(bg.map, VRAM_START + (bg.screen_block * SCREENBLOCK_BYTES), bg.map_units)
             end

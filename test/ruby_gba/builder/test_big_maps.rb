@@ -300,8 +300,9 @@ class TestBigMaps < Minitest::Test
     AROUND_EACH_WALK.each { |frames| assert_backends_agree(prog, frames: frames, name: "BIG2S") }
   end
 
-  # A scene that takes over again shows its big room from the top, filled whole.
-  def scenes
+  # A scene that takes over again shows its big room from the top, filled whole. The view
+  # starts +start+ pixels across and down and moves on from there each pass.
+  def scenes(start: 0)
     test = self
     program do
       screen :tiled
@@ -310,7 +311,7 @@ class TestBigMaps < Minitest::Test
       pass = var :pass, 0
       scene(:outside) do
         ground = background :ground, tiles: :ground, map: test.scrambled(100, 90)
-        x = var :view_x, 0
+        x = var :view_x, start
         x.add! 5
         ground.scroll_to x, x
       end
@@ -329,6 +330,20 @@ class TestBigMaps < Minitest::Test
 
   def test_a_scene_coming_back_fills_its_big_room_again
     [5, 9, 11].each { |frames| assert_backends_agree(scenes, frames: frames, name: "BIGS") }
+  end
+
+  # THE FRAME THE SCENE COMES BACK ON shows the room's top-left corner: a background put up
+  # again is put up as declared, with its view at the corner, and the game's own place for
+  # the view reaches the display in the gap after that pass. So the cells brought in as the
+  # scene comes back have to be the ones round the corner, wherever the view was left. Here
+  # it was left well away from it, and the frame after shows it there again — and left only a
+  # few cells from it, where the cells for the game's place are then brought in a strip at a
+  # time from the corner's, not all at once.
+  def test_the_frame_a_scene_comes_back_shows_its_big_room_from_the_corner
+    [200, 24].each do |start|
+      left_away = scenes(start: start)
+      [7, 8, 9, 10].each { |frames| assert_backends_agree(left_away, frames: frames, name: "BIGC") }
+    end
   end
 
   # --- walls ---
