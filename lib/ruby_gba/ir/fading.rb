@@ -92,6 +92,7 @@ module RubyGBA
           # the same way in two scenes are the same node as far as `==` goes, and those
           # two scenes can be on different screens.
           @walking = {}.compare_by_identity
+          @fades = []
           @blend_fades = []
           @coarse_placed = []
           @fine = false
@@ -115,6 +116,16 @@ module RubyGBA
         # cartridge for one that does, and the build report names the mechanism it got.
         def any_fade_walks_palette? = @walking.each_key.any? { |node| node.kind == :fade }
 
+        # Is any fade in this program one the display does itself — one placed in the stack,
+        # one on a screen with no table to walk, or any fade at all in a game with nothing
+        # to see through? Such a fade stays until it is lifted, so a backend whose
+        # see-through layer uses the same blend has to ask, wherever it would set the layer
+        # up again, whether one is holding it.
+        #
+        # Wider than #blend_fades, which is only the ones on a screen a layer can be seen
+        # through: a fade left on from another kind of screen holds the blend too.
+        def any_display_fade? = @fades.any? { |node| !palette_walk?(node) }
+
         # The fades that still take the display's blend on the screen a layer can be seen
         # through — the ones that leave that layer solid while they run, which is the only
         # thing left to warn a game about. Empty for a game with no layer to trade away.
@@ -124,6 +135,7 @@ module RubyGBA
 
         def classify_fades(program)
           fades = program.walk.select { |node| node.kind == :fade }
+          @fades = fades
           tints = program.walk.select { |node| node.kind == :tint && node.fraction_bits }
           return if fades.empty? && tints.empty?
 

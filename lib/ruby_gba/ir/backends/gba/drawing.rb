@@ -347,7 +347,7 @@ module RubyGBA
             @background_drawing.reset_bg2_affine_if_needed
             @background_drawing.emit_boot_backgrounds if @layout.tiled && !@layout.screen.backgrounds.empty? # shared BG palette + tile pictures
             emit_objects_again
-            @layer_blend.emit_restore_layer_blend if @layer_blend.see_through?     # ...and which one is see-through
+            @layer_blend.emit_layer_blend_on_entry if @layer_blend.see_through? # ...and which one is see-through
             value = tiled_dispcnt
             value |= OBJ_ENABLE | OBJ_1D_MAP if @layout.has_objects
             @emitter.write_reg16(REG_DISPCNT, value | held)
@@ -379,7 +379,7 @@ module RubyGBA
             @background_drawing.reset_bg2_affine_matrix # the one-time "no turn, no resize yet" starting matrix
             @background_drawing.emit_boot_backgrounds if @layout.tiled && !@layout.screen.backgrounds.empty?
             emit_objects_again
-            @layer_blend.emit_restore_layer_blend if @layer_blend.see_through?
+            @layer_blend.emit_layer_blend_on_entry if @layer_blend.see_through?
             value = MODE_2 | BG2_ENABLE
             value |= OBJ_ENABLE | OBJ_1D_MAP if @layout.has_objects
             @emitter.write_reg16(REG_DISPCNT, value | held)
@@ -419,9 +419,12 @@ module RubyGBA
           #
           # A game whose scenes all want the same thing has nothing here: boot's one write
           # stands for the whole run (see LayerBlend#blend_control_by_scene).
+          #
+          # It is said on every pass the scene runs, so it too leaves a fade that holds the
+          # blend where it is (see LayerBlend#emit_scene_blend_control).
           def emit_scene_blend(name)
             wanted = @layout.scene_blend[name]
-            write_reg16(REG_BLDCNT, wanted) if wanted
+            @layer_blend.emit_scene_blend_control(wanted) if wanted
             @layer_blend.emit_screen_marker(name)
           end
 

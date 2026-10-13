@@ -725,6 +725,7 @@ module RubyGBA
           # ...which is what decides whether a fade may use the display's blend at all, or
           # has to walk the color table instead to leave that layer alone (see IR::Fading).
           @fading = IR::Fading.resolve(program)
+          @layer_blend.note_display_fades(@fading, @scene_blend)
           prepare_still_objects(program) if @has_objects
           # The runs of the sprite table drawn in an order the program works out, each given a
           # copy in work memory (see SpriteDrawing::DrawRun).

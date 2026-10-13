@@ -1859,10 +1859,19 @@ module RubyGBA
         # Counted in thirty-seconds whichever way it reaches the screen. Where the display
         # blends it, the amount is a whole percentage or is counted in sixteenths, and a
         # sixteenth is two thirty-seconds.
+        #
+        # A TINT TAKES THE PLACE OF WHATEVER FADE WAS IN FORCE, a fade placed in the stack
+        # included: a picture has one such effect at a time, and the last one said is it.
+        # A fade that goes may have been holding a see-through layer solid, or have been
+        # painted into the picture, so the picture is owed again when one does.
         def exec_tint(node)
+          was_fading = fading?
+          was_placed = @fade_placed
+          @fade_placed = nil
           walked = @fading.palette_walk?(node)
           steps = FadeSteps.steps(eval_value(node.amount), fraction_bits: node.fraction_bits, walked: walked)
           @screen.tint_steps_to(Graphics::Color.resolve(node.color), FadeSteps.in_walk_steps(steps, !walked))
+          request_repaint if was_placed || (@see_through && fading? != was_fading)
         end
 
         # Turn the blend on or off for the thing about to be painted: on for anything the

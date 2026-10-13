@@ -41,7 +41,9 @@ module RubyGBA
         # that sees through a layer fades by walking its color table instead, which never
         # touches this register and leaves both paths blending right through the fade (see
         # IR::Fading, and ScreenEffects#emit_palette_fade). What still arrives here
-        # is a fade PLACED in the stack, which is the one thing only this register can do.
+        # is a fade PLACED in the stack, which is the one thing only this register can do,
+        # and a fade left on from a painted screen, which has no colors to walk and fades by
+        # this register too (see #note_display_fades for what that asks of this class).
         #
         # An author writes the same keyword either way and never learns which they got.
         #
@@ -168,9 +170,78 @@ module RubyGBA
           #
           # For a number the author wrote there is no difference and no extra instruction:
           # then and now are the same number.
+          #
+          # Which layers are mixed is the first screen's answer where every screen wants the
+          # same, and the answer of the scene that is up where they do not and a fade can be
+          # lifted on any of them (see #emit_scene_blend_control).
           def emit_restore_layer_blend
-            emit_blend_targets
+            if @scenes_say_control
+              @primitives.load_var(ACC, SCENE_CONTROL)
+              @primitives.store_halfword_acc(REG_BLDCNT)
+            else
+              emit_blend_targets
+            end
             @layers.each { |layer| emit_blend_amounts_or_call(layer) }
+          end
+
+          # A FADE THE DISPLAY DOES AND A SEE-THROUGH LAYER, IN ONE GAME. Everything below is
+          # for that game and no other, so that a game without the pair comes out byte for
+          # byte as it did.
+          #
+          # Such a fade stays until the game lifts it, across a change of scene and a change
+          # of screen: fading out on one screen and in on the next relies on it. And it is in
+          # the same register the see-through layer is set up in. So the three places that
+          # set the layer up while the game runs — a screen drawn from tiles taking over, a
+          # scene saying which layers it mixes, and a fade or tint that moves the colors
+          # taking the display fade's place — each ask that register first. It can be read
+          # back, where the one holding how far a fade has gone cannot, and in this game a
+          # fade of nothing is never left in it: every statement that ends a display fade
+          # hands the register back (see ScreenEffects#emit_fade_beside_see_through and
+          # #emit_blend_back_from_display_fade). So the effect it names is the one in force.
+          #
+          # +scene_blend+ is what each scene tells the blend unit, empty where they all agree.
+          def note_display_fades(fading, scene_blend)
+            @fade_can_hold_blend = see_through? && fading.any_display_fade?
+            @scenes_say_control = @fade_can_hold_blend && !scene_blend.empty?
+          end
+
+          # The bit of the blend-control register that both ways of fading set and that
+          # mixing two layers does not: the effect field reads "toward white" or "toward
+          # black" with it, and "mix" or "nothing" without.
+          FADE_HOLDS_BLEND = BLD_BRIGHTEN & BLD_DARKEN
+
+          # WHAT THE SCENE THAT IS UP TELLS THE BLEND UNIT, kept where a fade lifting can read
+          # it. A fade lifts wherever the game says, and what it hands the register back to
+          # has to be that scene's layers, not the first screen's.
+          SCENE_CONTROL = :_scene_blend_control
+
+          # COMING ONTO A SCREEN DRAWN FROM TILES: tell the display which layer is seen
+          # through, unless a fade is holding the blend. Setting the layer up regardless ended
+          # a fade left on from the screen before, and the new screen arrived bright.
+          def emit_layer_blend_on_entry
+            return emit_restore_layer_blend unless @fade_can_hold_blend
+
+            emit_unless_fade_holds_blend { emit_restore_layer_blend }
+          end
+
+          # A SCENE SAYS WHICH LAYERS IT MIXES, on every pass it runs (see
+          # Drawing#emit_scene_blend). Where a fade can hold the blend the scene's answer is
+          # remembered and written only while none does; the fade lifting writes it then.
+          def emit_scene_blend_control(wanted)
+            return @emitter.write_reg16(REG_BLDCNT, wanted) unless @fade_can_hold_blend
+
+            @primitives.store_word_immediate(wanted, @primitives.var_addr(SCENE_CONTROL))
+            emit_unless_fade_holds_blend { @emitter.write_reg16(REG_BLDCNT, wanted) }
+          end
+
+          # A FADE OR A TINT THAT MOVES THE COLORS TAKES THE PLACE OF A FADE THE DISPLAY WAS
+          # DOING, since a picture has one such effect at a time. It lifts that fade by
+          # another road than the display's own, so it hands the blend back the way the
+          # display's own lift does. Nothing where no display fade can be in force.
+          def emit_blend_back_from_display_fade
+            return unless @fade_can_hold_blend
+
+            emit_if_fade_holds_blend { emit_restore_layer_blend }
           end
 
           # HOW SEE-THROUGH A LAYER IS, NOW. A picture whose amounts the program works out
@@ -220,7 +291,10 @@ module RubyGBA
           # again; one whose screens differ has each scene correct it as it takes over
           # (see #blend_control_by_scene), before anything of that scene is drawn.
           def emit_blend_targets
-            @emitter.write_reg16(REG_BLDCNT, blend_control(first_screen_that_blends))
+            control = blend_control(first_screen_that_blends)
+            @emitter.write_reg16(REG_BLDCNT, control)
+            # ...and it stands as the scene's answer until a scene gives its own.
+            @primitives.store_word_immediate(control, @primitives.var_addr(SCENE_CONTROL)) if @scenes_say_control
           end
 
           # WHAT EACH SCENE HAS TO TELL THE BLEND UNIT, or nothing at all where every scene
@@ -273,6 +347,25 @@ module RubyGBA
           def pack_blend_weights((near, far)) = near | (far << 8)
 
           private
+
+          # Write the block's code so it runs only while no fade holds the blend...
+          def emit_unless_fade_holds_blend(&) = emit_guarded_by_fade_bit(run_when_set: false, &)
+
+          # ...and only while one does.
+          def emit_if_fade_holds_blend(&) = emit_guarded_by_fade_bit(run_when_set: true, &)
+
+          # Read the blend-control register, test its fade bit, and jump over the block's
+          # code when the bit is the other way from +run_when_set+.
+          def emit_guarded_by_fade_bit(run_when_set:)
+            skip = @emitter.gensym
+            @emitter.emit_number(TMP, REG_BLDCNT)
+            @emitter.emit(ASM.load_halfword(TMP, TMP))
+            @emitter.emit(ASM.tst_imm(TMP, FADE_HOLDS_BLEND))
+            # The test leaves "equal" when the bit is clear.
+            @emitter.emit_branch(:bcond, skip, cond: run_when_set ? :eq : :ne)
+            yield
+            @emitter.place_label(skip)
+          end
 
           # Tell the display +layer+'s amounts: by calling the routine that works them out,
           # where they change, and by writing them here where they are numbers.

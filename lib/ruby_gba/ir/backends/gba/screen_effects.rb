@@ -102,10 +102,18 @@ module RubyGBA
           # moving the finished picture there come to the same picture, so this is the
           # tint walk with black or white as the color — rounded the way the display's own
           # fade rounds, so a fade in shows the picture on the same frame either way (see
-          # PaletteTint::DARKEN). Nothing else here runs: the blend registers are never
-          # written, so the layer keeps the setup it was given at boot and there is nothing
-          # to hand back when the fade lifts.
+          # PaletteTint::DARKEN). The blend registers are not written for this fade, so the
+          # layer keeps the setup it was given at boot and there is nothing to hand back when
+          # it lifts.
+          #
+          # WHAT IT MAY HAVE TO HAND BACK IS ANOTHER FADE'S. The display holds one fade at a
+          # time, so this one takes the place of whatever fade was in force — and in a game
+          # with a see-through layer that can be a fade the display itself was doing: one
+          # placed in the stack, or one left on from a painted screen that has no colors to
+          # walk. That fade holds the blend the layer needs, and nothing but this statement
+          # is going to lift it (see LayerBlend#emit_blend_back_from_display_fade).
           def emit_palette_fade(node)
+            @layer_blend.emit_blend_back_from_display_fade
             toward = node.toward == :black ? PaletteTint::DARKEN : Graphics::Color.resolve(node.toward)
             @palette_tint.emit_palette_tint(color: toward,
                                             amount: node.amount,
@@ -228,6 +236,9 @@ module RubyGBA
           # and how much of the color has come in.
           def emit_tint(node)
             if @palette_tint.palette_screen?(node)
+              # A tint takes the place of a fade as a fade does, so it hands back the blend a
+              # fade the display was doing held (see #emit_palette_fade).
+              @layer_blend.emit_blend_back_from_display_fade
               return @palette_tint.emit_palette_tint(color: Graphics::Color.resolve(node.color),
                                                      amount: node.amount,
                                                      fraction_bits: node.fraction_bits,

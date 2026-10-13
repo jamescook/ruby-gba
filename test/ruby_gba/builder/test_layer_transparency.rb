@@ -466,8 +466,14 @@ class TestLayerTransparency < Minitest::Test
   #
   # +paints+ says how the title paints its blue: every pass, or on its first pass and then
   # left alone, which is how a title that draws nothing more is written. +room_at+ is the
-  # pass the room takes over on.
-  def faded_title_then_misty_room(paints: :every_pass, room_at: 4)
+  # pass the room takes over on. A block is what the room says on each of its passes, handed
+  # the count of passes: lifting the fade on one of them, say.
+  #
+  # With +rooms+ the game has a second room drawn from tiles, a hall of two solid layers
+  # with nothing seen through, and +rooms+ names the one the title hands over to. The other
+  # is never gone to. What it changes is that the rooms want different things of the
+  # display's blend, so each says its own on every pass it runs, not once for the game.
+  def faded_title_then_misty_room(paints: :every_pass, room_at: 4, rooms: nil, &says)
     tile = SOLID_TILE
     program do
       screen :tiled
@@ -478,7 +484,7 @@ class TestLayerTransparency < Minitest::Test
       tiles :panes, "d" => :dim_pane
       where = var :where, 0
       pass = var :pass, 0
-      layers :ground, :mist, :walkers
+      rooms ? layers(:ground, :mist, :panelling, :walkers) : layers(:ground, :mist, :walkers)
       scene :title do
         screen :bitmap
         paints == :once ? (pass == 1).then { clear_screen :blue } : clear_screen(:blue)
@@ -488,13 +494,22 @@ class TestLayerTransparency < Minitest::Test
         layer(:ground) { background :floor, tiles: :floors, map: Array.new(20) { "d" * 30 } }
         layer(:mist, transparency: 50) { background :pane, tiles: :panes, map: Array.new(20) { "d" * 30 } }
         layer(:walkers) { sprite :walker, at: [40, 40] }.x.add! 1
+        instance_exec(pass, &says) if says && rooms != :hall
+      end
+      if rooms
+        scene :hall do
+          layer(:ground) { background :hall_floor, tiles: :floors, map: Array.new(20) { "d" * 30 } }
+          layer(:panelling) { background :hall_pane, tiles: :panes, map: Array.new(20) { "d" * 30 } }
+          instance_exec(pass, &says) if says && rooms == :hall
+        end
       end
       game_loop do
         pass.add! 1
-        (pass == room_at).then { where.set! 1 }
+        (pass == room_at).then { where.set!(rooms == :hall ? 2 : 1) }
         case_var(:where) do
           when_val 0, :title
           when_val 1, :room
+          when_val 2, :hall if rooms
         end
       end
     end
@@ -528,16 +543,89 @@ class TestLayerTransparency < Minitest::Test
                  "one colour of mist everywhere, and the walker's red, both half way to black"
   end
 
-  # KNOWN TO DISAGREE, filed and not fixed: the console drops the fade as the room takes
-  # over, and shows the mist see-through at full brightness where the interpreter shows it
-  # solid and dark. Pinned exactly — the count and what the console shows — so this fails the
-  # day the console keeps the fade, and then it becomes assert_backends_agree.
-  def test_the_console_drops_a_fade_left_on_as_a_see_through_screen_takes_over
-    oracle, console, = backend_pictures(faded_title_then_misty_room, frames: 8, console_frames: 9)
-    see_through_at_full_brightness = Reference.new.run(scene_mist_with_no_fade, frames: 8).screen.pixel(200, 100)
+  # The fade is the display's and the room's see-through layer is the display's too, the
+  # same piece of it. A screen taking over sets its layers up, and must not take the fade's
+  # place while doing so: both backends show the room dark, with the mist solid, on the
+  # frames before, on and after the room takes over.
+  def test_a_fade_left_on_stays_as_a_see_through_screen_takes_over
+    room = faded_title_then_misty_room
+    [2, 3, 4, 5, 8].each do |frames|
+      assert_backends_agree(room, frames: frames, console_frames: frames + 1, blended: true)
+    end
+  end
 
-    assert_equal 240 * 160, mismatched_pixels(oracle, console, slack: 1).size
-    assert_equal see_through_at_full_brightness, console[(100 * 240) + 200]
+  # Both backends agree on the game at each of +frames+, a fade or a see-through mix in force.
+  def assert_backends_agree_through_the_fade(game, frames)
+    frames.each { |at| assert_backends_agree(game, frames: at, console_frames: at + 1, blended: true) }
+  end
+
+  # The same in a game whose rooms each tell the display what they blend on every pass: the
+  # fade is still there on the passes after the room took over, and lifts when it is lifted.
+  def test_that_fade_stays_where_each_room_says_what_it_blends_every_pass
+    room = faded_title_then_misty_room(rooms: :room) { |pass| (pass == 10).then { fade :black, 0 } }
+
+    assert_backends_agree_through_the_fade(room, [5, 8, 10, 11, 14])
+  end
+
+  # In that game the fade can be lifted in a room that sees through nothing. What it hands
+  # the blend back to is that room's layers, both solid, and not the misty room's.
+  def test_that_fade_lifted_in_a_room_with_nothing_seen_through_leaves_its_layers_solid
+    hall = faded_title_then_misty_room(rooms: :hall) { |pass| (pass == 6).then { fade :black, 0 } }
+
+    assert_backends_agree_through_the_fade(hall, [5, 6, 7, 10])
+    assert_equal rgb5(16, 8, 2), Reference.new.run(hall, frames: 10).screen.pixel(200, 100),
+                 "the hall's upper layer in its own colour, with nothing behind it showing"
+  end
+
+  # ...and the room lifting it brings the mist back see-through, on the same frame on both.
+  def test_lifting_that_fade_in_the_room_brings_the_layer_back_see_through
+    room = faded_title_then_misty_room { |pass| (pass == 8).then { fade :black, 0 } }
+
+    assert_backends_agree_through_the_fade(room, [7, 8, 9, 12])
+    assert_equal seen_through_mist, Reference.new.run(room, frames: 12).screen.pixel(200, 100),
+                 "the mist is seen through again, at full brightness"
+  end
+
+  # A TINT TAKES THE FADE'S PLACE as another fade would: a picture has one such effect at a
+  # time, and the last one said is the one in force. So a room that tints, however little,
+  # has ended the fade it arrived under, and its mist is seen through again from then on.
+  def test_a_tint_said_in_the_room_ends_that_fade_and_the_layer_is_seen_through_again
+    room = faded_title_then_misty_room { tint :red, 0 }
+
+    assert_backends_agree_through_the_fade(room, [5, 8, 12])
+    assert_equal seen_through_mist, Reference.new.run(room, frames: 12).screen.pixel(200, 100)
+  end
+
+  def seen_through_mist = Reference.new.run(scene_mist_with_no_fade, frames: 8).screen.pixel(200, 100)
+
+  # The same of a fade PLACED in the stack, which is the display's own on any screen: a tint
+  # said after it takes its place, and the mist it had made solid is seen through again.
+  def placed_fade_then_a_tint
+    tile = SOLID_TILE
+    program do
+      screen :tiled
+      image(:dim_floor, "#" => rgb(20, 4, 30)) { tile }
+      image(:dim_pane, "#" => rgb(16, 8, 2)) { tile }
+      tiles :floors, "d" => :dim_floor
+      tiles :panes, "d" => :dim_pane
+      pass = var :pass, 0
+      layers :ground, :mist, :top
+      layer(:ground) { background :floor, tiles: :floors, map: Array.new(20) { "d" * 30 } }
+      layer(:mist, transparency: 50) { background :pane, tiles: :panes, map: Array.new(20) { "d" * 30 } }
+      game_loop do
+        pass.add! 1
+        (pass == 3).then { fade :black, 50, under: :top }
+        (pass == 6).then { tint :red, 0 }
+      end
+    end
+  end
+
+  def test_a_tint_takes_the_place_of_a_fade_placed_in_the_stack
+    game = placed_fade_then_a_tint
+    [2, 4, 5, 7, 8, 10].each { |frames| assert_backends_agree(game, frames: frames, blended: true) }
+
+    assert_equal rgb5(8, 4, 1), Reference.new.run(game, frames: 5).screen.pixel(200, 100), "solid and dark under the fade"
+    assert_equal seen_through_mist, Reference.new.run(game, frames: 10).screen.pixel(200, 100), "seen through after the tint"
   end
 
   # The same room with no title and no fade: what the mist looks like seen through.
