@@ -62,6 +62,15 @@ module RubyGBA
       # exactly there.
       def play(cartridge, &at_each_moment) = Playing.play(@name, @steps, cartridge, &at_each_moment)
 
+      # Play the script on +first+ to learn its presses, then play +first+ and +second+ side
+      # by side on those presses, comparing the two pictures after every frame (see
+      # Comparison).
+      def compare(first, second) = play(first).tape.compare(first, second)
+
+      # A console switched on with +cartridge+ in it and no frame played yet: the reader over
+      # one running cartridge that everything here plays on and asks.
+      def self.power_on(cartridge) = Verifier.new(cartridge, frames: 0, vars: cartridge.var_addresses)
+
       # ONE PLAYING, as it goes: the cartridge running, and a tape of every press made on it so
       # far. Each step plays itself on this. +title+ is the name of what is being played, for
       # an error to say whose playing it was.
@@ -76,7 +85,7 @@ module RubyGBA
         def initialize(title, cartridge, at_each_moment)
           @title = title
           @cartridge = cartridge
-          @game = Verifier.new(cartridge, frames: 0, vars: cartridge.var_addresses)
+          @game = Playthrough.power_on(cartridge)
           @at_each_moment = at_each_moment
           @taping = Tape::Taping.new
         end

@@ -78,8 +78,6 @@
 require_relative "../lib/ruby_gba"
 
 module Hero
-  SPEED = 2 # pixels the hero walks per frame while a direction is held
-
   # The weather. Walking north thickens the mist and south thins it, a couple of points a
   # step, so a second or so of walking takes you from clear air into a whiteout.
   MIST_PER_STEP = 2
@@ -117,6 +115,11 @@ module Hero
 
   GAME = RubyGBA.game("HERO") do
     screen :tiled # tile mode: a scrolling background for the world + a hardware sprite on top
+
+    # Pixels the hero walks per frame while a direction is held. A setting rather than a
+    # plain number, so the same game can be built again with a quicker hero:
+    # `Hero.build_rom(settings: { speed: 3 })`.
+    speed = setting :speed, 2
 
     image :grass, "." => rgb(3, 18, 5), "'" => rgb(5, 24, 7) do
       <<~ART
@@ -411,23 +414,23 @@ module Hero
       # here knows the world is bigger than the screen. The world is a torus, so there's
       # no edge to bump into: keep going and it wraps.
       held(:left).then do
-        hero.move :left, by: SPEED
-        px.sub! SPEED
+        hero.move :left, by: speed
+        px.sub! speed
       end
       held(:right).then do
-        hero.move :right, by: SPEED
-        px.add! SPEED
+        hero.move :right, by: speed
+        px.add! speed
       end
       # Walking north takes you into the mist and south brings you back out of it. The
       # layer is see-through by whatever this holds, so the weather is one variable.
       held(:up).then do
-        hero.move :up, by: SPEED
-        py.sub! SPEED
+        hero.move :up, by: speed
+        py.sub! speed
         mist.add! MIST_PER_STEP
       end
       held(:down).then do
-        hero.move :down, by: SPEED
-        py.add! SPEED
+        hero.move :down, by: speed
+        py.add! speed
         mist.sub! MIST_PER_STEP
       end
       mist.clamp! 0, THICKEST

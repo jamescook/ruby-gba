@@ -22,3 +22,4 @@ require_relative "diagnostics/profiler" # ...and the measured half: where the fr
 require_relative "diagnostics/routine_profile"
 require_relative "diagnostics/playthrough" # a game driven with nobody at the controls, from a script
 require_relative "diagnostics/playthrough_tape" # ...and the presses it made, written down to play again
+require_relative "diagnostics/comparison" # two cartridges played side by side on the same presses

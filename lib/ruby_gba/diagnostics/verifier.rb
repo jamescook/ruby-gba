@@ -152,6 +152,22 @@ module RubyGBA
         end
       end
 
+      # Whether +other+, another running cartridge, is showing THE SAME PICTURE as this one:
+      # every pixel the same colour.
+      #
+      # It is one comparison of the two pictures as the emulator holds them, where comparing
+      # two {#frame_gba}s would be 38,400 comparisons of numbers. Two cartridges played side
+      # by side are asked this after every frame, so that is the difference between a
+      # comparison that takes seconds and one that takes minutes.
+      #
+      # It is the colours and nothing else. The emulator hands the picture over with
+      # nothing beside a pixel but its colour, so the same picture built by a different part
+      # of the display — a background where the other has a sprite — is the same picture.
+      def same_picture_as?(other) = picture! == other.picture_held
+
+      # The picture as the emulator holds it, for another reader to compare its own against.
+      protected def picture_held = picture!
+
       # Check if the entire screen is black (nothing rendered).
       def all_black?
         picture!.bytes.each_slice(4).all? { |r, g, b, _| r == 0 && g == 0 && b == 0 }
