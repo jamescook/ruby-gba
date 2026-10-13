@@ -10,6 +10,8 @@ module RubyGBA
       #
       #   first.png, second.png   the two screens where the two drifted
       #   difference.png          the first screen greyed, with every pixel that differs marked
+      #   side-by-side.png        the screens and the difference in one picture, left to right
+      #                           and bigger: the one to open first, and to send somebody
       #   report.txt              where the drift was, every named reading, the last second of
       #                           presses, what was compared and how alike it had to be
       #   a tape, or two          every press up to there
@@ -27,10 +29,8 @@ module RubyGBA
         FIRST_PICTURE = "first.png"
         SECOND_PICTURE = "second.png"
         DIFFERENCE = "difference.png"
+        SIDE_BY_SIDE = "side-by-side.png"
         TEXT = "report.txt"
-
-        # What a differing pixel is marked in: a colour a greyed screen cannot hold.
-        MARK = Graphics::Color.resolve(:magenta)
 
         # A SECOND OF PLAY, in frames: how far back the report says what was down.
         ONE_SECOND = 60
@@ -43,7 +43,7 @@ module RubyGBA
 
         # What can differ that is not a reading, as a report says it.
         WHAT_IS_NOT_A_READING = { PICTURE => "the picture", FRAMES_APART => "how many frames each cartridge took" }.freeze
-        private_constant :MARK, :ONE_SECOND, :WIDTH, :HEIGHT, :SIDES, :WHAT_IS_NOT_A_READING
+        private_constant :ONE_SECOND, :WIDTH, :HEIGHT, :SIDES, :WHAT_IS_NOT_A_READING
 
         # THE PLACE REPORTS GO, as its path, or nil for nowhere. It is looked at before a
         # frame is played, and nothing is made there: a comparison that finds no drift
@@ -81,15 +81,14 @@ module RubyGBA
         end
         private_class_method :refuse_non_path!, :refuse_unusable_place!
 
-        # +drift+ is where the two stopped being alike and +pictures+ their two screens
-        # there. +cartridges+ is the two that were played, +pixels_differing+ where in a
-        # picture the two differ (see Likeness#differing_places), and +settings+ the
-        # sentences that say what was compared and how alike the two had to be.
-        def initialize(drift, pictures, cartridges:, pixels_differing:, settings:)
+        # +drift+ is where the two stopped being alike and +screens+ their two screens
+        # there with where those differ, a ScreenPair. +cartridges+ is the two that were
+        # played, and +settings+ the sentences that say what was compared and how alike
+        # the two had to be.
+        def initialize(drift, screens, cartridges:, settings:)
           @drift = drift
-          @first, @second = pictures
+          @screens = screens
           @cartridges = cartridges
-          @pixels_differing = pixels_differing
           @settings = settings
         end
 
@@ -98,9 +97,10 @@ module RubyGBA
         def write_in(place)
           folder = File.join(place, folder_name)
           FileUtils.mkdir_p(folder)
-          write_picture(File.join(folder, FIRST_PICTURE), @first)
-          write_picture(File.join(folder, SECOND_PICTURE), @second)
-          write_picture(File.join(folder, DIFFERENCE), difference_picture)
+          write_picture(File.join(folder, FIRST_PICTURE), @screens.first)
+          write_picture(File.join(folder, SECOND_PICTURE), @screens.second)
+          write_picture(File.join(folder, DIFFERENCE), @screens.difference_screen)
+          @screens.write_side_by_side(File.join(folder, SIDE_BY_SIDE))
           write_tapes(folder)
           File.write(File.join(folder, TEXT), text)
           folder
@@ -112,19 +112,10 @@ module RubyGBA
 
         def write_picture(path, pixels) = Graphics::PNG.write(path, width: WIDTH, height: HEIGHT, pixels: pixels)
 
-        # The first screen with its colour taken out and dimmed, so it is only there to say
-        # where on the screen things are, and every pixel that differs in the mark's colour.
-        def difference_picture
-          marked = @first.map { |colour| greyed(colour) }
-          @pixels_differing.each { |at| marked[at] = MARK }
-          marked
-        end
-
-        # A colour as the grey of half its brightness. The console keeps five bits each of
-        # red, green and blue, lowest first.
-        def greyed(colour)
-          grey = ((colour & 31) + ((colour >> 5) & 31) + ((colour >> 10) & 31)) / 6
-          grey | (grey << 5) | (grey << 10)
+        # What the two pictures of the difference are, which every kind of report says alike.
+        def difference_lines
+          ["#{DIFFERENCE}: the first screen in grey, with each pixel that differed in magenta.",
+           "#{SIDE_BY_SIDE}: the two screens and the difference in one picture, left to right, at twice the console's size."]
         end
 
         # The text, of which each kind of report says the four parts about where the drift
@@ -132,7 +123,7 @@ module RubyGBA
         def text
           [
             *where_lines,
-            "The two screens differed in #{@pixels_differing.size} pixels there.",
+            "The two screens differed in #{@screens.differing.size} pixels there.",
             "",
             *readings_lines,
             "What was played",

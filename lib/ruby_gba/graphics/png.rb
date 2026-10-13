@@ -47,10 +47,12 @@ module RubyGBA
         refuse_wrong_size!(width, height, pixels, alpha)
         refuse_alpha_outside_byte!(alpha) if alpha
         rows = (+"").b
+        # A picture holds far fewer colours than pixels, so each is worked out the once.
+        channels = Hash.new { |known, colour| known[colour] = eight_bit_channels(colour) }
         pixels.each_slice(width).with_index do |row, y|
           rows << "\0" # this row is stored as it stands
           row.each_with_index do |colour, x|
-            rows << eight_bit_channels(colour)
+            rows << channels[colour]
             rows << [alpha[(y * width) + x]].pack("C") if alpha
           end
         end

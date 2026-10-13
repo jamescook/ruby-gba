@@ -139,7 +139,8 @@ class TestPlaythroughLeadIn < Minitest::Test
       ours, theirs = %w[first second].map { |side| Tape.read(File.join(folder, "#{side}-to-the-drift.tape")) }
       lines = File.read(File.join(folder, "report.txt")).lines.map(&:strip)
 
-      assert_equal %w[difference.png first-to-the-drift.tape first.png report.txt second-to-the-drift.tape second.png], Dir.children(folder).sort
+      assert_equal %w[difference.png first-to-the-drift.tape first.png report.txt second-to-the-drift.tape second.png side-by-side.png],
+                   Dir.children(folder).sort
       assert_equal [false, true], [ours, theirs].map(&:recorded_after_lead_in?)
       assert_equal ours.steps, theirs.steps
       refute ours.play(first).game.red?(0, 0)

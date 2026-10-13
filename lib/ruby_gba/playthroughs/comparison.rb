@@ -38,6 +38,10 @@ module RubyGBA
     # the picture, the readings, or both — is a list said where the comparison is made (see
     # Compared).
     #
+    # AND ONE FRAME OF THE TWO AS A PICTURE, for a person to look at: the two screens side by
+    # side with what differs marked (see ScreenPair). A report of a drift holds one, and one
+    # can be asked for by itself, of any frame (see PictureRequest).
+    #
     # +first+ and +second+ are the two cartridges.
     class Comparison
       # Where the two stopped being alike: the first frame of a stretch of differing frames
@@ -264,6 +268,42 @@ module RubyGBA
         raise e.after(pair.drifts)
       end
 
+      # THE SETTINGS OF A COMPARISON THAT A PICTURE OF ONE FRAME HAS A USE FOR, each meaning
+      # what it means of a comparison: the parts of the screen that are not looked at,
+      # which are never marked, and where the two cartridges start.
+      PICTURE_SETTINGS = %i[ignoring_rectangles save lead_ins].freeze
+
+      # The comparison that plays the two for a picture of one frame (see PictureRequest),
+      # which takes those settings and no others.
+      def self.for_picture(first, second, moments, **settings)
+        unknown = settings.keys - PICTURE_SETTINGS
+        return new(first, second, moments, **settings) if unknown.empty?
+
+        known = [:at, :difference, *PICTURE_SETTINGS].map { |name| "`#{name}:`" }.join(", ")
+        raise ArgumentError, "A side-by-side picture has no setting named #{unknown.map(&:inspect).join(' or ')}. " \
+                             "Its settings are #{known}."
+      end
+
+      # Play each cartridge on +tape+ as far as the frame +request+ asks for, a
+      # PictureRequest, and write the picture: their two screens on that frame and where
+      # the two differ. Nothing is compared on the way there. The path of the file is
+      # handed back.
+      def write_picture_of_tape(tape, request)
+        to_the_frame = tape.up_to(request.frame_on(tape))
+        request.write(screen_pair(starts.map { |start| start.played_by(start.tape_said(to_the_frame)).game.frame_gba }))
+      end
+
+      # The same of +playthrough+'s script, played on the first cartridge alone to learn its
+      # presses. A moment the script does not name is refused before that; a frame past
+      # its end cannot be, since how long a script plays is not known until it has.
+      def write_picture_of_playthrough(playthrough, request)
+        request.refuse_moment_not_among!(@moments)
+        write_picture_of_tape(starts.first.played_by(playthrough).tape, request)
+      end
+
+      # Two screens that were kept, with where they differ of the places that are looked at.
+      private def screen_pair(pictures) = ScreenPair.new(*pictures, @likeness.differing_places(*pictures))
+
       # Play +playthrough+'s script on each cartridge by itself, compare the two at each
       # named moment, and say what was found.
       def run_script(playthrough)
@@ -294,22 +334,20 @@ module RubyGBA
       # +pictures+ is the two screens on the frame it began. The tape is handed over once
       # for each cartridge, said to start the way that cartridge was started.
       private def drift_with_report(drift, pictures, tape)
-        report = DriftReport.new(drift, pictures, tapes: starts.map { |start| start.tape_said(tape) },
-                                                  **what_any_report_has(pictures, @compared.sentences + @ignored.sentences(tape)))
+        report = DriftReport.new(drift, screen_pair(pictures), tapes: starts.map { |start| start.tape_said(tape) },
+                                                               **what_any_report_has(@compared.sentences + @ignored.sentences(tape)))
         drift.with(report: report.write_in(@reports_in))
       end
 
       # The same of a drift at a moment. +reached+ is how each cartridge got there, and
       # +at_moments+ the sentences that say how the two were compared.
       private def drift_with_moment_report(drift, pictures, reached, at_moments)
-        report = MomentReport.new(drift, pictures, reached: reached,
-                                                   **what_any_report_has(pictures, @compared.sentences("A moment") + at_moments))
+        report = MomentReport.new(drift, screen_pair(pictures), reached: reached,
+                                                                **what_any_report_has(@compared.sentences("A moment") + at_moments))
         drift.with(report: report.write_in(@reports_in))
       end
 
-      private def what_any_report_has(pictures, settings)
-        { cartridges: cartridges, pixels_differing: @likeness.differing_places(*pictures), settings: settings + starting_sentences }
-      end
+      private def what_any_report_has(settings) = { cartridges: cartridges, settings: settings + starting_sentences }
 
       private def refuse_malformed_lead_ins!(given)
         return if given.nil?

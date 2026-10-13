@@ -15,6 +15,8 @@ require_relative "playthroughs/comparison_ignored_frames" # ...and the stretches
 require_relative "playthroughs/comparison_readings" # ...and the numbers it reads off both and compares by name
 require_relative "playthroughs/comparison_compared" # ...and the list of what it compares: the picture, the readings
 require_relative "playthroughs/comparison_at_moments" # ...and the other way to compare: the same script on each
+require_relative "playthroughs/comparison_screen_pair" # ...and the two screens of one frame, as pictures to look at
+require_relative "playthroughs/comparison_picture_request" # ......one of which can be asked for by itself, for any frame
 require_relative "playthroughs/comparison_report" # ...and the folder it writes for a drift it finds
 require_relative "playthroughs/comparison_drift_report" # ......of a drift on a frame, on the same tape
 require_relative "playthroughs/comparison_moment_report" # ......and of a drift at a moment, on the same script

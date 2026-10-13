@@ -158,6 +158,23 @@ module RubyGBA
         Comparison.new(first, second, moments.keys, **settings).run(self)
       end
 
+      # WRITE ONE PICTURE OF ONE FRAME ON TWO CARTRIDGES at +path+: the tape played on
+      # +first+ and on +second+ as far as the frame +at+, and their two screens there side
+      # by side with the difference between them (see Comparison::PictureRequest). +at+ is
+      # the frame, by its number or by the name of a moment, and +difference+ whether the
+      # picture marks where the two differ. +settings+ are the ones of a comparison that a
+      # picture has a use for (see Comparison::PICTURE_SETTINGS). The path is handed back.
+      #
+      # A tape recorded from a save or after a lead-in is given them here, as it is for a
+      # comparison.
+      def write_side_by_side_picture(first, second, path, at: nil, difference: true, **settings)
+        refuse_missing_save!(settings[:save], "tape.write_side_by_side_picture(first, second, path, at: ..., save: ...)")
+        refuse_missing_lead_in!(Array(settings[:lead_ins]).compact.first,
+                                "tape.write_side_by_side_picture(first, second, path, at: ..., lead_ins: [..., ...])")
+        request = Comparison::PictureRequest.new(path, at: at, difference: difference)
+        Comparison.for_picture(first, second, moments.keys, **settings).write_picture_of_tape(self, request)
+      end
+
       # The settings that only mean something of a script played on each cartridge by
       # itself. They are refused here, as a tape's own mistake, before the comparison
       # reads the rest and says something about a script that is not there.

@@ -22,8 +22,8 @@ module RubyGBA
         FIRST_TAPE = "first-to-the-drift.tape"
         SECOND_TAPE = "second-to-the-drift.tape"
 
-        def initialize(drift, pictures, tapes:, **what_any_report_has)
-          super(drift, pictures, **what_any_report_has)
+        def initialize(drift, screens, tapes:, **what_any_report_has)
+          super(drift, screens, **what_any_report_has)
           @tapes = tapes
           @tape = tapes.first
         end
@@ -49,7 +49,7 @@ module RubyGBA
 
         def contents_lines
           ["#{FIRST_PICTURE} and #{SECOND_PICTURE}: the two screens on frame #{@drift.frame}.",
-           "#{DIFFERENCE}: the first screen in grey, with each pixel that differed in magenta.",
+           *difference_lines,
            tapes_line]
         end
 

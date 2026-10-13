@@ -22,8 +22,8 @@ module RubyGBA
         # it was on when it got there.
         Reached = Data.define(:tape, :frame)
 
-        def initialize(drift, pictures, reached:, **what_any_report_has)
-          super(drift, pictures, **what_any_report_has)
+        def initialize(drift, screens, reached:, **what_any_report_has)
+          super(drift, screens, **what_any_report_has)
           @reached = reached
         end
 
@@ -55,7 +55,7 @@ module RubyGBA
 
         def contents_lines
           ["#{FIRST_PICTURE} and #{SECOND_PICTURE}: the two screens at the moment #{@drift.moment}.",
-           "#{DIFFERENCE}: the first screen in grey, with each pixel that differed in magenta.",
+           *difference_lines,
            "#{FIRST_TAPE} and #{SECOND_TAPE}: every press each cartridge was given up to that moment. " \
            "Play each on its own cartridge to be at that moment again."]
         end

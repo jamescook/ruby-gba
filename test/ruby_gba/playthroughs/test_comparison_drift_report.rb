@@ -49,7 +49,27 @@ class TestComparisonDriftReport < Minitest::Test
       assert_operator on, :<, 100, "so its number is two digits, and the folder's name pads it to six"
       assert_equal File.join(reports, "frame-0000#{on}"), result.drift.report
       assert_equal [File.basename(result.drift.report)], Dir.children(reports)
-      assert_equal %w[difference.png first.png report.txt second.png to-the-drift.tape], Dir.children(result.drift.report).sort
+      assert_equal %w[difference.png first.png report.txt second.png side-by-side.png to-the-drift.tape],
+                   Dir.children(result.drift.report).sort
+    end
+  end
+
+  # THE FOLDER HOLDS ONE PICTURE OF IT ALL, the two screens and the difference side by side,
+  # and it is the picture anybody gets who asks for that frame by itself — with a part of
+  # the screen left out too, where the two have to agree about what is marked.
+  def test_the_side_by_side_picture_is_the_one_asked_for_by_itself
+    first = plain
+    second = turning
+    left_out = { ignoring_rectangles: [[0, 0, 240, 80]] }
+
+    with_report(first, second, **left_out) do |result, reports|
+      by_itself = File.join(reports, "by-itself.png")
+      walk_right.write_side_by_side_picture(first, second, by_itself, at: result.drift.frame, **left_out)
+      in_the_report = File.binread(File.join(result.drift.report, "side-by-side.png"))
+
+      assert_equal [(3 * 480) + 16, 320], png_size(in_the_report)
+      assert in_the_report == File.binread(by_itself), "the two files are the same picture"
+      assert_includes File.read(File.join(result.drift.report, "report.txt")), "side-by-side.png: "
     end
   end
 

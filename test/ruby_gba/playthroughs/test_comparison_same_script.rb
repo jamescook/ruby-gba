@@ -3,6 +3,7 @@
 require "test_helper"
 require "tmpdir"
 require "comparison_games"
+require "png_reading"
 
 # THE SAME SCRIPT ON EACH CARTRIDGE, in place of the same tape on both. Each cartridge is
 # played by the script on its own, so each stops walking when ITS box is where the script
@@ -13,6 +14,7 @@ require "comparison_games"
 # to the same place on each, which takes the quick one half as many frames.
 class TestComparisonSameScript < Minitest::Test
   include ComparisonGames
+  include PNGReading
 
   private def quick(**changes) = walker(speed: 4, **changes)
 
@@ -197,7 +199,9 @@ class TestComparisonSameScript < Minitest::Test
       tapes = %w[first second].map { |side| RubyGBA::Playthroughs::Tape.read(File.join(folder, "#{side}-to-the-moment.tape")) }
 
       assert_equal File.join(somewhere, "moment-arrived"), folder
-      assert_equal %w[difference.png first-to-the-moment.tape first.png report.txt second-to-the-moment.tape second.png], Dir.children(folder).sort
+      assert_equal %w[difference.png first-to-the-moment.tape first.png report.txt second-to-the-moment.tape second.png side-by-side.png],
+                   Dir.children(folder).sort
+      assert_includes lines, "side-by-side.png: the two screens and the difference in one picture, left to right, at twice the console's size."
       assert_equal [ours, theirs], tapes.map(&:frames)
       assert_equal [60, 60], [first, second].zip(tapes).map { |cartridge, tape| tape.play(cartridge).game.var(:x) }, "each tape walks its own cartridge there"
       assert_includes lines, "The two cartridges drifted at the moment arrived."
@@ -208,6 +212,25 @@ class TestComparisonSameScript < Minitest::Test
       assert_includes lines, "A moment differed when one of the pixels was a different colour."
       assert_includes lines, "The limit on how far apart the two reached a moment was 20 frames."
       assert_includes lines, "The presses of the last second on the second cartridge"
+    end
+  end
+
+  # THE FOLDER'S ONE PICTURE OF IT ALL HOLDS THE TWO SCREENS AT THE MOMENT, each as its own
+  # cartridge reached it: its left panel is first.png and its middle one second.png, at
+  # twice the size. A panel starts 488 pixels after the one before, 480 of screen and a
+  # strip of 8.
+  def test_the_side_by_side_picture_of_a_moment_holds_both_screens_there
+    Dir.mktmpdir("drift") do |somewhere|
+      folder = walk_to_sixty.compare(walker, quick(turns_red_at: 15), same: :script, reports_in: somewhere).drift.report
+      side_by_side = File.binread(File.join(folder, "side-by-side.png"))
+      rows = png_pixels(side_by_side).each_slice(png_size(side_by_side).first).to_a
+
+      assert_equal [(3 * 480) + 16, 320], png_size(side_by_side)
+      { "first.png" => 0, "second.png" => 488 }.each do |picture, left|
+        panel = (0...160).flat_map { |y| (0...240).map { |x| rows[2 * y][left + (2 * x)] } }
+
+        assert panel == png_pixels(File.binread(File.join(folder, picture))), "#{picture} is a panel of it"
+      end
     end
   end
 

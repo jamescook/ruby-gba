@@ -101,6 +101,18 @@ module RubyGBA
       # compare them at each named moment.
       def compare(first, second, **settings) = Comparison.new(first, second, moment_names, **settings).run_playthrough(self)
 
+      # WRITE ONE PICTURE OF ONE FRAME ON TWO CARTRIDGES at +path+: their two screens on
+      # that frame side by side, with the difference between them. The script is played on
+      # +first+ to learn its presses, as it is for a comparison, and both are then played on
+      # those as far as the frame (see Comparison::PictureRequest). +at+ is the frame, by
+      # its number or by the name of a moment, and +difference+ whether the picture marks
+      # where the two differ. +settings+ are the ones of a comparison that a picture has a
+      # use for (see Comparison::PICTURE_SETTINGS). The path is handed back.
+      def write_side_by_side_picture(first, second, path, at: nil, difference: true, **settings)
+        request = Comparison::PictureRequest.new(path, at: at, difference: difference)
+        Comparison.for_picture(first, second, moment_names, **settings).write_picture_of_playthrough(self, request)
+      end
+
       # The names of the moments the script declares, in the order it declares them.
       def moment_names = @steps.flat_map(&:names)
 

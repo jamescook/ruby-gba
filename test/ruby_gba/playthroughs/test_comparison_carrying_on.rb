@@ -237,7 +237,7 @@ class TestComparisonCarryingOn < Minitest::Test
       assert_equal ["frame-0000#{late_on.first}", "frame-0000#{red_on.first}"], Dir.children(somewhere).sort
       assert_equal Dir.children(somewhere).sort, [of_the_reading, of_the_ground].map { |folder| File.basename(folder) }
       result.drifts.each do |drift|
-        assert_equal %w[difference.png first.png report.txt second.png to-the-drift.tape], Dir.children(drift.report).sort
+        assert_equal %w[difference.png first.png report.txt second.png side-by-side.png to-the-drift.tape], Dir.children(drift.report).sort
         assert_equal drift.frame, RubyGBA::Playthroughs::Tape.read(File.join(drift.report, "to-the-drift.tape")).frames
       end
       assert_equal [BLUE, RED], [of_the_reading, of_the_ground].map { |folder| png_pixels(File.binread(File.join(folder, "second.png"))).first }
