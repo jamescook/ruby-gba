@@ -38,6 +38,20 @@ class TestRubyGBAEmulatorCore < Minitest::Test
     core.destroy
   end
 
+  # The fourth byte of a pixel is not colour. The renderer keeps notes of its own there —
+  # which layer drew the pixel — and they would make two pictures of the same colours
+  # compare unequal, so the picture is handed over with that byte empty.
+  def test_the_fourth_byte_of_every_pixel_is_empty
+    core = RubyGBAEmulator::Core.new(red_rom)
+    6.times { core.run_frame }
+    words = core.video_buffer.unpack("V*")
+
+    assert_equal [0x0000F8], words.uniq.map { |word| word & 0xF8F8F8 }, "the screen is red"
+    assert_equal [0], words.map { |word| word >> 24 }.uniq
+  ensure
+    core&.destroy
+  end
+
   def test_bus_reads_see_the_display_control_register
     core = RubyGBAEmulator::Core.new(red_rom)
     6.times { core.run_frame }

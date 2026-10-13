@@ -632,12 +632,28 @@ mgba_core_complaints(VALUE self)
 /* Core#video_buffer                                         */
 /* --------------------------------------------------------- */
 
+/* The picture as XBGR8, four bytes a pixel, with the fourth byte of
+ * every pixel zero.
+ *
+ * That byte is not colour and is not always empty: mGBA's software
+ * renderer keeps its own notes there while it composes a line — which
+ * layer drew the pixel, at what priority, whether it is a blend
+ * target — and they are still there when the line is finished. Left
+ * in, two pictures of exactly the same colours compare unequal because
+ * one was drawn by a background and the other by a sprite. Cleared,
+ * the bytes are the same exactly when the picture is. */
 static VALUE
 mgba_core_video_buffer(VALUE self)
 {
     struct mgba_core *mc = get_mgba_core(self);
-    long size = (long)mc->width * mc->height * (long)sizeof(color_t);
-    return rb_str_new((const char *)mc->video_buffer, size);
+    long npixels = (long)mc->width * mc->height;
+    VALUE str = rb_str_new(NULL, npixels * (long)sizeof(uint32_t));
+    uint32_t *dst = (uint32_t *)RSTRING_PTR(str);
+    const uint32_t *src = (const uint32_t *)mc->video_buffer;
+
+    for (long i = 0; i < npixels; i++)
+        dst[i] = src[i] & 0x00FFFFFF;
+    return str;
 }
 
 /* --------------------------------------------------------- */

@@ -43,7 +43,8 @@ module RubyGBAEmulator
 
   class Probe
     # Native pixels are 4 bytes each: byte 0 = red, 1 = green, 2 = blue,
-    # 3 = unused padding (mGBA's XBGR8 color_t, little-endian).
+    # 3 = padding, always nought (mGBA's XBGR8 color_t, little-endian) — so two frames
+    # are the same bytes exactly when they are the same colours.
     BYTES_PER_PIXEL = 4
 
     attr_reader :width, :height, :frames_run
