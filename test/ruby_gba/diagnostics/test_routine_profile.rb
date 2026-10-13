@@ -8,6 +8,8 @@ require "tmpdir"
 # is right for ranking and wrong as a part of any one frame, so it also keeps the busiest
 # scene's own reading.
 class TestRoutineProfile < Minitest::Test
+  runs_on :reference
+
   RoutineProfile = RubyGBA::Diagnostics::RoutineProfile
   Line = RubyGBA::Diagnostics::Profiler::Line
 

@@ -8,6 +8,8 @@ require "comparison_games"
 # writing them somewhere nobody named — a folder of its own beside whatever ran it — so the
 # test plays one from inside an empty folder and looks at what is in it afterwards.
 class TestPlaythroughWritesNoFile < Minitest::Test
+  runs_on :reference
+
   include ComparisonGames
 
   # It moves the whole process into another folder while it plays, which every other test

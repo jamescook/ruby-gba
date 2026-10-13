@@ -13,6 +13,8 @@ require "comparison_games"
 # The cartridges are the walker, and a walker that shows a black screen for some frames
 # before its game begins.
 class TestPlaythroughLeadIn < Minitest::Test
+  runs_on :reference
+
   include ComparisonGames
 
   Tape = RubyGBA::Playthroughs::Tape

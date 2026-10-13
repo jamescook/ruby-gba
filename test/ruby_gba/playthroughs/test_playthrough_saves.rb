@@ -15,6 +15,8 @@ require_relative "../../../examples/hero"
 # into the file that was picked, and the file screen shows how many steps each file holds
 # without loading it — the game's variable `shown0` is the first file's.
 class TestPlaythroughSaves < Minitest::Test
+  runs_on :reference
+
   private def hero = Hero.build_rom(out: StringIO.new, err: StringIO.new, profile: false)
 
   # FILE 1, NEW GAME, RIGHT held for +steps+ frames — a step a frame — and START to save.

@@ -13,6 +13,8 @@ require "png_reading"
 # The cartridges are the walker and a walker whose ground is red for a few frames, found by
 # playing that walker on its own.
 class TestComparisonCarryingOn < Minitest::Test
+  runs_on :reference
+
   include ComparisonGames
   include PNGReading
 
