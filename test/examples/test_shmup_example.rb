@@ -18,9 +18,6 @@ class TestShmupExample < Minitest::Test
 
   include Differential
 
-  # Why a test that watches the game frame by frame is not played as C.
-  READS_EVERY_FRAME = "it reads the game at every frame (each_vblank), which the native player cannot answer yet"
-
   CYAN = Color.resolve(:cyan)       # the ship (player.rb)
   RED = Color.resolve(:red)         # an enemy (enemies.rb) / the GAME OVER banner
   WHITE = Color.resolve(:white)     # the HUD text (hud.rb)

@@ -17,10 +17,12 @@ class TestDivePicture < Minitest::Test
 
   # The title for forty frames, START, then down all the way. START is tapped again well after
   # the air has gone, to begin another dive, and the diver swims left in it.
+  TITLE_FRAMES = 40
   DIVING = (44..700)
   RUN = Ractor.make_shareable(
     NativeComparison.held_for([DIVING, :down], [741..760, :left])
-                    .merge(41 => [:start], 42 => [:start], 720 => [:start], 730 => [:start], 740 => [:start])
+                    .merge(TITLE_FRAMES + 1 => [:start], TITLE_FRAMES + 2 => [:start],
+                           720 => [:start], 730 => [:start], 740 => [:start])
   )
   FRAMES = 760
 
@@ -33,7 +35,7 @@ class TestDivePicture < Minitest::Test
 
     assert_native_matches_reference program, frames: FRAMES, buttons: RUN, played: moments
 
-    assert_equal Dive::TITLE, moments[38].variables[:state], "the title should have had its forty frames"
+    assert_equal Dive::TITLE, moments[TITLE_FRAMES - 2].variables[:state], "the title should have had its forty frames"
     assert(moments.any? { |moment| moment.variables[:blacking_out] == 1 }, "the air should have run out and the world gone dark")
     assert(moments.any? { |moment| moment.variables[:state] == Dive::OVER }, "and the dive ended")
     assert_equal Dive::PLAY, moments.last.variables[:state], "and START should have begun another"

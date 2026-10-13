@@ -222,6 +222,11 @@ class Minitest::Test # rubocop:disable Style/ClassAndModuleChildren
     skip "native cannot play this yet: #{why}" if TestSuites.native?
   end
 
+  # Two things tests ask of the interpreter that the native player cannot answer yet, said in
+  # one place so a native run counts every test waiting on each of them together.
+  READS_EVERY_FRAME = "it reads the game at every frame (each_vblank), which the native player cannot answer yet"
+  ASKS_WHICH_SPRITE = "it asks where a named sprite was drawn (sprites), which the native player cannot answer yet"
+
   # EVERY FIXTURE A TEST CLASS PARKS IN A CONSTANT IS FROZEN, ALL THE WAY DOWN, the moment it
   # is declared. Ruby tells a class when a constant is added to it, so there is nothing to
   # remember and nothing to repeat: this is the whole rule, in one place.

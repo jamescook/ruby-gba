@@ -17,11 +17,10 @@ class TestDiveExample < Minitest::Test
   include Differential
   include RubyGBA::Console::Hardware # REG_DISPCNT
 
-  # Why a test here is not played as C. Every one that plays the game either watches it frame
-  # by frame or asks where a sprite was drawn, so on a native run this file plays none of them;
-  # the game as C is checked on every frame of a recorded run instead (test_dive_picture.rb).
-  READS_EVERY_FRAME = "it reads the game at every frame (each_vblank), which the native player cannot answer yet"
-  ASKS_WHICH_SPRITE = "it asks where a named sprite was drawn (sprites), which the native player cannot answer yet"
+  # Every test here that plays the game either watches it frame by frame or asks where a sprite
+  # was drawn, so on a native run this file plays none of them (see READS_EVERY_FRAME and
+  # ASKS_WHICH_SPRITE). The game as C is checked on every frame of a recorded run instead, in
+  # test_dive_picture.rb.
 
   # Which of the console's arrangements is in force sits in the low three bits of its
   # display register, and which background layers are switched on in the byte above.
@@ -197,7 +196,7 @@ class TestDiveExample < Minitest::Test
   # is visible, and it is visibly UNDER water rather than drawn plain over it.
   def test_the_diver_swims_behind_the_water_and_shows_through_it
     skip_on_native ASKS_WHICH_SPRITE
-    i =swimming_down_for(START_AT + 30)
+    i = swimming_down_for(START_AT + 30)
     drawn = i.sprites(:diver).first
     refute_nil drawn, "the diver is not being drawn at all"
 
@@ -372,7 +371,7 @@ class TestDiveExample < Minitest::Test
   # picture rather than six.
   def test_the_fish_wear_their_own_colours
     skip_on_native ASKS_WHICH_SPRITE
-    i =swimming_down_for(START_AT + 30)
+    i = swimming_down_for(START_AT + 30)
     seen = i.sprites(:fish).filter_map { |f| i.screen.pixel(f.x + FLANK_ACROSS, f.y + FLANK_DOWN) }
 
     assert_operator seen.length, :>=, SPECIES, "not every fish is being drawn"
