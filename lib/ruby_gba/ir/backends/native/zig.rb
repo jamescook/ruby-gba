@@ -180,16 +180,35 @@ module RubyGBA
             Dir.mktmpdir("ruby-gba-run") do |dir|
               fed, printed, complained = %w[fed printed complained].map { |name| File.join(dir, name) }
               File.binwrite(fed, input)
-              pid = Process.spawn(env, exe, *args.map(&:to_s), in: fed, out: printed, err: complained)
+              pid = Process.spawn(env, exe, *args.map(&:to_s), in: fed, out: printed, err: complained,
+                                                               rlimit_fsize: MOST_PRINTED_BYTES)
               waiter = Process.detach(pid)
-              finished = waiter.join(seconds)
-              Process.kill(:KILL, pid) unless finished
+              begin
+                finished = waiter.join(seconds)
+              ensure
+                # Stopped on every way out that leaves it running: out of time, or this thread
+                # interrupted while it waited. The folder it prints into goes when this returns.
+                stop_program(pid) if waiter.alive?
+              end
               status = waiter.value
               raise Error, "#{File.basename(exe)} was still running after #{seconds} seconds, and was stopped" unless finished
               raise Error, "#{File.basename(exe)} stopped (#{status}):\n#{File.read(complained)}" unless status.success?
 
               File.read(printed)
             end
+          end
+
+          # The most a program run by #run_program may print before the system stops it. What it
+          # prints is kept in a file, and a game stuck in a loop that prints on every pass would
+          # otherwise fill the disk for as long as it is given. A long run that prints every
+          # frame's picture comes to a small part of this.
+          MOST_PRINTED_BYTES = 2 * 1024 * 1024 * 1024
+
+          # Ends a program that may already have ended.
+          def stop_program(pid)
+            Process.kill(:KILL, pid)
+          rescue Errno::ESRCH
+            nil
           end
 
           # The installed zig's version, refusing one this backend was not written against.
