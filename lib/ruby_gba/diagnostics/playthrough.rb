@@ -79,10 +79,10 @@ module RubyGBA
       # (see Comparison). They are read before the script is played, so one that makes no
       # sense does not cost a playing to find — a stretch that names a moment included,
       # since a script says its moments where it is declared.
-      def compare(first, second, **settings)
-        comparison = Comparison.new(first, second, moment_names, **settings)
-        comparison.run(play(comparison.first).tape)
-      end
+      #
+      # Or, asked for `same: :script`, play the script on each of the two by itself and
+      # compare them at each named moment.
+      def compare(first, second, **settings) = Comparison.new(first, second, moment_names, **settings).run_playthrough(self)
 
       # The names of the moments the script declares, in the order it declares them.
       def moment_names = @steps.flat_map(&:names)

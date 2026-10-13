@@ -28,6 +28,11 @@ module RubyGBA
     # not, `carrying_on: true` plays to the end and `result.drifts` lists every stretch of
     # drift, which says whether the two came back into step.
     #
+    # OR THE SAME SCRIPT ON EACH, asked for with `same: :script`: each cartridge played by
+    # the script on its own, and the two compared at each named moment (see AtMoments).
+    # That forgives timing, and finds a game that looks different where the same tape finds
+    # one that is a frame late.
+    #
     # AND NAMED READINGS, where it is given any: numbers read off both running cartridges
     # after every frame, each its own way (see Readings). Which of the two is compared —
     # the picture, the readings, or both — is a list said where the comparison is made (see
@@ -38,7 +43,11 @@ module RubyGBA
       # Where the two stopped being alike: the first frame of a stretch of differing frames
       # long enough to count. +moment+ is the last moment named before that frame was played,
       # for a person to place the frame by: nil when none had been. A moment that names the
-      # very frame is not before it. +differed+ is what differed for long enough to count
+      # very frame is not before it.
+      #
+      # (A comparison on the same script has no frame the two share, and finds its drifts
+      # AT moments. There +moment+ is the moment the two differed at, +frame+ the frame the
+      # first cartridge reached it on, and a drift has no last frame, being one point.) +differed+ is what differed for long enough to count
       # while the drift lasted, in the order each began to: `:picture`, and the name of
       # each reading that did. +readings+ is every named reading on both cartridges on the
       # frame it began, whether it differed or not — each name with its pair of values,
@@ -67,7 +76,12 @@ module RubyGBA
       # What a comparison found. +frames+ is how many frames were played, and +drifts+ every
       # stretch of drift that was found, in the order they happened: none when the two
       # never differed, and one at most unless the comparison was asked to carry on.
-      Result = Data.define(:frames, :drifts) do
+      #
+      # +moments+ is the frame each cartridge reached each named moment on: each name with
+      # the first cartridge's frame and the second's. On the same tape those are the same
+      # frame, and only the moments reached before the comparison stopped are there. On
+      # the same script they are how long each took, and +frames+ is the first cartridge's.
+      Result = Data.define(:frames, :moments, :drifts) do
         def drift? = drifts.any?
 
         # Where the two FIRST stopped being alike — nil when they never did.
@@ -75,8 +89,10 @@ module RubyGBA
       end
 
       # What the picture is called wherever what differed is listed, beside the names of
-      # the readings.
+      # the readings — and what a difference in how long the two took to reach a moment is
+      # called there, for a comparison on the same script. No reading can have either name.
       PICTURE = :picture
+      FRAMES_APART = :frames_apart
 
       # A READING'S OWN BLOCK STOPPED WITH AN ERROR, part way through the playing. The
       # message says which reading and which cartridge; the block's own error is its cause.
@@ -91,11 +107,12 @@ module RubyGBA
       class ReportNotWritten < StandardError
         attr_reader :drift, :earlier
 
-        def initialize(drift, folder, why)
+        # +where+ is the sentence that says where the drift was, as its report would have.
+        def initialize(drift, where, folder, why)
           @drift = drift
           @earlier = []
-          super("The two cartridges drifted on frame #{drift.frame}. The report of that drift could not be written " \
-                "in #{folder}: #{why}. Give `reports_in:` the path of a folder that can be written to.")
+          super("#{where} The report of that drift could not be written in #{folder}: #{why}. " \
+                "Give `reports_in:` the path of a folder that can be written to.")
         end
 
         # The same error, holding the drifts found before the one it is about.
@@ -111,17 +128,36 @@ module RubyGBA
       # first drift and list every stretch of it. +reports_in+ is a folder to write a
       # report of each drift into (see DriftReport), or nil for none. All of it is read
       # here, so a setting that makes no sense is refused before a frame is played.
+      #
+      # +same+ says how the second cartridge is fed: `:tape`, the same presses on the same
+      # frames as the first, or `:script`, the same script playing each by itself (see
+      # AtMoments). +frames_apart+ is for the same script only: how many frames apart the
+      # two may reach a moment, nil for not checked.
       def initialize(first, second, moments, ignoring_frames: [], readings: {}, comparing: nil, carrying_on: false,
-                     reports_in: nil, **how_alike)
+                     same: :tape, frames_apart: nil, reports_in: nil, **how_alike)
         refuse_unknown_settings!(how_alike.keys)
+        @moments = moments
         @ignored = IgnoredFrames.new(ignoring_frames, moments)
         @likeness = Likeness.new(**how_alike)
         @readings = Readings.new(readings)
         @compared = Compared.new(comparing, @likeness, @readings)
         refuse_non_boolean_carrying_on!(carrying_on)
         @carrying_on = carrying_on
-        @reports_in = DriftReport.place_for(reports_in)
+        @same = same
+        @frames_apart = frames_apart
+        @reports_in = Report.place_for(reports_in)
+        refuse_settings_wrong_for_same!(how_alike)
         @handed_over = [first, second]
+      end
+
+      # Whether each cartridge is played by the script on its own.
+      def same_script? = @same == :script
+
+      # Compare the two on +playthrough+, the way that was asked for: its script played on
+      # the first cartridge to learn the presses and both then played on those, or its
+      # script played on each by itself.
+      def run_playthrough(playthrough)
+        same_script? ? run_script(playthrough) : run(playthrough.play(first).tape)
       end
 
       # THE TWO CARTRIDGES, each one the build made or a cartridge file read from its path.
@@ -145,27 +181,150 @@ module RubyGBA
         consoles = cartridges.map { |cartridge| Playthrough.power_on(cartridge) }
         reporter = ->(drift, pictures) { drift_with_report(drift, pictures, tape) } if @reports_in
         pair = SideBySide.new(*consoles, @compared, ignored, carrying_on: @carrying_on, reporter: reporter)
+        # A pair that has stopped plays no more frames, and is still told a moment that
+        # names the very frame it stopped on: that one it reached. +due+ is the frame the
+        # tape is on after each step, so a step is past where the pair stopped when it is
+        # due later than the pair has played — a moment after a hold that was cut short
+        # included.
+        due = 0
         tape.steps.each do |step|
+          due += step.frames
+          break if pair.stopped? && due > pair.frames
+
           step.play(pair)
-          break if pair.stopped?
         end
         pair.end_playing
-        Result.new(frames: pair.frames, drifts: pair.drifts)
+        Result.new(frames: pair.frames, moments: pair.moments, drifts: pair.drifts)
       rescue ReportNotWritten => e
         raise e.after(pair.drifts)
+      end
+
+      # Play +playthrough+'s script on each cartridge by itself, compare the two at each
+      # named moment, and say what was found.
+      def run_script(playthrough)
+        at_moments = AtMoments.new(sides_played_by(playthrough), compared: @compared, frames_apart: @frames_apart,
+                                                                 left_out: @ignored.moments_left_out(@moments))
+        drifts = []
+        at_moments.each_drift do |drift, pictures, reached|
+          drifts << (@reports_in ? drift_with_moment_report(drift, pictures, reached, at_moments.sentences) : drift)
+          break unless @carrying_on
+        end
+        Result.new(frames: at_moments.first_frames, moments: at_moments.moments, drifts: drifts)
+      rescue ReportNotWritten => e
+        raise e.after(drifts)
+      end
+
+      # Each cartridge played by the script on its own, the first and then the second.
+      # Every reading is read at each moment as the cartridge reaches it, since by the end
+      # of the playing it has moved on. A script that gives up says which cartridge it
+      # gave up on: its own error has no way to know there were two.
+      private def sides_played_by(playthrough)
+        cartridges.zip(%w[first second]).each_with_index.map do |(cartridge, which), side|
+          readings = {}
+          played = playthrough.play(cartridge) { |moment, game| readings[moment] = @readings.values_from(game, side) }
+          AtMoments::Side.new(played: played, readings: readings)
+        rescue Playthrough::GaveUp => e
+          raise e.exception("On the #{which} cartridge of the comparison: #{e.message}")
+        end
       end
 
       # A drift with its report written, and the folder it went into noted on it.
       # +pictures+ is the two screens on the frame it began.
       private def drift_with_report(drift, pictures, tape)
-        report = DriftReport.new(drift, pictures, tape: tape, cartridges: cartridges,
-                                                  pixels_differing: @likeness.differing_places(*pictures),
-                                                  settings: @compared.sentences + @ignored.sentences(tape))
+        report = DriftReport.new(drift, pictures, tape: tape, **what_any_report_has(pictures, @compared.sentences + @ignored.sentences(tape)))
         drift.with(report: report.write_in(@reports_in))
       end
 
+      # The same of a drift at a moment. +reached+ is how each cartridge got there, and
+      # +at_moments+ the sentences that say how the two were compared.
+      private def drift_with_moment_report(drift, pictures, reached, at_moments)
+        report = MomentReport.new(drift, pictures, reached: reached,
+                                                   **what_any_report_has(pictures, @compared.sentences("A moment") + at_moments))
+        drift.with(report: report.write_in(@reports_in))
+      end
+
+      private def what_any_report_has(pictures, settings)
+        { cartridges: cartridges, pixels_differing: @likeness.differing_places(*pictures), settings: settings }
+      end
+
       # Every setting a comparison has: the ones that say how alike, and the ones of its own.
-      def self.settings = [*Likeness::SETTINGS, :ignoring_frames, :readings, :comparing, :carrying_on, :reports_in]
+      def self.settings
+        [*Likeness::SETTINGS, :ignoring_frames, :readings, :comparing, :carrying_on, :same, :frames_apart, :reports_in]
+      end
+
+      # What the two ways of feeding the second cartridge each make no sense with. On the
+      # same script there is no frame the two share, so nothing can be said in frames in a
+      # row or in frame numbers; and with no moment named there is nowhere to compare. On
+      # the same tape the two are always on the same frame, so they cannot be frames apart.
+      private def refuse_settings_wrong_for_same!(how_alike)
+        unless %i[tape script].include?(@same)
+          raise ArgumentError, "`same:` was #{@same.inspect}. It must be `:tape` or `:script`. `:tape` gives both cartridges " \
+                               "the same presses on the same frames. `:script` plays the script on each cartridge by itself."
+        end
+        return refuse_frames_apart_on_tape! unless same_script?
+
+        refuse_invalid_frames_apart!
+        refuse_script_with_no_moment!
+        refuse_frame_counts_on_script!(how_alike)
+        refuse_every_moment_left_out!
+        refuse_moments_sharing_one_folder! if @reports_in
+      end
+
+      # Leaving out every moment leaves nowhere to compare, the same as naming none, and
+      # would find no drift whatever the two cartridges did.
+      private def refuse_every_moment_left_out!
+        return unless (@moments - @ignored.moments_left_out(@moments)).empty?
+
+        raise ArgumentError, "`ignoring_frames:` leaves out every moment the script names, and the comparison is on the same " \
+                             "script. The two cartridges are compared at each named moment, so there is nowhere left to " \
+                             "compare them. Leave out fewer moments."
+      end
+
+      # A drift at a moment is reported in a folder named for the moment, and many disks do
+      # not tell a capital letter from a small one: there, two moments that differ only in
+      # their capitals are one folder, and the second report would be written over the first.
+      private def refuse_moments_sharing_one_folder!
+        first, second = @moments.group_by { |name| name.to_s.downcase }.values.find { |alike| alike.size > 1 }
+        return unless first
+
+        raise ArgumentError, "The moments #{first.inspect} and #{second.inspect} differ only in their capital letters. " \
+                             "Their reports would be the same folder on a disk that does not tell capital letters from " \
+                             "small letters. To write reports, give one of the two moments a different name."
+      end
+
+      private def refuse_frames_apart_on_tape!
+        return if @frames_apart.nil?
+
+        raise ArgumentError, "`frames_apart:` was given, and the comparison is on the same tape. On the same tape the two " \
+                             "cartridges are always on the same frame. To use `frames_apart:`, give `same: :script` too."
+      end
+
+      private def refuse_invalid_frames_apart!
+        return if @frames_apart.nil? || (@frames_apart.is_a?(Integer) && !@frames_apart.negative?)
+
+        raise ArgumentError, "`frames_apart:` was #{@frames_apart.inspect}. It must be a whole number, 0 or more. It is how " \
+                             "many frames apart the two cartridges can reach a moment."
+      end
+
+      private def refuse_script_with_no_moment!
+        return if @moments.any?
+
+        raise ArgumentError, "The comparison is on the same script, and the script names no moment. On the same script the two " \
+                             "cartridges are compared at each named moment, so there is nowhere to compare them. " \
+                             "Name a moment in the script, like `moment :at_the_door`."
+      end
+
+      private def refuse_frame_counts_on_script!(how_alike)
+        if how_alike.key?(:frames_in_a_row)
+          raise ArgumentError, "`frames_in_a_row:` was given, and the comparison is on the same script. On the same script the " \
+                               "two cartridges are compared at each named moment and not on each frame. Remove `frames_in_a_row:`."
+        end
+        return unless @ignored.frame_numbers?
+
+        raise ArgumentError, "`ignoring_frames:` holds a range of frame numbers, and the comparison is on the same script. " \
+                             "Each cartridge counts its own frames there, so a frame number means a different place on each. " \
+                             "Give a range of moments, like `ignoring_frames: [:title..:in_the_world]`."
+      end
 
       private def refuse_non_boolean_carrying_on!(given)
         return if [true, false].include?(given)
@@ -221,6 +380,15 @@ module RubyGBA
           share_differing(first, second) <= @share_may_differ
         end
 
+        # The same question of two screens that were kept, each a screenful of colours: the
+        # two cartridges are not running side by side, so there is nothing to ask but the
+        # pictures themselves.
+        def pictures_alike?(first, second)
+          return true if first == second || @pixels_looked_at.zero?
+
+          differing_places(first, second).size.fdiv(@pixels_looked_at) <= @share_may_differ
+        end
+
         # Whether +frames+ differing frames, one after another, are drift.
         def drift_after?(frames) = frames >= @frames_in_a_row
 
@@ -233,12 +401,13 @@ module RubyGBA
         end
 
         # HOW ALIKE THE PICTURES HAD TO BE, AS SENTENCES, for a report a person reads.
-        def picture_sentences
+        # +point+ is what the two were compared at, `A frame` or `A moment`.
+        def picture_sentences(point)
           looked_at = @pixels_looked_at == WIDTH * HEIGHT ? "pixels" : "pixels that were looked at"
           words = if @share_may_differ.zero?
-                    ["A frame differed when one of the #{looked_at} was a different colour."]
+                    ["#{point} differed when one of the #{looked_at} was a different colour."]
                   else
-                    ["A frame differed when more than #{percent_allowed} percent of the #{looked_at} were a different colour."]
+                    ["#{point} differed when more than #{percent_allowed} percent of the #{looked_at} were a different colour."]
                   end
           words << "These parts of the screen were not looked at: #{@ignored_rectangles.map(&:in_words).join('; ')}." if @ignored_rectangles.any?
           words
@@ -365,6 +534,10 @@ module RubyGBA
         # Every drift that has ended, in the order they happened.
         attr_reader :drifts
 
+        # The frame each moment that has been reached was named on, as a pair: both
+        # cartridges are on the same frame here, and a result says it for each.
+        attr_reader :moments
+
         # THE FRAME A THING BEGAN TO DIFFER ON, and what is kept from it: the moment before,
         # every reading, and the two screens when they are kept. All of it is taken on that
         # frame, because by the time the thing has differed long enough to be called drift
@@ -397,6 +570,7 @@ module RubyGBA
           @under_way = nil
           @lull = nil
           @drifts = []
+          @moments = {}
         end
 
         def hold(buttons, frames)
@@ -410,7 +584,10 @@ module RubyGBA
           end
         end
 
-        def mark(name) = @moment = name
+        def mark(name)
+          @moment = name
+          @moments[name] = [@frames, @frames]
+        end
 
         # Whether the pair plays no further: it has its first drift, and was not told to
         # carry on.

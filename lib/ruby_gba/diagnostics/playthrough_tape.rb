@@ -125,7 +125,24 @@ module RubyGBA
         # Both start from power-on, so a tape recorded from a save cannot be compared.
         def compare(first, second, **settings)
           refuse_comparing_from_save!
+          refuse_settings_of_scripts!(settings)
           Comparison.new(first, second, moments.keys, **settings).run(self)
+        end
+
+        # The settings that only mean something of a script played on each cartridge by
+        # itself. They are refused here, as a tape's own mistake, before the comparison
+        # reads the rest and says something about a script that is not there.
+        private def refuse_settings_of_scripts!(settings)
+          asked = if settings[:same] == :script
+                    "`same: :script`"
+                  elsif settings.key?(:frames_apart)
+                    "`frames_apart:`"
+                  end
+          return unless asked
+
+          raise ArgumentError, "#{asked} was given to a tape. A tape holds the presses that were made and no script, " \
+                               "so it cannot play each cartridge by itself. Compare the playthrough's script: " \
+                               "`walk.compare(first, second, same: :script)`."
         end
 
         def recorded_from_save? = starts_from != POWER_ON

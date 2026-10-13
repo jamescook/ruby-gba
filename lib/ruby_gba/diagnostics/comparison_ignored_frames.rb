@@ -52,6 +52,20 @@ module RubyGBA
           end
         end
 
+        # Whether any stretch was written in frame numbers.
+        def frame_numbers? = @numbered.any?
+
+        # THE MOMENTS THAT ARE NOT LOOKED AT, for a comparison that only looks at moments:
+        # each one a stretch written in moments covers. +moments+ is the playthrough's
+        # moments in the order it names them, which is the order the stretches are in.
+        def moments_left_out(moments)
+          @named.flat_map do |stretch|
+            first = stretch.begin ? moments.index(stretch.begin) : 0
+            last = stretch.end ? moments.index(stretch.end) : moments.size - 1
+            moments[Range.new(first, last, stretch.end && stretch.exclude_end?)]
+          end.uniq
+        end
+
         # THE STRETCHES AS SENTENCES, for a report a person reads, and in words a person
         # says: `frames 1 to 120`, and for one written in moments the moments and then the
         # frames those came to on +tape+. A list of one sentence, or of none when no

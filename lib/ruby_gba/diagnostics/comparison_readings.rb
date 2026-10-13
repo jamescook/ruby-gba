@@ -67,9 +67,16 @@ module RubyGBA
         # Every reading on both of two running cartridges: each name with its pair of
         # values, the first cartridge's and the second's.
         def values_on(first, second)
-          @ways.to_h do |name, ways|
-            [name, ways.zip([first, second], SIDES).map { |way, game, side| value_read(name, way, game, side) }]
-          end
+          ours = values_from(first, 0)
+          theirs = values_from(second, 1)
+          ours.to_h { |name, value| [name, [value, theirs.fetch(name)]] }
+        end
+
+        # Every reading on one running cartridge, each name with its value. +side+ says
+        # which of the two it is, 0 for the first and 1 for the second, since a reading
+        # can be read its own way from each.
+        def values_from(game, side)
+          @ways.to_h { |name, ways| [name, value_read(name, ways.fetch(side), game, SIDES.fetch(side))] }
         end
 
         # The names of the readings whose two values are not the same, given the pairs
@@ -117,9 +124,10 @@ module RubyGBA
           unless name.is_a?(Symbol)
             raise ArgumentError, "`readings:` names a reading #{name.inspect}. A reading's name must be a symbol, like `:hero_x`."
           end
-          return unless name == PICTURE
+          meaning = { PICTURE => "the picture of the screen", FRAMES_APART => "how many frames apart the two cartridges are" }[name]
+          return unless meaning
 
-          raise ArgumentError, "`readings:` names a reading `:picture`. That name means the picture of the screen. " \
+          raise ArgumentError, "`readings:` names a reading `#{name.inspect}`. That name means #{meaning}. " \
                                "Give the reading a different name."
         end
 
