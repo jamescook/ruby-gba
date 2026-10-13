@@ -133,10 +133,19 @@ module RubyGBA
       # frames as the first, or `:script`, the same script playing each by itself (see
       # AtMoments). +frames_apart+ is for the same script only: how many frames apart the
       # two may reach a moment, nil for not checked.
+      #
+      # +save+ and +lead_ins+ are where the two start, so that they start in step: one
+      # save both cartridges hold as their consoles are switched on, and a lead-in for
+      # each — a playthrough played on it first and not counted (see
+      # Playthrough.power_on_and_lead_in) — the first cartridge's and then the second's,
+      # either of them nil for none.
       def initialize(first, second, moments, ignoring_frames: [], readings: {}, comparing: nil, carrying_on: false,
-                     same: :tape, frames_apart: nil, reports_in: nil, **how_alike)
+                     same: :tape, frames_apart: nil, save: nil, lead_ins: nil, reports_in: nil, **how_alike)
         refuse_unknown_settings!(how_alike.keys)
         @moments = moments
+        @save = Playthrough.save_from(save)
+        refuse_malformed_lead_ins!(lead_ins)
+        @lead_ins = lead_ins || [nil, nil]
         @ignored = IgnoredFrames.new(ignoring_frames, moments)
         @likeness = Likeness.new(**how_alike)
         @readings = Readings.new(readings)
@@ -157,28 +166,84 @@ module RubyGBA
       # the first cartridge to learn the presses and both then played on those, or its
       # script played on each by itself.
       def run_playthrough(playthrough)
-        same_script? ? run_script(playthrough) : run(playthrough.play(first).tape)
+        return run_script(playthrough) if same_script?
+
+        run(starts.first.played_by(playthrough).tape)
+      end
+
+      # WHERE ONE OF THE TWO CARTRIDGES STARTS: the cartridge, the save it holds as its
+      # console is switched on, and the lead-in played on it first — the save one that
+      # fits this cartridge, and a copy of its own. +which+ is `first` or `second`, for an
+      # error to say which of the two it was about.
+      Start = Data.define(:which, :cartridge, :save, :lead_in) do
+        # A console switched on with the cartridge in it, and led in.
+        def console = saying_which_cartridge { Playthrough.power_on_and_lead_in(cartridge, save: save, lead_in: lead_in) }
+
+        # The cartridge played by +playthrough+ from this start.
+        def played_by(playthrough, &at_each_moment)
+          saying_which_cartridge { playthrough.play(cartridge, save: save, lead_in: lead_in, &at_each_moment) }
+        end
+
+        # +tape+ as it is said to start for this cartridge, which is how the tape has to
+        # be played to be where the comparison was.
+        def tape_said(tape) = tape.started_from(save: save, led_in: !lead_in.nil?)
+
+        # A script that gives up says which of the two cartridges it gave up on: its own
+        # error has no way to know there were two.
+        private def saying_which_cartridge
+          yield
+        rescue Playthrough::GaveUp => e
+          raise e.exception("On the #{which} cartridge of the comparison: #{e.message}")
+        end
+      end
+      private_constant :Start
+
+      # WHERE THE TWO STARTED, AS SENTENCES, for a report a person reads: nothing at all
+      # when both started from power-on with nothing played first.
+      private def starting_sentences
+        said = []
+        said << "Both cartridges started from the same save." if @save
+        led_in = starts.select(&:lead_in)
+        case led_in.size
+        when 2 then said << "Each cartridge was led in before frame 1, by these playthroughs: #{led_in.map { |start| start.lead_in.name }.join(', ')}."
+        when 1 then said << "The #{led_in.first.which} cartridge was led in before frame 1, by the playthrough #{led_in.first.lead_in.name}."
+        end
+        said
       end
 
       # THE TWO CARTRIDGES, each one the build made or a cartridge file read from its path.
-      # They are looked at together, the first time either is wanted, so a second cartridge
-      # that is not there is found before the first is played and not after — and after the
-      # settings, which need no cartridge to be wrong. A reading that is a variable's name
-      # is looked up on them here too, since that is the first moment there is a cartridge
-      # to look it up on.
-      def cartridges
-        @cartridges ||= @handed_over.map { |given| Playthrough.cartridge_from(given) }
-                                    .tap { |pair| @readings.refuse_unreadable_on!(pair) }
-      end
+      def cartridges = starts.map(&:cartridge)
 
       # The first cartridge: the one a script is played on alone, to make the tape both are
       # then played on.
       def first = cartridges.first
 
+      # WHERE EACH OF THE TWO STARTS. The cartridges are looked at together, the first time
+      # anything is wanted of either, so a second cartridge that is not there is found
+      # before the first is played and not after — and after the settings, which need no
+      # cartridge to be wrong. What needs a cartridge to be looked at is looked at here
+      # too: a reading that is a variable's name, and a save, which has to fit each.
+      private def starts
+        @starts ||= begin
+          pair = @handed_over.map { |given| Playthrough.cartridge_from(given) }
+          @readings.refuse_unreadable_on!(pair)
+          pair.zip(%w[first second], @lead_ins).map do |cartridge, which, lead_in|
+            Start.new(which: which, cartridge: cartridge, save: save_fitted_to(cartridge, which), lead_in: lead_in)
+          end
+        end
+      end
+
+      # A copy of the save both start from, made to fit +cartridge+, or nil for none.
+      private def save_fitted_to(cartridge, which)
+        @save && Playthrough.save_fitted_to(cartridge, @save.dup)
+      rescue ArgumentError => e
+        raise ArgumentError, "The #{which} cartridge of the comparison cannot start from the save. #{e.message}"
+      end
+
       # Play both on +tape+ and compare them, and say what was found.
       def run(tape)
         ignored = @ignored.frame_ranges_on(tape)
-        consoles = cartridges.map { |cartridge| Playthrough.power_on(cartridge) }
+        consoles = starts.map(&:console)
         reporter = ->(drift, pictures) { drift_with_report(drift, pictures, tape) } if @reports_in
         pair = SideBySide.new(*consoles, @compared, ignored, carrying_on: @carrying_on, reporter: reporter)
         # A pair that has stopped plays no more frames, and is still told a moment that
@@ -216,22 +281,21 @@ module RubyGBA
 
       # Each cartridge played by the script on its own, the first and then the second.
       # Every reading is read at each moment as the cartridge reaches it, since by the end
-      # of the playing it has moved on. A script that gives up says which cartridge it
-      # gave up on: its own error has no way to know there were two.
+      # of the playing it has moved on.
       private def sides_played_by(playthrough)
-        cartridges.zip(%w[first second]).each_with_index.map do |(cartridge, which), side|
+        starts.each_with_index.map do |start, side|
           readings = {}
-          played = playthrough.play(cartridge) { |moment, game| readings[moment] = @readings.values_from(game, side) }
+          played = start.played_by(playthrough) { |moment, game| readings[moment] = @readings.values_from(game, side) }
           AtMoments::Side.new(played: played, readings: readings)
-        rescue Playthrough::GaveUp => e
-          raise e.exception("On the #{which} cartridge of the comparison: #{e.message}")
         end
       end
 
       # A drift with its report written, and the folder it went into noted on it.
-      # +pictures+ is the two screens on the frame it began.
+      # +pictures+ is the two screens on the frame it began. The tape is handed over once
+      # for each cartridge, said to start the way that cartridge was started.
       private def drift_with_report(drift, pictures, tape)
-        report = DriftReport.new(drift, pictures, tape: tape, **what_any_report_has(pictures, @compared.sentences + @ignored.sentences(tape)))
+        report = DriftReport.new(drift, pictures, tapes: starts.map { |start| start.tape_said(tape) },
+                                                  **what_any_report_has(pictures, @compared.sentences + @ignored.sentences(tape)))
         drift.with(report: report.write_in(@reports_in))
       end
 
@@ -244,12 +308,22 @@ module RubyGBA
       end
 
       private def what_any_report_has(pictures, settings)
-        { cartridges: cartridges, pixels_differing: @likeness.differing_places(*pictures), settings: settings }
+        { cartridges: cartridges, pixels_differing: @likeness.differing_places(*pictures), settings: settings + starting_sentences }
+      end
+
+      private def refuse_malformed_lead_ins!(given)
+        return if given.nil?
+        return if given.is_a?(Array) && given.size == 2 && given.all? { |lead_in| lead_in.nil? || lead_in.is_a?(Playthrough) }
+
+        raise ArgumentError, "`lead_ins:` was #{given.inspect}. It must be a list of two, one for each cartridge. Each is a " \
+                             "playthrough to play on that cartridge first, or nil for none. " \
+                             "Write it like `lead_ins: [nil, past_the_logos]`."
       end
 
       # Every setting a comparison has: the ones that say how alike, and the ones of its own.
       def self.settings
-        [*Likeness::SETTINGS, :ignoring_frames, :readings, :comparing, :carrying_on, :same, :frames_apart, :reports_in]
+        [*Likeness::SETTINGS, :ignoring_frames, :readings, :comparing, :carrying_on, :same, :frames_apart, :save, :lead_ins,
+         :reports_in]
       end
 
       # What the two ways of feeding the second cartridge each make no sense with. On the

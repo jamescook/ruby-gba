@@ -30,14 +30,18 @@ module ComparisonGames
   # And one that changes nothing a player could see: +spare_variables+ more variables
   # declared ahead of its own, which moves where each of its own is kept in memory. That
   # is two cartridges that keep the same thing in different places.
-  def walker(speed: 2, turns_red_at: 100_000, red_for: 100_000, counts_by: 1, specks: 0, spare_variables: 0)
+  #
+  # And one that is how a cartridge somebody else made differs before anything is pressed:
+  # +logo_for+ frames of a black screen ahead of the game, on which the game does not tick.
+  # Two walkers with different logos are the same game, out of step from power-on.
+  def walker(speed: 2, turns_red_at: 100_000, red_for: 100_000, counts_by: 1, specks: 0, spare_variables: 0, logo_for: 0)
     RubyGBA.build("WALKER", out: StringIO.new, err: StringIO.new) do
       screen :bitmap
       spare_variables.times { |spare| var :"spare#{spare}", 0 }
       ticks = var :ticks, 0
       x = var :x, 20
       paces = var :paces, 0
-      game_loop do
+      play = lambda do
         ticks.add! 1
         held(:right).then do
           x.add! speed
@@ -47,6 +51,23 @@ module ComparisonGames
         draw_rect_at x, 60, 8, 8, :white
         (ticks >= SPECKS_FROM).then { specks.times { |speck| pixel SPECK_X + speck, SPECK_Y, :white } }
       end
+      next game_loop(&play) if logo_for.zero?
+
+      logo = var :logo, 0
+      game_loop do
+        (logo < logo_for).then do
+          logo.add! 1
+          clear_screen :black
+        end.else(&play)
+      end
+    end
+  end
+
+  # A lead-in for any walker: let frames go by until its ground is up, which is the first
+  # frame of the game itself, however long a logo came before it.
+  def past_the_logo
+    RubyGBA.playthrough "past the logo" do
+      wait_until("the ground is blue") { |game| game.blue?(0, 0) }
     end
   end
 

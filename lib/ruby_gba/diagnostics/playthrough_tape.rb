@@ -40,8 +40,10 @@ module RubyGBA
       # the cartridge it is played on: playing a tape on a different cartridge is the point.
       #
       # WHERE IT STARTED IS HELD TO. The third line says `power-on`, or `a save` for a
-      # cartridge that held one when the console was switched on. The same presses from
-      # power-on are a different game, so a tape recorded from a save is played from one.
+      # cartridge that held one when the console was switched on, and either can end
+      # ` after a lead-in`. The same presses from anywhere else are a different game, so a
+      # tape recorded from a save is played from one, and one recorded after a lead-in
+      # after one.
       #
       # +steps+ are the lines in order — each a Hold or a Moment, the same steps a script is
       # made of, so a tape is played by the same playing a script is.
@@ -59,17 +61,41 @@ module RubyGBA
         # checksum of its bytes, like the cartridge's, for a person to tell which save the
         # tape goes with. The save itself is not in the tape: a tape is the presses, and
         # played on another cartridge it wants that one's own.
+        #
+        # And it says whether a lead-in was played first, with ` after a lead-in` on the
+        # end of either. The lead-in's presses are not on the tape — a lead-in is how THIS
+        # cartridge gets to where the playing begins, and another cartridge has its own —
+        # so all the tape can say is that there was one.
         POWER_ON = "power-on"
         A_SAVE = /\Aa save 0x\h{8}\z/
+        AFTER_A_LEAD_IN = " after a lead-in"
 
         # The tape of +steps+ played on +cartridge+. What it says it was recorded on is the
         # title in the cartridge's own header and a checksum of every byte of it. +save+ is
-        # the save memory the cartridge held when the console was switched on, or nil.
-        def self.recorded_on(cartridge, steps, save:)
+        # the save memory the cartridge held when the console was switched on, or nil, and
+        # +led_in+ whether a lead-in was played before the first of the steps.
+        def self.recorded_on(cartridge, steps, save:, led_in: false)
           title, checksum = title_and_checksum_of(cartridge)
-          starts_from = save ? format("a save 0x%08X", Zlib.crc32(save.to_sav)) : POWER_ON
-          new(title: title, checksum: checksum, starts_from: starts_from, steps: steps)
+          new(title: title, checksum: checksum, starts_from: start_said(save: save, led_in: led_in), steps: steps)
         end
+
+        # Where a playing started, as a tape says it. +save+ is the save memory the
+        # cartridge held as the console was switched on, or nil, and +led_in+ whether a
+        # lead-in was played first.
+        def self.start_said(save:, led_in:)
+          from = save ? format("a save 0x%08X", Zlib.crc32(save.to_sav)) : POWER_ON
+          "#{from}#{AFTER_A_LEAD_IN if led_in}"
+        end
+
+        # Whether +said+ is a way a tape can say where it started.
+        def self.valid_start?(said)
+          from = said.delete_suffix(AFTER_A_LEAD_IN)
+          from == POWER_ON || A_SAVE.match?(from)
+        end
+
+        # The same presses, said to have started somewhere else: what a comparison writes
+        # down for a cartridge it started its own way.
+        def started_from(save:, led_in:) = with(starts_from: Tape.start_said(save: save, led_in: led_in))
 
         # What a person tells one cartridge from another by: the title in its own heading,
         # and a checksum of every byte of it, which says which build of that game it is.
@@ -111,20 +137,24 @@ module RubyGBA
         # Play the tape on +cartridge+, exactly as a playthrough plays its script: the block is
         # handed each moment's name and the running cartridge, and what comes back is the same.
         #
-        # A tape recorded from a save is played from one: from power-on it would be the same
-        # presses on a different game.
-        def play(cartridge, save: nil, pictures_in: nil, &at_each_moment)
+        # A tape recorded from a save is played from one, and one recorded after a lead-in
+        # is played after one: from anywhere else it would be the same presses on a
+        # different game.
+        def play(cartridge, save: nil, lead_in: nil, pictures_in: nil, &at_each_moment)
           refuse_missing_save!(save)
-          Playing.play(title, steps, cartridge, save: save, pictures_in: pictures_in, &at_each_moment)
+          refuse_missing_lead_in!(lead_in)
+          Playing.play(title, steps, cartridge, save: save, lead_in: lead_in, pictures_in: pictures_in, &at_each_moment)
         end
 
         # Play the tape on +first+ and on +second+ together, comparing the two pictures after
         # every frame. +settings+ say how alike they have to be, and which stretches of the
         # tape are not looked at (see Comparison).
         #
-        # Both start from power-on, so a tape recorded from a save cannot be compared.
+        # A tape recorded from a save is compared from one (`save:`), and one recorded after
+        # a lead-in with a lead-in for each cartridge (`lead_ins:`).
         def compare(first, second, **settings)
-          refuse_comparing_from_save!
+          refuse_missing_save!(settings[:save], "tape.compare(first, second, save: ...)")
+          refuse_missing_lead_in!(Array(settings[:lead_ins]).compact.first, "tape.compare(first, second, lead_ins: [..., ...])")
           refuse_settings_of_scripts!(settings)
           Comparison.new(first, second, moments.keys, **settings).run(self)
         end
@@ -145,20 +175,22 @@ module RubyGBA
                                "`walk.compare(first, second, same: :script)`."
         end
 
-        def recorded_from_save? = starts_from != POWER_ON
+        def recorded_from_save? = !starts_from.start_with?(POWER_ON)
+        def recorded_after_lead_in? = starts_from.end_with?(AFTER_A_LEAD_IN)
 
-        private def refuse_missing_save!(save)
+        # +how+ is how the call that was made is written with the save in it.
+        private def refuse_missing_save!(save, how = "tape.play(cartridge, save: ...)")
           return unless recorded_from_save? && save.nil?
 
           raise ArgumentError, "This tape was recorded on a cartridge that started from a save. From power-on, the same " \
-                               "presses play a different game. Give the save to start from: `tape.play(cartridge, save: ...)`."
+                               "presses play a different game. Give the save to start from: `#{how}`."
         end
 
-        private def refuse_comparing_from_save!
-          return unless recorded_from_save?
+        private def refuse_missing_lead_in!(lead_in, how = "tape.play(cartridge, lead_in: ...)")
+          return unless recorded_after_lead_in? && lead_in.nil?
 
-          raise ArgumentError, "This tape was recorded on a cartridge that started from a save. A comparison starts both " \
-                               "cartridges from power-on, so it cannot play this tape. Record the tape from power-on."
+          raise ArgumentError, "This tape was recorded after a lead-in, which is not on the tape. With no lead-in, the same " \
+                               "presses start in a different place. Give the lead-in to play first: `#{how}`."
         end
 
         # THE TAPE AS FAR AS +frame+ AND NO FURTHER: the same presses, ending on that frame. It
@@ -304,10 +336,11 @@ module RubyGBA
 
           def read_starts_from
             said = @lines[2].to_s.delete_prefix("starts from: ")
-            return said if @lines[2] != said && (said == POWER_ON || A_SAVE.match?(said))
+            return said if @lines[2] != said && Tape.valid_start?(said)
 
             raise_unreadable_line!(3, "Line 3 must say where the playthrough starts: `starts from: #{POWER_ON}`, " \
-                                      "or `starts from: a save 0x5C0FFEE5` with the checksum of the save.")
+                                      "or `starts from: a save 0x5C0FFEE5` with the checksum of the save. " \
+                                      "Either can end with `#{AFTER_A_LEAD_IN.strip}`.")
           end
 
           def read_step(line, number)

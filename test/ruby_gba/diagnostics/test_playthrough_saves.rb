@@ -155,16 +155,100 @@ class TestPlaythroughSaves < Minitest::Test
     assert_equal 28, tape.play(cartridge, save: saved).game.var(:steps), "and with the save, it is the same walk"
   end
 
-  # A comparison starts both cartridges from power-on, so a tape recorded from a save is not
-  # one it can play.
-  def test_a_tape_recorded_from_a_save_cannot_be_compared
+  # A tape recorded from a save is compared from a save too: with none given the two would
+  # start from power-on, where the same presses play a different game. Given the save, the
+  # cartridge compared with itself has no drift.
+  def test_a_tape_recorded_from_a_save_is_compared_from_the_save
     cartridge = hero
     saved = walk_and_save(20).play(cartridge).save
     tape = walk_and_save(8).play(cartridge, save: saved).tape
     err = assert_raises(ArgumentError) { tape.compare(nil, nil) }
 
     assert_match(/from a save/, err.message)
-    assert_match(/power-on/, err.message)
+    assert_match(/save:/, err.message)
+    refute_predicate tape.compare(cartridge, cartridge, save: saved), :drift?
+  end
+
+  # --- two cartridges, one save ---
+
+  # TWO CARTRIDGES STARTED FROM ONE SAVE BOTH BEGIN IN IT. Each is asked what its file
+  # screen shows of the first file, and that is compared with the twenty steps the save
+  # holds: read from the first cartridge and then from the second, so it is each of the two
+  # that is known to be in the save. From power-on the file is empty on both.
+  def test_two_cartridges_started_from_one_save_both_begin_in_it
+    cartridge = hero
+    saved = walk_and_save(20).play(cartridge).save
+    file_read = RubyGBA.playthrough "hero: the file screen" do
+      wait frames: 20
+      moment :read
+    end
+    twenty = ->(_game) { 20 }
+    the_first_shows_twenty = { shown: [:shown0, twenty] }
+    the_second_shows_twenty = { shown: [twenty, :shown0] }
+
+    [the_first_shows_twenty, the_second_shows_twenty].each do |readings|
+      from_power_on = file_read.compare(cartridge, cartridge, same: :script, readings: readings, comparing: [:readings])
+      from_the_save = file_read.compare(cartridge, cartridge, same: :script, readings: readings, comparing: [:readings], save: saved)
+
+      assert_equal [0, 20], from_power_on.drift.readings.fetch(:shown).sort
+      refute_predicate from_the_save, :drift?
+    end
+  end
+
+  # The same on the same tape, where the two are compared on every frame: the frames up to
+  # the moment the files are read are left out, and on the frames after it each cartridge
+  # in turn is known to show the walk the save holds. The save here is a file, by its path.
+  def test_two_cartridges_on_one_tape_both_begin_in_a_save_file
+    cartridge = hero
+    file_read = RubyGBA.playthrough "hero: the file screen" do
+      wait frames: 20
+      moment :read
+      wait frames: 5
+    end
+    twenty = ->(_game) { 20 }
+
+    Dir.mktmpdir("saves") do |folder|
+      path = walk_and_save(20).play(cartridge).save.write_sav(File.join(folder, "walk.sav"))
+      [{ shown: [:shown0, twenty] }, { shown: [twenty, :shown0] }].each do |readings|
+        settings = { readings: readings, comparing: [:readings], ignoring_frames: [(..:read)] }
+
+        assert_predicate file_read.compare(cartridge, cartridge, **settings), :drift?
+        refute_predicate file_read.compare(cartridge, cartridge, save: path, **settings), :drift?
+      end
+    end
+  end
+
+  # A SAVE AND A LEAD-IN CAN BE GIVEN TOGETHER: the console is switched on holding the save,
+  # the lead-in is played, and what is compared starts there. The lead-in here waits for
+  # the file screen to have read its files, so the first frame compared already shows them.
+  def test_a_save_and_a_lead_in_are_given_together
+    cartridge = hero
+    saved = walk_and_save(20).play(cartridge).save
+    until_the_files_are_read = RubyGBA.playthrough "hero: until the files are read" do
+      wait_until("the first file is read") { |game| game.var(:shown0) == 20 }
+    end
+    one_frame = RubyGBA.playthrough "one frame" do
+      wait frames: 1
+      moment :first
+    end
+
+    result = one_frame.compare(cartridge, cartridge, same: :script, save: saved, lead_ins: [until_the_files_are_read] * 2,
+                                                     readings: { shown: [:shown0, ->(_game) { 0 }] }, comparing: [:readings])
+    played = one_frame.play(cartridge, save: saved, lead_in: until_the_files_are_read)
+
+    side_by_side = one_frame.compare(cartridge, cartridge, save: saved, lead_ins: [until_the_files_are_read] * 2,
+                                                           readings: { shown: [:shown0, ->(_game) { 0 }] }, comparing: [:readings])
+
+    assert_equal({ shown: [20, 0] }, result.drift.readings, "the save was read by the end of the lead-in, on frame 1")
+    assert_equal [1, { shown: [20, 0] }], [side_by_side.drift.frame, side_by_side.drift.readings], "and on the same tape too"
+    assert_match(/\Astarts from: a save 0x\h{8} after a lead-in\z/, played.tape.to_s.lines[2].chomp)
+  end
+
+  # A save that is not one is refused before anything is played, as it is for one cartridge.
+  def test_a_save_for_both_that_is_not_one_is_refused
+    err = assert_raises(ArgumentError) { file_screen.compare(nil, nil, save: 42) }
+
+    assert_match(/save:/, err.message)
   end
 
   # --- a save that cannot be one, each refused before anything is played ---

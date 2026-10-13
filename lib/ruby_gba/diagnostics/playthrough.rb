@@ -63,14 +63,31 @@ module RubyGBA
         @steps = Script.new(name).tap { |steps| steps.instance_eval(&script) }.steps.freeze
       end
 
-      # Play the script on +cartridge+, from power-on. At each named moment the block is
+      # Play the script on +cartridge+, from power-on unless it is given a save to hold or a
+      # lead-in to play first. At each named moment the block is
       # handed the moment's name and the running cartridge, so the game can be asked about
       # exactly there. +save+ is what the cartridge's save memory holds when the console is
       # switched on; left out, it is a cartridge nobody has played. +pictures_in+ is a folder
       # to write the screen at each moment into, as a PNG named for the moment; left out, no
       # file is written.
-      def play(cartridge, save: nil, pictures_in: nil, &at_each_moment)
-        Playing.play(@name, @steps, cartridge, save: save, pictures_in: pictures_in, &at_each_moment)
+      #
+      # +lead_in+ is another playthrough, played on the cartridge first and not counted:
+      # see `power_on_and_lead_in`.
+      def play(cartridge, save: nil, lead_in: nil, pictures_in: nil, &at_each_moment)
+        Playing.play(@name, @steps, cartridge, save: save, lead_in: lead_in, pictures_in: pictures_in, &at_each_moment)
+      end
+
+      # Play this script on +game+, a console that is already running, as the lead-in to
+      # something else: the presses are made and the frames go by, and nothing is kept of
+      # them. A moment it names is nobody's to ask for, and a wait in it that never ends
+      # gives up as any wait does, saying it was this script's.
+      #
+      # It is played by a playing that has no cartridge to say a tape was recorded on, and
+      # is never asked for what it came to: it is here for its hands on the console.
+      def play_as_lead_in(game)
+        playing = Playing.new(@name, nil, game, nil, save: nil, folder: nil)
+        @steps.each { |step| step.play(playing) }
+        game
       end
 
       # Play the script on +first+ to learn its presses, then play +first+ and +second+ side
@@ -94,6 +111,29 @@ module RubyGBA
       def self.power_on(cartridge, save: nil)
         cartridge = cartridge_from(cartridge)
         Verifier.new(cartridge, frames: 0, vars: cartridge.var_addresses, save: save&.dup)
+      end
+
+      # A CONSOLE SWITCHED ON AND BROUGHT TO WHERE PLAYING SHOULD BEGIN: holding +save+, and
+      # with +lead_in+ played on it, a playthrough of its own.
+      #
+      # WHAT A LEAD-IN IS FOR. A cartridge somebody else made shows its logos and an
+      # introduction before its first screen, and another does not, so two cartridges that
+      # are the same game are out of step from power-on before a button is pressed. A
+      # lead-in for each gets each to the same place by its own road — usually a wait that
+      # watches for the first screen — and what is played or compared starts there. Its
+      # frames are not counted and its presses are on no tape: frame 1 is the first frame
+      # after it.
+      def self.power_on_and_lead_in(cartridge, save: nil, lead_in: nil)
+        game = power_on(cartridge, save: save)
+        lead_in&.play_as_lead_in(game)
+        game
+      end
+
+      def self.refuse_lead_in_not_playthrough!(lead_in)
+        return if lead_in.nil? || lead_in.is_a?(Playthrough)
+
+        raise ArgumentError, "A lead-in was #{lead_in.inspect}. It must be a playthrough, which is played before the " \
+                             "frames that count: `RubyGBA.playthrough(\"past the logos\") { wait_until(...) { ... } }`."
       end
 
       # THE CARTRIDGE THAT WAS HANDED OVER, which is one the build made or the path of a
@@ -171,29 +211,38 @@ module RubyGBA
       # far. Each step plays itself on this. +title+ is the name of what is being played, for
       # an error to say whose playing it was.
       class Playing
-        # Play +steps+ on +cartridge+ from power-on, and hand back what that came to.
+        # Play +steps+ on +cartridge+, switched on and led in, and hand back what that came to.
         #
         # Everything handed over is made ready first, so what will not do is refused before
         # the console is switched on: the save, then the folder for pictures, then the
         # cartridge. A save has to fit its cartridge, so with one the cartridge is looked at
         # early, and a save of the wrong size is refused before a folder is made for nothing.
-        def self.play(title, steps, cartridge, save: nil, pictures_in: nil, &at_each_moment)
+        #
+        # The lead-in is played once the console is on and before the playing begins, so
+        # none of it is on the tape.
+        def self.play(title, steps, cartridge, save: nil, lead_in: nil, pictures_in: nil, &at_each_moment)
+          Playthrough.refuse_lead_in_not_playthrough!(lead_in)
           save = Playthrough.save_from(save)
           save = Playthrough.save_fitted_to(cartridge = Playthrough.cartridge_from(cartridge), save) if save
           folder = PictureFolder.at(pictures_in, steps.flat_map(&:names))
-          playing = new(title, Playthrough.cartridge_from(cartridge), at_each_moment, save: save, folder: folder)
+          cartridge = Playthrough.cartridge_from(cartridge)
+          game = Playthrough.power_on_and_lead_in(cartridge, save: save, lead_in: lead_in)
+          playing = new(title, cartridge, game, at_each_moment, save: save, folder: folder, led_in: !lead_in.nil?)
           steps.each { |step| step.play(playing) }
           playing.played
         end
 
-        # +save+ is what the cartridge's save memory holds as the console is switched on,
-        # or nil for a cartridge nobody has played. +folder+ is where the picture at each
-        # moment is written (see PictureFolder), or nil for none to be written.
-        def initialize(title, cartridge, at_each_moment, save:, folder:)
+        # +game+ is the console, running, with +cartridge+ in it. +save+ is what the
+        # cartridge's save memory held as the console was switched on, or nil for a
+        # cartridge nobody has played, and +led_in+ whether a lead-in was played first:
+        # both are what the tape says of where it started. +folder+ is where the picture
+        # at each moment is written (see PictureFolder), or nil for none to be written.
+        def initialize(title, cartridge, game, at_each_moment, save:, folder:, led_in: false)
           @title = title
-          @cartridge = Playthrough.cartridge_from(cartridge)
-          @game = Playthrough.power_on(@cartridge, save: save)
+          @cartridge = cartridge
+          @game = game
           @save = save
+          @led_in = led_in
           @at_each_moment = at_each_moment
           @folder = folder
           @taping = Tape::Taping.new
@@ -258,7 +307,7 @@ module RubyGBA
         # What this playing came to. The frames and the moments are the tape's own, so the
         # two can never disagree.
         def played
-          tape = Tape.recorded_on(@cartridge, @taping.steps, save: @save)
+          tape = Tape.recorded_on(@cartridge, @taping.steps, save: @save, led_in: @led_in)
           Played.new(frames: tape.frames, moments: tape.moments, game: @game, tape: tape,
                      pictures: @pictures, picture_files: @picture_files, save: save_left)
         end
