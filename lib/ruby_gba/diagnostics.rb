@@ -21,3 +21,4 @@ require_relative "diagnostics/full_collections" # every list and pool, and how t
 require_relative "diagnostics/profiler" # ...and the measured half: where the frames went
 require_relative "diagnostics/routine_profile"
 require_relative "diagnostics/playthrough" # a game driven with nobody at the controls, from a script
+require_relative "diagnostics/playthrough_tape" # ...and the presses it made, written down to play again

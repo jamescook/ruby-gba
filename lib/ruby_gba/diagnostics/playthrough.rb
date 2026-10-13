@@ -42,8 +42,9 @@ module RubyGBA
     class Playthrough
       # What playing one gave back. +frames+ is how many were played, +moments+ the frame each
       # named moment fell on, and +game+ the cartridge as the last frame left it — the same
-      # reader a test of a running cartridge uses, so anything can be asked of it.
-      Played = Data.define(:frames, :moments, :game)
+      # reader a test of a running cartridge uses, so anything can be asked of it. +tape+ is
+      # the presses that were made, written down (see Tape).
+      Played = Data.define(:frames, :moments, :game, :tape)
 
       attr_reader :name
 
@@ -59,42 +60,45 @@ module RubyGBA
       # Play the script on +cartridge+, from power-on. At each named moment the block is
       # handed the moment's name and the running cartridge, so the game can be asked about
       # exactly there.
-      def play(cartridge, &at_each_moment)
-        game = Verifier.new(cartridge, frames: 0, vars: cartridge.var_addresses)
-        playing = Playing.new(@name, game, at_each_moment)
-        @steps.each { |step| step.play(playing) }
-        playing.played
-      end
+      def play(cartridge, &at_each_moment) = Playing.play(@name, @steps, cartridge, &at_each_moment)
 
-      # ONE PLAYING OF A SCRIPT, as it goes: the cartridge, how many frames it has played, and
-      # the moments named so far. Each step of the script plays itself on this. +title+ is the
-      # playthrough's name, for an error to say whose playing it was.
+      # ONE PLAYING, as it goes: the cartridge running, and a tape of every press made on it so
+      # far. Each step plays itself on this. +title+ is the name of what is being played, for
+      # an error to say whose playing it was.
       class Playing
-        def initialize(title, game, at_each_moment)
+        # Play +steps+ on +cartridge+ from power-on, and hand back what that came to.
+        def self.play(title, steps, cartridge, &at_each_moment)
+          playing = new(title, cartridge, at_each_moment)
+          steps.each { |step| step.play(playing) }
+          playing.played
+        end
+
+        def initialize(title, cartridge, at_each_moment)
           @title = title
-          @game = game
+          @cartridge = cartridge
+          @game = Verifier.new(cartridge, frames: 0, vars: cartridge.var_addresses)
           @at_each_moment = at_each_moment
-          @frames = 0
-          @moments = {}
+          @taping = Tape::Taping.new
         end
 
-        # Play +frames+ frames with the buttons of +key_mask+ down.
-        def hold(key_mask, frames)
-          @game.step(frames, keys: key_mask)
-          @frames += frames
+        # Play +frames+ frames with +buttons+ down, and write that on the tape.
+        def hold(buttons, frames)
+          @game.step(frames, keys: Playthrough.key_mask(buttons))
+          @taping.hold(buttons, frames)
         end
 
-        # Play a frame at a time with the buttons of +key_mask+ down, until the block says yes
-        # of the game. The game is asked after each frame, so this stops on the first frame
-        # the answer is yes. After +within+ frames of no it gives up (see GaveUp).
-        def hold_until(key_mask, words, within)
+        # Play a frame at a time with +buttons+ down, until the block says yes of the game.
+        # The game is asked after each frame, so this stops on the first frame the answer is
+        # yes. After +within+ frames of no it gives up (see GaveUp).
+        def hold_until(buttons, words, within)
           within.times do
-            hold(key_mask, 1)
+            hold(buttons, 1)
             answer = yield(@game)
             refuse_non_boolean_answer!(words, answer)
             return if answer
           end
-          raise GaveUp.new(title: @title, words: words, waited: within, frame: @frames, picture: write_picture_of_frame)
+          raise GaveUp.new(title: @title, words: words, waited: within, frame: @taping.frames,
+                           picture: write_picture_of_frame)
         end
 
         # The screen as it is now, written where a person can open it.
@@ -103,7 +107,7 @@ module RubyGBA
         # makes: the picture is what the error points at, so it has to be there after the
         # playing is gone.
         def write_picture_of_frame
-          path = File.join(Dir.mktmpdir("playthrough"), "frame-#{@frames}.png")
+          path = File.join(Dir.mktmpdir("playthrough"), "frame-#{@taping.frames}.png")
           Graphics::PNG.write(path, width: Console::Hardware::SCREEN_WIDTH, height: Console::Hardware::SCREEN_HEIGHT,
                                     pixels: @game.frame_gba)
         end
@@ -122,11 +126,16 @@ module RubyGBA
 
         # Give the frame just played a name, and hand the game over to whoever is watching.
         def mark(name)
-          @moments[name] = @frames
+          @taping.moment(name)
           @at_each_moment&.call(name, @game)
         end
 
-        def played = Played.new(frames: @frames, moments: @moments, game: @game)
+        # What this playing came to. The frames and the moments are the tape's own, so the
+        # two can never disagree.
+        def played
+          tape = Tape.recorded_on(@cartridge, @taping.steps)
+          Played.new(frames: tape.frames, moments: tape.moments, game: @game, tape: tape)
+        end
       end
 
       # A WAIT THAT NEVER ENDED. The script waited for something to be true of the game, and
@@ -153,21 +162,53 @@ module RubyGBA
         buttons.reduce(0) { |mask, button| mask | Console::Hardware.const_get(:"KEY_#{button.upcase}") }
       end
 
-      # Buttons kept down for a number of frames — none at all, for a wait.
+      # +buttons+ once each, in the order the console numbers them — so two holds of the same
+      # buttons are the same hold however they were written.
+      def self.in_console_order(buttons) = IR::Buttons::NAMES & buttons
+
+      # Buttons kept down for a number of frames — none at all, for a wait. It is also a line
+      # of a tape, and says the three things a tape asks of a line: the moments it names
+      # (none), the text it is written as, and itself made longer when the frames after it
+      # have the same buttons down.
       Hold = Data.define(:buttons, :frames) do
-        def play(playing) = playing.hold(Playthrough.key_mask(buttons), frames)
+        def play(playing) = playing.hold(buttons, frames)
+        def names = []
+        def tape_line = "#{frames} #{buttons.empty? ? Tape::NOTHING_DOWN : buttons.join(' ')}"
+        def extended_by(held, more) = held == buttons ? with(frames: frames + more) : nil
       end
 
       # Buttons kept down — or none — until something is true of the game. +words+ say what,
       # for a person; +condition+ is asked of the running cartridge after each frame; +within+
       # is how many frames to go on asking.
       Watch = Data.define(:buttons, :words, :within, :condition) do
-        def play(playing) = playing.hold_until(Playthrough.key_mask(buttons), words, within, &condition)
+        def play(playing) = playing.hold_until(buttons, words, within, &condition)
       end
 
-      # A name for the frame that has just been played.
+      # A name for the frame that has just been played. As a line of a tape it plays no frames,
+      # names one moment, and is never made longer.
       Moment = Data.define(:name) do
         def play(playing) = playing.mark(name)
+        def frames = 0
+        def names = [name]
+        def tape_line = "moment #{name}"
+        def extended_by(_held, _more) = nil
+      end
+
+      class Moment
+        # What a moment can be called: a word of letters, digits and underscores. A tape
+        # writes the name down as a word and reads it back as one, so a name has to be one.
+        NAME = /\A[A-Za-z][A-Za-z0-9_]*\z/
+
+        # WHY A MOMENT CANNOT BE NAMED +name+ HERE, as one word a caller turns into its own
+        # sentence — a script and a tape say it differently — or nil when it can. +named+ are
+        # the moments there are already, and +any_frames+ whether a frame has been played.
+        def self.problem_with(name, named:, any_frames:)
+          return :not_a_plain_name unless name.is_a?(Symbol) && NAME.match?(name)
+          return :before_any_frame unless any_frames
+          return :named_already if named.include?(name)
+
+          nil
+        end
       end
 
       # THE STEPS OF A SCRIPT, as the block writes them. Each word here is one a script can
@@ -236,8 +277,7 @@ module RubyGBA
 
         # Name the frame that has just been played, so it can be asked for afterwards.
         def moment(name)
-          refuse_moment_before_first_frame!(name)
-          refuse_repeated_moment!(name)
+          refuse_unusable_moment!(name)
           @named << name
           @steps << Moment.new(name: name)
           self
@@ -299,23 +339,23 @@ module RubyGBA
                 "#{keyword} must be a whole number, 1 or more."
         end
 
-        # A moment is the frame just played, and before the first step there is none. Every
-        # step but a moment plays a frame or more.
-        def refuse_moment_before_first_frame!(name)
-          return if @steps.length > @named.length
+        # The rules are Moment's own, shared with a tape read from a file; the words are this
+        # script's. Every step but a moment plays a frame or more, so there has been a frame
+        # once there are more steps than moments.
+        def refuse_unusable_moment!(name)
+          problem = Moment.problem_with(name, named: @named, any_frames: @steps.length > @named.length) or return
 
-          raise ArgumentError,
-                "moment #{name.inspect} in playthrough #{@title.inspect} comes before any frame. " \
-                "A moment names the frame the console just played. Put a step before it, like `wait frames: 1`."
+          raise ArgumentError, "moment #{name.inspect} in playthrough #{@title.inspect} #{MOMENT_PROBLEMS.fetch(problem)}"
         end
 
-        def refuse_repeated_moment!(name)
-          return unless @named.include?(name)
-
-          raise ArgumentError,
-                "Playthrough #{@title.inspect} names the moment #{name.inspect} twice. " \
-                "A name must mean one frame. Give the second moment a different name."
-        end
+        MOMENT_PROBLEMS = {
+          not_a_plain_name: "is not a name a moment can have. A moment is named with a symbol of letters, " \
+                            "digits and underscores, like :at_the_door.",
+          before_any_frame: "comes before any frame. A moment names the frame the console just played. " \
+                            "Put a step before it, like `wait frames: 1`.",
+          named_already: "is the second moment of that name. A name must mean one frame. " \
+                         "Give this moment a different name.",
+        }.freeze
       end
     end
   end
