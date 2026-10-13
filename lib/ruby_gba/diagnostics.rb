@@ -20,3 +20,4 @@ require_relative "diagnostics/build_report" # the exact half of a profile: what 
 require_relative "diagnostics/full_collections" # every list and pool, and how to hold each one full
 require_relative "diagnostics/profiler" # ...and the measured half: where the frames went
 require_relative "diagnostics/routine_profile"
+require_relative "diagnostics/playthrough" # a game driven with nobody at the controls, from a script
