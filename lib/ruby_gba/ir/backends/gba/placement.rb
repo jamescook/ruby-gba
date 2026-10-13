@@ -168,8 +168,13 @@ module RubyGBA
             def initialize(chosen_from: :shape, **rest) = super
           end
 
-          # A routine the chooser skipped, and by how much.
-          PassedOver = Data.define(:name, :bytes, :room)
+          # A routine the chooser skipped, and by how much. +measured+ is what the routine was
+          # measured to be of the busiest scene's work (a Diagnostics::RoutineProfile::Share) —
+          # what is lost by leaving it out — and nil where that was not measured, and nobody
+          # knows.
+          PassedOver = Data.define(:name, :bytes, :room, :measured) do
+            def initialize(measured: nil, **rest) = super
+          end
 
           # Valid after #lower.
           def iwram_report
@@ -818,7 +823,8 @@ module RubyGBA
               # is a routine the frame spends real time in that will run from the cartridge
               # instead, and the report has no other way to find out afterwards.
               if adds > room
-                @passed_over << PassedOver.new(name: name, bytes: adds, room: room)
+                @passed_over << PassedOver.new(name: name, bytes: adds, room: room,
+                                               measured: @routine_profile&.busiest_share_of(name))
                 next
               end
 

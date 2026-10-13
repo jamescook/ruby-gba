@@ -31,12 +31,26 @@ module RubyGBA
       # some routine accounting for most of the little that did — an empty game loop reads as
       # 100 per cent of itself. What decides whether a routine is worth the console's quick
       # memory is how much work it actually does, and that is a count.
-      attr_reader :work, :game, :measured_at
+      attr_reader :work, :game, :measured_at, :busiest
 
-      def initialize(work:, game: nil, measured_at: nil)
+      # THE SCENE WHOSE FRAMES DO THE MOST WORK, and the part of that work each routine did
+      # there, in per cent — the figure `rom.profile` prints beside the routine for that scene.
+      #
+      # Kept beside the counts because the counts cannot answer "how much of a frame is this
+      # routine". They are added up over every scene, so a routine that runs on all of them is
+      # counted once for each: right for deciding what the quick memory is worth to it, and
+      # wrong as a part of any one frame. The busiest scene is the one to ask about, since it
+      # is the frame with the least room to lose. +scene+ is nil for a game with no scenes.
+      Busiest = Data.define(:scene, :shares)
+
+      # One routine's part of the busiest scene's work, in per cent, and which scene that was.
+      Share = Data.define(:percent, :scene)
+
+      def initialize(work:, game: nil, measured_at: nil, busiest: nil)
         @work = work
         @game = game
         @measured_at = measured_at
+        @busiest = busiest
       end
 
       # Read a saved profile. Returns nil when there is no file — a missing profile is the
@@ -46,7 +60,7 @@ module RubyGBA
 
         data = JSON.parse(File.read(path))
         new(work: data.fetch("routines", {}).transform_keys(&:to_sym),
-            game: data["game"], measured_at: data["measured_at"])
+            game: data["game"], measured_at: data["measured_at"], busiest: busiest_from(data["busiest_scene"]))
       rescue JSON::ParserError => e
         raise ProfileError, "#{path} is not a profile this can read (#{e.message}). To fix this, " \
                             "measure the game again with `rom.profile` and save it."
@@ -65,14 +79,38 @@ module RubyGBA
         new(work: work, game: game, measured_at: Time.now.utc.iso8601)
       end
 
+      # ...and from the whole of what it answers: the counts, and the busiest scene's reading.
+      def self.from_survey(survey, game: nil)
+        new(work: survey.work, game: game, measured_at: Time.now.utc.iso8601, busiest: busiest_in(survey.scenes))
+      end
+
+      # The scene that ran the most instructions a frame, out of +scenes+ (each scene's name
+      # with its {Profiler::Result}). Nil when none of them ran a frame.
+      def self.busiest_in(scenes)
+        scene, reading = scenes.reject { |_, r| r.frames.zero? }.max_by { |_, r| r.samples.fdiv(r.frames) }
+        reading && Busiest.new(scene: scene, shares: reading.lines.to_h { |line| [line.name, line.share] })
+      end
+
+      # The busiest scene as a saved profile keeps it, read back. Nil for a profile saved
+      # without one.
+      def self.busiest_from(saved)
+        return nil unless saved
+
+        Busiest.new(scene: saved["scene"]&.to_sym, shares: saved.fetch("shares", {}).transform_keys(&:to_sym))
+      end
+
       def write(path)
         File.write(path, "#{JSON.pretty_generate(as_json)}\n")
         path
       end
 
       def as_json
-        { "game" => game, "measured_at" => measured_at,
-          "routines" => work.sort_by { |_, n| -n }.to_h { |name, n| [name.to_s, n] } }
+        saved = { "game" => game, "measured_at" => measured_at,
+                  "routines" => work.sort_by { |_, n| -n }.to_h { |name, n| [name.to_s, n] } }
+        return saved unless busiest
+
+        saved.merge("busiest_scene" => { "scene" => busiest.scene&.to_s,
+                                         "shares" => busiest.shares.transform_keys(&:to_s) })
       end
 
       # Instructions a frame, or nil when the profile has never seen this routine — added since
@@ -80,6 +118,18 @@ module RubyGBA
       def work_of(name) = work[name]
 
       def measured?(name) = work.key?(name)
+
+      # What part of the busiest scene's work +name+ did (see Busiest). A share is the wrong
+      # thing to rank by (see #work) and the right thing to SAY, since "a tenth of a frame's
+      # work" means something to an author where a count of instructions does not.
+      #
+      # Nil when this profile kept no busiest scene, and nil for a routine it never saw — new
+      # since the measuring, which is different from one that did nothing in that scene.
+      def busiest_share_of(name)
+        return nil unless busiest && measured?(name)
+
+        Share.new(percent: busiest.shares.fetch(name, 0.0), scene: busiest.scene)
+      end
 
       # The routines this profile names that the program no longer has. Almost always a rename or
       # a deletion, and worth saying out loud: a profile that has drifted from its game keeps

@@ -251,7 +251,7 @@ module RubyGBA
     survey = Diagnostics::Profiler.survey_scenes(first)
     warn_of_slow_scenes(survey, err)
     warn_of_collections_that_fill(survey, err)
-    measurement = Diagnostics::RoutineProfile.from_work(survey.work, game: title)
+    measurement = Diagnostics::RoutineProfile.from_survey(survey, game: title)
     build(title, code: code, maker: maker, profile: measurement,
           out: out, err: err, progress: progress, **options, &block)
   rescue LoadError
