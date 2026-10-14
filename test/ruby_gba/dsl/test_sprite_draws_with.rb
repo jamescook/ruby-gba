@@ -95,6 +95,38 @@ class TestSpriteDrawsWith < Minitest::Test
     (2..4).each { |frames| assert_backends_agree(painted_program, frames: frames) }
   end
 
+  # A sprite told to draw with another list before its picture is first painted: the picture is
+  # blank to start with, and once it is painted it shows the other list's colours, by the
+  # places it holds then.
+  def painted_late_program
+    builder = Builder.new
+    builder.instance_eval do
+      screen :tiled
+      colors :ink, OWN
+      colors :hurt, HURT
+      canvas = list :canvas, capacity: 32, width: :byte
+      repeat(8) { [0x11, 0x11, 0x22, 0x22].each { |two_pixels| canvas.push two_pixels } }
+      tag = image :tag, from: canvas, width: 8, height: 8, colors: :ink
+      ship = sprite :tag, at: [40, 40]
+      pass = var :pass, 0
+      game_loop do
+        ship.draw_with :hurt
+        pass.add! 1
+        (pass == 3).then { tag.changed }
+      end
+    end
+    builder.finalize_program
+    builder.program
+  end
+
+  def test_a_painted_picture_painted_after_its_sprite_swaps_colors_shows_them
+    i = game_player.run(painted_late_program, frames: 6)
+
+    assert_equal Color.resolve(:yellow), i.screen.pixel(41, 41), "the first place of :hurt"
+    assert_equal Color.resolve(:white), i.screen.pixel(45, 41), "and the second"
+    assert_backends_agree(painted_late_program, frames: 6)
+  end
+
   # --- picked by a number the game works out ---
 
   # A pulse: a counter walks through two lists and past them, and the ship steps right on
