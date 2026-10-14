@@ -2,6 +2,7 @@
 
 require "test_helper"
 require "native_comparison"
+require "fileutils"
 require "open3"
 require "tmpdir"
 require_relative "../../../../../examples/pong"
@@ -10,8 +11,9 @@ require_relative "../../../../../examples/pong"
 # tests drive, and it stands on its own.
 #
 # Only under `rake test:native SDL=1`: the first desktop build fetches SDL's source over the
-# network and compiles it, which no ordinary run of the suite should have to wait for. One test,
-# because each desktop build is a whole game built with SDL.
+# network and compiles it, which no ordinary run of the suite should have to wait for. One test
+# of pong, because each desktop build is a whole game built with SDL — and one of a game of a few
+# lines that saves, since pong keeps nothing and the window's save file is the window's own code.
 class TestNativeDesktop < Minitest::Test
   # The native lowering's own tests, which only a native run plays (see TestSuites).
   runs_on :native
@@ -45,7 +47,115 @@ class TestNativeDesktop < Minitest::Test
     end
   end
 
+  # A press of A on two frames of a short run, for the game below.
+  KEPT_RUN = Ractor.make_shareable({ 3 => %i[a], 7 => %i[a] })
+  KEPT_FRAMES = 12
+
+  # A game that keeps one number in save memory: 5 on a new cartridge, and two more at each
+  # press of A. Made where it is used, since a game is not something a test may keep in a
+  # constant.
+  def game_that_keeps_a_count
+    RubyGBA.game("KEEPER") do
+      screen :bitmap
+      best = save_var :best, 5
+      game_loop do
+        clear_screen :black
+        pressed(:a).then { best.add! 2 }
+      end
+    end
+  end
+
+  # THE WINDOW KEEPS THE GAME'S SAVE IN A FILE, holding the bytes the interpreter's save memory
+  # holds after the same presses — a .sav file, as an emulator keeps one.
+  def test_the_program_a_player_runs_keeps_its_save_in_a_file
+    game = game_that_keeps_a_count
+    saved = SaveImage.new
+    Reference.new(save: saved).input_each_frame { |frame| KEPT_RUN.fetch(frame, []) }
+             .run(Native.new.checked_program(game, err: nil), frames: KEPT_FRAMES)
+    assert_equal 9, saved.word(RubyGBA::IR::SaveLayout.save_var_at(0)), "two presses should take the count from 5 to 9"
+
+    Dir.mktmpdir do |dir|
+      exe = Native.new.build_desktop(game, File.join(dir, "keeper"), err: nil)
+
+      assert_keeps_its_save_in_the_file_it_is_told(exe, File.join(dir, "told.sav"), saved)
+      assert_writes_its_save_while_it_is_still_running(exe, File.join(dir, "running.sav"))
+      assert_keeps_its_save_among_the_files_of_whoever_plays(exe, File.join(dir, "home"), saved)
+      assert_refuses_a_file_that_is_not_its_save(exe, File.join(dir, "other.sav"))
+    end
+  end
+
   private
+
+  # What a run of the game with its window (on SDL's stand-in display) printed at its end, with
+  # keys pressed from +presses+.
+  def variables_after(exe, frames, presses, *options, env: {})
+    input = (1..frames).map { |frame| "#{Native::HeadlessRun.button_mask(presses.fetch(frame, []))}\n" }.join
+    printed = Native::Zig.run_program(exe, args: ["--scripted-keys", frames, *options], input: input,
+                                           env: NO_SCREEN_OR_SPEAKER.merge(env))
+    Native::HeadlessRun.variables_in(printed.lines.map(&:chomp))
+  end
+
+  # Told a file (--save-file), it leaves the save there, with nothing beside it: the new file it
+  # writes first has taken the save file's place. Started again, it reads the file before the
+  # game starts, so the count carries on from where it was.
+  def assert_keeps_its_save_in_the_file_it_is_told(exe, path, saved)
+    assert_equal 9, variables_after(exe, KEPT_FRAMES, KEPT_RUN, "--save-file", path)[:best]
+
+    assert_equal saved.to_sav, File.binread(path)
+    refute_path_exists "#{path}.writing"
+    assert_equal 11, variables_after(exe, 5, { 3 => %i[a] }, "--save-file", path)[:best]
+  end
+
+  # The file is written soon after the game saves, and not only as the window closes: A is
+  # pressed on the third frame of a run with hours left in it, the file holds the count that
+  # press made within a few seconds, and only then is the program stopped — the way a crash
+  # stops one, with no chance to write anything. (The file is there before the press, holding
+  # the 5 a new cartridge is given as the game starts, so it is the count that is waited for.)
+  def assert_writes_its_save_while_it_is_still_running(exe, path)
+    keys = "#{path}.keys"
+    File.write(keys, "0\n0\n#{Native::HeadlessRun.button_mask(%i[a])}\n")
+    pid = Process.spawn(NO_SCREEN_OR_SPEAKER, exe, "--scripted-keys", "1000000", "--save-file", path,
+                        in: keys, out: File::NULL, err: File::NULL)
+    count = -> { File.exist?(path) && SaveImage.read_sav(path).word(RubyGBA::IR::SaveLayout.save_var_at(0)) }
+    give_up = Process.clock_gettime(Process::CLOCK_MONOTONIC) + 20
+    sleep 0.05 until count.call == 7 || Process.clock_gettime(Process::CLOCK_MONOTONIC) > give_up
+
+    assert_equal 7, count.call, "the save file should hold the count while the game is still running"
+    assert_nil Process.wait(pid, Process::WNOHANG), "and the game should still be running"
+  ensure
+    if pid
+      Process.kill(:KILL, pid)
+      Process.wait(pid)
+    end
+  end
+
+  # Told nothing, it keeps the save where the operating system keeps a program's own files for
+  # the person using the computer, in a folder named for the game. The test says where that
+  # person's files are, in the two ways a Mac and a Linux machine are told, so nothing is
+  # written among the files of whoever runs it; on a system told neither way it is not tried.
+  def assert_keeps_its_save_among_the_files_of_whoever_plays(exe, home, saved)
+    return unless RUBY_PLATFORM.match?(/darwin|linux/)
+
+    FileUtils.mkdir_p(home)
+    variables_after(exe, KEPT_FRAMES, KEPT_RUN, env: { "CFFIXED_USER_HOME" => home, "XDG_DATA_HOME" => home })
+    found = Dir.glob(File.join(home, "**", "save.sav"))
+
+    assert_equal 1, found.length, "one save file should be under #{home}: #{Dir.glob(File.join(home, '**', '*')).inspect}"
+    assert found.first.end_with?(File.join("ruby-gba", "KEEPER", "save.sav")), "the folder should be the game's: #{found.first}"
+    assert_equal saved.to_sav, File.binread(found.first)
+  end
+
+  # A file there that is not as big as the game's save memory is another game's, or damaged: the
+  # game does not start, says why, and leaves the file as it is.
+  def assert_refuses_a_file_that_is_not_its_save(exe, path)
+    File.binwrite(path, "x" * 100)
+    _printed, said, status = Open3.capture3(NO_SCREEN_OR_SPEAKER, exe, "--scripted-keys", "2", "--save-file", path,
+                                            stdin_data: "0\n0\n")
+
+    refute_predicate status, :success?
+    assert_match(/is not a save of this game, whose save is 32768 bytes/, said)
+    assert_equal "x" * 100, File.binread(path)
+  end
 
   # Started with --headless it plays a recorded run with no window, and shows the interpreter's
   # picture pixel for pixel.

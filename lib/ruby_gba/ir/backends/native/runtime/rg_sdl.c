@@ -8,6 +8,7 @@
  *   ./pong --frame-times                 play it, and say at the end how evenly its pictures were shown
  *   ./pong --refresh-rate 144            choose its pacing as for a monitor of that rate (this one still
  *                                        refreshes at its own, so a rate above it plays the game slow)
+ *   ./pong --save-file my.sav            keep the game's save in that file, in place of the usual one
  *
  * THE GAME OWNS THE LOOP. A game waits for the next frame wherever it likes — at the top of its
  * game loop, or deep inside a routine that runs before the loop starts — so it cannot hand
@@ -55,6 +56,15 @@
  * monitor paces the game a shade fast or slow, the sound is played that much faster or slower,
  * so as much is played as is made. A computer with nothing to play sound through still plays the
  * game.
+ *
+ * THE SAVE is a file, for a game that has save memory (rg_save.h): the bytes a cartridge's chip
+ * would hold, which is what an emulator calls a .sav file, so one can be carried between the two.
+ * It is kept where the operating system keeps a program's own files for the person using the
+ * computer, in a folder named for the game, and read once before the game starts. It is written
+ * a frame after the game has finished saving, and as the window closes. Writing never touches the
+ * file that is there: a new file is written beside it and then takes its place in one step, so a
+ * computer that stops part way through leaves the last save whole — the promise a cartridge makes
+ * about its own chip.
  */
 #include <SDL3/SDL.h>
 #include <SDL3/SDL_main.h>
@@ -64,6 +74,7 @@
 #include "rg_driver.h"
 #include "rg_pacing.h"
 #include "rg_runtime.h"
+#include "rg_save.h"
 #include "rg_screen.h"
 #include "rg_sound.h"
 
@@ -167,7 +178,27 @@ static long frames_played;
 static uint32_t scripted_keys;
 static int printing_script_end; /* the variables being printed are the script's last word */
 
+/* The file the game's save memory is kept in, and the new one written beside it that then takes
+ * its place. Neither, for a game with no save memory. */
+static char *save_path;
+static char *save_being_written;
+static int save_failure_said; /* a file that cannot be written is said once, not once a second */
+
 static double in_ms(Uint64 ns) { return (double)ns / 1000000.0; }
+
+/* Save memory written to its file, when it holds something the file does not: whole, to a new
+ * file, which is then put in the old one's place. SDL's own renaming replaces a file that is
+ * there on every system; C's does not on Windows. */
+static void write_save_file(void) {
+  if (!save_path || !rg_save_unwritten()) return;
+  if (SDL_SaveFile(save_being_written, rg_save_bytes(), (size_t)rg_save_size()) &&
+      SDL_RenamePath(save_being_written, save_path)) {
+    rg_save_file_written();
+    return;
+  }
+  if (!save_failure_said) fprintf(stderr, "%s could not write its save to %s (%s)\n", rg_game_title, save_path, SDL_GetError());
+  save_failure_said = 1;
+}
 
 static int by_length(const void *a, const void *b) {
   Uint64 one = *(const Uint64 *)a, other = *(const Uint64 *)b;
@@ -218,7 +249,10 @@ static void report_frame_times(void) {
   free(gaps);
 }
 
+/* Every way out of the program comes through here, so a save the file does not hold yet is
+ * written on all of them. */
 static _Noreturn void quit(int status) {
+  write_save_file();
   if (timing_frames) report_frame_times();
   SDL_Quit();
   exit(status);
@@ -226,6 +260,61 @@ static _Noreturn void quit(int status) {
 
 static _Noreturn void refuse_to_start(const char *what) {
   fprintf(stderr, "%s could not start: %s (%s)\n", rg_game_title, what, SDL_GetError());
+  quit(1);
+}
+
+/* The folder a game's save goes in is named for the game, and a folder's name can hold less than
+ * a game's title can: a letter, a digit or a space stays, and anything else becomes an
+ * underscore. */
+static void name_save_folder(char *name, size_t room) {
+  size_t length = 0;
+  for (const char *c = rg_game_title; *c && length + 1 < room; c++) {
+    name[length++] = SDL_isalnum((unsigned char)*c) || *c == ' ' ? *c : '_';
+  }
+  name[length] = '\0';
+  if (length == 0) SDL_strlcpy(name, "game", room);
+}
+
+/* Decides where the save is kept, for a game that has save memory: the file +asked+ for
+ * (--save-file), or else save.sav in the game's own folder among the files the operating system
+ * keeps for each program and each person — which SDL finds, and makes if it is not there. */
+static void choose_save_file(const char *asked) {
+  if (rg_save_size() == 0) return;
+  if (asked) {
+    save_path = SDL_strdup(asked);
+  } else {
+    char game[64];
+    name_save_folder(game, sizeof game);
+    char *folder = SDL_GetPrefPath("ruby-gba", game);
+    if (!folder) refuse_to_start("the folder for its save could not be made");
+    if (SDL_asprintf(&save_path, "%ssave.sav", folder) < 0) save_path = NULL;
+    SDL_free(folder);
+  }
+  if (!save_path || SDL_asprintf(&save_being_written, "%s.writing", save_path) < 0) {
+    refuse_to_start("there was no room for the name of its save file");
+  }
+}
+
+/* Reads the save the last run left, before the game starts. No file there is a new cartridge. A
+ * file that is there and cannot be read, or is not as big as the game's save memory, is another
+ * game's or a damaged one, and the game does not start: carrying on would write over it. */
+static void read_save_file(void) {
+  if (!save_path || !SDL_GetPathInfo(save_path, NULL)) return;
+  size_t size = 0;
+  void *held = SDL_LoadFile(save_path, &size);
+  if (held && size == (size_t)rg_save_size()) {
+    SDL_memcpy(rg_save_bytes(), held, size);
+    SDL_free(held);
+    return;
+  }
+
+  char message[512];
+  snprintf(message, sizeof message,
+           "The file at %s is not a save of this game, whose save is %d bytes. Move the file away, and the game "
+           "starts a new one.",
+           save_path, (int)rg_save_size());
+  fprintf(stderr, "%s could not start: %s\n", rg_game_title, message);
+  SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, rg_game_title, message, window);
   quit(1);
 }
 
@@ -486,6 +575,7 @@ static void sdl_wait_vblank(void) {
   rg_frame_begins();
   frames_played++;
   present();
+  if (rg_save_file_is_due()) write_save_file();
   read_events();
   wait_for_next_frame();
   if (scripted) press_scripted_keys();
@@ -498,6 +588,7 @@ static void sdl_halt(void) {
   if (scripted) finish_script();
   for (;;) {
     present();
+    if (rg_save_file_is_due()) write_save_file();
     read_events();
     wait_for_next_frame();
   }
@@ -549,7 +640,9 @@ static void attach_keyboard_pad(void) {
 
 int main(int argc, char **argv) {
   if (argc > 1 && strcmp(argv[1], "--headless") == 0) return rg_headless_main(argc - 1, argv + 1);
+  const char *save_file_asked_for = NULL;
   for (int i = 1; i < argc; i++) {
+    if (strcmp(argv[i], "--save-file") == 0 && i + 1 < argc) save_file_asked_for = argv[i + 1];
     if (strcmp(argv[i], "--trace") == 0) tracing = 1;
     if (strcmp(argv[i], "--frame-times") == 0) timing_frames = 1;
     if (strcmp(argv[i], "--refresh-rate") == 0 && i + 1 < argc) pretended_refreshes_a_second = strtod(argv[i + 1], NULL);
@@ -577,6 +670,8 @@ int main(int argc, char **argv) {
   attach_keyboard_pad();
   open_speaker();
   choose_pacing();
+  choose_save_file(save_file_asked_for);
+  read_save_file();
 
   rg_active_driver = &sdl;
   rg_game_main();
