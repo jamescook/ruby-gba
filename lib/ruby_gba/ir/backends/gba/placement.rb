@@ -273,8 +273,23 @@ module RubyGBA
             @passed_over = []
 
             chosen = Set.new
-            room = place_insisted(program, insisted, sizes, room, chosen)
-            place_by_frame_cost(program, sizes, room, chosen) if @fast_code
+            ranked = @fast_code ? ranked_by_frame_cost(program, sizes) : []
+            wanted = wanted_by_frame_cost(program, ranked, sizes)
+            saving, asked = insisted.partition { |name| save_record_insisting_on(name, insisted) }
+            room = place_insisted(program, asked, sizes, room, chosen, insisted)
+            # A RECORD'S WORD COMES AFTER WHAT EVERY FRAME RUNS. `save_data ..., fast: true`
+            # keeps the routines a save's passes run, and a save is a few passes now and then;
+            # the game loop and the routine that answers the display run on every frame. A
+            # word placed ahead of them took their room in a big game, so the whole game ran
+            # at the cartridge's speed to save at the quick memory's. Placed after them, the
+            # word takes its room from lesser routines, and where it cannot fit beside them
+            # the build says so (see #guard_insisted_fits!). Which of the two go first is what
+            # the build would have kept anyway: the interrupt routine of a game with no music
+            # and no fast timer does too little to be worth the room, and a build told not to
+            # choose (`fast_code: false`) keeps neither, so then nothing goes ahead.
+            room = place_what_fits(wanted & every_frame_routines, sizes, room, chosen) unless saving.empty?
+            room = place_insisted(program, saving, sizes, room, chosen, insisted)
+            place_by_frame_cost(ranked, wanted, sizes, room, chosen) if @fast_code
             # Kept for the report: what each routine came to, and what a reader will want to
             # know afterwards is why theirs is not on the list. A routine that was kept is
             # down as what it was charged in the end, its calls to its neighbours given back.
@@ -770,17 +785,32 @@ module RubyGBA
           # framework picked and not held to its share of the room. Answers what is left.
           #
           # A scene insisted on takes the routines the build made for it (its sprites, its
-          # see-through amounts) with it.
-          def place_insisted(program, insisted, sizes, room, chosen)
-            movable = program.walk.select { |node| node.kind == :func && insisted.include?(node.name) }.map(&:name)
-            movable += scene_routines.filter_map { |routine, scene| routine if insisted.include?(scene) && sizes[routine] }
+          # see-through amounts) with it. +names+ are the ones placed now; +insisted+ is every
+          # one asked for, which an error reads to name a record.
+          def place_insisted(program, names, sizes, room, chosen, insisted)
+            movable = program.walk.select { |node| node.kind == :func && names.include?(node.name) }.map(&:name)
+            movable += scene_routines.filter_map { |routine, scene| routine if names.include?(scene) && sizes[routine] }
             movable.each do |name|
               adds = sizes[name] && bytes_added_by(name, chosen, sizes)
-              guard_insisted_fits!(name, adds, room, insisted)
+              guard_insisted_fits!(name, adds, room, insisted, chosen)
               chosen << name
               room -= adds
             end
             room
+          end
+
+          # What every frame runs, whatever it measured: the game loop, the routines placed
+          # with it (see #beside_frame_routine), and the routine the console interrupts into.
+          def every_frame_routines = [FRAME_ROUTINE, *routines_placed_with_frame, IRQ_ROUTINE]
+
+          # The routines of +ranked+ the build may keep: not kept out by their author, not
+          # holding raw bytes, and measured at all.
+          def wanted_by_frame_cost(program, ranked, sizes)
+            forbidden = funcs_marked(program, false)
+            # A scene the author kept out of the quick memory keeps what the build made for it
+            # out with it: its sprites, and its see-through amounts.
+            forbidden += scene_routines.filter_map { |routine, scene| routine if forbidden.include?(scene) }
+            ranked.reject { |name| forbidden.include?(name) || sizes[name].nil? || !movable?(program, name) }
           end
 
           # Then whatever a frame spends the most time in, biggest earner first, within
@@ -790,13 +820,7 @@ module RubyGBA
           # AND THE LIST IS GONE THROUGH AGAIN WHILE ANYTHING WAS ADDED, because what a routine
           # takes depends on what is kept beside it (see #bytes_added_by): one turned away
           # near the top can fit once a routine it calls, or that calls it, has gone in below.
-          def place_by_frame_cost(program, sizes, room, chosen)
-            forbidden = funcs_marked(program, false)
-            # A scene the author kept out of the quick memory keeps what the build made for it
-            # out with it: its sprites, and its see-through amounts.
-            forbidden += scene_routines.filter_map { |routine, scene| routine if forbidden.include?(scene) }
-            ranked = ranked_by_frame_cost(program, sizes)
-            wanted = ranked.reject { |name| forbidden.include?(name) || sizes[name].nil? || !movable?(program, name) }
+          def place_by_frame_cost(ranked, wanted, sizes, room, chosen)
             first_time = true
             loop do
               kept_before = chosen.size
@@ -1038,8 +1062,9 @@ module RubyGBA
           # there, is a plain error where they wrote it — not a silent shrug.
           #
           # +insisted+ is every routine that was asked for, which is how a routine of the save
-          # queue, shared by the records, finds a record to name.
-          def guard_insisted_fits!(name, size, room, insisted)
+          # queue, shared by the records, finds a record to name. +chosen+ is what is kept
+          # already, which a record's error reads to say what every frame runs went in first.
+          def guard_insisted_fits!(name, size, room, insisted, chosen)
             if size.nil?
               raise LoweringError,
                     "#{fast_true_snippet(name)} asks to keep that routine in the console's quick " \
@@ -1052,14 +1077,28 @@ module RubyGBA
               raise LoweringError,
                     "`save_data :#{record}, fast: true` asks to keep the save routines of that record " \
                     "in the console's quick memory. One of them needs #{size} bytes, and only " \
-                    "#{[room, 0].max} are free. To fix this, use fewer variables and lists, or mark " \
-                    "another routine `fast: false`, or remove `fast: true` from the record."
+                    "#{[room, 0].max} are free.#{kept_ahead_of_saves(chosen)} To fix this, use fewer " \
+                    "variables and lists, or mark another routine `fast: false`, or remove " \
+                    "`fast: true` from the record."
             end
 
             raise LoweringError,
                   "#{fast_true_snippet(name)} asks to keep that routine in the console's quick " \
                   "memory, but it needs #{size} bytes and only #{[room, 0].max} are free. To fix " \
                   "this, make the routine smaller, or use fewer variables and lists."
+          end
+
+          # The sentence that says what every frame runs went in ahead of a record's routines,
+          # or nothing when none of it did. The interrupt routine's own plain name is long and
+          # holds an "and" of its own, so it is said shorter here.
+          def kept_ahead_of_saves(chosen)
+            names = every_frame_routines.select { |name| chosen.include?(name) }.map do |name|
+              name == IRQ_ROUTINE ? "the routine that plays the music" : Messages::PlainWords.routine(name)
+            end
+            return "" if names.empty?
+
+            listed = names.length == 1 ? names.first : "#{names[0..-2].join(', ')} and #{names.last}"
+            " Every frame runs #{listed}, so #{names.one? ? 'it goes' : 'they go'} in first."
           end
 
           # What the author wrote to insist on +name+: a scene's own word for the scene and for

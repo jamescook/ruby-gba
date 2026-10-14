@@ -68,35 +68,31 @@ class TestSaveDataFast < Minitest::Test
     assert_empty kept & routines(:save, :step, :scan, :load)
   end
 
-  def test_a_record_that_says_fast_keeps_the_routines_that_save_in_quick_memory
+  # THE WORD KEEPS WHAT EVERY PASS OF A SAVE RUNS: the routine that writes a piece of it, the
+  # one that looks the copy over when the last piece is in, and the queue's small routines a
+  # write goes through on the way.
+  def test_a_record_that_says_fast_keeps_the_routines_every_pass_of_a_save_runs
     kept = kept_in_quick_memory(saving_game(fast: true), profile: true)
 
-    assert_empty routines(:save, :step, :scan) - kept, "the record's routines a save goes through"
+    assert_empty routines(:step, :scan) - kept, "the record's routines every pass of a save goes through"
     assert_empty QUEUE - kept, "and the queue's, which it goes through on the way"
-    assert_includes kept, routine(:load), "and the one that loads, which the game asks for too"
   end
 
-  # A record is built with a routine for everything a game can ask of it. The ones this game
-  # never asks for would take the room for nothing.
-  def test_the_routines_a_game_never_asks_for_are_not_kept
-    kept = kept_in_quick_memory(saving_game(fast: true), profile: true)
-
-    assert_empty kept & routines(:erase, :copy, :reset)
-  end
-
-  def test_the_routines_a_game_does_ask_for_are_kept
+  # ...AND NOTHING ELSE. A job the game asks for — save, load, erase, copy, put back — runs once,
+  # on the pass that asks for it, and is a small part of that pass, so it is left to the build
+  # like any other routine. Kept, they came to more than twice what a save's passes need.
+  def test_the_jobs_a_game_asks_for_are_left_to_the_build
     kept = kept_in_quick_memory(saving_game(fast: true, asks: %i[erase copy reset]), profile: true)
 
-    assert_empty routines(:erase, :copy, :reset) - kept
+    assert_empty kept & routines(:save, :load, :erase, :copy, :reset)
   end
 
   # A game that only loads writes nothing, so nothing of what a write goes through is kept:
   # not the routine that writes a piece, not the one that looks a copy over, not the queue.
-  def test_a_record_that_is_only_loaded_keeps_the_routine_that_loads_and_nothing_a_write_uses
+  def test_a_record_that_is_only_loaded_keeps_nothing_a_write_uses
     kept = kept_in_quick_memory(saving_game(fast: true, saves: false), profile: true)
 
-    assert_includes kept, routine(:load)
-    assert_empty kept & (routines(:save, :step, :scan) + QUEUE)
+    assert_empty kept & (routines(:save, :step, :scan, :load) + QUEUE)
   end
 
   # ONE RECORD'S WORD IS ABOUT THAT RECORD. A second record that says nothing is left to the
@@ -115,7 +111,7 @@ class TestSaveDataFast < Minitest::Test
     end
     kept = kept_in_quick_memory(game, profile: true)
 
-    assert_includes kept, routine(:save)
+    assert_includes kept, routine(:step)
     assert_empty kept & %i[save step scan].map { |piece| routine(piece, record: :settings) }
   end
 
@@ -220,6 +216,71 @@ class TestSaveDataFast < Minitest::Test
     assert_match(/save_data :file, fast: true/, error.message)
     assert_match(/quick memory/, error.message)
     assert_match(/remove `fast: true` from the record/, error.message)
+  end
+
+  # A game whose game loop is long and which plays a song, so the routine that plays the music
+  # does enough to be worth the quick memory too. Its list leaves room there for those two or
+  # for the record's save routines, and not for all of them. The lengths are picked for the
+  # cartridge the build makes today: a change to how a loop or a save is built can move them,
+  # and then the refusals below say so by finding room for all of them.
+  #
+  # A measured build first builds once without a measurement, and that build cannot tell the
+  # music is worth the room, so only the game loop goes ahead of the save routines there.
+  # CROWDING_LIST leaves too little room even for that build. CROWDING_THE_MUSIC leaves room
+  # for that build and not for the measured one, where the music goes ahead too.
+  CROWDING_LIST = 5200
+  CROWDING_THE_MUSIC = 4350
+
+  def game_crowding_its_loop(fast, pile_size: CROWDING_LIST)
+    said = fast.nil? ? {} : { fast: fast }
+    RubyGBA.game("SAVELOOP") do
+      screen :bitmap
+      enable_sound
+      hearts = var :hearts, 3
+      spin = var :spin, 0
+      pile = list :pile, capacity: pile_size, fast: true
+      files = save_data(:file, copies: 2, **said) { keep hearts }
+      song(:tune) do
+        tempo 240
+        voice(:melody) { 8.times { note :C4, :eighth; note :E4, :eighth } }
+        voice(:bass) { 8.times { note :C3, :quarter } }
+      end
+      play_song :tune
+      game_loop do
+        pressed(:a).then { files[0].save }
+        pile.push 1
+        300.times { spin.add! 1 }
+      end
+    end
+  end
+
+  # THE GAME LOOP AND THE MUSIC GO IN AHEAD OF A RECORD'S WORD. Every frame runs them, and a
+  # save is a few passes now and then; a game whose word put them in the cartridge ran every
+  # frame at the cartridge's speed to save its passes the same. So where they do not all fit,
+  # the build says so rather than choose.
+  def test_a_record_whose_routines_would_put_the_game_loop_in_the_cartridge_is_refused
+    by_measuring = kept_in_quick_memory(game_crowding_its_loop(nil), profile: true)
+    error = assert_raises(GBA::LoweringError) { kept_in_quick_memory(game_crowding_its_loop(true), profile: true) }
+
+    assert_empty %i[__frame __interrupt] - by_measuring, "saying nothing, the game loop and the music are kept"
+    assert_match(/save_data :file, fast: true/, error.message)
+    assert_match(/Every frame runs the game loop, so it goes in first/, error.message)
+    assert_match(/remove `fast: true` from the record/, error.message)
+  end
+
+  def test_a_record_whose_routines_would_put_the_music_in_the_cartridge_is_refused
+    game = game_crowding_its_loop(true, pile_size: CROWDING_THE_MUSIC)
+    error = assert_raises(GBA::LoweringError) { kept_in_quick_memory(game, profile: true) }
+
+    assert_match(/Every frame runs the game loop and the routine that plays the music/, error.message)
+  end
+
+  # Where there is room for all of them, all of them are kept.
+  def test_a_record_with_room_beside_the_game_loop_and_the_music_keeps_all_three
+    kept = kept_in_quick_memory(game_crowding_its_loop(true, pile_size: 1), profile: true)
+
+    assert_empty %i[__frame __interrupt] - kept
+    assert_empty routines(:step, :scan) - kept
   end
 
   def test_a_word_that_is_not_true_or_false_is_refused

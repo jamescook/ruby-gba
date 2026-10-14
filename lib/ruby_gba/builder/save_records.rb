@@ -235,24 +235,26 @@ module RubyGBA
       # WHERE ONE OF A RECORD'S ROUTINES IS KEPT, from what the game said of the record:
       # true for the quick memory, false for the cartridge, nil for the build to decide.
       #
-      # `fast: false` is said of every routine the record has. `fast: true` is said of the
-      # ones this game uses, because a record is built with a routine for everything a game
-      # can ask of it — save, load, erase a copy, copy one over another, put things back as
-      # declared — and a game that never erases a copy still has the routine that would.
-      # Insisting on that one would spend the quick memory on code that cannot run. So a job
-      # is kept when the game asks for it somewhere, and the two routines every write goes
-      # through (the one that writes a piece each pass, and the one that looks the copy over
-      # when the last piece is in) are kept when it asks for any job that writes.
+      # `fast: false` is said of every routine the record has. `fast: true` is said of the two
+      # routines every pass of a write runs — the one that writes a piece, and the one that
+      # looks the copy over when the last piece is in — and only when the game asks for a job
+      # that writes. That is what a save spends its frames in. The jobs themselves (save,
+      # load, erase, copy, put back) each run once, on the pass that asks for them, and are a
+      # small part of it; insisted on as well, they came to more than twice the room, and in a
+      # big game that room is what the game loop and the music needed. So they are left to the
+      # build like any routine.
       #
       # What the game asks for is known by now: every routine it wrote is built before the
       # records are laid out.
       def fast_for(layout, job)
         return layout.fast unless layout.fast
+        return nil unless %i[step scan].include?(job)
 
-        asked = @save_jobs_asked[layout.name]
-        used = asked.include?(job) || (%i[step scan].include?(job) && asked.intersect?(JOBS_THAT_WRITE))
-        used ? true : nil
+        insists_on_writing?(layout) ? true : nil
       end
+
+      # Did the game say `fast: true` of this record, and ask it for a job that writes?
+      def insists_on_writing?(layout) = layout.fast && @save_jobs_asked[layout.name].intersect?(JOBS_THAT_WRITE)
 
       # WHERE THE QUEUE'S OWN ROUTINES ARE KEPT, which no game says of them: they are every
       # record's, and a write goes through them on its way to the record's own. So they go
@@ -264,7 +266,7 @@ module RubyGBA
       # left out of the asking.
       def fast_for_queue
         declared = @save_data.each_value.reject { |layout| layout.name == SaveVarRecord::SAVE_VAR_RECORD }
-        return true if declared.any? { |layout| layout.fast && @save_jobs_asked[layout.name].intersect?(JOBS_THAT_WRITE) }
+        return true if declared.any? { |layout| insists_on_writing?(layout) }
         return false if declared.any? && declared.all? { |layout| layout.fast == false }
 
         nil
