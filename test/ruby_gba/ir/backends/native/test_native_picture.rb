@@ -950,6 +950,118 @@ class TestNativePicture < Minitest::Test
     refute_equal moments[9].picture, moments[11].picture, "a cell changed in the first scene should show there"
   end
 
+  # On a bitmap screen a scene's background is painted into the picture where it is declared,
+  # and each of two scenes paints its own map, though both call it :room.
+  def test_two_bitmap_scenes_each_paint_their_own_background_of_one_name
+    program = program_of do
+      state = var :state, 0
+      ticks = var :ticks, 0
+      image :brick, "#" => :red do "########\n" * 8 end
+      image :pond, "#" => :cyan do "########\n" * 8 end
+      tiles :rooms, "#" => :brick, "~" => :pond
+      order = table :order, [0, 0, 0, 1, 1, 1, 0, 0]
+      scene(:first) do
+        screen :bitmap
+        background :room, tiles: :rooms, map: ["##  ", "#   "]
+      end
+      scene(:second) do
+        screen :bitmap
+        background :room, tiles: :rooms, map: ["  ~~", "~~  "]
+      end
+      game_loop do
+        ticks.add! 1
+        state.set! order[ticks]
+        case_var :state do
+          when_val 0, :first
+          when_val 1, :second
+        end
+      end
+    end
+
+    moments = reference_snapshots(program, frames: 8, buttons: {})
+
+    assert_native_matches_reference program, frames: 8
+
+    assert_equal Color.resolve(:red), moments[1].picture[0], "the first scene should paint its own map"
+    assert_equal Color.resolve(:cyan), moments[4].picture[3 * 8], "and the second its own"
+  end
+
+  # Named layers put two backgrounds of one name in another order than the program declares
+  # them. What the game does to the name is kept by the one declared last, so a changed cell is
+  # a copy of the second scene's map, though its background is the further back.
+  def test_backgrounds_of_one_name_in_layers_share_the_last_declared_one_s_cells
+    program = program_of do
+      screen :tiled
+      layers :back, :front
+      state = var :state, 0
+      ticks = var :ticks, 0
+      image :brick, "#" => :red do "########\n" * 8 end
+      image :pond, "#" => :cyan do "########\n" * 8 end
+      tiles :rooms, "#" => :brick, "~" => :pond
+      order = table :order, [0, 0, 0, 1, 1, 1, 0, 0, 0]
+      scene(:first) do
+        layer(:front) { background :room, tiles: :rooms, map: ["##  ", "#   "] }
+      end
+      scene(:second) do
+        room = layer(:back) { background :room, tiles: :rooms, map: ["  ~~", "~~  "] }
+        (ticks == 4).then { room.set_tile 0, 0, "#" }
+      end
+      game_loop do
+        ticks.add! 1
+        state.set! order[ticks]
+        case_var :state do
+          when_val 0, :first
+          when_val 1, :second
+        end
+      end
+    end
+
+    moments = reference_snapshots(program, frames: 9, buttons: {})
+
+    assert_native_matches_reference program, frames: 9
+
+    assert_equal Color.resolve(:red), moments[5].picture[0], "the changed cell should show in the second scene"
+    assert_equal Color.resolve(:cyan), moments[5].picture[3 * 8], "over the second scene's own map"
+  end
+
+  # Whether a background is seen through is asked of its name, which the one declared last
+  # answers: the first scene's background, declared in a see-through layer, is drawn solid
+  # because the second scene's background of the same name is in a solid one.
+  def test_backgrounds_of_one_name_are_seen_through_as_the_last_declared_one_is
+    program = program_of do
+      screen :tiled
+      layers :ground, :water
+      state = var :state, 0
+      ticks = var :ticks, 0
+      image :sky, "#" => :blue do "########\n" * 8 end
+      image :brick, "#" => :red do "########\n" * 8 end
+      tiles :skies, "#" => :sky
+      tiles :rooms, "#" => :brick
+      layer(:ground) { background :backdrop, tiles: :skies, map: ["####"] * 2 }
+      order = table :order, [0, 0, 0, 1, 1, 0, 0]
+      scene(:first) do
+        layer(:water, transparency: 50) { background :room, tiles: :rooms, map: ["##  "] * 2 }
+      end
+      scene(:second) do
+        layer(:ground) { background :room, tiles: :rooms, map: ["  ##"] * 2 }
+      end
+      game_loop do
+        ticks.add! 1
+        state.set! order[ticks]
+        case_var :state do
+          when_val 0, :first
+          when_val 1, :second
+        end
+      end
+    end
+
+    moments = reference_snapshots(program, frames: 7, buttons: {})
+
+    assert_native_matches_reference program, frames: 7
+
+    assert_equal Color.resolve(:red), moments[1].picture[0], "the first scene's background should be drawn solid"
+  end
+
   # A background with a small map and one bigger than any grid the console has. Neither comes
   # round again. The window is walked over each in six steps, from left of and above its first
   # cell to right of and below its last, and past an edge the layer behind shows.

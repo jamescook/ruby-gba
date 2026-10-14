@@ -58,9 +58,11 @@ module RubyGBA
             @stacking = Stacking.picture(@program)
             @handover = SceneHandover.of(@program)
             @fading = Fading.resolve(@program)
-            # A background's name -> the entry that keeps what the game does to it: the last one
-            # declared by that name, as the interpreter's @bg_by_name keeps the last.
-            @backgrounds = @stacking.scenery.each_with_index.to_h { |bg, id| [bg.name, id] }
+            # A background's name -> the entry that keeps what the game does to it. That is the
+            # last one declared by the name, in the order the program declares them, as the
+            # interpreter's @bg_by_name keeps it; the stack's order can differ once layers are named.
+            @last_declared = @program.walk.select { |node| node.kind == :background }.to_h { |bg| [bg.name, bg] }
+            @backgrounds = @last_declared.transform_values { |bg| entry_of(bg) }
             @objects = by_name(@program.walk, :object)
             @sprites = @objects.each_key.with_index.to_h # sprite name -> the number rg_screen.c knows it by
             @drawn_sprites = DrawnSprites.new(@program) # the names a run says its sprites by
@@ -414,8 +416,12 @@ module RubyGBA
           def fade_place(thing) = @fade_places.fetch(thing.name, NO_LAYER)
 
           # Reference#see_through_layer_of: the see-through layer a background or a sprite was
-          # declared in, by its number, or SOLID.
-          def see_through_number(thing) = @see_through_numbers.fetch(thing.layer, SOLID)
+          # declared in, by its number, or SOLID. The interpreter asks by name, and a name is
+          # first the last background declared by it, so two backgrounds of one name, or a sprite
+          # named like a background, are both drawn as that background's layer is.
+          def see_through_number(thing)
+            @see_through_numbers.fetch(@last_declared.fetch(thing.name, thing).layer, SOLID)
+          end
 
           # The routine rg_screen.c calls for a see-through layer's two amounts as they are now
           # (Reference#live_see_through_weights), answering for the layer it is asked about.
@@ -580,7 +586,7 @@ module RubyGBA
           def lower_background(node)
             return [] if @handover.on_arrival?(node)
 
-            id = C::Int.new(@backgrounds.fetch(node.name))
+            id = C::Int.new(entry_of(node))
             [eval_call("rg_screen_paint_owed_rebuild"), eval_call(node.scene ? "rg_background_stamp" : "rg_background_put_up", id)]
           end
 
@@ -600,7 +606,8 @@ module RubyGBA
             [eval_call("rg_background_draw_with", background_number(node), value(node.which))]
           end
 
-          # The number rg_screen.c knows the background a statement names by.
+          # The number rg_screen.c knows the background a statement names by: the entry that
+          # keeps what the game does to that name (see #entry_of for one declaration's own).
           def background_number(node)
             C::Int.new(@backgrounds.fetch(node.name) do
               raise LoweringError, "#{node.kind} of undeclared background #{node.name.inspect}"
@@ -837,7 +844,10 @@ module RubyGBA
           # The number rg_screen.c knows this one declaration by. A name gives the entry that
           # keeps what the game does to it (RG_BG_KEPT_BY), which is another declaration's when
           # two scenes declare a background by one name, so a declaration is found by itself.
-          def entry_of(bg) = @stacking.scenery.index { |entry| entry.equal?(bg) }
+          def entry_of(bg)
+            @stacking.scenery.index { |entry| entry.equal?(bg) } or
+              raise LoweringError, "background #{bg.name.inspect} is not among the backgrounds the picture draws"
+          end
 
           # --- small pieces ---
 

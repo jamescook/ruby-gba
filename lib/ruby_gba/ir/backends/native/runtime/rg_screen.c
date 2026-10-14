@@ -119,18 +119,24 @@ static int32_t painting_sprite; /* what is painted from here on is a sprite's (F
 static int32_t *shown_backgrounds;
 static int32_t shown_count, shown_room;
 
-/* WHAT EACH BACKGROUND'S CELLS HOLD NOW (Reference @bg_maps): which of its maps, and the run's
- * own copy of that map's cells, made the first time one of them is changed or another map is
- * handed over. Until then they are the first map's, read where the game declared them. */
+/* The four arrays below are what the game does to a background, and the interpreter keeps each by
+ * the background's NAME. Two scenes can declare a background by one name, so each is read and
+ * written at the entry that keeps it for the name (keeper_of, RG_BG_KEPT_BY), and the slots of
+ * the other entries are never used.
+ *
+ * WHAT A BACKGROUND'S CELLS HOLD NOW (Reference @bg_maps): which of its maps, and the run's own
+ * copy of that map's cells, made the first time one of them is changed or another map is handed
+ * over. Until then each background of the name shows its own first map, read where the game
+ * declared it. */
 typedef struct { int32_t which; int16_t *cells; } background_cells;
 static background_cells cells_now[RG_MAX_BACKGROUNDS];
 
-/* Where each background's window sits over its map, in pixels (Reference @bg_scroll): the screen's
+/* Where a background's window sits over its map, in pixels (Reference @bg_scroll): the screen's
  * top left shows the map's (x, y). Nought until the game scrolls it. */
 typedef struct { int32_t x, y; } background_scroll;
 static background_scroll scrolls[RG_MAX_BACKGROUNDS];
 
-/* Which set of its tiles each background is drawn from now (Reference @bg_colors): 0 for the
+/* Which set of its tiles a background is drawn from now (Reference @bg_colors): 0 for the
  * colors they were drawn in, which is where every background starts and what a number naming no
  * step means, or one more than the step the game last named. */
 static int32_t tile_set_now[RG_MAX_BACKGROUNDS];
@@ -553,7 +559,7 @@ int32_t rg_fade_steps(int32_t amount, int32_t fraction_bits, int32_t walked) {
 
 /* The entry that keeps what the game does to this background's name (RG_BG_KEPT_BY): itself,
  * unless another scene declared a background by the same name after it. */
-static int32_t kept(int32_t background) { return background_field(background, RG_BG_KEPT_BY); }
+static int32_t keeper_of(int32_t background) { return background_field(background, RG_BG_KEPT_BY); }
 
 /* Map number +which+ of a background's own maps, as its entry of rg_game_maps. */
 static const int32_t *map_entry(int32_t background, int32_t which) {
@@ -564,8 +570,8 @@ static const int32_t *map_entry(int32_t background, int32_t which) {
  * name where there is one, which is a copy of one of the keeping entry's maps; and the first of
  * this background's own maps where there is none. */
 static const int32_t *map_now(int32_t background) {
-  const background_cells *now = &cells_now[kept(background)];
-  return now->cells ? map_entry(kept(background), now->which) : map_entry(background, 0);
+  const background_cells *now = &cells_now[keeper_of(background)];
+  return now->cells ? map_entry(keeper_of(background), now->which) : map_entry(background, 0);
 }
 
 static int32_t map_cols(int32_t background) { return map_now(background)[RG_MAP_COLS]; }
@@ -582,7 +588,7 @@ static int64_t cell_place(int32_t background, int64_t row, int64_t col) { return
  * where it holds no tile. */
 static int32_t map_cell(int32_t background, int64_t row, int64_t col) {
   if (!in_map(background, row, col)) return RG_CELL_EMPTY;
-  const int16_t *own = cells_now[kept(background)].cells;
+  const int16_t *own = cells_now[keeper_of(background)].cells;
   const int16_t *cells = own ? own : rg_game_map_cells + map_now(background)[RG_MAP_CELLS];
   return cells[cell_place(background, row, col)];
 }
@@ -590,7 +596,7 @@ static int32_t map_cell(int32_t background, int64_t row, int64_t col) {
 /* The name's cells become the run's own copy of map number +which+ of the keeping entry's maps,
  * as that map was declared (Reference#mutable_map, and the copy in #exec_show_map). */
 static void copy_map(int32_t background, int32_t which) {
-  int32_t keeper = kept(background);
+  int32_t keeper = keeper_of(background);
   const int32_t *map = map_entry(keeper, which);
   size_t count = (size_t)map[RG_MAP_COLS] * (size_t)map[RG_MAP_ROWS];
   int16_t *copy = malloc((count ? count : 1) * sizeof *copy);
@@ -603,8 +609,8 @@ static void copy_map(int32_t background, int32_t which) {
 /* Each background with the name is drawn from its own first map again, as declared
  * (Reference's @bg_maps.delete). */
 static void forget_own_cells(int32_t background) {
-  free(cells_now[kept(background)].cells);
-  cells_now[kept(background)] = (background_cells){0, NULL};
+  free(cells_now[keeper_of(background)].cells);
+  cells_now[keeper_of(background)] = (background_cells){0, NULL};
 }
 
 /* WHAT THE GAME HAS PAINTED (Reference @bitmaps, for the tiles and pictures of a run): every
@@ -633,11 +639,11 @@ static uint16_t tile_pixel(int32_t background, int32_t cell, int64_t tx, int64_t
   if (painted != RG_NOT_PAINTED && rg_game_painted_tiles[painted + 2 * cell] != RG_NOT_PAINTED) {
     int32_t run = rg_game_painted_tiles[painted + 2 * cell], which = rg_game_painted_tiles[painted + 2 * cell + 1];
     int32_t place = places_of(run)[which * RUN_TILE_PIXELS + ty * RUN_TILE_SIDE + tx];
-    int64_t set = (int64_t)tile_set_now[kept(background)] * rg_game_picture_sizes[RG_SIZE_RUNS] + run;
+    int64_t set = (int64_t)tile_set_now[keeper_of(background)] * rg_game_picture_sizes[RG_SIZE_RUNS] + run;
     return rg_game_run_colors[background_field(background, RG_BG_RUN_COLORS) + set * PLACES_IN_RUN_COLORS + place];
   }
   int32_t tile_w = background_field(background, RG_BG_TILE_W), tile_h = background_field(background, RG_BG_TILE_H);
-  int64_t tile = (int64_t)tile_set_now[kept(background)] * background_field(background, RG_BG_TILES) + cell;
+  int64_t tile = (int64_t)tile_set_now[keeper_of(background)] * background_field(background, RG_BG_TILES) + cell;
   int64_t at = background_field(background, RG_BG_TILES_START) + tile * tile_w * tile_h + ty * tile_w + tx;
   return rg_game_tile_pixels[at];
 }
@@ -803,7 +809,7 @@ void rg_background_put_up(int32_t background) {
   if (background_field(background, RG_BG_ON_ARRIVAL)) forget_own_cells(background);
   remember_put_up(background);
   scenery_kept = 0;
-  if (turns[kept(background)].turned) {
+  if (turns[keeper_of(background)].turned) {
     request_repaint();
     return;
   }
@@ -813,7 +819,7 @@ void rg_background_put_up(int32_t background) {
 
 /* Reference#exec_affine_background: the angle wraps into 0..359 as Ruby's % does. */
 void rg_background_turn(int32_t background, int32_t angle, int32_t size, int32_t pivot_x, int32_t pivot_y) {
-  turns[kept(background)] = (background_turn){1, (int32_t)floor_mod(angle, 360), size, pivot_x, pivot_y};
+  turns[keeper_of(background)] = (background_turn){1, (int32_t)floor_mod(angle, 360), size, pivot_x, pivot_y};
   request_repaint();
 }
 
@@ -825,15 +831,15 @@ static int32_t showing(int32_t background) {
 
 /* Reference#exec_scroll_background */
 void rg_background_scroll(int32_t background, int32_t x, int32_t y) {
-  scrolls[kept(background)] = (background_scroll){x, y};
+  scrolls[keeper_of(background)] = (background_scroll){x, y};
   request_repaint();
 }
 
 /* Reference#exec_set_tile: the copy is made even when the cell turns out not to be there. */
 void rg_background_set_tile(int32_t background, int32_t col, int32_t row, int32_t tile) {
-  if (!cells_now[kept(background)].cells) copy_map(background, 0);
+  if (!cells_now[keeper_of(background)].cells) copy_map(background, 0);
   if (!in_map(background, row, col)) return;
-  int16_t *cell = &cells_now[kept(background)].cells[cell_place(background, row, col)];
+  int16_t *cell = &cells_now[keeper_of(background)].cells[cell_place(background, row, col)];
   if (*cell == tile) return;
   *cell = (int16_t)tile;
   request_repaint();
@@ -850,7 +856,7 @@ void rg_background_show_map(int32_t background, int32_t which) {
  * rebuild reads the tiles in the colors named. The interpreter keeps the number and works out
  * what it names as it paints; which step a number names never changes, so it is worked out here. */
 void rg_background_draw_with(int32_t background, int32_t which) {
-  tile_set_now[kept(background)] = rg_place_of_choice(which, background_field(background, RG_BG_COLOR_STEPS));
+  tile_set_now[keeper_of(background)] = rg_place_of_choice(which, background_field(background, RG_BG_COLOR_STEPS));
   request_repaint();
 }
 
@@ -890,7 +896,7 @@ void rg_bend_answer(int32_t offset) { asked_bend.offset = offset; }
  * its scroll. Nought for a background the game does not bend. */
 static int64_t bend_at(int32_t background, int64_t py) {
   if (!background_field(background, RG_BG_BENT)) return 0;
-  asked_bend.background = kept(background); /* the game answers for the name */
+  asked_bend.background = keeper_of(background); /* the game answers for the name */
   asked_bend.py = (int32_t)py;
   rg_game_bend_offsets();
   asked_bend.background = NOBODY_ASKED;
@@ -905,9 +911,9 @@ static int64_t bend_at(int32_t background, int64_t py) {
 static void paint_window_without_wrapping(int32_t background) {
   int64_t map_h = (int64_t)map_rows(background) * background_field(background, RG_BG_TILE_H);
   for (int64_t py = 0; py < RG_SCREEN_HEIGHT; py++) {
-    int64_t my = (int64_t)scrolls[kept(background)].y + row_drawn_from(py);
+    int64_t my = (int64_t)scrolls[keeper_of(background)].y + row_drawn_from(py);
     if (my < 0 || my >= map_h) continue;
-    int64_t off_x = (int64_t)scrolls[kept(background)].x + bend_at(background, py);
+    int64_t off_x = (int64_t)scrolls[keeper_of(background)].x + bend_at(background, py);
     for (int64_t px = 0; px < RG_SCREEN_WIDTH; px++) {
       int64_t mx = off_x + px;
       if (mx >= 0) paint_map_pixel(background, mx, my, px, py);
@@ -926,9 +932,9 @@ static void paint_window(int32_t background) {
   int64_t map_w = (int64_t)map_now(background)[RG_MAP_GRID_COLS] * background_field(background, RG_BG_TILE_W);
   int64_t map_h = (int64_t)map_now(background)[RG_MAP_GRID_ROWS] * background_field(background, RG_BG_TILE_H);
   if (map_w == 0 || map_h == 0) return;
-  int64_t off_y = floor_mod(scrolls[kept(background)].y, map_h);
+  int64_t off_y = floor_mod(scrolls[keeper_of(background)].y, map_h);
   for (int64_t py = 0; py < RG_SCREEN_HEIGHT; py++) {
-    int64_t off_x = floor_mod((int64_t)scrolls[kept(background)].x + bend_at(background, py), map_w);
+    int64_t off_x = floor_mod((int64_t)scrolls[keeper_of(background)].x + bend_at(background, py), map_w);
     for (int64_t px = 0; px < RG_SCREEN_WIDTH; px++)
       paint_map_pixel(background, (off_x + px) % map_w, (off_y + row_drawn_from(py)) % map_h, px, py);
   }
@@ -954,7 +960,7 @@ static void paint_turned_window(int32_t background) {
   int64_t map_w = (int64_t)map_now(background)[RG_MAP_GRID_COLS] * tile_w;
   int64_t map_h = (int64_t)map_now(background)[RG_MAP_GRID_ROWS] * tile_h;
   if (map_w == 0 || map_h == 0) return;
-  const background_turn *turn = &turns[kept(background)];
+  const background_turn *turn = &turns[keeper_of(background)];
   int64_t pivot_x = turn->pivot_x, pivot_y = turn->pivot_y, one_th = rg_game_turn_rules[1];
   int64_t turn_cos, turn_sin;
   affine_matrix(turn->angle, turn->size, &turn_cos, &turn_sin);
@@ -962,8 +968,8 @@ static void paint_turned_window(int32_t background) {
     int64_t dy = row_drawn_from(py) - pivot_y;
     for (int64_t px = 0; px < RG_SCREEN_WIDTH; px++) {
       int64_t dx = px - pivot_x;
-      int64_t mx = floor_mod(scrolls[kept(background)].x + pivot_x + floor_div(turn_cos * dx + turn_sin * dy, one_th), map_w);
-      int64_t my = floor_mod(scrolls[kept(background)].y + pivot_y + floor_div(-turn_sin * dx + turn_cos * dy, one_th), map_h);
+      int64_t mx = floor_mod(scrolls[keeper_of(background)].x + pivot_x + floor_div(turn_cos * dx + turn_sin * dy, one_th), map_w);
+      int64_t my = floor_mod(scrolls[keeper_of(background)].y + pivot_y + floor_div(-turn_sin * dx + turn_cos * dy, one_th), map_h);
       int32_t cell = map_cell(background, my / tile_h, mx / tile_w);
       if (cell < 0) continue;
       uint16_t color = tile_pixel(background, cell, mx % tile_w, my % tile_h);
@@ -976,7 +982,7 @@ static void paint_turned_window(int32_t background) {
 
 /* Reference#paint_background_window: one background painted where it sits in the view. */
 static void paint_background(int32_t background) {
-  if (turns[kept(background)].turned) paint_turned_window(background);
+  if (turns[keeper_of(background)].turned) paint_turned_window(background);
   else paint_window(background);
 }
 
