@@ -439,7 +439,7 @@ module RubyGBA
           end
 
           # The routine rg_screen.c calls for how far across one row of a bent background sits
-          # (Reference#row_bend_offset), answering for the background it is asked about: the row
+          # (Reference#run_bend_for_row), answering for the background it is asked about: the row
           # goes into the bend's variable, what its block says to run runs, and the offset is
           # worked out from there.
           def bend_offsets
@@ -451,8 +451,24 @@ module RubyGBA
             C::Function.new(name: @names.own("bend_offsets"), body: answers, exported: true)
           end
 
+          # Reference#work_out_bends: every bend's line 0, then the rest of each bend in turn,
+          # which leaves each bend's row one past the bottom of the screen. Called last in every
+          # frame boundary (rg_screen_work_out_bends).
+          def work_out_bends
+            first_lines = @bends.each_key.map { |name| work_out_bend_lines(name, 0, 1) }
+            the_rest = @bends.flat_map do |name, bend|
+              [work_out_bend_lines(name, 1, Screen::HEIGHT), assign(bend.row, C::Int.new(Screen::HEIGHT))]
+            end
+            C::Function.new(name: @names.own("work_out_bends"), body: first_lines + the_rest, exported: true)
+          end
+
+          def work_out_bend_lines(name, first, past)
+            eval_call("rg_bend_work_out", C::Int.new(@backgrounds.fetch(name)), C::Int.new(first), C::Int.new(past))
+          end
+
           # Reference#exec_scroll_rows: the bend stands from power-on, so where it is written
-          # only asks for the picture to be built again.
+          # only asks for the picture to be built again — which is what shows the bend in a game
+          # that never waits for the screen, whose lines are worked out as they are painted.
           def lower_scroll_rows(_node) = [eval_call("rg_screen_request_rebuild")]
 
           # A map's cells, row after row: the number of the tile, or CELL_EMPTY where the map

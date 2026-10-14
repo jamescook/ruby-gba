@@ -59,6 +59,7 @@ static uint16_t scenery[RG_SCREEN_WIDTH * RG_SCREEN_HEIGHT];
 static int32_t scenery_kept;
 
 static int32_t held;            /* switched off until the first frame (Framebuffer#held=) */
+static int32_t frames_begun;    /* a frame boundary has been reached (Reference @uses_frames) */
 static int32_t kind = -1;       /* the kind of screen up; none before the first `screen` */
 static int32_t owed;            /* a rebuild of the whole view is owed (Reference#request_repaint) */
 static int32_t current_scene = -1;
@@ -669,16 +670,9 @@ void rg_background_stamp(int32_t background) {
   mix_nothing();
 }
 
-static int32_t bent_background_showing(void) {
-  for (int32_t bg = 0; bg < rg_game_picture_sizes[RG_SIZE_BACKGROUNDS]; bg++)
-    if (showing(bg) && background_field(bg, RG_BG_BENT)) return 1;
-  return 0;
-}
-
 /* Reference#request_repaint: a rebuild of the whole view is owed, and painted when something
- * needs the picture. With a bent background showing it is painted now instead. Painting one runs
- * the game's own block line by line, which reads the game's variables and may change them, so
- * putting it off would change the game.
+ * needs the picture. A bent background's lines are worked out once a pass and kept
+ * (rg_bend_work_out), so painting one reads no variable of the game's and can wait like any other.
  *
  * A painted screen is never built again, in a game that also has screens drawn from tiles. Its
  * picture is whatever the game painted there, and building the view from scenery would wipe it.
@@ -686,15 +680,12 @@ static int32_t bent_background_showing(void) {
  * whichever is showing. */
 static void request_repaint(void) {
   if (kind == RG_BITMAP && rg_game_picture_sizes[RG_SIZE_SCREEN_KINDS_CHANGE]) return;
-  if (bent_background_showing()) {
-    repaint_view();
-    return;
-  }
   owed = 1;
   keep_shares_for_owed_rebuild();
 }
 
-/* Reference#exec_scroll_rows and #repaint_bent_backgrounds: both only ask. */
+/* Reference#exec_scroll_rows, and anything else that changes the picture without painting it:
+ * all only ask. */
 void rg_screen_request_rebuild(void) { request_repaint(); }
 
 /* Reference#painted_screen?: is the screen that is up one the game paints? To the display that
@@ -895,22 +886,53 @@ int32_t rg_bend_asked(int32_t background) { return background == asked_bend.back
 int32_t rg_bend_line(void) { return asked_bend.py; }
 void rg_bend_answer(int32_t offset) { asked_bend.offset = offset; }
 
-/* Reference#row_bend_offset: how far across line +py+ of the screen a background sits, on top of
- * its scroll. Nought for a background the game does not bend. */
-static int64_t bend_at(int32_t background, int64_t py) {
-  if (!background_field(background, RG_BG_BENT)) return 0;
-  asked_bend.background = keeper_of(background); /* the game answers for the name */
-  asked_bend.py = (int32_t)py;
+/* Every line of every bent background, as the gap between frames last worked it out
+ * (Reference#work_out_bends), by the background that keeps the name, and whether it has been. */
+static int32_t bend_lines[RG_MAX_BACKGROUNDS][RG_SCREEN_HEIGHT];
+static int32_t bend_lines_kept[RG_MAX_BACKGROUNDS];
+
+/* Reference#run_bend_for_row: the game asked how far across line +py+ of the background that
+ * keeps the name sits, after running whatever its block says to run. */
+static int32_t run_bend_for_line(int32_t keeper, int32_t py) {
+  asked_bend.background = keeper;
+  asked_bend.py = py;
   rg_game_bend_offsets();
   asked_bend.background = NOBODY_ASKED;
   return asked_bend.offset;
 }
 
+/* Lines +first_line+ up to +past_line+ of one background, worked out in turn and kept. */
+void rg_bend_work_out(int32_t background, int32_t first_line, int32_t past_line) {
+  int32_t keeper = keeper_of(background); /* the game answers for the name */
+  for (int32_t py = first_line; py < past_line; py++) bend_lines[keeper][py] = run_bend_for_line(keeper, py);
+  bend_lines_kept[keeper] = 1;
+}
+
+/* Reference#work_out_bends, last in every frame boundary of a game that bends a background it
+ * has: every bend's lines are worked out, and the picture is owed again, since the lines are
+ * worked out from whatever the blocks read. */
+void rg_screen_work_out_bends(void) {
+  rg_game_work_out_bends();
+  request_repaint();
+}
+
+/* Reference#bend_offset_at: how far across line +py+ of the screen a background sits, on top of
+ * its scroll, as the gap between frames last worked it out. Before the first gap: flat for a game
+ * that waits for the screen, whose table on the console is nought until then, and worked out as
+ * the line is painted for one that never waits, as the console works each line out as it draws.
+ * Nought for a background the game does not bend. */
+static int64_t bend_at(int32_t background, int64_t py) {
+  if (!background_field(background, RG_BG_BENT)) return 0;
+  int32_t keeper = keeper_of(background);
+  if (bend_lines_kept[keeper]) return bend_lines[keeper][py];
+  return frames_begun ? 0 : run_bend_for_line(keeper, (int32_t)py);
+}
+
 /* Reference#paint_streamed_background_window: a background with a map too big for any grid, or
  * with maps of different sizes, does not come round again. Past any edge of the map it is
  * showing there are no cells: left of it, above it and below it by the tests here, right of it
- * because the map has no such cell to read. A bent one is asked only about the rows its map
- * reaches. */
+ * because the map has no such cell to read. A bent one in a game that never waits for the screen,
+ * whose lines are worked out as they are painted, is asked only about the rows its map reaches. */
 static void paint_window_without_wrapping(int32_t background) {
   int64_t map_h = (int64_t)map_rows(background) * background_field(background, RG_BG_TILE_H);
   for (int64_t py = 0; py < RG_SCREEN_HEIGHT; py++) {
@@ -1480,7 +1502,10 @@ void rg_screen_paint_owed_rebuild(void) {
 /* --- screens and scenes --- */
 
 void rg_screen_hold(int32_t value) { held = value; }
-void rg_screen_frame_started(void) { held = 0; }
+void rg_screen_frame_started(void) {
+  held = 0;
+  frames_begun = 1;
+}
 
 /* The top of Reference#advance_frame: a frame boundary is the one safe moment to trade the two
  * pages of a tear-free screen, so the page just drawn is shown and the game is handed the other

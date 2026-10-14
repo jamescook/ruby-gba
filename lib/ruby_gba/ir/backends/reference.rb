@@ -194,6 +194,7 @@ module RubyGBA
           @bg_scroll = {}          # background name -> [x, y] its window is currently offset to
           @bg_maps = {}            # ...and this run's own copy of its cells, once any of them has changed
           @row_bends = {}          # background name -> :scroll_rows node giving each row its own offset
+          @bend_rows = {}          # background name -> every row's offset, worked out once a pass
           @shade = nil             # the :shade_outside node of the game's light, if it has one
           @bg_affine = {}          # background name -> the Turn it is being drawn under this frame
           @bg_colors = {}          # ...and which of the lists of colours it was given is drawing it
@@ -896,9 +897,10 @@ module RubyGBA
         end
 
         def exec_scroll_rows(node)
-          # A standing declaration, gathered up front (collect_definitions) — the bend
-          # is read while a row is painted, not where it was written. Reaching it inline
-          # repaints, so a program that only bends still shows the bend.
+          # A standing declaration, gathered up front (collect_definitions) — the rows are
+          # worked out in the gap between frames, not where it is written (#work_out_bends).
+          # Reaching it inline repaints, so a program that never waits for the screen, whose
+          # rows are worked out as they are painted (#bend_offset_at), still shows the bend.
           request_repaint
         end
 
@@ -1056,7 +1058,7 @@ module RubyGBA
           @log << [:vblank, @frame]
           @on_vblank&.call(@frame)
           store_frame_counters(took)
-          repaint_bent_backgrounds
+          work_out_bends
           work_out_shade
         end
 
@@ -1109,14 +1111,51 @@ module RubyGBA
           @vars[IR::Frames::STEP] = took
         end
 
-        # A bending background's picture changes every frame even when the program draws
-        # nothing: the bend is worked out from whatever its block reads, so moving one
-        # variable is a whole rippling lake. Display hardware repaints continuously and gets
-        # that for free — here the repaint has to be asked for, or the picture would sit at
-        # whatever the bend said the first time and the two backends would disagree about
-        # every frame after the first.
-        def repaint_bent_backgrounds
-          request_repaint unless @row_bends.empty?
+        # EVERY ROW OF EVERY BEND, WORKED OUT ONCE A PASS, in the gap between frames the game
+        # waits at, where the console works them out into the table its display is fed from
+        # (GBA::Raster). A pass the console took several frames over is still one gap, so it is
+        # one here too however many frames #frames_each_pass says the pass answered for. The
+        # block is asked 160 times here and nowhere else: painting the picture reads what was
+        # worked out, however many times the picture is built. That matters because a block may
+        # change the game — count, roll a random number — and one asked more often here than on
+        # the console would play a different game.
+        #
+        # In the console's order: every bend's top row first, then the rest of each bend in
+        # turn, which leaves each bend's row at one past the bottom of the screen.
+        #
+        # The picture changes every frame even when the program draws nothing, since the bend
+        # is worked out from whatever its block reads, so it is asked for again here.
+        #
+        # It comes last in the frame boundary, after anybody watching the run has been shown the
+        # frame — the same moment a run that stops here would have stopped at, so a picture read
+        # after a run is the one a watcher saw.
+        #
+        # A bend written for a background the game does not have is never asked: there are no
+        # rows of it to work out.
+        def work_out_bends
+          bends = @row_bends.select { |name, _| @bg_by_name.key?(name) }
+          return if bends.empty?
+
+          bends.each { |name, bend| @bend_rows[name] = [run_bend_for_row(bend, 0)] }
+          bends.each do |name, bend|
+            (1...@screen.height).each { |py| @bend_rows[name] << run_bend_for_row(bend, py) }
+            @vars[bend.row] = @screen.height
+          end
+          request_repaint
+        end
+
+        # Where row +py+ of a bending background sits, as the gap between frames last worked it
+        # out. Before the first gap there is nothing kept, and then it is the console's two
+        # answers: a program that waits for the screen has its table at nought until that gap
+        # (GBA::Raster#emit_boot_row_bends), so every row sits flat; one that never waits has no
+        # gap at all, and the console works each row out as it draws it, so this does too.
+        def bend_offset_at(name, py)
+          rows = @bend_rows[name]
+          return rows[py] if rows
+          return 0 if @uses_frames
+
+          bend = @row_bends[name]
+          bend ? run_bend_for_row(bend, py) : 0
         end
 
         def call_func(name)
@@ -1528,13 +1567,12 @@ module RubyGBA
           map_h = rows_of_cells * tile_h
           base_x, off_y = @bg_scroll[bg.name] || [0, 0]
           off_y %= map_h
-          bend = @row_bends[bg.name]
           width = @screen.width
 
           @screen.height.times do |py|
-            # A bending background sits somewhere different on every row: work out this
-            # row's own sideways offset, on top of wherever the background is scrolled to.
-            off_x = (base_x + row_bend_offset(bend, py)) % map_w # Ruby % wraps negatives into 0..map_w-1
+            # A bending background sits somewhere different on every row: this row's own
+            # sideways offset, on top of wherever the background is scrolled to.
+            off_x = (base_x + bend_offset_at(bg.name, py)) % map_w # Ruby % wraps negatives into 0..map_w-1
             my = (off_y + py - (py % tall)) % map_h
             row = map[my / tile_h]
             next unless row # no cell row here — the backdrop stays, and layers behind show
@@ -1572,7 +1610,6 @@ module RubyGBA
           map_w = (map.map(&:length).max || 0) * tile_w
           map_h = map.length * tile_h
           base_x, off_y = @bg_scroll[bg.name] || [0, 0]
-          bend = @row_bends[bg.name]
           width = @screen.width
 
           @screen.height.times do |py|
@@ -1581,7 +1618,7 @@ module RubyGBA
 
             row = map[my / tile_h]
             ty = my % tile_h
-            off_x = base_x + row_bend_offset(bend, py)
+            off_x = base_x + bend_offset_at(bg.name, py)
             px = 0
             while px < width
               mx = off_x + px
@@ -1641,13 +1678,11 @@ module RubyGBA
           end
         end
 
-        # How far across screen row +py+ sits, for a background given a per-row bend. The
-        # row number goes into the bend's row variable, then its body runs and its offset
-        # is worked out from there — so the same expression a console works out per
-        # scanline is worked out here per row, and the two pictures agree.
-        def row_bend_offset(bend, py)
-          return 0 unless bend
-
+        # How far across screen row +py+ sits, for a background given a per-row bend: the row
+        # number goes into the bend's row variable, then its body runs and its offset is worked
+        # out from there — the same expression the console works out for the row, asked the
+        # same number of times (see #work_out_bends).
+        def run_bend_for_row(bend, py)
           @vars[bend.row] = py
           bend.children.each { |child| exec(child) }
           eval_value(bend.offset)
@@ -1737,14 +1772,9 @@ module RubyGBA
         # it first, and a statement that repaints anyway simply takes its place. The one input
         # a statement cannot be seen changing is a VARIABLE. A see-through amount the game works
         # out reads them, so the amounts are read when the repaint is owed and the later paint
-        # uses those — the numbers painting then would have used. A bending background's block
-        # reads them too, and also writes them, so reading it early would change the game; a
-        # picture with one of those showing paints at once, as it always did.
-        #
-        # That is asked of the picture as it stands, not of the whole program: a title that
-        # bends its backdrop is no reason for the file screen after it to paint every frame.
-        # What is showing only changes through a statement that settles an owed repaint first,
-        # so the answer cannot go stale while a repaint is owed.
+        # uses those — the numbers painting then would have used. A bending background's rows
+        # are worked out once a pass and kept (#work_out_bends), so painting one reads no
+        # variable at all.
         #
         # A PAINTED SCREEN IS NEVER BUILT AGAIN, in a game that also has screens drawn from
         # tiles. Its picture is whatever the program painted there, a title painted once
@@ -1754,7 +1784,6 @@ module RubyGBA
         # is showing. The scenery of the screen that follows is put up as that screen arrives.
         def request_repaint
           return if @screen_mode == :bitmap && @changes_screen_kind
-          return repaint_view if showing_scenery.any? { |bg| @row_bends.key?(bg.name) }
 
           @picture_owed = true
           @owed_weights = capture_see_through_weights

@@ -133,11 +133,12 @@ module RubyGBA
             @locals = 0
             @funcs = by_name(program.walk, :func)
             # The bend each background's rows are given: the last one written for it, wherever
-            # that is, since it stands from power-on (Reference#collect_definitions). One written
-            # for a background the game does not have is never asked for.
+            # that is, since it stands from power-on (Reference#collect_definitions), in the
+            # order the bends are first written, which is the order they are worked out in. One
+            # written for a background the game does not have is never asked for.
             written = by_name(program.walk, :scroll_rows)
-            @bend_written = !written.empty?
-            @bends = written.slice(*by_name(program.walk, :background).keys)
+            declared = by_name(program.walk, :background)
+            @bends = written.select { |name, _| declared.key?(name) }
             # What each timer does when it ticks: its handler, wherever that is written, since it
             # is the timer's from power-on (Nodes::OnTimer.of). And the number the runtime knows
             # each timer by.
@@ -145,7 +146,7 @@ module RubyGBA
             @timers = timer_numbers
             @called = called_routines
             # Everything a run can reach: the program, every routine it calls, however deep, and
-            # what each bend runs as its background is painted. A routine nothing calls is left
+            # what each bend runs as its lines are worked out. A routine nothing calls is left
             # out of the file altogether, so nothing in it (a table it reads, a routine it calls)
             # can leave something declared and unused.
             @reachable = statements_from(program, *@called.map { |name| @funcs.fetch(name) }, *@bends.values,
@@ -179,7 +180,7 @@ module RubyGBA
           # above them in the file.
           def top_level
             routines = @called.map { |name| C::Function.new(name: routine(name), body: body_of(@funcs.fetch(name))) }
-            answers = [see_through_amounts, bend_offsets, timer_ticks]
+            answers = [see_through_amounts, bend_offsets, work_out_bends, timer_ticks]
             main = C::Function.new(name: @names.own("main"), body: [*power_on, *lower(@program)], exported: true)
             [C::Comment.new("Written by ruby-gba's native backend. Do not edit; build the game again."),
              C::Include.new("rg_int32.h"), C::Include.new("rg_runtime.h"), C::Include.new("rg_list.h"),
@@ -213,7 +214,7 @@ module RubyGBA
 
           # The statements under +root+ and everything they hold, stopping at a routine's
           # declaration, at a bend and at what a timer does when it ticks: a routine's body runs
-          # where it is called, a bend's as its background is painted and a tick's as its timer
+          # where it is called, a bend's as its lines are worked out and a tick's as its timer
           # ticks, not where any of them is written. The bend or the handler itself is still a
           # statement there; what it holds is found by asking for it as a root.
           def statements_under(root)
@@ -512,16 +513,16 @@ module RubyGBA
           end
 
           # The runtime ends the frame (shows it, reads the buttons, keeps time), and the frame
-          # counters the program can read move on, where the interpreter moves them. Last, a
-          # game with a bend written in it asks for its picture to be built again
-          # (Reference#repaint_bent_backgrounds).
+          # counters the program can read move on, where the interpreter moves them. Last, a game
+          # that bends a background it has works every bend's lines out for the pass to come
+          # (Reference#work_out_bends).
           def lower_wait_vblank(_node)
             count = variable(Frames::COUNT)
             [eval_call("rg_wait_vblank"),
              assign(Frames::COUNT, call("rg_add", count, C::Int.new(1))),
              assign(Frames::SEEN, count),
              assign(Frames::STEP, C::Int.new(1)),
-             *(@bend_written ? [eval_call("rg_screen_request_rebuild")] : [])]
+             *(@bends.empty? ? [] : [eval_call("rg_screen_work_out_bends")])]
           end
 
           # --- lists (runtime/rg_list.h does the work and the checking) ---

@@ -20,7 +20,7 @@ class TestRowBend < Minitest::Test
 
   # A background of narrow vertical bars. Vertical edges are what a sideways shift moves,
   # so where a row's bars land IS its offset, read straight off the screen.
-  def bars_program(&bend)
+  def bars_program(frames: true, &bend)
     b = Builder.new
     b.instance_eval do
       screen :tiled
@@ -39,7 +39,7 @@ class TestRowBend < Minitest::Test
       tiles :stripes, "#" => :bar
       water = background :water, tiles: :stripes, map: Array.new(20) { "#" * 30 }
       instance_exec(water, &bend) if bend
-      game_loop { }
+      frames ? game_loop { } : halt
     end
     b.finalize_program
     b.program
@@ -64,6 +64,16 @@ class TestRowBend < Minitest::Test
     assert_equal "......RR....", row_picture(i, 2)
     assert_equal ".RR......RR.", row_picture(i, 7), "row 7 slid seven"
     assert_equal "RR......RR..", row_picture(i, 8), "the sawtooth restarts every 8 rows"
+  end
+
+  # A program that never waits for the screen has no gap between frames to work its rows out
+  # in, and the console then works each row out as it draws it, so the bend shows all the same.
+  def test_a_program_with_no_frame_is_bent_too
+    program = bars_program(frames: false) { |water| water.scroll_each_row { |row| row % 8 } }
+    i = Reference.new.run(program)
+
+    assert_equal "R......RR...", row_picture(i, 1), "row 1 slid one pixel left"
+    assert_backends_agree(program, frames: 2, name: "BENDNOFR")
   end
 
   # No bend at all leaves every row where it was drawn — the feature costs nothing when
@@ -200,6 +210,47 @@ class TestRowBend < Minitest::Test
     end
     b.finalize_program
     b.program
+  end
+
+  # A BLOCK THAT COUNTS is asked once for every row, once a frame, on both: the console works
+  # the rows out in the gap between frames and nowhere else, so a block that changes the game
+  # (counts, rolls a random number) has to be asked as often on the interpreter or the two
+  # play different games. The background scrolls and a sprite moves, which are the things that
+  # once had the interpreter asking again.
+  def counting_bend_program
+    b = Builder.new
+    b.instance_eval do
+      screen :tiled
+      image(:bar, "#" => :red) { (["#" * 8] * 8).join("\n") }
+      image(:boat, "#" => :white) { (["#" * 8] * 8).join("\n") }
+      tiles :stripes, "#" => :bar
+      asked = var :asked, 0
+      passes = var :passes, 0
+      water = background :water, tiles: :stripes, map: Array.new(20) { "#" * 30 }
+      water.scroll_each_row do |row|
+        asked.add! 1
+        row % 5
+      end
+      boat = sprite :boat, at: [20, 40]
+      game_loop do
+        water.scroll_by 1, 0
+        boat.move :right, by: 1
+        passes.add! 1
+      end
+    end
+    b.finalize_program
+    b.program
+  end
+
+  def test_a_block_is_asked_once_for_every_row_each_frame
+    i = Reference.new.run(counting_bend_program, frames: 8)
+    rom = assemble_rom(counting_bend_program, name: "BCOUNT")
+    v = assert_emulator_loads_rom(rom, frames: 12, vars: rom.var_addresses)
+
+    assert_operator i[:passes], :>, 3, "the interpreter should have played a few passes"
+    assert_equal 160 * i[:passes], i[:asked], "the interpreter: 160 a pass"
+    assert_operator v.var(:passes), :>, 3, "the console should have played a few passes"
+    assert_equal 160 * v.var(:passes), v.var(:asked), "the console: 160 a pass"
   end
 
   def test_a_bend_and_a_moving_sprite_agree_frame_after_frame

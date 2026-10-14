@@ -1995,16 +1995,39 @@ class TestNativePicture < Minitest::Test
     top_rows = moments.last.picture.each_slice(WIDTH).first(8)
 
     assert_operator top_rows.uniq.length, :>=, 5, "rows drawn from the same row of art should sit at different places across"
-    after_the_first_pass = moments.drop(2).map(&:picture)
+    after_the_first_pass = at_frames(moments).drop(2).map(&:picture)
 
     assert_equal after_the_first_pass.length, after_the_first_pass.uniq.length, "and the bend should be somewhere new on every frame"
   end
 
-  # The block that bends the water also counts each time it is asked, so the count says how
-  # often the picture was built: for every scroll and every time the sprites are put on while
-  # the water is up, and never on the screen that does not show it. The water is scrolled as
-  # well as bent, by rows that sit further across than the grid is wide and below nought.
-  def test_a_bend_is_worked_out_each_time_the_picture_is_built
+  # A game that never waits for the screen has no gap between frames, and its bend's lines are
+  # worked out as they are painted, as the console works each line out as it draws it.
+  def test_a_game_with_no_frames_is_bent_too
+    program = program_of do
+      screen :tiled
+      image :reed, "|" => :white, "~" => :blue, "." => :transparent do "~|~~....\n" * 8 end
+      tiles :water, "~" => :reed
+      background(:water, tiles: :water, map: ["~ ~~ ~~~ ~~~~"] * 24).scroll_each_row { |row| row % 8 }
+      halt
+    end
+
+    last = assert_native_matches_reference program, frames: 1
+    rows_unlike_the_one_above = last.picture.each_slice(WIDTH).each_cons(2).count { |above, row| above != row }
+
+    assert_operator rows_unlike_the_one_above, :>=, 100, "the rows should be bent"
+  end
+
+  # A run's moments at its frame boundaries, without the one at its end: a run stops at a frame
+  # boundary before a bend's rows are worked out there, so the end shows the last boundary's bend
+  # and has asked no block since it.
+  def at_frames(moments) = moments.take_while { |moment| moment.heading != "end" }
+
+  # The block that bends the water also counts each time it is asked: once for every row in the
+  # gap between frames, as the console works its rows out, however often the picture is built —
+  # and on the screen that does not show the water too, since the console works every bend out
+  # every frame. The water is scrolled as well as bent, by rows that sit further across than the
+  # grid is wide and below nought.
+  def test_a_bend_is_worked_out_once_a_frame
     program = program_of do
       screen :tiled
       image :turf, "#" => :green, "o" => :yellow do "#o######\n" * 8 end
@@ -2041,18 +2064,11 @@ class TestNativePicture < Minitest::Test
 
     assert_native_matches_reference program, frames: 10
 
-    counts = moments.map { |moment| moment.variables[:asked] }
+    counts = at_frames(moments).map { |moment| moment.variables[:asked] }
     asked_in_pass = counts.each_cons(2).map { |before, after| after - before }
-    # The shore arrives on the pass after the game picks it, so a pass has the shore up from its
-    # start when the game had picked it by the start of the pass before.
-    shore_up_from_the_start = moments.map { |moment| moment.variables[:state] == 1 }.each_cons(2).map { |before, now| before && now }
 
-    assert(counts.all? { |count| (count % 160).zero? }, "once for every row of the screen each time: #{counts.inspect}")
-    assert_includes shore_up_from_the_start, true, "the run should hold a pass with the shore up throughout"
-    asked_in_pass.drop(1).zip(shore_up_from_the_start).each_with_index do |(asked, shore), pass|
-      assert_equal shore, asked.zero?, "pass #{pass + 2}: asked #{asked} times, shore up from its start: #{shore} (#{counts.inspect})"
-    end
-    assert_operator asked_in_pass.max, :>, 160, "more than once in a frame that scrolls and puts sprites on: #{counts.inspect}"
+    assert_includes moments.map { |moment| moment.variables[:state] }, 1, "the run should go to the shore and back"
+    assert_equal [160], asked_in_pass.uniq, "160 a pass, the shore's passes too: #{counts.inspect}"
   end
 
   # A bend said twice for one background: the second stands and the first never runs. The one
@@ -2100,8 +2116,8 @@ class TestNativePicture < Minitest::Test
   end
 
   # A background too big for the console's grid, bent. The builder refuses a game that says
-  # both, so the bend is written here as the statement itself; the interpreter draws one, asking
-  # only for the rows the map reaches, and so must the C.
+  # both, so the bend is written here as the statement itself; the interpreter draws one, with
+  # every row worked out once a frame like any bend, and so must the C.
   def test_a_background_bigger_than_the_grid_is_bent_too
     program = program_of do
       screen :tiled
@@ -2125,9 +2141,9 @@ class TestNativePicture < Minitest::Test
 
     assert_native_matches_reference program, frames: 9
 
-    asked_each_frame = moments.map { |moment| moment.variables[:asked] }.each_cons(2).map { |before, after| after - before }
+    asked_each_frame = at_frames(moments).map { |moment| moment.variables[:asked] }.each_cons(2).map { |before, after| after - before }
 
-    assert_operator asked_each_frame.uniq.length, :>=, 3, "the rows the map reaches change as it scrolls down: #{asked_each_frame.inspect}"
+    assert_equal [160], asked_each_frame.uniq, "every row once a frame, however much of the map is in view"
     # Every row of the map and of its art is the same, so unbent the rows of the screen it
     # covers would all match the row above.
     rows_unlike_the_one_above = moments.map { |moment| moment.picture.each_slice(WIDTH).each_cons(2).count { |above, row| above != row } }
