@@ -59,7 +59,8 @@ module MixedSound
     native = game_player.input_each_frame { |frame| presses.fetch(frame, []) }.run(program, frames: frames).mixed_sound
     interpreted = interpreted_mixes(program, frames, presses: presses)
 
-    assert_operator native.count { |slice| slice.any?(&:nonzero?) }, :>=, at_least, "too few frames with sound in them to compare"
+    from_sound = native.drop_while { |slice| slice.all?(&:zero?) }
+    assert_operator from_sound.length, :>=, at_least, "too few frames with sound in them to compare"
     assert_equal interpreted, native
   end
 

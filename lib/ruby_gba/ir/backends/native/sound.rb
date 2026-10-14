@@ -7,15 +7,13 @@ module RubyGBA
         # THE GAME'S SOUND, written as calls into runtime/rg_sound.h — mixed into Lowering the way
         # Picture is.
         #
-        # What is played is what the console's own four voices play: a song's parts on the two
-        # square-wave voices, the wave voice and the noise voice, as the interpreter's music
-        # player walks them, whether the game names the song or picks it from a list by number,
-        # and the beeps, `wave`, `stop_wave`, `noise` and `enable_sound` the game says itself.
-        # Each goes into the sound log a test reads, in the interpreter's words (see SoundLog).
-        # The game's own recordings play through the mixer (runtime/rg_mix.h). The rest — sound
-        # effect lists, and a song with a part that plays a recording — is refused by name
-        # (NOT_LOWERED_YET, and #refuse_unplayable_songs!), rather than left out of what the game
-        # plays.
+        # What is played is a song's parts — on the console's two square-wave voices, its wave
+        # voice and its noise voice, and on recordings through the mixer (runtime/rg_mix.h) — as
+        # the interpreter's music player walks them, whether the game names the song or picks it
+        # from a list by number; the game's own recordings; and the beeps, `wave`, `stop_wave`,
+        # `noise` and `enable_sound` the game says itself. Each goes into the sound log a test
+        # reads, in the interpreter's words (see SoundLog). Sound effect lists are refused by name
+        # (NOT_LOWERED_YET), rather than left out of what the game plays.
         #
         # THE RULES OF THE VOICES are written into the game from Audio::Sound and IR::Tunes, as
         # numbers the runtime reads, rather than copied into the C: how fast each voice's clock
@@ -23,7 +21,7 @@ module RubyGBA
         # desktop build and the cartridge can never drift apart on what a note is.
         module Sound
           # The kinds of part the runtime plays, by the number it knows each as.
-          PART_KINDS = { square: 0, wave: 1, noise: 2 }.freeze
+          PART_KINDS = { square: 0, wave: 1, noise: 2, recorded: 3 }.freeze
 
           private
 
@@ -64,7 +62,8 @@ module RubyGBA
             levels = RubyGBA::Audio::Sound::MIX_LEVELS
             [eval_call("rg_mix_play", C::Int.new(@sound_log.recording_number(node.name)),
                        C::Int.new(Mixing.step(info, frequency, mix_clock.rate)),
-                       C::Int.new(levels.fetch(node.volume, levels[:full])), C::Int.new(back))]
+                       C::Int.new(levels.fetch(node.volume, levels[:full])), C::Int.new(back),
+                       C::Int.new(node.loop ? 1 : 0))]
           end
 
           # ...and its `stop`, of one recording or, with no name, of every one the game plays.
@@ -111,27 +110,6 @@ module RubyGBA
             end
           end
 
-          # A song the game plays with a part that plays a recording: the desktop build cannot
-          # play that part yet, and playing the rest without it would be a different tune. A song
-          # in a list the game picks from is one it can play.
-          def refuse_unplayable_songs!
-            played = @reachable.flat_map do |node|
-              case node.kind
-              when :play_song then [node.name]
-              when :play_from_list then song_lists.fetch(node.name).songs
-              else []
-              end
-            end
-            @sound_log.songs.select { |song| played.include?(song.name) }.each do |song|
-              next unless Tunes.recorded_parts(song).positive?
-
-              raise LoweringError,
-                    "song #{song.name.inspect} has a part that plays a recording, which the desktop build " \
-                    "cannot play yet. It plays parts on the square wave, the wave voice and the noise voice. " \
-                    "The cartridge build can play it."
-            end
-          end
-
           # The player reads the music volume the game keeps, when it keeps one: a game that never
           # says `music_volume` plays every part at its written volume with nothing worked out.
           def sound_power_on
@@ -143,8 +121,9 @@ module RubyGBA
           # Everything about the game's sound that the runtime reads, as arrays of whole numbers
           # (their layouts are atop runtime/rg_sound.c).
           def sound_tables
-            [sound_rules_table, waveform_table, music_table, beep_table, wave_table, hit_table, mix_table,
-             recordings_table, *song_list_tables]
+            # The music is written first: writing it is what finds the rows of note_sounds_table.
+            [sound_rules_table, waveform_table, music_table, note_sounds_table, beep_table, wave_table, hit_table,
+             mix_table, recordings_table, *song_list_tables]
           end
 
           def sound_table(name, values)
@@ -157,8 +136,10 @@ module RubyGBA
           def sound_rules_table
             sound = RubyGBA::Audio::Sound
             quarters = (0..15).map { |volume| sound.wave_level_quarters(sound.wave_level(volume)) }
+            loudness = (0..15).map { |volume| Tunes.mix_loudness(volume) }
             sound_table("sound_rules", [sound::SQUARE_CLOCK_HZ, sound::WAVE_CLOCK_HZ, sound::NOISE_CLOCK_HZ,
-                                        sound::VOICE_OUTPUT_HZ, Tunes::FULL_LEVEL, Tunes::LEVEL_SHIFT, *quarters])
+                                        sound::VOICE_OUTPUT_HZ, Tunes::FULL_LEVEL, Tunes::LEVEL_SHIFT, *quarters,
+                                        *loudness])
           end
 
           # Every different waveform the game can put on the wave voice, 32 steps each: the ones
@@ -223,45 +204,76 @@ module RubyGBA
           end
 
           # One song as numbers: its length, where it loops from, whether it plays once and ends,
-          # and each part the console's own voices play, with its notes the first time through
-          # and every time after. Every song the game declares is written, played or not, so the
-          # numbering is the one SoundLog gives; a song nothing plays is never refused for its
-          # voices, and a part of it that plays a recording is left out.
+          # its rank, and each part, with its notes the first time through and every time after.
+          # Every song the game declares is written, played or not, so the numbering is the one
+          # SoundLog gives.
           def encoded_song(song)
-            parts = song.voices.each_with_index.zip(Tunes.loop_passes(song))
-                        .reject { |(part, _), _| Tunes.part_kind(part) == :recorded }
-            [song.total_frames, Tunes.loop_frame(song), Tunes.plays_once?(song) ? 1 : 0, parts.size,
-             *parts.flat_map { |(part, number), pass| encoded_part(part, number, pass) }]
+            lanes = 0
+            parts = song.voices.each_with_index.zip(Tunes.loop_passes(song)).map do |(part, number), pass|
+              lane = Tunes.part_kind(part) == :recorded ? (lanes += 1) - 1 : nil
+              encoded_part(part, number, pass, lane)
+            end
+            [song.total_frames, Tunes.loop_frame(song), Tunes.plays_once?(song) ? 1 : 0, Tunes.song_rank(song),
+             parts.size, *parts.flatten]
           end
 
           # A part: which kind of voice it plays on, which of its song's parts it is, the two
-          # things that say what its voice sounds like, and its notes.
-          def encoded_part(part, number, pass)
+          # things that say what its voice sounds like, and its notes. A recorded part's +lane+ is
+          # which of the song's recorded parts it is.
+          def encoded_part(part, number, pass, lane)
             kind = Tunes.part_kind(part)
-            [PART_KINDS.fetch(kind), number, *part_tone(kind, part), pass.first.size, pass.again.size,
+            [PART_KINDS.fetch(kind), number, *part_tone(kind, part, lane), pass.first.size, pass.again.size,
              *(pass.first + pass.again).flat_map { |note| encoded_note(note, part, kind) }]
           end
 
           # What a part's voice sounds like, as two numbers. A square part: how many eighths of
           # its wave are high. A wave part: which waveform. A noise part: how many bits its hiss
-          # comes out of, and how long a hit holds each step of volume as it fades.
-          def part_tone(kind, part)
+          # comes out of, and how long a hit holds each step of volume as it fades. A recorded
+          # part: its lane, since each note says what it sounds like.
+          def part_tone(kind, part, lane)
             sound = RubyGBA::Audio::Sound
             case kind
             when :square then [sound::SQUARE_HIGH_EIGHTHS.fetch(part.duty), 0]
             when :wave then [waveform_number(part.wave), 0]
             when :noise then [sound.noise_register_bits(part.metallic), sound::FADE_STEP_SIXTY_FOURTHS.fetch(part.decay)]
+            when :recorded then [lane, 0]
             end
           end
 
           # A note as the runtime reads it: when it starts, which of the songs' pitches it is (0 is
           # a rest; see SoundLog#pitch_number), its volume, and how many ticks of its voice's
           # clock it lasts — one wave of it on a square voice or the wave voice, one step of the
-          # hiss on the noise voice.
+          # hiss on the noise voice — or, on a recorded part, the row of note_sounds_table it
+          # sounds.
           def encoded_note(note, part, kind)
             at, pitch, _, volume = note
-            [at, @sound_log.pitch_number(pitch), volume || part.volume, pitch.zero? ? 0 : note_ticks(kind, pitch)]
+            last = if kind == :recorded
+                     pitch.zero? ? -1 : note_sound_row(note, part)
+                   else
+                     pitch.zero? ? 0 : note_ticks(kind, pitch)
+                   end
+            [at, @sound_log.pitch_number(pitch), volume || part.volume, last]
           end
+
+          # EVERYTHING A RECORDED NOTE IS BUT HOW LOUD, the interpreter's way
+          # (Reference::Player#play_song_frame and Mixer#start_music_note): the recording — the
+          # note's own, else its part's — read at the note's pitch, going back as far as it holds,
+          # and shaped by the note's own shape, else its part's, else its recording's. Notes alike
+          # share a row.
+          def note_sound_row(note, part)
+            _, pitch, instrument, _, envelope = note
+            sample = @sound_log.recording(instrument || part.instrument)
+            info = Assets::Sample.of(sample)
+            shape = envelope || part.envelope || info.envelope
+            shape = nil if shape&.plain?
+            row = [@sound_log.recording_number(sample.name), Mixing.step(info, pitch, mix_clock.rate), info.loop_length,
+                   shape ? 1 : 0, *(shape ? [shape.attack, shape.decay, shape.sustain, shape.release] : [0, 0, 0, 0])]
+            note_sounds.index(row) || (note_sounds << row).size - 1
+          end
+
+          def note_sounds = @note_sounds ||= []
+
+          def note_sounds_table = sound_table("note_sounds", [note_sounds.size, *note_sounds.flatten])
 
           def note_ticks(kind, pitch)
             sound = RubyGBA::Audio::Sound

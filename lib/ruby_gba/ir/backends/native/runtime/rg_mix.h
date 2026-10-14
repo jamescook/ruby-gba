@@ -21,9 +21,27 @@ extern const int32_t rg_game_recordings[];
 
 /* The game's own `play` of recording number +recording+: read +step+ 65536ths of a sample for
  * each sample of the mix (its pitch), at +loudness+ out of 64, going +back+ that many samples at
- * its end (0 to stop there). Every number was worked out when the
- * game was built. */
-void rg_mix_play(int32_t recording, int32_t step, int32_t loudness, int32_t back);
+ * its end (0 to stop there), and +loops+ if it was asked to, which decides who gives way when a
+ * song's note wants its voice. Every number was worked out when the game was built. With every
+ * voice busy it takes the quietest of the song's notes falling away, or is dropped. */
+void rg_mix_play(int32_t recording, int32_t step, int32_t loudness, int32_t back, int32_t loops);
+
+/* A NOTE OF THE SONG'S on part +lane+ (counted among its parts that play recordings), from a song
+ * of +rank+ (IR::Tunes.song_rank): +sound+ is the recording, the step, how far back it reads, and
+ * its shape (whether it has one, then four numbers), and +loudness+ is out of 64. Which voice it
+ * gets is the interpreter's rule (Reference::Mixer#start_music_note): the part's own, unless its
+ * note there has a shape and is left to fall away; then a free one; then the quietest note
+ * falling away; then the lowest-ranked sound below this one, the game's own first and of those
+ * the one playing longest, a one-shot before a loop. Nought when it got none and is not played. */
+int32_t rg_mix_start_music_note(int32_t lane, int32_t rank, const int32_t *sound, int32_t loudness);
+
+/* A part rests: its note ends, falling away if it has a shape. Nought when it had none sounding. */
+int32_t rg_mix_release_music(int32_t lane);
+/* The song stops or changes: every note it holds ends the same way. */
+void rg_mix_release_all_music(void);
+/* The music volume moved: part +lane+'s sounding note plays at +loudness+ from now on. Nought
+ * when it has none sounding. */
+int32_t rg_mix_rescale_music(int32_t lane, int32_t loudness);
 
 /* The game's `stop`: every voice of the game's sounding recording number +recording+ goes, or
  * every voice of the game's for -1. */
@@ -40,10 +58,11 @@ int32_t rg_mix_slices_made(void);
 int32_t rg_mix_newest_slice(const int32_t **samples);
 
 /* What a test reads back: how many voices there are, whether voice +voice+ is sounding, and if
- * so the recording and its loudness out of 64; the most that sounded at once; and how many plays
- * found every voice busy, with the most voices the music held at one of those moments. */
+ * so the recording, its loudness out of 64, how far its shape has climbed or fallen, and whether
+ * it is the game's own sound; the most that sounded at once; and how many plays found every voice
+ * busy, with the most voices the music held at one of those moments. */
 int32_t rg_mix_voice_count(void);
-int32_t rg_mix_voice_sounding(int32_t voice, int32_t *recording, int32_t *loudness);
+int32_t rg_mix_voice_sounding(int32_t voice, int32_t *recording, int32_t *loudness, int32_t *level, int32_t *games);
 int32_t rg_mix_peak(void);
 int32_t rg_mix_drops(int32_t *music_held);
 

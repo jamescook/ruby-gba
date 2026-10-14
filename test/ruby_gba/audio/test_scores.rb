@@ -136,6 +136,21 @@ class TestScores < Minitest::Test
     assert_equal({ 2 => [NOTES[:C4]], 12 => [NOTES[:E4]] }, notes_by_frame(program, 15))
   end
 
+  # A song picked from the list by a number the game holds plays its part on a recording.
+  def test_the_song_a_number_picks_plays_its_recording
+    scores = [notes_every_ten_ticks(:C4, plays: :piano), notes_every_ten_ticks(:G4, plays: :harp)]
+    program = game(scores) do |music, _|
+      track = var :track, 1
+      music.play track
+    end
+    sounding = []
+    i = game_player
+    i.each_vblank { sounding << i.active_samples }
+    i.run(program, frames: 6)
+
+    assert_equal [[:harp]], sounding.drop_while(&:empty?).uniq
+  end
+
   def test_a_hash_of_scores_is_played_by_name
     scores = { title: notes_every_ten_ticks(:C4), file: notes_every_ten_ticks(:A4) }
     program = game(scores) { |music, _| music.play :file }
@@ -405,7 +420,6 @@ class TestScores < Minitest::Test
   def test_a_note_with_a_length_goes_quiet_when_it_runs_out
     score = Score.new(tempo: 150, parts: [Part.new(plays: :piano, notes: [Note.new(at: 0, key: :C4, length: 5)])],
                       length: 30)
-    skip_on_native "a song part that plays a recording"
     program = game([score]) { |music, _| music.play 0 }
     i = game_player
     seen = {}

@@ -53,24 +53,35 @@
  * rg_game_sound_rules: the ticks a second of the square voices' clock, the wave voice's and the
  * noise voice's; how many times a second the console hands its voices on to the speaker; the
  * music volume a part sounds at in full and how far to shift back down by it
- * (IR::Tunes::FULL_LEVEL and LEVEL_SHIFT); and sixteen numbers, the wave voice's loudness in
- * quarters for each volume from 0 to 15.
+ * (IR::Tunes::FULL_LEVEL and LEVEL_SHIFT); sixteen numbers, the wave voice's loudness in
+ * quarters for each volume from 0 to 15; and sixteen more, a recorded part's loudness on the
+ * mixer, out of 64, for each volume (IR::Tunes.mix_loudness).
  *
  * rg_game_waveforms: how many waveforms there are, then 32 steps for each.
  *
  * rg_game_music:
  *
  *   song count, then where each song starts in the array, then each song:
- *     total frames, the frame it loops from, 1 if it plays once and ends, how many parts,
+ *     total frames, the frame it loops from, 1 if it plays once and ends, its rank
+ *     (IR::Tunes.song_rank: who gives way on the mixer), how many parts,
  *     then each part:
- *       the kind of voice it plays on (0 square, 1 wave, 2 noise), which of its song's parts it
- *       is, two numbers for what the voice sounds like — a square part's eighths high and 0, a
- *       wave part's waveform and 0, a noise part's bits and the 64ths of a second it holds each
- *       step of volume — notes the first time through, notes every time after,
+ *       the kind of voice it plays on (0 square, 1 wave, 2 noise, 3 a recording on the mixer),
+ *       which of its song's parts it is, two numbers for what the voice sounds like — a square
+ *       part's eighths high and 0, a wave part's waveform and 0, a noise part's bits and the
+ *       64ths of a second it holds each step of volume, a recorded part's lane (which of the
+ *       song's recorded parts it is) and 0 — notes the first time through, notes every time
+ *       after,
  *       then those notes, four numbers each: the frame it starts on, which of the songs' pitches
  *       it is (0 is a rest; a pitch need not be a whole number of Hz, so the log is given the
  *       number and reads the pitch back from it), its volume, and the ticks it lasts on its
- *       voice's clock (one wave, or one step of the hiss)
+ *       voice's clock (one wave, or one step of the hiss) — or, on a recorded part, which row of
+ *       rg_game_note_sounds it sounds (-1 for a rest)
+ *
+ * rg_game_note_sounds: how many rows, then eight numbers each — the recording a note plays, how
+ * far through it the mixer reads for each of its own samples (the note's pitch), how far back it
+ * reads at the recording's end, and the note's shape: 1 if it has one, then its four numbers.
+ * The note's own shape, else its part's, else its recording's; everything a recorded note is,
+ * but how loud.
  *
  * A part has two lists because a song that loops from part way through plays its introduction
  * once: the first list is the whole part, the second what it plays each time it comes round
@@ -94,10 +105,11 @@
 #include "rg_mix.h"
 #include "rg_runtime.h"
 
-/* A song has at most a part for each voice: a game is checked the way a cartridge build checks
- * it, and that refuses a song with more. */
-#define PARTS_MOST 4
+/* A song has at most a part for each of the console's own voices and one for each of the mixer's:
+ * a game is checked the way a cartridge build checks it, and that refuses a song with more. */
+#define PARTS_MOST 20
 #define NUMBERS_PER_NOTE 4
+#define NUMBERS_PER_NOTE_SOUND 8
 #define NUMBERS_PER_BEEP 4
 #define NUMBERS_PER_WAVE 3
 #define NUMBERS_PER_HIT 4
@@ -109,6 +121,7 @@
 #define PART_SQUARE 0
 #define PART_WAVE 1
 #define PART_NOISE 2
+#define PART_RECORDED 3
 
 /* Where things are in rg_game_sound_rules and rg_game_music (see the layouts above). */
 #define SQUARE_CLOCK_HZ (rg_game_sound_rules[0])
@@ -118,9 +131,10 @@
 #define FULL_LEVEL (rg_game_sound_rules[4])
 #define LEVEL_SHIFT (rg_game_sound_rules[5])
 #define WAVE_QUARTERS 6
+#define MIX_LOUDNESS (WAVE_QUARTERS + VOLUMES)
 #define SONG_COUNT (rg_game_music[0])
 #define SONG_STARTS 1
-#define NUMBERS_PER_SONG 4
+#define NUMBERS_PER_SONG 5
 #define NUMBERS_PER_PART 6
 
 /* How much one step of loudness moves the speaker. Two voices at their loudest then swing
@@ -433,10 +447,11 @@ typedef struct {
   const int32_t *notes;
   int32_t count;
   int32_t next;
-  int32_t kind;   /* PART_SQUARE, PART_WAVE or PART_NOISE */
-  int32_t voice;  /* the voice it plays on, by the console's count of them */
+  int32_t kind;   /* PART_SQUARE, PART_WAVE, PART_NOISE or PART_RECORDED */
+  int32_t voice;  /* the voice it plays on, by the console's count of them; 0 for a recorded part */
   int32_t number; /* which of its song's parts it is, which is how the log names it */
-  int32_t tone;   /* a square part's eighths high, a wave part's waveform, a noise part's bits */
+  int32_t tone;   /* a square part's eighths high, a wave part's waveform, a noise part's bits, a
+                   * recorded part's lane: which of the song's recorded parts it is */
   int32_t fade;   /* a noise part: the 64ths of a second a hit holds each step of volume */
 } part_walk;
 
@@ -444,9 +459,11 @@ typedef struct {
  * what it sounds like. Kept here and not read back off the voice, because a beep can borrow the
  * second voice while the part's note is still being held, and it is the part's note the music
  * volume sounds again. A hit on the noise voice is never held: it rings and fades by itself, so
- * a new volume waits for the next hit. */
+ * a new volume waits for the next hit. A recorded part's note is held on the mixer, by its lane,
+ * and its volume is a loudness out of 64. */
 typedef struct {
-  int32_t voice;
+  int32_t voice; /* a console voice, or 0 for the mixer */
+  int32_t lane;  /* a recorded part's lane, for the mixer */
   int32_t volume;
   int32_t wave_ticks;
   int32_t eighths_high;
@@ -489,7 +506,8 @@ void rg_music_follow_level(const int32_t *variable) { level_variable = variable;
 
 /* Every part's list of notes from its start: the first time through, or every time after. The
  * square parts take the square voices in the order they are written; there is one wave voice and
- * one noise voice. */
+ * one noise voice; a recorded part takes no console voice, and the mixer finds it one a note at a
+ * time. */
 static void start_walks(int again) {
   const int32_t *part = song + NUMBERS_PER_SONG;
   int32_t squares_met = 0;
@@ -497,7 +515,10 @@ static void start_walks(int again) {
     int32_t kind = part[0], first = part[4], after = part[5];
     const int32_t *first_notes = part + NUMBERS_PER_PART;
     const int32_t *after_notes = first_notes + (NUMBERS_PER_NOTE * first);
-    int32_t voice = kind == PART_WAVE ? RG_WAVE_VOICE : kind == PART_NOISE ? RG_NOISE_VOICE : ++squares_met;
+    int32_t voice = kind == PART_WAVE      ? RG_WAVE_VOICE
+                    : kind == PART_NOISE    ? RG_NOISE_VOICE
+                    : kind == PART_RECORDED ? 0
+                                            : ++squares_met;
     parts[i] = (part_walk){again ? after_notes : first_notes, again ? after : first, 0, kind, voice, part[1], part[2], part[3]};
     part = after_notes + (NUMBERS_PER_NOTE * after);
   }
@@ -518,25 +539,39 @@ static int32_t wave_quarters_at(int32_t volume) {
   return rg_game_sound_rules[WAVE_QUARTERS + volume];
 }
 
+/* The log's line for a note held at +volume+ at the music volume in force: a console voice by its
+ * number, a recorded part by its lane on the mixer. */
+static void log_held_loudness(const held_note *note) {
+  if (note->voice == 0) {
+    rg_sound_log("mixer_loudness %d %d", (int)note->lane, (int)scaled_volume(note->volume));
+  } else {
+    rg_sound_log("loudness %d %d", (int)note->voice, (int)scaled_volume(note->volume));
+  }
+}
+
 /* A voice now holds +note+ for its part. */
 static void hold_note(held_note note) {
   int32_t at = 0;
-  while (at < holding_count && holding[at].voice != note.voice) at++;
+  while (at < holding_count && (holding[at].voice != note.voice || (note.voice == 0 && holding[at].lane != note.lane))) at++;
   if (at == holding_count) holding_count++;
   holding[at] = note;
-  rg_sound_log("loudness %d %d", (int)note.voice, (int)scaled_volume(note.volume));
+  log_held_loudness(&note);
 }
 
 /* The music volume has moved: every voice holding a note takes it. A square voice takes a volume
- * only as a note starts, so the part's note is sounded again at the new one; the wave voice
- * takes one while it plays, so its note carries on. */
+ * only as a note starts, so the part's note is sounded again at the new one; the wave voice and a
+ * mixer voice take one while they play, so their notes carry on — a recorded part's only while
+ * the mixer is still sounding it, since its recording may have run out or its note be falling
+ * away after a rest. */
 static void follow_level(int32_t now) {
   if (now == level) return;
   level = now;
   for (int32_t i = 0; i < holding_count; i++) {
     const held_note *note = &holding[i];
     if (note->volume <= 0) continue;
-    rg_sound_log("loudness %d %d", (int)note->voice, (int)scaled_volume(note->volume));
+    if (note->voice == 0 && !rg_mix_rescale_music(note->lane, scaled_volume(note->volume))) continue;
+    log_held_loudness(note);
+    if (note->voice == 0) continue;
     if (note->voice == RG_WAVE_VOICE) {
       wave_set_loudness(wave_quarters_at(scaled_volume(note->volume)));
     } else {
@@ -551,16 +586,19 @@ static void rest_on(const part_walk *part) {
   switch (part->kind) {
   case PART_WAVE: wave_set_loudness(0); break;
   case PART_NOISE: noise_start(0, part->tone, 0, 0); break;
+  case PART_RECORDED: break; /* the mixer lets every one of the song's notes go at once */
   default: square_start(part->voice, 0, 0, 0, 0); break;
   }
 }
 
 /* Every voice the playing tune uses goes quiet — its own voices and no others, so a one-part tune
- * ending does not cut off a beep on the second voice — and none of them holds a note any more. */
+ * ending does not cut off a beep on the second voice — and none of them holds a note any more. Its
+ * notes on the mixer end, a shaped one falling away. */
 static void silence_song(void) {
   rg_sound_log("stop_music");
   for (int32_t i = 0; i < part_count; i++) rest_on(&parts[i]);
   holding_count = 0;
+  rg_mix_release_all_music();
 }
 
 /* The tune the game asked for has changed, or it said stop: silence what was playing and start
@@ -590,7 +628,7 @@ static void switch_to_wanted_song(void) {
   if (playing < 0) return;
 
   song = &rg_game_music[rg_game_music[SONG_STARTS + playing]];
-  part_count = song[3];
+  part_count = song[4];
   if (part_count > PARTS_MOST) {
     rg_fault("song number %d has %d parts, and the most is %d", (int)playing, (int)part_count, PARTS_MOST);
   }
@@ -602,9 +640,32 @@ static void switch_to_wanted_song(void) {
   }
 }
 
+/* A note of a part that plays a recording, due on this frame (Reference::Player#play_song_frame's
+ * recorded branch). A note that makes no sound — a rest, or one at volume 0 — lets the part's
+ * voice go and is heard; one that does is heard only if the mixer found it a voice, and a note
+ * that was not heard is not logged at all: the part carries on in time, silent there. Its
+ * loudness follows the music volume when the game keeps one. */
+static void play_recorded_note(const part_walk *part, const int32_t *note) {
+  int32_t pitch = note[1], volume = note[2], sound = note[3];
+  int32_t loudness = volume > 0 && volume < VOLUMES ? rg_game_sound_rules[MIX_LOUDNESS + volume] : 0;
+  if (pitch == 0 || volume <= 0) {
+    rg_mix_release_music(part->tone);
+  } else {
+    const int32_t *numbers = &rg_game_note_sounds[1 + (sound * NUMBERS_PER_NOTE_SOUND)];
+    if (!rg_mix_start_music_note(part->tone, song[3], numbers, level_variable ? scaled_volume(loudness) : loudness)) return;
+  }
+  rg_sound_log("note %d %d", (int)playing, (int)pitch);
+  if (level_variable) hold_note((held_note){0, part->tone, pitch == 0 ? 0 : loudness, 0, 0});
+}
+
 /* One note of a part, due on this frame: said in the log the way the interpreter's player says
  * it, and started on the part's voice. */
 static void play_note(part_walk *part, const int32_t *note) {
+  if (part->kind == PART_RECORDED) {
+    play_recorded_note(part, note);
+    return;
+  }
+
   int32_t pitch = note[1], volume = note[2], ticks = note[3];
   int32_t written = pitch == 0 ? 0 : volume;
   int32_t sounded = level_variable ? scaled_volume(written) : written;
@@ -612,7 +673,7 @@ static void play_note(part_walk *part, const int32_t *note) {
   rg_sound_log("voice %d %d %d %d", (int)part->voice, (int)playing, (int)pitch, (int)volume);
   switch (part->kind) {
   case PART_WAVE:
-    if (level_variable) hold_note((held_note){part->voice, written, 0, 0});
+    if (level_variable) hold_note((held_note){part->voice, 0, written, 0, 0});
     if (pitch == 0) {
       rg_sound_log("stop_wave");
       rest_on(part);
@@ -632,7 +693,7 @@ static void play_note(part_walk *part, const int32_t *note) {
     }
     break;
   default:
-    if (level_variable) hold_note((held_note){part->voice, written, ticks, part->tone});
+    if (level_variable) hold_note((held_note){part->voice, 0, written, ticks, part->tone});
     square_start(part->voice, ticks, part->tone, sounded, 0);
     break;
   }

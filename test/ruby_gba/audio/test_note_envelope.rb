@@ -12,7 +12,7 @@ require "test_helper"
 # the WAVE ITSELF ever makes. A note cut dead leaves the speaker wherever the wave was, and that
 # jump is several times the wave's own. A note that fades does not.
 class TestNoteEnvelope < Minitest::Test
-  runs_on :reference
+  runs_on :reference, :native
 
   include EmulatorSupport
 
@@ -210,7 +210,7 @@ class TestNoteEnvelope < Minitest::Test
       game_loop { clear_screen :black }
     end
     builder.finalize_program
-    Reference.new.tap { |ruby| ruby.run(builder.program, frames: frames) }
+    game_player.tap { |ruby| ruby.run(builder.program, frames: frames) }
   end
 
   def test_the_interpreter_lets_a_shaped_note_fall_away_and_stops_a_plain_one
@@ -263,7 +263,7 @@ class TestNoteEnvelope < Minitest::Test
 
   # What each backend has sounding +frames+ in, and what each could not play.
   def voices_on_both(program, frames:)
-    ruby = Reference.new.run(program, frames: frames)
+    ruby = game_player.run(program, frames: frames)
     console = assert_emulator_loads_rom(assemble_rom(program, name: "TAILS"), frames: frames + 2)
     [[ruby.active_samples, ruby.sound_drops], [console.sounding, console.sound_drops]]
   end

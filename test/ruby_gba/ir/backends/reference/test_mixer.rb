@@ -440,15 +440,34 @@ class TestMixer < Minitest::Test
     b.program
   end
 
+  # A Score's note can name its own recording and its own shape, over its part's: here the second
+  # note is another recording, and the third the part's own recording with a shape of its own.
+  def test_a_notes_own_recording_and_shape_are_the_same_bytes
+    score = RubyGBA::Audio::Score
+    notes = [score::Note.new(at: 0, key: :C4, length: 8),
+             score::Note.new(at: 10, key: :E4, instrument: :reed, length: 8),
+             score::Note.new(at: 20, key: :G4, envelope: { attack: 0.1, release: 0.1 }, length: 10)]
+    tune = score.new(tempo: 150, length: 40, parts: [score::Part.new(plays: :keys, notes: notes)])
+    b = Builder.new
+    b.instance_eval do
+      screen :bitmap
+      enable_sound
+      instrument :keys, pcm: SAWTOOTH.first(2400), rate: 8000, note: :C4
+      instrument :reed, pcm: SAWTOOTH.reverse.first(2400), rate: 8000, note: :C4
+      music = songs :music, [tune]
+      game_loop { music.play 0 }
+    end
+    b.finalize_program
+    assert_mixes_agree(b.program, frames: 40)
+  end
+
   def test_a_songs_recorded_parts_are_the_same_bytes
-    skip_on_native "a song part that plays a recording"
     assert_mixes_agree(tune_on, frames: 60)
   end
 
   # A note with a shape climbs, holds and falls away, its loudness sliding across every sample
   # of a frame rather than stepping at the frame's edge.
   def test_notes_with_a_shape_are_the_same_bytes
-    skip_on_native "a song part that plays a recording"
     shaped = { envelope: { attack: 0.05, decay: 0.2, sustain: 0.5, release: 0.15 } }
     assert_mixes_agree(tune_on(instrument_words: shaped), frames: 60)
     assert_mixes_agree(tune_on(part_words: { envelope: { release: 0.3 } }), frames: 60)
@@ -457,7 +476,6 @@ class TestMixer < Minitest::Test
   # The music volume moving reaches notes already sounding — with and without a shape in the
   # game, which changes what the mix reads for a note with none.
   def test_the_music_volume_moving_is_the_same_bytes
-    skip_on_native "a song part that plays a recording"
     assert_mixes_agree(tune_on(volume_from: 8), frames: 60)
     assert_mixes_agree(tune_on(part_words: { envelope: { release: 0.2 } }, volume_from: 8), frames: 60)
   end
@@ -465,7 +483,6 @@ class TestMixer < Minitest::Test
   # A note at volume 0 sounds nothing, so it takes no voice: the part is silent there, and the
   # part's voice from before it is let go as a rest lets it go.
   def test_a_note_at_volume_nought_is_the_same_bytes
-    skip_on_native "a song part that plays a recording"
     b = Builder.new
     b.instance_eval do
       screen :bitmap
@@ -492,7 +509,6 @@ class TestMixer < Minitest::Test
   # tune that is already sounding, a sound the game starts or stops lands on the cartridge's
   # frame — and a sound with a shape is mixed once at nothing before its shape first moves it.
   def test_a_sound_the_game_starts_and_stops_in_its_loop_lands_on_the_same_frame
-    skip_on_native "a song part that plays a recording"
     [{}, { envelope: { attack: 0.1, release: 0.2 } }].each do |shape|
       b = Builder.new
       b.instance_eval do

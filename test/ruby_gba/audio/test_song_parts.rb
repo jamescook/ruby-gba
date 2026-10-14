@@ -10,7 +10,7 @@ require "stringio"
 # game being built on the framework reads out of a retail cartridge wants seven to nine, and
 # twelve at the most, with the game's own sounds beside them.
 class TestSongParts < Minitest::Test
-  runs_on :reference
+  runs_on :reference, :native
 
   NOTES = RubyGBA::Audio::Music::NOTE_FREQUENCIES
   STEP_ONE = GBA::Mixer::STEP_ONE
@@ -49,7 +49,7 @@ class TestSongParts < Minitest::Test
   end
 
   def test_every_part_sounds_on_the_downbeat_beside_the_games_own_sound
-    i = Reference.new.run(fourteen_part_game, frames: 3)
+    i = game_player.run(fourteen_part_game, frames: 3)
 
     downbeat = i.audio.select { |entry| entry[0] == :note }.map(&:last)
     assert_equal [NOTES[:C5], NOTES[:C3], *CHORD.map { |pitch| NOTES[pitch] }], downbeat
@@ -107,7 +107,7 @@ class TestSongParts < Minitest::Test
 
   # The interpreter plays it too, so the two backends agree about the same program.
   def test_the_interpreter_plays_a_song_of_recorded_parts_alone
-    i = Reference.new.run(recorded_parts_only_game, frames: 3)
+    i = game_player.run(recorded_parts_only_game, frames: 3)
 
     assert_equal [:organ] * 4, i.active_samples
     assert_equal %i[C4 E4 G4 C5].map { |pitch| NOTES[pitch] },

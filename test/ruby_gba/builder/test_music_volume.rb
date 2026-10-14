@@ -333,7 +333,6 @@ class TestMusicVolume < Minitest::Test
   # volume 12 is 51 of those — and the mixer takes a new one while a note plays, like the wave
   # voice. The log names the part by its place among the song's recorded parts.
   def test_half_the_music_volume_halves_a_recorded_note_already_sounding
-    skip_on_native "a song part that plays a recording"
     program = held_note_game(plays: :piano) { |pass| (pass == 5).then { music_volume 50 } }
 
     assert_equal({ 2 => [[[:mixer, 0], 51]], 6 => [[[:mixer, 0], 25]] }, loudness_by_frame(program, 10))

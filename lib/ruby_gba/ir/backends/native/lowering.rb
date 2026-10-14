@@ -164,7 +164,6 @@ module RubyGBA
           # The program as one C file.
           def source
             refuse_unlowered_kinds!
-            refuse_unplayable_songs!
             Printer.new.print_file(top_level)
           end
 

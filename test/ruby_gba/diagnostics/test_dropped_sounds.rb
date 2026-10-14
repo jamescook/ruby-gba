@@ -13,7 +13,7 @@ require "stringio"
 # Whether it happens depends entirely on play (a burst of explosions, a chord of music under
 # them), so no build can see it. Only a run can, and `rom.profile` is where a run reports.
 class TestDroppedSounds < Minitest::Test
-  runs_on :reference
+  runs_on :reference, :native
 
   include EmulatorSupport
 
@@ -176,7 +176,7 @@ class TestDroppedSounds < Minitest::Test
   def test_the_interpreter_counts_what_the_console_counts
     program = over_subscribed(2)
 
-    interpreted = Reference.new.run(program, max_steps: 200_000).sound_drops
+    interpreted = game_player.run(program, frames: 6).sound_drops
     console = assert_emulator_loads_rom(assemble_rom(program), frames: 6).sound_drops
 
     assert_equal 2, interpreted.dropped

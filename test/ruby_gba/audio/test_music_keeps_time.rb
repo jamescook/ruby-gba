@@ -12,7 +12,7 @@ require "test_helper"
 # stepped once per pass of the game loop plays at half speed in a game that takes two frames a
 # pass, and at no speed at all in a frame whose branch skipped the call.
 class TestMusicKeepsTime < Minitest::Test
-  runs_on :reference
+  runs_on :reference, :native
 
   def notes(interpreter)
     interpreter.audio.select { |entry| entry[0] == :note }.map(&:last)
@@ -49,8 +49,9 @@ class TestMusicKeepsTime < Minitest::Test
   # --- the interpreter, told that a pass ran late ---
 
   def test_a_late_game_hears_the_same_notes_in_the_same_time
-    on_time = Reference.new.run(scale_game, frames: 30)
-    late = Reference.new.frames_each_pass { 2 }.run(scale_game, frames: 15)
+    skip_on_native "makes a pass take several frames with `frames_each_pass`, which only the interpreter can"
+    on_time = game_player.run(scale_game, frames: 30)
+    late = game_player.frames_each_pass { 2 }.run(scale_game, frames: 15)
 
     assert_equal [C4, E4, G4], notes(on_time), "thirty frames of the tune reach its third note"
     assert_equal notes(on_time), notes(late),
@@ -58,16 +59,16 @@ class TestMusicKeepsTime < Minitest::Test
   end
 
   def test_a_tune_named_only_on_some_frames_keeps_its_tempo
-    every_frame = Reference.new.run(scale_game, frames: 30)
-    every_other = Reference.new.run(scale_game { |pass| (pass % 2 == 0).then { play_song :scale } }, frames: 30)
+    every_frame = game_player.run(scale_game, frames: 30)
+    every_other = game_player.run(scale_game { |pass| (pass % 2 == 0).then { play_song :scale } }, frames: 30)
 
     assert_equal notes(every_frame), notes(every_other),
                  "a tune that is named on half the frames is still playing on the other half"
   end
 
   def test_naming_the_tune_twice_in_one_frame_is_the_same_as_once
-    once = Reference.new.run(scale_game, frames: 30)
-    twice = Reference.new.run(scale_game { play_song :scale; play_song :scale }, frames: 30)
+    once = game_player.run(scale_game, frames: 30)
+    twice = game_player.run(scale_game { play_song :scale; play_song :scale }, frames: 30)
 
     assert_equal notes(once), notes(twice)
   end
@@ -98,8 +99,9 @@ class TestMusicKeepsTime < Minitest::Test
   # played it for N - 1 of them: on time that is N - 1 frames, and at two frames a pass it is
   # twice that.
   def test_a_late_game_hears_a_recording_end_after_the_same_number_of_frames
+    skip_on_native "makes a pass take several frames with `frames_each_pass`, which only the interpreter can"
     program = clip_game
-    sounding = ->(passes, each_pass) { Reference.new.frames_each_pass { each_pass }.run(program, frames: passes).active_samples }
+    sounding = ->(passes, each_pass) { game_player.frames_each_pass { each_pass }.run(program, frames: passes).active_samples }
 
     assert_equal [:tone], sounding.call(30, 1), "29 frames in, the recording is still playing"
     assert_empty sounding.call(31, 1), "and 30 frames in it has ended"
@@ -136,7 +138,7 @@ class TestMusicKeepsTime < Minitest::Test
   end
 
   def test_coming_back_to_a_tune_starts_it_from_the_beginning
-    heard = notes(Reference.new.run(two_tunes_game, frames: 30))
+    heard = notes(game_player.run(two_tunes_game, frames: 30))
 
     # C4 and E4 (the first tune reaches its second note), A4 (the second), then the first tune
     # again FROM ITS DOWNBEAT — not from wherever it had got to when it was left.
@@ -160,7 +162,7 @@ class TestMusicKeepsTime < Minitest::Test
       end
     end
     b.finalize_program
-    i = Reference.new.run(b.program, frames: 12)
+    i = game_player.run(b.program, frames: 12)
 
     assert_equal [:note, :stop_music, :note], i.audio.filter_map { |e| e[0] if %i[note stop_music].include?(e[0]) },
                  "the tune stops once, then starts over from its downbeat"
@@ -181,7 +183,7 @@ class TestMusicKeepsTime < Minitest::Test
       game_loop { stop_music }
     end
     b.finalize_program
-    i = Reference.new.run(b.program, frames: 10)
+    i = game_player.run(b.program, frames: 10)
 
     assert_empty i.audio.select { |e| e[0] == :stop_music }
   end

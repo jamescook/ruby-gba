@@ -38,6 +38,7 @@ extern const int32_t rg_game_music[];
 extern const int32_t rg_game_beeps[];
 extern const int32_t rg_game_waves[];
 extern const int32_t rg_game_hits[];
+extern const int32_t rg_game_note_sounds[];
 
 /* `enable_sound`, and beep number +which+ of the game's beeps (numbered by the lowering and by
  * the test reading the log the same way, so the number is all that needs saying). */

@@ -50,9 +50,11 @@ module RubyGBA
           # Where the game had got to at one frame boundary, or (+frame+ :end) when the run
           # stopped: every variable, the picture as a check number (see .picture_check), how
           # long the sound log was, the sprites it last drew (see #sprites), and its lists and
-          # pools as #game_state reads them.
-          Moment = Data.define(:frame, :variables, :picture, :sounds, :sprites, :collections) do
-            def initialize(frame:, variables:, picture:, sounds:, sprites:, collections: { lists: {}, pools: {} })
+          # pools as #game_state reads them, and the recordings the mixer is sounding, a voice
+          # each in the order of the voices — which says whose voice a new note took.
+          Moment = Data.define(:frame, :variables, :picture, :sounds, :sprites, :collections, :sounding) do
+            def initialize(frame:, variables:, picture:, sounds:, sprites:, collections: { lists: {}, pools: {} },
+                           sounding: [])
               super
             end
           end
@@ -233,11 +235,17 @@ module RubyGBA
           # WHAT THE MIXER MADE AND IS PLAYING, as the interpreter answers it — at the end of the
           # run, or at the frame boundary a watching block or an input script asks at. Every
           # frame's slice of sound, oldest first; the recordings sounding, a voice each, in the
-          # order of the voices; the most that sounded at once; how many plays were dropped; and
-          # the level a sounding recording plays at.
+          # order of the voices; the most that sounded at once; how many plays were dropped; the
+          # level a sounding recording of the game's plays at; and how far through its shape the
+          # first voice sounding a recording is.
           def mixed_sound = @mix_slices.dup
-          def active_samples = @mixing.map { |recording, _| @sound_log.recordings.fetch(recording).name }
+          def active_samples = @mixing.map { |recording, *| recording_name(recording) }
           def peak_voices = @mix_peak
+
+          def level_of(name)
+            _, _, level, = @mixing.find { |recording, *| recording_name(recording) == name }
+            level
+          end
 
           def sound_drops
             dropped, held = @mix_drops
@@ -245,9 +253,11 @@ module RubyGBA
           end
 
           def volume_of(name)
-            _, loudness = @mixing.find { |recording, _| @sound_log.recordings.fetch(recording).name == name }
+            _, loudness, = @mixing.find { |recording, _, _, games| games == 1 && recording_name(recording) == name }
             loudness && RubyGBA::Audio::Sound::MIX_LEVELS.key(loudness)
           end
+
+          def recording_name(number) = @sound_log.recordings.fetch(number).name
 
           # The rest of what the interpreter answers, said by name. Anything else is an ordinary
           # NoMethodError, since the interpreter would not answer it either.
@@ -344,7 +354,7 @@ module RubyGBA
             @screen = nil
             check = rows.find { |row| row.start_with?("picture-crc ") }.delete_prefix("picture-crc ").to_i(16)
             @moments << Moment.new(frame: frame, variables: @vars, picture: check, sounds: @audio.size, sprites: @sprites,
-                                   collections: game_state.except(:vars))
+                                   collections: game_state.except(:vars), sounding: active_samples)
             buttons = @input_script ? @input_script.call(frame) : @held
             @on_vblank&.call(frame)
             stdin.puts(self.class.button_mask(buttons))
@@ -364,7 +374,7 @@ module RubyGBA
             @screen = picture_now
             @buffered = rows.include?("pages 2")
             @moments << Moment.new(frame: :end, variables: @vars, picture: self.class.picture_check(@screen.shown),
-                                   sounds: @audio.size, sprites: @sprites, collections: game_state.except(:vars))
+                                   sounds: @audio.size, sprites: @sprites, collections: game_state.except(:vars), sounding: active_samples)
           end
 
           # Where the game stands, as the program printed it at one moment.
@@ -384,7 +394,7 @@ module RubyGBA
             @mix_slices << slice.split(" ").drop(1).map { |sample| Integer(sample) } if slice
             mixing = rows.find { |row| row.start_with?("mixing") } or return
 
-            @mixing = mixing.split(" ").drop(1).map { |number| Integer(number) }.each_slice(2).to_a
+            @mixing = mixing.split(" ").drop(1).map { |number| Integer(number) }.each_slice(4).to_a
             @mix_peak = Integer(rows.find { |row| row.start_with?("mix_peak ") }.split(" ").last)
             @mix_drops = rows.find { |row| row.start_with?("mix_drops ") }.split(" ").drop(1).map { |number| Integer(number) }
           end
