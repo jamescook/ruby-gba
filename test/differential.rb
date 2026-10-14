@@ -44,32 +44,19 @@ module Differential
   # +frames+ is how many frames the INTERPRETER plays; the console is run for the
   # matching number (see BOOT_FRAMES). For a program that halts or sits still the
   # count barely matters; for an animated one it selects which frame is compared.
-  # +blended+ says the picture has a display effect on it — a fade or a tint. Those need
-  # a little slack, for a reason that is about the EMULATOR rather than the program.
+  # +blended+ says the picture has a display effect on it that the interpreter still works
+  # out in five bits — a tint — which needs a step of slack for a reason that is about the
+  # EMULATOR rather than the program.
   #
-  # The console blends in the five bits a channel actually has. The emulator is built for
-  # 32-bit color, so it widens each channel to eight bits and blends there — and it
-  # divides the RED channel on its raw byte while dividing green and blue on their
-  # shifted fields, which are 256 times finer. The three channels therefore truncate
-  # differently, which is why a uniform gray comes back from a fade with unequal
-  # channels. It is a quirk of that renderer and says nothing about our lowering.
-  #
-  # IT IS ALSO WHY THE SLACK GOES BOTH WAYS. Where the rounding lands decides whether a
-  # channel on its way to black loses a truncated share or keeps one, and those differ by
-  # a step — so the emulator's red does the first, its green and blue do the second, and
-  # one of them must read low whichever the display really does. A display has one blend
-  # unit and three identical channels and cannot do that, so the emulator is no answer
-  # key for this last step, in either direction.
+  # The emulator is built for 32-bit color, so it widens each channel to eight bits and
+  # blends there, and it divides the RED channel on its raw byte while dividing green and
+  # blue on their shifted fields, which are 256 times finer. The interpreter works a FADE
+  # out the same way and needs no slack for one. It still mixes a TINT in five bits, which
+  # the emulator reads up to a step higher.
   #
   # The bound is PROVED, not sampled: test_emulator_blend.rb walks every 5-bit value
-  # against every amount, for both fade directions and the tint, and asserts the emulator
-  # is never further out than this — and that this number is tight on each side, so it
-  # cannot quietly cover more than it was measured to.
-  #
-  # So this still proves an effect reached the right pixels. What it cannot prove is the
-  # last step of the arithmetic, and that is not left to it: the rule a fade follows is
-  # pinned exactly, at every one of its seventeen levels, on the channel the emulator
-  # does compute as written (test_fade.rb, "the rule a channel follows").
+  # against every amount and asserts the fade is exact and the tint never further out than
+  # this, so the slack cannot quietly cover more than it was measured to.
   EMULATOR_BLEND_SLACK = 1
 
   # A button name as the console's key bit, for holding buttons on both backends.

@@ -518,8 +518,9 @@ class TestLayerTransparency < Minitest::Test
   def rgb5(r, g, b) = r | (g << 5) | (b << 10)
 
   # Blue half way to black, and the pane's own colour half way to black: the mist drawn
-  # solid under the fade.
-  BLUE_FADED = [0, 0, 16].freeze
+  # solid under the fade. Blue lands on 15, not 16: the display's fade loses the fraction of
+  # a channel kept above red (see Framebuffer#darkened_by_display).
+  BLUE_FADED = [0, 0, 15].freeze
   SOLID_MIST_FADED = [8, 4, 1].freeze
 
   # A picture painted once is still there under the fade on the frames after. A bitmap

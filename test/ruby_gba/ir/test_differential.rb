@@ -73,7 +73,7 @@ class TestDifferential < Minitest::Test
         draw_text "FADE", 60, 120, Color.resolve(:yellow)
         fade :black, amount
         halt
-      end, name: "FADE", blended: true)
+      end, name: "FADE")
     end
   end
 
@@ -85,7 +85,7 @@ class TestDifferential < Minitest::Test
       fill_rect 100, 60, 40, 24, Color.resolve(:green)
       fade :white, 50
       halt
-    end, name: "FADEW", blended: true)
+    end, name: "FADEW")
   end
 
   def test_a_tint_mixes_the_same_picture_on_both_backends

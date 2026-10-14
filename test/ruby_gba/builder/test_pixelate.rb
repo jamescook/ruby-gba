@@ -535,8 +535,8 @@ class TestPixelate < Minitest::Test
 
   # A fade is done to the finished picture and blocks to each part before that, so the two
   # do not get in each other's way — placed in the stack or not, and at different places.
-  # (`blended:` allows the one step the emulator rounds a blend differently by; a block in
-  # the wrong place is out by a whole colour.)
+  # (`blended:` allows the one step the emulator reads the tint higher by; a block in the
+  # wrong place is out by a whole colour.)
   def test_blocks_and_a_fade_are_both_in_force_at_once
     [-> { pixelate 6; fade :black, 50 },
      -> { pixelate 6, under: :ui; fade :black, 50, under: :ui },

@@ -506,8 +506,10 @@ class TestScreenFade < Minitest::Test
         background :field, tiles: :set, map: Array.new(20) { "#" * 30 }
       end
       frame = var :frame, 0
+      level = var :fade_level_seen, 0
       game_loop do
         clear_screen color unless screen_kind == :tiled
+        level.set! fade_level.to_i
         frame.add! 1
         (frame == 2).then { fade_out toward, frames: frames }
         (frame == 50).then { fade_in }
@@ -560,17 +562,28 @@ class TestScreenFade < Minitest::Test
 
   # ...and toward black on a dark picture, which is where the rounding shows: a channel of 4
   # a thirty-second of the way back from black is nothing if it keeps its share and one if a
-  # share is taken away. The display takes one away, so the picture is back on this frame
-  # rather than the next.
+  # share is taken away. The walk takes one away, as the console's documented fade does, so
+  # it is black only while the fade is all the way down, and back on the first frame after.
+  #
+  # Not held to the display's own fade on a plain bitmap screen, as the white one above is:
+  # that fade is worked out the way the emulator works it out, at eight bits a channel, and
+  # there a dark colour reaches black a level early — a step before the walk on the way down
+  # and a step after it on the way back.
   DUSK = RubyGBA::Graphics::Color.rgb(4, 6, 8)
 
-  def test_a_long_fade_to_black_is_black_and_back_on_the_same_frames
-    tiled = ramp(long_fade(:tiled, toward: :black, color: DUSK), 90)
-    plain = ramp(long_fade(:bitmap, toward: :black, color: DUSK), 90)
+  def test_a_long_fade_to_black_is_black_only_while_it_is_all_the_way_down
+    walked = long_fade(:tiled, toward: :black, color: DUSK)
+    seen = (1..90).map do |n|
+      i = Reference.new.run(walked, frames: n)
+      [i.screen.pixel(120, 80), i[:fade_level_seen]]
+    end
 
-    assert_equal plain.each_index.select { |n| plain[n] == BLACK },
-                 tiled.each_index.select { |n| tiled[n] == BLACK }
-    assert_equal plain.rindex { |px| px != DUSK }, tiled.rindex { |px| px != DUSK }
+    # The colours are walked in the gap before a frame, so the picture shows the level the
+    # pass before it reached — one frame on from the variable read beside it.
+    black = seen.each_index.select { |n| seen[n][0] == BLACK }
+    down = seen.each_index.select { |n| seen[n][1] == 100 }.map(&:succ)
+    refute_empty black
+    assert_equal down, black
   end
 
   # A short fade has no more than seventeen levels to show, so it keeps the display's

@@ -153,9 +153,9 @@ module RubyGBA
           # thirty-seconds, and the same picture.
           #
           # +color+ may also be :black or :white, for a fade that walks the colors: the same
-          # effect as a tint, counted as finely, but rounded the way the display's own fade
-          # rounds — so the picture comes back from black on the same frame whichever way
-          # the fade went (see IR::Backends::GBA::PaletteTint::DARKEN).
+          # effect as a tint, counted as finely, but rounded the way the console's documented
+          # fade rounds, with a share taken away rather than kept (see Reference#fade_by_tint
+          # and IR::Backends::GBA::PaletteTint::DARKEN).
           def tint_steps_to(color, steps)
             @tint_color = color
             @tint_steps = steps
@@ -400,21 +400,22 @@ module RubyGBA
           # each channel a fraction of the way to its limit. So a mid-fade picture keeps
           # its shape and loses its color, rather than every pixel jumping at once.
           #
-          # BOTH DIRECTIONS MOVE BY A TRUNCATED SHARE, and the share is what the rounding
-          # falls on. Toward white a channel ADDS a share of the headroom it has left;
-          # toward black it TAKES AWAY a share of what it has. Neither one keeps a share
-          # instead, and that distinction is worth a sentence because the two round in
-          # opposite directions: a channel at the top taken a quarter of the way to black
-          # comes back 24, where keeping three quarters would leave 23.
+          # The display's own fade is worked out the way the emulator the picture is checked
+          # against works it out (#darkened_by_display, #brightened_by_display), so a test
+          # can name one expected color and assert it on both backends.
           #
-          # The fractions are in sixteenths and the arithmetic is whole-number, which is
-          # what the display does. Matching it exactly is what lets a test name one
-          # expected color and assert it on both backends.
+          # A fade that walks the colors is a different thing — the game writes those colors
+          # into the table and the display shows them as they are — and keeps the console's
+          # documented rule in five bits (#walked_toward). There BOTH DIRECTIONS MOVE BY A
+          # TRUNCATED SHARE: toward white a channel ADDS a share of the headroom it has left,
+          # toward black it TAKES AWAY a share of what it has. Neither keeps a share instead,
+          # and the two round in opposite directions: a channel at the top taken a quarter of
+          # the way to black comes back 24, where keeping three quarters would leave 23.
           def faded(color)
-            return blend(color, @tint_color, @tint_steps, TINT_STEPS) if @tint_color.is_a?(Symbol)
+            return walked_toward(color, @tint_color, @tint_steps) if @tint_color.is_a?(Symbol)
             return mixed(color, @tint_color, @tint_steps) if @tint_color
 
-            blend(color, @fade_toward, @fade_steps)
+            faded_by_display(color, @fade_toward, @fade_steps)
           end
 
           # One color mixed toward another, the way a display's blend unit does it: each
@@ -487,7 +488,7 @@ module RubyGBA
 
           # One color taken +steps+ sixteenths of the way to black by the display's darkening,
           # THE WAY THE EMULATOR THIS IS CHECKED AGAINST WORKS IT OUT — which is not the same
-          # for every channel, and that is the whole reason this is not #blend.
+          # for every channel, and that is the whole reason this is not #walked_toward.
           #
           # It widens each channel to eight bits (see #mix_see_through) and keeps the three
           # in one number, red in the lowest byte, green above it and blue above that. Each
@@ -511,11 +512,35 @@ module RubyGBA
             packed
           end
 
+          # The other way: one color taken +steps+ sixteenths of the way to white by the
+          # display's brightening, the way the same emulator works it out. Each channel is
+          # widened to eight bits and gains a share of the headroom it has left there. A
+          # share is ADDED here, so the fraction is dropped from the sum whichever byte a
+          # channel sits in, and the three channels round alike — what makes this differ
+          # from five bits is the widening alone: a channel at 16 taken half way is 24
+          # here, where five bits say 23.
+          def brightened_by_display(color, steps)
+            return color if steps.zero?
+
+            packed = 0
+            3.times do |channel|
+              shift = channel * 5
+              have = widen_channel((color >> shift) & CHANNEL_MAX)
+              packed |= ((have + (((255 - have) * steps) / FADE_STEPS)) >> 3) << shift
+            end
+            packed
+          end
+
+          # One color with the display's own fade toward black or white.
+          def faded_by_display(color, toward, steps)
+            toward == :white ? brightened_by_display(color, steps) : darkened_by_display(color, steps)
+          end
+
           # One color with the blend a placed fade asks for, or the color untouched when
           # no fade is placed. The same arithmetic as #faded, so a picture blended while
           # it is painted and one blended while it is read cannot come out different.
           def apply_placed_fade(color)
-            @paint_toward ? blend(color, @paint_toward, @paint_steps) : color
+            @paint_toward ? faded_by_display(color, @paint_toward, @paint_steps) : color
           end
 
           # Is anything between the color asked for and the cell it lands in? Kept as one
@@ -525,15 +550,17 @@ module RubyGBA
             !@paint_toward.nil? || !@through.nil?
           end
 
-          def blend(color, toward, steps, out_of = FADE_STEPS)
+          # A color walked +steps+ thirty-seconds toward black or white in five bits a
+          # channel, the arithmetic a walked fade's colors are written with.
+          def walked_toward(color, toward, steps)
             return color if steps.zero?
 
             channels = [color & 0x1F, (color >> 5) & 0x1F, (color >> 10) & 0x1F]
             blended = channels.map do |c|
               if toward == :white
-                c + (((CHANNEL_MAX - c) * steps) / out_of)
+                c + (((CHANNEL_MAX - c) * steps) / TINT_STEPS)
               else
-                c - ((c * steps) / out_of)
+                c - ((c * steps) / TINT_STEPS)
               end
             end
             blended[0] | (blended[1] << 5) | (blended[2] << 10)

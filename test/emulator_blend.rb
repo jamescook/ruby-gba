@@ -1,16 +1,16 @@
 # frozen_string_literal: true
 
 # WHAT THE EMULATOR DOES TO A BLENDED PIXEL, transcribed from its own source so the
-# slack the whole-screen comparison allows can be PROVED rather than sampled.
+# interpreter can be held to it over every value rather than sampled.
 #
-# The console blends in the five bits a channel actually has. The emulator we test
-# against is built for 32-bit color, so it first widens each channel to eight bits and
-# blends there — a different arithmetic that lands a step or two away.
+# The emulator we test against is built for 32-bit color, so it first widens each
+# channel to eight bits and blends there — a different arithmetic from five bits, which
+# lands a step away.
 #
 # The asymmetry that makes this worth writing down: the emulator divides the RED channel
 # on its raw byte and the GREEN and BLUE channels on their shifted fields, which are 256
 # times finer. So the three channels truncate differently and a uniform gray comes back
-# with unequal channels. It is a quirk of that renderer, not of the console.
+# with unequal channels.
 #
 #     a = color & 0xFF;     c |= (a - (a * y) / 16) & 0xFF;      // red
 #     a = color & 0xFF00;   c |= (a - (a * y) / 16) & 0xFF00;    // green

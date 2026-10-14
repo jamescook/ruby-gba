@@ -1901,12 +1901,16 @@ module RubyGBA
         # there come to the same picture, so this is a tint toward black or white, counted
         # in thirty-seconds.
         #
-        # ROUNDED THE WAY THE DISPLAY'S FADE IS, not the way a mix is. A mix keeps a share
-        # of each channel and rounds that down; the display's fade takes a share AWAY and
-        # rounds the share down, which leaves the channel rounded up. On a dark picture that
-        # is a whole frame at the end of a fade in, flat black on one and the picture on the
-        # other, so the console's walk adds the rounding back (PaletteTint::DARKEN) and this
-        # blends with the display's own rule. Toward white the two rules agree anyway.
+        # ROUNDED THE WAY THE CONSOLE'S DOCUMENTED FADE IS, not the way a mix is. A mix keeps
+        # a share of each channel and rounds that down; the documented fade takes a share
+        # AWAY and rounds the share down, which leaves the channel rounded up. On a dark
+        # picture that is a whole frame at the end of a fade in, flat black on one and the
+        # picture on the other, so the console's walk adds the rounding back
+        # (PaletteTint::DARKEN) and this walks the colors by the same rule, in five bits.
+        # Toward white the two rules agree anyway. The display's own fade on the emulator
+        # is worked out at eight bits instead (Framebuffer#darkened_by_display), and there a
+        # dark colour reaches black a level early, so on a dark picture the two are black on
+        # frames a step apart at each end.
         #
         # What it buys is everything the tint already has: the
         # display's blend unit is never told anything, so the see-through layer goes on

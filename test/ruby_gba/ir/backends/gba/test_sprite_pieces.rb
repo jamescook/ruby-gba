@@ -292,7 +292,7 @@ class TestSpritePieces < Minitest::Test
     end
     b.finalize_program
 
-    assert_backends_agree(b.program, frames: 6, name: "BIGFADE", blended: true)
+    assert_backends_agree(b.program, frames: 6, name: "BIGFADE")
   end
 
   def test_the_profile_says_what_the_windows_over_a_big_sprite_cost
