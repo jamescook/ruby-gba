@@ -34,7 +34,8 @@
  *
  * With --sound-out FILE the sound of every frame played is written to FILE as it is made: one
  * speaker's worth, RG_SOUND_RATE numbers a second, each two bytes with the low byte first. And
- * with --sound-voice N only square voice N is in it, which is how a test hears one voice at a
+ * with --sound-voice N only voice N is in it, by the console's count of its voices (1 and 2 the
+ * square voices, 3 the wave voice, 4 the noise voice), which is how a test hears one voice at a
  * time.
  *
  * With --picture-out FILE the picture of every moment is written to FILE, over the one before:
