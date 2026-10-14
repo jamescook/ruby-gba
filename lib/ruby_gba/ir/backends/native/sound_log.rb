@@ -23,6 +23,15 @@ module RubyGBA
             @songs = program.walk.select { |node| node.kind == :song }.uniq(&:name)
             @waves = program.walk.select { |node| node.kind == :wave }.map { |node| wave_of(node) }.uniq
             @hits = program.walk.select { |node| node.kind == :noise }.map { |node| hit_of(node) }.uniq
+            @pitches = [0, *@songs.flat_map { |song| song.voices.flat_map { |part| part.events.map { |event| event[1] } } }].uniq
+          end
+
+          # The number the C carries for a note's pitch. A pitch is in Hz and need not be whole —
+          # a song handed over as MIDI note numbers is tuned from 440, so most of its notes fall
+          # between two whole numbers — so the C is given which of the songs' pitches it is, and
+          # the log reads it back as the pitch itself. 0 is a rest.
+          def pitch_number(pitch)
+            @pitches.index(pitch) or raise LoweringError, "a note's pitch #{pitch.inspect} is not among the songs' pitches"
           end
 
           # Every song the game has, and every different beep it makes (an Audio::Sound::Effect
@@ -50,16 +59,16 @@ module RubyGBA
             case kind
             when "enabled" then [:enabled]
             when "beep" then [:beep, @effects.fetch(numbers[0])]
-            when "note" then [:note, @songs.fetch(numbers[0]).name, numbers[1]]
-            when "voice" then [:voice, numbers[0], @songs.fetch(numbers[1]).name, numbers[2], numbers[3]]
+            when "note" then [:note, @songs.fetch(numbers[0]).name, @pitches.fetch(numbers[1])]
+            when "voice" then [:voice, numbers[0], @songs.fetch(numbers[1]).name, @pitches.fetch(numbers[2]), numbers[3]]
             when "loudness" then [:loudness, numbers[0], numbers[1]]
             when "stop_music" then [:stop_music]
             when "wave" then [:wave, @waves.fetch(numbers[0])]
             when "stop_wave" then [:stop_wave]
             when "noise" then [:noise, @hits.fetch(numbers[0])]
             when "noise_rest" then [:noise, nil]
-            when "part_wave" then [:wave, wave_of_part(part_at(numbers[0], numbers[1]), numbers[2])]
-            when "part_noise" then [:noise, hit_of_part(part_at(numbers[0], numbers[1]), numbers[2])]
+            when "part_wave" then [:wave, wave_of_part(part_at(numbers[0], numbers[1]), @pitches.fetch(numbers[2]))]
+            when "part_noise" then [:noise, hit_of_part(part_at(numbers[0], numbers[1]), @pitches.fetch(numbers[2]))]
             else raise ArgumentError, "the program printed a sound line nobody reads: #{line}"
             end
           end

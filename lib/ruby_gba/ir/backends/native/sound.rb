@@ -9,11 +9,12 @@ module RubyGBA
         #
         # What is played is what the console's own four voices play: a song's parts on the two
         # square-wave voices, the wave voice and the noise voice, as the interpreter's music
-        # player walks them, and the beeps, `wave`, `stop_wave`, `noise` and `enable_sound` the
-        # game says itself. Each goes into the sound log a test reads, in the interpreter's words
-        # (see SoundLog). The rest — recordings, sound effect lists, a song picked from a list by
-        # number — is refused by name (NOT_LOWERED_YET, and #refuse_unplayable_songs! for a song
-        # with a part that plays a recording), rather than left out of what the game plays.
+        # player walks them, whether the game names the song or picks it from a list by number,
+        # and the beeps, `wave`, `stop_wave`, `noise` and `enable_sound` the game says itself.
+        # Each goes into the sound log a test reads, in the interpreter's words (see SoundLog).
+        # The rest — recordings and sound effect lists — is refused by name (NOT_LOWERED_YET, and
+        # #refuse_unplayable_songs! for a song with a part that plays a recording), rather than
+        # left out of what the game plays.
         #
         # THE RULES OF THE VOICES are written into the game from Audio::Sound and IR::Tunes, as
         # numbers the runtime reads, rather than copied into the C: how fast each voice's clock
@@ -37,10 +38,37 @@ module RubyGBA
           def lower_play_song(node) = [eval_call("rg_music_request", C::Int.new(@sound_log.song_number(node.name)))]
           def lower_stop_music(_node) = [eval_call("rg_music_stop")]
 
+          # A song picked from a list by a number the game works out: the list is written as the
+          # numbers of its songs, and the runtime picks one, or leaves the music alone for a
+          # number naming none.
+          def lower_play_from_list(node)
+            [eval_call("rg_music_request_one_of", song_list_name(node.name),
+                       C::Int.new(song_lists.fetch(node.name).songs.size), value(node.which))]
+          end
+
+          def song_lists = @song_lists ||= @program.walk.select { |node| node.kind == :song_list }.to_h { |node| [node.name, node] }
+          def song_list_name(name) = @names.of(:song_list, name)
+
+          # Each song list a run can pick from, as the numbers of its songs.
+          def song_list_tables
+            picked = @reachable.filter_map { |node| node.name if node.kind == :play_from_list }.uniq
+            picked.map do |name|
+              C::ConstArray.new(name: song_list_name(name), type: "int32_t",
+                                values: song_lists.fetch(name).songs.map { |song| @sound_log.song_number(song) })
+            end
+          end
+
           # A song the game plays with a part that plays a recording: the desktop build cannot
-          # play that part yet, and playing the rest without it would be a different tune.
+          # play that part yet, and playing the rest without it would be a different tune. A song
+          # in a list the game picks from is one it can play.
           def refuse_unplayable_songs!
-            played = @reachable.filter_map { |node| node.name if node.kind == :play_song }
+            played = @reachable.flat_map do |node|
+              case node.kind
+              when :play_song then [node.name]
+              when :play_from_list then song_lists.fetch(node.name).songs
+              else []
+              end
+            end
             @sound_log.songs.select { |song| played.include?(song.name) }.each do |song|
               next unless Tunes.recorded_parts(song).positive?
 
@@ -62,7 +90,7 @@ module RubyGBA
           # Everything about the game's sound that the runtime reads, as arrays of whole numbers
           # (their layouts are atop runtime/rg_sound.c).
           def sound_tables
-            [sound_rules_table, waveform_table, music_table, beep_table, wave_table, hit_table]
+            [sound_rules_table, waveform_table, music_table, beep_table, wave_table, hit_table, *song_list_tables]
           end
 
           def sound_table(name, values)
@@ -172,12 +200,13 @@ module RubyGBA
             end
           end
 
-          # A note as the runtime reads it: when it starts, its pitch (0 is a rest), its volume,
-          # and how many ticks of its voice's clock it lasts — one wave of it on a square voice
-          # or the wave voice, one step of the hiss on the noise voice.
+          # A note as the runtime reads it: when it starts, which of the songs' pitches it is (0 is
+          # a rest; see SoundLog#pitch_number), its volume, and how many ticks of its voice's
+          # clock it lasts — one wave of it on a square voice or the wave voice, one step of the
+          # hiss on the noise voice.
           def encoded_note(note, part, kind)
             at, pitch, _, volume = note
-            [at, pitch, volume || part.volume, pitch.zero? ? 0 : note_ticks(kind, pitch)]
+            [at, @sound_log.pitch_number(pitch), volume || part.volume, pitch.zero? ? 0 : note_ticks(kind, pitch)]
           end
 
           def note_ticks(kind, pitch)

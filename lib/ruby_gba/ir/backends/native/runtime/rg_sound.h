@@ -55,6 +55,9 @@ void rg_sound_noise(int32_t which);
 /* Song number +song+ is the tune playing now, taken up at the next frame; naming the tune already
  * playing changes nothing. */
 void rg_music_request(int32_t song);
+/* ...or the song number +which+ of a list (`songs`) names, from the +count+ song numbers the list
+ * holds. A number naming no song in the list leaves the music as it is. */
+void rg_music_request_one_of(const int32_t *songs, int32_t count, int32_t which);
 /* No tune, and counted: a stop and a play in one frame still start the tune again. */
 void rg_music_stop(void);
 /* The variable the game keeps its music volume in (0 to 16), for a game that says one at all. */

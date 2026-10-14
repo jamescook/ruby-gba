@@ -67,9 +67,10 @@
  *       is, two numbers for what the voice sounds like — a square part's eighths high and 0, a
  *       wave part's waveform and 0, a noise part's bits and the 64ths of a second it holds each
  *       step of volume — notes the first time through, notes every time after,
- *       then those notes, four numbers each: the frame it starts on, its pitch in Hz (0 is a
- *       rest), its volume, and the ticks it lasts on its voice's clock (one wave, or one step
- *       of the hiss)
+ *       then those notes, four numbers each: the frame it starts on, which of the songs' pitches
+ *       it is (0 is a rest; a pitch need not be a whole number of Hz, so the log is given the
+ *       number and reads the pitch back from it), its volume, and the ticks it lasts on its
+ *       voice's clock (one wave, or one step of the hiss)
  *
  * A part has two lists because a song that loops from part way through plays its introduction
  * once: the first list is the whole part, the second what it plays each time it comes round
@@ -461,6 +462,10 @@ static int32_t holding_count;
 void rg_music_request(int32_t number) {
   if (number < 0 || number >= SONG_COUNT) rg_fault("there is no song number %d", (int)number);
   wanted = number;
+}
+
+void rg_music_request_one_of(const int32_t *songs, int32_t count, int32_t which) {
+  if (which >= 0 && which < count) rg_music_request(songs[which]);
 }
 
 void rg_music_stop(void) {
