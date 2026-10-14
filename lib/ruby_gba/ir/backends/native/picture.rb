@@ -23,6 +23,9 @@ module RubyGBA
           NEVER_ARRIVES = -2
           NO_LAYER = -1
           NOT_DRAWN = -1
+          # The most a drawn pixel can be: fifteen bits of colour, so a picture's pixels fit in
+          # sixteen signed bits beside NOT_DRAWN.
+          MAX_COLOR = 0x7FFF
           CELL_EMPTY = -1
           # How many numbers say one map (RG_MAP_FIELDS): where its cells start, its columns, its
           # rows, and the columns and rows of the grid it comes round at.
@@ -176,7 +179,12 @@ module RubyGBA
             @images.each_key do |name, colors|
               image = picture_named(name)
               info.push(pixels.length, image.width, image.height)
-              pixels.concat(sprite_pixels(image, colors))
+              drawn = sprite_pixels(image, colors)
+              if drawn.any? { |pixel| pixel > MAX_COLOR }
+                raise LoweringError, "picture #{name.inspect} holds a pixel past the fifteen bits a colour has, " \
+                                     "so it cannot be built as a desktop program."
+              end
+              pixels.concat(drawn)
             end
             [runtime_array("image_pixels", "int16_t", pixels), runtime_array("images", "int32_t", info), *sprite_name_arrays]
           end

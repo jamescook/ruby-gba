@@ -294,8 +294,7 @@ module RubyGBA
               end
             end.uniq
             @tables.values.select { |table| read.include?(table.name) }.map do |table|
-              values = table.values.map { |v| Int32.wrap(v) }
-              C::ConstArray.new(name: @names.of(:table, table.name), type: table_type(table, values), values: values)
+              C::ConstArray.new(name: @names.of(:table, table.name), type: table_type(table), values: table_entries(table))
             end + @data.values.select { |data| read.include?(data.name) }.map do |data|
               bytes = data.kind == :data ? data.bytes : data.pixels
               C::ConstArray.new(name: @names.of(:data, data.name), type: "uint8_t", values: bytes.bytes)
@@ -316,10 +315,13 @@ module RubyGBA
           # entry fits; a table built by hand that says nothing, or whose entries do not fit what it
           # says, keeps whole words. Reading an entry widens it back to a whole number, so nothing
           # that reads one changes.
-          def table_type(table, values)
+          def table_type(table)
             type, range = TABLE_TYPES[[table.width, table.signed ? true : false]]
-            type && values.all? { |v| range.cover?(v) } ? type : "int32_t"
+            type && table_entries(table).all? { |v| range.cover?(v) } ? type : "int32_t"
           end
+
+          # A table's entries as the whole numbers a game reads.
+          def table_entries(table) = table.values.map { |v| Int32.wrap(v) }
 
           def list_storage
             @lists.values.map do |node|
@@ -565,7 +567,7 @@ module RubyGBA
 
           def lower_list_copy(node)
             table = @tables.fetch(node.table)
-            kept = TABLE_KEPT_AS.fetch(table_type(table, table.values.map { |v| Int32.wrap(v) }))
+            kept = TABLE_KEPT_AS.fetch(table_type(table))
             [list_call("rg_list_copy", node, @names.of(:table, node.table), C::Int.new(kept), C::Int.new(table.values.length),
                        value(node.at), C::Int.new(node.count))]
           end

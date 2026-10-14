@@ -5,9 +5,10 @@ require "native_comparison"
 
 # A game's art and tables are most of a desktop program, so each is kept at the width it needs:
 # a table at the width the game declared it, a picture's pixel in the sixteen bits it is, a
-# recording's sample in its byte. A big game's program was four times the size of its data for
-# want of this. Here the C is the contract, so the tests read it; and a game reading every width
-# both ways round still plays as the interpreter does.
+# recording's sample in its byte, where every one of them used to take four bytes. It has a file
+# of its own because it is about all three, which live in different parts of the build. Here the
+# C is the contract, so the tests read it; and a game reading every width both ways round still
+# plays as the interpreter does.
 class TestNativeDataWidths < Minitest::Test
   # The native lowering's own tests, which only a native run plays (see TestSuites).
   runs_on :native
