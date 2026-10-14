@@ -446,6 +446,25 @@ module RubyGBA
             C::Function.new(name: @names.own("work_out_bends"), body: first_lines + the_rest, exported: true)
           end
 
+          # The routines rg_screen.c calls to work the game's light out (Reference#work_out_shade):
+          # where the lit span of one row starts and ends, the row going into the light's
+          # variable first, and then how dark the rest of every row goes. Empty for a game with
+          # no light, which never calls them.
+          def shade_span
+            body = if @shade
+                     [assign(@shade.row, call("rg_shade_line")), eval_call("rg_shade_left", value(@shade.left)),
+                      eval_call("rg_shade_right", value(@shade.right))]
+                   else
+                     []
+                   end
+            C::Function.new(name: @names.own("shade_span"), body: body, exported: true)
+          end
+
+          def shade_amount
+            body = @shade ? [eval_call("rg_shade_darkness", value(@shade.amount))] : []
+            C::Function.new(name: @names.own("shade_amount"), body: body, exported: true)
+          end
+
           def work_out_bend_lines(name, first, past)
             eval_call("rg_bend_work_out", C::Int.new(@backgrounds.fetch(name)), C::Int.new(first), C::Int.new(past))
           end

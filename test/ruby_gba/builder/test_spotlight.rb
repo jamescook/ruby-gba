@@ -13,7 +13,7 @@ require "differential"
 # amount the light says; and then that the console draws the same picture pixel for pixel,
 # which is what holds the circle's edge to one rule on both backends.
 class TestSpotlight < Minitest::Test
-  runs_on :reference
+  runs_on :reference, :native
   include Differential
 
   WIDTH = 240
@@ -41,7 +41,7 @@ class TestSpotlight < Minitest::Test
     end
   end
 
-  def shown(program, frames: 2) = Reference.new.run(program, frames: frames).screen
+  def shown(program, frames: 2) = game_player.run(program, frames: frames).screen
 
   # White taken three quarters of the way to black the way the emulator's display does it,
   # at eight bits a channel: red comes to 64 of 255, which is 8, and green and blue lose

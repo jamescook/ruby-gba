@@ -1590,16 +1590,67 @@ static int64_t block_corner_across(int64_t x) {
   return x >= first ? first + ((x - first) / read_block) * read_block : x;
 }
 
+/* --- a light (Framebuffer#shade_outside) --- */
+
+/* Each row's lit span as the gap between frames last worked it out, and how many sixteenths the
+ * rest of the row is darkened by: nought until then, which darkens nothing. */
+static int32_t shade_spans[RG_SCREEN_HEIGHT][2];
+static int32_t shade_steps;
+static int32_t shade_row;
+
+int32_t rg_shade_line(void) { return shade_row; }
+
+/* Where the row's span starts, and then where it ends: two calls, so the game works the left
+ * edge out before the right one, as the interpreter does — the arguments of one call could be
+ * worked out in either order. */
+void rg_shade_left(int32_t left) { shade_spans[shade_row][0] = left; }
+void rg_shade_right(int32_t right) { shade_spans[shade_row][1] = right; }
+
+/* FadeSteps.sixteenths: the amount out of 100, in the display's sixteenths. */
+void rg_shade_darkness(int32_t amount) { shade_steps = whole_sixteenths(amount); }
+
+/* Reference#work_out_shade: every row's span from the game's own expressions, top to bottom,
+ * then the amount. */
+void rg_screen_work_out_shade(void) {
+  for (shade_row = 0; shade_row < RG_SCREEN_HEIGHT; shade_row++) rg_game_shade_span();
+  rg_game_shade_amount();
+}
+
+/* Framebuffer#lit?: is (x, y) inside its row's span? */
+static int32_t lit(int32_t x, int32_t y) {
+  if (shade_steps == 0) return 1;
+  int32_t left = shade_spans[y][0], right = shade_spans[y][1];
+  return left <= right ? (x >= left && x < right) : (x >= left || x < right);
+}
+
+/* Framebuffer#darkened_by_display: each channel widened to eight bits and placed in its own byte,
+ * taken +steps+ sixteenths of the way to black there, and brought back to five bits. Done in the
+ * channel's own byte as the interpreter does it, which rounds how much the first channel loses
+ * down and how much the other two lose up. */
+static uint16_t darkened_by_display(uint16_t color, int32_t steps) {
+  if (steps == 0) return color;
+  int64_t packed = 0;
+  for (int32_t channel = 0; channel < 3; channel++) {
+    int32_t shift = channel * 5;
+    int64_t placed = (int64_t)widened((color >> shift) & 0x1F) << (channel * 8);
+    int64_t kept = (placed - (placed * steps) / 16) >> (channel * 8);
+    packed |= (kept >> 3) << shift;
+  }
+  return (uint16_t)packed;
+}
+
 /* Framebuffer#shown and #pixel: the page a viewer is looking at, read through the window — off
- * the edge of the picture the backdrop shows — with the fade or tint in force mixed in, and in
- * blocks when a painted screen is shown in them. A switched-off display shows plain white. */
+ * the edge of the picture the backdrop shows — with the fade or tint in force mixed in, in blocks
+ * when a painted screen is shown in them, and darkened outside a light's span. A switched-off
+ * display shows plain white. */
 const uint16_t *rg_screen_shown(void) {
   rg_screen_paint_owed_rebuild();
   for (int32_t y = 0; y < RG_SCREEN_HEIGHT; y++)
     for (int32_t x = 0; x < RG_SCREEN_WIDTH; x++) {
       int64_t from_x = block_corner_across(x) + camera_x, from_y = (int64_t)(y - y % read_block) + camera_y;
       uint16_t stored = on_screen(from_x, from_y) ? viewed[from_y * RG_SCREEN_WIDTH + from_x] : 0;
-      shown[y * RG_SCREEN_WIDTH + x] = held ? (uint16_t)0x7FFF : faded(stored);
+      uint16_t color = faded(stored);
+      shown[y * RG_SCREEN_WIDTH + x] = held ? (uint16_t)0x7FFF : lit(x, y) ? color : darkened_by_display(color, shade_steps);
     }
   return shown;
 }

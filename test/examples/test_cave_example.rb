@@ -13,12 +13,12 @@ require_relative "../../examples/cave"
 # RIGHT takes the hero all the way out, and that the console draws the same picture on the
 # way.
 class TestCaveExample < Minitest::Test
-  runs_on :reference
+  runs_on :reference, :native
   include Differential
 
   GRASS = [Color.rgb(6, 20, 6), Color.rgb(10, 26, 8)].freeze
 
-  def walk_right(frames) = Reference.new.hold(:right).run(Cave.program, frames: frames)
+  def walk_right(frames) = game_player.hold(:right).run(Cave.program, frames: frames)
 
   def test_it_builds_with_nothing_to_warn_about
     out = StringIO.new

@@ -9,7 +9,7 @@ require "differential"
 # the end of the frames asked for, open again at the end of the way back, part way between
 # on both backends alike — and a lantern the game had given back as it was.
 class TestIris < Minitest::Test
-  runs_on :reference
+  runs_on :reference, :native
   include Differential
 
   WHITE = Color.resolve(:white)
@@ -34,7 +34,7 @@ class TestIris < Minitest::Test
     end
   end
 
-  def shown(program, frames:) = Reference.new.run(program, frames: frames).screen
+  def shown(program, frames:) = game_player.run(program, frames: frames).screen
 
   def all_one_color?(screen, color)
     (0...160).step(8).all? { |y| (0...240).step(8).all? { |x| screen.pixel(x, y) == color } }
@@ -69,7 +69,7 @@ class TestIris < Minitest::Test
                        iris_in frames: 6
                      end
                    })
-    reached = Reference.new.run(swapped, frames: 9)
+    reached = game_player.run(swapped, frames: 9)
 
     assert_equal 1, reached[:gone], "the circle shut"
     assert all_one_color?(shown(swapped, frames: 30), WHITE), "and opened back to the room as drawn"
