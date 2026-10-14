@@ -8,7 +8,7 @@ require "test_helper"
 # same way a tune is, and each plays over the room's music without stopping it. When the effect
 # and the song want the same voice, the one with the higher priority sounds on it.
 class TestSoundEffects < Minitest::Test
-  runs_on :reference
+  runs_on :reference, :native
 
   Score = RubyGBA::Audio::Score
   Part = Score::Part
@@ -47,7 +47,7 @@ class TestSoundEffects < Minitest::Test
   # What sounded on which frame, from the interpreter: [who, frequency] for each note, where a
   # frequency of 0 is a voice going quiet.
   def notes_by_frame(program, frames)
-    i = Reference.new
+    i = game_player
     heard = {}
     logged = 0
     i.each_vblank do |frame|
@@ -127,6 +127,16 @@ class TestSoundEffects < Minitest::Test
     assert_equal [[:"music.0", NOTES[:E4]]], notes_by_frame(program, 30)[22]
   end
 
+  # ...and the other way round: an effect that outranks the song starts on the frame the song's
+  # next note is due, and the song's note is never written, since the effect wrote the voice first.
+  def test_a_song_note_that_loses_its_voice_on_the_frame_it_starts_is_never_played
+    program = game([every_ten_ticks(:C5, priority: 68)], tune: every_ten_ticks(:C4, :E4, :G4)) do |sfx, pass|
+      (pass == 21).then { sfx.play 0 }
+    end
+
+    assert_equal [[:"sfx.0", NOTES[:C5]]], notes_by_frame(program, 30)[22]
+  end
+
   # A note at volume 0 sounds nothing, so it lets the voice go the way a rest does: the song's note
   # on frame 22 is heard, on both backends.
   def test_a_silent_note_lets_the_voice_go
@@ -167,7 +177,7 @@ class TestSoundEffects < Minitest::Test
   # What the interpreter says the wave voice was set to on each frame it was: the waveform of the
   # note, or :silent.
   def wave_notes_by_frame(program, frames)
-    i = Reference.new
+    i = game_player
     shapes = {}
     i.each_vblank do |frame|
       i.audio.each do |kind, settings|
@@ -242,7 +252,7 @@ class TestSoundEffects < Minitest::Test
   # The voices sounding after +frames+, from the interpreter: whose each one is, and the recording
   # it plays.
   def voices_after(program, frames)
-    i = Reference.new.run(program, frames: frames)
+    i = game_player.run(program, frames: frames)
     i.sound_owners.zip(i.active_samples)
   end
 
@@ -313,14 +323,14 @@ class TestSoundEffects < Minitest::Test
   def test_an_effect_note_takes_a_voice_from_a_song_it_outranks
     program = game([recorded_hit(68)], tune: chord(16)) { |sfx, pass| (pass == 10).then { sfx.play 0 } }
 
-    assert_equal [[:"sfx.0", 0]] + SONG_PARTS.drop(1), Reference.new.run(program, frames: 20).sound_owners
+    assert_equal [[:"sfx.0", 0]] + SONG_PARTS.drop(1), game_player.run(program, frames: 20).sound_owners
   end
 
   # The song outranks the effect: the effect's note is not played, and nothing of the song's is
   # touched.
   def test_an_effect_note_below_the_song_with_every_voice_busy_is_not_played
     program = game([recorded_hit(68)], tune: chord(16, priority: 80)) { |sfx, pass| (pass == 10).then { sfx.play 0 } }
-    i = Reference.new.run(program, frames: 20)
+    i = game_player.run(program, frames: 20)
 
     assert_equal SONG_PARTS, i.sound_owners
     assert_includes i.audio, [:sound_effect, :"sfx.0"]
@@ -348,7 +358,7 @@ class TestSoundEffects < Minitest::Test
       (pass == 1).then { @piano.play(:G4) }
       (pass == 10).then { sfx.play 0 }
     end
-    i = Reference.new.run(program, frames: 20)
+    i = game_player.run(program, frames: 20)
 
     assert_equal [[:"sfx.0", 0]] + SONG_PARTS.take(15), i.sound_owners
   end
@@ -358,7 +368,7 @@ class TestSoundEffects < Minitest::Test
   def test_an_effect_note_takes_a_fading_note_first
     fading = chord(16, length: 8, envelope: { release: 1.0 })
     program = game([recorded_hit(68)], tune: fading) { |sfx, pass| (pass == 12).then { sfx.play 0 } }
-    i = Reference.new.run(program, frames: 16)
+    i = game_player.run(program, frames: 16)
 
     assert_equal [[:"sfx.0", 0]] + SONG_PARTS.drop(1), i.sound_owners
     assert_equal 0, i.sound_drops.dropped
@@ -368,8 +378,8 @@ class TestSoundEffects < Minitest::Test
   def test_a_song_part_that_loses_its_voice_has_one_again_at_its_next_note
     program = game([recorded_hit(68)], tune: chord(16, at: [0, 60])) { |sfx, pass| (pass == 10).then { sfx.play 0 } }
 
-    assert_equal [[:"sfx.0", 0]] + SONG_PARTS.drop(1), Reference.new.run(program, frames: 30).sound_owners
-    assert_equal SONG_PARTS, Reference.new.run(program, frames: 70).sound_owners
+    assert_equal [[:"sfx.0", 0]] + SONG_PARTS.drop(1), game_player.run(program, frames: 30).sound_owners
+    assert_equal SONG_PARTS, game_player.run(program, frames: 70).sound_owners
   end
 
   # A note at volume 0 sounds nothing, so on the mixer too it takes no voice and lets go of the
@@ -380,15 +390,15 @@ class TestSoundEffects < Minitest::Test
     ])])
     program = game([quiet], tune: chord(16)) { |sfx, pass| (pass == 10).then { sfx.play 0 } }
 
-    assert_equal [[:"sfx.0", 0]] + SONG_PARTS.drop(1), Reference.new.run(program, frames: 15).sound_owners
-    assert_equal SONG_PARTS.drop(1), Reference.new.run(program, frames: 25).sound_owners
+    assert_equal [[:"sfx.0", 0]] + SONG_PARTS.drop(1), game_player.run(program, frames: 15).sound_owners
+    assert_equal SONG_PARTS.drop(1), game_player.run(program, frames: 25).sound_owners
   end
 
   # How many voices sounded at once counts an effect's, with no song playing.
   def test_the_most_voices_at_once_counts_an_effects
     program = game([recorded_hit(68, parts: 3)]) { |sfx, pass| (pass == 3).then { sfx.play 0 } }
 
-    assert_equal 3, Reference.new.run(program, frames: 10).peak_voices
+    assert_equal 3, game_player.run(program, frames: 10).peak_voices
   end
 
   # The song starting over lets go of its own voices and not the effect's.
@@ -398,7 +408,7 @@ class TestSoundEffects < Minitest::Test
       (pass == 15).then { stop_music }
     end
 
-    assert_includes Reference.new.run(program, frames: 18).sound_owners, [:"sfx.0", 0]
+    assert_includes game_player.run(program, frames: 18).sound_owners, [:"sfx.0", 0]
   end
 
   # --- one at a time, in a group ---
@@ -435,7 +445,7 @@ class TestSoundEffects < Minitest::Test
 
   # At a lower priority it is not played at all, and the one sounding carries on.
   def test_an_effect_below_the_one_its_group_is_playing_is_not_played
-    i = Reference.new.run(cry_then_hurt(cry_priority: 72, hurt_priority: 64), frames: 40)
+    i = game_player.run(cry_then_hurt(cry_priority: 72, hurt_priority: 64), frames: 40)
 
     assert_equal 1, i.audio.count { |entry| entry[0] == :sound_effect }, "only the cry started"
     assert_includes i.audio, [:note, :"sfx.0", NOTES[:G5]]
@@ -482,7 +492,7 @@ class TestSoundEffects < Minitest::Test
     twice = game([cry(72), hurt(64)]) { |sfx, pass| (pass == 3).then { sfx.play 0; sfx.play 0; sfx.play 1 } }
 
     [sounding, twice].each do |program|
-      i = Reference.new.run(program, frames: 20)
+      i = game_player.run(program, frames: 20)
       refute_includes i.audio, [:sound_effect, :"sfx.1"]
     end
   end
@@ -491,7 +501,7 @@ class TestSoundEffects < Minitest::Test
   def test_of_two_asked_for_together_in_a_group_the_higher_priority_starts
     [[1, 0], [0, 1]].each do |order|
       program = game([cry(64), hurt(72)]) { |sfx, pass| (pass == 3).then { order.each { |which| sfx.play which } } }
-      i = Reference.new.run(program, frames: 10)
+      i = game_player.run(program, frames: 10)
 
       assert_equal [[:sound_effect, :"sfx.1"]], i.audio.select { |entry| entry[0] == :sound_effect }, order.inspect
     end
@@ -526,7 +536,7 @@ class TestSoundEffects < Minitest::Test
       (pass == 4).then { sfx.play :spark }
     end
     started = {}
-    i = Reference.new
+    i = game_player
     i.each_vblank { |frame| i.audio.select { |entry| entry[0] == :sound_effect }.each { |entry| started[entry[1]] ||= frame } }
     i.run(program, frames: 10)
 
@@ -558,7 +568,7 @@ class TestSoundEffects < Minitest::Test
       (pass == 3).then { sfx.play 0 }
       (pass == 6).then { music_volume 50 }
     end
-    i = Reference.new.run(program, frames: 20)
+    i = game_player.run(program, frames: 20)
     after = i.audio.drop_while { |entry| entry != [:sound_effect, :"sfx.0"] }
 
     assert_empty after.select { |entry| entry[0] == :loudness }, "nothing set the effect's voice to a music volume"
@@ -599,7 +609,7 @@ class TestSoundEffects < Minitest::Test
   # the part that played it (+tones+, by who; none on the noise voice), or 0 for a voice going
   # quiet. The two start counting at different moments, so both count from the first sound.
   def interpreted_changes(program, channel, tones, frames:)
-    i = Reference.new
+    i = game_player
     set = {}
     i.each_vblank do |frame|
       i.audio.select { |entry| entry[0] == :voice && entry[1] == channel }.each { |entry| set[frame] = entry }
@@ -878,7 +888,7 @@ class TestSoundEffects < Minitest::Test
   # Whose each sounding voice is, +frames+ in, on each backend — the console run a little longer,
   # since it starts later. Every program here holds its voices steady for longer than that.
   def owners_on_both(program, frames:)
-    [Reference.new.run(program, frames: frames).sound_owners, console_voices(program, frames: frames).map(&:owner)]
+    [game_player.run(program, frames: frames).sound_owners, console_voices(program, frames: frames).map(&:owner)]
   end
 
   def console_voices(program, frames:) = console_run(program, frames: frames).voices
@@ -1043,7 +1053,7 @@ class TestSoundEffects < Minitest::Test
       interpreted, console = owners_on_both(program, frames: frames)
       assert_equal interpreted, console, "#{frames} frames in"
     end
-    assert_equal [[:song, 0]], Reference.new.run(program, frames: 45).sound_owners
+    assert_equal [[:song, 0]], game_player.run(program, frames: 45).sound_owners
   end
 
   # The effect's voice through a restart, its own restart, its end, and a shaped end.

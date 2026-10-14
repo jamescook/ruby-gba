@@ -10,10 +10,10 @@ module RubyGBA
         # What is played is a song's parts — on the console's two square-wave voices, its wave
         # voice and its noise voice, and on recordings through the mixer (runtime/rg_mix.h) — as
         # the interpreter's music player walks them, whether the game names the song or picks it
-        # from a list by number; the game's own recordings; and the beeps, `wave`, `stop_wave`,
-        # `noise` and `enable_sound` the game says itself. Each goes into the sound log a test
-        # reads, in the interpreter's words (see SoundLog). Sound effect lists are refused by name
-        # (NOT_LOWERED_YET), rather than left out of what the game plays.
+        # from a list by number; the sound effects played over the song; the game's own
+        # recordings; and the beeps, `wave`, `stop_wave`, `noise` and `enable_sound` the game says
+        # itself. Each goes into the sound log a test reads, in the interpreter's words (see
+        # SoundLog).
         #
         # THE RULES OF THE VOICES are written into the game from Audio::Sound and IR::Tunes, as
         # numbers the runtime reads, rather than copied into the C: how fast each voice's clock
@@ -47,6 +47,19 @@ module RubyGBA
 
           def song_lists = @song_lists ||= @program.walk.select { |node| node.kind == :song_list }.to_h { |node| [node.name, node] }
           def song_list_name(name) = @names.of(:song_list, name)
+
+          # A sound effect picked from a list by a number the game works out, the same way: the
+          # list is written as the numbers of its effects (SoundLog#effect_number).
+          def lower_play_sound_effect(node)
+            [eval_call("rg_effect_request_one_of", effect_list_name(node.name),
+                       C::Int.new(effect_lists.fetch(node.name).effects.size), value(node.which))]
+          end
+
+          def effect_lists
+            @effect_lists ||= @program.walk.select { |node| node.kind == :sound_effect_list }.to_h { |node| [node.name, node] }
+          end
+
+          def effect_list_name(name) = @names.of(:sound_effect_list, name)
 
           # --- recordings, through the mixer (runtime/rg_mix.h) ---
 
@@ -110,6 +123,33 @@ module RubyGBA
             end
           end
 
+          # Each sound effect list a run can play from, as the numbers of its effects.
+          def effect_list_tables
+            played = @reachable.filter_map { |node| node.name if node.kind == :play_sound_effect }.uniq
+            played.map do |name|
+              C::ConstArray.new(name: effect_list_name(name), type: "int32_t",
+                                values: effect_lists.fetch(name).effects.map { |effect| @sound_log.effect_number(effect) })
+            end
+          end
+
+          # Every sound effect, in the order declared, as the player reads it (see the layout atop
+          # runtime/rg_sound.c): whether any of them plays the wave voice, which changes how that
+          # voice's waveform is put in; then each one's song, rank, group and priority; and then the
+          # effects again, highest rank first, which is the order a frame plays them in.
+          def effects_table
+            songs = @sound_log.sound_effects.map { |name| sound_effect_song(name) }
+            groups = songs.filter_map(&:group).uniq
+            rows = songs.each_with_index.map do |song, order|
+              rank = Tunes.effect_rank(song, order)
+              [@sound_log.song_number(song.name), rank, song.group ? groups.index(song.group) : -1, Tunes.priority_of(rank)]
+            end
+            by_rank = Tunes.effects_by_rank(songs).map { |name, _| @sound_log.effect_number(name) }
+            plays_wave = songs.any? { |song| Tunes.parts_on(song, :wave).positive? }
+            sound_table("effects", [rows.size, plays_wave ? 1 : 0, *rows.flatten, *by_rank])
+          end
+
+          def sound_effect_song(name) = @sound_log.songs.fetch(@sound_log.song_number(name))
+
           # The player reads the music volume the game keeps, when it keeps one: a game that never
           # says `music_volume` plays every part at its written volume with nothing worked out.
           def sound_power_on
@@ -122,8 +162,8 @@ module RubyGBA
           # (their layouts are atop runtime/rg_sound.c).
           def sound_tables
             # The music is written first: writing it is what finds the rows of note_sounds_table.
-            [sound_rules_table, waveform_table, music_table, note_sounds_table, beep_table, wave_table, hit_table,
-             mix_table, recordings_table, *song_list_tables]
+            [sound_rules_table, waveform_table, music_table, note_sounds_table, effects_table, beep_table, wave_table,
+             hit_table, mix_table, recordings_table, *song_list_tables, *effect_list_tables]
           end
 
           def sound_table(name, values)
@@ -132,14 +172,15 @@ module RubyGBA
 
           # The rules every voice keeps: how fast each one's clock ticks, how often the console
           # hands its voices on to the speaker, the music volume a part sounds at in full and how
-          # far to shift back down by it, and the wave voice's loudness for each written volume.
+          # far to shift back down by it, the wave voice's loudness and a recorded note's for each
+          # written volume, and the part of a rank that tells a sound effect from the song.
           def sound_rules_table
             sound = RubyGBA::Audio::Sound
             quarters = (0..15).map { |volume| sound.wave_level_quarters(sound.wave_level(volume)) }
             loudness = (0..15).map { |volume| Tunes.mix_loudness(volume) }
             sound_table("sound_rules", [sound::SQUARE_CLOCK_HZ, sound::WAVE_CLOCK_HZ, sound::NOISE_CLOCK_HZ,
                                         sound::VOICE_OUTPUT_HZ, Tunes::FULL_LEVEL, Tunes::LEVEL_SHIFT, *quarters,
-                                        *loudness])
+                                        *loudness, Tunes::ORDER_MASK])
           end
 
           # Every different waveform the game can put on the wave voice, 32 steps each: the ones
@@ -206,10 +247,16 @@ module RubyGBA
           # One song as numbers: its length, where it loops from, whether it plays once and ends,
           # its rank, and each part, with its notes the first time through and every time after.
           # Every song the game declares is written, played or not, so the numbering is the one
-          # SoundLog gives.
+          # SoundLog gives. A sound effect plays once and never comes round, so each of its parts
+          # is its notes as written, as the interpreter's player walks them.
           def encoded_song(song)
             lanes = 0
-            parts = song.voices.each_with_index.zip(Tunes.loop_passes(song)).map do |(part, number), pass|
+            passes = if @sound_log.sound_effects.include?(song.name)
+                       song.voices.map { |part| Tunes::Pass.new(first: part.events, again: []) }
+                     else
+                       Tunes.loop_passes(song)
+                     end
+            parts = song.voices.each_with_index.zip(passes).map do |(part, number), pass|
               lane = Tunes.part_kind(part) == :recorded ? (lanes += 1) - 1 : nil
               encoded_part(part, number, pass, lane)
             end

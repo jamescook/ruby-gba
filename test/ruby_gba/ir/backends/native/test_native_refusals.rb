@@ -22,21 +22,6 @@ class TestNativeRefusals < Minitest::Test
     assert_includes error.message, ":raw"
   end
 
-  # A kind this backend trails on is named, with the part of the work it belongs to: sound the
-  # desktop cannot play yet is refused, rather than left out of what it plays.
-  def test_a_kind_not_written_yet_is_refused_by_name
-    score = RubyGBA::Audio::Score
-    ping = score.new(tempo: 150, parts: [score::Part.new(notes: [score::Note.new(at: 0, key: :C5)])])
-    program = program_of do
-      enable_sound
-      sfx = sound_effects :sfx, { ping: ping }
-      game_loop { sfx.play :ping }
-    end
-
-    error = assert_raises(LoweringError) { Native.new.lower(program) }
-    assert_match(/:play_sound_effect.*cannot make yet \(sound\)/, error.message)
-  end
-
   # A song with more parts on the square wave than the console has such voices stops the program
   # that plays it, saying so. Only a song built by hand can be one: a game's own is refused before
   # this, by the checks a cartridge build makes.
@@ -49,7 +34,7 @@ class TestNativeRefusals < Minitest::Test
     )
 
     error = assert_raises(Native::Zig::Error) { Native::HeadlessRun.new.run(program, frames: 3) }
-    assert_match(/3 parts on the square wave, and the most is 2/, error.message)
+    assert_match(/more parts on the square wave than the 2 there are/, error.message)
   end
 
   # What the desktop's picture cannot draw yet is refused, by name, rather than drawn wrong.

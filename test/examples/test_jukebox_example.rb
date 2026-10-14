@@ -12,7 +12,7 @@ require_relative "../../examples/jukebox"
 # tune's notes actually fire — on the interpreter oracle AND that a real ROM drives
 # the music channel on hardware.
 class TestJukeboxExample < Minitest::Test
-  runs_on :reference
+  runs_on :reference, :native
   include MixedSound
 
   # The opening (downbeat) note of each tune, in Hz — distinct so each is a
@@ -45,7 +45,7 @@ class TestJukeboxExample < Minitest::Test
   ODE_BASS_FIRST = 131 # C3, the bass note under the opening measure
 
   def test_the_first_song_plays_by_default_on_the_interpreter
-    i = Reference.new.run(Jukebox.program, max_steps: 4000)
+    i = game_player.run(Jukebox.program, max_steps: 4000)
     assert_includes notes(i), [:note, :ode_to_joy, ODE_FIRST],
                     "the highlighted tune should sound its melody downbeat"
     assert_includes notes(i), [:note, :ode_to_joy, ODE_BASS_FIRST],
@@ -54,7 +54,7 @@ class TestJukeboxExample < Minitest::Test
 
   # Move the cursor down one row and the second tune takes over the channel.
   def test_selecting_the_second_song_plays_it_on_the_interpreter
-    i = Reference.new.input_each_frame(&tap_down(1)).run(Jukebox.program, max_steps: 4000)
+    i = game_player.input_each_frame(&tap_down(1)).run(Jukebox.program, max_steps: 4000)
     assert_includes notes(i), [:note, :fur_elise, ELISE_FIRST],
                     "selecting row 1 should play Fur Elise"
   end
@@ -64,7 +64,7 @@ class TestJukeboxExample < Minitest::Test
   # any voice was set to before the new tune's first note is nothing, and after it the music is
   # loud again.
   def test_moving_the_cursor_fades_the_old_tune_out_before_the_new_one_comes_in
-    log = Reference.new.input_each_frame(&tap_down(1)).run(Jukebox.program, frames: 80).audio
+    log = game_player.input_each_frame(&tap_down(1)).run(Jukebox.program, frames: 80).audio
     start = log.index([:note, :fur_elise, ELISE_FIRST])
 
     refute_nil start, "the second tune starts"
@@ -78,7 +78,7 @@ class TestJukeboxExample < Minitest::Test
 
   # Two rows down lands on the third tune.
   def test_selecting_the_third_song_plays_it_on_the_interpreter
-    i = Reference.new.input_each_frame(&tap_down(2)).run(Jukebox.program, max_steps: 4000)
+    i = game_player.input_each_frame(&tap_down(2)).run(Jukebox.program, max_steps: 4000)
     assert_includes notes(i), [:note, :minuet, MINUET_FIRST],
                     "selecting row 2 should play the Minuet"
   end
@@ -99,7 +99,7 @@ class TestJukeboxExample < Minitest::Test
   end
 
   def test_the_headings_are_genuinely_centred
-    screen = Reference.new.run(Jukebox.program, max_steps: 4000).screen
+    screen = game_player.run(Jukebox.program, max_steps: 4000).screen
 
     HEADING_ROWS.each do |y, text|
       left, right = lit_span(screen, y)
@@ -115,14 +115,14 @@ class TestJukeboxExample < Minitest::Test
   ROW_TOPS = [50, 64, 78, 92].freeze
 
   def test_the_cursor_hangs_off_the_left_of_the_picked_row
-    at_rest = Reference.new.run(Jukebox.program, max_steps: 4000).screen
+    at_rest = game_player.run(Jukebox.program, max_steps: 4000).screen
     left_edges = ROW_TOPS.map { |y| lit_span(at_rest, y).first }
 
     assert_operator left_edges[0], :<, left_edges[1],
                     "the picked row starts further left, because the cursor is beside it"
     assert_equal left_edges[1], left_edges[2], "the other two rows line up with each other"
 
-    moved = Reference.new.input_each_frame(&tap_down(1)).run(Jukebox.program, max_steps: 4000)
+    moved = game_player.input_each_frame(&tap_down(1)).run(Jukebox.program, max_steps: 4000)
     after = ROW_TOPS.map { |y| lit_span(moved.screen, y).first }
 
     assert_operator after[1], :<, after[0], "the cursor followed the pick down a row"
@@ -196,7 +196,7 @@ class TestJukeboxExample < Minitest::Test
   # from the listener's first press on (from the start, when it never presses), and what the
   # run logged.
   def interpreted_jukebox(listener, frames:)
-    i = Reference.new
+    i = game_player
     moments = []
     i.input_each_frame do |_frame|
       moments << Moment.new(owners: i.sound_owners, voices: nil, loudness: nil)

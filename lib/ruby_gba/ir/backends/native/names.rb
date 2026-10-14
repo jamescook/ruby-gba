@@ -22,7 +22,7 @@ module RubyGBA
           PREFIXES = Ractor.make_shareable({
                                              variable: "v_", routine: "f_", list: "l_", table: "t_",
                                              data: "d_", local: "i_", table_of_routines: "r_",
-                                             colors: "c_", song_list: "m_"
+                                             colors: "c_", song_list: "m_", sound_effect_list: "e_"
                                            })
 
           def initialize

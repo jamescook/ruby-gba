@@ -27,16 +27,18 @@ extern const int32_t rg_game_recordings[];
 void rg_mix_play(int32_t recording, int32_t step, int32_t loudness, int32_t back, int32_t loops);
 
 /* A NOTE OF THE SONG'S on part +lane+ (counted among its parts that play recordings), from a song
- * of +rank+ (IR::Tunes.song_rank): +sound+ is the recording, the step, how far back it reads, and
+ * of +rank+ (IR::Tunes.song_rank) — or of SOUND EFFECT number +effect+, of the effect's rank, for an
+ * +effect+ other than -1. +sound+ is the recording, the step, how far back it reads, and
  * its shape (whether it has one, then four numbers), and +loudness+ is out of 64. Which voice it
  * gets is the interpreter's rule (Reference::Mixer#start_music_note): the part's own, unless its
  * note there has a shape and is left to fall away; then a free one; then the quietest note
  * falling away; then the lowest-ranked sound below this one, the game's own first and of those
  * the one playing longest, a one-shot before a loop. Nought when it got none and is not played. */
-int32_t rg_mix_start_music_note(int32_t lane, int32_t rank, const int32_t *sound, int32_t loudness);
+int32_t rg_mix_start_music_note(int32_t effect, int32_t lane, int32_t rank, const int32_t *sound, int32_t loudness);
 
-/* A part rests: its note ends, falling away if it has a shape. Nought when it had none sounding. */
-int32_t rg_mix_release_music(int32_t lane);
+/* A part rests: its note ends, falling away if it has a shape. Nought when it had none sounding.
+ * The part is the song's for an +effect+ of -1, else that sound effect's (as above). */
+int32_t rg_mix_release_music(int32_t effect, int32_t lane);
 /* The song stops or changes: every note it holds ends the same way. */
 void rg_mix_release_all_music(void);
 /* The music volume moved: part +lane+'s sounding note plays at +loudness+ from now on. Nought
@@ -57,12 +59,23 @@ void rg_mix_step_shapes(void);
 int32_t rg_mix_slices_made(void);
 int32_t rg_mix_newest_slice(const int32_t **samples);
 
-/* What a test reads back: how many voices there are, whether voice +voice+ is sounding, and if
- * so the recording, its loudness out of 64, how far its shape has climbed or fallen, and whether
- * it is the game's own sound; the most that sounded at once; and how many plays found every voice
- * busy, with the most voices the music held at one of those moments. */
+/* What a sounding voice is playing: the recording, its loudness out of 64, how far its shape has
+ * climbed or fallen, and whose it is — +owner+ 0 for the game's own sound, 1 for the song's, 2 for
+ * a sound effect's, with the effect's number (-1 for none) and the part's lane. */
+typedef struct {
+  int32_t recording;
+  int32_t loudness;
+  int32_t level;
+  int32_t owner;
+  int32_t effect;
+  int32_t lane;
+} rg_mix_voice_reading;
+
+/* What a test reads back: how many voices there are, and whether voice +voice+ is sounding, with
+ * what it is playing; the most that sounded at once; and how many plays found every voice busy,
+ * with the most voices the music held at one of those moments. */
 int32_t rg_mix_voice_count(void);
-int32_t rg_mix_voice_sounding(int32_t voice, int32_t *recording, int32_t *loudness, int32_t *level, int32_t *games);
+int32_t rg_mix_voice_sounding(int32_t voice, rg_mix_voice_reading *reading);
 int32_t rg_mix_peak(void);
 int32_t rg_mix_drops(int32_t *music_held);
 
