@@ -59,16 +59,21 @@
  * sound effect's order (IR::Tunes::ORDER_MASK), nought for the song.
  *
  * rg_game_effects: how many sound effects there are, 1 if any of them plays the wave voice (see
- * wave_put_in), then four numbers each, in the order they were declared — the song it plays, its rank (IR::Tunes.effect_rank), its group (-1 for none,
- * else which of the game's groups), and its priority (IR::Tunes.priority_of) — then every effect's
- * number again, highest rank first (IR::Tunes.effects_by_rank). An effect's song plays its parts'
- * notes once each, so only its first list of notes is walked.
+ * wave_put_in), then five numbers each, in the order they were declared — the song it plays (by
+ * which the log names it), which entry of rg_game_music holds its notes, its rank
+ * (IR::Tunes.effect_rank), its group (-1 for none, else which of the game's groups), and its
+ * priority (IR::Tunes.priority_of) — then every effect's number again, highest rank first
+ * (IR::Tunes.effects_by_rank). An effect plays its parts' notes once each as written, so only the
+ * first list of each part of its entry is walked.
  *
  * rg_game_waveforms: how many waveforms there are, then 32 steps for each.
  *
  * rg_game_music:
  *
- *   song count, then where each song starts in the array, then each song:
+ *   how many entries there are — every song, numbered as the log numbers them, and then every
+ *   sound effect's notes again, as written, since the same Score played as a tune is put right for
+ *   coming round and an effect never comes round — then where each entry starts in the array,
+ *   then each entry:
  *     total frames, the frame it loops from, 1 if it plays once and ends, its rank
  *     (IR::Tunes.song_rank: who gives way on the mixer), how many parts,
  *     then each part:
@@ -146,7 +151,16 @@
 #define EFFECT_COUNT (rg_game_effects[0])
 #define EFFECTS_PLAY_WAVE (rg_game_effects[1])
 #define EFFECT_ROWS 2
-#define NUMBERS_PER_EFFECT 4
+#define NUMBERS_PER_EFFECT 5
+/* Each effect's numbers in rg_game_effects, by where they are in its row. */
+#define EFFECT_SONG 0
+#define EFFECT_NOTES 1
+#define EFFECT_RANK 2
+#define EFFECT_GROUP 3
+#define EFFECT_PRIORITY 4
+/* Room for every sound effect a game has, each keeping where it is: a game's own effects are a
+ * handful, and a cartridge's whole set of sequences, decoded, is a few hundred. More stops the
+ * program, saying so. */
 #define EFFECTS_MOST 512
 
 /* How much one step of loudness moves the speaker. Two voices at their loudest then swing
@@ -257,7 +271,9 @@ typedef struct {
 } wave_voice;
 
 static wave_voice wave;
-static int32_t loaded_waveform = -1; /* which player's waveform is in the voice, or -1 (see wave_put_in) */
+/* Which waveform a player last put in the voice, or -1 once the game's own `wave` or `stop_wave`
+ * has been there since (see wave_put_in). */
+static int32_t loaded_waveform = -1;
 
 /* A step at the voice's loudness: so many quarters of it, and what does not divide is dropped. */
 static int32_t wave_step_cut(int32_t step) { return (step * wave.quarters) / 4; }
@@ -612,6 +628,7 @@ static void silence_voice(int32_t voice) {
   }
 }
 
+/* A part rests: its console voice goes quiet. A recorded part's rest is the mixer's. */
 static void rest_on(const part_walk *part) {
   if (part->kind != PART_RECORDED) silence_voice(part->voice);
 }
@@ -640,7 +657,10 @@ static int32_t claim_voice(int32_t voice, int32_t rank, int32_t sounds) {
 
 /* Does a note on a console voice make a sound? Not a rest, and not at volume 0 — nor, on the wave
  * voice, at a volume whose nearest of that voice's five is none. */
-static int32_t note_sounds(int32_t kind, int32_t pitch, int32_t volume);
+static int32_t note_sounds(int32_t kind, int32_t pitch, int32_t volume) {
+  if (pitch == 0 || volume <= 0) return 0;
+  return kind != PART_WAVE || wave_quarters_at(volume) != 0;
+}
 
 /* A NOTE IN ITS OWN WAVEFORM, in a game whose sound effects play the wave voice. The tune and an
  * effect can each want theirs in the voice, which holds one, so a note there — not a rest — puts
@@ -671,7 +691,9 @@ static void silence_song(void) {
 }
 
 /* The tune the game asked for has changed, or it said stop: silence what was playing and start
- * the new one from its first frame, with its waveform in the wave voice if it has a part there.
+ * the new one from its first frame — with its waveform in the wave voice if it has a part there,
+ * unless the game's sound effects play that voice too, when each note puts its own in instead
+ * (see wave_put_in).
  *
  * A TUNE THAT PLAYED ONCE AND ENDED is looked at first (IR::Tunes.plays_once? has the rule every
  * backend keeps). While the game still names it and has not said stop, nothing plays: its parts
@@ -733,11 +755,6 @@ static void play_recorded_note(const part_walk *part, const int32_t *note) {
   }
   rg_sound_log("note %d %d", (int)playing, (int)pitch);
   if (level_variable) hold_note((held_note){0, part->tone, pitch == 0 ? 0 : loudness, 0, 0});
-}
-
-static int32_t note_sounds(int32_t kind, int32_t pitch, int32_t volume) {
-  if (pitch == 0 || volume <= 0) return 0;
-  return kind != PART_WAVE || wave_quarters_at(volume) != 0;
 }
 
 /* One note of a part, due on this frame: said in the log the way the interpreter's player says
@@ -805,22 +822,23 @@ static int32_t effect_pending(int32_t effect) {
   return effect_asked[effect] || (effect_running[effect] && !effect_stopping[effect]);
 }
 
+static void refuse_too_many_effects(void) {
+  if (EFFECT_COUNT > EFFECTS_MOST) rg_fault("the game has %d sound effects, and the most is %d", (int)EFFECT_COUNT, EFFECTS_MOST);
+}
+
 /* START effect number +effect+ at the next frame, from its first note, whether or not it is
  * sounding already (Reference::Player#request_effect). If another of its GROUP is sounding or
  * already asked for — the first of them, in the order they were declared — one of lower priority
  * is not played, and one of at least that priority stops that one on the next frame and starts in
  * its place. */
-static void refuse_too_many_effects(void) {
-  if (EFFECT_COUNT > EFFECTS_MOST) rg_fault("the game has %d sound effects, and the most is %d", (int)EFFECT_COUNT, EFFECTS_MOST);
-}
-
 static void request_effect(int32_t effect) {
   refuse_too_many_effects();
   const int32_t *row = effect_row(effect);
-  if (row[2] >= 0) {
+  if (row[EFFECT_GROUP] >= 0) {
     for (int32_t other = 0; other < EFFECT_COUNT; other++) {
-      if (effect_row(other)[2] != row[2] || !effect_pending(other)) continue;
-      if (row[3] < effect_row(other)[3]) return;
+      const int32_t *other_row = effect_row(other);
+      if (other_row[EFFECT_GROUP] != row[EFFECT_GROUP] || !effect_pending(other)) continue;
+      if (row[EFFECT_PRIORITY] < other_row[EFFECT_PRIORITY]) return;
       effect_asked[other] = 0;
       effect_stopping[other] = 1;
       break;
@@ -848,7 +866,7 @@ static void drop_held_note(int32_t voice) {
  * falling away as it would at a rest. */
 static void finish_effect(int32_t effect) {
   const int32_t *row = effect_row(effect);
-  int32_t number = row[0], rank = row[1];
+  int32_t number = row[EFFECT_SONG], rank = row[EFFECT_RANK];
   effect_running[effect] = 0;
   for (int32_t i = 0; i < holder_count; i++) {
     int32_t voice = holder_order[i];
@@ -861,7 +879,7 @@ static void finish_effect(int32_t effect) {
     silence_voice(voice);
   }
 
-  const int32_t *numbers = song_numbers(number);
+  const int32_t *numbers = song_numbers(row[EFFECT_NOTES]);
   const int32_t *part = numbers + NUMBERS_PER_SONG;
   int32_t squares_met = 0;
   for (int32_t i = 0; i < numbers[4]; i++) {
@@ -876,13 +894,14 @@ static void finish_effect(int32_t effect) {
  * console voice is played if the effect's rank lets it take the voice, at its written volume. */
 static void play_effect_note(int32_t effect, const part_walk *part, const int32_t *note) {
   const int32_t *row = effect_row(effect);
-  int32_t number = row[0], rank = row[1];
-  int32_t pitch = note[1], volume = note[2], last = note[3];
+  int32_t number = row[EFFECT_SONG], rank = row[EFFECT_RANK];
+  int32_t pitch = note[1], volume = note[2];
   int32_t sounds = note_sounds(part->kind, pitch, volume);
 
   if (part->kind == PART_RECORDED) {
+    int32_t sound = note[3]; /* its row of rg_game_note_sounds */
     int32_t heard = sounds ? rg_mix_start_music_note(effect, part->tone, rank,
-                                                     &rg_game_note_sounds[1 + (last * NUMBERS_PER_NOTE_SOUND)],
+                                                     &rg_game_note_sounds[1 + (sound * NUMBERS_PER_NOTE_SOUND)],
                                                      mix_loudness_of(volume))
                            : rg_mix_release_music(effect, part->tone);
     if (heard) rg_sound_log("note %d %d", (int)number, (int)pitch);
@@ -890,6 +909,7 @@ static void play_effect_note(int32_t effect, const part_walk *part, const int32_
   }
   if (!claim_voice(part->voice, rank, sounds)) return;
 
+  int32_t ticks = note[3];
   drop_held_note(part->voice);
   rg_sound_log("note %d %d", (int)number, (int)pitch);
   rg_sound_log("voice %d %d %d %d", (int)part->voice, (int)number, (int)pitch, (int)volume);
@@ -901,7 +921,7 @@ static void play_effect_note(int32_t effect, const part_walk *part, const int32_
     } else {
       rg_sound_log("part_wave %d %d %d", (int)number, (int)part->number, (int)pitch);
       wave_put_in(part->tone);
-      wave_start(last, wave_quarters_at(volume));
+      wave_start(ticks, wave_quarters_at(volume));
     }
     break;
   case PART_NOISE:
@@ -910,10 +930,10 @@ static void play_effect_note(int32_t effect, const part_walk *part, const int32_
       silence_voice(part->voice);
     } else {
       rg_sound_log("part_noise %d %d %d", (int)number, (int)part->number, (int)pitch);
-      noise_start(last, part->tone, volume, part->fade);
+      noise_start(ticks, part->tone, volume, part->fade);
     }
     break;
-  default: square_start(part->voice, last, part->tone, pitch == 0 ? 0 : volume, 0); break;
+  default: square_start(part->voice, ticks, part->tone, pitch == 0 ? 0 : volume, 0); break;
   }
 }
 
@@ -921,7 +941,8 @@ static void play_effect_note(int32_t effect, const part_walk *part, const int32_
  * it stops first. Asked for, it starts from its first note; past its last frame it lets go of
  * what it still holds; and sounding, it plays whatever notes are due. */
 static void play_effect_frame(int32_t effect) {
-  const int32_t *numbers = song_numbers(effect_row(effect)[0]);
+  int32_t number = effect_row(effect)[EFFECT_SONG];
+  const int32_t *numbers = song_numbers(effect_row(effect)[EFFECT_NOTES]);
   if (effect_stopping[effect]) {
     effect_stopping[effect] = 0;
     finish_effect(effect);
@@ -941,7 +962,7 @@ static void play_effect_frame(int32_t effect) {
   int32_t squares_met = 0;
   for (int32_t i = 0; i < numbers[4]; i++) {
     part_walk walk;
-    part = read_part(effect_row(effect)[0], part, 0, &squares_met, &walk);
+    part = read_part(number, part, 0, &squares_met, &walk);
     int32_t *cursor = &effect_cursors[effect][i];
     if (*cursor >= walk.count) continue;
     const int32_t *note = walk.notes + (NUMBERS_PER_NOTE * *cursor);
@@ -971,7 +992,7 @@ void rg_music_frame(void) {
   int32_t tune = playing >= 0 ? song[3] : -1;
   const int32_t *by_rank = &rg_game_effects[EFFECT_ROWS + (EFFECT_COUNT * NUMBERS_PER_EFFECT)];
   int32_t at = 0;
-  while (at < EFFECT_COUNT && effect_row(by_rank[at])[1] > tune) play_effect_frame(by_rank[at++]);
+  while (at < EFFECT_COUNT && effect_row(by_rank[at])[EFFECT_RANK] > tune) play_effect_frame(by_rank[at++]);
   if (playing >= 0) play_song_frame();
   while (at < EFFECT_COUNT) play_effect_frame(by_rank[at++]);
 }

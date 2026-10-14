@@ -64,6 +64,11 @@ module RubyGBA
           # the one test wants `skip_on_native`.
           class CannotAnswer < StandardError; end
 
+          # Whose a sounding mixer voice is, as the C prints it (rg_mix_voice_reading's owner).
+          GAME_OWNS = 0
+          SONG_OWNS = 1
+          EFFECT_OWNS = 2
+
           # The variables printed among +rows+ ("var name value"), by name.
           def self.variables_in(rows)
             rows.grep(/\Avar /).to_h { |row| _, name, value = row.split(" "); [name.to_sym, Integer(value)] }
@@ -271,14 +276,10 @@ module RubyGBA
               case owner
               when GAME_OWNS then :game
               when SONG_OWNS then [:song, lane]
-              else [@sound_log.sound_effects.fetch(effect), lane]
+              when EFFECT_OWNS then [@sound_log.sound_effects.fetch(effect), lane]
               end
             end
           end
-
-          # Whose a voice is, as the C prints it (rg_mix_voice_reading).
-          GAME_OWNS = 0
-          SONG_OWNS = 1
 
           def recording_name(number) = @sound_log.recordings.fetch(number).name
 

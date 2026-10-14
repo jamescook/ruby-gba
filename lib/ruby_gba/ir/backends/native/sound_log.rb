@@ -57,6 +57,7 @@ module RubyGBA
           def beep_number(node) = @effects.index(effect_of(node, @defined))
 
           def song_number(name) = @songs.index { |song| song.name == name }
+          def song(name) = @songs.find { |song| song.name == name }
 
           # Every sound effect, by the name of the song it plays, in the order declared — which is
           # the order the C numbers them — and the number of one.
