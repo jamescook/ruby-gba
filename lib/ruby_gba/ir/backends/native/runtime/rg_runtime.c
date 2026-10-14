@@ -113,6 +113,10 @@ _Noreturn void rg_fault(const char *format, ...) {
 
 void rg_dump_variable(const char *name, int32_t value) { rg_active_driver->dump_variable(name, value); }
 
+void rg_dump_list(const struct rg_list *list) {
+  if (rg_active_driver->dump_list) rg_active_driver->dump_list(list);
+}
+
 /* A button's bit in +buttons+, or any of them for -1. */
 static int32_t button_down(uint32_t buttons, int32_t button) {
   if (button < 0) return buttons != 0;

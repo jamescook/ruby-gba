@@ -14,7 +14,7 @@ module RubyGBA
         #
         # What the generated file holds, top to bottom: the game's variables, every routine, the
         # program itself as rg_game_main (the runtime calls it once, at power-on), and
-        # rg_game_dump_variables, which a test build uses to print where every variable stands.
+        # rg_game_dump_state, which a test build uses to print where every variable and list stands.
         class Lowering
           include Picture
           include Sound
@@ -193,7 +193,7 @@ module RubyGBA
              *@called.map { |name| C::Prototype.new(name: routine(name)) },
              *routine_table_declarations,
              *routines, *answers, main,
-             C::Function.new(name: @names.own("dump_variables"), body: dump_variables, exported: true)]
+             C::Function.new(name: @names.own("dump_state"), body: dump_state, exported: true)]
           end
 
           # The game's name as a C string. A character outside plain ASCII is written as '?', since
@@ -271,8 +271,10 @@ module RubyGBA
             names.uniq
           end
 
-          def dump_variables
-            variable_names.map { |name| eval_call("rg_dump_variable", C::Text.new(name.to_s), variable(name)) }
+          # Every variable and then every list the game keeps, for a test build to print.
+          def dump_state
+            variable_names.map { |name| eval_call("rg_dump_variable", C::Text.new(name.to_s), variable(name)) } +
+              @lists.keys.map { |name| eval_call("rg_dump_list", C::AddressOf.new(list(name))) }
           end
 
           # The numbers fixed when the program is built that a run reads: tables, and the bytes

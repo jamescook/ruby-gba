@@ -102,6 +102,20 @@ class TestCheckedNativeRun < Minitest::Test
                  CheckedNativeRun.first_difference(want, got))
   end
 
+  # Every list and pool is compared on every frame, as the variables are.
+  def test_a_list_or_a_pool_field_that_differs_is_named
+    moment = lambda do |trail, guard_x|
+      Moment.new(frame: 1, variables: {}, picture: 7, sounds: 0, sprites: [],
+                 collections: { lists: { trail: trail }, pools: { guard: { x: guard_x, hp: [nil, 3] } } })
+    end
+
+    difference = CheckedNativeRun.first_difference([moment.call([1, 2], [nil, 3])], [moment.call([1, 3], [nil, 4])])
+
+    assert_match(/list :trail: C has \[1, 3\], Reference \[1, 2\]/, difference)
+    assert_match(/pool :guard field :x: C has \[nil, 4\], Reference \[nil, 3\]/, difference)
+    refute_match(/:hp/, difference, "a field that agrees is not named")
+  end
+
   def test_runs_that_agree_have_no_difference
     same = [Moment.new(frame: 1, variables: { x: 0 }, picture: 7, sounds: 0, sprites: [drawn(:hero, 20)])]
 

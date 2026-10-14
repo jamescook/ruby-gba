@@ -49,7 +49,6 @@ class TestSaveData < Minitest::Test
   end
 
   def test_a_saved_record_comes_back_after_the_power_goes_off
-    skip_on_native "reads a list back with `list`"
     store = SaveImage.new
     play(one_save, store, pressing: { 2 => :a })
     back = play(one_save, store)
@@ -154,7 +153,6 @@ class TestSaveData < Minitest::Test
   end
 
   def test_loading_a_copy_picked_by_a_worked_out_number
-    skip_on_native "reads a list back with `list`"
     store = SaveImage.new
     files_after(store, :a, :up, :a)
     back = files_after(store, :up, :l)
@@ -181,7 +179,6 @@ class TestSaveData < Minitest::Test
   end
 
   def test_reset_puts_the_kept_things_back_as_they_were_declared
-    skip_on_native "reads a list back with `list`"
     run = files_after(SaveImage.new, :a, :select)
 
     assert_equal 3, run[:hearts]
@@ -316,7 +313,6 @@ class TestSaveData < Minitest::Test
   end
 
   def test_a_kept_list_can_be_read_from_a_copy_without_loading_it
-    skip_on_native "reads a list back with `list`"
     store = SaveImage.new
     files_after(store, :up, :a) # copy 1 holds the name [1]
     run = play(built(&names_peeked), store)
@@ -433,7 +429,6 @@ class TestSaveData < Minitest::Test
   private def guards_of(run) = [run.pool(:guard, :x), run.pool(:guard, :hp), run[:guard_count]]
 
   def test_a_load_puts_a_pool_back_slot_for_slot
-    skip_on_native "reads a pool back with `pool`"
     undisturbed = guards_after(:a, :r)
     loaded = guards_after(:a, :b, :l, :r)
 
@@ -456,7 +451,6 @@ class TestSaveData < Minitest::Test
 
   # A new game empties the pool, and the pool still works afterwards.
   def test_a_reset_empties_a_kept_pool_and_it_still_spawns
-    skip_on_native "reads a pool back with `pool`"
     run = guards_after(:a, :select, :r)
     assert_equal [4], run.pool(:guard, :x).compact
     assert_equal [8], run.pool(:guard, :hp).compact
@@ -464,7 +458,6 @@ class TestSaveData < Minitest::Test
 
   # One field kept on its own comes back; the rest of the pool is left as the game has it.
   def test_one_field_of_a_pool_can_be_kept_on_its_own
-    skip_on_native "reads a pool back with `pool`"
     run = guards_after(:a, :b, :l, keeping: :field)
     hurt_again = guards_after(:a, :b, keeping: :field)
 
@@ -571,7 +564,6 @@ class TestSaveData < Minitest::Test
   end
 
   def test_a_record_declared_before_what_it_keeps_saves_loads_and_peeks
-    skip_on_native "reads a list back with `list`"
     store = SaveImage.new
     screen_first_after(store, :a, :up, :a)
     back = screen_first_after(store)
@@ -712,7 +704,6 @@ class TestSaveData < Minitest::Test
   end
 
   def test_a_big_save_runs_over_several_passes_while_the_game_goes_on
-    skip_on_native "reads a list back with `list`"
     store = SaveImage.new
     run = play(a_big_save, store, pressing: { 2 => :a }, frames: 30)
     assert_includes 3..10, run[:saving_passes], "the save spreads over a handful of passes"
@@ -746,7 +737,6 @@ class TestSaveData < Minitest::Test
   end
 
   def test_a_save_holds_the_moment_it_was_asked_for
-    skip_on_native "reads a list back with `list`"
     store = SaveImage.new
     run = play(changes_while_saving, store, pressing: { 2 => :a }, frames: 20)
     assert_operator run[:hearts], :<, 12, "the game went on changing things while it saved"

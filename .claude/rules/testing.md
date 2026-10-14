@@ -252,11 +252,11 @@ class TestPongScoring < Minitest::Test
 On a `rake test` run `game_player` IS `Reference.new`. On a native run it is a
 `CheckedNativeRun`: the game built as C and driven through the same calls (`hold`,
 `input_each_frame`, `each_vblank`, `run`, `[]`, `vars`, `screen.pixel`, `screen.to_a`,
-`screen.stored_pixel`, `screen.camera_x` and `screen.camera_y`, `sprites`,
-`buffered`, `audio` so far, growing with each native slice), and then the same buttons replayed
-on the interpreter, failing at the first frame where any variable, any pixel, the sound log or
-the sprites drawn differ. So an opted-in file's own checks are backed by a whole-picture
-comparison on every frame. **A game that saves is played both ways from the same save memory**:
+`screen.stored_pixel`, `screen.camera_x` and `screen.camera_y`, `sprites`, `list`, `pool`,
+`game_state`, `buffered`, `audio` so far, growing with each native slice), and then the same
+buttons replayed on the interpreter, failing at the first frame where any variable, any list or
+pool field, any pixel, the sound log or the sprites drawn differ. So an opted-in file's own
+checks are backed by a whole-picture comparison on every frame. **A game that saves is played both ways from the same save memory**:
 `game_player(save: image)` hands the game as C the image's bytes as a .sav file, puts what the
 run left back into the image (so the SAME image handed to two runs is a power cycle, as it is
 for the interpreter), replays on the interpreter from a copy taken first, and fails if the two

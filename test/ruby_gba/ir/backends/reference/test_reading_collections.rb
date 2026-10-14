@@ -6,13 +6,13 @@ require "test_helper"
 # list, and every field of a pool, is read the same way — by the name the game declared it
 # with — rather than by reaching into how the interpreter happens to keep them.
 class TestReadingCollections < Minitest::Test
-  runs_on :reference
+  runs_on :reference, :native
 
   private def ran(frames: 3, &block)
     builder = Builder.new
     builder.instance_eval(&block)
     builder.finalize_program
-    Reference.new.run(builder.program, frames: frames)
+    game_player.run(builder.program, frames: frames)
   end
 
   def test_a_list_reads_back_what_the_game_put_in_it
@@ -22,6 +22,21 @@ class TestReadingCollections < Minitest::Test
     end
 
     assert_equal [7, 7, 7], run.list(:trail)
+  end
+
+  # A list of fractions reads back as the game keeps it, the same from the game as C as from the
+  # interpreter: a half is the same number in both, and a whole one is two halves.
+  def test_a_list_of_fractions_reads_back_the_same_number_for_the_same_fraction
+    run = ran(frames: 1) do
+      speeds = list :speeds, capacity: 4, holds: 0.0
+      speeds.push 0.5
+      speeds.push 1.0
+      game_loop { wait_vblank }
+    end
+
+    half, whole = run.list(:speeds)
+    assert_equal 2 * half, whole
+    refute_equal 0, half
   end
 
   # A shifted list reads oldest first, which is the order the game reads it in.
@@ -52,6 +67,29 @@ class TestReadingCollections < Minitest::Test
 
     assert_equal [nil, nil, 22, 12], run.pool(:guard, :x)
     assert_equal [nil, nil, 1, 3], run.pool(:guard, :hp)
+  end
+
+  # A field can be called almost anything, a space and all, and reads back under that name.
+  def test_a_pool_field_with_a_space_in_its_name_reads_back
+    run = ran(frames: 1) do
+      guards = pool :guard, "hit points": 0, capacity: 2
+      guards.spawn("hit points": 4)
+      game_loop { wait_vblank }
+    end
+
+    assert_equal [nil, 4], run.pool(:guard, :"hit points")
+  end
+
+  # What a test is handed is its own: changing it changes nothing in the run.
+  def test_a_list_read_back_is_a_copy
+    run = ran(frames: 1) do
+      trail = list :trail, capacity: 4
+      trail.push 7
+      game_loop { wait_vblank }
+    end
+
+    run.list(:trail) << 99
+    assert_equal [7], run.list(:trail)
   end
 
   # A pool whose name has an underscore in it is found whole, not taken for a shorter pool
