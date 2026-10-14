@@ -71,6 +71,7 @@ module RubyGBA
             when "note" then [:note, @songs.fetch(numbers[0]).name, @pitches.fetch(numbers[1])]
             when "voice" then [:voice, numbers[0], @songs.fetch(numbers[1]).name, @pitches.fetch(numbers[2]), numbers[3]]
             when "loudness" then [:loudness, numbers[0], numbers[1]]
+            when "mixer_loudness" then [:loudness, [:mixer, numbers[0]], numbers[1]]
             when "stop_music" then [:stop_music]
             when "wave" then [:wave, @waves.fetch(numbers[0])]
             when "stop_wave" then [:stop_wave]

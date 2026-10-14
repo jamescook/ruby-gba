@@ -11,7 +11,7 @@ require "test_helper"
 # A note held across the loop point is sounded again there on every pass after the first, and a
 # part that is silent there is silenced there, whatever the end of the song left it doing.
 class TestSongLoopPoint < Minitest::Test
-  runs_on :reference
+  runs_on :reference, :native
 
   Score = RubyGBA::Audio::Score
   Part = Score::Part
@@ -43,7 +43,7 @@ class TestSongLoopPoint < Minitest::Test
 
   # Every note the interpreter played, in order, over +frames+.
   def heard(song, frames: 190)
-    Reference.new.run(game(song), frames: frames).audio.select { |entry| entry[0] == :note }.map(&:last)
+    game_player.run(game(song), frames: frames).audio.select { |entry| entry[0] == :note }.map(&:last)
   end
 
   # What the console's music voice is doing +frames+ in: [step, how far into the recording], or
@@ -157,7 +157,7 @@ class TestSongLoopPoint < Minitest::Test
       game_loop { wait_vblank }
     end
     b.finalize_program
-    notes = Reference.new.run(b.program, frames: 400).audio.select { |entry| entry[0] == :note }.map(&:last)
+    notes = game_player.run(b.program, frames: 400).audio.select { |entry| entry[0] == :note }.map(&:last)
 
     assert_equal NOTES.values_at(:C4, :E4, :G4, :E4, :G4, :E4, :G4, :E4), notes
   end

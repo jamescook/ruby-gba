@@ -116,6 +116,15 @@ module NativeComparison
       "Reference #{want[frame][sample].inspect}"
   end
 
+  # How many sounds each lost to a full mixer, and the most voices the music held at one of those
+  # moments, when the two disagree.
+  def drops_difference(want, got)
+    return nil if [want.dropped, want.music_held] == [got.dropped, got.music_held]
+
+    "the sounds lost to a full mixer: the C lost #{got.dropped} with the music holding at most " \
+      "#{got.music_held}, Reference #{want.dropped} with #{want.music_held}"
+  end
+
   # The first byte of save memory the two ended a run disagreeing on, or nil when the two chips
   # hold the same bytes throughout.
   def save_difference(want, got)

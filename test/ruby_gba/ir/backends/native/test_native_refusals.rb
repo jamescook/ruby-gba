@@ -37,39 +37,6 @@ class TestNativeRefusals < Minitest::Test
     assert_match(/:play_sound_effect.*cannot make yet \(sound\)/, error.message)
   end
 
-  # A part on one of the console's own voices is played; one that plays a recording is not yet.
-  def test_a_song_part_that_plays_a_recording_is_refused_by_name
-    program = program_of do
-      enable_sound
-      instrument :piano, pcm: [60, -60] * 400, rate: 8000, note: :C4
-      song(:tune) do
-        voice(:pad, plays: :wave) { note :C4, :quarter }
-        voice(:keys, plays: :piano) { note :C4, :quarter }
-      end
-      play_song :tune
-      game_loop {}
-    end
-
-    error = assert_raises(LoweringError) { Native.new.lower(program) }
-    assert_match(/song :tune.*plays a recording/, error.message)
-  end
-
-  # ...and so is one in a list the game picks its song from by number.
-  def test_a_listed_song_part_that_plays_a_recording_is_refused_by_name
-    score = RubyGBA::Audio::Score
-    keys = score::Part.new(plays: :piano, notes: [score::Note.new(at: 0, key: :C4)])
-    program = program_of do
-      enable_sound
-      instrument :piano, pcm: [60, -60] * 400, rate: 8000, note: :C4
-      track = var :track, 0
-      music = songs :music, { theme: score.new(tempo: 150, parts: [keys]) }
-      game_loop { music.play track }
-    end
-
-    error = assert_raises(LoweringError) { Native.new.lower(program) }
-    assert_match(/plays a recording/, error.message)
-  end
-
   # A song with more parts on the square wave than the console has such voices stops the program
   # that plays it, saying so. Only a song built by hand can be one: a game's own is refused before
   # this, by the checks a cartridge build makes.

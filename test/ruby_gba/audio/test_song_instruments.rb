@@ -9,7 +9,7 @@ require "stringio"
 # note's pitch, through the mixer, and a rest silences it. The part names the instrument, never a
 # channel — which voice it uses is the framework's business.
 class TestSongInstruments < Minitest::Test
-  runs_on :reference
+  runs_on :reference, :native
 
   NOTES = RubyGBA::Audio::Music::NOTE_FREQUENCIES
   STEP_ONE = GBA::Mixer::STEP_ONE
@@ -41,7 +41,7 @@ class TestSongInstruments < Minitest::Test
   # What the interpreter has sounding after each of the first +frames+ frames.
   def sounding_by_frame(program, frames)
     seen = {}
-    i = Reference.new
+    i = game_player
     i.each_vblank { |f| seen[f] = i.active_samples }
     i.run(program, frames: frames)
     seen
@@ -87,7 +87,7 @@ class TestSongInstruments < Minitest::Test
 
   # What each backend has sounding, +frames+ in.
   def sounding_on_both(program, frames:)
-    [Reference.new.run(program, frames: frames).active_samples,
+    [game_player.run(program, frames: frames).active_samples,
      assert_emulator_loads_rom(assemble_rom(program, name: "SONGSHARE"), frames: frames + 2).sounding]
   end
 
@@ -224,7 +224,7 @@ class TestSongInstruments < Minitest::Test
     end
     b.finalize_program
 
-    assert_equal [:piano], Reference.new.run(b.program, frames: 3).active_samples
+    assert_equal [:piano], game_player.run(b.program, frames: 3).active_samples
   end
 
   # A song whose second part is an instrument leaves the square voice beeps use alone, so a

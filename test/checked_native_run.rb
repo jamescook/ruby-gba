@@ -4,8 +4,9 @@ require "native_comparison"
 
 # What `game_player` hands a test on a native run: the game played as C (Native::HeadlessRun),
 # and then the same buttons, frame for frame, played on the interpreter — with the run failing at
-# the first frame the two disagree on, about any variable, any list or pool, any pixel, or which
-# sprites were drawn and where. A game that saves is played both ways from the same save memory, and the two have to
+# the first frame the two disagree on, about any variable, any list or pool, any pixel, which
+# sprites were drawn and where, or which recordings the mixer is sounding — and at the end, about
+# every slice of mixed sound and how many sounds a full mixer lost. A game that saves is played both ways from the same save memory, and the two have to
 # end the run with the same bytes in it.
 #
 # A test that watches the run (each_vblank) watches the game as C, as it goes; the interpreter
@@ -70,6 +71,7 @@ class CheckedNativeRun
     difference = self.class.first_difference(moments, @native.moments) ||
                  self.class.sounds_difference(interpreter.audio, @native.audio) ||
                  self.class.mix_difference(interpreter.mixed_sound, @native.mixed_sound) ||
+                 self.class.drops_difference(interpreter.sound_drops, @native.sound_drops) ||
                  self.class.save_difference(interpreters_save, @save)
     raise Minitest::Assertion, disagreement_message(difference, program, frames) if difference
 
@@ -99,6 +101,9 @@ class CheckedNativeRun
       end
       differences.concat([sprites_difference(reference.sprites, native.sprites)].compact)
       differences.concat(collections_differences(reference.collections, native.collections))
+      if reference.sounding != native.sounding
+        differences << "the mixer sounds #{native.sounding.inspect} in the C and #{reference.sounding.inspect} in Reference"
+      end
       return "#{heading(reference.frame)}: #{differences.join('; ')}" if differences.any?
     end
     nil
@@ -165,7 +170,7 @@ class CheckedNativeRun
   def moment_of(interpreter, frame)
     Moment.new(frame: frame, variables: interpreter.vars.dup, picture: HeadlessRun.picture_check(interpreter.screen.shown),
                sounds: interpreter.audio.size, sprites: interpreter.sprites,
-               collections: interpreter.game_state.except(:vars))
+               collections: interpreter.game_state.except(:vars), sounding: interpreter.active_samples)
   end
 
   # A picture that differs is played again with every pixel of every frame, to say where.

@@ -14,7 +14,7 @@ require "tmpdir"
 # busy song reaches for them before it reaches for another recording, and the voices it does not
 # spend stay free for the game's own sounds.
 class TestSongConsoleVoices < Minitest::Test
-  runs_on :reference
+  runs_on :reference, :native
 
   include RubyGBA::Console::Hardware
 
@@ -48,7 +48,7 @@ class TestSongConsoleVoices < Minitest::Test
   # The interpreter logs a song's wave and noise notes the way it logs the `wave` and `noise`
   # VERBS, because they really are the same voice — so one read of the log answers both.
   def logged(program, frames: 6)
-    Reference.new.run(program, frames: frames).audio
+    game_player.run(program, frames: frames).audio
   end
 
   def test_a_wave_part_sounds_its_waveform_on_the_interpreter
@@ -70,7 +70,7 @@ class TestSongConsoleVoices < Minitest::Test
   # THE POINT OF THE WHOLE THING. Five parts, and only the one playing a recording keeps a
   # mixer voice — so a tune with a pad and drums leaves fifteen of the sixteen for the game.
   def test_only_the_recorded_part_keeps_a_mixer_voice
-    i = Reference.new.run(every_voice_game, frames: 6)
+    i = game_player.run(every_voice_game, frames: 6)
 
     assert_equal [:piano], i.active_samples
     assert_equal 1, i.peak_voices, "the wave and noise parts took none"

@@ -58,12 +58,18 @@
 #define FALLING 2
 #define DONE 3
 
-/* Whose a voice is. Only the game's own sounds so far. */
+/* Whose a voice is: the game's own sound, or a part of the song playing (by its lane, counted
+ * among the song's parts that play recordings). */
 #define GAME 0
+#define SONG 1
 
 typedef struct {
   int32_t sounding;
   int32_t owner;
+  int32_t lane;     /* a song's part, which of its recorded parts */
+  int32_t rank;     /* the song's rank (IR::Tunes.song_rank); -1 for the game's own sound */
+  int32_t loops;    /* a game's sound asked to loop, which gives way after every one-shot */
+  int32_t ticket;   /* how many sounds the game had started, this one among them */
   int32_t recording;
   int32_t position; /* the sample it reads next */
   int32_t fraction; /* the part of a sample carried toward the next one, out of 65536 */
@@ -118,23 +124,141 @@ static int32_t free_voice(void) {
   return -1;
 }
 
-void rg_mix_play(int32_t recording, int32_t step, int32_t loudness, int32_t back) {
-  const int32_t *numbers = recording_numbers(recording);
+/* A note of the song's that has ended and is falling away, or has just finished falling. */
+static int32_t releasing(const mix_voice *voice) {
+  return voice->owner != GAME && (voice->phase == FALLING || voice->phase == DONE);
+}
+
+/* THE QUIETEST NOTE FALLING AWAY — the first thing to give way when a voice is wanted and none is
+ * free, since it is on its way out already. The first of them, when two are as quiet. */
+static int32_t quietest_releasing_voice(void) {
+  int32_t found = -1;
+  for (int32_t i = 0; i < VOICES; i++) {
+    if (!voices[i].sounding || !releasing(&voices[i])) continue;
+    if (found < 0 || voices[i].level < voices[found].level) found = i;
+  }
+  return found;
+}
+
+/* THE LOWEST-RANKED SOUND RANKED BELOW +rank+ — the game's own first, since they rank below every
+ * song, and of those the one playing longest, a one-shot before a loop. The first of them in the
+ * order of the voices, when two are the same. */
+static int32_t lowest_ranked_voice_below(int32_t rank) {
+  int32_t found = -1;
+  for (int32_t i = 0; i < VOICES; i++) {
+    const mix_voice *voice = &voices[i];
+    if (!voice->sounding || voice->rank >= rank) continue;
+    if (found >= 0) {
+      const mix_voice *best = &voices[found];
+      if (voice->rank > best->rank) continue;
+      if (voice->rank == best->rank &&
+          (voice->loops > best->loops || (voice->loops == best->loops && voice->ticket >= best->ticket))) {
+        continue;
+      }
+    }
+    found = i;
+  }
+  return found;
+}
+
+/* A voice at the top of +recording+, read +step+ at a time, going +back+ at its end, at +loudness+
+ * out of 64, and shaped by +shape+ (whether it has one, then its four numbers). One with a shape
+ * starts at nothing and climbs, its gain at nothing until the shape's first frame sets it; one
+ * without sounds flat out from its first sample. */
+static void start_voice(int32_t at, int32_t recording, int32_t step, int32_t back, int32_t loudness, const int32_t *shape) {
+  recording_numbers(recording);
+  int32_t shaped = shape[0];
+  voices[at] = (mix_voice){.sounding = 1,
+                           .owner = GAME,
+                           .rank = -1,
+                           .recording = recording,
+                           .step = step,
+                           .back = back,
+                           .loudness = loudness,
+                           .gain = shaped ? 0 : loudness << GAIN_FRACTION,
+                           .shaped = shaped,
+                           .level = shaped ? 0 : SHAPE_FULL,
+                           .phase = CLIMBING,
+                           .attack = shape[1],
+                           .decay = shape[2],
+                           .sustain = shape[3],
+                           .release = shape[4]};
+}
+
+static int32_t tickets; /* how many sounds the game has started */
+
+void rg_mix_play(int32_t recording, int32_t step, int32_t loudness, int32_t back, int32_t loops) {
   rg_sound_log("sample %d", (int)recording);
   int32_t at = free_voice();
+  if (at < 0) at = quietest_releasing_voice();
   if (at < 0) {
     record_drop();
     return;
   }
 
-  /* One with a shape starts at nothing and climbs, its gain at nothing until the shape's first
-   * frame sets it; one without sounds flat out from its first sample. */
-  int32_t shaped = numbers[2];
-  voices[at] = (mix_voice){1,          GAME,     recording, 0, 0, step, back, loudness,
-                           shaped ? 0 : loudness << GAIN_FRACTION,
-                           0,          shaped,   shaped ? 0 : SHAPE_FULL,
-                           CLIMBING,   numbers[3], numbers[4], numbers[5], numbers[6]};
+  start_voice(at, recording, step, back, loudness, &recording_numbers(recording)[2]);
+  voices[at].loops = loops;
+  voices[at].ticket = ++tickets;
   record_peak();
+}
+
+/* --- the voices a song's recorded parts borrow --- */
+
+/* The voice sounding part +lane+'s note now — not one of its earlier notes falling away. */
+static int32_t sounding_voice(int32_t lane) {
+  for (int32_t i = 0; i < VOICES; i++) {
+    const mix_voice *voice = &voices[i];
+    if (voice->sounding && voice->owner == SONG && voice->lane == lane && !releasing(voice)) return i;
+  }
+  return -1;
+}
+
+/* Tell a voice its note has ended. True when it has a shape to fall through, so it is kept; false
+ * when it has none and simply stops. */
+static int32_t start_release(mix_voice *voice) {
+  if (!voice->shaped) return 0;
+  voice->phase = FALLING;
+  return 1;
+}
+
+int32_t rg_mix_start_music_note(int32_t lane, int32_t rank, const int32_t *sound, int32_t loudness) {
+  int32_t at = sounding_voice(lane);
+  if (at >= 0 && start_release(&voices[at])) at = -1;
+  if (at < 0) at = free_voice();
+  if (at < 0) at = quietest_releasing_voice();
+  if (at < 0) at = lowest_ranked_voice_below(rank);
+  if (at < 0) {
+    record_drop();
+    return 0;
+  }
+
+  start_voice(at, sound[0], sound[1], sound[2], loudness, &sound[3]);
+  voices[at].owner = SONG;
+  voices[at].lane = lane;
+  voices[at].rank = rank;
+  return 1;
+}
+
+int32_t rg_mix_release_music(int32_t lane) {
+  int32_t at = sounding_voice(lane);
+  if (at < 0) return 0;
+  if (!start_release(&voices[at])) voices[at].sounding = 0;
+  return 1;
+}
+
+void rg_mix_release_all_music(void) {
+  for (int32_t i = 0; i < VOICES; i++) {
+    mix_voice *voice = &voices[i];
+    if (!voice->sounding || voice->owner != SONG || releasing(voice)) continue;
+    if (!start_release(voice)) voice->sounding = 0;
+  }
+}
+
+int32_t rg_mix_rescale_music(int32_t lane, int32_t loudness) {
+  int32_t at = sounding_voice(lane);
+  if (at < 0) return 0;
+  voices[at].loudness = loudness;
+  return 1;
 }
 
 void rg_mix_stop(int32_t recording) {
@@ -250,10 +374,12 @@ int32_t rg_mix_newest_slice(const int32_t **samples) {
 
 int32_t rg_mix_voice_count(void) { return VOICES; }
 
-int32_t rg_mix_voice_sounding(int32_t voice, int32_t *recording, int32_t *loudness) {
+int32_t rg_mix_voice_sounding(int32_t voice, int32_t *recording, int32_t *loudness, int32_t *level, int32_t *games) {
   if (!voices[voice].sounding) return 0;
   *recording = voices[voice].recording;
   *loudness = voices[voice].loudness;
+  *level = voices[voice].level;
+  *games = voices[voice].owner == GAME;
   return 1;
 }
 
