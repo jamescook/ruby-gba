@@ -120,7 +120,7 @@ module RubyGBA
           # trails the other two backends, so a kind may be missing here — but only on this list,
           # which test_native_kind_coverage.rb holds against every kind there is. A kind leaves
           # the list the day it gets a row in STATEMENTS or VALUES.
-          NOT_LOWERED_YET = Ractor.make_shareable({})
+          NOT_LOWERED_YET = Ractor.make_shareable({ "a spotlight, or an iris that closes on a point" => %i[shade_outside] })
 
           # How many bytes a slot of a list takes, by the width it was declared with.
           SLOT_BYTES = Ractor.make_shareable({ byte: 1, half: 2, word: 4, nil => 4 })
