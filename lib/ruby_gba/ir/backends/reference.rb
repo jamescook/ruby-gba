@@ -193,6 +193,7 @@ module RubyGBA
           @bg_scroll = {}          # background name -> [x, y] its window is currently offset to
           @bg_maps = {}            # ...and this run's own copy of its cells, once any of them has changed
           @row_bends = {}          # background name -> :scroll_rows node giving each row its own offset
+          @shade = nil             # the :shade_outside node of the game's light, if it has one
           @bg_affine = {}          # background name -> the Turn it is being drawn under this frame
           @bg_colors = {}          # ...and which of the lists of colours it was given is drawing it
           @color_lists = {}        # a list of colours that can hold other colours -> its declaration
@@ -553,6 +554,11 @@ module RubyGBA
               # why it is collected here rather than run as a statement.
               @row_bends[n.name] = n
               @repaints = true
+            when :shade_outside
+              # A light stands from its declaration, like a bend, and is read again before
+              # every frame (see #work_out_shade). It darkens the picture as it is SHOWN, so
+              # nothing painted has to be painted again for it.
+              @shade = n
             when :affine_background
               # A turned or resized background repaints for the same reason a scrolled one
               # does: every pixel of it can land somewhere new. Present anywhere in the
@@ -663,6 +669,7 @@ module RubyGBA
           background_colors: :exec_background_colors,
           color_list_holds: :exec_color_list_holds,
           scroll_rows: :exec_scroll_rows,
+          shade_outside: :exec_shade_outside,
           camera: :exec_camera,
           fade: :exec_fade,
           tint: :exec_tint,
@@ -927,6 +934,23 @@ module RubyGBA
           request_repaint
         end
 
+        # A standing declaration, gathered up front (collect_definitions) and worked out at
+        # every frame boundary — reaching the line itself does nothing.
+        def exec_shade_outside(_node); end
+
+        # WHERE THE LIGHT IS ON EACH ROW, worked out in the gap before a frame, the moment the
+        # console works its table out: every row's span from the program's own expressions,
+        # and how far the rest of the row is darkened, in the display's sixteenths.
+        def work_out_shade
+          return unless @shade
+
+          spans = Array.new(Framebuffer::HEIGHT) do |row|
+            @vars[@shade.row] = row
+            [eval_value(@shade.left), eval_value(@shade.right)]
+          end
+          @screen.shade_outside(spans, FadeSteps.sixteenths(eval_value(@shade.amount)))
+        end
+
         def exec_camera(node)
           @screen.camera_to(eval_value(node.x), eval_value(node.y))
         end
@@ -1065,6 +1089,7 @@ module RubyGBA
           @on_vblank&.call(@frame)
           store_frame_counters(took)
           repaint_bent_backgrounds
+          work_out_shade
         end
 
         # THE BUTTONS ARE READ ON EVERY FRAME THE SCREEN SHOWED, not once a pass — the console

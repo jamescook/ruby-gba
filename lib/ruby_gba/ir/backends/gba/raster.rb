@@ -76,11 +76,21 @@ module RubyGBA
         # was a table. Nothing is paced in such a program, so there is nothing for the bend
         # to be a frame out of step with.
         #
+        # A LIGHT IS FED THE SAME WAY. A spotlight is the display's first window, a rectangle
+        # whose left and right edges are read again for every line like a scroll is — so a
+        # circle is a span per row, worked out into a table in the same gap and moved into the
+        # window's register by the same engine or the same interrupt. Everything below that
+        # says "bend" holds for the light too; it is one more table, keyed {LIGHT}, fed to a
+        # different register. What a light adds is the setting up around it: which layers
+        # show inside the window and outside it, and how dark outside is (#emit_boot_light,
+        # #emit_light_amount).
+        #
         # Owns the five maps/flags that answer "which layers bend, and how": which nodes
         # bend (@row_bends), each one's own scroll to measure from (@row_bend_base), its
         # table of worked-out offsets when one is latched ahead of the frame
         # (@row_bend_table), which copying engine feeds that table (@row_bend_engine), and
-        # whether a copier is doing the feeding at all (@copies_row_bends). `backgrounds:`
+        # whether a copier is doing the feeding at all (@copies_row_bends) — and the light
+        # (@light), whose table and engine sit in the same two maps under LIGHT. `backgrounds:`
         # is a live reference to the backend's own name -> layer map — it is filled after
         # this object is built (tiled backgrounds are prepared first), so only bg_number,
         # called at emission time, ever actually reads it.
@@ -110,22 +120,38 @@ module RubyGBA
             @row_bend_table = {}    # name -> where its table of row offsets sits, worked out each frame
             @row_bend_engine = {}   # name -> which copying engine feeds it from that table
             @copies_row_bends = false # are those tables fed by a copying engine rather than per-line interrupts?
+            @light = nil            # the light's :shade_outside node, fed under the key LIGHT
           end
 
-          # Which backgrounds bend, name -> its :scroll_rows node. Collected in the
-          # definitions pass so whichever mechanism answers them can be set up at boot,
-          # before any of the program's own code runs.
+          # The key the light's table and engine are kept under, beside the backgrounds'
+          # names. Underscored the way every name the framework makes for itself is, so no
+          # background a game declares can be called it.
+          LIGHT = :__spotlight
+
+          # Which backgrounds bend, name -> its :scroll_rows node, and the light, if there is
+          # one. Collected in the definitions pass so whichever mechanism answers them can be
+          # set up at boot, before any of the program's own code runs.
           def register_row_bends(program)
             program.walk.each do |node|
               @row_bends[node.name] = node if node.kind == :scroll_rows # last wins if repeated
+              @light = node if node.kind == :shade_outside
             end
           end
 
-          # Whether any bend is answered per line by an interrupt — which is what decides
+          # Whether any row is answered per line by an interrupt — which is what decides
           # whether the display is asked to announce its lines at all.
           def interrupts_rows?
-            !@row_bends.empty? && !@copies_row_bends
+            feeds_rows? && !@copies_row_bends
           end
+
+          # Is anything fed to the display a row at a time: a bend, or a light?
+          def feeds_rows? = !@row_bends.empty? || !@light.nil?
+
+          # Does this program have a light, whose window has to be switched on?
+          def feeds_light? = !@light.nil?
+
+          # Every thing fed a row at a time, by the key its table and engine are kept under.
+          def feed_keys = @row_bends.keys + (@light ? [LIGHT] : [])
 
           def copies_row_bends?
             @copies_row_bends
@@ -160,7 +186,7 @@ module RubyGBA
             # row's offset per entry with one to spare: the engine's last move of a frame
             # reads one past the bottom of the picture, on a line nothing is drawn on.
             engines = @copies_row_bends ? BendForm.free_engines(program) : []
-            @row_bends.each_key.with_index do |name, i|
+            feed_keys.each_with_index do |name, i|
               @row_bend_table[name] = @memory.alloc(TABLE_BYTES)
               @row_bend_engine[name] = engines[i] if @copies_row_bends
             end
@@ -197,9 +223,42 @@ module RubyGBA
                                                  control: @framebuffer.dma_fill_control(TABLE_BYTES / 4))
               next unless copies_row_bends?
 
-              @primitives.store_word_immediate(BackgroundDrawing::BG_HOFS_REGS[bg_number(name)], COPIER_DAD[engine_for(name)])
+              @primitives.store_word_immediate(register_fed(name), COPIER_DAD[engine_for(name)])
             end
+            emit_boot_light if @light
             emit_rearm_row_bend_copiers if copies_row_bends?
+          end
+
+          # The register a row's number goes into: a bending layer's sideways scroll, or the
+          # light's window edges.
+          def register_fed(name) = name == LIGHT ? REG_WIN0H : BackgroundDrawing::BG_HOFS_REGS[bg_number(name)]
+
+          # WHAT THE WINDOW MEANS, set once at boot. Inside it every layer and every sprite
+          # shows and the darkening is off; outside it the same things show and the darkening
+          # is on. Its top and bottom are the whole screen, so which rows are lit is entirely
+          # the spans: a row outside the circle has a span with no columns in it. The darkening
+          # reaches every layer, the sprites and the backdrop, and starts at none — how dark is
+          # the frame's to say (see #emit_light_amount).
+          #
+          # The window itself is switched on with the layers, in the display's control register
+          # (see Drawing#tiled_bg_enable_bits), so a screen that is not drawn from tiles has none.
+          def emit_boot_light
+            @emitter.write_reg16(REG_WIN0V, VISIBLE_LINES)
+            @emitter.write_reg16(REG_WININ, WIN_ALL_LAYERS)
+            @emitter.write_reg16(REG_WINOUT, WIN_ALL_LAYERS | WIN_EFFECT)
+            @emitter.write_reg16(REG_BLDCNT, BLD_DARKEN | BLD_ALL_LAYERS)
+            @emitter.write_reg16(REG_BLDY, 0)
+          end
+
+          # How dark outside the light is this frame: the program's amount, 0 to 100, turned
+          # into the display's sixteenths the way a fade's is, and held to them.
+          def emit_light_amount
+            @lowering.value(FadeSteps.steps_value(@light.amount, fraction_bits: nil, walked: false))
+            @emitter.emit(ASM.cmp_imm(ACC, 0))
+            @emitter.emit(ASM.mov_imm_cond(:lt, ACC, 0))
+            @emitter.emit(ASM.cmp_imm(ACC, BLD_MAX))
+            @emitter.emit(ASM.mov_imm_cond(:gt, ACC, BLD_MAX))
+            @primitives.store_halfword_acc(REG_BLDY)
           end
 
           # Point the engine back at the top of the table, in the gap between frames. It
@@ -234,51 +293,66 @@ module RubyGBA
           # it likes — a program bending four layers from the cartridge spends longer on
           # this than the gap between frames is, and if a register write were at the end of
           # that it would land on a line being drawn and put a seam across the picture.
+          #
+          # THE LIGHT'S DARKNESS GOES WITH ITS ROW 0, and before any table, for the same
+          # reason: it is a register the whole picture reads.
           def emit_fill_row_bend_tables
-            @row_bends.each_value { |node| emit_first_row_bend(node) }
-            @row_bends.each_value { |node| emit_fill_row_bend_table(node) }
+            feed_keys.each { |key| emit_first_row(key) }
+            emit_light_amount if @light
+            feed_keys.each { |key| emit_fill_row_table(key) }
           end
 
-          # One layer's row 0: into the table, and straight into the scroll register, since
+          # One thing's row 0: into the table, and straight into its register, since
           # whatever feeds the rest only starts moving numbers at the end of line 0. Nothing
           # else writes that register for a bending layer — a `scroll_by` on one leaves it
           # alone, because the layer's scroll is already in every entry of the table (see
           # BackgroundDrawing#emit_scroll_background).
-          def emit_first_row_bend(node)
-            @primitives.store_word_immediate(0, @primitives.var_addr(node.row))
-            emit_row_offset(node)
-            @emitter.emit_number(ADDR, @row_bend_table.fetch(node.name))
+          def emit_first_row(key)
+            @primitives.store_word_immediate(0, @primitives.var_addr(row_var(key)))
+            emit_row_value(key)
+            @emitter.emit_number(ADDR, @row_bend_table.fetch(key))
             @emitter.emit(ASM.store_halfword(ACC, ADDR))
-            @primitives.store_halfword_acc(BackgroundDrawing::BG_HOFS_REGS[bg_number(node.name)])
+            @primitives.store_halfword_acc(register_fed(key))
           end
 
-          # ...and the rest of that layer's rows, 1 up. The loop keeps its count in the
-          # block's own row variable, which the block reads anyway: the block is free to
-          # reach a routine or the console's divide, and either would land in whatever
-          # register a count was being held in.
-          def emit_fill_row_bend_table(node)
-            base = @row_bend_table.fetch(node.name)
+          # ...and the rest of its rows, 1 up. The loop keeps its count in the block's own
+          # row variable, which the block reads anyway: the block is free to reach a routine
+          # or the console's divide, and either would land in whatever register a count was
+          # being held in.
+          def emit_fill_row_table(key)
+            row = row_var(key)
+            base = @row_bend_table.fetch(key)
             top = @emitter.gensym
-            @primitives.store_word_immediate(1, @primitives.var_addr(node.row))
+            @primitives.store_word_immediate(1, @primitives.var_addr(row))
             @emitter.place_label(top)
-            emit_row_offset(node)
-            @primitives.load_var(TMP, node.row)
+            emit_row_value(key)
+            @primitives.load_var(TMP, row)
             @emitter.emit(ASM.lsl_imm(SPARE, TMP, 1))         # two bytes an entry
             @emitter.emit_number(ADDR, base)
             @emitter.emit(ASM.add_reg(ADDR, ADDR, SPARE))
             @emitter.emit(ASM.store_halfword(ACC, ADDR))
             @emitter.emit(ASM.add_imm(TMP, TMP, 1))
-            @primitives.store_var(TMP, node.row)
+            @primitives.store_var(TMP, row)
             @emitter.emit(ASM.cmp_imm(TMP, VISIBLE_LINES))
             @emitter.emit_branch(:bcond, top, cond: :lt)
           end
 
-          # Where the row now in the block's row variable sits: whatever else the block
-          # does, then its offset, measured from the layer's own scroll. Left in r0.
-          def emit_row_offset(node)
+          # The variable a thing fed by rows is handed each row number in.
+          def row_var(key) = key == LIGHT ? @light.row : @row_bends.fetch(key).row
+
+          # The number for the row now in that variable, left in r0. For a bending layer:
+          # whatever else its block does, then its offset, measured from the layer's own
+          # scroll. For the light: its span, as the window's register holds one — the left
+          # edge in the high byte and the right in the low.
+          def emit_row_value(key)
+            return @lowering.value(light_span) if key == LIGHT
+
+            node = @row_bends.fetch(key)
             node.children.each { |child| @lowering.statement(child) }
             @lowering.value(Build.binop(:+, node.offset, @row_bend_base[node.name]))
           end
+
+          def light_span = Build.binop(:|, Build.binop(:<<, @light.left, Build.int(8)), @light.right)
 
           # Which of the console's layers draws this background. Outside tile mode there is
           # none, and the scroll registers do nothing — the same harmless fallback a plain
@@ -304,34 +378,32 @@ module RubyGBA
             @emitter.emit_branch(:bcond, done, cond: :ge)      # below the picture: nothing to bend
             if row_bend_tables?
               @emitter.emit(ASM.lsl_imm(SPARE, ACC, 1))        # two bytes an entry, held for them all
-              @row_bends.each_value { |node| emit_read_row_from_table(node) }
+              feed_keys.each { |key| emit_read_row_from_table(key) }
             else
               # Every bend is told the line first, because working one offset out needs the
               # accumulator the line number is sitting in.
-              @row_bends.each_value { |node| @primitives.store_var(ACC, node.row) }
-              @row_bends.each_value { |node| emit_row_bend_without_table(node) }
+              feed_keys.each { |key| @primitives.store_var(ACC, row_var(key)) }
+              feed_keys.each { |key| emit_row_without_table(key) }
             end
             @emitter.place_label(done)
           end
 
-          # One background's row, out of the table and into the scroll register. The display
-          # reads that register as it draws the line, so this is the whole of the handler's
-          # work — the number was worked out in the gap between frames.
-          def emit_read_row_from_table(node)
-            @emitter.emit_number(ADDR, @row_bend_table.fetch(node.name))
+          # One thing's row, out of the table and into its register. The display reads that
+          # register as it draws the line, so this is the whole of the handler's work — the
+          # number was worked out in the gap between frames.
+          def emit_read_row_from_table(key)
+            @emitter.emit_number(ADDR, @row_bend_table.fetch(key))
             @emitter.emit(ASM.add_reg(ADDR, ADDR, SPARE))
             @emitter.emit(ASM.load_halfword(ACC, ADDR))
-            @primitives.store_halfword_acc(BackgroundDrawing::BG_HOFS_REGS[bg_number(node.name)])
+            @primitives.store_halfword_acc(register_fed(key))
           end
 
-          # One background's offset for this line, worked out here and now: run whatever the
-          # program put in the block, work the offset out, add the layer's own scroll, and
-          # write it. This is what a program with no frame gets, having had no gap to work
-          # its rows out in ahead of time.
-          def emit_row_bend_without_table(node)
-            node.children.each { |child| @lowering.statement(child) }
-            @lowering.value(Build.binop(:+, node.offset, @row_bend_base[node.name]))
-            @primitives.store_halfword_acc(BackgroundDrawing::BG_HOFS_REGS[bg_number(node.name)])
+          # One thing's number for this line, worked out here and now and written. This is
+          # what a program with no frame gets, having had no gap to work its rows out in
+          # ahead of time.
+          def emit_row_without_table(key)
+            emit_row_value(key)
+            @primitives.store_halfword_acc(register_fed(key))
           end
         end
       end

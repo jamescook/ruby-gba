@@ -1004,6 +1004,18 @@ module RubyGBA
         operands var: :name, value: :value
       end
 
+      # The picture darkened everywhere outside one span of each row: a light. Standing
+      # once it is declared, like a bend, and read again before every frame — the row
+      # variable is set to each row of the screen in turn, and +left+ and +right+ say where
+      # that row's span starts and ends (the end not included), both worked out from it.
+      # +amount+ is how dark the rest of the row goes, 0 (as drawn) to 100 (black).
+      class ShadeOutside
+        include Node
+        kind :shade_outside
+        category :draw
+        operands row: :name, left: :value, right: :value, amount: :value
+      end
+
       class ShiftRight
         include Node
         kind :shift_right

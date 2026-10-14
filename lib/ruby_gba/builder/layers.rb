@@ -100,6 +100,9 @@ module RubyGBA
         color_list_holds: :free,
         affine_background: :free,
         scroll_rows: :free,
+        # ...and a light, which darkens the finished picture wherever its circle is not,
+        # whatever depth each thing there sits at.
+        shade_outside: :free,
         blit_pose: :free,
         save_region: :free,
         restore_region: :free,

@@ -50,6 +50,8 @@ module RubyGBA
             @blending = false
             @area = nil
             @block = 1
+            @spans = nil
+            @shade_steps = 0
           end
 
           # TWO PAGES, OR ONE. A tear-free screen is two pictures rather than one: the
@@ -234,8 +236,33 @@ module RubyGBA
             return nil unless in_bounds?(x, y)
             return HELD_OFF if @held
 
-            x, y = block_corner(x, y) if @block > 1
-            faded(shown_pixel(x + @camera_x, y + @camera_y) || @fill)
+            seen_x, seen_y = @block > 1 ? block_corner(x, y) : [x, y]
+            color = faded(shown_pixel(seen_x + @camera_x, seen_y + @camera_y) || @fill)
+            lit?(x, y) ? color : darkened_by_display(color, @shade_steps)
+          end
+
+          # DARKEN THE PICTURE OUTSIDE ONE SPAN OF EACH ROW, by +steps+ sixteenths, from now
+          # on: +spans+ holds a [left, right] for every row, the columns from left up to but
+          # not including right left as drawn. A light (see Builder#spotlight).
+          #
+          # It is done to the picture as it is READ, after everything else — the colours a
+          # fade has walked included — because that is where the display does it: the window
+          # decides, pixel by pixel on its way to the screen, whether the darkening applies.
+          # A block of a pixelated picture is lit or not by where the pixel is, not where its
+          # block's colour came from, for the same reason.
+          def shade_outside(spans, steps)
+            @spans = spans
+            @shade_steps = steps
+          end
+
+          # Is (x, y) inside its row's span? A span whose left is past its right comes round
+          # the edge of the screen — from left to the right edge and from the left edge to
+          # right — which is what the console's window does with one.
+          def lit?(x, y)
+            return true if @shade_steps.zero?
+
+            left, right = @spans[y]
+            left <= right ? x >= left && x < right : x >= left || x < right
           end
 
           # Whether the picture is switched off — true until a program that waits for frames
@@ -346,7 +373,8 @@ module RubyGBA
           # Nothing between what is stored and what is shown: the window at the origin and
           # no effect in force. The common case, and worth not walking the screen for.
           def plain?
-            !@held && @camera_x.zero? && @camera_y.zero? && @tint_color.nil? && fade_steps.zero? && @block == 1
+            !@held && @camera_x.zero? && @camera_y.zero? && @tint_color.nil? && fade_steps.zero? && @block == 1 &&
+              @shade_steps.zero?
           end
 
           private
@@ -456,6 +484,32 @@ module RubyGBA
           end
 
           def widen_channel(channel) = (channel << 3) | (channel >> 2)
+
+          # One color taken +steps+ sixteenths of the way to black by the display's darkening,
+          # THE WAY THE EMULATOR THIS IS CHECKED AGAINST WORKS IT OUT — which is not the same
+          # for every channel, and that is the whole reason this is not #blend.
+          #
+          # It widens each channel to eight bits (see #mix_see_through) and keeps the three
+          # in one number, red in the lowest byte, green above it and blue above that. Each
+          # channel loses a share of itself, worked out where it sits in that number, and only
+          # then is the channel's own byte kept. For red the share is a whole number and is
+          # taken off whole. Green and blue sit eight and sixteen bits up, so their share keeps
+          # what would have been its fraction in the bits below, and keeping the byte drops it
+          # from the answer instead — they come out a step lower whenever the share is not
+          # whole. White taken three quarters of the way is red 8, green 7, blue 7. Back to
+          # five bits after.
+          def darkened_by_display(color, steps)
+            return color if steps.zero?
+
+            packed = 0
+            3.times do |channel|
+              shift = channel * 5
+              placed = widen_channel((color >> shift) & CHANNEL_MAX) << (channel * 8)
+              kept = (placed - ((placed * steps) / FADE_STEPS)) >> (channel * 8)
+              packed |= (kept >> 3) << shift
+            end
+            packed
+          end
 
           # One color with the blend a placed fade asks for, or the color untouched when
           # no fade is placed. The same arithmetic as #faded, so a picture blended while

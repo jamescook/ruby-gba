@@ -307,6 +307,52 @@ module RubyGBA
         ensure_var(size)
       end
 
+      # A light: the picture as drawn inside a circle, and darkened everywhere outside it.
+      # A lantern in a cave, a torch in a dungeon, a searchlight sweeping a yard. Declare it
+      # once, where it starts, and move it with the handle it hands back:
+      #
+      #   light = spotlight at: [120, 80], radius: 40, dark: 75
+      #   game_loop do
+      #     light.move_to hero.x + 8, hero.y + 8
+      #   end
+      #
+      # `at:` is where the middle of the light starts, in screen pixels, `radius:` how far it
+      # reaches, and `dark:` how dark the rest of the picture is, 0 (as drawn) to 100 (black).
+      # All three are where it STARTS, applied once at power-on, the way `var` takes its
+      # starting value; the handle's `x`, `y`, `radius` and `dark` are what the game changes.
+      #
+      # Nothing is redrawn. The console darkens the picture as it draws it, and is told
+      # where the circle is one row at a time, so a light costs the same however much is on
+      # screen: working its edge out for each row, in the gap before every frame.
+      #
+      # `spotlight` with nothing after it hands back the game's light, which is how anything
+      # that works on the light finds it — an `iris_out`, a routine in another file. A game
+      # with no light yet gets one that reaches past every edge of the screen and darkens
+      # nothing, so the picture is as drawn until something moves it.
+      #
+      # @param at [Array(Integer, Integer)] where the middle of the light starts, in screen pixels
+      # @param radius [Integer] how far it reaches from its middle, in pixels
+      # @param dark [Integer] how dark the picture is outside it, 0 to 100
+      # @return [DSL::Spotlight]
+      def spotlight(at: nil, radius: nil, dark: nil)
+        said = !(at.nil? && radius.nil? && dark.nil?)
+        return @spotlight if @spotlight && !said
+
+        refuse_second_spotlight!
+        refuse_spotlight_off_tiles!
+        at ||= [Console::Hardware::SCREEN_WIDTH / 2, Console::Hardware::SCREEN_HEIGHT / 2]
+        refuse_spotlight_with_no_radius! if said && radius.nil?
+        radius ||= Spotlights::LARGEST
+        dark ||= said ? Spotlights::DARK_UNSAID : 0
+        refuse_spotlight_start!(at, radius, dark)
+
+        light = DSL::Spotlight.new(x: var(Spotlights::X, at[0]), y: var(Spotlights::Y, at[1]),
+                                   radius: var(Spotlights::RADIUS, radius), dark: var(Spotlights::DARK, dark))
+        record(Spotlights.shade_node(self, light))
+        @spotlight_unsaid = !said
+        @spotlight = light
+      end
+
 
       # Fill a rectangle at a fixed position and size.
       #
@@ -453,6 +499,65 @@ module RubyGBA
               "#{said.call(under)}. A game pixelates from one place in the stack, because which " \
               "things are drawn in blocks is settled once, before it runs. To fix this, give " \
               "every `pixelate` the same `under:`."
+      end
+
+      # A GAME HAS ONE LIGHT. The console has one window shaped row by row, and a light is
+      # that window, so a second `spotlight` would quietly take the first one's place.
+      def refuse_second_spotlight!
+        return unless @spotlight
+
+        if @spotlight_unsaid
+          raise ArgumentError,
+                "This game declares `spotlight` after an `iris_out` (or a `spotlight` with nothing " \
+                "after it) already gave it a light. A game has one light. To fix this, declare " \
+                "`spotlight at: [x, y], radius: r` before the first `iris_out`."
+        end
+
+        raise ArgumentError,
+              "This game declares `spotlight` twice. A game has one light, and moves it with the " \
+              "handle the first `spotlight` gives back. To fix this, keep the handle " \
+              "(`light = spotlight at: [x, y], radius: r`) and change `light.x`, `light.y`, " \
+              "`light.radius` and `light.dark` where the second light was."
+      end
+
+      # A light is a window in the picture the console composes from tiles. A bitmap screen
+      # is one picture the game paints, with nothing composed to cut a window in; the
+      # turning-background screen has the window, but this framework does not switch it on
+      # there yet, and the console would darken the whole screen.
+      def refuse_spotlight_off_tiles!
+        return if @screen_mode.nil? || @screen_mode == :tiled
+
+        raise ArgumentError,
+              "`spotlight` needs a `screen :tiled`. This game is on `screen :#{@screen_mode}`, where " \
+              "a light would darken the whole screen and not only the part outside it. To fix this, " \
+              "use `screen :tiled` for the screen with the light."
+      end
+
+      def refuse_spotlight_with_no_radius!
+        raise ArgumentError,
+              "`spotlight` needs `radius:`, how far the light reaches in pixels: " \
+              "`spotlight at: [120, 80], radius: 40`. To get the game's light back, write `spotlight` " \
+              "with nothing after it."
+      end
+
+      # Where a light STARTS is a number, applied once at power-on like a variable's; where
+      # it goes after that is the handle's.
+      def refuse_spotlight_start!(at, radius, dark)
+        unless at.is_a?(Array) && at.length == 2 && at.all?(Integer)
+          raise ArgumentError,
+                "`spotlight at:` is where the light starts, as two whole numbers: `at: [120, 80]`. " \
+                "You gave #{at.inspect}. To move it as the game runs, use the handle: `light.move_to x, y`."
+        end
+        unless radius.is_a?(Integer) && radius >= 0
+          raise ArgumentError,
+                "`spotlight radius:` is how far the light reaches, as a whole number of pixels, 0 or " \
+                "more. You gave #{radius.inspect}. To change it as the game runs, use `light.radius`."
+        end
+        return if dark.is_a?(Integer) && (0..100).cover?(dark)
+
+        raise ArgumentError,
+              "`spotlight dark:` is how dark the picture is outside the light, as a whole number from " \
+              "0 to 100. You gave #{dark.inspect}. To change it as the game runs, use `light.dark`."
       end
 
       # A fade's or a tint's amount for the tree, and how many bits of fraction it carries

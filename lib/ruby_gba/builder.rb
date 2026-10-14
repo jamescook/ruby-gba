@@ -13,6 +13,7 @@ require_relative "builder/sprites"
 require_relative "builder/sprite_import"
 require_relative "builder/input"
 require_relative "builder/drawing"
+require_relative "builder/spotlights" # the circle a spotlight lights, a row at a time
 require_relative "builder/variables"
 require_relative "builder/control_flow"
 require_relative "builder/scenes"

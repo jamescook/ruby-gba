@@ -78,52 +78,66 @@ module RubyGBA
             program.walk.select { |node| node.kind == :scroll_rows }
           end
 
-          # Whether this program's bends are worked out into a table ahead of the frame. They
+          # EVERYTHING FED TO THE DISPLAY A ROW AT A TIME: each bending layer, and the light
+          # (a spotlight's window edges are a number a row exactly as a bend's scroll is, and
+          # take an engine the same way). The light is one however often it is declared.
+          def row_feeds(program)
+            fed = scroll_rows_nodes(program)
+            light = program.walk.find { |node| node.kind == :shade_outside }
+            light ? fed + [light] : fed
+          end
+
+          # Whether this program's rows are worked out into a table ahead of the frame. They
           # are, whenever there is a frame to work them out in — which is what a wait for one
           # is. A program with no frame has no such moment and runs its block per line instead.
           def rows_precomputed?(program)
-            !scroll_rows_nodes(program).empty? && program.walk.any? { |node| node.kind == :wait_vblank }
+            !row_feeds(program).empty? && program.walk.any? { |node| node.kind == :wait_vblank }
           end
 
-          # ...and the other side of the same answer: a bend that runs its block per line,
-          # because the program it is in never waits for a frame.
+          # ...and the other side of the same answer: rows worked out per line, because the
+          # program they are in never waits for a frame.
           def rows_per_scanline?(program)
-            !scroll_rows_nodes(program).empty? && !rows_precomputed?(program)
+            !row_feeds(program).empty? && !rows_precomputed?(program)
           end
 
           # Whether this program's tables are fed to the display by a copying engine rather
           # than by a per-line interrupt. All of them or none: the interrupt costs what it
-          # costs the moment one bend needs it, and feeding one layer by engine beside it
-          # would save nothing.
+          # costs the moment one table needs it, and feeding one by engine beside it would
+          # save nothing.
           def fed_by_dma?(program)
-            bends = scroll_rows_nodes(program)
-            !bends.empty? && interrupt_reason_for(program, bends).nil?
+            fed = row_feeds(program)
+            !fed.empty? && interrupt_reason_for(program, fed).nil?
           end
 
           # WHY THE INTERRUPT WAS KEPT, in the words an author would use, or nil when the
           # copier took it. Read off the same test the answer comes from, so "it did not" and
           # "here is why" can never disagree.
           def kept_interrupt_reason(program)
-            bends = scroll_rows_nodes(program)
-            bends.empty? ? nil : interrupt_reason_for(program, bends)
+            fed = row_feeds(program)
+            fed.empty? ? nil : interrupt_reason_for(program, fed)
           end
 
-          def interrupt_reason_for(program, bends)
+          def interrupt_reason_for(program, fed)
             if !rows_precomputed?(program)
               "the program never waits for a frame, so there is no moment to work the rows out in"
-            elsif bends.length > free_engine_count(program)
-              too_many_bends_message(program, bends)
+            elsif fed.length > free_engine_count(program)
+              too_many_bends_message(program, fed)
             end
           end
 
-          # More bending layers than there are engines to feed them. Naming what took the
-          # others is the whole use of this line: with sampled sound in the game there is one
-          # engine, and moving a bend is not what an author would think to try.
-          def too_many_bends_message(program, bends)
+          # More things fed a row at a time than there are engines to feed them. Naming what
+          # took the others is the whole use of this line: with sampled sound in the game there
+          # is one engine, and moving a bend is not what an author would think to try.
+          def too_many_bends_message(program, fed)
             free = free_engine_count(program)
             taken = free < FREE_ENGINES.length ? ", and this game's sampled sound holds the rest" : ""
-            "there are #{bends.length} bending layers and #{free} copying #{free == 1 ? 'engine' : 'engines'} " \
-              "free#{taken}"
+            "there are #{fed_in_words(fed)} and #{free} copying #{free == 1 ? 'engine' : 'engines'} free#{taken}"
+          end
+
+          def fed_in_words(fed)
+            bends = fed.count { |node| node.kind == :scroll_rows }
+            said = "#{bends} bending #{bends == 1 ? 'layer' : 'layers'}"
+            fed.length > bends ? "#{said} and a spotlight" : said
           end
         end
       end

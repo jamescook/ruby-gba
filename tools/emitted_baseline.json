@@ -6,7 +6,7 @@
       "data": 0
     },
     "bird": {
-      "code": 7436,
+      "code": 7472,
       "data": 0
     },
     "breakout": {
@@ -17,12 +17,16 @@
       "code": 5326,
       "data": 0
     },
+    "cave": {
+      "code": 17608,
+      "data": 0
+    },
     "corridor": {
       "code": 8578,
       "data": 0
     },
     "dive": {
-      "code": 55296,
+      "code": 50524,
       "data": 0
     },
     "floating_digits": {
@@ -42,7 +46,7 @@
       "data": 0
     },
     "hero": {
-      "code": 94012,
+      "code": 93868,
       "data": 0
     },
     "jukebox": {
@@ -50,23 +54,23 @@
       "data": 0
     },
     "lake": {
-      "code": 3944,
+      "code": 4016,
       "data": 0
     },
     "level": {
-      "code": 6164,
+      "code": 6180,
       "data": 0
     },
     "maze": {
-      "code": 4788,
+      "code": 4812,
       "data": 0
     },
     "meadow": {
-      "code": 30108,
+      "code": 32912,
       "data": 0
     },
     "pacman": {
-      "code": 16208,
+      "code": 16328,
       "data": 0
     },
     "parallax": {
@@ -74,7 +78,7 @@
       "data": 0
     },
     "piano": {
-      "code": 28240,
+      "code": 28312,
       "data": 0
     },
     "pixels": {
@@ -82,7 +86,7 @@
       "data": 0
     },
     "pong": {
-      "code": 45702,
+      "code": 45386,
       "data": 0
     },
     "raycaster": {
@@ -98,11 +102,11 @@
       "data": 0
     },
     "sheet": {
-      "code": 6164,
+      "code": 6180,
       "data": 0
     },
     "shmup": {
-      "code": 41716,
+      "code": 41080,
       "data": 0
     },
     "snake": {

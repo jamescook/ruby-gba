@@ -29,6 +29,10 @@ module RubyGBA
     # through draws the same picture either way, so it pays nothing for a choice it
     # cannot observe.
     #
+    # A LIGHT IS THE OTHER THING THAT HOLDS THE UNIT. A spotlight is the display's
+    # darkening, told to stop at a window, so a game with one fades by walking its colors
+    # too: the whole picture darkens, and the light's own darkening goes on outside it.
+    #
     # TWO CASES ARE DELIBERATELY NOT THIS, and both are about what a shared table of
     # colors cannot express.
     #
@@ -142,7 +146,7 @@ module RubyGBA
           modes = Modes.resolve(program)
           mark_fine_fades(fades, modes)
           mark_fine_tints(tints, modes)
-          return unless sees_through_layer?(program)
+          return unless blend_unit_held?(program)
 
           fades.select { |node| modes.mode_at(node) == Modes::TILED }.each do |node|
             node.under ? @blend_fades << node : @walking[node] = true
@@ -180,8 +184,10 @@ module RubyGBA
           end
         end
 
-        def sees_through_layer?(program)
-          !Fading.layer_fade_preserves(program).nil?
+        # Does something else hold the display's blend unit for the whole game: a layer worth
+        # seeing through, or a light?
+        def blend_unit_held?(program)
+          !Fading.layer_fade_preserves(program).nil? || program.walk.any? { |node| node.kind == :shade_outside }
         end
       end
     end

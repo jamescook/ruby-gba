@@ -999,7 +999,8 @@ module RubyGBA
           # It is the job WORTH_MOVING did for the estimate, asked of the program rather than
           # of a price.
           #
-          # A BENDING BACKGROUND COUNTS EVEN THOUGH THE LOOP LOOKS EMPTY. Where the program
+          # A BENDING BACKGROUND COUNTS EVEN THOUGH THE LOOP LOOKS EMPTY, and so does a light,
+          # whose circle is worked out the same way. Where the program
           # waits for frames, a bend's block is worked out IN the frame, into a table — so the
           # frame is doing 160 rows of the author's own arithmetic that the loop's statements
           # know nothing about. Miss that and the busiest thing in such a program is left in
@@ -1008,7 +1009,7 @@ module RubyGBA
 
           def frame_does_work?(program)
             body = frame_body(program) or return false
-            return true unless BendForm.scroll_rows_nodes(program).empty?
+            return true unless BendForm.row_feeds(program).empty?
 
             body.walk.any? { |node| !NO_WORK_KINDS.include?(node.kind) }
           end

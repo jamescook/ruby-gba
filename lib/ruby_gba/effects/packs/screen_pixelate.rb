@@ -229,27 +229,9 @@ module RubyGBA
           @screen_pixelate_place = under
         end
 
-        # How many steps get from one end to the other over that many frames, counting
-        # the first frame and the last, as the screen fade counts its own.
+        # How many steps get from one end to the other over that many frames (see WalkLength).
         def pixelate_step_count(frames, duration, default)
-          raise ArgumentError, "a pixelate takes frames: or duration:, not both." if frames && duration
-
-          count = duration ? pixelate_seconds_in_frames(duration) : (frames || default)
-          unless DSL::Whole.positive?(count)
-            raise ArgumentError,
-                  "a pixelate needs a positive whole number of frames. You gave #{(frames || duration).inspect}."
-          end
-
-          [count - 1, 1].max.to_f
-        end
-
-        def pixelate_seconds_in_frames(duration)
-          unless duration.is_a?(Numeric) && duration.positive?
-            raise ArgumentError,
-                  "a pixelate needs a positive duration in seconds. You gave #{duration.inspect}."
-          end
-
-          (duration * Builder::ControlFlow::FRAMES_PER_SECOND).round
+          WalkLength.steps(frames, duration, default, "a pixelate").to_f
         end
 
         # Down here because the check classes it names are declared above it.

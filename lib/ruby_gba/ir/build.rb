@@ -729,6 +729,17 @@ module RubyGBA
         Nodes.build(:scroll_rows, children: body, name: name, row: row, offset: to_value_node(offset))
       end
 
+      # Darken the picture outside one span of every row, by +amount+ (0 to 100). +row+
+      # names the variable each row number is put in, top row 0, and +left+ and +right+ are
+      # worked out from it: the columns from +left+ up to but not including +right+ are left
+      # as drawn. A backend that composes the picture itself darkens per pixel as it reads
+      # it; one with display hardware that can be told, row by row, where the darkening
+      # stops can hand the spans over and pay nothing per pixel.
+      def shade_outside(row:, left:, right:, amount:)
+        Nodes.build(:shade_outside, row: row, left: to_value_node(left), right: to_value_node(right),
+                                    amount: to_value_node(amount))
+      end
+
       # Move the whole displayed picture. x/y are where the visible window's top-left
       # sits over the drawn image, in pixels, as run-time values — so (0, 0) shows the
       # picture as drawn, and a small changing offset jitters it (a screen shake).

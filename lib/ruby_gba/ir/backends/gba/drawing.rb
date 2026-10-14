@@ -280,6 +280,9 @@ module RubyGBA
             bits = used.reduce(0) { |on, layer| on | BG_ENABLES[layer] }
             # ...and the object window, for a program that keeps sprites out of a fade.
             bits |= OBJ_WINDOW_ENABLE if @layout.screen.placed_fade.any?
+            # ...and the first window, for a program with a light: its edges are the circle,
+            # fed a row at a time (see Raster#emit_boot_shade).
+            bits |= WIN0_ENABLE if @raster.feeds_light?
             bits
           end
 
