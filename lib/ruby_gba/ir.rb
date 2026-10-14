@@ -23,6 +23,7 @@ require_relative "ir/movement" # ...and which of the things it stacks move, so t
 require_relative "ir/see_through" # the layers a program can be seen through, and their mix
 require_relative "ir/fading" # ...and the one rule saying which part of the display a fade uses
 require_relative "ir/tunes" # which tunes a program plays, and the mixer voices they keep
+require_relative "ir/mixing" # ...and how its recordings are added together into one stream
 require_relative "ir/verifier"
 require_relative "ir/portability"
 require_relative "ir/backends"

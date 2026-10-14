@@ -125,9 +125,8 @@ module RubyGBA
           # (IR::Tunes.plays_once?).
           #
           # A part that plays a recording sounds each note on a voice of the mixer, which a note
-          # starts from the top and a rest stops. The voice ages in the frame it starts, because
-          # the console mixes that frame's slice right after the note is started, in the same
-          # interrupt.
+          # starts from the top and a rest stops. It is heard in the next slice the mixer makes,
+          # which is the one the console makes as the next picture starts.
           #
           # +level+ is the music volume the game last said (see IR::Tunes::LEVEL), or nil for a
           # program that never says one. A change reaches the notes already sounding before any
@@ -174,7 +173,8 @@ module RubyGBA
                       elsif lane
                         # A rest is heard whether or not the part still had a voice to give back.
                         play_recorded_note(owner: lane, rank: rank, name: instrument || part.instrument,
-                                        frequency: sounds ? frequency : 0, envelope: envelope || part.envelope) ||
+                                           frequency: sounds ? frequency : 0, envelope: envelope || part.envelope,
+                                           loudness: song_loudness(volume || part.volume, follows_level: !level.nil?)) ||
                           !sounds
                       else
                         true
@@ -238,8 +238,9 @@ module RubyGBA
               run.cursors[number] += 1
               if lane
                 heard = play_recorded_note(owner: [name, lane], rank: rank, name: instrument || part.instrument,
-                                        frequency: sounds?(kind, frequency, volume || part.volume) ? frequency : 0,
-                                        envelope: envelope || part.envelope)
+                                           frequency: sounds?(kind, frequency, volume || part.volume) ? frequency : 0,
+                                           envelope: envelope || part.envelope,
+                                           loudness: IR::Tunes.mix_loudness(volume || part.volume))
                 @log << [:note, name, frequency] if heard
                 next
               end
@@ -355,7 +356,7 @@ module RubyGBA
             @level = level
             @sounding.each do |voice, volume|
               next unless volume.positive?
-              next if voice.is_a?(Array) && !@mixer.sounding_slot(voice.last)
+              next if voice.is_a?(Array) && !@mixer.rescale_music(voice.last, IR::Tunes.scaled_volume(volume, level))
 
               log_loudness(voice, volume)
             end
@@ -386,14 +387,23 @@ module RubyGBA
             @log << [:loudness, channel, IR::Tunes.scaled_volume(volume, @level)]
           end
 
-          # A note on one of the mixer's voices: it starts from the top of recording +name+,
-          # shaped by +envelope+ (or the recording itself), and a rest gives the voice back. True
-          # when the note got a voice, or the rest had one to give back.
-          def play_recorded_note(owner:, rank:, name:, frequency:, envelope:)
+          # A note on one of the mixer's voices: it starts from the top of recording +name+, at
+          # +loudness+ out of IR::Tunes::MIX_FULL, shaped by +envelope+ (or the recording itself),
+          # and a rest gives the voice back. True when the note got a voice, or the rest had one
+          # to give back.
+          def play_recorded_note(owner:, rank:, name:, frequency:, envelope:, loudness:)
             return @mixer.release_music(owner) if frequency.zero?
 
             !@mixer.start_music_note(owner: owner, rank: rank, name: name, frequency: frequency,
-                                   envelope: envelope).nil?
+                                     loudness: loudness, envelope: envelope).nil?
+          end
+
+          # How loud a song's recorded note plays: its written volume as a mixer voice's
+          # loudness, times the music volume in force when the game moves it. A sound effect's
+          # note is not the music, and keeps its own.
+          def song_loudness(volume, follows_level:)
+            loudness = IR::Tunes.mix_loudness(volume)
+            follows_level ? IR::Tunes.scaled_volume(loudness, @level) : loudness
           end
 
           # A SONG'S NOTE ON THE WAVE OR NOISE VOICE. The console makes both sounds itself, so

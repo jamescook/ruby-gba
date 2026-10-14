@@ -1,13 +1,16 @@
 # frozen_string_literal: true
 
 require "test_helper"
+require "mixed_sound"
 
 # The mixer: several samples sound at once instead of cutting each other off — background
 # music plus overlapping sound effects, and (later) chords. `sample.play` adds a voice to
 # the mix; `sample.stop` drops that sample's voices. This is the interpreter oracle for the
 # mixer — it pins the behavior both backends must share (the GBA software-mix lowering
-# matches it). The surface stays plain: play and stop, no voices or channels exposed.
+# matches it), down to every byte of sound it makes. The surface stays plain: play and
+# stop, no voices or channels exposed.
 class TestMixer < Minitest::Test
+  include MixedSound
 
   # mem8 hands back an unsigned byte; the mix buffer holds signed 8-bit samples.
   def signed8(byte)
@@ -292,6 +295,186 @@ class TestMixer < Minitest::Test
     [gba.mix_buf0, gba.mix_buf1].each do |buffer|
       held = (0...frame).map { |i| v.mem8(buffer + i) }
       assert held.all?(0), "a silent frame, but the buffer held #{held.uniq.inspect}"
+    end
+  end
+
+  # --- the sound itself, byte for byte (see MixedSound) ---
+
+  # A game that plays its recordings on its first pass and then does nothing.
+  def playing(&plays)
+    b = Builder.new
+    b.instance_eval do
+      screen :bitmap
+      instance_exec(&plays)
+      game_loop {}
+    end
+    b.finalize_program
+    b.program
+  end
+
+  # A recording whose every byte differs from the one beside it, so a slice that starts a
+  # sample early or late, or reads one twice, is a different slice.
+  SAWTOOTH = Array.new(4000) { |i| (i % 200) - 100 }.freeze
+
+  # A recording declared and never played is nothing to mix, so there is no mix at all, as on
+  # the cartridge, which brings its mixer up only for a game that plays one.
+  def test_a_game_that_only_declares_a_recording_mixes_nothing
+    declared = playing { sample(:saw, pcm: SAWTOOTH, rate: 8000) }
+
+    assert_empty Reference.new.run(declared, frames: 5).mixed_sound
+  end
+
+  def test_one_recording_is_mixed_into_the_same_bytes
+    assert_mixes_agree(playing { sample(:saw, pcm: SAWTOOTH, rate: 8000).play })
+  end
+
+  def test_a_quieter_play_is_the_same_bytes
+    %i[three_quarter half quarter].each do |level|
+      assert_mixes_agree(playing { sample(:saw, pcm: SAWTOOTH, rate: 8000).play(volume: level) })
+    end
+  end
+
+  # A note other than the one it was recorded at reads the recording faster or slower, by a
+  # step that is not a whole number of samples, and the part left over is carried frame to
+  # frame. So is a recording made at another rate than the mix runs at.
+  def test_a_recording_read_at_another_pitch_or_rate_is_the_same_bytes
+    assert_mixes_agree(playing { sample(:saw, pcm: SAWTOOTH, rate: 8000, note: :C4).play(pitch: :E4) })
+    assert_mixes_agree(playing { sample(:saw, pcm: SAWTOOTH, rate: 8000, note: :C4).play(pitch: :A3) })
+    assert_mixes_agree(playing do
+      sample(:other, pcm: SAWTOOTH, rate: 11_025).play
+      sample(:common, pcm: [3] * 10, rate: 8000)
+      sample(:common_too, pcm: [4] * 10, rate: 8000)
+    end)
+  end
+
+  # A recording shorter than a frame's worth ends partway through a slice, and the rest of
+  # that slice is silent; the frame after is silence through and through.
+  def test_a_recording_that_ends_partway_through_a_frame_is_the_same_bytes
+    short = Array.new(300) { |i| (i % 50) - 25 }
+    assert_mixes_agree(playing { sample(:blip, pcm: short, rate: 8000).play }, frames: 6)
+  end
+
+  def test_a_recording_that_loops_or_holds_is_the_same_bytes
+    loop_me = Array.new(150) { |i| (i % 30) - 15 }
+    assert_mixes_agree(playing { sample(:round, pcm: loop_me, rate: 8000).play(loop: true) })
+    assert_mixes_agree(playing { sample(:held, pcm: SAWTOOTH.first(500), rate: 8000, holds_from: 320).play(loop: true) })
+  end
+
+  # Several voices summed, each total held to a byte only once every voice is in.
+  def test_several_recordings_summed_and_clamped_are_the_same_bytes
+    loud = Array.new(3000) { |i| ((i * 7) % 256) - 128 }
+    assert_mixes_agree(playing do
+      sample(:saw, pcm: SAWTOOTH, rate: 8000).play
+      sample(:loud, pcm: loud, rate: 8000).play(pitch: :D4)
+      sample(:also, pcm: loud.reverse, rate: 8000).play(volume: :half, loop: true)
+    end)
+  end
+
+  # A recorded instrument played by a song: notes of their own pitch and loudness, rests that
+  # give the voice back, and a note that takes over its part's own voice from the top.
+  def tune_on(instrument_words: {}, part_words: {}, volume_from: nil)
+    b = Builder.new
+    b.instance_eval do
+      screen :bitmap
+      enable_sound
+      instrument :keys, pcm: SAWTOOTH.first(1200), rate: 8000, note: :C4, **instrument_words
+      song :tune do
+        tempo 300
+        voice :melody, plays: :keys, **part_words do
+          volume 13
+          note :C4, :quarter
+          note :E4, :quarter
+          rest :quarter
+          note :G4, :eighth
+          note :C5, :eighth
+          volume 9
+          note :A4, :half
+        end
+        voice :under, plays: :keys do
+          volume 6
+          note :C3, :whole
+        end
+      end
+      passes = var :passes, 0
+      game_loop do
+        passes.add! 1
+        play_song :tune
+        (passes == volume_from).then { music_volume 40 } if volume_from
+      end
+    end
+    b.finalize_program
+    b.program
+  end
+
+  def test_a_songs_recorded_parts_are_the_same_bytes
+    assert_mixes_agree(tune_on, frames: 60)
+  end
+
+  # A note with a shape climbs, holds and falls away, its loudness sliding across every sample
+  # of a frame rather than stepping at the frame's edge.
+  def test_notes_with_a_shape_are_the_same_bytes
+    shaped = { envelope: { attack: 0.05, decay: 0.2, sustain: 0.5, release: 0.15 } }
+    assert_mixes_agree(tune_on(instrument_words: shaped), frames: 60)
+    assert_mixes_agree(tune_on(part_words: { envelope: { release: 0.3 } }), frames: 60)
+  end
+
+  # The music volume moving reaches notes already sounding — with and without a shape in the
+  # game, which changes what the mix reads for a note with none.
+  def test_the_music_volume_moving_is_the_same_bytes
+    assert_mixes_agree(tune_on(volume_from: 8), frames: 60)
+    assert_mixes_agree(tune_on(part_words: { envelope: { release: 0.2 } }, volume_from: 8), frames: 60)
+  end
+
+  # A note at volume 0 sounds nothing, so it takes no voice: the part is silent there, and the
+  # part's voice from before it is let go as a rest lets it go.
+  def test_a_note_at_volume_nought_is_the_same_bytes
+    b = Builder.new
+    b.instance_eval do
+      screen :bitmap
+      enable_sound
+      instrument :keys, pcm: SAWTOOTH.first(1200), rate: 8000, note: :C4
+      song :tune do
+        tempo 300
+        voice :melody, plays: :keys do
+          volume 12
+          note :C4, :quarter
+          volume 0
+          note :E4, :quarter
+          volume 12
+          note :G4, :quarter
+        end
+      end
+      game_loop { play_song :tune }
+    end
+    b.finalize_program
+    assert_mixes_agree(b.program, frames: 40)
+  end
+
+  # WHAT A GAME DOES INSIDE ITS LOOP is mixed in the slice made just after its pass, so against a
+  # tune that is already sounding, a sound the game starts or stops lands on the cartridge's
+  # frame — and a sound with a shape is mixed once at nothing before its shape first moves it.
+  def test_a_sound_the_game_starts_and_stops_in_its_loop_lands_on_the_same_frame
+    [{}, { envelope: { attack: 0.1, release: 0.2 } }].each do |shape|
+      b = Builder.new
+      b.instance_eval do
+        screen :bitmap
+        enable_sound
+        instrument :keys, pcm: SAWTOOTH.first(1200), rate: 8000, note: :C4
+        clip = sample :clip, pcm: SAWTOOTH.reverse, rate: 8000, **shape
+        song :tune do
+          tempo 300
+          voice(:melody, plays: :keys) { note :C4, :whole }
+        end
+        passes = var :passes, 0
+        game_loop do
+          passes.add! 1
+          play_song :tune
+          (passes == 6).then { clip.play }
+          (passes == 14).then { clip.stop }
+        end
+      end
+      b.finalize_program
+      assert_mixes_agree(b.program, frames: 30)
     end
   end
 

@@ -149,16 +149,11 @@ module RubyGBA
           SLOT_RAMP = 52
           SLOT_BYTES = 56
 
-          # How many bits of fraction the gain keeps in a game that shapes a note. Sixteen is as
-          # many as fit: the gain is at most 64, which with sixteen under it is 22 bits, and a
-          # sample is at most 128, which is 8 more — 30, inside the 32 a multiply keeps.
-          GAIN_FRACTION = 16
-
-          # The slide is a distance divided by the samples in a frame, and the divide is a
-          # multiply by the share one sample gets, out of 1 << (2 * RAMP_SPLIT). The distance is
-          # shifted down this far before the multiply and the product this far after, which is
-          # what keeps a whole gain's worth of distance inside 32 bits on the way.
-          RAMP_SPLIT = 8
+          # How many bits of fraction the gain keeps in a game that shapes a note, and how a
+          # slide toward a gain is kept inside 32 bits — written down where the interpreter's mix
+          # reads them too (see Sound::GAIN_FRACTION).
+          GAIN_FRACTION = RubyGBA::Audio::Sound::GAIN_FRACTION
+          RAMP_SPLIT = RubyGBA::Audio::Sound::RAMP_SPLIT
 
           # The link register: where a routine returns to, and the one register the mix borrows
           # past r12 (see #emit_mix_routine).
@@ -213,7 +208,7 @@ module RubyGBA
           DROPS_MUSIC = :__mix_drops_music
 
           # The fixed-point shift for STEP/FRAC: 16 fractional bits, so 1.0 == 1 << 16.
-          STEP_SHIFT = 16
+          STEP_SHIFT = RubyGBA::Audio::Sound::STEP_SHIFT
           STEP_ONE = 1 << STEP_SHIFT
 
           # ONE SOUNDING VOICE, read back off a running console: which sample it is playing,
@@ -297,8 +292,8 @@ module RubyGBA
           # Volume level names → a 0..64 gain the mix multiplies each sample by (then shifts
           # right by 6, i.e. divides by 64) — so :full leaves a sample unchanged and :half
           # halves it. The same words the other sound verbs use.
-          MIX_LEVELS = { full: 64, three_quarter: 48, half: 32, quarter: 16, mute: 0 }.freeze
-          VOL_SHIFT = 6 # 2**6 = 64, the :full gain
+          MIX_LEVELS = RubyGBA::Audio::Sound::MIX_LEVELS
+          VOL_SHIFT = RubyGBA::Audio::Sound::VOL_SHIFT # 2**6 = 64, the :full gain
 
           # Which of the two output buffers the DMA is playing right now (0 or 1).
           MIX_FRONT = :__mix_front
@@ -432,13 +427,13 @@ module RubyGBA
           def prepare_mixer(program)
             return unless @plays_samples
 
-            @uses_envelopes = shapes_any_note?(program)
+            @uses_envelopes = IR::Mixing.shapes_any_note?(program)
 
             # The clock and the samples-a-frame are ONE decision, not two: the hardware eats a
             # sample every time this timer overflows, so how many it eats in a frame is fixed
             # by the clock, and that is exactly how many the mix has to write. Asking for both
             # separately is how they came to disagree. See Timers.sample_clock.
-            @sample_clock = Timers.sample_clock(common_sample_rate(program))
+            @sample_clock = Timers.sample_clock(IR::Mixing.requested_rate(program))
             @mixer_rate = @sample_clock.rate
             @mixer_spf = @sample_clock.samples_a_frame
             refuse_samples_not_whole_passes!
@@ -676,13 +671,9 @@ module RubyGBA
             step_at(sample, notes.fetch(node.pitch || sample.note || :C4))
           end
 
-          # The 16.16 step that sounds +sample+ at +frequency+ Hz — the same sum for a note a game
-          # plays and a note a song plays, so the two are in tune with each other.
-          def step_at(sample, frequency)
-            ratio = frequency.to_f / RubyGBA::Audio::Music::NOTE_FREQUENCIES.fetch(sample.note || :C4)
-            step = (sample.rate.to_f / @mixer_rate) * ratio
-            [(step * STEP_ONE).round, 1].max
-          end
+          # The 16.16 step that sounds +sample+ at +frequency+ Hz at the rate this mix runs at (see
+          # IR::Mixing.step).
+          def step_at(sample, frequency) = IR::Mixing.step(sample, frequency, @mixer_rate)
 
           # stop_sample: silence a sample by clearing every voice slot playing it (or every
           # slot, when no sample is named). Just flips each matching slot's "active" off. The
@@ -1118,7 +1109,7 @@ module RubyGBA
             # times the share for one sample is more than 32 bits can hold.
             e.emit(ASM.sub_reg(0, 0, 3))
             e.emit(ASM.asr_imm(0, 0, RAMP_SPLIT))
-            e.emit(ASM.load_immediate(3, (1 << (2 * RAMP_SPLIT)) / @mixer_spf))
+            e.emit(ASM.load_immediate(3, IR::Mixing.slide_share(@mixer_spf)))
             e.emit(ASM.mul(0, 3, 0))
             e.emit(ASM.asr_imm(0, 0, RAMP_SPLIT))
             e.emit(ASM.str_offset(0, 4, SLOT_RAMP))
@@ -1668,29 +1659,6 @@ module RubyGBA
             @emitter.emit(ASM.sub_imm(2, 2, 1))
             @emitter.emit(ASM.cmp_imm(2, 0))
             @emitter.emit_branch(:bcond, loop_lbl, cond: :ne)
-          end
-
-          # DOES ANYTHING IN THIS PROGRAM SHAPE A NOTE? Asked once, of the whole program, because
-          # the answer decides whether a single instruction of the envelope is emitted anywhere —
-          # a game that names none is exactly the game it was before any of this existed.
-          #
-          # Three places can say so: a recording declared with one, a part of a played tune or a
-          # sound effect, or one of that part's notes. A tune nobody plays says nothing, the same
-          # as it costs nothing everywhere else.
-          def shapes_any_note?(program)
-            program.walk.any? { |node| node.kind == :sample && node.envelope } ||
-              IR::Tunes.playable_songs(program).any? do |song|
-                IR::Tunes.soundings(song).any? { |sounding| sounding.envelope }
-              end
-          end
-
-          # The output rate to mix at: the rate most of the program's samples were recorded
-          # at, so a single-rate game plays at its own pitch. Defaults to the usual rate.
-          def common_sample_rate(program)
-            rates = program.walk.select { |n| n.kind == :sample }.map { |n| n.rate }
-            return RubyGBA::Builder::SampledAudio::DEFAULT_SAMPLE_RATE if rates.empty?
-
-            rates.group_by(&:itself).max_by { |_rate, list| list.size }.first
           end
         end
       end

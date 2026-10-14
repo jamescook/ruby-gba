@@ -57,6 +57,25 @@ module RubyGBA
       # beside them.
       MIXER_VOICES = 16
 
+      # THE NUMBERS THE MIX ADDS RECORDINGS TOGETHER WITH, kept here for the same reason: the
+      # cartridge's mixer and the interpreter's work out the same bytes of sound, and a number
+      # written in each would drift.
+      #
+      # A play's loudness, out of 64, by the name it was asked at — and the shift that divides by
+      # those 64. A STEP, how far a voice reads through its recording for each sample of the mix,
+      # is counted in 65536ths, so STEP_SHIFT bits of it are the part of a sample. A note with a
+      # shape slides its loudness, its GAIN, which keeps GAIN_FRACTION bits of fraction under it:
+      # sixteen is as many as fit, since a gain of at most 64 is then 22 bits and a sample of at
+      # most 128 is 8 more. The slide is a distance divided by the samples in a frame, done as a
+      # multiply by one sample's share out of 1 << (2 * RAMP_SPLIT), with the distance shifted
+      # down RAMP_SPLIT bits before it and the product after, so a whole gain's worth of
+      # distance stays inside 32 bits on the way.
+      MIX_LEVELS = { full: 64, three_quarter: 48, half: 32, quarter: 16, mute: 0 }.freeze
+      VOL_SHIFT = 6
+      STEP_SHIFT = 16
+      GAIN_FRACTION = 16
+      RAMP_SPLIT = 8
+
       # Resolve a beep into concrete musical values. +tone+ is either a preset name
       # (looked up first among the program's own +defined+ sounds, then the built-in
       # PRESETS) or a raw frequency in Hz. Any non-nil override replaces the base

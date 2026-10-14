@@ -97,6 +97,10 @@ module RubyGBA
         # The names of the samples sounding right now — see {Mixer#sounding}.
         def active_samples = @mixer.sounding
 
+        # EVERY FRAME'S SLICE OF SOUND, oldest first, each the signed samples the cartridge's
+        # mixer writes for that frame (see Mixer#mix). Empty for a program with no recording.
+        def mixed_sound = @mixer.slices
+
         # ...and whose each of them is — see {Mixer#owners}.
         def sound_owners = @mixer.owners
 
@@ -251,6 +255,7 @@ module RubyGBA
           @over_budget = false
           @uses_frames = false # set once the program reaches its first vblank (advance_frame)
           collect_definitions(node)
+          start_mixer_clock(node)
           @save.use_memory!(SaveLayout.memory_of(node))
           refuse_too_many_layers!(node)
           refuse_too_many_sprites!(node)
@@ -494,7 +499,7 @@ module RubyGBA
             when :sound_effect_list
               @player.declare_effects(n.name, n.effects)
             when :sample
-              @mixer.declare(n.name, Assets::Sample.of(n))
+              @mixer.declare(n.name, Assets::Sample.of(n), n.bytes)
             when :list_new
               # A list is room the cartridge sets aside, so it is there, empty, from power-on —
               # wherever it is declared. A scene that shows tiles painted from a list declared
@@ -987,6 +992,18 @@ module RubyGBA
         # #collect_definitions), and advance_frame runs its body on each overflow.
         def exec_on_timer(_node); end
 
+        # THE MIX RUNS AT THE CARTRIDGE'S CLOCK: the nearest the console's sample clock can keep
+        # to the rate the program's recordings ask for. That clock is the one thing here read
+        # off the console backend, and on purpose — how many samples a frame holds is a fact
+        # about the hardware the sound plays on, not about the program, and this mix exists to
+        # make the very bytes that hardware is handed. A program that mixes nothing has no clock.
+        def start_mixer_clock(program)
+          return unless IR::Mixing.mixes?(program)
+
+          @mixer.start_clock(clock: GBA::Timers.sample_clock(IR::Mixing.requested_rate(program)),
+                             shapes: IR::Mixing.shapes_any_note?(program))
+        end
+
         # One vblank: snapshot the current buttons as "previous" (so an edge can
         # be spotted), advance the frame counter, and pull the next frame's input
         # if a script is driving it.
@@ -1026,19 +1043,22 @@ module RubyGBA
           # overflows this frame — that's what timer_ticks reads back, and each whole
           # overflow crossed this frame runs its on_tick handler once.
           @timers.each { |name, t| accrue_timer(name, t) if t[:running] }
-          # The game's recordings, the tune, every sounding note's shape and the mix all move on
-          # once for every frame that really passed, not once for the pass: the console does all
-          # of it from the screen's own interrupt, which keeps real time. So a recording a game
-          # plays ends after as many frames as it lasts, however long the game takes a pass. In
-          # each frame, the tune and then the shapes come before the mix — the console's own
-          # order, so a note that has just started has climbed and one that has just ended is on
-          # its way down before either is heard (see GBA::Mixer#emit_envelope_step).
+          # The mix, the tune and every sounding note's shape all move on once for every frame
+          # that really passed, not once for the pass: the console does all of it from the
+          # screen's own interrupts, which keep real time. So a recording a game plays ends after
+          # as many frames as it lasts, however long the game takes a pass.
+          #
+          # IN THE CONSOLE'S ORDER, which is not the order of a frame's own parts. The tune and
+          # the shapes are moved on as the screen finishes a picture, just before the game's pass
+          # starts; the mix is made as the next picture starts, after the pass. So what the game
+          # plays or stops in its pass is in the very next slice, and a note the tune starts has
+          # climbed before it is heard (see GBA::Mixer#emit_envelope_step) — and a sound the game
+          # starts with a shape is mixed once at nothing before its shape first moves it.
           took.times do
-            @mixer.advance
+            @mixer.mix
             # A program that never said `music_volume` has no level, rather than a level of 0.
             @player.advance(level: @vars.fetch(IR::Tunes::LEVEL, nil))
             @mixer.step_envelopes
-            @mixer.advance_music_voices
           end
           read_buttons(took)
           @log << [:vblank, @frame]

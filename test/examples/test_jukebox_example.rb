@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require "test_helper"
+require "mixed_sound"
 
 require "stringio"
 require_relative "../../examples/jukebox"
@@ -11,6 +12,7 @@ require_relative "../../examples/jukebox"
 # tune's notes actually fire — on the interpreter oracle AND that a real ROM drives
 # the music channel on hardware.
 class TestJukeboxExample < Minitest::Test
+  include MixedSound
 
   # The opening (downbeat) note of each tune, in Hz — distinct so each is a
   # diagnostic value. If the frame-0 fix regressed, these would never sound.
@@ -300,6 +302,15 @@ class TestJukeboxExample < Minitest::Test
 
     assert_operator pressed.first(40).sum(&:loudness), :>, quiet.first(40).sum(&:loudness), "HOORAY is heard"
     assert_equal quiet[60, 60].map(&:loudness), pressed[60, 60].map(&:loudness), "and after it, the tune as it was"
+  end
+
+  # A WHOLE PIECE OF REAL MUSIC, BYTE FOR BYTE: moved up to the piano chords (which fades the
+  # tune out, switches, and fades the chords in, a dozen recorded voices at once), with HOORAY
+  # asked for over them — every byte of sound the cartridge's mixer writes, worked out by the
+  # interpreter too (see MixedSound).
+  def test_the_interpreter_makes_the_same_bytes_of_sound_as_the_cartridge
+    assert_mixes_agree(Jukebox.program, frames: 150, presses: { 5 => [:up], 6 => [:up], 60 => [:a], 61 => [:a] },
+                                        at_least: 60)
   end
 
   # On real hardware: the ROM boots and the music channel is actually driven.

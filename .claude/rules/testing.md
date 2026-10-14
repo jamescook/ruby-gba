@@ -62,7 +62,7 @@ directory under `lib/` first. That is what stops the tree growing a folder per
 feature.
 
 The shared helpers — `test_helper.rb`, `differential.rb`, `emulator_blend.rb`,
-`conformance_fixture.rb` — stay at `test/`, and are loaded **by bare name**
+`mixed_sound.rb`, `conformance_fixture.rb` — stay at `test/`, and are loaded **by bare name**
 (`require "differential"`). That works from any depth because the Rakefile puts
 `test` on the load path. Never `require_relative` them: that one breaks the
 moment a file moves.
@@ -238,6 +238,7 @@ i.pool(:guard, :x)                 # a pool field, one entry per slot: the value
 i.game_state                       # { vars:, lists:, pools: } — all of the game's own state; compare two with ==
 i.screen_mode                      # e.g. :bitmap
 i.audio                            # the audio/register log
+i.mixed_sound                      # every frame's slice of mixed recordings, the bytes the cartridge's mixer writes
 i.stopped_at_budget?               # true if it was still looping when cut off
 
 i.sprites(:hero)                   # the rows it drew for that named sprite
@@ -496,6 +497,27 @@ pixel off" from "everything below the map".
 
 Use `backend_pictures` directly (not the assertion) to pin a **known** disagreement
 that's filed but not fixed, so it stays visible without failing the build.
+
+## Byte-for-byte sound
+
+`test/mixed_sound.rb` does for recorded sound what `differential.rb` does for the
+picture: the interpreter works out every byte the cartridge's mixer writes
+(`i.mixed_sound`, one slice a frame), and this holds the two to each other.
+
+```ruby
+include MixedSound                         # from test/mixed_sound.rb
+
+assert_mixes_agree(program, frames: 24)    # every byte of every slice must match
+assert_mixes_agree(program, frames: 150, presses: { 5 => [:up], 60 => [:a] }, at_least: 60)
+console_mixes(program, 30)                 # the console's slices, newest after each frame
+```
+
+Each backend's list is taken from its **first slice with any sound in it**, because the
+console spends frames setting up before the game's first pass. So what it cannot see is
+the two a frame apart on everything; what it does see is one sound landing a frame late
+against another — which is why a test of timing plays two (a tune, and a sound the game
+starts in its loop). It reads only recorded sound: the console's square, wave and noise
+voices never pass through memory.
 
 ## Building the program under test — two routes
 

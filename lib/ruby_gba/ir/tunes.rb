@@ -24,7 +24,7 @@ module RubyGBA
 
       # The loudness a recorded part's voice plays at when its written volume is 15. A mixer
       # voice's loudness runs 0 to this, where a console voice's runs 0 to 15.
-      MIX_FULL = 64
+      MIX_FULL = RubyGBA::Audio::Sound::MIX_LEVELS.fetch(:full)
 
       module_function
 
