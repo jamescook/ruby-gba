@@ -29,6 +29,9 @@ class CheckedNativeRun
   SaveImage = RubyGBA::IR::SaveImage
   Moment = HeadlessRun::Moment
 
+  # Why a game the interpreter stops only by its step budget cannot be played as C.
+  NO_STEP_COUNT = "the native lowering keeps no count of its steps"
+
   # Every frame's buttons reach the native run through one script, which keeps them for the
   # replay: the test's own script when it gave one, else whatever it held for the whole run.
   # +save+ is the save memory the game starts with, as the interpreter takes it, and it holds
@@ -67,7 +70,7 @@ class CheckedNativeRun
   # guards one frame of the interpreter, and means nothing here.
   def run(program, max_steps: nil, frames: nil)
     frames ||= max_steps ? frames_within(program, max_steps) : Reference::DEFAULT_FRAMES
-    refuse_endless_game_without_frames!(program)
+    refuse_endless_game_without_frames!(program, max_steps)
     interpreters_save = save_as_handed_over
     @native.run(program, frames: frames)
     interpreter, moments = play_on_interpreter(program, frames, interpreters_save)
@@ -140,28 +143,34 @@ class CheckedNativeRun
   # The buttons are asked of the test's own script here and again on the native run, so a script
   # that reads the game sees it as it stood before this run.
   def frames_within(program, max_steps)
-    lead = Reference.new(save: save_as_handed_over).hold(*@held).input_each_frame { |frame| buttons_for(frame) }
-                    .run(program, max_steps: max_steps)
+    lead = interpreter_from(save_as_handed_over).input_each_frame { |frame| buttons_for(frame) }
+                                                .run(program, max_steps: max_steps)
     return lead.frame unless lead.frame.zero? && lead.stopped_at_budget?
 
     raise HeadlessRun::CannotAnswer, "this game spends the whole step budget before it first waits for the " \
-                                     "screen, so the budget is all that stops it, and the native lowering " \
-                                     "keeps no count of its steps"
+                                     "screen, so the budget is all that stops it, and #{NO_STEP_COUNT}"
   end
 
   # A game that never waits for the screen has no frames for a count of them to stop. The
   # interpreter stops it at its step budget; the C keeps no count of its steps, and would play on
   # until HeadlessRun gave up on it a minute later. Such a game never asks for a frame's buttons,
   # so the interpreter can be asked first, with only the buttons held from power-on, whether it
-  # comes to an end by itself.
-  def refuse_endless_game_without_frames!(program)
+  # comes to an end by itself, inside the test's own step budget when it gave one.
+  #
+  # A game whose only wait is in a routine nothing calls, or after a loop that never ends, is
+  # not caught here and still runs for that minute: asking the interpreter first about every
+  # game would play every test twice over.
+  def refuse_endless_game_without_frames!(program, max_steps)
     return if program.walk.any? { |node| node.kind == :wait_vblank }
-    return unless Reference.new(save: save_as_handed_over).hold(*@held).run(program).stopped_at_budget?
+    return unless interpreter_from(save_as_handed_over).run(program, max_steps: max_steps).stopped_at_budget?
 
     raise HeadlessRun::CannotAnswer, "this game never waits for the screen, so it has no frames to count: the " \
-                                     "interpreter's step budget is all that stops it, and the native lowering " \
-                                     "keeps no count of its steps"
+                                     "interpreter's step budget is all that stops it, and #{NO_STEP_COUNT}"
   end
+
+  # The interpreter starting from +save+, with the buttons held for the whole run down from
+  # power-on, as the game as C has them.
+  def interpreter_from(save) = Reference.new(save: save).hold(*@held)
 
   def buttons_for(frame) = @script ? Array(@script.call(frame)) : @held
 
@@ -176,9 +185,9 @@ class CheckedNativeRun
 
   # The interpreter played on the same buttons from +save+, and its moments.
   def play_on_interpreter(program, frames, save)
-    interpreter = Reference.new(save: save)
+    interpreter = interpreter_from(save)
     moments = []
-    interpreter.hold(*@held).input_each_frame { |frame| @played.fetch(frame, []) }
+    interpreter.input_each_frame { |frame| @played.fetch(frame, []) }
                .each_vblank { |frame| moments << moment_of(interpreter, frame) }
                .run(program, frames: frames)
     [interpreter, moments << moment_of(interpreter, :end)]
@@ -195,8 +204,8 @@ class CheckedNativeRun
     message = "the native lowering and the interpreter disagree at #{difference}"
     return message unless difference.include?("picture")
 
-    want = reference_snapshots(program, frames: frames, buttons: @played)
-    got = native_snapshots(program, frames: frames, buttons: @played, mode: :checked)
+    want = reference_snapshots(program, frames: frames, buttons: @played, held: @held)
+    got = native_snapshots(program, frames: frames, buttons: @played, mode: :checked, held: @held)
     first = want.zip(got).find { |reference, native| reference.picture != native.picture }
     first ? "#{message} (#{first.last.heading}: #{picture_difference(first.first.picture, first.last.picture)})" : message
   end

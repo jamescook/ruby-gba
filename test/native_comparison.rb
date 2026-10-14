@@ -83,15 +83,17 @@ module NativeComparison
     reference_snapshots(program, frames: frames, buttons: {}).map(&:picture).uniq.length
   end
 
-  # The snapshots the windowless program printed.
-  def native_snapshots(program, frames:, buttons:, mode:)
+  # The snapshots the windowless program printed. +held+ is down from power-on, before the
+  # game's first statement, and +buttons+ say what is held on each frame from the first on.
+  def native_snapshots(program, frames:, buttons:, mode:, held: [])
     exe = Native.new.build_headless(program, mode: mode)
     input = (1..frames).map { |frame| "#{Native::HeadlessRun.button_mask(buttons.fetch(frame, []))}\n" }.join
-    parse_snapshots(Native::Zig.run_program(exe, args: [frames, "--every-picture"], input: input), program)
+    from_power_on = held.empty? ? [] : ["--held-from-power-on", Native::HeadlessRun.button_mask(held)]
+    parse_snapshots(Native::Zig.run_program(exe, args: [frames, "--every-picture", *from_power_on], input: input), program)
   end
 
-  def reference_snapshots(program, frames:, buttons:)
-    interpreter = Reference.new
+  def reference_snapshots(program, frames:, buttons:, held: [])
+    interpreter = Reference.new.hold(*held)
     snapshots = []
     interpreter.input_each_frame { |frame| buttons.fetch(frame, []) }
                .each_vblank { |frame| snapshots << reference_moment(interpreter, "frame #{frame}") }

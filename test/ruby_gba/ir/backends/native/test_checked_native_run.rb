@@ -57,6 +57,22 @@ class TestCheckedNativeRun < Minitest::Test
     assert_equal 1, played[:early]
   end
 
+  # A run whose pictures differ is played again a pixel at a time to say where, and that replay
+  # holds the same buttons from power-on.
+  def test_the_replay_that_finds_the_pixel_holds_buttons_from_power_on
+    program = program_of do
+      early = var :early, 0
+      held(:a).then { early.set! 1 }
+      game_loop {}
+    end
+
+    want = reference_snapshots(program, frames: 1, buttons: {}, held: [:a]).last
+    got = native_snapshots(program, frames: 1, buttons: {}, mode: :checked, held: [:a]).last
+
+    assert_equal 1, want.variables[:early]
+    assert_equal 1, got.variables[:early]
+  end
+
   def test_a_step_budget_on_a_game_that_never_waits_for_the_screen_cannot_be_played
     builder = Builder.new(options: RubyGBA::Cartridge::Options.new(frame_sync: :manual))
     builder.instance_eval do
