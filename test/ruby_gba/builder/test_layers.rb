@@ -349,10 +349,12 @@ class TestLayers < Minitest::Test
   end
 
   # The interpreter has to make a picture out of a layered program, not choke on the
-  # stack it declares — the sprite in :actors is drawn where it was put.
+  # stack it declares — the sprite in :actors is drawn where it was put. A few frames, not a
+  # step budget: an empty loop spends a budget of steps on tens of thousands of frames, and a
+  # native run plays and checks every one of them.
   def test_a_layered_game_draws_on_the_reference_interpreter
     prog = stacked_game { game_loop { nil } }
-    i = game_player.run(prog, max_steps: 200_000)
+    i = game_player.run(prog, frames: 3)
 
     assert_equal RubyGBA::Graphics::Color.resolve(:red), i.screen.pixel(104, 64)
   end
