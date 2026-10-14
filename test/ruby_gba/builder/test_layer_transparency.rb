@@ -19,7 +19,7 @@ require "stringio"
 # The one thing a reader would not guess is that a see-through sprite never shows another
 # sprite through it, only scenery; that has tests of its own below.
 class TestLayerTransparency < Minitest::Test
-  runs_on :reference
+  runs_on :reference, :native
 
   include Differential
 
@@ -90,7 +90,7 @@ class TestLayerTransparency < Minitest::Test
   SPRITE_XY = [66, 66].freeze
 
   def shown(program, x, y, frames: 2)
-    Reference.new.run(program, frames: frames).screen.pixel(x, y)
+    game_player.run(program, frames: frames).screen.pixel(x, y)
   end
 
   def console(program, x, y, name, frames: 6)
@@ -115,7 +115,7 @@ class TestLayerTransparency < Minitest::Test
   # two mechanisms differ most here, and this is what says the sprite path picks out
   # exactly the sprites in that layer rather than blending the screen.
   def test_only_the_see_through_layer_blends
-    screen = Reference.new.run(sprite_program(50), frames: 2).screen
+    screen = game_player.run(sprite_program(50), frames: 2).screen
 
     assert_equal HALF_WHITE_OVER_RED, screen.pixel(*SPRITE_XY), "the sprite blends"
     assert_equal RED, screen.pixel(*SCENERY_XY), "the floor beside it does not"
@@ -143,7 +143,7 @@ class TestLayerTransparency < Minitest::Test
   end
 
   def test_one_see_through_sprite_needs_only_a_layer_of_its_own
-    screen = Reference.new.run(lone_ghost_program, frames: 2).screen
+    screen = game_player.run(lone_ghost_program, frames: 2).screen
 
     assert_equal HALF_WHITE_OVER_RED, screen.pixel(*SPRITE_XY), "the ghost blends"
     assert_equal GREEN, screen.pixel(26, 26), "the sprite that named no layer does not"
@@ -190,7 +190,7 @@ class TestLayerTransparency < Minitest::Test
   HALF_BLUE_OVER_RED = 0x3C0F
 
   def test_a_see_through_sprite_over_another_sprite_shows_the_scenery_and_not_the_sprite
-    screen = Reference.new.run(ghost_over_hero_program, frames: 3).screen
+    screen = game_player.run(ghost_over_hero_program, frames: 3).screen
 
     assert_equal GREEN, screen.pixel(*HERO_ALONE), "the hero, where nothing covers them"
     assert_equal HALF_WHITE_OVER_RED, screen.pixel(*GHOST_OVER_HERO), "the ghost hides the hero it covers"
@@ -531,7 +531,7 @@ class TestLayerTransparency < Minitest::Test
     title = faded_title_then_misty_room(paints: :once, room_at: 12)
 
     [3, 6].each do |frames|
-      assert_equal [rgb5(*BLUE_FADED)], Reference.new.run(title, frames: frames).screen.shown.uniq
+      assert_equal [rgb5(*BLUE_FADED)], game_player.run(title, frames: frames).screen.shown.uniq
       assert_backends_agree(title, frames: frames, console_frames: frames + 2)
     end
   end
@@ -539,7 +539,7 @@ class TestLayerTransparency < Minitest::Test
   # The walker has moved on from where it started, and what is left there is the mist as the
   # rest of the screen shows it — not a patch of the mist drawn see-through.
   def test_a_sprite_leaves_the_solid_mist_behind_it_under_a_fade
-    shown = Reference.new.run(faded_title_then_misty_room, frames: 14).screen.shown
+    shown = game_player.run(faded_title_then_misty_room, frames: 14).screen.shown
 
     assert_equal rgb5(*SOLID_MIST_FADED), shown[(41 * 240) + 41], "where the walker started"
     assert_equal [rgb5(*SOLID_MIST_FADED), rgb5(16, 0, 0)].sort, shown.uniq.sort,
@@ -576,7 +576,7 @@ class TestLayerTransparency < Minitest::Test
     hall = faded_title_then_misty_room(rooms: :hall) { |pass| (pass == 6).then { fade :black, 0 } }
 
     assert_backends_agree_through_the_fade(hall, [5, 6, 7, 10])
-    assert_equal rgb5(16, 8, 2), Reference.new.run(hall, frames: 10).screen.pixel(200, 100),
+    assert_equal rgb5(16, 8, 2), game_player.run(hall, frames: 10).screen.pixel(200, 100),
                  "the hall's upper layer in its own colour, with nothing behind it showing"
   end
 
@@ -585,7 +585,7 @@ class TestLayerTransparency < Minitest::Test
     room = faded_title_then_misty_room { |pass| (pass == 8).then { fade :black, 0 } }
 
     assert_backends_agree_through_the_fade(room, [7, 8, 9, 12])
-    assert_equal seen_through_mist, Reference.new.run(room, frames: 12).screen.pixel(200, 100),
+    assert_equal seen_through_mist, game_player.run(room, frames: 12).screen.pixel(200, 100),
                  "the mist is seen through again, at full brightness"
   end
 
@@ -596,10 +596,10 @@ class TestLayerTransparency < Minitest::Test
     room = faded_title_then_misty_room { tint :red, 0 }
 
     assert_backends_agree_through_the_fade(room, [5, 8, 12])
-    assert_equal seen_through_mist, Reference.new.run(room, frames: 12).screen.pixel(200, 100)
+    assert_equal seen_through_mist, game_player.run(room, frames: 12).screen.pixel(200, 100)
   end
 
-  def seen_through_mist = Reference.new.run(scene_mist_with_no_fade, frames: 8).screen.pixel(200, 100)
+  def seen_through_mist = game_player.run(scene_mist_with_no_fade, frames: 8).screen.pixel(200, 100)
 
   # The same of a fade PLACED in the stack, which is the display's own on any screen: a tint
   # said after it takes its place, and the mist it had made solid is seen through again.
@@ -627,8 +627,8 @@ class TestLayerTransparency < Minitest::Test
     game = placed_fade_then_a_tint
     [2, 4, 5, 7, 8, 10].each { |frames| assert_backends_agree(game, frames: frames) }
 
-    assert_equal rgb5(8, 4, 1), Reference.new.run(game, frames: 5).screen.pixel(200, 100), "solid and dark under the fade"
-    assert_equal seen_through_mist, Reference.new.run(game, frames: 10).screen.pixel(200, 100), "seen through after the tint"
+    assert_equal rgb5(8, 4, 1), game_player.run(game, frames: 5).screen.pixel(200, 100), "solid and dark under the fade"
+    assert_equal seen_through_mist, game_player.run(game, frames: 10).screen.pixel(200, 100), "seen through after the tint"
   end
 
   # The same room with no title and no fade: what the mist looks like seen through.
@@ -747,7 +747,7 @@ class TestLayerTransparency < Minitest::Test
 
   def test_one_flash_does_not_cost_the_layer_for_the_rest_of_the_game
     %i[scenery sprite].each do |kind|
-      screen = Reference.new.run(flashing_program(kind), frames: AFTER_THE_FLASH).screen
+      screen = game_player.run(flashing_program(kind), frames: AFTER_THE_FLASH).screen
 
       assert_equal HALF_WHITE_OVER_RED, screen.pixel(*faded_xy(kind)),
                    "the #{kind} layer never came back after the flash"
