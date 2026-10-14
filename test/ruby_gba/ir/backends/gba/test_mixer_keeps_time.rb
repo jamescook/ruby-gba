@@ -11,8 +11,9 @@ require "test_helper"
 # that hands it sound more slowly than that simply runs out.
 #
 # So the mixer's refill rides on the screen's own interrupt rather than on a pass of the game
-# loop. These are the tests of that, and they can only be console tests: the interpreter has no
-# clock, so a pass there is always exactly one frame and there is no lateness to model.
+# loop. These are the tests of that on the console, which is really late here. The interpreter
+# has no clock and is never late by itself; a test tells it a pass took several frames, and
+# test_music_keeps_time.rb holds it to the same answer.
 class TestMixerKeepsTime < Minitest::Test
   RATE = 8000
   SLICE = (RATE + 59) / 60 # what the hardware plays in one frame

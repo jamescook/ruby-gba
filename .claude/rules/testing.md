@@ -252,8 +252,9 @@ Reference.new.frames_each_pass { |pass| 3 }.run(prog)     # say a pass ran late:
 clock and is never late by construction — so a test says it. The block gives how many frames
 each pass answered for, held between 1 and `IR::Frames::MOST` exactly as the console holds it.
 That drives `once_a_frame` (the body runs that many times), a beat in frames, a one-shot's
-counter, the song playing (it moves on that many frames), and the buttons, which are read on
-each of those frames — `input_each_frame` is called once per frame the screen shows, numbered
+counter, the song playing (it moves on that many frames), a recording the game plays (it is
+that many frames further through, so it ends as many frames in as it lasts), and the buttons,
+which are read on each of those frames — `input_each_frame` is called once per frame the screen shows, numbered
 on the screen, so a tap can start and end inside one slow pass. It does **not** make the
 interpreter slow: timers still accrue a pass's worth, and `frames:` still counts passes. Use it to pin what
 a program *means* when the console says it is late; use the emulator to find out whether it really is.

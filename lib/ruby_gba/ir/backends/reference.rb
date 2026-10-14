@@ -394,8 +394,9 @@ module RubyGBA
         #
         # WHAT IT MOVES, and it is only this: how many frames the pass just ended answers
         # for. A `once_a_frame` body runs that many times, a beat in frames counts that
-        # many, a one-shot's counter jumps that far, a song moves on that many frames, and
-        # the buttons are read that many times (the input script is called once for each).
+        # many, a one-shot's counter jumps that far, a song moves on that many frames, a
+        # recording the game plays is that many frames further through, and the buttons are
+        # read that many times (the input script is called once for each).
         # It does NOT make the interpreter slow — a timer still accrues a pass's worth, and
         # `frames:` still counts passes.
         # Nothing here pretends to be a clock; it pins what a program MEANS when the console
@@ -1025,13 +1026,15 @@ module RubyGBA
           # overflows this frame — that's what timer_ticks reads back, and each whole
           # overflow crossed this frame runs its on_tick handler once.
           @timers.each { |name, t| accrue_timer(name, t) if t[:running] }
-          @mixer.advance
-          # The tune moves on once for every frame that really passed, not once for the pass:
-          # the console plays it from the screen's own interrupt, which keeps real time. Then a
-          # frame of every sounding note's shape, and then the mix — the console's own order, so
-          # a note that has just started has climbed and one that has just ended is on its way
-          # down before either is heard (see GBA::Mixer#emit_envelope_step).
+          # The game's recordings, the tune, every sounding note's shape and the mix all move on
+          # once for every frame that really passed, not once for the pass: the console does all
+          # of it from the screen's own interrupt, which keeps real time. So a recording a game
+          # plays ends after as many frames as it lasts, however long the game takes a pass. In
+          # each frame, the tune and then the shapes come before the mix — the console's own
+          # order, so a note that has just started has climbed and one that has just ended is on
+          # its way down before either is heard (see GBA::Mixer#emit_envelope_step).
           took.times do
+            @mixer.advance
             # A program that never said `music_volume` has no level, rather than a level of 0.
             @player.advance(level: @vars.fetch(IR::Tunes::LEVEL, nil))
             @mixer.step_envelopes
