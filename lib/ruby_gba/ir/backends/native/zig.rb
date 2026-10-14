@@ -121,6 +121,13 @@ module RubyGBA
 
           CHECKER_FLAGS_FILE = Ractor.make_shareable(File.expand_path("compile_flags.txt", __dir__))
 
+          # ...and beside the C the native tests compile around one header (a harness), which the
+          # checker reads from a folder with no flags above it otherwise. Written only where the
+          # test folder is there, which is a checkout.
+          HARNESS_CHECKER_FLAGS_FILE = Ractor.make_shareable(
+            File.expand_path("../../../../../test/ruby_gba/ir/backends/native/compile_flags.txt", __dir__)
+          )
+
           # What the build holds the runtime to, and where its headers are found: its own folder,
           # and SDL's once a desktop build has fetched it.
           def checker_flags = WARNINGS + [RUNTIME_DIR, sdl_include_dir].compact.map { |dir| "-I#{dir}" }
@@ -142,7 +149,10 @@ module RubyGBA
           # runtime's C, and nothing anywhere else. A folder that cannot be written is no reason
           # to stop a build.
           def refresh_checker_flags_in_checkout
-            refresh_checker_flags if working_in_checkout?
+            return unless working_in_checkout?
+
+            refresh_checker_flags
+            refresh_checker_flags(HARNESS_CHECKER_FLAGS_FILE) if File.directory?(File.dirname(HARNESS_CHECKER_FLAGS_FILE))
           rescue SystemCallError
             nil
           end

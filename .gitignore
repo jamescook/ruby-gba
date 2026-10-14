@@ -27,6 +27,7 @@ zig-out/
 # How the native runtime is built, for an editor's C checker. Every native build keeps it
 # right (Native::Zig), and it names folders on the machine that wrote it.
 /lib/ruby_gba/ir/backends/native/compile_flags.txt*
+/test/ruby_gba/ir/backends/native/compile_flags.txt*
 
 # beads task-tracker db (dolt server, logs, sockets). Never commit: a shell-metacharacter
 # bug in a bd command once dumped a live secret straight into this db.

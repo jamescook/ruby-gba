@@ -39,6 +39,23 @@ class TestNativeCheckerFlags < Minitest::Test
     assert_empty checked.filter_map { |file| complaints_about(file) }
   end
 
+  # The C the tests compile beside the runtime (a harness that drives one header on its own) is
+  # read by the checker with the flags kept beside it, which a build keeps as fresh as the others.
+  def test_building_a_game_as_c_keeps_the_test_harnesses_flags_too
+    File.write(Zig::HARNESS_CHECKER_FLAGS_FILE, "-Wnothing\n")
+
+    Native.new.build_headless(program_of { game_loop {} })
+    written = File.readlines(Zig::HARNESS_CHECKER_FLAGS_FILE, chomp: true)
+
+    assert_empty [*Zig::WARNINGS, "-I#{Zig::RUNTIME_DIR}"] - written
+    refute_includes written, "-Wnothing"
+    harnesses = Dir.glob(File.join(File.dirname(Zig::HARNESS_CHECKER_FLAGS_FILE), "*.c"))
+    refute_empty harnesses
+    assert_empty harnesses.filter_map { |file| complaints_about(file) }
+  ensure
+    Zig.refresh_checker_flags(Zig::HARNESS_CHECKER_FLAGS_FILE)
+  end
+
   def test_the_windows_file_passes_once_sdl_has_been_fetched
     skip "SDL has not been fetched on this machine: build a game for the desktop once" if Zig.sdl_include_dir.nil?
 

@@ -380,7 +380,9 @@ stands behind the monitor while the window is hidden, are plain arithmetic in
 on its own. Every native build — a test's, or a game built for the desktop — keeps a
 `compile_flags.txt` above that folder holding the build's own flags and header folders
 (`Native::Zig.checker_flags`), so the checker holds the code to what the build does and finds
-SDL's headers, and nobody runs anything to get it. What that cannot cure: after a header is edited
+SDL's headers, and nobody runs anything to get it. The C harnesses the native tests compile
+around one header (`test/ruby_gba/ir/backends/native/*_harness.c`) get the same file beside
+them. What that cannot cure: after a header is edited
 the checker can go on reading it at its old positions and report nonsense, such as "invalid
 suffix on integer constant" on a line that only names a number the header defines. Ask the
 compiler itself before believing it, which takes a few seconds:
