@@ -301,12 +301,6 @@ class TestNativeHeadlessRun < Minitest::Test
     assert_match(/max_steps/, error.message)
   end
 
-  def test_starting_from_save_memory_is_refused_until_the_native_lowering_can_hold_one
-    error = assert_raises(HeadlessRun::CannotAnswer) { HeadlessRun.new(save: SaveImage.new) }
-
-    assert_match(/save memory/, error.message)
-  end
-
   # A test asking something only the interpreter can answer so far is told so by name, rather
   # than meeting a NoMethodError that reads like a typo in the test.
   def test_a_question_only_the_interpreter_can_answer_yet_says_so

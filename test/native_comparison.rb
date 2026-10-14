@@ -105,6 +105,18 @@ module NativeComparison
     at && "entry #{at} of the sound log: C has #{got[at].inspect}, Reference #{want[at].inspect}"
   end
 
+  # The first byte of save memory the two ended a run disagreeing on, or nil when the two chips
+  # hold the same bytes throughout.
+  def save_difference(want, got)
+    wanted = want.to_sav
+    held = got.to_sav
+    return nil if wanted == held
+
+    at = (0...[wanted.bytesize, held.bytesize].max).find { |index| wanted.getbyte(index) != held.getbyte(index) }
+    format("save memory at 0x%<at>X: C has 0x%<got>02X, Reference 0x%<want>02X", at: at, got: held.getbyte(at) || 0,
+                                                                              want: wanted.getbyte(at) || 0)
+  end
+
   # The first of the sprites drawn that the two disagree on, counted from the back, or nil when
   # they drew the same ones in the same places showing the same pictures.
   def sprites_difference(want, got)

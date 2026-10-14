@@ -25,12 +25,13 @@ class TestNativeRefusals < Minitest::Test
   # A kind this backend trails on is named, with the part of the work it belongs to.
   def test_a_kind_not_written_yet_is_refused_by_name
     program = program_of do
-      best = save_var :best, 0
-      game_loop { best.add! 1 }
+      clock = timer :clock, per_second: 30
+      seen = var :seen, 0
+      game_loop { seen.set! clock.ticks }
     end
 
     error = assert_raises(LoweringError) { Native.new.lower(program) }
-    assert_match(/cannot make yet \(saving\)/, error.message)
+    assert_match(/cannot make yet \(timers\)/, error.message)
   end
 
   # Sound the desktop cannot play yet is refused by name, rather than left out of what it plays.

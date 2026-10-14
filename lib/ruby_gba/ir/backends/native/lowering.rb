@@ -18,6 +18,7 @@ module RubyGBA
         class Lowering
           include Picture
           include Sound
+          include Saving
 
           # The variables the framework keeps the frame count in (see IR::Frames). Written at
           # every frame boundary, where the interpreter writes them.
@@ -45,7 +46,8 @@ module RubyGBA
                                                  var_ref: ->(n) { [n.name] }, repeat: ->(n) { [n.index].compact },
                                                  every: ->(n) { [n.counter] }, after: ->(n) { [n.counter] },
                                                  case: ->(n) { [n.var] }, scroll_rows: ->(n) { [n.row] },
-                                                 copy_owed_tiles: ->(n) { n.masks }
+                                                 copy_owed_tiles: ->(n) { n.masks },
+                                                 save_init: ->(n) { n.vars.map(&:name) }, save_store: ->(n) { [n.var] }
                                                })
 
           STATEMENTS = Ractor.make_shareable({
@@ -85,7 +87,10 @@ module RubyGBA
                                                see_through: :lower_see_through,
                                                # sound (Sound)
                                                beep: :lower_beep, enable_sound: :lower_enable_sound,
-                                               play_song: :lower_play_song, stop_music: :lower_stop_music
+                                               play_song: :lower_play_song, stop_music: :lower_stop_music,
+                                               # save memory (Saving)
+                                               save_init: :lower_save_init, save_store: :lower_save_store,
+                                               save_write: :lower_save_write, save_erase: :lower_save_erase
                                              }.merge(Nodes.of_role(:declaration).to_h { |kind| [kind, :lower_nothing] }))
 
           VALUES = Ractor.make_shareable({
@@ -99,7 +104,9 @@ module RubyGBA
                                            data_byte: :value_of_data_byte, list_get: :value_of_list_get,
                                            list_len: :value_of_list_len,
                                            # the picture (Picture)
-                                           pixels_overlap: :value_of_pixels_overlap
+                                           pixels_overlap: :value_of_pixels_overlap,
+                                           # save memory (Saving)
+                                           save_read: :value_of_save_read, save_sum: :value_of_save_sum
                                          })
 
           # EVERY KIND THIS BACKEND CANNOT WRITE YET, said out loud rather than found out. Native
@@ -107,7 +114,6 @@ module RubyGBA
           # which test_native_kind_coverage.rb holds against every kind there is. A kind leaves
           # the list the day it gets a row in STATEMENTS or VALUES.
           NOT_LOWERED_YET = Ractor.make_shareable({
-            saving: %i[save_erase save_init save_read save_store save_sum save_write],
             sound: %i[noise play_from_list play_sample play_sound_effect stop_sample stop_wave wave],
             timers: %i[on_timer timer_start timer_stop timer_ticks]
           })
@@ -168,12 +174,13 @@ module RubyGBA
             main = C::Function.new(name: @names.own("main"), body: [*power_on, *lower(@program)], exported: true)
             [C::Comment.new("Written by ruby-gba's native backend. Do not edit; build the game again."),
              C::Include.new("rg_int32.h"), C::Include.new("rg_runtime.h"), C::Include.new("rg_list.h"),
-             C::Include.new("rg_screen.h"), C::Include.new("rg_sound.h"),
+             C::Include.new("rg_screen.h"), C::Include.new("rg_sound.h"), C::Include.new("rg_save.h"),
              *variable_names.map { |name| C::Global.new(name: variable(name)) },
              *list_storage,
              *(@scenes.empty? ? [] : [C::Global.new(name: @names.own("scene"), value: -1)]),
              *held_colors_globals,
              *constant_arrays, *picture_data, *@drawing_arrays, title_array, music_table, beep_table,
+             save_memory_table,
              *@called.map { |name| C::Prototype.new(name: routine(name)) },
              *routine_table_declarations,
              *routines, *answers, main,

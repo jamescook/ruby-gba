@@ -5,7 +5,8 @@ require "native_comparison"
 # What `game_player` hands a test on a native run: the game played as C (Native::HeadlessRun),
 # and then the same buttons, frame for frame, played on the interpreter — with the run failing at
 # the first frame the two disagree on, about any variable, any pixel, or which sprites were drawn
-# and where.
+# and where. A game that saves is played both ways from the same save memory, and the two have to
+# end the run with the same bytes in it.
 #
 # A test that watches the run (each_vblank) watches the game as C, as it goes; the interpreter
 # is played afterwards, and nothing is watched twice.
@@ -24,11 +25,15 @@ class CheckedNativeRun
   extend NativeComparison
 
   HeadlessRun = RubyGBA::IR::Backends::Native::HeadlessRun
+  SaveImage = RubyGBA::IR::SaveImage
   Moment = HeadlessRun::Moment
 
   # Every frame's buttons reach the native run through one script, which keeps them for the
   # replay: the test's own script when it gave one, else whatever it held for the whole run.
-  def initialize(save: nil)
+  # +save+ is the save memory the game starts with, as the interpreter takes it, and it holds
+  # what the game as C left in it once the run is over.
+  def initialize(save: SaveImage.new)
+    @save = save
     @native = HeadlessRun.new(save: save)
     @played = {}
     @held = []
@@ -59,10 +64,12 @@ class CheckedNativeRun
   # guards one frame of the interpreter, and means nothing here.
   def run(program, max_steps: nil, frames: nil)
     frames ||= max_steps ? frames_within(program, max_steps) : Reference::DEFAULT_FRAMES
+    interpreters_save = save_as_handed_over
     @native.run(program, frames: frames)
-    interpreter, moments = play_on_interpreter(program, frames)
+    interpreter, moments = play_on_interpreter(program, frames, interpreters_save)
     difference = self.class.first_difference(moments, @native.moments) ||
-                 self.class.sounds_difference(interpreter.audio, @native.audio)
+                 self.class.sounds_difference(interpreter.audio, @native.audio) ||
+                 self.class.save_difference(interpreters_save, @save)
     raise Minitest::Assertion, disagreement_message(difference, program, frames) if difference
 
     self
@@ -105,7 +112,8 @@ class CheckedNativeRun
   # The buttons are asked of the test's own script here and again on the native run, so a script
   # that reads the game sees it as it stood before this run.
   def frames_within(program, max_steps)
-    lead = Reference.new.input_each_frame { |frame| buttons_for(frame) }.run(program, max_steps: max_steps)
+    lead = Reference.new(save: save_as_handed_over).input_each_frame { |frame| buttons_for(frame) }
+                    .run(program, max_steps: max_steps)
     return lead.frame unless lead.frame.zero? && lead.stopped_at_budget?
 
     raise HeadlessRun::CannotAnswer, "this game spends the whole step budget before it first waits for the " \
@@ -115,9 +123,18 @@ class CheckedNativeRun
 
   def buttons_for(frame) = @script ? Array(@script.call(frame)) : @held
 
-  # The interpreter played on the same buttons, and its moments.
-  def play_on_interpreter(program, frames)
-    interpreter = Reference.new
+  # A save memory of the interpreter's own holding what this run's holds now, and cut at the same
+  # step where a cut is waiting — taken before the game as C plays, which leaves its own bytes in
+  # the one the test handed over.
+  def save_as_handed_over
+    copy = @save.dup
+    copy.cut_power_after(@save.power_left) if @save.power_left
+    copy
+  end
+
+  # The interpreter played on the same buttons from +save+, and its moments.
+  def play_on_interpreter(program, frames, save)
+    interpreter = Reference.new(save: save)
     moments = []
     interpreter.input_each_frame { |frame| @played.fetch(frame, []) }
                .each_vblank { |frame| moments << moment_of(interpreter, frame) }
