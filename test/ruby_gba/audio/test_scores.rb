@@ -9,7 +9,7 @@ require "stringio"
 # number it works out as it runs: `music = songs :music, scores` then `music.play track`.
 # Nothing about the tune is written in the program.
 class TestScores < Minitest::Test
-  runs_on :reference
+  runs_on :reference, :native
 
   Score = RubyGBA::Audio::Score
   Part = Score::Part
@@ -53,9 +53,9 @@ class TestScores < Minitest::Test
     b.program
   end
 
-  # Which notes sounded on which frame, from the interpreter.
+  # Which notes sounded on which frame.
   def notes_by_frame(program, frames)
-    i = Reference.new
+    i = game_player
     heard = {}
     logged = 0
     i.each_vblank do |frame|
@@ -253,6 +253,7 @@ class TestScores < Minitest::Test
   # console, each counted from the first frame any is — so the two are laid side by side
   # whatever frame each one started on.
   def recordings_by_frame(program)
+    require_emulator!
     i = Reference.new
     interpreted = []
     i.each_vblank { interpreted << i.active_samples.sort }
@@ -339,7 +340,7 @@ class TestScores < Minitest::Test
         (pass == 4).then { fade_music_out frames: 4 }
         (pass == 12).then { fade_music_in frames: 4 }
       end
-      Reference.new.run(program, frames: 20).audio.select { |entry| entry[0] == :loudness }.map(&:last)
+      game_player.run(program, frames: 20).audio.select { |entry| entry[0] == :loudness }.map(&:last)
     end
     once = volumes.call(held_note(plays_once: true))
 
@@ -356,10 +357,10 @@ class TestScores < Minitest::Test
       (pass == 8).then { music_volume 50 }
       (pass == 40).then { music_volume 100 }
     end
-    set = Reference.new.run(program, frames: 60).audio.select { |entry| entry[0] == :loudness }.map { |entry| entry.drop(1) }
-    energy = assert_emulator_loads_rom(assemble_rom(program, name: "SCOREVOL"), frames: 60).audio_energy_by_frame
-
+    set = game_player.run(program, frames: 60).audio.select { |entry| entry[0] == :loudness }.map { |entry| entry.drop(1) }
     assert_equal [[1, 12], [1, 6]], set, "the first square voice, at the written 12 and then at half"
+
+    energy = assert_emulator_loads_rom(assemble_rom(program, name: "SCOREVOL"), frames: 60).audio_energy_by_frame
     assert_operator energy[13..19].max, :<, energy[4..8].min, "quieter on the console too (#{energy.inspect})"
     assert_operator energy[45..].max, :<, energy[13..19].min / 4, "and silent after the end (#{energy.inspect})"
   end
@@ -404,8 +405,9 @@ class TestScores < Minitest::Test
   def test_a_note_with_a_length_goes_quiet_when_it_runs_out
     score = Score.new(tempo: 150, parts: [Part.new(plays: :piano, notes: [Note.new(at: 0, key: :C4, length: 5)])],
                       length: 30)
+    skip_on_native "a song part that plays a recording"
     program = game([score]) { |music, _| music.play 0 }
-    i = Reference.new
+    i = game_player
     seen = {}
     i.each_vblank { |frame| seen[frame] = i.active_samples }
     i.run(program, frames: 10)
@@ -524,7 +526,8 @@ class TestScores < Minitest::Test
       game_loop { pressed(:a).then { sfx.play :ping } }
     end
     b.finalize_program
-    i = Reference.new.input_each_frame { |frame| frame == 3 ? [:a] : [] }.run(b.program, frames: 40)
+    skip_on_native "a sound effect list"
+    i = game_player.input_each_frame { |frame| frame == 3 ? [:a] : [] }.run(b.program, frames: 40)
 
     assert_equal [NOTES[:C4], NOTES[:E4]], i.audio.select { |entry| entry[0] == :note }.map(&:last).reject(&:zero?)
   end

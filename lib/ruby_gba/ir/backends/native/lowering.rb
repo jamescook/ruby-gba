@@ -90,6 +90,7 @@ module RubyGBA
                                                # sound (Sound)
                                                beep: :lower_beep, enable_sound: :lower_enable_sound,
                                                play_song: :lower_play_song, stop_music: :lower_stop_music,
+                                               play_from_list: :lower_play_from_list,
                                                wave: :lower_wave, stop_wave: :lower_stop_wave,
                                                noise: :lower_noise,
                                                # save memory (Saving)
@@ -118,7 +119,7 @@ module RubyGBA
           # which test_native_kind_coverage.rb holds against every kind there is. A kind leaves
           # the list the day it gets a row in STATEMENTS or VALUES.
           NOT_LOWERED_YET = Ractor.make_shareable({
-            sound: %i[play_from_list play_sample play_sound_effect stop_sample]
+            sound: %i[play_sample play_sound_effect stop_sample]
           })
 
           # How many bytes a slot of a list takes, by the width it was declared with.
