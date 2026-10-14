@@ -153,11 +153,16 @@ uint8_t *rg_save_bytes(void) {
 
 int rg_save_unwritten(void) { return unwritten; }
 
+/* Due on the one frame the game has been quiet for long enough, and after that only as often as
+ * a game that never stops saving is due — so a file that could not be written is tried again
+ * about once a second, and not on every frame. */
 int rg_save_file_is_due(void) {
   if (!unwritten) return 0;
   frames_quiet++;
   frames_unwritten++;
-  return frames_quiet >= QUIET_FRAMES || frames_unwritten >= MOST_FRAMES_UNWRITTEN;
+  if (frames_quiet != QUIET_FRAMES && frames_unwritten < MOST_FRAMES_UNWRITTEN) return 0;
+  frames_unwritten = 0;
+  return 1;
 }
 
 void rg_save_file_written(void) {
