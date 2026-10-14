@@ -268,10 +268,12 @@ run by step budget
 interpreter's own measure, and it stops a game on a frame boundary, so the interpreter is asked
 how many frames fit in the budget and the C plays that many. The sound log is the interpreter's
 words for what was played. The C keeps that log, and plays the sound, for the console's own four
-voices so far — songs with parts on the square wave, the wave voice and the noise voice, a song
-that plays once, beeps, `wave`, `stop_wave`, `noise` and the music volume — and a game that uses
-any other sound (a recording, a sound effect list, a song picked from a list) is refused by name
-when it is built.
+voices — songs with parts on the square wave, the wave voice and the noise voice, named or picked
+from a list, a song that plays once, beeps, `wave`, `stop_wave`, `noise` and the music volume —
+and for the game's own recordings, mixed as the interpreter mixes them and compared slice for
+slice on every run (`mixed_sound`, `active_samples`, `peak_voices`, `volume_of` and `sound_drops`
+answer). A game that uses any other sound (a sound effect list, a song part that plays a
+recording) is refused by name when it is built.
 
 Opt a file in once native can play its games, and in chunks that go with the native slice that
 made them pass. What the native player cannot answer yet raises `HeadlessRun::CannotAnswer`

@@ -91,6 +91,7 @@ module RubyGBA
                                                beep: :lower_beep, enable_sound: :lower_enable_sound,
                                                play_song: :lower_play_song, stop_music: :lower_stop_music,
                                                play_from_list: :lower_play_from_list,
+                                               play_sample: :lower_play_sample, stop_sample: :lower_stop_sample,
                                                wave: :lower_wave, stop_wave: :lower_stop_wave,
                                                noise: :lower_noise,
                                                # save memory (Saving)
@@ -119,7 +120,7 @@ module RubyGBA
           # which test_native_kind_coverage.rb holds against every kind there is. A kind leaves
           # the list the day it gets a row in STATEMENTS or VALUES.
           NOT_LOWERED_YET = Ractor.make_shareable({
-            sound: %i[play_sample play_sound_effect stop_sample]
+            sound: %i[play_sound_effect]
           })
 
           # How many bytes a slot of a list takes, by the width it was declared with.
@@ -184,7 +185,8 @@ module RubyGBA
             main = C::Function.new(name: @names.own("main"), body: [*power_on, *lower(@program)], exported: true)
             [C::Comment.new("Written by ruby-gba's native backend. Do not edit; build the game again."),
              C::Include.new("rg_int32.h"), C::Include.new("rg_runtime.h"), C::Include.new("rg_list.h"),
-             C::Include.new("rg_screen.h"), C::Include.new("rg_sound.h"), C::Include.new("rg_save.h"),
+             C::Include.new("rg_screen.h"), C::Include.new("rg_sound.h"), C::Include.new("rg_mix.h"),
+             C::Include.new("rg_save.h"),
              *variable_names.map { |name| C::Global.new(name: variable(name)) },
              *list_storage,
              *(@scenes.empty? ? [] : [C::Global.new(name: @names.own("scene"), value: -1)]),

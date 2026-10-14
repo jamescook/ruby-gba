@@ -11,8 +11,9 @@
  *
  * At every frame boundary it prints "frame N", every variable as "var name value", every list as
  * "list name" and its items (see headless_dump_list), every sprite
- * the game last drew as "sprite" and four numbers (see print_sprites), and where the window sits
- * over the picture as "camera X Y", then "buttons?",
+ * the game last drew as "sprite" and four numbers (see print_sprites), what the mixer made and is
+ * playing for a game that mixes recordings (see print_mix), and where the window sits over the
+ * picture as "camera X Y", then "buttons?",
  * and only then reads that frame's line. So whoever is feeding it can answer from what the game
  * has done so far — a test that presses a button only once the game has reached somewhere — or
  * write every line up front and ignore the question. That is the order the interpreter asks its
@@ -54,6 +55,7 @@
 #include <string.h>
 #include "rg_driver.h"
 #include "rg_list.h"
+#include "rg_mix.h"
 #include "rg_runtime.h"
 #include "rg_save.h"
 #include "rg_screen.h"
@@ -158,10 +160,38 @@ static void print_sprites(void) {
   }
 }
 
+/* For a game that mixes recordings: the slice made since the last moment ("mix" and its
+ * samples), each sounding voice's recording and loudness out of 64 ("mixing"), the most voices
+ * that ever sounded at once ("mix_peak"), and how many plays found every voice busy with the
+ * most the music held at one of those moments ("mix_drops"). */
+static int32_t slices_printed;
+
+static void print_mix(void) {
+  if (!rg_game_mix[0]) return;
+
+  if (rg_mix_slices_made() > slices_printed) {
+    const int32_t *samples;
+    int32_t count = rg_mix_newest_slice(&samples);
+    printf("mix");
+    for (int32_t i = 0; i < count; i++) printf(" %d", (int)samples[i]);
+    fputc('\n', stdout);
+    slices_printed = rg_mix_slices_made();
+  }
+  printf("mixing");
+  for (int32_t voice = 0; voice < rg_mix_voice_count(); voice++) {
+    int32_t recording, loudness;
+    if (rg_mix_voice_sounding(voice, &recording, &loudness)) printf(" %d %d", (int)recording, (int)loudness);
+  }
+  int32_t music_held;
+  int32_t dropped = rg_mix_drops(&music_held);
+  printf("\nmix_peak %d\nmix_drops %d %d\n", (int)rg_mix_peak(), (int)dropped, (int)music_held);
+}
+
 static void print_moment(const char *heading, int with_picture) {
   printf("%s\n", heading);
   rg_game_dump_state();
   print_sprites();
+  print_mix();
   printf("camera %d %d\n", (int)rg_screen_camera_x(), (int)rg_screen_camera_y());
   const uint16_t *shown = rg_screen_shown();
   if (with_picture) {

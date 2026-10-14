@@ -12,9 +12,10 @@ module RubyGBA
         # player walks them, whether the game names the song or picks it from a list by number,
         # and the beeps, `wave`, `stop_wave`, `noise` and `enable_sound` the game says itself.
         # Each goes into the sound log a test reads, in the interpreter's words (see SoundLog).
-        # The rest — recordings and sound effect lists — is refused by name (NOT_LOWERED_YET, and
-        # #refuse_unplayable_songs! for a song with a part that plays a recording), rather than
-        # left out of what the game plays.
+        # The game's own recordings play through the mixer (runtime/rg_mix.h). The rest — sound
+        # effect lists, and a song with a part that plays a recording — is refused by name
+        # (NOT_LOWERED_YET, and #refuse_unplayable_songs!), rather than left out of what the game
+        # plays.
         #
         # THE RULES OF THE VOICES are written into the game from Audio::Sound and IR::Tunes, as
         # numbers the runtime reads, rather than copied into the C: how fast each voice's clock
@@ -48,6 +49,58 @@ module RubyGBA
 
           def song_lists = @song_lists ||= @program.walk.select { |node| node.kind == :song_list }.to_h { |node| [node.name, node] }
           def song_list_name(name) = @names.of(:song_list, name)
+
+          # --- recordings, through the mixer (runtime/rg_mix.h) ---
+
+          # The game's own `play` of a recording. Everything about it is fixed when the game is
+          # built — the pitch it reads at, how loud, how far back it reads at its end — so it is
+          # worked out here, the interpreter's way (Reference::Mixer#start), and handed over as
+          # numbers.
+          def lower_play_sample(node)
+            sample = @sound_log.recording(node.name)
+            info = Assets::Sample.of(sample)
+            frequency = RubyGBA::Audio::Music::NOTE_FREQUENCIES.fetch(node.pitch || info.note || :C4)
+            back = node.loop ? (info.loop_length.positive? ? info.loop_length : info.length) : 0
+            levels = RubyGBA::Audio::Sound::MIX_LEVELS
+            [eval_call("rg_mix_play", C::Int.new(@sound_log.recording_number(node.name)),
+                       C::Int.new(Mixing.step(info, frequency, mix_clock.rate)),
+                       C::Int.new(levels.fetch(node.volume, levels[:full])), C::Int.new(back))]
+          end
+
+          # ...and its `stop`, of one recording or, with no name, of every one the game plays.
+          def lower_stop_sample(node)
+            [eval_call("rg_mix_stop", C::Int.new(node.name ? @sound_log.recording_number(node.name) : -1))]
+          end
+
+          # The rate the mix runs at and how many samples a frame holds: the console's own clock
+          # for the rate the game's recordings ask for, as the interpreter takes it.
+          def mix_clock = @mix_clock ||= GBA::Timers.sample_clock(Mixing.requested_rate(@program))
+
+          # How the mix runs (see the layout atop runtime/rg_mix.c).
+          def mix_table
+            sound = RubyGBA::Audio::Sound
+            envelope = RubyGBA::Audio::Envelope
+            mixes = Mixing.mixes?(@program)
+            samples = mixes ? mix_clock.samples_a_frame : 0
+            sound_table("mix", [mixes ? 1 : 0, samples, Mixing.shapes_any_note?(@program) ? 1 : 0,
+                                mixes ? Mixing.slide_share(samples) : 0, sound::MIXER_VOICES, sound::VOL_SHIFT,
+                                sound::STEP_SHIFT, sound::GAIN_FRACTION, sound::RAMP_SPLIT, envelope::FULL, envelope::SCALE])
+          end
+
+          # Every recording the game declares, seven numbers each, and then all their samples.
+          def recordings_table
+            recordings = @sound_log.recordings
+            at = 1 + (7 * recordings.size)
+            heads = recordings.map do |sample|
+              info = Assets::Sample.of(sample)
+              shape = info.envelope && !info.envelope.plain? ? info.envelope : nil
+              head = [at, info.length, shape ? 1 : 0,
+                      *(shape ? [shape.attack, shape.decay, shape.sustain, shape.release] : [0, 0, 0, 0])]
+              at += info.length
+              head
+            end
+            sound_table("recordings", [recordings.size, *heads.flatten, *recordings.flat_map { |sample| sample.bytes.unpack("c*") }])
+          end
 
           # Each song list a run can pick from, as the numbers of its songs.
           def song_list_tables
@@ -90,7 +143,8 @@ module RubyGBA
           # Everything about the game's sound that the runtime reads, as arrays of whole numbers
           # (their layouts are atop runtime/rg_sound.c).
           def sound_tables
-            [sound_rules_table, waveform_table, music_table, beep_table, wave_table, hit_table, *song_list_tables]
+            [sound_rules_table, waveform_table, music_table, beep_table, wave_table, hit_table, mix_table,
+             recordings_table, *song_list_tables]
           end
 
           def sound_table(name, values)

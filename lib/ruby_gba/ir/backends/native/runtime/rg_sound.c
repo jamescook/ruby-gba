@@ -91,6 +91,7 @@
 #include <stdio.h>
 #include "rg_sound.h"
 #include "rg_driver.h"
+#include "rg_mix.h"
 #include "rg_runtime.h"
 
 /* A song has at most a part for each voice: a game is checked the way a cartridge build checks
@@ -127,6 +128,10 @@
  * than a sample holds, and the sum is then held at the end of what it can (see
  * rg_sound_render_frame). */
 #define STEP_SIZE 1092
+
+/* How much one step of the mixer's byte moves the speaker: its loudest, 127, is about half of
+ * what a sample holds, as two console voices at their loudest are. */
+#define MIX_STEP 128
 
 /* The console's clock for one frame, as rg_sdl.c has it: 280,896 ticks of a 2^24-a-second clock.
  * A frame's samples are that share of a second's, and the part of a sample left over is carried
@@ -357,11 +362,18 @@ int32_t rg_sound_render_frame(int16_t *samples) {
   int32_t count = (int32_t)(sample_carry >> TICKS_A_SECOND_BITS);
   sample_carry &= ((uint64_t)1 << TICKS_A_SECOND_BITS) - 1;
 
+  /* The mixer's newest slice, at the mix's own rate, is stretched over the frame: each sample the
+   * speaker plays holds the slice's sample at the same point of the frame, as the console's
+   * stream holds each sample until the next. It is heard only with every voice. */
+  const int32_t *mixed;
+  int32_t mixed_count = heard_only == 0 ? rg_mix_newest_slice(&mixed) : 0;
+
   for (int32_t i = 0; i < count; i++) {
     int32_t sum = 0; /* every voice moves on, heard or not */
     for (int32_t voice = 1; voice <= RG_SQUARE_VOICES; voice++) sum += heard(voice, square_sample(&squares[voice - 1]));
     sum += heard(RG_WAVE_VOICE, wave_sample());
     sum += heard(RG_NOISE_VOICE, noise_sample());
+    if (mixed_count > 0) sum += mixed[(int64_t)i * mixed_count / count] * MIX_STEP;
     /* Past what a sample holds, it is held at the end: left to wrap, the loudest moment of a
      * game would come out as a jump to the other side of nought. */
     if (sum > INT16_MAX) sum = INT16_MAX;
@@ -373,7 +385,7 @@ int32_t rg_sound_render_frame(int16_t *samples) {
 
 /* --- the log --- */
 
-static void log_sound(const char *format, ...) {
+void rg_sound_log(const char *format, ...) {
   char line[64];
   va_list args;
   va_start(args, format);
@@ -384,32 +396,32 @@ static void log_sound(const char *format, ...) {
 
 /* --- the sounds the game makes itself --- */
 
-void rg_sound_enabled(void) { log_sound("enabled"); }
+void rg_sound_enabled(void) { rg_sound_log("enabled"); }
 
 void rg_sound_beep(int32_t which) {
   if (which < 0 || which >= rg_game_beeps[0]) rg_fault("there is no beep number %d", (int)which);
   const int32_t *beep = &rg_game_beeps[1 + (which * NUMBERS_PER_BEEP)];
-  log_sound("beep %d", (int)which);
+  rg_sound_log("beep %d", (int)which);
   square_start(BEEP_VOICE, beep[0], beep[1], beep[2], beep[3]);
 }
 
 void rg_sound_wave(int32_t which) {
   if (which < 0 || which >= rg_game_waves[0]) rg_fault("there is no wave number %d", (int)which);
   const int32_t *said = &rg_game_waves[1 + (which * NUMBERS_PER_WAVE)];
-  log_sound("wave %d", (int)which);
+  rg_sound_log("wave %d", (int)which);
   wave_load(said[0]);
   wave_start(said[1], said[2]);
 }
 
 void rg_sound_stop_wave(void) {
-  log_sound("stop_wave");
+  rg_sound_log("stop_wave");
   wave_switch_off();
 }
 
 void rg_sound_noise(int32_t which) {
   if (which < 0 || which >= rg_game_hits[0]) rg_fault("there is no hit number %d", (int)which);
   const int32_t *hit = &rg_game_hits[1 + (which * NUMBERS_PER_HIT)];
-  log_sound("noise %d", (int)which);
+  rg_sound_log("noise %d", (int)which);
   noise_start(hit[0], hit[1], hit[2], hit[3]);
 }
 
@@ -512,7 +524,7 @@ static void hold_note(held_note note) {
   while (at < holding_count && holding[at].voice != note.voice) at++;
   if (at == holding_count) holding_count++;
   holding[at] = note;
-  log_sound("loudness %d %d", (int)note.voice, (int)scaled_volume(note.volume));
+  rg_sound_log("loudness %d %d", (int)note.voice, (int)scaled_volume(note.volume));
 }
 
 /* The music volume has moved: every voice holding a note takes it. A square voice takes a volume
@@ -524,7 +536,7 @@ static void follow_level(int32_t now) {
   for (int32_t i = 0; i < holding_count; i++) {
     const held_note *note = &holding[i];
     if (note->volume <= 0) continue;
-    log_sound("loudness %d %d", (int)note->voice, (int)scaled_volume(note->volume));
+    rg_sound_log("loudness %d %d", (int)note->voice, (int)scaled_volume(note->volume));
     if (note->voice == RG_WAVE_VOICE) {
       wave_set_loudness(wave_quarters_at(scaled_volume(note->volume)));
     } else {
@@ -546,7 +558,7 @@ static void rest_on(const part_walk *part) {
 /* Every voice the playing tune uses goes quiet — its own voices and no others, so a one-part tune
  * ending does not cut off a beep on the second voice — and none of them holds a note any more. */
 static void silence_song(void) {
-  log_sound("stop_music");
+  rg_sound_log("stop_music");
   for (int32_t i = 0; i < part_count; i++) rest_on(&parts[i]);
   holding_count = 0;
 }
@@ -596,26 +608,26 @@ static void play_note(part_walk *part, const int32_t *note) {
   int32_t pitch = note[1], volume = note[2], ticks = note[3];
   int32_t written = pitch == 0 ? 0 : volume;
   int32_t sounded = level_variable ? scaled_volume(written) : written;
-  log_sound("note %d %d", (int)playing, (int)pitch);
-  log_sound("voice %d %d %d %d", (int)part->voice, (int)playing, (int)pitch, (int)volume);
+  rg_sound_log("note %d %d", (int)playing, (int)pitch);
+  rg_sound_log("voice %d %d %d %d", (int)part->voice, (int)playing, (int)pitch, (int)volume);
   switch (part->kind) {
   case PART_WAVE:
     if (level_variable) hold_note((held_note){part->voice, written, 0, 0});
     if (pitch == 0) {
-      log_sound("stop_wave");
+      rg_sound_log("stop_wave");
       rest_on(part);
     } else {
-      log_sound("part_wave %d %d %d", (int)playing, (int)part->number, (int)pitch);
+      rg_sound_log("part_wave %d %d %d", (int)playing, (int)part->number, (int)pitch);
       wave_start(ticks, wave_quarters_at(sounded));
     }
     break;
   case PART_NOISE:
-    if (level_variable) log_sound("loudness %d %d", (int)part->voice, (int)sounded);
+    if (level_variable) rg_sound_log("loudness %d %d", (int)part->voice, (int)sounded);
     if (pitch == 0) {
-      log_sound("noise_rest");
+      rg_sound_log("noise_rest");
       rest_on(part);
     } else {
-      log_sound("part_noise %d %d %d", (int)playing, (int)part->number, (int)pitch);
+      rg_sound_log("part_noise %d %d %d", (int)playing, (int)part->number, (int)pitch);
       noise_start(ticks, part->tone, sounded, part->fade);
     }
     break;

@@ -56,7 +56,7 @@ module RubyGBA
         # The runtime's C files each kind of build compiles beside the game's. The desktop build
         # carries the windowless runtime too, so the program a player runs can be driven by a
         # test with --headless.
-        SHARED_RUNTIME = %w[rg_headless.c rg_runtime.c rg_save.c rg_screen.c rg_sound.c].freeze
+        SHARED_RUNTIME = %w[rg_headless.c rg_mix.c rg_runtime.c rg_save.c rg_screen.c rg_sound.c].freeze
         HEADLESS_RUNTIME = (["rg_headless_main.c"] + SHARED_RUNTIME).freeze
         DESKTOP_RUNTIME = (["rg_sdl.c"] + SHARED_RUNTIME).freeze
 

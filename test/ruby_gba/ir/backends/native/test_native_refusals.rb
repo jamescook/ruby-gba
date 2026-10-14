@@ -22,27 +22,19 @@ class TestNativeRefusals < Minitest::Test
     assert_includes error.message, ":raw"
   end
 
-  # A kind this backend trails on is named, with the part of the work it belongs to.
+  # A kind this backend trails on is named, with the part of the work it belongs to: sound the
+  # desktop cannot play yet is refused, rather than left out of what it plays.
   def test_a_kind_not_written_yet_is_refused_by_name
-    program = program_of do
-      tone = sample :tone, pcm: [0, 50, 100, 50], rate: 8192
-      game_loop { tone.play }
-    end
-
-    error = assert_raises(LoweringError) { Native.new.lower(program) }
-    assert_match(/:play_sample.*cannot make yet \(sound\)/, error.message)
-  end
-
-  # Sound the desktop cannot play yet is refused by name, rather than left out of what it plays.
-  def test_a_sound_not_played_yet_is_refused_by_name
+    score = RubyGBA::Audio::Score
+    ping = score.new(tempo: 150, parts: [score::Part.new(notes: [score::Note.new(at: 0, key: :C5)])])
     program = program_of do
       enable_sound
-      crash = sample :crash, pcm: [60, -60] * 400, rate: 8000
-      game_loop { crash.play }
+      sfx = sound_effects :sfx, { ping: ping }
+      game_loop { sfx.play :ping }
     end
 
     error = assert_raises(LoweringError) { Native.new.lower(program) }
-    assert_match(/:play_sample.*cannot make yet \(sound\)/, error.message)
+    assert_match(/:play_sound_effect.*cannot make yet \(sound\)/, error.message)
   end
 
   # A part on one of the console's own voices is played; one that plays a recording is not yet.

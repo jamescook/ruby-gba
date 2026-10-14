@@ -5,6 +5,7 @@
 #include <stdlib.h>
 #include "rg_runtime.h"
 #include "rg_driver.h"
+#include "rg_mix.h"
 #include "rg_screen.h"
 #include "rg_sound.h"
 
@@ -94,7 +95,11 @@ static void timers_frame(void) {
 void rg_frame_begins(void) {
   rg_screen_frame_started();
   timers_frame();
+  /* The interpreter's order (Reference#advance_frame): the mix, then the tune, then every
+   * sounding note's shape. */
+  rg_mix_frame();
   rg_music_frame();
+  rg_mix_step_shapes();
 }
 
 /* A driver's halt and fault never come back; abort() is only there to say so to the compiler. */
