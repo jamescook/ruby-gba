@@ -8,7 +8,7 @@ require "test_helper"
 # is playing, while it plays — a settings screen's music slider, and the level `fade_music_out`
 # walks down to silence.
 class TestMusicVolume < Minitest::Test
-  runs_on :reference
+  runs_on :reference, :native
 
   # A song holding one long note at volume 12 — on the first square voice, or on whichever voice
   # +plays+ names — and a game that runs +body+ on each pass with the pass number. The game names
@@ -48,7 +48,7 @@ class TestMusicVolume < Minitest::Test
   # { frame => [[channel, volume 0..15], ...] }. With +stops+, a frame the music stopped on
   # says :stop_music among them.
   def loudness_by_frame(program, frames, stops: false)
-    i = Reference.new
+    i = game_player
     heard = {}
     logged = 0
     i.each_vblank do |frame|
@@ -128,7 +128,7 @@ class TestMusicVolume < Minitest::Test
       (pass == 10).then { fade_music_out frames: 9 }
       (pass == 30).then { fade_music_in frames: 9 }
     end
-    interpreted = Reference.new.run(program, frames: 60).audio
+    interpreted = game_player.run(program, frames: 60).audio
                            .select { |entry| entry[0] == :loudness && entry[1] == 1 }.map(&:last)
     console = console_volumes(assemble_rom(program, name: "MUSSTEPS"), frames: 70)
 
@@ -289,7 +289,7 @@ class TestMusicVolume < Minitest::Test
       end
     end
     b.finalize_program
-    run = Reference.new.run(b.program, frames: 20)
+    run = game_player.run(b.program, frames: 20)
 
     assert_equal 100, run[:loud_at_start]
     assert_equal 5, run[:silent_at],
@@ -333,6 +333,7 @@ class TestMusicVolume < Minitest::Test
   # volume 12 is 51 of those — and the mixer takes a new one while a note plays, like the wave
   # voice. The log names the part by its place among the song's recorded parts.
   def test_half_the_music_volume_halves_a_recorded_note_already_sounding
+    skip_on_native "a song part that plays a recording"
     program = held_note_game(plays: :piano) { |pass| (pass == 5).then { music_volume 50 } }
 
     assert_equal({ 2 => [[[:mixer, 0], 51]], 6 => [[[:mixer, 0], 25]] }, loudness_by_frame(program, 10))
