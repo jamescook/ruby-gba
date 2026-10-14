@@ -432,7 +432,6 @@ class TestPixelate < Minitest::Test
   # A picture the game paints while it runs is kept whole, whatever it holds, so its
   # blocks are held inside the whole of it.
   def test_a_sprite_the_game_paints_is_in_blocks_of_the_whole_picture
-    skip_on_native "the game paints a sprite's picture from a list, which the native lowering cannot draw yet"
     painted = cast_on_floor do
       colors :ink, %i[transparent white red blue]
       sheet = list :sheet, capacity: 64, width: :byte

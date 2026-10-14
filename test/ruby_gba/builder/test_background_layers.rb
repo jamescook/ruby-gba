@@ -8,7 +8,7 @@ require "test_helper"
 # there. Scrolled at different speeds, near-and-far layers give parallax. Asserted on
 # the interpreter oracle and on real hardware; the dev only writes two `background`s.
 class TestBackgroundLayers < Minitest::Test
-  runs_on :reference
+  runs_on :reference, :native
 
   include RubyGBA::Console::Hardware
 
@@ -47,7 +47,7 @@ class TestBackgroundLayers < Minitest::Test
   # At rest the two landmarks sit apart (green at x44, red at x84), and where the near
   # layer is empty its blue backdrop layer shows through.
   def test_layers_compose_with_the_front_transparent_where_empty
-    s = Reference.new.run(two_layers(0, 0)).screen
+    s = game_player.run(two_layers(0, 0)).screen
     assert_equal Color.resolve(:green), s.pixel(44, 44), "the far layer's green landmark shows through the empty near layer"
     assert_equal Color.resolve(:red),   s.pixel(84, 44), "the near layer's red landmark sits in front"
     assert_equal Color.resolve(:blue),  s.pixel(100, 100), "elsewhere the near layer is see-through, so the far layer shows"
@@ -57,7 +57,7 @@ class TestBackgroundLayers < Minitest::Test
   # x24 while the red slides to x44 — they were 40px apart, now 20px apart. That change
   # in relative spacing *is* parallax (the near layer moved more than the far one).
   def test_layers_scroll_at_independent_speeds_parallax
-    s = Reference.new.run(two_layers(20, 40)).screen
+    s = game_player.run(two_layers(20, 40)).screen
     assert_equal Color.resolve(:green), s.pixel(24, 44), "the far layer slid 20px (its landmark to x24)"
     assert_equal Color.resolve(:red),   s.pixel(44, 44), "the near layer slid 40px (its landmark to x44) — twice as far"
   end
@@ -122,12 +122,12 @@ class TestBackgroundLayers < Minitest::Test
   end
 
   def test_black_at_a_place_covers_on_a_turning_background
-    assert_equal 0x0000, Reference.new.run(black_by_place_turning, frames: 3).screen.pixel(2, 2)
+    assert_equal 0x0000, game_player.run(black_by_place_turning, frames: 3).screen.pixel(2, 2)
     assert_equal 0x0000, assert_emulator_loads_rom(rom_for(black_by_place_turning), frames: 3).pixel_gba(2, 2)
   end
 
   def test_black_painted_at_a_place_covers
-    assert_equal 0x0000, Reference.new.run(black_painted, frames: 3).screen.pixel(2, 2)
+    assert_equal 0x0000, game_player.run(black_painted, frames: 3).screen.pixel(2, 2)
     assert_equal 0x0000, assert_emulator_loads_rom(rom_for(black_painted), frames: 3).pixel_gba(2, 2)
   end
 
@@ -135,9 +135,9 @@ class TestBackgroundLayers < Minitest::Test
   # any other place is solid. Art drawn in colours has only the backdrop colour to say
   # "nothing here", so black drawn that way lets the layer behind through.
   def test_black_at_a_place_covers_and_black_drawn_as_a_colour_shows_through
-    assert_equal 0x0000, Reference.new.run(black_by_place, frames: 3).screen.pixel(2, 2)
+    assert_equal 0x0000, game_player.run(black_by_place, frames: 3).screen.pixel(2, 2)
     assert_equal 0x0000, assert_emulator_loads_rom(rom_for(black_by_place), frames: 3).pixel_gba(2, 2)
-    assert_equal RED, Reference.new.run(black_drawn_in_characters, frames: 3).screen.pixel(2, 2)
+    assert_equal RED, game_player.run(black_drawn_in_characters, frames: 3).screen.pixel(2, 2)
     assert_equal RED, assert_emulator_loads_rom(rom_for(black_drawn_in_characters), frames: 3).pixel_gba(2, 2)
   end
 

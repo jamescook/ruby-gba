@@ -1981,6 +1981,104 @@ class TestNativePicture < Minitest::Test
     assert_operator rows_unlike_the_one_above.max, :>=, 150, "each row should sit further across than the one above: #{rows_unlike_the_one_above.inspect}"
   end
 
+  # TILES THE GAME PAINTS AS IT RUNS, in a scene's own background that scrolls. Nothing shows
+  # until the game says its list changed; what it paints shows the frame after; a write it never
+  # says does not; drawn with another list the same pixels change color by place; and the scene
+  # coming back shows the list as it is by then, the unsaid write included.
+  def test_tiles_painted_from_a_list_show_when_the_game_says_they_changed
+    program = program_of do
+      screen :tiled
+      colors :ink, %i[transparent white red blue]
+      colors :dusk, %i[transparent yellow green cyan]
+      colors :stone, %i[transparent gray]
+      image(:wall, colors: :stone, "#" => :gray) { SOLID_TILE }
+      sheet = list :sheet, capacity: 96, width: :byte
+      repeat(96) { sheet.push 0 }
+      state = var :state, 0
+      n = var :n, 0
+      scene(:room) do
+        board = tiles :board, from: sheet, count: 3, colors: :ink, "#" => :wall
+        room = background :room, tiles: :board, map: [[1, 2, "#", 3], ["#", 3, 2, 1]] * 2
+        room.scroll_to n, 2
+        (n == 2).then do
+          repeat(32) { |i| sheet[i] = 0x21 }
+          sheet[40] = 0x33
+          board.changed
+        end
+        (n == 4).then { sheet[70] = 0x12 }
+        room.draw_with({ ink: [:dusk] }, showing: n - 6)
+        (n == 8).then { state.set! 1 }
+      end
+      scene(:hall) do
+        clear = var :_nothing, 0
+        (n == 11).then { state.set! 0 }
+        clear.set! 0
+      end
+      game_loop do
+        n.add! 1
+        case_var(:state) { when_val 0, :room; when_val 1, :hall }
+      end
+    end
+
+    moments = reference_snapshots(program, frames: 15, buttons: {})
+
+    assert_native_matches_reference program, frames: 15
+
+    colors_shown = moments.map { |moment| moment.picture.uniq.sort }
+
+    assert_operator colors_shown[2].length, :<, colors_shown[4].length, "nothing painted shows before the game says so"
+    assert_includes colors_shown[4], Color.resolve(:red), "the list's own colors once it has"
+    assert_includes colors_shown[7], Color.resolve(:green), "and the other list's by place when it is drawn with that"
+    refute_equal moments[5].picture, moments[14].picture, "the scene came back with the write the game never said"
+  end
+
+  # A SPRITE'S PICTURE THE GAME PAINTS, and a canvas drawn into with its words. The picture is
+  # shown by two sprites, one of them drawn with another list of colors, and is see-through all
+  # over until its first copy. The canvas is cleared, filled, lettered and dotted on different
+  # frames, a sprite's picture too.
+  def test_a_painted_sprite_picture_and_a_canvas_drawn_with_words
+    program = program_of do
+      screen :tiled
+      colors :ink, %i[transparent white red blue]
+      colors :hurt, %i[transparent yellow green cyan]
+      image(:floor, "#" => :gray) { SOLID_TILE }
+      tiles :floors, "#" => :floor
+      background :floor, tiles: :floors, map: ["#" * 30] * 20
+      sheet = list :sheet, capacity: 64, width: :byte
+      repeat(64) { sheet.push 0 }
+      tag = image :tag, from: sheet, width: 16, height: 8, colors: :ink
+      first = sprite :tag, at: [40, 20]
+      label = canvas :label, width: 32, height: 16, colors: :ink, as: :sprite
+      sprite :label, at: [100, 60]
+      n = var :n, 0
+      game_loop do
+        n.add! 1
+        (n == 2).then do
+          repeat(64) { |i| sheet[i] = 0x10 + (i % 3) }
+          tag.changed
+        end
+        (n == 4).then { first.draw_with :hurt }
+        first.move :right, by: 3
+        (n == 3).then { label.fill_rect 1, 1, 9, 5, :red }
+        (n == 5).then { label.draw_text "HI", 12, 2, :white }
+        (n == 7).then { label.pixel 30, 14, :blue }
+        (n == 9).then { label.clear :blue }
+      end
+    end
+
+    moments = reference_snapshots(program, frames: 11, buttons: {})
+
+    assert_native_matches_reference program, frames: 11
+
+    colors_shown = moments.map { |moment| moment.picture.uniq.sort }
+
+    assert_equal [Color.resolve(:gray)], colors_shown[1], "nothing painted shows at first"
+    assert_includes colors_shown[3], Color.resolve(:red), "the picture's own colors after its first copy"
+    assert_includes colors_shown[5], Color.resolve(:green), "another list's once the sprite is drawn with it"
+    assert_includes colors_shown[6], Color.resolve(:white), "letters drawn into the canvas"
+    assert_operator moments[10].picture.count(Color.resolve(:blue)), :>=, 32 * 16, "and the canvas cleared to one color"
+  end
+
   def test_the_screen_is_white_until_the_first_frame
     program = program_of do
       screen :bitmap

@@ -18,6 +18,7 @@
 #define RG_SCREEN_H
 
 #include <stdint.h>
+#include "rg_list.h"
 
 #define RG_SCREEN_WIDTH 240
 #define RG_SCREEN_HEIGHT 160
@@ -153,6 +154,13 @@ int32_t rg_pixels_overlap(int32_t a_image, int32_t a_x, int32_t a_y, int32_t b_i
  * the lists of colors it can be drawn with, or the layers it can be put in. A number naming none
  * of the others is its own. */
 static inline int32_t rg_place_of_choice(int32_t which, int32_t others) { return which >= 0 && which < others ? which + 1 : 0; }
+
+/* TILES AND PICTURES THE GAME PAINTS FROM A LIST (a run: see rg_game_tile_runs). A run takes what
+ * its list holds now: tile k is the 32 bytes from k × 32, each byte two pixels with the left one
+ * in the low four bits, each four bits a place in the run's colors, and place 0 see-through. A
+ * slot the game never filled reads as 0. Until its first copy a run shows nothing at all.
+ * Nothing is rebuilt here; the game asks for that itself where the interpreter does. */
+void rg_tiles_copy(int32_t run, const rg_list *list);
 
 /* A SEE-THROUGH LAYER is mixed with what is behind it as the picture is painted: so much of the
  * layer, so much of what is already there (IR::SeeThrough). How much is two amounts the game
@@ -305,7 +313,14 @@ extern const uint16_t rg_game_tile_pixels[];
  *
  * RG_BG_IN_BLOCKS is 1 for one that is drawn in blocks while the picture is shown in them, and 0
  * for one the game leaves as drawn. RG_BG_CAN_TURN is 1 for one declared as able to turn, turned
- * yet or not. */
+ * yet or not.
+ *
+ * RG_BG_PAINTED is RG_NOT_PAINTED for a background with no tile the game paints. For one with
+ * any it is where its tiles start in rg_game_painted_tiles, two numbers a tile: the run that
+ * paints it and which of the run's tiles it is, or RG_NOT_PAINTED and nought for a tile that is
+ * a picture. RG_BG_RUN_COLORS is then where the colors its painted tiles are shown in start in
+ * rg_game_run_colors: sixteen for each run the game has, by place, with RG_SEE_THROUGH where a
+ * place shows what is behind; and the same again for each step of colors it can be told. */
 #define RG_EVERY_SCENE (-1)
 #define RG_NEVER_ARRIVES (-2)
 #define RG_NO_LAYER (-1)
@@ -315,9 +330,27 @@ enum {
   RG_BG_TILE_W, RG_BG_TILE_H, RG_BG_FIRST_MAP, RG_BG_SHOWABLE_MAPS, RG_BG_GRID_COLS, RG_BG_GRID_ROWS,
   RG_BG_NEVER_WRAPS, RG_BG_TILES_START, RG_BG_SCENE, RG_BG_LEVEL, RG_BG_ON_ARRIVAL, RG_BG_STACK_PLACE,
   RG_BG_SEE_THROUGH, RG_BG_BENT, RG_BG_FADE_PLACE, RG_BG_TILES, RG_BG_COLOR_STEPS, RG_BG_IN_BLOCKS,
-  RG_BG_CAN_TURN, RG_BG_FIELDS
+  RG_BG_CAN_TURN, RG_BG_PAINTED, RG_BG_RUN_COLORS, RG_BG_FIELDS
 };
 extern const int32_t rg_game_backgrounds[];
+#define RG_NOT_PAINTED (-1)
+extern const int32_t rg_game_painted_tiles[];
+extern const uint16_t rg_game_run_colors[];
+
+/* Each run of tiles the game paints from a list is RG_RUN_FIELDS numbers in rg_game_tile_runs. A
+ * run a background shows says how many tiles it has, and its width and height are nought. A run
+ * that is a sprite's picture says the picture's width and height, and its tiles are the
+ * picture's, left to right and then top to bottom. RG_RUN_PLACES is where the run's pixels are
+ * kept among every run's, as places in its colors.
+ *
+ * A painted picture is an image like any other, once for each list of colors a sprite is drawn
+ * with. RG_RUN_IMAGES of them are listed in rg_game_run_images from entry RG_RUN_FIRST_IMAGE on,
+ * each RG_RUN_IMAGE_FIELDS numbers: the image, and the sixteen colors its places show, the first
+ * being RG_NOT_DRAWN. */
+enum { RG_RUN_TILES, RG_RUN_WIDTH, RG_RUN_HEIGHT, RG_RUN_PLACES, RG_RUN_FIRST_IMAGE, RG_RUN_IMAGES, RG_RUN_FIELDS };
+enum { RG_RUN_IMAGE_FIELDS = 17 };
+extern const int32_t rg_game_tile_runs[];
+extern const int32_t rg_game_run_images[];
 
 /* Each map is RG_MAP_FIELDS numbers in rg_game_maps: where its cells start in rg_game_map_cells,
  * and how many columns and rows it has. Its cells are row after row, each the number of a tile
@@ -330,10 +363,11 @@ extern const int16_t rg_game_map_cells[];
 /* [how many backgrounds, how many depths the picture is built at, how many backgrounds every
  * screen drawn from tiles shows, 1 for a game whose whole view is rebuilt from its layers, how
  * many layers it can be seen through, 1 for a game that shows more than one kind of screen, the
- * biggest block a picture can be shown in (Backends::Blocks)] */
+ * biggest block a picture can be shown in (Backends::Blocks), how many runs of tiles it paints
+ * from lists, how many pixels those runs hold between them, how many images it has] */
 enum {
   RG_SIZE_BACKGROUNDS, RG_SIZE_DEPTHS, RG_SIZE_ALWAYS_UP, RG_SIZE_REBUILT_WHOLE, RG_SIZE_SEE_THROUGH,
-  RG_SIZE_SCREEN_KINDS_CHANGE, RG_SIZE_LARGEST_BLOCK
+  RG_SIZE_SCREEN_KINDS_CHANGE, RG_SIZE_LARGEST_BLOCK, RG_SIZE_RUNS, RG_SIZE_RUN_PIXELS, RG_SIZE_IMAGES
 };
 extern const int32_t rg_game_picture_sizes[];
 extern const int32_t rg_game_always_up[];

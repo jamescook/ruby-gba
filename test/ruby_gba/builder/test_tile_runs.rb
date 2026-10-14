@@ -14,7 +14,7 @@ require "differential"
 # the low four bits, and each of those four bits is a place in the run's colour list — 0 is
 # see-through. A tile is 8 rows of 4 bytes, so 32 bytes, and tile 2 starts at byte 32.
 class TestTileRuns < Minitest::Test
-  runs_on :reference
+  runs_on :reference, :native
 
   RED = RubyGBA::Graphics::Color.resolve(:red)
   WHITE = RubyGBA::Graphics::Color.resolve(:white)
@@ -43,7 +43,7 @@ class TestTileRuns < Minitest::Test
     b.program
   end
 
-  def pixel(prog, frames, x, y) = Reference.new.run(prog, frames: frames).screen.pixel(x, y)
+  def pixel(prog, frames, x, y) = game_player.run(prog, frames: frames).screen.pixel(x, y)
 
   def test_pixels_written_into_the_list_show_on_the_frame_after_changed
     prog = game do |canvas, box, frame|

@@ -21,6 +21,22 @@ class TestNativeLogic < Minitest::Test
     assert_native_matches_reference program, frames: 6
   end
 
+  # A game can come to set a variable to itself, by a helper that takes where to keep an answer
+  # and is handed the place the answer already is. It changes nothing, and it has to build.
+  def test_a_variable_set_to_itself_builds_and_changes_nothing
+    program = program_of do
+      x = var :x, 4
+      game_loop do
+        x.add! 3
+        copy! :x, :x
+        x.set! x
+      end
+    end
+
+    last = assert_native_matches_reference program, frames: 3
+    assert_equal 13, last.variables.fetch(:x), "three passes each added three, and nothing else moved it"
+  end
+
   # Running off the top of a number wraps round to the bottom, and the division, remainder and
   # shifts keep Ruby's and the console's meanings, not C's.
   def test_numbers_wrap_divide_and_shift_the_way_the_interpreter_does

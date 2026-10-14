@@ -10,7 +10,7 @@ require "differential"
 # once flickers; a plain screen keeps one, so a change drawn once is done. The same
 # game code has to be right on both, which is what these tests pin.
 class TestKeepShowing < Minitest::Test
-  runs_on :reference
+  runs_on :reference, :native
 
   include Differential
   include EmulatorSupport
@@ -53,7 +53,7 @@ class TestKeepShowing < Minitest::Test
     red = Color.resolve(:red)
 
     [6, 7].each do |frames|
-      i = Reference.new.run(prog, frames: frames)
+      i = game_player.run(prog, frames: frames)
       assert_equal red, i.screen.pixel(15, 15),
                    "after #{frames} frames the bar should be on whichever page is showing"
     end
@@ -84,7 +84,7 @@ class TestKeepShowing < Minitest::Test
     b.finalize_program
 
     red = Color.resolve(:red)
-    on_page = [6, 7].map { |f| Reference.new.run(b.program, frames: f).screen.pixel(15, 15) == red }
+    on_page = [6, 7].map { |f| game_player.run(b.program, frames: f).screen.pixel(15, 15) == red }
     assert_equal 1, on_page.count(true),
                  "a single paint should show on exactly one of the two pages, got #{on_page.inspect}"
   end
@@ -96,7 +96,7 @@ class TestKeepShowing < Minitest::Test
     red = Color.resolve(:red)
 
     [6, 7].each do |frames|
-      i = Reference.new.run(prog, frames: frames)
+      i = game_player.run(prog, frames: frames)
       assert_equal red, i.screen.pixel(15, 15)
     end
   end
@@ -130,7 +130,7 @@ class TestKeepShowing < Minitest::Test
     end
     b.finalize_program
 
-    i = Reference.new.run(b.program, frames: 8)
+    i = game_player.run(b.program, frames: 8)
     assert_equal Color.resolve(:green), i.screen.pixel(105, 15),
                  "the green mark drawn after the last change should still be there"
     assert_equal Color.resolve(:red), i.screen.pixel(10, 15), "...over the bar it was drawn on"
