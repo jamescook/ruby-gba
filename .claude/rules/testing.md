@@ -269,10 +269,16 @@ Opt a file in once native can play its games, and in chunks that go with the nat
 made them pass. What the native player cannot answer yet raises `HeadlessRun::CannotAnswer`
 naming the call — the file came too early, or that one test wants `skip_on_native "why"` at
 its top, which does nothing on the interpreter's run. A test that reaches
-for the emulator (`require_emulator!`, `assert_emulator_loads_rom`, or a comparison with the
-console through `Differential`) skips itself on a native
+for the emulator (`require_emulator!`, `assert_emulator_loads_rom`, or the console's picture
+through `Differential#backend_pictures`) skips itself on a native
 run, since the cartridge is `rake test`'s; any check on the game before it has already run.
 Every skip says why, and a native run ends with the skips counted by reason.
+
+**`assert_backends_agree` does not skip there.** On `rake test` it asks whether the console draws
+what the interpreter draws. On a native run the same line asks that of the game as C: the
+program is played as C with the same buttons held and compared with the interpreter on every
+frame (it hands back the `CheckedNativeRun`). So a file full of whole-picture comparisons is
+worth opting in for those alone, with no line of it changed.
 
 **A whole example on native gets files of its own**, beside the opted-in tests in
 `test/examples/`, under `test/ruby_gba/ir/backends/native/examples/`: `test_<game>_picture.rb`

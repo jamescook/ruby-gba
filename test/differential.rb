@@ -57,7 +57,15 @@ module Differential
   # is built for 32-bit color, so it widens each channel to eight bits and fades, tints and
   # sees through there, and the interpreter works each of those out the same way —
   # test_emulator_blend.rb holds it to that at every value and every amount.
+  #
+  # ON A NATIVE RUN THERE IS NO CONSOLE TO ASK, and the question still has an answer worth
+  # having there: does the game as C draw what the interpreter draws? So the same line plays the
+  # program as C with the same buttons held and compares it with the interpreter on every frame,
+  # every variable and the sound log with the picture (see CheckedNativeRun, which is what comes
+  # back). The frames the console would have needed mean nothing there.
   def assert_backends_agree(program, frames: 4, name: "DIFF", console_frames: nil, keys: [])
+    return CheckedNativeRun.new.hold(*keys).run(program, frames: frames) if TestSuites.native?
+
     oracle, console, ran = backend_pictures(program, frames: frames, name: name,
                                             console_frames: console_frames, keys: keys)
     bad = mismatched_pixels(oracle, console)

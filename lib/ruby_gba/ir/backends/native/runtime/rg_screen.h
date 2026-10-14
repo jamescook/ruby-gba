@@ -184,6 +184,13 @@ void rg_screen_tint(int32_t color, int32_t steps);
 /* How far +amount+ (a percentage, or with +fraction_bits+ >= 0 a fraction of one) is, in steps. */
 int32_t rg_fade_steps(int32_t amount, int32_t fraction_bits, int32_t walked);
 
+/* The picture shown in flat blocks of +size+ pixels each way from now on, 1 being the picture as
+ * drawn; a size past either end of the sizes there are stops at that end. Nothing drawn changes.
+ * The blocks are fixed to the screen, one starting at every column and row that is a multiple of
+ * the size, and each shows the color at its top left corner. Which things go into blocks was
+ * settled when the game was built (RG_BG_IN_BLOCKS, rg_game_sprite_blocks). */
+void rg_screen_pixelate(int32_t size);
+
 /* Two colors for a line of text, and the test that says which. */
 static inline int32_t rg_pick_color(int32_t showing, int32_t color, int32_t picked) {
   return showing != 0 ? picked : color;
@@ -242,6 +249,17 @@ extern const int32_t rg_game_sprite_fade_places[];
 #define RG_NO_NAME (-1)
 extern const int32_t rg_game_sprite_names[];
 extern const int32_t rg_game_image_pictures[];
+/* A SPRITE IN BLOCKS is put into them a box at a time, and the boxes are the ones a console
+ * draws it as: a pose trimmed to what it draws, a big picture cut into pieces (Backends::SpriteCut,
+ * which the build asks). For each sprite, by its number, rg_game_sprite_blocks is RG_NOT_IN_BLOCKS
+ * for one the game leaves as drawn whatever the size, or where its boxes start in
+ * rg_game_sprite_boxes. There: how many pictures it can show, and for each the number of the
+ * picture's name (as rg_game_image_pictures has it), how many boxes it is drawn as, and each box
+ * as its left, top, width and height inside the picture, the one in front first. A sprite that
+ * turns or resizes is put into blocks whole and has no pictures listed. */
+#define RG_NOT_IN_BLOCKS (-1)
+extern const int32_t rg_game_sprite_blocks[];
+extern const int32_t rg_game_sprite_boxes[];
 
 /* Each layer the game can be seen through is RG_ST_FIELDS numbers in rg_game_see_through: 1 when
  * both its amounts are numbers written in the program, 1 when it was given one amount (how much
@@ -283,7 +301,11 @@ extern const uint16_t rg_game_tile_pixels[];
  * Its tiles are RG_BG_TILES pictures in rg_game_tile_pixels from RG_BG_TILES_START on, in the
  * colors they were drawn in. One that can be drawn from other lists of colors has the same
  * pictures again after those, once for each of the RG_BG_COLOR_STEPS steps it can be told, a
- * step swapping the colors by the place each pixel was drawn at. */
+ * step swapping the colors by the place each pixel was drawn at.
+ *
+ * RG_BG_IN_BLOCKS is 1 for one that is drawn in blocks while the picture is shown in them, and 0
+ * for one the game leaves as drawn. RG_BG_CAN_TURN is 1 for one declared as able to turn, turned
+ * yet or not. */
 #define RG_EVERY_SCENE (-1)
 #define RG_NEVER_ARRIVES (-2)
 #define RG_NO_LAYER (-1)
@@ -292,7 +314,8 @@ extern const uint16_t rg_game_tile_pixels[];
 enum {
   RG_BG_TILE_W, RG_BG_TILE_H, RG_BG_FIRST_MAP, RG_BG_SHOWABLE_MAPS, RG_BG_GRID_COLS, RG_BG_GRID_ROWS,
   RG_BG_NEVER_WRAPS, RG_BG_TILES_START, RG_BG_SCENE, RG_BG_LEVEL, RG_BG_ON_ARRIVAL, RG_BG_STACK_PLACE,
-  RG_BG_SEE_THROUGH, RG_BG_BENT, RG_BG_FADE_PLACE, RG_BG_TILES, RG_BG_COLOR_STEPS, RG_BG_FIELDS
+  RG_BG_SEE_THROUGH, RG_BG_BENT, RG_BG_FADE_PLACE, RG_BG_TILES, RG_BG_COLOR_STEPS, RG_BG_IN_BLOCKS,
+  RG_BG_CAN_TURN, RG_BG_FIELDS
 };
 extern const int32_t rg_game_backgrounds[];
 
@@ -306,10 +329,11 @@ extern const int16_t rg_game_map_cells[];
 
 /* [how many backgrounds, how many depths the picture is built at, how many backgrounds every
  * screen drawn from tiles shows, 1 for a game whose whole view is rebuilt from its layers, how
- * many layers it can be seen through, 1 for a game that shows more than one kind of screen] */
+ * many layers it can be seen through, 1 for a game that shows more than one kind of screen, the
+ * biggest block a picture can be shown in (Backends::Blocks)] */
 enum {
   RG_SIZE_BACKGROUNDS, RG_SIZE_DEPTHS, RG_SIZE_ALWAYS_UP, RG_SIZE_REBUILT_WHOLE, RG_SIZE_SEE_THROUGH,
-  RG_SIZE_SCREEN_KINDS_CHANGE
+  RG_SIZE_SCREEN_KINDS_CHANGE, RG_SIZE_LARGEST_BLOCK
 };
 extern const int32_t rg_game_picture_sizes[];
 extern const int32_t rg_game_always_up[];

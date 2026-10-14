@@ -11,7 +11,7 @@ require "differential"
 # that the console shows the same picture pixel for pixel, which is what keeps the rule
 # honest — every place it bends is a place the two would disagree.
 class TestPixelate < Minitest::Test
-  runs_on :reference
+  runs_on :reference, :native
 
   include Differential
 
@@ -50,7 +50,7 @@ class TestPixelate < Minitest::Test
   end
 
   def picture_of(program, frames: 2)
-    screen = Reference.new.run(program, frames: frames).screen
+    screen = game_player.run(program, frames: frames).screen
     Array.new(HEIGHT) { |y| Array.new(WIDTH) { |x| screen.pixel(x, y) } }
   end
 
@@ -432,6 +432,7 @@ class TestPixelate < Minitest::Test
   # A picture the game paints while it runs is kept whole, whatever it holds, so its
   # blocks are held inside the whole of it.
   def test_a_sprite_the_game_paints_is_in_blocks_of_the_whole_picture
+    skip_on_native "the game paints a sprite's picture from a list, which the native lowering cannot draw yet"
     painted = cast_on_floor do
       colors :ink, %i[transparent white red blue]
       sheet = list :sheet, capacity: 64, width: :byte
