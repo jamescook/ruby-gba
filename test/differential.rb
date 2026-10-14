@@ -80,7 +80,16 @@ module Differential
   class OverBudget < StandardError; end
 
   # +keys+ are buttons held for the whole run, on both backends.
+  #
+  # ON A NATIVE RUN THERE IS NO CONSOLE TO ASK, and the question still has an answer worth
+  # having there: does the game as C draw what the interpreter draws? So the same line plays the
+  # program as C with the same buttons held and compares it with the interpreter on every frame,
+  # every variable and the sound log with the picture (see CheckedNativeRun, which is what comes
+  # back). The frames the console would have needed, and the slack its blend is allowed, mean
+  # nothing there: the two are compared exactly.
   def assert_backends_agree(program, frames: 4, name: "DIFF", console_frames: nil, blended: false, keys: [])
+    return CheckedNativeRun.new.hold(*keys).run(program, frames: frames) if TestSuites.native?
+
     oracle, console, ran = backend_pictures(program, frames: frames, name: name,
                                             console_frames: console_frames, keys: keys)
     bad = mismatched_pixels(oracle, console, slack: blended ? EMULATOR_BLEND_SLACK : 0)

@@ -69,6 +69,21 @@ static int32_t fade_white, fade_steps;
 static enum { TINT_NONE, TINT_TOWARD, TINT_COLOR } tint_mode;
 static int32_t tint_white, tint_color, tint_steps;
 
+/* THE PICTURE IN FLAT BLOCKS (Reference @block): how many pixels a block is each way, 1 being the
+ * picture as drawn. A picture built from several things is put into blocks a thing at a time, as
+ * the view is rebuilt. A screen the game paints is one thing to the display, so it goes into
+ * blocks whole as it is read, and +read_block+ is the size it is read in (Framebuffer @block). */
+static int32_t block = 1, read_block = 1;
+
+/* A background being put into blocks is painted onto a sheet of its own first, rows before
+ * columns (Reference#paint_scenery_in_blocks). While +onto_sheet+ is set the background painters
+ * land there, as stored and with no blend, and every row shows the map row at the top of its
+ * block, +rows_tall+ rows down. */
+enum { NOTHING_ON_SHEET = -1 };
+static int32_t sheet[CELLS];
+static int32_t onto_sheet;
+static int32_t rows_tall = 1;
+
 /* A FADE PLACED IN THE STACK, while one is in force (Reference @fade_placed): how far forward the
  * layer it sits under is among the layers the game declared, which way it fades, and how far. It
  * cannot be laid over the finished picture as the screen is read, since what is in front of its
@@ -635,6 +650,22 @@ static void request_repaint(void) {
 /* Reference#exec_scroll_rows and #repaint_bent_backgrounds: both only ask. */
 void rg_screen_request_rebuild(void) { request_repaint(); }
 
+/* Reference#painted_screen?: is the screen that is up one the game paints? To the display that
+ * is a single background, whatever was painted on it, so it goes into blocks whole, as it is
+ * read. A screen drawn from tiles is built a thing at a time. */
+static int32_t painted_screen(void) { return kind < 0 || kind == RG_BITMAP; }
+
+/* Reference#exec_pixelate. Nothing painted so far changes: the size is read as the picture is
+ * next built, or as a painted screen is next read, so the picture is owed again only when the
+ * size is a different one. */
+void rg_screen_pixelate(int32_t size) {
+  int32_t held_to = clamp32(size, 1, rg_game_picture_sizes[RG_SIZE_LARGEST_BLOCK]);
+  if (held_to == block) return;
+  block = held_to;
+  if (painted_screen()) read_block = block;
+  else request_repaint();
+}
+
 /* Reference#exec_see_through: the amounts have been worked out again for the frame about to be
  * drawn. The painting reads them itself; what this owes is the picture, since one that neither
  * moves nor scrolls would otherwise keep the amounts it was painted with.
@@ -785,6 +816,14 @@ void rg_background_draw_with(int32_t background, int32_t which) {
   request_repaint();
 }
 
+/* Framebuffer#paint_row, a cell at a time: one color of scenery laid on the picture at (px, py),
+ * which is on the screen, mixed and faded as whatever is in force says. */
+static void lay_scenery(int64_t px, int64_t py, uint16_t color) {
+  uint16_t *into = &pixels[py * RG_SCREEN_WIDTH + px];
+  *into = into_cell(color, *into);
+  if (sprites_seen_through()) picture_without_sprites[py * RG_SCREEN_WIDTH + px] = *into;
+}
+
 /* The map's pixel at (mx, my), neither below nought, put on the picture at (px, py). Where the
  * map has no cell or no tile, or the tile is see-through, what is behind stays. */
 static void paint_map_pixel(int32_t background, int64_t mx, int64_t my, int64_t px, int64_t py) {
@@ -793,10 +832,13 @@ static void paint_map_pixel(int32_t background, int64_t mx, int64_t my, int64_t 
   if (cell < 0) return;
   uint16_t color = tile_pixel(background, cell, mx % tile_w, my % tile_h);
   if (color == RG_SEE_THROUGH) return;
-  uint16_t *into = &pixels[py * RG_SCREEN_WIDTH + px];
-  *into = into_cell(color, *into);
-  if (sprites_seen_through()) picture_without_sprites[py * RG_SCREEN_WIDTH + px] = *into;
+  if (onto_sheet) sheet[py * RG_SCREEN_WIDTH + px] = color;
+  else lay_scenery(px, py, color);
 }
+
+/* The row of the picture that screen row +py+ is drawn from: its own, or the row at the top of
+ * its block while a background is being painted for blocks. */
+static int64_t row_drawn_from(int64_t py) { return py - py % rows_tall; }
 
 /* The background and the line of the screen the game is being asked about, when it is being
  * asked, and how far across it answered. */
@@ -825,7 +867,7 @@ static int64_t bend_at(int32_t background, int64_t py) {
 static void paint_window_without_wrapping(int32_t background) {
   int64_t map_h = (int64_t)map_rows(background) * background_field(background, RG_BG_TILE_H);
   for (int64_t py = 0; py < RG_SCREEN_HEIGHT; py++) {
-    int64_t my = (int64_t)scrolls[background].y + py;
+    int64_t my = (int64_t)scrolls[background].y + row_drawn_from(py);
     if (my < 0 || my >= map_h) continue;
     int64_t off_x = (int64_t)scrolls[background].x + bend_at(background, py);
     for (int64_t px = 0; px < RG_SCREEN_WIDTH; px++) {
@@ -850,7 +892,7 @@ static void paint_window(int32_t background) {
   for (int64_t py = 0; py < RG_SCREEN_HEIGHT; py++) {
     int64_t off_x = floor_mod((int64_t)scrolls[background].x + bend_at(background, py), map_w);
     for (int64_t px = 0; px < RG_SCREEN_WIDTH; px++)
-      paint_map_pixel(background, (off_x + px) % map_w, (off_y + py) % map_h, px, py);
+      paint_map_pixel(background, (off_x + px) % map_w, (off_y + row_drawn_from(py)) % map_h, px, py);
   }
 }
 
@@ -879,7 +921,7 @@ static void paint_turned_window(int32_t background) {
   int64_t turn_cos, turn_sin;
   affine_matrix(turn->angle, turn->size, &turn_cos, &turn_sin);
   for (int64_t py = 0; py < RG_SCREEN_HEIGHT; py++) {
-    int64_t dy = py - pivot_y;
+    int64_t dy = row_drawn_from(py) - pivot_y;
     for (int64_t px = 0; px < RG_SCREEN_WIDTH; px++) {
       int64_t dx = px - pivot_x;
       int64_t mx = floor_mod(scrolls[background].x + pivot_x + floor_div(turn_cos * dx + turn_sin * dy, one_th), map_w);
@@ -887,9 +929,54 @@ static void paint_turned_window(int32_t background) {
       int32_t cell = map_cell(background, my / tile_h, mx / tile_w);
       if (cell < 0) continue;
       uint16_t color = tile_pixel(background, cell, mx % tile_w, my % tile_h);
-      if (color != RG_SEE_THROUGH) set_pixel(px, py, color);
+      if (color == RG_SEE_THROUGH) continue;
+      if (onto_sheet) sheet[py * RG_SCREEN_WIDTH + px] = color;
+      else set_pixel(px, py, color);
     }
   }
+}
+
+/* Reference#paint_background_window: one background painted where it sits in the view. */
+static void paint_background(int32_t background) {
+  if (turns[background].turned) paint_turned_window(background);
+  else paint_window(background);
+}
+
+/* Reference#paint_scenery_in_blocks: ONE BACKGROUND IN BLOCKS, by the display's own rule.
+ *
+ * The blocks are fixed to the screen, and each shows the color the background has at the block's
+ * top left corner, so a background that scrolls slides under a grid that stays where it is. A
+ * corner that is see-through leaves the whole block see-through.
+ *
+ * Down and across are done apart, because a display draws a row at a time. Down: every row of a
+ * block is drawn from the map row its top row shows, and still placed by its OWN bend, so a
+ * background bent row by row keeps each row's bend and a block of it is a sheared one. Across:
+ * each pixel of a row then takes the one at the start of its block in that same row. So the
+ * background goes onto the sheet rows first, and is laid on the picture through the blocks, with
+ * whatever mix or fade is in force for it applied as it is laid.
+ *
+ * Reference#block_width_across: a background that can turn is left one pixel wide at a size of
+ * two, so its rows double and its columns do not. That is the emulator's, kept because the
+ * console's picture is checked against it. */
+static void paint_scenery_in_blocks(int32_t background) {
+  for (int32_t i = 0; i < CELLS; i++) sheet[i] = NOTHING_ON_SHEET;
+  onto_sheet = 1;
+  rows_tall = block;
+  paint_background(background);
+  onto_sheet = 0;
+  rows_tall = 1;
+  int32_t wide = background_field(background, RG_BG_CAN_TURN) && block == 2 ? 1 : block;
+  for (int64_t py = 0; py < RG_SCREEN_HEIGHT; py++)
+    for (int64_t px = 0; px < RG_SCREEN_WIDTH; px++) {
+      int32_t color = sheet[py * RG_SCREEN_WIDTH + px - px % wide];
+      if (color != NOTHING_ON_SHEET) lay_scenery(px, py, (uint16_t)color);
+    }
+}
+
+/* Reference#paint_scenery */
+static void paint_scenery(int32_t background) {
+  if (block > 1 && background_field(background, RG_BG_IN_BLOCKS)) paint_scenery_in_blocks(background);
+  else paint_background(background);
 }
 
 /* --- sprites --- */
@@ -945,6 +1032,109 @@ static void blit_image_turned(int32_t image, int32_t x, int32_t y, int32_t angle
 static void draw_placed(const placed_object *placed) {
   if (placed->turned) blit_image_turned(placed->image, placed->x, placed->y, placed->angle, placed->size);
   else blit_image(placed->image, placed->x, placed->y);
+}
+
+/* --- a sprite in blocks (Reference::SpriteBlocks, which holds the rule and says why) ---
+ *
+ * The blocks are fixed to the screen, as a background's are. What differs is where a block takes
+ * its color from, because a sprite is a small box and a block need not start inside it. */
+
+static int64_t clamp64(int64_t value, int64_t low, int64_t high) { return value < low ? low : (value > high ? high : value); }
+
+/* SpriteBlocks#block_start and #round_up: where the block a column or row is in starts, and the
+ * end of the block an edge falls in. */
+static int64_t block_start(int64_t at) { return at - floor_mod(at, block); }
+static int64_t block_end(int64_t edge) { return -floor_div(-edge, block) * block; }
+
+/* Reference#picture_reader: what a picture shows at a column and row of itself, or RG_NOT_DRAWN
+ * where it is see-through and anywhere outside it. */
+static int32_t picture_color(picture art, int64_t col, int64_t row) {
+  if (col < 0 || col >= art.width || row < 0 || row >= art.height) return RG_NOT_DRAWN;
+  return art.pixels[row * art.width + col];
+}
+
+/* SpriteBlocks#paint_box: one box of a sprite whose picture's corner is at (x, y), the box's own
+ * corner at (left, top) on the screen. A block that starts left of the box or above it shows the
+ * box's first column or row; the last block across is drawn whole, past the box's right edge;
+ * nothing is drawn past its bottom edge. */
+static void paint_box_in_blocks(picture art, int64_t x, int64_t y, int64_t left, int64_t top, int64_t width, int64_t height) {
+  int64_t first_row = top > 0 ? top : 0, past_row = top + height < RG_SCREEN_HEIGHT ? top + height : RG_SCREEN_HEIGHT;
+  int64_t first_col = left > 0 ? left : 0, past_col = block_end(left + width);
+  if (past_col > RG_SCREEN_WIDTH) past_col = RG_SCREEN_WIDTH;
+  for (int64_t py = first_row; py < past_row; py++) {
+    int64_t from_y = clamp64(block_start(py), top, top + height - 1);
+    for (int64_t px = first_col; px < past_col; px++) {
+      int32_t color = picture_color(art, clamp64(block_start(px), left, left + width - 1) - x, from_y - y);
+      if (color != RG_NOT_DRAWN) set_pixel(px, py, color);
+    }
+  }
+}
+
+/* SpriteBlocks#paint_upright: a sprite that stands upright, a box at a time, back to front, so
+ * where one box's last block runs over the next the one in front wins. The boxes are the ones
+ * listed for the picture it shows (rg_game_sprite_boxes). */
+static void paint_upright_in_blocks(const placed_object *placed) {
+  const int32_t *listed = rg_game_sprite_boxes + rg_game_sprite_blocks[placed->sprite];
+  int32_t pictures = *listed++, showing = rg_game_image_pictures[placed->image];
+  for (int32_t i = 0; i < pictures; i++) {
+    int32_t name = listed[0], boxes = listed[1];
+    const int32_t *box = listed + 2;
+    listed = box + 4 * boxes;
+    if (name != showing) continue;
+    picture art = picture_of(placed->image);
+    for (int32_t b = boxes - 1; b >= 0; b--)
+      paint_box_in_blocks(art, placed->x, placed->y, (int64_t)placed->x + box[4 * b], (int64_t)placed->y + box[4 * b + 1],
+                          box[4 * b + 2], box[4 * b + 3]);
+    return;
+  }
+  rg_fault("sprite %d is shown in blocks and has no boxes for the picture it shows", placed->sprite);
+}
+
+/* SpriteBlocks#turned_row: the row of its box a turned sprite shows on screen row +py+, which is
+ * the row at the top of the block, held to the box's first row when the block began above it. It
+ * is worked out as the display counts, in lines that come round, which is where the odd case
+ * comes from: a box that ends past the last line the display counts reads its last row on every
+ * row that shows. */
+static int64_t turned_row(int64_t py, int64_t top, int64_t height) {
+  enum { LINES = 256 };
+  int64_t first = floor_mod(top, LINES), past = first + height, line = block_start(py);
+  if (line < first && first < RG_SCREEN_HEIGHT) line = first;
+  if (line >= past % LINES) line = past - 1;
+  return floor_mod(line - first, LINES);
+}
+
+/* SpriteBlocks#paint_turned, and the walk back to the picture Reference#paint_object_in_blocks
+ * hands it: a sprite that turns or resizes, drawn in a box twice its picture's size about the
+ * picture's middle. A block that starts left of the box shows what the turned picture would show
+ * ONE COLUMN before the box begins, which is nearly always nothing; one that starts above it
+ * shows the box's first row; and the last block across is drawn whole. */
+static void paint_turned_in_blocks(const placed_object *placed) {
+  picture art = picture_of(placed->image);
+  int64_t width = art.width, height = art.height, one_th = rg_game_turn_rules[1];
+  int64_t turn_cos, turn_sin;
+  affine_matrix((int32_t)floor_mod(placed->angle, 360), placed->size, &turn_cos, &turn_sin);
+  int64_t left = (int64_t)placed->x - width / 2, top = (int64_t)placed->y - height / 2;
+  int64_t first_row = top > 0 ? top : 0, past_row = top + height * 2 < RG_SCREEN_HEIGHT ? top + height * 2 : RG_SCREEN_HEIGHT;
+  int64_t first_col = left > 0 ? left : 0, past_col = block_end(left + width * 2);
+  if (past_col > RG_SCREEN_WIDTH) past_col = RG_SCREEN_WIDTH;
+  for (int64_t py = first_row; py < past_row; py++) {
+    int64_t dy = turned_row(py, top, height * 2) - height;
+    for (int64_t px = first_col; px < past_col; px++) {
+      int64_t start = block_start(px);
+      int64_t dx = (start >= left ? start : left - 1) - left - width;
+      int32_t color = picture_color(art, floor_div(turn_cos * dx + turn_sin * dy, one_th) + width / 2,
+                                    floor_div(-turn_sin * dx + turn_cos * dy, one_th) + height / 2);
+      if (color != RG_NOT_DRAWN) set_pixel(px, py, color);
+    }
+  }
+}
+
+/* Reference#paint_snapshot_object: one of the sprites kept for a rebuild, in blocks while the
+ * picture is shown in them unless the game leaves it as drawn. */
+static void paint_kept_sprite(const placed_object *placed) {
+  if (block == 1 || rg_game_sprite_blocks[placed->sprite] == RG_NOT_IN_BLOCKS) draw_placed(placed);
+  else if (placed->turned) paint_turned_in_blocks(placed);
+  else paint_upright_in_blocks(placed);
 }
 
 static int32_t rebuilt_whole(void) { return rg_game_picture_sizes[RG_SIZE_REBUILT_WHOLE]; }
@@ -1167,14 +1357,13 @@ static void repaint_view(void) {
       if (!showing(bg) || background_field(bg, RG_BG_LEVEL) != level) continue;
       mix_as_layer(background_field(bg, RG_BG_SEE_THROUGH));
       fade_unless_left_as_drawn(background_field(bg, RG_BG_FADE_PLACE));
-      if (turns[bg].turned) paint_turned_window(bg);
-      else paint_window(bg);
+      paint_scenery(bg);
     }
     for (int32_t i = 0; i < sprite_layer_count; i++) {
       if (sprite_layer[i].level != level) continue;
       mix_as_sprite(sprite_layer[i].sprite);
       fade_unless_left_as_drawn(rg_game_sprite_fade_places[sprite_layer[i].sprite]);
-      draw_placed(&sprite_layer[i]);
+      paint_kept_sprite(&sprite_layer[i]);
     }
   }
   mix_nothing();
@@ -1220,6 +1409,7 @@ int32_t rg_screen_set(int32_t new_kind, int32_t two_pages) {
   }
   kind = new_kind;
   show_pages(two_pages);
+  read_block = painted_screen() ? block : 1; /* the size of a block outlasts the screen it was said on */
   if (!crossing || new_kind == RG_BITMAP) return 0;
   for (int32_t i = 0; i < rg_game_picture_sizes[RG_SIZE_ALWAYS_UP]; i++) {
     forget_own_cells(rg_game_always_up[i]);
@@ -1266,14 +1456,24 @@ const uint16_t *rg_screen_stored(void) {
   return viewed;
 }
 
+/* Framebuffer#block_corner: the screen column whose color column +x+ shows while a painted screen
+ * is read in blocks, which is the first of its block. Across, the blocks are fixed to the screen
+ * while the picture covers the row from its first column. When the window has been moved off the
+ * picture's left edge the first block of a row starts where the picture does, and the rest count
+ * from there: a display starts a block at the first pixel it finds something to show. */
+static int64_t block_corner_across(int64_t x) {
+  int64_t first = camera_x < 0 ? -(int64_t)camera_x : 0;
+  return x >= first ? first + ((x - first) / read_block) * read_block : x;
+}
+
 /* Framebuffer#shown and #pixel: the page a viewer is looking at, read through the window — off
- * the edge of the picture the backdrop shows — with the fade or tint in force mixed in. A
- * switched-off display shows plain white. */
+ * the edge of the picture the backdrop shows — with the fade or tint in force mixed in, and in
+ * blocks when a painted screen is shown in them. A switched-off display shows plain white. */
 const uint16_t *rg_screen_shown(void) {
   rg_screen_paint_owed_rebuild();
   for (int32_t y = 0; y < RG_SCREEN_HEIGHT; y++)
     for (int32_t x = 0; x < RG_SCREEN_WIDTH; x++) {
-      int64_t from_x = (int64_t)x + camera_x, from_y = (int64_t)y + camera_y;
+      int64_t from_x = block_corner_across(x) + camera_x, from_y = (int64_t)(y - y % read_block) + camera_y;
       uint16_t stored = on_screen(from_x, from_y) ? viewed[from_y * RG_SCREEN_WIDTH + from_x] : 0;
       shown[y * RG_SCREEN_WIDTH + x] = held ? (uint16_t)0x7FFF : faded(stored);
     }

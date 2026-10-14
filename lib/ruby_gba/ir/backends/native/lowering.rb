@@ -77,6 +77,7 @@ module RubyGBA
                                                background_colors: :lower_background_colors,
                                                present_objects: :lower_present_objects,
                                                fade: :lower_fade, tint: :lower_tint,
+                                               pixelate: :lower_pixelate,
                                                see_through: :lower_see_through,
                                                # sound (Sound)
                                                beep: :lower_beep, enable_sound: :lower_enable_sound,

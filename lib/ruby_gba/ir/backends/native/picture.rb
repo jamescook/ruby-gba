@@ -36,7 +36,10 @@ module RubyGBA
           # The kinds the interpreter's picture is rebuilt whole every frame for (see
           # Reference#collect_definitions, and #rebuilt_every_frame? for the rest of the rule).
           REBUILT_FOR = %i[tile_run scroll_background scroll_rows affine_background set_tile show_map
-                           background_colors].freeze
+                           background_colors pixelate].freeze
+
+          # A sprite the game leaves as drawn whatever size the picture's blocks are (RG_NOT_IN_BLOCKS).
+          NOT_IN_BLOCKS = -1
 
           private
 
@@ -48,6 +51,7 @@ module RubyGBA
             @objects = by_name(@program.walk, :object)
             @sprites = @objects.each_key.with_index.to_h # sprite name -> the number rg_screen.c knows it by
             @drawn_sprites = DrawnSprites.new(@program) # the names a run says its sprites by
+            @left_out_of_blocks = names_left_out_of_blocks
             # The layers the game can be seen through, and the number rg_screen.c knows each by.
             @see_through = SeeThrough.layers(@program)
             @see_through_numbers = @see_through.each_with_index.to_h { |layer, number| [layer.name, number] }
@@ -97,6 +101,23 @@ module RubyGBA
             end
           end
 
+          # Reference#place_blocks: where this program's blocks stop. A program that pixelates
+          # gets one place for them, and one that names two is refused in the words every backend
+          # refuses it in. What comes back is the names of everything in the layer its statements
+          # are placed under and in front of it, which stay as drawn whatever the size; no names
+          # for a program that pixelates the whole picture; and nil for one that never pixelates.
+          def names_left_out_of_blocks
+            places = Blocks.places(@program)
+            raise LoweringError, Blocks.several_places_message(places) if places.size > 1
+            return nil if places.empty?
+
+            places.first ? Stacking.at_or_above(@stacking, places.first).map(&:name) : []
+          end
+
+          # Reference#in_blocks?, all of it but the size: is this background or sprite drawn in
+          # blocks while the picture is shown in them? By its name, as the interpreter asks.
+          def shown_in_blocks?(thing) = !@left_out_of_blocks.nil? && !@left_out_of_blocks.include?(thing.name)
+
           def refuse_picture!(what)
             raise LoweringError, "this program uses #{what}, which the desktop build cannot draw yet. " \
                                  "The cartridge build can."
@@ -128,11 +149,11 @@ module RubyGBA
           # --- the art, for rg_screen.c ---
 
           def picture_data
-            [*image_arrays, *background_arrays, *see_through_arrays, sprite_fade_places_array,
+            [*image_arrays, *background_arrays, *see_through_arrays, sprite_fade_places_array, *sprite_block_arrays,
              runtime_array("picture_sizes", "int32_t",
                     [@backgrounds.size, @stacking.depths.count, @handover.always_up.scenery.length,
                      rebuilt_every_frame? ? 1 : 0, @see_through.size,
-                     Modes.resolve(@program).crosses_display_systems? ? 1 : 0]),
+                     Modes.resolve(@program).crosses_display_systems? ? 1 : 0, Blocks::LARGEST]),
              runtime_array("always_up", "int32_t", @handover.always_up.scenery.map { |bg| @backgrounds.fetch(bg.name) }),
              runtime_array("sines", "int32_t", (0...450).map { |degrees| Affine.sine(degrees) }),
              runtime_array("turn_rules", "int32_t", [Build::SCALE_ONE, Affine::ONE_TH, Affine::MAX, Affine::MIN_SCALE])]
@@ -161,6 +182,44 @@ module RubyGBA
             [runtime_array("sprite_names", "int32_t", @objects.each_value.map { |obj| @drawn_sprites.name_number(obj.declared) }),
              runtime_array("image_pictures", "int32_t", @images.each_key.map { |name, _| @drawn_sprites.picture_number(name) })]
           end
+
+          # For every sprite, where the boxes it is put into blocks by start, or NOT_IN_BLOCKS for
+          # one the game leaves as drawn; and the boxes themselves (see rg_screen.h for the layout).
+          def sprite_block_arrays
+            boxes = []
+            starts = @objects.each_value.map do |obj|
+              next NOT_IN_BLOCKS unless shown_in_blocks?(obj)
+
+              boxes.length.tap { boxes.concat(boxes_by_picture(obj)) }
+            end
+            [runtime_array("sprite_blocks", "int32_t", starts), runtime_array("sprite_boxes", "int32_t", boxes)]
+          end
+
+          # Reference#paint_object_in_blocks and #object_boxes: one sprite's pictures, each with
+          # the boxes a console draws it as, which is the cut every backend asks SpriteCut for. A
+          # sprite that turns or resizes is put into blocks whole and lists none. The interpreter
+          # finds a pose's boxes by the first place its picture has among the sprite's poses, so
+          # a picture is listed once.
+          def boxes_by_picture(obj)
+            return [0] if turns_or_resizes?(obj)
+
+            canvas = picture_named(obj.poses.first)
+            whole = obj.poses.any? { |pose| painted_picture?(pose) }
+            cut = SpriteCut.new(sprite_pictures).cut(obj.poses, width: canvas.width, height: canvas.height, whole: whole)[:boxes]
+            pictures = obj.poses.uniq
+            [pictures.length, *pictures.flat_map do |pose|
+              boxes = cut.fetch(obj.poses.index(pose))
+              [@drawn_sprites.picture_number(pose), boxes.length, *boxes.flatten]
+            end]
+          end
+
+          # Every picture the program defines, as SpriteCut reads one.
+          def sprite_pictures
+            @sprite_pictures ||= @data.select { |_, node| node.kind == :bitmap }.transform_values { |node| Assets::Image.of(node) }
+          end
+
+          # Reference#painted_picture?: is this picture one the game paints from a list as it runs?
+          def painted_picture?(name) = @program.walk.any? { |node| node.kind == :tile_run && node.picture == name }
 
           # A sprite picture's pixels as the interpreter draws them (Reference#blit_image): the
           # number the picture stores, the color +colors+ puts in its place when the sprite is
@@ -205,7 +264,7 @@ module RubyGBA
                bg.scene ? @scenes.fetch(bg.scene, NEVER_ARRIVES) : EVERY_SCENE, @stacking.depths[bg.name],
                @handover.on_arrival?(bg) ? 1 : 0, stack_place(bg.layer),
                see_through_number(bg), @bends.key?(bg.name) ? 1 : 0, fade_place(bg),
-               bg.tiles.length, steps.length]
+               bg.tiles.length, steps.length, shown_in_blocks?(bg) ? 1 : 0, bg.affine ? 1 : 0]
             end
             [runtime_array("tile_pixels", "uint16_t", tile_pixels), runtime_array("backgrounds", "int32_t", fields),
              runtime_array("maps", "int32_t", maps), runtime_array("map_cells", "int16_t", cells)]
@@ -576,6 +635,10 @@ module RubyGBA
 
             [eval_call("rg_screen_fade_under", C::Int.new(stack_place(node.under)), *fade)]
           end
+
+          # Reference#exec_pixelate. Where the blocks stop is not this statement's to say: a
+          # program has one place for them, settled before it runs (#names_left_out_of_blocks).
+          def lower_pixelate(node) = [eval_call("rg_screen_pixelate", value(node.size))]
 
           # Reference#exec_tint: counted in thirty-seconds however it reaches the screen.
           def lower_tint(node)
