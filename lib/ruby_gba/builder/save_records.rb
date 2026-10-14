@@ -57,11 +57,12 @@ module RubyGBA
       # state test names where it is written. Where each kept thing sits, how big a copy is and
       # whether the records fit are worked out once the whole program is declared
       # (#lay_out_save_records), and every routine that reads them is built then.
-      def declare(name, copies:, when_busy:, &block)
+      def declare(name, copies:, when_busy:, fast: nil, &block)
         name = name.to_sym
         check_save_data_name!(name, copies)
         check_save_data_when_busy!(name, when_busy)
-        record_layout = new_record_layout(name, copies: copies, when_busy: when_busy)
+        refuse_invalid_save_data_fast!(name, fast)
+        record_layout = new_record_layout(name, copies: copies, when_busy: when_busy, fast: fast)
         @save_data[name] = record_layout
         @save_data_keeping[name] = []
         SaveDataKeeping.new(self, name).instance_eval(&block) if block
@@ -132,7 +133,7 @@ module RubyGBA
         @halves = SaveHalf.new(@port, memory: @save_memory_layout)
         SavePlaces.new(@port, memory: @save_memory_layout, records: @save_data,
                               table_record: method(:declare_table_record)).declare
-        @jobs.lay_out(memory: @save_memory_layout, halves: @halves)
+        @jobs.lay_out(memory: @save_memory_layout, halves: @halves, fast: fast_for_queue)
         @save_data.each_value { |layout| declare_save_data_record(layout) }
         declare_save_var_saving
       end
@@ -146,11 +147,14 @@ module RubyGBA
       # +pools+ is each pool, and each field of one, the record keeps (their lists and variables
       # are in +kept+ too), for the reset that has to put a pool back rather than empty it.
       #
+      # +fast+ is what the game said about where the record's routines run from: true for the
+      # console's quick memory, false for the cartridge, nil for nothing said.
+      #
       # Until the program is fully declared a record's +kept+, +body+, +half+, +shape+ and
       # +pools+ are nil (see #declare), so anything that reads them too early fails where it
       # reads.
       Layout = Data.define(:name, :copies, :kept, :body, :half, :place, :shape, :key, :number, :when_busy,
-                           :pools) do
+                           :pools, :fast) do
         def routine(job) = Messages::MadeNames.make(:save_record, record: name, piece: job)
         def scratch(what) = Messages::MadeNames.make(:save_record, record: name, piece: what)
         def directory(what) = Messages::MadeNames.make(:save_directory, record: name, kept: what)
@@ -168,12 +172,12 @@ module RubyGBA
 
       # A record's layout before what it keeps is known, counted against the records a game
       # can have, with the variables its routines work in declared.
-      def new_record_layout(name, copies:, when_busy:)
+      def new_record_layout(name, copies:, when_busy:, fast: nil)
         @jobs ||= SaveJobs.new(@port, records: @save_data)
         place = Messages::MadeNames.make(:save_record, record: name, piece: :place)
         layout = Layout.new(name: name, copies: copies, kept: nil, body: nil, half: nil, place: place,
                             shape: nil, key: IR::SaveLayout.record_key(name),
-                            number: @save_data.size + 1, when_busy: when_busy, pools: nil)
+                            number: @save_data.size + 1, when_busy: when_busy, pools: nil, fast: fast)
         check_save_data_count!(layout)
         declare_save_data_vars(layout)
         layout
@@ -215,16 +219,67 @@ module RubyGBA
                              "one not yet written) or :refuse (it does nothing and failed? holds)."
       end
 
+      # WHERE THE RECORD'S ROUTINES RUN FROM is `func`'s word, with `func`'s three answers.
+      def refuse_invalid_save_data_fast!(name, fast)
+        return if [true, false, nil].include?(fast)
+
+        raise ArgumentError, "save_data :#{name} was given `fast: #{fast.inspect}`. It must be true or false. " \
+                             "`fast: true` keeps the record's save routines in the console's quick memory. " \
+                             "`fast: false` keeps them in the cartridge. To let the build decide, leave `fast:` out."
+      end
+
+      # The jobs that write to save memory, and so go through the queue and are written a
+      # piece each pass.
+      JOBS_THAT_WRITE = %i[save erase copy].freeze
+
+      # WHERE ONE OF A RECORD'S ROUTINES IS KEPT, from what the game said of the record:
+      # true for the quick memory, false for the cartridge, nil for the build to decide.
+      #
+      # `fast: false` is said of every routine the record has. `fast: true` is said of the
+      # ones this game uses, because a record is built with a routine for everything a game
+      # can ask of it — save, load, erase a copy, copy one over another, put things back as
+      # declared — and a game that never erases a copy still has the routine that would.
+      # Insisting on that one would spend the quick memory on code that cannot run. So a job
+      # is kept when the game asks for it somewhere, and the two routines every write goes
+      # through (the one that writes a piece each pass, and the one that looks the copy over
+      # when the last piece is in) are kept when it asks for any job that writes.
+      #
+      # What the game asks for is known by now: every routine it wrote is built before the
+      # records are laid out.
+      def fast_for(layout, job)
+        return layout.fast unless layout.fast
+
+        asked = @save_jobs_asked[layout.name]
+        used = asked.include?(job) || (%i[step scan].include?(job) && asked.intersect?(JOBS_THAT_WRITE))
+        used ? true : nil
+      end
+
+      # WHERE THE QUEUE'S OWN ROUTINES ARE KEPT, which no game says of them: they are every
+      # record's, and a write goes through them on its way to the record's own. So they go
+      # where the game's records say between them — the quick memory when a record that
+      # insisted on it writes, since those writes pass through here; the cartridge when every
+      # record the game declared was kept out; and wherever the build decides otherwise.
+      #
+      # The record the framework keeps the `save_var`s in has no word of its own, so it is
+      # left out of the asking.
+      def fast_for_queue
+        declared = @save_data.each_value.reject { |layout| layout.name == SaveVarRecord::SAVE_VAR_RECORD }
+        return true if declared.any? { |layout| layout.fast && @save_jobs_asked[layout.name].intersect?(JOBS_THAT_WRITE) }
+        return false if declared.any? && declared.all? { |layout| layout.fast == false }
+
+        nil
+      end
+
       # Where each kept thing sits in the body, and what the record's shape and key are. Where
       # the record sits in save memory is not decided here: the table of places says, at
       # power-on (see SavePlaces).
-      def lay_out_save_data(name, copies, kept, place:, number: 0, when_busy: :wait, pools: [])
+      def lay_out_save_data(name, copies, kept, place:, number: 0, when_busy: :wait, pools: [], fast: nil)
         at = 0
         placed = kept.map { |item| item.with(at: at).tap { |one| at += one.bytes } }
         shape = IR::SaveLayout.shape(placed.map { |item| [item.kind, item.name, item.width, item.count] })
         Layout.new(name: name, copies: copies, kept: placed, body: at, half: IR::SaveLayout.half_bytes(at),
                    place: place, shape: shape, key: IR::SaveLayout.record_key(name), number: number,
-                   when_busy: when_busy, pools: pools)
+                   when_busy: when_busy, pools: pools, fast: fast)
       end
 
       def check_save_data_count!(layout)
@@ -284,7 +339,8 @@ module RubyGBA
         end
 
         lay_out_save_data(layout.name, layout.copies, kept, place: layout.place, number: layout.number,
-                                                            when_busy: layout.when_busy, pools: pools)
+                                                            when_busy: layout.when_busy, pools: pools,
+                                                            fast: layout.fast)
       end
 
       # One record's lists, buffer, power-on scans and routines, once it is laid out.
@@ -297,9 +353,9 @@ module RubyGBA
         end
         declare_save_data_routines(layout, %i[scan load reset])
         { save: SaveJobs::SAVE, erase: SaveJobs::ERASE, copy: SaveJobs::COPY }.each do |job, kind|
-          declare_func(layout.routine(job)) { @jobs.emit_request(layout, kind) }
+          declare_func(layout.routine(job), fast: fast_for(layout, job)) { @jobs.emit_request(layout, kind) }
         end
-        declare_func(layout.routine(:step)) { @jobs.emit_run_phase(layout) }
+        declare_func(layout.routine(:step), fast: fast_for(layout, :step)) { @jobs.emit_run_phase(layout) }
       end
 
       # The variables a record's routines work in, and the one its place in save memory is
@@ -330,8 +386,9 @@ module RubyGBA
         table
       end
 
+      # Each is kept where the record's word puts it (see #fast_for).
       def declare_save_data_routines(layout, jobs = %i[scan save load erase copy reset])
-        jobs.each { |job| declare_func(layout.routine(job)) { send(:"save_data_#{job}", layout) } }
+        jobs.each { |job| declare_func(layout.routine(job), fast: fast_for(layout, job)) { send(:"save_data_#{job}", layout) } }
       end
 
       # --- the routines' bodies, run while the routines are built ---
@@ -519,6 +576,7 @@ module RubyGBA
       # asks for a job (see SaveJobs); a load reads save memory, so the record's jobs are
       # finished first.
       def emit_save_data_call(layout, job, copy)
+        @save_jobs_asked[layout.name] << job
         @jobs.emit_finish_jobs_of(layout) if job == :load
         record(Build.set(layout.scratch(:copy), copy))
         record(Build.call(layout.routine(job)))

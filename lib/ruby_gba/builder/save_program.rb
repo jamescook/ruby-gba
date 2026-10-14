@@ -19,7 +19,7 @@ module RubyGBA
       def repeat(...) = @port.repeat.call(...)
       def at_boot(node) = @port.at_boot.call(node)
       def ensure_var(name) = @port.ensure_var.call(name)
-      def declare_func(name, &body) = @port.declare_func.call(name, &body)
+      def declare_func(name, fast: nil, &body) = @port.declare_func.call(name, fast: fast, &body)
       def run_each_pass(name) = @port.run_each_pass.call(name)
 
       def sd_int(value) = IR::Build.int(value)

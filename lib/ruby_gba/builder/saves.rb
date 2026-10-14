@@ -40,6 +40,8 @@ module RubyGBA
         @save_memory_layout = nil # the IR::SaveLayout::Memory they are laid out in, picked then too
         @halves = nil            # the SaveHalf for that memory, made then too
         @jobs = nil              # the SaveJobs queue, made with the first record
+        # record name → the jobs the game asks of it somewhere (:save, :load, :erase, :copy, :reset)
+        @save_jobs_asked = Hash.new { |asked, record| asked[record] = Set.new }
       end
 
       def records? = @save_data.any?
@@ -118,8 +120,16 @@ module RubyGBA
       # The block, if given, names what it keeps with `keep`, and the handle's `keep` adds more
       # later. Returns a handle: `files[n]` is one copy, and a copy saves, loads, erases and
       # says whether it is good. See Saves.
-      def save_data(name, copies: 1, when_busy: :wait, &block)
-        saves.declare(name, copies: copies, when_busy: when_busy, &block)
+      #
+      # `fast:` says where the record's save routines should be kept, the word `func` takes:
+      # `fast: true` insists on the console's quick memory, `fast: false` keeps them in the
+      # cartridge, and left out the framework decides. It is worth saying `true` in a game
+      # that counts its frames, because a build that measures its game cannot decide this
+      # one well: the run it measures has nobody at the controls and never saves, so the
+      # routines that save look like routines that never run, and the pass that takes the
+      # saving press runs them from the cartridge.
+      def save_data(name, copies: 1, when_busy: :wait, fast: nil, &block)
+        saves.declare(name, copies: copies, when_busy: when_busy, fast: fast, &block)
       end
 
       # Refuse to build unless the records keep, between them, all of the game's own state:

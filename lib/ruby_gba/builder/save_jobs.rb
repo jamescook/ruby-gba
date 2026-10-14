@@ -82,12 +82,14 @@ module RubyGBA
       end
 
       # Once the records are laid out: the save memory they are in (IR::SaveLayout::Memory), the
-      # SaveHalf for it, and the routines that run the jobs, which walk every record.
-      def lay_out(memory:, halves:)
+      # SaveHalf for it, and the routines that run the jobs, which walk every record. +fast+
+      # is where those routines are kept, which the records say between them (see
+      # SaveRecords#fast_for_queue): true, false, or nil for the build to decide.
+      def lay_out(memory:, halves:, fast: nil)
         @memory = memory
         @halves = halves
         %i[tick step_running finish await_wipe pick_slot end].each do |job|
-          declare_func(jobs_name(job)) { send(:"save_jobs_#{job}") }
+          declare_func(jobs_name(job), fast: fast) { send(:"save_jobs_#{job}") }
         end
         run_each_pass(jobs_name(:tick))
       end

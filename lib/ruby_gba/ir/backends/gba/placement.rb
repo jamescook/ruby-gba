@@ -776,7 +776,7 @@ module RubyGBA
             movable += scene_routines.filter_map { |routine, scene| routine if insisted.include?(scene) && sizes[routine] }
             movable.each do |name|
               adds = sizes[name] && bytes_added_by(name, chosen, sizes)
-              guard_insisted_fits!(name, adds, room)
+              guard_insisted_fits!(name, adds, room, insisted)
               chosen << name
               room -= adds
             end
@@ -1036,7 +1036,10 @@ module RubyGBA
 
           # A routine the author asked to keep in the quick memory, that will not go
           # there, is a plain error where they wrote it — not a silent shrug.
-          def guard_insisted_fits!(name, size, room)
+          #
+          # +insisted+ is every routine that was asked for, which is how a routine of the save
+          # queue, shared by the records, finds a record to name.
+          def guard_insisted_fits!(name, size, room, insisted)
             if size.nil?
               raise LoweringError,
                     "#{fast_true_snippet(name)} asks to keep that routine in the console's quick " \
@@ -1044,6 +1047,14 @@ module RubyGBA
                     "remove the routine."
             end
             return if size <= room
+
+            if (record = save_record_insisting_on(name, insisted))
+              raise LoweringError,
+                    "`save_data :#{record}, fast: true` asks to keep the save routines of that record " \
+                    "in the console's quick memory. One of them needs #{size} bytes, and only " \
+                    "#{[room, 0].max} are free. To fix this, use fewer variables and lists, or mark " \
+                    "another routine `fast: false`, or remove `fast: true` from the record."
+            end
 
             raise LoweringError,
                   "#{fast_true_snippet(name)} asks to keep that routine in the console's quick " \
@@ -1058,6 +1069,24 @@ module RubyGBA
             return "`func :#{name}, fast: true`" unless scene.start_with?("_scene_")
 
             "`scene :#{scene.delete_prefix('_scene_')}, fast: true`"
+          end
+
+          # THE RECORD WHOSE WORD PUT A SAVE ROUTINE HERE, by the name the game gave it, or nil
+          # for a routine that is not a save routine: an author writes `fast: true` on a
+          # record, never on one of the routines the record is built into, so the record is
+          # what a message has to name. A record's own routine says which record it is. A
+          # routine of the queue is shared by the records and is here because one of them
+          # insisted (see Builder::SaveRecords#fast_for_queue), so it names the first of
+          # those among +insisted+.
+          def save_record_insisting_on(name, insisted)
+            kind, parts = Messages::MadeNames.read(name)
+            return parts[:record] if kind == :save_record
+            return nil unless kind == :save_jobs
+
+            insisted.filter_map do |other|
+              other_kind, other_parts = Messages::MadeNames.read(other)
+              other_parts[:record] if other_kind == :save_record
+            end.first
           end
 
           # A routine holding raw pre-assembled bytes stays where it is, whatever anyone
