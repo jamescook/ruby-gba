@@ -108,6 +108,33 @@ class TestCheckedNativeRun < Minitest::Test
     assert_nil CheckedNativeRun.first_difference(same, same)
   end
 
+  # A game that saves is replayed on the interpreter from the save memory the C started with. The
+  # second run here starts from what the first left, so an interpreter replayed from a new
+  # cartridge would count from 5 again and the run would fail.
+  def test_a_run_from_save_memory_is_replayed_from_the_same_save_memory
+    program = program_of do
+      best = save_var :best, 5
+      game_loop { best.add! 2 }
+    end
+    store = SaveImage.new
+    CheckedNativeRun.new(save: store).run(program, frames: 3)
+
+    again = CheckedNativeRun.new(save: store).run(program, frames: 2)
+
+    assert_equal 15, again[:best]
+    assert_equal 15, store.word(RubyGBA::IR::SaveLayout.save_var_at(0)), "the save memory handed in holds what the run left"
+  end
+
+  def test_the_first_byte_of_save_memory_they_disagree_on_is_named
+    want = SaveImage.new(kilobytes: 32)
+    want.write(0x1004, 7, 1)
+    got = SaveImage.new(kilobytes: 32)
+    got.write(0x1004, 9, 1)
+
+    assert_match(/save memory at 0x1004: C has 0x09, Reference 0x07/, CheckedNativeRun.save_difference(want, got))
+    assert_nil CheckedNativeRun.save_difference(want, want.dup)
+  end
+
   def test_the_first_sound_they_disagree_on_is_named
     difference = CheckedNativeRun.sounds_difference([[:enabled], [:note, :tune, 262]], [[:enabled], [:note, :tune, 294]])
 

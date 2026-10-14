@@ -24,7 +24,13 @@
  * compares every frame pixel by pixel. Without it a frame is a few lines rather than a hundred
  * and fifty thousand characters, which is what lets a long run be driven a frame at a time.
  *
- * The options are --every-picture, and the three below.
+ * The options are --every-picture, and the five below.
+ *
+ * With --save FILE the game starts with the save memory FILE holds (rg_save.h: the bytes of a
+ * .sav file, as many as the game has save memory), and when the run ends the save memory is
+ * written back to FILE, whole, over what was there. No file there yet is a new cartridge. A game
+ * with no save memory reads and writes nothing. And with --save-cut-after N the power goes off
+ * N steps into the game's saving, which ends the run there, as it does in the interpreter.
  *
  * With --sound-out FILE the sound of every frame played is written to FILE as it is made: one
  * speaker's worth, RG_SOUND_RATE numbers a second, each two bytes with the low byte first. And
@@ -45,6 +51,7 @@
 #include <string.h>
 #include "rg_driver.h"
 #include "rg_runtime.h"
+#include "rg_save.h"
 #include "rg_screen.h"
 #include "rg_sound.h"
 
@@ -53,6 +60,38 @@ static long frame; /* frames started so far */
 static int every_picture; /* print the picture at every frame, not only at the end */
 static FILE *sound_out;   /* where each frame's sound is written, if anywhere */
 static FILE *picture_out; /* where each moment's picture is written, if anywhere */
+static const char *save_path; /* the file save memory is read from and written back to, if any */
+
+/* Save memory as the file holds it, and whether that went well. No file is a new cartridge; a
+ * file of any other size than the game's save memory is somebody else's save. */
+static int read_save_file(void) {
+  FILE *file = fopen(save_path, "rb");
+  if (!file) return 1;
+  size_t size = (size_t)rg_save_size();
+  int whole = fread(rg_save_bytes(), 1, size, file) == size && fgetc(file) == EOF;
+  fclose(file);
+  return whole;
+}
+
+/* Save memory written to its file: to a new file beside it, which then takes its place, so a
+ * run stopped part way through leaves the old file whole. */
+static void write_save_file(void) {
+  size_t size = (size_t)rg_save_size();
+  size_t room = strlen(save_path) + sizeof ".writing";
+  char *writing = malloc(room);
+  int written = 0;
+  if (writing) {
+    snprintf(writing, room, "%s.writing", save_path);
+    FILE *file = fopen(writing, "wb");
+    written = file && fwrite(rg_save_bytes(), 1, size, file) == size;
+    if (file && fclose(file) != 0) written = 0;
+    if (written && rename(writing, save_path) != 0) written = 0;
+    free(writing);
+  }
+  if (written) return;
+  fprintf(stderr, "the save memory could not be written to %s\n", save_path);
+  exit(1);
+}
 
 /* The sound of the frame that has just been played, written down. A machine that keeps its
  * numbers the other way round would write them the other way round; every machine this is built
@@ -125,6 +164,7 @@ static _Noreturn void finish(void) {
   fflush(stdout);
   if (sound_out) fclose(sound_out);
   if (picture_out) fclose(picture_out);
+  if (save_path) write_save_file();
   exit(0);
 }
 
@@ -191,6 +231,16 @@ int rg_headless_main(int argc, char **argv) {
       }
     } else if (strcmp(argv[i], "--sound-voice") == 0 && i + 1 < argc) {
       rg_sound_hear_only((int32_t)strtol(argv[++i], NULL, 10));
+    } else if (strcmp(argv[i], "--save") == 0 && i + 1 < argc) {
+      i++;
+      if (rg_save_size() == 0) continue; /* a game with no save memory keeps nothing there */
+      save_path = argv[i];
+      if (!read_save_file()) {
+        fprintf(stderr, "the file at %s is not this game's save memory, which is %d bytes\n", save_path, (int)rg_save_size());
+        return 2;
+      }
+    } else if (strcmp(argv[i], "--save-cut-after") == 0 && i + 1 < argc) {
+      rg_save_cut_power_after(strtol(argv[++i], NULL, 10));
     }
   }
   rg_active_driver = &headless;

@@ -15,7 +15,7 @@ require_relative "../../examples/breakout"
 # where the headless run is cut off; and the emulator for the *picture* (the title, the
 # brick wall, and the paddle really render), read from settled frames on hardware.
 class TestBreakoutExample < Minitest::Test
-  runs_on :reference
+  runs_on :reference, :native
 
   include RubyGBA::Console::Hardware
 
@@ -30,7 +30,7 @@ class TestBreakoutExample < Minitest::Test
     script = lambda do |frame|
       frame == 1 ? [:start] : then_hold
     end
-    Reference.new.input_each_frame(&script).run(Breakout.program, frames: frames)
+    game_player.input_each_frame(&script).run(Breakout.program, frames: frames)
   end
 
   # RubyGBA.build runs the guardrails and Doctor, so a clean, non-empty build is

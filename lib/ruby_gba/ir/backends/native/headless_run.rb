@@ -84,17 +84,26 @@ module RubyGBA
           # Whether the screen the run ended on is tear-free, as the interpreter answers it.
           attr_reader :buffered
 
-          # The interpreter's options, so a test makes either the same way. +save+ — the save
-          # memory a game starts with — is refused until the native lowering can hold one.
-          def initialize(save: nil)
+          # The save memory the run was handed, holding what the last run left in it.
+          attr_reader :save
+
+          # The interpreter's options, so a test makes either the same way. +save+ is the save
+          # memory the game starts with (an IR::SaveImage), a new cartridge's unless one is
+          # handed over. What a run leaves in its save memory is put back into it, so handing
+          # the SAME one to two runs is the console turned off and on again, as it is for the
+          # interpreter.
+          def initialize(save: SaveImage.new)
+            unless save.is_a?(SaveImage)
+              raise ArgumentError, "save: must be a RubyGBA::IR::SaveImage. To make an empty save memory, " \
+                                   "write RubyGBA::IR::SaveImage.new."
+            end
+
+            @save = save
             @longest_frame = LONGEST_FRAME_SECONDS
             @held = []
             @vars = {}
             @audio = []
             @sprites = []
-            return if save.nil?
-
-            raise CannotAnswer, "the native lowering cannot start a game from save memory yet"
           end
 
           # Buttons held down for the whole run, replacing any held before. An input script
@@ -161,6 +170,8 @@ module RubyGBA
           def run(program, max_steps: nil, frames: nil)
             raise CannotAnswer, "the native lowering keeps no step budget, so it cannot run with max_steps" if max_steps
 
+            @save.use_memory!(SaveLayout.memory_of(program))
+            @keeps_save = Saving.named_by?(program)
             @vars = {}
             @audio = []
             @screen = nil
@@ -169,6 +180,8 @@ module RubyGBA
             @drawn_sprites = DrawnSprites.new(program)
             play(Native.new.build_headless(program), frames || Reference::DEFAULT_FRAMES)
             self
+          ensure
+            @save.restore_power # a cut is for one run, as it is for the interpreter
           end
 
           # A variable's value now — at the end of the run, or, from inside an input script or a
@@ -199,12 +212,25 @@ module RubyGBA
             Dir.mktmpdir("ruby-gba-run") do |dir|
               File.open(File.join(dir, "picture"), "w+b") do |pictures|
                 @pictures = pictures
-                play_frames(exe, frames, ["--picture-out", pictures.path, *sound_options(dir)])
+                play_frames(exe, frames, ["--picture-out", pictures.path, *sound_options(dir), *save_options(dir)])
               end
               @sound = File.binread(File.join(dir, "sound")).unpack("s<*") if @records_sound
+              @save.replace_with_sav(File.binread(save_file(dir)), from: "The save memory the program wrote") if @keeps_save
             end
           ensure
             @pictures = nil
+          end
+
+          def save_file(dir) = File.join(dir, "save")
+
+          # A game that names save memory is handed this run's, as the .sav file the program
+          # starts from and writes back when it ends (see #play) — and a cut waiting on it, as
+          # the step the program's power goes off at.
+          def save_options(dir)
+            return [] unless @keeps_save
+
+            File.binwrite(save_file(dir), @save.to_sav)
+            ["--save", save_file(dir), *(["--save-cut-after", @save.power_left.to_s] if @save.power_left)]
           end
 
           def sound_options(dir)
