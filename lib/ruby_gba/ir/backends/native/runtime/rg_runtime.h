@@ -24,6 +24,13 @@ void rg_game_dump_variables(void);
 /* The game's name, as RubyGBA.game was given it: the window's title. */
 extern const char rg_game_title[];
 
+/* What the game does when one of its timers ticks. The runtime calls it once for each tick with
+ * one timer in mind, and the game runs that timer's handler, if it has one:
+ *
+ *   if (rg_timer_ticking(0)) { ... }
+ */
+void rg_game_timer_ticks(void);
+
 /* --- what the runtime provides --- */
 
 /* The end of a frame: the picture is shown, the buttons are read, and the game waits for the
@@ -43,6 +50,21 @@ _Noreturn void rg_fault(const char *format, ...) __attribute__((format(printf, 1
  * start, right, left, up, down, r, l — and -1 means any of them. */
 int32_t rg_held(int32_t button);
 int32_t rg_pressed(int32_t button);
+
+/* A GAME'S TIMERS (`timer :beat, per_second: 60`): counters that tick so many times a second,
+ * whatever the game is doing. Each has a number of its own. There is no clock here: a frame is
+ * the model's sixtieth of a second, as it is for the interpreter, so a running timer gains its
+ * rate over +frames_a_second+ ticks at every frame boundary, and its handler runs once for each
+ * whole tick it crosses there.
+ *
+ * Starting a timer starts its count again from nought. Stopping one keeps its count. Its ticks
+ * are the whole ticks so far, coming round at 65536 as the console's counter does, and nought
+ * for a timer never started. */
+#define RG_MAX_TIMERS 32
+void rg_timer_start(int32_t timer, int32_t ticks_a_second, int32_t frames_a_second);
+void rg_timer_stop(int32_t timer);
+int32_t rg_timer_ticks(int32_t timer);
+int32_t rg_timer_ticking(int32_t timer);
 
 /* One variable's name and value, for whatever the runtime does with them (the headless one
  * prints them, so a test can compare them with the interpreter's). */

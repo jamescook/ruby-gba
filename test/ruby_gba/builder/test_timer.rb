@@ -7,7 +7,7 @@ require "test_helper"
 # it. The rate is a prescaler + reload on the GBA, and a frame-clock model on the
 # interpreter — both agree on the elapsed-tick count. Pinned on the interpreter and the emulator.
 class TestTimer < Minitest::Test
-  runs_on :reference
+  runs_on :reference, :native
 
   # Run a program that samples `beat.ticks` into :snap every frame and halts at
   # `stop_frame`; returns the interpreter so a test can read :snap. `per_second` sets the
@@ -27,7 +27,7 @@ class TestTimer < Minitest::Test
         (fc == stop_frame).then { halt }
       end
     end
-    Reference.new.run(b.program)
+    game_player.run(b.program)
   end
 
   # At 60/sec on a 60fps model, the timer ticks once per frame — so after N frames it
@@ -60,7 +60,7 @@ class TestTimer < Minitest::Test
       set! :snap, RubyGBA::DSL::Timer.new(self, :ghost).ticks
       halt
     end
-    assert_equal 0, Reference.new.run(b.program)[:snap]
+    assert_equal 0, game_player.run(b.program)[:snap]
   end
 
   # --- validation ---
@@ -132,7 +132,7 @@ class TestTimer < Minitest::Test
         (fc == stop_frame).then { halt }
       end
     end
-    Reference.new.run(b.program)
+    game_player.run(b.program)
   end
 
   # At 60/sec on a 60fps model the handler runs once per frame — so after N frames it has
@@ -169,7 +169,7 @@ class TestTimer < Minitest::Test
     rom = ROM.assemble(backend.lower(b.program), title: "TICKU", maker: "01")
     console = assert_emulator_loads_rom(rom, frames: 20, vars: backend.var_addresses).var(:hits)
 
-    assert_equal 10, Reference.new.run(b.program, frames: 10)[:hits]
+    assert_equal 10, game_player.run(b.program, frames: 10)[:hits]
     assert console.between?(10, 30), "the handler should have run ~20 times over 20 frames, got #{console}"
   end
 
@@ -191,7 +191,7 @@ class TestTimer < Minitest::Test
     backend = GBA.new
     rom = ROM.assemble(backend.lower(b.program), title: "TICKTWO", maker: "01")
     v = assert_emulator_loads_rom(rom, frames: 20, vars: backend.var_addresses)
-    i = Reference.new.run(b.program, frames: 10)
+    i = game_player.run(b.program, frames: 10)
 
     assert_equal [0, 10], [i[:first], i[:second]]
     assert_equal 0, v.var(:first), "the replaced handler never runs on the console"
