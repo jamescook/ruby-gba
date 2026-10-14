@@ -105,6 +105,17 @@ module NativeComparison
     at && "entry #{at} of the sound log: C has #{got[at].inspect}, Reference #{want[at].inspect}"
   end
 
+  # The first frame's slice of mixed sound the two disagree on — the frame and the first sample
+  # in it — or nil when they made the same bytes throughout.
+  def mix_difference(want, got)
+    return "how many frames were mixed: the C mixed #{got.size}, Reference #{want.size}" if want.size != got.size
+
+    frame = want.each_index.find { |index| want[index] != got[index] } or return nil
+    sample = (0...[want[frame].size, got[frame].size].max).find { |index| want[frame][index] != got[frame][index] }
+    "frame #{frame + 1} of the mix, sample #{sample}: C has #{got[frame][sample].inspect}, " \
+      "Reference #{want[frame][sample].inspect}"
+  end
+
   # The first byte of save memory the two ended a run disagreeing on, or nil when the two chips
   # hold the same bytes throughout.
   def save_difference(want, got)

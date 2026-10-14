@@ -8,7 +8,7 @@ require "test_helper"
 # clip re-triggers when it plays out, so the loop shows up in the audio log. Pinned on
 # both backends.
 class TestSampleLoop < Minitest::Test
-  runs_on :reference
+  runs_on :reference, :native
 
   # A one-frame-ish clip, so a few game frames cross its end several times.
   def short_clip
@@ -26,7 +26,7 @@ class TestSampleLoop < Minitest::Test
       s.play
       game_loop { wait_vblank }
     end
-    i = Reference.new.run(b.program, max_steps: 2000)
+    i = game_player.run(b.program, max_steps: 2000)
     plays = i.audio.count { |e| e == [:sample, :s] }
     assert_equal 1, plays, "a one-shot sample plays once and falls silent, no replays"
   end
@@ -40,7 +40,7 @@ class TestSampleLoop < Minitest::Test
       music.play(loop: true)
       game_loop { wait_vblank }
     end
-    i = Reference.new.run(b.program, max_steps: 2000)
+    i = game_player.run(b.program, max_steps: 2000)
     plays = i.audio.count { |e| e == [:sample, :music] }
     assert_operator plays, :>, 1, "a looping sample keeps replaying itself (#{plays} plays)"
   end
@@ -55,7 +55,7 @@ class TestSampleLoop < Minitest::Test
       m.stop
       game_loop { wait_vblank }
     end
-    i = Reference.new.run(b.program, max_steps: 2000)
+    i = game_player.run(b.program, max_steps: 2000)
     assert_equal 1, i.audio.count { |e| e == [:sample, :m] }, "a stopped loop does not replay"
     assert_includes i.audio, [:stop_sample]
   end

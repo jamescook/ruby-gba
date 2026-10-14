@@ -10,7 +10,7 @@ require "mixed_sound"
 # matches it), down to every byte of sound it makes. The surface stays plain: play and
 # stop, no voices or channels exposed.
 class TestMixer < Minitest::Test
-  runs_on :reference
+  runs_on :reference, :native
   include MixedSound
 
   # mem8 hands back an unsigned byte; the mix buffer holds signed 8-bit samples.
@@ -38,7 +38,7 @@ class TestMixer < Minitest::Test
 
   # ...and run it on the interpreter, which is what nearly every test here wants.
   def run_frames(frames, &setup)
-    Reference.new.run(frames_program(frames, &setup), max_steps: 200_000)
+    game_player.run(frames_program(frames, &setup), max_steps: 200_000)
   end
 
   def test_two_looping_samples_sound_at_the_same_time
@@ -83,7 +83,7 @@ class TestMixer < Minitest::Test
         (counter >= 20).then { halt }
       end
     end
-    i = Reference.new.run(b.program, max_steps: 200_000)
+    i = game_player.run(b.program, max_steps: 200_000)
     assert_includes i.active_samples, :music, "music keeps playing"
     refute_includes i.active_samples, :blip, "the stopped sample is gone from the mix"
   end
@@ -175,7 +175,7 @@ class TestMixer < Minitest::Test
     end
     kept = SOUNDS.first(RubyGBA::Audio::Sound::MIXER_VOICES)
 
-    interpreted = Reference.new.run(program, max_steps: 200_000).active_samples
+    interpreted = game_player.run(program, max_steps: 200_000).active_samples
     assert_equal kept, interpreted, "the interpreter keeps the first #{kept.size} and drops the rest"
 
     console = assert_emulator_loads_rom(assemble_rom(program), frames: 6).sounding
@@ -322,7 +322,7 @@ class TestMixer < Minitest::Test
   def test_a_game_that_only_declares_a_recording_mixes_nothing
     declared = playing { sample(:saw, pcm: SAWTOOTH, rate: 8000) }
 
-    assert_empty Reference.new.run(declared, frames: 5).mixed_sound
+    assert_empty game_player.run(declared, frames: 5).mixed_sound
   end
 
   def test_one_recording_is_mixed_into_the_same_bytes
@@ -359,6 +359,39 @@ class TestMixer < Minitest::Test
     loop_me = Array.new(150) { |i| (i % 30) - 15 }
     assert_mixes_agree(playing { sample(:round, pcm: loop_me, rate: 8000).play(loop: true) })
     assert_mixes_agree(playing { sample(:held, pcm: SAWTOOTH.first(500), rate: 8000, holds_from: 320).play(loop: true) })
+  end
+
+  # A recording declared with a shape climbs and settles when the game plays it, its loudness
+  # sliding across every sample of a frame.
+  def test_a_recording_with_a_shape_is_the_same_bytes
+    shape = { attack: 0.1, decay: 0.2, sustain: 0.4 }
+    assert_mixes_agree(playing { sample(:swell, pcm: SAWTOOTH, rate: 8000, envelope: shape).play(loop: true) })
+  end
+
+  # ...and one the game starts and stops in its loop lands on the same frames, a frame's slice
+  # made after the pass that said it — mixed once at nothing before its shape first moves it.
+  def test_a_shaped_recording_started_and_stopped_in_the_loop_is_the_same_bytes
+    b = Builder.new
+    b.instance_eval do
+      screen :bitmap
+      clip = sample :clip, pcm: SAWTOOTH.reverse, rate: 8000, envelope: { attack: 0.1 }
+      passes = var :passes, 0
+      game_loop do
+        passes.add! 1
+        (passes == 3).then { clip.play }
+        (passes == 12).then { clip.stop }
+      end
+    end
+    b.finalize_program
+    assert_mixes_agree(b.program, frames: 20, at_least: 6)
+  end
+
+  # A recording declared twice under one name plays the second declaration's samples.
+  def test_a_name_declared_twice_plays_the_last_recording
+    assert_mixes_agree(playing do
+      sample(:saw, pcm: SAWTOOTH, rate: 8000)
+      sample(:saw, pcm: SAWTOOTH.reverse, rate: 8000).play
+    end)
   end
 
   # Several voices summed, each total held to a byte only once every voice is in.
@@ -408,12 +441,14 @@ class TestMixer < Minitest::Test
   end
 
   def test_a_songs_recorded_parts_are_the_same_bytes
+    skip_on_native "a song part that plays a recording"
     assert_mixes_agree(tune_on, frames: 60)
   end
 
   # A note with a shape climbs, holds and falls away, its loudness sliding across every sample
   # of a frame rather than stepping at the frame's edge.
   def test_notes_with_a_shape_are_the_same_bytes
+    skip_on_native "a song part that plays a recording"
     shaped = { envelope: { attack: 0.05, decay: 0.2, sustain: 0.5, release: 0.15 } }
     assert_mixes_agree(tune_on(instrument_words: shaped), frames: 60)
     assert_mixes_agree(tune_on(part_words: { envelope: { release: 0.3 } }), frames: 60)
@@ -422,6 +457,7 @@ class TestMixer < Minitest::Test
   # The music volume moving reaches notes already sounding — with and without a shape in the
   # game, which changes what the mix reads for a note with none.
   def test_the_music_volume_moving_is_the_same_bytes
+    skip_on_native "a song part that plays a recording"
     assert_mixes_agree(tune_on(volume_from: 8), frames: 60)
     assert_mixes_agree(tune_on(part_words: { envelope: { release: 0.2 } }, volume_from: 8), frames: 60)
   end
@@ -429,6 +465,7 @@ class TestMixer < Minitest::Test
   # A note at volume 0 sounds nothing, so it takes no voice: the part is silent there, and the
   # part's voice from before it is let go as a rest lets it go.
   def test_a_note_at_volume_nought_is_the_same_bytes
+    skip_on_native "a song part that plays a recording"
     b = Builder.new
     b.instance_eval do
       screen :bitmap
@@ -455,6 +492,7 @@ class TestMixer < Minitest::Test
   # tune that is already sounding, a sound the game starts or stops lands on the cartridge's
   # frame — and a sound with a shape is mixed once at nothing before its shape first moves it.
   def test_a_sound_the_game_starts_and_stops_in_its_loop_lands_on_the_same_frame
+    skip_on_native "a song part that plays a recording"
     [{}, { envelope: { attack: 0.1, release: 0.2 } }].each do |shape|
       b = Builder.new
       b.instance_eval do

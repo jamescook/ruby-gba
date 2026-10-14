@@ -8,7 +8,7 @@ require "test_helper"
 # (no rates/voices/mixer detail exposed). Pinned on the interpreter (chords are several
 # voices; notes play live from input) and on the emulator (a chord is three distinct pitched voices).
 class TestInstrument < Minitest::Test
-  runs_on :reference
+  runs_on :reference, :native
 
   NOTES = RubyGBA::Audio::Music::NOTE_FREQUENCIES
 
@@ -26,7 +26,7 @@ class TestInstrument < Minitest::Test
         (counter >= frames).then { halt }
       end
     end
-    Reference.new.run(b.program, max_steps: 200_000)
+    game_player.run(b.program, max_steps: 200_000)
   end
 
   # --- the surface (interpreter) ---
@@ -65,7 +65,7 @@ class TestInstrument < Minitest::Test
       end
     end
     # A pressed from frame 2 -> a note is triggered on the press edge, still sounding at frame 5
-    i = Reference.new.input_each_frame { |f| f >= 2 ? [:a] : [] }.run(b.program, max_steps: 20_000)
+    i = game_player.input_each_frame { |f| f >= 2 ? [:a] : [] }.run(b.program, max_steps: 20_000)
     assert_includes i.active_samples, :piano, "pressing a button played a note"
   end
 

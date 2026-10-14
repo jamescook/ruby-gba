@@ -8,7 +8,7 @@ require "test_helper"
 # the piano is built on. Pinned on the interpreter (a higher note plays out faster) and on
 # the emulator (the voice's play position and its fixed-point step, read off the console).
 class TestPitchedVoices < Minitest::Test
-  runs_on :reference
+  runs_on :reference, :native
 
   # Play sample :s (recorded at :C4) once at the given pitch, then loop `frames` frames.
   def play_for(frames, pitch)
@@ -24,7 +24,7 @@ class TestPitchedVoices < Minitest::Test
         (counter >= frames).then { halt }
       end
     end
-    Reference.new.run(b.program, max_steps: 200_000)
+    game_player.run(b.program, max_steps: 200_000)
   end
 
   # --- the surface (interpreter): a higher note plays out faster ---

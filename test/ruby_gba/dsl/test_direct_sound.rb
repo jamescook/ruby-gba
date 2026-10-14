@@ -7,7 +7,7 @@ require "test_helper"
 # clocks the rate, a second timer interrupts at the end to stop it). All hidden behind
 # sample/play/stop. Pinned on the interpreter (the audio log) and on the emulator (real sound).
 class TestDirectSound < Minitest::Test
-  runs_on :reference
+  runs_on :reference, :native
 
   LoweringError = RubyGBA::IR::Backends::GBA::LoweringError
 
@@ -26,7 +26,7 @@ class TestDirectSound < Minitest::Test
       boom.play
       game_loop { wait_vblank }
     end
-    i = Reference.new.run(b.program, max_steps: 300)
+    i = game_player.run(b.program, max_steps: 300)
     assert_includes i.audio, [:sample, :boom], "play put the sample on the audio channel"
   end
 
@@ -39,7 +39,7 @@ class TestDirectSound < Minitest::Test
       s.stop
       halt
     end
-    log = Reference.new.run(b.program).audio
+    log = game_player.run(b.program).audio
     assert_equal [[:sample, :s], [:stop_sample]], log
   end
 

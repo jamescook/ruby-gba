@@ -72,6 +72,9 @@ void rg_music_frame(void);
  * sound, where the console plays it, and not a frame behind. */
 int32_t rg_sound_render_frame(int16_t *samples);
 
+/* One line of the sound log, said the way printf says it, handed to the driver as it happens. */
+void rg_sound_log(const char *format, ...);
+
 /* Only voice +voice+ is heard from now on — 1 or 2 for a square voice, RG_WAVE_VOICE,
  * RG_NOISE_VOICE — or every voice for 0: how a test listens to one voice at a time. */
 void rg_sound_hear_only(int32_t voice);

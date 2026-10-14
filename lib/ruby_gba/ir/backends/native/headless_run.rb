@@ -126,6 +126,10 @@ module RubyGBA
             @vars = {}
             @lists = {}
             @declared_lists = []
+            @mix_slices = []
+            @mixing = []
+            @mix_peak = 0
+            @mix_drops = [0, 0]
             @audio = []
             @sprites = []
           end
@@ -204,6 +208,10 @@ module RubyGBA
             @vars = {}
             @lists = {}
             @declared_lists = program.walk.select { |node| node.kind == :list_new }.map(&:name).uniq
+            @mix_slices = []
+            @mixing = []
+            @mix_peak = 0
+            @mix_drops = [0, 0]
             @audio = []
             @screen = nil
             @sprites = []
@@ -220,6 +228,25 @@ module RubyGBA
           # never names.
           def [](name)
             @vars.fetch(name, 0)
+          end
+
+          # WHAT THE MIXER MADE AND IS PLAYING, as the interpreter answers it — at the end of the
+          # run, or at the frame boundary a watching block or an input script asks at. Every
+          # frame's slice of sound, oldest first; the recordings sounding, a voice each, in the
+          # order of the voices; the most that sounded at once; how many plays were dropped; and
+          # the level a sounding recording plays at.
+          def mixed_sound = @mix_slices.dup
+          def active_samples = @mixing.map { |recording, _| @sound_log.recordings.fetch(recording).name }
+          def peak_voices = @mix_peak
+
+          def sound_drops
+            dropped, held = @mix_drops
+            Diagnostics::SoundDrops::Reading.new(dropped: dropped, music_held: held, voices: RubyGBA::Audio::Sound::MIXER_VOICES)
+          end
+
+          def volume_of(name)
+            _, loudness = @mixing.find { |recording, _| @sound_log.recordings.fetch(recording).name == name }
+            loudness && RubyGBA::Audio::Sound::MIX_LEVELS.key(loudness)
           end
 
           # The rest of what the interpreter answers, said by name. Anything else is an ordinary
@@ -346,6 +373,20 @@ module RubyGBA
             @lists = self.class.lists_in(rows)
             @sprites = @drawn_sprites.rows_in(rows)
             @camera = self.class.camera_in(rows)
+            read_mix_from(rows)
+          end
+
+          # What the mixer made and is playing, for a game that mixes recordings (see print_mix in
+          # runtime/rg_headless.c): a new slice when one was made since the last moment, and the
+          # voices and counts as they stand.
+          def read_mix_from(rows)
+            slice = rows.find { |row| row.start_with?("mix ") || row == "mix" }
+            @mix_slices << slice.split(" ").drop(1).map { |sample| Integer(sample) } if slice
+            mixing = rows.find { |row| row.start_with?("mixing") } or return
+
+            @mixing = mixing.split(" ").drop(1).map { |number| Integer(number) }.each_slice(2).to_a
+            @mix_peak = Integer(rows.find { |row| row.start_with?("mix_peak ") }.split(" ").last)
+            @mix_drops = rows.find { |row| row.start_with?("mix_drops ") }.split(" ").drop(1).map { |number| Integer(number) }
           end
 
           # --- what ReadingBack reads #list, #pool and #game_state from ---

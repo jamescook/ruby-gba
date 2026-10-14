@@ -24,7 +24,16 @@ module RubyGBA
             @waves = program.walk.select { |node| node.kind == :wave }.map { |node| wave_of(node) }.uniq
             @hits = program.walk.select { |node| node.kind == :noise }.map { |node| hit_of(node) }.uniq
             @pitches = [0, *@songs.flat_map { |song| song.voices.flat_map { |part| part.events.map { |event| event[1] } } }].uniq
+            # A name declared twice is the last declaration's, as the interpreter gathers them.
+            @recordings = program.walk.select { |node| node.kind == :sample }.group_by(&:name).values.map(&:last)
           end
+
+          # Every recording the game declares (its `sample` node), in the order the C numbers
+          # them, and one of them by name.
+          attr_reader :recordings
+
+          def recording(name) = @recordings.find { |sample| sample.name == name }
+          def recording_number(name) = @recordings.index { |sample| sample.name == name }
 
           # The number the C carries for a note's pitch. A pitch is in Hz and need not be whole —
           # a song handed over as MIDI note numbers is tuned from 440, so most of its notes fall
@@ -69,6 +78,8 @@ module RubyGBA
             when "noise_rest" then [:noise, nil]
             when "part_wave" then [:wave, wave_of_part(part_at(numbers[0], numbers[1]), @pitches.fetch(numbers[2]))]
             when "part_noise" then [:noise, hit_of_part(part_at(numbers[0], numbers[1]), @pitches.fetch(numbers[2]))]
+            when "sample" then [:sample, @recordings.fetch(numbers[0]).name]
+            when "stop_sample" then [:stop_sample]
             else raise ArgumentError, "the program printed a sound line nobody reads: #{line}"
             end
           end
