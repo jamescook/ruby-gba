@@ -24,9 +24,9 @@ module RubyGBA
 
           # Every draw op `inside` actually clips on the console — see
           # IR::Backends::GBA::Lowering#draw_area and the framebuffer clip bounds it
-          # feeds. Reusing TiledDisplay::BITMAP_DRAWS would miss draw_column_at (a
-          # first-person view's stretched wall column), which is exactly the shape
-          # of the bug this check exists for.
+          # feeds. Kept apart from TiledDisplay::BITMAP_DRAWS, which says a different
+          # thing (what a tiled screen never shows), though today the two hold the same
+          # draws.
           CLIPPED_DRAWS = %i[pixel fill_rect dma_fill_rect draw_rect_at draw_column_at
                               blit blit_pose clear_screen draw_text draw_digit].freeze
 
