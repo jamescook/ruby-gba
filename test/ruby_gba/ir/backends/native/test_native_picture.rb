@@ -908,6 +908,48 @@ class TestNativePicture < Minitest::Test
     assert_equal Color.resolve(:blue), shared_corner.call(moments.last), "after which it can be handed its second map again"
   end
 
+  # Two scenes each declare a background called :room, with maps of different sizes. Each is
+  # drawn from its own map, and the two share what the game does to the name: the scroll the
+  # second scene gives it, and a changed cell, which is a copy of the second's map that the first
+  # scene draws too once a cell is changed while it is up, until it takes over again.
+  def test_two_backgrounds_with_one_name_share_what_the_game_does_to_it
+    program = program_of do
+      screen :tiled
+      state = var :state, 0
+      ticks = var :ticks, 0
+      image :brick, "#" => :red, "o" => :orange do "#o######\n" * 8 end
+      image :floor, "#" => :blue do "########\n" * 8 end
+      image :pond, "#" => :cyan do "########\n" * 8 end
+      tiles :rooms, "#" => :brick, "." => :floor, "~" => :pond
+      order = table :order, [0, 0, 0, 1, 1, 1, 1, 0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0]
+      scene(:first) do
+        room = background :room, tiles: :rooms, map: ["##..", "#..."]
+        (ticks == 10).then { room.set_tile 0, 1, "#" }
+      end
+      scene(:second) do
+        room = background :room, tiles: :rooms, map: ["..~~~~", "~~..~~", "......"]
+        room.scroll_by 2, 0
+        (ticks == 5).then { room.set_tile 2, 0, "#" }
+      end
+      game_loop do
+        ticks.add! 1
+        state.set! order[ticks]
+        case_var :state do
+          when_val 0, :first
+          when_val 1, :second
+        end
+      end
+    end
+
+    moments = reference_snapshots(program, frames: 18, buttons: {})
+
+    assert_native_matches_reference program, frames: 18
+
+    assert_equal Color.resolve(:red), moments[1].picture[0], "the first scene should draw its own map"
+    assert_equal Color.resolve(:cyan), moments[5].picture[(8 * WIDTH) + 2], "the second its own, scrolled"
+    refute_equal moments[9].picture, moments[11].picture, "a cell changed in the first scene should show there"
+  end
+
   # A background with a small map and one bigger than any grid the console has. Neither comes
   # round again. The window is walked over each in six steps, from left of and above its first
   # cell to right of and below its last, and past an edge the layer behind shows.

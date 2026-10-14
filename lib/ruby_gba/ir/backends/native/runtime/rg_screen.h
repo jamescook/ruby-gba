@@ -293,10 +293,16 @@ extern const uint16_t rg_game_tile_pixels[];
  * when the game starts. RG_BG_SHOWABLE_MAPS is how many of them it can be handed while the game
  * runs, which is none for a background declared with one map.
  *
- * A background scrolls over a grid of RG_BG_GRID_COLS by RG_BG_GRID_ROWS cells and its picture
- * comes round again at that grid's edge, unless RG_BG_NEVER_WRAPS is 1: one with a map too big
- * for any grid, or with maps of different sizes, shows nothing past the edge of its map
- * (IR::TileMap).
+ * A background scrolls over the grid of the map it shows (RG_MAP_GRID_COLS by RG_MAP_GRID_ROWS
+ * cells) and its picture comes round again at that grid's edge, unless RG_BG_NEVER_WRAPS is 1:
+ * one with a map too big for any grid, or with maps of different sizes, shows nothing past the
+ * edge of its map (IR::TileMap).
+ *
+ * Two scenes may each declare a background by the same name. Each is an entry here with its own
+ * maps, and they share what the game does to the name, as the interpreter keeps that by name:
+ * the scroll, the turn, the colors it is told, and the run's own copy of the cells. RG_BG_KEPT_BY
+ * is the entry that keeps those for the name, which is the last one declared, and the one every
+ * statement naming the background reaches.
  *
  * RG_BG_SEE_THROUGH is which see-through layer it is in, counting through rg_game_see_through,
  * or RG_SOLID. RG_BG_BENT is 1 for one the game bends (rg_game_bend_offsets).
@@ -327,8 +333,7 @@ extern const uint16_t rg_game_tile_pixels[];
 /* The most backgrounds a game may have; the build refuses more. */
 #define RG_MAX_BACKGROUNDS 64
 enum {
-  RG_BG_TILE_W, RG_BG_TILE_H, RG_BG_FIRST_MAP, RG_BG_SHOWABLE_MAPS, RG_BG_GRID_COLS, RG_BG_GRID_ROWS,
-  RG_BG_NEVER_WRAPS, RG_BG_TILES_START, RG_BG_SCENE, RG_BG_LEVEL, RG_BG_ON_ARRIVAL, RG_BG_STACK_PLACE,
+  RG_BG_TILE_W, RG_BG_TILE_H, RG_BG_FIRST_MAP, RG_BG_SHOWABLE_MAPS, RG_BG_KEPT_BY, RG_BG_NEVER_WRAPS, RG_BG_TILES_START, RG_BG_SCENE, RG_BG_LEVEL, RG_BG_ON_ARRIVAL, RG_BG_STACK_PLACE,
   RG_BG_SEE_THROUGH, RG_BG_BENT, RG_BG_FADE_PLACE, RG_BG_TILES, RG_BG_COLOR_STEPS, RG_BG_IN_BLOCKS,
   RG_BG_CAN_TURN, RG_BG_PAINTED, RG_BG_RUN_COLORS, RG_BG_FIELDS
 };
@@ -353,10 +358,11 @@ extern const int32_t rg_game_tile_runs[];
 extern const int32_t rg_game_run_images[];
 
 /* Each map is RG_MAP_FIELDS numbers in rg_game_maps: where its cells start in rg_game_map_cells,
- * and how many columns and rows it has. Its cells are row after row, each the number of a tile
- * or RG_CELL_EMPTY where the map has none. */
+ * how many columns and rows it has, and the grid it comes round at (nought each way for a
+ * background that never comes round). Its cells are row after row, each the number of a tile or
+ * RG_CELL_EMPTY where the map has none. */
 #define RG_CELL_EMPTY (-1)
-enum { RG_MAP_CELLS, RG_MAP_COLS, RG_MAP_ROWS, RG_MAP_FIELDS };
+enum { RG_MAP_CELLS, RG_MAP_COLS, RG_MAP_ROWS, RG_MAP_GRID_COLS, RG_MAP_GRID_ROWS, RG_MAP_FIELDS };
 extern const int32_t rg_game_maps[];
 extern const int16_t rg_game_map_cells[];
 

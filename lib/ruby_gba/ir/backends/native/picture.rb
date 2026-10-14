@@ -24,8 +24,9 @@ module RubyGBA
           NO_LAYER = -1
           NOT_DRAWN = -1
           CELL_EMPTY = -1
-          # How many numbers say one map (RG_MAP_FIELDS): where its cells start, its columns, its rows.
-          MAP_FIELDS = 3
+          # How many numbers say one map (RG_MAP_FIELDS): where its cells start, its columns, its
+          # rows, and the columns and rows of the grid it comes round at.
+          MAP_FIELDS = 5
           MAX_BACKGROUNDS = 64
           MAX_SPRITES = 512
           # A thing in no see-through layer (RG_SOLID), and how many of those layers there is
@@ -57,6 +58,8 @@ module RubyGBA
             @stacking = Stacking.picture(@program)
             @handover = SceneHandover.of(@program)
             @fading = Fading.resolve(@program)
+            # A background's name -> the entry that keeps what the game does to it: the last one
+            # declared by that name, as the interpreter's @bg_by_name keeps the last.
             @backgrounds = @stacking.scenery.each_with_index.to_h { |bg, id| [bg.name, id] }
             @objects = by_name(@program.walk, :object)
             @sprites = @objects.each_key.with_index.to_h # sprite name -> the number rg_screen.c knows it by
@@ -89,11 +92,13 @@ module RubyGBA
           def refuse_unsupported_picture!
             nodes = @program.walk.to_a
             refuse_picture!("more than #{MAX_SEE_THROUGH} see-through layers") if @see_through.size > MAX_SEE_THROUGH
-            refuse_picture!("more than #{MAX_BACKGROUNDS} backgrounds") if @backgrounds.size > MAX_BACKGROUNDS
-            # The interpreter keeps a background's scroll and cells by its name and draws each
-            # declaration; rg_screen.c knows a background by one number, which a name here gives.
+            refuse_picture!("more than #{MAX_BACKGROUNDS} backgrounds") if @stacking.scenery.length > MAX_BACKGROUNDS
+            # Two backgrounds with one name share the colors they are told (RG_BG_KEPT_BY). The
+            # interpreter works out what a number names from the first of the two it paints and
+            # keeps that for both (Reference#background_swap), where the C works it out for each.
             shared = @stacking.scenery.map(&:name).tally.select { |_, times| times > 1 }.keys
-            refuse_picture!("two backgrounds with one name (#{shared.first})") unless shared.empty?
+            told = nodes.select { |n| n.kind == :background_colors }.map(&:name) & shared
+            refuse_picture!("two backgrounds with one name told other colors (#{told.first})") unless told.empty?
             refuse_picture!("more than #{MAX_SPRITES} sprites") if @sprites.size > MAX_SPRITES
             if nodes.any? { |n| n.kind == :inside && frame_ends_under?(n) }
               refuse_picture!("a frame that ends inside an `inside` block")
@@ -164,11 +169,11 @@ module RubyGBA
             [*image_arrays, *background_arrays, *see_through_arrays, sprite_fade_places_array, *sprite_block_arrays,
              *run_arrays,
              runtime_array("picture_sizes", "int32_t",
-                    [@backgrounds.size, @stacking.depths.count, @handover.always_up.scenery.length,
+                    [@stacking.scenery.length, @stacking.depths.count, @handover.always_up.scenery.length,
                      rebuilt_every_frame? ? 1 : 0, @see_through.size,
                      Modes.resolve(@program).crosses_display_systems? ? 1 : 0, Blocks::LARGEST,
                      @tile_runs.size, @tile_runs.each_value.sum { |run| run_pixels(run) }, @images.size]),
-             runtime_array("always_up", "int32_t", @handover.always_up.scenery.map { |bg| @backgrounds.fetch(bg.name) }),
+             runtime_array("always_up", "int32_t", @handover.always_up.scenery.map { |bg| entry_of(bg) }),
              runtime_array("sines", "int32_t", (0...450).map { |degrees| Affine.sine(degrees) }),
              runtime_array("turn_rules", "int32_t", [Build::SCALE_ONE, Affine::ONE_TH, Affine::MAX, Affine::MIN_SCALE])]
           end
@@ -339,12 +344,11 @@ module RubyGBA
               painted_start, colors_start = painted_tiles_of(bg, steps, painted_tiles, run_colors)
               first_map = maps.length / MAP_FIELDS
               bg.every_map.each do |map|
-                maps.push(cells.length, *TileMap.size_of(map))
+                # A background that never comes round again has no grid to come round at.
+                maps.push(cells.length, *TileMap.size_of(map), *(bg.streams? ? [0, 0] : TileMap.grid(map)))
                 cells.concat(map_cells(map))
               end
-              # A background that never comes round again has no grid to come round at.
-              grid_cols, grid_rows = bg.streams? ? [0, 0] : TileMap.grid(bg.map)
-              [bg.tile_w, bg.tile_h, first_map, Array(bg.maps).length, grid_cols, grid_rows,
+              [bg.tile_w, bg.tile_h, first_map, Array(bg.maps).length, @backgrounds.fetch(bg.name),
                bg.streams? ? 1 : 0, tiles_start,
                bg.scene ? @scenes.fetch(bg.scene, NEVER_ARRIVES) : EVERY_SCENE, @stacking.depths[bg.name],
                @handover.on_arrival?(bg) ? 1 : 0, stack_place(bg.layer),
@@ -827,8 +831,13 @@ module RubyGBA
              eval_call("rg_scene_take_down", C::Int.new(arrival.scenery.empty? ? 0 : 1)),
              *arrival.map_choices.map { |var| assign(var, C::Int.new(0)) },
              *(arrival.painted_tiles + arrival.painted_pictures).map { |run| tile_copy(run) },
-             *arrival.scenery.map { |bg| eval_call("rg_background_put_up", C::Int.new(@backgrounds.fetch(bg.name))) }]
+             *arrival.scenery.map { |bg| eval_call("rg_background_put_up", C::Int.new(entry_of(bg))) }]
           end
+
+          # The number rg_screen.c knows this one declaration by. A name gives the entry that
+          # keeps what the game does to it (RG_BG_KEPT_BY), which is another declaration's when
+          # two scenes declare a background by one name, so a declaration is found by itself.
+          def entry_of(bg) = @stacking.scenery.index { |entry| entry.equal?(bg) }
 
           # --- small pieces ---
 
