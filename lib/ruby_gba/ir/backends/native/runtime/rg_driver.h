@@ -12,6 +12,8 @@
 #include <stdarg.h>
 #include <stdint.h>
 
+struct rg_list;
+
 typedef struct {
   void (*wait_vblank)(void);
   /* These two never come back (C has no way to say so of a pointer to a function). */
@@ -22,6 +24,9 @@ typedef struct {
   /* One line of the sound log (rg_sound.h), as it happens; the same, only the windowless driver
    * prints it. */
   void (*sound_logged)(const char *line);
+  /* One of the game's lists (rg_list.h), handed over after the variables; a driver with nowhere
+   * to print it leaves this out. */
+  void (*dump_list)(const struct rg_list *list);
 } rg_driver;
 
 /* The driver in use; set by whichever main() started the program. */

@@ -517,7 +517,7 @@ static void trace_frame(uint32_t held) {
   for (int32_t i = 0; i < BUTTONS; i++)
     if (rg_pressed(i)) fprintf(stderr, " %s", button_names[i]);
   fprintf(stderr, " |");
-  rg_game_dump_variables();
+  rg_game_dump_state();
   fputc('\n', stderr);
 }
 
@@ -562,7 +562,7 @@ static void press_scripted_keys(void) {
 static _Noreturn void finish_script(void) {
   puts("end");
   printing_script_end = 1;
-  rg_game_dump_variables();
+  rg_game_dump_state();
   fflush(stdout);
   quit(0);
 }
@@ -617,7 +617,8 @@ static void sdl_dump_variable(const char *name, int32_t value) {
 /* ...nor the log of what was played: the window plays the sound itself. */
 static void sdl_sound_logged(const char *line) { (void)line; }
 
-static const rg_driver sdl = {sdl_wait_vblank, sdl_halt, sdl_fault, sdl_dump_variable, sdl_sound_logged};
+/* ...nor the lists. */
+static const rg_driver sdl = {sdl_wait_vblank, sdl_halt, sdl_fault, sdl_dump_variable, sdl_sound_logged, NULL};
 
 /* The gamepad the keyboard presses: one SDL makes up. It turns up among the gamepads like any
  * other, and is opened and read the way they are.

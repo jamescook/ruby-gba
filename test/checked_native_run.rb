@@ -4,8 +4,8 @@ require "native_comparison"
 
 # What `game_player` hands a test on a native run: the game played as C (Native::HeadlessRun),
 # and then the same buttons, frame for frame, played on the interpreter — with the run failing at
-# the first frame the two disagree on, about any variable, any pixel, or which sprites were drawn
-# and where. A game that saves is played both ways from the same save memory, and the two have to
+# the first frame the two disagree on, about any variable, any list or pool, any pixel, or which
+# sprites were drawn and where. A game that saves is played both ways from the same save memory, and the two have to
 # end the run with the same bytes in it.
 #
 # A test that watches the run (each_vblank) watches the game as C, as it goes; the interpreter
@@ -97,9 +97,28 @@ class CheckedNativeRun
         differences << "the sound log holds #{native.sounds} entries in the C and #{reference.sounds} in Reference"
       end
       differences.concat([sprites_difference(reference.sprites, native.sprites)].compact)
+      differences.concat(collections_differences(reference.collections, native.collections))
       return "#{heading(reference.frame)}: #{differences.join('; ')}" if differences.any?
     end
     nil
+  end
+
+  # Each list and each pool field +got+ (the C) holds differently from +want+ (the interpreter),
+  # said with both.
+  def self.collections_differences(want, got)
+    lists = (want[:lists].keys | got[:lists].keys).filter_map do |name|
+      mine, theirs = got[:lists][name], want[:lists][name]
+      "list :#{name}: C has #{mine.inspect}, Reference #{theirs.inspect}" if mine != theirs
+    end
+    fields = (want[:pools].keys | got[:pools].keys).flat_map do |pool|
+      mine, theirs = got[:pools].fetch(pool, {}), want[:pools].fetch(pool, {})
+      (theirs.keys | mine.keys).filter_map do |field|
+        next if mine[field] == theirs[field]
+
+        "pool :#{pool} field :#{field}: C has #{mine[field].inspect}, Reference #{theirs[field].inspect}"
+      end
+    end
+    lists + fields
   end
 
   def self.heading(frame) = frame == :end ? "the end of the run" : "frame #{frame}"
@@ -144,7 +163,8 @@ class CheckedNativeRun
 
   def moment_of(interpreter, frame)
     Moment.new(frame: frame, variables: interpreter.vars.dup, picture: HeadlessRun.picture_check(interpreter.screen.shown),
-               sounds: interpreter.audio.size, sprites: interpreter.sprites)
+               sounds: interpreter.audio.size, sprites: interpreter.sprites,
+               collections: interpreter.game_state.except(:vars))
   end
 
   # A picture that differs is played again with every pixel of every frame, to say where.

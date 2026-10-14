@@ -6,6 +6,7 @@ require_relative "reference/framebuffer"
 require_relative "reference/list_value"
 require_relative "reference/mixer"
 require_relative "reference/player"
+require_relative "reference/reading_back"
 require_relative "reference/save_writing"
 require_relative "reference/sprite_blocks"
 require_relative "reference/turned_box"
@@ -316,41 +317,8 @@ module RubyGBA
           @vars[name]
         end
 
-        # Read a list: everything in it now, oldest first, under the name the game declared.
-        # An Array, so a test asks for an item, the length, or the whole thing as it likes.
-        def list(name)
-          found = @lists[name] or raise ArgumentError, no_such_message("list", name, declared_lists)
-          found.to_a
-        end
-
-        # Read one field of a pool: an entry per slot, the value where an instance is live and
-        # nil where the slot is free, so a test can ask about the one it spawned first.
-        #
-        # A pool keeps each field as a list of its own, beside a column saying which slots are
-        # live. Those are named after the pool, and nothing a game writes should have to know
-        # how — so this is asked by pool and field, the two names the game used.
-        def pool(name, field)
-          live = @lists[pool_live_list(name)] or raise ArgumentError, no_such_message("pool", name, pools)
-          values = @lists[Messages::MadeNames.make(:pool_field, pool: name, field: field)]
-          raise ArgumentError, no_such_message("field", field, pool_fields(name), of: " in pool :#{name}") if values.nil?
-
-          values.to_a.zip(live.to_a).map { |value, up| value if up.to_i.nonzero? }
-        end
-
-        # Everything the game declared, as it stands now: each variable's value, each list
-        # read the way #list reads it, and each pool field the way #pool reads it —
-        #
-        #   { vars: { hearts: 3 }, lists: { trail: [3, 3] }, pools: { guard: { x: [nil, 10] } } }
-        #
-        # Plain Hashes, so two of them compare with == and a test that compares two moments
-        # compares the whole game, including whatever it declares after the test is written.
-        # What the framework keeps for itself is named with two underscores and left out: it
-        # is how the game is run, not what the game is.
-        def game_state
-          { vars: @vars.reject { |name, _| framework_own?(name) },
-            lists: declared_lists.to_h { |name| [name, list(name)] },
-            pools: pools.to_h { |name| [name, pool_fields(name).to_h { |field| [field, pool(name, field)] }] } }
-        end
+        # #list, #pool and #game_state: a game's own state read back by the names it gave it.
+        include ReadingBack
 
         # True if run() stopped because it hit the step budget rather than a
         # `halt` or the natural end — i.e. it was still looping when we cut it off.
@@ -2729,41 +2697,11 @@ module RubyGBA
                   "create it first with `list #{name.inspect}, capacity: N`")
         end
 
-        # --- reading collections back, for #list and #pool ---
+        # --- what ReadingBack reads #list, #pool and #game_state from ---
 
-        # A pool's field is a list, and so is what the pool keeps for itself beside its fields:
-        # which slots are live, which are free, the order they were spawned in. The two are
-        # spelled apart (see Messages::MadeNames), so a list's name says which it is, and of
-        # which pool.
-
-        # The list saying which slots of +pool+ are live.
-        def pool_live_list(pool) = Messages::MadeNames.make(:pool_part, pool: pool, part: :active)
-
-        # The lists the game declared itself; the framework's own are named with two
-        # underscores in front.
-        def declared_lists = @lists.keys.reject { |name| framework_own?(name) }
-
-        def framework_own?(name) = name.start_with?("__")
-
-        def pools
-          @lists.keys.filter_map do |key|
-            kind, parts = Messages::MadeNames.read(key)
-            parts[:pool].to_sym if kind == :pool_part && parts[:part] == "active"
-          end
-        end
-
-        # The fields of +pool+.
-        def pool_fields(pool)
-          @lists.keys.filter_map do |key|
-            kind, parts = Messages::MadeNames.read(key)
-            parts[:field].to_sym if kind == :pool_field && parts[:pool] == pool.to_s
-          end
-        end
-
-        def no_such_message(what, name, there, of: "")
-          listed = there.empty? ? "There are none." : "There #{there.size == 1 ? 'is' : 'are'} #{there.map { |n| ":#{n}" }.join(', ')}."
-          "There is no #{what} :#{name}#{of}. #{listed}"
-        end
+        def list_items(name) = @lists[name]&.to_a
+        def list_names = @lists.keys
+        def variables_now = @vars
 
         def exec_list_push(node)
           list = list_for(node.name)

@@ -19,7 +19,7 @@
 #include "rg_int32.h"
 #include "rg_runtime.h"
 
-typedef struct {
+typedef struct rg_list {
   int32_t *items;     /* capacity of them, used as a ring */
   int32_t capacity;
   int32_t width;      /* 1, 2 or 4 bytes a slot */

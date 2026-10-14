@@ -18,8 +18,9 @@
  * comes back from it; the runtime ends the run from inside rg_wait_vblank or rg_halt. */
 void rg_game_main(void);
 
-/* Hands every variable the game keeps to rg_dump_variable, by its Ruby name. */
-void rg_game_dump_variables(void);
+/* Hands every variable the game keeps to rg_dump_variable, by its Ruby name, and then every
+ * list to rg_dump_list — a pool's fields among them, since a pool is kept as lists. */
+void rg_game_dump_state(void);
 
 /* The game's name, as RubyGBA.game was given it: the window's title. */
 extern const char rg_game_title[];
@@ -69,6 +70,10 @@ int32_t rg_timer_ticking(int32_t timer);
 /* One variable's name and value, for whatever the runtime does with them (the headless one
  * prints them, so a test can compare them with the interpreter's). */
 void rg_dump_variable(const char *name, int32_t value);
+
+/* One list, the same way. */
+struct rg_list;
+void rg_dump_list(const struct rg_list *list);
 
 /* Calls a routine picked out of an array of them. The C the backend writes names the function
  * a call goes to, and an entry of an array is not a name, so the entry is handed to this. */

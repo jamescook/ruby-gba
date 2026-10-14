@@ -9,7 +9,8 @@
  * frame, as a number with a bit per button (bit 0 is a, in the order rg_runtime.h lists them);
  * a missing line holds nothing.
  *
- * At every frame boundary it prints "frame N", every variable as "var name value", every sprite
+ * At every frame boundary it prints "frame N", every variable as "var name value", every list as
+ * "list name" and its items (see headless_dump_list), every sprite
  * the game last drew as "sprite" and four numbers (see print_sprites), and where the window sits
  * over the picture as "camera X Y", then "buttons?",
  * and only then reads that frame's line. So whoever is feeding it can answer from what the game
@@ -52,6 +53,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include "rg_driver.h"
+#include "rg_list.h"
 #include "rg_runtime.h"
 #include "rg_save.h"
 #include "rg_screen.h"
@@ -158,7 +160,7 @@ static void print_sprites(void) {
 
 static void print_moment(const char *heading, int with_picture) {
   printf("%s\n", heading);
-  rg_game_dump_variables();
+  rg_game_dump_state();
   print_sprites();
   printf("camera %d %d\n", (int)rg_screen_camera_x(), (int)rg_screen_camera_y());
   const uint16_t *shown = rg_screen_shown();
@@ -218,8 +220,18 @@ static void headless_dump_variable(const char *name, int32_t value) { printf("va
  * among the frames, so a test reading the log mid-run sees it up to the frame it is on. */
 static void headless_sound_logged(const char *line) { printf("sound %s\n", line); }
 
+/* "list", the game's name for it, a tab, and its items oldest first — the order the game reads
+ * them in, which in a list the game shifts is not the order they sit in memory. A pool's fields
+ * come this way too, a slot an item, under the names the build gave them. The tab ends the name,
+ * since a pool's field may be called anything, spaces and all. */
+static void headless_dump_list(const rg_list *list) {
+  printf("list %s\t", list->name);
+  for (int32_t i = 0; i < list->length; i++) printf(i ? " %d" : "%d", (int)list->items[rg_list_slot(list, i)]);
+  fputc('\n', stdout);
+}
+
 static const rg_driver headless = {headless_wait_vblank, headless_halt, headless_fault, headless_dump_variable,
-                                   headless_sound_logged};
+                                   headless_sound_logged, headless_dump_list};
 
 int rg_headless_main(int argc, char **argv) {
   if (argc < 2) {

@@ -49,8 +49,13 @@ module RubyGBA
 
           # Where the game had got to at one frame boundary, or (+frame+ :end) when the run
           # stopped: every variable, the picture as a check number (see .picture_check), how
-          # long the sound log was, and the sprites it last drew (see #sprites).
-          Moment = Data.define(:frame, :variables, :picture, :sounds, :sprites)
+          # long the sound log was, the sprites it last drew (see #sprites), and its lists and
+          # pools as #game_state reads them.
+          Moment = Data.define(:frame, :variables, :picture, :sounds, :sprites, :collections) do
+            def initialize(frame:, variables:, picture:, sounds:, sprites:, collections: { lists: {}, pools: {} })
+              super
+            end
+          end
 
           # Raised for something a test asks of the interpreter that the native lowering cannot
           # answer yet — which says the test's file was opted into native runs too early, or
@@ -60,6 +65,15 @@ module RubyGBA
           # The variables printed among +rows+ ("var name value"), by name.
           def self.variables_in(rows)
             rows.grep(/\Avar /).to_h { |row| _, name, value = row.split(" "); [name.to_sym, Integer(value)] }
+          end
+
+          # The lists printed among +rows+ ("list", the name, a tab, and the items oldest first), by
+          # name. The tab ends the name, which may hold spaces.
+          def self.lists_in(rows)
+            rows.grep(/\Alist /).to_h do |row|
+              name, items = row.delete_prefix("list ").split("\t", 2)
+              [name.to_sym, items.to_s.split(" ").map { |item| Integer(item) }]
+            end
           end
 
           # The whole picture printed among +rows+ ("picture" and four hex digits a pixel), which
@@ -110,9 +124,15 @@ module RubyGBA
             @longest_frame = LONGEST_FRAME_SECONDS
             @held = []
             @vars = {}
+            @lists = {}
+            @declared_lists = []
             @audio = []
             @sprites = []
           end
+
+          # #list, #pool and #game_state, answered from what the program printed as the
+          # interpreter answers them from what it holds.
+          include Reference::ReadingBack
 
           # Buttons held down for the whole run, replacing any held before. An input script
           # (#input_each_frame) decides instead when there is one. Gives back self.
@@ -182,6 +202,8 @@ module RubyGBA
             @save.use_memory!(SaveLayout.memory_of(program))
             @keeps_save = Saving.named_by?(program)
             @vars = {}
+            @lists = {}
+            @declared_lists = program.walk.select { |node| node.kind == :list_new }.map(&:name).uniq
             @audio = []
             @screen = nil
             @sprites = []
@@ -291,12 +313,11 @@ module RubyGBA
           # is the interpreter's order, and the program is waiting for its buttons throughout, so
           # the picture in its file is this frame's for as long as anybody here can ask for it.
           def record_frame_and_send_buttons(stdin, frame, rows)
-            @vars = self.class.variables_in(rows)
-            @sprites = @drawn_sprites.rows_in(rows)
-            @camera = self.class.camera_in(rows)
+            read_state_from(rows)
             @screen = nil
             check = rows.find { |row| row.start_with?("picture-crc ") }.delete_prefix("picture-crc ").to_i(16)
-            @moments << Moment.new(frame: frame, variables: @vars, picture: check, sounds: @audio.size, sprites: @sprites)
+            @moments << Moment.new(frame: frame, variables: @vars, picture: check, sounds: @audio.size, sprites: @sprites,
+                                   collections: game_state.except(:vars))
             buttons = @input_script ? @input_script.call(frame) : @held
             @on_vblank&.call(frame)
             stdin.puts(self.class.button_mask(buttons))
@@ -312,14 +333,32 @@ module RubyGBA
           end
 
           def record_end(rows)
-            @vars = self.class.variables_in(rows)
-            @sprites = @drawn_sprites.rows_in(rows)
-            @camera = self.class.camera_in(rows)
+            read_state_from(rows)
             @screen = picture_now
             @buffered = rows.include?("pages 2")
             @moments << Moment.new(frame: :end, variables: @vars, picture: self.class.picture_check(@screen.shown),
-                                   sounds: @audio.size, sprites: @sprites)
+                                   sounds: @audio.size, sprites: @sprites, collections: game_state.except(:vars))
           end
+
+          # Where the game stands, as the program printed it at one moment.
+          def read_state_from(rows)
+            @vars = self.class.variables_in(rows)
+            @lists = self.class.lists_in(rows)
+            @sprites = @drawn_sprites.rows_in(rows)
+            @camera = self.class.camera_in(rows)
+          end
+
+          # --- what ReadingBack reads #list, #pool and #game_state from ---
+
+          # A list the program never reaches has no storage in the C and is not printed, and the
+          # interpreter holds it, empty, from power-on: so a list the game declares and the
+          # program did not print is empty.
+          def list_items(name) = @lists.fetch(name) { @declared_lists.include?(name) ? [] : nil }&.dup
+          def list_names = @declared_lists | @lists.keys
+
+          # Every variable the program names. The interpreter holds only the ones a run has
+          # written, so a variable the game names and never writes is here, at 0, and not there.
+          def variables_now = @vars
 
           # The next line the program printed, or nil once it has finished; a program that has
           # had as long as a frame may take since +frame+, and has not reached the next, is
