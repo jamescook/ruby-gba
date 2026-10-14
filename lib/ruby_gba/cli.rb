@@ -59,7 +59,7 @@ module RubyGBA
       with a window, the keyboard as the console's buttons (mGBA's keys), and nothing
       else to install. It is written next to the game file, named from the title with no
       extension. It needs zig (`mise install`), and the first one takes a while because
-      it compiles SDL; sound is not played yet.
+      it compiles SDL.
 
       A game that saves keeps its save in a file, in the folder your computer has for
       each program's own files. To keep it in a different file, start the program with
