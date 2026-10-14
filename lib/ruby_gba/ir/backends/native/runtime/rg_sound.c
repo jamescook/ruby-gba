@@ -5,9 +5,10 @@
  * reading one frame counter so they stay in step. Every frame the player first catches up with
  * what the game asked for — a different tune silences the old one and starts the new one from
  * its first frame — then plays each part's next note if it is due on this frame, then moves the
- * counter on, coming round at the song's end to the frame it loops from. That is the
- * interpreter's order (Reference::Player#advance), and keeping it is what makes the two logs
- * agree line for line.
+ * counter on, coming round at the song's end to the frame it loops from. A song that plays once
+ * does not come round: it ends there, and on the next frame its parts go quiet and no tune is
+ * playing. That is the interpreter's order (Reference::Player#advance), and keeping it is what
+ * makes the two logs agree line for line.
  *
  * THE VOICES. The console has four of its own, and every rule below is the console's
  * (Audio::Sound has them in one place for every backend, and the lowering writes the numbers
@@ -433,6 +434,7 @@ typedef struct {
 
 static int32_t wanted = -1;  /* the tune the game last named, or -1 for none */
 static int32_t playing = -1; /* ...and the one the player is on, which catches up each frame */
+static int32_t ended = -1;   /* a tune that played once and reached its end, or -1 */
 static int32_t stops;        /* how many times the game has said stop... */
 static int32_t stops_seen;   /* ...and how many of those the player has acted on */
 
@@ -529,19 +531,35 @@ static void rest_on(const part_walk *part) {
   }
 }
 
-/* The tune the game asked for has changed, or it said stop: silence what was playing — its own
- * voices and no others, so a one-part tune ending does not cut off a beep on the second voice —
- * and start the new one from its first frame, with its waveform in the wave voice if it has a
- * part there. */
+/* Every voice the playing tune uses goes quiet — its own voices and no others, so a one-part tune
+ * ending does not cut off a beep on the second voice — and none of them holds a note any more. */
+static void silence_song(void) {
+  log_sound("stop_music");
+  for (int32_t i = 0; i < part_count; i++) rest_on(&parts[i]);
+  holding_count = 0;
+}
+
+/* The tune the game asked for has changed, or it said stop: silence what was playing and start
+ * the new one from its first frame, with its waveform in the wave voice if it has a part there.
+ *
+ * A TUNE THAT PLAYED ONCE AND ENDED is looked at first (IR::Tunes.plays_once? has the rule every
+ * backend keeps). While the game still names it and has not said stop, nothing plays: its parts
+ * go quiet on the frame after its last, and it stays that way. Anything else the game says —
+ * another tune, no tune, or a stop and the same tune named again — forgets the end, and is then
+ * caught up with as usual, which for the same tune is from its first note. */
 static void switch_to_wanted_song(void) {
+  if (ended >= 0) {
+    if (wanted == ended && stops == stops_seen) {
+      if (playing >= 0) silence_song();
+      playing = -1;
+      return;
+    }
+    ended = -1;
+  }
   if (wanted == playing && stops == stops_seen) return;
 
   stops_seen = stops;
-  if (playing >= 0) {
-    log_sound("stop_music");
-    for (int32_t i = 0; i < part_count; i++) rest_on(&parts[i]);
-  }
-  holding_count = 0;
+  if (playing >= 0) silence_song();
   playing = wanted;
   song_frame = 0;
   part_count = 0;
@@ -614,6 +632,12 @@ void rg_music_frame(void) {
 
   song_frame++;
   if (song_frame < song[0]) return;
+  if (song[2]) {
+    /* A tune that plays once goes no further: its last frame's notes sound for that frame, and
+     * the next frame is the one its parts go quiet on. */
+    ended = playing;
+    return;
+  }
   song_frame = song[1];
   start_walks(1);
 }
