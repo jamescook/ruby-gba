@@ -15,6 +15,7 @@ require "differential"
 # past the bottom of the screen. Hanging far enough off the top or the bottom, the far end
 # of that box shows at the other edge.
 class TestSpriteOffScreen < Minitest::Test
+  runs_on :reference
   include Differential
 
   WIDTH = 240
