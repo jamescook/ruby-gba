@@ -266,9 +266,11 @@ run by step budget
 (`run(program, max_steps: 400)`) plays there too, with nothing to change: a budget is the
 interpreter's own measure, and it stops a game on a frame boundary, so the interpreter is asked
 how many frames fit in the budget and the C plays that many. The sound log is the interpreter's
-words for what was played. The C keeps that log, and plays the sound, for songs on the
-square-wave voices, beeps and the music volume so far, and a game that uses any other sound is
-refused by name when it is built.
+words for what was played. The C keeps that log, and plays the sound, for the console's own four
+voices so far — songs with parts on the square wave, the wave voice and the noise voice, a song
+that plays once, beeps, `wave`, `stop_wave`, `noise` and the music volume — and a game that uses
+any other sound (a recording, a sound effect list, a song picked from a list) is refused by name
+when it is built.
 
 Opt a file in once native can play its games, and in chunks that go with the native slice that
 made them pass. What the native player cannot answer yet raises `HeadlessRun::CannotAnswer`
@@ -302,9 +304,13 @@ assert_native_sounds_like_the_console(program, frames: 300, buttons: { 3 => [:a]
 ```
 
 It plays the game both ways one voice at a time and compares every frame: how loud the voice is,
-its pitch, and how thin or full its tone. The emulator is the answer key there and not the thing
-under test, so the helper asks it directly rather than through `require_emulator!`. Its
-tolerances and the reason for each are written at the top of the file. A small made-up program
+its pitch, and how thin or full its tone. It listens to the two square voices unless told which
+(`voices: %i[square1 wave noise]`), and every voice it is told has to be heard. The noise voice
+is a hiss and has no pitch, so in its place the helper compares how bright the hiss is — how
+often it changes — and a test of the pattern itself reads which way the voice stands on each
+step of a slow one (`Heard#runs`, in `test_native_tones.rb`). The emulator is the answer key
+there and not the thing under test, so the helper asks it directly rather than through
+`require_emulator!`. Its tolerances and the reason for each are written at the top of the file. A small made-up program
 goes in `test/ruby_gba/ir/backends/native/test_native_tones.rb`; a whole example's sound goes in
 a file of its own under `test/ruby_gba/ir/backends/native/examples/`
 (`test_pong_sounds.rb`). The windowless program has no speaker, so for these it writes its sound
@@ -312,7 +318,8 @@ to a temporary file (`--sound-out`) that the helper reads back; a game played in
 writes none.
 
 **The console starts its game a frame or two after the desktop build**, and the helper lines
-the two up on when each first makes a sound. What it cannot line up is a button that lands on a
+the two up on when each first makes a sound (trying a frame either side of that as well, and
+keeping whichever agrees best). What it cannot line up is a button that lands on a
 different pass of the game in each: walk a character for frames 3 to 30 while something chases
 it, and the chaser is two passes further on in one than the other, so it is caught a frame apart
 and every sound after that is a frame out. That reads exactly like a fault in the sound. Hold
