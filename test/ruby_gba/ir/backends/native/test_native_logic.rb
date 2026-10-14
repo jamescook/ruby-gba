@@ -37,6 +37,55 @@ class TestNativeLogic < Minitest::Test
     assert_equal 13, last.variables.fetch(:x), "three passes each added three, and nothing else moved it"
   end
 
+  # TIMERS. A rate that is no whole number of ticks a frame, so the part of a tick left over has
+  # to be carried the way the interpreter carries it; a fast one whose handler runs several times
+  # a frame; a handler written inside a routine nothing calls, which is still its timer's; a
+  # second handler that takes the first one's place; a timer stopped and started again, which
+  # counts from nought; a handler that calls a routine and stops its own timer; and a timer
+  # that is read and never started.
+  def test_timers_tick_and_run_their_handlers_as_the_interpreters_do
+    program = program_of do
+      n = var :n, 0
+      uneven = timer :uneven, per_second: 100
+      fast = timer :fast, per_second: 250
+      restarted = timer :restarted, per_second: 60
+      once = timer :once, per_second: 90
+      var :uneven_hits, 0
+      var :fast_hits, 0
+      var :replaced, 0
+      var :once_hits, 0
+      var :reads, 0
+      func(:count_once) { add! :once_hits, 1 }
+      func(:nobody_calls_this) { uneven.on_tick { add! :uneven_hits, 1 } }
+      fast.on_tick { add! :replaced, 1 }
+      fast.on_tick { add! :fast_hits, 1 }
+      once.on_tick do
+        call :count_once
+        once.stop
+      end
+      game_loop do
+        n.add! 1
+        (n == 5).then { restarted.stop }
+        (n == 8).then { timer :restarted, per_second: 60 }
+        set! :reads, uneven.ticks + (fast.ticks * 100) + (restarted.ticks * 10_000) +
+                     RubyGBA::DSL::Timer.new(self, :never_started).ticks
+      end
+    end
+
+    moments = reference_snapshots(program, frames: 14, buttons: {})
+
+    assert_native_matches_reference program, frames: 14
+
+    last = moments.last.variables
+
+    assert_equal 0, last[:replaced], "the first handler should never run"
+    assert_operator last[:fast_hits], :>, 40, "the fast one runs several times a frame"
+    assert_operator last[:uneven_hits], :>, 14, "more than once a frame, and not a whole number of times"
+    assert_equal 1, last[:once_hits], "stopped by its own first tick"
+    assert_operator moments[6].variables[:reads] / 10_000, :>, moments[9].variables[:reads] / 10_000,
+                    "the one started again counts from nought"
+  end
+
   # Running off the top of a number wraps round to the bottom, and the division, remainder and
   # shifts keep Ruby's and the console's meanings, not C's.
   def test_numbers_wrap_divide_and_shift_the_way_the_interpreter_does

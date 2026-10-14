@@ -59,6 +59,8 @@ module RubyGBA
                                                after: :lower_after, call: :lower_call,
                                                call_one_of: :lower_call_one_of, case: :lower_case,
                                                halt: :lower_halt, wait_vblank: :lower_wait_vblank,
+                                               timer_start: :lower_timer_start, timer_stop: :lower_timer_stop,
+                                               on_timer: :lower_nothing,
                                                list_new: :lower_list_new, list_push: :lower_list_push,
                                                list_drop: :lower_list_drop, list_set: :lower_list_set,
                                                list_fill: :lower_list_fill, list_copy: :lower_list_copy,
@@ -102,7 +104,7 @@ module RubyGBA
                                            held: :value_of_held, pressed: :value_of_pressed,
                                            chance: :value_of_chance, table_get: :value_of_table_get,
                                            data_byte: :value_of_data_byte, list_get: :value_of_list_get,
-                                           list_len: :value_of_list_len,
+                                           list_len: :value_of_list_len, timer_ticks: :value_of_timer_ticks,
                                            # the picture (Picture)
                                            pixels_overlap: :value_of_pixels_overlap,
                                            # save memory (Saving)
@@ -114,8 +116,7 @@ module RubyGBA
           # which test_native_kind_coverage.rb holds against every kind there is. A kind leaves
           # the list the day it gets a row in STATEMENTS or VALUES.
           NOT_LOWERED_YET = Ractor.make_shareable({
-            sound: %i[noise play_from_list play_sample play_sound_effect stop_sample stop_wave wave],
-            timers: %i[on_timer timer_start timer_stop timer_ticks]
+            sound: %i[noise play_from_list play_sample play_sound_effect stop_sample stop_wave wave]
           })
 
           # How many bytes a slot of a list takes, by the width it was declared with.
@@ -134,12 +135,18 @@ module RubyGBA
             written = by_name(program.walk, :scroll_rows)
             @bend_written = !written.empty?
             @bends = written.slice(*by_name(program.walk, :background).keys)
+            # What each timer does when it ticks: its handler, wherever that is written, since it
+            # is the timer's from power-on (Nodes::OnTimer.of). And the number the runtime knows
+            # each timer by.
+            @tick_handlers = Nodes::OnTimer.of(program)
+            @timers = timer_numbers
             @called = called_routines
             # Everything a run can reach: the program, every routine it calls, however deep, and
             # what each bend runs as its background is painted. A routine nothing calls is left
             # out of the file altogether, so nothing in it (a table it reads, a routine it calls)
             # can leave something declared and unused.
-            @reachable = statements_from(program, *@called.map { |name| @funcs.fetch(name) }, *@bends.values)
+            @reachable = statements_from(program, *@called.map { |name| @funcs.fetch(name) }, *@bends.values,
+                                         *@tick_handlers.values)
             @tables = by_name(program.walk, :table)
             @data = by_name(program.walk, :data, :bitmap)
             # A list is there, empty, from power-on wherever it is declared (the interpreter
@@ -170,7 +177,7 @@ module RubyGBA
           # above them in the file.
           def top_level
             routines = @called.map { |name| C::Function.new(name: routine(name), body: body_of(@funcs.fetch(name))) }
-            answers = [see_through_amounts, bend_offsets]
+            answers = [see_through_amounts, bend_offsets, timer_ticks]
             main = C::Function.new(name: @names.own("main"), body: [*power_on, *lower(@program)], exported: true)
             [C::Comment.new("Written by ruby-gba's native backend. Do not edit; build the game again."),
              C::Include.new("rg_int32.h"), C::Include.new("rg_runtime.h"), C::Include.new("rg_list.h"),
@@ -202,15 +209,16 @@ module RubyGBA
           end
 
           # The statements under +root+ and everything they hold, stopping at a routine's
-          # declaration and at a bend: a routine's body runs where it is called and a bend's as
-          # its background is painted, not where either is written. The bend itself is still a
-          # statement there; what it holds is found by asking for the bend as a root.
+          # declaration, at a bend and at what a timer does when it ticks: a routine's body runs
+          # where it is called, a bend's as its background is painted and a tick's as its timer
+          # ticks, not where any of them is written. The bend or the handler itself is still a
+          # statement there; what it holds is found by asking for it as a root.
           def statements_under(root)
             found = [root]
             (root.children + root.operand_nodes).each do |node|
               found.concat(case node.kind
                            when :func then []
-                           when :scroll_rows then [node]
+                           when :scroll_rows, :on_timer then [node]
                            else statements_under(node)
                            end)
             end
@@ -231,11 +239,12 @@ module RubyGBA
             end
           end
 
-          # Every routine a run can reach, following calls from the program and from what each
-          # bend runs into the routines they call, in the order the routines were declared.
+          # Every routine a run can reach, following calls from the program, from what each bend
+          # runs and from what each timer does when it ticks into the routines they call, in the
+          # order the routines were declared.
           def called_routines
             reached = []
-            waiting = routines_named(statements_from(@program, *@bends.values))
+            waiting = routines_named(statements_from(@program, *@bends.values, *@tick_handlers.values))
             until waiting.empty?
               name = waiting.shift
               next if reached.include?(name) || !@funcs.key?(name)
@@ -355,6 +364,7 @@ module RubyGBA
 
             [assign(node.var, value(node.value))]
           end
+
           def lower_add(node) = [assign(node.var, call("rg_add", variable(node.var), value(node.operand)))]
           def lower_sub(node) = [assign(node.var, call("rg_sub", variable(node.var), value(node.operand)))]
           def lower_copy(node) = node.dest == node.src ? [] : [assign(node.dest, variable(node.src))]
@@ -453,6 +463,48 @@ module RubyGBA
           end
 
           def lower_halt(_node) = [eval_call("rg_halt")]
+
+          # --- timers (Reference#exec_timer_start, #exec_timer_stop, #timer_ticks) ---
+
+          # The most timers a game may have (RG_MAX_TIMERS).
+          MAX_TIMERS = 32
+
+          # Every timer the program names, by starting it, stopping it, reading it or saying what
+          # it does when it ticks, and the number the runtime knows each by.
+          def timer_numbers
+            names = @program.walk.filter_map do |node|
+              case node.kind
+              when :timer_start, :timer_stop, :timer_ticks then node.name
+              when :on_timer then node.timer
+              end
+            end.uniq
+            if names.size > MAX_TIMERS
+              raise LoweringError, "this program has #{names.size} timers, and the desktop build has room for #{MAX_TIMERS}."
+            end
+
+            names.each_with_index.to_h
+          end
+
+          def timer_number(name) = C::Int.new(@timers.fetch(name))
+
+          # The interpreter's sixty frames a second go with the rate, so the C divides by the
+          # number Ruby divides by.
+          def lower_timer_start(node)
+            [eval_call("rg_timer_start", timer_number(node.name), C::Int.new(node.hz), C::Int.new(Reference::FRAME_RATE))]
+          end
+
+          def lower_timer_stop(node) = [eval_call("rg_timer_stop", timer_number(node.name))]
+          def value_of_timer_ticks(node) = call("rg_timer_ticks", timer_number(node.name))
+
+          # The routine the runtime calls for each tick of a timer (Reference#accrue_timer),
+          # running what that timer does when it ticks. Where a handler is written, nothing
+          # runs: it is its timer's, not the line's (Reference#exec_on_timer).
+          def timer_ticks
+            handlers = @tick_handlers.map do |timer, handler|
+              C::If.new(condition: call("rg_timer_ticking", timer_number(timer)), body: body_of(handler))
+            end
+            C::Function.new(name: @names.own("timer_ticks"), body: handlers, exported: true)
+          end
 
           # The runtime ends the frame (shows it, reads the buttons, keeps time), and the frame
           # counters the program can read move on, where the interpreter moves them. Last, a
