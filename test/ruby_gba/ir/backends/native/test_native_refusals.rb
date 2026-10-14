@@ -63,9 +63,9 @@ class TestNativeRefusals < Minitest::Test
     assert_match(/song :tune.*plays a recording/, error.message)
   end
 
-  # A song with more parts on the square wave than the console has such voices is refused when it
-  # is played, by the program itself: only a song written by hand can be one, since the cartridge
-  # build refuses it first.
+  # A song with more parts on the square wave than the console has such voices stops the program
+  # that plays it, saying so. Only a song built by hand can be one: a game's own is refused before
+  # this, by the checks a cartridge build makes.
   def test_a_song_with_three_square_parts_stops_the_program
     part = RubyGBA::Audio::Music::Part.new(events: [[0, 262]])
     program = RubyGBA::IR::Build.program(

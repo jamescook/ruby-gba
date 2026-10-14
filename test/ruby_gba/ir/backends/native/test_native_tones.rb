@@ -256,4 +256,31 @@ class TestNativeTones < Minitest::Test
 
     assert_native_sounds_like_the_console program, frames: 180, voices: [:wave]
   end
+
+  # The voice holds one waveform, so a tune with a pad puts its own there as it starts — and
+  # that stops whatever the game's own `wave` was playing, there and then, though the pad's
+  # first note is fifteen frames off and nothing has told the voice to rest. The tune comes round
+  # twice, and is then stopped while its note is sounding.
+  #
+  # Written out of IR::Build, because a part with nothing on its first frame is not something
+  # the DSL writes: a part there that starts late starts with a rest.
+  def test_a_tune_with_a_pad_takes_the_wave_voice_from_the_games_own_wave
+    build = RubyGBA::IR::Build
+    pad = RubyGBA::Audio::Music::Part.new(events: [[15, 262], [40, 0]], wave: :sine)
+    program = build.program(
+      build.enable_sound, build.song(:tune, total_frames: 50, voices: [pad]), build.set(:count, 0),
+      build.loop_(build.wait_vblank, build.add(:count, 1),
+                  build.if_(build.binop(:==, :count, 4), build.wave(shape: :sawtooth, frequency: 220, volume: :full)),
+                  build.if_(build.binop(:and, build.binop(:>=, :count, 30), build.binop(:<, :count, 110)), build.play_song(:tune)),
+                  build.if_(build.binop(:==, :count, 110), build.stop_music))
+    )
+    native = native_voice(program, :wave, frames: 140)
+    loud = (0...native.frame_count).select { |frame| native.loudness(frame) >= HEARD }
+
+    # The game's wave from the pass that says it, 4, through the pass that names the tune, 30. The
+    # tune is taken up as frame 31 starts, so its note fifteen frames in sounds from 46 until its
+    # rest at 71, and the second time round from 96 — until the stop said on pass 110.
+    assert_equal [*4..30, *46..70, *96..110], loud
+    assert_native_sounds_like_the_console program, frames: 140, voices: [:wave]
+  end
 end
