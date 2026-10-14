@@ -72,6 +72,29 @@ class TestIRGuardrailBitmapDrawOnTiled < Minitest::Test
     assert_equal :fill_rect, findings.first.node.kind, "it blames the draw itself"
   end
 
+  # A bend's block runs for each row in the gap between frames, and only a tiled background
+  # bends, so a draw there is the same dead draw. It has to stay refused: while the picture is in
+  # blocks, the interpreter would put such a pixel on the bent background's own sheet and the
+  # desktop build on the picture.
+  def test_it_flags_a_draw_inside_a_bends_block
+    prog = program do
+      screen :tiled
+      image(:blue_t, "#" => :blue) { SOLID_TILE }
+      tiles :ground, "#" => :blue_t
+      field = background :field, tiles: :ground, map: FIELD
+      field.scroll_each_row do |row|
+        pixel 3, 3, :white
+        row / 4
+      end
+      pixelate 4
+      game_loop {}
+    end
+
+    findings = Check.new.detect(prog)
+
+    assert_equal [:pixel], findings.map { |finding| finding.node.kind }
+  end
+
   def test_it_names_the_authors_verb_not_the_internal_kind
     prog = program do
       screen :tiled
