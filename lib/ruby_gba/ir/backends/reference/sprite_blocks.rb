@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+require_relative "turned_box"
+
 module RubyGBA
   module IR
     module Backends
@@ -59,8 +61,11 @@ module RubyGBA
           #   * A block that starts above the box shows the box's first row, and the last
           #     block across is drawn whole, both as an upright sprite's are (but see
           #     #turned_row for the one box that reads another row).
-          def paint_turned(left, top, width, height)
-            rows_on_screen(top, height).each do |py|
+          #
+          # +rows+ are the rows of the screen the box shows on, which the caller works out:
+          # they are not always the rows it stands at (see TurnedBox).
+          def paint_turned(left, top, width, height, rows)
+            rows.each do |py|
               row = turned_row(py, top, height)
               ([left, 0].max...[round_up(left + width), @screen.width].min).each do |px|
                 start = block_start(px)
@@ -72,10 +77,6 @@ module RubyGBA
 
           private
 
-          # How many lines a display counts before it comes round to the first again. A
-          # box that starts above the screen is counted as starting near the end of them.
-          LINES = 256
-
           # The row of its box a turned sprite shows on screen row +py+: the row at the top
           # of the block, held to the box's first row when the block began above it.
           #
@@ -86,12 +87,12 @@ module RubyGBA
           # that shows. It is the same for such a box hanging off the top of the screen
           # by most of its height.
           def turned_row(py, top, height)
-            first = top % LINES
+            first = top % TurnedBox::LINES
             past = first + height
             line = block_start(py)
             line = first if line < first && first < @screen.height
-            line = past - 1 if line >= past % LINES
-            (line - first) % LINES
+            line = past - 1 if line >= past % TurnedBox::LINES
+            (line - first) % TurnedBox::LINES
           end
 
           def paint_box(left, top, width, height)

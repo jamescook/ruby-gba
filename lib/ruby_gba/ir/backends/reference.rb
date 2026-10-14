@@ -8,6 +8,7 @@ require_relative "reference/mixer"
 require_relative "reference/player"
 require_relative "reference/save_writing"
 require_relative "reference/sprite_blocks"
+require_relative "reference/turned_box"
 
 module RubyGBA
   module IR
@@ -2064,7 +2065,8 @@ module RubyGBA
           return paint_object_in_blocks(obj) if in_blocks?(obj[:name])
 
           if obj[:transform]
-            return blit_image_transformed(obj[:image], obj[:x], obj[:y], *obj[:transform], recolor: obj[:recolor])
+            return blit_image_transformed(obj[:image], obj[:x], obj[:y], *obj[:transform],
+                                          scales: object_scales?(@objects.fetch(obj[:name])), recolor: obj[:recolor])
           end
 
           blit_image(obj[:image], obj[:x], obj[:y], recolor: obj[:recolor])
@@ -2088,7 +2090,9 @@ module RubyGBA
           pa, pb, pc, pd = Affine.matrix(obj[:transform][0] % 360, obj[:transform][1])
           # The same walk back to the picture #blit_image_transformed makes, from a place in
           # the double-size box.
-          blocks.paint_turned(obj[:x] - (w / 2), obj[:y] - (h / 2), w * 2, h * 2) do |ix, iy|
+          top = obj[:y] - (h / 2)
+          rows = turned_rows_shown(top, w, h, object_scales?(@objects.fetch(obj[:name]))).map(&:last)
+          blocks.paint_turned(obj[:x] - (w / 2), top, w * 2, h * 2, rows) do |ix, iy|
             ddx = ix - w
             ddy = iy - h
             color_at.call((((pa * ddx) + (pb * ddy)) >> 8) + (w / 2), (((pc * ddx) + (pd * ddy)) >> 8) + (h / 2))
@@ -2215,7 +2219,7 @@ module RubyGBA
           set_see_through_for(obj.name)
           recolor = object_recolor(obj, image)
           if object_transformed?(obj)
-            blit_image_transformed(image, x, y, *object_transform(obj), recolor: recolor)
+            blit_image_transformed(image, x, y, *object_transform(obj), scales: object_scales?(obj), recolor: recolor)
           else
             blit_image(image, x, y, recolor: recolor)
           end
@@ -2346,6 +2350,11 @@ module RubyGBA
           if object_transformed?(obj)
             rx, ry, w, h = transformed_footprint(obj, x, y, bmp.width, bmp.height)
             restore_patch(scene, rx, ry, w, h)
+            # ...and where a tall patch came round onto the other end of the screen (see
+            # TurnedBox), which is the same patch a whole count of lines up or down.
+            [-TurnedBox::LINES, TurnedBox::LINES].each do |round|
+              restore_patch(scene, rx, ry + round, w, h) if ry + round < Screen::HEIGHT && ry + round + h > 0
+            end
           else
             restore_patch(scene, x, y, bmp.width, bmp.height)
           end
@@ -2430,7 +2439,7 @@ module RubyGBA
           end
         end
 
-        def blit_image_transformed(name, x, y, degrees, scale, recolor: nil)
+        def blit_image_transformed(name, x, y, degrees, scale, scales:, recolor: nil)
           bmp = @bitmaps.fetch(name) { raise ProgramError, "blit of undefined image #{name.inspect}" }
           pixels = @data.fetch(name)
           transparent = bmp.transparent
@@ -2440,7 +2449,9 @@ module RubyGBA
           left = x - (w / 2) # the double-size patch: half a picture out on every side
           top = y - (h / 2)
 
-          (h * 2).times do |iy|
+          # Which row of the screen each row of the patch lands on is not always the row it
+          # stands at (see TurnedBox).
+          turned_rows_shown(top, w, h, scales).each do |iy, row|
             ddy = iy - h # offset from the patch's center, in whole pixels
             (w * 2).times do |ix|
               ddx = ix - w
@@ -2455,10 +2466,20 @@ module RubyGBA
               color = pixels.getbyte(i) | (pixels.getbyte(i + 1) << 8)
               next if transparent && color == transparent
 
-              @screen.set_pixel(left + ix, top + iy, recolor ? recolor.color_for(at, color) : color)
+              @screen.set_pixel(left + ix, row, recolor ? recolor.color_for(at, color) : color)
             end
           end
         end
+
+        # The rows of a turned sprite's double-size patch that show, each as [the row of the
+        # patch, the row of the screen]. +top+ is where the patch's first row stands, +w+ and
+        # +h+ the picture's size, and +scales+ whether the sprite's size ever changes.
+        def turned_rows_shown(top, w, h, scales)
+          TurnedBox.rows_shown(top, h * 2, Affine.rows_reached(w, h, scales: scales), Screen::HEIGHT)
+        end
+
+        # Does this object's size ever change? One that only turns reaches less of its patch.
+        def object_scales?(obj) = !constant?(obj.scale, Build::SCALE_ONE)
 
         # The patch of screen a transformed object can cover, as [x, y, width, height].
         # This is what's put back under it before it's redrawn, so it has to hold the
@@ -2472,9 +2493,9 @@ module RubyGBA
         def transformed_footprint(obj, x, y, w, h)
           cx = x + (w / 2)
           cy = y + (h / 2)
-          return [cx - w, cy - h, w * 2, h * 2] unless constant?(obj.scale, Build::SCALE_ONE)
+          return [cx - w, cy - h, w * 2, h * 2] if object_scales?(obj)
 
-          side = Integer.sqrt((w * w) + (h * h)) + 2
+          side = Affine.turning_reach(w, h)
           [cx - (side / 2), cy - (side / 2), side, side]
         end
 

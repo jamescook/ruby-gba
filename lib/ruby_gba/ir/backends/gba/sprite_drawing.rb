@@ -48,6 +48,41 @@ module RubyGBA
           OBJ_ROTSCALE     = 0x0100
           OBJ_DOUBLE_SIZE  = 0x0200
 
+          # HOW FAR OFF THE SCREEN A SPRITE CAN STAND AND STILL BE WHERE THE GAME PUT IT.
+          #
+          # A row of the table keeps a sprite's row as one of 256 and its column as one of
+          # 512, and a place outside those is kept as a place inside them: row 300 is kept as
+          # row 44, so a sprite a game parked below the screen is drawn across the middle of
+          # it. The screen is 160 of the 256 rows, which leaves 96 for a sprite standing above
+          # it, and 240 of the 512 columns, which leaves 272 for one to its left. So a box is
+          # drawn where the game put it while its top is no more than 96 rows above the
+          # screen and its bottom is short of the last row counted, and the same across
+          # with 272 columns and the last column. Anywhere else the table would draw it
+          # somewhere the game never meant, so it is moved to the first row below the screen
+          # or the first column right of it, where none of it shows (see
+          # #emit_move_far_place_off_screen).
+          ROWS_KEPT = 256
+          COLUMNS_KEPT = 512
+          ROWS_KEPT_ABOVE = ROWS_KEPT - SCREEN_HEIGHT
+          COLUMNS_KEPT_LEFT = COLUMNS_KEPT - SCREEN_WIDTH
+
+          # The largest box the console draws a sprite in, each way: any sprite that stands
+          # upright, and each piece of a picture drawn as several. One that turns or resizes
+          # is drawn in a box twice its own size, so the largest of those is twice this.
+          LARGEST_BOX = 64
+
+          # The rows a box as tall as the largest is drawn at as the game put them, and the
+          # columns: for the box of a sprite that stands upright, and for the wider one of a
+          # sprite that turns.
+          ROWS_DRAWN_AS_PUT = (-ROWS_KEPT_ABOVE...(ROWS_KEPT - LARGEST_BOX))
+          COLUMNS_DRAWN_AS_PUT = (-COLUMNS_KEPT_LEFT...(COLUMNS_KEPT - LARGEST_BOX))
+          TURNED_COLUMNS_DRAWN_AS_PUT = (-COLUMNS_KEPT_LEFT...(COLUMNS_KEPT - (LARGEST_BOX * 2)))
+
+          # The tallest box that stands unseen at the first row below the screen: as many
+          # rows as are counted past the bottom edge. The one box taller is a turning
+          # sprite's, 64 pixels tall and so drawn in 128 rows (see #emit_tall_box_attr0).
+          TALLEST_BOX_UNSEEN_BELOW = ROWS_KEPT_ABOVE
+
           # Where one over a resizing sprite's size is parked between the divide that
           # works it out and the multiplies that use it (see #emit_object_scale_reciprocal).
           # One variable serves every sprite, because each is done with before the next
@@ -463,6 +498,10 @@ module RubyGBA
           #
           # +rows+ is where each piece's row is written: the sprite's own places in the table,
           # unless it is one of a run and the run says where it has got to.
+          #
+          # A sprite standing further off the screen than the table can say is kept off it
+          # (see ROWS_KEPT): a piece at a time, since the far piece of a big picture can be
+          # out of the table's reach while the near one is on the screen.
           def emit_present_object(obj, twin: nil, name: nil, rows: nil)
             rows ||= Array.new(obj.pieces) { |piece| FixedRow.new(address: row_address(obj.slot, piece)) }
             @lowering.value(obj.active)
@@ -620,6 +659,7 @@ module RubyGBA
             # away cannot move the picture (see SpriteCut#pose_box).
             @lowering.value(obj.y)
             emit_add_const(ACC, ACC, obj.offset_y, TMP) unless obj.offset_y.zero?
+            emit_move_far_place_off_screen(ROWS_DRAWN_AS_PUT, SCREEN_HEIGHT) unless drawn_as_put?(obj.y, ROWS_DRAWN_AS_PUT, obj.offset_y)
             mask_into_acc(0xFF)
             orr_acc(obj.attr0_base)
             emit_store_acc_in_row(row, 0)
@@ -627,6 +667,7 @@ module RubyGBA
             # attr1 = (x & 0x1FF) | size
             @lowering.value(obj.x)
             emit_add_const(ACC, ACC, obj.offset_x, TMP) unless obj.offset_x.zero?
+            emit_move_far_place_off_screen(COLUMNS_DRAWN_AS_PUT, SCREEN_WIDTH) unless drawn_as_put?(obj.x, COLUMNS_DRAWN_AS_PUT, obj.offset_x)
             mask_into_acc(0x1FF)
             orr_acc(obj.attr1_base)
             emit_store_acc_in_row(row, 2)
@@ -654,6 +695,10 @@ module RubyGBA
           POSE_DRAW_X = :__pose_draw_x
           POSE_DRAW_Y = :__pose_draw_y
 
+          # How far along or down a pose stands from its canvas's corner is eight bits of
+          # its word, so this is both the mask that reads one and the furthest one can be.
+          POSE_DISTANCE = 0xFF
+
           def emit_stash_object_position(obj)
             @lowering.value(obj.y)
             store_var(ACC, POSE_DRAW_Y)
@@ -668,7 +713,12 @@ module RubyGBA
             # attr0 = (y + how far down) & 0xFF, then the shape out of bits 10..11.
             load_var(ACC, POSE_DRAW_Y)
             emit(ASM.lsr_imm(TMP, POSE_WORD, 22))
+            # The two bits above the distance say which way round the pose is drawn, and
+            # are set only for a sprite with a pose that is. The test of how far off the
+            # screen the row is reads the whole sum, so they are taken off before it.
+            emit(ASM.and_imm(TMP, TMP, POSE_DISTANCE)) if obj.mirrors&.any?
             emit(ASM.add_reg(ACC, ACC, TMP))
+            emit_move_far_place_off_screen(ROWS_DRAWN_AS_PUT, SCREEN_HEIGHT) unless drawn_as_put?(obj.y, ROWS_DRAWN_AS_PUT, 0, POSE_DISTANCE)
             mask_into_acc(0xFF)
             emit(ASM.and_imm(TMP, POSE_WORD, 0x0C00))   # shape, still at bit 10
             emit(ASM.orr_reg_lsl(ACC, ACC, TMP, 4))     # ...into bit 14
@@ -678,8 +728,9 @@ module RubyGBA
             # attr1 = (x + how far right) & 0x1FF, then the size out of bits 12..13.
             load_var(ACC, POSE_DRAW_X)
             emit(ASM.lsr_imm(TMP, POSE_WORD, 14))
-            emit(ASM.and_imm(TMP, TMP, 0xFF))
+            emit(ASM.and_imm(TMP, TMP, POSE_DISTANCE))
             emit(ASM.add_reg(ACC, ACC, TMP))
+            emit_move_far_place_off_screen(COLUMNS_DRAWN_AS_PUT, SCREEN_WIDTH) unless drawn_as_put?(obj.x, COLUMNS_DRAWN_AS_PUT, 0, POSE_DISTANCE)
             mask_into_acc(0x1FF)
             emit(ASM.and_imm(TMP, POSE_WORD, 0x3000))   # size, still at bit 12
             emit(ASM.orr_reg_lsl(ACC, ACC, TMP, 2))     # ...into bit 14
@@ -773,13 +824,19 @@ module RubyGBA
             # attr0 = ((y - half_h) & 0xFF) | rotate/scale + double-size + shape/color
             @lowering.value(obj.y)
             emit(ASM.sub_imm(ACC, ACC, half_h)) unless half_h.zero?
-            mask_into_acc(0xFF)
-            orr_acc(obj.attr0_base | OBJ_ROTSCALE | OBJ_DOUBLE_SIZE)
+            if obj.height * 2 > TALLEST_BOX_UNSEEN_BELOW
+              emit_tall_box_attr0(obj)
+            else
+              emit_move_far_place_off_screen(ROWS_DRAWN_AS_PUT, SCREEN_HEIGHT)
+              mask_into_acc(0xFF)
+              orr_acc(obj.attr0_base | OBJ_ROTSCALE | OBJ_DOUBLE_SIZE)
+            end
             emit_store_acc_in_row(row, 0)
             emit_copy_attr0_to_twin(mirror)
             # attr1 = ((x - half_w) & 0x1FF) | size | affine-group index (bits 9..13)
             @lowering.value(obj.x)
             emit(ASM.sub_imm(ACC, ACC, half_w)) unless half_w.zero?
+            emit_move_far_place_off_screen(TURNED_COLUMNS_DRAWN_AS_PUT, SCREEN_WIDTH)
             mask_into_acc(0x1FF)
             orr_acc(obj.attr1_base | (obj.affine_slot << 9))
             emit_store_acc_in_row(row, 2)
@@ -874,6 +931,65 @@ module RubyGBA
               orr_picked_attr2(obj)
               emit_store_acc_in_row(row, 4)
             end
+          end
+
+          # r0 holds the row, or the column, a box is to stand at. Outside +places+, the ones
+          # it is drawn at as put, make it +edge+: the first row below the screen, where a
+          # box no taller than TALLEST_BOX_UNSEEN_BELOW shows nothing, or the first column
+          # right of it, where no box is wide enough to reach back round. The sprite is
+          # still in the table there, so anything reading the table back finds it, just off
+          # the edge.
+          #
+          # One unsigned compare catches both ends, because a place too far up or left is
+          # still below nought once the room above or to the left is added, and reads as a
+          # very large number. Three instructions, none of them a branch.
+          def emit_move_far_place_off_screen(places, edge)
+            emit(ASM.add_imm(TMP, ACC, -places.begin))
+            emit(ASM.cmp_imm(TMP, places.size))
+            emit(ASM.mov_imm_cond(:hs, ACC, edge))
+          end
+
+          # THE FIRST WORD OF A SPRITE WHOSE BOX NO ROW KEEPS OFF THE SCREEN: 128 rows, where
+          # only 96 are counted past the bottom edge. Standing at the first row below, its
+          # end comes round onto the top.
+          #
+          # So when none of its picture is on the screen, it is stood at that row as a plain
+          # sprite instead: the two bits that say "turned" and "in a box twice the size" are
+          # left out of the word, the console draws it in a box of its own 64 rows, and that
+          # box is unseen there. It is still a row of the table, which is what tells it from
+          # a sprite the game hid.
+          #
+          # r0 holds the row the box's top stands at, and comes back as the whole word. The
+          # picture can reach only some rows of the box (see Affine#rows_reached), and it is
+          # drawn turned while any of those is on the screen. The one compare decides both
+          # the row and the bits, and nothing between it and them changes the flags.
+          #
+          # For a sprite that only turns, that is the whole answer: the rows that come round
+          # are rows its picture never reaches, so nothing of it is seen at the other edge.
+          # For one that resizes, the picture fills the box, and the rows it is drawn over
+          # are more than the table counts. So part way off the top or the bottom, the far
+          # end of such a sprite shows at the other edge, and nothing here can stop it
+          # (see Reference::TurnedBox, which draws the same).
+          def emit_tall_box_attr0(obj)
+            reached = Affine.rows_reached(obj.width, obj.height, scales: obj.scales)
+            emit(ASM.add_imm(TMP, ACC, reached.end - 1))
+            emit_number(ADDR, reached.size - 1 + SCREEN_HEIGHT) # can be more bits than a compare carries
+            emit(ASM.cmp_reg(TMP, ADDR))
+            emit(ASM.mov_imm_cond(:hs, ACC, SCREEN_HEIGHT))
+            mask_into_acc(0xFF)
+            emit_number(TMP, obj.attr0_base | OBJ_ROTSCALE | OBJ_DOUBLE_SIZE)
+            emit_number(ADDR, obj.attr0_base)
+            emit(ASM.mov_reg_cond(:hs, TMP, ADDR))
+            emit(ASM.orr_reg(ACC, ACC, TMP))
+          end
+
+          # Is +place+ a number settled while building, and one a box is drawn at as put
+          # (one of +places+) wherever from +nearest+ to +furthest+ along from it the box
+          # stands? Then it needs no test: the letters of a line of text, whose places are
+          # written in the program.
+          def drawn_as_put?(place, places, nearest, furthest = nearest)
+            fixed = const_int(place)
+            !fixed.nil? && places.cover?(fixed + nearest) && places.cover?(fixed + furthest)
           end
 
           # r0 &= mask, using a scratch register so any mask width is fine.

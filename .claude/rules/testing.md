@@ -392,6 +392,15 @@ sprite from one drawn in the backdrop colour, from one behind a background, from
 off the edge. Each row reads `row.name`, `.x`, `.y`, `.slot`, `.tile`, `.palette`,
 `.color_count`, `.colors`, `.priority`, `.shape`, `.size`, `.mirrored_across`, `.mirrored_down`,
 `.turned`, `.piece_x`, `.piece_y`, and a sprite the game switched off is simply absent.
+**A sprite the game put off the screen is not absent**: it reads at its own place wherever the
+console's table can say it — up to 96 rows above the screen or 32 below, and well past either
+side — and just past the bottom or right edge when the table cannot, because the framework
+stands it there so that it does not come round onto the screen. That is row 160 or column 240
+for a picture stored as drawn, and a little less for a pose stored trimmed, since `y`/`x` take
+the trim back off. A sprite 64 pixels tall that turns or resizes, stood there, reads `turned`
+false: it is written as a plain sprite there, because its turned box would come round.
+`i.sprites` gives the game's own place however far off that is, so a test that compares the two
+for a sprite parked far away compares them while it is near.
 **A row is a `SpriteRow`, not a Hash, and `row[:x]` does not work** — deliberately: as a Hash a
 field name that was slightly wrong read back as nothing, so a test asserting on one passed, or
 failed for a reason that was not the one it looked like. Written as a method a wrong name cannot

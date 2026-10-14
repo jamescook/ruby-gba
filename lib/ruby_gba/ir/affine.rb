@@ -67,6 +67,32 @@ module RubyGBA
         sin = (sine(degrees) * recip) / ONE_TH
         [cos, sin, -sin, cos]
       end
+
+      # How many rows, or columns, a picture that ONLY TURNS can cover, whatever the angle.
+      # No pixel of it is ever further from its middle than half its own diagonal, so a
+      # square this wide about the middle holds all of it, with a pixel to spare each side
+      # for the rounding.
+      def turning_reach(width, height)
+        Integer.sqrt((width * width) + (height * height)) + 2
+      end
+
+      # THE ROWS OF ITS BOX A TURNED PICTURE CAN REACH, as a range counted from the box's
+      # first row.
+      #
+      # A display draws such a picture in a box twice its size each way, so a corner has
+      # room to swing. A picture that also +scales+ can fill the whole of that box. One
+      # that only turns cannot: it stays inside #turning_reach rows about the middle, and
+      # the rows of the box above and below those are empty at every angle.
+      #
+      # Every backend asks this before it decides whether such a sprite is on the screen
+      # at all, so that they decide alike.
+      def rows_reached(width, height, scales:)
+        return (0...(height * 2)) if scales
+
+        reach = turning_reach(width, height)
+        first = height - (reach / 2)
+        (first...(first + reach))
+      end
     end
   end
 end
