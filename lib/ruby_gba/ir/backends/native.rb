@@ -37,9 +37,10 @@ module RubyGBA
       # - The C this writes never uses an operator on one of the game's numbers; it calls one
       #   of those functions. That is what keeps it correct, and it is also why the precedence
       #   of C's operators, and && skipping its right side, never come up.
-      # - It never names SDL. The picture, the buttons and the sound go through the runtime
-      #   (runtime/rg_runtime.h), which a desktop build links against SDL and a test links
-      #   against a version that has no window at all.
+      # - It never names SDL, nor a file. The picture, the buttons, the sound and the save memory
+      #   go through the runtime (runtime/rg_runtime.h and the headers beside it), which a
+      #   desktop build links against SDL and a test links against a version that has no window
+      #   at all.
       # - It is checked by running, against Backends::Reference, and never by comparing the C
       #   it wrote against C somebody wrote down.
       class Native
