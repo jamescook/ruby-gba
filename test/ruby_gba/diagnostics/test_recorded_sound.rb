@@ -57,6 +57,100 @@ class TestRecordedSound < Minitest::Test
     assert_equal "", sound.bytes
   end
 
+  # --- how loud each frame was ---
+  #
+  # A frame's loudness is its samples added up with their signs dropped. It is worked out
+  # once for each frame and kept, so asking after every frame of a long run costs a frame
+  # each time and not the run so far.
+
+  # Frames whose loudness is easy to say: signs, a silent frame, and the two ends of what a
+  # sample can hold.
+  SIGNED_FRAMES = [[-3, 4], [0], [-32_768, 32_767, -1], [], [5, 5]].map { |samples| samples.pack("s<*") }.freeze
+  LOUDNESS = [7, 0, 65_536, 0, 10].freeze
+
+  # The loudness of FRAMES, whose frame n is the samples n * 100 up to n * 100 + n.
+  LOUDNESS_OF_FRAMES = [0, 201, 603, 1206, 2010, 3015, 4221, 5628, 7236, 9045].freeze
+
+  def test_how_loud_each_frame_was_is_its_samples_added_up_with_their_signs_dropped
+    sound = RecordedSound.new.keep(SIGNED_FRAMES)
+
+    assert_equal LOUDNESS, sound.energy_by_frame
+  end
+
+  def test_how_loud_each_frame_was_is_the_same_wherever_the_frame_is_kept
+    Dir.mktmpdir("recorded-sound") do |folder|
+      in_file = RecordedSound.new(frames_in_memory: 2, folder: folder)
+      FRAMES.each_slice(3) { |played| in_file.keep(played) }
+
+      refute_empty Dir.children(folder), "most of these frames are in the file"
+      assert_equal LOUDNESS_OF_FRAMES, in_file.energy_by_frame
+      assert_equal LOUDNESS_OF_FRAMES, RecordedSound.new.keep(FRAMES).energy_by_frame
+    end
+  end
+
+  def test_asked_as_the_run_goes_on_it_is_every_frame_so_far
+    Dir.mktmpdir("recorded-sound") do |folder|
+      sound = RecordedSound.new(frames_in_memory: 2, folder: folder)
+
+      asked = FRAMES.each_slice(3).map do |played|
+        sound.keep(played)
+        sound.energy_by_frame
+      end
+
+      assert_equal [3, 6, 9, 10].map { |frames| LOUDNESS_OF_FRAMES.first(frames) }, asked
+    end
+  end
+
+  # THE RECORDING IS NOT READ AGAIN FOR A FRAME ALREADY ASKED ABOUT. With the scratch file
+  # taken away, the frames in it could not be read a second time: the answer has to be what
+  # was kept from the first asking, and frames played since are added to it.
+  def test_asking_again_does_not_read_the_recording_again
+    Dir.mktmpdir("recorded-sound") do |folder|
+      sound = RecordedSound.new(frames_in_memory: 6, folder: folder)
+      sound.keep(FRAMES.first(7))
+      first = sound.energy_by_frame
+      File.delete(File.join(folder, Dir.children(folder).first))
+      sound.keep(FRAMES.last(3))
+
+      assert_equal LOUDNESS_OF_FRAMES.first(7), first
+      assert_equal LOUDNESS_OF_FRAMES, sound.energy_by_frame
+    end
+  end
+
+  # ...NOR IS A FRAME STILL IN MEMORY GONE THROUGH AGAIN, which is every frame of a run of a
+  # minute or less. Each of these frames notes when its samples are read.
+  def test_asking_again_does_not_go_through_a_frame_in_memory_again
+    read = Hash.new(0)
+    frames = SIGNED_FRAMES.each_with_index.map do |samples, at|
+      samples.dup.tap do |frame|
+        frame.define_singleton_method(:unpack) do |*how|
+          read[at] += 1
+          super(*how)
+        end
+      end
+    end
+    sound = RecordedSound.new.keep(frames.first(3))
+
+    3.times { sound.energy_by_frame }
+    sound.keep(frames.last(2))
+    2.times { sound.energy_by_frame }
+
+    assert_equal LOUDNESS, sound.energy_by_frame
+    assert_equal({ 0 => 1, 1 => 1, 2 => 1, 3 => 1, 4 => 1 }, read, "each frame's samples were read once")
+  end
+
+  def test_what_is_handed_back_can_be_changed_without_changing_what_is_kept
+    sound = RecordedSound.new.keep(SIGNED_FRAMES)
+    sound.energy_by_frame.shift
+    sound.energy_by_frame.map! { 1 }
+
+    assert_equal LOUDNESS, sound.energy_by_frame
+  end
+
+  def test_run_that_made_no_sound_was_never_loud
+    assert_empty RecordedSound.new.energy_by_frame
+  end
+
   def test_frames_held_in_memory_that_are_no_count_are_refused
     [0, -5, 2.5, "60", nil].each do |given|
       error = assert_raises(ArgumentError) { RecordedSound.new(frames_in_memory: given) }

@@ -644,11 +644,11 @@ module RubyGBA
       # these ask "what did the speaker do?" rather than trusting the ROM's bytes.
       #
       # THE WHOLE RUN, HOWEVER LONG. The sound of a long run is mostly in a scratch file and
-      # not in memory (see RecordedSound), and each of these reads it back from there. So
-      # asking is cheap for a run of seconds and costs a read of the file for one of minutes:
-      # a script that asks on every frame of a long playthrough reads it that many times.
-      # The energy readers go through it a frame at a time; #audio_samples hands back every
-      # sample at once, which for a long run is all of it in memory after all.
+      # not in memory (see RecordedSound). The energy readers go through each frame once and
+      # keep its figure, so they can be asked after every frame of a long run: the only sound
+      # an asking reads is the frames played since the last. #audio_samples is the one that
+      # keeps nothing: it hands back every sample of the run at once, read from the file
+      # each time, which for a long run is all of it in memory after all.
 
       # Total absolute amplitude across every PCM sample captured — 0 is perfect
       # silence. A deliberately crude "did any sound come out?" measure that doesn't
@@ -683,9 +683,14 @@ module RubyGBA
       # of noise over a run — the total says nothing — but the noise comes in bursts with holes
       # between them, and a run of frames with far less energy than their neighbours is what a
       # hole looks like from here.
+      #
+      # IT CAN BE ASKED AFTER EVERY FRAME. Each frame's figure is worked out once and kept
+      # (see RecordedSound#energy_by_frame), so asking again reads the sound of the frames
+      # played since and not of the run so far: `audio_energy_by_frame.last` after each step
+      # is how loud that frame was.
       def audio_energy_by_frame
         ensure_rendered!
-        @sound.each_frame.map { |frame| frame.unpack("s<*").sum(&:abs) }
+        @sound.energy_by_frame
       end
 
       # Dump a text grid showing what colors are on screen.

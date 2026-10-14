@@ -75,6 +75,23 @@ class TestVerifierSound < Minitest::Test
     assert_equal in_memory.audio_energy_by_frame, in_file.audio_energy_by_frame
   end
 
+  # HOW LOUD THE LAST FRAME WAS, ASKED AFTER EVERY FRAME, is what asking once at the end
+  # gives, frame for frame — with the sound all in memory, and with most of it in the file.
+  def test_asked_after_every_frame_is_what_asking_once_at_the_end_gives
+    cartridge = tune
+    once = assert_emulator_loads_rom(cartridge, frames: 40).audio_energy_by_frame
+
+    [RecordedSound.new, RecordedSound.new(frames_in_memory: 3)].each do |sound|
+      reader = RubyGBA::Diagnostics::Verifier.new(cartridge, frames: 0, sound: sound)
+      each_frame = Array.new(40) { reader.step.audio_energy_by_frame.last }
+      totals = [reader.audio_energy, reader.sound?]
+
+      assert_operator once.uniq.size, :>, 4, "the tune changes as it plays"
+      assert_equal once, each_frame
+      assert_equal [once.sum, true], totals
+    end
+  end
+
   # The emulator holds the sound of a step until the step ends. So a run of many frames is
   # played as several steps, and no more sound is on its way to the reader at one time than
   # the reader holds.

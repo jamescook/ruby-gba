@@ -20,7 +20,8 @@ module RubyGBA
     #
     # HOW MUCH THAT HOLDS. No more than +frames_in_memory+ frames once `keep` has returned,
     # and for a moment as many again as it was just handed. What stays in memory for a frame
-    # in the file is its length, one number.
+    # in the file is its length, one number, and a second once somebody has asked how loud
+    # the run was (see #energy_by_frame).
     #
     # A RUN NO LONGER THAN THAT WRITES NO FILE. Making one is not worth it for a run that fits,
     # and nearly every run does.
@@ -45,6 +46,7 @@ module RubyGBA
         @recent = []
         @written_lengths = []
         @file = nil
+        @energies = []
       end
 
       # Keep the sound of the frames just played: one String of samples for each, in order.
@@ -59,8 +61,24 @@ module RubyGBA
       def each_frame(&)
         return enum_for(:each_frame) unless block_given?
 
-        each_written_frame(&)
-        @recent.each(&)
+        each_frame_from(0, &)
+      end
+
+      # HOW LOUD EACH FRAME WAS, oldest first: a frame's samples added up with their signs
+      # dropped, so 0 is a frame of silence.
+      #
+      # WORKED OUT ONCE FOR EACH FRAME, AND KEPT. The only sound gone through on an asking is
+      # the frames played since the last one, so a test that asks after every frame of a long
+      # run reads one frame's sound each time and never the recording from its start.
+      #
+      # Nothing is worked out until somebody asks, so a run nobody asks about pays nothing.
+      # The first asking of a long run reads what is in the file, once.
+      #
+      # What is handed back is the caller's own list, to cut up as it likes: a copy, which is
+      # one number for each frame of the run and the only part of an asking that grows with it.
+      def energy_by_frame
+        each_frame_from(@energies.size) { |frame| @energies << frame.unpack("s<*").sum(&:abs) }
+        @energies.dup
       end
 
       # The sound of the whole run as one String of samples, which for a long run is all of
@@ -86,10 +104,22 @@ module RubyGBA
         @recent = []
       end
 
-      def each_written_frame
-        return unless @file
+      # Each frame's sound from frame +from+ on, counted from 0: those of them in the file,
+      # then those of them in memory.
+      def each_frame_from(from, &)
+        each_written_frame_from(from, &)
+        @recent.drop([from - @written_lengths.size, 0].max).each(&)
+      end
 
-        File.open(@file.path, "rb") { |file| @written_lengths.each { |length| yield file.read(length) } }
+      # The file is opened only when a frame that is wanted is in it, and read from that
+      # frame on: where a frame starts is the lengths of the frames before it added up.
+      def each_written_frame_from(from)
+        return unless @file && from < @written_lengths.size
+
+        File.open(@file.path, "rb") do |file|
+          file.seek(@written_lengths.first(from).sum)
+          @written_lengths.drop(from).each { |length| yield file.read(length) }
+        end
       end
     end
   end
