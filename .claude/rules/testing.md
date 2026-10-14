@@ -276,6 +276,24 @@ compared slice for slice on every run (`mixed_sound`, `active_samples`, `sound_o
 watches, the way it may clear the interpreter's: the run is compared by every entry the C logged
 whatever the test did to its copy.
 
+**The checking is the library's, so a game built on it can do the same.** `CheckedNativeRun`
+is this suite's name for `RubyGBA::IR::Backends::Native::CheckedRun`
+(`lib/ruby_gba/ir/backends/native/checked_run.rb`), and the comparisons it says a
+disagreement with are `Native::Differences` beside it. The only difference is how a disagreement
+is reported: the library raises `CheckedRun::Disagreement`, and the suite's wrapper
+(`test/checked_native_run.rb`) turns that into a failed test. A game's own test plays its game
+checked with nothing from this folder:
+
+```ruby
+run = RubyGBA::IR::Backends::Native::CheckedRun.new
+run.input_each_frame { |frame| frame < 30 ? [:right] : [] }.run(MyGame::GAME.program, frames: 60)
+assert_equal 30, run[:x]   # and every frame was compared with the interpreter on the way
+```
+
+It needs zig, and it starts the game as a separate program, so such a test cannot run inside a
+Ractor. `test_checked_run.rb` plays a game this way in a Ruby process with only `lib` on its load
+path, which is what keeps it usable from outside.
+
 Opt a file in once native can play its games, and in chunks that go with the native slice that
 made them pass. What the native player cannot answer yet raises `HeadlessRun::CannotAnswer`
 naming the call — the file came too early, or that one test wants `skip_on_native "why"` at

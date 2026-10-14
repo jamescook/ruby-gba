@@ -10,7 +10,8 @@ require "test_helper"
 class TestSuitesSplit < Minitest::Test
   runs_on :reference
 
-  PLAYERS = [Reference, CheckedNativeRun, RubyGBA::IR::Backends::Native::HeadlessRun].freeze
+  PLAYERS = [Reference, CheckedNativeRun, RubyGBA::IR::Backends::Native::CheckedRun,
+             RubyGBA::IR::Backends::Native::HeadlessRun].freeze
 
   # A stand-in for a test class: what it is called, what it said to `runs_on` (nil for nothing),
   # and its methods.
