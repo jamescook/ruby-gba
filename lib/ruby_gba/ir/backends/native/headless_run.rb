@@ -121,8 +121,9 @@ module RubyGBA
             self
           end
 
-          # Keep the sound the run makes, for #sound to give back — every voice, or +only+ square
-          # voice 1 or 2, which is how one voice is heard at a time. Gives back self.
+          # Keep the sound the run makes, for #sound to give back — every voice, or +only+ one of
+          # them by the console's count (1 and 2 the square voices, 3 the wave voice, 4 the noise
+          # voice), which is how one voice is heard at a time. Gives back self.
           def recording_sound(only: nil)
             @records_sound = true
             @heard_voice = only

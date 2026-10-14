@@ -38,25 +38,44 @@ class TestNativeRefusals < Minitest::Test
   def test_a_sound_not_played_yet_is_refused_by_name
     program = program_of do
       enable_sound
-      game_loop { noise :explosion }
+      crash = sample :crash, pcm: [60, -60] * 400, rate: 8000
+      game_loop { crash.play }
     end
 
     error = assert_raises(LoweringError) { Native.new.lower(program) }
-    assert_match(/:noise.*cannot make yet \(sound\)/, error.message)
+    assert_match(/:play_sample.*cannot make yet \(sound\)/, error.message)
   end
 
-  def test_a_song_part_off_the_square_wave_is_refused_by_name
+  # A part on one of the console's own voices is played; one that plays a recording is not yet.
+  def test_a_song_part_that_plays_a_recording_is_refused_by_name
     program = program_of do
       enable_sound
+      instrument :piano, pcm: [60, -60] * 400, rate: 8000, note: :C4
       song(:tune) do
         voice(:pad, plays: :wave) { note :C4, :quarter }
+        voice(:keys, plays: :piano) { note :C4, :quarter }
       end
       play_song :tune
       game_loop {}
     end
 
     error = assert_raises(LoweringError) { Native.new.lower(program) }
-    assert_match(/song :tune.*wave voice/, error.message)
+    assert_match(/song :tune.*plays a recording/, error.message)
+  end
+
+  # A song with more parts on the square wave than the console has such voices is refused when it
+  # is played, by the program itself: only a song written by hand can be one, since the cartridge
+  # build refuses it first.
+  def test_a_song_with_three_square_parts_stops_the_program
+    part = RubyGBA::Audio::Music::Part.new(events: [[0, 262]])
+    program = RubyGBA::IR::Build.program(
+      RubyGBA::IR::Build.song(:crowd, total_frames: 10, voices: [part, part, part]),
+      RubyGBA::IR::Build.play_song(:crowd),
+      RubyGBA::IR::Build.loop_(RubyGBA::IR::Build.wait_vblank)
+    )
+
+    error = assert_raises(Native::Zig::Error) { Native::HeadlessRun.new.run(program, frames: 3) }
+    assert_match(/3 parts on the square wave, and the most is 2/, error.message)
   end
 
   # What the desktop's picture cannot draw yet is refused, by name, rather than drawn wrong.
