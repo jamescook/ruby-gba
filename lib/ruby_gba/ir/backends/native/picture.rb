@@ -66,6 +66,8 @@ module RubyGBA
             # number rg_screen.c knows each by.
             @tile_runs = by_name(@program.walk, :tile_run)
             @run_numbers = @tile_runs.each_key.with_index.to_h
+            # The lists of sprite colors that hold other colors as the game runs.
+            @color_lists = by_name(@program.walk, :color_list)
             # The layers the game can be seen through, and the number rg_screen.c knows each by.
             @see_through = SeeThrough.layers(@program)
             @see_through_numbers = @see_through.each_with_index.to_h { |layer, number| [layer.name, number] }
@@ -86,10 +88,6 @@ module RubyGBA
 
           def refuse_unsupported_picture!
             nodes = @program.walk.to_a
-            # A sprite drawn with such a list holds the list's name where its colors would be,
-            # and its pictures here are worked out once, in colors that never change.
-            changing = nodes.find { |n| n.kind == :color_list }
-            refuse_picture!("a list of colors that changes as the game runs (#{changing.name})") if changing
             refuse_picture!("more than #{MAX_SEE_THROUGH} see-through layers") if @see_through.size > MAX_SEE_THROUGH
             refuse_picture!("more than #{MAX_BACKGROUNDS} backgrounds") if @backgrounds.size > MAX_BACKGROUNDS
             # The interpreter keeps a background's scroll and cells by its name and draws each
@@ -724,15 +722,54 @@ module RubyGBA
           # is DRAWN from, in the colors it is drawn with now. Its pictures are a row of poses in
           # its own colors, then a row for each list it can be drawn with
           # (Reference#object_recolor), and rg_place_of_choice says which row it is on.
+          #
+          # A list that holds other colors as the game runs (a name where the colors would be)
+          # has a row for every set it can hold, the ones it was declared with first, and the
+          # set it holds now says which of those rows (Reference#colors_held_by).
           def picture_drawn(obj, pose)
             lists = Array(obj.recolors)
-            rows = [nil, *lists].flat_map { |colors| obj.poses.map { |name| image_number(name, colors) } }
+            sets = [[nil], *lists.map { |colors| colors.is_a?(Symbol) ? sets_held_by(colors) : [colors] }]
+            rows = sets.flatten(1).flat_map { |colors| obj.poses.map { |name| image_number(name, colors) } }
             pictures = drawing_array("pose_rows", "int32_t", rows)
             return C::Index.new(pictures, pose) if lists.empty?
 
-            row = call("rg_place_of_choice", value(obj.recolor), C::Int.new(lists.length))
+            row = row_drawn_with(obj, lists, sets)
             C::Index.new(pictures, call("rg_add", call("rg_mul", row, C::Int.new(obj.poses.length)), pose))
           end
+
+          # Which row of its pictures a sprite is on: the first row of the list it is drawn with
+          # now, and for a list that holds other colors, as many rows further as the set it holds.
+          def row_drawn_with(obj, lists, sets)
+            choice = call("rg_place_of_choice", value(obj.recolor), C::Int.new(lists.length))
+            return choice if lists.none?(Symbol)
+
+            first_rows = sets.each_with_object([0]) { |held, starts| starts << (starts.last + held.length) }
+            row = C::Index.new(drawing_array("first_rows", "int32_t", first_rows.first(sets.length)), choice)
+            lists.each_with_index.select { |colors, _| colors.is_a?(Symbol) }.reduce(row) do |so_far, (name, at)|
+              held = call("rg_place_of_choice", held_colors(name), C::Int.new(sets_held_by(name).length - 1))
+              call("rg_add", so_far, call("rg_mul", call("rg_eq", choice, C::Int.new(at + 1)), held))
+            end
+          end
+
+          # Reference#colors_held_by: every set of colors a named list can hold, the ones it was
+          # declared with first, which is also what a number naming none of the others means.
+          def sets_held_by(name)
+            list = @color_lists.fetch(name) { raise LoweringError, "a sprite is drawn with the list of colors #{name.inspect}, which is not declared" }
+            [list.colors, *list.recolors]
+          end
+
+          # Which of its other sets each such list holds now (Reference @held_colors): a number
+          # of the game's own for each, starting at the one that means the colors it was
+          # declared with.
+          def held_colors(name) = @names.of(:colors, name)
+
+          def held_colors_globals
+            @color_lists.each_key.map { |name| C::Global.new(name: held_colors(name), value: Build::NO_RECOLOR) }
+          end
+
+          # Reference#exec_color_list_holds. Nothing is painted here: everything drawn with the
+          # list reads what it holds as it is next drawn.
+          def lower_color_list_holds(node) = [C::Assign.new(held_colors(node.name), value(node.which))]
 
           # Reference#pixels_overlap?: each side's picture now, and where it is.
           def value_of_pixels_overlap(node)

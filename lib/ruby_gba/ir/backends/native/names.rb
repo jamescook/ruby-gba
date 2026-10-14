@@ -21,7 +21,8 @@ module RubyGBA
         class Names
           PREFIXES = Ractor.make_shareable({
                                              variable: "v_", routine: "f_", list: "l_", table: "t_",
-                                             data: "d_", local: "i_", table_of_routines: "r_"
+                                             data: "d_", local: "i_", table_of_routines: "r_",
+                                             colors: "c_"
                                            })
 
           def initialize
