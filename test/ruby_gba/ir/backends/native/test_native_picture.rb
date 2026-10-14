@@ -2000,6 +2000,29 @@ class TestNativePicture < Minitest::Test
     assert_equal after_the_first_pass.length, after_the_first_pass.uniq.length, "and the bend should be somewhere new on every frame"
   end
 
+  # A game whose frames end while drawing is held inside an area shows the whole picture all the
+  # same, the window moved over all of it: the area holds where drawing lands, not what is shown.
+  def test_a_frame_that_ends_inside_an_area_shows_the_whole_picture
+    program = program_of do
+      screen :bitmap
+      clear_screen :blue
+      fill_rect 0, 0, 20, 20, :red
+      n = var :n, 0
+      inside(40, 30, 100, 60) do
+        game_loop do
+          camera n % 8, 0
+          fill_rect 0, 0, 240, 160, :green
+          n.add! 1
+        end
+      end
+    end
+
+    last = assert_native_matches_reference program, frames: 6
+
+    assert_equal Color.resolve(:blue), last.picture[(120 * WIDTH) + 30], "outside the area, the picture as it was"
+    assert_equal Color.resolve(:green), last.picture[(50 * WIDTH) + 60], "inside it, what the game drew there"
+  end
+
   # A game that never waits for the screen has no gap between frames, and its bend's lines are
   # worked out as they are painted, as the console works each line out as it draws it.
   def test_a_game_with_no_frames_is_bent_too

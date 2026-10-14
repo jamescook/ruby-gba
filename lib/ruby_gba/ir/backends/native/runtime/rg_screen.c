@@ -4,8 +4,8 @@
  * is what decides what is right here.
  *
  * What is NOT here is refused when the game is built rather than drawn wrongly (see
- * Picture#refuse_unsupported_picture!, which is the whole list): a frame that ends while drawing
- * is held inside an area, and more of anything than there is room for.
+ * Picture#refuse_unsupported_picture!, which is the whole list): more of anything than there is
+ * room for, and two backgrounds with one name told other colors.
  *
  * A sprite's pictures and a background's tiles arrive ready to draw: which of their pixels show,
  * and the colors of each list they can be drawn with, are worked out when the game is built (see
@@ -176,8 +176,8 @@ static int32_t on_screen(int64_t x, int64_t y) {
   return x >= 0 && x < RG_SCREEN_WIDTH && y >= 0 && y < RG_SCREEN_HEIGHT;
 }
 
-/* Framebuffer#in_bounds?: on the screen, and inside the area drawing is held to when it is. */
-static int32_t in_bounds(int64_t x, int64_t y) {
+/* Framebuffer#paintable?: on the screen, and inside the area drawing is held to when it is. */
+static int32_t paintable(int64_t x, int64_t y) {
   if (!on_screen(x, y)) return 0;
   return !area.in_force || (x >= area.left && x < area.right && y >= area.top && y < area.bottom);
 }
@@ -235,7 +235,7 @@ static int32_t keeps_picture_without_sprites(void) { return target != scenery &&
  * picture as it is with no sprite on it, where that is kept, and anything else with what is
  * already in the cell. */
 static void set_pixel(int64_t x, int64_t y, int32_t color) {
-  if (!in_bounds(x, y)) return;
+  if (!paintable(x, y)) return;
   int64_t at = y * RG_SCREEN_WIDTH + x;
   int32_t kept = keeps_picture_without_sprites();
   const uint16_t *under = kept && painting_sprite ? picture_without_sprites : target;
@@ -280,9 +280,9 @@ void rg_screen_inside(int32_t x, int32_t y, int32_t width, int32_t height) {
   area = (drawing_area){1, x, y, (int64_t)x + width, (int64_t)y + height};
 }
 
-/* A frame never ends between the two: the build refuses a game where one could, because the
- * interpreter reads the screen through the area then (Framebuffer#pixel) and gives the area back
- * if the run stops there, and neither is done here. */
+/* A frame may end between the two. The picture is read whole whatever area is open, so nothing
+ * read then depends on the area; the interpreter gives the area back when a run stops inside one,
+ * and here nothing is painted after a run stops. */
 void rg_screen_inside_ended(void) { area = outer_areas[--areas_deep]; }
 
 /* Reference#exec_camera */
@@ -320,8 +320,8 @@ static int32_t **saved_patch(int32_t buffer) {
 }
 
 /* Reference#exec_save_region: the patch of the picture at (x, y), as it is stored — what is
- * really in the picture, wherever the window sits. A cell that cannot be read (off the screen,
- * or outside the area drawing is held to) is remembered as nothing. */
+ * really in the picture, wherever the window sits, and whatever area drawing is held to
+ * (Framebuffer#stored_pixel). A cell off the screen is remembered as nothing. */
 void rg_patch_save(int32_t buffer, int32_t width, int32_t height, int32_t x, int32_t y) {
   int32_t **patch = saved_patch(buffer);
   if (!*patch) *patch = malloc((size_t)width * (size_t)height * sizeof **patch);
@@ -329,7 +329,7 @@ void rg_patch_save(int32_t buffer, int32_t width, int32_t height, int32_t x, int
   for (int32_t row = 0; row < height; row++)
     for (int32_t col = 0; col < width; col++) {
       int64_t px = (int64_t)x + col, py = (int64_t)y + row;
-      (*patch)[row * width + col] = in_bounds(px, py) ? pixels[py * RG_SCREEN_WIDTH + px] : NO_CELL;
+      (*patch)[row * width + col] = on_screen(px, py) ? pixels[py * RG_SCREEN_WIDTH + px] : NO_CELL;
     }
 }
 

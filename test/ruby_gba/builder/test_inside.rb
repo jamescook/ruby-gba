@@ -172,6 +172,29 @@ class TestInside < Minitest::Test
     assert_backends_agree(prog, "INSIDE2", "AIN2")
   end
 
+  # AN AREA HOLDS DRAWING, NOT THE DISPLAY. A game whose frames end while an area is open shows
+  # the whole picture all the same — the area only says where drawing may land — and a window
+  # moved over the picture moves over all of it. The picture is read at a frame boundary, while
+  # the area is still open, and compared with the console's whole: the window stands still, so
+  # every frame shows the same picture. Inside the area's right edge the window shows cells from
+  # outside it, and outside the area it shows the red square moved by the window.
+  def test_the_whole_picture_shows_while_a_frame_ends_inside_an_area
+    prog = program do
+      clear_screen :blue
+      fill_rect 0, 0, 20, 20, :red
+      inside(*AREA) { game_loop { camera 6, 0 } }
+    end
+    seen = nil
+    interp = Reference.new
+    interp.each_vblank { |frame| seen = interp.screen.shown if frame == 3 }.run(prog, frames: 3)
+    rom = ROM.assemble(GBA.new.lower(prog), title: "INSIDE3", code: "AIN3", maker: "01")
+    console = assert_emulator_loads_rom(rom, frames: 6)
+
+    assert_equal RubyGBA::Graphics::Color.resolve(:red), seen[(10 * 240) + 4], "outside the area, moved by the window"
+    differ = every_pixel.reject { |x, y| seen[(y * 240) + x] == console.pixel_gba(x, y) }
+    assert_empty differ.first(8), "read at a frame boundary inside the area, these pixels differ from the console"
+  end
+
   # --- the friendly errors ---------------------------------------------------------
 
   def test_an_area_worked_out_as_the_game_runs_is_refused
