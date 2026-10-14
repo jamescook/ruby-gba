@@ -304,9 +304,9 @@ class TestNativeHeadlessRun < Minitest::Test
   # A test asking something only the interpreter can answer so far is told so by name, rather
   # than meeting a NoMethodError that reads like a typo in the test.
   def test_a_question_only_the_interpreter_can_answer_yet_says_so
-    error = assert_raises(HeadlessRun::CannotAnswer) { HeadlessRun.new.sound_owners }
+    error = assert_raises(HeadlessRun::CannotAnswer) { HeadlessRun.new.frames_each_pass { 2 } }
 
-    assert_match(/sound_owners/, error.message)
+    assert_match(/frames_each_pass/, error.message)
   end
 
   # The sound comes as so many numbers a second, and the C and the Ruby each say how many.

@@ -269,10 +269,12 @@ interpreter's own measure, and it stops a game on a frame boundary, so the inter
 how many frames fit in the budget and the C plays that many. The sound log is the interpreter's
 words for what was played. The C keeps that log, and plays the sound, for songs — parts on the
 square wave, the wave voice, the noise voice and on recordings, named or picked from a list, a
-song that plays once, and the music volume — for beeps, `wave`, `stop_wave` and `noise`, and for
-the game's own recordings. What the mixer makes is compared slice for slice on every run
-(`mixed_sound`, `active_samples`, `peak_voices`, `volume_of`, `level_of` and `sound_drops`
-answer). A game with a sound effect list is refused by name when it is built.
+song that plays once, and the music volume — for sound effects played over the song, for beeps,
+`wave`, `stop_wave` and `noise`, and for the game's own recordings. What the mixer makes is
+compared slice for slice on every run (`mixed_sound`, `active_samples`, `sound_owners`,
+`peak_voices`, `volume_of`, `level_of` and `sound_drops` answer). A test may clear `audio` as it
+watches, the way it may clear the interpreter's: the run is compared by every entry the C logged
+whatever the test did to its copy.
 
 Opt a file in once native can play its games, and in chunks that go with the native slice that
 made them pass. What the native player cannot answer yet raises `HeadlessRun::CannotAnswer`

@@ -162,7 +162,8 @@ static void print_sprites(void) {
 
 /* For a game that mixes recordings: the slice made since the last moment ("mix" and its
  * samples), each sounding voice's recording, loudness out of 64, how far its shape has climbed or
- * fallen, and 1 if it is the game's own sound ("mixing"), the most voices
+ * fallen, and whose it is — 0 the game's, 1 the song's, 2 a sound effect's, then the effect's
+ * number and the part's lane ("mixing", six numbers a voice; rg_mix_voice_reading), the most voices
  * that ever sounded at once ("mix_peak"), and how many plays found every voice busy with the
  * most the music held at one of those moments ("mix_drops"). */
 static int32_t slices_printed;
@@ -180,10 +181,10 @@ static void print_mix(void) {
   }
   printf("mixing");
   for (int32_t voice = 0; voice < rg_mix_voice_count(); voice++) {
-    int32_t recording, loudness, level, games;
-    if (rg_mix_voice_sounding(voice, &recording, &loudness, &level, &games)) {
-      printf(" %d %d %d %d", (int)recording, (int)loudness, (int)level, (int)games);
-    }
+    rg_mix_voice_reading reading;
+    if (!rg_mix_voice_sounding(voice, &reading)) continue;
+    printf(" %d %d %d %d %d %d", (int)reading.recording, (int)reading.loudness, (int)reading.level, (int)reading.owner,
+           (int)reading.effect, (int)reading.lane);
   }
   int32_t music_held;
   int32_t dropped = rg_mix_drops(&music_held);

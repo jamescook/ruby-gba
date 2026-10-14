@@ -3,7 +3,7 @@
  * play on, and the log of what was played.
  *
  * The player follows the interpreter's own (Backends::Reference::Player) step for step, for a
- * song's parts on the console's own voices, and says what it did — a song started, a note
+ * song's parts and the sound effects played over it, and says what it did — a song started, a note
  * sounded on a voice, the music turned down, a beep — as the lines a test reads back (the
  * interpreter's `audio`), handed to the driver as they happen.
  *
@@ -39,6 +39,7 @@ extern const int32_t rg_game_beeps[];
 extern const int32_t rg_game_waves[];
 extern const int32_t rg_game_hits[];
 extern const int32_t rg_game_note_sounds[];
+extern const int32_t rg_game_effects[];
 
 /* `enable_sound`, and beep number +which+ of the game's beeps (numbered by the lowering and by
  * the test reading the log the same way, so the number is all that needs saying). */
@@ -59,6 +60,10 @@ void rg_music_request(int32_t song);
 /* ...or the song number +which+ of a list (`songs`) names, from the +count+ song numbers the list
  * holds. A number naming no song in the list leaves the music as it is. */
 void rg_music_request_one_of(const int32_t *songs, int32_t count, int32_t which);
+/* Start the sound effect number +which+ of a list (`sound_effects`) names, from the +count+ effect
+ * numbers the list holds, at the next frame and from its first note. A number naming no effect in
+ * the list plays nothing. */
+void rg_effect_request_one_of(const int32_t *effects, int32_t count, int32_t which);
 /* No tune, and counted: a stop and a play in one frame still start the tune again. */
 void rg_music_stop(void);
 /* The variable the game keeps its music volume in (0 to 16), for a game that says one at all. */

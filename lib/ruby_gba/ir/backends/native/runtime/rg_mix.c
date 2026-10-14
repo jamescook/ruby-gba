@@ -58,16 +58,19 @@
 #define FALLING 2
 #define DONE 3
 
-/* Whose a voice is: the game's own sound, or a part of the song playing (by its lane, counted
- * among the song's parts that play recordings). */
+/* Whose a voice is: the game's own sound, a part of the song playing, or a part of a sound effect
+ * — a part by its lane, counted among the parts that play recordings, and an effect by its
+ * number (rg_mix.h). */
 #define GAME 0
 #define SONG 1
+#define EFFECT 2
 
 typedef struct {
   int32_t sounding;
   int32_t owner;
-  int32_t lane;     /* a song's part, which of its recorded parts */
-  int32_t rank;     /* the song's rank (IR::Tunes.song_rank); -1 for the game's own sound */
+  int32_t effect;   /* a sound effect's number, for an effect's part */
+  int32_t lane;     /* a song's or an effect's part, which of its recorded parts */
+  int32_t rank;     /* the song's or the effect's rank (IR::Tunes); -1 for the game's own sound */
   int32_t loops;    /* a game's sound asked to loop, which gives way after every one-shot */
   int32_t ticket;   /* how many sounds the game had started, this one among them */
   int32_t recording;
@@ -202,13 +205,16 @@ void rg_mix_play(int32_t recording, int32_t step, int32_t loudness, int32_t back
   record_peak();
 }
 
-/* --- the voices a song's recorded parts borrow --- */
+/* --- the voices the recorded parts of songs and sound effects borrow --- */
 
-/* The voice sounding part +lane+'s note now — not one of its earlier notes falling away. */
-static int32_t sounding_voice(int32_t lane) {
+/* The voice sounding part +lane+'s note now — the song's part for an +effect+ of -1, else that
+ * effect's — and not one of its earlier notes falling away. */
+static int32_t sounding_voice(int32_t effect, int32_t lane) {
+  int32_t owner = effect < 0 ? SONG : EFFECT;
   for (int32_t i = 0; i < VOICES; i++) {
     const mix_voice *voice = &voices[i];
-    if (voice->sounding && voice->owner == SONG && voice->lane == lane && !releasing(voice)) return i;
+    if (!voice->sounding || voice->owner != owner || voice->lane != lane || releasing(voice)) continue;
+    if (owner == SONG || voice->effect == effect) return i;
   }
   return -1;
 }
@@ -221,8 +227,8 @@ static int32_t start_release(mix_voice *voice) {
   return 1;
 }
 
-int32_t rg_mix_start_music_note(int32_t lane, int32_t rank, const int32_t *sound, int32_t loudness) {
-  int32_t at = sounding_voice(lane);
+int32_t rg_mix_start_music_note(int32_t effect, int32_t lane, int32_t rank, const int32_t *sound, int32_t loudness) {
+  int32_t at = sounding_voice(effect, lane);
   if (at >= 0 && start_release(&voices[at])) at = -1;
   if (at < 0) at = free_voice();
   if (at < 0) at = quietest_releasing_voice();
@@ -233,14 +239,15 @@ int32_t rg_mix_start_music_note(int32_t lane, int32_t rank, const int32_t *sound
   }
 
   start_voice(at, sound[0], sound[1], sound[2], loudness, &sound[3]);
-  voices[at].owner = SONG;
+  voices[at].owner = effect < 0 ? SONG : EFFECT;
+  voices[at].effect = effect;
   voices[at].lane = lane;
   voices[at].rank = rank;
   return 1;
 }
 
-int32_t rg_mix_release_music(int32_t lane) {
-  int32_t at = sounding_voice(lane);
+int32_t rg_mix_release_music(int32_t effect, int32_t lane) {
+  int32_t at = sounding_voice(effect, lane);
   if (at < 0) return 0;
   if (!start_release(&voices[at])) voices[at].sounding = 0;
   return 1;
@@ -255,7 +262,7 @@ void rg_mix_release_all_music(void) {
 }
 
 int32_t rg_mix_rescale_music(int32_t lane, int32_t loudness) {
-  int32_t at = sounding_voice(lane);
+  int32_t at = sounding_voice(-1, lane);
   if (at < 0) return 0;
   voices[at].loudness = loudness;
   return 1;
@@ -374,12 +381,15 @@ int32_t rg_mix_newest_slice(const int32_t **samples) {
 
 int32_t rg_mix_voice_count(void) { return VOICES; }
 
-int32_t rg_mix_voice_sounding(int32_t voice, int32_t *recording, int32_t *loudness, int32_t *level, int32_t *games) {
-  if (!voices[voice].sounding) return 0;
-  *recording = voices[voice].recording;
-  *loudness = voices[voice].loudness;
-  *level = voices[voice].level;
-  *games = voices[voice].owner == GAME;
+int32_t rg_mix_voice_sounding(int32_t voice, rg_mix_voice_reading *reading) {
+  const mix_voice *sounding = &voices[voice];
+  if (!sounding->sounding) return 0;
+  *reading = (rg_mix_voice_reading){.recording = sounding->recording,
+                                    .loudness = sounding->loudness,
+                                    .level = sounding->level,
+                                    .owner = sounding->owner,
+                                    .effect = sounding->owner == EFFECT ? sounding->effect : -1,
+                                    .lane = sounding->lane};
   return 1;
 }
 

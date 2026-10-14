@@ -69,7 +69,7 @@ class CheckedNativeRun
     @native.run(program, frames: frames)
     interpreter, moments = play_on_interpreter(program, frames, interpreters_save)
     difference = self.class.first_difference(moments, @native.moments) ||
-                 self.class.sounds_difference(interpreter.audio, @native.audio) ||
+                 self.class.sounds_difference(interpreter.audio, @native.audio_played) ||
                  self.class.mix_difference(interpreter.mixed_sound, @native.mixed_sound) ||
                  self.class.drops_difference(interpreter.sound_drops, @native.sound_drops) ||
                  self.class.save_difference(interpreters_save, @save)

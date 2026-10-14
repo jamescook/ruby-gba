@@ -21,6 +21,7 @@ module RubyGBA
             @effects = program.walk.select { |node| node.kind == :beep }.map { |node| effect_of(node, defined) }.uniq
             @defined = defined
             @songs = program.walk.select { |node| node.kind == :song }.uniq(&:name)
+            @sound_effects = Tunes.effects(program).uniq
             @waves = program.walk.select { |node| node.kind == :wave }.map { |node| wave_of(node) }.uniq
             @hits = program.walk.select { |node| node.kind == :noise }.map { |node| hit_of(node) }.uniq
             @pitches = [0, *@songs.flat_map { |song| song.voices.flat_map { |part| part.events.map { |event| event[1] } } }].uniq
@@ -57,6 +58,12 @@ module RubyGBA
 
           def song_number(name) = @songs.index { |song| song.name == name }
 
+          # Every sound effect, by the name of the song it plays, in the order declared — which is
+          # the order the C numbers them — and the number of one.
+          attr_reader :sound_effects
+
+          def effect_number(name) = @sound_effects.index(name)
+
           # ...and for this `wave`, and this `noise`.
           def wave_number(node) = @waves.index(wave_of(node))
           def noise_number(node) = @hits.index(hit_of(node))
@@ -73,6 +80,7 @@ module RubyGBA
             when "loudness" then [:loudness, numbers[0], numbers[1]]
             when "mixer_loudness" then [:loudness, [:mixer, numbers[0]], numbers[1]]
             when "stop_music" then [:stop_music]
+            when "sound_effect" then [:sound_effect, @sound_effects.fetch(numbers[0])]
             when "wave" then [:wave, @waves.fetch(numbers[0])]
             when "stop_wave" then [:stop_wave]
             when "noise" then [:noise, @hits.fetch(numbers[0])]

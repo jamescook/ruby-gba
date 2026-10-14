@@ -283,4 +283,31 @@ class TestNativeTones < Minitest::Test
     assert_equal [*4..30, *46..70, *96..110], loud
     assert_native_sounds_like_the_console program, frames: 140, voices: [:wave]
   end
+
+  # A SOUND EFFECT ON THE WAVE VOICE, over a tune there: the effect's notes are in its own thin
+  # pulse and the tune's next note after it in the tune's triangle, since each note puts its own
+  # waveform in — and the game's own `wave` in between is overwritten by the tune's note after it.
+  def test_an_effect_and_the_tune_each_play_the_wave_voice_in_their_own_waveform
+    score = RubyGBA::Audio::Score
+    tune = score.new(tempo: 150, parts: [score::Part.new(plays: :triangle, notes: (0..5).map do |n|
+      score::Note.new(at: n * 20, key: :C4, length: 15)
+    end)])
+    hit = score.new(tempo: 150, priority: 68, parts: [score::Part.new(plays: THIN_PULSE, volume: 12, notes: [
+      score::Note.new(at: 0, key: :E5), score::Note.new(at: 10, key: :G5, length: 8),
+    ])])
+    program = program_of do
+      enable_sound
+      music = songs :music, [tune]
+      sfx = sound_effects :sfx, { hit: hit }
+      count = var :count, 0
+      game_loop do
+        count.add! 1
+        music.play 0
+        (count == 25).then { sfx.play :hit }
+        (count == 70).then { wave :sawtooth, :A3, volume: :half }
+      end
+    end
+
+    assert_native_sounds_like_the_console program, frames: 130, voices: [:wave]
+  end
 end

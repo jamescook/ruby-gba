@@ -540,7 +540,6 @@ class TestScores < Minitest::Test
       game_loop { pressed(:a).then { sfx.play :ping } }
     end
     b.finalize_program
-    skip_on_native "a sound effect list"
     i = game_player.input_each_frame { |frame| frame == 3 ? [:a] : [] }.run(b.program, frames: 40)
 
     assert_equal [NOTES[:C4], NOTES[:E4]], i.audio.select { |entry| entry[0] == :note }.map(&:last).reject(&:zero?)
