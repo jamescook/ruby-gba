@@ -1361,7 +1361,15 @@ module RubyGBA
           run.tiles.each_with_index do |tile, k|
             @bitmaps[tile] = run_tile_from_places(run, run_tile_places(bytes, k))
           end
-          @tile_colors.delete_if { |(name, _), _| run.tiles.include?(name) }
+          forget_colors_worked_out_from(run.tiles)
+        end
+
+        # A tile's colours, and a swap of colours, are worked out once from a picture's pixels
+        # and places and kept, so a picture painted again has them worked out again from what it
+        # holds now — or it shows the colours its old pixels would have taken.
+        def forget_colors_worked_out_from(names)
+          @tile_colors.delete_if { |(name, _), _| names.include?(name) }
+          @recolor_maps.delete_if { |(name, _), _| names.include?(name) }
         end
 
         # The 64 places of tile +k+ of a run's bytes, row by row.
@@ -1392,6 +1400,7 @@ module RubyGBA
           picture = run_picture_from_places(run, places, width: run.width, height: run.height)
           @bitmaps[run.picture] = picture
           @data[run.picture] = picture.pixels
+          forget_colors_worked_out_from([run.picture])
         end
 
         RUN_TILE_BYTES = 32

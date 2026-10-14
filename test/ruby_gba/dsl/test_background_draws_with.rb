@@ -153,6 +153,47 @@ class TestBackgroundDrawsWith < Minitest::Test
     assert_backends_agree(a_wall_of_painted_bars, frames: 3)
   end
 
+  # Painted again while the other list is in force, the tiles show the colours their places
+  # hold now: the whole bar is painted in the second place, so its left half turns from the
+  # first place's colour to the second's.
+  private def a_wall_of_painted_bars_painted_again
+    builder = Builder.new
+    builder.instance_eval do
+      screen :tiled
+      colors :ink, OWN
+      colors :shimmer, SHIMMER
+      canvas = list :canvas, capacity: 32, width: :byte
+      repeat(8) { [0x11, 0x11, 0x22, 0x22].each { |two_pixels| canvas.push two_pixels } }
+      wall = tiles :wall, from: canvas, count: 1, colors: :ink
+      wall.changed
+      rays = background :rays, tiles: :wall, map: Array.new(20) { [1] * 30 }
+      pass = var :pass, 0
+      game_loop do
+        rays.draw_with :shimmer
+        pass.add! 1
+        (pass == 3).then do
+          canvas.fill 0x22
+          wall.changed
+        end
+      end
+    end
+    builder.finalize_program
+    builder.program
+  end
+
+  # The picture is looked at on every frame, so it is built with the other list before the bar
+  # is painted again as well as after.
+  def test_painted_tiles_painted_again_show_the_colors_their_places_hold_now
+    left_half = []
+    i = game_player
+    i.each_vblank { left_half << i.screen.pixel(1, 1) }.run(a_wall_of_painted_bars_painted_again, frames: 6)
+
+    assert_includes left_half, Color.resolve(:yellow), "the left half in the first place, before it is painted again"
+    assert_equal Color.resolve(:white), i.screen.pixel(1, 1), "the left half, painted in the second place"
+    assert_equal Color.resolve(:white), i.screen.pixel(5, 1), "and the right half, as it was"
+    assert_backends_agree(a_wall_of_painted_bars_painted_again, frames: 6)
+  end
+
   # --- ONE OF SEVERAL, PICKED BY A NUMBER THE GAME WORKS OUT ---
   #
   # This is the shape the effect is really for: several lists and a counter walking them, so
