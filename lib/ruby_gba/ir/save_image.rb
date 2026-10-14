@@ -9,7 +9,9 @@ module RubyGBA
     # that is the console turned on again with the same cartridge in it. It is laid out exactly
     # the way the console lays out its chip (see SaveLayout) — `save_var`'s numbers and every
     # save_data record in the same bytes — so a game that overruns one part into another does it
-    # on both, and the bytes one wrote can be handed to the other as a .sav file.
+    # on both, and the bytes one wrote can be handed to the other as a .sav file. The game built
+    # as a desktop program keeps the same bytes again, in a file (runtime/rg_save.c is this
+    # class in C), so a save goes between all three.
     #
     # A byte nothing ever wrote reads as 0xFF, which is what a fresh chip holds.
     #

@@ -255,7 +255,12 @@ On a `rake test` run `game_player` IS `Reference.new`. On a native run it is a
 `buffered`, `audio` so far, growing with each native slice), and then the same buttons replayed
 on the interpreter, failing at the first frame where any variable, any pixel, the sound log or
 the sprites drawn differ. So an opted-in file's own checks are backed by a whole-picture
-comparison on every frame. A block given to `each_vblank` watches the game as C, at each frame
+comparison on every frame. **A game that saves is played both ways from the same save memory**:
+`game_player(save: image)` hands the game as C the image's bytes as a .sav file, puts what the
+run left back into the image (so the SAME image handed to two runs is a power cycle, as it is
+for the interpreter), replays on the interpreter from a copy taken first, and fails if the two
+end with different bytes. A cut waiting on the image (`cut_power_after`) cuts both at the same
+step. A block given to `each_vblank` watches the game as C, at each frame
 boundary as the run goes, and an input script can read the picture as well as the variables. A
 run by step budget
 (`run(program, max_steps: 400)`) plays there too, with nothing to change: a budget is the
@@ -318,6 +323,15 @@ a wall, the menu has moved on (`test_pacman_sounds.rb`).
 `test_native_desktop.rb`, under `SDL=1`): each is a real key event, onto the gamepad the keyboard
 is, round the window's frame loop. Feeding buttons to the windowless program goes round all of
 that, so a fault in how the window reads a key shows only there.
+
+**The window's save file** is tested there too, on a game of a few lines that keeps a count:
+that the file holds the bytes the interpreter's save memory does, is read before the game
+starts, is written while the game is still running, and lands in a folder named for the game
+among the files of whoever plays. A desktop build started with `--save-file PATH` keeps its save
+there in place of that folder, which is how a test (or a person trying something) keeps out of
+real saves. WHEN the window writes the file is plain counting in `runtime/rg_save.c`, and is
+tested as that with no window (`test_native_save_file.rb`). Small made-up programs that save
+go in `test_native_saves.rb`.
 
 **How evenly the window shows its pictures** cannot be seen by a test, and a stutter is exactly
 that. A desktop build started with `--frame-times` says at its end, on the error stream, what

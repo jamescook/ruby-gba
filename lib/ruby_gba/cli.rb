@@ -60,6 +60,11 @@ module RubyGBA
       else to install. It is written next to the game file, named from the title with no
       extension. It needs zig (`mise install`), and the first one takes a while because
       it compiles SDL; sound is not played yet.
+
+      A game that saves keeps its save in a file, in the folder your computer has for
+      each program's own files. To keep it in a different file, start the program with
+      --save-file PATH. The file holds the bytes of a cartridge's save memory, so a .sav
+      file from an emulator starts the same game there.
     TEXT
     option :output, aliases: "-o", banner: "PATH",
                     desc: "Where to write the .gba, the IR under --format=ir, or the program under --format=native " \
