@@ -46,6 +46,7 @@ module RubyGBA
                                                  var_ref: ->(n) { [n.name] }, repeat: ->(n) { [n.index].compact },
                                                  every: ->(n) { [n.counter] }, after: ->(n) { [n.counter] },
                                                  case: ->(n) { [n.var] }, scroll_rows: ->(n) { [n.row] },
+                                                 shade_outside: ->(n) { [n.row] },
                                                  copy_owed_tiles: ->(n) { n.masks },
                                                  save_init: ->(n) { n.vars.map(&:name) }, save_store: ->(n) { [n.var] }
                                                })
@@ -78,6 +79,7 @@ module RubyGBA
                                                affine_background: :lower_affine_background,
                                                scroll_background: :lower_scroll_background,
                                                scroll_rows: :lower_scroll_rows,
+                                               shade_outside: :lower_nothing,
                                                set_tile: :lower_set_tile, show_map: :lower_show_map,
                                                background_colors: :lower_background_colors,
                                                color_list_holds: :lower_color_list_holds,
@@ -120,7 +122,7 @@ module RubyGBA
           # trails the other two backends, so a kind may be missing here — but only on this list,
           # which test_native_kind_coverage.rb holds against every kind there is. A kind leaves
           # the list the day it gets a row in STATEMENTS or VALUES.
-          NOT_LOWERED_YET = Ractor.make_shareable({ "a spotlight, or an iris that closes on a point" => %i[shade_outside] })
+          NOT_LOWERED_YET = Ractor.make_shareable({})
 
           # How many bytes a slot of a list takes, by the width it was declared with.
           SLOT_BYTES = Ractor.make_shareable({ byte: 1, half: 2, word: 4, nil => 4 })
@@ -139,6 +141,9 @@ module RubyGBA
             written = by_name(program.walk, :scroll_rows)
             declared = by_name(program.walk, :background)
             @bends = written.select { |name, _| declared.key?(name) }
+            # The game's light: the last one written, wherever, since it stands from power-on
+            # (Reference#collect_definitions), or nil for a game with none.
+            @shade = program.walk.select { |node| node.kind == :shade_outside }.last
             # What each timer does when it ticks: its handler, wherever that is written, since it
             # is the timer's from power-on (Nodes::OnTimer.of). And the number the runtime knows
             # each timer by.
@@ -180,7 +185,7 @@ module RubyGBA
           # above them in the file.
           def top_level
             routines = @called.map { |name| C::Function.new(name: routine(name), body: body_of(@funcs.fetch(name))) }
-            answers = [see_through_amounts, bend_offsets, work_out_bends, timer_ticks]
+            answers = [see_through_amounts, bend_offsets, work_out_bends, shade_span, shade_amount, timer_ticks]
             main = C::Function.new(name: @names.own("main"), body: [*power_on, *lower(@program)], exported: true)
             [C::Comment.new("Written by ruby-gba's native backend. Do not edit; build the game again."),
              C::Include.new("rg_int32.h"), C::Include.new("rg_runtime.h"), C::Include.new("rg_list.h"),
@@ -515,14 +520,16 @@ module RubyGBA
           # The runtime ends the frame (shows it, reads the buttons, keeps time), and the frame
           # counters the program can read move on, where the interpreter moves them. Last, a game
           # that bends a background it has works every bend's lines out for the pass to come
-          # (Reference#work_out_bends).
+          # (Reference#work_out_bends), and a game with a light works out where it falls
+          # (Reference#work_out_shade).
           def lower_wait_vblank(_node)
             count = variable(Frames::COUNT)
             [eval_call("rg_wait_vblank"),
              assign(Frames::COUNT, call("rg_add", count, C::Int.new(1))),
              assign(Frames::SEEN, count),
              assign(Frames::STEP, C::Int.new(1)),
-             *(@bends.empty? ? [] : [eval_call("rg_screen_work_out_bends")])]
+             *(@bends.empty? ? [] : [eval_call("rg_screen_work_out_bends")]),
+             *(@shade ? [eval_call("rg_screen_work_out_shade")] : [])]
           end
 
           # --- lists (runtime/rg_list.h does the work and the checking) ---

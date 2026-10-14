@@ -118,6 +118,24 @@ void rg_bend_answer(int32_t offset);
 void rg_game_bend_offsets(void);
 void rg_game_work_out_bends(void);
 
+/* A LIGHT darkens the picture everywhere outside one span of each row, as it is shown
+ * (Reference#work_out_shade, Framebuffer#shade_outside). In the gap between frames,
+ * rg_screen_work_out_shade asks the game where each row's span is, by calling rg_game_shade_span
+ * with one row of the screen in mind, and then how dark the rest goes, by calling
+ * rg_game_shade_amount:
+ *
+ *   row = rg_shade_line(); rg_shade_left(left); rg_shade_right(right);    rg_shade_darkness(amount);
+ *
+ * The span runs from left up to but not including right; a left past its right comes round the
+ * edge of the screen. The amount is out of 100. */
+void rg_screen_work_out_shade(void);
+int32_t rg_shade_line(void);
+void rg_shade_left(int32_t left);
+void rg_shade_right(int32_t right);
+void rg_shade_darkness(int32_t amount);
+void rg_game_shade_span(void);
+void rg_game_shade_amount(void);
+
 /* A scene taking over: remembered, then its screen, then what comes down. */
 void rg_scene_enter(int32_t scene);
 void rg_scene_take_down(int32_t brings_scenery);
