@@ -6,7 +6,7 @@ require "test_helper"
 # record of their own that saves itself a pass after one of them changes, rather than written
 # in place as they are on 32K.
 class TestSaveVarRecord < Minitest::Test
-  runs_on :reference
+  runs_on :reference, :native
 
   include RubyGBA::Console::Hardware
 
@@ -30,9 +30,9 @@ class TestSaveVarRecord < Minitest::Test
   private def rom_of(game) = game.build_rom(out: nil, err: nil, profile: false)
 
   # The save memory after A is pressed and the save has had time to go in.
-  private def saved_on_interpreter(game)
+  private def saved_by_playing(game)
     store = SaveImage.new(kilobytes: 64)
-    Reference.new(save: store).input_each_frame { |f| f == PRESS ? [:a] : [] }.run(game.program, frames: 24)
+    game_player(save: store).input_each_frame { |f| f == PRESS ? [:a] : [] }.run(game.program, frames: 24)
     store
   end
 
@@ -48,17 +48,17 @@ class TestSaveVarRecord < Minitest::Test
   def test_the_console_saves_a_save_var_the_way_the_interpreter_does
     rom = rom_of(game)
     chip = assert_emulator_loads_rom(rom, frames: PRESS + 16, keys: ->(f) { f == PRESS ? KEY_A : 0 }).save_image
-    store = saved_on_interpreter(game)
+    store = saved_by_playing(game)
 
-    assert_equal 7, Reference.new(save: store).run(game.program, frames: 2)[:best]
+    assert_equal 7, game_player(save: store).run(game.program, frames: 2)[:best]
     assert_equal store.written, chip.written
   end
 
   # An update that adds a save_var finds the one saved before it, and starts the new one at
   # its default.
   def test_an_update_that_adds_a_save_var_keeps_the_saved_one
-    store = saved_on_interpreter(game)
-    back = Reference.new(save: store).run(game(more: true).program, frames: 2)
+    store = saved_by_playing(game)
+    back = game_player(save: store).run(game(more: true).program, frames: 2)
 
     assert_equal 7, back[:best]
     assert_equal 5, back[:wins]
