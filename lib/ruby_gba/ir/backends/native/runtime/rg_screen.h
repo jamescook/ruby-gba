@@ -301,8 +301,9 @@ extern const uint16_t rg_game_tile_pixels[];
  * Two scenes may each declare a background by the same name. Each is an entry here with its own
  * maps, and they share what the game does to the name, as the interpreter keeps that by name:
  * the scroll, the turn, the colors it is told, and the run's own copy of the cells. RG_BG_KEPT_BY
- * is the entry that keeps those for the name, which is the last one declared, and the one every
- * statement naming the background reaches.
+ * is the entry that keeps those for the name: the last one the program declares, wherever the
+ * stack puts it, and the one every statement naming the background reaches. Its see-through
+ * layer is also the one RG_BG_SEE_THROUGH gives every entry of the name.
  *
  * RG_BG_SEE_THROUGH is which see-through layer it is in, counting through rg_game_see_through,
  * or RG_SOLID. RG_BG_BENT is 1 for one the game bends (rg_game_bend_offsets).
@@ -333,7 +334,8 @@ extern const uint16_t rg_game_tile_pixels[];
 /* The most backgrounds a game may have; the build refuses more. */
 #define RG_MAX_BACKGROUNDS 64
 enum {
-  RG_BG_TILE_W, RG_BG_TILE_H, RG_BG_FIRST_MAP, RG_BG_SHOWABLE_MAPS, RG_BG_KEPT_BY, RG_BG_NEVER_WRAPS, RG_BG_TILES_START, RG_BG_SCENE, RG_BG_LEVEL, RG_BG_ON_ARRIVAL, RG_BG_STACK_PLACE,
+  RG_BG_TILE_W, RG_BG_TILE_H, RG_BG_FIRST_MAP, RG_BG_SHOWABLE_MAPS, RG_BG_KEPT_BY, RG_BG_NEVER_WRAPS,
+  RG_BG_TILES_START, RG_BG_SCENE, RG_BG_LEVEL, RG_BG_ON_ARRIVAL, RG_BG_STACK_PLACE,
   RG_BG_SEE_THROUGH, RG_BG_BENT, RG_BG_FADE_PLACE, RG_BG_TILES, RG_BG_COLOR_STEPS, RG_BG_IN_BLOCKS,
   RG_BG_CAN_TURN, RG_BG_PAINTED, RG_BG_RUN_COLORS, RG_BG_FIELDS
 };
