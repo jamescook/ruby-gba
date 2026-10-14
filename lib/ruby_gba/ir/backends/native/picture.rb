@@ -45,7 +45,7 @@ module RubyGBA
           # painted tile (RG_NOT_PAINTED).
           NOT_PAINTED = -1
           # How many places a run's colors have: a painted pixel is four bits.
-          RUN_PLACES = 16
+          PLACES_IN_RUN_COLORS = 16
           # A painted tile's side, and how many pixels that makes (Reference::RUN_TILE_BYTES is
           # half of them, two pixels to a byte).
           RUN_TILE_SIDE = 8
@@ -274,7 +274,7 @@ module RubyGBA
           # depends on its place and nothing else, so reading this strip the way a tile or a
           # sprite's picture is read gives the color of every place at once, by the same rules
           # as art that was drawn ahead of time.
-          def every_place_of(run) = painted_image(run, (0...RUN_PLACES).to_a, width: RUN_PLACES, height: 1)
+          def every_place_of(run) = painted_image(run, (0...PLACES_IN_RUN_COLORS).to_a, width: PLACES_IN_RUN_COLORS, height: 1)
 
           # The run that paints the tile +name+, or nil for a tile that is a picture.
           def run_painting(name) = @tile_runs.each_value.find { |run| run.tiles.include?(name) }
@@ -290,7 +290,7 @@ module RubyGBA
               pixels += run_pixels(run)
               next [run.tiles.length, 0, 0, start, 0, 0] unless run.picture
 
-              first = images.length / (RUN_PLACES + 1)
+              first = images.length / (PLACES_IN_RUN_COLORS + 1)
               shown_as = @images.select { |(name, _), _| name == run.picture }
               shown_as.each { |(_, colors), number| images.push(number, *sprite_pixels(every_place_of(run), colors)) }
               [0, run.width, run.height, start, first, shown_as.size]
