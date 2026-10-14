@@ -41,8 +41,10 @@ class CheckedNativeRun
     @native.input_each_frame { |frame| @played[frame] = buttons_for(frame) }
   end
 
+  # Held from power-on too, before the game's first statement, on both sides.
   def hold(*buttons)
     @held = buttons
+    @native.hold(*buttons)
     self
   end
 
@@ -65,6 +67,7 @@ class CheckedNativeRun
   # guards one frame of the interpreter, and means nothing here.
   def run(program, max_steps: nil, frames: nil)
     frames ||= max_steps ? frames_within(program, max_steps) : Reference::DEFAULT_FRAMES
+    refuse_endless_game_without_frames!(program)
     interpreters_save = save_as_handed_over
     @native.run(program, frames: frames)
     interpreter, moments = play_on_interpreter(program, frames, interpreters_save)
@@ -137,12 +140,26 @@ class CheckedNativeRun
   # The buttons are asked of the test's own script here and again on the native run, so a script
   # that reads the game sees it as it stood before this run.
   def frames_within(program, max_steps)
-    lead = Reference.new(save: save_as_handed_over).input_each_frame { |frame| buttons_for(frame) }
+    lead = Reference.new(save: save_as_handed_over).hold(*@held).input_each_frame { |frame| buttons_for(frame) }
                     .run(program, max_steps: max_steps)
     return lead.frame unless lead.frame.zero? && lead.stopped_at_budget?
 
     raise HeadlessRun::CannotAnswer, "this game spends the whole step budget before it first waits for the " \
                                      "screen, so the budget is all that stops it, and the native lowering " \
+                                     "keeps no count of its steps"
+  end
+
+  # A game that never waits for the screen has no frames for a count of them to stop. The
+  # interpreter stops it at its step budget; the C keeps no count of its steps, and would play on
+  # until HeadlessRun gave up on it a minute later. Such a game never asks for a frame's buttons,
+  # so the interpreter can be asked first, with only the buttons held from power-on, whether it
+  # comes to an end by itself.
+  def refuse_endless_game_without_frames!(program)
+    return if program.walk.any? { |node| node.kind == :wait_vblank }
+    return unless Reference.new(save: save_as_handed_over).hold(*@held).run(program).stopped_at_budget?
+
+    raise HeadlessRun::CannotAnswer, "this game never waits for the screen, so it has no frames to count: the " \
+                                     "interpreter's step budget is all that stops it, and the native lowering " \
                                      "keeps no count of its steps"
   end
 
@@ -161,7 +178,7 @@ class CheckedNativeRun
   def play_on_interpreter(program, frames, save)
     interpreter = Reference.new(save: save)
     moments = []
-    interpreter.input_each_frame { |frame| @played.fetch(frame, []) }
+    interpreter.hold(*@held).input_each_frame { |frame| @played.fetch(frame, []) }
                .each_vblank { |frame| moments << moment_of(interpreter, frame) }
                .run(program, frames: frames)
     [interpreter, moments << moment_of(interpreter, :end)]

@@ -27,7 +27,11 @@
  * compares every frame pixel by pixel. Without it a frame is a few lines rather than a hundred
  * and fifty thousand characters, which is what lets a long run be driven a frame at a time.
  *
- * The options are --every-picture, and the five below.
+ * The options are --every-picture, and the six below.
+ *
+ * With --held-from-power-on MASK the buttons in MASK (bits as on standard input) are down before
+ * the game's first statement, as a button held through the whole run is in the interpreter; the
+ * first frame's line still says what is held from then on.
  *
  * With --save FILE the game starts with the save memory FILE holds (rg_save.h: the bytes of a
  * .sav file, as many as the game has save memory), and when the run ends the save memory is
@@ -300,6 +304,8 @@ int rg_headless_main(int argc, char **argv) {
       }
     } else if (strcmp(argv[i], "--save-cut-after") == 0 && i + 1 < argc) {
       rg_save_cut_power_after(strtol(argv[++i], NULL, 10));
+    } else if (strcmp(argv[i], "--held-from-power-on") == 0 && i + 1 < argc) {
+      rg_buttons_held_from_power_on((uint32_t)strtoul(argv[++i], NULL, 10));
     }
   }
   rg_active_driver = &headless;

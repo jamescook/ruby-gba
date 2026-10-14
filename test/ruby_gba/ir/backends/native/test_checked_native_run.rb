@@ -42,6 +42,21 @@ class TestCheckedNativeRun < Minitest::Test
     assert_equal interpreter.frame, CheckedNativeRun.last_frame(played.moments)
   end
 
+  # The interpreter has a held button down from the game's first statement, and the console has
+  # its keys from power-on, so a game that reads one before its first frame sees it down.
+  def test_a_button_held_for_the_whole_run_is_down_before_the_first_frame
+    program = program_of do
+      early = var :early, 0
+      held(:a).then { early.set! 1 }
+      game_loop {}
+    end
+
+    played = CheckedNativeRun.new.hold(:a).run(program, frames: 2)
+
+    assert_equal 1, Reference.new.hold(:a).run(program, frames: 2)[:early], "the interpreter's answer"
+    assert_equal 1, played[:early]
+  end
+
   def test_a_step_budget_on_a_game_that_never_waits_for_the_screen_cannot_be_played
     builder = Builder.new(options: RubyGBA::Cartridge::Options.new(frame_sync: :manual))
     builder.instance_eval do
@@ -54,6 +69,32 @@ class TestCheckedNativeRun < Minitest::Test
     error = assert_raises(CheckedNativeRun::HeadlessRun::CannotAnswer) { CheckedNativeRun.new.run(program, max_steps: 60) }
 
     assert_match(/before it first waits for the screen/, error.message)
+  end
+
+  # A count of frames means nothing to a game with none: the interpreter stops it at its step
+  # budget, which the C cannot, so it is said at once rather than left to run.
+  def test_a_frame_count_on_a_game_that_never_waits_for_the_screen_cannot_be_played
+    builder = Builder.new(options: RubyGBA::Cartridge::Options.new(frame_sync: :manual))
+    builder.instance_eval do
+      x = var :x, 0
+      game_loop { x.add! 1 }
+    end
+    builder.finalize_program
+    program = builder.program
+
+    error = assert_raises(CheckedNativeRun::HeadlessRun::CannotAnswer) { CheckedNativeRun.new.run(program, frames: 4) }
+
+    assert_match(/never waits for the screen/, error.message)
+  end
+
+  # A game with no frames that comes to an end by itself is played as it is.
+  def test_a_game_with_no_frames_that_ends_is_played
+    program = program_of do
+      x = var :x, 0
+      repeat(5) { x.add! 3 }
+    end
+
+    assert_equal 15, CheckedNativeRun.new.run(program, frames: 4)[:x]
   end
 
   # Watching a run leaves it a checked one: what each_vblank gives back is the checked run

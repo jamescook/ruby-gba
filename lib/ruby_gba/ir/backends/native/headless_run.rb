@@ -304,7 +304,8 @@ module RubyGBA
             Dir.mktmpdir("ruby-gba-run") do |dir|
               File.open(File.join(dir, "picture"), "w+b") do |pictures|
                 @pictures = pictures
-                play_frames(exe, frames, ["--picture-out", pictures.path, *sound_options(dir), *save_options(dir)])
+                play_frames(exe, frames, ["--picture-out", pictures.path, *sound_options(dir), *save_options(dir),
+                                          *held_options])
               end
               @sound = File.binread(File.join(dir, "sound")).unpack("s<*") if @records_sound
               @save.replace_with_sav(File.binread(save_file(dir)), from: "The save memory the program wrote") if @keeps_save
@@ -323,6 +324,13 @@ module RubyGBA
 
             File.binwrite(save_file(dir), @save.to_sav)
             ["--save", save_file(dir), *(["--save-cut-after", @save.power_left.to_s] if @save.power_left)]
+          end
+
+          # Buttons held for the whole run are down from power-on, before the game's first
+          # statement, as the interpreter's are — and an input script decides only from the first
+          # frame on, as the interpreter's does.
+          def held_options
+            @held.empty? ? [] : ["--held-from-power-on", self.class.button_mask(@held).to_s]
           end
 
           def sound_options(dir)

@@ -25,6 +25,10 @@ void rg_buttons_read(uint32_t now) {
   seen = held;
 }
 
+/* Down before the first frame boundary and not yet seen there, so the first boundary still finds
+ * them going down — the interpreter's hold, and the console's keys from power-on. */
+void rg_buttons_held_from_power_on(uint32_t now) { held = now & ALL_BUTTONS; }
+
 /* The frame the game drew has ended, whoever is driving and whether or not the run stops here. */
 void rg_wait_vblank(void) {
   rg_screen_frame_ended();
