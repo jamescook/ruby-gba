@@ -11,7 +11,7 @@ require "differential"
 # The console mixes in sixteenths, so an amount is rounded to the nearest one: 94 is 15/16
 # and 63 is 10/16, the pair a retail cartridge's file-select window is drawn with.
 class TestLayerTwoAmounts < Minitest::Test
-  runs_on :reference
+  runs_on :reference, :native
 
   include Differential
 
@@ -57,7 +57,7 @@ class TestLayerTwoAmounts < Minitest::Test
   BRIGHT_MIXED = [31, 29, 29].freeze
 
   def test_a_layer_can_show_itself_and_what_is_behind_by_amounts_of_their_own
-    screen = Reference.new.run(pane_program(shows: 94, behind: 63), frames: 2).screen
+    screen = game_player.run(pane_program(shows: 94, behind: 63), frames: 2).screen
 
     assert_equal rgb5(*DIM_MIXED), screen.pixel(*DIM)
     assert_equal rgb5(*BRIGHT_MIXED), screen.pixel(*BRIGHT), "past a whole, a channel stops at full"
@@ -87,7 +87,7 @@ class TestLayerTwoAmounts < Minitest::Test
   end
 
   def test_amounts_the_game_works_out_follow_it
-    oracle_frames = (2..6).map { |frames| Reference.new.run(stepping_program, frames: frames).screen.pixel(*DIM) }
+    oracle_frames = (2..6).map { |frames| game_player.run(stepping_program, frames: frames).screen.pixel(*DIM) }
 
     assert_operator oracle_frames.uniq.size, :>, 1, "the mix changes as the step moves"
   end
@@ -128,7 +128,7 @@ class TestLayerTwoAmounts < Minitest::Test
 
   def test_a_sprite_stays_drawn_when_the_mist_behind_it_changes
     (2..9).each do |frames|
-      shown = Reference.new.run(walker_in_front_of_thickening_mist, frames: frames).screen.shown
+      shown = game_player.run(walker_in_front_of_thickening_mist, frames: frames).screen.shown
 
       assert_equal 64, shown.count(RED), "the walker's 64 pixels after #{frames} frames"
     end
@@ -201,10 +201,10 @@ class TestLayerTwoAmounts < Minitest::Test
 
   # (forest x 8 + ray x 10) / 16 in eight-bit channels: 165*8 + 132*8 ... worked out as
   # the title's rays at 51 and 63, which are 8 and 10 sixteenths.
-  def title_pixel = Reference.new.run(two_screens_program, frames: 4).screen.pixel(*DIM)
+  def title_pixel = game_player.run(two_screens_program, frames: 4).screen.pixel(*DIM)
 
   def files_pixel
-    Reference.new.input_each_frame { |frame| frame == 1 ? [:a] : [] }
+    game_player.input_each_frame { |frame| frame == 1 ? [:a] : [] }
              .run(two_screens_program, frames: 6).screen.pixel(*DIM)
   end
 
