@@ -775,6 +775,13 @@ module RubyGBA
         operands x: :value, y: :value, color: :color
       end
 
+      class Pixelate
+        include Node
+        kind :pixelate
+        category :draw
+        operands size: :value, under: :name
+      end
+
       class PixelsOverlap
         include Node
         kind :pixels_overlap

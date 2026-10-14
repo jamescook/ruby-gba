@@ -49,6 +49,7 @@ module RubyGBA
             @painting_sprite = false
             @blending = false
             @area = nil
+            @block = 1
           end
 
           # TWO PAGES, OR ONE. A tear-free screen is two pictures rather than one: the
@@ -159,6 +160,17 @@ module RubyGBA
             @fade_steps = 0
           end
 
+          # Show the stored picture in flat blocks of +size+ pixels each way, or as it is for
+          # a size of 1. Like the camera and a fade, this changes what you SEE and not what
+          # is stored, so the picture is all there again when the size goes back to 1.
+          #
+          # This is for a picture that is ONE thing to the display — a screen the program
+          # paints. A picture built from several things is put into blocks a thing at a
+          # time, as it is built, and never comes here.
+          def show_in_blocks(size)
+            @block = size
+          end
+
           # Blend everything painted FROM HERE ON toward +toward+ by +steps+ sixteenths,
           # or paint colors as they are when +toward+ is nil.
           #
@@ -222,6 +234,7 @@ module RubyGBA
             return nil unless in_bounds?(x, y)
             return HELD_OFF if @held
 
+            x, y = block_corner(x, y) if @block > 1
             faded(shown_pixel(x + @camera_x, y + @camera_y) || @fill)
           end
 
@@ -333,10 +346,25 @@ module RubyGBA
           # Nothing between what is stored and what is shown: the window at the origin and
           # no effect in force. The common case, and worth not walking the screen for.
           def plain?
-            !@held && @camera_x.zero? && @camera_y.zero? && @tint_color.nil? && fade_steps.zero?
+            !@held && @camera_x.zero? && @camera_y.zero? && @tint_color.nil? && fade_steps.zero? && @block == 1
           end
 
           private
+
+          # The screen pixel whose colour (x, y) shows while the picture is in blocks: the
+          # top left corner of its block.
+          #
+          # DOWN THE SCREEN the blocks are fixed to it, a new one at every row that is a
+          # multiple of the size. ACROSS they are fixed to it too, while the picture covers
+          # the row from its first column — which is always, unless the window has been
+          # moved off the picture's left edge. Then the first block of a row starts where
+          # the picture does, and the rest count from there: a display starts a block at
+          # the first pixel it finds something to show.
+          def block_corner(x, y)
+            first = [-@camera_x, 0].max
+            x = first + (((x - first) / @block) * @block) if x >= first
+            [x, y - (y % @block)]
+          end
 
           # One color with the current fade applied.
           #

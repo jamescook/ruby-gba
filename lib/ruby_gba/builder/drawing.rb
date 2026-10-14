@@ -268,6 +268,45 @@ module RubyGBA
         ensure_var(amount)
       end
 
+      # Show the whole screen in flat blocks — the pixelate effect of a scene change, a
+      # hit, a dream, a teleport.
+      #
+      # `size` is how many pixels a block is each way: 1 is the picture as drawn, 8 is
+      # blocks of eight by eight, and 16 is the biggest the console draws. Nothing is
+      # redrawn — the console does it as it draws, so the picture is all still there and
+      # comes back untouched — and it costs the same however much is on screen.
+      #
+      #   pixelate 8              # big blocks
+      #   pixelate 1              # back to normal
+      #
+      # It sets the size where you call it, so pixelating over time is a variable moved
+      # a little each frame:
+      #
+      #   blocks = var :blocks, 1
+      #   game_loop do
+      #     blocks.approach! 16, 1
+      #     pixelate blocks
+      #   end
+      #
+      # `under:` leaves part of the picture as drawn: it names a layer, and that layer and
+      # everything in front of it stay sharp. Pixelate the game and keep the score readable:
+      #
+      #   layers :world, :actors, :ui
+      #   pixelate 8, under: :ui
+      #
+      # A game says one place, and every `pixelate` in it says the same one.
+      #
+      # @param size [Symbol, Integer, Value] how many pixels a block is each way, 1 to 16
+      # @param under [Symbol, nil] a layer left as drawn with everything in front of it, or nil for the whole screen
+      def pixelate(size, under: nil)
+        refuse_unusable_block_size!(size)
+        check_effect_layer!(:pixelate, under) if under
+        refuse_second_pixelate_place!(under)
+
+        record(Build.pixelate(size: DSL::Value.node_for(size), under: under))
+        ensure_var(size)
+      end
+
 
       # Fill a rectangle at a fixed position and size.
       #
@@ -377,6 +416,44 @@ module RubyGBA
       end
 
       private
+
+      # A block is a whole number of pixels, and the console has sizes from one pixel, which
+      # is the picture as drawn, to sixteen. A size written in the program outside those is
+      # a slip worth saying; one the game works out is held to them as it runs. A number
+      # that holds a fraction keeps it in its low bits, so read as a size it would be
+      # thousands of pixels.
+      def refuse_unusable_block_size!(size)
+        largest = IR::Backends::Blocks::LARGEST
+        if DSL::Fraction.bits_of(size)
+          raise ArgumentError,
+                "pixelate's size is a whole number of pixels, and this one holds a fraction. " \
+                "To fix this, write a whole number from 1 to #{largest}, or drop the fraction with `.to_i`."
+        end
+
+        fixed = DSL::Value.fixed_number(size)
+        return if fixed.nil? || (1..largest).cover?(fixed)
+
+        raise ArgumentError,
+              "pixelate's size is how many pixels a block is each way, from 1 to #{largest}. " \
+              "You gave #{fixed}. A size of 1 is the picture as drawn."
+      end
+
+      # WHICH THINGS ARE DRAWN IN BLOCKS IS SETTLED AS THE CARTRIDGE IS BUILT. The console
+      # keeps that as a switch on each background and each sprite, and the switches are
+      # set once: all that changes while the game runs is the size of a block. So a game
+      # has one answer to "what is left as drawn", and two different ones is a friendly
+      # error here rather than a second set of switches to keep in step every frame.
+      def refuse_second_pixelate_place!(under)
+        @pixelate_place = under unless defined?(@pixelate_place)
+        return if @pixelate_place == under
+
+        said = ->(place) { place ? "`under: :#{place}`" : "no `under:`" }
+        raise ArgumentError,
+              "This game already pixelates with #{said.call(@pixelate_place)}, and now with " \
+              "#{said.call(under)}. A game pixelates from one place in the stack, because which " \
+              "things are drawn in blocks is settled once, before it runs. To fix this, give " \
+              "every `pixelate` the same `under:`."
+      end
 
       # A fade's or a tint's amount for the tree, and how many bits of fraction it carries
       # (nil for a whole percentage). An amount with a fraction — a Float, or a value that

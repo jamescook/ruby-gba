@@ -275,6 +275,35 @@ module RubyGBA
             store_halfword_acc(REG_BLDALPHA)
           end
 
+          # Show the picture in blocks of this many pixels each way.
+          #
+          # One register holds the size, and nothing else is written: which things are
+          # drawn in blocks was settled as the cartridge was built (see Pixelation). The
+          # register keeps four sizes — across and down for backgrounds, then across and
+          # down for sprites — each in four bits and each one LESS than the pixels, so the
+          # same number goes into all four places.
+          #
+          # A size written in the program is worked out here and stored as a plain number.
+          # One the game works out is held to the sizes there are first, since the fields
+          # are four bits wide and a number past them would spill into its neighbour.
+          def emit_pixelate(node)
+            if (size = const_int(node.size))
+              field = Blocks.size(size) - 1
+              pair = field | (field << MOSAIC_DOWN_SHIFT)
+              return write_reg16(REG_MOSAIC, pair | (pair << MOSAIC_SPRITES_SHIFT))
+            end
+
+            @lowering.value(node.size)
+            emit(ASM.cmp_imm(ACC, 1))
+            emit(ASM.mov_imm_cond(:lt, ACC, 1))
+            emit(ASM.cmp_imm(ACC, Blocks::LARGEST))
+            emit(ASM.mov_imm_cond(:gt, ACC, Blocks::LARGEST))
+            emit(ASM.sub_imm(ACC, ACC, 1))
+            emit(ASM.orr_reg_lsl(ACC, ACC, ACC, MOSAIC_DOWN_SHIFT)) # across and down
+            emit(ASM.orr_reg_lsl(ACC, ACC, ACC, MOSAIC_SPRITES_SHIFT)) # ...and the same pair again for sprites
+            store_halfword_acc(REG_MOSAIC)
+          end
+
           # An amount past either end settles at that end rather than running off it, the
           # same as the interpreter does. Where the weights go into a register the display
           # itself clamps this is free, but a share worked out here can be more than all of

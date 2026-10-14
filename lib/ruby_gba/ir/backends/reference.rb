@@ -7,6 +7,7 @@ require_relative "reference/list_value"
 require_relative "reference/mixer"
 require_relative "reference/player"
 require_relative "reference/save_writing"
+require_relative "reference/sprite_blocks"
 
 module RubyGBA
   module IR
@@ -193,7 +194,9 @@ module RubyGBA
           @held_colors = {}        # ...and which of its other sets it holds now
           @obj_layer = []          # sprites to composite over a scrolling scene, in draw order (later = in front)
           @fade_placed = nil       # [layer, toward, amount] while a fade sits under a layer rather than over everything
-          @names_above_placed_fade = {} # layer -> the names a fade under it leaves alone
+          @names_at_or_above = {}  # layer -> the names of everything in it and in front of it
+          @block = 1               # how many pixels a block of the picture is each way (see #exec_pixelate)
+          @block_kept = []         # ...and the names of what is left as drawn all the same (see #place_blocks)
           @lists = {}              # name -> ListValue (a bounded, run-time-sized collection)
           @layer_stack = []        # the layers the program declared, backmost first
           @see_through = nil       # ...and which of them you can see through, and by how much
@@ -274,6 +277,10 @@ module RubyGBA
           # front alone, so it has to be applied while the picture is built rather than
           # over the finished one. That is the rebuild path too.
           @repaints ||= node.walk.any? { |child| child.kind == :fade && child.under }
+          # ...and so is a picture shown in blocks: each part of it is put into blocks by
+          # itself, before the parts go over one another.
+          @repaints ||= node.walk.any? { |child| child.kind == :pixelate }
+          place_blocks(node)
           @repaints ||= see_through_picture_changes?(node)
           # A see-through sprite is mixed with the scenery under it and never with another
           # sprite, so a screen that has one keeps its scenery apart (see
@@ -652,6 +659,7 @@ module RubyGBA
           camera: :exec_camera,
           fade: :exec_fade,
           tint: :exec_tint,
+          pixelate: :exec_pixelate,
           see_through: :exec_see_through,
           present_objects: :exec_present_objects,
           set_tile: :exec_set_tile,
@@ -849,6 +857,7 @@ module RubyGBA
           @screen_mode = node.mode
           @buffered = node.buffered || false
           @screen.paged = @buffered
+          @screen.show_in_blocks(painted_screen? ? @block : 1) # the size of a block outlasts the screen it was said on
           put_up_always_up if crossing && IR::SceneHandover.tiles?(node.mode)
         end
 
@@ -1470,10 +1479,15 @@ module RubyGBA
         # begins, so the map lookup is done once per cell and the pixels in between are
         # painted as a run. A scrolling scene is repainted in full every frame, so this
         # inner loop is where a whole run's time goes.
-        def paint_background_window(bg)
+        #
+        # +tall+ is how many rows a block of the picture is, for a background being put
+        # into blocks: every row then shows the picture row at the top of its block, and
+        # is still placed by its own bend (see #paint_scenery_in_blocks). One row, which
+        # is the picture as drawn, unless said.
+        def paint_background_window(bg, tall = 1)
           turn = @bg_affine[bg.name]
-          return paint_affine_background_window(bg, turn) if turn
-          return paint_streamed_background_window(bg) if bg.streams?
+          return paint_affine_background_window(bg, turn, tall) if turn
+          return paint_streamed_background_window(bg, tall) if bg.streams?
 
           tiles = bg.tiles
           map = map_of(bg)
@@ -1495,7 +1509,7 @@ module RubyGBA
             # A bending background sits somewhere different on every row: work out this
             # row's own sideways offset, on top of wherever the background is scrolled to.
             off_x = (base_x + row_bend_offset(bend, py)) % map_w # Ruby % wraps negatives into 0..map_w-1
-            my = (off_y + py) % map_h
+            my = (off_y + py - (py % tall)) % map_h
             row = map[my / tile_h]
             next unless row # no cell row here — the backdrop stays, and layers behind show
 
@@ -1523,7 +1537,7 @@ module RubyGBA
         # backdrop and the layers behind show there — on the left and above as much as on
         # the right and below, which is why this tests both ends rather than leaning on
         # an index that Ruby would count from the far end of a row when it is negative.
-        def paint_streamed_background_window(bg)
+        def paint_streamed_background_window(bg, tall = 1)
           tiles = bg.tiles
           map = map_of(bg)
           tile_w = bg.tile_w
@@ -1536,7 +1550,7 @@ module RubyGBA
           width = @screen.width
 
           @screen.height.times do |py|
-            my = off_y + py
+            my = off_y + py - (py % tall)
             next if my.negative? || my >= map_h
 
             row = map[my / tile_h]
@@ -1570,7 +1584,7 @@ module RubyGBA
         # down for a negative numerator exactly the way the console's shift-right would,
         # so the two backends land on the same map pixel without either one specially
         # asking for it.
-        def paint_affine_background_window(bg, turn)
+        def paint_affine_background_window(bg, turn, tall = 1)
           tiles = bg.tiles
           map = map_of(bg)
           tile_w = bg.tile_w
@@ -1585,7 +1599,7 @@ module RubyGBA
           pa, pb, pc, pd = Affine.matrix(turn.angle, turn.size)
 
           @screen.height.times do |py|
-            dy = py - pivot_y
+            dy = py - (py % tall) - pivot_y
             @screen.width.times do |px|
               dx = px - pivot_x
               tex_dx = ((pa * dx) + (pb * dy)) / Affine::ONE_TH
@@ -1765,7 +1779,7 @@ module RubyGBA
         # ...and the ones that are mostly laid over the picture as the screen is read, and that
         # owe the picture again themselves on the occasions they change what is painted (see
         # #exec_fade).
-        READ_OVER_THE_PICTURE = %i[fade tint].freeze
+        READ_OVER_THE_PICTURE = %i[fade tint pixelate].freeze
 
         def defers_repaint?(node)
           STEERING.include?(node.kind) || REPAINTING.include?(node.kind) ||
@@ -1785,7 +1799,7 @@ module RubyGBA
               next unless levels[bg.name] == level
 
               set_blend_for(bg.name, kept)
-              paint_background_window(bg)
+              paint_scenery(bg)
             end
             @obj_layer.each do |obj|
               next unless obj[:level] == level
@@ -1850,6 +1864,89 @@ module RubyGBA
         # blending and the mix darkens along with both sides of it.
         def fade_by_tint(node, steps)
           @screen.tint_steps_to(node.toward, steps)
+        end
+
+        # SHOW THE PICTURE IN FLAT BLOCKS of this many pixels each way, from now on. Nothing
+        # painted so far changes: the size is read as the picture is next built, so the
+        # picture is owed again on the occasions the size is a different one.
+        #
+        # What is left as drawn all the same is not this statement's to say: a program
+        # has one place for its blocks, known before it runs (see #place_blocks).
+        def exec_pixelate(node)
+          size = Blocks.size(eval_value(node.size))
+          return if size == @block
+
+          @block = size
+          return @screen.show_in_blocks(size) if painted_screen?
+
+          request_repaint
+        end
+
+        # WHERE THIS PROGRAM'S BLOCKS STOP: the names of everything in the layer its
+        # `pixelate` statements are placed under, and in front of it, which stay as drawn
+        # whatever the size. Nothing, for a program that pixelates the whole picture.
+        #
+        # One place for the whole program, and two is refused. This picture could move the
+        # line as it runs, and a display that keeps "in blocks" as a switch on each thing
+        # could not, so neither does (see Blocks).
+        def place_blocks(program)
+          places = Blocks.places(program)
+          raise ProgramError, Blocks.several_places_message(places) if places.size > 1
+
+          @block_kept = places.first ? names_at_or_above(places.first) : []
+        end
+
+        # Is the thing called +name+ shown in blocks right now?
+        def in_blocks?(name) = @block > 1 && !@block_kept.include?(name)
+
+        # Is the screen that is up one the program paints? To the display that is a single
+        # background, whatever was painted on it, so it goes into blocks whole, as it is
+        # read. A screen drawn from tiles is built a thing at a time.
+        def painted_screen? = @screen_mode.nil? || !IR::SceneHandover.tiles?(@screen_mode)
+
+        # Paint one background where it sits in the view: as drawn, or in blocks while the
+        # picture is shown in them.
+        def paint_scenery(bg)
+          return paint_background_window(bg) unless in_blocks?(bg.name)
+
+          paint_scenery_in_blocks(bg)
+        end
+
+        # ONE BACKGROUND IN BLOCKS, and the rule is the display's own.
+        #
+        # THE BLOCKS ARE FIXED TO THE SCREEN. A block starts at every column and every row
+        # that is a multiple of its size, and shows the colour the background has at the
+        # block's top left corner — so a background that scrolls slides under a grid that
+        # stays where it is. A corner that is see-through leaves the whole block
+        # see-through, and what is behind shows there.
+        #
+        # DOWN AND ACROSS ARE DONE APART, because a display draws a row at a time. Down:
+        # every row of a block is drawn from the picture row its top row shows (the
+        # painters take how tall a block is) — but placed where the row ITSELF sits, so a
+        # background whose rows are each bent a different way keeps each row's own bend,
+        # and a block of it is a sheared one. Across: each pixel of a row then takes the
+        # one at the start of its block in that same row.
+        #
+        # So the background is painted onto a sheet of its own, rows first, and laid onto
+        # the picture through the blocks. Whatever blend is in force for it applies as it
+        # is laid, the same as when it is painted straight on.
+        def paint_scenery_in_blocks(bg)
+          sheet = Framebuffer.new(fill: nil)
+          drawing_into(sheet) { paint_background_window(bg, @block) }
+          width = @screen.width
+          wide = block_width_across(bg)
+          @screen.height.times do |py|
+            row = Array.new(width) { |px| sheet.stored_pixel(px - (px % wide), py) }
+            @screen.paint_row(0, py, row, from: 0, count: width)
+          end
+        end
+
+        # How wide a block of +bg+ is. The size, with one exception that is the emulator's
+        # and is kept because the console's picture is checked against it: a background
+        # that can turn is left a single pixel wide at a size of two, so its rows double
+        # and its columns do not. From three up it is in blocks both ways like any other.
+        def block_width_across(bg)
+          bg.affine && @block == 2 ? 1 : @block
         end
 
         # A tint — the same idea as a whole-screen fade, toward a color a fade cannot
@@ -1953,20 +2050,90 @@ module RubyGBA
         end
 
         # The names the fade in force leaves alone — its layer and everything in front.
-        # Worked out once per layer, because it depends only on the picture.
-        def names_above_placed_fade
-          @names_above_placed_fade[@fade_placed[0]] ||=
-            IR::Stacking.at_or_above(@picture, @fade_placed[0]).map(&:name)
+        def names_above_placed_fade = names_at_or_above(@fade_placed[0])
+
+        # The names of everything in +layer+ and in front of it. Worked out once per layer,
+        # because it depends only on the picture — so the same layer always answers with
+        # the same list.
+        def names_at_or_above(layer)
+          @names_at_or_above[layer] ||= IR::Stacking.at_or_above(@picture, layer).map(&:name)
         end
 
         # Draw one snapshotted object from the layer captured this frame.
         def paint_snapshot_object(obj)
+          return paint_object_in_blocks(obj) if in_blocks?(obj[:name])
+
           if obj[:transform]
             return blit_image_transformed(obj[:image], obj[:x], obj[:y], *obj[:transform], recolor: obj[:recolor])
           end
 
           blit_image(obj[:image], obj[:x], obj[:y], recolor: obj[:recolor])
         end
+
+        # ONE SPRITE IN BLOCKS, while the picture is shown in them (see SpriteBlocks, which
+        # holds the rule).
+        def paint_object_in_blocks(obj)
+          blocks = SpriteBlocks.new(@screen, @block)
+          name = obj[:image]
+          bmp = @bitmaps.fetch(name)
+          color_at = picture_reader(name, obj[:recolor])
+          unless obj[:transform]
+            declared = @objects.fetch(obj[:name])
+            boxes = object_boxes(declared).fetch(declared.poses.index(name))
+            return blocks.paint_upright(obj[:x], obj[:y], boxes, &color_at)
+          end
+
+          w = bmp.width
+          h = bmp.height
+          pa, pb, pc, pd = Affine.matrix(obj[:transform][0] % 360, obj[:transform][1])
+          # The same walk back to the picture #blit_image_transformed makes, from a place in
+          # the double-size box.
+          blocks.paint_turned(obj[:x] - (w / 2), obj[:y] - (h / 2), w * 2, h * 2) do |ix, iy|
+            ddx = ix - w
+            ddy = iy - h
+            color_at.call((((pa * ddx) + (pb * ddy)) >> 8) + (w / 2), (((pc * ddx) + (pd * ddy)) >> 8) + (h / 2))
+          end
+        end
+
+        # What the picture +name+ shows at a column and row of itself: a colour, or nil
+        # where it is see-through and anywhere outside it. +recolor+ is as for #blit_image.
+        def picture_reader(name, recolor)
+          bmp = @bitmaps.fetch(name) { raise ProgramError, "blit of undefined image #{name.inspect}" }
+          pixels = @data.fetch(name)
+          transparent = bmp.transparent
+          lambda do |col, row|
+            next nil unless col >= 0 && col < bmp.width && row >= 0 && row < bmp.height
+
+            at = (row * bmp.width) + col
+            color = pixels.getbyte(at * 2) | (pixels.getbyte((at * 2) + 1) << 8)
+            next nil if transparent && color == transparent
+
+            recolor ? recolor.color_for(at, color) : color
+          end
+        end
+
+        # THE BOXES EACH POSE OF A SPRITE IS DRAWN AS, for the one thing here that has to
+        # know: a sprite in blocks is put into them a box at a time (see SpriteBlocks).
+        #
+        # Nothing else about this picture depends on them. A sprite is its canvas at a
+        # place, however a display cuts that up — trimmed to what a pose draws, or in
+        # pieces when it is bigger than any one object. Blocks are the exception, because
+        # each object holds the place it reads inside its own edges.
+        #
+        # So the cut is asked of SpriteCut, which every backend reads, and not worked out
+        # a second time here: two copies of that rule would be two answers the day one of
+        # them changed.
+        def object_boxes(obj)
+          @object_boxes ||= {}
+          @object_boxes[obj.name] ||= begin
+            canvas = @bitmaps.fetch(obj.poses.first)
+            whole = object_transformed?(obj) || obj.poses.any? { |pose| painted_picture?(pose) }
+            SpriteCut.new(@bitmaps).cut(obj.poses, width: canvas.width, height: canvas.height, whole: whole)[:boxes]
+          end
+        end
+
+        # Is this picture one the game paints from a list while it runs?
+        def painted_picture?(name) = @tile_runs.each_value.any? { |run| run.picture == name }
 
         # The color of a background cell's pixel, or nil where the layer behind shows
         # through: an empty cell (a map hole, which the hardware shows as background-palette

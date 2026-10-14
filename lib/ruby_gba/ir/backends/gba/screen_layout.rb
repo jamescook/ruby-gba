@@ -51,8 +51,10 @@ module RubyGBA
           # TileSetSwap), and nil on every other.
           # +stream+ is set on a background whose maps are brought into view a strip at a time
           # (see StreamedMaps), and nil on every other; such a background has no +grid+.
+          # +in_blocks+ is the bit of the layer's settings that has the display draw it in
+          # blocks, in a game that pixelates, and 0 in every other (see Pixelation).
           BackgroundPlacement = Data.define(:map, :map_units, :bg, :screen_block, :size,
-                                            :priority, :affine, :small, :char_base,
+                                            :priority, :in_blocks, :affine, :small, :char_base,
                                             :map_count, :map_bytes, :grid, :colors, :sets, :stream)
 
           # A BACKGROUND'S MAPS KEPT WHOLE IN THE CARTRIDGE, for one whose maps are bigger than
@@ -255,6 +257,7 @@ module RubyGBA
             @obj_pictures = {}    # name -> its pictures, cut and encoded
             @scene_sends = {}     # scene -> what it sends as it takes over (see SceneSend)
             @placed_fade = PlacedFade.new(@picture, program)
+            @pixelation = Pixelation.new(@picture, program)
             # The lists of colours that change as the game runs, as declared; and where each
             # one a sprite draws with landed (see #place_changing_color_lists).
             @color_list_nodes = program.walk.select { |node| node.kind == :color_list }.to_h { |node| [node.name, node] }
@@ -305,7 +308,7 @@ module RubyGBA
           attr_reader :picture, :screenfuls # how the picture stacks, whole and one screen at a time
           attr_reader :handover # what each scene puts up as it takes over (see IR::SceneHandover)
           attr_reader :backgrounds, :hardware_layers, :bg_shared, :vram,
-                      :objects, :obj_pictures, :sprite_art, :placed_fade,
+                      :objects, :obj_pictures, :sprite_art, :placed_fade, :pixelation,
                       :obj_palette_blob, :obj_palette_units, :blobs, :codecs,
                       :painted_vram # run of painted tiles -> where it sits in video memory (see #note_painted_runs)
 
@@ -415,7 +418,7 @@ module RubyGBA
           #
           # A pose is kept trimmed to the part of its canvas that actually draws something, and
           # the sprite is told to stand that much further along so the picture does not move (see
-          # PoseCutter#pose_box). A pose drawn BACKWARDS is trimmed from the other side, so it
+          # SpriteCut#pose_box). A pose drawn BACKWARDS is trimmed from the other side, so it
           # stands a different amount further along again. Both are this backend's own doing, so
           # a place read back off the console is that much past the corner of the picture — right
           # for a sprite facing one way and wrong for the same sprite facing the other, which is
@@ -1123,7 +1126,7 @@ module RubyGBA
               bg: layer,                           # hardware layer (BG0..BG3), in stack order
               screen_block: store.vram.take_map(entries.size / MAP_ENTRIES_A_BLOCK),
               size: regular_map_size(cols, rows),
-              priority: hardware_priority(name),
+              priority: hardware_priority(name), in_blocks: @pixelation.background_bit(name),
               affine: false,
               small: small,
               char_base: stored.char_base,
@@ -1361,7 +1364,7 @@ module RubyGBA
               bg: AFFINE_BG,
               screen_block: store.vram.take_map(blocks),
               size: affine_map_size(cols, rows, name),
-              priority: hardware_priority(name),
+              priority: hardware_priority(name), in_blocks: @pixelation.background_bit(name),
               affine: true,
               small: false,
               char_base: stored.char_base,
@@ -2114,8 +2117,9 @@ module RubyGBA
               affine_slot: affine_slot,               # ...which group, or nothing for an upright one
               # A sprite in the see-through layer carries the blend in its own entry, so it
               # rides here rather than costing anything at draw time.
+              # ...and so does being drawn in blocks, in a game that pixelates (see Pixelation).
               attr0_base: (place.narrow? ? 0 : OBJ_256_COLOR) | (shape << 14) |
-                (see_through_object?(node) ? LayerBlend::OBJ_SEMI_TRANSPARENT : 0),
+                (see_through_object?(node) ? LayerBlend::OBJ_SEMI_TRANSPARENT : 0) | @pixelation.sprite_bit(name),
               attr1_base: size << 14,
               # attr2's top bits carry how deep the sprite sits, and — for a sprite stored
               # the small way — which bank of sixteen colors it draws from. The depth stays

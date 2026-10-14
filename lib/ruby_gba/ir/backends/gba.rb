@@ -7,6 +7,7 @@ require_relative "gba/sprite_pictures" # one sprite's pictures, and the sets of 
 require_relative "gba/object_art" # where the sprites' pictures go in sprite memory
 require_relative "gba/sprite_layout" # ...and one attempt at fitting them all into it
 require_relative "gba/placed_fade" # a fade that sits at a place in the stack, and the twins holding it off
+require_relative "gba/pixelation" # which backgrounds are drawn in blocks when the game pixelates
 require_relative "gba/stretched_columns" # the pictures a stretched column draws, and where each holds pixels
 require_relative "gba/address_register" # what the address register still holds, as code goes past
 require_relative "gba/number_table" # a routine's big numbers, read from a table beside it
@@ -452,7 +453,8 @@ module RubyGBA
             background: @drawing.method(:emit_background), scroll_background: @background_drawing.method(:emit_scroll_background),
             affine_background: @background_drawing.method(:emit_affine_background),
             scroll_rows: Lowering::NOTHING, camera: @effects.method(:emit_camera), fade: @effects.method(:emit_fade),
-            tint: @effects.method(:emit_tint), see_through: @layer_blend.method(:emit_see_through),
+            tint: @effects.method(:emit_tint), pixelate: @effects.method(:emit_pixelate),
+            see_through: @layer_blend.method(:emit_see_through),
             set_tile: @background_drawing.method(:emit_set_tile), show_map: @background_drawing.method(:emit_show_map),
             copy_tiles: @background_drawing.method(:emit_copy_tiles),
             copy_owed_tiles: @background_drawing.method(:emit_copy_owed_tiles),
@@ -1428,7 +1430,7 @@ module RubyGBA
 
         # attr1 bit 12: draw this sprite reversed left to right. The console does it as it
         # composites, for nothing, which is what lets a pose that is another pose mirrored
-        # keep no pixels of its own (see PoseCutter#mirrors_of). It only means this while
+        # keep no pixels of its own (see SpriteCut#mirrors_of). It only means this while
         # the sprite is upright — once one turns, this bit and the one above it name its
         # rotation group instead.
         OBJ_HFLIP = 0x1000

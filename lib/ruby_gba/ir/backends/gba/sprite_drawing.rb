@@ -617,7 +617,7 @@ module RubyGBA
 
             # attr0 = (y & 0xFF) | shape + 256-color flag. The offset is where this pose
             # sits inside the canvas it was drawn on — added back so trimming the blank
-            # away cannot move the picture (see PoseCutter#pose_box).
+            # away cannot move the picture (see SpriteCut#pose_box).
             @lowering.value(obj.y)
             emit_add_const(ACC, ACC, obj.offset_y, TMP) unless obj.offset_y.zero?
             mask_into_acc(0xFF)

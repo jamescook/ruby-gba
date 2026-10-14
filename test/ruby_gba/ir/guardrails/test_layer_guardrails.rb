@@ -478,6 +478,18 @@ class TestLayerGuardrails < Minitest::Test
     }
   end
 
+  # ...and the same for the line a picture in blocks is left sharp from.
+  def test_a_layer_used_only_as_the_line_for_pixelate_is_in_use
+    assert_empty findings(Checks::LayerHoldsNothing) {
+      screen :tiled
+      layers :world, :cut, :ui
+      layer(:world) { sprite :red_guy, at: [10, 10] }
+      layer(:ui) { sprite :blue_guy, at: [20, 20] }
+      pixelate 4, under: :cut
+      game_loop { nil }
+    }
+  end
+
   def test_a_game_that_declares_no_layers_is_left_alone
     assert_empty findings(Checks::LayerHoldsNothing) {
       screen :tiled

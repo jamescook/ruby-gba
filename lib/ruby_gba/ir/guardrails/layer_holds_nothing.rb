@@ -52,7 +52,7 @@ module RubyGBA
             (program.walk.flat_map do |node|
               [(node.layer if node.respond_to?(:layer)),
                *(node.layers if node.kind == :object),
-               (node.under if node.kind == :fade)]
+               (node.under if %i[fade pixelate].include?(node.kind))]
             end + @sprites.map(&:layer)).compact.uniq
           end
 

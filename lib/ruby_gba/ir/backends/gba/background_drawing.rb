@@ -83,7 +83,7 @@ module RubyGBA
               @uploads.emit_dma_blob(bg.map, VRAM_START + (bg.screen_block * SCREENBLOCK_BYTES), bg.map_units)
             end
             depth = bg.small ? 0 : BG_256_COLOR # a small layer's tiles each name their own bank
-            write_reg16(BG_CNT_REGS[bg.bg], bg.priority | depth | (bg.char_base << CHAR_BASE_SHIFT) |
+            write_reg16(BG_CNT_REGS[bg.bg], bg.priority | bg.in_blocks | depth | (bg.char_base << CHAR_BASE_SHIFT) |
                                             (bg.screen_block << 8) | bg.size)
             write_reg16(BG_HOFS_REGS[bg.bg], 0) # start unscrolled
             write_reg16(BG_VOFS_REGS[bg.bg], 0)
@@ -402,7 +402,7 @@ module RubyGBA
             emit(ASM.ldrb_reg(ACC, TMP, SET_PICKED))
             emit(ASM.lsl_imm(ACC, ACC, CHAR_BASE_SHIFT))
             depth = bg.small ? 0 : BG_256_COLOR
-            emit_number(TMP, bg.priority | depth | (bg.screen_block << 8) | bg.size)
+            emit_number(TMP, bg.priority | bg.in_blocks | depth | (bg.screen_block << 8) | bg.size)
             emit(ASM.orr_reg(ACC, ACC, TMP))
             emit_number(TMP, BG_CNT_REGS[bg.bg])
             emit(ASM.store_halfword(ACC, TMP))
@@ -722,7 +722,7 @@ module RubyGBA
           def emit_affine_background_hardware(bg)
             @uploads.emit_dma_blob(bg.map, VRAM_START + (bg.screen_block * SCREENBLOCK_BYTES), bg.map_units)
             write_reg16(REG_BG2CNT,
-                        bg.priority | BG_256_COLOR | (bg.char_base << CHAR_BASE_SHIFT) |
+                        bg.priority | bg.in_blocks | BG_256_COLOR | (bg.char_base << CHAR_BASE_SHIFT) |
                         (bg.screen_block << 8) | AFFINE_WRAP | bg.size)
           end
 

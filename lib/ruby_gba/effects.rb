@@ -2,6 +2,7 @@
 
 require_relative "effects/packs/screen_shake"
 require_relative "effects/packs/screen_fade"
+require_relative "effects/packs/screen_pixelate"
 require_relative "effects/packs/music_fade"
 require_relative "effects/packs/follow_camera"
 require_relative "effects/packs/pulse"
@@ -221,6 +222,7 @@ module RubyGBA
     DEFAULT_PACKS = [
       Packs::ScreenShake, # shake_screen — the impact effect, built on `camera`
       Packs::ScreenFade,    # fade_out / fade_in / flash_screen — built on `fade`
+      Packs::ScreenPixelate, # pixelate_out / pixelate_in — built on `pixelate`
       Packs::MusicFade,     # fade_music_out / fade_music_in — built on `music_volume`
       Packs::FollowCamera,  # camera_follows — built on a background's own scrolling
       Packs::Pulse,         # pulse — a sprite that breathes, built on `sprite.scale`

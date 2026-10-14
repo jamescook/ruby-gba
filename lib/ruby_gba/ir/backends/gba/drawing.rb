@@ -132,6 +132,7 @@ module RubyGBA
                     elsif mode.is_a?(Integer)
                       mode
                     else
+                      emit_painted_screen_in_blocks
                       SCREEN_MODES.fetch(mode) do
                         raise LoweringError, "the GBA backend cannot lower screen mode #{mode.inspect} yet"
                       end
@@ -143,6 +144,16 @@ module RubyGBA
             return @emitter.write_reg16(REG_DISPCNT, value | initial_forced_blank_bit) if late.zero?
 
             emit_display_control_keeping(value & ~late, late)
+          end
+
+          # A SCREEN THE GAME PAINTS IS ONE BACKGROUND TO THE CONSOLE — its third — and that
+          # background's own settings say whether it is drawn in blocks, as any background's
+          # do. Nothing else on such a screen reads those settings, so in a game that
+          # pixelates they are written whole, as the screen is set up. With the size of a
+          # block left at one pixel the picture is as drawn, so this costs nothing until the
+          # game says a size (see Pixelation). A game that never pixelates writes nothing.
+          def emit_painted_screen_in_blocks
+            @emitter.write_reg16(REG_BG2CNT, BG_MOSAIC) if @layout.screen.pixelation.pixelates?
           end
 
           # A LAYER OF A PROGRAM SHOWN AS IT IS DECLARED WAITS FOR ITS OWN BACKGROUND.
@@ -311,6 +322,7 @@ module RubyGBA
           # given only by the boot (see #emit_boot_screen).
           def enter_buffered_mode(held = 0)
             @background_drawing.reset_bg2_affine_if_needed
+            emit_painted_screen_in_blocks
             base = MODE_4 | BG2_ENABLE
             @primitives.store_word_immediate(base, @primitives.var_addr(DISPCNT_STATE))
             @primitives.store_word_immediate(PAGE1, @primitives.var_addr(BACKBUF))
@@ -331,6 +343,7 @@ module RubyGBA
           # framebuffer) shows, which the bitmap scene redraws.
           def enter_direct_mode(held = 0)
             @background_drawing.reset_bg2_affine_if_needed
+            emit_painted_screen_in_blocks
             @emitter.write_reg16(REG_DISPCNT, MODE_3 | BG2_ENABLE | held)
             @primitives.store_word_immediate(MODE_DIRECT, @primitives.var_addr(MODE_STATE))
             @scene_entry.emit_clear_used_markers # a new display: nothing any scene put up is there

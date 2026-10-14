@@ -275,6 +275,10 @@ module ConformanceFixture
       # Also at 0, for the same reason: nothing is blended either way, so the picture is
       # unchanged and what this pins is that every backend can be told to tint at all.
       B.tint(color: :red, amount: B.int(0)),
+      # ...and the one that shows the picture in flat blocks. At a size of one pixel a block
+      # is the picture as drawn, so nothing changes and what this pins is that every backend
+      # can be told a size at all.
+      B.pixelate(size: B.int(1)),
       # Saying again how see-through the see-through layer is, which is what a picture
       # whose amount the game works out does on every frame. The amount here is the one
       # the stack was declared with, so the picture does not change and what this pins is

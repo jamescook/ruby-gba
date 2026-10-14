@@ -1,6 +1,8 @@
 # frozen_string_literal: true
 
 require_relative "backends/fade_steps"
+require_relative "backends/blocks"
+require_relative "backends/sprite_cut"
 require_relative "backends/reference"
 require_relative "backends/gba"
 

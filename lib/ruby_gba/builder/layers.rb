@@ -76,6 +76,7 @@ module RubyGBA
         camera: :whole_screen,
         fade: :whole_screen,
         tint: :whole_screen,
+        pixelate: :whole_screen,
 
         # nothing a layer has an opinion about: the display mode, a background's window,
         # and the painting the framework itself does to put a software sprite on screen
@@ -560,6 +561,10 @@ module RubyGBA
       end
 
       def placed_fade_hint(node)
+        if node.kind == :pixelate
+          return " To leave :#{@current_layer} as drawn, give it the layer outside the block: " \
+                 "`pixelate 8, under: :#{@current_layer}`."
+        end
         return "" unless node.kind == :fade
 
         " A fade can still sit at a place in the stack: `fade :black, 100, " \

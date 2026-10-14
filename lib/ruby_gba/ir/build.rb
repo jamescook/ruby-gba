@@ -778,6 +778,29 @@ module RubyGBA
         Nodes.build(:tint, color: color, amount: to_value_node(amount), **fraction_bits_field(fraction_bits))
       end
 
+      # Show the displayed picture in flat blocks. +size+ is how many pixels a block is
+      # each way, as a run-time value: 1 is the picture as drawn, and a bigger number is a
+      # coarser picture. A size below 1 is the picture as drawn, and one past the biggest
+      # block a display has is that biggest block.
+      #
+      # Like fade, this describes what the DISPLAY shows: nothing that was drawn is
+      # changed, and the picture is all there again when the size goes back to 1.
+      #
+      # THE BLOCKS ARE FIXED TO THE DISPLAY, not to anything in the picture. A block
+      # starts at every column and every row that is a multiple of the size, and shows
+      # the colour its top left pixel would have had. So a picture that moves slides
+      # under a grid that stays still. It is done to each part of the picture by itself,
+      # before the parts are put over one another: a block whose corner pixel is
+      # see-through shows what is behind it all the way across.
+      #
+      # +under+ places the effect in the stack as it does for a fade: the layer it names
+      # and everything in front of it are left as drawn. Unlike a fade's, it is ONE PLACE
+      # FOR THE WHOLE PROGRAM: every pixelate statement in a program names the same layer,
+      # or none does, and a program with two is one no backend runs (see Backends::Blocks).
+      def pixelate(size:, under: nil)
+        Nodes.build(:pixelate, size: to_value_node(size), **under_field(under))
+      end
+
       # An operand given only when there is one, so a whole-percentage fade is the node it
       # always was.
       def fraction_bits_field(bits) = bits ? { fraction_bits: bits } : {}

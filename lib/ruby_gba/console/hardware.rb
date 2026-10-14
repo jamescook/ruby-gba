@@ -179,6 +179,32 @@ module RubyGBA
       WINOUT_OBJ_SHIFT = 8    # the object window's field starts here
 
       # ========================================================================
+      # Mosaic Register — drawing a layer in flat blocks
+      #
+      # The console can draw a background, or a sprite, in blocks: every pixel of a block
+      # takes the colour of one pixel of it. The display does this as it draws, so nothing
+      # is repainted and it costs the same however much is on screen.
+      #
+      # MOSAIC holds four sizes, four bits each: how wide a background's block is, how
+      # tall, then how wide a sprite's block is, and how tall. Each field is one LESS
+      # than the size in pixels, so 0 is a block of one pixel — the picture as drawn —
+      # and 15 is a block of sixteen.
+      #
+      # WHO is drawn in blocks is a switch on each thing: one bit of a background's
+      # control register, and one bit of the first word of a sprite's table entry. So
+      # every background switched on shares one size and every sprite the other.
+      # ========================================================================
+
+      REG_MOSAIC = 0x0400004C
+
+      MOSAIC_LARGEST = 16 # the biggest block, in pixels
+      MOSAIC_DOWN_SHIFT = 4 # how tall sits above how wide
+      MOSAIC_SPRITES_SHIFT = 8 # ...and the two sprite fields above the two background ones
+
+      BG_MOSAIC  = 0x0040 # BGxCNT bit 6: this background is drawn in blocks
+      OBJ_MOSAIC = 0x1000 # attr0 bit 12: so is this sprite
+
+      # ========================================================================
       # Blend Registers — fading the whole screen toward black or white
       #
       # The console can blend every layer toward white ("brightness increase") or
