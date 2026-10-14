@@ -17,11 +17,6 @@ class TestDiveExample < Minitest::Test
   include Differential
   include RubyGBA::Console::Hardware # REG_DISPCNT
 
-  # Every test here that plays the game either watches it frame by frame or asks where a sprite
-  # was drawn, so on a native run this file plays none of them (see READS_EVERY_FRAME and
-  # ASKS_WHICH_SPRITE). The game as C is checked on every frame of a recorded run instead, in
-  # test_dive_picture.rb.
-
   # Which of the console's arrangements is in force sits in the low three bits of its
   # display register, and which background layers are switched on in the byte above.
   ARRANGEMENT = 0x7
@@ -94,7 +89,6 @@ class TestDiveExample < Minitest::Test
   end
 
   def test_the_sun_disc_turns_and_swells_on_the_title
-    skip_on_native READS_EVERY_FRAME
     (early_segments, early_width), (late_segments, late_width) = title_screens
 
     assert_includes early_segments, true, "none of the disc is lit"
@@ -137,7 +131,6 @@ class TestDiveExample < Minitest::Test
   BRIGHTEST_SHAFT = 19 + 26 + 31 # the shimmer's brightest step, the brightest colour a shaft is drawn in
 
   def test_the_near_shafts_brighten_the_water_behind_them
-    skip_on_native READS_EVERY_FRAME
     brightest = 0
     i = game_player
     i.each_vblank do
@@ -195,7 +188,6 @@ class TestDiveExample < Minitest::Test
   # into by accident, and the water is see-through, so both halves show at once: the diver
   # is visible, and it is visibly UNDER water rather than drawn plain over it.
   def test_the_diver_swims_behind_the_water_and_shows_through_it
-    skip_on_native ASKS_WHICH_SPRITE
     i = swimming_down_for(START_AT + 30)
     drawn = i.sprites(:diver).first
     refute_nil drawn, "the diver is not being drawn at all"
@@ -226,7 +218,6 @@ class TestDiveExample < Minitest::Test
   # sprite is half blended and half not — the head in its own colours, the suit below it
   # still under water. Nothing in the game says where that line is; the map says it.
   def test_the_divers_head_comes_out_of_the_water_at_the_top
-    skip_on_native ASKS_WHICH_SPRITE
     i = surfaced
     drawn = i.sprites(:diver).first
     refute_nil drawn, "the diver is not being drawn"
@@ -241,12 +232,10 @@ class TestDiveExample < Minitest::Test
   # the same line of the game asking where the surface is, which is why neither one needs
   # a picture to prove it: a bubble that is still there is still being drawn.
   def test_no_bubbles_come_off_a_diver_whose_head_is_out
-    skip_on_native ASKS_WHICH_SPRITE
     assert_empty surfaced.sprites(:bubble), "bubbles are still rising from a diver in the air"
   end
 
   def test_bubbles_rise_from_a_diver_under_water
-    skip_on_native ASKS_WHICH_SPRITE
     refute_empty swimming_down_for(START_AT + 30).sprites(:bubble), "no bubbles come off the diver at all"
   end
 
@@ -282,7 +271,6 @@ class TestDiveExample < Minitest::Test
   # cell under it changing — which is the whole point of the gauge being tiles rather
   # than ten of the 128 sprites the console draws at once.
   def test_the_air_gauge_empties_bar_by_bar_as_the_air_goes
-    skip_on_native READS_EVERY_FRAME
     counts = []
     i = game_player.input_each_frame { |f| f > START_AT ? %i[start down] : [] }
     i.each_vblank { |f| counts << bars_lit(i.screen) if f > START_AT + 4 }
@@ -370,7 +358,6 @@ class TestDiveExample < Minitest::Test
   # stay exactly as drawn and only the colours move, which is why a shoal of six costs one
   # picture rather than six.
   def test_the_fish_wear_their_own_colours
-    skip_on_native ASKS_WHICH_SPRITE
     i = swimming_down_for(START_AT + 30)
     seen = i.sprites(:fish).filter_map { |f| i.screen.pixel(f.x + FLANK_ACROSS, f.y + FLANK_DOWN) }
 

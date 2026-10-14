@@ -1,12 +1,12 @@
 # frozen_string_literal: true
 
 # Runs one program twice — in the interpreter, which is the answer key, and as C built with no
-# window — and checks the two agree on every variable, every pixel of the picture shown and every
-# entry of the sound log, at every frame boundary and at the end.
+# window — and checks the two agree on every variable, every pixel of the picture shown, every
+# entry of the sound log and every sprite drawn, at every frame boundary and at the end.
 #
 # What is compared is what the windowless runtime prints (rg_headless.c): every variable the
-# program names, the picture, and the sound log as it grows, at the start of each frame and when
-# the run stops. The interpreter's answer is read at the same moments (each_vblank, and after
+# program names, the picture, which sprites it last drew and where, and the sound log as it
+# grows, at the start of each frame and when the run stops. The interpreter's answer is read at the same moments (each_vblank, and after
 # run), and a variable it never wrote reads 0, which is also what the C starts every variable at.
 module NativeComparison
   Native = RubyGBA::IR::Backends::Native
@@ -14,9 +14,9 @@ module NativeComparison
   Builder = RubyGBA::Builder
   WIDTH = RubyGBA::IR::Screen::WIDTH
 
-  # One moment of a run: its heading ("frame 3", "end"), the variables, the picture shown, and
-  # the sound log up to then.
-  Snapshot = Data.define(:heading, :variables, :picture, :sounds)
+  # One moment of a run: its heading ("frame 3", "end"), the variables, the picture shown, the
+  # sound log up to then, and the sprites last drawn, each saying whose it is.
+  Snapshot = Data.define(:heading, :variables, :picture, :sounds, :sprites)
 
   # Buttons held the way a person holds them — one button through a run of frames at a time —
   # as the map of frame to buttons the comparisons take:
@@ -105,18 +105,28 @@ module NativeComparison
     at && "entry #{at} of the sound log: C has #{got[at].inspect}, Reference #{want[at].inspect}"
   end
 
+  # The first of the sprites drawn that the two disagree on, counted from the back, or nil when
+  # they drew the same ones in the same places showing the same pictures.
+  def sprites_difference(want, got)
+    at = (0...[want.size, got.size].max).find { |index| want[index] != got[index] }
+    at && "sprite #{at} of those drawn: C has #{sprite_in_words(got[at])}, Reference #{sprite_in_words(want[at])}"
+  end
+
   private
+
+  def sprite_in_words(row) = row ? "#{row.name.inspect} at (#{row.x}, #{row.y}) showing #{row.picture.inspect}" : "none"
 
   def reference_moment(interpreter, heading)
     Snapshot.new(heading: heading, variables: interpreter.vars.dup, picture: interpreter.screen.shown,
-                 sounds: interpreter.audio.dup)
+                 sounds: interpreter.audio.dup, sprites: interpreter.sprites)
   end
 
   # Everything that differs at one moment, said together: a wrong variable usually explains a
   # wrong picture, and seeing both at once says which.
   def assert_same_moment(want, got, mode)
     differences = variable_differences(want.variables, got.variables) +
-                  [picture_difference(want.picture, got.picture), sounds_difference(want.sounds, got.sounds)].compact
+                  [picture_difference(want.picture, got.picture), sounds_difference(want.sounds, got.sounds),
+                   sprites_difference(want.sprites, got.sprites)].compact
     assert_empty differences, "at #{got.heading} (#{mode} build)"
   end
 
@@ -145,6 +155,7 @@ module NativeComparison
   # holds the log up to its own heading — which is where the interpreter's each_vblank reads it.
   def parse_snapshots(text, program)
     sound_log = Native::SoundLog.new(program)
+    drawn = Native::DrawnSprites.new(program)
     sounds = []
     moments = []
     text.each_line(chomp: true) do |line|
@@ -158,7 +169,8 @@ module NativeComparison
     end
     moments.map do |heading, rows, sound_count|
       Snapshot.new(heading: heading, variables: Native::HeadlessRun.variables_in(rows),
-                   picture: Native::HeadlessRun.picture_in(rows), sounds: sounds.take(sound_count))
+                   picture: Native::HeadlessRun.picture_in(rows), sounds: sounds.take(sound_count),
+                   sprites: drawn.rows_in(rows))
     end
   end
 end

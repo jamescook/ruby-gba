@@ -47,6 +47,7 @@ module RubyGBA
             @backgrounds = @stacking.scenery.each_with_index.to_h { |bg, id| [bg.name, id] }
             @objects = by_name(@program.walk, :object)
             @sprites = @objects.each_key.with_index.to_h # sprite name -> the number rg_screen.c knows it by
+            @drawn_sprites = DrawnSprites.new(@program) # the names a run says its sprites by
             # The layers the game can be seen through, and the number rg_screen.c knows each by.
             @see_through = SeeThrough.layers(@program)
             @see_through_numbers = @see_through.each_with_index.to_h { |layer, number| [layer.name, number] }
@@ -149,7 +150,16 @@ module RubyGBA
               info.push(pixels.length, image.width, image.height)
               pixels.concat(sprite_pixels(image, colors))
             end
-            [runtime_array("image_pixels", "int32_t", pixels), runtime_array("images", "int32_t", info)]
+            [runtime_array("image_pixels", "int32_t", pixels), runtime_array("images", "int32_t", info), *sprite_name_arrays]
+          end
+
+          # Reference#sprites says each sprite it drew by two names: the one the game declared it
+          # under, and the one the author gave the picture it shows, whatever colors that is
+          # drawn in. So each sprite and each picture has the number of its name (DrawnSprites),
+          # for a run to say what it drew.
+          def sprite_name_arrays
+            [runtime_array("sprite_names", "int32_t", @objects.each_value.map { |obj| @drawn_sprites.name_number(obj.declared) }),
+             runtime_array("image_pictures", "int32_t", @images.each_key.map { |name, _| @drawn_sprites.picture_number(name) })]
           end
 
           # A sprite picture's pixels as the interpreter draws them (Reference#blit_image): the

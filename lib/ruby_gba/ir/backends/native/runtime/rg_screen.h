@@ -208,6 +208,14 @@ const uint16_t *rg_screen_stored(void);
 /* 1 while the screen is tear-free, and so two pages. */
 int32_t rg_screen_two_pages(void);
 
+/* The sprites the game last said are on screen (Reference#sprites), back to front: how many, and
+ * each by its place among them. A row says whose the sprite is and which picture it shows, both
+ * as the number of a name (rg_game_sprite_names, rg_game_image_pictures), and where it is. They
+ * stand until the game next says its sprites, however many frames that is. */
+typedef struct { int32_t name, picture, x, y; } rg_drawn_sprite;
+int32_t rg_screen_drawn_count(void);
+rg_drawn_sprite rg_screen_drawn_sprite(int32_t place);
+
 /* --- the art, from the generated game --- */
 
 /* Sprite pictures: each image is three numbers in rg_game_images (where its pixels start in
@@ -227,6 +235,13 @@ extern const int32_t rg_game_sprite_see_through[];
 /* For each sprite, by its number: the furthest forward a placed fade's layer can be and still
  * leave it as drawn, as RG_BG_FADE_PLACE says for a background. */
 extern const int32_t rg_game_sprite_fade_places[];
+/* What a run says a sprite it drew by. For each sprite, by its number: the number of the name the
+ * game declared it under, or RG_NO_NAME for one it named nothing for, such as a letter of text.
+ * And for each image, by its number: the number of the name the author gave the picture, the
+ * same whatever colors the image is that picture in. */
+#define RG_NO_NAME (-1)
+extern const int32_t rg_game_sprite_names[];
+extern const int32_t rg_game_image_pictures[];
 
 /* Each layer the game can be seen through is RG_ST_FIELDS numbers in rg_game_see_through: 1 when
  * both its amounts are numbers written in the program, 1 when it was given one amount (how much

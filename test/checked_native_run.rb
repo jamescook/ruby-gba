@@ -4,7 +4,11 @@ require "native_comparison"
 
 # What `game_player` hands a test on a native run: the game played as C (Native::HeadlessRun),
 # and then the same buttons, frame for frame, played on the interpreter — with the run failing at
-# the first frame the two disagree on, about any variable or any pixel.
+# the first frame the two disagree on, about any variable, any pixel, or which sprites were drawn
+# and where.
+#
+# A test that watches the run (each_vblank) watches the game as C, as it goes; the interpreter
+# is played afterwards, and nothing is watched twice.
 #
 # That is what makes opting a file into native runs worth more than its own checks. Those look at
 # the pixels and variables whoever wrote them thought to look at; this looks at everything, at
@@ -38,6 +42,14 @@ class CheckedNativeRun
 
   def input_each_frame(&script)
     @script = script
+    self
+  end
+
+  # The native run does the watching, so the block reads the game as C at each frame boundary.
+  # This is what comes back, and not the native run: the run a test goes on to make from here
+  # has to be the checked one.
+  def each_vblank(&block)
+    @native.each_vblank(&block)
     self
   end
 
@@ -77,6 +89,7 @@ class CheckedNativeRun
       if reference.sounds != native.sounds
         differences << "the sound log holds #{native.sounds} entries in the C and #{reference.sounds} in Reference"
       end
+      differences.concat([sprites_difference(reference.sprites, native.sprites)].compact)
       return "#{heading(reference.frame)}: #{differences.join('; ')}" if differences.any?
     end
     nil
@@ -114,7 +127,7 @@ class CheckedNativeRun
 
   def moment_of(interpreter, frame)
     Moment.new(frame: frame, variables: interpreter.vars.dup, picture: HeadlessRun.picture_check(interpreter.screen.shown),
-               sounds: interpreter.audio.size)
+               sounds: interpreter.audio.size, sprites: interpreter.sprites)
   end
 
   # A picture that differs is played again with every pixel of every frame, to say where.

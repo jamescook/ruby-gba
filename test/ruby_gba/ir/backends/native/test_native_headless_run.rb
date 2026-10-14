@@ -120,6 +120,159 @@ class TestNativeHeadlessRun < Minitest::Test
     end)
   end
 
+  # A dot that moves three across every pass, on a screen cleared first: where the dot is says
+  # which pass the picture is of.
+  def moving_dot
+    program_of do
+      screen :bitmap
+      x = var :x, 0
+      game_loop do
+        clear_screen :black
+        draw_rect_at x, 20, 1, 1, :green
+        x.add! 3
+      end
+    end
+  end
+
+  def dot_column(screen) = (0...40).find { |x| screen.pixel(x, 20) == Color.resolve(:green) }
+
+  # WATCHING A RUN FRAME BY FRAME, the way a test watches the interpreter: the block is run at
+  # every frame boundary with the frame's number, and the game reads then as it stood at that
+  # boundary. The interpreter's own watch of the same game is the answer.
+  def test_a_watched_run_reads_each_frame_as_it_stood
+    interpreter = Reference.new
+    expected = []
+    interpreter.each_vblank { |frame| expected << [frame, interpreter[:x], dot_column(interpreter.screen)] }
+    interpreter.run(moving_dot, frames: 5)
+
+    seen = []
+    run = HeadlessRun.new
+    run.each_vblank { |frame| seen << [frame, run[:x], dot_column(run.screen)] }
+    run.run(moving_dot, frames: 5)
+
+    assert_equal expected, seen
+    assert_equal [5, 12, 9], seen.last, "the dot should have moved, and the picture be a pass behind the count"
+  end
+
+  # The picture a watched frame reads is whole: as it is shown, and as it is stored.
+  def test_a_watched_frame_reads_the_stored_picture_too
+    program = program_of do
+      screen :bitmap, tear_free: true
+      level = var :level, 0
+      game_loop do
+        clear_screen :blue
+        draw_rect_at 100, 60, 40, 40, :yellow
+        camera 30, 10
+        fade :black, level
+        level.add! 10
+      end
+    end
+    interpreter = Reference.new
+    expected = []
+    interpreter.each_vblank { expected << [interpreter.screen.shown.dup, interpreter.screen.to_a] }
+    interpreter.run(program, frames: 4)
+
+    seen = []
+    run = HeadlessRun.new
+    run.each_vblank { seen << [run.screen.shown, run.screen.to_a] }
+    run.run(program, frames: 4)
+
+    assert_equal expected, seen
+    refute_equal seen.last.first, seen.last.last, "the faded picture is not the stored one"
+    refute_equal seen[1].first, seen.last.first, "the fade should have moved between frames"
+  end
+
+  # An input script can look at the picture before it decides, as it can at a variable: RIGHT is
+  # held until the dot is seen at column 6, and the picture is a pass behind the count, so by
+  # then the count has gone one step further.
+  def test_an_input_script_can_read_the_picture_so_far
+    program = program_of do
+      screen :bitmap
+      x = var :x, 0
+      game_loop do
+        clear_screen :black
+        draw_rect_at x, 20, 1, 1, :green
+        held(:right).then { x.add! 3 }
+      end
+    end
+    run = HeadlessRun.new
+    run.input_each_frame { |_frame| (dot_column(run.screen) || 0) < 6 ? [:right] : [] }
+
+    assert_equal 9, run.run(program, frames: 10)[:x]
+  end
+
+  # A small cast: a hero walking right and drawn in other colors, a coin the game has switched
+  # off, a walker stepping between two pictures, shots from a pool as A is pressed, and a word.
+  def cast
+    program_of do
+      screen :tiled
+      image(:hero, colors: %i[transparent red], "#" => :red) { SOLID_TILE }
+      image(:coin, "#" => :yellow) { SOLID_TILE }
+      image(:step_a, "#" => :green) { SOLID_TILE }
+      image(:step_b, "#" => :blue) { SOLID_TILE }
+      image(:bullet, "#" => :white) { SOLID_TILE }
+      colors :hurt, %i[transparent white]
+      hero = sprite :hero, at: [40, 40]
+      sprite :coin, at: [100, 80], shown: false
+      sprite :walker, at: [8, 100], frames: %i[step_a step_b], rate: 2
+      shots = pool :shot, x: 0, y: 0, capacity: 4, image: :bullet
+      draw_text "HI", 8, 8, :white
+      game_loop do
+        hero.move :right, by: 2
+        hero.draw_with :hurt
+        pressed(:a).then { shots.spawn(x: hero.x, y: 60) }
+      end
+    end
+  end
+
+  # A press of A on frames 2 and 5, so two shots are spawned where the hero then stood.
+  def pressing_a(player) = player.input_each_frame { |frame| [2, 5].include?(frame) ? [:a] : [] }
+
+  def drawn(name, x, y, picture) = RubyGBA::Diagnostics::DrawnSprite.new(name: name, x: x, y: y, picture: picture)
+
+  # WHICH SPRITE IS WHICH, asked the way a test asks the interpreter: every row the game drew,
+  # each saying whose it is, where it is, and which of its pictures it shows by the name the
+  # author gave that picture, whatever colors it is drawn in.
+  def test_the_sprites_drawn_read_back_as_the_interpreters_do
+    interpreter = pressing_a(Reference.new).run(cast, frames: 8)
+
+    run = pressing_a(HeadlessRun.new).run(cast, frames: 8)
+
+    assert_equal interpreter.sprites, run.sprites
+    assert_equal [drawn(:hero, 54, 40, :hero)], run.sprites(:hero)
+    assert_empty run.sprites(:coin), "the coin is switched off"
+    assert_equal [drawn(:shot, 50, 60, :bullet), drawn(:shot, 44, 60, :bullet)], run.sprites(:shot),
+                 "back to front: a pool's older thing is in front, so the newer shot comes first"
+    assert_equal [nil, nil], run.sprites.map(&:name).last(2), "a letter of text is nobody's sprite"
+  end
+
+  def test_a_sprite_the_game_does_not_have_is_refused_as_the_interpreter_refuses_it
+    interpreter = Reference.new.run(cast, frames: 2)
+    expected = assert_raises(ArgumentError) { interpreter.sprites(:dragon) }
+
+    error = assert_raises(ArgumentError) { HeadlessRun.new.run(cast, frames: 2).sprites(:dragon) }
+
+    assert_equal expected.message, error.message
+    assert_match(/Its sprites are: :hero, :coin, :walker, :shot\./, error.message)
+  end
+
+  # A watching block is told the sprites of the frame it is on.
+  def test_a_watched_frame_reads_the_sprites_drawn_then
+    interpreter = pressing_a(Reference.new)
+    expected = []
+    interpreter.each_vblank { expected << interpreter.sprites }
+    interpreter.run(cast, frames: 8)
+
+    seen = []
+    run = pressing_a(HeadlessRun.new)
+    run.each_vblank { seen << run.sprites }
+    run.run(cast, frames: 8)
+
+    assert_equal expected, seen
+    assert_equal %i[step_a step_b], seen.map { |rows| rows.find { |row| row.name == :walker }&.picture }.compact.uniq.sort
+    assert_operator seen.map { |rows| rows.count { |row| row.name == :shot } }.uniq.length, :>, 1, "shots arrive as the run goes"
+  end
+
   # Every variable at once, the way the interpreter's `vars` gives them.
   def test_every_variable_reads_back_together
     program = program_of do

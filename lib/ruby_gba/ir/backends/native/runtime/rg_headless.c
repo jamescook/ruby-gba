@@ -1,32 +1,43 @@
 /*
  * The runtime with no window: what the tests run a game against.
  *
- *   ./game --headless FRAMES [--every-picture] < buttons   (the program a player runs)
- *   ./game FRAMES [--every-picture] < buttons              (a test build, which has no window)
+ *   ./game --headless FRAMES [options] < buttons   (the program a player runs)
+ *   ./game FRAMES [options] < buttons              (a test build, which has no window)
  *
  * plays FRAMES frames and stops at the start of the next one, the way the interpreter's
  * run(program, frames: FRAMES) does. Each line of standard input is the buttons held during one
  * frame, as a number with a bit per button (bit 0 is a, in the order rg_runtime.h lists them);
  * a missing line holds nothing.
  *
- * At every frame boundary it prints "frame N" and every variable as "var name value", then "buttons?",
+ * At every frame boundary it prints "frame N", every variable as "var name value" and every
+ * sprite the game last drew as "sprite" and four numbers (see print_sprites), then "buttons?",
  * and only then reads that frame's line. So whoever is feeding it can answer from what the game
  * has done so far — a test that presses a button only once the game has reached somewhere — or
  * write every line up front and ignore the question. That is the order the interpreter asks its
  * own input script in, after the frame before has finished.
  *
- * At the end it prints "end", every variable, and the picture as shown: "picture" and every
- * pixel, row by row, as four hex digits — and then the same page as it is stored ("stored"),
- * with no window moved over it and no fade mixed in, and how many pages the screen has ("pages",
- * 2 for a tear-free one). A frame's moment carries only a check number of its
- * picture ("picture-crc"), or with --every-picture the whole picture, for a test that compares
- * every frame pixel by pixel. Without it a frame is a few lines rather than a hundred and fifty
- * thousand characters, which is what lets a long run be driven a frame at a time.
+ * At the end it prints "end", every variable and every sprite the same way, and the picture as
+ * shown: "picture" and every pixel, row by row, as four hex digits — and then the same page as
+ * it is stored ("stored"), with no window moved over it and no fade mixed in, and how many pages
+ * the screen has ("pages", 2 for a tear-free one). A frame's moment carries only a check number
+ * of its picture ("picture-crc"), or with --every-picture the whole picture, for a test that
+ * compares every frame pixel by pixel. Without it a frame is a few lines rather than a hundred
+ * and fifty thousand characters, which is what lets a long run be driven a frame at a time.
+ *
+ * The options are --every-picture, and the three below.
  *
  * With --sound-out FILE the sound of every frame played is written to FILE as it is made: one
  * speaker's worth, RG_SOUND_RATE numbers a second, each two bytes with the low byte first. And
  * with --sound-voice N only square voice N is in it, which is how a test hears one voice at a
  * time.
+ *
+ * With --picture-out FILE the picture of every moment is written to FILE, over the one before:
+ * every pixel as shown and then every pixel as stored, row by row, each two bytes with the low
+ * byte first. It is there before "buttons?" is asked, so whoever is feeding the buttons can read
+ * that frame's picture, and need not when it has no use for it. The end then prints its
+ * picture as a check number too, since the picture itself is in the file. A picture is far more
+ * than a pipe holds at once, and a reader that takes it a pipeful at a time waits its turn for
+ * each; a file is read in one go.
  */
 #include <stdarg.h>
 #include <stdio.h>
@@ -41,6 +52,7 @@ static long frames_to_play;
 static long frame; /* frames started so far */
 static int every_picture; /* print the picture at every frame, not only at the end */
 static FILE *sound_out;   /* where each frame's sound is written, if anywhere */
+static FILE *picture_out; /* where each moment's picture is written, if anywhere */
 
 /* The sound of the frame that has just been played, written down. A machine that keeps its
  * numbers the other way round would write them the other way round; every machine this is built
@@ -58,15 +70,11 @@ static void print_pixels(const char *word, const uint16_t *pixels) {
   fputc('\n', stdout);
 }
 
-/* The picture as it is shown. */
-static void print_picture(void) { print_pixels("picture", rg_screen_shown()); }
-
-/* The picture as it is shown, as one number: the CRC-32 of its pixels, each as two bytes with the
+/* The picture as it is +shown+, as one number: the CRC-32 of its pixels, each as two bytes with the
  * low byte first — the CRC zip files use, which Ruby's Zlib.crc32 works out from the same bytes.
  * Two pictures with the same number are, in practice, the same picture, so a test can check
  * every frame for eight hex digits apiece and ask for the whole picture only where they differ. */
-static void print_picture_crc(void) {
-  const uint16_t *shown = rg_screen_shown();
+static void print_picture_crc(const uint16_t *shown) {
   uint32_t crc = 0xFFFFFFFFu;
   for (int32_t i = 0; i < RG_SCREEN_WIDTH * RG_SCREEN_HEIGHT; i++) {
     for (int half = 0; half < 2; half++) {
@@ -77,22 +85,46 @@ static void print_picture_crc(void) {
   printf("picture-crc %08x\n", (unsigned)~crc);
 }
 
-static void print_moment(const char *heading, int with_picture) {
-  printf("%s\n", heading);
-  rg_game_dump_variables();
-  if (with_picture) {
-    print_picture();
-  } else {
-    print_picture_crc();
+/* This moment's picture written to the picture file, over the last moment's: as it is +shown+,
+ * then as it is stored. Like the sound, it is written the way this machine keeps a number, and
+ * every machine this is built for keeps the low byte first. */
+static void write_picture(const uint16_t *shown) {
+  size_t pixels = (size_t)RG_SCREEN_WIDTH * RG_SCREEN_HEIGHT;
+  rewind(picture_out);
+  fwrite(shown, sizeof shown[0], pixels, picture_out);
+  fwrite(rg_screen_stored(), sizeof shown[0], pixels, picture_out);
+  fflush(picture_out);
+}
+
+/* Every sprite the game last said is on screen, back to front, a line each: whose it is and which
+ * picture it shows, both as the number of a name the game was built with, and where it is. */
+static void print_sprites(void) {
+  for (int32_t place = 0; place < rg_screen_drawn_count(); place++) {
+    rg_drawn_sprite drawn = rg_screen_drawn_sprite(place);
+    printf("sprite %d %d %d %d\n", (int)drawn.name, (int)drawn.picture, (int)drawn.x, (int)drawn.y);
   }
 }
 
+static void print_moment(const char *heading, int with_picture) {
+  printf("%s\n", heading);
+  rg_game_dump_variables();
+  print_sprites();
+  const uint16_t *shown = rg_screen_shown();
+  if (with_picture) {
+    print_pixels("picture", shown);
+  } else {
+    print_picture_crc(shown);
+  }
+  if (picture_out) write_picture(shown);
+}
+
 static _Noreturn void finish(void) {
-  print_moment("end", 1);
-  print_pixels("stored", rg_screen_stored());
+  print_moment("end", !picture_out);
+  if (!picture_out) print_pixels("stored", rg_screen_stored());
   printf("pages %d\n", rg_screen_two_pages() ? 2 : 1);
   fflush(stdout);
   if (sound_out) fclose(sound_out);
+  if (picture_out) fclose(picture_out);
   exit(0);
 }
 
@@ -149,6 +181,12 @@ int rg_headless_main(int argc, char **argv) {
       sound_out = fopen(argv[++i], "wb");
       if (!sound_out) {
         fprintf(stderr, "the sound could not be written to %s\n", argv[i]);
+        return 2;
+      }
+    } else if (strcmp(argv[i], "--picture-out") == 0 && i + 1 < argc) {
+      picture_out = fopen(argv[++i], "wb");
+      if (!picture_out) {
+        fprintf(stderr, "the picture could not be written to %s\n", argv[i]);
         return 2;
       }
     } else if (strcmp(argv[i], "--sound-voice") == 0 && i + 1 < argc) {

@@ -1091,6 +1091,16 @@ void rg_objects_end(void) {
   }
 }
 
+/* Reference#sprites: what the game last said is on screen, which stays as it was said from
+ * rg_objects_end until the next rg_objects_begin. */
+int32_t rg_screen_drawn_count(void) { return drawing_count; }
+
+rg_drawn_sprite rg_screen_drawn_sprite(int32_t place) {
+  const placed_object *placed = &drawing[place];
+  return (rg_drawn_sprite){rg_game_sprite_names[placed->sprite], rg_game_image_pictures[placed->image], placed->x,
+                           placed->y};
+}
+
 /* Which of a row of +count+ things the number +said+ names, read the way the interpreter reads
  * a Ruby array: a number below nought counts back from the last. NO_PLACE when it still names
  * none, which is where the interpreter stops with an error. */
