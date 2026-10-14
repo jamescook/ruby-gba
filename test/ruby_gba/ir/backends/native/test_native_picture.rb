@@ -2079,6 +2079,45 @@ class TestNativePicture < Minitest::Test
     assert_operator moments[10].picture.count(Color.resolve(:blue)), :>=, 32 * 16, "and the canvas cleared to one color"
   end
 
+  # A LIST OF COLORS THAT HOLDS OTHER COLORS AS THE GAME RUNS. Two sprites are drawn with the
+  # slot and a third with a plain list beside it; the slot is told each of its sets by number,
+  # then a number that names none, which is the colors it was declared with.
+  def test_a_list_of_colors_told_to_hold_others_recolors_what_is_drawn_with_it
+    program = program_of do
+      screen :tiled
+      image :ship, width: 8, height: 8, data: Array.new(64, :red), colors: %i[transparent red]
+      image :rock, width: 8, height: 8, data: Array.new(64, :red), colors: %i[transparent red]
+      colors :slot, %i[transparent blue]
+      colors :warm, %i[transparent yellow]
+      colors :cold, %i[transparent cyan]
+      colors :plain, %i[transparent white]
+      ship = sprite :ship, at: [40, 40]
+      rock = sprite :rock, at: [80, 40]
+      other = sprite :ship, at: [120, 40]
+      n = var :n, 0
+      game_loop do
+        n.add! 1
+        ship.draw_with [:plain, :slot], showing: n / 6
+        rock.draw_with :slot
+        (n == 9).then { other.draw_with :plain }
+        recolor :slot, %i[warm cold], showing: (n / 2) - 1
+      end
+    end
+
+    moments = reference_snapshots(program, frames: 14, buttons: {})
+
+    assert_native_matches_reference program, frames: 14
+
+    rock_colors = moments.map { |moment| moment.picture[(44 * WIDTH) + 84] }.uniq
+
+    assert_empty %i[blue yellow cyan].map { |name| Color.resolve(name) } - rock_colors,
+                 "the slot should have held its own colors and each of the others: #{rock_colors.inspect}"
+    assert_equal Color.resolve(:blue), moments.last.picture[(44 * WIDTH) + 84], "and its own again for a number naming no set"
+    ship_colors = moments.map { |moment| moment.picture[(44 * WIDTH) + 44] }.uniq
+
+    assert_operator ship_colors.length, :>=, 3, "the ship went through the plain list and then the slot: #{ship_colors.inspect}"
+  end
+
   def test_the_screen_is_white_until_the_first_frame
     program = program_of do
       screen :bitmap

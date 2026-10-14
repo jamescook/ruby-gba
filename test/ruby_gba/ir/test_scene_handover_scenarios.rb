@@ -19,7 +19,7 @@ require "differential"
 #
 # A new thing a scene owns is a new row, and it is tested on both backends by being a row.
 class TestSceneHandoverScenarios < Minitest::Test
-  runs_on :reference
+  runs_on :reference, :native
 
   include Differential
 
@@ -153,7 +153,7 @@ class TestSceneHandoverScenarios < Minitest::Test
   private def run_scenario(scenario)
     program = send(scenario.program)
     broken = scenario.broken
-    shown = Reference.new.run(program, frames: scenario.frames).screen.shown
+    shown = game_player.run(program, frames: scenario.frames).screen.shown
     x, y = scenario.probe
     assert_equal color_value(broken&.interpreter_shows || scenario.color), shown[(y * SCREEN_W) + x],
                  probe_message(scenario)

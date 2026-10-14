@@ -4,9 +4,8 @@
  * is what decides what is right here.
  *
  * What is NOT here is refused when the game is built rather than drawn wrongly (see
- * Picture#refuse_unsupported_picture! and Lowering::NOT_LOWERED_YET, which are the whole list):
- * a list of sprite colors that changes as the game runs; and a frame that ends while drawing is
- * held inside an area.
+ * Picture#refuse_unsupported_picture!, which is the whole list): a frame that ends while drawing
+ * is held inside an area, and more of anything than there is room for.
  *
  * A sprite's pictures and a background's tiles arrive ready to draw: which of their pixels show,
  * and the colors of each list they can be drawn with, are worked out when the game is built (see

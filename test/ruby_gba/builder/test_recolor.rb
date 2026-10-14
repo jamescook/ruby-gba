@@ -8,7 +8,7 @@ require "differential"
 # goblin in one room and a bat in the next: the list is a slot, and `recolor` says what
 # is in it.
 class TestRecolor < Minitest::Test
-  runs_on :reference
+  runs_on :reference, :native
 
   include Differential
 
@@ -55,7 +55,7 @@ class TestRecolor < Minitest::Test
 
   # The ship's two halves, as the interpreter draws them after +frames+.
   def halves(program, frames: 3)
-    i = Reference.new.run(program, frames: frames)
+    i = game_player.run(program, frames: frames)
     [i.screen.pixel(41, 41), i.screen.pixel(45, 41)]
   end
 
@@ -79,7 +79,7 @@ class TestRecolor < Minitest::Test
   end
 
   def test_a_number_the_game_works_out_picks_which_colors_the_list_holds
-    i = Reference.new.run(counting_through_the_sets, frames: 3)
+    i = game_player.run(counting_through_the_sets, frames: 3)
 
     assert_equal colors_of(:gray, :black), [i.screen.pixel(43, 41), i.screen.pixel(47, 41)]
   end
@@ -96,7 +96,7 @@ class TestRecolor < Minitest::Test
       recolor :slot, :warm
       (ship.x > 41).then { recolor :slot, :own }
     end
-    i = Reference.new.run(back, frames: 4)
+    i = game_player.run(back, frames: 4)
 
     assert_equal colors_of(:blue, :white), [i.screen.pixel(44, 41), i.screen.pixel(48, 41)]
   end
@@ -161,7 +161,7 @@ class TestRecolor < Minitest::Test
     walking = many_sets(through_one_list: true)
     # A sprite is drawn in the gap before the next frame, so the picture after thirteen
     # frames is where the twelfth pass put the ship, in the set that pass named.
-    i = Reference.new.run(walking, frames: 13)
+    i = game_player.run(walking, frames: 13)
 
     assert_equal self.class.set(11).drop(1), [i.screen.pixel(53, 41), i.screen.pixel(57, 41)], "set 11"
     [3, 13, 22].each { |frames| assert_backends_agree(walking, frames: frames) }
@@ -216,7 +216,7 @@ class TestRecolor < Minitest::Test
   end
 
   def test_every_instance_of_a_pool_drawn_with_the_list_shows_its_colors
-    i = Reference.new.run(guards_drawn_with_the_list, frames: 4)
+    i = game_player.run(guards_drawn_with_the_list, frames: 4)
 
     assert_equal colors_of(:yellow, :yellow), [i.screen.pixel(41, 41), i.screen.pixel(81, 41)]
     assert_backends_agree(guards_drawn_with_the_list, frames: 4)
@@ -246,7 +246,7 @@ class TestRecolor < Minitest::Test
 
   # The left half of each of the four things, as the interpreter draws them after +frames+.
   def things_drawn(frames)
-    i = Reference.new.run(room_of_things, frames: frames)
+    i = game_player.run(room_of_things, frames: frames)
     (0...4).map { |n| i.screen.pixel(41 + (n * 20), 41) }
   end
 

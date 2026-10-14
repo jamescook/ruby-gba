@@ -76,6 +76,7 @@ module RubyGBA
                                                scroll_rows: :lower_scroll_rows,
                                                set_tile: :lower_set_tile, show_map: :lower_show_map,
                                                background_colors: :lower_background_colors,
+                                               color_list_holds: :lower_color_list_holds,
                                                copy_tiles: :lower_copy_tiles,
                                                copy_owed_tiles: :lower_copy_owed_tiles,
                                                present_objects: :lower_present_objects,
@@ -106,7 +107,6 @@ module RubyGBA
           # which test_native_kind_coverage.rb holds against every kind there is. A kind leaves
           # the list the day it gets a row in STATEMENTS or VALUES.
           NOT_LOWERED_YET = Ractor.make_shareable({
-            picture: %i[color_list_holds],
             saving: %i[save_erase save_init save_read save_store save_sum save_write],
             sound: %i[noise play_from_list play_sample play_sound_effect stop_sample stop_wave wave],
             timers: %i[on_timer timer_start timer_stop timer_ticks]
@@ -172,6 +172,7 @@ module RubyGBA
              *variable_names.map { |name| C::Global.new(name: variable(name)) },
              *list_storage,
              *(@scenes.empty? ? [] : [C::Global.new(name: @names.own("scene"), value: -1)]),
+             *held_colors_globals,
              *constant_arrays, *picture_data, *@drawing_arrays, title_array, music_table, beep_table,
              *@called.map { |name| C::Prototype.new(name: routine(name)) },
              *routine_table_declarations,
