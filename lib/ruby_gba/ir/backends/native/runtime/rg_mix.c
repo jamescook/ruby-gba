@@ -28,8 +28,10 @@
  * fraction, the slide's split, and a shape's full level and the shift it scales by.
  *
  * rg_game_recordings: how many recordings, then seven numbers each — where its samples start in
- * this same array, how many there are, 1 if it has a shape, and the shape's four numbers (attack, decay, sustain, release) — and then
- * every recording's samples, -128 to 127.
+ * rg_game_recording_samples, how many there are, 1 if it has a shape, and the shape's four
+ * numbers (attack, decay, sustain, release).
+ *
+ * rg_game_recording_samples: every recording's samples, -128 to 127, a byte each.
  */
 #include "rg_mix.h"
 #include "rg_runtime.h"
@@ -281,7 +283,7 @@ void rg_mix_stop(int32_t recording) {
  * and shifted down as a whole number, which rounds toward minus infinity as Ruby's does. */
 static int32_t mix_voice_into(mix_voice *voice, int32_t *totals) {
   const int32_t *numbers = recording_numbers(voice->recording);
-  const int32_t *data = &rg_game_recordings[numbers[0]];
+  const int8_t *data = &rg_game_recording_samples[numbers[0]];
   int32_t length = numbers[1];
   int32_t whole = voice->step >> STEP_SHIFT;
   int32_t part = voice->step & ((1 << STEP_SHIFT) - 1);

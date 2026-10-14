@@ -88,9 +88,24 @@ static inline void rg_list_fill(rg_list *list, int32_t from, int32_t count, int3
   for (int32_t i = 0; i < count; i++) list->items[rg_list_slot(list, from + i)] = rg_list_fit(list, value);
 }
 
+/* How a table's entries are kept: a table is kept at the width the game declared it, signed or
+ * not (Native::Lowering#table_type). */
+enum { RG_TABLE_INT8, RG_TABLE_UINT8, RG_TABLE_INT16, RG_TABLE_UINT16, RG_TABLE_INT32 };
+
+/* Entry +at+ of a table kept as +kept+, as a whole number. */
+static inline int32_t rg_table_entry(const void *table, int32_t kept, int32_t at) {
+  switch (kept) {
+  case RG_TABLE_INT8: return ((const int8_t *)table)[at];
+  case RG_TABLE_UINT8: return ((const uint8_t *)table)[at];
+  case RG_TABLE_INT16: return ((const int16_t *)table)[at];
+  case RG_TABLE_UINT16: return ((const uint16_t *)table)[at];
+  default: return ((const int32_t *)table)[at];
+  }
+}
+
 /* The list made to hold exactly +count+ entries of a table, from entry +at+ on, with +at+
- * held so the whole run is inside the table. */
-static inline void rg_list_copy(rg_list *list, const int32_t *table, int32_t table_length, int32_t at,
+ * held so the whole run is inside the table. The table is kept as +kept+ (RG_TABLE_INT8...). */
+static inline void rg_list_copy(rg_list *list, const void *table, int32_t kept, int32_t table_length, int32_t at,
                                 int32_t count) {
   /* The build refuses both of these before a cartridge exists; checked here as well, since a
    * run past either end would read or write memory that belongs to something else. */
@@ -101,7 +116,7 @@ static inline void rg_list_copy(rg_list *list, const int32_t *table, int32_t tab
   int32_t start = rg_clamp(at, 0, table_length - count);
   list->front = 0;
   list->length = count;
-  for (int32_t i = 0; i < count; i++) list->items[i] = rg_list_fit(list, table[start + i]);
+  for (int32_t i = 0; i < count; i++) list->items[i] = rg_list_fit(list, rg_table_entry(table, kept, start + i));
 }
 
 #endif

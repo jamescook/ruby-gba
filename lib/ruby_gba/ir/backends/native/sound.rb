@@ -99,10 +99,12 @@ module RubyGBA
                                 sound::STEP_SHIFT, sound::GAIN_FRACTION, sound::RAMP_SPLIT, envelope::FULL, envelope::SCALE])
           end
 
-          # Every recording the game declares, seven numbers each, and then all their samples.
-          def recordings_table
+          # Every recording the game declares, seven numbers each; and all their samples, in an
+          # array of bytes of their own, since a sample is one and recordings can be most of a
+          # game's sound.
+          def recordings_tables
             recordings = @sound_log.recordings
-            at = 1 + (7 * recordings.size)
+            at = 0
             heads = recordings.map do |sample|
               info = Assets::Sample.of(sample)
               shape = info.envelope && !info.envelope.plain? ? info.envelope : nil
@@ -111,7 +113,9 @@ module RubyGBA
               at += info.length
               head
             end
-            sound_table("recordings", [recordings.size, *heads.flatten, *recordings.flat_map { |sample| sample.bytes.unpack("c*") }])
+            samples = recordings.flat_map { |sample| sample.bytes.unpack("c*") }
+            [sound_table("recordings", [recordings.size, *heads.flatten]),
+             C::ConstArray.new(name: @names.own("recording_samples"), type: "int8_t", values: samples, exported: true)]
           end
 
           # Each song list a run can pick from, as the numbers of its songs.
@@ -163,7 +167,7 @@ module RubyGBA
           def sound_tables
             # The music is written first: writing it is what finds the rows of note_sounds_table.
             [sound_rules_table, waveform_table, music_table, note_sounds_table, effects_table, beep_table, wave_table,
-             hit_table, mix_table, recordings_table, *song_list_tables, *effect_list_tables]
+             hit_table, mix_table, *recordings_tables, *song_list_tables, *effect_list_tables]
           end
 
           def sound_table(name, values)

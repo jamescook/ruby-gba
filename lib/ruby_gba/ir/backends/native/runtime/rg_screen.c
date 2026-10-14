@@ -1051,23 +1051,23 @@ static void paint_scenery(int32_t background) {
 /* --- sprites --- */
 
 /* One picture: where its pixels start, and its size. */
-typedef struct { const int32_t *pixels; int32_t width, height; } picture;
+typedef struct { const int16_t *pixels; int32_t width, height; } picture;
 
 /* The images the game has painted, by image number: each one's pixels as its list last held
  * them, in the colors that image is drawn in, or nothing for an image nobody has painted
  * (Reference#store_run_picture). */
-static int32_t **painted_images;
+static int16_t **painted_images;
 
 static picture picture_of(int32_t image) {
   const int32_t *info = rg_game_images + RG_IMAGE_FIELDS * image;
-  const int32_t *painted = painted_images ? painted_images[image] : NULL;
+  const int16_t *painted = painted_images ? painted_images[image] : NULL;
   return (picture){painted ? painted : rg_game_image_pixels + info[0], info[1], info[2]};
 }
 
 /* Room for one painted image's pixels, made the first time the image is painted. */
-static int32_t *painted_pixels_of(int32_t image, int32_t count) {
+static int16_t *painted_pixels_of(int32_t image, int32_t count) {
   if (!painted_images) painted_images = calloc((size_t)rg_game_picture_sizes[RG_SIZE_IMAGES] + 1, sizeof *painted_images);
-  if (painted_images && !painted_images[image]) painted_images[image] = malloc((size_t)count * sizeof(int32_t));
+  if (painted_images && !painted_images[image]) painted_images[image] = malloc((size_t)count * sizeof(int16_t));
   if (!painted_images || !painted_images[image]) rg_fault("no memory for the pictures the game paints");
   return painted_images[image];
 }
@@ -1105,8 +1105,8 @@ void rg_tiles_copy(int32_t run, const rg_list *list) {
   }
   for (int32_t i = 0; i < fields[RG_RUN_IMAGES]; i++) {
     const int32_t *shown_as = rg_game_run_images + (fields[RG_RUN_FIRST_IMAGE] + i) * RG_RUN_IMAGE_FIELDS;
-    int32_t *pixels = painted_pixels_of(shown_as[0], width * height);
-    for (int32_t at = 0; at < width * height; at++) pixels[at] = shown_as[1 + places[at]];
+    int16_t *pixels = painted_pixels_of(shown_as[0], width * height);
+    for (int32_t at = 0; at < width * height; at++) pixels[at] = (int16_t)shown_as[1 + places[at]];
   }
 }
 

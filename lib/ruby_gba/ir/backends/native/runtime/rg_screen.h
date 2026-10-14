@@ -261,11 +261,12 @@ rg_drawn_sprite rg_screen_drawn_sprite(int32_t place);
 /* --- the art, from the generated game --- */
 
 /* Sprite pictures: each image is three numbers in rg_game_images (where its pixels start in
- * rg_game_image_pixels, its width and its height). A pixel is the sixteen bits the picture
- * stores, or RG_NOT_DRAWN where what is behind shows. A sprite drawn with another list of colors
- * has a picture of its own for each list, made when the game is built. */
+ * rg_game_image_pixels, its width and its height). A pixel is the fifteen bits of colour the
+ * picture stores, or RG_NOT_DRAWN where what is behind shows, so sixteen signed bits hold every
+ * one. A sprite drawn with another list of colors has a picture of its own for each list, made
+ * when the game is built. */
 #define RG_NOT_DRAWN (-1)
-extern const int32_t rg_game_image_pixels[];
+extern const int16_t rg_game_image_pixels[];
 extern const int32_t rg_game_images[];
 #define RG_IMAGE_FIELDS 3
 /* The most sprites a game may have; the build refuses more. */

@@ -167,7 +167,9 @@ module RubyGBA
           # An array of numbers rg_screen.c reads by name (rg_game_ and +what+).
           def runtime_array(what, type, values) = C::ConstArray.new(name: @names.own(what), type: type, values: values, exported: true)
 
-          # Every picture a sprite can show, once for each list of colors it is drawn with.
+          # Every picture a sprite can show, once for each list of colors it is drawn with. A pixel
+          # is fifteen bits of colour or -1 for see-through, so sixteen signed bits hold it: a
+          # game's pictures are most of its program, and four bytes a pixel doubled them.
           def image_arrays
             pixels = []
             info = []
@@ -176,7 +178,7 @@ module RubyGBA
               info.push(pixels.length, image.width, image.height)
               pixels.concat(sprite_pixels(image, colors))
             end
-            [runtime_array("image_pixels", "int32_t", pixels), runtime_array("images", "int32_t", info), *sprite_name_arrays]
+            [runtime_array("image_pixels", "int16_t", pixels), runtime_array("images", "int32_t", info), *sprite_name_arrays]
           end
 
           # Reference#sprites says each sprite it drew by two names: the one the game declared it

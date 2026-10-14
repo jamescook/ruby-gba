@@ -18,6 +18,7 @@
  * the game declares, with its bytes. */
 extern const int32_t rg_game_mix[];
 extern const int32_t rg_game_recordings[];
+extern const int8_t rg_game_recording_samples[];
 
 /* The game's own `play` of recording number +recording+: read +step+ 65536ths of a sample for
  * each sample of the mix (its pitch), at +loudness+ out of 64, going +back+ that many samples at

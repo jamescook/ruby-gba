@@ -294,11 +294,31 @@ module RubyGBA
               end
             end.uniq
             @tables.values.select { |table| read.include?(table.name) }.map do |table|
-              C::ConstArray.new(name: @names.of(:table, table.name), type: "int32_t", values: table.values.map { |v| Int32.wrap(v) })
+              values = table.values.map { |v| Int32.wrap(v) }
+              C::ConstArray.new(name: @names.of(:table, table.name), type: table_type(table, values), values: values)
             end + @data.values.select { |data| read.include?(data.name) }.map do |data|
               bytes = data.kind == :data ? data.bytes : data.pixels
               C::ConstArray.new(name: @names.of(:data, data.name), type: "uint8_t", values: bytes.bytes)
             end
+          end
+
+          # The C type a table's entries are kept in, by the width the game declared and whether
+          # they are signed, with the range that type holds.
+          TABLE_TYPES = Ractor.make_shareable({ [:byte, true] => ["int8_t", -128..127], [:byte, false] => ["uint8_t", 0..255],
+                                                [:half, true] => ["int16_t", -32_768..32_767],
+                                                [:half, false] => ["uint16_t", 0..65_535] })
+
+          # Each of those as the number rg_list.h knows it by (RG_TABLE_INT8...).
+          TABLE_KEPT_AS = Ractor.make_shareable({ "int8_t" => 0, "uint8_t" => 1, "int16_t" => 2, "uint16_t" => 3, "int32_t" => 4 })
+
+          # A table kept at the width the game declared it, as the cartridge keeps it: a byte or a
+          # half, signed or not, and a whole word otherwise. The build has already checked every
+          # entry fits; a table built by hand that says nothing, or whose entries do not fit what it
+          # says, keeps whole words. Reading an entry widens it back to a whole number, so nothing
+          # that reads one changes.
+          def table_type(table, values)
+            type, range = TABLE_TYPES[[table.width, table.signed ? true : false]]
+            type && values.all? { |v| range.cover?(v) } ? type : "int32_t"
           end
 
           def list_storage
@@ -545,7 +565,8 @@ module RubyGBA
 
           def lower_list_copy(node)
             table = @tables.fetch(node.table)
-            [list_call("rg_list_copy", node, @names.of(:table, node.table), C::Int.new(table.values.length),
+            kept = TABLE_KEPT_AS.fetch(table_type(table, table.values.map { |v| Int32.wrap(v) }))
+            [list_call("rg_list_copy", node, @names.of(:table, node.table), C::Int.new(kept), C::Int.new(table.values.length),
                        value(node.at), C::Int.new(node.count))]
           end
 
