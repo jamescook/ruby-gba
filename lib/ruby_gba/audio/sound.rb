@@ -186,6 +186,93 @@ module RubyGBA
       # second; `:none` never fades.
       FADE_STEP_SIXTY_FOURTHS = { fast: 1, medium: 3, slow: 5, none: 0 }.freeze
 
+      # WHAT THE WAVE VOICE SOUNDS LIKE, for the same backend: the pitch it really plays, and how
+      # tall each step of its waveform comes out at each of its loudnesses.
+      #
+      # ITS PITCH IS A WHOLE NUMBER OF TICKS TOO, of a clock half as fast as the square voices':
+      # 65,536 ticks a second, and one whole wave — all 32 steps of it — lasts 1 to 2048 of them.
+      # A longer wave is a lower note, so this voice bottoms out at 32 Hz where a square voice
+      # stops at 64, and a note below that is played AT 32 Hz.
+      WAVE_CLOCK_HZ = 65_536
+      WAVE_LONGEST_WAVE = 2048
+
+      # How many ticks one whole wave of a +hz+ note lasts on the wave voice.
+      def self.wave_voice_ticks(hz)
+        WAVE_LONGEST_WAVE - (WAVE_LONGEST_WAVE - (WAVE_CLOCK_HZ.to_f / hz)).round.clamp(0, WAVE_LONGEST_WAVE - 1)
+      end
+
+      # ITS LOUDNESS CUTS EACH STEP DOWN, and what does not divide is dropped: the voice makes its
+      # four loudnesses by taking so many quarters of a step, in whole numbers. So a step of 15
+      # at half is 7 and not seven and a half, and a quiet waveform has fewer different heights
+      # in it than a loud one — a quarter-loud triangle is a staircase of four treads.
+      def self.wave_step_at(step, level)
+        (step * wave_level_quarters(level)) / 4
+      end
+
+      # How many quarters of each step a loudness keeps: none for :mute, all four for :full.
+      def self.wave_level_quarters(level)
+        WAVE_LEVEL_STEPS.index(level) or raise ArgumentError, "unknown wave volume #{level.inspect}"
+      end
+
+      # WHAT THE NOISE VOICE SOUNDS LIKE, for the same backend.
+      #
+      # THE HISS IS A ROW OF BITS SHUFFLED ALONG ONE PLACE AT A TIME. Each step the voice is high
+      # or low by the bit that falls off the end, and the bits left behind are stirred so the
+      # pattern takes a long time to come round. How fast it steps is the pitch: fast is a thin
+      # high hiss, slow a rumble.
+      #
+      # A STEP IS A WHOLE NUMBER OF TICKS of a clock of 524,288 a second. The voice has no free
+      # choice of that number. It picks a divider (0 to 7, where 0 stands for a half) and how
+      # many times to halve what the divider leaves (0 to 13), so a step lasts twice the divider,
+      # doubled once for each halving — a ladder of rungs rather than a range.
+      NOISE_CLOCK_HZ = 524_288
+      NOISE_DIVIDERS = (0..7).to_a.freeze
+      NOISE_HALVINGS = (0..13).to_a.freeze
+
+      # How many ticks one step of the hiss lasts for a divider and a number of halvings.
+      def self.noise_step_ticks(divider, halvings)
+        (divider.zero? ? 1 : divider * 2) << halvings
+      end
+
+      # How many steps a second that rung of the ladder makes.
+      def self.noise_rung_hz(divider, halvings)
+        NOISE_CLOCK_HZ / (divider.zero? ? 0.5 : divider) / (2**(halvings + 1))
+      end
+
+      # The rung nearest a wanted pitch, as its divider and its halvings — what makes a low note
+      # on the noise voice a kick and a high one a hat.
+      def self.noise_rung(hz)
+        NOISE_DIVIDERS.product(NOISE_HALVINGS).min_by do |divider, halvings|
+          (noise_rung_hz(divider, halvings) - hz).abs
+        end
+      end
+
+      # How long a step lasts for a note of +hz+ on the noise voice.
+      def self.noise_note_step_ticks(hz) = noise_step_ticks(*noise_rung(hz))
+
+      # A `noise` hit names its pitch with one of three words, and each is a number of halvings
+      # of the fastest step there is.
+      NOISE_HIT_HALVINGS = { high: 2, mid: 5, low: 8 }.freeze
+
+      # How long a step lasts for a hit at one of those three pitches.
+      def self.noise_hit_step_ticks(pitch)
+        halvings = NOISE_HIT_HALVINGS.fetch(pitch) { raise ArgumentError, "unknown noise pitch #{pitch.inspect}" }
+        noise_step_ticks(0, halvings)
+      end
+
+      # HOW MANY BITS ARE IN THE ROW: fifteen for a plain hiss, whose pattern is 32,767 steps
+      # long and never heard to repeat, and seven for a metallic one, which comes round every
+      # 127 steps — often enough to be heard as a pitch of its own, the rattle of a snare or a
+      # hat.
+      def self.noise_register_bits(metallic) = metallic ? 7 : 15
+
+      # HOW OFTEN THE CONSOLE HANDS ITS VOICES ON TO THE SPEAKER: 32,768 times a second. It
+      # matters to the hiss alone. A hiss can step far faster than that, and what is heard of one
+      # that does is whichever way it stood at each of those moments, which is a hiss of its own
+      # and a lower one. A backend that makes the sound itself has to look at the hiss at the
+      # same moments to make the same one.
+      VOICE_OUTPUT_HZ = 32_768
+
       # WHAT THE WAVE VOICE PLAYS, which is one of two things a game can say.
       #
       # A NAME is the usual answer — `wave :triangle, :C4`, `plays: :sine` — and the samples are
@@ -260,7 +347,7 @@ module RubyGBA
         # Noise pitch → the noise generator's shift-clock exponent. The hiss's
         # frequency divides down as the exponent grows, so a bigger number is a
         # lower, rumblier noise and a smaller one a higher hiss.
-        NOISE_SHIFTS = { high: 2, mid: 5, low: 8 }.freeze
+        NOISE_SHIFTS = NOISE_HIT_HALVINGS
 
         # The console tunes a channel by a period value, not a frequency:
         # freq_hz = 131072 / (2048 - value). Invert that and keep it in range.
@@ -396,20 +483,16 @@ module RubyGBA
         # The noise voice's clock is 524288 Hz divided by a small number and then halved +shift+
         # times over, so the rates it can make are a fixed ladder rather than a range. This finds
         # the rung nearest a wanted pitch. A divisor of 0 means a half, which is the one rung
-        # above the rest of the ladder.
-        NOISE_CLOCK = 524_288
-        NOISE_DIVISORS = (0..7).to_a.freeze
-        NOISE_SHIFT_RANGE = (0..13).freeze
+        # above the rest of the ladder. The ladder itself is a fact about the voice that every
+        # backend keeps (Sound.noise_rung); what is the console's alone is that the two numbers
+        # go into a register.
+        NOISE_CLOCK = NOISE_CLOCK_HZ
+        NOISE_DIVISORS = NOISE_DIVIDERS
+        NOISE_SHIFT_RANGE = (NOISE_HALVINGS.first..NOISE_HALVINGS.last).freeze
 
-        def noise_clock(frequency)
-          NOISE_DIVISORS.product(NOISE_SHIFT_RANGE.to_a).min_by do |divisor, shift|
-            (noise_frequency(divisor, shift) - frequency).abs
-          end
-        end
+        def noise_clock(frequency) = Sound.noise_rung(frequency)
 
-        def noise_frequency(divisor, shift)
-          NOISE_CLOCK / (divisor.zero? ? 0.5 : divisor) / (2**(shift + 1))
-        end
+        def noise_frequency(divisor, shift) = Sound.noise_rung_hz(divisor, shift)
 
         # A percussion / explosion hit on channel 4 (the noise voice). Channel 4
         # makes pseudo-random noise rather than a pitched tone: a control word sets
@@ -469,7 +552,7 @@ module RubyGBA
         # cycle every 32 samples, so the tone works out to 65536/(2048-value) Hz.
         # Invert that for the register value and keep it in range.
         def wave_rate(freq_hz)
-          (2048 - (65_536.0 / freq_hz)).round.clamp(0, 2047)
+          WAVE_LONGEST_WAVE - Sound.wave_voice_ticks(freq_hz)
         end
 
         # Pack 32 four-bit samples into wave RAM's eight 16-bit words. Two samples to
