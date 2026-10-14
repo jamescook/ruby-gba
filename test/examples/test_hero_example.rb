@@ -14,7 +14,7 @@ require_relative "../../examples/hero"
 # off. Asserted on the interpreter oracle and on real hardware. The player never touches
 # object memory, tile numbers, a scroll register or save memory.
 class TestHeroExample < Minitest::Test
-  runs_on :reference
+  runs_on :reference, :native
 
   CENTER = [120, 80].freeze # the middle of the screen, where the hero's body always sits
 
@@ -41,15 +41,15 @@ class TestHeroExample < Minitest::Test
   # Start a new game, then play +frames+ more, holding what the block gives for each frame
   # of the walk (counted from 1).
   def play(frames:, store: SaveImage.new, &walk)
-    Reference.new(save: store)
-             .input_each_frame { |f| [1, 3].include?(f) ? [:a] : Array(f >= STARTED ? walk&.call(f - 3) : nil) }
-             .run(Hero.program, frames: frames + STARTED)
+    game_player(save: store)
+      .input_each_frame { |f| [1, 3].include?(f) ? [:a] : Array(f >= STARTED ? walk&.call(f - 3) : nil) }
+      .run(Hero.program, frames: frames + STARTED)
   end
 
   # Power the console on again with the same save memory and press what +presses+ says, by
   # frame from power-on.
   def power_on(store, frames:, presses: {})
-    Reference.new(save: store).input_each_frame { |f| Array(presses[f]) }.run(Hero.program, frames: frames)
+    game_player(save: store).input_each_frame { |f| Array(presses[f]) }.run(Hero.program, frames: frames)
   end
 
   # THE WAY INTO THE GAME ON THE CONSOLE, as a lead-in every console test here starts with:
@@ -78,6 +78,7 @@ class TestHeroExample < Minitest::Test
   # The running cartridge after +steps+ have been played on a console from a new game, as
   # the last frame left it.
   def console_after(name, rom, &steps)
+    require_emulator!
     RubyGBA.playthrough("hero: #{name}", &steps).play(rom, lead_in: new_game_lead_in).game
   end
 
@@ -278,7 +279,7 @@ class TestHeroExample < Minitest::Test
   def test_the_console_saves_and_continues_the_same_walk
     presses = { 4 => :a, 6 => :a, 30 => :start, 34 => :select, 38 => :a, 42 => :a }
     walk = ->(f) { presses.fetch(f) { f.between?(8, 24) ? :right : nil } }
-    oracle = Reference.new.input_each_frame { |f| Array(walk.call(f)) }.run(Hero.program, frames: 50)
+    oracle = game_player.input_each_frame { |f| Array(walk.call(f)) }.run(Hero.program, frames: 50)
 
     v = console_after "walk, save, and continue", unmeasured_hero do
       hold :right, frames: 17

@@ -2009,11 +2009,7 @@ class TestNativePicture < Minitest::Test
         room.draw_with({ ink: [:dusk] }, showing: n - 6)
         (n == 8).then { state.set! 1 }
       end
-      scene(:hall) do
-        clear = var :_nothing, 0
-        (n == 11).then { state.set! 0 }
-        clear.set! 0
-      end
+      scene(:hall) { (n == 11).then { state.set! 0 } }
       game_loop do
         n.add! 1
         case_var(:state) { when_val 0, :room; when_val 1, :hall }

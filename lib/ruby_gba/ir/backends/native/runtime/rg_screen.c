@@ -597,7 +597,7 @@ static void forget_own_cells(int32_t background) {
  * run's pixels as places in its colors, one after another, place 0 being see-through. All nought
  * until a run's first copy, which is a run that shows nothing. Made the first time it is asked
  * for. */
-enum { RUN_TILE_SIDE = 8, RUN_TILE_PIXELS = RUN_TILE_SIDE * RUN_TILE_SIDE };
+enum { RUN_TILE_SIDE = 8, RUN_TILE_PIXELS = RUN_TILE_SIDE * RUN_TILE_SIDE, PLACES_IN_RUN_COLORS = 16 };
 static uint8_t *painted_places;
 
 static const int32_t *run_fields(int32_t run) { return rg_game_tile_runs + RG_RUN_FIELDS * run; }
@@ -620,7 +620,7 @@ static uint16_t tile_pixel(int32_t background, int32_t cell, int64_t tx, int64_t
     int32_t run = rg_game_painted_tiles[painted + 2 * cell], which = rg_game_painted_tiles[painted + 2 * cell + 1];
     int32_t place = places_of(run)[which * RUN_TILE_PIXELS + ty * RUN_TILE_SIDE + tx];
     int64_t set = (int64_t)tile_set_now[background] * rg_game_picture_sizes[RG_SIZE_RUNS] + run;
-    return rg_game_run_colors[background_field(background, RG_BG_RUN_COLORS) + set * 16 + place];
+    return rg_game_run_colors[background_field(background, RG_BG_RUN_COLORS) + set * PLACES_IN_RUN_COLORS + place];
   }
   int32_t tile_w = background_field(background, RG_BG_TILE_W), tile_h = background_field(background, RG_BG_TILE_H);
   int64_t tile = (int64_t)tile_set_now[background] * background_field(background, RG_BG_TILES) + cell;
