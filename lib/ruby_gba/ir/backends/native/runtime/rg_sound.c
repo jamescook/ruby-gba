@@ -92,7 +92,8 @@
 #include "rg_driver.h"
 #include "rg_runtime.h"
 
-/* A song has at most a part for each voice — the build refuses one with more. */
+/* A song has at most a part for each voice: a game is checked the way a cartridge build checks
+ * it, and that refuses a song with more. */
 #define PARTS_MOST 4
 #define NUMBERS_PER_NOTE 4
 #define NUMBERS_PER_BEEP 4
