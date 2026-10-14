@@ -123,7 +123,7 @@ module RubyGBA
         def text
           [
             *where_lines,
-            "The two screens differed in #{@screens.differing.size} pixels there.",
+            screens_sentence,
             "",
             *readings_lines,
             "What was played",
@@ -138,6 +138,18 @@ module RubyGBA
             "What is in this folder",
             *contents_lines.map { |line| "  #{line}" },
           ].join("\n") << "\n"
+        end
+
+        # How many pixels the two screens differed in. A drift found in a reading alone can
+        # be on two screens that are the same picture, and then that is what it says — or
+        # on two that differ only in a part left out, which the two pictures in the folder
+        # still show, so then it says that.
+        def screens_sentence
+          out = @screens.differing.size
+          return "The two screens differed in #{out} #{out == 1 ? 'pixel' : 'pixels'} there." if out.positive?
+          return "The two screens were the same picture there." if @screens.first == @screens.second
+
+          "The two screens differed only in the parts that were not looked at."
         end
 
         # +where+ is `on that frame` or `at that moment`.

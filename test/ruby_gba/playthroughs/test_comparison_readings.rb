@@ -284,6 +284,37 @@ class TestComparisonReadings < Minitest::Test
     end
   end
 
+  # A DRIFT IN A READING ALONE SAYS THE TWO SCREENS WERE THE SAME, rather than that they
+  # differed in no pixels: these two cartridges show the same picture on every frame and
+  # count their paces differently.
+  def test_the_report_of_a_drift_in_a_reading_alone_says_the_screens_were_the_same
+    Dir.mktmpdir("drift") do |somewhere|
+      result = walk_right.compare(walker, counting_twice, readings: { paces: :paces }, reports_in: somewhere)
+      lines = File.read(File.join(result.drift.report, "report.txt")).lines.map(&:strip)
+
+      assert_equal [:paces], result.drift.differed
+      assert_includes lines, "The two screens were the same picture there."
+      refute(lines.any? { |line| line.include?("0 pixels") })
+    end
+  end
+
+  # ...AND WHERE THEY DIFFERED ONLY IN A PART LEFT OUT, IT SAYS THAT, since its two pictures
+  # show the whole screens. One of these two draws three specks from tick 30 and the other
+  # does not; the specks are left out, and a reading says which of them has drawn them.
+  def test_the_report_of_a_drift_in_a_reading_alone_says_where_the_screens_differed_unseen
+    specks_drawn = { specked: [->(game) { game.var(:ticks) >= SPECKS_FROM }, ->(_game) { false }] }
+
+    Dir.mktmpdir("drift") do |somewhere|
+      result = walk_right.compare(walker(specks: 3), walker, readings: specks_drawn,
+                                                             ignoring_rectangles: [[SPECK_X, SPECK_Y, 3, 1]], reports_in: somewhere)
+      lines = File.read(File.join(result.drift.report, "report.txt")).lines.map(&:strip)
+
+      assert_equal [:specked], result.drift.differed
+      assert_includes lines, "The two screens differed only in the parts that were not looked at."
+      refute_includes lines, "The two screens were the same picture there."
+    end
+  end
+
   # With the picture compared as well, and a reading that is only read, the report says so.
   def test_the_report_says_the_picture_differed_and_that_the_readings_were_only_read
     Dir.mktmpdir("drift") do |somewhere|

@@ -145,6 +145,19 @@ class TestComparisonDriftReport < Minitest::Test
     end
   end
 
+  # One pixel out is said as one pixel. These two greys are the same colour held as different
+  # numbers, and one of them has a single white speck.
+  def test_one_pixel_out_is_said_as_one_pixel
+    waiting = RubyGBA.playthrough("wait") { wait frames: 12 }
+
+    Dir.mktmpdir("drift") do |somewhere|
+      result = waiting.compare(grey_screen(brightened: false, specks: 1), grey_screen(brightened: true), reports_in: somewhere)
+      words = File.read(File.join(result.drift.report, "report.txt"))
+
+      assert_includes words, "The two screens differed in 1 pixel there."
+    end
+  end
+
   # THE LAST SECOND IS THE LAST SIXTY FRAMES, the drifting frame the last of them. This walk
   # is longer than a second and names no moment: the hold the second begins inside is said
   # from where the second begins, what came before it is not said at all, and the text says
