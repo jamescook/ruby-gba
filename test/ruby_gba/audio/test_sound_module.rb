@@ -195,4 +195,63 @@ class TestSoundModule < Minitest::Test
     end
     assert_match(/unknown wave volume/, err.message)
   end
+
+  # ---- what the wave and noise voices sound like, for a backend with no sound chip ----
+
+  # One wave is a whole number of ticks of a 65,536-a-second clock: 440 Hz is 148.9 of them, so
+  # it plays as 149. The register holds what is left of 2048, which is the 1899 above.
+  def test_a_wave_note_lasts_a_whole_number_of_ticks
+    assert_equal 149, Sound.wave_voice_ticks(440)
+    assert_equal 2048 - 149, Registers.wave_rate(440)
+  end
+
+  # 2048 ticks is the longest wave there is, 32 Hz: a lower note plays there. One tick is the
+  # shortest.
+  def test_a_wave_note_stops_at_the_ends_of_what_the_voice_can_play
+    assert_equal 2048, Sound.wave_voice_ticks(32)
+    assert_equal 2048, Sound.wave_voice_ticks(20)
+    assert_equal 1, Sound.wave_voice_ticks(100_000)
+  end
+
+  # Each step of the waveform is cut to so many quarters, with what is left over dropped: a step
+  # of 15 at half is 7, and at three quarters 11.
+  def test_a_wave_step_is_cut_to_quarters_and_rounded_down
+    assert_equal [0, 3, 7, 11, 15], Sound::WAVE_LEVEL_STEPS.map { |level| Sound.wave_step_at(15, level) }
+    assert_equal [0, 1, 2, 3, 5], Sound::WAVE_LEVEL_STEPS.map { |level| Sound.wave_step_at(5, level) }
+  end
+
+  # The noise voice's clock is 524,288 ticks a second. A step of the hiss lasts twice its
+  # divider, doubled once for each halving — and a divider of 0 stands for a half.
+  def test_a_step_of_the_hiss_lasts_a_whole_number_of_ticks
+    assert_equal 1, Sound.noise_step_ticks(0, 0)
+    assert_equal 2, Sound.noise_step_ticks(1, 0)
+    assert_equal 6 << 4, Sound.noise_step_ticks(3, 4)
+  end
+
+  # The three pitches a `noise` hit can have, as how long a step lasts: 131,072 steps a second,
+  # 16,384 and 2,048.
+  def test_the_three_pitches_of_a_hit
+    assert_equal({ high: 4, mid: 32, low: 256 },
+                 %i[high mid low].to_h { |pitch| [pitch, Sound.noise_hit_step_ticks(pitch)] })
+  end
+
+  # A note on the noise voice takes the step nearest its pitch: 262 steps a second is 2001
+  # ticks each, and the nearest the voice can make is 2048 — which is the 256 Hz the registers
+  # are given.
+  def test_a_noise_note_takes_the_nearest_step_there_is
+    assert_equal 2048, Sound.noise_note_step_ticks(262)
+    assert_equal 256, Registers.noise_frequency(*Registers.noise_clock(262))
+  end
+
+  def test_an_unknown_noise_pitch_is_a_friendly_error
+    err = assert_raises(ArgumentError) { Sound.noise_hit_step_ticks(:shrill) }
+    assert_match(/unknown noise pitch/, err.message)
+  end
+
+  # A plain hiss comes out of fifteen bits and a metallic one out of seven, which is what makes
+  # it repeat soon enough to be heard as a rattle.
+  def test_a_metallic_hiss_repeats_sooner
+    assert_equal 15, Sound.noise_register_bits(false)
+    assert_equal 7, Sound.noise_register_bits(true)
+  end
 end
