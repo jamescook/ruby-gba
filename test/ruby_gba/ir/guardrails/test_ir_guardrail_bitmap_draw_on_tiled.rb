@@ -76,7 +76,7 @@ class TestIRGuardrailBitmapDrawOnTiled < Minitest::Test
   # bends, so a draw there is the same dead draw. It has to stay refused: while the picture is in
   # blocks, the interpreter would put such a pixel on the bent background's own sheet and the
   # desktop build on the picture.
-  def test_it_flags_a_draw_inside_a_bends_block
+  def test_it_flags_a_draw_inside_scroll_each_row
     prog = program do
       screen :tiled
       image(:blue_t, "#" => :blue) { SOLID_TILE }
@@ -93,6 +93,22 @@ class TestIRGuardrailBitmapDrawOnTiled < Minitest::Test
     findings = Check.new.detect(prog)
 
     assert_equal [:pixel], findings.map { |finding| finding.node.kind }
+  end
+
+  # A first-person view's stretched column paints the framebuffer like any other draw.
+  def test_it_flags_a_column_drawn_on_a_tiled_screen
+    prog = program do
+      screen :tiled
+      image(:blue_t, "#" => :blue) { SOLID_TILE }
+      tiles :ground, "#" => :blue_t
+      background :field, tiles: :ground, map: FIELD
+      game_loop { draw_column_at :blue_t, slice: 0, x: 10, top: 20, height: 40 }
+    end
+
+    findings = Check.new.detect(prog)
+
+    assert_equal [:draw_column_at], findings.map { |finding| finding.node.kind }
+    assert_match(/`draw_column_at`/, findings.first.message)
   end
 
   def test_it_names_the_authors_verb_not_the_internal_kind
