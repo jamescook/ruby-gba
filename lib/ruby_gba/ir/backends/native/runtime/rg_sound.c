@@ -294,7 +294,11 @@ typedef struct {
 static noise_voice hiss;
 
 /* A hit: the row starts with every bit set, and steps from there. No ticks, or no volume, is
- * silence. */
+ * silence.
+ *
+ * Where a hit starts in its pattern is the emulator's answer. The pattern is one long loop and
+ * the same loop wherever it is picked up, so the start is all there is to choose, and every bit
+ * set is where the emulator this sound is checked against picks it up. */
 static void noise_start(int32_t step_ticks, int32_t bits, int32_t volume, int32_t fade_64ths) {
   hiss.step_ticks = step_ticks;
   hiss.bits = bits;
@@ -357,6 +361,8 @@ int32_t rg_sound_render_frame(int16_t *samples) {
     for (int32_t voice = 1; voice <= RG_SQUARE_VOICES; voice++) sum += heard(voice, square_sample(&squares[voice - 1]));
     sum += heard(RG_WAVE_VOICE, wave_sample());
     sum += heard(RG_NOISE_VOICE, noise_sample());
+    /* Past what a sample holds, it is held at the end: left to wrap, the loudest moment of a
+     * game would come out as a jump to the other side of nought. */
     if (sum > INT16_MAX) sum = INT16_MAX;
     if (sum < INT16_MIN) sum = INT16_MIN;
     samples[i] = (int16_t)sum;
