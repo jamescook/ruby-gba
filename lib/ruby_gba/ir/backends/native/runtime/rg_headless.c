@@ -73,6 +73,16 @@ static int read_save_file(void) {
   return whole;
 }
 
+/* Puts the file at +from+ where +to+ is, in place of any file there. C's rename does that in one
+ * step everywhere but on Windows, where it refuses while the old file is there; so the old file is
+ * taken away and the rename tried once more. (The window's own save goes through SDL, whose
+ * renaming replaces a file on every system.) */
+static int put_file_in_place(const char *from, const char *to) {
+  if (rename(from, to) == 0) return 1;
+  remove(to);
+  return rename(from, to) == 0;
+}
+
 /* Save memory written to its file: to a new file beside it, which then takes its place, so a
  * run stopped part way through leaves the old file whole. */
 static void write_save_file(void) {
@@ -85,7 +95,7 @@ static void write_save_file(void) {
     FILE *file = fopen(writing, "wb");
     written = file && fwrite(rg_save_bytes(), 1, size, file) == size;
     if (file && fclose(file) != 0) written = 0;
-    if (written && rename(writing, save_path) != 0) written = 0;
+    if (written && !put_file_in_place(writing, save_path)) written = 0;
     free(writing);
   }
   if (written) return;
