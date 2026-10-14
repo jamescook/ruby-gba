@@ -14,6 +14,8 @@ require_relative "native/sound"
 require_relative "native/saving"
 require_relative "native/lowering"
 require_relative "native/headless_run"
+require_relative "native/differences"
+require_relative "native/checked_run"
 
 module RubyGBA
   module IR

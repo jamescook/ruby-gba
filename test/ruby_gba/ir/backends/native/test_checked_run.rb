@@ -2,25 +2,51 @@
 
 require "test_helper"
 require "native_comparison"
+require "open3"
+require "rbconfig"
 
-# What a test opted into native runs is handed there (see CheckedNativeRun): the game played as
-# C, and then the same buttons played on the interpreter, with the run stopped at the first frame
-# the two do not agree on — so a file's hand-picked checks are backed by every variable and
-# every pixel of every frame.
-class TestCheckedNativeRun < Minitest::Test
+# The game played as C, and then the same buttons played on the interpreter, with the run
+# stopped at the first frame the two do not agree on (Native::CheckedRun) — which is what a test
+# opted into native runs is handed there (CheckedNativeRun, the suite's own name for it), so a
+# file's hand-picked checks are backed by every variable and every pixel of every frame.
+class TestCheckedRun < Minitest::Test
   # The native lowering's own tests, which only a native run plays (see TestSuites).
   runs_on :native
 
   include NativeComparison
 
-  Moment = CheckedNativeRun::Moment
+  CheckedRun = RubyGBA::IR::Backends::Native::CheckedRun
+  CannotAnswer = RubyGBA::IR::Backends::Native::HeadlessRun::CannotAnswer
+  Moment = CheckedRun::Moment
+  LIB = File.expand_path("../../../../../lib", __dir__)
+
+  # A game built on the library plays its own game checked with nothing but the library: no
+  # minitest, and nothing from this suite's folder on the load path.
+  GAME_OF_ITS_OWN = <<~RUBY
+    require "ruby_gba"
+
+    game = RubyGBA.game "CHECKED" do
+      x = var :x, 0
+      game_loop { held(:right).then { x.add! 1 } }
+    end
+    run = RubyGBA::IR::Backends::Native::CheckedRun.new.hold(:right).run(game.program, frames: 6)
+    puts run[:x]
+    puts defined?(Minitest).inspect
+  RUBY
+
+  def test_a_game_of_its_own_plays_checked_with_only_the_library
+    out, err, status = Open3.capture3(RbConfig.ruby, "-I", LIB, "-", stdin_data: GAME_OF_ITS_OWN)
+
+    assert status.success?, "the game's own process failed:\n#{err}"
+    assert_equal %w[6 nil], out.lines(chomp: true), "x after six frames held right, and no minitest loaded"
+  end
 
   def test_a_run_both_agree_on_answers_like_the_native_one
     program = program_of do
       x = var :x, 0
       game_loop { held(:right).then { x.add! 1 } }
     end
-    run = CheckedNativeRun.new
+    run = CheckedRun.new
     run.input_each_frame { |_frame| run[:x] < 3 ? [:right] : [] }
 
     assert_equal 3, run.run(program, frames: 8)[:x]
@@ -35,11 +61,11 @@ class TestCheckedNativeRun < Minitest::Test
     end
     interpreter = Reference.new.hold(:right).run(program, max_steps: 60)
 
-    played = CheckedNativeRun.new.hold(:right).run(program, max_steps: 60)
+    played = CheckedRun.new.hold(:right).run(program, max_steps: 60)
 
     assert_operator interpreter[:x], :>, 2, "the budget should hold a few frames"
     assert_equal interpreter[:x], played[:x]
-    assert_equal interpreter.frame, CheckedNativeRun.last_frame(played.moments)
+    assert_equal interpreter.frame, CheckedRun.last_frame(played.moments)
   end
 
   # The interpreter has a held button down from the game's first statement, and the console has
@@ -51,7 +77,7 @@ class TestCheckedNativeRun < Minitest::Test
       game_loop {}
     end
 
-    played = CheckedNativeRun.new.hold(:a).run(program, frames: 2)
+    played = CheckedRun.new.hold(:a).run(program, frames: 2)
 
     assert_equal 1, Reference.new.hold(:a).run(program, frames: 2)[:early], "the interpreter's answer"
     assert_equal 1, played[:early]
@@ -82,7 +108,7 @@ class TestCheckedNativeRun < Minitest::Test
     builder.finalize_program
     program = builder.program
 
-    error = assert_raises(CheckedNativeRun::HeadlessRun::CannotAnswer) { CheckedNativeRun.new.run(program, max_steps: 60) }
+    error = assert_raises(CannotAnswer) { CheckedRun.new.run(program, max_steps: 60) }
 
     assert_match(/before it first waits for the screen/, error.message)
   end
@@ -98,7 +124,7 @@ class TestCheckedNativeRun < Minitest::Test
     builder.finalize_program
     program = builder.program
 
-    error = assert_raises(CheckedNativeRun::HeadlessRun::CannotAnswer) { CheckedNativeRun.new.run(program, frames: 4) }
+    error = assert_raises(CannotAnswer) { CheckedRun.new.run(program, frames: 4) }
 
     assert_match(/never waits for the screen/, error.message)
   end
@@ -110,7 +136,7 @@ class TestCheckedNativeRun < Minitest::Test
       repeat(5) { x.add! 3 }
     end
 
-    assert_equal 15, CheckedNativeRun.new.run(program, frames: 4)[:x]
+    assert_equal 15, CheckedRun.new.run(program, frames: 4)[:x]
   end
 
   # Watching a run leaves it a checked one: what each_vblank gives back is the checked run
@@ -122,7 +148,7 @@ class TestCheckedNativeRun < Minitest::Test
       game_loop { x.add! 2 }
     end
     seen = []
-    run = CheckedNativeRun.new
+    run = CheckedRun.new
 
     watched = run.each_vblank { |frame| seen << [frame, run[:x]] }
 
@@ -141,7 +167,7 @@ class TestCheckedNativeRun < Minitest::Test
     got = [agreed, Moment.new(frame: 2, variables: { x: 2 }, picture: 8, sounds: 2, sprites: [drawn(:coin, 8), drawn(:hero, 22)]),
            Moment.new(frame: 3, variables: { x: 2 }, picture: 9, sounds: 1, sprites: [])]
 
-    difference = CheckedNativeRun.first_difference(want, got)
+    difference = CheckedRun.first_difference(want, got)
 
     assert_match(/frame 2/, difference)
     assert_match(/x: C has 2, Reference 1/, difference)
@@ -156,7 +182,7 @@ class TestCheckedNativeRun < Minitest::Test
     got = [Moment.new(frame: 1, variables: {}, picture: 7, sounds: 0, sprites: [])]
 
     assert_match(/sprite 0 of those drawn: C has none, Reference :hero at \(20, 40\)/,
-                 CheckedNativeRun.first_difference(want, got))
+                 CheckedRun.first_difference(want, got))
   end
 
   # Every list and pool is compared on every frame, as the variables are.
@@ -166,7 +192,7 @@ class TestCheckedNativeRun < Minitest::Test
                  collections: { lists: { trail: trail }, pools: { guard: { x: guard_x, hp: [nil, 3] } } })
     end
 
-    difference = CheckedNativeRun.first_difference([moment.call([1, 2], [nil, 3])], [moment.call([1, 3], [nil, 4])])
+    difference = CheckedRun.first_difference([moment.call([1, 2], [nil, 3])], [moment.call([1, 3], [nil, 4])])
 
     assert_match(/list :trail: C has \[1, 3\], Reference \[1, 2\]/, difference)
     assert_match(/pool :guard field :x: C has \[nil, 4\], Reference \[nil, 3\]/, difference)
@@ -176,7 +202,7 @@ class TestCheckedNativeRun < Minitest::Test
   def test_runs_that_agree_have_no_difference
     same = [Moment.new(frame: 1, variables: { x: 0 }, picture: 7, sounds: 0, sprites: [drawn(:hero, 20)])]
 
-    assert_nil CheckedNativeRun.first_difference(same, same)
+    assert_nil CheckedRun.first_difference(same, same)
   end
 
   # A game that saves is replayed on the interpreter from the save memory the C started with. The
@@ -188,9 +214,9 @@ class TestCheckedNativeRun < Minitest::Test
       game_loop { best.add! 2 }
     end
     store = SaveImage.new
-    CheckedNativeRun.new(save: store).run(program, frames: 3)
+    CheckedRun.new(save: store).run(program, frames: 3)
 
-    again = CheckedNativeRun.new(save: store).run(program, frames: 2)
+    again = CheckedRun.new(save: store).run(program, frames: 2)
 
     assert_equal 15, again[:best]
     assert_equal 15, store.word(RubyGBA::IR::SaveLayout.save_var_at(0)), "the save memory handed in holds what the run left"
@@ -202,14 +228,14 @@ class TestCheckedNativeRun < Minitest::Test
     got = SaveImage.new(kilobytes: 32)
     got.write(0x1004, 9, 1)
 
-    assert_match(/save memory at 0x1004: C has 0x09, Reference 0x07/, CheckedNativeRun.save_difference(want, got))
-    assert_nil CheckedNativeRun.save_difference(want, want.dup)
+    assert_match(/save memory at 0x1004: C has 0x09, Reference 0x07/, CheckedRun.save_difference(want, got))
+    assert_nil CheckedRun.save_difference(want, want.dup)
   end
 
   def test_the_first_sound_they_disagree_on_is_named
-    difference = CheckedNativeRun.sounds_difference([[:enabled], [:note, :tune, 262]], [[:enabled], [:note, :tune, 294]])
+    difference = CheckedRun.sounds_difference([[:enabled], [:note, :tune, 262]], [[:enabled], [:note, :tune, 294]])
 
     assert_match(/entry 1 of the sound log: C has \[:note, :tune, 294\], Reference \[:note, :tune, 262\]/, difference)
-    assert_nil CheckedNativeRun.sounds_difference([[:enabled]], [[:enabled]])
+    assert_nil CheckedRun.sounds_difference([[:enabled]], [[:enabled]])
   end
 end
