@@ -141,7 +141,7 @@ The one honest way out is a test that **changes the whole process on purpose** �
 font or a guardrail, swapping a library method for a stub, declaring a class, asserting about
 the process's own output — or one that **starts a child process**, which Ruby cannot do from
 inside a Ractor (the spawn waits for ever; `test/tools/test_rakefile.rb` does it — a native
-test does too, and runs only on the native run, which uses threads instead). That class says `runs_on_the_main_ractor!` at the top, **with a line
+test does too, and runs only on the native run, which uses processes instead). That class says `runs_on_the_main_ractor!` at the top, **with a line
 saying why**, and runs before the pool starts. It is not somewhere to park a test nobody has
 looked at.
 
@@ -365,10 +365,22 @@ suffix on integer constant" on a line that only names a number the header define
 compiler itself before believing it, which takes a few seconds:
 `rake test:native TEST=test/ruby_gba/ir/backends/native/test_native_checker_flags.rb`.
 
-A native run puts tests side by side on threads, not Ractors (a Ractor cannot start the child
-processes a native test needs), so it never checks for shared state — `rake test` runs the same
-file and does. The native backend's own tests (`test/ruby_gba/ir/backends/native/`) say
-`runs_on :native` alone, and `rake test` loads them and runs nothing in them.
+**A native run plays its tests in several processes, not Ractors** (a Ractor cannot start the
+child processes a native test needs). `tools/parallel_test.rb` starts `TEST_PROCESSES` of them —
+as many as `rake test` has workers unless told otherwise — and hands them one test at a time, so
+one slow file never decides how long a run takes, even a run of that file alone. Each process
+sends its results back and the run prints them as one report: the same totals, failures, skips
+by reason and class counts one process would print. A process that dies under a test costs that
+test, reported as an error saying how it died, and a new one takes its place. Not threads: a
+native test is nearly all Ruby work, and threads take turns at that, so they bought next to
+nothing. A native run never checks for shared state — `rake test` runs the same file and does.
+The native backend's own tests (`test/ruby_gba/ir/backends/native/`) say `runs_on :native`
+alone, and `rake test` loads them and runs nothing in them.
+
+**A whole run of either suite has the machine to itself.** `rake test` and `rake test:native`
+each take one lock for the whole machine (`tools/suite_lock.rb`) before they start, so the
+second waits for the first and says which run it is waiting for. A run of one file (`TEST=`)
+does not take it.
 
 ## Which frame's numbers the picture was drawn from
 

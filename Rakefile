@@ -69,8 +69,16 @@ end
 ENV["MT_RACTOR_WORKERS"] ||= [Etc.nprocessors / 2, 1].max.to_s
 
 require_relative "test/support/suites"
+require_relative "tools/suite_lock"
 
-Rake::TestTask.new(test: %i[compile_emulator clear_coverage]) do |t|
+# A whole run of either suite waits for any other on the machine (tools/suite_lock.rb); a run of
+# one file goes ahead. The lock is held until rake ends, by keeping the file open: it is kept in
+# a variable so nothing closes it sooner.
+task :suite_lock do
+  @suite_lock = SuiteLock.hold("rake #{Rake.application.top_level_tasks.join(' ')}") unless ENV["TEST"]
+end
+
+Rake::TestTask.new(test: %i[suite_lock compile_emulator clear_coverage]) do |t|
   t.libs << "test" << "lib"
   # Every file, run on the interpreter; a class that names only native runs nothing here (see
   # TestSuites).
@@ -112,25 +120,29 @@ namespace :test do
     abort "rake test:native: #{e.message}"
   end
 
-  # ON THREADS, NOT RACTORS, unlike `rake test`. Every native test starts child processes — zig,
-  # and the program it builds — which Ruby cannot do from inside a Ractor (the spawn waits for
-  # ever), and can from a thread. So this run is plain minitest's, whatever the caller said about
-  # Ractors: tests side by side on threads, as many as `rake test` has workers, each mostly
-  # waiting on a program of its own. The cost is that a native run never checks a test for
-  # reaching state the whole process shares; a file opted in from the main suite is still
-  # checked for it by `rake test`, and the native lowering's own tests keep none.
+  # IN SEVERAL PROCESSES, NOT RACTORS, unlike `rake test`. Every native test starts child
+  # processes — zig, and the program it builds — which Ruby cannot do from inside a Ractor (the
+  # spawn waits for ever). So this run is plain minitest's, whatever the caller said about
+  # Ractors, and tools/parallel_test.rb plays its tests in TEST_PROCESSES processes, as many as
+  # `rake test` has workers unless told otherwise, and reports them as one run. Not threads: a
+  # native test is nearly all Ruby work, which threads take turns at, so they bought next to
+  # nothing. The cost is that a native run never checks a test for reaching state the whole
+  # process shares; a file opted in from the main suite is still checked for it by `rake test`,
+  # and the native lowering's own tests keep none.
   #
   # It also says the run is the native lowering's, which every test reads (TestSuites::LOWERING).
   task :native_run do
     ENV["TESTOPTS"] = (["--no-ractor"] + GIVEN_TESTOPTS.split - %w[--ractor]).uniq.join(" ")
-    ENV["MT_CPU"] ||= ENV.fetch("MT_RACTOR_WORKERS")
+    ENV["TEST_PROCESSES"] ||= ENV.fetch("MT_RACTOR_WORKERS")
+    ENV["MT_CPU"] = "1" # each process plays one test at a time
     ENV[TestSuites::LOWERING_SETTING] = "native"
   end
 
   # The emulator is built for it too: the cartridge's own sound, in the emulator, is the answer
   # key for the sound the desktop build makes (test/sound_comparison.rb).
-  Rake::TestTask.new(native: %i[zig compile_emulator native_run]) do |t|
+  Rake::TestTask.new(native: %i[suite_lock zig compile_emulator native_run]) do |t|
     t.libs << "test" << "lib"
+    t.ruby_opts << "-r#{File.expand_path('tools/parallel_test.rb', __dir__)}"
     t.test_files = TestSuites.files(desktop: ENV["SDL"] == "1")
     t.description = "Run the suite on the native lowering: the classes that say `runs_on :native` " \
                     "(needs zig, and the emulator for its sound). SDL=1 also builds and runs the " \
