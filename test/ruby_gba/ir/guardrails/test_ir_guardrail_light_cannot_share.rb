@@ -6,6 +6,7 @@ require "test_helper"
 # layer, a fade placed in the stack, a bitmap screen, or no frames to work the light out
 # before. Each is refused; a plain fade beside a light is not.
 class TestIrGuardrailLightCannotShare < Minitest::Test
+  runs_on :reference
   Check = RubyGBA::IR::Guardrails::Checks::LightCannotShare
 
   # A tiled room with a light, and +said+ run before the loop. +loop+ false leaves the game

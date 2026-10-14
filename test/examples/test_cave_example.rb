@@ -13,6 +13,7 @@ require_relative "../../examples/cave"
 # RIGHT takes the hero all the way out, and that the console draws the same picture on the
 # way.
 class TestCaveExample < Minitest::Test
+  runs_on :reference
   include Differential
 
   GRASS = [Color.rgb(6, 20, 6), Color.rgb(10, 26, 8)].freeze

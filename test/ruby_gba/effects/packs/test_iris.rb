@@ -9,6 +9,7 @@ require "differential"
 # the end of the frames asked for, open again at the end of the way back, part way between
 # on both backends alike — and a lantern the game had given back as it was.
 class TestIris < Minitest::Test
+  runs_on :reference
   include Differential
 
   WHITE = Color.resolve(:white)
