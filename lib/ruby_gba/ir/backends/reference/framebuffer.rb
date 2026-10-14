@@ -98,7 +98,7 @@ module RubyGBA
           end
 
           # WHERE DRAWING IS ALLOWED TO LAND, or nil for the whole picture. Everything that
-          # paints a cell goes through #in_bounds?, so saying it here says it once — and a
+          # paints a cell goes through #paintable?, so saying it here says it once — and a
           # backend that must instead work the same edges out per shape has this to agree with.
           def draw_inside(x, y, width, height)
             @area = [x, y, x + width, y + height]
@@ -233,7 +233,7 @@ module RubyGBA
           # backdrop along that edge, the same as a display with nothing left to fetch
           # there.
           def pixel(x, y)
-            return nil unless in_bounds?(x, y)
+            return nil unless on_screen?(x, y)
             return HELD_OFF if @held
 
             seen_x, seen_y = @block > 1 ? block_corner(x, y) : [x, y]
@@ -278,7 +278,7 @@ module RubyGBA
           # two-page screen that means the page being DRAWN into, which is the one the
           # engine is about to write over.
           def stored_pixel(x, y)
-            return nil unless in_bounds?(x, y)
+            return nil unless on_screen?(x, y)
 
             @pixels[(y * @width) + x]
           end
@@ -287,7 +287,7 @@ module RubyGBA
           # is #stored_pixel; on a two-page one it is the other page — the finished
           # picture, not the one being drawn.
           def shown_pixel(x, y)
-            return nil unless in_bounds?(x, y)
+            return nil unless on_screen?(x, y)
 
             @shown_pixels[(y * @width) + x]
           end
@@ -295,7 +295,7 @@ module RubyGBA
           # Paint one cell. Off-screen coordinates are dropped (see the class note
           # on edge-safety), so this never raises for a bad (x, y).
           def set_pixel(x, y, color)
-            return unless in_bounds?(x, y)
+            return unless paintable?(x, y)
 
             at = (y * @width) + x
             color = blend_into_cell(at, color)
@@ -539,12 +539,18 @@ module RubyGBA
             blended[0] | (blended[1] << 5) | (blended[2] << 10)
           end
 
-          def in_bounds?(x, y)
-            return false unless x >= 0 && x < @width && y >= 0 && y < @height
+          # Where a cell may be PAINTED: on the screen, and inside the area drawing is held to.
+          def paintable?(x, y)
+            return false unless on_screen?(x, y)
             return true unless @area
 
             x >= @area[0] && x < @area[2] && y >= @area[1] && y < @area[3]
           end
+
+          # Where a cell may be READ: anywhere on the screen. An area holds where drawing lands
+          # and nothing else — the display still shows the whole picture, and what is already
+          # there is still there to be read, whatever area is open when somebody looks.
+          def on_screen?(x, y) = x >= 0 && x < @width && y >= 0 && y < @height
         end
       end
     end

@@ -102,22 +102,6 @@ module RubyGBA
             told = nodes.select { |n| n.kind == :background_colors }.map(&:name) & shared
             refuse_picture!("two backgrounds with one name told other colors (#{told.first})") unless told.empty?
             refuse_picture!("more than #{MAX_SPRITES} sprites") if @sprites.size > MAX_SPRITES
-            if nodes.any? { |n| n.kind == :inside && frame_ends_under?(n) }
-              refuse_picture!("a frame that ends inside an `inside` block")
-            end
-          end
-
-          # Whether a frame can end while +node+ is running: it waits for the screen itself, or
-          # calls a routine that does. The interpreter reads the screen through the area an
-          # `inside` holds drawing to when it is read while the block is open (Framebuffer#pixel),
-          # and the C reads the whole screen, so a game that ends a frame there is refused.
-          def frame_ends_under?(node, asked = [])
-            statements = statements_under(node)
-            return true if statements.any? { |statement| statement.kind == :wait_vblank }
-
-            (routines_named(statements) - asked).any? do |name|
-              @funcs.key?(name) && frame_ends_under?(@funcs.fetch(name), asked << name)
-            end
           end
 
           # Reference#place_blocks: where this program's blocks stop. A program that pixelates
