@@ -34,11 +34,61 @@ class TestCheckedRun < Minitest::Test
     puts defined?(Minitest).inspect
   RUBY
 
+  # The same game where the two are made to disagree, by an interpreter whose top left pixel is
+  # always one colour off: a disagreement is reported with the library alone too, all the way to
+  # the replay that names the pixel, which only a run that fails ever reaches.
+  GAME_THAT_DISAGREES = <<~RUBY
+    require "ruby_gba"
+
+    module OnePixelOff
+      def shown = super.dup.tap { |pixels| pixels[0] ^= 1 }
+    end
+    RubyGBA::IR::Backends::Reference::Framebuffer.prepend(OnePixelOff)
+
+    game = RubyGBA.game "CHECKED" do
+      game_loop { pixel 10, 10, :red }
+    end
+    begin
+      RubyGBA::IR::Backends::Native::CheckedRun.new.run(game.program, frames: 3)
+      puts "agreed"
+    rescue RubyGBA::IR::Backends::Native::CheckedRun::Disagreement => e
+      puts e.message
+    end
+    puts defined?(Minitest).inspect
+  RUBY
+
   def test_a_game_of_its_own_plays_checked_with_only_the_library
     out, err, status = Open3.capture3(RbConfig.ruby, "-I", LIB, "-", stdin_data: GAME_OF_ITS_OWN)
 
     assert status.success?, "the game's own process failed:\n#{err}"
     assert_equal %w[6 nil], out.lines(chomp: true), "x after six frames held right, and no minitest loaded"
+  end
+
+  def test_a_disagreement_is_reported_with_only_the_library
+    out, err, status = Open3.capture3(RbConfig.ruby, "-I", LIB, "-", stdin_data: GAME_THAT_DISAGREES)
+
+    assert status.success?, "the game's own process failed:\n#{err}"
+    said, minitest = out.lines(chomp: true)
+    assert_match(/disagree at frame 1: the picture differs/, said)
+    assert_match(/the first at \(0, 0\)/, said, "the replay names the pixel")
+    assert_equal "nil", minitest
+  end
+
+  # The suite's own name for it reports a disagreement as a failed test, as every other check
+  # here fails, and not as an error.
+  def test_the_suites_checked_run_fails_a_test_on_a_disagreement
+    # An interpreter that remembers x wrong at the first frame.
+    wrapper = Class.new(CheckedNativeRun) do
+      def play_on_interpreter(...) = super.tap { |_, moments| moments.first.variables[:x] = 99 }
+    end
+    program = program_of do
+      x = var :x, 0
+      game_loop { x.add! 1 }
+    end
+
+    error = assert_raises(Minitest::Assertion) { wrapper.new.run(program, frames: 2) }
+
+    assert_match(/x: C has \d+, Reference 99/, error.message)
   end
 
   def test_a_run_both_agree_on_answers_like_the_native_one
