@@ -139,12 +139,15 @@ module RubyGBA
           # white is a change of BRIGHTNESS, which a display can do to a finished picture,
           # while moving it toward red means mixing red IN.
           #
+          # This is the tint the display mixes in as it draws, on a screen that holds a whole
+          # color in every pixel (see #mixed_by_display).
+          #
           # A display holds ONE such effect at a time, so setting a tint puts away
           # whatever fade was in force and the other way round. That is the display's own
           # rule rather than a simplification here, and modelling it is what stops a
           # program looking right on one backend and wrong on another.
           def tint_to(color, amount)
-            tint_steps_to(color, FadeSteps.steps(amount, fraction_bits: nil, walked: true))
+            tint_steps_to(color, FadeSteps.steps(amount, fraction_bits: nil, walked: true), by_display: true)
           end
 
           # The same, said in thirty-seconds. A tint is counted that finely because a fade
@@ -156,9 +159,14 @@ module RubyGBA
           # effect as a tint, counted as finely, but rounded the way the console's documented
           # fade rounds, with a share taken away rather than kept (see Reference#fade_by_tint
           # and IR::Backends::GBA::PaletteTint::DARKEN).
-          def tint_steps_to(color, steps)
+          #
+          # +by_display+ says the display mixes the tint in as it draws, rather than the game
+          # writing tinted colors into the table; the two round differently (see
+          # #mixed_by_display).
+          def tint_steps_to(color, steps, by_display: false)
             @tint_color = color
             @tint_steps = steps
+            @tint_by_display = by_display
             @fade_steps = 0
           end
 
@@ -413,27 +421,24 @@ module RubyGBA
           # the way to black comes back 24, where keeping three quarters would leave 23.
           def faded(color)
             return walked_toward(color, @tint_color, @tint_steps) if @tint_color.is_a?(Symbol)
+            return mixed_by_display(color, @tint_color, @tint_steps) if @tint_color && @tint_by_display
             return mixed(color, @tint_color, @tint_steps) if @tint_color
 
             faded_by_display(color, @fade_toward, @fade_steps)
           end
 
-          # One color mixed toward another, the way a display's blend unit does it: each
-          # channel takes its share of the picture and its share of the other color, the
-          # two are ADDED, and only then is the fraction dropped.
+          # One color mixed toward another in five bits a channel, the arithmetic a tint that
+          # walks the color table writes its colors with: each channel takes its share of the
+          # picture and its share of the other color, the two are ADDED, and only then is the
+          # fraction dropped.
           #
-          # WHERE THE TRUNCATION FALLS IS THE WHOLE OF IT, and it is not the same as the
-          # brightness blend below. Truncating each share on its own and adding them can
-          # land a whole step lower — white mixed half way toward red keeps 30 of its red
-          # that way and 31 this way — so a picture where both sides have something in a
-          # channel comes out different. Measured on hardware, which is where this
-          # rounding is decided; matching it exactly is what lets a test name one
-          # expected color and assert it on both backends.
+          # WHERE THE TRUNCATION FALLS IS THE WHOLE OF IT. Truncating each share on its own
+          # and adding them can land a whole step lower — white mixed half way toward red
+          # keeps 30 of its red that way and 31 this way — so a picture where both sides
+          # have something in a channel comes out different.
           #
           # The two shares are in thirty-seconds and always add to thirty-two, so no channel
-          # can come out above its limit and there is nothing to clamp. The display's blend
-          # counts in sixteenths, and those are the even thirty-seconds: halving both shares
-          # and the whole leaves every answer as it was.
+          # can come out above its limit and there is nothing to clamp.
           def mixed(color, toward, steps)
             return color if steps.zero?
 
@@ -444,6 +449,29 @@ module RubyGBA
               have = (color >> shift) & CHANNEL_MAX
               want = (toward >> shift) & CHANNEL_MAX
               packed |= (((have * keep) + (want * steps)) / TINT_STEPS) << shift
+            end
+            packed
+          end
+
+          # The same mix as the display's blend unit does it as it draws, THE WAY THE
+          # EMULATOR THIS IS CHECKED AGAINST WORKS IT OUT: each channel widened to eight bits
+          # first (see #mix_see_through), the two shares added there and the fraction
+          # dropped, and only then back to five. So it is a step higher than #mixed wherever
+          # the bits five bits throw away would have carried — a channel at 16 taken half way
+          # toward 31 is 24 here and 23 there.
+          #
+          # The display counts in sixteenths, and those are the even thirty-seconds +steps+
+          # is said in: halving both shares and the whole leaves every answer as it was.
+          def mixed_by_display(color, toward, steps)
+            return color if steps.zero?
+
+            keep = TINT_STEPS - steps
+            packed = 0
+            3.times do |channel|
+              shift = channel * 5
+              have = widen_channel((color >> shift) & CHANNEL_MAX)
+              want = widen_channel((toward >> shift) & CHANNEL_MAX)
+              packed |= ((((have * keep) + (want * steps)) / TINT_STEPS) >> 3) << shift
             end
             packed
           end

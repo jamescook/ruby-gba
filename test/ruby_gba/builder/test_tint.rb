@@ -12,11 +12,11 @@ class TestTint < Minitest::Test
   include Differential
 
   # A green screen and one tint, as the DSL writes it.
-  def tinted(color, amount, screen_kind: :bitmap, tear_free: false)
+  def tinted(color, amount, screen_kind: :bitmap, tear_free: false, under: :green)
     b = RubyGBA::Builder.new
     b.instance_eval do
       screen screen_kind, tear_free: tear_free
-      clear_screen :green
+      clear_screen under
       tint color, amount
       halt
     end
@@ -41,9 +41,8 @@ class TestTint < Minitest::Test
     assert_equal RED, shown(tinted(:red, 100))
   end
 
-  # Half way is NOT "half of each channel rounded once". The display takes each side's
-  # share separately and truncates each before adding, which is why this is 0x01ef and
-  # not something a simpler formula would give.
+  # Half way, a channel at the top and one at nothing meet at 15, not 16: the fraction is
+  # dropped, so green loses its half step and red does not gain one.
   def test_half_way_mixes_the_two_a_channel_at_a_time
     assert_equal 0x01EF, shown(tinted(:red, 50))
   end
@@ -100,11 +99,59 @@ class TestTint < Minitest::Test
     end
   end
 
-  # The whole screen, not the five pixels above. `blended:` allows the emulator its
-  # coarser blend (see Differential::EMULATOR_BLEND_SLACK); the exact arithmetic is what
-  # the per-color assertions above pin.
+  # The whole screen, not the five pixels above.
   def test_the_console_agrees_over_the_whole_screen
-    assert_backends_agree(tinted(:red, 50), frames: 2, blended: true)
+    assert_backends_agree(tinted(:red, 50), frames: 2)
+  end
+
+  # A gray of 16 in every channel tinted half way to yellow. The display mixes at eight
+  # bits a channel, which makes red and green 24; mixed at five bits they would be 23, a
+  # step darker. Blue goes half way to nothing, 8 either way.
+  MID_GRAY = 16 | (16 << 5) | (16 << 10)
+
+  def test_a_tint_mixes_at_eight_bits_as_the_console_does
+    program = tinted(:yellow, 50, under: MID_GRAY)
+
+    assert_backends_agree(program, frames: 2)
+    assert_equal 24 | (24 << 5) | (8 << 10), shown(program)
+  end
+
+  # MID_GRAY tinted half way to yellow, painted on every frame: the tear-free screen keeps
+  # two pictures and shows them in turn, so one painted once would show only half the time.
+  def gray_redrawn_under_yellow
+    b = RubyGBA::Builder.new
+    b.instance_eval do
+      screen :bitmap, tear_free: true
+      tint :yellow, 50
+      game_loop { clear_screen MID_GRAY }
+    end
+    b.finalize_program
+    b.program
+  end
+
+  # ...and on a tiled screen, which has no picture to clear: a background of gray tiles.
+  def gray_tiles_under_yellow
+    b = RubyGBA::Builder.new
+    b.instance_eval do
+      screen :tiled
+      image(:gray, "#" => MID_GRAY) { "########\n" * 8 }
+      tiles :grays, "#" => :gray
+      background :floor, tiles: :grays, map: Array.new(20) { "#" * 30 }
+      tint :yellow, 50
+      game_loop {}
+    end
+    b.finalize_program
+    b.program
+  end
+
+  # The same tint on a screen drawn through a color table is the game's own work: it
+  # writes the tinted colors into the table in five bits, and the display shows them as
+  # they are. So there red and green stop a step short, at 23.
+  def test_a_tint_on_a_color_table_is_mixed_at_five_bits
+    { tear_free: gray_redrawn_under_yellow, tiled: gray_tiles_under_yellow }.each do |kind, program|
+      assert_backends_agree(program, frames: 2, name: "TABLE")
+      assert_equal 23 | (23 << 5) | (8 << 10), shown(program), "on the #{kind} screen"
+    end
   end
 
   # A tint the game works out is converted as the program runs, which is a different

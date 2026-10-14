@@ -2010,6 +2010,12 @@ module RubyGBA
         # blends it, the amount is a whole percentage or is counted in sixteenths, and a
         # sixteenth is two thirty-seconds.
         #
+        # The display blends it only on the plain bitmap screen, which holds a whole color
+        # in every pixel. Every other screen draws through a color table, and there the game
+        # writes the tinted colors into the table itself, so they round the way the game's
+        # own arithmetic does rather than the display's. Which one a tint is follows the
+        # screen it was written for, as the lowering decides it (IR::Fading#display_tint?).
+        #
         # A TINT TAKES THE PLACE OF WHATEVER FADE WAS IN FORCE, a fade placed in the stack
         # included: a picture has one such effect at a time, and the last one said is it.
         # A fade that goes may have been holding a see-through layer solid, or have been
@@ -2020,7 +2026,8 @@ module RubyGBA
           @fade_placed = nil
           walked = @fading.palette_walk?(node)
           steps = FadeSteps.steps(eval_value(node.amount), fraction_bits: node.fraction_bits, walked: walked)
-          @screen.tint_steps_to(Graphics::Color.resolve(node.color), FadeSteps.in_walk_steps(steps, !walked))
+          @screen.tint_steps_to(Graphics::Color.resolve(node.color), FadeSteps.in_walk_steps(steps, !walked),
+                                by_display: @fading.display_tint?(node))
           request_repaint if was_placed || (@see_through && fading? != was_fading)
         end
 

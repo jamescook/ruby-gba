@@ -530,7 +530,7 @@ class TestLayerTransparency < Minitest::Test
 
     [3, 6].each do |frames|
       assert_equal [rgb5(*BLUE_FADED)], Reference.new.run(title, frames: frames).screen.shown.uniq
-      assert_backends_agree(title, frames: frames, console_frames: frames + 2, blended: true)
+      assert_backends_agree(title, frames: frames, console_frames: frames + 2)
     end
   end
 
@@ -551,13 +551,13 @@ class TestLayerTransparency < Minitest::Test
   def test_a_fade_left_on_stays_as_a_see_through_screen_takes_over
     room = faded_title_then_misty_room
     [2, 3, 4, 5, 8].each do |frames|
-      assert_backends_agree(room, frames: frames, console_frames: frames + 1, blended: true)
+      assert_backends_agree(room, frames: frames, console_frames: frames + 1)
     end
   end
 
   # Both backends agree on the game at each of +frames+, a fade or a see-through mix in force.
   def assert_backends_agree_through_the_fade(game, frames)
-    frames.each { |at| assert_backends_agree(game, frames: at, console_frames: at + 1, blended: true) }
+    frames.each { |at| assert_backends_agree(game, frames: at, console_frames: at + 1) }
   end
 
   # The same in a game whose rooms each tell the display what they blend on every pass: the
@@ -623,7 +623,7 @@ class TestLayerTransparency < Minitest::Test
 
   def test_a_tint_takes_the_place_of_a_fade_placed_in_the_stack
     game = placed_fade_then_a_tint
-    [2, 4, 5, 7, 8, 10].each { |frames| assert_backends_agree(game, frames: frames, blended: true) }
+    [2, 4, 5, 7, 8, 10].each { |frames| assert_backends_agree(game, frames: frames) }
 
     assert_equal rgb5(8, 4, 1), Reference.new.run(game, frames: 5).screen.pixel(200, 100), "solid and dark under the fade"
     assert_equal seen_through_mist, Reference.new.run(game, frames: 10).screen.pixel(200, 100), "seen through after the tint"

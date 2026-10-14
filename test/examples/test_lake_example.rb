@@ -99,20 +99,14 @@ class TestLakeExample < Minitest::Test
   # was not blending would put its own flat colour on screen and no blend anywhere.
   #
   # The water is drawn in three shades, so a bell can be over any of them — hence a set to
-  # look for rather than one number. And the emulator blends in eight bits where the
-  # console blends in five, so it may read a step high on a channel; the exact arithmetic
-  # is what the interpreter assertions above pin, and this asks only that the blend
-  # happened at all (see Differential::EMULATOR_BLEND_SLACK).
+  # look for rather than one number.
   BELL_OVER_ANY_WATER = [WATER, RubyGBA::Graphics::Color.rgb(8, 14, 27), RubyGBA::Graphics::Color.rgb(10, 17, 29)]
                         .map { |shade| blend(BELL, shade) }.freeze
 
   def test_the_console_blends_the_jellyfish_into_the_lake
     seen = RubyGBA::Diagnostics::Verifier.new(assemble_rom(Lake.program, name: "LAKE"), frames: 9).frame_gba.uniq
-    blended = seen.any? do |shown|
-      BELL_OVER_ANY_WATER.any? { |want| within_slack?(want, shown, EMULATOR_BLEND_SLACK) }
-    end
 
-    assert blended, "the console draws a bell with the water mixed in"
+    refute_empty seen & BELL_OVER_ANY_WATER, "the console draws a bell with the water mixed in"
     refute_includes seen, BELL, "and no pixel of a bell is its own colour"
   end
 
@@ -129,8 +123,7 @@ class TestLakeExample < Minitest::Test
   # The console is run TWO frames longer, not the usual one: this example uploads three
   # backgrounds and a sprite sheet before it reaches its first pass, which is more than a
   # bare tiled program does (Differential::BOOT_FRAMES). Measured, by sweeping the pairing.
-  # +blended+ is the emulator's own rounding where a bell mixes with the water.
   def test_the_two_backends_draw_the_same_lake
-    assert_backends_agree(Lake.program, frames: 8, console_frames: 10, blended: true, name: "LAKE")
+    assert_backends_agree(Lake.program, frames: 8, console_frames: 10, name: "LAKE")
   end
 end

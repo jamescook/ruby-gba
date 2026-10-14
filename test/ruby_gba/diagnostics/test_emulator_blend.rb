@@ -2,23 +2,15 @@
 
 require "test_helper"
 require "emulator_blend"
-require "differential"
 
 # The interpreter's display effects against the emulator's own arithmetic, over the whole
 # domain rather than sampled: every 5-bit channel value against every amount.
 #
-# A FADE is exact. The interpreter works the display's fade out the way the emulator does
-# — at eight bits a channel, with green and blue rounding the other way from red, so one
-# gray faded a quarter of the way to black is 24, 23, 23 — and this holds it to that at
-# every value, amount and channel, both ways.
-#
-# A TINT is not yet, and that is what Differential::EMULATOR_BLEND_SLACK is still for: the
-# interpreter mixes a tint at five bits, and the emulator reads up to a step higher. This
-# asserts the bound holds everywhere and is tight, so the slack cannot quietly cover more
-# than it was measured to.
+# Both are exact. The interpreter works the display's fade and tint out the way the
+# emulator does — at eight bits a channel, and for the fade with green and blue rounding
+# the other way from red, so one gray faded a quarter of the way to black is 24, 23, 23 —
+# and this holds it to that at every value, amount and channel.
 class TestEmulatorBlend < Minitest::Test
-  include Differential
-
   Framebuffer = RubyGBA::IR::Backends::Reference::Framebuffer
 
   CHANNELS = (0..31).to_a.freeze
@@ -94,23 +86,17 @@ class TestEmulatorBlend < Minitest::Test
     assert_empty off.first(5), "#{off.size} channels differ from the emulator's fade"
   end
 
-  # The tint reads the same or higher on the emulator, never lower, and never by more
-  # than the slack.
-  def test_the_emulator_never_reads_a_tint_below_the_interpreter
-    worst = each_tint_deviation.min_by { |delta, _| delta }
+  def test_the_interpreter_tints_exactly_as_the_emulator_does
+    off = each_tint_deviation.reject { |delta, _| delta.zero? }
 
-    assert_operator worst.first, :>=, 0,
-                    "the emulator read #{worst.first} steps low at #{worst.last.inspect}"
+    assert_empty off.first(5), "#{off.size} channels differ from the emulator's tint"
   end
 
-  # The slack is not larger than it needs to be. If this fails because the worst case
-  # shrank, tighten EMULATOR_BLEND_SLACK to match — a slack wider than the measurement is
-  # coverage given away for nothing.
-  def test_the_slack_is_the_worst_a_tint_reads_high
-    worst = each_tint_deviation.max_by { |delta, _| delta }
-
-    assert_equal EMULATOR_BLEND_SLACK, worst.first,
-                 "the emulator reads a tint at most #{worst.first} steps high, at #{worst.last.inspect}"
+  # The case that shows the widening, pinned as a number rather than against the
+  # transcription: a channel at 16 mixed half way toward 31 is 24 at eight bits, where five
+  # bits say 23.
+  def test_a_channel_half_way_from_sixteen_to_the_top_is_twenty_four
+    assert_equal 24, channel_of(console_tints(16, 31, 50), 0)
   end
 
   # The quirk the fade has to copy, pinned so it cannot change unnoticed: the emulator

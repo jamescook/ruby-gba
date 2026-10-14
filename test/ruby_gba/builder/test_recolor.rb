@@ -196,9 +196,7 @@ class TestRecolor < Minitest::Test
       (ship.x < 43).then { tint :red, 50 }.else { fade :black, 50 }
     end
 
-    # The fade is the display's own blend, which the emulator rounds a step off (see
-    # Differential::EMULATOR_BLEND_SLACK): a list put back in the wrong colors is far outside it.
-    [2, 4, 6].each { |frames| assert_backends_agree(lifted, frames: frames, blended: true) }
+    [2, 4, 6].each { |frames| assert_backends_agree(lifted, frames: frames) }
   end
 
   # --- pools ---

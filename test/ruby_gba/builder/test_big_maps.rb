@@ -282,7 +282,7 @@ class TestBigMaps < Minitest::Test
   def test_the_frame_an_area_arrives_shows_all_of_both_layers
     [false, true].each do |tinted|
       prog = two_layers_between_areas(tinted: tinted)
-      AROUND_EACH_WALK.each { |frames| assert_backends_agree(prog, frames: frames, name: "BIG2", blended: tinted) }
+      AROUND_EACH_WALK.each { |frames| assert_backends_agree(prog, frames: frames, name: "BIG2") }
     end
   end
 

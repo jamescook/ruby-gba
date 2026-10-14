@@ -39,26 +39,6 @@ module Differential
     rotozoom: 1, # the other tile screen, and it boots the same
   }.freeze
 
-  # Run +program+ on both backends and assert they draw exactly the same screen.
-  #
-  # +frames+ is how many frames the INTERPRETER plays; the console is run for the
-  # matching number (see BOOT_FRAMES). For a program that halts or sits still the
-  # count barely matters; for an animated one it selects which frame is compared.
-  # +blended+ says the picture has a display effect on it that the interpreter still works
-  # out in five bits — a tint — which needs a step of slack for a reason that is about the
-  # EMULATOR rather than the program.
-  #
-  # The emulator is built for 32-bit color, so it widens each channel to eight bits and
-  # blends there, and it divides the RED channel on its raw byte while dividing green and
-  # blue on their shifted fields, which are 256 times finer. The interpreter works a FADE
-  # out the same way and needs no slack for one. It still mixes a TINT in five bits, which
-  # the emulator reads up to a step higher.
-  #
-  # The bound is PROVED, not sampled: test_emulator_blend.rb walks every 5-bit value
-  # against every amount and asserts the fade is exact and the tint never further out than
-  # this, so the slack cannot quietly cover more than it was measured to.
-  EMULATOR_BLEND_SLACK = 1
-
   # A button name as the console's key bit, for holding buttons on both backends.
   KEY_BITS = RubyGBA::IR::Buttons::NAMES.to_h do |name|
     [name, RubyGBA::Console::Hardware.const_get(:"KEY_#{name.to_s.upcase}")]
@@ -66,11 +46,21 @@ module Differential
 
   class OverBudget < StandardError; end
 
+  # Run +program+ on both backends and assert they draw exactly the same screen.
+  #
+  # +frames+ is how many frames the INTERPRETER plays; the console is run for the
+  # matching number (see BOOT_FRAMES). For a program that halts or sits still the
+  # count barely matters; for an animated one it selects which frame is compared.
   # +keys+ are buttons held for the whole run, on both backends.
-  def assert_backends_agree(program, frames: 4, name: "DIFF", console_frames: nil, blended: false, keys: [])
+  #
+  # Every pixel is held to exactly the same color, display effects included. The emulator
+  # is built for 32-bit color, so it widens each channel to eight bits and fades, tints and
+  # sees through there, and the interpreter works each of those out the same way —
+  # test_emulator_blend.rb holds it to that at every value and every amount.
+  def assert_backends_agree(program, frames: 4, name: "DIFF", console_frames: nil, keys: [])
     oracle, console, ran = backend_pictures(program, frames: frames, name: name,
                                             console_frames: console_frames, keys: keys)
-    bad = mismatched_pixels(oracle, console, slack: blended ? EMULATOR_BLEND_SLACK : 0)
+    bad = mismatched_pixels(oracle, console)
     return if bad.empty?
 
     flunk mismatch_report(bad, oracle, console, ran, console_frames || console_frames_for(program, frames))
@@ -201,22 +191,11 @@ module Differential
   end
 
   # Every pixel the two disagree on, as [x, y, interpreter_color, console_color].
-  # +slack+ is how many steps the emulator is allowed to be out in a channel, either way;
-  # 0 means the colors have to be identical (see EMULATOR_BLEND_SLACK).
-  def mismatched_pixels(oracle, console, slack: 0)
+  def mismatched_pixels(oracle, console)
     (0...PIXELS).filter_map do |i|
       next if oracle[i] == console[i]
-      next if slack.positive? && within_slack?(oracle[i], console[i], slack)
 
       [i % SCREEN_W, i / SCREEN_W, oracle[i], console[i]]
-    end
-  end
-
-  # Is every channel of the emulator's color within +slack+ steps of the interpreter's?
-  def within_slack?(want, got, slack)
-    3.times.all? do |channel|
-      shift = channel * 5
-      (((got >> shift) & 0x1F) - ((want >> shift) & 0x1F)).abs <= slack
     end
   end
 

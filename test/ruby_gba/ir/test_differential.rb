@@ -97,7 +97,7 @@ class TestDifferential < Minitest::Test
         fill_rect 100, 60, 40, 24, Color.resolve(:green)
         tint :orange, amount
         halt
-      end, name: "TINT", blended: true)
+      end, name: "TINT")
     end
   end
 
