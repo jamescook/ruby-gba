@@ -37,6 +37,10 @@ extern const rg_driver *rg_active_driver;
  * frame that is starting (rg_runtime.c works that out, the same for every driver). */
 void rg_buttons_read(uint32_t held);
 
+/* Buttons down from power-on, before the game's first statement: a driver says so before it starts
+ * the game. None of them counts as pressed until the first frame boundary reads it down. */
+void rg_buttons_held_from_power_on(uint32_t held);
+
 /* What every driver does as a frame begins, after deciding to play it: the picture's work for
  * the frame boundary, then one frame of the music — the interpreter's order. */
 void rg_frame_begins(void);
