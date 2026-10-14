@@ -290,6 +290,9 @@ void rg_screen_camera(int32_t x, int32_t y) {
   camera_y = y;
 }
 
+int32_t rg_screen_camera_x(void) { return camera_x; }
+int32_t rg_screen_camera_y(void) { return camera_y; }
+
 /* Framebuffer#paged=. Going to two pages, the one drawn so far goes on being drawn into and a
  * blank one is shown, which is what the console does on the way in. Going back to one, the two
  * are the page holding the drawing. */

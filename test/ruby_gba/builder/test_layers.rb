@@ -10,7 +10,7 @@ require "test_helper"
 # test_layer_guardrails.rb. What each layer becomes on a console, and the drawing order
 # that follows from it, is asserted with the backends.
 class TestLayers < Minitest::Test
-  runs_on :reference
+  runs_on :reference, :native
 
   def program(&block)
     b = Builder.new
@@ -282,7 +282,7 @@ class TestLayers < Minitest::Test
   end
 
   def shown_where_they_overlap(kind)
-    Reference.new.run(two_reversed_sprites(kind), frames: 3)
+    game_player.run(two_reversed_sprites(kind), frames: 3)
              .screen.pixel(OVERLAP[0] + 3, OVERLAP[1] + 3)
   end
 
@@ -352,7 +352,7 @@ class TestLayers < Minitest::Test
   # stack it declares — the sprite in :actors is drawn where it was put.
   def test_a_layered_game_draws_on_the_reference_interpreter
     prog = stacked_game { game_loop { nil } }
-    i = Reference.new.run(prog, max_steps: 200_000)
+    i = game_player.run(prog, max_steps: 200_000)
 
     assert_equal RubyGBA::Graphics::Color.resolve(:red), i.screen.pixel(104, 64)
   end

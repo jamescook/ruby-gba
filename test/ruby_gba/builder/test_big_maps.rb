@@ -9,7 +9,7 @@ require "differential"
 # cells coming into view as the view moves. Nothing in the program says so: the map is
 # written at its size and scrolled like any other.
 class TestBigMaps < Minitest::Test
-  runs_on :reference
+  runs_on :reference, :native
 
   include Differential
 
@@ -83,7 +83,7 @@ class TestBigMaps < Minitest::Test
   # map coming round again from its other side.
   def test_past_the_edge_of_a_big_map_shows_nothing
     prog = walk(0, 0, start: [-40, -40])
-    shown = Reference.new.run(prog, frames: 2).screen
+    shown = game_player.run(prog, frames: 2).screen
     refute_includes [RED, Color.resolve(:green), Color.resolve(:blue), Color.resolve(:white)],
                     shown.pixel(10, 10)
     assert_backends_agree(prog, frames: 2, name: "BIGE")
@@ -168,7 +168,7 @@ class TestBigMaps < Minitest::Test
   # smaller room does not cost a big one's room in the cartridge either.
   def test_a_small_room_beside_a_big_one_stops_at_its_own_edge
     refute_includes [RED, Color.resolve(:green), Color.resolve(:blue), Color.resolve(:white)],
-                    Reference.new.run(edge_of_hut, frames: 2).screen.pixel(200, 10)
+                    game_player.run(edge_of_hut, frames: 2).screen.pixel(200, 10)
   end
 
   def edge_of_hut
@@ -290,7 +290,7 @@ class TestBigMaps < Minitest::Test
 
   def test_those_walks_change_the_whole_picture
     prog = two_layers_between_areas
-    before, after = [4, 6].map { |frames| Reference.new.run(prog, frames: frames).screen.shown }
+    before, after = [4, 6].map { |frames| game_player.run(prog, frames: frames).screen.shown }
 
     assert_operator before.zip(after).count { |was, is| was != is }, :>, 30_000
   end
@@ -381,7 +381,7 @@ class TestBigMaps < Minitest::Test
   end
 
   def test_a_wall_deep_in_a_bigger_room_stops_a_mover
-    assert_equal (70 * 8) - 8, Reference.new.run(wall_deep_in_a_bigger_room, frames: 30)[:stood]
+    assert_equal (70 * 8) - 8, game_player.run(wall_deep_in_a_bigger_room, frames: 30)[:stood]
   end
 
   def test_both_backends_stop_the_mover_at_that_wall
