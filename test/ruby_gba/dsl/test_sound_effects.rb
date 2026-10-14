@@ -70,6 +70,15 @@ class TestSoundEffects < Minitest::Test
                  notes_by_frame(program, 80))
   end
 
+  # The same Score named as a tune comes round, as any tune does: played as an effect it is walked
+  # once as written, and played as a tune it is put right for coming round.
+  def test_an_effect_named_as_a_tune_comes_round
+    program = game([every_ten_ticks(:C5, :E5, length: 5)]) { |_sfx, pass| (pass == 1).then { play_song :"sfx.0" } }
+    starts = notes_by_frame(program, 80).values.flatten(1).count([:"sfx.0", NOTES[:C5]])
+
+    assert_operator starts, :>=, 2, "the tune plays its first note again each time it comes round"
+  end
+
   # --- over the song, on the same voice ---
 
   # The song's one part sounds on frames 2, 22 and 42; the effect, on the same voice, from frame

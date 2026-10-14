@@ -134,21 +134,21 @@ module RubyGBA
 
           # Every sound effect, in the order declared, as the player reads it (see the layout atop
           # runtime/rg_sound.c): whether any of them plays the wave voice, which changes how that
-          # voice's waveform is put in; then each one's song, rank, group and priority; and then the
-          # effects again, highest rank first, which is the order a frame plays them in.
+          # voice's waveform is put in; then each one's song, where its notes are, rank, group and
+          # priority; and then the effects again, highest rank first, which is the order a frame
+          # plays them in.
           def effects_table
-            songs = @sound_log.sound_effects.map { |name| sound_effect_song(name) }
+            songs = @sound_log.sound_effects.map { |name| @sound_log.song(name) }
             groups = songs.filter_map(&:group).uniq
             rows = songs.each_with_index.map do |song, order|
               rank = Tunes.effect_rank(song, order)
-              [@sound_log.song_number(song.name), rank, song.group ? groups.index(song.group) : -1, Tunes.priority_of(rank)]
+              [@sound_log.song_number(song.name), effect_notes_number(song.name), rank,
+               song.group ? groups.index(song.group) : -1, Tunes.priority_of(rank)]
             end
             by_rank = Tunes.effects_by_rank(songs).map { |name, _| @sound_log.effect_number(name) }
             plays_wave = songs.any? { |song| Tunes.parts_on(song, :wave).positive? }
             sound_table("effects", [rows.size, plays_wave ? 1 : 0, *rows.flatten, *by_rank])
           end
-
-          def sound_effect_song(name) = @sound_log.songs.fetch(@sound_log.song_number(name))
 
           # The player reads the music volume the game keeps, when it keeps one: a game that never
           # says `music_volume` plays every part at its written volume with nothing worked out.
@@ -234,28 +234,35 @@ module RubyGBA
           # Every song, as the runtime reads them: how many there are, where each starts, and
           # then the songs.
           def music_table
-            songs = @sound_log.songs.map { |song| encoded_song(song) }
+            songs = @sound_log.songs.map { |song| encoded_song(song, Tunes.loop_passes(song)) }
+            effects = @sound_log.sound_effects.map { |name| encoded_effect(@sound_log.song(name)) }
             starts = []
-            at = 1 + songs.size # past the count and the starts themselves
-            songs.each do |numbers|
+            at = 1 + songs.size + effects.size # past the count and the starts themselves
+            (songs + effects).each do |numbers|
               starts << at
               at += numbers.size
             end
-            sound_table("music", [songs.size, *starts, *songs.flatten])
+            sound_table("music", [songs.size + effects.size, *starts, *songs.flatten, *effects.flatten])
           end
 
+          # A SOUND EFFECT'S NOTES, written again after every song. It plays once and never comes
+          # round, so each part is its notes as written, as the interpreter's player walks them —
+          # where the same Score played as a tune (a game may name it in `play_song`) is put right
+          # for coming round (Tunes.loop_passes), which can add a rest the effect does not have.
+          def encoded_effect(song)
+            encoded_song(song, song.voices.map { |part| Tunes::Pass.new(first: part.events, again: []) })
+          end
+
+          # Where each effect's notes are in the music table: after every song, in the order the
+          # effects were declared.
+          def effect_notes_number(name) = @sound_log.songs.size + @sound_log.effect_number(name)
+
           # One song as numbers: its length, where it loops from, whether it plays once and ends,
-          # its rank, and each part, with its notes the first time through and every time after.
-          # Every song the game declares is written, played or not, so the numbering is the one
-          # SoundLog gives. A sound effect plays once and never comes round, so each of its parts
-          # is its notes as written, as the interpreter's player walks them.
-          def encoded_song(song)
+          # its rank, and each part, with its notes the first time through and every time after
+          # (+passes+). Every song the game declares is written, played or not, so the numbering is
+          # the one SoundLog gives.
+          def encoded_song(song, passes)
             lanes = 0
-            passes = if @sound_log.sound_effects.include?(song.name)
-                       song.voices.map { |part| Tunes::Pass.new(first: part.events, again: []) }
-                     else
-                       Tunes.loop_passes(song)
-                     end
             parts = song.voices.each_with_index.zip(passes).map do |(part, number), pass|
               lane = Tunes.part_kind(part) == :recorded ? (lanes += 1) - 1 : nil
               encoded_part(part, number, pass, lane)
