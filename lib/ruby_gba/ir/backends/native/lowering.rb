@@ -44,7 +44,8 @@ module RubyGBA
                                                  clamp: ->(n) { [n.var] }, copy: ->(n) { [n.dest, n.src] },
                                                  var_ref: ->(n) { [n.name] }, repeat: ->(n) { [n.index].compact },
                                                  every: ->(n) { [n.counter] }, after: ->(n) { [n.counter] },
-                                                 case: ->(n) { [n.var] }, scroll_rows: ->(n) { [n.row] }
+                                                 case: ->(n) { [n.var] }, scroll_rows: ->(n) { [n.row] },
+                                                 copy_owed_tiles: ->(n) { n.masks }
                                                })
 
           STATEMENTS = Ractor.make_shareable({
@@ -75,6 +76,8 @@ module RubyGBA
                                                scroll_rows: :lower_scroll_rows,
                                                set_tile: :lower_set_tile, show_map: :lower_show_map,
                                                background_colors: :lower_background_colors,
+                                               copy_tiles: :lower_copy_tiles,
+                                               copy_owed_tiles: :lower_copy_owed_tiles,
                                                present_objects: :lower_present_objects,
                                                fade: :lower_fade, tint: :lower_tint,
                                                pixelate: :lower_pixelate,
@@ -103,7 +106,7 @@ module RubyGBA
           # which test_native_kind_coverage.rb holds against every kind there is. A kind leaves
           # the list the day it gets a row in STATEMENTS or VALUES.
           NOT_LOWERED_YET = Ractor.make_shareable({
-            picture: %i[color_list_holds copy_owed_tiles copy_tiles],
+            picture: %i[color_list_holds],
             saving: %i[save_erase save_init save_read save_store save_sum save_write],
             sound: %i[noise play_from_list play_sample play_sound_effect stop_sample stop_wave wave],
             timers: %i[on_timer timer_start timer_stop timer_ticks]
@@ -336,10 +339,17 @@ module RubyGBA
 
           def lower_nothing(_node) = []
 
-          def lower_set(node) = [assign(node.var, value(node.value))]
+          # A variable set to itself changes nothing, and C's compiler refuses the statement
+          # written out, so nothing is written for one. A game comes to it honestly: a helper
+          # that takes where to keep its answer, handed the place the answer already is.
+          def lower_set(node)
+            return [] if node.value.is_a?(Node) && node.value.kind == :var_ref && node.value.name == node.var
+
+            [assign(node.var, value(node.value))]
+          end
           def lower_add(node) = [assign(node.var, call("rg_add", variable(node.var), value(node.operand)))]
           def lower_sub(node) = [assign(node.var, call("rg_sub", variable(node.var), value(node.operand)))]
-          def lower_copy(node) = [assign(node.dest, variable(node.src))]
+          def lower_copy(node) = node.dest == node.src ? [] : [assign(node.dest, variable(node.src))]
           def lower_negate(node) = [assign(node.var, call("rg_neg", variable(node.var)))]
           def lower_abs(node) = [assign(node.var, call("rg_abs", variable(node.var)))]
 

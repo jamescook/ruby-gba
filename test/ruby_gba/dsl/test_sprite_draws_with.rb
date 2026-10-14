@@ -8,7 +8,7 @@ require "differential"
 # every pixel keeps its place in the sprite's own list of colours, and only the colours those
 # places show are swapped for the ones in another list.
 class TestSpriteDrawsWith < Minitest::Test
-  runs_on :reference
+  runs_on :reference, :native
 
   include Differential
 
@@ -33,7 +33,7 @@ class TestSpriteDrawsWith < Minitest::Test
   end
 
   def test_a_sprite_told_to_draw_with_other_colors_shows_them
-    i = Reference.new.run(program { |ship| ship.draw_with :hurt }, frames: 2)
+    i = game_player.run(program { |ship| ship.draw_with :hurt }, frames: 2)
 
     assert_equal Color.resolve(:yellow), i.screen.pixel(41, 41), "the first place of the list"
     assert_equal Color.resolve(:white), i.screen.pixel(45, 41), "and the second"
@@ -56,7 +56,7 @@ class TestSpriteDrawsWith < Minitest::Test
       game_loop { ship.draw_with :hurt }
     end
     builder.finalize_program
-    i = Reference.new.run(builder.program, frames: 2)
+    i = game_player.run(builder.program, frames: 2)
 
     assert_equal Color.resolve(:yellow), i.screen.pixel(41, 41)
     assert_equal Color.resolve(:white), i.screen.pixel(45, 41)
@@ -86,8 +86,8 @@ class TestSpriteDrawsWith < Minitest::Test
   end
 
   def test_a_painted_picture_draws_with_other_colors_on_both_backends
-    hurt = Reference.new.run(painted_program, frames: 3)
-    past = Reference.new.run(painted_program, frames: 4)
+    hurt = game_player.run(painted_program, frames: 3)
+    past = game_player.run(painted_program, frames: 4)
 
     assert_equal Color.resolve(:yellow), hurt.screen.pixel(41, 41), "the first place of :hurt"
     assert_equal Color.resolve(:white), hurt.screen.pixel(45, 41), "and the second"
@@ -120,7 +120,7 @@ class TestSpriteDrawsWith < Minitest::Test
 
   # The colour of the ship's left edge, wherever it has got to.
   def left_edge_color(frames)
-    i = Reference.new.run(pulse_program, frames: frames)
+    i = game_player.run(pulse_program, frames: frames)
     i.screen.pixel((40..).find { |col| i.screen.pixel(col, 41) != 0 }, 41)
   end
 
@@ -136,7 +136,7 @@ class TestSpriteDrawsWith < Minitest::Test
   end
 
   def test_a_sprite_told_its_own_colors_goes_back_to_them
-    i = Reference.new.run(program do |ship|
+    i = game_player.run(program do |ship|
       (ship.x == 40).then { ship.draw_with :hurt }.else { ship.draw_with :own }
       ship.x.set! 41
     end, frames: 4)
@@ -210,14 +210,14 @@ class TestSpriteDrawsWith < Minitest::Test
   end
 
   def test_each_instance_of_a_pool_draws_with_its_own_choice
-    i = Reference.new.run(pool_program, frames: 3)
+    i = game_player.run(pool_program, frames: 3)
 
     assert_equal Color.resolve(:red), i.screen.pixel(41, 41), "the ship left alone"
     assert_equal Color.resolve(:yellow), i.screen.pixel(81, 41), "the hurt one"
   end
 
   def test_an_instance_spawned_into_a_hurt_ones_slot_starts_in_its_own_colors
-    i = Reference.new.run(pool_program(respawn_at: 3), frames: 5)
+    i = game_player.run(pool_program(respawn_at: 3), frames: 5)
 
     assert_equal Color.resolve(:red), i.screen.pixel(81, 41)
   end
@@ -240,7 +240,7 @@ class TestSpriteDrawsWith < Minitest::Test
       end
     end
     builder.finalize_program
-    i = Reference.new.run(builder.program, frames: 5)
+    i = game_player.run(builder.program, frames: 5)
 
     assert_equal Color.resolve(:red), i.screen.pixel(81, 41)
   end
@@ -491,7 +491,7 @@ class TestSpriteDrawsWith < Minitest::Test
   def test_each_scene_has_the_sixteen_groups_to_itself
     prog = two_scenes_of_many_lists
     seen = [SECOND_SCENE_AT, FIRST_SCENE_AGAIN_AT, FIRST_SCENE_AGAIN_AT + 6].map do |frames|
-      Reference.new.run(prog, frames: frames).screen.pixel(41, 41)
+      game_player.run(prog, frames: frames).screen.pixel(41, 41)
     end
 
     assert_equal [shade(:one, PICKED), shade(:two, PICKED), shade(:one, PICKED)], seen

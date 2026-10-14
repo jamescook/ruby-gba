@@ -5,8 +5,8 @@
  *
  * What is NOT here is refused when the game is built rather than drawn wrongly (see
  * Picture#refuse_unsupported_picture! and Lowering::NOT_LOWERED_YET, which are the whole list):
- * scenery that is painted from a list; a list of sprite colors that changes as the game runs;
- * and a frame that ends while drawing is held inside an area.
+ * a list of sprite colors that changes as the game runs; and a frame that ends while drawing is
+ * held inside an area.
  *
  * A sprite's pictures and a background's tiles arrive ready to draw: which of their pixels show,
  * and the colors of each list they can be drawn with, are worked out when the game is built (see
@@ -594,10 +594,35 @@ static void forget_own_cells(int32_t background) {
   cells_now[background] = (background_cells){0, NULL};
 }
 
+/* WHAT THE GAME HAS PAINTED (Reference @bitmaps, for the tiles and pictures of a run): every
+ * run's pixels as places in its colors, one after another, place 0 being see-through. All nought
+ * until a run's first copy, which is a run that shows nothing. Made the first time it is asked
+ * for. */
+enum { RUN_TILE_SIDE = 8, RUN_TILE_PIXELS = RUN_TILE_SIDE * RUN_TILE_SIDE };
+static uint8_t *painted_places;
+
+static const int32_t *run_fields(int32_t run) { return rg_game_tile_runs + RG_RUN_FIELDS * run; }
+
+static uint8_t *places_of(int32_t run) {
+  if (!painted_places) {
+    painted_places = calloc((size_t)rg_game_picture_sizes[RG_SIZE_RUN_PIXELS] + 1, 1);
+    if (!painted_places) rg_fault("no memory for the tiles the game paints");
+  }
+  return painted_places + run_fields(run)[RG_RUN_PLACES];
+}
+
 /* One pixel of a cell's tile, or RG_SEE_THROUGH (Reference#background_pixel), in the colors the
  * background is drawn with now (Reference#tile_colors): its tiles as drawn with each step come
- * one whole set after another. */
+ * one whole set after another. A tile the game paints is read from what it last copied in, and
+ * shown in its run's colors as the background is drawn with them now. */
 static uint16_t tile_pixel(int32_t background, int32_t cell, int64_t tx, int64_t ty) {
+  int32_t painted = background_field(background, RG_BG_PAINTED);
+  if (painted != RG_NOT_PAINTED && rg_game_painted_tiles[painted + 2 * cell] != RG_NOT_PAINTED) {
+    int32_t run = rg_game_painted_tiles[painted + 2 * cell], which = rg_game_painted_tiles[painted + 2 * cell + 1];
+    int32_t place = places_of(run)[which * RUN_TILE_PIXELS + ty * RUN_TILE_SIDE + tx];
+    int64_t set = (int64_t)tile_set_now[background] * rg_game_picture_sizes[RG_SIZE_RUNS] + run;
+    return rg_game_run_colors[background_field(background, RG_BG_RUN_COLORS) + set * 16 + place];
+  }
   int32_t tile_w = background_field(background, RG_BG_TILE_W), tile_h = background_field(background, RG_BG_TILE_H);
   int64_t tile = (int64_t)tile_set_now[background] * background_field(background, RG_BG_TILES) + cell;
   int64_t at = background_field(background, RG_BG_TILES_START) + tile * tile_w * tile_h + ty * tile_w + tx;
@@ -984,9 +1009,61 @@ static void paint_scenery(int32_t background) {
 /* One picture: where its pixels start, and its size. */
 typedef struct { const int32_t *pixels; int32_t width, height; } picture;
 
+/* The images the game has painted, by image number: each one's pixels as its list last held
+ * them, in the colors that image is drawn in, or nothing for an image nobody has painted
+ * (Reference#store_run_picture). */
+static int32_t **painted_images;
+
 static picture picture_of(int32_t image) {
   const int32_t *info = rg_game_images + RG_IMAGE_FIELDS * image;
-  return (picture){rg_game_image_pixels + info[0], info[1], info[2]};
+  const int32_t *painted = painted_images ? painted_images[image] : NULL;
+  return (picture){painted ? painted : rg_game_image_pixels + info[0], info[1], info[2]};
+}
+
+/* Room for one painted image's pixels, made the first time the image is painted. */
+static int32_t *painted_pixels_of(int32_t image, int32_t count) {
+  if (!painted_images) painted_images = calloc((size_t)rg_game_picture_sizes[RG_SIZE_IMAGES] + 1, sizeof *painted_images);
+  if (painted_images && !painted_images[image]) painted_images[image] = malloc((size_t)count * sizeof(int32_t));
+  if (!painted_images || !painted_images[image]) rg_fault("no memory for the pictures the game paints");
+  return painted_images[image];
+}
+
+/* Reference#run_tile_places: the 64 places of tile +which+ of a run's list, row by row. Each byte
+ * is two pixels, the left one in its low four bits; a byte the list does not hold reads as 0. */
+static void read_tile_places(const rg_list *list, int32_t which, uint8_t *places) {
+  for (int32_t at = 0; at < RUN_TILE_PIXELS / 2; at++) {
+    int32_t index = which * (RUN_TILE_PIXELS / 2) + at;
+    int32_t byte = index < rg_list_length(list) ? rg_list_get(list, index) & 0xFF : 0;
+    places[2 * at] = (uint8_t)(byte & 0x0F);
+    places[2 * at + 1] = (uint8_t)(byte >> 4);
+  }
+}
+
+/* Reference#copy_run_tiles. A run a background shows takes its tiles one after another. A run
+ * that is a sprite's picture has its tiles in the order a sprite's are kept, left to right and
+ * then top to bottom, and they are laid back out into the one picture (#copy_run_picture); then
+ * every image that is that picture is made again from it, each in its own colors. */
+void rg_tiles_copy(int32_t run, const rg_list *list) {
+  const int32_t *fields = run_fields(run);
+  uint8_t *places = places_of(run);
+  int32_t width = fields[RG_RUN_WIDTH], height = fields[RG_RUN_HEIGHT];
+  if (width == 0) {
+    for (int32_t which = 0; which < fields[RG_RUN_TILES]; which++) read_tile_places(list, which, places + which * RUN_TILE_PIXELS);
+    return;
+  }
+  int32_t across = width / RUN_TILE_SIDE;
+  for (int32_t which = 0; which < across * (height / RUN_TILE_SIDE); which++) {
+    uint8_t tile[RUN_TILE_PIXELS];
+    read_tile_places(list, which, tile);
+    int32_t left = (which % across) * RUN_TILE_SIDE, top = (which / across) * RUN_TILE_SIDE;
+    for (int32_t i = 0; i < RUN_TILE_PIXELS; i++)
+      places[(top + i / RUN_TILE_SIDE) * width + left + i % RUN_TILE_SIDE] = tile[i];
+  }
+  for (int32_t i = 0; i < fields[RG_RUN_IMAGES]; i++) {
+    const int32_t *shown_as = rg_game_run_images + (fields[RG_RUN_FIRST_IMAGE] + i) * RG_RUN_IMAGE_FIELDS;
+    int32_t *pixels = painted_pixels_of(shown_as[0], width * height);
+    for (int32_t at = 0; at < width * height; at++) pixels[at] = shown_as[1 + places[at]];
+  }
 }
 
 /* Reference#blit_image: a see-through pixel is skipped, and each other one goes on as stored. */

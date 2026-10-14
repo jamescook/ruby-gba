@@ -34,12 +34,22 @@ module RubyGBA
           MAX_SEE_THROUGH = 16
 
           # The kinds the interpreter's picture is rebuilt whole every frame for (see
-          # Reference#collect_definitions, and #rebuilt_every_frame? for the rest of the rule).
+          # Reference#collect_definitions and #run, and #rebuilt_every_frame? for the rest of the
+          # rule).
           REBUILT_FOR = %i[tile_run scroll_background scroll_rows affine_background set_tile show_map
                            background_colors pixelate].freeze
 
           # A sprite the game leaves as drawn whatever size the picture's blocks are (RG_NOT_IN_BLOCKS).
           NOT_IN_BLOCKS = -1
+          # A tile that is a picture and not one the game paints, and a background with no
+          # painted tile (RG_NOT_PAINTED).
+          NOT_PAINTED = -1
+          # How many places a run's colors have: a painted pixel is four bits.
+          RUN_PLACES = 16
+          # A painted tile's side, and how many pixels that makes (Reference::RUN_TILE_BYTES is
+          # half of them, two pixels to a byte).
+          RUN_TILE_SIDE = 8
+          RUN_TILE_PIXELS = RUN_TILE_SIDE * RUN_TILE_SIDE
 
           private
 
@@ -52,6 +62,10 @@ module RubyGBA
             @sprites = @objects.each_key.with_index.to_h # sprite name -> the number rg_screen.c knows it by
             @drawn_sprites = DrawnSprites.new(@program) # the names a run says its sprites by
             @left_out_of_blocks = names_left_out_of_blocks
+            # The runs of tiles and the pictures the game paints from lists as it runs, and the
+            # number rg_screen.c knows each by.
+            @tile_runs = by_name(@program.walk, :tile_run)
+            @run_numbers = @tile_runs.each_key.with_index.to_h
             # The layers the game can be seen through, and the number rg_screen.c knows each by.
             @see_through = SeeThrough.layers(@program)
             @see_through_numbers = @see_through.each_with_index.to_h { |layer, number| [layer.name, number] }
@@ -150,10 +164,12 @@ module RubyGBA
 
           def picture_data
             [*image_arrays, *background_arrays, *see_through_arrays, sprite_fade_places_array, *sprite_block_arrays,
+             *run_arrays,
              runtime_array("picture_sizes", "int32_t",
                     [@backgrounds.size, @stacking.depths.count, @handover.always_up.scenery.length,
                      rebuilt_every_frame? ? 1 : 0, @see_through.size,
-                     Modes.resolve(@program).crosses_display_systems? ? 1 : 0, Blocks::LARGEST]),
+                     Modes.resolve(@program).crosses_display_systems? ? 1 : 0, Blocks::LARGEST,
+                     @tile_runs.size, @tile_runs.each_value.sum { |run| run_pixels(run) }, @images.size]),
              runtime_array("always_up", "int32_t", @handover.always_up.scenery.map { |bg| @backgrounds.fetch(bg.name) }),
              runtime_array("sines", "int32_t", (0...450).map { |degrees| Affine.sine(degrees) }),
              runtime_array("turn_rules", "int32_t", [Build::SCALE_ONE, Affine::ONE_TH, Affine::MAX, Affine::MIN_SCALE])]
@@ -233,8 +249,76 @@ module RubyGBA
             end
           end
 
+          # A picture the game paints from a list is see-through all over until its first copy
+          # (Reference#collect_definitions), which is the picture written into the game for it.
           def picture_named(name)
+            painted = @tile_runs.each_value.find { |run| run.picture == name }
+            return painted_image(painted, Array.new(run_pixels(painted), 0), width: painted.width, height: painted.height) if painted
+
             Assets::Image.of(@data.fetch(name) { raise LoweringError, "a sprite shows the picture #{name.inspect}, which is not defined" })
+          end
+
+          # --- tiles and pictures the game paints from a list (Reference#copy_run_tiles) ---
+
+          # How many pixels a run keeps: its picture's, or its tiles'.
+          def run_pixels(run) = run.picture ? run.width * run.height : run.tiles.length * RUN_TILE_PIXELS
+
+          # Reference#run_picture_from_places: a painted picture as everything that draws one
+          # reads it, +places+ being each pixel's place in the run's colors. It keeps the run's
+          # list as its own, which is how a swap of colors finds it.
+          def painted_image(run, places, width:, height:)
+            pixels = places.map { |place| place.zero? ? Graphics::Image::TRANSPARENT : run.colors.fetch(place, 0) }
+            Assets::Image.new(width: width, height: height, transparent: Graphics::Image::TRANSPARENT,
+                              pixels: pixels.pack("v*"), colors: run.colors, places: places.pack("C*"))
+          end
+
+          # A strip with one pixel at each place a run's colors have. What a painted pixel shows
+          # depends on its place and nothing else, so reading this strip the way a tile or a
+          # sprite's picture is read gives the color of every place at once, by the same rules
+          # as art that was drawn ahead of time.
+          def every_place_of(run) = painted_image(run, (0...RUN_PLACES).to_a, width: RUN_PLACES, height: 1)
+
+          # The run that paints the tile +name+, or nil for a tile that is a picture.
+          def run_painting(name) = @tile_runs.each_value.find { |run| run.tiles.include?(name) }
+
+          # Each run as rg_screen.h's fields, and for each run that is a sprite's picture the
+          # images that are that picture, one for each list of colors it is drawn with, with the
+          # color each place shows in it (#sprite_pixels, asked of every place at once).
+          def run_arrays
+            pixels = 0
+            images = []
+            runs = @tile_runs.each_value.flat_map do |run|
+              start = pixels
+              pixels += run_pixels(run)
+              next [run.tiles.length, 0, 0, start, 0, 0] unless run.picture
+
+              first = images.length / (RUN_PLACES + 1)
+              shown_as = @images.select { |(name, _), _| name == run.picture }
+              shown_as.each { |(_, colors), number| images.push(number, *sprite_pixels(every_place_of(run), colors)) }
+              [0, run.width, run.height, start, first, shown_as.size]
+            end
+            [runtime_array("tile_runs", "int32_t", runs), runtime_array("run_images", "int32_t", images)]
+          end
+
+          # Reference#exec_copy_tiles and what a scene arriving does with each run it shows.
+          def tile_copy(run)
+            eval_call("rg_tiles_copy", C::Int.new(@run_numbers.fetch(run.name)), C::AddressOf.new(list(run.list)))
+          end
+
+          def lower_copy_tiles(node)
+            [tile_copy(@tile_runs.fetch(node.name)), eval_call("rg_screen_request_rebuild")]
+          end
+
+          # Reference#exec_copy_owed_tiles: every run whose bit is set in the game's own
+          # variables, in the order the statement lists them, and then the rebuild whether any
+          # was or not.
+          def lower_copy_owed_tiles(node)
+            per = Nodes::CopyOwedTiles::RUNS_PER_MASK
+            copies = node.runs.each_with_index.map do |name, i|
+              bit = call("rg_and", call("rg_shr", variable(node.masks.fetch(i / per)), C::Int.new(i % per)), C::Int.new(1))
+              C::If.new(condition: call("rg_eq", bit, C::Int.new(1)), body: [tile_copy(@tile_runs.fetch(name))])
+            end
+            [*copies, eval_call("rg_screen_request_rebuild")]
           end
 
           # Every background in the order the stack draws them, its tiles as colors with
@@ -246,12 +330,15 @@ module RubyGBA
             tile_pixels = []
             cells = []
             maps = []
+            painted_tiles = []
+            run_colors = []
             fields = @stacking.scenery.flat_map do |bg|
               tiles_start = tile_pixels.length
               steps = color_swaps(bg)
               [nil, *steps].each do |swaps|
                 bg.tiles.each { |tile| tile_pixels.concat(tile_colors(tile, swaps)) }
               end
+              painted_start, colors_start = painted_tiles_of(bg, steps, painted_tiles, run_colors)
               first_map = maps.length / MAP_FIELDS
               bg.every_map.each do |map|
                 maps.push(cells.length, *TileMap.size_of(map))
@@ -264,10 +351,32 @@ module RubyGBA
                bg.scene ? @scenes.fetch(bg.scene, NEVER_ARRIVES) : EVERY_SCENE, @stacking.depths[bg.name],
                @handover.on_arrival?(bg) ? 1 : 0, stack_place(bg.layer),
                see_through_number(bg), @bends.key?(bg.name) ? 1 : 0, fade_place(bg),
-               bg.tiles.length, steps.length, shown_in_blocks?(bg) ? 1 : 0, bg.affine ? 1 : 0]
+               bg.tiles.length, steps.length, shown_in_blocks?(bg) ? 1 : 0, bg.affine ? 1 : 0,
+               painted_start, colors_start]
             end
             [runtime_array("tile_pixels", "uint16_t", tile_pixels), runtime_array("backgrounds", "int32_t", fields),
-             runtime_array("maps", "int32_t", maps), runtime_array("map_cells", "int16_t", cells)]
+             runtime_array("maps", "int32_t", maps), runtime_array("map_cells", "int16_t", cells),
+             runtime_array("painted_tiles", "int32_t", painted_tiles), runtime_array("run_colors", "uint16_t", run_colors)]
+          end
+
+          # A background's tiles the game paints, added to the two arrays rg_screen.c finds them
+          # by, and where each of its two parts starts there; NOT_PAINTED twice for a background
+          # with none. First, for each of its tiles, the run that paints it and which of the
+          # run's tiles it is. Then the color each place of each run shows on this background,
+          # in the colors its tiles were drawn in and again for each step it can be told
+          # (Reference#tile_colors, asked of every place at once).
+          def painted_tiles_of(bg, steps, painted_tiles, run_colors)
+            runs = bg.tiles.map { |tile| run_painting(tile) }
+            return [NOT_PAINTED, NOT_PAINTED] if runs.none?
+
+            starts = [painted_tiles.length, run_colors.length]
+            bg.tiles.zip(runs) do |tile, run|
+              painted_tiles.concat(run ? [@run_numbers.fetch(run.name), run.tiles.index(tile)] : [NOT_PAINTED, 0])
+            end
+            [nil, *steps].each do |swaps|
+              @tile_runs.each_value { |run| run_colors.concat(colors_as_tile(every_place_of(run), swaps)) }
+            end
+            starts
           end
 
           # Each see-through layer as rg_screen.h's three flags (Reference#fixed_see_through?,
@@ -353,8 +462,17 @@ module RubyGBA
           # Reference#tile_colors: a tile's pixels as colors, or as the colors +swaps+ gives the
           # list it was drawn from. A swap goes by place, and is read off the pixel as drawn, so
           # what is see-through stays see-through whatever the other list holds there.
-          def tile_colors(name, swaps = nil)
-            image = Assets::Image.of(@data.fetch(name))
+          def tile_colors(name, swaps = nil) = colors_as_tile(tile_image(name), swaps)
+
+          # A tile's picture. One the game paints is see-through all over until its first copy
+          # (Reference#blank_run_tile), and that is what is written into the game for it: the C
+          # reads what was painted in its place.
+          def tile_image(name)
+            run = run_painting(name)
+            run ? painted_image(run, Array.new(RUN_TILE_PIXELS, 0), width: RUN_TILE_SIDE, height: RUN_TILE_SIDE) : Assets::Image.of(@data.fetch(name))
+          end
+
+          def colors_as_tile(image, swaps)
             swapped = swaps && swaps[image.colors]
             recolor = swapped && Assets::Recolor.of(image, swapped)
             Array.new(image.width * image.height) do |i|
@@ -376,14 +494,17 @@ module RubyGBA
 
           # A change of screen, by `screen` or by a scene arriving on its own. The C says when
           # that put the scenery every screen shows up again as declared, and what says which
-          # map each of those backgrounds shows then goes back to the first, as
-          # Reference#put_up_always_up puts it back.
+          # map each of those backgrounds shows then goes back to the first, and what every
+          # screen shows that the game paints is copied in from its list as it is now, as
+          # Reference#put_up_always_up does both.
           def screen_change(function, screen, two_pages)
             change = call(function, C::Int.new(SCREEN_KINDS.fetch(screen)), yes_or_no(two_pages))
-            choices = @handover.always_up.map_choices
-            return [C::Eval.new(change)] if choices.empty?
+            always = @handover.always_up
+            put_back = [*always.map_choices.map { |var| assign(var, C::Int.new(0)) },
+                        *(always.painted_tiles + always.painted_pictures).map { |run| tile_copy(run) }]
+            return [C::Eval.new(change)] if put_back.empty?
 
-            [C::If.new(condition: change, body: choices.map { |var| assign(var, C::Int.new(0)) })]
+            [C::If.new(condition: change, body: put_back)]
           end
 
           def lower_clear_screen(node) = [eval_call("rg_screen_clear", color(node.color))]
@@ -659,10 +780,6 @@ module RubyGBA
 
           def scene_arrival(scene)
             arrival = @handover.arrival(scene)
-            unless (arrival.painted_tiles + arrival.painted_pictures).empty?
-              refuse_picture!("tiles or pictures painted from a list")
-            end
-
             screen = if arrival.screen
                        lower_screen(arrival.screen)
                      else
@@ -672,6 +789,7 @@ module RubyGBA
             [eval_call("rg_scene_enter", C::Int.new(@scenes.fetch(scene))), *screen,
              eval_call("rg_scene_take_down", C::Int.new(arrival.scenery.empty? ? 0 : 1)),
              *arrival.map_choices.map { |var| assign(var, C::Int.new(0)) },
+             *(arrival.painted_tiles + arrival.painted_pictures).map { |run| tile_copy(run) },
              *arrival.scenery.map { |bg| eval_call("rg_background_put_up", C::Int.new(@backgrounds.fetch(bg.name))) }]
           end
 

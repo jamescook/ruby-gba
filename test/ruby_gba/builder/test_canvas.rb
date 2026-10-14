@@ -10,7 +10,7 @@ require "differential"
 # on both backends, and the rules a newcomer would trip over: a letter that crosses from one
 # tile into the next, and a meter that empties without leaving its old length behind.
 class TestCanvas < Minitest::Test
-  runs_on :reference
+  runs_on :reference, :native
 
   include Differential
 
@@ -37,7 +37,7 @@ class TestCanvas < Minitest::Test
     b.program
   end
 
-  def screen(prog, frames) = Reference.new.run(prog, frames: frames).screen
+  def screen(prog, frames) = game_player.run(prog, frames: frames).screen
 
   def test_a_pixel_shows_on_the_frame_after_it_is_drawn
     prog = game { |board, frame| (frame == 2).then { board.pixel 3, 2, :white } }

@@ -14,7 +14,7 @@ require "differential"
 # is recoloured by writing the new colours INTO the set its tiles read. Nothing about that
 # reaches the program, which is the point of the verb reading the same.
 class TestBackgroundDrawsWith < Minitest::Test
-  runs_on :reference
+  runs_on :reference, :native
 
   include Differential
 
@@ -40,7 +40,7 @@ class TestBackgroundDrawsWith < Minitest::Test
   end
 
   def test_a_background_told_to_draw_with_other_colors_shows_them
-    i = Reference.new.run(a_wall_of_bars { |rays| rays.draw_with :shimmer }, frames: 3)
+    i = game_player.run(a_wall_of_bars { |rays| rays.draw_with :shimmer }, frames: 3)
 
     assert_equal Color.resolve(:yellow), i.screen.pixel(1, 1), "the first place of the list"
     assert_equal Color.resolve(:white), i.screen.pixel(5, 1), "and the second"
@@ -116,7 +116,7 @@ class TestBackgroundDrawsWith < Minitest::Test
 
   def test_a_sprite_stays_drawn_when_the_wall_behind_it_changes_colors
     (2..7).each do |frames|
-      shown = Reference.new.run(a_walker_in_front_of_a_shimmering_wall, frames: frames).screen.shown
+      shown = game_player.run(a_walker_in_front_of_a_shimmering_wall, frames: frames).screen.shown
 
       assert_equal 64, shown.count(Color.resolve(:blue)), "the walker's 64 pixels after #{frames} frames"
     end
@@ -146,7 +146,7 @@ class TestBackgroundDrawsWith < Minitest::Test
   end
 
   def test_a_layer_of_painted_tiles_draws_with_other_colors_on_both_backends
-    i = Reference.new.run(a_wall_of_painted_bars, frames: 3)
+    i = game_player.run(a_wall_of_painted_bars, frames: 3)
 
     assert_equal Color.resolve(:yellow), i.screen.pixel(1, 1), "the first place of the list"
     assert_equal Color.resolve(:white), i.screen.pixel(5, 1), "and the second"
@@ -184,7 +184,7 @@ class TestBackgroundDrawsWith < Minitest::Test
 
   def test_a_number_the_game_works_out_picks_which_list
     prog = a_wall_that_walks_through_its_lists
-    left = ->(frames) { Reference.new.run(prog, frames: frames).screen.pixel(1, 1) }
+    left = ->(frames) { game_player.run(prog, frames: frames).screen.pixel(1, 1) }
 
     # The display is told in the gap before a frame, from the number the pass before settled
     # on — the same frame behind every picture the framework draws for you.
@@ -238,7 +238,7 @@ class TestBackgroundDrawsWith < Minitest::Test
 
   # Told to go back to its own colours, it does — the third form of the verb.
   def test_a_layer_can_be_put_back_in_its_own_colours
-    i = Reference.new.run(a_wall_of_bars { |rays| rays.draw_with :own }, frames: 3)
+    i = game_player.run(a_wall_of_bars { |rays| rays.draw_with :own }, frames: 3)
 
     assert_equal Color.resolve(:red), i.screen.pixel(1, 1)
     assert_equal Color.resolve(:green), i.screen.pixel(5, 1)
@@ -368,7 +368,7 @@ class TestBackgroundDrawsWith < Minitest::Test
 
   def test_one_number_steps_every_list_of_the_layer_together
     prog = a_backdrop_drawn_from_two_lists
-    seen = ->(frames) { Reference.new.run(prog, frames: frames).screen.then { |s| [s.pixel(*SEA_AT), s.pixel(*SKY_AT)] } }
+    seen = ->(frames) { game_player.run(prog, frames: frames).screen.then { |s| [s.pixel(*SEA_AT), s.pixel(*SKY_AT)] } }
 
     assert_equal [Color.resolve(:red), Color.resolve(:blue)], seen.call(1), "nothing said yet: as drawn"
     assert_equal [Color.resolve(:orange), Color.resolve(:yellow)], seen.call(2), "version 0 of both"
@@ -431,7 +431,7 @@ class TestBackgroundDrawsWith < Minitest::Test
     end
     builder.finalize_program
     prog = builder.program
-    screen = Reference.new.run(prog, frames: 2).screen
+    screen = game_player.run(prog, frames: 2).screen
 
     assert_equal Color.resolve(:magenta), screen.pixel(*SEA_AT), "the list named is drawn with its other list"
     assert_equal Color.resolve(:blue), screen.pixel(*SKY_AT), "a list the hash leaves out stays as drawn"
