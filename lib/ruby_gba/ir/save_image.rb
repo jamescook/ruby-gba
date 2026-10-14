@@ -155,6 +155,11 @@ module RubyGBA
         self
       end
 
+      # How many more steps the cut waiting on this chip allows (see #cut_power_after), or nil
+      # when none is waiting: what something else that plays the game needs to cut it at the
+      # same step.
+      attr_reader :power_left
+
       # The console is on again: no cut is waiting, whether or not the last one came, and no
       # wipe is still going on.
       def restore_power
@@ -208,6 +213,20 @@ module RubyGBA
       def write_sav(path)
         File.binwrite(path, to_sav)
         path
+      end
+
+      # Hold the bytes of a .sav file in place of everything this chip held: what a game that
+      # keeps its save memory in a file (the desktop build) left there. A chip cannot change
+      # size, so the file has to be as big as the chip. +from+ says where the bytes came from,
+      # for the error to name. Returns self.
+      def replace_with_sav(bytes, from: "These bytes")
+        unless bytes.bytesize == memory.size
+          raise ArgumentError, "#{from} are #{bytes.bytesize} bytes long, and this save memory is " \
+                               "#{memory.kilobytes}K, which is #{memory.size} bytes. A save file is as big as its " \
+                               "cartridge's save memory."
+        end
+        @bytes = self.class.from_sav(bytes, from: from).written
+        self
       end
 
       # A chip holding the bytes of a .sav file, and as big as they are. Save memory comes
