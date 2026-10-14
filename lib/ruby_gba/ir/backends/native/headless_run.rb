@@ -30,10 +30,10 @@ module RubyGBA
           # every sound it makes on the way round.
           LONGEST_FRAME_SECONDS = 60
 
-          # The picture the run ended on, read the way the interpreter's screen is: #pixel gives
-          # the colour at (x, y) as the player would see it, nil off the screen, #shown every
-          # pixel that way row by row, and #to_a every pixel as it is STORED — no window moved
-          # over the picture and no fade mixed in.
+          # The picture at one moment of a run, read the way the interpreter's screen is: #pixel
+          # gives the colour at (x, y) as the player would see it, nil off the screen, #shown
+          # every pixel that way row by row, and #to_a every pixel as it is STORED — no window
+          # moved over the picture and no fade mixed in.
           Picture = Data.define(:shown, :stored) do
             def pixel(x, y)
               return nil unless x.between?(0, Screen::WIDTH - 1) && y.between?(0, Screen::HEIGHT - 1)
@@ -45,9 +45,9 @@ module RubyGBA
           end
 
           # Where the game had got to at one frame boundary, or (+frame+ :end) when the run
-          # stopped: every variable, the picture as a check number (see .picture_check), and how
-          # long the sound log was.
-          Moment = Data.define(:frame, :variables, :picture, :sounds)
+          # stopped: every variable, the picture as a check number (see .picture_check), how
+          # long the sound log was, and the sprites it last drew (see #sprites).
+          Moment = Data.define(:frame, :variables, :picture, :sounds, :sprites)
 
           # Raised for something a test asks of the interpreter that the native lowering cannot
           # answer yet — which says the test's file was opted into native runs too early, or
@@ -59,10 +59,10 @@ module RubyGBA
             rows.grep(/\Avar /).to_h { |row| _, name, value = row.split(" "); [name.to_sym, Integer(value)] }
           end
 
-          # The whole picture printed among +rows+ ("picture" and four hex digits a pixel), or
-          # the one printed after another +word+.
-          def self.picture_in(rows, word = "picture")
-            rows.find { |row| row.start_with?("#{word} ") }.delete_prefix("#{word} ").scan(/\h{4}/).map { |hex| hex.to_i(16) }
+          # The whole picture printed among +rows+ ("picture" and four hex digits a pixel), which
+          # a program prints when it is not writing its pictures to a file.
+          def self.picture_in(rows)
+            rows.find { |row| row.start_with?("picture ") }.delete_prefix("picture ").scan(/\h{4}/).map { |hex| hex.to_i(16) }
           end
 
           # A picture as the one number the program prints for it each frame: the CRC-32 of its
@@ -75,11 +75,11 @@ module RubyGBA
           # How many numbers a second the sound the program makes comes as (RG_SOUND_RATE).
           SOUND_RATE = 48_000
 
-          # The picture the run ended on, every variable then, each moment of the run, and the
-          # sound log in the interpreter's words (see SoundLog) — which, read from an input
-          # script, is the log up to the frame the script is asked about. +sound+ is the sound
+          # Every variable as the run ended, each moment of the run, and the sound log in the
+          # interpreter's words (see SoundLog) — which, read from an input script or a watching
+          # block, are as they stood at the frame it is asked about. +sound+ is the sound
           # itself, one speaker's worth as whole numbers, for a run asked to record it.
-          attr_reader :screen, :vars, :moments, :audio, :sound
+          attr_reader :vars, :moments, :audio, :sound
 
           # Whether the screen the run ended on is tear-free, as the interpreter answers it.
           attr_reader :buffered
@@ -91,6 +91,7 @@ module RubyGBA
             @held = []
             @vars = {}
             @audio = []
+            @sprites = []
             return if save.nil?
 
             raise CannotAnswer, "the native lowering cannot start a game from save memory yet"
@@ -121,10 +122,36 @@ module RubyGBA
 
           # Drive input that changes over time: the block is called for each frame with its
           # number (1, 2, 3, …) and gives back the buttons held during it. It may read the game
-          # (#[]) as it stands at the end of the frame before. Gives back self.
+          # (#[], #screen, #sprites) as it stands at the end of the frame before. Gives back self.
           def input_each_frame(&block)
             @input_script = block
             self
+          end
+
+          # Watch a run frame by frame, as the interpreter's each_vblank does: the block is called
+          # at each frame boundary with the frame's number, once that frame's buttons are
+          # decided, and the game reads then (#[], #vars, #screen, #sprites, #audio) as it stood
+          # at that boundary. It only watches: the game is waiting for its buttons while the block runs,
+          # and nothing it does depends on what the block read. Gives back self.
+          def each_vblank(&block)
+            @on_vblank = block
+            self
+          end
+
+          # The picture the run ended on — or, from inside an input script or a watching block,
+          # the picture at the frame boundary it is asked about. The program writes each moment's
+          # picture to a file, and it is read from there only when somebody asks, so a run nobody
+          # watches reads the one it ends on and no other.
+          def screen
+            @screen ||= @pictures && picture_now
+          end
+
+          # The sprites the game last drew, back to front, as the interpreter's #sprites gives
+          # them: each row saying whose it is, where, and which of its pictures it shows. Name a
+          # sprite and only its rows come back; a name the game has no sprite for is refused in
+          # the interpreter's words.
+          def sprites(name = nil)
+            name ? @drawn_sprites.rows_named(@sprites, name) : @sprites
           end
 
           # Plays +program+ for +frames+ frames — as many as the interpreter plays when it is not
@@ -136,13 +163,17 @@ module RubyGBA
 
             @vars = {}
             @audio = []
+            @screen = nil
+            @sprites = []
             @sound_log = SoundLog.new(program)
+            @drawn_sprites = DrawnSprites.new(program)
             play(Native.new.build_headless(program), frames || Reference::DEFAULT_FRAMES)
             self
           end
 
-          # A variable's value now — at the end of the run, or, from inside an input script, at
-          # the end of the frame before — and 0 for one the program never names.
+          # A variable's value now — at the end of the run, or, from inside an input script or a
+          # watching block, at the frame boundary it is asked at — and 0 for one the program
+          # never names.
           def [](name)
             @vars.fetch(name, 0)
           end
@@ -160,17 +191,39 @@ module RubyGBA
 
           private
 
-          # The program's sound is written to a file of its own as it plays, since what it prints
-          # is being read a line at a time, and read back when it has finished.
+          # What the program prints is read a line at a time, so the two big things it makes go
+          # to files of their own, in a folder that lasts as long as the run: every moment's
+          # picture, written over the one before and read when it is asked for (#screen), and
+          # the sound, for a run asked to record it, read back when the program has finished.
           def play(exe, frames)
-            return play_frames(exe, frames, []) unless @records_sound
-
-            Dir.mktmpdir("ruby-gba-sound") do |dir|
-              recording = File.join(dir, "sound")
-              heard = @heard_voice ? ["--sound-voice", @heard_voice.to_s] : []
-              play_frames(exe, frames, ["--sound-out", recording, *heard])
-              @sound = File.binread(recording).unpack("s<*")
+            Dir.mktmpdir("ruby-gba-run") do |dir|
+              File.open(File.join(dir, "picture"), "w+b") do |pictures|
+                @pictures = pictures
+                play_frames(exe, frames, ["--picture-out", pictures.path, *sound_options(dir)])
+              end
+              @sound = File.binread(File.join(dir, "sound")).unpack("s<*") if @records_sound
             end
+          ensure
+            @pictures = nil
+          end
+
+          def sound_options(dir)
+            return [] unless @records_sound
+
+            ["--sound-out", File.join(dir, "sound"), *(["--sound-voice", @heard_voice.to_s] if @heard_voice)]
+          end
+
+          # The picture in the program's file now, which is the picture of the moment it last
+          # printed: every pixel as shown and then every pixel as stored, two bytes each with the
+          # low byte first.
+          def picture_now
+            each = Screen::WIDTH * Screen::HEIGHT
+            pixels = @pictures.pread(each * 4, 0).unpack("v*")
+            unless pixels.length == each * 2
+              raise Zig::Error, "the program's picture file holds #{pixels.length} pixels, where two pictures are #{each * 2}"
+            end
+
+            Picture.new(shown: pixels.first(each), stored: pixels.last(each))
           end
 
           def play_frames(exe, frames, options)
@@ -198,30 +251,37 @@ module RubyGBA
             end
           end
 
-          # A frame boundary: the game as it stands is recorded, and then that frame's buttons
-          # are sent.
+          # A frame boundary: the game as it stands is recorded, that frame's buttons are decided,
+          # whoever is watching the run is shown the frame, and then the buttons are sent. That
+          # is the interpreter's order, and the program is waiting for its buttons throughout, so
+          # the picture in its file is this frame's for as long as anybody here can ask for it.
           def record_frame_and_send_buttons(stdin, frame, rows)
             @vars = self.class.variables_in(rows)
+            @sprites = @drawn_sprites.rows_in(rows)
+            @screen = nil
             check = rows.find { |row| row.start_with?("picture-crc ") }.delete_prefix("picture-crc ").to_i(16)
-            @moments << Moment.new(frame: frame, variables: @vars, picture: check, sounds: @audio.size)
-            stdin.puts(self.class.button_mask(@input_script ? @input_script.call(frame) : @held))
+            @moments << Moment.new(frame: frame, variables: @vars, picture: check, sounds: @audio.size, sprites: @sprites)
+            buttons = @input_script ? @input_script.call(frame) : @held
+            @on_vblank&.call(frame)
+            stdin.puts(self.class.button_mask(buttons))
             stdin.flush
             expect_next_frame
           end
 
           # The program has just been started, or handed a frame's buttons: from now it has
           # LONGEST_FRAME_SECONDS to reach the next frame. However long a test's input script
-          # took to decide is its own time, and is not counted.
+          # took to decide, or its watching block to look, is its own time, and is not counted.
           def expect_next_frame
             @frame_due = Process.clock_gettime(Process::CLOCK_MONOTONIC) + @longest_frame
           end
 
           def record_end(rows)
             @vars = self.class.variables_in(rows)
-            @screen = Picture.new(shown: self.class.picture_in(rows), stored: self.class.picture_in(rows, "stored"))
+            @sprites = @drawn_sprites.rows_in(rows)
+            @screen = picture_now
             @buffered = rows.include?("pages 2")
             @moments << Moment.new(frame: :end, variables: @vars, picture: self.class.picture_check(@screen.shown),
-                                   sounds: @audio.size)
+                                   sounds: @audio.size, sprites: @sprites)
           end
 
           # The next line the program printed, or nil once it has finished; a program that has

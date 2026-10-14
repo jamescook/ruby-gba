@@ -56,12 +56,33 @@ class TestCheckedNativeRun < Minitest::Test
     assert_match(/before it first waits for the screen/, error.message)
   end
 
+  # Watching a run leaves it a checked one: what each_vblank gives back is the checked run
+  # itself, so the run a test goes on to make is still compared with the interpreter. The block
+  # reads the game as C, at each frame boundary.
+  def test_a_watched_run_is_still_a_checked_one
+    program = program_of do
+      x = var :x, 0
+      game_loop { x.add! 2 }
+    end
+    seen = []
+    run = CheckedNativeRun.new
+
+    watched = run.each_vblank { |frame| seen << [frame, run[:x]] }
+
+    assert_same run, watched
+    watched.run(program, frames: 3)
+    assert_equal [[1, 0], [2, 2], [3, 4]], seen
+  end
+
+  # A sprite drawn at +x+ across, showing the picture of its own name.
+  def drawn(name, x) = RubyGBA::Diagnostics::DrawnSprite.new(name: name, x: x, y: 40, picture: name)
+
   def test_the_first_frame_they_disagree_on_is_named_with_what_differs
-    agreed = Moment.new(frame: 1, variables: { x: 0 }, picture: 7, sounds: 0)
-    want = [agreed, Moment.new(frame: 2, variables: { x: 1 }, picture: 7, sounds: 1),
-            Moment.new(frame: 3, variables: { x: 2 }, picture: 9, sounds: 1)]
-    got = [agreed, Moment.new(frame: 2, variables: { x: 2 }, picture: 8, sounds: 2),
-           Moment.new(frame: 3, variables: { x: 2 }, picture: 9, sounds: 1)]
+    agreed = Moment.new(frame: 1, variables: { x: 0 }, picture: 7, sounds: 0, sprites: [])
+    want = [agreed, Moment.new(frame: 2, variables: { x: 1 }, picture: 7, sounds: 1, sprites: [drawn(:coin, 8), drawn(:hero, 20)]),
+            Moment.new(frame: 3, variables: { x: 2 }, picture: 9, sounds: 1, sprites: [])]
+    got = [agreed, Moment.new(frame: 2, variables: { x: 2 }, picture: 8, sounds: 2, sprites: [drawn(:coin, 8), drawn(:hero, 22)]),
+           Moment.new(frame: 3, variables: { x: 2 }, picture: 9, sounds: 1, sprites: [])]
 
     difference = CheckedNativeRun.first_difference(want, got)
 
@@ -69,10 +90,20 @@ class TestCheckedNativeRun < Minitest::Test
     assert_match(/x: C has 2, Reference 1/, difference)
     assert_match(/picture/, difference)
     assert_match(/sound log holds 2 entries in the C and 1/, difference)
+    assert_match(/sprite 1 of those drawn: C has :hero at \(22, 40\) showing :hero, Reference :hero at \(20, 40\)/, difference)
+  end
+
+  # A sprite one of them drew and the other did not is a difference too.
+  def test_a_sprite_only_one_of_them_drew_is_named
+    want = [Moment.new(frame: 1, variables: {}, picture: 7, sounds: 0, sprites: [drawn(:hero, 20)])]
+    got = [Moment.new(frame: 1, variables: {}, picture: 7, sounds: 0, sprites: [])]
+
+    assert_match(/sprite 0 of those drawn: C has none, Reference :hero at \(20, 40\)/,
+                 CheckedNativeRun.first_difference(want, got))
   end
 
   def test_runs_that_agree_have_no_difference
-    same = [Moment.new(frame: 1, variables: { x: 0 }, picture: 7, sounds: 0)]
+    same = [Moment.new(frame: 1, variables: { x: 0 }, picture: 7, sounds: 0, sprites: [drawn(:hero, 20)])]
 
     assert_nil CheckedNativeRun.first_difference(same, same)
   end

@@ -133,7 +133,6 @@ class TestShmupExample < Minitest::Test
   end
 
   def test_the_ship_glows_warm_while_it_cannot_be_hit_and_then_is_cyan_again
-    skip_on_native READS_EVERY_FRAME
     seen =ship_hull_by_frame(MOVE + Shmup::Player::SAFE + 10)
     lost = seen.index { |lives, _| lives < 3 }
     refute_nil lost, "an enemy reached the ship"
@@ -147,7 +146,6 @@ class TestShmupExample < Minitest::Test
   end
 
   def test_an_enemy_flies_through_a_ship_that_cannot_be_hit
-    skip_on_native READS_EVERY_FRAME
     seen =ship_hull_by_frame(MOVE + Shmup::Player::SAFE)
     lost = seen.index { |lives, _| lives < 3 }
 
@@ -158,7 +156,6 @@ class TestShmupExample < Minitest::Test
   # it is hurt, none of its magenta hull is on screen and a hull's worth of warm is. (An
   # enemy is orange or red too, but three of them are a fraction of the cruiser.)
   def test_the_boss_glows_warm_when_a_shot_lands
-    skip_on_native READS_EVERY_FRAME
     hurt = []
     i = game_player.input_each_frame { |f| (f % 20).zero? ? [:a] : [] }
     i.each_vblank do |_f|
@@ -179,7 +176,6 @@ class TestShmupExample < Minitest::Test
   # interpreter cannot answer, since the colours come from which group of colours the
   # sprite's table entry names.
   def test_the_console_glows_the_ship_the_same
-    skip_on_native READS_EVERY_FRAME
     lost =ship_hull_by_frame(MOVE).index { |lives, _| lives < 3 }
     assert_backends_agree(Shmup.program, frames: lost + 6)
   end
@@ -203,7 +199,6 @@ class TestShmupExample < Minitest::Test
   # is placed under :ui, so it reaches the field and everything moving in it and stops
   # there. Caught mid-dim, before the scene actually switches.
   def test_the_score_stays_readable_while_the_field_fades_out
-    skip_on_native READS_EVERY_FRAME
     dimming = []
     i = game_player
     # The pixels, not the screen: the screen is one object the run keeps painting over.
@@ -220,7 +215,6 @@ class TestShmupExample < Minitest::Test
   # START on the game-over screen begins a fresh game — full ships again. (A brief START
   # tap every 40 frames: ignored while playing, and the first tap after game over restarts.)
   def test_start_restarts_a_fresh_game_after_game_over
-    skip_on_native READS_EVERY_FRAME
     saw_game_over = false
     restored = false
     i = game_player.input_each_frame { |f| (f % 40).zero? && !f.zero? ? [:start] : [] }
@@ -251,7 +245,6 @@ class TestShmupExample < Minitest::Test
   # It is on screen as one picture, wider than any single sprite the console can draw, and
   # the whole of it moves together — same width in both frames, further left in the second.
   def test_the_boss_arrives_and_the_whole_picture_moves_together
-    skip_on_native READS_EVERY_FRAME
     spans = {}
     i = game_player
     i.each_vblank { |f| spans[f] = magenta_span(i.screen) }
@@ -269,7 +262,6 @@ class TestShmupExample < Minitest::Test
   # Facing the other way is the same picture mirrored about the WHOLE canvas, not about
   # each piece: the gun arm swaps ends instead of every piece turning inside out.
   def test_the_boss_turns_round_as_one_picture
-    skip_on_native READS_EVERY_FRAME
     seen = {}
     i = game_player
     i.each_vblank do |f|
@@ -288,7 +280,6 @@ class TestShmupExample < Minitest::Test
   # drew first — and the last one kills it, which pays the bonus. (Fired on a beat: `pressed`
   # is a press edge, so a held button is one shot however long it is held.)
   def test_shooting_the_boss_wears_it_down_and_killing_it_pays_the_bonus
-    skip_on_native READS_EVERY_FRAME
     arrived = false
     worn_down = false
     bonus_paid = false
