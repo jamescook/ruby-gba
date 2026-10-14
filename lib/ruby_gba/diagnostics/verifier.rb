@@ -104,11 +104,11 @@ module RubyGBA
       # Get the 8-bit RGB color at a screen coordinate.
       # @return [Hash] { r:, g:, b: } with 0-255 values
       def pixel(x, y)
-        picture = picture!
+        held = picture
         validate_coords!(x, y)
         idx = (y * @width + x) * 4
         # mGBA native format is XBGR8 (0xXXBBGGRR) — R in low byte
-        { r: picture.getbyte(idx), g: picture.getbyte(idx + 1), b: picture.getbyte(idx + 2) }
+        { r: held.getbyte(idx), g: held.getbyte(idx + 1), b: held.getbyte(idx + 2) }
       end
 
       # Get the 15-bit GBA color at a screen coordinate.
@@ -145,49 +145,101 @@ module RubyGBA
       # The values line up with the reference interpreter's own framebuffer dump, so
       # the two backends' pictures can be compared directly.
       # @return [Array<Integer>] 240*160 colors in BGR555
-      def frame_gba
-        # mGBA gives us one 32-bit word per pixel as XBGR8 (0xXXBBGGRR): red in the
-        # low byte, then green, then blue. The GBA itself stores 5 bits per channel,
-        # so shift each 8-bit channel back down to the 15-bit color the ROM asked for.
-        picture!.unpack("V*").map! do |word|
-          r = word & 0xFF
-          g = (word >> 8) & 0xFF
-          b = (word >> 16) & 0xFF
-          (r >> 3) | ((g >> 3) << 5) | ((b >> 3) << 10)
-        end
+      def frame_gba = Emulator.screen_questions.color_list(picture)
+
+      # --- questions about the whole screen ---
+      #
+      # THE EMULATOR ANSWERS THESE, in one pass over the picture (see
+      # {Emulator.screen_questions}). Going through the pixels in Ruby is a number made and
+      # thrown away for every one of them, which is far more work than running the frame
+      # was, so a test that asks something of the whole screen on every frame of a long run
+      # was spending nearly all of its time asking.
+      #
+      # THEY ARE ANSWERED AT THE PRECISION A CONSOLE SHOWS, the same fifteen bits
+      # {#pixel_gba} reads: five each of red, green and blue. The emulator keeps eight, and
+      # what it holds below the five is its own working — it fills a palette colour's low
+      # bits in one way, and works a colour the display brightened, darkened or mixed out at
+      # eight bits. So it can hold the same five-bit colour as two different numbers, and
+      # two pictures that are different bytes can still be one picture here.
+
+      # The whole screen as the console's 15-bit colours in ONE STRING: two bytes a pixel,
+      # low byte first, a row at a time from the top. It is {#frame_gba} without the list —
+      # what to keep a still as, or to hash one, and the same bytes for the same picture, so
+      # two of them are compared with `==`. A list of 38,400 numbers costs many times what
+      # the string does, so reach for the list to look pixels up in and for this to keep.
+      # It is not a {#picture}: {#same_picture_as?} does not take one.
+      #
+      # @return [String]
+      def frame_colors = Emulator.screen_questions.colors(picture)
+
+      # The one colour every pixel is, as a 15-bit number, or nil when the screen holds more
+      # than one: `only_color == Color.resolve(:white)` is a flash at its brightest.
+      #
+      # @return [Integer, nil]
+      def only_color = Emulator.screen_questions.only_color(picture)
+
+      # How bright the screen is: every pixel's red, green and blue added up, each as the
+      # level a console shows, 0 to 31. One number that rises and falls with a fade, which
+      # is what watching one frame by frame wants.
+      #
+      # @return [Integer]
+      def brightness = Emulator.screen_questions.brightness(picture)
+
+      # Whether this reader is showing THE SAME PICTURE as +other+: every pixel the same
+      # colour. +other+ is another running cartridge, or a {#picture} kept from earlier.
+      #
+      # Two cartridges played side by side are asked this after every frame, so it has to
+      # cost next to nothing, and it does: two pictures the emulator holds as the same bytes
+      # are known to be the same in one comparison of the bytes.
+      #
+      # It is the colours and nothing else. The same picture built by a different part of
+      # the display — a background where the other has a sprite — is the same picture, and
+      # so is one the emulator holds as different numbers below the five bits.
+      def same_picture_as?(other) = Emulator.screen_questions.same?(picture, picture_of(other))
+
+      # HOW this reader's picture differs from +other+'s — another running cartridge, or a
+      # {#picture} kept from earlier — or nil when the two are one picture:
+      #
+      #   { count: 32,                  # how many pixels are a different colour
+      #     box: [20, 60, 10, 8],       # the part of the screen they all lie in: x, y, width, height
+      #     at: [20, 60],               # the first of them, a row at a time from the top
+      #     colors: [0x7C00, 0x7FFF] }  # that pixel's colour here, and its colour there
+      #
+      # +looked_at+ leaves part of the screen out: a string of one byte for each pixel, a row
+      # at a time, nought for a pixel that is not looked at. A pixel left out is not counted,
+      # is not in the box and is never the first.
+      #
+      # @return [Hash, nil]
+      def difference_from(other, looked_at: nil)
+        Emulator.screen_questions.difference(picture, picture_of(other), @width, looked_at)
       end
 
-      # Whether +other+, another running cartridge, is showing THE SAME PICTURE as this one:
-      # every pixel the same colour.
+      # THE PICTURE ON SCREEN AS THE EMULATOR HOLDS IT — the frame the run stopped on — to
+      # keep and compare a later one against: `kept = game.picture`, and some frames on,
+      # `game.same_picture_as?(kept)`. Four bytes a pixel: red, green, blue and a byte of
+      # nothing. It is the emulator's own numbers and not the colours a console shows;
+      # {#frame_colors} is those. It cannot be changed, and each frame played makes a new
+      # one, so one that was kept stays as it was.
       #
-      # It is one comparison of the two pictures as the emulator holds them, where comparing
-      # two {#frame_gba}s would be 38,400 comparisons of numbers. Two cartridges played side
-      # by side are asked this after every frame, so that is the difference between a
-      # comparison that takes seconds and one that takes minutes.
+      # A run told to play no frames has no picture, which is a friendly error rather than a
+      # crash on nothing: the console draws when it is run, so there is nothing to read
+      # until it has been.
       #
-      # It is the colours and nothing else. The emulator hands the picture over with
-      # nothing beside a pixel but its colour, so the same picture built by a different part
-      # of the display — a background where the other has a sprite — is the same picture.
-      def same_picture_as?(other) = picture! == other.picture_held
-
-      # Every pixel that is a different colour here from what +other+, another running
-      # cartridge, is showing: each as [x, y], a row at a time from the top.
-      #
-      # This is the slow question — it looks at all 38,400 pixels of both pictures — so ask
-      # {#same_picture_as?} first and this only of two pictures that are not the same.
-      def pixels_differing_from(other)
-        ours = picture!.unpack("V*")
-        theirs = other.picture_held.unpack("V*")
-        (0...ours.size).filter_map { |at| at.divmod(@width).reverse unless ours[at] == theirs[at] }
+      # @return [String]
+      def picture
+        ensure_rendered!
+        @pixels || raise(RuntimeError,
+                         "This run has played no frames, so there is no picture to read. " \
+                         "Give the Verifier `frames:` of 1 or more, or call `step` first.")
       end
-
-      # The picture as the emulator holds it, for another reader to compare its own against.
-      protected def picture_held = picture!
 
       # Check if the entire screen is black (nothing rendered).
-      def all_black?
-        picture!.bytes.each_slice(4).all? { |r, g, b, _| r == 0 && g == 0 && b == 0 }
-      end
+      #
+      # THIS ONE IS ASKED OF WHAT THE EMULATOR HOLDS, eight bits a channel, and so it is
+      # finer than the rest: a pixel the display has darkened to almost nothing is black to
+      # {#black?} and to {#only_color}, and is not black to this. It is left that way so that
+      # the frame a fade is called over on does not move for anybody already asking.
+      def all_black? = Emulator.screen_questions.only_color(picture, 8) == 0
 
       # Check if every pixel in a rectangle matches a color.
       # @return [Boolean]
@@ -665,12 +717,7 @@ module RubyGBA
         lines << "  Frames rendered: #{@played}"
 
         # Count unique colors
-        colors = Hash.new(0)
-        (@height).times do |y|
-          (@width).times do |x|
-            colors[pixel_gba(x, y)] += 1
-          end
-        end
+        colors = frame_gba.tally
 
         total = @width * @height
         lines << "  Unique colors: #{colors.size}"
@@ -854,14 +901,20 @@ module RubyGBA
 
       def save_path = File.join(self.class.save_dir, "#{File.basename(@tempfile.path, '.gba')}.sav")
 
-      # The picture on screen right now — the frame the run stopped on. A run told to play no
-      # frames has none, which is a friendly error rather than a crash on nothing: the console
-      # draws when it is run, so there is nothing to read until it has been.
-      def picture!
-        ensure_rendered!
-        @pixels || raise(RuntimeError,
-                         "This run has played no frames, so there is no picture to read. " \
-                         "Give the Verifier `frames:` of 1 or more, or call `step` first.")
+      # The picture to compare this reader's with: another reader's, or one that was kept.
+      #
+      # Anything else is refused here, by size: a picture is four bytes a pixel, and the one
+      # thing most easily handed over in its place is {#frame_colors}, which is two.
+      def picture_of(other)
+        return other.picture if other.respond_to?(:picture)
+        return other if other.is_a?(String) && other.bytesize == picture.bytesize
+
+        given = other.is_a?(String) ? "a string of #{other.bytesize} bytes" : "an object of class #{other.class}"
+        raise ArgumentError,
+              "A picture can be compared with another running cartridge, or with a picture kept from " \
+              "one. This was #{given}, and a picture here is #{picture.bytesize} bytes. Give another " \
+              "reader, or what `picture` handed back earlier. `frame_colors` and `frame_gba` are the " \
+              "colours of a picture, and are not one."
       end
 
       def ensure_rendered!
@@ -905,7 +958,9 @@ module RubyGBA
           @sound.keep(@probe.audio_by_frame)
           @played += frames
         end
-        @pixels = @probe.frame_buffer
+        # Kept so that it cannot be changed: it is handed out as `picture`, and the emulator's
+        # own reader holds the same string.
+        @pixels = @probe.frame_buffer.freeze
       end
 
       # +count+ frames as the steps they are played in, none longer than the sound kept in memory.

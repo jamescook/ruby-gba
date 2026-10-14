@@ -161,6 +161,27 @@ module RubyGBA
         RubyGBAEmulator.open(rom_path, save_dir: save_dir, bios_path: bios_path)
       end
 
+      # THE QUESTIONS THE EMULATOR ANSWERS ABOUT A WHOLE SCREEN, for a screen it handed over:
+      # which colours it holds, whether it is all one colour, how bright it is, and whether
+      # and where it differs from another.
+      #
+      #   Emulator.screen_questions.same?(one, other)
+      #
+      # A screen is 38,400 pixels, and going through them in Ruby is a number made and thrown
+      # away for every one, which is far more work than running the frame was. A test that
+      # asks something of the whole screen on every frame of a long run spends nearly all of
+      # its time asking, so the asking is done in the emulator's own code, in one pass over
+      # the bytes.
+      #
+      # Each answer is given at the precision a console shows — five bits each of red, green
+      # and blue. The emulator keeps eight, and what it holds below the five is its own
+      # working, which differs with how it reached a colour; so two screens that are
+      # different bytes can still be one picture.
+      def screen_questions
+        load!
+        RubyGBAEmulator::Screen
+      end
+
       # Whether the backend can be loaded. For the rare caller that legitimately
       # degrades rather than fails — the standalone debug scripts. Emulator-backed
       # tests must NOT use this to skip: the emulator is required, so a load failure

@@ -1308,6 +1308,383 @@ mgba_count_changed_pixels(VALUE mod, VALUE delta)
 }
 
 /* --------------------------------------------------------- */
+/* Screen: questions about a whole picture                   */
+/* --------------------------------------------------------- */
+
+/* WHY THESE ARE HERE AND NOT IN RUBY. A screen is 38,400 pixels, and a
+ * test that asks something of the whole of it on every frame goes
+ * through every one of them. In Ruby that is a number made and thrown
+ * away for every pixel, which is far more work than running the frame
+ * was; here it is one pass over the bytes.
+ *
+ * A SCREEN is what Core#video_buffer hands over: four bytes a pixel,
+ * red, green, blue and a byte of nothing. Each function takes that
+ * string, so it answers for the screen a core is showing now and just
+ * the same for one somebody kept from earlier. It is NOT the string
+ * `colors` hands back, which is two bytes a pixel: nothing here can
+ * tell the two apart by looking, so a caller has to.
+ *
+ * FIVE BITS A CHANNEL. A console has thirty-two levels of each of red,
+ * green and blue, and that is the precision every answer here is
+ * given at: the top five bits of each of mGBA's eight. What mGBA
+ * holds below them is its own working — it fills a palette colour's
+ * low bits in one way, and works a colour the display brightened,
+ * darkened or mixed out at eight bits, so the same five-bit colour
+ * can be two different bytes. Two screens of the same bytes are one
+ * picture; two of different bytes may still be.
+ *
+ * `only_color` and `brightness` can be asked at all eight bits instead,
+ * for a caller that was reading mGBA's own numbers and has to go on
+ * getting the answers it got. */
+#define SCREEN_BYTES_PER_PIXEL 4
+#define SCREEN_BITS_SHOWN 0x00F8F8F8u
+#define SCREEN_BITS_HELD 0x00FFFFFFu
+
+/* One pixel out of a screen. Copied out rather than read through a
+ * cast, because nothing promises a Ruby string starts where a 32-bit
+ * number is allowed to. */
+static inline uint32_t
+screen_pixel(const unsigned char *screen, long at)
+{
+    uint32_t px;
+    memcpy(&px, screen + at * SCREEN_BYTES_PER_PIXEL, sizeof(px));
+    return px;
+}
+
+/* The console's own 15-bit colour for one of mGBA's pixels: red in the
+ * low five bits, then green, then blue. */
+static inline uint32_t
+screen_console_color(uint32_t px)
+{
+    return ((px >> 3) & 0x001F) | ((px >> 6) & 0x03E0) | ((px >> 9) & 0x7C00);
+}
+
+/* How many pixels +screen+ holds. Raises for a string that is not a
+ * whole number of them, which is some other bytes handed over where a
+ * screen was meant. It is all that can be checked: a string that IS a
+ * whole number of pixels is taken for a screen. */
+static long
+screen_pixel_count(VALUE screen)
+{
+    long len = RSTRING_LEN(screen);
+    if (len % SCREEN_BYTES_PER_PIXEL != 0)
+        rb_raise(rb_eArgError,
+                 "A screen holds %d bytes for each pixel. This one holds %ld bytes, "
+                 "which is not a whole number of pixels. Give the screen as the "
+                 "emulator hands it over (`frame_buffer`).",
+                 SCREEN_BYTES_PER_PIXEL, len);
+    return len / SCREEN_BYTES_PER_PIXEL;
+}
+
+/* How many bits of each channel a question looks at: 5, which is what
+ * a console shows and what is asked with nothing said, or 8, which is
+ * everything mGBA holds. */
+static int
+screen_bits(VALUE bits)
+{
+    if (NIL_P(bits)) return 5;
+
+    long given = NUM2LONG(bits);
+    if (given != 5 && given != 8)
+        rb_raise(rb_eArgError,
+                 "The bits of a channel must be 5 or 8. They were %ld. Give 5 for the "
+                 "colours a console shows, or 8 for the colours as the emulator holds them.",
+                 given);
+    return (int)given;
+}
+
+/*
+ * RubyGBAEmulator::Screen.colors(screen) → String
+ *
+ * The screen as the console's own 15-bit colours, two bytes a pixel,
+ * low byte first, a row at a time from the top. It is what to keep a
+ * still as, or to hash one: half the size of the screen, and the same
+ * bytes for the same picture whatever mGBA held below five bits. So
+ * two of these are compared with `==`, and they are not screens: the
+ * other questions here do not take them.
+ */
+static VALUE
+screen_colors(VALUE mod, VALUE screen)
+{
+    (void)mod;
+    StringValue(screen);
+
+    long count = screen_pixel_count(screen);
+    VALUE colors = rb_str_new(NULL, count * 2);
+    const unsigned char *src = (const unsigned char *)RSTRING_PTR(screen);
+    unsigned char *dst = (unsigned char *)RSTRING_PTR(colors);
+
+    for (long i = 0; i < count; i++) {
+        uint32_t color = screen_console_color(screen_pixel(src, i));
+        dst[i * 2] = (unsigned char)(color & 0xFF);
+        dst[i * 2 + 1] = (unsigned char)(color >> 8);
+    }
+
+    return colors;
+}
+
+/*
+ * RubyGBAEmulator::Screen.color_list(screen) → Array of Integer
+ *
+ * The same colours as numbers, one for each pixel, a row at a time from
+ * the top: what `colors(screen).unpack("v*")` gives, made here because
+ * unpacking is most of what a list of 38,400 numbers costs. A list is
+ * for looking pixels up in, or counting them; to keep a screen or to
+ * compare two, the string is a fraction of the size and of the time.
+ */
+static VALUE
+screen_color_list(VALUE mod, VALUE screen)
+{
+    (void)mod;
+    StringValue(screen);
+
+    long count = screen_pixel_count(screen);
+    VALUE list = rb_ary_new_capa(count);
+    const unsigned char *src = (const unsigned char *)RSTRING_PTR(screen);
+
+    /* Every colour is a small number, which Ruby keeps without making
+     * an object, and the list already has room: nothing in this loop
+     * can make an object, so the screen stays where it is. */
+    for (long i = 0; i < count; i++)
+        rb_ary_push(list, INT2FIX((int)screen_console_color(screen_pixel(src, i))));
+
+    RB_GC_GUARD(screen);
+    return list;
+}
+
+/*
+ * RubyGBAEmulator::Screen.only_color(screen, bits = 5) → Integer or nil
+ *
+ * The one colour every pixel of the screen is, or nil when the screen
+ * holds more than one. A black screen answers 0, which is what "has it
+ * faded all the way out" comes down to, and a white one 0x7FFF, which
+ * is a flash at its brightest. A screen of no pixels has no colour and
+ * answers nil.
+ *
+ * At five bits the answer is the console's 15-bit colour. At eight it
+ * is the number mGBA holds, red in the low byte, then green, then
+ * blue — so white is 0xFFFFFF — and one pixel a single step out in
+ * mGBA's own working is enough to answer nil. That is the finer
+ * question, and "is the screen black" asked of it can be no while five
+ * bits say yes: a pixel the display darkened to almost nothing.
+ */
+static VALUE
+screen_only_color(int argc, VALUE *argv, VALUE mod)
+{
+    (void)mod;
+    VALUE screen, bits_value;
+    rb_scan_args(argc, argv, "11", &screen, &bits_value);
+    StringValue(screen);
+    int bits = screen_bits(bits_value);
+
+    long count = screen_pixel_count(screen);
+    if (count == 0) return Qnil;
+
+    const unsigned char *src = (const unsigned char *)RSTRING_PTR(screen);
+    uint32_t looked_at = bits == 5 ? SCREEN_BITS_SHOWN : SCREEN_BITS_HELD;
+    uint32_t first = screen_pixel(src, 0);
+
+    for (long i = 1; i < count; i++) {
+        if ((screen_pixel(src, i) ^ first) & looked_at) return Qnil;
+    }
+
+    return UINT2NUM(bits == 5 ? screen_console_color(first) : first & SCREEN_BITS_HELD);
+}
+
+/* How many pixels each of two screens holds, for a question asked of
+ * both. Raises unless they hold the same number: a screen beside one
+ * of another size is a mistake, and answering "not the same" for it
+ * would hide the mistake behind a plausible answer. */
+static long
+screen_pair_pixel_count(VALUE one, VALUE other)
+{
+    long count = screen_pixel_count(one);
+    long other_count = screen_pixel_count(other);
+    if (count != other_count)
+        rb_raise(rb_eArgError,
+                 "Two screens must hold the same number of pixels to be compared. "
+                 "These hold %ld and %ld. Give two screens as the emulator hands them "
+                 "over (`frame_buffer`), from cartridges of one kind of console.",
+                 count, other_count);
+    return count;
+}
+
+/*
+ * RubyGBAEmulator::Screen.same?(one, other) → true or false
+ *
+ * Whether two screens are the same picture at the precision a console
+ * shows: every pixel the same five bits of red, of green and of blue.
+ * Two screens of the same bytes are known to be in one comparison of
+ * the bytes, which is nearly every frame of two cartridges that agree;
+ * only two that are different bytes are gone through a pixel at a time.
+ * (The same question at eight bits is `==` on the two strings.)
+ */
+static VALUE
+screen_same_p(VALUE mod, VALUE one, VALUE other)
+{
+    (void)mod;
+    StringValue(one);
+    StringValue(other);
+
+    long count = screen_pair_pixel_count(one, other);
+    const unsigned char *a = (const unsigned char *)RSTRING_PTR(one);
+    const unsigned char *b = (const unsigned char *)RSTRING_PTR(other);
+
+    if (memcmp(a, b, (size_t)count * SCREEN_BYTES_PER_PIXEL) == 0) return Qtrue;
+
+    for (long i = 0; i < count; i++) {
+        if ((screen_pixel(a, i) ^ screen_pixel(b, i)) & SCREEN_BITS_SHOWN) return Qfalse;
+    }
+
+    return Qtrue;
+}
+
+/*
+ * RubyGBAEmulator::Screen.difference(one, other, width, looked_at = nil) → Hash or nil
+ *
+ * How two screens differ, at the precision a console shows, or nil
+ * when they are one picture:
+ *
+ *   { count: 12,              # how many pixels differ
+ *     box: [96, 40, 8, 6],    # the part of the screen they all lie in: x, y, width, height
+ *     at: [96, 40],           # the first of them, a row at a time from the top
+ *     colors: [0x7C00, 0] }   # that pixel's colour on the one screen and on the other
+ *
+ * +width+ is how many pixels make a row, which the bytes do not say.
+ * All that can be checked of it is that the screen is whole rows that
+ * wide, so a wrong width that happens to divide gives a wrong box.
+ *
+ * +looked_at+ leaves part of the screen out: a string of one byte for
+ * each pixel, nought for a pixel that is not looked at. A pixel left
+ * out is not counted, is not in the box and is never the first, so a
+ * difference wholly inside what is left out is no difference. It is
+ * for a part of a picture known to differ — a clock, a status bar that
+ * is not drawn yet — which would otherwise be every answer.
+ */
+static VALUE
+screen_difference(int argc, VALUE *argv, VALUE mod)
+{
+    (void)mod;
+    VALUE one, other, width_value, looked_at;
+    rb_scan_args(argc, argv, "31", &one, &other, &width_value, &looked_at);
+
+    /* Everything is turned into what is read here BEFORE anything is
+     * measured. Turning a value into a string or a number can run the
+     * caller's own code, and that code can change a screen already
+     * measured — after which the lengths below would be of a screen
+     * that is no longer there. */
+    StringValue(one);
+    StringValue(other);
+    long width = NUM2LONG(width_value);
+    if (!NIL_P(looked_at)) StringValue(looked_at);
+
+    long count = screen_pair_pixel_count(one, other);
+    if (width <= 0 || count % width != 0)
+        rb_raise(rb_eArgError,
+                 "The width must be how many pixels are in one row of the screen. It was "
+                 "%ld, and these screens hold %ld pixels, which is not a whole number of "
+                 "rows that wide. Give the width of the screen, which is 240 for a Game Boy Advance.",
+                 width, count);
+
+    const unsigned char *mask = NULL;
+    if (!NIL_P(looked_at)) {
+        if (RSTRING_LEN(looked_at) != count)
+            rb_raise(rb_eArgError,
+                     "What is looked at must hold one byte for each pixel. It holds %ld "
+                     "bytes, and these screens hold %ld pixels. Give a string of %ld bytes: "
+                     "0 for a pixel to leave out, and 1 for a pixel to look at.",
+                     RSTRING_LEN(looked_at), count, count);
+        mask = (const unsigned char *)RSTRING_PTR(looked_at);
+    }
+
+    const unsigned char *a = (const unsigned char *)RSTRING_PTR(one);
+    const unsigned char *b = (const unsigned char *)RSTRING_PTR(other);
+    long height = count / width;
+    long differing = 0, first = -1;
+    long left = width, right = -1, top = -1, bottom = -1;
+
+    for (long y = 0; y < height; y++) {
+        long row = y * width;
+        /* A row of the same bytes holds no difference, which is most rows of most frames. */
+        if (memcmp(a + row * SCREEN_BYTES_PER_PIXEL, b + row * SCREEN_BYTES_PER_PIXEL,
+                   (size_t)width * SCREEN_BYTES_PER_PIXEL) == 0)
+            continue;
+
+        for (long x = 0; x < width; x++) {
+            long at = row + x;
+            if (mask && !mask[at]) continue;
+            if (!((screen_pixel(a, at) ^ screen_pixel(b, at)) & SCREEN_BITS_SHOWN)) continue;
+
+            differing++;
+            if (first < 0) { first = at; top = y; }
+            bottom = y;
+            if (x < left) left = x;
+            if (x > right) right = x;
+        }
+    }
+
+    if (differing == 0) return Qnil;
+
+    /* Read out of the two screens before anything is made, since making an object can
+     * move a short string and these pointers with it. */
+    uint32_t first_color = screen_console_color(screen_pixel(a, first));
+    uint32_t first_other_color = screen_console_color(screen_pixel(b, first));
+
+    VALUE difference = rb_hash_new();
+    rb_hash_aset(difference, ID2SYM(rb_intern("count")), LONG2NUM(differing));
+    rb_hash_aset(difference, ID2SYM(rb_intern("box")),
+                 rb_ary_new_from_args(4, LONG2NUM(left), LONG2NUM(top),
+                                      LONG2NUM(right - left + 1), LONG2NUM(bottom - top + 1)));
+    rb_hash_aset(difference, ID2SYM(rb_intern("at")),
+                 rb_ary_new_from_args(2, LONG2NUM(first % width), LONG2NUM(first / width)));
+    rb_hash_aset(difference, ID2SYM(rb_intern("colors")),
+                 rb_ary_new_from_args(2, UINT2NUM(first_color), UINT2NUM(first_other_color)));
+    return difference;
+}
+
+/*
+ * RubyGBAEmulator::Screen.brightness(screen) → Integer
+ *
+ * How bright the screen is: the red, green and blue of every pixel
+ * added up. It is one number that rises and falls with a fade, which
+ * is what watching one frame by frame wants, and it says nothing about
+ * where the light is.
+ *
+ * At five bits each channel is the level a console shows, 0 to 31, so
+ * a white screen is 93 for each pixel. At eight it is the number mGBA
+ * holds, 0 to 255, and a white screen is 765 for each pixel. A black
+ * screen is 0 either way, but a screen can reach 0 at five bits a
+ * frame before it does at eight.
+ */
+static VALUE
+screen_brightness(int argc, VALUE *argv, VALUE mod)
+{
+    (void)mod;
+    VALUE screen, bits_value;
+    rb_scan_args(argc, argv, "11", &screen, &bits_value);
+    StringValue(screen);
+    int bits = screen_bits(bits_value);
+
+    long count = screen_pixel_count(screen);
+    const unsigned char *src = (const unsigned char *)RSTRING_PTR(screen);
+    unsigned long long total = 0;
+
+    if (bits == 5) {
+        for (long i = 0; i < count; i++) {
+            uint32_t px = screen_pixel(src, i);
+            total += ((px >> 3) & 0x1F) + ((px >> 11) & 0x1F) + ((px >> 19) & 0x1F);
+        }
+    } else {
+        for (long i = 0; i < count; i++) {
+            uint32_t px = screen_pixel(src, i);
+            total += (px & 0xFF) + ((px >> 8) & 0xFF) + ((px >> 16) & 0xFF);
+        }
+    }
+
+    return ULL2NUM(total);
+}
+
+/* --------------------------------------------------------- */
 /* Core#bios_loaded?                                         */
 /* Returns true if a BIOS VFile is attached to this core.   */
 /* GBA only; returns false for other platforms.             */
@@ -3105,6 +3482,15 @@ Init_ruby_gba_emulator_ext(void)
     /* XOR delta for frame-diff analysis */
     rb_define_module_function(mRubyGBAEmulator, "xor_delta", mgba_xor_delta, 2);
     rb_define_module_function(mRubyGBAEmulator, "count_changed_pixels", mgba_count_changed_pixels, 1);
+
+    /* RubyGBAEmulator::Screen — questions about a whole picture */
+    VALUE mScreen = rb_define_module_under(mRubyGBAEmulator, "Screen");
+    rb_define_module_function(mScreen, "colors", screen_colors, 1);
+    rb_define_module_function(mScreen, "color_list", screen_color_list, 1);
+    rb_define_module_function(mScreen, "only_color", screen_only_color, -1);
+    rb_define_module_function(mScreen, "same?", screen_same_p, 2);
+    rb_define_module_function(mScreen, "difference", screen_difference, -1);
+    rb_define_module_function(mScreen, "brightness", screen_brightness, -1);
 
 #ifdef RUBY_GBA_EMULATOR_RCHEEVOS
     /* Frozen empty array returned by RARuntime#do_frame when nothing triggered */

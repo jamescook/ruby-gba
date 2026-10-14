@@ -476,7 +476,7 @@ module RubyGBA
           @frames_in_a_row = frames_in_a_row
           @ignored_rectangles = ignoring_rectangles.map { |corner_and_size| Rectangle.new(*corner_and_size) }
           @looked_at = pixels_outside(@ignored_rectangles)
-          @pixels_looked_at = @looked_at.count(true)
+          @pixels_looked_at = @looked_at.count(LOOKED_AT)
         end
 
         # Whether the two running cartridges are showing pictures alike enough.
@@ -484,7 +484,8 @@ module RubyGBA
         # Two pictures that are the same are known to be in one comparison, and two that are
         # not are known to differ in the same one when nothing may: only a comparison that
         # was told some of the screen may differ, or need not be looked at, has to go and
-        # count what is out.
+        # count what is out. The emulator does the counting, in one pass over the two
+        # pictures, so that costs little more than the frame did.
         def alike?(first, second)
           return true if first.same_picture_as?(second)
           return false if strict?
@@ -509,7 +510,7 @@ module RubyGBA
         # comes back is where in that list the two hold different colours. (Two consoles
         # still running are asked through `alike?`, which does not copy their screens out.)
         def differing_places(first, second)
-          (0...first.size).select { |at| @looked_at[at] && first[at] != second[at] }
+          (0...first.size).select { |at| @looked_at.getbyte(at) != 0 && first[at] != second[at] }
         end
 
         # HOW ALIKE THE PICTURES HAD TO BE, AS SENTENCES, for a report a person reads.
@@ -534,7 +535,11 @@ module RubyGBA
 
         WIDTH = Console::Hardware::SCREEN_WIDTH
         HEIGHT = Console::Hardware::SCREEN_HEIGHT
-        private_constant :WIDTH, :HEIGHT
+
+        # What a pixel's byte says in the list of what is looked at.
+        LOOKED_AT = "\x01".b.freeze
+        LEFT_OUT = "\x00".b.freeze
+        private_constant :WIDTH, :HEIGHT, :LOOKED_AT, :LEFT_OUT
 
         # A part of the screen, by its top left corner and its size.
         Rectangle = Data.define(:x, :y, :width, :height) do
@@ -561,19 +566,21 @@ module RubyGBA
         def share_differing(first, second)
           return 0 if @pixels_looked_at.zero?
 
-          first.pixels_differing_from(second).count { |x, y| @looked_at[(y * WIDTH) + x] }.fdiv(@pixels_looked_at)
+          difference = first.difference_from(second, looked_at: @looked_at)
+          (difference ? difference[:count] : 0).fdiv(@pixels_looked_at)
         end
 
         # Every pixel of the screen, a row at a time, as whether it lies outside all of
-        # +rectangles+. Worked out once: rectangles can overlap, and how many pixels are left
-        # is what a share is a share of.
+        # +rectangles+: a byte for each, the form the emulator takes it in when it is asked
+        # to count what differs. Worked out once: rectangles can overlap, and how many pixels
+        # are left is what a share is a share of.
         def pixels_outside(rectangles)
           rectangles.each { |rectangle| refuse_rectangle_off_screen!(rectangle) }
-          Array.new(WIDTH * HEIGHT, true).tap do |outside|
-            rectangles.each do |rectangle|
-              rectangle.rows.each { |row| rectangle.columns.each { |column| outside[(row * WIDTH) + column] = false } }
-            end
+          outside = LOOKED_AT * (WIDTH * HEIGHT)
+          rectangles.each do |rectangle|
+            rectangle.rows.each { |row| outside[(row * WIDTH) + rectangle.x, rectangle.width] = LEFT_OUT * rectangle.width }
           end
+          outside.freeze
         end
 
         # A share is a plain number from 0 to 1. The comparisons are written out because the

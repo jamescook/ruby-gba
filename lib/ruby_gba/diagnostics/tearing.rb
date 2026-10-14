@@ -80,9 +80,7 @@ module RubyGBA
       # The picture the display put on screen, a row at a time, as 15-bit colors — the same
       # numbers the program wrote, with the emulator's 8-bit channels shifted back down.
       def shown_rows(bytes)
-        pixels = bytes.unpack("V*").map! do |word|
-          ((word & 0xFF) >> 3) | (((word >> 8) & 0xFF) >> 3 << 5) | (((word >> 16) & 0xFF) >> 3 << 10)
-        end
+        pixels = Emulator.screen_questions.color_list(bytes)
         (0...HEIGHT).map { |y| pixels[y * WIDTH, WIDTH] }
       end
 

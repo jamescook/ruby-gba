@@ -32,6 +32,53 @@ probe.close
 `audio_buffer`, `bus_read8/16/32`, `set_keys`, …). `RubyGBAEmulator::Probe` sits on
 top and returns structured data.
 
+## Asking about the whole screen
+
+A screen is 38,400 pixels, and a test that asks something of all of them on every frame of a
+long run goes through every one. In Ruby that is a number made and thrown away for every pixel,
+which is far more work than running the frame was, so the questions tests ask of a whole screen
+are answered in the extension, in one pass over the bytes:
+
+```ruby
+Screen = RubyGBAEmulator::Screen
+
+kept = probe.frame_buffer             # a screen as the emulator hands it over, to keep
+probe.step(60)
+now = probe.frame_buffer
+
+Screen.only_color(now)                # => 0 for a black screen, 0x7FFF for a white one, nil for a picture
+Screen.brightness(now)                # => every pixel's red, green and blue added up, each 0 to 31
+Screen.colors(now)                    # => the console's 15-bit colours in one string, two bytes a pixel
+Screen.color_list(now)                # => the same colours as a list of numbers
+Screen.same?(now, kept)               # => whether the two are one picture
+Screen.difference(now, kept, 240)     # => { count: 32, box: [20, 60, 10, 8], at: [20, 60], colors: [31744, 32767] }, or nil
+```
+
+Each takes a screen as `frame_buffer` hands it over, so it answers for the screen now and just
+the same for one kept from earlier. The probe has the short way to say "the screen now":
+`probe.only_color`, `probe.brightness`, `probe.screen_colors`, `probe.screen_color_list`,
+`probe.same_screen?(kept)` and `probe.screen_difference(kept)`.
+
+Every answer is given at **the precision a console shows**: five bits each of red, green and
+blue. mGBA keeps eight, and what it holds below the five is its own working — it fills a
+palette colour's low bits in one way, and works a colour the display brightened, darkened or
+mixed out at all eight. So it can hold the same five-bit colour as two different numbers, and
+two screens that are different bytes can still be one picture.
+
+`only_color` and `brightness` take a second argument, `8`, to be asked of what mGBA holds
+instead: `Screen.only_color(now, 8)` answers that number (white is `0xFFFFFF`), and
+`Screen.brightness(now, 8)` adds up channels of 0 to 255. That is for a test that was reading
+mGBA's own numbers and has to go on getting the answers it got — a screen the display has
+darkened to almost nothing is black at five bits a frame before it is black at eight.
+
+`Screen.colors` hands back a string that is **not** a screen: it is two bytes a pixel, two of
+them are compared with `==`, and the other questions do not take one. Nothing can tell the two
+kinds of string apart by looking, so a screen's colours given where a screen was meant are
+answered wrongly and not refused.
+
+`Screen.difference` takes a fourth argument that leaves part of the screen out: a string of one
+byte for each pixel, nought for a pixel that is not looked at.
+
 ## Debugging generated code: stop at an instruction, read the registers
 
 For somebody working on a code generator rather than a game. A wrong answer out of generated

@@ -155,6 +155,47 @@ class TestComparison < Minitest::Test
     refute waiting.compare(as_a_tile, as_a_sprite).drift?
   end
 
+  # What the emulator holds for one pixel on the last frame of a tape, eight bits a channel.
+  private def held_at_the_end(cartridge, tape, x, y)
+    [].tap { |seen| each_frame_of(cartridge, tape) { |game, _frame| seen << game.pixel(x, y) } }.last
+  end
+
+  # THE SAME COLOURS ARE THE SAME PICTURE, whatever the emulator holds below the five bits of
+  # each channel a console shows. It keeps eight, and what it holds below the five is its own
+  # working: a colour read out of the colour table and the same five-bit colour reached by
+  # the display brightening a darker one are different numbers to it. A comparison that went
+  # by the bytes would call every pixel of such a screen drift.
+  def test_the_same_colours_held_as_different_numbers_do_not_drift
+    waiting = RubyGBA.playthrough("wait") { wait frames: 12 }
+    plain = grey_screen(brightened: false)
+    brightened = grey_screen(brightened: true)
+    tape = waiting.play(plain).tape
+
+    refute_equal held_at_the_end(plain, tape, 0, 0), held_at_the_end(brightened, tape, 0, 0),
+                 "the emulator holds the two greys as different numbers"
+    assert pictures_of(plain, tape) == pictures_of(brightened, tape), "the two show the same colours on every frame"
+    refute waiting.compare(plain, brightened).drift?
+  end
+
+  # ...AND WHERE THE PIXELS OUT ARE COUNTED, THEY ARE COUNTED BY THOSE COLOURS TOO. One of
+  # these two has three white pixels the other does not, and every other pixel of the two is
+  # the same colour held as a different number. Three pixels are out, not all of them.
+  def test_pixels_out_are_counted_by_the_colours_and_not_by_what_the_emulator_holds
+    waiting = RubyGBA.playthrough("wait") { wait frames: 12 }
+    specked = grey_screen(brightened: false, specks: 3)
+    brightened = grey_screen(brightened: true)
+    tape = waiting.play(specked).tape
+    out = pictures_of(specked, tape).last.zip(pictures_of(brightened, tape).last).count { |ours, theirs| ours != theirs }
+
+    assert_equal 3, out, "three pixels differ in colour, counted the long way"
+    refute_equal held_at_the_end(specked, tape, 0, 0), held_at_the_end(brightened, tape, 0, 0)
+    assert waiting.compare(specked, brightened).drift?
+    assert waiting.compare(specked, brightened, share_may_differ: Rational(2, PIXELS)).drift?
+    refute waiting.compare(specked, brightened, share_may_differ: Rational(3, PIXELS)).drift?, "exactly three may differ"
+    refute waiting.compare(specked, brightened, ignoring_rectangles: [[SPECK_X, SPECK_Y, 3, 1]]).drift?,
+           "and with the three left out there is nothing to count"
+  end
+
   # --- how alike two pictures have to be ---
 
   # A FEW PIXELS OUT IS DRIFT UNLESS THAT SHARE OF THE SCREEN MAY DIFFER. One of these two

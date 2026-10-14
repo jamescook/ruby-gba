@@ -461,6 +461,58 @@ module RubyGBAEmulator
       pixels!
     end
 
+    # --- questions about the whole screen ------------------------------------------------
+    #
+    # Each of these is {Screen}'s answer for the frame this probe is showing now. They are
+    # here because the alternative is going through {#frame_buffer} in Ruby, a number made
+    # and thrown away for each of 38,400 pixels, which is far more work than running the
+    # frame was — so a test that asks one of them on every frame of a long run spends
+    # nearly all of its time asking. {Screen} takes any screen, this one or one kept from
+    # earlier, and these are the short way to say "this one".
+    #
+    # THEY ARE ANSWERED AT THE PRECISION A CONSOLE SHOWS, five bits each of red, green and
+    # blue, where the emulator holds eight — see {Screen} for why the difference matters.
+    # {#only_color} and {#brightness} can be asked at all eight. Each raises until at least
+    # one {#step} has run.
+
+    # The screen as the console's own 15-bit colours, two bytes a pixel, low byte first.
+    # What to keep a still as, or to hash one. It is not a screen: two of these are
+    # compared with +==+, and {#same_screen?} does not take one.
+    #
+    # @return [String]
+    def screen_colors = Screen.colors(pixels!)
+
+    # The same colours as a list of numbers, one for each pixel, a row at a time from the
+    # top — for looking pixels up in. It costs many times what the string does.
+    #
+    # @return [Array<Integer>]
+    def screen_color_list = Screen.color_list(pixels!)
+
+    # The one colour every pixel is, or nil when there is more than one. With nothing said
+    # it is a 15-bit colour: 0 for a black screen, 0x7FFF for a white one. +bits+ of 8 asks
+    # it of what the emulator holds instead, and answers that number (white is 0xFFFFFF).
+    #
+    # @return [Integer, nil]
+    def only_color(bits = 5) = Screen.only_color(pixels!, bits)
+
+    # How bright the screen is: every pixel's red, green and blue added up, each 0 to 31 —
+    # or, with +bits+ of 8, each as the emulator holds it, 0 to 255.
+    #
+    # @return [Integer]
+    def brightness(bits = 5) = Screen.brightness(pixels!, bits)
+
+    # Whether the screen is the same picture as +other+, a screen kept earlier or another
+    # probe's {#frame_buffer}.
+    def same_screen?(other) = Screen.same?(pixels!, other)
+
+    # How the screen differs from +other+: how many pixels, the box they lie in, and the
+    # first of them with its colour here and its colour there — or nil when the two are one
+    # picture. +looked_at+ leaves part of the screen out, a byte for each pixel and nought
+    # for one that is not looked at. See {Screen.difference} for the Hash.
+    #
+    # @return [Hash, nil]
+    def screen_difference(other, looked_at: nil) = Screen.difference(pixels!, other, @width, looked_at)
+
     # Read one byte (0..255) from the GBA address bus — any mapped region
     # (IWRAM 0x03000000+, EWRAM 0x02000000+, VRAM, I/O registers).
     def read8(address)

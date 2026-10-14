@@ -315,6 +315,13 @@ v.pixel_gba(x, y)                          # the raw 15-bit BGR555 (great in fai
 v.region_color?(x, y, w, h, :blue)
 v.audio_energy / v.silent? / v.sound?      # "did the speaker do anything?"
 
+v.only_color                               # the one colour every pixel is, or nil for a picture
+v.brightness                               # every pixel's red, green and blue added up, each 0..31
+v.frame_colors                             # the whole screen as one string, two bytes a pixel
+v.frame_gba                                # ...and as a list of 15-bit numbers, to look pixels up in
+v.same_picture_as?(other)                  # another reader, or a `v.picture` kept from earlier
+v.difference_from(other)                   # { count:, box: [x, y, w, h], at: [x, y], colors: [here, there] } or nil
+
 v.sprites(:hero)                           # the console's own rows for that named sprite
 v.sprites                                  # every row being drawn, each saying whose it is
 
@@ -330,6 +337,18 @@ v.showing(only: :sprites) { v.step; ... }  # draw the picture without some of it
 v.hearing(without: :wave) { v.step(40); ... }  # mix the sound without some of it
 v.layers / v.channels                      # the names those two can be given
 ```
+
+**The questions about the whole screen are cheap, and the list is the dear one.** The emulator
+answers `only_color`, `brightness`, `frame_colors`, `same_picture_as?` and `difference_from` in
+one pass over the picture, so a test can ask one on every frame of a run of thousands and the
+run takes about what it took. `frame_gba` makes 38,400 numbers and costs several frames' worth
+of time, so keep it for looking pixels up in: to keep a still, hash one, or ask whether the
+screen changed, use `frame_colors` or `same_picture_as?`. All of them answer at the precision a
+console shows, five bits a channel. The emulator keeps eight, and works a colour the display
+brightened, darkened or mixed out at all eight, so it can hold one five-bit colour as two
+different numbers and two readers showing one picture can hold different bytes. `all_black?` is
+the one that asks the emulator's eight, as it always did: a screen darkened to almost nothing is
+black to `only_color` and `black?(x, y)` a frame before it is black to `all_black?`.
 
 **One reader over one cartridge.** Everything above comes off the same Verifier on purpose —
 holding a second reader over the same ROM is two readings of one frame that can disagree, and

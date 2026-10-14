@@ -63,6 +63,26 @@ module ComparisonGames
     end
   end
 
+  # A GREY SCREEN THE EMULATOR HOLDS AS ONE OF TWO NUMBERS, for the same colour at the five
+  # bits of each channel a console shows.
+  #
+  # The emulator keeps eight bits a channel. A grey of level 17 read straight out of the
+  # colour table is 140 to it; a grey of level 16 that the display brightens one step is
+  # worked out at eight bits and comes to 139. Both are level 17 once the three bits below
+  # are dropped, so the two screens are different bytes and one picture.
+  #
+  # +specks+ white pixels in a row are drawn on it too, far from any edge: a difference of a
+  # known size that IS one at five bits.
+  def grey_screen(brightened:, specks: 0)
+    RubyGBA.build("GREY", out: StringIO.new, err: StringIO.new) do
+      screen :bitmap
+      clear_screen(brightened ? rgb(16, 16, 16) : rgb(17, 17, 17))
+      specks.times { |speck| pixel SPECK_X + speck, SPECK_Y, :white }
+      fade :white, 7 if brightened
+      game_loop {}
+    end
+  end
+
   # A lead-in for any walker: let frames go by until its ground is up, which is the first
   # frame of the game itself, however long a logo came before it.
   def past_the_logo

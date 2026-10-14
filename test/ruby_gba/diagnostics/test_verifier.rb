@@ -1,8 +1,10 @@
 # frozen_string_literal: true
 
 require "test_helper"
+require "comparison_games"
 
 class TestVerifier < Minitest::Test
+  include ComparisonGames
 
   def setup
     require_emulator!
@@ -188,5 +190,168 @@ class TestVerifier < Minitest::Test
     v.pixel(0, 0) # force the render, which is what opens the emulator
 
     assert_empty loose.call - before, "verifying a ROM dropped a save file next to it in the temp directory"
+  end
+
+  # --- questions about the whole screen ---
+  #
+  # Each is answered by the emulator in one pass over the picture. What each is held to
+  # here is the long way round: every pixel's colour as a number, gone through in Ruby.
+
+  PIXELS = 240 * 160
+  BLUE, GREEN, RED, WHITE = %i[blue green red white].map { |name| RubyGBA::Graphics::Color.resolve(name) }
+
+  # Blue with a green block and a red strip on it.
+  private def a_picture
+    reader_of(RubyGBA.build("PICTURE") do
+      screen :bitmap
+      clear_screen :blue
+      fill_rect 100, 60, 40, 40, :green
+      fill_rect 10, 10, 20, 6, :red
+      game_loop {}
+    end)
+  end
+
+  private def all_red
+    reader_of(RubyGBA.build("ALLRED") do
+      screen :bitmap
+      clear_screen :red
+      game_loop {}
+    end)
+  end
+
+  # A grey screen the emulator holds as one of two numbers for the same five-bit colour: see
+  # ComparisonGames#grey_screen.
+  private def grey(brightened:) = reader_of(grey_screen(brightened: brightened))
+
+  # A white box on blue that walks two pixels to the right on every frame.
+  private def a_walking_box
+    reader_of(RubyGBA.build("WALKBOX") do
+      screen :bitmap
+      x = var :x, 20
+      game_loop do
+        clear_screen :blue
+        draw_rect_at x, 60, 8, 8, :white
+        x.add! 2
+      end
+    end)
+  end
+
+  private def reader_of(rom) = RubyGBA::Diagnostics::Verifier.new(rom, frames: 6, vars: rom.var_addresses)
+
+  private def levels_of(colour) = (colour & 0x1F) + ((colour >> 5) & 0x1F) + ((colour >> 10) & 0x1F)
+
+  def test_the_whole_screen_as_colours_is_every_pixel_a_row_at_a_time
+    shown = a_picture.frame_gba
+
+    assert_equal PIXELS, shown.size
+    assert_equal({ BLUE => PIXELS - 1600 - 120, GREEN => 1600, RED => 120 }, shown.tally)
+    assert_equal [RED, BLUE], [shown[(10 * 240) + 29], shown[(10 * 240) + 30]], "the strip ends at its edge"
+    assert_equal [BLUE, GREEN], [shown[(60 * 240) + 99], shown[(60 * 240) + 100]], "and the block begins at its own"
+  end
+
+  def test_the_whole_screen_as_one_string_is_the_same_colours_two_bytes_each
+    reader = a_picture
+
+    assert_equal PIXELS * 2, reader.frame_colors.bytesize
+    assert_equal reader.frame_gba, reader.frame_colors.unpack("v*")
+  end
+
+  def test_a_screen_of_one_colour_says_which_and_a_picture_says_none
+    assert_equal RED, all_red.only_color
+    assert_nil a_picture.only_color
+  end
+
+  def test_how_bright_a_screen_is_is_the_levels_of_every_pixel_added_up
+    reader = a_picture
+
+    assert_equal PIXELS * 31, reader.brightness, "three plain colours, one full channel each"
+    assert_equal reader.frame_gba.sum { |colour| levels_of(colour) }, reader.brightness
+    assert_equal PIXELS * 17 * 3, grey(brightened: true).brightness, "the levels a console shows"
+  end
+
+  # THE SAME COLOURS ARE THE SAME PICTURE, whatever the emulator holds below the five bits of
+  # each channel a console shows: it keeps eight, and works a colour the display brightened
+  # out at all eight of them.
+  def test_two_readers_showing_the_same_colours_show_the_same_picture
+    plain = grey(brightened: false)
+    brightened = grey(brightened: true)
+
+    refute_equal plain.pixel(0, 0), brightened.pixel(0, 0), "the emulator holds the two greys as different numbers"
+    refute_equal plain.picture, brightened.picture
+    assert_equal plain.frame_gba, brightened.frame_gba, "and they are one colour at five bits a channel"
+    assert plain.same_picture_as?(brightened)
+    assert_nil plain.difference_from(brightened)
+  end
+
+  def test_two_readers_showing_different_pictures_say_how_they_differ
+    picture = a_picture
+    red = all_red
+    differing = picture.frame_gba.zip(red.frame_gba).count { |ours, theirs| ours != theirs }
+
+    refute picture.same_picture_as?(red)
+    assert_equal PIXELS - 120, differing, "all but the red strip, counted the long way"
+    assert_equal({ count: PIXELS - 120, box: [0, 0, 240, 160], at: [0, 0], colors: [BLUE, RED] }, picture.difference_from(red))
+  end
+
+  def test_a_difference_leaves_out_what_is_not_looked_at
+    picture = a_picture
+    block_only = "\x00".b * PIXELS
+    (60...100).each { |row| block_only[(row * 240) + 100, 40] = "\x01".b * 40 }
+
+    assert_equal({ count: 1600, box: [100, 60, 40, 40], at: [100, 60], colors: [GREEN, RED] },
+                 picture.difference_from(all_red, looked_at: block_only))
+    assert_nil picture.difference_from(all_red, looked_at: "\x00".b * PIXELS)
+  end
+
+  # A PICTURE KEPT FROM EARLIER answers the same two questions a second reader does: has the
+  # screen changed since, and where.
+  def test_a_reader_is_compared_with_a_picture_it_kept_earlier
+    reader = a_walking_box
+    kept = reader.picture
+    was_at = reader.var(:x) - 2
+
+    assert reader.same_picture_as?(kept), "nothing has been played since"
+    reader.step
+
+    refute reader.same_picture_as?(kept)
+    assert_equal({ count: 32, box: [was_at, 60, 10, 8], at: [was_at, 60], colors: [BLUE, WHITE] },
+                 reader.difference_from(kept), "two columns left behind and two new ones, eight rows of each")
+  end
+
+  def test_the_colours_of_a_picture_are_not_a_picture_to_compare_with
+    reader = a_picture
+
+    [-> { reader.same_picture_as?(reader.frame_colors) }, -> { reader.difference_from(reader.frame_colors) },
+     -> { reader.same_picture_as?(reader.frame_gba) }].each do |ask|
+      message = assert_raises(ArgumentError, &ask).message
+
+      assert_match(/`picture`/, message, "it says what to give")
+      assert_operator message.length, :<, 600, "and does not print the screen it was given"
+    end
+  end
+
+  def test_a_picture_that_was_kept_cannot_be_changed
+    kept = a_picture.picture
+
+    assert_raises(FrozenError) { kept.setbyte(0, 9) }
+  end
+
+  # ALL BLACK IS ASKED OF WHAT THE EMULATOR HOLDS, eight bits a channel, as it always was.
+  # The darkest grey there is, darkened half way by the display, comes to a number below
+  # the lowest of the five bits: black to every reader of colours, and not to this one.
+  def test_a_screen_lit_only_below_five_bits_is_not_all_black
+    rom = RubyGBA.build("DIMMED") do
+      screen :bitmap
+      clear_screen rgb(1, 1, 1)
+      fade :black, 50
+      game_loop {}
+    end
+    reader = reader_of(rom)
+
+    assert_equal 0, reader.only_color, "black, by the colours"
+    assert reader.black?(120, 80)
+    assert_equal 0, reader.brightness
+    assert_operator reader.pixel(120, 80)[:r], :>, 0, "and the emulator holds a number above nought"
+    refute reader.all_black?
   end
 end
