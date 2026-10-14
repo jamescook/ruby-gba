@@ -89,7 +89,10 @@ module ParallelTest
 
     def play
       count = [ParallelTest.processes, @waiting.size].min
-      @options[:io].puts "Playing #{@waiting.size} tests in #{count} processes" if count.positive?
+      if count.positive?
+        @options[:io].puts "Playing #{@waiting.size} #{@waiting.size == 1 ? 'test' : 'tests'} in " \
+                           "#{count} #{count == 1 ? 'process' : 'processes'}"
+      end
       count.times { start_child }
       read_children until @children.empty?
     ensure
