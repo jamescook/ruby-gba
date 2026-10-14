@@ -9,6 +9,8 @@ require "test_helper"
 # What matters as much is what is NOT refused: the same two verbs wherever the fade holds
 # nothing off by its shape.
 class TestIrGuardrailSpriteInBlocksKeptFromFade < Minitest::Test
+  runs_on :reference
+
   Check = RubyGBA::IR::Guardrails::Checks::SpriteInBlocksKeptFromFade
 
   # A cloud far off, a hero in the game and a score over it, each a sprite in a layer of

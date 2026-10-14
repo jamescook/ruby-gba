@@ -5,6 +5,8 @@ require "test_helper"
 # What every backend agrees on about a picture shown in blocks: how big a block can be,
 # and that a program puts its blocks at one place in the stack.
 class TestBlocks < Minitest::Test
+  runs_on :reference
+
   include RubyGBA::IR::Build
 
   Blocks = RubyGBA::IR::Backends::Blocks
