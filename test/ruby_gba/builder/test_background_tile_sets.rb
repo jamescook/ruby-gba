@@ -8,7 +8,7 @@ require "differential"
 # to another area brings that area's set in. Each set fits the console's tile memory on
 # its own; the sets together need not.
 class TestBackgroundTileSets < Minitest::Test
-  runs_on :reference
+  runs_on :reference, :native
 
   include Differential
 
@@ -45,7 +45,7 @@ class TestBackgroundTileSets < Minitest::Test
   end
 
   def pixel(prog, frames: 3)
-    Reference.new.run(prog, frames: frames).screen.pixel(*SPOT)
+    game_player.run(prog, frames: frames).screen.pixel(*SPOT)
   end
 
   def test_the_first_areas_room_draws_from_its_own_set
@@ -242,7 +242,7 @@ class TestBackgroundTileSets < Minitest::Test
   end
 
   def test_the_trees_of_the_clearing_stop_the_hero_and_the_shrine_has_none
-    stood = [0, 1].map { |room| Reference.new.run(walk_right_in(room), frames: 30)[:stood] }
+    stood = [0, 1].map { |room| game_player.run(walk_right_in(room), frames: 30)[:stood] }
 
     assert_operator stood[0], :>, 120, "the shrine lets the hero walk on"
     assert_equal 112, stood[1], "the clearing's trees, at column 15, stop the hero's right edge at 120"

@@ -32,16 +32,19 @@ module RubyGBA
 
           # The picture at one moment of a run, read the way the interpreter's screen is: #pixel
           # gives the colour at (x, y) as the player would see it, nil off the screen, #shown
-          # every pixel that way row by row, and #to_a every pixel as it is STORED — no window
-          # moved over the picture and no fade mixed in.
-          Picture = Data.define(:shown, :stored) do
-            def pixel(x, y)
-              return nil unless x.between?(0, Screen::WIDTH - 1) && y.between?(0, Screen::HEIGHT - 1)
+          # every pixel that way row by row, and #stored_pixel and #to_a as it is STORED — no
+          # window moved over the picture and no fade mixed in. #camera_x and #camera_y are where
+          # that window sits.
+          Picture = Data.define(:shown, :stored, :camera_x, :camera_y) do
+            def pixel(x, y) = on_screen?(x, y) ? shown[(y * Screen::WIDTH) + x] : nil
 
-              shown[(y * Screen::WIDTH) + x]
-            end
+            def stored_pixel(x, y) = on_screen?(x, y) ? stored[(y * Screen::WIDTH) + x] : nil
 
             def to_a = stored.dup
+
+            private
+
+            def on_screen?(x, y) = x.between?(0, Screen::WIDTH - 1) && y.between?(0, Screen::HEIGHT - 1)
           end
 
           # Where the game had got to at one frame boundary, or (+frame+ :end) when the run
@@ -63,6 +66,11 @@ module RubyGBA
           # a program prints when it is not writing its pictures to a file.
           def self.picture_in(rows)
             rows.find { |row| row.start_with?("picture ") }.delete_prefix("picture ").scan(/\h{4}/).map { |hex| hex.to_i(16) }
+          end
+
+          # Where the window sat over the picture, printed among +rows+ ("camera X Y").
+          def self.camera_in(rows)
+            rows.find { |row| row.start_with?("camera ") }.split(" ").drop(1).map { |number| Integer(number) }
           end
 
           # A picture as the one number the program prints for it each frame: the CRC-32 of its
@@ -250,7 +258,7 @@ module RubyGBA
               raise Zig::Error, "the program's picture file holds #{pixels.length} pixels, where two pictures are #{each * 2}"
             end
 
-            Picture.new(shown: pixels.first(each), stored: pixels.last(each))
+            Picture.new(shown: pixels.first(each), stored: pixels.last(each), camera_x: @camera[0], camera_y: @camera[1])
           end
 
           def play_frames(exe, frames, options)
@@ -285,6 +293,7 @@ module RubyGBA
           def record_frame_and_send_buttons(stdin, frame, rows)
             @vars = self.class.variables_in(rows)
             @sprites = @drawn_sprites.rows_in(rows)
+            @camera = self.class.camera_in(rows)
             @screen = nil
             check = rows.find { |row| row.start_with?("picture-crc ") }.delete_prefix("picture-crc ").to_i(16)
             @moments << Moment.new(frame: frame, variables: @vars, picture: check, sounds: @audio.size, sprites: @sprites)
@@ -305,6 +314,7 @@ module RubyGBA
           def record_end(rows)
             @vars = self.class.variables_in(rows)
             @sprites = @drawn_sprites.rows_in(rows)
+            @camera = self.class.camera_in(rows)
             @screen = picture_now
             @buffered = rows.include?("pages 2")
             @moments << Moment.new(frame: :end, variables: @vars, picture: self.class.picture_check(@screen.shown),

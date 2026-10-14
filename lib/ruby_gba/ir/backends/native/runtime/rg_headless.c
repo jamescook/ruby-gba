@@ -9,8 +9,9 @@
  * frame, as a number with a bit per button (bit 0 is a, in the order rg_runtime.h lists them);
  * a missing line holds nothing.
  *
- * At every frame boundary it prints "frame N", every variable as "var name value" and every
- * sprite the game last drew as "sprite" and four numbers (see print_sprites), then "buttons?",
+ * At every frame boundary it prints "frame N", every variable as "var name value", every sprite
+ * the game last drew as "sprite" and four numbers (see print_sprites), and where the window sits
+ * over the picture as "camera X Y", then "buttons?",
  * and only then reads that frame's line. So whoever is feeding it can answer from what the game
  * has done so far — a test that presses a button only once the game has reached somewhere — or
  * write every line up front and ignore the question. That is the order the interpreter asks its
@@ -159,6 +160,7 @@ static void print_moment(const char *heading, int with_picture) {
   printf("%s\n", heading);
   rg_game_dump_variables();
   print_sprites();
+  printf("camera %d %d\n", (int)rg_screen_camera_x(), (int)rg_screen_camera_y());
   const uint16_t *shown = rg_screen_shown();
   if (with_picture) {
     print_pixels("picture", shown);
