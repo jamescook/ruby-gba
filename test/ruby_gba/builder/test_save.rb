@@ -8,7 +8,7 @@ require "test_helper"
 # both backends: the reference interpreter models a power cycle with an injected save
 # store, and the console (the emulator) writes real SRAM the test reads straight back.
 class TestSave < Minitest::Test
-  runs_on :reference
+  runs_on :reference, :native
 
   GBA  = RubyGBA::IR::Backends::GBA
   SAVE_MAGIC = 0x53415631 # "SAV1", the marker written alongside the saved values
@@ -46,20 +46,20 @@ class TestSave < Minitest::Test
 
   def test_a_saved_value_comes_back_on_the_next_boot
     store = SaveImage.new
-    Reference.new(save: store).run(build(&KEEPER), frames: 3)
+    game_player(save: store).run(build(&KEEPER), frames: 3)
 
-    reborn = Reference.new(save: store).run(build(&READER), frames: 1)
+    reborn = game_player(save: store).run(build(&READER), frames: 1)
     assert_equal 7, reborn[:high_score], "the saved high score should load at the next boot"
   end
 
   def test_a_fresh_cartridge_starts_from_the_default
-    fresh = Reference.new(save: SaveImage.new).run(build(&READER), frames: 1)
+    fresh = game_player(save: SaveImage.new).run(build(&READER), frames: 1)
     assert_equal 0, fresh[:high_score], "with nothing saved, a save_var starts from its default"
   end
 
   def test_changing_a_saved_variable_writes_it_through_immediately
     store = SaveImage.new
-    Reference.new(save: store).run(build(&KEEPER), frames: 3)
+    game_player(save: store).run(build(&KEEPER), frames: 3)
     assert_equal 7, store.word(4), "the new high score is mirrored to its save slot, where the console keeps it"
     assert_equal SAVE_MAGIC, store.word(0), "the marker is stamped so the next boot trusts the data"
   end

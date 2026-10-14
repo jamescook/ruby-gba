@@ -9,7 +9,7 @@ require "test_helper"
 # record ended up. The rules are the ones the console runs (see Builder::SavePlaces), run
 # here on the interpreter; nothing else says them, so nothing here can drift from them.
 class TestSavePlaces < Minitest::Test
-  runs_on :reference
+  runs_on :reference, :native
 
   Layout = RubyGBA::IR::SaveLayout
   Table = Layout::Table
@@ -53,7 +53,7 @@ class TestSavePlaces < Minitest::Test
   # +save_memory+ is the cartridge's, in kilobytes; nil lets the records pick.
   private def placed(records, rows, bytes: {}, names: records.keys, save_memory: nil)
     store = SaveImage.new(kilobytes: save_memory || Layout::MEMORIES.first, bytes: bytes).write_table(rows)
-    Reference.new(save: store).run(game(records, save_memory: save_memory), frames: 1)
+    game_player(save: store).run(game(records, save_memory: save_memory), frames: 1)
     @store = store
     by_key = names.to_h { |name| [Layout.record_key(name), name] }
     store.table.to_h { |one| [by_key.fetch(one.key), [one.at, one.copies]] }
@@ -196,11 +196,11 @@ class TestSavePlaces < Minitest::Test
   # blocks are the third and fourth of the record's — and it loads back at the next power-on.
   def test_on_flash_a_save_lands_on_its_block_and_loads_back
     store = SaveImage.new
-    Reference.new(save: store).input_each_frame { |f| f == 2 ? [:a] : [] }.run(flash_game, frames: 12)
+    game_player(save: store).input_each_frame { |f| f == 2 ? [:a] : [] }.run(flash_game, frames: 12)
     marked = [2, 3].map { |block| FLASH_START + (block * BLOCK) }.select { |at| store.word(at) == Layout::MARKER }
 
     assert_equal 1, marked.size, "one half of the second copy holds the save, at the start of a block"
-    assert_equal 7, Reference.new(save: store).run(flash_game, frames: 2)[:hearts], "and it loads back"
+    assert_equal 7, game_player(save: store).run(flash_game, frames: 2)[:hearts], "and it loads back"
   end
 
   # A record given a second copy, with a record right after it, moves to room further on — room
@@ -236,9 +236,9 @@ class TestSavePlaces < Minitest::Test
   def test_on_flash_a_copy_saved_over_and_over_loads_its_last_save
     store = SaveImage.new
     presses = { 2 => [:a], 6 => [:a], 10 => [:b], 14 => [:a] }
-    Reference.new(save: store).input_each_frame { |f| presses.fetch(f, []) }.run(flash_game, frames: 30)
+    game_player(save: store).input_each_frame { |f| presses.fetch(f, []) }.run(flash_game, frames: 30)
 
-    assert_equal 9, Reference.new(save: store).run(flash_game, frames: 2)[:hearts]
+    assert_equal 9, game_player(save: store).run(flash_game, frames: 2)[:hearts]
   end
 
   # A 64K game keeping one number in two copies: A saves one more heart than last time (7 the
