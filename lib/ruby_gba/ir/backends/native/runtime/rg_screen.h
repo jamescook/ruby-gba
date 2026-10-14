@@ -95,22 +95,28 @@ void rg_background_draw_with(int32_t background, int32_t which);
 void rg_background_turn(int32_t background, int32_t angle, int32_t size, int32_t pivot_x, int32_t pivot_y);
 
 /* A BENT BACKGROUND has every line of the screen at its own distance across, on top of where the
- * background is scrolled to (RG_BG_BENT, below). How far is the game's to work out, line by
- * line, each time the background is painted, so the picture asks by calling
- * rg_game_bend_offsets with one background and one line of the screen in mind. The game answers
- * for the background that is asked about, after running whatever its block says to run first:
+ * background is scrolled to (RG_BG_BENT, below). How far is the game's to work out, once a pass
+ * for every line, in the gap between frames (Reference#work_out_bends): rg_screen_work_out_bends
+ * calls rg_game_work_out_bends there, which hands each bend's lines to rg_bend_work_out in the
+ * console's order, and the picture reads what was worked out however often it is painted. For
+ * each line rg_bend_work_out calls rg_game_bend_offsets with one background and one line of the
+ * screen in mind, and the game answers for the background asked about, after running whatever its
+ * block says to run first:
  *
  *   if (rg_bend_asked(2)) { row = rg_bend_line(); ...; rg_bend_answer(offset); }
  *
  * The block may change the game's variables, so it runs exactly as often as the interpreter runs
- * it: while a bent background is showing, the picture is rebuilt at once every time a rebuild is
- * asked for, never later. A game with a bend written in it asks for one with
- * rg_screen_request_rebuild, where the bend is written and again after every frame. */
+ * it: 160 times a pass. Before the first gap every line sits flat, as on the console. Where a
+ * bend is written, the game asks for the picture to be built again with
+ * rg_screen_request_rebuild. */
 void rg_screen_request_rebuild(void);
+void rg_screen_work_out_bends(void);
+void rg_bend_work_out(int32_t background, int32_t first_line, int32_t past_line);
 int32_t rg_bend_asked(int32_t background);
 int32_t rg_bend_line(void);
 void rg_bend_answer(int32_t offset);
 void rg_game_bend_offsets(void);
+void rg_game_work_out_bends(void);
 
 /* A scene taking over: remembered, then its screen, then what comes down. */
 void rg_scene_enter(int32_t scene);
