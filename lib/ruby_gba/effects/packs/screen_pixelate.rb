@@ -32,6 +32,7 @@ module RubyGBA
         TARGET = :__pixelate_target   # where the walk is heading
         STEP = :__pixelate_step       # how far it moves each frame
         ACTIVE = :__pixelate_active   # 1 while the walk is running
+        SHOWN = :__pixelate_shown     # the size of block on screen now, 1 to the biggest
         ROUTINE = :__pixelate_tick
 
         # As far as a picture breaks up: every size of block past the first.
@@ -78,22 +79,30 @@ module RubyGBA
           start_pixelate_walk(0.0, frames, duration, default: nil)
         end
 
-        # How big a block is right now, as a value the game can read: 1 is the picture as
-        # drawn and 16 is the biggest block there is. It is the size this walk has got to;
-        # a size a game sets itself with `pixelate` is not read back here.
+        # How big a block is on screen right now, as a value the game can read: 1 is the
+        # picture as drawn and 16 is the biggest block there is. It is the size this walk
+        # has put on screen; a size a game sets itself with `pixelate` is not read back here.
         #
         # THIS IS WHAT MAKES A SCENE CHANGE WRITABLE. The picture is hardest to read at the
         # biggest block, so that is the moment to swap what is drawn, and the swap has to
         # wait for the walk to arrive:
         #
-        #   (pixelate_size == 16).then do
-        #     state.set! NEXT_ROOM
+        #   leaving = var :leaving, 0
+        #   (lives <= 0).then { pixelate_out; leaving.set! 1 }
+        #   ((leaving == 1) & (pixelate_size == 16)).then do
+        #     state.set! GAME_OVER
         #     pixelate_in
+        #     leaving.set! 0
         #   end
+        #
+        # THE FLAG IS NOT DECORATION. The size reads 16 on the old scene's last frame and
+        # again on the new scene's first, which is what puts both of them in the biggest
+        # blocks — so a test on the size alone is true twice, and the second time would
+        # swap again.
         #
         # A value rather than a yes-or-no on purpose: half way is a place to act too.
         def pixelate_size
-          screen_pixelate_state[:broken] + 1
+          screen_pixelate_state[:shown]
         end
 
         def self.checks = CHECKS
@@ -170,27 +179,39 @@ module RubyGBA
         # The walk's variables and the routine that moves them, declared once however many
         # places in the game pixelate.
         #
-        # The size is applied and then moved, the order the screen fade keeps. Once the
-        # walk reaches its target the routine stops writing and the display holds the last
-        # size it was given.
+        # THE SIZE IS SHOWN AND THEN MOVED, the order the screen fade keeps, and the size
+        # shown is kept beside the walk because the two are a step apart: `pixelate_size`
+        # reads what is on screen, not where the walk has got to.
+        #
+        # That pair is what makes a scene change clean on both sides. The walk out arrives,
+        # and the frame a game reads the biggest size on is a frame showing it — the old
+        # scene's last. The game swaps and turns the walk round there, and the next frame
+        # shows the size the walk is still standing at before it moves off: the new scene's
+        # first frame is at the biggest block too. Read where the walk had got to instead,
+        # or moved before it was shown, and one of the two scenes is seen a size smaller.
+        #
+        # Once the walk reaches its target the routine stops writing and the display holds
+        # the last size it was given.
         def screen_pixelate_state
           @screen_pixelate_state ||= begin
             broken = var BROKEN, 0.0
             target = var TARGET, NEVER_WALKED
             step = var STEP, FULL / (DEFAULT_FRAMES - 1)
             active = var ACTIVE, 0
+            shown = var SHOWN, 1
 
             # The body is built once the game is written, so the place every verb agreed
             # on is known by then.
             once_a_frame(ROUTINE) do
               (active == 1).then do
-                pixelate broken.to_i + 1, under: @screen_pixelate_place
+                shown.set! broken.to_i + 1
+                pixelate shown, under: @screen_pixelate_place
                 (broken == target).then { active.set! 0 }
                                   .else { broken.approach! target, step }
               end
             end
 
-            { broken: broken, target: target, step: step, active: active }
+            { broken: broken, target: target, step: step, active: active, shown: shown }
           end
         end
 
@@ -209,7 +230,7 @@ module RubyGBA
         end
 
         # How many steps get from one end to the other over that many frames, counting
-        # the first frame and the last — so the walk lands on its target on the final one.
+        # the first frame and the last, as the screen fade counts its own.
         def pixelate_step_count(frames, duration, default)
           raise ArgumentError, "a pixelate takes frames: or duration:, not both." if frames && duration
 
