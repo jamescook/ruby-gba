@@ -90,15 +90,17 @@ class TestNativeRefusals < Minitest::Test
     end
   end
 
-  # Two scenes may each declare a background by the same name; the desktop build would draw the
-  # second one's map for both.
-  def test_two_backgrounds_with_one_name_are_refused_by_name
-    assert_refused_picture(/two backgrounds with one name \(room\)/) do
+  # Two backgrounds with one name share the colors they are told, and the interpreter works out
+  # what a number names from whichever of the two it paints first. The C would work it out for
+  # each, so a game that tells such a pair other colors is refused.
+  def test_two_backgrounds_with_one_name_told_other_colors_are_refused_by_name
+    assert_refused_picture(/two backgrounds with one name told other colors \(room\)/) do
       screen :tiled
       var :state, 0
-      image :brick, "#" => :red do "########\n" * 8 end
+      colors :dusk, %i[transparent blue]
+      image :brick, "#" => :red, colors: %i[transparent red] do "########\n" * 8 end
       tiles :wall, "#" => :brick
-      scene(:first) { background :room, tiles: :wall, map: ["##  "] }
+      scene(:first) { background(:room, tiles: :wall, map: ["##  "]).draw_with :dusk }
       scene(:second) { background :room, tiles: :wall, map: ["  ##"] }
       game_loop do
         case_var :state do
