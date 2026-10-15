@@ -396,6 +396,53 @@ class TestBigMaps < Minitest::Test
     assert_equal 10 * VIEW_CELLS, cells_copied(taking_over_every_fourth_pass("BIGT3") { |ground| ground.show_map :second })
   end
 
+  # A SCENE'S FIRST TAKEOVER, NAMED AT THE END OF THE PASS BEFORE — as a file screen does on START
+  # — fills the view once. The gap between that pass and the takeover already counts the new scene
+  # as the one running, so its big room's view used to be filled there too, before the scene had put
+  # its scenery up at all, and then again as it did.
+  # A menu for ten passes, which names the playing scene at the end of its tenth. The playing scene
+  # owns a big room and puts its view 5 columns and 3 rows from the corner from its first pass.
+  def named_at_the_end_of_a_pass(builder)
+    test = self
+    builder.instance_eval do
+      screen :tiled
+      test.tileset(self)
+      pass = var :pass, 0
+      var :mode, 0
+      scene(:menu) { nil }
+      scene(:playing) do
+        ground = background :ground, tiles: :ground, map: test.scrambled(100, 90)
+        ground.scroll_to 40, 24
+      end
+      game_loop do
+        pass.add! 1
+        case_var(:mode) do
+          when_val 0, :menu
+          when_val 1, :playing
+        end
+        (pass == 10).then { set! :mode, 1 }
+      end
+    end
+  end
+
+  # The takeover fills the view round the corner and the gap after it copies the strips between
+  # there and where the view is put: one whole view, five columns of 21 cells and three rows of 31.
+  def test_a_first_takeover_named_at_the_end_of_the_pass_before_fills_the_view_once
+    test = self
+    rom = RubyGBA.build("BIGF1", out: nil, err: nil) { test.named_at_the_end_of_a_pass(self) }
+    copies = RubyGBA::Diagnostics::Profiler.run(rom, frames: 30, settle: 0, picture: false).video_copies
+    copied = copies.find { |copy| copy.source.include?(":ground") }&.copies || 0
+
+    assert_equal VIEW_CELLS + (5 * 21) + (3 * 31), copied, "cells copied into the view over the takeover"
+  end
+
+  # ...and both backends draw the same room around the switch.
+  def test_a_first_takeover_named_at_the_end_of_the_pass_before_draws_the_room
+    test = self
+    prog = program { test.named_at_the_end_of_a_pass(self) }
+    [10, 11, 12, 13].each { |frames| assert_backends_agree(prog, frames: frames, name: "BIGF2") }
+  end
+
   # --- walls ---
 
   # A wall far into the second, bigger room stops a mover there: the walls of each room are

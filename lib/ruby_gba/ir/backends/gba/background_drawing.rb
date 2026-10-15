@@ -35,6 +35,10 @@ module RubyGBA
 
           attr_writer :layout
 
+          # The notes saying whose scenery is up (see SceneEntry), which Drawing keeps and hands
+          # over once it is made.
+          attr_writer :scene_entry
+
           # Call a routine that always stays in the cartridge, from wherever this code is kept
           # (see Placement#emit_call_cold_routine).
           def emit_call_cold_routine(label) = @call_cold_routine.call(label)
@@ -870,7 +874,7 @@ module RubyGBA
             # interpreter's harmless handling.
             bg = @layout.screen.backgrounds[node.name]
             bg_num = bg&.bg || 0
-            emit_stream_view(node.name, node.x, node.y) if bg&.stream # the cells around the view, before the view moves
+            emit_view_along_map(node) if bg&.stream # the cells around the view, before the view moves
             # A bending layer's sideways position is settled row by row instead, and every
             # one of those rows already has this scroll in it (see Raster). Writing it here
             # too would only undo the top row's bend until the display asked for the next.
@@ -880,6 +884,21 @@ module RubyGBA
             end
             @lowering.value(node.y)          # r0 = scroll y
             store_halfword_acc(BG_VOFS_REGS[bg_num])
+          end
+
+          # BRING A BIG MAP'S VIEW ALONG, for the scroll write of +node+ — but for a background a
+          # scene puts up as it takes over, only once it has. The write is gated on the variable
+          # that picks the scene, and a game that picks the next scene at the end of a pass (a file
+          # screen on START) has that variable naming the new scene in the gap before its first
+          # pass: the view was filled there, into cells the scene had not put up yet and that may
+          # still hold the scene leaving, and then filled again as the scene took over.
+          def emit_view_along_map(node)
+            declared = @layout.screen.picture.scenery.find { |scenery| scenery.name == node.name }
+            unless declared && @layout.screen.handover.on_arrival?(declared)
+              return emit_stream_view(node.name, node.x, node.y)
+            end
+
+            @scene_entry.emit_if_scene_up(:scenery, declared.scene) { emit_stream_view(node.name, node.x, node.y) }
           end
         end
       end

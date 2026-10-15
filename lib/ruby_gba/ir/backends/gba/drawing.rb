@@ -54,6 +54,7 @@ module RubyGBA
             @call_cold_routine = call_cold_routine
             # What a scene does once as it takes over, and the notes saying whose is up.
             @scene_entry = SceneEntry.new(emitter: emitter, primitives: primitives)
+            @background_drawing.scene_entry = @scene_entry
             @layout = nil
           end
 
