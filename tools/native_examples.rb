@@ -18,7 +18,7 @@
 require_relative "../lib/ruby_gba"
 
 module NativeExamples
-  EXAMPLES = File.expand_path("../examples", __dir__)
+  EXAMPLES = RubyGBA.root.join("examples").to_s
 
   # Each game an example declares, noted as RubyGBA.game hands it back.
   module NoteGames

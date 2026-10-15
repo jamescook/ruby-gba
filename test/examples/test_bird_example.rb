@@ -2,7 +2,7 @@
 
 require "test_helper"
 
-require_relative "../../examples/bird"
+require RubyGBA.root.join("examples/bird").to_s
 
 # The Bird example (examples/bird.rb): a sprite imported straight from a native .aseprite
 # file — the whole animated bird, composited from its seven layers, with no export step.

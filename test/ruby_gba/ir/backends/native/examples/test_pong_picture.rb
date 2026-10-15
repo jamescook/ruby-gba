@@ -2,7 +2,7 @@
 
 require "test_helper"
 require "native_comparison"
-require_relative "../../../../../../examples/pong"
+require RubyGBA.root.join("examples/pong").to_s
 
 # examples/pong.rb built for the desktop shows the interpreter's picture pixel for pixel, frame
 # by frame, over a recorded run: the zooming title and its menu, START, the zoom away, and a

@@ -4,7 +4,7 @@ require "test_helper"
 require "differential"
 
 require "stringio"
-require_relative "../../examples/dive"
+require RubyGBA.root.join("examples/dive").to_s
 
 # The Dive example: a game whose layers and palette are load-bearing. A title screen in
 # the console's mixed arrangement (two scrolling layers beside one that turns), a play

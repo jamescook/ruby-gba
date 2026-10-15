@@ -2,7 +2,7 @@
 
 require "test_helper"
 
-require_relative "../../examples/buffered_bounce"
+require RubyGBA.root.join("examples/buffered_bounce").to_s
 
 # The buffered-bounce example (examples/buffered_bounce.rb): the worked demo that
 # the tear-proof double-buffered screen is usable today with the fill/clear verbs.

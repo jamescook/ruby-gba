@@ -4,7 +4,7 @@ require "test_helper"
 require "stringio"
 require "tmpdir"
 require "zlib"
-require_relative "../../../examples/hero"
+require RubyGBA.root.join("examples/hero").to_s
 
 # A TAPE: THE PRESSES OF A PLAYTHROUGH, WRITTEN DOWN. A script says what to do; a tape says
 # what was done — which buttons were down on each frame, and the frame each named moment fell

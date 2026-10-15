@@ -3,7 +3,7 @@
 require "test_helper"
 
 require "stringio"
-require_relative "../../examples/snake_buffered"
+require RubyGBA.root.join("examples/snake_buffered").to_s
 
 # The buffered Snake example (examples/snake_buffered.rb): the demonstration that
 # double buffering lets you write the naive "clear and repaint everything every

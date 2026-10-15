@@ -2,7 +2,7 @@
 
 require "test_helper"
 require "native_comparison"
-require_relative "../../../../../../examples/bird"
+require RubyGBA.root.join("examples/bird").to_s
 
 # examples/bird.rb built for the desktop shows the interpreter's picture pixel for pixel, frame
 # by frame, through a flight: right, then a climb with the nose tipped up, a dive with it tipped

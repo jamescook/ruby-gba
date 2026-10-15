@@ -4,7 +4,7 @@ require "test_helper"
 require "mixed_sound"
 
 require "stringio"
-require_relative "../../examples/jukebox"
+require RubyGBA.root.join("examples/jukebox").to_s
 
 # The Jukebox example (examples/jukebox.rb): the sound showcase. Three classical
 # melodies written with the note/tempo DSL; the cursor picks one and it plays and

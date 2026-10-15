@@ -1,7 +1,7 @@
 # frozen_string_literal: true
 
 require "test_helper"
-require_relative "../../examples/pong"
+require RubyGBA.root.join("examples/pong").to_s
 
 # The pong ball/paddle/scoring core — the focused integration test for the
 # collision fix. It isn't the whole game (that's examples/pong.rb); it's the part

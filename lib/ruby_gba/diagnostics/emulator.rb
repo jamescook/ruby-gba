@@ -40,7 +40,7 @@ module RubyGBA
         true
       rescue LoadError
         begin
-          checkout = File.expand_path("../../../ruby-gba-emulator/lib", __dir__)
+          checkout = RubyGBA.root.join("ruby-gba-emulator", "lib").to_s
           if File.directory?(checkout)
             $LOAD_PATH.unshift(checkout) unless $LOAD_PATH.include?(checkout)
             require "ruby_gba_emulator"
@@ -64,7 +64,7 @@ module RubyGBA
 
       # The sibling checkout, for a clone with no bundle. Raises with what to do about it.
       def load_from_checkout!
-        lib = File.expand_path("../../../ruby-gba-emulator/lib", __dir__)
+        lib = RubyGBA.root.join("ruby-gba-emulator", "lib").to_s
         raise_emulator_missing!("it is not installed and there is no ruby-gba-emulator/ beside this one") unless
           File.directory?(lib)
 

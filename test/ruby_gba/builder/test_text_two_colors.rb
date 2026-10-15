@@ -2,7 +2,7 @@
 
 require "test_helper"
 
-require_relative "../../differential"
+require "differential"
 
 # `draw_text words, x, y, [dull, bright], showing: test` — a label in one of two colours,
 # with a test saying which.

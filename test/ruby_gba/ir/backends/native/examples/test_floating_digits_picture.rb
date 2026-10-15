@@ -2,7 +2,7 @@
 
 require "test_helper"
 require "native_comparison"
-require_relative "../../../../../../examples/floating_digits"
+require RubyGBA.root.join("examples/floating_digits").to_s
 
 # examples/floating_digits.rb built for the desktop shows the interpreter's picture pixel for
 # pixel, frame by frame: ten digits, each a picture painted where its own two variables say it

@@ -9,7 +9,7 @@ require "test_helper"
 class TestMethodNames < Minitest::Test
   runs_on :reference
 
-  LIB = File.expand_path("../../lib", __dir__)
+  LIB = RubyGBA.root.join("lib").to_s
 
   # `the_`, `an_`, and a lone `a_` read as prose. "a frame" meaning "per frame" is a rate, not an
   # article, and the console's sound channel A is a name — those two are let through.

@@ -1,7 +1,7 @@
 # frozen_string_literal: true
 
 require "test_helper"
-require_relative "../../examples/pong"
+require RubyGBA.root.join("examples/pong").to_s
 
 # Pong's title screen (examples/pong.rb): a two-row `menu` over the zooming backdrop.
 #

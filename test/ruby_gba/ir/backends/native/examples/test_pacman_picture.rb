@@ -2,7 +2,7 @@
 
 require "test_helper"
 require "native_comparison"
-require_relative "../../../../../../examples/pacman"
+require RubyGBA.root.join("examples/pacman").to_s
 
 # examples/pacman.rb built for the desktop shows the interpreter's picture pixel for pixel, frame
 # by frame, over a recorded run: Pac walked up into a pellet and along the room, then left alone

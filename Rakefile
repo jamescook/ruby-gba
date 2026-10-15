@@ -114,6 +114,7 @@ namespace :test do
   # C, so they need zig (the version the backend is written against), and a missing or wrong zig
   # stops them here with one plain line rather than failing every test in turn.
   task :zig do
+    require_relative "lib/ruby_gba/root"
     require_relative "lib/ruby_gba/ir/backends/native/zig"
     RubyGBA::IR::Backends::Native::Zig.version
   rescue RubyGBA::IR::Backends::Native::Zig::Error => e

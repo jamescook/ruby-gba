@@ -99,7 +99,7 @@ class TestRactorSafety < Minitest::Test
   # It is parsed rather than searched for, because what decides it is whether the write
   # happens with a class or module as self — inside a `def self.x`, or under `class << self`.
   def test_the_library_never_works_a_cache_out_the_first_time_somebody_asks
-    sources = Dir[File.expand_path("../../lib/**/*.rb", __dir__)].sort
+    sources = Dir[RubyGBA.root.join("lib/**/*.rb").to_s].sort
     refute_empty sources, "the library should be where this test looks for it"
     offenders = sources.flat_map { |path| lazy_module_caches(path) }
 

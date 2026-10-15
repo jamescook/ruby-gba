@@ -10,7 +10,7 @@ require "test_helper"
 class TestDslReference < Minitest::Test
   runs_on :reference
 
-  SHEET = File.expand_path("../../.claude/rules/dsl-reference.md", __dir__)
+  SHEET = RubyGBA.root.join(".claude/rules/dsl-reference.md").to_s
 
   # The DSL verbs are the public methods the concern modules mix into Builder…
   CONCERNS = RubyGBA::Builder.included_modules.select { |m| m.name&.start_with?("RubyGBA::Builder::") }

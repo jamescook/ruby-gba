@@ -2,7 +2,7 @@
 
 require "set"
 require_relative "frame_reach"
-require_relative "../modes"
+require RubyGBA.root.join("lib/ruby_gba/ir/modes").to_s
 
 module RubyGBA
   module IR

@@ -1,7 +1,7 @@
 # frozen_string_literal: true
 
 require "test_helper"
-require_relative "../../../tools/make_example_assets" # colors of the imported tile sheet
+require RubyGBA.root.join("tools/make_example_assets").to_s # colors of the imported tile sheet
 
 # A map the BUILD computes rather than a person types. There are three ways a game
 # gets a level — somebody types it as characters, an editor exports it as a CSV of
@@ -19,7 +19,7 @@ class TestComputedTilemap < Minitest::Test
 
   Assets = MakeExampleAssets
 
-  SHEET = File.expand_path("../../../examples/assets/tiles.png", __dir__) # brick = tile 1, floor = tile 2
+  SHEET = RubyGBA.root.join("examples/assets/tiles.png").to_s # brick = tile 1, floor = tile 2
 
   # A 4x4 solid tile of one colour, so the grid arithmetic reads easily: cell (c, r)
   # covers x 4c..4c+3, y 4r..4r+3.

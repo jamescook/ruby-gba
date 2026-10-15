@@ -2,7 +2,7 @@
 
 require "test_helper"
 require "native_comparison"
-require_relative "../../../../../../examples/grid_cursor"
+require RubyGBA.root.join("examples/grid_cursor").to_s
 
 # examples/grid_cursor.rb built for the desktop shows the interpreter's picture pixel for pixel,
 # frame by frame, while the cursor is tapped round the board in all four directions. A button

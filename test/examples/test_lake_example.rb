@@ -3,7 +3,7 @@
 require "test_helper"
 require "differential"
 
-require_relative "../../examples/lake"
+require RubyGBA.root.join("examples/lake").to_s
 
 # The lake example: a scene, water that bends row by row over it, and jellyfish drifting
 # across half see-through.

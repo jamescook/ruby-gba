@@ -41,7 +41,7 @@ class TestRedrawEverythingGuardrail < Minitest::Test
   # menus and repaints the whole board in new_game — but new_game is behind
   # pressed(:start), a once-per-round transition, so it must NOT be flagged.
   def test_does_not_flag_the_incremental_snake
-    require_relative "../../../../examples/snake"
+    require RubyGBA.root.join("examples/snake").to_s
     assert_empty Check.new.detect(Snake.program),
                  "the incremental Snake draws per-cell in the steady loop; only its menus clear"
   end

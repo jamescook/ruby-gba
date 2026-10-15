@@ -18,8 +18,8 @@ class TestCLI < Minitest::Test
   # built, which is not something a worker may touch — and these tests run in a pool.
   RUBY = RbConfig.ruby.freeze
 
-  BIN = File.expand_path("../../bin/ruby-gba", __dir__)
-  LIB = File.expand_path("../../lib", __dir__)
+  BIN = RubyGBA.root.join("bin/ruby-gba").to_s
+  LIB = RubyGBA.root.join("lib").to_s
 
   # Run the CLI in +dir+ and return [combined_output, Process::Status].
   def cli(*args, dir:)

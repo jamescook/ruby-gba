@@ -2,7 +2,7 @@
 
 require "test_helper"
 
-require_relative "../../differential"
+require "differential"
 
 # A rectangle whose SIZE the game works out as it runs — the shape a bar or a column
 # needs (a health meter that empties, a wall column in a first-person view, a tower that

@@ -2,7 +2,7 @@
 
 require "test_helper"
 
-require_relative "../../differential"
+require "differential"
 
 # The differential test: the same program on both backends, compared over the
 # WHOLE screen rather than at a few chosen pixels.

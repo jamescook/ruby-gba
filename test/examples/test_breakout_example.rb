@@ -3,7 +3,7 @@
 require "test_helper"
 
 require "stringio"
-require_relative "../../examples/breakout"
+require RubyGBA.root.join("examples/breakout").to_s
 
 # The Breakout example (examples/breakout.rb): the second bitmap-engine POC. It
 # exercises the collision verb (overlaps?) against a whole grid of bricks, plus

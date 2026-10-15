@@ -2,7 +2,7 @@
 
 require "test_helper"
 
-require_relative "../../conformance_fixture"
+require "conformance_fixture"
 
 # The coverage guard (gba-8sq): run ONE kitchen-sink IR program through every
 # backend. If a backend doesn't implement a feature the fixture uses, it hits its

@@ -18,7 +18,7 @@ class TestCheckedRun < Minitest::Test
   CheckedRun = RubyGBA::IR::Backends::Native::CheckedRun
   CannotAnswer = RubyGBA::IR::Backends::Native::HeadlessRun::CannotAnswer
   Moment = CheckedRun::Moment
-  LIB = File.expand_path("../../../../../lib", __dir__)
+  LIB = RubyGBA.root.join("lib").to_s
 
   # A game built on the library plays its own game checked with nothing but the library: no
   # minitest, and nothing from this suite's folder on the load path.

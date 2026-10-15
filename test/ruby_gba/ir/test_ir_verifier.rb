@@ -2,7 +2,7 @@
 
 require "test_helper"
 
-require_relative "../../conformance_fixture"
+require "conformance_fixture"
 
 # The IR verifier: a well-formedness pass that mechanically enforces the value
 # model. It proves the library built a consistent tree — every value slot holds a

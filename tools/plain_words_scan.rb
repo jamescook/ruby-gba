@@ -20,7 +20,7 @@ require_relative "../lib/ruby_gba"
 # library does when it runs — so it belongs in `rake plain_words` and the commit hook rather
 # than in a suite whose job is to prove behaviour.
 module PlainWordsScan
-  LIB = File.expand_path("../lib", __dir__)
+  LIB = RubyGBA.root.join("lib").to_s
 
   Finding = Data.define(:file, :line, :text)
 

@@ -2,7 +2,7 @@
 
 require "test_helper"
 require "native_comparison"
-require_relative "../../../../../../examples/level"
+require RubyGBA.root.join("examples/level").to_s
 
 # examples/level.rb built for the desktop shows the interpreter's picture pixel for pixel, frame
 # by frame, while the hero is walked round a level whose tiles and map came from files: right,

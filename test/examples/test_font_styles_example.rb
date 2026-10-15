@@ -2,7 +2,7 @@
 
 require "test_helper"
 
-require_relative "../../examples/font_styles"
+require RubyGBA.root.join("examples/font_styles").to_s
 
 # The font-styles example: the same word in three fonts, two defined inline with
 # `font :name do glyph … end`. Asserts each renders in its own colour, that the two

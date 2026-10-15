@@ -3,7 +3,7 @@
 require "test_helper"
 require "native_comparison"
 require "sound_comparison"
-require_relative "../../../../../../examples/pong"
+require RubyGBA.root.join("examples/pong").to_s
 
 # examples/pong.rb built for the desktop sounds like the cartridge: its song on the first square
 # voice, and its beeps — the ball off the walls and the paddles, a point scored — on the second,

@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require_relative "ruby_gba/version"
+require_relative "ruby_gba/root"
 # THE WHOLE LIBRARY, A LINE FOR EACH MODULE, and this is the only place that says so. Each one loads a
 # module through a front door of its own (or, for version and pager, a single file); what is
 # inside a module is that module's business and is listed in its own front door.

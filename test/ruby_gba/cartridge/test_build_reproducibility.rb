@@ -2,9 +2,9 @@
 
 require "test_helper"
 
-require_relative "../../../examples/pong"
-require_relative "../../../examples/pacman"
-require_relative "../../../examples/snake_buffered"
+require RubyGBA.root.join("examples/pong").to_s
+require RubyGBA.root.join("examples/pacman").to_s
+require RubyGBA.root.join("examples/snake_buffered").to_s
 
 # Building one program twice must give the same bytes.
 #

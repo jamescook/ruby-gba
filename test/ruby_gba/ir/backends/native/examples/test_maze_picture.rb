@@ -2,7 +2,7 @@
 
 require "test_helper"
 require "native_comparison"
-require_relative "../../../../../../examples/maze"
+require RubyGBA.root.join("examples/maze").to_s
 
 # examples/maze.rb built for the desktop shows the interpreter's picture pixel for pixel, frame
 # by frame, while the hero is pushed at the maze's walls: right, down, left and up, each held

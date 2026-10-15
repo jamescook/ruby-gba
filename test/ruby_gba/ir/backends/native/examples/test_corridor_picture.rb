@@ -2,7 +2,7 @@
 
 require "test_helper"
 require "native_comparison"
-require_relative "../../../../../../examples/corridor"
+require RubyGBA.root.join("examples/corridor").to_s
 
 # examples/corridor.rb built for the desktop shows the interpreter's picture pixel for pixel,
 # frame by frame, on a tear-free screen, while the player turns and walks down the corridor: its

@@ -12,7 +12,7 @@ class TestNativeExamples < Minitest::Test
   # The native lowering's own tests, which only a native run plays (see TestSuites).
   runs_on :native
 
-  ROOT = File.expand_path("../../../../..", __dir__)
+  ROOT = RubyGBA.root.to_s
   TOOL = File.join(ROOT, "tools", "native_examples.rb")
   RECORDED_RUNS = File.join(ROOT, "test", "ruby_gba", "ir", "backends", "native", "examples")
   EXAMPLE_TESTS = File.join(ROOT, "test", "examples")

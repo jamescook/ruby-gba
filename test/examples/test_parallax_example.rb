@@ -3,7 +3,7 @@
 require "test_helper"
 
 require "stringio"
-require_relative "../../examples/parallax"
+require RubyGBA.root.join("examples/parallax").to_s
 
 # The Parallax example (examples/parallax.rb): two tiled background layers — far sky
 # with clouds, near ground with trees — that scroll at different speeds to fake depth.

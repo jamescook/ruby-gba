@@ -1,7 +1,7 @@
 # frozen_string_literal: true
 
-require_relative "../stacking"
-require_relative "../../console/hardware"
+require RubyGBA.root.join("lib/ruby_gba/ir/stacking").to_s
+require RubyGBA.root.join("lib/ruby_gba/console/hardware").to_s
 
 module RubyGBA
   module IR

@@ -1,6 +1,6 @@
 # frozen_string_literal: true
 
-require_relative "../../messages/plain_words"
+require RubyGBA.root.join("lib/ruby_gba/messages/plain_words").to_s
 
 module RubyGBA
   module IR

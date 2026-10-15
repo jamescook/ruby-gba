@@ -2,7 +2,7 @@
 
 require "test_helper"
 
-require_relative "../../examples/fonts"
+require RubyGBA.root.join("examples/fonts").to_s
 
 # The fonts example: the same number drawn in :default and :tiny. Asserts both
 # render, that the tiny one is genuinely smaller (fewer pixels, shorter box), and

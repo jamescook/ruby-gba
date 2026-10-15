@@ -2,7 +2,7 @@
 
 require "test_helper"
 require "native_comparison"
-require_relative "../../../../../../examples/tiles"
+require RubyGBA.root.join("examples/tiles").to_s
 
 # examples/tiles.rb built for the desktop shows the interpreter's picture pixel for pixel, frame
 # by frame, through a walk round its three rooms: the door in the hall opened, on to the cavern

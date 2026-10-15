@@ -22,7 +22,7 @@ require_relative "../lib/ruby_gba"
 module MakePianoAssets
   Color = RubyGBA::Graphics::Color
 
-  ASSETS = File.expand_path("../examples/assets", __dir__)
+  ASSETS = RubyGBA.root.join("examples/assets").to_s
 
   # --- The hand's size and where its four fingers sit ---
   # A 64x32 sprite (a valid hardware-sprite size). The four fingers hang down from

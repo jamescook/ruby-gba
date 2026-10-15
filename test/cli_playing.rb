@@ -12,7 +12,7 @@ module CLIPlaying
   # Which Ruby to launch, asked once here. Asking reads Ruby's own table of how it was
   # built, which is not something a worker may touch — and these tests run in a pool.
   RUBY = RbConfig.ruby.freeze
-  BIN = File.expand_path("../bin/ruby-gba", __dir__).freeze
+  BIN = RubyGBA.root.join("bin/ruby-gba").to_s.freeze
 
   # A white box on a blue ground, that walks while RIGHT is down and keeps the furthest it
   # has been in save memory. Two settings make a second game of it that differs in one

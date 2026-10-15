@@ -2,7 +2,7 @@
 
 require "test_helper"
 require "native_comparison"
-require_relative "../../../../../../examples/scroll"
+require RubyGBA.root.join("examples/scroll").to_s
 
 # examples/scroll.rb built for the desktop shows the interpreter's picture pixel for pixel, frame
 # by frame, while the window is panned over the world: left and up from where it starts, which

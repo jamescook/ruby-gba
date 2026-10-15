@@ -15,7 +15,7 @@ class TestParallelTest < Minitest::Test
   # ever — so on the main Ractor, not in the pool. See test_helper.
   runs_on_the_main_ractor!
 
-  ROOT = File.expand_path("../..", __dir__)
+  ROOT = RubyGBA.root.to_s
   FIXTURE = File.join(ROOT, "test/fixtures/parallel_test/mixed_results.rb")
   RUNNER = File.join(ROOT, "tools/parallel_test.rb")
 

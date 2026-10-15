@@ -1,7 +1,7 @@
 # frozen_string_literal: true
 
 require "test_helper"
-require_relative "../../differential"
+require "differential"
 
 # Layers, as a PICTURE: what a declared stack actually changes about what you see.
 #

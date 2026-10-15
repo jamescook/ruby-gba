@@ -2,7 +2,7 @@
 
 require "test_helper"
 require "native_comparison"
-require_relative "../../../../../../examples/shmup"
+require RubyGBA.root.join("examples/shmup").to_s
 
 # examples/shmup.rb built for the desktop shows the interpreter's picture pixel for pixel, frame
 # by frame, over a recorded run: the ship flown right and left with a shot fired, then left alone

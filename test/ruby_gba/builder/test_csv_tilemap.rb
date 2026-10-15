@@ -3,7 +3,7 @@
 require "test_helper"
 
 require "tempfile"
-require_relative "../../../tools/make_example_assets" # colors of the imported tile sheet
+require RubyGBA.root.join("tools/make_example_assets").to_s # colors of the imported tile sheet
 
 # Importing a CSV tilemap into a background (`background from:`): a level authored in a
 # map editor and exported as a grid of tile numbers, rendered without retyping it as a
@@ -17,7 +17,7 @@ class TestCsvTilemap < Minitest::Test
 
   Assets = MakeExampleAssets
 
-  SHEET = File.expand_path("../../../examples/assets/tiles.png", __dir__) # brick = tile 1, floor = tile 2
+  SHEET = RubyGBA.root.join("examples/assets/tiles.png").to_s # brick = tile 1, floor = tile 2
 
   # A tiny checker tileset of two 4x4 tiles, over a green field. Numbered by the order
   # listed: tile 1 = red, tile 2 = blue.

@@ -1,8 +1,8 @@
 # frozen_string_literal: true
 
-require_relative "../modes"
-require_relative "../stacking"
-require_relative "../see_through"
+require RubyGBA.root.join("lib/ruby_gba/ir/modes").to_s
+require RubyGBA.root.join("lib/ruby_gba/ir/stacking").to_s
+require RubyGBA.root.join("lib/ruby_gba/ir/see_through").to_s
 
 module RubyGBA
   module IR

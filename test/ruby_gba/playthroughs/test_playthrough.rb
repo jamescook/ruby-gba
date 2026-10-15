@@ -2,7 +2,7 @@
 
 require "test_helper"
 require "stringio"
-require_relative "../../../examples/hero"
+require RubyGBA.root.join("examples/hero").to_s
 
 # A PLAYTHROUGH: a game driven with nobody at the controls, from a script that says what to
 # press. The script is a list of steps — tap, hold, wait, name a moment — and playing it on a

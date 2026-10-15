@@ -2,7 +2,7 @@
 
 require "test_helper"
 require "native_comparison"
-require_relative "../../../../../../examples/parallax"
+require RubyGBA.root.join("examples/parallax").to_s
 
 # examples/parallax.rb built for the desktop shows the interpreter's picture pixel for pixel,
 # frame by frame, while its two layers slide at their own speeds: right for a second, then left

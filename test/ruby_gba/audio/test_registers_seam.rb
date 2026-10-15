@@ -1,6 +1,6 @@
 # frozen_string_literal: true
 
-require_relative "../../test_helper"
+require "test_helper"
 require "prism"
 
 # THE LINE THROUGH THE SOUND MODULE, which its own comment draws: the musical half is what a
@@ -21,7 +21,7 @@ require "prism"
 class TestRegistersSeam < Minitest::Test
   runs_on :reference
 
-  LIB = File.expand_path("../../../lib", __dir__)
+  LIB = RubyGBA.root.join("lib").to_s
 
   # Where writing sound registers is somebody's job. The encoder's own file defines the thing,
   # and the GBA backend is the one that lowers to a cartridge.

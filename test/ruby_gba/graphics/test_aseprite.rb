@@ -20,9 +20,9 @@ class TestAseprite < Minitest::Test
   # The committed fixtures. A JSON+PNG export and a native .aseprite binary, both a 4-frame
   # sheet of red, green, blue, white. The JSON one is tagged walk = 0..1 / blink = 2..3;
   # the binary one is tagged walk = 0..1 / idle = 2..3. And a real Aseprite file (the bird).
-  FIXTURE = File.expand_path("../../fixtures/aseprite/hero.json", __dir__)
-  BINARY = File.expand_path("../../fixtures/aseprite/hero_rgba.aseprite", __dir__)
-  BIRD = File.expand_path("../../../examples/assets/bird.aseprite", __dir__)
+  FIXTURE = RubyGBA.root.join("test/fixtures/aseprite/hero.json").to_s
+  BINARY = RubyGBA.root.join("test/fixtures/aseprite/hero_rgba.aseprite").to_s
+  BIRD = RubyGBA.root.join("examples/assets/bird.aseprite").to_s
 
   # --- the parser, on inline JSON (both export layouts) ---
 

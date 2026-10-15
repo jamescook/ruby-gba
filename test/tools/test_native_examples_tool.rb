@@ -14,7 +14,7 @@ class TestNativeExamplesTool < Minitest::Test
   # ever — so on the main Ractor, not in the pool. See test_helper.
   runs_on_the_main_ractor!
 
-  ROOT = File.expand_path("../..", __dir__)
+  ROOT = RubyGBA.root.to_s
 
   def test_it_says_of_every_example_that_it_builds_or_why_it_does_not
     printed, complaint, status = Open3.capture3(Gem.ruby, File.join(ROOT, "tools", "native_examples.rb"), chdir: ROOT)

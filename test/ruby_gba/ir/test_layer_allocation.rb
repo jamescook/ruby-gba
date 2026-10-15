@@ -1,7 +1,7 @@
 # frozen_string_literal: true
 
 require "test_helper"
-require_relative "../../differential"
+require "differential"
 
 # What a stack becomes on the console: the arrangement that was impossible before, the
 # limit that is loud when you reach it, and the report that says what the framework

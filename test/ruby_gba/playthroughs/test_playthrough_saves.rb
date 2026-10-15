@@ -5,7 +5,7 @@ require "stringio"
 require "tmpdir"
 require "pathname"
 require "zlib"
-require_relative "../../../examples/hero"
+require RubyGBA.root.join("examples/hero").to_s
 
 # A PLAYTHROUGH AND THE CARTRIDGE'S SAVE MEMORY: it can start holding a save, and it hands
 # back the save memory as it left it — to write to a file, or to start the next playthrough

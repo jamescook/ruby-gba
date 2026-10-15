@@ -2,7 +2,7 @@
 
 require "test_helper"
 require "native_comparison"
-require_relative "../../../../../../examples/rotozoom_bg"
+require RubyGBA.root.join("examples/rotozoom_bg").to_s
 
 # examples/rotozoom_bg.rb built for the desktop shows the interpreter's picture pixel for pixel,
 # frame by frame, while its checkerboard is turned one way, grown, turned back past upright and

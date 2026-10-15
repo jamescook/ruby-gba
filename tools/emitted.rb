@@ -4,6 +4,7 @@ require "json"
 require "open3"
 require "tmpdir"
 require "rbconfig"
+require_relative "../lib/ruby_gba/root"
 
 # `rake emitted` — what does a change to the compiler do to the ROMs it produces?
 #
@@ -33,7 +34,7 @@ require "rbconfig"
 # that only makes the build faster correctly reports "identical" here; for compiler
 # speed, reach for a profiler.
 module Emitted
-  ROOT = Ractor.make_shareable(File.expand_path("..", __dir__))
+  ROOT = Ractor.make_shareable(RubyGBA.root.to_s)
   PROBE = File.join(__dir__, "emitted_probe.rb").freeze
 
   # Which Ruby to launch, asked once. Asking reads Ruby's own table of how it was built,

@@ -1,6 +1,6 @@
 # frozen_string_literal: true
 
-require_relative "../stacking"
+require RubyGBA.root.join("lib/ruby_gba/ir/stacking").to_s
 
 module RubyGBA
   module IR

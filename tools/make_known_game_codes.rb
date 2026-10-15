@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require "json"
+require_relative "../lib/ruby_gba/root"
 
 # Regenerate lib/ruby_gba/data/known_game_codes.txt — the four-character codes of
 # every real Game Boy Advance cartridge an emulator's catalogue knows about: the ones
@@ -22,7 +23,7 @@ require "json"
 # are nobody's to copy, and the check does not need them.
 module MakeKnownGameCodes
   DEFAULT_SOURCE = File.expand_path("~/open_source/gemba/src/gemba/data/gba_games.json")
-  OUT = File.expand_path("../lib/ruby_gba/data/known_game_codes.txt", __dir__)
+  OUT = RubyGBA.root.join("lib/ruby_gba/data/known_game_codes.txt").to_s
 
   def self.run(source = DEFAULT_SOURCE)
     unless File.file?(source)

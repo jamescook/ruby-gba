@@ -2,7 +2,7 @@
 
 require "test_helper"
 
-require_relative "../../examples/grid_cursor"
+require RubyGBA.root.join("examples/grid_cursor").to_s
 
 # The grid-cursor example: a single lit cell steered around a board with the d-pad,
 # leaving no trail. It's the worked demonstration of `grid` — the game moves in

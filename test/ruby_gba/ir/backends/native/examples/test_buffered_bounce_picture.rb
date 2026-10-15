@@ -2,7 +2,7 @@
 
 require "test_helper"
 require "native_comparison"
-require_relative "../../../../../../examples/buffered_bounce"
+require RubyGBA.root.join("examples/buffered_bounce").to_s
 
 # examples/buffered_bounce.rb built for the desktop shows the interpreter's picture pixel for
 # pixel, frame by frame, on a tear-free screen: two pictures shown in turn, each repainted whole,

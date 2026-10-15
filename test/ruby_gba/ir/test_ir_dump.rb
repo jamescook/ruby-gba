@@ -3,7 +3,7 @@
 require "test_helper"
 
 require "prism"
-require_relative "../../conformance_fixture"
+require "conformance_fixture"
 
 # IR::Dump: turning a tree back into Ruby source that reconstructs it. Two kinds of
 # proof, kept apart:

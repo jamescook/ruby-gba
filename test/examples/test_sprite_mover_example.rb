@@ -2,7 +2,7 @@
 
 require "test_helper"
 
-require_relative "../../examples/sprite_mover"
+require RubyGBA.root.join("examples/sprite_mover").to_s
 
 # The sprite_mover example, rewritten to use the `sprite` helper: the heart is a
 # sprite that repaints itself, so the game loop no longer clears the screen or

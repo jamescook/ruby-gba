@@ -161,8 +161,8 @@ class TestIRGuardrails < Minitest::Test
   # Both homes a check can have: the builtins, and an effect pack's own checks (which
   # register through the hook and produce findings the same way).
   def test_no_check_writes_a_location_into_its_own_message
-    checks = Dir[File.expand_path("../../../lib/ruby_gba/ir/guardrails/*.rb", __dir__)] +
-             Dir[File.expand_path("../../../lib/ruby_gba/effects/packs/*.rb", __dir__)]
+    checks = Dir[RubyGBA.root.join("lib/ruby_gba/ir/guardrails/*.rb").to_s] +
+             Dir[RubyGBA.root.join("lib/ruby_gba/effects/packs/*.rb").to_s]
     refute_empty checks, "the check files should be where this test looks for them"
 
     offenders = checks.select { |path| File.read(path).include?("(at ") }

@@ -3,7 +3,7 @@
 require "test_helper"
 
 require "stringio"
-require_relative "../../examples/maze"
+require RubyGBA.root.join("examples/maze").to_s
 
 # The Maze example (examples/maze.rb): a hero walks a tiled room and is stopped by the
 # wall tiles (a tileset with `solid:` bricks + a sprite `blocked_by` the room). Proves

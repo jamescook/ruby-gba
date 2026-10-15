@@ -125,7 +125,7 @@ module RubyGBA
           # checker reads from a folder with no flags above it otherwise. Written only where the
           # test folder is there, which is a checkout.
           HARNESS_CHECKER_FLAGS_FILE = Ractor.make_shareable(
-            File.expand_path("../../../../../test/ruby_gba/ir/backends/native/compile_flags.txt", __dir__)
+            RubyGBA.root.join("test", "ruby_gba", "ir", "backends", "native", "compile_flags.txt").to_s
           )
 
           # What the build holds the runtime to, and where its headers are found: its own folder,
@@ -162,7 +162,7 @@ module RubyGBA
           # a checkout of it too, in bundler's folder, but is built from the game's own folder,
           # so that copy is not written into.
           def working_in_checkout?
-            root = File.expand_path("../../../../..", __dir__)
+            root = RubyGBA.root.to_s
             File.exist?(File.join(root, ".git")) && "#{Dir.pwd}/".start_with?("#{root}/")
           end
 

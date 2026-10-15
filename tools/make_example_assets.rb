@@ -22,7 +22,7 @@ require_relative "../lib/ruby_gba"
 module MakeExampleAssets
   Color = RubyGBA::Graphics::Color
 
-  ASSETS = File.expand_path("../examples/assets", __dir__)
+  ASSETS = RubyGBA.root.join("examples/assets").to_s
 
   # The room examples/level.rb draws, authored here as ASCII (a wall border around
   # open floor, with a few pillars) and written out as a CSV of tile numbers. It's the

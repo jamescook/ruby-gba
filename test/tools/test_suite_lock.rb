@@ -3,7 +3,7 @@
 require "test_helper"
 require "stringio"
 require "tmpdir"
-require_relative "../../tools/suite_lock"
+require RubyGBA.root.join("tools/suite_lock").to_s
 
 # A WHOLE RUN OF EITHER SUITE HAS THE MACHINE TO ITSELF. `rake test` and `rake test:native` are
 # each sized to use the machine, so the second to start waits for the first, and says so.

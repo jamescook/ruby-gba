@@ -2,7 +2,7 @@
 
 require "test_helper"
 require "native_comparison"
-require_relative "../../../../../../examples/snake"
+require RubyGBA.root.join("examples/snake").to_s
 
 # examples/snake.rb built for the desktop shows the interpreter's picture pixel for pixel, frame
 # by frame, over a recorded game: the title, START, the snake steered onto two apples and then

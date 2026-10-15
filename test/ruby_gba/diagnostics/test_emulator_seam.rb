@@ -1,6 +1,6 @@
 # frozen_string_literal: true
 
-require_relative "../../test_helper"
+require "test_helper"
 
 # The seam between this library and the emulator it verifies ROMs on: which build gets loaded,
 # and what a reader is told when none can be.
@@ -36,7 +36,7 @@ class TestEmulatorSeam < Minitest::Test
   # empty path rather than a binary it will refuse. Says nothing about a gem install: RubyGems
   # builds one per ABI and puts it on a load path of its own.
   def test_a_checkout_loads_the_build_made_for_this_ruby
-    checkout = File.expand_path("../../../ruby-gba-emulator/lib", __dir__)
+    checkout = RubyGBA.root.join("ruby-gba-emulator/lib").to_s
     loaded = $LOADED_FEATURES.grep(/ruby_gba_emulator_ext\./).grep(/\A#{Regexp.escape(checkout)}/)
 
     assert(loaded.all? { |path| path.include?(RubyGBAEmulator::BUILT_FOR) },

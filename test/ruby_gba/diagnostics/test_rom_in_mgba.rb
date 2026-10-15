@@ -7,7 +7,7 @@
 # Usage:
 #   ruby test/ruby_gba/diagnostics/test_rom_in_mgba.rb
 
-require_relative "../../test_helper"
+require "test_helper"
 require "tempfile"
 
 def build_and_run(name, &block)

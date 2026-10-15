@@ -3,7 +3,7 @@
 require "test_helper"
 require "stringio"
 require "comparison_games"
-require_relative "../../../examples/hero"
+require RubyGBA.root.join("examples/hero").to_s
 
 # A COMPARISON: TWO CARTRIDGES PLAYED SIDE BY SIDE ON THE SAME PRESSES, and the first frame on
 # which their pictures differ. It is how somebody rebuilding a game learns where theirs has

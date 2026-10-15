@@ -3,7 +3,7 @@
 require "test_helper"
 
 require "stringio"
-require_relative "../../examples/scroll"
+require RubyGBA.root.join("examples/scroll").to_s
 
 # The Scroll example (examples/scroll.rb): pan a camera over a tiled world bigger
 # than the screen. This confirms the example is valid and the world renders; the

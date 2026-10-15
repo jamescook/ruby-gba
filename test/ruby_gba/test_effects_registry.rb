@@ -266,7 +266,7 @@ class TestEffectsRegistry < Minitest::Test
   # the finished program and walks it, which is what every check does. Building IR is
   # the line.
   def test_a_pack_builds_its_verbs_out_of_public_verbs
-    packs = Dir[File.expand_path("../../lib/ruby_gba/effects/packs/*.rb", __dir__)]
+    packs = Dir[RubyGBA.root.join("lib/ruby_gba/effects/packs/*.rb").to_s]
     refute_empty packs, "the packs should be where this test looks for them"
 
     machinery = { "Build." => "builds IR nodes", "record(" => "records IR directly",

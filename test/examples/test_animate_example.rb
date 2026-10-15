@@ -3,7 +3,7 @@
 require "test_helper"
 
 require "stringio"
-require_relative "../../examples/animate"
+require RubyGBA.root.join("examples/animate").to_s
 
 # The Animate example (examples/animate.rb): a spinning coin (a flipbook `sprite`
 # with frames:/rate:) you can also walk around. This confirms the example itself is

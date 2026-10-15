@@ -4,7 +4,7 @@ require "test_helper"
 require "differential"
 
 require "stringio"
-require_relative "../../examples/shmup"
+require RubyGBA.root.join("examples/shmup").to_s
 
 # The Shmup example: a whole game split across files — examples/shmup/player.rb,
 # enemies.rb, hud.rb — each a plain Ruby object that takes the build and calls the DSL

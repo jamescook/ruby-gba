@@ -20,7 +20,7 @@ class TestImageImport < Minitest::Test
 
   Image = RubyGBA::Graphics::Image
 
-  FIXTURES = File.expand_path("../../fixtures", __dir__)
+  FIXTURES = RubyGBA.root.join("test/fixtures").to_s
   # The 2x2 fixture is red / green / blue / white, row-major (top-left first).
   TWO_BY_TWO = File.join(FIXTURES, "import_2x2.png")
   SOLID_RED  = File.join(FIXTURES, "import_solid_red_4x4.png")

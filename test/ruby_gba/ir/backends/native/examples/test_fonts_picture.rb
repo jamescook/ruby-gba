@@ -2,7 +2,7 @@
 
 require "test_helper"
 require "native_comparison"
-require_relative "../../../../../../examples/fonts"
+require RubyGBA.root.join("examples/fonts").to_s
 
 # examples/fonts.rb built for the desktop shows the interpreter's picture pixel for pixel: words
 # and a number in the two built-in fonts, drawn once by a program that then stops, so every lit

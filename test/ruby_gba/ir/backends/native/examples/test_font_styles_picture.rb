@@ -2,7 +2,7 @@
 
 require "test_helper"
 require "native_comparison"
-require_relative "../../../../../../examples/font_styles"
+require RubyGBA.root.join("examples/font_styles").to_s
 
 # examples/font_styles.rb built for the desktop shows the interpreter's picture pixel for pixel:
 # the same words in fonts the example draws for itself, so every lit pixel of every letter is

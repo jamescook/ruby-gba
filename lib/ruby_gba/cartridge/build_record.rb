@@ -1,6 +1,6 @@
 # frozen_string_literal: true
 
-require_relative "../ir/backends/gba/placement" # FRAME_ROUTINE and IRQ_ROUTINE, re-exported below
+require RubyGBA.root.join("lib/ruby_gba/ir/backends/gba/placement").to_s # FRAME_ROUTINE and IRQ_ROUTINE, re-exported below
 
 module RubyGBA
   module Cartridge

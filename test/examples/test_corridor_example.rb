@@ -2,7 +2,7 @@
 
 require "test_helper"
 
-require_relative "../../examples/corridor"
+require RubyGBA.root.join("examples/corridor").to_s
 
 # The corridor example (examples/corridor.rb): the corpus's witness NEAR THE LINE.
 #

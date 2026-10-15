@@ -3,7 +3,7 @@
 require "test_helper"
 require "native_comparison"
 require "checked_native_run"
-require_relative "../../../../../../examples/piano"
+require RubyGBA.root.join("examples/piano").to_s
 
 # examples/piano.rb built for the desktop shows the interpreter's picture pixel for pixel, frame
 # by frame, while both hands play — and mixes the same bytes of sound, slice for slice, with the

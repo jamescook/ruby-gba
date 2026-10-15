@@ -2,7 +2,7 @@
 
 require "test_helper"
 require "native_comparison"
-require_relative "../../../../../../examples/animate"
+require RubyGBA.root.join("examples/animate").to_s
 
 # examples/animate.rb built for the desktop shows the interpreter's picture pixel for pixel, frame
 # by frame, while its spinning coin — a sprite on a painted screen, which saves what is under it

@@ -4,7 +4,7 @@ require "test_helper"
 
 require "stringio"
 require "differential"
-require_relative "../../examples/pacman"
+require RubyGBA.root.join("examples/pacman").to_s
 
 # The Pac-Man example (examples/pacman.rb): the tiled-mode flagship. Pac, the
 # pellets, and the ghost are HARDWARE sprites composited over a TILED room; Pac

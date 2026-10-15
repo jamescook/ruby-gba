@@ -3,8 +3,8 @@
 require "test_helper"
 
 require "stringio"
-require_relative "../../examples/sheet"
-require_relative "../../tools/make_example_assets" # the art's colors, so expectations track the source
+require RubyGBA.root.join("examples/sheet").to_s
+require RubyGBA.root.join("tools/make_example_assets").to_s # the art's colors, so expectations track the source
 
 # The Sheet example (examples/sheet.rb): the whole asset-import path against real
 # PNGs. A tile sheet is imported and rendered as a background; a transparent sprite

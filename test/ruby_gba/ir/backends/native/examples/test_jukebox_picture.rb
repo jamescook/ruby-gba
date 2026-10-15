@@ -3,7 +3,7 @@
 require "test_helper"
 require "native_comparison"
 require "checked_native_run"
-require_relative "../../../../../../examples/jukebox"
+require RubyGBA.root.join("examples/jukebox").to_s
 
 # examples/jukebox.rb built for the desktop shows the interpreter's picture pixel for pixel, frame
 # by frame, and plays the same sound: the cursor walks down to the piano tune, which fades the

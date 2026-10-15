@@ -2,7 +2,7 @@
 
 require "test_helper"
 require "native_comparison"
-require_relative "../../../../../../examples/hero"
+require RubyGBA.root.join("examples/hero").to_s
 
 # examples/hero.rb built for the desktop shows the interpreter's picture pixel for pixel, frame
 # by frame, over a recorded walk: the file screen, a new game in file 1, east past the pond and

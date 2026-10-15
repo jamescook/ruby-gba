@@ -5,7 +5,7 @@ require "stringio"
 require "tmpdir"
 require "comparison_games"
 require "png_reading"
-require_relative "../../../examples/hero"
+require RubyGBA.root.join("examples/hero").to_s
 
 # ONE PICTURE OF ONE FRAME ON TWO CARTRIDGES: the first cartridge's screen, the second's, and
 # where the two differ, left to right in one file at twice the console's size. It is what a

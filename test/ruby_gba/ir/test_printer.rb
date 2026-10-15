@@ -98,7 +98,7 @@ class TestPrinter < Minitest::Test
   GUARDRAIL_SEVERITIES = %i[warning error].freeze
 
   def test_every_severity_the_library_passes_is_one_something_understands
-    passed = Dir[File.expand_path("../../../lib/**/*.rb", __dir__)].flat_map do |path|
+    passed = Dir[RubyGBA.root.join("lib/**/*.rb").to_s].flat_map do |path|
       File.read(path).scan(/severity: :(\w+)/).flatten
     end.uniq.map(&:to_sym)
 

@@ -5,7 +5,7 @@ require "tmpdir"
 require "pathname"
 require "stringio"
 require "comparison_games"
-require_relative "../../../examples/hero"
+require RubyGBA.root.join("examples/hero").to_s
 
 # A CARTRIDGE THE FRAMEWORK DID NOT BUILD, played from a script: any cartridge file. What the
 # build worked out about a cartridge — which variable is where, which sprite is which — is not

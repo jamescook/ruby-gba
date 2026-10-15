@@ -4,7 +4,7 @@ require "test_helper"
 require "differential"
 
 require "stringio"
-require_relative "../../examples/meadow"
+require RubyGBA.root.join("examples/meadow").to_s
 
 # The Meadow example (examples/meadow.rb): a hero walks out of a one-screen cabin into a
 # meadow of 120x100 cells, far bigger than the console's grid. The streaming itself is

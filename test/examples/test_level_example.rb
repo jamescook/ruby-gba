@@ -3,8 +3,8 @@
 require "test_helper"
 
 require "stringio"
-require_relative "../../examples/level"
-require_relative "../../tools/make_example_assets" # the art's colors, so expectations track the source
+require RubyGBA.root.join("examples/level").to_s
+require RubyGBA.root.join("tools/make_example_assets").to_s # the art's colors, so expectations track the source
 
 # The Level example (examples/level.rb): the CSV-tilemap import path. A tile sheet is
 # imported as numbered tiles and the level is read from a .csv exported the way a map

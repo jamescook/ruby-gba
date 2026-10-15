@@ -2,7 +2,7 @@
 
 require "test_helper"
 require "native_comparison"
-require_relative "../../../../../../examples/sprite_mover"
+require RubyGBA.root.join("examples/sprite_mover").to_s
 
 # examples/sprite_mover.rb built for the desktop shows the interpreter's picture pixel for pixel,
 # frame by frame, while its heart is walked across a painted field with two posts on it — in

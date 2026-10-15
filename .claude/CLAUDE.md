@@ -212,9 +212,12 @@ required in its own module's front door, never in `lib/ruby_gba.rb`**, which nam
 only: a line for each, and that is the whole library. The order of those lines is not free, and
 the comment above them says which steps are real dependencies between modules and why.
 
-What stays at the top besides the front doors: `version.rb`, and `cli.rb` and `pager.rb`, the
-command-line program, which `bin/ruby-gba` requires and the library never does. `RubyGBA.game`
-and the two error classes stay on `RubyGBA` itself.
+What stays at the top besides the front doors: `version.rb`, `root.rb`, and `cli.rb` and
+`pager.rb`, the command-line program, which `bin/ruby-gba` requires and the library never does.
+`RubyGBA.game` and the two error classes stay on `RubyGBA` itself.
+
+A file of the repo's is found from `RubyGBA.root` (`RubyGBA.root.join("examples", "cave.rb")`),
+never by climbing `../` from the file asking. Only what loads the library itself climbs.
 
 Inside a module, a sibling is named bare (`Value` from `dsl/pool.rb`) and anything else by its
 module (`Graphics::Color` from `dsl/sprite.rb`). Where a nearer scope has a constant of the

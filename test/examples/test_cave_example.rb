@@ -4,7 +4,7 @@ require "test_helper"
 require "differential"
 
 require "stringio"
-require_relative "../../examples/cave"
+require RubyGBA.root.join("examples/cave").to_s
 
 # The Cave example (examples/cave.rb): a hero with a lantern walks out of a dark cave, the
 # screen closes in a circle on them, and it opens onto a meadow in daylight. The light and

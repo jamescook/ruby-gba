@@ -2,7 +2,7 @@
 
 require "test_helper"
 require "native_comparison"
-require_relative "../../../../../../examples/snake_buffered"
+require RubyGBA.root.join("examples/snake_buffered").to_s
 
 # examples/snake_buffered.rb built for the desktop shows the interpreter's picture pixel for
 # pixel, frame by frame, on a tear-free screen: the title, START, the snake steered up and left,

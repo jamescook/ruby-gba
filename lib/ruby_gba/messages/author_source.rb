@@ -11,7 +11,7 @@ module RubyGBA
     # "hero.rb:42".
     module AuthorSource
       # The library's own directory. Frames under it are the framework's own workings.
-      LIB_DIR = File.expand_path("..", __dir__).freeze
+      LIB_DIR = RubyGBA.root.join("lib", "ruby_gba").to_s.freeze
 
       module_function
 

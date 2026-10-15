@@ -3,7 +3,7 @@
 require "test_helper"
 
 require "stringio"
-require_relative "../../examples/hero"
+require RubyGBA.root.join("examples/hero").to_s
 
 # The Hero example (examples/hero.rb): a follow-you camera — a hardware sprite
 # pinned to the center of the screen while a world bigger than the screen scrolls

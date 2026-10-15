@@ -5,7 +5,7 @@ require "native_comparison"
 require "fileutils"
 require "open3"
 require "tmpdir"
-require_relative "../../../../../examples/pong"
+require RubyGBA.root.join("examples/pong").to_s
 
 # The program a player runs — pong with its window, built with SDL — is the same program the
 # tests drive, and it stands on its own.

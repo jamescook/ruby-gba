@@ -18,7 +18,7 @@ class TestRakefile < Minitest::Test
   # ever — so on the main Ractor, not in the pool. See test_helper.
   runs_on_the_main_ractor!
 
-  ROOT = File.expand_path("../..", __dir__)
+  ROOT = RubyGBA.root.to_s
 
   private def run_options(testopts)
     out, = Open3.capture2e({ "TESTOPTS" => testopts }, "bundle", "exec", "rake", "test",

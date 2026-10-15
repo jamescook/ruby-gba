@@ -1,6 +1,6 @@
 # frozen_string_literal: true
 
-require_relative "../../../console/hardware" # the register addresses this reads, a leaf both sides sit on
+require RubyGBA.root.join("lib/ruby_gba/console/hardware").to_s # the register addresses this reads, a leaf both sides sit on
 
 module RubyGBA
   module IR

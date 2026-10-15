@@ -113,7 +113,7 @@ module Preview
 
   # --- command line: `ruby tools/preview.rb EXAMPLE [options]` ---
 
-  EXAMPLES_DIR = Ractor.make_shareable(File.expand_path("../examples", __dir__))
+  EXAMPLES_DIR = Ractor.make_shareable(RubyGBA.root.join("examples").to_s)
 
   # Load examples/NAME.rb and return its module (Parallax, SnakeBuffered, ...). The
   # module name is the file name camel-cased; it must expose `.program`.

@@ -1,7 +1,7 @@
 # frozen_string_literal: true
 
 require "test_helper"
-require_relative "../../differential"
+require "differential"
 
 # Bending a background row by row — `background.scroll_each_row`.
 #
