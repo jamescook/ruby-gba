@@ -96,7 +96,6 @@ module RubyGBA
           # the same way in two scenes are the same node as far as `==` goes, and those
           # two scenes can be on different screens.
           @walking = {}.compare_by_identity
-          @display_tints = {}.compare_by_identity
           @fades = []
           @blend_fades = []
           @coarse_placed = []
@@ -108,12 +107,6 @@ module RubyGBA
         # a tint, which moves the table wherever there is one: is it counted in the walk's
         # thirty-seconds?
         def palette_walk?(node) = @walking.key?(node)
-
-        # Does the display mix this tint in as it draws? Only on the plain bitmap screen,
-        # which holds a whole color in every pixel; every other screen draws through a
-        # color table, and there the game writes the tinted colors into it. Settled by the
-        # screen the tint was written for, the same answer the lowering gets.
-        def display_tint?(node) = @display_tints.key?(node)
 
         # Does any fade walk the colors for the finer steps, whether or not a layer is seen
         # through? The build report says what that costs.
@@ -151,7 +144,6 @@ module RubyGBA
           return if fades.empty? && tints.empty?
 
           modes = Modes.resolve(program)
-          tints.each { |node| @display_tints[node] = true if modes.mode_at(node) == Modes::DIRECT }
           mark_fine_fades(fades, modes)
           mark_fine_tints(tints.select(&:fraction_bits), modes)
           return unless blend_unit_held?(program)

@@ -33,7 +33,7 @@ module RubyGBA
           include EmitterCalls
 
           def initialize(emitter:, primitives:, lowering:, divide:, framebuffer:, raster:, palette_tint:,
-                          layer_blend:, buffered:, uploads:, sprite_drawing:, background_drawing:,
+                          layer_blend:, effects:, buffered:, uploads:, sprite_drawing:, background_drawing:,
                           backing_info:, call_cold_routine:)
             @emitter = emitter
             @primitives = primitives
@@ -43,6 +43,7 @@ module RubyGBA
             @raster = raster
             @palette_tint = palette_tint
             @layer_blend = layer_blend
+            @effects = effects # what is done to the whole picture, which a change of screen puts back
             @buffered = buffered
             @uploads = uploads # copies data out of the cartridge into video memory (see {BlobUpload})
             # The sprites' and the backgrounds' own code, which a change of screen sets up again
@@ -336,8 +337,13 @@ module RubyGBA
             # tint has to be able to trust what is in the table. In a program that crosses
             # to the tiled screen, that screen's own colors have been in this table since —
             # so put the originals back, which is also what makes the remembered tint true
-            # again.
-            upload_palette if @palette_tint.moves_color_table? && @layout.modes.crosses_display_systems?
+            # again. A plain bitmap screen's tint writes its color over this table's first
+            # entry, which is the other reason to.
+            if @palette_tint.moves_color_table? &&
+               (@layout.modes.crosses_display_systems? || @palette_tint.tint_crosses_screens?)
+              upload_palette
+            end
+            @effects.emit_kept_tint_on_entry(IR::Modes::BUFFERED)
           end
 
           # Switch the hardware into direct-color (Mode 3) and record it as live. Writing
@@ -350,6 +356,7 @@ module RubyGBA
             @emitter.write_reg16(REG_DISPCNT, MODE_3 | BG2_ENABLE | held)
             @primitives.store_word_immediate(MODE_DIRECT, @primitives.var_addr(MODE_STATE))
             @scene_entry.emit_clear_used_markers # a new display: nothing any scene put up is there
+            @effects.emit_kept_tint_on_entry(IR::Modes::DIRECT)
           end
 
           # Switch the hardware into tiled mode (Mode 0). Because the bitmap framebuffer
@@ -364,6 +371,7 @@ module RubyGBA
             @background_drawing.emit_boot_backgrounds if @layout.tiled && !@layout.screen.backgrounds.empty? # shared BG palette + tile pictures
             emit_objects_again
             @layer_blend.emit_layer_blend_on_entry if @layer_blend.see_through? # ...and which one is see-through
+            @effects.emit_kept_tint_on_entry(IR::Modes::TILED)
             value = tiled_dispcnt
             value |= OBJ_ENABLE | OBJ_1D_MAP if @layout.has_objects
             @emitter.write_reg16(REG_DISPCNT, value | held)
@@ -396,6 +404,7 @@ module RubyGBA
             @background_drawing.emit_boot_backgrounds if @layout.tiled && !@layout.screen.backgrounds.empty?
             emit_objects_again
             @layer_blend.emit_layer_blend_on_entry if @layer_blend.see_through?
+            @effects.emit_kept_tint_on_entry(IR::Modes::AFFINE)
             value = MODE_2 | BG2_ENABLE
             value |= OBJ_ENABLE | OBJ_1D_MAP if @layout.has_objects
             @emitter.write_reg16(REG_DISPCNT, value | held)
@@ -633,16 +642,8 @@ module RubyGBA
           end
 
           # A scene's resolved mode -> the marker stored in MODE_STATE, and the routine
-          # that switches the hardware into it. Kept as two small methods (not a load-time
-          # table) so they resolve the MODE_* constants at call time.
-          def mode_state_marker(mode)
-            case mode
-            when :tiled then MODE_TILED
-            when :affine then MODE_AFFINE
-            when :buffered then MODE_BUFFERED
-            else MODE_DIRECT
-            end
-          end
+          # that switches the hardware into it.
+          def mode_state_marker(mode) = MODE_MARKERS.fetch(mode, MODE_DIRECT)
 
           def enter_mode(mode)
             case mode

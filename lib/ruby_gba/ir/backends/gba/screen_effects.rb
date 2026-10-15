@@ -79,6 +79,8 @@ module RubyGBA
           # number; an amount the game computes is scaled at run time, which is a
           # multiply and a divide once per call — nothing next to a frame.
           def emit_fade(node)
+            # A fade takes the tint's place, so no tint is left to put back on a change of screen.
+            @palette_tint.emit_clear_remembered_tint if @palette_tint.tint_crosses_screens?
             return emit_palette_fade(node) if @layout.fading.palette_walk?(node)
 
             # On a screen drawn through a color table the two effects are separate pieces
@@ -235,25 +237,90 @@ module RubyGBA
           # The weights are a pair that adds to sixteen: what is left of the picture,
           # and how much of the color has come in.
           def emit_tint(node)
-            if @palette_tint.palette_screen?(node)
+            return emit_tint_by_screen_up(node) if @palette_tint.tint_crosses_screens?
+
+            emit_tint_for_mode(node, @layout.modes.mode_at(node))
+          end
+
+          # The tint on the screen +mode+ draws on.
+          def emit_tint_for_mode(node, mode)
+            unless mode == IR::Modes::DIRECT
               # A tint takes the place of a fade as a fade does, so it hands back the blend a
               # fade the display was doing held (see #emit_palette_fade).
               @layer_blend.emit_blend_back_from_display_fade
               return @palette_tint.emit_palette_tint(color: Graphics::Color.resolve(node.color),
                                                      amount: node.amount,
                                                      fraction_bits: node.fraction_bits,
-                                                     mode: @layout.modes.mode_at(node))
+                                                     mode: mode)
             end
 
             write_reg16(PALETTE_START, Graphics::Color.resolve(node.color)) # the backdrop IS the tint
-            write_reg16(REG_BLDCNT, BLD_ALPHA | BLD_BG2 | (BLD_BACKDROP << BLD_SECOND_SHIFT))
-
+            write_reg16(REG_BLDCNT, TINT_BLEND)
             if (steps = constant_fade_steps(node))
               write_reg16(REG_BLDALPHA, tint_weights(steps))
             else
               @lowering.value(display_steps_value(node))
               emit_blend_weights_from_acc
             end
+          end
+
+          # The picture's layer blended with the backdrop, which is how the plain bitmap screen
+          # tints.
+          TINT_BLEND = BLD_ALPHA | BLD_BG2 | (BLD_BACKDROP << BLD_SECOND_SHIFT)
+
+          # A TINT IN A GAME WITH MORE THAN ONE SCREEN is done the way the screen up NOW does
+          # it, which a statement cannot know from where it is written: a flash runs from a
+          # routine of its own every frame, whichever scene is up. So the tint is kept for the
+          # next change of screen (see PaletteTint::TINT_ASKED), and then done one way or the
+          # other by which screen the display is in.
+          def emit_tint_by_screen_up(node)
+            @palette_tint.emit_remember_tint(Graphics::Color.resolve(node.color), node.amount, node.fraction_bits)
+            done = gensym
+            @layout.modes.modes_in_use.each do |mode|
+              other = gensym
+              load_var(ACC, MODE_STATE)
+              emit(ASM.cmp_imm(ACC, MODE_MARKERS.fetch(mode)))
+              emit_branch(:bcond, other, cond: :ne)
+              emit_tint_for_mode(node, mode)
+              emit_branch(:b, done)
+              place_label(other)
+            end
+            place_label(done)
+          end
+
+          # PUT THE TINT KEPT IN TINT_ASKED BACK as the display changes to +mode+'s screen.
+          # What the last screen left would be wrong here either way round: a walked table is
+          # sent again as drawn, and the blend the plain bitmap screen tints with reads the
+          # first color of a table, which a tiled screen has just filled with its own. With no
+          # tint kept nothing is written, so a fade the display is holding stays on.
+          def emit_kept_tint_on_entry(mode)
+            return unless @palette_tint.tint_crosses_screens?
+            return emit_blend_to_kept_tint if mode == IR::Modes::DIRECT
+
+            @palette_tint.emit_walk_to_kept_tint(mode) do
+              # The blend the plain bitmap screen tinted with would mix this screen's third
+              # layer with its backdrop. A see-through layer's own blend is written as the
+              # screen takes over.
+              write_reg16(REG_BLDCNT, 0) unless @layer_blend.see_through?
+            end
+          end
+
+          # Where the kept tint waits while its color goes in: a change of screen runs between
+          # statements, so nothing else is held there.
+          KEPT = 2
+
+          def emit_blend_to_kept_tint
+            skip = gensym
+            load_var(KEPT, PaletteTint::TINT_ASKED)
+            emit(ASM.cmp_imm(KEPT, 0))
+            emit_branch(:bcond, skip, cond: :eq)
+            emit(ASM.lsr_imm(ACC, KEPT, PaletteTint::TINT_COLOR_SHIFT))
+            store_halfword_acc(PALETTE_START) # the backdrop IS the tint
+            write_reg16(REG_BLDCNT, TINT_BLEND)
+            emit(ASM.and_imm(ACC, KEPT, (1 << PaletteTint::TINT_COLOR_SHIFT) - 1))
+            emit(ASM.lsr_imm(ACC, ACC, 1)) # a walk's thirty-seconds, in the display's sixteenths
+            emit_blend_weights_from_acc
+            place_label(skip)
           end
 
           # The weight pair as one halfword: how much of the picture survives in the low

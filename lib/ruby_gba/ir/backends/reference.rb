@@ -840,6 +840,7 @@ module RubyGBA
           @screen_mode = node.mode
           @buffered = node.buffered || false
           @screen.paged = @buffered
+          @screen.tint_by_display = tint_by_display? # a tint in force is mixed this screen's way
           @screen.show_in_blocks(painted_screen? ? @block : 1) # the size of a block outlasts the screen it was said on
           put_up_always_up if crossing && IR::SceneHandover.tiles?(node.mode)
         end
@@ -2015,14 +2016,14 @@ module RubyGBA
         # is all still there when the amount returns to 0.
         #
         # Counted in thirty-seconds whichever way it reaches the screen. Where the display
-        # blends it, the amount is a whole percentage or is counted in sixteenths, and a
-        # sixteenth is two thirty-seconds.
+        # blends it, it is counted in sixteenths, and a sixteenth is two thirty-seconds.
         #
         # The display blends it only on the plain bitmap screen, which holds a whole color
         # in every pixel. Every other screen draws through a color table, and there the game
         # writes the tinted colors into the table itself, so they round the way the game's
         # own arithmetic does rather than the display's. Which one a tint is follows the
-        # screen it was written for, as the lowering decides it (IR::Fading#display_tint?).
+        # screen up NOW, and a tint left on while the game changes kind of screen is mixed
+        # the new screen's way from then on (see #exec_screen), as the console puts it back.
         #
         # A TINT TAKES THE PLACE OF WHATEVER FADE WAS IN FORCE, a fade placed in the stack
         # included: a picture has one such effect at a time, and the last one said is it.
@@ -2032,12 +2033,13 @@ module RubyGBA
           was_fading = fading?
           was_placed = @fade_placed
           @fade_placed = nil
-          walked = @fading.palette_walk?(node)
-          steps = FadeSteps.steps(eval_value(node.amount), fraction_bits: node.fraction_bits, walked: walked)
-          @screen.tint_steps_to(Graphics::Color.resolve(node.color), FadeSteps.in_walk_steps(steps, !walked),
-                                by_display: @fading.display_tint?(node))
+          steps = FadeSteps.steps(eval_value(node.amount), fraction_bits: node.fraction_bits, walked: true)
+          @screen.tint_steps_to(Graphics::Color.resolve(node.color), steps, by_display: tint_by_display?)
           request_repaint if was_placed || (@see_through && fading? != was_fading)
         end
+
+        # Does the display mix a tint in as it draws, which only the plain bitmap screen does?
+        def tint_by_display? = painted_screen? && !@buffered
 
         # Turn the blend on or off for the thing about to be painted: on for anything the
         # placed fade reaches, off for anything it leaves alone. A +name+ of nil is the

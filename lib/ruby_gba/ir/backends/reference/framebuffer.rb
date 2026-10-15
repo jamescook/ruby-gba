@@ -171,6 +171,10 @@ module RubyGBA
             @fade_steps = 0
           end
 
+          # A tint outlasts the screen it was said on, and the next screen mixes it its own way:
+          # +by_display+ as the plain bitmap screen's display does, or into a colour table.
+          attr_writer :tint_by_display
+
           # Show the stored picture in flat blocks of +size+ pixels each way, or as it is for
           # a size of 1. Like the camera and a fade, this changes what you SEE and not what
           # is stored, so the picture is all there again when the size goes back to 1.
@@ -461,7 +465,8 @@ module RubyGBA
           # the way to black comes back 24, where keeping three quarters would leave 23.
           def faded(color)
             return walked_toward(color, @tint_color, @tint_steps) if @tint_color.is_a?(Symbol)
-            return mixed_by_display(color, @tint_color, @tint_steps) if @tint_color && @tint_by_display
+            # The display counts in sixteenths, the even thirty-seconds, so an odd step is dropped.
+            return mixed_by_display(color, @tint_color, @tint_steps & ~1) if @tint_color && @tint_by_display
             return mixed(color, @tint_color, @tint_steps) if @tint_color
 
             faded_by_display(color, @fade_toward, @fade_steps)

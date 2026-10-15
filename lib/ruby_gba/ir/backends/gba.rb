@@ -146,6 +146,8 @@ module RubyGBA
         MODE_BUFFERED = 1
         MODE_TILED = 2
         MODE_AFFINE = 3
+        # Which of those each resolved screen mode (IR::Modes) keeps in MODE_STATE.
+        MODE_MARKERS = { direct: MODE_DIRECT, buffered: MODE_BUFFERED, tiled: MODE_TILED, affine: MODE_AFFINE }.freeze
 
         # This backend's mapping of the shared button vocabulary (IR::Buttons) to
         # hardware: each name → its bit in the key register. The key register is
@@ -398,7 +400,8 @@ module RubyGBA
                                                       call_cold_routine: method(:emit_call_cold_routine))
           @drawing = Drawing.new(emitter: @emit, primitives: @primitives, lowering: @lowering,
                                  divide: @divide, framebuffer: @framebuffer, raster: @raster,
-                                 palette_tint: @palette_tint, layer_blend: @layer_blend, buffered: @buffered,
+                                 palette_tint: @palette_tint, layer_blend: @layer_blend, effects: @effects,
+                                 buffered: @buffered,
                                  uploads: @uploads, sprite_drawing: @sprite_drawing,
                                  background_drawing: @background_drawing, backing_info: method(:backing_info),
                                  call_cold_routine: method(:emit_call_cold_routine))
@@ -785,6 +788,7 @@ module RubyGBA
           emit_irq_setup if uses_irq? # arm the interrupts the program needs (VBlank and/or timers)
           emit_input_init if @uses_pressed
           @palette_tint.emit_changed_lists_at_power_on # before the screen is set up, which may read them
+          @palette_tint.emit_clear_remembered_tint if @palette_tint.tint_crosses_screens? # ...as setting it up reads this
           @drawing.emit_boot_screen if @modes.switched_per_scene? # set the boot mode (+ palette for buffered)
           # Upload the tiled assets once at boot only when the program stays in tiled
           # mode. When it crosses the bitmap/tiled boundary, a bitmap scene overwrites

@@ -562,7 +562,8 @@ static uint16_t mixed(uint16_t color, int32_t toward, int32_t steps, int32_t by_
 
 static uint16_t faded(uint16_t color) {
   if (tint_mode == TINT_TOWARD) return walked_toward(color, tint_white, tint_steps);
-  if (tint_mode == TINT_COLOR) return mixed(color, tint_color, tint_steps, tint_by_display);
+  /* The display counts in sixteenths, the even thirty-seconds, so an odd step is dropped. */
+  if (tint_mode == TINT_COLOR) return mixed(color, tint_color, tint_by_display ? tint_steps & ~1 : tint_steps, tint_by_display);
   return faded_by_display(color, fade_white, fade_steps);
 }
 
@@ -611,17 +612,22 @@ void rg_screen_fade_under(int32_t layer_place, int32_t toward_white, int32_t ste
   fade_to(1, layer_place, toward_white, steps, walked);
 }
 
+/* Reference#tint_by_display?: does the display mix a tint in as it draws, which only the plain
+ * bitmap screen does? Every other screen has it mixed into a colour table. */
+static int32_t painted_screen(void);
+static int32_t tint_mixed_by_display(void) { return painted_screen() && pixels == viewed; }
+
 /* Reference#exec_tint, through Framebuffer#tint_steps_to. A tint takes the place of whatever
  * fade was in force, one placed in the stack included. A fade that goes may have been holding a
  * see-through layer solid, or have been painted into the picture, so the picture is built again
  * when one does. */
-void rg_screen_tint(int32_t color, int32_t steps, int32_t by_display) {
+void rg_screen_tint(int32_t color, int32_t steps) {
   int32_t took_the_blend = fade_takes_the_blend(), was_placed = placed_fade.in_force;
   placed_fade.in_force = 0;
   tint_mode = TINT_COLOR;
   tint_color = color;
   tint_steps = steps;
-  tint_by_display = by_display;
+  tint_by_display = tint_mixed_by_display();
   fade_steps = 0;
   int32_t blend_changed_hands = see_through_layers() > 0 && fade_takes_the_blend() != took_the_blend;
   if (was_placed || blend_changed_hands) request_repaint();
@@ -1623,6 +1629,7 @@ int32_t rg_screen_set(int32_t new_kind, int32_t two_pages) {
   }
   kind = new_kind;
   show_pages(two_pages);
+  tint_by_display = tint_mixed_by_display(); /* a tint in force is mixed this screen's way */
   read_block = painted_screen() ? block : 1; /* the size of a block outlasts the screen it was said on */
   if (!crossing || new_kind == RG_BITMAP) return 0;
   for (int32_t i = 0; i < rg_game_picture_sizes[RG_SIZE_ALWAYS_UP]; i++) {

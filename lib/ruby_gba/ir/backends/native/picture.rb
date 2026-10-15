@@ -838,13 +838,11 @@ module RubyGBA
           # program has one place for them, settled before it runs (#names_left_out_of_blocks).
           def lower_pixelate(node) = [eval_call("rg_screen_pixelate", value(node.size))]
 
-          # Reference#exec_tint: counted in thirty-seconds however it reaches the screen, and mixed
-          # the display's way only where the display mixes it (IR::Fading#display_tint?).
+          # Reference#exec_tint: counted in thirty-seconds however it reaches the screen. Which way
+          # it is mixed follows the screen up, which rg_screen.c knows.
           def lower_tint(node)
-            steps = fade_steps(node)
-            steps = call("rg_mul", steps, C::Int.new(2)) if walks_colors(node).value.zero?
-            by_display = C::Int.new(@fading.display_tint?(node) ? 1 : 0)
-            [eval_call("rg_screen_tint", color(node.color), steps, by_display)]
+            steps = call("rg_fade_steps", value(node.amount), C::Int.new(node.fraction_bits || -1), C::Int.new(1))
+            [eval_call("rg_screen_tint", color(node.color), steps)]
           end
 
           # 1 where this fade or tint walks the colors in thirty-seconds rather than having the

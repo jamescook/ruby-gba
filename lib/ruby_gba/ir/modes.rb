@@ -106,6 +106,9 @@ module RubyGBA
       # rather than leaving each `screen` to say it where it is written.
       def switched_per_scene? = any_buffered? || crosses_display_systems?
 
+      # Every mode some part of the program draws in, the boot mode among them.
+      def modes_in_use = (@func_mode.values + [@default_mode]).uniq
+
       # Whether the program mixes modes — some scene direct, some buffered. A
       # single-mode program can be judged as a whole; a mixed one has to be judged
       # scene by scene, since each mode has its own drawing budget.

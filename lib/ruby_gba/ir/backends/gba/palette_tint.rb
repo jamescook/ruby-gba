@@ -276,12 +276,63 @@ module RubyGBA
           # any of this existed, which is what every flag here is for.
           def prepare_palette_tint(program, fading:)
             @program_fades = program.walk.any? { |node| node.kind == :fade }
-            @palette_tint = program.walk.any? { |node| node.kind == :tint && palette_screen?(node) } ||
-                            fading.any_fade_walks_palette?
+            tints = program.walk.select { |node| node.kind == :tint }
+            @tint_crosses_screens = tints.any? && @modes.modes_in_use.size > 1
+            @palette_tint = tints.any? { |node| palette_screen?(node) } || fading.any_fade_walks_palette? ||
+                            @tint_crosses_screens
             @darkens = program.walk.any? do |node|
               node.kind == :fade && node.toward == :black && fading.palette_walk?(node)
             end
             mark_tint_tables_unpacked if @palette_tint
+          end
+
+          # A TINT LEFT ON WHILE THE GAME CHANGES SCREEN. The plain bitmap screen tints through
+          # the display's blend and every other screen by walking its color tables, and no
+          # tint survives a change: a walked table is sent again as drawn, or has nothing to say
+          # to a screen with no table, and the blend reads a color a tiled screen puts its own
+          # backdrop in. To the game it is one tint, so a game with more than one screen keeps
+          # the tint asked for here, in the same packing as TINT_STATE, and each change of
+          # screen puts it back that screen's way (see ScreenEffects#emit_kept_tint_on_entry).
+          # Nought is no tint.
+          TINT_ASKED = :__tint_asked
+
+          # Does this game tint, and draw on more than one screen? Only such a game keeps
+          # TINT_ASKED, so every other one builds as it did.
+          def tint_crosses_screens? = @tint_crosses_screens
+
+          # Keep the tint a statement asks for, worked out the way a walk counts it.
+          def emit_remember_tint(color, amount, fraction_bits)
+            if (written = @primitives.const_int(amount))
+              steps = FadeSteps.steps(written, fraction_bits: fraction_bits, walked: true)
+              return @primitives.store_word_immediate(tint_state_word(color, steps), @primitives.var_addr(TINT_ASKED))
+            end
+
+            emit_tint_word(color, FadeSteps.steps_value(amount, fraction_bits: fraction_bits, walked: true))
+            @primitives.store_var(TMP, TINT_ASKED)
+          end
+
+          # No tint is asked for: at power-on, and wherever a fade takes the tint's place.
+          def emit_clear_remembered_tint
+            @emitter.emit_number(ACC, 0)
+            @primitives.store_var(ACC, TINT_ASKED)
+          end
+
+          # Walk this screen's tables to the tint kept in TINT_ASKED, as the screen takes over
+          # with its tables just sent as drawn. Nothing when no tint is kept; when one is, the
+          # block runs first, for what else the screen has to be told about it.
+          def emit_walk_to_kept_tint(mode)
+            skip = @emitter.gensym
+            @primitives.load_var(ACC, TINT_ASKED)
+            @emitter.emit(ASM.cmp_imm(ACC, 0))
+            @emitter.emit_branch(:bcond, skip, cond: :eq)
+            yield if block_given?
+            @primitives.load_var(ACC, TINT_ASKED)
+            @primitives.store_var(ACC, TINT_STATE)
+            emit_tint_shares_from_state
+            tint_tables(mode).each { |blob, dest, units| emit_tint_table(blob, dest, units) }
+            emit_recolored_banks
+            emit_recolored_obj_banks if walks_obj_table?(mode)
+            @emitter.place_label(skip)
           end
 
           # Does this build move a color table at all? Named for what it asks rather than
@@ -347,13 +398,7 @@ module RubyGBA
               return
             end
 
-            @lowering.value(steps)
-            @drawing.emit_clamp_blend_steps(WALK_STEPS)
-            @emitter.emit(ASM.mov_reg(TINT_STEPS, ACC))                      # kept while the state is compared
-            @emitter.emit_number(TMP, color << TINT_COLOR_SHIFT)
-            @emitter.emit(ASM.orr_reg(TMP, TMP, ACC))                        # r1 = the state asked for
-            @emitter.emit(ASM.cmp_imm(ACC, 0))
-            @emitter.emit(ASM.mov_imm_cond(:eq, TMP, 0))                     # ...but no tint is one state
+            emit_tint_word(color, steps)
             @primitives.load_var(ACC, TINT_STATE)
             @emitter.emit(ASM.cmp_reg(ACC, TMP))
             @emitter.emit_branch(:bcond, done, cond: :eq)
@@ -363,6 +408,18 @@ module RubyGBA
 
           def tint_state_word(color, steps)
             steps.zero? ? 0 : (color << TINT_COLOR_SHIFT) | steps
+          end
+
+          # The same word for steps the game works out: r1 holds it after, and the steps are
+          # left in r0 and kept in TINT_STEPS.
+          def emit_tint_word(color, steps)
+            @lowering.value(steps)
+            @drawing.emit_clamp_blend_steps(WALK_STEPS)
+            @emitter.emit(ASM.mov_reg(TINT_STEPS, ACC))                      # kept while the state is compared
+            @emitter.emit_number(TMP, color << TINT_COLOR_SHIFT)
+            @emitter.emit(ASM.orr_reg(TMP, TMP, ACC))                        # r1 = the state asked for
+            @emitter.emit(ASM.cmp_imm(ACC, 0))
+            @emitter.emit(ASM.mov_imm_cond(:eq, TMP, 0))                     # ...but no tint is one state
           end
 
           # Everything the walk needs that is the same for every entry: the masks, how
