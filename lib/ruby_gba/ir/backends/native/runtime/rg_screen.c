@@ -103,6 +103,18 @@ typedef struct { int32_t painted, under; } shares;
 static int32_t mixing;
 static shares mixed_by;
 
+/* THE TWO COLORS EACH MIXED CELL WAS MIXED FROM (Framebuffer @mixed_tops), for a tint that moves
+ * the color table, which reaches each side before the mix (see shown_color). +is_mixed+ is nought
+ * for a cell painted solid. Kept for the picture, and for the scenery kept apart to put back
+ * behind a sprite (keep_scenery), so a cell put back is still a mix. A screen has one see-through
+ * layer, so one set of shares serves every mixed cell. */
+typedef struct {
+  uint8_t is_mixed[CELLS];
+  uint16_t tops[CELLS], unders[CELLS];
+} mixed_sides;
+static mixed_sides picture_mixes, scenery_mixes;
+static shares mixed_cells_by;
+
 /* THE PICTURE WITH NO SPRITES ON IT, kept beside the picture (Framebuffer @scenery) in a game
  * with a sprite in a see-through layer. "Mix with what is already there" is wrong for a sprite
  * over another sprite: a display puts all its sprites into one layer before it mixes anything,
@@ -190,11 +202,11 @@ static int32_t widened(int32_t channel) { return (channel << 3) | (channel >> 2)
  * is widened to eight bits first, its share of each side added and only then the sixteenth
  * dropped, and the answer taken back to five bits. The two shares need not add to a whole; past
  * one, a channel stops at its brightest. */
-static uint16_t mixed_with_under(int32_t color, uint16_t under) {
+static uint16_t mixed_with_under(int32_t color, uint16_t under, shares by) {
   int32_t out = 0;
   for (int32_t channel = 0; channel < 3; channel++) {
     int32_t have = widened((color >> (5 * channel)) & 0x1F), below = widened((under >> (5 * channel)) & 0x1F);
-    int32_t mix = (have * mixed_by.painted + below * mixed_by.under) / 16;
+    int32_t mix = (have * by.painted + below * by.under) / 16;
     out |= ((mix > 255 ? 255 : mix) >> 3) << (5 * channel);
   }
   return (uint16_t)out;
@@ -239,11 +251,28 @@ static uint16_t faded_as_painted(int32_t color) {
   return faded_by_display((uint16_t)color, placed_fade.toward_white, placed_fade.steps);
 }
 
-/* Framebuffer#blend_into_cell: a color on its way into a cell holding +under+. The fade a placed
- * fade asks for first, then the mix a see-through layer asks for. */
-static uint16_t into_cell(int32_t color, uint16_t under) {
+/* The mixed sides kept for +page+: the picture being drawn into, or the scenery kept apart. NULL
+ * for any other page, which is never shown with a tint and never put back. */
+static mixed_sides *mixes_of(const uint16_t *page) {
+  if (page == pixels) return &picture_mixes;
+  return page == scenery ? &scenery_mixes : NULL;
+}
+
+/* Framebuffer#blend_into_cell: a color on its way into the cell at +at+ of +page+, which holds
+ * +under+. The fade a placed fade asks for first, then the mix a see-through layer asks for. The
+ * cell keeps the two colors of its mix, or stops being a mix when painted solid
+ * (Framebuffer#set_pixel and #paint_row). */
+static uint16_t into_cell(int32_t color, uint16_t under, const uint16_t *page, int64_t at) {
   uint16_t painted = faded_as_painted(color);
-  return mixing ? mixed_with_under(painted, under) : painted;
+  mixed_sides *kept = mixes_of(page);
+  if (kept) {
+    kept->is_mixed[at] = (uint8_t)mixing;
+    if (mixing) {
+      kept->tops[at] = painted;
+      kept->unders[at] = under;
+    }
+  }
+  return mixing ? mixed_with_under(painted, under, mixed_by) : painted;
 }
 
 /* Reference#see_through_sprites?: is any sprite in a see-through layer? Asked for every pixel
@@ -270,7 +299,7 @@ static void set_pixel(int64_t x, int64_t y, int32_t color) {
   int64_t at = y * RG_SCREEN_WIDTH + x;
   int32_t kept = keeps_picture_without_sprites();
   const uint16_t *under = kept && painting_sprite ? picture_without_sprites : target;
-  uint16_t painted = into_cell(color, under[at]);
+  uint16_t painted = into_cell(color, under[at], target, at);
   target[at] = painted;
   if (kept && !painting_sprite) picture_without_sprites[at] = painted;
 }
@@ -294,6 +323,8 @@ static void clear_to(int32_t color) {
   }
   uint16_t painted = faded_as_painted(color);
   for (int32_t i = 0; i < CELLS; i++) target[i] = painted;
+  mixed_sides *kept = mixes_of(target);
+  if (kept) memset(kept->is_mixed, 0, sizeof kept->is_mixed);
   if (!keeps_picture_without_sprites()) return;
   for (int32_t i = 0; i < CELLS; i++) picture_without_sprites[i] = painted;
 }
@@ -483,7 +514,7 @@ static int32_t fade_takes_the_blend(void) {
 static void mix_as_layer(int32_t layer) {
   painting_sprite = 0;
   mixing = layer != RG_SOLID && !fade_takes_the_blend();
-  if (mixing) mixed_by = owed_shares[layer].kept ? owed_shares[layer].at : shares_now(layer);
+  if (mixing) mixed_by = mixed_cells_by = owed_shares[layer].kept ? owed_shares[layer].at : shares_now(layer);
 }
 
 /* Reference#set_see_through_for, for a sprite: the same, and what is painted is a sprite's, so
@@ -533,6 +564,15 @@ static uint16_t faded(uint16_t color) {
   if (tint_mode == TINT_TOWARD) return walked_toward(color, tint_white, tint_steps);
   if (tint_mode == TINT_COLOR) return mixed(color, tint_color, tint_steps, tint_by_display);
   return faded_by_display(color, fade_white, fade_steps);
+}
+
+/* Framebuffer#shown_color: the stored cell at +at+ with the fade or tint in force. A cell a
+ * see-through layer was mixed into, under a tint, is mixed again from its two colors tinted: a
+ * tint on a screen drawn through a color table moves the colors the display then mixes, so it
+ * reaches each side before the two are added, and past a whole the order shows. */
+static uint16_t shown_color(int64_t at, uint16_t stored) {
+  if (tint_mode == TINT_NONE || pixels != viewed || !picture_mixes.is_mixed[at]) return faded(stored);
+  return mixed_with_under(faded(picture_mixes.tops[at]), faded(picture_mixes.unders[at]), mixed_cells_by);
 }
 
 /* Reference#exec_fade, through Framebuffer#fade_steps_to or, for a fade that walks the colors,
@@ -896,7 +936,7 @@ void rg_background_draw_with(int32_t background, int32_t which) {
  * which is on the screen, mixed and faded as whatever is in force says. */
 static void lay_scenery(int64_t px, int64_t py, uint16_t color) {
   uint16_t *into = &pixels[py * RG_SCREEN_WIDTH + px];
-  *into = into_cell(color, *into);
+  *into = into_cell(color, *into, pixels, py * RG_SCREEN_WIDTH + px);
   if (sprites_seen_through()) picture_without_sprites[py * RG_SCREEN_WIDTH + px] = *into;
 }
 
@@ -1351,12 +1391,24 @@ static void fault_unless_sprite(int32_t sprite) {
   if (sprite < 0 || sprite >= RG_MAX_SPRITES) rg_fault("sprite number %d is not one of the %d there is room for", sprite, RG_MAX_SPRITES);
 }
 
+/* Framebuffer#put_back_cell: the scenery's cell at (x, y) put back on the picture, a mix kept as
+ * one so that a tint still reaches both its sides. */
+static void put_back_cell(int64_t x, int64_t y) {
+  int64_t at = y * RG_SCREEN_WIDTH + x;
+  set_pixel(x, y, scenery[at]);
+  mixed_sides *kept = mixes_of(target);
+  if (!kept || !paintable(x, y) || !scenery_mixes.is_mixed[at]) return;
+  kept->is_mixed[at] = 1;
+  kept->tops[at] = scenery_mixes.tops[at];
+  kept->unders[at] = scenery_mixes.unders[at];
+}
+
 /* Reference#restore_patch: the scenery put back over a patch of the picture. */
 static void restore_patch(int64_t left, int64_t top, int64_t width, int64_t height) {
   for (int64_t row = 0; row < height; row++)
     for (int64_t col = 0; col < width; col++) {
       int64_t x = left + col, y = top + row;
-      if (on_screen(x, y)) set_pixel(x, y, scenery[y * RG_SCREEN_WIDTH + x]);
+      if (on_screen(x, y)) put_back_cell(x, y);
     }
 }
 
@@ -1670,8 +1722,8 @@ const uint16_t *rg_screen_shown(void) {
   for (int32_t y = 0; y < RG_SCREEN_HEIGHT; y++)
     for (int32_t x = 0; x < RG_SCREEN_WIDTH; x++) {
       int64_t from_x = block_corner_across(x) + camera_x, from_y = (int64_t)(y - y % read_block) + camera_y;
-      uint16_t stored = on_screen(from_x, from_y) ? viewed[from_y * RG_SCREEN_WIDTH + from_x] : 0;
-      uint16_t color = faded(stored);
+      int64_t at = from_y * RG_SCREEN_WIDTH + from_x;
+      uint16_t color = on_screen(from_x, from_y) ? shown_color(at, viewed[at]) : faded(0);
       shown[y * RG_SCREEN_WIDTH + x] = held ? (uint16_t)0x7FFF : lit(x, y) ? color : darkened_by_display(color, shade_steps);
     }
   return shown;

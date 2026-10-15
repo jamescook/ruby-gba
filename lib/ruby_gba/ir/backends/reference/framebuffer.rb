@@ -45,6 +45,7 @@ module RubyGBA
             @paint_toward = nil
             @paint_steps = 0
             @through = nil
+            @mixed_tops = nil
             @scenery = nil
             @painting_sprite = false
             @blending = false
@@ -215,6 +216,7 @@ module RubyGBA
             @through = weights
             @painting_sprite = sprite
             @blending = blending?
+            make_room_for_mixes(weights) if weights
           end
 
           # KEEP THE SCENERY WITH NO SPRITES ON IT, beside the picture — for a screen with a
@@ -245,7 +247,7 @@ module RubyGBA
             return HELD_OFF if @held
 
             seen_x, seen_y = @block > 1 ? block_corner(x, y) : [x, y]
-            color = faded(shown_pixel(seen_x + @camera_x, seen_y + @camera_y) || @fill)
+            color = shown_color(seen_x + @camera_x, seen_y + @camera_y)
             lit?(x, y) ? color : darkened_by_display(color, @shade_steps)
           end
 
@@ -309,6 +311,23 @@ module RubyGBA
             color = blend_into_cell(at, color)
             @pixels[at] = color
             @scenery[at] = color if @scenery && !@painting_sprite
+            @mixed_tops[at] = nil if @mixed_tops && !@through
+          end
+
+          # Put back the cell at (x, y) as +scene+ stores it: the scenery kept apart to put back
+          # behind a sprite that is drawn onto the picture. A cell mixed there stays a mix here,
+          # so a tint still reaches both its sides (see #shown_color).
+          def put_back_cell(scene, x, y)
+            color = scene.stored_pixel(x, y)
+            return if color.nil?
+
+            set_pixel(x, y, color)
+            top, under, weights = scene.mixed_sides((y * @width) + x)
+            return unless top && paintable?(x, y)
+
+            make_room_for_mixes(weights)
+            @mixed_tops[(y * @width) + x] = top
+            @mixed_unders[(y * @width) + x] = under
           end
 
           # Paint a horizontal run of cells: +count+ of them starting at (x, y), read
@@ -322,6 +341,8 @@ module RubyGBA
           def paint_row(x, y, colors, from:, count:)
             base = (y * @width) + x
             scenery = @painting_sprite ? nil : @scenery
+            # A cell painted solid over a mix is a mix no longer (see #shown_color).
+            mixed_tops = @through ? nil : @mixed_tops
             i = 0
             while i < count
               color = colors[from + i]
@@ -331,6 +352,7 @@ module RubyGBA
                 color = blend_into_cell(base + i, color) if @blending
                 @pixels[base + i] = color
                 scenery[base + i] = color if scenery
+                mixed_tops[base + i] = nil if mixed_tops
               end
               i += 1
             end
@@ -352,6 +374,7 @@ module RubyGBA
             return fill_rect(@area[0], @area[1], @area[2] - @area[0], @area[3] - @area[1], color) if @area
 
             @scenery&.fill(apply_placed_fade(color))
+            @mixed_tops&.fill(nil)
             @pixels.fill(apply_placed_fade(color))
           end
 
@@ -385,7 +408,24 @@ module RubyGBA
               @shade_steps.zero?
           end
 
+          protected
+
+          # The two colors cell +at+ was mixed from and the weights they were mixed at, or nil
+          # for a cell painted solid.
+          def mixed_sides(at)
+            top = @mixed_tops&.[](at)
+            top && [top, @mixed_unders[at], @mixed_weights]
+          end
+
           private
+
+          # Room to keep the two sides of every cell mixed at +weights+ (see #shown_color). A
+          # screen has one see-through layer, so one set of weights serves every mixed cell.
+          def make_room_for_mixes(weights)
+            @mixed_tops ||= Array.new(@width * @height)
+            @mixed_unders ||= Array.new(@width * @height)
+            @mixed_weights = weights
+          end
 
           # The screen pixel whose colour (x, y) shows while the picture is in blocks: the
           # top left corner of its block.
@@ -484,8 +524,35 @@ module RubyGBA
             color = apply_placed_fade(color)
             return color unless @through
 
-            under = @painting_sprite && @scenery ? @scenery : @pixels
-            mix_see_through(color, under[at], *@through)
+            under = (@painting_sprite && @scenery ? @scenery : @pixels)[at]
+            @mixed_tops[at] = color # the two sides of the mix, kept for #shown_color
+            @mixed_unders[at] = under
+            mix_see_through(color, under, *@through)
+          end
+
+          # The color shown for the stored cell at (x, y), with the fade or tint in force.
+          #
+          # A CELL A SEE-THROUGH LAYER WAS MIXED INTO is the one place the order matters. A
+          # tint on a screen drawn through a color table moves the colors IN the table, and
+          # the display then mixes the moved colors as it draws: the tint reaches each side of
+          # the mix before the two are added. Tinting the finished mix instead is the same
+          # picture only while the layer's two shares make exactly a whole. Past a whole —
+          # light rays showing all of what is behind them and half of themselves — each side
+          # carries its own share of the tint color into the sum, so the console's mix under a
+          # tint toward white is brighter, and the clamp at full brightness falls in a
+          # different place. So such a cell is mixed again, from its two colors tinted.
+          #
+          # A fade or a tint the display does as it draws comes after the mix there too, and
+          # neither meets a mixed cell anyway: the display's fade takes the blend from the
+          # layer, and its tint is only on a screen with no table and no layers.
+          #
+          # The two sides are kept for the page drawn into, which is the page shown on every
+          # screen that has layers to see through.
+          def shown_color(x, y)
+            top = @mixed_tops && @tint_color && !paged? && on_screen?(x, y) && @mixed_tops[(y * @width) + x]
+            return faded(shown_pixel(x, y) || @fill) unless top
+
+            mix_see_through(faded(top), faded(@mixed_unders[(y * @width) + x]), *@mixed_weights)
           end
 
           # A see-through layer's color over what is under it: +near+ steps of the one and

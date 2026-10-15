@@ -2408,10 +2408,7 @@ module RubyGBA
         # any cell that falls off it), erasing whatever an object had drawn there.
         def restore_patch(scene, x, y, width, height)
           height.times do |row|
-            width.times do |col|
-              color = scene.stored_pixel(x + col, y + row)
-              @screen.set_pixel(x + col, y + row, color) unless color.nil?
-            end
+            width.times { |col| @screen.put_back_cell(scene, x + col, y + row) }
           end
         end
 
