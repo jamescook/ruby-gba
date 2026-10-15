@@ -47,17 +47,25 @@ module RubyGBA
       # or every frame, from a branch or a scene. Naming a different song starts that
       # one from its beginning, and `stop_music` silences it.
       #
+      # A song named here starts on the NEXT frame: the player runs as the screen finishes a
+      # picture, which is before the game's pass, so it hears the name a frame on. That is a
+      # frame later than a cartridge whose sound engine runs after its game's logic, and a game
+      # rebuilt to match one says `this_frame: true` — the song is then taken up and its first
+      # frame played right here, and the next frame plays its second.
+      #
       # @param name [Symbol] song name (defined with `song`)
+      # @param this_frame [Boolean] start it here rather than on the next frame
       #
       # @example
       #   play_song :gameplay
-      def play_song(name)
+      def play_song(name, this_frame: false)
         raise ArgumentError, "Sound is off. Call enable_sound before play_song." unless @sound_enabled
         unless @songs.key?(name)
           raise ArgumentError, "The song :#{name} is not defined. Define it with `song :#{name} do ... end`."
         end
 
-        record(Build.play_song(name))
+        refuse_unknown_this_frame!(this_frame)
+        record(Build.play_song(name, this_frame: this_frame))
       end
 
       # No song is playing now. Like `play_song`, it can be said every frame: the
@@ -152,21 +160,29 @@ module RubyGBA
 
       # The hook behind SoundEffectList#play: record that effect number +which+ of the list starts
       # now — a number already checked against the list when it was written, or a Value.
-      def play_sound_effect(name, which)
+      def play_sound_effect(name, which, this_frame: false)
         raise ArgumentError, "Sound is off. Call enable_sound before playing :#{name}." unless @sound_enabled
 
-        record(Build.play_sound_effect(name, which: DSL::Value.node_for(which)))
+        refuse_unknown_this_frame!(this_frame)
+        record(Build.play_sound_effect(name, which: DSL::Value.node_for(which), this_frame: this_frame))
       end
 
       # The hook behind SongList#play: record that the tune playing now is number +which+ of
       # the list — a number already checked against the list when it was written, or a Value.
-      def play_from_list(name, which)
+      def play_from_list(name, which, this_frame: false)
         raise ArgumentError, "Sound is off. Call enable_sound before playing :#{name}." unless @sound_enabled
 
-        record(Build.play_from_list(name, which: DSL::Value.node_for(which)))
+        refuse_unknown_this_frame!(this_frame)
+        record(Build.play_from_list(name, which: DSL::Value.node_for(which), this_frame: this_frame))
       end
 
       private
+
+      def refuse_unknown_this_frame!(this_frame)
+        return if [true, false].include?(this_frame)
+
+        raise ArgumentError, "`this_frame:` is #{this_frame.inspect}. It must be true or false."
+      end
 
       # A list of Scores handed to `songs` or `sound_effects` (+verb+), each one recorded as a song
       # node named for its place in the list. +entry+ is what one of them is called, for the

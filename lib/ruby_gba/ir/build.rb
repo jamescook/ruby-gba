@@ -299,14 +299,15 @@ module RubyGBA
       end
 
       # Effect number +which+ of list +name+ (counting from 0) starts from its first note.
-      def play_sound_effect(name, which:)
-        Nodes.build(:play_sound_effect, name: name, which: to_value_node(which))
+      def play_sound_effect(name, which:, this_frame: false)
+        Nodes.build(:play_sound_effect, name: name, which: to_value_node(which), this_frame: this_frame)
       end
 
       # Name the tune playing now. Every backend moves it on once per frame by itself, and
       # starts it from its beginning when the name changes; naming it again changes nothing.
-      def play_song(name)
-        Nodes.build(:play_song, name: name)
+      # +this_frame+ starts it where this runs rather than on the next frame.
+      def play_song(name, this_frame: false)
+        Nodes.build(:play_song, name: name, this_frame: this_frame)
       end
 
       # No tune is playing now. Said in the same frame as naming a tune, it starts that tune
@@ -321,8 +322,8 @@ module RubyGBA
       end
 
       # The tune playing now is song number +which+ of list +name+ (counting from 0).
-      def play_from_list(name, which:)
-        Nodes.build(:play_from_list, name: name, which: to_value_node(which))
+      def play_from_list(name, which:, this_frame: false)
+        Nodes.build(:play_from_list, name: name, which: to_value_node(which), this_frame: this_frame)
       end
 
       # --- sampled (PCM) audio ---

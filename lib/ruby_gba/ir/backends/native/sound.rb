@@ -34,14 +34,18 @@ module RubyGBA
           def lower_wave(node) = [eval_call("rg_sound_wave", C::Int.new(@sound_log.wave_number(node)))]
           def lower_stop_wave(_node) = [eval_call("rg_sound_stop_wave")]
           def lower_noise(node) = [eval_call("rg_sound_noise", C::Int.new(@sound_log.noise_number(node)))]
-          def lower_play_song(node) = [eval_call("rg_music_request", C::Int.new(@sound_log.song_number(node.name)))]
+          # Named `this_frame: true`, the tune starts where it is named (rg_music_start_here).
+          def lower_play_song(node)
+            [eval_call("rg_music_request", C::Int.new(@sound_log.song_number(node.name))),
+             *(eval_call("rg_music_start_here") if node.this_frame)]
+          end
           def lower_stop_music(_node) = [eval_call("rg_music_stop")]
 
           # A song picked from a list by a number the game works out: the list is written as the
           # numbers of its songs, and the runtime picks one, or leaves the music alone for a
           # number naming none.
           def lower_play_from_list(node)
-            [eval_call("rg_music_request_one_of", song_list_name(node.name),
+            [eval_call(node.this_frame ? "rg_music_start_here_one_of" : "rg_music_request_one_of", song_list_name(node.name),
                        C::Int.new(song_lists.fetch(node.name).songs.size), value(node.which))]
           end
 
@@ -51,7 +55,7 @@ module RubyGBA
           # A sound effect picked from a list by a number the game works out, the same way: the
           # list is written as the numbers of its effects (SoundLog#effect_number).
           def lower_play_sound_effect(node)
-            [eval_call("rg_effect_request_one_of", effect_list_name(node.name),
+            [eval_call(node.this_frame ? "rg_effect_start_here_one_of" : "rg_effect_request_one_of", effect_list_name(node.name),
                        C::Int.new(effect_lists.fetch(node.name).effects.size), value(node.which))]
           end
 

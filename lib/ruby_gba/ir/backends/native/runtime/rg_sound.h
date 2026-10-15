@@ -60,10 +60,18 @@ void rg_music_request(int32_t song);
 /* ...or the song number +which+ of a list (`songs`) names, from the +count+ song numbers the list
  * holds. A number naming no song in the list leaves the music as it is. */
 void rg_music_request_one_of(const int32_t *songs, int32_t count, int32_t which);
+/* `this_frame: true`: the tune named starts here and its first frame is played, so the next frame
+ * plays its second. After rg_music_request; the list's own does both, for a number naming a song,
+ * and nothing otherwise. */
+void rg_music_start_here(void);
+void rg_music_start_here_one_of(const int32_t *songs, int32_t count, int32_t which);
 /* Start the sound effect number +which+ of a list (`sound_effects`) names, from the +count+ effect
  * numbers the list holds, at the next frame and from its first note. A number naming no effect in
  * the list plays nothing. */
 void rg_effect_request_one_of(const int32_t *effects, int32_t count, int32_t which);
+/* ...or asked for `this_frame: true`: started here, its first frame played, so the next frame
+ * plays its second — and any effect of a group waiting to be cut off cut off here too. */
+void rg_effect_start_here_one_of(const int32_t *effects, int32_t count, int32_t which);
 /* No tune, and counted: a stop and a play in one frame still start the tune again. */
 void rg_music_stop(void);
 /* The variable the game keeps its music volume in (0 to 16), for a game that says one at all. */

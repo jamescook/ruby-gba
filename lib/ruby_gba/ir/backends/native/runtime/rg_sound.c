@@ -111,6 +111,7 @@
  * the 64ths of a second it holds each step of volume as it fades.
  */
 #include <stdarg.h>
+#include <stdbool.h>
 #include <stdio.h>
 #include "rg_sound.h"
 #include "rg_driver.h"
@@ -699,24 +700,26 @@ static void silence_song(void) {
  * backend keeps). While the game still names it and has not said stop, nothing plays: its parts
  * go quiet on the frame after its last, and it stays that way. Anything else the game says —
  * another tune, no tune, or a stop and the same tune named again — forgets the end, and is then
- * caught up with as usual, which for the same tune is from its first note. */
-static void switch_to_wanted_song(void) {
+ * caught up with as usual, which for the same tune is from its first note.
+ *
+ * True when it changed what is playing. */
+static bool switch_to_wanted_song(void) {
   if (ended >= 0) {
     if (wanted == ended && stops == stops_seen) {
       if (playing >= 0) silence_song();
       playing = -1;
-      return;
+      return false;
     }
     ended = -1;
   }
-  if (wanted == playing && stops == stops_seen) return;
+  if (wanted == playing && stops == stops_seen) return false;
 
   stops_seen = stops;
   if (playing >= 0) silence_song();
   playing = wanted;
   song_frame = 0;
   part_count = 0;
-  if (playing < 0) return;
+  if (playing < 0) return true;
 
   song = song_numbers(playing);
   part_count = song[4];
@@ -724,12 +727,13 @@ static void switch_to_wanted_song(void) {
     rg_fault("song number %d has %d parts, and the most is %d", (int)playing, (int)part_count, PARTS_MOST);
   }
   start_walks(0);
-  if (EFFECTS_PLAY_WAVE) return; /* each note puts its own waveform in (see wave_put_in) */
+  if (EFFECTS_PLAY_WAVE) return true; /* each note puts its own waveform in (see wave_put_in) */
   for (int32_t i = 0; i < part_count; i++) {
     if (parts[i].kind != PART_WAVE) continue;
     wave_load(parts[i].tone);
     break;
   }
+  return true;
 }
 
 /* A note's volume, 0 to 15, as a loudness on the mixer out of 64. */
@@ -995,6 +999,45 @@ void rg_music_frame(void) {
   while (at < EFFECT_COUNT && effect_row(by_rank[at])[EFFECT_RANK] > tune) play_effect_frame(by_rank[at++]);
   if (playing >= 0) play_song_frame();
   while (at < EFFECT_COUNT) play_effect_frame(by_rank[at++]);
+}
+
+/* A TUNE NAMED `this_frame: true`, started where the game names it rather than at the next frame
+ * (Reference::Player#start_song_here): the catching up and the tune's first frame, here, so the
+ * next frame plays its second. The sound effects are not moved on — they had this frame already. */
+void rg_music_start_here(void) {
+  if (level < 0) level = FULL_LEVEL;
+  if (switch_to_wanted_song() && playing >= 0) play_song_frame();
+}
+
+/* AN EFFECT ASKED FOR `this_frame: true`, started where the game asks rather than at the next frame
+ * (Reference::Player#start_effect_here): in rank order, every effect of a group waiting to be cut
+ * off is cut off, and this one plays its first frame. Nothing sounding is moved on. One not played
+ * because another of its group outranks it is not asked for, and nothing happens. */
+void rg_effect_start_here_one_of(const int32_t *effects, int32_t count, int32_t which) {
+  if (which < 0 || which >= count) return;
+  int32_t asked = effects[which];
+  request_effect(asked);
+  if (!effect_asked[asked]) return;
+
+  const int32_t *by_rank = &rg_game_effects[EFFECT_ROWS + (EFFECT_COUNT * NUMBERS_PER_EFFECT)];
+  for (int32_t at = 0; at < EFFECT_COUNT; at++) {
+    int32_t effect = by_rank[at];
+    if (effect == asked) {
+      effect_asked[asked] = 0;
+      effect_asked_now[asked] = 1;
+      play_effect_frame(asked);
+      effect_asked_now[asked] = 0;
+    } else if (effect_stopping[effect]) {
+      effect_stopping[effect] = 0;
+      finish_effect(effect);
+    }
+  }
+}
+
+void rg_music_start_here_one_of(const int32_t *songs, int32_t count, int32_t which) {
+  if (which < 0 || which >= count) return;
+  rg_music_request(songs[which]);
+  rg_music_start_here();
 }
 
 static void play_song_frame(void) {

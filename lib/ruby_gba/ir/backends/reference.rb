@@ -947,18 +947,23 @@ module RubyGBA
         end
 
         def exec_play_song(node)
-          # Names the tune; the player takes it up at the next frame (see Player#advance).
+          # Names the tune; the player takes it up at the next frame (see Player#advance), or
+          # here when the game said `this_frame: true`.
           @player.request_song(node.name)
+          start_song_here if node.this_frame
         end
 
         def exec_play_from_list(node)
           # The number is worked out HERE and handed over: which song a game picks can be an
           # expression, and evaluating one is the interpreter's business, not the player's.
-          @player.request_song_at(node.name, eval_value(node.which))
+          named = @player.request_song_at(node.name, eval_value(node.which))
+          start_song_here if named && node.this_frame
         end
 
+        def start_song_here = @player.start_song_here(level: @vars.fetch(IR::Tunes::LEVEL, nil))
+
         def exec_play_sound_effect(node)
-          @player.request_effect(node.name, eval_value(node.which))
+          @player.request_effect(node.name, eval_value(node.which), this_frame: node.this_frame)
         end
 
         def exec_stop_music(node)

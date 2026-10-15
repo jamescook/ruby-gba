@@ -72,7 +72,11 @@ module RubyGBA
           # (IR::Tunes.priority_of): if another of its group is sounding or already asked for, an effect
           # of lower priority is not played, and one of at least that priority stops that one on
           # the next frame and starts in its place.
-          def request_effect(list, which)
+          #
+          # ASKED FOR `this_frame: true`, it starts here rather than at the next frame: an effect of
+          # a group waiting to be cut off is stopped here, and its first frame is played here, so
+          # the next frame plays its second. No effect sounding, and not the tune, is moved on.
+          def request_effect(list, which, this_frame: false)
             effects = @effect_lists[list] ||
                       raise(ProgramError, "play_sound_effect of undefined list #{list.inspect}")
             return unless which >= 0 && which < effects.length
@@ -86,6 +90,7 @@ module RubyGBA
               @stopping << current
             end
             @asked << name
+            start_effect_here(name) if this_frame
           end
 
           # NAME THE TUNE PLAYING NOW. The player takes it up at the next frame, so this can be
@@ -98,10 +103,23 @@ module RubyGBA
           # ...or name it by its place in a list. +which+ has already been worked out by
           # whoever called, because a number the game computes is the interpreter's business
           # and not this one's. A number naming no song in the list leaves the music as it is.
+          # True when it named one.
           def request_song_at(list, which)
             songs = @lists[list] ||
                     raise(ProgramError, "play_from_list of undefined list #{list.inspect}")
-            @wanted = songs[which] if which >= 0 && which < songs.length
+            return false unless which >= 0 && which < songs.length
+
+            @wanted = songs[which]
+            true
+          end
+
+          # A TUNE NAMED `this_frame: true`, started where the game names it rather than at the
+          # next frame: the catching up and the tune's first frame, here, so the next frame plays
+          # its second. Sound effects are not moved on — they had this frame already. Naming the
+          # tune already playing changes nothing, as it does at a frame. +level+ is the music
+          # volume, as #advance is given it.
+          def start_song_here(level:)
+            play_song_frame(level) if switch_to_wanted_song && @playing
           end
 
           # No tune. Counted as well as said, so a stop and a play in the same frame still reach
@@ -205,6 +223,22 @@ module RubyGBA
             @ranked_effects ||= IR::Tunes.effects_by_rank(@effects.map { |name| @songs.fetch(name) })
           end
 
+          # An effect asked for `this_frame: true`, started where it is asked, with every effect of
+          # a group waiting to be cut off cut off here too — in rank order, the order a frame takes
+          # them in, so a cut-off effect that outranks the new one has let go of its voices before
+          # the new one's first frame asks for them. Itself cut off (asked again), it stops as it
+          # starts.
+          def start_effect_here(name)
+            @asked.delete(name)
+            ranked_effects.each do |effect, rank|
+              if effect == name
+                play_effect_frame(name, rank, [name])
+              elsif @stopping.delete(effect)
+                finish_effect(effect, rank)
+              end
+            end
+          end
+
           # WHAT A VOICE A SOUND EFFECT CAN SHARE WAS SET TO — the square voices, the wave voice and
           # the noise voice — is logged as [:voice, channel, who, frequency, volume] whenever the song
           # or an effect writes it, and as a frequency and volume of 0 when an effect's end silences
@@ -303,15 +337,18 @@ module RubyGBA
           # it and has not said stop, nothing plays: its parts go quiet on the frame after its
           # last, and it stays that way. Anything else the program says forgets the end, and is
           # then caught up with as usual.
+          #
+          # True when it changed what is playing.
           def switch_to_wanted_song
             if @ended
               if @wanted == @ended && @stops == @stops_seen
                 silence_song if @playing
-                return @playing = nil
+                @playing = nil
+                return false
               end
               @ended = nil
             end
-            return if @wanted == @playing && @stops == @stops_seen
+            return false if @wanted == @playing && @stops == @stops_seen
 
             @stops_seen = @stops
             silence_song if @playing
@@ -319,6 +356,7 @@ module RubyGBA
             @frame = 0
             @events = @playing ? passes(@playing).map(&:first) : []
             @cursors = Array.new(@events.size, 0)
+            true
           end
 
           # Every voice the tune holds goes quiet and is free. Harmless when it holds none.

@@ -469,6 +469,22 @@ module RubyGBA
             emit_call_through(ADDR)
           end
 
+          # Call a routine emitted inside the screen's interrupt routine, past its return (see
+          # GBA#emit_irq_handler), from the game's own code. It is where the interrupt routine is,
+          # so the call crosses the cartridge/quick-memory line exactly when a call to that
+          # routine would, and it is counted as one (see #crossing_call_targets).
+          def emit_call_irq_routine(label)
+            generated_call_sites << [@emit.pos, IRQ_ROUTINE]
+            return emit_branch(:bl, label) if irq_runs_fast? == @emitting_hot
+
+            if irq_runs_fast?
+              emit_load_fast_address(ADDR, label)
+            else
+              emit_load_label_address(ADDR, label)
+            end
+            emit_call_through(ADDR)
+          end
+
           # Load the quick-memory address of a label inside the moved block. Where the
           # block lands is not known until every variable has one, so this is a
           # fixed-size placeholder patched in the second pass — the same trick a

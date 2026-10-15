@@ -261,8 +261,10 @@ module RubyGBA
           # and how many halfwords are left.
           WAVE_COPY_REGS = [7, 8, 9, 10].freeze
 
-          # The routine the tick calls to play a run of the table (#emit_sound_effects_routine).
+          # The routine the tick calls to play a run of the table (#emit_sound_effects_routine), and
+          # the way into it that says where the run stops.
           SOUND_EFFECTS = :__sound_effects
+          SOUND_EFFECTS_TO = :__sound_effects_to
 
           # The tune's rank, kept when it starts, for its parts to compare with a voice's holder.
           MUSIC_RANK = :__music_rank
@@ -328,6 +330,8 @@ module RubyGBA
             end
             assign_song_numbers!(program)
             @counts_stops = program.walk.any? { |node| node.kind == :stop_music }
+            @starts_songs_here = program.walk.any? { |node| %i[play_song play_from_list].include?(node.kind) && node.this_frame }
+            @starts_effects_here = program.walk.any? { |node| node.kind == :play_sound_effect && node.this_frame }
             # A game that never moves the music volume plays every note exactly as it was written,
             # and none of the working-out for one is emitted.
             @scales = program.walk.any? { |node| node.kind == :set && node.var == IR::Tunes::LEVEL }
@@ -414,10 +418,10 @@ module RubyGBA
             grouped = slots.any? { |slot| group_of(@effects[slot]) }
             if fixed
               return unless fixed.between?(0, slots.size - 1)
-              return emit_request_grouped_effect(place: slots[fixed]) if grouped
+              return emit_request_grouped_effect(node.this_frame, place: slots[fixed]) if grouped
 
               @emitter.emit(ASM.load_immediate(TMP, @effect_table + (slots[fixed] * @effect_slot_bytes)))
-              return emit_request_effect
+              return emit_request_effect(node.this_frame)
             end
 
             none = @emitter.gensym
@@ -432,20 +436,116 @@ module RubyGBA
             @emitter.emit(ASM.add_reg(TMP, TMP, ACC))
             @emitter.emit(ASM.load_halfword(ACC, TMP))        # its place in the table
             if grouped
-              emit_request_grouped_effect
+              emit_request_grouped_effect(node.this_frame)
             else
               @emitter.emit(ASM.lsl_imm(ACC, ACC, @effect_slot_bytes.bit_length - 1))
               @emitter.emit(ASM.load_immediate(TMP, @effect_table))
               @emitter.emit(ASM.add_reg(TMP, TMP, ACC))
-              emit_request_effect
+              emit_request_effect(node.this_frame)
             end
             @emitter.place_label(none)
           end
 
-          # Ask for the effect whose place in the table is at the address in TMP: one store.
-          def emit_request_effect
+          # Ask for the effect whose place in the table is at the address in TMP: one store — and,
+          # `this_frame: true`, start it here.
+          def emit_request_effect(this_frame)
             @emitter.emit(ASM.load_immediate(ACC, EFFECT_ASKED))
             @emitter.emit(ASM.str_offset(ACC, TMP, EFFECT_STATE))
+            return unless this_frame
+
+            @emitter.emit(ASM.mov_reg(ACC, TMP))
+            emit_call_start_effect_here
+          end
+
+          # Is any sound effect asked for `this_frame: true` (START_EFFECT_HERE)?
+          def starts_effects_here? = @starts_effects_here
+
+          # The routine an effect asked for `this_frame: true` calls, emitted beside the screen's
+          # interrupt; the address of its place in the table in ACC.
+          START_EFFECT_HERE = :__start_effect_here
+
+          def emit_call_start_effect_here = @drawing.emit_call_irq_routine(START_EFFECT_HERE)
+
+          # START AN EFFECT WHERE THE GAME ASKS FOR IT, rather than in the next frame's interrupt:
+          # the table walked as a frame walks it, in rank order, playing only the effect asked for
+          # — from its first frame, so the next frame's interrupt plays its second — and every
+          # effect a group is cutting off, which lets go of its voices before an effect it outranks
+          # can ask for them. Nothing sounding is moved on, since it had this frame already, and
+          # the tune is not touched. Each of those effects is a run of the table one place long
+          # (#emit_sound_effects_routine), which hands back the next place.
+          #
+          # NOTHING AT ALL unless the effect is still waiting to start. One a group decided not to
+          # play is not, and neither is one the screen's interrupt started in the moment between
+          # the game asking and this holding it off — which has had its first frame already, and
+          # would otherwise have its second here.
+          def emit_start_effect_here_routine
+            e = @emitter
+            asked = 6
+            walk = e.gensym
+            run = e.gensym
+            out = e.gensym
+            emit_routine_called_by_game(START_EFFECT_HERE) do
+              e.emit(ASM.mov_reg(asked, ACC))
+              e.emit(ASM.ldr_offset(ACC, asked, EFFECT_STATE))
+              waiting = e.gensym
+              e.emit(ASM.cmp_imm(ACC, EFFECT_ASKED))
+              e.emit_branch(:bcond, waiting, cond: :eq)
+              if grouped?
+                e.emit(ASM.cmp_imm(ACC, EFFECT_RESTARTING))
+                e.emit_branch(:bcond, waiting, cond: :eq)
+              end
+              e.emit_branch(:b, out)
+              e.place_label(waiting)
+              e.emit_load_data_address(2, MUSIC_SCORE)
+              e.emit(ASM.load_immediate(EFFECT_OUTRANKS, 0))
+              emit_point_at_first_effect
+              e.place_label(walk)
+              e.emit(ASM.load_immediate(ACC, effect_table_end))
+              e.emit(ASM.cmp_reg(EFFECT_SLOT, ACC))
+              e.emit_branch(:bcond, out, cond: :hs)
+              e.emit(ASM.cmp_reg(EFFECT_SLOT, asked))
+              e.emit_branch(:bcond, run, cond: :eq)
+              if grouped?
+                e.emit(ASM.ldr_offset(ACC, EFFECT_SLOT, EFFECT_STATE))
+                e.emit(ASM.cmp_imm(ACC, EFFECT_STOPPING))
+                e.emit_branch(:bcond, run, cond: :eq)
+              end
+              e.emit(ASM.add_imm(EFFECT_SLOT, EFFECT_SLOT, @effect_slot_bytes))
+              e.emit(ASM.add_imm(EFFECT_ENTRY, EFFECT_ENTRY, effect_entry_bytes))
+              e.emit_branch(:b, walk)
+              e.place_label(run)
+              e.emit(ASM.add_imm(EFFECTS_END, EFFECT_SLOT, @effect_slot_bytes))
+              e.emit_branch(:bl, SOUND_EFFECTS_TO)
+              e.emit_branch(:b, walk)
+              e.place_label(out)
+            end
+          end
+
+          # What a routine the game's own code calls gives back: everything the game may hold
+          # across a statement. r0-r3 and r12 are every statement's own, as they are across any
+          # call.
+          GAME_CALL_KEEPS = [4, 5, 6, 7, 8, 9, 10, 11, 14].freeze
+
+          # A ROUTINE BESIDE THE PLAYER THAT THE GAME CALLS, at +label+, whose body the block emits:
+          # the game's registers kept, and the screen's interrupt held off throughout so it never
+          # sees the player half changed. The interrupts' master switch is kept on the stack rather
+          # than in a register, since every low register is the player's in the body. ACC still
+          # holds what the game handed over when the body starts.
+          def emit_routine_called_by_game(label)
+            e = @emitter
+            e.place_label(label)
+            e.emit(ASM.push(*GAME_CALL_KEEPS))
+            e.emit(ASM.load_immediate(TMP, REG_IME))
+            e.emit(ASM.load_halfword(ADDR, TMP))
+            e.emit(ASM.push(ADDR))
+            e.emit(ASM.load_immediate(ADDR, 0))
+            e.emit(ASM.store_halfword(ADDR, TMP))
+            yield
+            e.emit(ASM.pop(ACC))
+            e.emit(ASM.load_immediate(TMP, REG_IME))
+            e.emit(ASM.store_halfword(ACC, TMP))
+            e.emit(ASM.pop(*GAME_CALL_KEEPS))
+            e.emit(ASM.return)
           end
 
           # THE REGISTERS THE ASK IN A GROUP WORKS IN. The place asked for is handed over in
@@ -477,7 +577,10 @@ module RubyGBA
           #
           # A group has one sounding or asked for at most, which is what lets the walk stop at the
           # first it finds. An effect in no group has an empty list, and is simply asked for.
-          def emit_request_grouped_effect(place: nil)
+          #
+          # `this_frame: true` starts it here once it is decided (#emit_start_effect_here_routine),
+          # whichever way it was: one that was not played is not asked for, and does nothing there.
+          def emit_request_grouped_effect(this_frame, place: nil)
             e = @emitter
             place ? e.emit(ASM.load_immediate(ASK_PLACE, place)) : e.emit(ASM.mov_reg(ASK_PLACE, ACC))
             found = e.gensym
@@ -500,6 +603,10 @@ module RubyGBA
               e.place_label(done)
               e.emit(ASM.pop(*ASK_KEEPS))
             end
+            return unless this_frame
+
+            emit_effect_slot_address(ACC, ASK_PLACE, table: TMP)
+            emit_call_start_effect_here
           end
 
           # The asked-for effect's entry: its group's list and how many are in it, and its priority —
@@ -562,10 +669,11 @@ module RubyGBA
           end
 
           # +reg+ = the address of the table place whose number is in +number+ (the table's start
-          # in ASK_TABLE).
-          def emit_effect_slot_address(reg, number)
+          # in ASK_TABLE, or with +table+ given, loaded into that register first).
+          def emit_effect_slot_address(reg, number, table: nil)
+            @emitter.emit(ASM.load_immediate(table, @effect_table)) if table
             @emitter.emit(ASM.lsl_imm(reg, number, @effect_slot_bytes.bit_length - 1))
-            @emitter.emit(ASM.add_reg(reg, ASK_TABLE, reg))
+            @emitter.emit(ASM.add_reg(reg, table || ASK_TABLE, reg))
           end
 
           # NAME THE TUNE PLAYING NOW. One number into one variable, and the player in the
@@ -577,7 +685,11 @@ module RubyGBA
             end
             @emitter.emit(ASM.load_immediate(ACC, number))
             @primitives.store_var(ACC, MUSIC_WANTED)
+            emit_call_start_song_here if node.this_frame
           end
+
+          # `this_frame: true`: the tune just named starts here (see #emit_start_song_here_routine).
+          def emit_call_start_song_here = @drawing.emit_call_irq_routine(START_SONG_HERE)
 
           # NAME SONG +which+ OF A LIST as the tune playing now: the list's first number plus
           # +which+, into the same one variable `play_song` writes. A number the game works out is
@@ -591,7 +703,9 @@ module RubyGBA
               return unless fixed.between?(0, count - 1)
 
               @emitter.emit(ASM.load_immediate(ACC, base + fixed))
-              return @primitives.store_var(ACC, MUSIC_WANTED)
+              @primitives.store_var(ACC, MUSIC_WANTED)
+              emit_call_start_song_here if node.this_frame
+              return
             end
 
             none = @emitter.gensym
@@ -603,6 +717,7 @@ module RubyGBA
             @emitter.emit_branch(:bcond, none, cond: :ge)     # past the last song
             @primitives.emit_add_const(ACC, ACC, base, TMP)
             @primitives.store_var(ACC, MUSIC_WANTED)
+            emit_call_start_song_here if node.this_frame
             @emitter.place_label(none)
           end
 
@@ -652,8 +767,33 @@ module RubyGBA
           #
           # In a game with sound effects, the effects that outrank the tune are played just before
           # its parts and the rest just after, and with no tune playing all of them are.
-          def emit_music_tick
+          def emit_music_tick = emit_music_frame(in_interrupt: true)
+
+          # Is any tune named `this_frame: true`, so the game starts it itself (START_SONG_HERE)?
+          def starts_songs_here? = @starts_songs_here
+
+          # The routine a tune named `this_frame: true` calls, emitted beside the screen's interrupt.
+          START_SONG_HERE = :__start_song_here
+
+          # START A TUNE WHERE THE GAME NAMES IT, rather than in the next frame's interrupt: the
+          # interrupt's own catching up and its first frame of the tune, with the screen's
+          # interrupt held off so it never sees the tune half started. The next frame's interrupt
+          # then finds the tune it is on already named, and plays its second frame — so a tune is
+          # on its first frame on the frame the game names it, which is when a cartridge whose
+          # sound engine runs after its game's logic has it.
+          #
+          # The sound effects are not moved on: they had this frame in the interrupt already. A
+          # tune already playing is left as it is.
+          def emit_start_song_here_routine
+            emit_routine_called_by_game(START_SONG_HERE) { emit_music_frame(in_interrupt: false) }
+          end
+
+          # ONE FRAME OF THE PLAYER (see #emit_music_tick). Out of the interrupt — starting a tune
+          # where the game names it — it plays a frame of the tune only when it changed the tune,
+          # and plays no sound effect.
+          def emit_music_frame(in_interrupt:)
             base, at, value, frame, playing = 2, 3, 4, 5, 6
+            effects = in_interrupt && plays_sound_effects?
             changed = @emitter.gensym
             play = @emitter.gensym
             done = @emitter.gensym
@@ -669,12 +809,17 @@ module RubyGBA
             @emitter.emit_branch(:bcond, changed, cond: :ne)
             emit_branch_on_unseen_stop(changed) # ...or the same tune, stopped and named again since last frame
 
-            # The same tune as last frame — or still none.
-            @emitter.emit(ASM.cmp_imm(playing, 0))
-            @emitter.emit_branch(:bcond, done, cond: :eq)
-            @emitter.emit_load_data_address(base, MUSIC_SCORE)
-            @primitives.load_var(frame, MUSIC_FRAME)
-            @emitter.emit_branch(:b, play)
+            # The same tune as last frame — or still none. Taken up where the game names it, the
+            # same tune has had this frame already.
+            if in_interrupt
+              @emitter.emit(ASM.cmp_imm(playing, 0))
+              @emitter.emit_branch(:bcond, done, cond: :eq)
+              @emitter.emit_load_data_address(base, MUSIC_SCORE)
+              @primitives.load_var(frame, MUSIC_FRAME)
+              @emitter.emit_branch(:b, play)
+            else
+              @emitter.emit_branch(:b, done)
+            end
 
             # A different tune, or none, or a stop. Silence the one playing, then start the new one.
             @emitter.place_label(changed)
@@ -704,7 +849,7 @@ module RubyGBA
             end
 
             @emitter.place_label(play)
-            if plays_sound_effects? # ...the effects that outrank the tune
+            if effects # ...the effects that outrank the tune
               @primitives.load_var(EFFECT_OUTRANKS, MUSIC_RANK)
               emit_point_at_first_effect
               @emitter.emit(ASM.push(frame))
@@ -727,7 +872,7 @@ module RubyGBA
             emit_rewind_lanes(base, at, playing)
             @emitter.place_label(onward)
             @primitives.store_var(frame, MUSIC_FRAME)
-            if plays_sound_effects? # ...and the rest, carrying on from where the first run stopped
+            if effects # ...and the rest, carrying on from where the first run stopped
               @emitter.emit(ASM.pop(EFFECT_SLOT, EFFECT_ENTRY))
               @emitter.emit_load_data_address(base, MUSIC_SCORE)
               @emitter.emit(ASM.load_immediate(EFFECT_OUTRANKS, 0))
@@ -735,7 +880,7 @@ module RubyGBA
               @emitter.emit_branch(:b, finished)
             end
             @emitter.place_label(done)
-            if plays_sound_effects? # no tune: every effect
+            if effects # no tune: every effect
               @emitter.emit_load_data_address(base, MUSIC_SCORE)
               @emitter.emit(ASM.load_immediate(EFFECT_OUTRANKS, 0))
               emit_point_at_first_effect
@@ -750,15 +895,20 @@ module RubyGBA
           EFFECT_SLOT = 7
           EFFECT_ENTRY = 8
           EFFECT_OUTRANKS = 11
+          # ...and, entered at SOUND_EFFECTS_TO, the place the run stops before.
+          EFFECTS_END = 3
 
           def emit_point_at_first_effect
             @emitter.emit(ASM.load_immediate(EFFECT_SLOT, @effect_table))
             @primitives.emit_add_const(EFFECT_ENTRY, 2, @effects_at, ACC)
           end
 
+          def effect_table_end = @effect_table + (@effects.size * @effect_slot_bytes)
+
           # PLAY A RUN OF THE SOUND EFFECTS TABLE, from EFFECT_SLOT until an effect that does not
           # outrank EFFECT_OUTRANKS or the end of the table; r2 holds the score. Emitted once, inside
-          # the screen's interrupt, and called from it.
+          # the screen's interrupt, and called from it. Entered at SOUND_EFFECTS_TO instead, the run
+          # stops before the place in EFFECTS_END — which is how START_EFFECT_HERE plays one effect.
           #
           # For each effect: asked for, it starts from its first frame; sounding and at its end, it
           # lets go of every voice it still holds, silencing each; and sounding, each of its lanes
@@ -773,13 +923,14 @@ module RubyGBA
           def emit_sound_effects_routine
             e = @emitter
             slot, entry, outranks = EFFECT_SLOT, EFFECT_ENTRY, EFFECT_OUTRANKS
-            base, table_end, cursor, frame, rank, row = 2, 3, 4, 5, 9, 10
+            base, table_end, cursor, frame, rank, row = 2, EFFECTS_END, 4, 5, 9, 10
             walk = e.gensym
             out = e.gensym
             makes_calls = @mixer.ranks_voices? || @effect_waves
             e.place_label(SOUND_EFFECTS)
+            e.emit(ASM.load_immediate(table_end, effect_table_end))
+            e.place_label(SOUND_EFFECTS_TO)
             e.emit(ASM.push(Mixer::LR)) if makes_calls
-            e.emit(ASM.load_immediate(table_end, @effect_table + (@effects.size * @effect_slot_bytes)))
             e.place_label(walk)
             e.emit(ASM.cmp_reg(slot, table_end))
             e.emit_branch(:bcond, out, cond: :hs)

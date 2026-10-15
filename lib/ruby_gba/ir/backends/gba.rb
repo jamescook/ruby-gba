@@ -1145,6 +1145,10 @@ module RubyGBA
           # memory, and a call to them is always near enough.
           @mixer.emit_music_voice_routines if @mixer.music_takes_voices?
           @audio.emit_sound_effects_routine if @audio.plays_sound_effects?
+          # ...and the routines a tune or an effect asked for `this_frame: true` is started by,
+          # which the game's own code calls (see Audio#emit_start_song_here_routine).
+          @audio.emit_start_song_here_routine if @audio.starts_songs_here?
+          @audio.emit_start_effect_here_routine if @audio.starts_effects_here?
           # Its byte span, so the build can weigh keeping it in the quick memory against
           # everything else that wants the room (see Placement#IRQ_ROUTINE).
           @functions.func_ranges[Placement::IRQ_ROUTINE] = (start...pos)

@@ -799,11 +799,13 @@ module RubyGBA
         operands name: :name, loop: :flag, volume: :option, pitch: :option
       end
 
+      # The tune playing now is +name+. With +this_frame+ it is on its first frame where this
+      # is reached, rather than from the next frame on.
       class PlaySong
         include Node
         kind :play_song
         category :sound
-        operands name: :name
+        operands name: :name, this_frame: :flag
       end
 
       class PresentObjects
@@ -1050,12 +1052,13 @@ module RubyGBA
 
       # Effect number +which+ of a SoundEffectList starts from its first note, counting from 0 — a
       # number that may be worked out as the program runs. Asked for while it is still sounding,
-      # it starts again; a number naming no effect in the list plays nothing.
+      # it starts again; a number naming no effect in the list plays nothing. With +this_frame+
+      # it is on its first frame where this is reached, rather than from the next frame on.
       class PlaySoundEffect
         include Node
         kind :play_sound_effect
         category :sound
-        operands name: :name, which: :value
+        operands name: :name, which: :value, this_frame: :flag
       end
 
       # A named list of songs, in order — the game's music, picked by number (see
@@ -1071,11 +1074,12 @@ module RubyGBA
       # The tune playing now is song number +which+ of a SongList, counting from 0 — a number
       # that may be worked out as the program runs. Like PlaySong, naming the tune already
       # playing changes nothing; a number naming no song in the list leaves the music as it is.
+      # With +this_frame+ it is on its first frame where this is reached.
       class PlayFromList
         include Node
         kind :play_from_list
         category :sound
-        operands name: :name, which: :value
+        operands name: :name, which: :value, this_frame: :flag
       end
 
       class StopMusic

@@ -17,9 +17,10 @@ module RubyGBA
       include ScoreList
 
       # Play song +which+: a name the list was given, a number counting from 0, or a number the
-      # game works out as it runs. Returns self.
-      def play(which)
-        @builder.play_from_list(@name, entry_number(which))
+      # game works out as it runs. +this_frame+ starts it here rather than on the next frame,
+      # as `play_song` says. Returns self.
+      def play(which, this_frame: false)
+        @builder.play_from_list(@name, entry_number(which), this_frame: this_frame)
         self
       end
 
