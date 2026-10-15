@@ -792,7 +792,7 @@ module RubyGBA
           # where the game names it — it plays a frame of the tune only when it changed the tune,
           # and plays no sound effect.
           def emit_music_frame(in_interrupt:)
-            base, at, value, frame, playing = 2, 3, 4, 5, 6
+            base, at, value, frame, playing = TUNE_REGS
             effects = in_interrupt && plays_sound_effects?
             changed = @emitter.gensym
             play = @emitter.gensym
@@ -823,29 +823,12 @@ module RubyGBA
 
             # A different tune, or none, or a stop. Silence the one playing, then start the new one.
             @emitter.place_label(changed)
-            if @counts_stops
-              @primitives.load_var(ACC, MUSIC_STOPS)
-              @primitives.store_var(ACC, MUSIC_STOPS_SEEN)
-            end
-            @emitter.emit_load_data_address(base, MUSIC_SCORE)
-            emit_silence_tune(base, at, frame, playing)
-            @emitter.emit(ASM.mov_reg(playing, value))
-            @primitives.store_var(playing, MUSIC_PLAYING)
-            @emitter.emit(ASM.cmp_imm(playing, 0))
-            @emitter.emit_branch(:bcond, done, cond: :eq)
-            @emitter.emit(ASM.load_immediate(frame, 0))
-            emit_rewind_lanes(base, at, playing)
-            if @waves && @effect_waves
-              emit_entry_address(at, base, playing)
-              @emitter.emit(ASM.ldr_offset(ACC, at, ENTRY_WAVE))
-              @primitives.store_var(ACC, MUSIC_WAVE)
-            elsif @waves
-              emit_upload_wavetable(base, at, playing)
-            end
-            if plays_sound_effects?
-              emit_entry_address(at, base, playing)
-              @emitter.emit(ASM.ldr_offset(ACC, at, @entry_rank))
-              @primitives.store_var(ACC, MUSIC_RANK)
+            if @starts_songs_here
+              @emitter.emit_branch(:bl, TUNE_START)
+              @emitter.emit(ASM.cmp_imm(playing, 0))
+              @emitter.emit_branch(:bcond, done, cond: :eq)
+            else
+              emit_tune_start(no_tune: done)
             end
 
             @emitter.place_label(play)
@@ -857,21 +840,7 @@ module RubyGBA
               @emitter.emit(ASM.pop(frame))
               @emitter.emit(ASM.push(EFFECT_SLOT, EFFECT_ENTRY)) # where they stopped
             end
-            emit_apply_music_volume_change if @scales
-            @lanes.each_with_index { |lane, number| emit_play_lane(lane, number, base, at, value, frame) }
-
-            onward = @emitter.gensym
-            @emitter.emit(ASM.add_imm(frame, frame, 1))
-            emit_entry_address(at, base, playing)
-            @emitter.emit(ASM.ldr(ACC, at))                 # the tune's length
-            @emitter.emit(ASM.cmp_reg(frame, ACC))
-            @emitter.emit_branch(:bcond, onward, cond: :lt) # not at the end yet
-            emit_store_ended_tune(at, playing, onward) if @any_plays_once
-            emit_loop_back(base, at, frame, onward) if @loops
-            @emitter.emit(ASM.load_immediate(frame, 0))     # round again from the top
-            emit_rewind_lanes(base, at, playing)
-            @emitter.place_label(onward)
-            @primitives.store_var(frame, MUSIC_FRAME)
+            emit_tune_step(TUNE_FRAME) { emit_tune_frame }
             if effects # ...and the rest, carrying on from where the first run stopped
               @emitter.emit(ASM.pop(EFFECT_SLOT, EFFECT_ENTRY))
               @emitter.emit_load_data_address(base, MUSIC_SCORE)
@@ -887,6 +856,98 @@ module RubyGBA
               @emitter.emit_branch(:bl, SOUND_EFFECTS)
             end
             @emitter.place_label(finished)
+          end
+
+          # The registers a frame of the player works in: the score, an entry or a row in it, the
+          # tune asked for (and then a cursor), how far into the tune, and the tune playing.
+          TUNE_REGS = [2, 3, 4, 5, 6].freeze
+
+          # THE PLAYER'S BIG STEPS AS ROUTINES, for a game that starts a tune where it names it
+          # (START_SONG_HERE) as well as in the interrupt. Both places take the same steps, and
+          # written out in each they were the player twice over: a tune on many lanes is well over
+          # a kilobyte of them, and the routine the interrupt runs is weighed for the quick memory
+          # with all of it in. Written once and called from both, they cost a call each. A game
+          # that never says `this_frame:` writes them in the interrupt's frame as before.
+          TUNE_START = :__tune_start
+          TUNE_FRAME = :__tune_frame
+          # ...and the silencing both the start and an ended tune take, a few instructions a lane.
+          TUNE_SILENCE = :__tune_silence
+
+          def emit_tune_routines
+            base, at, _value, scratch, playing = TUNE_REGS
+            emit_tune_routine(TUNE_START) { |out| emit_tune_start(no_tune: out) }
+            emit_tune_routine(TUNE_FRAME) { emit_tune_frame }
+            emit_tune_routine(TUNE_SILENCE) { emit_silence_tune(base, at, scratch, playing) }
+          end
+
+          # One of those routines at +label+: its return address kept, since its steps call the
+          # mixer's routines, and the block handed the label its steps leave by.
+          def emit_tune_routine(label)
+            out = @emitter.gensym
+            @emitter.place_label(label)
+            @emitter.emit(ASM.push(Mixer::LR))
+            yield out
+            @emitter.place_label(out)
+            @emitter.emit(ASM.pop(PC))
+          end
+
+          # One of the player's big steps: a call to its routine in a game that has them, and the
+          # steps the block writes, right here, in one that does not.
+          def emit_tune_step(label)
+            @starts_songs_here ? @emitter.emit_branch(:bl, label) : yield
+          end
+
+          # A DIFFERENT TUNE, OR NONE, OR A STOP: silence the one playing and start the new one from
+          # its first frame, with the score in the first of TUNE_REGS and the new tune in the last.
+          # On to +no_tune+ when there is no tune now; falls through with the frame at 0 otherwise.
+          def emit_tune_start(no_tune:)
+            base, at, value, frame, playing = TUNE_REGS
+            if @counts_stops
+              @primitives.load_var(ACC, MUSIC_STOPS)
+              @primitives.store_var(ACC, MUSIC_STOPS_SEEN)
+            end
+            @emitter.emit_load_data_address(base, MUSIC_SCORE)
+            emit_tune_step(TUNE_SILENCE) { emit_silence_tune(base, at, frame, playing) }
+            @emitter.emit(ASM.mov_reg(playing, value))
+            @primitives.store_var(playing, MUSIC_PLAYING)
+            @emitter.emit(ASM.cmp_imm(playing, 0))
+            @emitter.emit_branch(:bcond, no_tune, cond: :eq)
+            @emitter.emit(ASM.load_immediate(frame, 0))
+            emit_rewind_lanes(base, at, playing)
+            if @waves && @effect_waves
+              emit_entry_address(at, base, playing)
+              @emitter.emit(ASM.ldr_offset(ACC, at, ENTRY_WAVE))
+              @primitives.store_var(ACC, MUSIC_WAVE)
+            elsif @waves
+              emit_upload_wavetable(base, at, playing)
+            end
+            return unless plays_sound_effects?
+
+            emit_entry_address(at, base, playing)
+            @emitter.emit(ASM.ldr_offset(ACC, at, @entry_rank))
+            @primitives.store_var(ACC, MUSIC_RANK)
+          end
+
+          # ONE FRAME OF THE TUNE PLAYING: each lane plays its next event if it is due, and the
+          # frame moves on — round to the loop frame or the top at the tune's end, or no further
+          # for a tune that plays once.
+          def emit_tune_frame
+            base, at, value, frame, playing = TUNE_REGS
+            emit_apply_music_volume_change if @scales
+            @lanes.each_with_index { |lane, number| emit_play_lane(lane, number, base, at, value, frame) }
+
+            onward = @emitter.gensym
+            @emitter.emit(ASM.add_imm(frame, frame, 1))
+            emit_entry_address(at, base, playing)
+            @emitter.emit(ASM.ldr(ACC, at))                 # the tune's length
+            @emitter.emit(ASM.cmp_reg(frame, ACC))
+            @emitter.emit_branch(:bcond, onward, cond: :lt) # not at the end yet
+            emit_store_ended_tune(at, playing, onward) if @any_plays_once
+            emit_loop_back(base, at, frame, onward) if @loops
+            @emitter.emit(ASM.load_immediate(frame, 0))     # round again from the top
+            emit_rewind_lanes(base, at, playing)
+            @emitter.place_label(onward)
+            @primitives.store_var(frame, MUSIC_FRAME)
           end
 
           # THE REGISTERS THE EFFECTS ROUTINE TAKES AND GIVES BACK: where in the table it starts and
@@ -1240,7 +1301,7 @@ module RubyGBA
             @emitter.emit(ASM.cmp_imm(playing, 0))
             @emitter.emit_branch(:bcond, done, cond: :eq) # silenced on an earlier frame
             @emitter.emit_load_data_address(base, MUSIC_SCORE)
-            emit_silence_tune(base, at, scratch, playing)
+            emit_tune_step(TUNE_SILENCE) { emit_silence_tune(base, at, scratch, playing) }
             @emitter.emit(ASM.load_immediate(playing, 0))
             @primitives.store_var(playing, MUSIC_PLAYING)
             @emitter.emit_branch(:b, done)

@@ -182,6 +182,31 @@ class TestPlayThisFrame < Minitest::Test
     end
   end
 
+  # A SONG THAT PLAYS ONCE, asked for this_frame: heard from the pass that asks, and quiet from
+  # the frame after its end — while the game goes on naming it every frame, which is when the
+  # player has to keep it silent.
+  def test_the_console_silences_a_song_that_ends_asked_for_this_frame
+    # The note is held to the song's end, so only the player silencing the ended song stops it.
+    once = Score.new(tempo: 150, plays_once: true, length: 12, parts: [Part.new(notes: [Note.new(at: 0, key: :C5)])])
+    b = Builder.new
+    b.instance_eval do
+      screen :bitmap
+      enable_sound
+      music = songs :music, [once]
+      pass = var :pass, 0
+      game_loop do
+        pass.add! 1
+        (pass >= ASKED_ON).then { music.play 0, this_frame: true }
+      end
+    end
+    b.finalize_program
+    frames = console_frames(b.program)
+    asked = frames.index { |frame| frame[:pass] == ASKED_ON }
+
+    assert frames[asked + 2][:loud], "heard as it starts"
+    refute frames[(asked + 20)..].any? { |frame| frame[:loud] }, "and quiet once it has ended"
+  end
+
   # A sound effect's note ten frames in is heard ten frames after the pass that asked for it.
   def test_the_console_hears_an_effect_asked_for_this_frame_a_frame_sooner
     [[{ this_frame: true }, 0], [{}, 1]].each do |options, late|
