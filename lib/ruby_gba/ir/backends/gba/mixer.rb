@@ -118,8 +118,8 @@ module RubyGBA
           # numbers packed into ENV, where the LEVEL has climbed or fallen to, which PHASE of the
           # note it is in, GAIN — the loudness the mix actually multiplies by, which is VOL
           # scaled by that level — and RAMP, how far the gain moves with each sample. ENV of 0
-          # means no envelope at all, and then none of the four is ever read and the gain never
-          # moves.
+          # means no envelope at all, and then none of the four is ever read and the gain moves
+          # only when the music volume does (see #emit_store_gain_unless_shaped).
           #
           # THE LEVEL IS WORKED OUT ONCE A FRAME, by the pass before the mix. What the pass hands
           # the mix is not a new gain but a SLIDE to it: how far the gain has to move by the end of
@@ -640,7 +640,8 @@ module RubyGBA
 
           # THE FOUR NUMBERS AND WHERE THE NOTE STARTS, written onto a voice that is about to
           # sound. A voice with no envelope writes 0 for the four, which is what tells the pass
-          # before the mix to leave it alone — its gain is its loudness and never moves.
+          # before the mix to leave it alone — its gain is its loudness, and moves only when the
+          # music volume does.
           # +slot+ holds the voice's address and +scratch+ is a register free to be clobbered.
           def emit_start_envelope(slot, scratch, envelope)
             shape = envelope && !envelope.plain? ? envelope : nil
@@ -660,6 +661,21 @@ module RubyGBA
               @emitter.emit(ASM.lsl_imm(scratch, scratch, GAIN_FRACTION))
             end
             @emitter.emit(ASM.str_offset(scratch, slot, SLOT_GAIN))
+          end
+
+          # A NOTE'S LOUDNESS HAS MOVED and the voice at +slot+ is to play it at +loudness+: the
+          # gain the mix reads becomes that loudness with the gain's fraction under it — unless
+          # the voice has a shape, whose pass before the mix works its gain out every frame.
+          # Called only in a game that shapes notes; in one that shapes none the mix reads the
+          # loudness itself. Clobbers +loudness+ (shifted up in place) and +scratch+.
+          def emit_store_gain_unless_shaped(slot, loudness, scratch)
+            shaped = @emitter.gensym
+            @emitter.emit(ASM.ldr_offset(scratch, slot, SLOT_ENV))
+            @emitter.emit(ASM.cmp_imm(scratch, 0))
+            @emitter.emit_branch(:bcond, shaped, cond: :ne)
+            @emitter.emit(ASM.lsl_imm(loudness, loudness, GAIN_FRACTION))
+            @emitter.emit(ASM.str_offset(loudness, slot, SLOT_GAIN))
+            @emitter.place_label(shaped)
           end
 
           # The 16.16 step for a voice: how many source samples to advance per output sample.
@@ -1014,7 +1030,7 @@ module RubyGBA
           # sound before it to be smooth with, and sliding up from nothing would soften the
           # strike of every drum and every plucked string.
           #
-          # A voice with no envelope is two instructions: its ENV is 0 and its gain never moves.
+          # A voice with no envelope is two instructions: its ENV is 0 and this pass leaves its gain alone.
           # r4 is the slot, r5 the voices left, r1 the four numbers, r2 the level, r6 the phase,
           # r7 whether this is the note's first frame, r0/r3 scratch — all free here, since the
           # console saves r0-r3 and r12 on the way in and the dispatcher r4-r11.
@@ -1035,7 +1051,7 @@ module RubyGBA
             e.emit_branch(:bcond, onward, cond: :eq)          # nothing sounding here
             e.emit(ASM.ldr_offset(1, 4, SLOT_ENV))
             e.emit(ASM.cmp_imm(1, 0))
-            e.emit_branch(:bcond, onward, cond: :eq)          # no envelope: its gain never moves
+            e.emit_branch(:bcond, onward, cond: :eq)          # no envelope: nothing to climb
             e.emit(ASM.ldr_offset(2, 4, SLOT_LEVEL))
             e.emit(ASM.ldr_offset(6, 4, SLOT_PHASE))
             e.emit(ASM.load_immediate(7, 0))                  # not the note's first frame, until it is

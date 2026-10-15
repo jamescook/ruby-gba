@@ -69,7 +69,8 @@ module RubyGBA
           # it reads back at the end of the recording, and 0 for one that stops there.
           # +loudness+ is out of 64, and +gain+ is the loudness the mix really multiplies by,
           # with GAIN_FRACTION bits under it, which +ramp+ moves a little each sample while a
-          # shaped note slides. A voice with no shape has a gain that never moves.
+          # shaped note slides. A voice with no shape keeps its gain until the music volume moves
+          # (see #rescale_music).
           #
           # +ticket+ says which play started it, so the one playing longest is known when a
           # note of a song or an effect needs a voice. It is [loops?, count] so that a sound which loops sorts
@@ -125,9 +126,9 @@ module RubyGBA
           # WHAT THE MIX RUNS AT, settled once for the whole program the way the cartridge settles
           # it: the sample clock (its rate, and how many samples it plays a frame), and whether
           # any note in the program has a shape. That second one changes what the mix reads for a
-          # note WITHOUT one: in a program that shapes nothing, its loudness as it is now; in one
-          # that shapes something, the gain it started with (see #rescale_music). Until this is
-          # said there is no mix.
+          # note WITHOUT one: in a program that shapes nothing, its loudness; in one that shapes
+          # something, its gain, which is set as the note starts and again whenever the music
+          # volume moves (see #rescale_music). Until this is said there is no mix.
           def start_clock(clock:, shapes:)
             @clock = clock
             @shapes = shapes
@@ -303,11 +304,12 @@ module RubyGBA
           # What the mix reads is the loudness itself in a program that shapes no note, so there
           # the note is heard at the new loudness from the next frame. In one that shapes a note,
           # the mix reads a gain the shape works out once a frame — and a note with no shape has
-          # no shape to work it out, so it goes on at the gain it started with. That is the
-          # cartridge's arithmetic, and this is held to it.
+          # no shape to work it out, so its gain is set here, as it was when the note started.
           def rescale_music(owner, loudness)
             slot = sounding_slot(owner) or return false
-            @slots[slot].loudness = loudness
+            voice = @slots[slot]
+            voice.loudness = loudness
+            voice.gain = loudness << GAIN_FRACTION unless voice.envelope
             true
           end
 

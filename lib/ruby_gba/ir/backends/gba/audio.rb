@@ -1558,6 +1558,11 @@ module RubyGBA
           # A RECORDED PART'S NOTE AT THE NEW LEVEL: the mixer voice sounding it, if it still has
           # one, gets the note's loudness times the level. The mixer reads a voice's loudness as
           # it mixes, so nothing is started again.
+          #
+          # In a game where any note has a shape the mixer reads the voice's GAIN instead, which
+          # the shape pass works out each frame for a shaped note. A note with no shape has no
+          # shape to work it out, so its gain is set here too, the way it was set as the note
+          # started (see #emit_note_shape) — or it would play on at the old volume.
           def emit_rescale_recorded_note(lane, number)
             resting = @emitter.gensym
             @primitives.load_var(WRITE_REG, self.class.music_note(number))
@@ -1569,6 +1574,7 @@ module RubyGBA
             @emitter.emit_branch(:bcond, resting, cond: :eq)          # it ran out, or is falling away
             emit_scaled_loudness(WRITE_REG)
             @emitter.emit(ASM.str_offset(WRITE_REG, NOTE_REG, Mixer::SLOT_VOL))
+            @mixer.emit_store_gain_unless_shaped(NOTE_REG, WRITE_REG, TMP) if @mixer.shapes_notes?
             @emitter.place_label(resting)
           end
 
@@ -1732,7 +1738,8 @@ module RubyGBA
           # The four numbers are a fact about the entry, which the note names by a number it
           # already carries — so which shape this note has is not known until the row is read,
           # and the two cases are told apart here rather than at build time. A note with no shape
-          # is full from its first frame and its gain never moves again; a shaped one starts at
+          # is full from its first frame and its gain moves again only with the music volume (see
+          # #emit_rescale_recorded_note); a shaped one starts at
           # nothing and the pass before the mix climbs it, in this same frame.
           #
           # The compare's flags carry down through the two stores after it: an LDR, an STR and a

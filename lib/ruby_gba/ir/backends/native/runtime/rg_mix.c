@@ -15,9 +15,9 @@
  * where the note should be by the frame's end, and the loudness moves there a little with every
  * sample. That loudness, its GAIN, keeps sixteen bits of fraction, since a slow fade moves it by
  * much less than one a sample. Whether the game shapes any note at all is settled once for the
- * whole game, and it decides what the mix reads for a note WITHOUT a shape: its gain, which never
- * moves, in a game that shapes something, and its loudness as it is now in one that shapes
- * nothing. That is the console's arithmetic, kept to the bit.
+ * whole game, and it decides what the mix reads for a note WITHOUT a shape: its gain in a game
+ * that shapes something, set as the note starts and again when the music volume moves, and its
+ * loudness in one that shapes nothing. That is the console's arithmetic, kept to the bit.
  *
  * WHAT THE LOWERING WRITES, all whole numbers.
  *
@@ -267,6 +267,9 @@ int32_t rg_mix_rescale_music(int32_t lane, int32_t loudness) {
   int32_t at = sounding_voice(-1, lane);
   if (at < 0) return 0;
   voices[at].loudness = loudness;
+  /* In a game that shapes a note the mix reads the gain, and a note with no shape has nothing
+   * else to move it. */
+  if (!voices[at].shaped) voices[at].gain = loudness << GAIN_FRACTION;
   return 1;
 }
 

@@ -14,13 +14,16 @@ class TestMusicVolume < Minitest::Test
   # +plays+ names — and a game that runs +body+ on each pass with the pass number. The game names
   # the song on every pass, or with +named_once+ on its first pass only and then whenever +body+
   # says so.
-  def held_note_game(plays: nil, named_once: false, &body)
+  # With +shaped_elsewhere+ the game also declares a recording with a shape, which it never plays:
+  # a game where any note has a shape mixes every voice by its gain rather than its loudness.
+  def held_note_game(plays: nil, named_once: false, shaped_elsewhere: false, &body)
     b = Builder.new
     b.instance_eval do
       screen :bitmap
       enable_sound
       # A recording that holds, so a long note does not run out before the test is over.
       instrument :piano, pcm: [60, -60] * 4000, rate: 8000, note: :C4, holds_from: 100 if plays == :piano
+      sample :pluck, pcm: [40, -40] * 100, rate: 8000, envelope: { release: 0.1 } if shaped_elsewhere
       song :hold do
         tempo 60
         if plays
@@ -348,6 +351,28 @@ class TestMusicVolume < Minitest::Test
   def test_no_music_volume_silences_a_recorded_note_already_sounding
     program = held_note_game(plays: :piano) { |pass| (pass == 20).then { music_volume 0 } }
     energy = assert_emulator_loads_rom(assemble_rom(program, name: "MUSVOLR0"), frames: 40).audio_energy_by_frame
+    loud = energy.max / 4
+
+    assert_operator energy[5..15].min, :>, loud, "the note sounds at its own volume (#{energy.inspect})"
+    assert_operator energy[28..].max, :<, loud, "and is silent once the music volume is 0 (#{energy.inspect})"
+  end
+
+  # A note with no shape follows the music volume in a game where some other note has one, too.
+  # Such a game mixes every voice by a gain the shapes work out a frame at a time, and a note
+  # with no shape has none to work it out.
+  def test_no_music_volume_silences_a_recorded_note_without_a_shape_in_a_game_that_shapes
+    program = held_note_game(plays: :piano, shaped_elsewhere: true) { |pass| (pass == 20).then { music_volume 0 } }
+    i = game_player
+    i.run(program, frames: 40)
+    peaks = i.mixed_sound.map { |slice| slice.map(&:abs).max }
+
+    assert_operator peaks[5..15].min, :>, 0, "the note sounds at its own volume (#{peaks.inspect})"
+    assert_equal [0], peaks[25..].uniq, "and is silent once the music volume is 0 (#{peaks.inspect})"
+  end
+
+  def test_the_console_silences_a_recorded_note_without_a_shape_in_a_game_that_shapes
+    program = held_note_game(plays: :piano, shaped_elsewhere: true) { |pass| (pass == 20).then { music_volume 0 } }
+    energy = assert_emulator_loads_rom(assemble_rom(program, name: "MUSVOLRS"), frames: 40).audio_energy_by_frame
     loud = energy.max / 4
 
     assert_operator energy[5..15].min, :>, loud, "the note sounds at its own volume (#{energy.inspect})"
