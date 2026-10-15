@@ -348,6 +348,54 @@ class TestBigMaps < Minitest::Test
     end
   end
 
+  # --- how much a view costs to put up ---
+
+  VIEW_CELLS = 31 * 21
+
+  # Cells the console copied into the view of background :ground over the 20 frames a profile
+  # measures, or 0 when it copied none.
+  def cells_copied(rom)
+    copies = RubyGBA::Diagnostics::Profiler.run(rom, frames: 20, picture: false).video_copies
+    copies.find { |copy| copy.source.include?(":ground") }&.copies || 0
+  end
+
+  # A scene owning a big room takes over every fourth pass, for one pass. +body+ is what else
+  # its body does on that pass.
+  def taking_over_every_fourth_pass(name, &body)
+    big = (["#" * 100] * 90).freeze
+    RubyGBA.build(name, out: nil, err: nil) do
+      screen :tiled
+      image(:floor, "#" => :green) { (["#" * 8] * 8).join("\n") }
+      tiles :ground, "#" => :floor
+      pass = var :pass, 0
+      var :mode, 0
+      scene(:waiting) { nil }
+      scene(:playing) do
+        ground = background :ground, tiles: :ground, map: { first: big, second: big }
+        instance_exec(ground, &body) if body
+      end
+      game_loop do
+        pass.add! 1
+        set! :mode, 0
+        ((pass & 3) == 0).then { set! :mode, 1 }
+        case_var(:mode) do
+          when_val 0, :waiting
+          when_val 1, :playing
+        end
+      end
+    end
+  end
+
+  # A SCENE TAKING OVER FILLS ITS BIG ROOM'S VIEW ONCE, in the five takeovers a profile sees,
+  # and once still when it names the first map on that pass. Naming ANOTHER map there is two
+  # pictures, each a whole view: the frame the scene takes over on shows its first map, as
+  # declared, on every backend, and the frame after shows the map named.
+  def test_a_scene_taking_over_fills_the_view_of_its_big_room_once
+    assert_equal 5 * VIEW_CELLS, cells_copied(taking_over_every_fourth_pass("BIGT1"))
+    assert_equal 5 * VIEW_CELLS, cells_copied(taking_over_every_fourth_pass("BIGT2") { |ground| ground.show_map :first })
+    assert_equal 10 * VIEW_CELLS, cells_copied(taking_over_every_fourth_pass("BIGT3") { |ground| ground.show_map :second })
+  end
+
   # --- walls ---
 
   # A wall far into the second, bigger room stops a mover there: the walls of each room are

@@ -284,10 +284,12 @@ module RubyGBA
         # a background drawn from several sets of tiles, which set is really in tile memory.
         choice = map_names.size > 1 ? [:"__bg_#{name}_map", :"__bg_#{name}_live"] : []
         choice += [IR::Nodes::Background.set_var(name)] if sets
-        # ...and, for one brought into view a strip at a time, which map the strips come from
-        # and whether the cells around the view hold it yet. Both go back to 0 with the rest,
-        # which is "the first map, and nothing copied", so a scene taking over fills the view.
-        choice += IR::Nodes::Background.stream_vars(name) if streams
+        # ...and, for one brought into view a strip at a time, which map the strips come from:
+        # back to the first with the rest. Not whether the cells around the view hold it yet.
+        # A scene taking over fills the view itself, round the first map's corner, before
+        # these are put back, so putting that one back to "nothing copied" afterwards would
+        # have the gap between frames fill the whole view again for the same picture.
+        choice += [IR::Nodes::Background.stream_vars(name).first] if streams
         refuse_streaming_turning_background!(name) if streams && @screen_mode == :rotozoom
         declared.node =
           record(Build.background(name, tiles: tile_names, map: grids.first,
@@ -309,8 +311,10 @@ module RubyGBA
         boot = [scroll_x, scroll_y]
         # ...and, for a background with several maps, which one the game says is showing and
         # which one is really in its cells. Both start at 0 — the first map, the one the
-        # build already stamped — so nothing is copied until the game asks for another.
+        # build already stamped — so nothing is copied until the game asks for another. A
+        # background brought into view a strip at a time starts with nothing in its cells, too.
         boot += choice
+        boot += [IR::Nodes::Background.stream_vars(name).last] if streams
         boot.each { |var| at_boot(Build.set(var, Build.int(0))); ensure_var(var) }
         # The cells around the view are brought in where the view's place is written, in
         # the gap between frames — so one that never scrolls still has that write.
