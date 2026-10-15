@@ -355,6 +355,7 @@ module RubyGBA
                                          divide: @divide, tables: @tables)
           @lists = Lists.new(memory: @memory, primitives: @primitives, emitter: @emit, lowering: @lowering,
                              call_cold: method(:emit_call_cold_routine))
+          @primitives.roomy_counter_test = @lists.method(:roomy_counter?) # a collection's counters go where it went
           # `placement: self` — Placement is not its own object yet (see its class
           # comment); its methods live directly on this instance, so handing self in is
           # what makes the dependency an explicit constructor argument instead of a bare

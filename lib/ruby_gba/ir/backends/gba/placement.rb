@@ -238,7 +238,10 @@ module RubyGBA
             far = places.select { |_, address| address - IWRAM_START > Primitives::FURTHEST_FROM_BASE }
             return [] if far.empty?
 
+            # One in the roomy memory is there with its collection, and is no nearer for being
+            # claimed first.
             used = chosen.flat_map { |name| probe.variables_named_by(name) }.uniq
+                         .select { |name| quick_memory?(places.fetch(name)) }
             used.any? { |name| far.key?(name) } ? used : []
           end
 
@@ -575,9 +578,17 @@ module RubyGBA
           # measuring pass never saw, which is growth nobody charged for; and two loads the
           # measuring pass saw as one number, sharing a word of a table, need not have been.
           # Claiming them all here, in the order that pass did, makes them the same numbers.
+          #
+          # A variable that pass put in the roomy memory goes there here too, and has to be told
+          # so: it went there with the collection that owns it, and this pass has not placed the
+          # collections yet when it gets here.
           def allocate_variables_where_measured(probe)
-            probe.var_addresses.each_key { |name| var_addr(name) }
+            probe.var_addresses.each do |name, address|
+              quick_memory?(address) ? var_addr(name) : @primitives.claim_roomy_var(name)
+            end
           end
+
+          def quick_memory?(address) = address.between?(IWRAM_START, IWRAM_START + IWRAM_SIZE - 1)
 
           # The routines the author named one way or the other. `fast: true` is taken as
           # an instruction and is placed before anything the framework picked; `fast:

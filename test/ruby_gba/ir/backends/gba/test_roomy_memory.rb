@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require "test_helper"
+require "differential"
 
 # THE OTHER WORK MEMORY, and what it is for.
 #
@@ -19,6 +20,7 @@ require "test_helper"
 # question about code.
 class TestRoomyMemory < Minitest::Test
   runs_on :reference
+  include Differential
 
   def build(title, &block)
     RubyGBA.build(title, code: "B#{title[0, 3]}", maker: "01",
@@ -136,6 +138,110 @@ class TestRoomyMemory < Minitest::Test
     moved = roomy_of(rom).collections.keys
     assert_includes moved, RubyGBA::DSL::Pool.field_list(:spark, :x), "every one of its columns moved together"
     assert_includes moved, RubyGBA::DSL::Pool.field_list(:spark, :life)
+  end
+
+  # --- a collection's own counters go with it ---
+
+  # A list keeps how many items it holds, and a list that is shifted keeps where its oldest
+  # item is; a pool keeps a dozen more (how many are live, the first and last of its order,
+  # where each walk of it has got to). Those are variables, and they used to stay in the quick
+  # memory whatever the collection said, so a game that moved everything cold out still found
+  # thirty to sixty variables a pool left behind.
+  HARDWARE = RubyGBA::Console::Hardware
+  QUICK = HARDWARE::IWRAM_START...(HARDWARE::IWRAM_START + HARDWARE::IWRAM_SIZE)
+
+  POOL_NAMES = %i[pool_field pool_part].freeze
+
+  # The variables the build made for a collection, by the name the author gave it.
+  def counters_of(rom, words)
+    rom.var_addresses.select do |name, _address|
+      kind, = RubyGBA::Messages::MadeNames.read(name)
+      collection = name.to_s.delete_suffix("__len").delete_suffix("__head")
+      POOL_NAMES.include?(kind) ? RubyGBA::Messages::MadeNames.collection_words(name) == words
+                                : "list :#{collection}" == words
+    end
+  end
+
+  def in_quick_memory(counters) = counters.select { |_name, address| QUICK.cover?(address) }.keys
+
+  def test_a_pool_given_room_keeps_its_own_counters_there
+    rom = build("POOLVARS") do
+      screen :tiled
+      image(:dot, "#" => :white) { "########\n" * 8 }
+      stood = pool :stood, x: 0, y: 0, hp: 0, capacity: 8, image: :dot, fast: false
+      game_loop do
+        pressed(:a).then { stood.spawn(x: 10, y: 10) }
+        stood.each { |one| one.x.add! 1 }
+      end
+    end
+    counters = counters_of(rom, "pool :stood")
+
+    assert_includes counters.keys, RubyGBA::DSL::Pool.count_var(:stood), "the pool's count is among them"
+    assert_empty in_quick_memory(counters), "these of the pool's own are still in the quick memory"
+  end
+
+  def test_a_list_given_room_keeps_its_length_and_its_oldest_there
+    rom = build("LISTVARS") do
+      screen :bitmap
+      queue = list :queue, capacity: 16, width: :byte, fast: false
+      game_loop do
+        queue.push 3
+        (queue.length > 8).then { queue.shift }
+      end
+    end
+    counters = counters_of(rom, "list :queue")
+
+    assert_equal 2, counters.size, "how many it holds, and where its oldest is"
+    assert_empty in_quick_memory(counters)
+  end
+
+  # The build moves a collection no frame touches when the quick memory runs short, and its
+  # counters go with it then too: the rule is where the collection went, not who said so.
+  def test_a_list_the_build_moved_takes_its_length_with_it
+    rom = build("MOVEDVARS") do
+      screen :bitmap
+      cold = list :cold, capacity: 5000
+      hot = list :hot, capacity: 5000
+      cold.push 1
+      game_loop { hot.push 2 }
+    end
+
+    assert_empty in_quick_memory(counters_of(rom, "list :cold")), "the cold list's length moved with it"
+    refute_empty in_quick_memory(counters_of(rom, "list :hot")), "and the hot one's stayed where it is quick"
+  end
+
+  # The counters are read and written on every spawn, removal, walk and draw, so a pool and a
+  # list kept in the roomy memory are played here on both backends and every pixel compared:
+  # things spawned, walked, removed when they reach the edge and drawn oldest in front, and a
+  # list pushed and shifted whose length is a bar's width.
+  def roomy_counters_program
+    builder = Builder.new
+    builder.instance_eval do
+      screen :tiled
+      image(:dot, "#" => :white) { "########\n" * 8 }
+      image(:bar, "#" => :green) { "########\n" * 8 }
+      stood = pool :stood, x: 0, y: 0, capacity: 4, image: :dot, fast: false
+      queue = list :queue, capacity: 8, width: :byte, fast: false
+      bar = sprite :bar, at: [0, 140]
+      ticks = var :ticks, 0
+      game_loop do
+        ticks.add! 1
+        ((ticks % 6) == 1).then { stood.spawn(x: 0, y: ticks) }
+        stood.each do |one|
+          one.x.add! 4
+          (one.x > 40).then { one.remove }
+        end
+        queue.push 1
+        (queue.length > 5).then { queue.shift }
+        bar.move_to queue.length * 8, 140
+      end
+    end
+    builder.finalize_program
+    builder.program
+  end
+
+  def test_the_console_plays_a_pool_and_a_list_kept_in_the_roomy_memory_as_the_oracle_does
+    assert_backends_agree(roomy_counters_program, frames: 30)
   end
 
   # --- and it has to actually work ---

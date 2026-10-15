@@ -51,6 +51,7 @@ module RubyGBA
             @roomy_base = roomy
             @roomy_next = roomy
             @roomy_ceiling = roomy_ceiling
+            @roomy_far = roomy_ceiling
           end
 
           # Claim +bytes+ next to the base, for something that is cheaper to reach
@@ -71,19 +72,31 @@ module RubyGBA
           # a caller reports as the friendly error it is — this one really is a program
           # asking for more than the console has.
           def alloc_roomy(bytes)
-            return nil if @roomy_next.nil? || @roomy_next + whole_words(bytes) > @roomy_ceiling
+            return nil if @roomy_next.nil? || @roomy_next + whole_words(bytes) > @roomy_far
 
             addr = @roomy_next
             @roomy_next += whole_words(bytes)
             addr
           end
 
+          # Claim a variable in the roomy memory: one a collection kept there owns, which goes
+          # where the collection went (see Lists#roomy_counter?). These come down from the top
+          # while the collections go up from the bottom, so the two never move each other. The
+          # build lowers a program twice and names variables in a different order the second
+          # time, and a collection's address has to come out the same both times, since what
+          # building it costs depends on its bits. Nil when there is no more.
+          def alloc_roomy_var
+            return nil if @roomy_next.nil? || @roomy_far - WORD < @roomy_next
+
+            @roomy_far -= WORD
+          end
+
           # Is there room in the quick memory for one more thing of this size, with the two
           # ends where they are now?
           def room_for?(bytes) = free >= whole_words(bytes)
 
-          def roomy_used = @roomy_next ? @roomy_next - @roomy_base : 0
-          def roomy_free = @roomy_next ? @roomy_ceiling - @roomy_next : 0
+          def roomy_used = @roomy_next ? (@roomy_next - @roomy_base) + (@roomy_ceiling - @roomy_far) : 0
+          def roomy_free = @roomy_next ? @roomy_far - @roomy_next : 0
 
           # How much of this memory is spoken for, both ends added together.
           def used = (@near - @base) + (@ceiling - @far)

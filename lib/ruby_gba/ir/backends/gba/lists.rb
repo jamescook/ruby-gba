@@ -40,6 +40,7 @@ module RubyGBA
             @lowering = lowering
             @call_cold = call_cold
             @lists = {}
+            @counter_owners = {} # a list's length and head variables -> the list
             @backing = {}
             @fills = false
             @copies = false
@@ -321,10 +322,26 @@ module RubyGBA
             # narrow list is allowed to be an odd number of bytes long, but nothing after it is.
             want = ((slots * bytes) + 3) & ~3
             base, roomy = place_list(name, want, fast)
-            @primitives.var_addr(head_var(name)) if ring # a plain array's head can never move
-            @primitives.var_addr(length_var(name))
+            # Placed before its counters are named, since where they go follows where it went.
             @lists[name] = { capacity: capacity, ring: ring, mask: slots - 1, base: base,
                              width: width, bytes: bytes, roomy: roomy }
+            counters = ring ? [head_var(name), length_var(name)] : [length_var(name)] # a plain array's head can never move
+            counters.each do |counter|
+              @counter_owners[counter] = name
+              @primitives.var_addr(counter)
+            end
+          end
+
+          # WHETHER +var+ IS A NUMBER A COLLECTION IN THE ROOMY MEMORY KEEPS FOR ITSELF, and so
+          # goes there with it (see Primitives#var_addr). For a list that is how many items it
+          # holds and where its oldest is. For a pool it is every variable of its own — how many
+          # are live, the first and last of its order, where each walk of it has got to — which
+          # follow the list of which slots are live, the one every one of them is read beside.
+          def roomy_counter?(var)
+            owner = @counter_owners[var]
+            kind, parts = Messages::MadeNames.read(var) unless owner
+            owner = Messages::MadeNames.make(:pool_part, pool: parts[:pool], part: :active) if kind == :pool_part
+            @lists.dig(owner, :roomy) || false
           end
 
           # WHICH MEMORY THIS ONE GOES IN. The quick one unless the author said it does not

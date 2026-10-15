@@ -40,7 +40,31 @@ module RubyGBA
           # note below is about. See {Memory}.
           def var_addr(name)
             @var_mentions << [@emitter.pos, name]
-            @vars[name] ||= @memory.alloc_near_base(4)
+            @vars[name] ||= roomy_var?(name) ? claim_roomy_var(name) : @memory.alloc_near_base(4)
+          end
+
+          # A VARIABLE A COLLECTION OWNS GOES WHERE THE COLLECTION WENT. A list keeps how many
+          # items it holds, and a pool a dozen more of its own (see Lists#roomy_counter?); a
+          # collection kept in the roomy memory, because the author said it is cold or because
+          # the quick one ran out, would otherwise leave those behind in the quick memory, where
+          # every one of them is a word the code kept there cannot have. Reaching one there costs
+          # its whole address, which the collection's own items already cost.
+          #
+          # +roomy_counter_test+ answers whether a name is one of those, and is handed in by
+          # whoever knows where the collections went.
+          attr_writer :roomy_counter_test
+
+          def roomy_var?(name) = @roomy_counter_test&.call(name) || false
+
+          # Give +name+ a place in the roomy memory, before anything names it. The build's second
+          # pass asks this for each variable its measuring pass put there, since it names them
+          # before it has placed the collections that decide it (see
+          # Placement#allocate_variables_where_measured).
+          def claim_roomy_var(name)
+            @vars[name] ||= @memory.alloc_roomy_var ||
+                            raise(LoweringError, "The console's roomy memory is full. A list or pool kept there " \
+                                                 "needs room for one more number of its own. To fix this, use " \
+                                                 "a smaller capacity, or narrower items (`width: :byte`).")
           end
 
           # The variables named anywhere in +span+ of the code, each once, in the order they
