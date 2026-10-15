@@ -67,7 +67,7 @@ static int32_t current_scene = -1;
 /* What a display does to the finished picture: one effect at a time (Framebuffer#fade_to). */
 static int32_t fade_white, fade_steps;
 static enum { TINT_NONE, TINT_TOWARD, TINT_COLOR } tint_mode;
-static int32_t tint_white, tint_color, tint_steps;
+static int32_t tint_white, tint_color, tint_steps, tint_by_display;
 
 /* THE PICTURE IN FLAT BLOCKS (Reference @block): how many pixels a block is each way, 1 being the
  * picture as drawn. A picture built from several things is put into blocks a thing at a time, as
@@ -200,12 +200,43 @@ static uint16_t mixed_with_under(int32_t color, uint16_t under) {
   return (uint16_t)out;
 }
 
-static uint16_t blend(uint16_t color, int32_t white, int32_t steps, int32_t out_of);
+/* Framebuffer#darkened_by_display: each channel widened to eight bits and placed in its own byte,
+ * taken +steps+ sixteenths of the way to black there, and brought back to five bits. Done in the
+ * channel's own byte as the interpreter does it, which rounds how much the first channel loses
+ * down and how much the other two lose up. */
+static uint16_t darkened_by_display(uint16_t color, int32_t steps) {
+  if (steps == 0) return color;
+  int64_t packed = 0;
+  for (int32_t channel = 0; channel < 3; channel++) {
+    int32_t shift = channel * 5;
+    int64_t placed = (int64_t)widened((color >> shift) & 0x1F) << (channel * 8);
+    int64_t kept = (placed - (placed * steps) / 16) >> (channel * 8);
+    packed |= (kept >> 3) << shift;
+  }
+  return (uint16_t)packed;
+}
+
+/* Framebuffer#brightened_by_display: each channel widened to eight bits and given +steps+
+ * sixteenths of the headroom it has left there, then brought back to five bits. */
+static uint16_t brightened_by_display(uint16_t color, int32_t steps) {
+  if (steps == 0) return color;
+  int32_t packed = 0;
+  for (int32_t channel = 0; channel < 3; channel++) {
+    int32_t shift = channel * 5, have = widened((color >> shift) & 0x1F);
+    packed |= ((have + ((255 - have) * steps) / 16) >> 3) << shift;
+  }
+  return (uint16_t)packed;
+}
+
+/* Framebuffer#faded_by_display: the display's own fade toward black or white. */
+static uint16_t faded_by_display(uint16_t color, int32_t white, int32_t steps) {
+  return white ? brightened_by_display(color, steps) : darkened_by_display(color, steps);
+}
 
 /* Framebuffer#apply_placed_fade: a color as it is painted while a placed fade reaches it. */
 static uint16_t faded_as_painted(int32_t color) {
   if (!fading_what_is_painted) return (uint16_t)color;
-  return blend((uint16_t)color, placed_fade.toward_white, placed_fade.steps, 16);
+  return faded_by_display((uint16_t)color, placed_fade.toward_white, placed_fade.steps);
 }
 
 /* Framebuffer#blend_into_cell: a color on its way into a cell holding +under+. The fade a placed
@@ -469,33 +500,39 @@ static void mix_nothing(void) {
 
 /* --- effects over the finished picture (Framebuffer#faded) --- */
 
-/* Framebuffer#blend: each channel moved a truncated share of the way to black or white. */
-static uint16_t blend(uint16_t color, int32_t white, int32_t steps, int32_t out_of) {
+/* Framebuffer#walked_toward: a fade that walks the colors, in five bits a channel, each channel
+ * moved a truncated share of the way to black or white. */
+static uint16_t walked_toward(uint16_t color, int32_t white, int32_t steps) {
   if (steps == 0) return color;
   int32_t out = 0;
   for (int32_t channel = 0; channel < 3; channel++) {
     int32_t c = (color >> (5 * channel)) & 0x1F;
-    c = white ? c + ((31 - c) * steps) / out_of : c - (c * steps) / out_of;
+    c = white ? c + ((31 - c) * steps) / 32 : c - (c * steps) / 32;
     out |= c << (5 * channel);
   }
   return (uint16_t)out;
 }
 
-/* Framebuffer#mixed: the two shares added, and only then the fraction dropped. */
-static uint16_t mixed(uint16_t color, int32_t toward, int32_t steps) {
+/* Framebuffer#mixed and #mixed_by_display: the two shares added, and only then the fraction
+ * dropped. The display mixes at eight bits a channel; a game writing tinted colors, at five. */
+static uint16_t mixed(uint16_t color, int32_t toward, int32_t steps, int32_t by_display) {
   if (steps == 0) return color;
   int32_t keep = 32 - steps, out = 0;
   for (int32_t channel = 0; channel < 3; channel++) {
     int32_t have = (color >> (5 * channel)) & 0x1F, want = (toward >> (5 * channel)) & 0x1F;
-    out |= ((have * keep + want * steps) / 32) << (5 * channel);
+    if (by_display) {
+      out |= (((widened(have) * keep + widened(want) * steps) / 32) >> 3) << (5 * channel);
+    } else {
+      out |= ((have * keep + want * steps) / 32) << (5 * channel);
+    }
   }
   return (uint16_t)out;
 }
 
 static uint16_t faded(uint16_t color) {
-  if (tint_mode == TINT_TOWARD) return blend(color, tint_white, tint_steps, 32);
-  if (tint_mode == TINT_COLOR) return mixed(color, tint_color, tint_steps);
-  return blend(color, fade_white, fade_steps, 16);
+  if (tint_mode == TINT_TOWARD) return walked_toward(color, tint_white, tint_steps);
+  if (tint_mode == TINT_COLOR) return mixed(color, tint_color, tint_steps, tint_by_display);
+  return faded_by_display(color, fade_white, fade_steps);
 }
 
 /* Reference#exec_fade, through Framebuffer#fade_steps_to or, for a fade that walks the colors,
@@ -538,12 +575,13 @@ void rg_screen_fade_under(int32_t layer_place, int32_t toward_white, int32_t ste
  * fade was in force, one placed in the stack included. A fade that goes may have been holding a
  * see-through layer solid, or have been painted into the picture, so the picture is built again
  * when one does. */
-void rg_screen_tint(int32_t color, int32_t steps) {
+void rg_screen_tint(int32_t color, int32_t steps, int32_t by_display) {
   int32_t took_the_blend = fade_takes_the_blend(), was_placed = placed_fade.in_force;
   placed_fade.in_force = 0;
   tint_mode = TINT_COLOR;
   tint_color = color;
   tint_steps = steps;
+  tint_by_display = by_display;
   fade_steps = 0;
   int32_t blend_changed_hands = see_through_layers() > 0 && fade_takes_the_blend() != took_the_blend;
   if (was_placed || blend_changed_hands) request_repaint();
@@ -1621,22 +1659,6 @@ static int32_t lit(int32_t x, int32_t y) {
   if (shade_steps == 0) return 1;
   int32_t left = shade_spans[y][0], right = shade_spans[y][1];
   return left <= right ? (x >= left && x < right) : (x >= left || x < right);
-}
-
-/* Framebuffer#darkened_by_display: each channel widened to eight bits and placed in its own byte,
- * taken +steps+ sixteenths of the way to black there, and brought back to five bits. Done in the
- * channel's own byte as the interpreter does it, which rounds how much the first channel loses
- * down and how much the other two lose up. */
-static uint16_t darkened_by_display(uint16_t color, int32_t steps) {
-  if (steps == 0) return color;
-  int64_t packed = 0;
-  for (int32_t channel = 0; channel < 3; channel++) {
-    int32_t shift = channel * 5;
-    int64_t placed = (int64_t)widened((color >> shift) & 0x1F) << (channel * 8);
-    int64_t kept = (placed - (placed * steps) / 16) >> (channel * 8);
-    packed |= (kept >> 3) << shift;
-  }
-  return (uint16_t)packed;
 }
 
 /* Framebuffer#shown and #pixel: the page a viewer is looking at, read through the window — off

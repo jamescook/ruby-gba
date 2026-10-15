@@ -214,8 +214,9 @@ void rg_screen_fade(int32_t toward_white, int32_t steps, int32_t walked);
  * everything fades. Each thing says how far forward such a layer can be and still leave it as
  * drawn (RG_BG_FADE_PLACE, rg_game_sprite_fade_places). */
 void rg_screen_fade_under(int32_t layer_place, int32_t toward_white, int32_t steps, int32_t walked);
-/* A tint toward +color+, in thirty-seconds. */
-void rg_screen_tint(int32_t color, int32_t steps);
+/* A tint toward +color+, in thirty-seconds. +by_display+ is 1 where the display mixes it in as it
+ * draws, at eight bits a channel, and 0 where the game writes the tinted colors itself. */
+void rg_screen_tint(int32_t color, int32_t steps, int32_t by_display);
 /* How far +amount+ (a percentage, or with +fraction_bits+ >= 0 a fraction of one) is, in steps. */
 int32_t rg_fade_steps(int32_t amount, int32_t fraction_bits, int32_t walked);
 

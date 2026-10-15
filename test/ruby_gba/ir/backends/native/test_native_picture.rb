@@ -62,6 +62,21 @@ class TestNativePicture < Minitest::Test
     assert_native_matches_reference program, frames: 14
   end
 
+  # A tint on the plain bitmap screen is mixed in by the display as it draws, at eight bits a
+  # channel, so a red channel at 16 taken half way toward red's 31 is 24, where five bits say 23.
+  def test_a_tint_on_a_bitmap_screen_is_mixed_at_eight_bits
+    program = program_of do
+      screen :bitmap
+      game_loop do
+        clear_screen rgb(16, 16, 16)
+        tint :red, 50
+      end
+    end
+
+    last = assert_native_matches_reference(program, frames: 3)
+    assert_equal 24 | (8 << 5) | (8 << 10), last.picture.first, "red half way to its brightest at eight bits"
+  end
+
   # A menu on a bitmap screen is painted into the picture: rows, the cursor, the picked row lit.
   def test_a_menu_on_a_bitmap_screen_follows_the_cursor
     program = program_of do
@@ -1574,7 +1589,7 @@ class TestNativePicture < Minitest::Test
 
     assert_native_matches_reference program, frames: 13
 
-    darker_blue = 24 << 10 # blue, a quarter of the way to black
+    darker_blue = 23 << 10 # blue, a quarter of the way to black, worked out at eight bits
     assert_includes moments[7].picture, darker_blue, "under the fade the water should be solid"
     refute_includes moments.last.picture, Color.resolve(:blue), "and with the fade lifted it shows the floor through it"
   end
@@ -1706,7 +1721,7 @@ class TestNativePicture < Minitest::Test
     assert_native_matches_reference program, frames: 12
 
     blue = Color.resolve(:blue)
-    darker_blue = 24 << 10 # blue, a quarter of the way to black
+    darker_blue = 23 << 10 # blue, a quarter of the way to black, worked out at eight bits
     refute_includes moments[1].picture, blue, "before the fade the water shows the floor through it"
     refute_includes moments[3].picture, blue, "and under a placed fade of nothing, which takes no blend"
     assert_includes moments[7].picture, darker_blue, "under the fade the water should be solid, and darker"
@@ -1883,12 +1898,15 @@ class TestNativePicture < Minitest::Test
     assert_includes moments.last.picture, Color.resolve(:white), "the placed fade leaves the score in front of it as drawn"
   end
 
-  # A color under a fade of half toward black: each of its three channels, five bits apiece,
-  # loses half of itself, rounded down.
+  # A color under the display's fade of half toward black: each channel is widened to eight bits
+  # and loses half of itself there, red keeping the odd step and green and blue losing it, and is
+  # brought back to five bits.
   def half_way_to_black(color)
     (0..2).sum do |channel|
       level = (color >> (5 * channel)) & 31
-      (level - (level / 2)) << (5 * channel)
+      wide = (level << 3) | (level >> 2)
+      kept = channel.zero? ? wide - (wide / 2) : wide / 2
+      (kept >> 3) << (5 * channel)
     end
   end
 
