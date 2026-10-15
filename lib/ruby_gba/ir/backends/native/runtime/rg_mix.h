@@ -21,7 +21,7 @@ extern const int32_t rg_game_recordings[];
 extern const int8_t rg_game_recording_samples[];
 
 /* The game's own `play` of recording number +recording+: read +step+ 65536ths of a sample for
- * each sample of the mix (its pitch), at +loudness+ out of 64, going +back+ that many samples at
+ * each sample of the mix (its pitch), at +loudness+ out of 256, going +back+ that many samples at
  * its end (0 to stop there), and +loops+ if it was asked to, which decides who gives way when a
  * song's note wants its voice. Every number was worked out when the game was built. With every
  * voice busy it takes the quietest of the song's notes falling away, or is dropped. */
@@ -30,7 +30,7 @@ void rg_mix_play(int32_t recording, int32_t step, int32_t loudness, int32_t back
 /* A NOTE OF THE SONG'S on part +lane+ (counted among its parts that play recordings), from a song
  * of +rank+ (IR::Tunes.song_rank) — or of SOUND EFFECT number +effect+, of the effect's rank, for an
  * +effect+ other than -1. +sound+ is the recording, the step, how far back it reads, and
- * its shape (whether it has one, then four numbers), and +loudness+ is out of 64. Which voice it
+ * its shape (whether it has one, then four numbers), and +loudness+ is out of 256. Which voice it
  * gets is the interpreter's rule (Reference::Mixer#start_music_note): the part's own, unless its
  * note there has a shape and is left to fall away; then a free one; then the quietest note
  * falling away; then the lowest-ranked sound below this one, the game's own first and of those
@@ -60,7 +60,7 @@ void rg_mix_step_shapes(void);
 int32_t rg_mix_slices_made(void);
 int32_t rg_mix_newest_slice(const int32_t **samples);
 
-/* What a sounding voice is playing: the recording, its loudness out of 64, how far its shape has
+/* What a sounding voice is playing: the recording, its loudness out of 256, how far its shape has
  * climbed or fallen, and whose it is — +owner+ 0 for the game's own sound, 1 for the song's, 2 for
  * a sound effect's, with the effect's number (-1 for none) and the part's lane. */
 typedef struct {

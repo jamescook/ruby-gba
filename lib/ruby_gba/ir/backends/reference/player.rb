@@ -325,6 +325,7 @@ module RubyGBA
           # volume whose nearest of that voice's five is none.
           def sounds?(kind, frequency, volume)
             return false unless frequency.positive? && volume.positive?
+            return IR::Tunes.mix_loudness(volume).positive? if kind == :recorded
 
             kind != :wave || Audio::Sound.wave_level(volume) != :mute
           end

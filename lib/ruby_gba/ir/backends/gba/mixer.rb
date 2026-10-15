@@ -96,7 +96,7 @@ module RubyGBA
 
           # A voice slot, in EWRAM: the sample's address in ROM, how far it has played (a whole
           # sample index), its length, HOW FAR BACK it goes at the end (0 for a sound that plays
-          # once), whether it's sounding, its level (0..64), and — for pitch — a 16.16
+          # once), whether it's sounding, its level (0..256), and — for pitch — a 16.16
           # fixed-point STEP (how many source samples to advance per output sample: 1.0 = 0x10000
           # plays at the recorded pitch, 2.0 an octave up) plus a FRAC accumulator carrying the
           # leftover fraction between frames, kept in its TOP 16 bits so that adding to it
@@ -214,7 +214,7 @@ module RubyGBA
           # ONE SOUNDING VOICE, read back off a running console: which sample it is playing,
           # how far through it (a whole sample index), how long that sample is, how fast it
           # reads it (16.16 — STEP_ONE is the recorded pitch), whether it loops, its level
-          # (0..64), and whose it is — :game, [:song, part] or [effect, part], the same answer the
+          # (0..256), and whose it is — :game, [:song, part] or [effect, part], the same answer the
           # interpreter's Reference#sound_owners gives. Values rather than addresses, so a test
           # asks what is playing and never learns where in memory it is kept.
           Voice = Data.define(:sample, :position, :length, :step, :loop, :volume, :owner)
@@ -289,11 +289,11 @@ module RubyGBA
             end
           end
 
-          # Volume level names → a 0..64 gain the mix multiplies each sample by (then shifts
-          # right by 6, i.e. divides by 64) — so :full leaves a sample unchanged and :half
+          # Volume level names → a 0..256 gain the mix multiplies each sample by (then shifts
+          # right by 8, i.e. divides by 256) — so :full leaves a sample unchanged and :half
           # halves it. The same words the other sound verbs use.
           MIX_LEVELS = RubyGBA::Audio::Sound::MIX_LEVELS
-          VOL_SHIFT = RubyGBA::Audio::Sound::VOL_SHIFT # 2**6 = 64, the :full gain
+          VOL_SHIFT = RubyGBA::Audio::Sound::VOL_SHIFT # 2**8 = 256, the :full gain
 
           # Which of the two output buffers the DMA is playing right now (0 or 1).
           MIX_FRONT = :__mix_front
@@ -610,7 +610,7 @@ module RubyGBA
               @emitter.emit(ASM.load_immediate(TMP, loop_back_distance(node, sample)))
               @emitter.emit(ASM.str_offset(TMP, 0, SLOT_LOOP))         # how far back at the end
               @emitter.emit(ASM.load_immediate(TMP, MIX_LEVELS.fetch(node.volume, MIX_LEVELS[:full])))
-              @emitter.emit(ASM.str_offset(TMP, 0, SLOT_VOL))          # slot.volume (0..64 gain)
+              @emitter.emit(ASM.str_offset(TMP, 0, SLOT_VOL))          # slot.volume (0..256 gain)
               emit_start_envelope(0, TMP, sample.envelope) if @uses_envelopes
               @emitter.emit(ASM.load_immediate(TMP, voice_step(node, sample)))
               @emitter.emit(ASM.str_offset(TMP, 0, SLOT_STEP))         # slot.step (pitch + rate, 16.16)
@@ -1544,13 +1544,13 @@ module RubyGBA
             if @uses_envelopes
               e.emit(ASM.mul(1, 12, 0))                       # r1 = gain × sample
               e.emit(ASM.ldrsh(0, 7))                         # r0 = the total so far
-              e.emit(ASM.add_reg_asr(0, 0, 1, VOL_SHIFT + GAIN_FRACTION)) # ...plus that ÷ 64, fraction and all
+              e.emit(ASM.add_reg_asr(0, 0, 1, VOL_SHIFT + GAIN_FRACTION)) # ...plus that ÷ 256, fraction and all
               e.emit(ASM.store_halfword_post(0, 7, 2))        # put it back, and on to the next total
               e.emit(ASM.add_reg(12, 12, LR))                 # the gain slides a sample's worth
             else
               e.emit(ASM.mul(1, 0, 12))                       # r1 = sample × volume
               e.emit(ASM.ldrsh(0, 7))                         # r0 = the total so far
-              e.emit(ASM.add_reg_asr(0, 0, 1, VOL_SHIFT))     # ...plus sample × volume ÷ 64 (:full is unchanged)
+              e.emit(ASM.add_reg_asr(0, 0, 1, VOL_SHIFT))     # ...plus sample × volume ÷ 256 (:full is unchanged)
               e.emit(ASM.store_halfword_post(0, 7, 2))        # put it back, and on to the next total
             end
             e.emit(ASM.adds_reg(11, 11, 10))                  # fraction += the step's; a carry is one more sample

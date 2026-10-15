@@ -15,7 +15,7 @@ module RubyGBA
         #
         # ONE FRAME'S SLICE, as the cartridge makes it (#mix). Each sounding voice reads its
         # recording from where it got to, one sample for each sample of the slice, and adds the
-        # sample times its loudness, over 64, into a running total for that place in the slice.
+        # sample times its loudness, over 256, into a running total for that place in the slice.
         # How fast it reads is its STEP: how many samples of the recording go by for each sample
         # of the slice, in 65536ths, so a note pitched up reads faster and one recorded at
         # another rate is read at the rate the mix runs at. The part of a sample that does not
@@ -67,7 +67,7 @@ module RubyGBA
           # +fraction+ the part of a sample carried toward the next one (out of 65536), and
           # +step+ how far it moves for each sample of the slice (65536 is one). +back+ is how far
           # it reads back at the end of the recording, and 0 for one that stops there.
-          # +loudness+ is out of 64, and +gain+ is the loudness the mix really multiplies by,
+          # +loudness+ is out of 256, and +gain+ is the loudness the mix really multiplies by,
           # with GAIN_FRACTION bits under it, which +ramp+ moves a little each sample while a
           # shaped note slides. A voice with no shape keeps its gain until the music volume moves
           # (see #rescale_music).
@@ -196,7 +196,7 @@ module RubyGBA
           end
 
           # A VOICE AT THE TOP OF RECORDING +name+, read at +frequency+, going +back+ at its end,
-          # at +loudness+ out of 64 and shaped by +envelope+. One with a shape starts at nothing and
+          # at +loudness+ out of 256 and shaped by +envelope+. One with a shape starts at nothing and
           # climbs, its gain at nothing until the shape's first frame sets it; one without carries
           # no shape at all and sounds flat out from its first sample.
           def recording_fields(name, frequency, back, loudness, envelope)
@@ -283,7 +283,7 @@ module RubyGBA
           # song or effect. +name+ is the recording and +frequency+ the note, which is how fast it
           # is read: a higher note reads it faster, so it runs out sooner — unless the recording
           # HOLDS, and then a note reads round its hold point for as long as it lasts. +loudness+
-          # is out of 64. +envelope+ is the shape this note was asked for — the note's own, or its
+          # is out of 256. +envelope+ is the shape this note was asked for — the note's own, or its
           # part's. A note that asks for none takes whatever the recording itself was declared
           # with.
           def start_music_note(owner:, rank:, name:, frequency:, loudness:, envelope:)

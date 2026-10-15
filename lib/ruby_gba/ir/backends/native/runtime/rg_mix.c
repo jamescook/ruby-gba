@@ -80,7 +80,7 @@ typedef struct {
   int32_t fraction; /* the part of a sample carried toward the next one, out of 65536 */
   int32_t step;     /* how far it moves for each sample of the slice; 65536 is one */
   int32_t back;     /* how far it reads back at the end of its recording; 0 stops there */
-  int32_t loudness; /* out of 64 */
+  int32_t loudness; /* out of 256 */
   int32_t gain;     /* the loudness the mix multiplies by, with GAIN_FRACTION bits under it */
   int32_t ramp;     /* how far the gain moves each sample, while a shaped note slides */
   int32_t shaped;
@@ -167,7 +167,7 @@ static int32_t lowest_ranked_voice_below(int32_t rank) {
 }
 
 /* A voice at the top of +recording+, read +step+ at a time, going +back+ at its end, at +loudness+
- * out of 64, and shaped by +shape+ (whether it has one, then its four numbers). One with a shape
+ * out of 256, and shaped by +shape+ (whether it has one, then its four numbers). One with a shape
  * starts at nothing and climbs, its gain at nothing until the shape's first frame sets it; one
  * without sounds flat out from its first sample. */
 static void start_voice(int32_t at, int32_t recording, int32_t step, int32_t back, int32_t loudness, const int32_t *shape) {

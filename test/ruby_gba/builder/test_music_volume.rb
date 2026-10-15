@@ -332,20 +332,20 @@ class TestMusicVolume < Minitest::Test
 
   # --- a part that plays a recording ---
 
-  # A recorded part sounds on a voice of the mixer, whose loudness runs 0..64 rather than 0..15 —
-  # volume 12 is 51 of those — and the mixer takes a new one while a note plays, like the wave
+  # A recorded part sounds on a voice of the mixer, whose loudness runs 0..256 rather than 0..15 —
+  # volume 12 is 205 of those — and the mixer takes a new one while a note plays, like the wave
   # voice. The log names the part by its place among the song's recorded parts.
   def test_half_the_music_volume_halves_a_recorded_note_already_sounding
     program = held_note_game(plays: :piano) { |pass| (pass == 5).then { music_volume 50 } }
 
-    assert_equal({ 2 => [[[:mixer, 0], 51]], 6 => [[[:mixer, 0], 25]] }, loudness_by_frame(program, 10))
+    assert_equal({ 2 => [[[:mixer, 0], 205]], 6 => [[[:mixer, 0], 102]] }, loudness_by_frame(program, 10))
   end
 
   def test_the_console_sets_the_recorded_notes_voice_to_the_same_loudness
     program = held_note_game(plays: :piano) { |pass| (pass == 5).then { music_volume 50 } }
     console = assert_emulator_loads_rom(assemble_rom(program, name: "MUSVOLR"), frames: 20)
 
-    assert_equal [25], console.voices.map(&:volume)
+    assert_equal [102], console.voices.map(&:volume)
   end
 
   def test_no_music_volume_silences_a_recorded_note_already_sounding

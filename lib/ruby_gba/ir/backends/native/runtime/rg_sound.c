@@ -54,9 +54,8 @@
  * noise voice's; how many times a second the console hands its voices on to the speaker; the
  * music volume a part sounds at in full and how far to shift back down by it
  * (IR::Tunes::FULL_LEVEL and LEVEL_SHIFT); sixteen numbers, the wave voice's loudness in
- * quarters for each volume from 0 to 15; sixteen more, a recorded part's loudness on the
- * mixer, out of 64, for each volume (IR::Tunes.mix_loudness); and the part of a rank that is a
- * sound effect's order (IR::Tunes::ORDER_MASK), nought for the song.
+ * quarters for each volume from 0 to 15; and the part of a rank that is a sound effect's order
+ * (IR::Tunes::ORDER_MASK), nought for the song.
  *
  * rg_game_effects: how many sound effects there are, 1 if any of them plays the wave voice (see
  * wave_put_in), then five numbers each, in the order they were declared — the song it plays (by
@@ -144,7 +143,6 @@
 #define FULL_LEVEL (rg_game_sound_rules[4])
 #define LEVEL_SHIFT (rg_game_sound_rules[5])
 #define WAVE_QUARTERS 6
-#define MIX_LOUDNESS (WAVE_QUARTERS + VOLUMES)
 #define SONG_COUNT (rg_game_music[0])
 #define SONG_STARTS 1
 #define NUMBERS_PER_SONG 5
@@ -493,7 +491,7 @@ typedef struct {
  * second voice while the part's note is still being held, and it is the part's note the music
  * volume sounds again. A hit on the noise voice is never held: it rings and fades by itself, so
  * a new volume waits for the next hit. A recorded part's note is held on the mixer, by its lane,
- * and its volume is a loudness out of 64. */
+ * and its volume is a loudness out of 256. */
 typedef struct {
   int32_t voice; /* a console voice, or 0 for the mixer */
   int32_t lane;  /* a recorded part's lane, for the mixer */
@@ -641,7 +639,7 @@ static void rest_on(const part_walk *part) {
  * nobody holding it outranks it, and a rest or a note at volume 0 lets it go. Nobody is rank 0. The
  * voices are kept in the order each was first written, which is the order an effect's end lets
  * them go in (Reference::Player#finish_effect). */
-#define ORDER_MASK (rg_game_sound_rules[MIX_LOUDNESS + VOLUMES])
+#define ORDER_MASK (rg_game_sound_rules[WAVE_QUARTERS + VOLUMES])
 static int32_t holders[RG_NOISE_VOICE + 1];
 static int32_t holder_order[RG_NOISE_VOICE];
 static int32_t holder_count;
@@ -736,20 +734,16 @@ static bool switch_to_wanted_song(void) {
   return true;
 }
 
-/* A note's volume, 0 to 15, as a loudness on the mixer out of 64. */
-static int32_t mix_loudness_of(int32_t volume) {
-  return volume > 0 && volume < VOLUMES ? rg_game_sound_rules[MIX_LOUDNESS + volume] : 0;
-}
-
 /* A note of a part that plays a recording, due on this frame (Reference::Player#play_song_frame's
- * recorded branch). A note that makes no sound — a rest, or one at volume 0 — lets the part's
- * voice go and is heard; one that does is heard only if the mixer found it a voice, and a note
- * that was not heard is not logged at all: the part carries on in time, silent there. Its
- * loudness follows the music volume when the game keeps one. */
+ * recorded branch). Its loudness on the mixer, out of 256, is written in the note itself (see
+ * IR::Tunes.mix_loudness), since a recorded note's volume can hold a fraction. A note that makes
+ * no sound — a rest, or one at loudness 0 — lets the part's voice go and is heard; one that does
+ * is heard only if the mixer found it a voice, and a note that was not heard is not logged at
+ * all: the part carries on in time, silent there. Its loudness follows the music volume when the
+ * game keeps one. */
 static void play_recorded_note(const part_walk *part, const int32_t *note) {
-  int32_t pitch = note[1], volume = note[2], sound = note[3];
-  int32_t loudness = mix_loudness_of(volume);
-  if (pitch == 0 || volume <= 0) {
+  int32_t pitch = note[1], loudness = note[2], sound = note[3];
+  if (pitch == 0 || loudness <= 0) {
     rg_mix_release_music(-1, part->tone);
   } else {
     const int32_t *numbers = &rg_game_note_sounds[1 + (sound * NUMBERS_PER_NOTE_SOUND)];
@@ -903,10 +897,11 @@ static void play_effect_note(int32_t effect, const part_walk *part, const int32_
   int32_t sounds = note_sounds(part->kind, pitch, volume);
 
   if (part->kind == PART_RECORDED) {
-    int32_t sound = note[3]; /* its row of rg_game_note_sounds */
+    int32_t sound = note[3];    /* its row of rg_game_note_sounds */
+    int32_t loudness = note[2]; /* a recorded note's volume is written as its loudness, out of 256 */
     int32_t heard = sounds ? rg_mix_start_music_note(effect, part->tone, rank,
                                                      &rg_game_note_sounds[1 + (sound * NUMBERS_PER_NOTE_SOUND)],
-                                                     mix_loudness_of(volume))
+                                                     loudness)
                            : rg_mix_release_music(effect, part->tone);
     if (heard) rg_sound_log("note %d %d", (int)number, (int)pitch);
     return;

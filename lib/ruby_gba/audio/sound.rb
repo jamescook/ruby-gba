@@ -61,17 +61,20 @@ module RubyGBA
       # cartridge's mixer and the interpreter's work out the same bytes of sound, and a number
       # written in each would drift.
       #
-      # A play's loudness, out of 64, by the name it was asked at — and the shift that divides by
-      # those 64. A STEP, how far a voice reads through its recording for each sample of the mix,
-      # is counted in 65536ths, so STEP_SHIFT bits of it are the part of a sample. A note with a
+      # A play's loudness, out of 256, by the name it was asked at — and the shift that divides by
+      # those 256. 256 steps is the scale a cartridge's own sound engine mixes a voice at, so music
+      # decoded off one can be given its notes' loudness as that engine had them: its quietest
+      # notes are still heard, and its loudest, about half the recording, is that loud here too.
+      # A STEP, how far a voice reads through its recording for each sample of the mix, is
+      # counted in 65536ths, so STEP_SHIFT bits of it are the part of a sample. A note with a
       # shape slides its loudness, its GAIN, which keeps GAIN_FRACTION bits of fraction under it:
-      # sixteen is as many as fit, since a gain of at most 64 is then 22 bits and a sample of at
-      # most 128 is 8 more. The slide is a distance divided by the samples in a frame, done as a
-      # multiply by one sample's share out of 1 << (2 * RAMP_SPLIT), with the distance shifted
-      # down RAMP_SPLIT bits before it and the product after, so a whole gain's worth of
-      # distance stays inside 32 bits on the way.
-      MIX_LEVELS = { full: 64, three_quarter: 48, half: 32, quarter: 16, mute: 0 }.freeze
-      VOL_SHIFT = 6
+      # sixteen is as many as fit, since a gain of at most 256 is then 24 bits and a sample of at
+      # most 128 is 7 more, which the sign bit has room for. The slide is a distance divided by
+      # the samples in a frame, done as a multiply by one sample's share out of
+      # 1 << (2 * RAMP_SPLIT), with the distance shifted down RAMP_SPLIT bits before it and the
+      # product after, so a whole gain's worth of distance stays inside 32 bits on the way.
+      MIX_LEVELS = { full: 256, three_quarter: 192, half: 128, quarter: 64, mute: 0 }.freeze
+      VOL_SHIFT = 8
       STEP_SHIFT = 16
       GAIN_FRACTION = 16
       RAMP_SPLIT = 8

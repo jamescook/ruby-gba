@@ -15,8 +15,8 @@ module RubyGBA
       # program that never says `music_volume` has no such variable, and plays every part at
       # its written volume with nothing worked out at all.
       #
-      # Sixteen steps and not a hundred because a part's written volume has sixteen (0..15), so
-      # a finer level would only round to the same volume. FULL_LEVEL being a power of two is
+      # Sixteen steps and not a hundred because a console voice's volume has sixteen (0..15), so
+      # a finer level would only round to the same volume there. FULL_LEVEL being a power of two is
       # what lets #scaled_volume divide by it with a shift.
       LEVEL = :__music_level
       FULL_LEVEL = 16
@@ -33,8 +33,11 @@ module RubyGBA
       # written.
       def scaled_volume(volume, level) = (volume * level) >> LEVEL_SHIFT
 
-      # A part's written volume, 0..15 like the console voices', as a mixer voice's loudness.
-      def mix_loudness(volume) = (volume * MIX_FULL / 15.0).round
+      # A part's written volume, 0..15 like the console voices', as a mixer voice's loudness. A
+      # recorded note's volume can hold a fraction (Score::Note), which is how a note gets a
+      # loudness between two whole volumes: 15 x L / 256 is L exactly. Worked out as an exact
+      # fraction so a Float and a Rational of the same value come out the same.
+      def mix_loudness(volume) = (volume.to_r * MIX_FULL / 15).round
 
       # The songs the program can play, in the order they are declared: every song it names with
       # `play_song`, and every song in a list it picks from by number. A song that is written and

@@ -443,7 +443,47 @@ class TestScores < Minitest::Test
     assert_equal [:piano], early.map(&:sample)
     assert_equal [:harp], later.map(&:sample), "the second note names its own instrument"
     assert_in_delta step_for(:E4), later.first.step, 2
-    assert_equal (6 * 64 / 15.0).round, later.first.volume, "...and its own loudness"
+    assert_equal (6 * 256 / 15.0).round, later.first.volume, "...and its own loudness"
+  end
+
+  # A RECORDED NOTE CAN BE GIVEN A VOLUME WITH A FRACTION, for music whose engine works its
+  # loudness out finer than sixteen steps. A volume of 15 x L / 256 plays the recording at L
+  # 256ths of its size — the scale a cartridge's own engine mixes at — so its loudest note, about
+  # half the recording, and its quietest are both heard as it heard them.
+  def engine_levels_score(*levels)
+    notes = levels.each_with_index.map { |level, n| Note.new(at: n * 10, key: :C4, volume: Rational(15 * level, 256)) }
+    Score.new(tempo: 150, length: levels.size * 10, parts: [Part.new(plays: :piano, notes: notes)])
+  end
+
+  def test_a_recorded_note_plays_at_the_256ths_its_volume_gives
+    i = game_player
+    i.run(game([engine_levels_score(256, 126, 5)]) { |music, _| music.play 0 }, frames: 40)
+    loudest = i.mixed_sound.map(&:max).reject(&:zero?).chunk_while { |a, b| a == b }.map(&:first)
+
+    # The piano's recording swings to 60: 60 at its own size, 60 x 126 / 256 and 60 x 5 / 256.
+    assert_equal [60, 29, 1], loudest.first(3)
+  end
+
+  def test_the_console_gives_a_recorded_note_the_loudness_its_volume_gives
+    rom = assemble_rom(game([engine_levels_score(256, 126)]) { |music, _| music.play 0 }, name: "SCORE256")
+
+    assert_equal [126], assert_emulator_loads_rom(rom, frames: 20).voices.map(&:volume)
+  end
+
+  # A volume that comes to less than one 256th is a rest: the note takes no voice.
+  def test_a_recorded_note_too_quiet_for_one_step_is_a_rest
+    i = game_player
+    seen = {}
+    i.each_vblank { |frame| seen[frame] = i.active_samples }
+    i.run(game([engine_levels_score(256, 0.25)]) { |music, _| music.play 0 }, frames: 20)
+
+    assert_equal [:piano], seen[5]
+    assert_empty seen[15], "the second note is a rest"
+  end
+
+  def test_a_volume_with_a_fraction_on_a_console_voice_is_a_friendly_error
+    square = Score.new(parts: [Part.new(notes: [Note.new(at: 0, key: :C4, volume: 7.5)])])
+    assert_match(/whole number/, build_error { songs :music, [square] })
   end
 
   def test_the_console_plays_the_song_a_number_picks

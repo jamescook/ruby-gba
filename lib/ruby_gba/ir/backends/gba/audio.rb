@@ -1953,7 +1953,7 @@ module RubyGBA
             end
           end
 
-          # A part's volume, 0..15 like the square voices', as the mix's 0..64.
+          # A part's volume, 0..15 like the square voices', as the mix's 0..256.
           def loudness(volume) = IR::Tunes.mix_loudness(volume)
 
           # Which two sound registers carry a music note's varying values on a given lane — the

@@ -275,10 +275,11 @@ module RubyGBA
           raise ArgumentError, "Part #{number} is not a Score::Part." unless part.is_a?(Part)
           raise ArgumentError, "Part #{number} needs its notes in `notes:`." unless part.notes.is_a?(Array)
 
-          volume!(part.volume, "Part #{number}")
+          recorded = plays_recording?(part.plays)
+          volume!(part.volume, "Part #{number}", recorded)
 
           part.notes.each_with_index do |note, index|
-            note!(note, "Note #{index} of part #{number}")
+            note!(note, "Note #{index} of part #{number}", recorded)
             next unless note.instrument && !part.plays
 
             raise ArgumentError, "Note #{index} of part #{number} plays #{note.instrument_name.inspect}, " \
@@ -287,7 +288,7 @@ module RubyGBA
           end
         end
 
-        def note!(note, where)
+        def note!(note, where, recorded)
           raise ArgumentError, "#{where} is not a Score::Note." unless note.is_a?(Note)
           unless note.at.is_a?(Integer) && note.at >= 0
             raise ArgumentError, "#{where} starts at tick #{note.at.inspect}. A tick is a whole number, 0 or more."
@@ -297,14 +298,24 @@ module RubyGBA
                                  "more than 0, or nothing for a note that lasts until the next one."
           end
           key!(note.key, where)
-          volume!(note.volume, where) if note.volume
+          volume!(note.volume, where, recorded) if note.volume
         end
 
-        # A loudness is 0 (silent) to 15 (the loudest), the same scale a song block's `volume` is.
-        def volume!(volume, where)
-          return if volume.is_a?(Integer) && volume.between?(0, 15)
+        # Does a part play a recording, rather than one of the console's own voices?
+        def plays_recording?(plays) = Music.resolve_plays(plays).key?(:instrument)
 
-          raise ArgumentError, "#{where} has the volume #{volume.inspect}. A volume is 0 to 15."
+        # A loudness is 0 (silent) to 15 (the loudest), the same scale a song block's `volume` is.
+        # A note that plays a recording can hold a fraction, since the mixer has 256 steps where a
+        # console voice has 16.
+        def volume!(volume, where, recorded)
+          unless volume.is_a?(Numeric) && volume.real? && volume.between?(0, 15)
+            raise ArgumentError, "#{where} has the volume #{volume.inspect}. A volume is 0 to 15."
+          end
+          return if volume.is_a?(Integer) || recorded
+
+          raise ArgumentError, "#{where} has the volume #{volume.inspect}. It plays one of the console's " \
+                               "own voices. There, a volume is a whole number, 0 to 15. Only a part " \
+                               "that plays a recording can have a volume with a fraction."
         end
 
         def key!(key, where)

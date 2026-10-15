@@ -180,15 +180,14 @@ module RubyGBA
 
           # The rules every voice keeps: how fast each one's clock ticks, how often the console
           # hands its voices on to the speaker, the music volume a part sounds at in full and how
-          # far to shift back down by it, the wave voice's loudness and a recorded note's for each
-          # written volume, and the part of a rank that tells a sound effect from the song.
+          # far to shift back down by it, the wave voice's loudness for each written volume, and
+          # the part of a rank that tells a sound effect from the song.
           def sound_rules_table
             sound = RubyGBA::Audio::Sound
             quarters = (0..15).map { |volume| sound.wave_level_quarters(sound.wave_level(volume)) }
-            loudness = (0..15).map { |volume| Tunes.mix_loudness(volume) }
             sound_table("sound_rules", [sound::SQUARE_CLOCK_HZ, sound::WAVE_CLOCK_HZ, sound::NOISE_CLOCK_HZ,
                                         sound::VOICE_OUTPUT_HZ, Tunes::FULL_LEVEL, Tunes::LEVEL_SHIFT, *quarters,
-                                        *loudness, Tunes::ORDER_MASK])
+                                        Tunes::ORDER_MASK])
           end
 
           # Every different waveform the game can put on the wave voice, 32 steps each: the ones
@@ -306,15 +305,17 @@ module RubyGBA
           # a rest; see SoundLog#pitch_number), its volume, and how many ticks of its voice's
           # clock it lasts — one wave of it on a square voice or the wave voice, one step of the
           # hiss on the noise voice — or, on a recorded part, the row of note_sounds_table it
-          # sounds.
+          # sounds. A recorded note's volume is written as its loudness on the mixer, since it can
+          # hold a fraction.
           def encoded_note(note, part, kind)
             at, pitch, _, volume = note
-            last = if kind == :recorded
-                     pitch.zero? ? -1 : note_sound_row(note, part)
-                   else
-                     pitch.zero? ? 0 : note_ticks(kind, pitch)
-                   end
-            [at, @sound_log.pitch_number(pitch), volume || part.volume, last]
+            volume ||= part.volume
+            heard, last = if kind == :recorded
+                            [Tunes.mix_loudness(volume), pitch.zero? ? -1 : note_sound_row(note, part)]
+                          else
+                            [volume, pitch.zero? ? 0 : note_ticks(kind, pitch)]
+                          end
+            [at, @sound_log.pitch_number(pitch), heard, last]
           end
 
           # EVERYTHING A RECORDED NOTE IS BUT HOW LOUD, the interpreter's way
