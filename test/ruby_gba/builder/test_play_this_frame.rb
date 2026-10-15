@@ -182,6 +182,34 @@ class TestPlayThisFrame < Minitest::Test
     end
   end
 
+  # A SONG WHOSE FIRST NOTE IS ON ITS FIRST FRAME, on each of the console's own voices: asked
+  # this_frame, that note is heard on the frame of the pass that asks, and it goes on sounding;
+  # asked the plain way, a frame later.
+  def test_the_console_sounds_a_first_note_on_its_own_voices_the_frame_it_is_asked_for
+    [nil, :wave, :noise].product([[{ this_frame: true }, 0], [{}, 1]]).each do |plays, (options, late)|
+      at_once = Score.new(tempo: 150, parts: [Part.new(plays: plays, notes: [Note.new(at: 0, key: :C5, length: 20)])])
+      b = Builder.new
+      b.instance_eval do
+        screen :bitmap
+        enable_sound
+        music = songs :music, [at_once]
+        pass = var :pass, 0
+        game_loop do
+          pass.add! 1
+          (pass == ASKED_ON).then { music.play 0, **options }
+        end
+      end
+      b.finalize_program
+      frames = console_frames(b.program)
+      asked = frames.index { |frame| frame[:pass] == ASKED_ON }
+
+      assert_equal late, frames.index { |frame| frame[:loud] } - asked,
+                   "#{plays || :square} asked #{options}: frames from the pass that asked to the first note heard"
+      assert frames[(asked + late)..(asked + late + 4)].all? { |frame| frame[:loud] },
+             "#{plays || :square} asked #{options}: the note goes on sounding"
+    end
+  end
+
   # A SONG THAT PLAYS ONCE, asked for this_frame: heard from the pass that asks, and quiet from
   # the frame after its end — while the game goes on naming it every frame, which is when the
   # player has to keep it silent.
