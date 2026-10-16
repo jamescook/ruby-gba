@@ -408,6 +408,97 @@ class TestProgress < Minitest::Test
                  "every phase should be said before the first word of a warning"
   end
 
+  # --- A BUILD THAT MEASURES ITS GAME ----------------------------------------------------------
+
+  # A game built the way `ruby game.rb` builds it is built once, played scene by scene, and built
+  # again from what that measured. The first build is a step of the real one, so it is one line —
+  # its own phases only ever its detail — and the playing is a line too, so the time it takes is
+  # never a pause with nothing on the screen.
+  def test_a_measured_build_says_each_phase_once
+    out = StringIO.new
+    game = RubyGBA.game("MEASURED", &MANY_STATEMENTS)
+    game.build_rom(out: StringIO.new, err: StringIO.new, progress: Progress.to(out))
+    phases = phases_in(out)
+
+    assert_equal ["a first build, to measure", "playing each scene to measure it", "reading the game",
+                  "checking the tree", "the guardrails", "measuring the routines",
+                  "choosing what goes in the quick memory", "lowering it to machine code",
+                  "the guardrails that need the build", "assembling the cartridge"],
+                 phases.map(&:name)
+    assert_equal "", phases[0].where, "the first build's line ends saying only how long it took"
+    assert_equal "1 of 1  the game", phases[1].where, "the playing counts the scenes"
+  end
+
+  # A phase made of phases: what it is doing now is its line's detail, and nothing else is said.
+  def test_a_phase_made_of_phases_is_one_line
+    out = StringIO.new
+    progress = Progress::Printed.new(out, clock: FakeClock.new)
+    inner = progress.as_one_line("a first build, to measure")
+    inner.step("reading the game")
+    inner.report_count(3, 7, "a check")
+    inner.step("lowering it to machine code")
+    inner.done
+    progress.step("reading the game")
+    progress.done
+
+    assert_equal ["a first build, to measure", "reading the game"], phases_in(out).map(&:name)
+  end
+
+  # A game whose frame runs over: the build that measures it warns, and the warning is said
+  # after the phases, never in the middle of one — the warning comes from playing the scenes,
+  # with the real build still to come.
+  def test_a_measured_build_says_a_slow_scene_after_every_phase
+    said = StringIO.new
+    game = RubyGBA.game("SLOW") do
+      screen :bitmap
+      x = var :x, 0
+      game_loop { repeat(30_000) { x.add! 1 } }
+    end
+    game.build_rom(out: StringIO.new, err: said, progress: Progress.to(said))
+    lines = said.string.lines
+    phase_lines = lines.take_while { |line| line.start_with?("  ") }
+
+    assert_equal "assembling the cartridge", phases_in(StringIO.new(phase_lines.join)).last.name
+    assert_match(/frames a second, not 60/, lines.drop(phase_lines.length).join, "the warning, after them")
+  end
+
+  # The same game measured the way `ruby game.rb` measures it: the first build is still one line,
+  # and the real build's second measurement is said as such.
+  def test_a_measured_build_that_measures_again_says_each_phase_once
+    out = StringIO.new
+    game = RubyGBA.game("FARMEAS") do
+      screen :bitmap
+      vars = Array.new(1200) { |n| var :"v#{n}", 0 }
+      func(:count) { 200.times { vars.last.add! 1 } }
+      game_loop { call :count }
+    end
+    game.build_rom(out: StringIO.new, err: StringIO.new, progress: Progress.to(out))
+    names = phases_in(out).map(&:name)
+
+    assert_equal ["a first build, to measure", "playing each scene to measure it"], names.first(2)
+    assert_equal 1, names.count("measuring the routines")
+    assert_equal 1, names.count("measuring again, variables moved nearer")
+    assert_equal 1, names.count("reading the game")
+  end
+
+  # A build measures its routines a second time when a routine it keeps in the quick memory uses
+  # a variable too far along to reach cheaply: the variables it uses are moved nearer, and every
+  # routine measured again. That is a different measurement, so it says so.
+  def test_measuring_again_says_why
+    out = StringIO.new
+    RubyGBA.build("FAR", out: StringIO.new, err: StringIO.new, progress: Progress.to(out)) do
+      screen :bitmap
+      vars = Array.new(1200) { |n| var :"v#{n}", 0 }
+      func(:count) { 200.times { vars.last.add! 1 } }
+      game_loop { call :count }
+    end
+    names = phases_in(out).map(&:name)
+
+    assert_includes names, "measuring the routines"
+    assert_includes names, "measuring again, variables moved nearer"
+    assert_equal 1, names.count("measuring the routines"), "the first time is said once"
+  end
+
   def test_a_game_can_be_asked_to_report_when_it_builds_its_rom
     out = StringIO.new
     game = RubyGBA.game("SPEAK", code: "ASPK", maker: "01") do

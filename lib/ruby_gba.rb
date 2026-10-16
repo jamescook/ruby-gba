@@ -239,29 +239,57 @@ module RubyGBA
   #
   # WITH NO EMULATOR THERE IS NOTHING TO RUN, and a build still has to work, so it falls back
   # to choosing from the shape of the program. `rom.profile` says which of the two happened.
+  #
+  # WHAT IT SAYS WHILE IT WORKS is one list of phases, the real build's: the first build is one
+  # line of it and playing the scenes another, and what the playing found is said after the
+  # real build has finished, with its findings, never in the middle of a phase.
   def self.build_measured(title, code:, maker:, out:, err:, progress:, **options, &block)
     # code/maker are passed through as they arrived, nil included — the cartridge header
     # is where a missing one is settled (see {GameCode}), and both builds below have to
     # settle it the same way or the second would measure a different cartridge.
-    held = StringIO.new
-    first = begin
-      build(title, code: code, maker: maker, profile: false,
-            out: out, err: held, progress: progress, **options, &block)
-    rescue StandardError
-      err.write(held.string)
-      raise
-    end
+    built = ->(**how) { build(title, code: code, maker: maker, **{ out: out, err: err, **options }.merge(how), &block) }
+    return built.call(profile: false, progress: progress) unless Diagnostics::Emulator::FOUND
 
-    survey = Diagnostics::Profiler.survey_scenes(first)
-    warn_of_slow_scenes(survey, err)
-    warn_of_collections_that_fill(survey, err)
-    measurement = Diagnostics::RoutineProfile.from_survey(survey, game: title)
-    build(title, code: code, maker: maker, profile: measurement,
-          out: out, err: err, progress: progress, **options, &block)
+    first = build_once_to_measure(built, err, progress)
+    survey = play_each_scene(first, progress)
+    found = StringIO.new
+    warn_of_slow_scenes(survey, found)
+    warn_of_collections_that_fill(survey, found)
+    begin
+      built.call(profile: Diagnostics::RoutineProfile.from_survey(survey, game: title), progress: progress)
+    ensure
+      err.write(found.string)
+    end
   rescue LoadError
-    # No emulator to run it on. Choose from the shape of the program instead.
-    build(title, code: code, maker: maker, profile: false,
-          out: out, err: err, progress: progress, **options, &block)
+    # An emulator that is there and will not run. Choose from the shape of the program instead.
+    progress.done
+    built.call(profile: false, progress: progress)
+  end
+
+  # THE FIRST BUILD, said as one line of the real one: its own phases are only ever that line's
+  # detail, since two lists of the same phases read as a build that ran twice by mistake. What it
+  # finds and what it would print is about a cartridge nobody gets, so both are held back — and
+  # let out if it stops, since then its explanation is the whole point.
+  def self.build_once_to_measure(built, err, progress)
+    held = StringIO.new
+    first = built.call(profile: false, out: StringIO.new, err: held,
+                       progress: progress.as_one_line("a first build, to measure"))
+    progress.show_detail(nil) # finished: its line says how long it took and nothing about its last phase
+    first
+  rescue StandardError
+    progress.done
+    err.write(held.string)
+    raise
+  end
+
+  # Play each scene of the first build in the emulator, saying which, and close the line if that
+  # fails, so what is printed next is not printed into it.
+  def self.play_each_scene(first, progress)
+    progress.step("playing each scene to measure it")
+    Diagnostics::Profiler.survey_scenes(first, progress: progress)
+  rescue StandardError, LoadError
+    progress.done
+    raise
   end
 
   # A GAME THAT DOES NOT KEEP UP IS SAID SO AT BUILD TIME, from what the build just measured.

@@ -39,6 +39,19 @@ module RubyGBA
       # The last phase is over. Anything holding a line open closes it here.
       def done = nil
 
+      # A PHASE MADE OF PHASES: begin the phase +name+, and hand back a progress for the work
+      # inside it, whose own phases are only ever this one's detail — what it is doing now —
+      # rather than lines of their own. A build that builds the game once to measure it is one
+      # step of the real build, not a second list of everything. The one that says nothing has
+      # nothing to fold, so it hands itself back.
+      def as_one_line(name)
+        step(name)
+        self
+      end
+
+      # What the phase that is open is doing now, said in place of a count.
+      def show_detail(_text) = nil
+
       # The one that says nothing, shared — it has no state to keep apart. Frozen because a
       # game may build from a Ractor, and a Ractor may only reach a frozen object; this one
       # holds nothing at all, so freezing it costs nothing.
@@ -138,6 +151,19 @@ module RubyGBA
           nil
         end
 
+        def as_one_line(name)
+          step(name)
+          Folded.new(self)
+        end
+
+        def show_detail(text)
+          @lock.synchronize do
+            @where = text
+            show_if_due if @name # with no phase open there is no line to say it on
+          end
+          nil
+        end
+
         private
 
         def now = @clock.clock_gettime(Process::CLOCK_MONOTONIC)
@@ -218,6 +244,31 @@ module RubyGBA
         NAME_WIDTH = 40
 
         def column(text, width) = text.to_s.ljust(width - 2) + "  "
+      end
+
+      # THE WORK INSIDE A PHASE MADE OF PHASES (see #as_one_line). Each of its phases, and where
+      # each has got to, becomes the open phase's detail; its `done` leaves that phase open, since
+      # it is the phase around it that decides when it is over.
+      class Folded < Progress
+        def initialize(around)
+          super()
+          @around = around
+          @phase = nil
+        end
+
+        def step(name)
+          @phase = name
+          @around.show_detail(name)
+        end
+
+        def report_count(done, total, name = nil)
+          @around.show_detail([@phase, "#{done} of #{total}", name].compact.join("  "))
+        end
+
+        # Ticks are counted by the line around, which only asks for the label when it draws.
+        def tick(&label)
+          @around.tick { [@phase, label&.call].compact.join("  ") }
+        end
       end
     end
   end

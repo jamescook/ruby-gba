@@ -423,11 +423,15 @@ module RubyGBA
       #
       # Answers a {Survey}: instructions-a-frame per routine, which is what {RoutineProfile}
       # keeps, and what each scene measured, which is what the build warns from.
-      def self.survey_scenes(rom, frames: FRAMES, keys: [])
+      #
+      # +progress+ is told which scene is being played, one of how many: playing them all takes
+      # a while, and a build that says nothing meanwhile looks as if it has hung.
+      def self.survey_scenes(rom, frames: FRAMES, keys: [], progress: Messages::Progress.silent)
         dispatch = Analyzer.scenes(rom.built.source_program)
         address = dispatch && rom.built.var_addresses[dispatch[:selector]]
         scenes = address ? dispatch[:scenes].to_h { |name, value| [name, [[address, value]]] } : { nil => [] }
-        measured = scenes.to_h do |name, writes|
+        measured = scenes.each_with_index.to_h do |(name, writes), at|
+          progress.report_count(at + 1, scenes.size, name ? "scene #{name.inspect}" : "the game")
           [name, run(rom, frames: frames, keys: keys, picture: false, holding: writes.empty? ? nil : writes)]
         end
         collections = FullCollections.of(rom.built)

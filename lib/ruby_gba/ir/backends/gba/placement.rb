@@ -204,6 +204,7 @@ module RubyGBA
               # is the only charge that is of the program really built; a game pays for it
               # only when it has more variables than the base register reaches AND keeps a
               # routine that uses one past the line.
+              @measuring_again = true # the second time is said as such (see #measuring_phase_name)
               probe = measure_routines(program, variables_first: nearer)
               chosen = choose_from_measurement(program, probe, insisted)
             end
@@ -217,7 +218,7 @@ module RubyGBA
           def measure_routines(program, variables_first: [])
             # The probe reports through the same object this one does, so the measuring pass
             # shows its own progress rather than going quiet for as long as a lowering takes.
-            @progress.step("measuring the routines")
+            @progress.step(measuring_phase_name)
             probe = self.class.new(fast_cartridge: @fast_cartridge, progress: @progress)
             probe.lower(program, fast_funcs: Set.new, variables_first: variables_first)
             probe
@@ -243,6 +244,17 @@ module RubyGBA
             used = chosen.flat_map { |name| probe.variables_named_by(name) }.uniq
                          .select { |name| quick_memory?(places.fetch(name)) }
             used.any? { |name| far.key?(name) } ? used : []
+          end
+
+          # WHAT THE TWO MEASURING PHASES ARE CALLED, the first time and the second. The second is
+          # a different measurement — of the program with some variables moved nearer — so a
+          # build that says the same words twice looks as if it ran a phase twice by mistake.
+          def measuring_phase_name
+            @measuring_again ? "measuring again, variables moved nearer" : "measuring the routines"
+          end
+
+          def choosing_phase_name
+            @measuring_again ? "choosing again" : "choosing what goes in the quick memory"
           end
 
           # The variables the routine +name+ names, read off this pass.
@@ -920,7 +932,7 @@ module RubyGBA
           # the machine. It gets the common case right (a title screen's routines rank last,
           # because a frame never reaches them) and says nothing it cannot back.
           def ranked_by_frame_cost(program, sizes)
-            @progress.step("choosing what goes in the quick memory")
+            @progress.step(choosing_phase_name)
             names = placeable_names(program, sizes)
             ranked = if @routine_profile
                        @routine_profile.order_by_work(names).select { |name| @routine_profile.worth_quick_memory?(name) }
