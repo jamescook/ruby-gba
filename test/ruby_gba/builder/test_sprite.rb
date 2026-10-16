@@ -12,7 +12,7 @@ require "test_helper"
 # A trail would leave more. Each program ends with `after(N) { halt }` so the run
 # stops on a settled frame (right after a completed repaint), making the count exact.
 class TestSprite < Minitest::Test
-  runs_on :reference
+  runs_on :reference, :native
 
   include RubyGBA::Console::Hardware
 
@@ -49,7 +49,7 @@ class TestSprite < Minitest::Test
   # ---- it appears at its start ----
 
   def test_a_sprite_shows_up_at_its_start_position
-    screen = Reference.new.run(sprite_program(frames: 3)).screen
+    screen = game_player.run(sprite_program(frames: 3)).screen
     (0...BLOCK).each do |dy|
       (0...BLOCK).each do |dx|
         assert_equal Color.resolve(:red), screen.pixel(START[0] + dx, START[1] + dy),
@@ -83,7 +83,7 @@ class TestSprite < Minitest::Test
   end
 
   def test_a_sprite_restores_patterned_scenery_it_passes_over
-    screen = Reference.new.run(scenery_program(frames: 25)).screen # ends near x=58, past the detail
+    screen = game_player.run(scenery_program(frames: 25)).screen # ends near x=58, past the detail
     # the blue detail the sprite drove across is intact
     (30...34).each do |x|
       (44...48).each { |y| assert_equal Color.resolve(:blue), screen.pixel(x, y), "blue detail torn at (#{x},#{y})" }
@@ -104,7 +104,7 @@ class TestSprite < Minitest::Test
 
   def test_moving_the_sprite_leaves_no_trail
     prog = sprite_program(frames: 20) { |hero| hero.x.add! 2 } # drift right every frame
-    screen = Reference.new.run(prog).screen
+    screen = game_player.run(prog).screen
 
     # exactly one block of red survives, wherever it ended up — no smear
     assert_equal BLOCK * BLOCK, count_color(screen, :red), "a trail of red was left behind"
@@ -144,7 +144,7 @@ class TestSprite < Minitest::Test
       end
     end
     b.finalize_program
-    screen = Reference.new.run(b.program, frames: 6).screen
+    screen = game_player.run(b.program, frames: 6).screen
 
     whole_sprite = 8 * 8 # these two are 8x8, not the 4x4 BLOCK the rest of the file uses
 
@@ -156,7 +156,7 @@ class TestSprite < Minitest::Test
 
   def test_steering_with_held_input_moves_the_sprite
     prog = sprite_program(frames: 15) { |hero| held(:right).then { hero.x.add! 2 } }
-    i = Reference.new.input_each_frame { |_f| [:right] }.run(prog)
+    i = game_player.input_each_frame { |_f| [:right] }.run(prog)
     assert_operator i[:__spr1_x], :>, START[0], "holding right didn't move the sprite"
     assert_equal BLOCK * BLOCK, count_color(i.screen, :red), "held-move left a trail"
   end
@@ -169,7 +169,7 @@ class TestSprite < Minitest::Test
       after(1) { hero.move :left, by: 3 }      # x: 100 -> 97
       after(2) { hero.move :up_right, by: 2 }  # x: 97 -> 99, y: 60 -> 58
     end
-    i = Reference.new.run(prog)
+    i = game_player.run(prog)
     assert_equal 99, i[:__spr1_x], "left then up_right didn't land x where expected"
     assert_equal 58, i[:__spr1_y], "up_right didn't move y up"
     assert_equal BLOCK * BLOCK, count_color(i.screen, :red), "a directional move left a trail"
@@ -190,12 +190,12 @@ class TestSprite < Minitest::Test
   # ---- hide restores the background; show brings it back ----
 
   def test_hide_removes_the_sprite_and_show_brings_it_back
-    hidden = Reference.new.input_each_frame { |f| f >= 2 ? [:a] : [] }
+    hidden = game_player.input_each_frame { |f| f >= 2 ? [:a] : [] }
                  .run(sprite_program(frames: 6) { |hero| pressed(:a).then { hero.hide } }).screen
     assert_equal 0, count_color(hidden, :red), "hide left the sprite on screen"
     assert_equal Color.resolve(FIELD), hidden.pixel(START[0] + 1, START[1] + 1), "hide didn't restore the field"
 
-    shown = Reference.new.input_each_frame { |f| f == 2 ? [:a] : (f == 4 ? [:b] : []) }
+    shown = game_player.input_each_frame { |f| f == 2 ? [:a] : (f == 4 ? [:b] : []) }
                 .run(sprite_program(frames: 8) do |hero|
                   pressed(:a).then { hero.hide }
                   pressed(:b).then { hero.show }
@@ -226,11 +226,11 @@ class TestSprite < Minitest::Test
 
   def test_a_hidden_sprite_stays_dark_until_it_is_shown
     # Halt before the reveal: the boss (its RAM reserved all along) has drawn nothing.
-    before = Reference.new.run(boss_program(show_on: 5, halt_on: 3)).screen
+    before = game_player.run(boss_program(show_on: 5, halt_on: 3)).screen
     assert_equal 0, count_color(before, :red), "a hidden sprite drew before it was shown"
 
     # Reveal on frame 3, halt on 6: the boss has appeared at its declared spot.
-    after_show = Reference.new.run(boss_program(show_on: 3, halt_on: 6)).screen
+    after_show = game_player.run(boss_program(show_on: 3, halt_on: 6)).screen
     assert_equal BLOCK * BLOCK, count_color(after_show, :red), "the boss didn't appear after show"
     assert_equal Color.resolve(:red), after_show.pixel(52, 52), "the boss isn't at its declared spot"
   end

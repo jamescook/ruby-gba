@@ -12,7 +12,7 @@ require "test_helper"
 # table of places takes two blocks. That is why a record that is a little over 6K a half needs
 # 64K for three copies: 2 blocks a half, 4 a copy, 12, and 2 more.
 class TestSaveMemory < Minitest::Test
-  runs_on :reference
+  runs_on :reference, :native
 
   # A game whose one record keeps +bytes+ flags, +copies+ times over.
   private def game(bytes:, copies:, **options)

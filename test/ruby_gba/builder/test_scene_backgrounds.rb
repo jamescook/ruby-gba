@@ -13,7 +13,7 @@ require "tmpdir"
 # The console holds four scrolling layers AT ONCE, so what has to fit is one scene's
 # worth, not the whole game's, exactly as the 32K of sprite pictures already works.
 class TestSceneBackgrounds < Minitest::Test
-  runs_on :reference
+  runs_on :reference, :native
 
   include Differential
 
@@ -58,7 +58,7 @@ class TestSceneBackgrounds < Minitest::Test
     end
   end
 
-  private def shown(prog, frames) = Reference.new.run(prog, frames: frames).screen.pixel(*MIDDLE)
+  private def shown(prog, frames) = game_player.run(prog, frames: frames).screen.pixel(*MIDDLE)
 
   private def on_console(prog, name, frames)
     assert_emulator_loads_rom(assemble_rom(prog, name: name), frames: frames).pixel_gba(*MIDDLE)
@@ -179,7 +179,7 @@ class TestSceneBackgrounds < Minitest::Test
   GREEN = RubyGBA::Graphics::Color.resolve(:green)
 
   def test_a_backdrop_every_screen_shows_stays_up_across_both_scenes
-    screen = Reference.new.run(a_backdrop_and_two_scenes(3), frames: SWITCH_AT + 4).screen
+    screen = game_player.run(a_backdrop_and_two_scenes(3), frames: SWITCH_AT + 4).screen
 
     assert_equal BLUE, screen.pixel(0, 0), "the scene's own scenery is in front"
     assert_equal GREEN, screen.pixel(8, 0), "the always-there backdrop shows through its holes"
@@ -238,7 +238,7 @@ class TestSceneBackgrounds < Minitest::Test
   end
 
   def test_a_backdrop_stays_behind_the_busy_scenes_backmost_layer
-    screen = Reference.new.run(uneven_over_a_backdrop(1, 3), frames: SWITCH_AT + 4).screen
+    screen = game_player.run(uneven_over_a_backdrop(1, 3), frames: SWITCH_AT + 4).screen
 
     assert_equal BLUE, screen.pixel(0, 0), "the backdrop was drawn over the scene's back layer"
   end
@@ -312,7 +312,7 @@ class TestSceneBackgrounds < Minitest::Test
   THE_HOLE_BESIDE_IT = [8, 0].freeze
 
   def test_a_quiet_scene_does_not_show_the_busy_scenes_leftover_layers
-    screen = Reference.new.run(uneven_scenes(3, 1), frames: SWITCH_AT + 4).screen
+    screen = game_player.run(uneven_scenes(3, 1), frames: SWITCH_AT + 4).screen
 
     assert_equal BLUE, screen.pixel(*FILLED_CELL), "the quiet scene's own background is drawn"
     assert_equal BACKDROP, screen.pixel(*THE_HOLE_BESIDE_IT),
@@ -382,8 +382,8 @@ class TestSceneBackgrounds < Minitest::Test
   SCROLLED_FOR = 9
 
   def test_a_background_declared_inside_a_scene_scrolls
-    at_top_level = Reference.new.run(scrolling_program(in_a_scene: false), frames: SCROLLED_FOR).screen
-    in_a_scene = Reference.new.run(scrolling_program(in_a_scene: true), frames: SCROLLED_FOR).screen
+    at_top_level = game_player.run(scrolling_program(in_a_scene: false), frames: SCROLLED_FOR).screen
+    in_a_scene = game_player.run(scrolling_program(in_a_scene: true), frames: SCROLLED_FOR).screen
 
     assert_equal top_row { |x| at_top_level.pixel(x, 0) }, top_row { |x| in_a_scene.pixel(x, 0) },
                  "the scene's background did not scroll the way the same one at the top level did"
@@ -440,7 +440,7 @@ class TestSceneBackgrounds < Minitest::Test
   end
 
   def test_a_cell_changed_in_a_scenes_background_stays_changed
-    seen = (2..8).map { |f| Reference.new.run(changing_program, frames: f).screen.pixel(0, 0) }
+    seen = (2..8).map { |f| game_player.run(changing_program, frames: f).screen.pixel(0, 0) }
 
     assert_equal [BLUE], seen.uniq, "the changed cell was put back by the next frame"
   end
@@ -485,7 +485,7 @@ class TestSceneBackgrounds < Minitest::Test
   end
 
   def test_coming_back_to_a_scene_puts_its_background_up_as_declared
-    screen = Reference.new.run(leaving_and_coming_back, frames: 10).screen
+    screen = game_player.run(leaving_and_coming_back, frames: 10).screen
 
     assert_equal RED, screen.pixel(0, 0), "the cell changed before leaving was still changed on return"
   end
@@ -531,14 +531,14 @@ class TestSceneBackgrounds < Minitest::Test
   end
 
   def test_coming_back_shows_the_first_map_and_can_choose_again
-    before = Reference.new.run(choosing_a_map_and_coming_back, frames: 4)
+    before = game_player.run(choosing_a_map_and_coming_back, frames: 4)
     assert_equal 1, before[:seen], "the other map was never chosen, so nothing below means anything"
 
-    back = Reference.new.run(choosing_a_map_and_coming_back, frames: 10)
+    back = game_player.run(choosing_a_map_and_coming_back, frames: 10)
     assert_equal RED, back.screen.pixel(0, 0), "the map chosen before leaving was still showing"
     assert_equal 0, back[:seen], "the background still said the other map was showing"
 
-    again = Reference.new.run(choosing_a_map_and_coming_back, frames: 15)
+    again = game_player.run(choosing_a_map_and_coming_back, frames: 15)
     assert_equal BLUE, again.screen.pixel(0, 0), "choosing the map again after coming back did nothing"
   end
 
@@ -613,7 +613,7 @@ class TestSceneBackgrounds < Minitest::Test
   end
 
   def test_a_scenes_background_comes_back_after_a_bitmap_screen
-    assert_equal RED, Reference.new.run(there_and_back, frames: 9).screen.pixel(0, 0),
+    assert_equal RED, game_player.run(there_and_back, frames: 9).screen.pixel(0, 0),
                  "the scenery never came back after the other kind of screen wiped it"
   end
 
@@ -679,7 +679,7 @@ class TestSceneBackgrounds < Minitest::Test
   end
 
   def test_a_turning_title_can_sit_beside_a_game_with_four_scrolling_layers
-    screen = Reference.new.run(a_turning_title_and_a_scrolling_game, frames: SWITCH_AT + 4).screen
+    screen = game_player.run(a_turning_title_and_a_scrolling_game, frames: SWITCH_AT + 4).screen
 
     assert_equal BLUE, screen.pixel(0, 0), "the play scene's frontmost layer is not drawn"
   end
@@ -1105,7 +1105,7 @@ class TestSceneBackgrounds < Minitest::Test
   SAMPLED = [200, 80].freeze
 
   def test_a_scene_owned_background_goes_on_easing_the_size_it_was_declared_at
-    screen = Reference.new.run(a_sword_that_flies_at_the_player, frames: 20).screen
+    screen = game_player.run(a_sword_that_flies_at_the_player, frames: 20).screen
 
     assert_equal BLUE, screen.pixel(*SAMPLED),
                  "the picture never eased down to its natural size — it is still magnified"
@@ -1130,7 +1130,7 @@ class TestSceneBackgrounds < Minitest::Test
   # declaring it too, so the angle can be eased the same way the size can. It is one line
   # and it says one thing: this is how the picture starts.
   def test_a_turn_chained_onto_the_declaration_starts_the_picture_too
-    screen = Reference.new.run(a_sword_that_flies_at_the_player(turning: true), frames: 20).screen
+    screen = game_player.run(a_sword_that_flies_at_the_player(turning: true), frames: 20).screen
 
     assert_equal BLUE, screen.pixel(*SAMPLED),
                  "the picture never came upright — the angle it was declared at is put back every frame"
@@ -1219,7 +1219,7 @@ class TestSceneBackgrounds < Minitest::Test
     rom = assemble_rom(prog, name: name)
     v = assert_emulator_loads_rom(rom, frames: Differential::BOOT_FRAMES[:tiled], vars: rom.var_addresses)
     console = Array.new(16) { v.step; v.var(:runs) }
-    oracle = (1..16).map { |frames| Reference.new.run(prog, frames: frames)[:runs] }
+    oracle = (1..16).map { |frames| game_player.run(prog, frames: frames)[:runs] }
     [oracle, console]
   end
 

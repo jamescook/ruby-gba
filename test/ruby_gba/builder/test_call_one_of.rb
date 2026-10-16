@@ -15,7 +15,7 @@ require "stringio"
 # variable, from a pooled instance's own field, and inside a loop), and that what it costs does
 # not grow with the length of the list.
 class TestCallOneOf < Minitest::Test
-  runs_on :reference
+  runs_on :reference, :native
 
   include Differential
 
@@ -68,7 +68,7 @@ class TestCallOneOf < Minitest::Test
       game_loop { b.call %i[first second third], number: step + 1 }
     end
 
-    assert_equal 33, Reference.new.run(program)[:n]
+    assert_equal 33, game_player.run(program)[:n]
   end
 
   # THE CASE THE FEATURE IS FOR: each instance of a pool carries its own number, so one line
@@ -90,7 +90,7 @@ class TestCallOneOf < Minitest::Test
         b.halt
       end
     end
-    interpreted = Reference.new.run(program)
+    interpreted = game_player.run(program)
 
     assert_equal 1, interpreted[:walked]
     assert_equal 2, interpreted[:waited]
@@ -294,7 +294,7 @@ class TestCallOneOf < Minitest::Test
     kinds = program.walk.map(&:kind)
 
     refute_includes kinds, :call_one_of, "a number known while building needs no dispatch"
-    assert_equal 22, Reference.new.run(program)[:n]
+    assert_equal 22, game_player.run(program)[:n]
   end
 
   def test_a_routine_the_list_names_but_nobody_defined_is_refused
@@ -326,7 +326,7 @@ class TestCallOneOf < Minitest::Test
       b.func(:third) { n.set! 33 }
       game_loop { b.call %i[first second third], number: picked }
     end
-    Reference.new.run(program)
+    game_player.run(program)
   end
 
   # The middle rectangle is painted and the others are not: one call picks the middle one, and

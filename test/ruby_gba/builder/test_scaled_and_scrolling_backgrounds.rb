@@ -16,7 +16,7 @@ require "test_helper"
 # because the program turns it, and the build picks the hardware that holds what was
 # declared.
 class TestScaledAndScrollingBackgrounds < Minitest::Test
-  runs_on :reference
+  runs_on :reference, :native
 
   # A solid 8x8 tile of one colour, so a cell's colour is the whole assertion.
   private def solid_tile(builder, name, color)
@@ -56,7 +56,7 @@ class TestScaledAndScrollingBackgrounds < Minitest::Test
   end
 
   def test_two_scrolling_layers_and_one_that_resizes_all_draw
-    s = Reference.new.run(three_layer_program).screen
+    s = game_player.run(three_layer_program).screen
     assert_equal Color.resolve(:blue),  s.pixel(100, 100), "the backmost scrolling layer fills the screen"
     assert_equal Color.resolve(:red),   s.pixel(12, 12),   "the middle scrolling layer draws over it"
     assert_equal Color.resolve(:green), s.pixel(20, 20),   "the resizing layer draws over both"
@@ -66,8 +66,8 @@ class TestScaledAndScrollingBackgrounds < Minitest::Test
   # from the top-left is drawn further out from the middle of the screen, which is what
   # this layer pivots on.
   def test_the_resizing_layer_is_actually_resized
-    plain = Reference.new.run(three_layer_program(scale: 1.0)).screen
-    zoomed = Reference.new.run(three_layer_program(scale: 2.0)).screen
+    plain = game_player.run(three_layer_program(scale: 1.0)).screen
+    zoomed = game_player.run(three_layer_program(scale: 2.0)).screen
     assert_equal Color.resolve(:green), plain.pixel(20, 20), "at its drawn size the mark is where it was drawn"
     refute_equal Color.resolve(:green), zoomed.pixel(20, 20), "at twice the size it has moved off that pixel"
   end
@@ -95,7 +95,7 @@ class TestScaledAndScrollingBackgrounds < Minitest::Test
     b.finalize_program
     # The scroll is applied at the frame boundary, so the moved picture is the SECOND
     # frame's — the same one frame of lag a scroll has with no resizing layer present.
-    s = Reference.new.run(b.program, frames: 2).screen
+    s = game_player.run(b.program, frames: 2).screen
     assert_equal Color.resolve(:red), s.pixel(4, 12), "the mark moved one cell left as the layer scrolled"
     refute_equal Color.resolve(:red), s.pixel(12, 12), "...and is no longer where it was drawn"
   end
@@ -125,7 +125,7 @@ class TestScaledAndScrollingBackgrounds < Minitest::Test
       end
     end
     b.finalize_program
-    s = Reference.new.run(b.program, frames: 3).screen
+    s = game_player.run(b.program, frames: 3).screen
     assert_equal Color.resolve(:green), s.pixel(44, 44), "show_map handed the plain layer the other room"
     assert_equal Color.resolve(:red),   s.pixel(4, 4),   "...and set_tile put one of its cells back"
   end
@@ -152,7 +152,7 @@ class TestScaledAndScrollingBackgrounds < Minitest::Test
       halt
     end
     b.finalize_program
-    got = Reference.new.run(b.program).screen.pixel(100, 100)
+    got = game_player.run(b.program).screen.pixel(100, 100)
     refute_equal Color.resolve(:red),  got, "the see-through layer is not drawn solid"
     refute_equal Color.resolve(:blue), got, "...nor is the layer behind it left uncovered"
     assert_equal see_through_red_over_blue, got, "half of each, exactly as with no turning layer present"
@@ -178,7 +178,7 @@ class TestScaledAndScrollingBackgrounds < Minitest::Test
       halt
     end
     b.finalize_program
-    Reference.new.run(b.program).screen.pixel(100, 100)
+    game_player.run(b.program).screen.pixel(100, 100)
   end
 
   # A LAYER THAT TURNS HAS NO SCROLL OF ITS OWN, and a program can say the two in either
@@ -317,7 +317,7 @@ class TestScaledAndScrollingBackgrounds < Minitest::Test
       halt
     end
     b.finalize_program
-    assert_equal Color.resolve(:red), Reference.new.run(b.program).screen.pixel(100, 100),
+    assert_equal Color.resolve(:red), game_player.run(b.program).screen.pixel(100, 100),
                  "the scrolling layer in front covers the resizing one behind it"
   end
 

@@ -11,7 +11,7 @@ require "differential"
 # amounts. A fade that agreed only roughly between backends would make every
 # fade-related pixel test a guess.
 class TestFade < Minitest::Test
-  runs_on :reference
+  runs_on :reference, :native
 
   include Differential
 
@@ -47,21 +47,21 @@ class TestFade < Minitest::Test
   # --- the blend ---
 
   def test_no_fade_shows_the_picture_as_drawn
-    i = Reference.new.run(faded(:black, 0))
+    i = game_player.run(faded(:black, 0))
 
     assert_equal RED, i.screen.pixel(120, 80)
     assert_equal BLUE, i.screen.pixel(10, 10)
   end
 
   def test_a_full_fade_to_black_covers_everything
-    i = Reference.new.run(faded(:black, 100))
+    i = game_player.run(faded(:black, 100))
 
     assert_equal BLACK, i.screen.pixel(120, 80), "the block is gone"
     assert_equal BLACK, i.screen.pixel(10, 10), "and so is the background"
   end
 
   def test_a_full_fade_to_white_covers_everything
-    i = Reference.new.run(faded(:white, 100))
+    i = game_player.run(faded(:white, 100))
 
     assert_equal WHITE, i.screen.pixel(120, 80)
     assert_equal WHITE, i.screen.pixel(10, 10)
@@ -78,8 +78,8 @@ class TestFade < Minitest::Test
   # two channels kept above red the share it takes rounds the other way (see
   # Framebuffer#darkened_by_display).
   def test_a_half_fade_moves_each_channel_half_way
-    dark = Reference.new.run(faded(:black, 50))
-    light = Reference.new.run(faded(:white, 50))
+    dark = game_player.run(faded(:black, 50))
+    light = game_player.run(faded(:white, 50))
 
     assert_equal [16, 0, 0], channels(dark.screen.pixel(120, 80)), "red, half faded to black"
     assert_equal [0, 0, 15], channels(dark.screen.pixel(10, 10)), "blue, half faded to black"
@@ -98,7 +98,7 @@ class TestFade < Minitest::Test
   # The invariant that matters: a fade covers the picture, it does not destroy it.
   # If the drawing were really changed, a game that faded out could never fade in.
   def test_the_picture_comes_back_exactly_when_the_fade_lifts
-    i = Reference.new.run(program do
+    i = game_player.run(program do
       screen :bitmap
       clear_screen :blue
       fill_rect 100, 70, 40, 20, :red
@@ -112,7 +112,7 @@ class TestFade < Minitest::Test
   end
 
   def test_an_amount_the_game_computes_fades_by_that_much
-    i = Reference.new.run(program do
+    i = game_player.run(program do
       screen :bitmap
       clear_screen :blue
       level = var :level, 0
@@ -146,7 +146,7 @@ class TestFade < Minitest::Test
   end
 
   def test_a_fade_works_on_a_tiled_screen_too
-    assert_equal BLACK, Reference.new.run(tiled_fade(100)).screen.pixel(60, 60)
+    assert_equal BLACK, game_player.run(tiled_fade(100)).screen.pixel(60, 60)
 
     lit = ROM.assemble(GBA.new.lower(tiled_fade(0)), title: "FADET", code: "BFDT", maker: "01")
     dark = ROM.assemble(GBA.new.lower(tiled_fade(100)), title: "FADET", code: "BFDT", maker: "01")
@@ -254,7 +254,7 @@ class TestFade < Minitest::Test
 
   def test_a_fade_takes_a_share_away_at_every_level
     EVERY_LEVEL.each_with_index do |percent, step|
-      shown = Reference.new.run(a_red_wall_faded(percent), frames: 2).screen.pixel(8, 8)
+      shown = game_player.run(a_red_wall_faded(percent), frames: 2).screen.pixel(8, 8)
 
       assert_equal RED_FADED_TO_BLACK[step], shown & 0x1F,
                    "red #{percent}% of the way to black, which is #{step} sixteenths"
@@ -295,7 +295,7 @@ class TestFade < Minitest::Test
   # blue 7, which is what the console was measured showing. Five bits a channel would say
   # 8, 8, 8.
   def test_white_three_quarters_to_black_is_eight_seven_seven
-    i = Reference.new.run(a_wall_faded(:white, :black, 75), frames: 2)
+    i = game_player.run(a_wall_faded(:white, :black, 75), frames: 2)
 
     assert_equal [8, 7, 7], channels(i.screen.pixel(8, 8))
   end
@@ -318,7 +318,7 @@ class TestFade < Minitest::Test
   # Mid-fade the console lands exactly where the interpreter does, on a bitmap screen too.
   def test_a_half_fade_on_the_console_matches_the_interpreter
     console = assert_emulator_loads_rom(rom_for(:black, 50), frames: 4).pixel_gba(10, 10)
-    interpreted = Reference.new.run(faded(:black, 50)).screen.pixel(10, 10)
+    interpreted = game_player.run(faded(:black, 50)).screen.pixel(10, 10)
 
     assert_equal interpreted, console
     refute_equal BLACK, console, "half way is not all the way"
@@ -339,8 +339,8 @@ class TestFade < Minitest::Test
       halt
     end
 
-    assert_equal Reference.new.run(faded(:black, 50)).screen.pixel(120, 80),
-                 Reference.new.run(halved).screen.pixel(120, 80)
+    assert_equal game_player.run(faded(:black, 50)).screen.pixel(120, 80),
+                 game_player.run(halved).screen.pixel(120, 80)
   end
 
   # Thirty-two steps rather than sixteen: one for each thirty-second of the way, which is
@@ -357,7 +357,7 @@ class TestFade < Minitest::Test
 
   def test_a_fraction_on_a_tiled_screen_fades_in_thirty_two_steps
     EVERY_FINE_LEVEL.each_with_index do |percent, step|
-      shown = Reference.new.run(a_red_wall_faded(percent), frames: 2).screen.pixel(8, 8)
+      shown = game_player.run(a_red_wall_faded(percent), frames: 2).screen.pixel(8, 8)
 
       assert_equal RED_FADED_FINELY[step], shown & 0x1F, "red #{percent}% of the way to black"
     end

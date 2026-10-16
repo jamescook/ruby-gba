@@ -3,7 +3,7 @@
 require "test_helper"
 
 class TestScenes < Minitest::Test
-  runs_on :reference
+  runs_on :reference, :native
 
   include RubyGBA::Console::Hardware
 
@@ -172,7 +172,7 @@ class TestScenes < Minitest::Test
     builder = Builder.new
     HANDING_ON.call(builder)
     builder.finalize_program
-    ran = Reference.new.run(builder.program)
+    ran = game_player.run(builder.program)
 
     assert_equal [1, 0, 0], [ran[:ran_first], ran[:ran_second], ran[:ran_third]],
                  "one pass should run one scene body, whatever that scene sets the state to"
@@ -216,7 +216,7 @@ class TestScenes < Minitest::Test
     builder = Builder.new
     DECLARED_INSIDE.call(builder)
     builder.finalize_program
-    ran = Reference.new.run(builder.program)
+    ran = game_player.run(builder.program)
 
     assert_equal [1, 1, 1], [ran[:ran_outer], ran[:ran_middle], ran[:ran_inner]]
   end

@@ -9,7 +9,7 @@ require "test_helper"
 # slot with the oldest stamp — true age, not slot position, so it stays correct even
 # after removes shuffle the free slots. Pinned on the interpreter and on the emulator.
 class TestPoolRecycle < Minitest::Test
-  runs_on :reference
+  runs_on :reference, :native
 
   GREEN = Color.resolve(:green)
   BLACK = 0
@@ -37,7 +37,7 @@ class TestPoolRecycle < Minitest::Test
       halt
     end
     b.finalize_program
-    Reference.new.run(b.program)
+    game_player.run(b.program)
   end
 
   # The default: a full pool drops the extra spawn — the two originals stay, the third
@@ -110,7 +110,7 @@ class TestPoolRecycle < Minitest::Test
   end
 
   def test_recycle_sprite_moves_to_the_new_spawn_on_the_interpreter
-    i = Reference.new.run(recycle_sprite_program)
+    i = game_player.run(recycle_sprite_program)
     assert_equal GREEN, i.screen.pixel(62, 62), "the recycled instance draws at the new spawn"
     assert_equal BLACK, i.screen.pixel(22, 22), "and the old position is vacated"
   end

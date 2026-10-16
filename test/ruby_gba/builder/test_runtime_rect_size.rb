@@ -16,7 +16,7 @@ require "differential"
 # the parities: which of the rect's end pixels have to be spliced in one at a time
 # depends on a width that is not known until it runs.
 class TestRuntimeRectSize < Minitest::Test
-  runs_on :reference
+  runs_on :reference, :native
 
   include Differential
 
@@ -47,7 +47,7 @@ class TestRuntimeRectSize < Minitest::Test
   # --- the height itself ---
 
   def test_the_rect_is_as_tall_as_the_variable_says
-    interp = Reference.new.run(bar(30))
+    interp = game_player.run(bar(30))
 
     assert_equal 30, rows_painted(interp)
     assert_equal Color.resolve(:red), interp.screen.pixel(44, 20), "it starts at its y"
@@ -56,13 +56,13 @@ class TestRuntimeRectSize < Minitest::Test
   end
 
   def test_a_height_of_zero_draws_nothing
-    assert_equal 0, rows_painted(Reference.new.run(bar(0)))
+    assert_equal 0, rows_painted(game_player.run(bar(0)))
   end
 
   # A bar that ran past empty. The row count is a signed compare for exactly this: read
   # as unsigned, -1 rows is four thousand million rows and the frame never ends.
   def test_a_negative_height_draws_nothing
-    assert_equal 0, rows_painted(Reference.new.run(bar(-5)))
+    assert_equal 0, rows_painted(game_player.run(bar(-5)))
   end
 
   # --- the same picture on the console, in both screen modes ---
@@ -156,7 +156,7 @@ class TestRuntimeRectSize < Minitest::Test
   # checked against the background directly.
   def test_a_narrow_column_leaves_its_neighbours_alone
     [[2, 40], [2, 41], [4, 41], [1, 40]].each do |width, x|
-      interp = Reference.new.run(columns(width, x))
+      interp = game_player.run(columns(width, x))
       assert_equal Color.resolve(:blue), interp.screen.pixel(x - 1, 30), "left of a #{width}-wide column at #{x}"
       assert_equal Color.resolve(:red), interp.screen.pixel(x, 30), "the column itself"
       assert_equal Color.resolve(:red), interp.screen.pixel(x + width - 1, 30), "up to its last pixel"
@@ -180,7 +180,7 @@ class TestRuntimeRectSize < Minitest::Test
       end
     end
 
-    interp = Reference.new.run(program, frames: 10)
+    interp = game_player.run(program, frames: 10)
     assert_equal 30, rows_painted(interp), "ten frames in, the bar is ten rows shorter"
     assert_equal Color.resolve(:blue), interp.screen.pixel(44, 50), "the rows it gave up are background"
   end
@@ -212,7 +212,7 @@ class TestRuntimeRectSize < Minitest::Test
       halt
     end
 
-    interp = Reference.new.run(program)
+    interp = game_player.run(program)
     assert_equal 30, rows_painted(interp, x: 44), "the height is base * 3"
     assert_equal Color.resolve(:red), interp.screen.pixel(44, 25), "and the rect starts at top + 5"
     assert_equal Color.resolve(:blue), interp.screen.pixel(44, 24)
@@ -239,7 +239,7 @@ class TestRuntimeRectSize < Minitest::Test
       halt
     end
 
-    interp = Reference.new.run(program)
+    interp = game_player.run(program)
     assert_equal Color.resolve(:red), interp.screen.pixel(64, 20), "the rect starts at x=60, y=20"
     assert_equal Color.resolve(:blue), interp.screen.pixel(59, 20), "and not one pixel left of it"
     assert_equal 20, rows_painted(interp, x: 64)
@@ -265,7 +265,7 @@ class TestRuntimeRectSize < Minitest::Test
   end
 
   def test_the_rect_is_as_wide_as_the_variable_says
-    interp = Reference.new.run(sideways_bar(30))
+    interp = game_player.run(sideways_bar(30))
 
     assert_equal 30, columns_painted(interp)
     assert_equal Color.resolve(:red), interp.screen.pixel(40, 22), "it starts at its x"
@@ -274,8 +274,8 @@ class TestRuntimeRectSize < Minitest::Test
   end
 
   def test_a_width_of_zero_or_less_draws_nothing
-    assert_equal 0, columns_painted(Reference.new.run(sideways_bar(0)))
-    assert_equal 0, columns_painted(Reference.new.run(sideways_bar(-5)))
+    assert_equal 0, columns_painted(game_player.run(sideways_bar(0)))
+    assert_equal 0, columns_painted(game_player.run(sideways_bar(-5)))
   end
 
   def test_the_console_draws_the_same_sideways_bar
@@ -321,7 +321,7 @@ class TestRuntimeRectSize < Minitest::Test
           halt
         end
 
-        interp = Reference.new.run(program, frames: 2)
+        interp = game_player.run(program, frames: 2)
         assert_equal width, columns_painted(interp), "a #{width}-wide rect at x=#{x}"
         assert_equal Color.resolve(:blue), interp.screen.pixel(x - 1, 22), "nothing left of it"
         assert_equal Color.resolve(:blue), interp.screen.pixel(x + width, 22), "nothing right of it"
@@ -359,7 +359,7 @@ class TestRuntimeRectSize < Minitest::Test
       halt
     end
 
-    interp = Reference.new.run(program)
+    interp = game_player.run(program)
     assert_equal 9, columns_painted(interp)
     assert_equal 7, rows_painted(interp, x: 44)
     assert_backends_agree(program)

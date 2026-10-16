@@ -3,7 +3,7 @@
 require "test_helper"
 
 class TestSound < Minitest::Test
-  runs_on :reference
+  runs_on :reference, :native
 
   include RubyGBA::Console::Hardware
 

@@ -12,7 +12,7 @@ require "test_helper"
 # the emulator test confirms the same draws land on real hardware, which (running the
 # same IR) also proves the two backends produce an identical sequence.
 class TestRandom < Minitest::Test
-  runs_on :reference
+  runs_on :reference, :native
 
   include RubyGBA::Console::Hardware
 
@@ -21,7 +21,7 @@ class TestRandom < Minitest::Test
   # Build through the DSL and run it on the reference backend, returning the
   # interpreter so a test can read the variables the draws wrote.
   private def interpret(**opts, &block)
-    ruby = Reference.new
+    ruby = game_player
     ruby.run(tree(&block), **opts)
     ruby
   end
@@ -238,7 +238,7 @@ class TestRandom < Minitest::Test
   end
 
   private def result_when_start_pressed_on(frame)
-    Reference.new.input_each_frame(&press_start_on(frame)).run(reaction_program)[:rx]
+    game_player.input_each_frame(&press_start_on(frame)).run(reaction_program)[:rx]
   end
 
   def test_reaction_time_decides_the_outcome
@@ -257,7 +257,7 @@ class TestRandom < Minitest::Test
     program = reaction_program
     # Hold START from the first frame (a fixed timing), so the interpreter's draw
     # position is defined — then confirm the console draws it in the same place.
-    i = Reference.new.input_each_frame { [:start] }.run(program)
+    i = game_player.input_each_frame { [:start] }.run(program)
     x = i[:rx]
     assert_equal Color.resolve(:red), i.screen.pixel(x, 80), "interpreter drew the marker at x=#{x}"
 
@@ -345,7 +345,7 @@ class TestRandom < Minitest::Test
 
   def test_interpreter_and_hardware_agree_on_the_drawn_position
     program = marker_program
-    i = Reference.new.run(program)
+    i = game_player.run(program)
     x = i[:x]
     y = i[:y]
 

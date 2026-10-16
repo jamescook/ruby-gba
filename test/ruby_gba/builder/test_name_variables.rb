@@ -16,7 +16,7 @@ require "stringio"
 # that each instance of a pool keeps its own, and that the set of names is complete even when
 # one of them is first used deep inside another routine.
 class TestNameVariables < Minitest::Test
-  runs_on :reference
+  runs_on :reference, :native
 
   include Differential
 
@@ -40,7 +40,7 @@ class TestNameVariables < Minitest::Test
       game_loop { b.call mode }
     end
 
-    assert_equal 1, Reference.new.run(program)[:ran], "it starts holding the name it was declared with"
+    assert_equal 1, game_player.run(program)[:ran], "it starts holding the name it was declared with"
   end
 
   def test_setting_a_name_changes_which_routine_runs
@@ -57,7 +57,7 @@ class TestNameVariables < Minitest::Test
       end
     end
 
-    assert_equal 2, Reference.new.run(program)[:ran]
+    assert_equal 2, game_player.run(program)[:ran]
   end
 
   # A name reads the same way in a test as it does in an assignment.
@@ -75,7 +75,7 @@ class TestNameVariables < Minitest::Test
       end
     end
 
-    assert_equal 1, Reference.new.run(program)[:saw]
+    assert_equal 1, game_player.run(program)[:saw]
   end
 
   # THE ORDERING CASE. A state can be reached only from inside another routine — :over is named
@@ -94,7 +94,7 @@ class TestNameVariables < Minitest::Test
       game_loop { b.call mode }
     end
 
-    assert_equal 99, Reference.new.run(program)[:ran],
+    assert_equal 99, game_player.run(program)[:ran],
                  "the game walked title -> playing -> over, and :over was reachable"
   end
 
@@ -119,7 +119,7 @@ class TestNameVariables < Minitest::Test
         b.halt
       end
     end
-    interpreted = Reference.new.run(program)
+    interpreted = game_player.run(program)
 
     assert_equal 1, interpreted[:idled]
     assert_equal 2, interpreted[:chased]
@@ -142,7 +142,7 @@ class TestNameVariables < Minitest::Test
       end
     end
 
-    assert_operator Reference.new.run(program)[:chased], :>, 0
+    assert_operator game_player.run(program)[:chased], :>, 0
   end
 
   # --- and the console agrees ---
@@ -232,12 +232,12 @@ class TestNameVariables < Minitest::Test
   end
 
   def test_a_name_can_pick_a_scene_and_the_scene_owns_what_it_declares
-    title = Reference.new.run(scenes_by_name, frames: 3)
+    title = game_player.run(scenes_by_name, frames: 3)
     assert_equal BLUE, title.screen.pixel(120, 80), "the title's backdrop is up"
     assert_equal WHITE, title.screen.pixel(204, 124), "and its sprite"
     refute_empty title.sprites.select { |row| row.name.nil? }, "and its text"
 
-    walk = Reference.new.input_each_frame { |f| f == 2 ? [:a] : [] }.run(scenes_by_name, frames: 6)
+    walk = game_player.input_each_frame { |f| f == 2 ? [:a] : [] }.run(scenes_by_name, frames: 6)
     assert_equal RED, walk.screen.pixel(120, 80), "the walk has no backdrop, so the world shows"
     assert_equal RED, walk.screen.pixel(204, 124), "the title's sprite is gone"
     assert_empty walk.sprites.select { |row| row.name.nil? }, "and so is its text"
@@ -290,8 +290,8 @@ class TestNameVariables < Minitest::Test
   # `mode.set! :playing` and one that never mentions a number behave the same whichever order
   # the names happened to be numbered in.
   def test_the_numbering_is_the_framework_s_own_business
-    ran_first = Reference.new.run(states_in_order(%i[title playing over]))[:ran]
-    ran_last = Reference.new.run(states_in_order(%i[over playing title]))[:ran]
+    ran_first = game_player.run(states_in_order(%i[title playing over]))[:ran]
+    ran_last = game_player.run(states_in_order(%i[over playing title]))[:ran]
 
     assert_equal 2, ran_first, "whichever order the names were first seen in"
     assert_equal 2, ran_last

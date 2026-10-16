@@ -7,7 +7,7 @@ require "test_helper"
 # with a mutable row handle, remove retires one. Behind the scenes it's parallel lists
 # + a repeat, so the fields can never desync. Pinned on the reference interpreter.
 class TestPool < Minitest::Test
-  runs_on :reference
+  runs_on :reference, :native
 
   GREEN = Color.resolve(:green)
   BLACK = 0
@@ -33,7 +33,7 @@ class TestPool < Minitest::Test
       end
     end
     b.finalize_program
-    i = Reference.new.run(b.program)
+    i = game_player.run(b.program)
 
     assert_equal GREEN, i.screen.pixel(10, 12), "first instance drawn at its own (x, y)"
     assert_equal GREEN, i.screen.pixel(40, 30)
@@ -61,7 +61,7 @@ class TestPool < Minitest::Test
       end
     end
     b.finalize_program
-    i = Reference.new.run(b.program, frames: 45) # the mover needs ~35 frames to reach its clamp
+    i = game_player.run(b.program, frames: 45) # the mover needs ~35 frames to reach its clamp
 
     assert_equal GREEN, i.screen.pixel(50, 80), "it moved down and settled at the clamp"
     assert_equal BLACK, i.screen.pixel(50, 10), "it left its start"
@@ -87,7 +87,7 @@ class TestPool < Minitest::Test
       end
     end
     b.finalize_program
-    i = Reference.new.run(b.program)
+    i = game_player.run(b.program)
 
     assert_equal GREEN, i.screen.pixel(10, 40), "the others remain"
     assert_equal GREEN, i.screen.pixel(30, 40)
@@ -106,7 +106,7 @@ class TestPool < Minitest::Test
       halt
     end
     b.finalize_program
-    i = Reference.new.run(b.program)
+    i = game_player.run(b.program)
 
     assert_equal 3, i[live_count_of(:p)], "the pool filled to capacity and the extra spawns were dropped"
   end
@@ -132,7 +132,7 @@ class TestPool < Minitest::Test
       end
     end
     b.finalize_program
-    i = Reference.new.run(b.program)
+    i = game_player.run(b.program)
 
     assert_equal GREEN, i.screen.pixel(20, 100), "index led back to the instance tagged 2 (x=20)"
     assert_equal BLACK, i.screen.pixel(10, 100), "not the instance tagged 1"
@@ -385,7 +385,7 @@ class TestPool < Minitest::Test
     end
     b.finalize_program
 
-    i = Reference.new.run(b.program, frames: 2)
+    i = game_player.run(b.program, frames: 2)
     assert_equal [GREEN, GREEN], [i.screen.pixel(1, 21), i.screen.pixel(200, 21)], "the interpreter draws both"
 
     # Filling and walking a thousand slots takes the console several frames.

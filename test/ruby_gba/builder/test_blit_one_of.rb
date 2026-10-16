@@ -14,7 +14,7 @@ require "differential"
 # The word is the one the DSL already uses for "this value decides which": `showing:`, the same
 # as on a menu row and a two-colour label.
 class TestBlitOneOf < Minitest::Test
-  runs_on :reference
+  runs_on :reference, :native
 
   include Differential
 
@@ -44,7 +44,7 @@ class TestBlitOneOf < Minitest::Test
   end
 
   private def pixel_after(pick)
-    Reference.new.run(faces_program(pick)).screen.pixel(42, 42)
+    game_player.run(faces_program(pick)).screen.pixel(42, 42)
   end
 
   # --- it picks ---
@@ -79,7 +79,7 @@ class TestBlitOneOf < Minitest::Test
     end
     b.finalize_program
 
-    assert_equal RED, Reference.new.run(b.program).screen.pixel(42, 42),
+    assert_equal RED, game_player.run(b.program).screen.pixel(42, 42),
                  "1 + 1 picked the third picture"
   end
 

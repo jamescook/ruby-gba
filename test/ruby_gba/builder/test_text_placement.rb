@@ -14,7 +14,7 @@ require "test_helper"
 # one pixel across and "M" is five, so a fixed-grid guess lands in a visibly different
 # place from a proportional one.
 class TestTextPlacement < Minitest::Test
-  runs_on :reference
+  runs_on :reference, :native
 
   Fonts = RubyGBA::Graphics::Fonts
 
@@ -53,7 +53,7 @@ class TestTextPlacement < Minitest::Test
     b.instance_eval(&block)
     b.finalize_program
     @built = b.program
-    Reference.new.run(@built).screen
+    game_player.run(@built).screen
   end
 
   # Every lit pixel of +text+ is painted white with its top-left at (x, y) — an exact
@@ -159,7 +159,7 @@ class TestTextPlacement < Minitest::Test
     @built = b.program
     left = (SCREEN - IM_WIDE) / 2
 
-    assert_text_at Reference.new.run(@built, frames: 1).screen, "IM", left, Y, font: :vari
+    assert_text_at game_player.run(@built, frames: 1).screen, "IM", left, Y, font: :vari
     v = assert_emulator_loads_rom(assemble_rom(@built, name: "TILEDVARI"), frames: 3)
     assert_equal [left, left + 2], v.sprites.map(&:x).sort, "the I is one pixel and a gap"
   end
@@ -183,7 +183,7 @@ class TestTextPlacement < Minitest::Test
     program = b.program
     cell = program.fonts.get(:digits).cell_w
 
-    assert_equal [100, 100 + cell], Reference.new.run(program, frames: 2).sprites.map(&:x).sort
+    assert_equal [100, 100 + cell], game_player.run(program, frames: 2).sprites.map(&:x).sort
     v = assert_emulator_loads_rom(assemble_rom(program, name: "LIVECOLS"), frames: 4)
     assert_equal [100, 100 + cell], v.sprites.map(&:x).sort
   end

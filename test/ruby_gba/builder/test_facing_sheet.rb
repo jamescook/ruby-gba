@@ -12,7 +12,7 @@ require "test_helper"
 # the slicing happens at BUILD time and bakes real images into the program — so the same
 # imported art is checked on the interpreter oracle AND on real hardware (the emulator).
 class TestFacingSheet < Minitest::Test
-  runs_on :reference
+  runs_on :reference, :native
 
   include RubyGBA::Console::Hardware
 
@@ -86,7 +86,7 @@ class TestFacingSheet < Minitest::Test
   end
 
   private def spot(program)
-    Reference.new.run(program).screen.pixel(44, 44)
+    game_player.run(program).screen.pixel(44, 44)
   end
 
   private def color(r, g, b) = Color.rgb8(r, g, b)
@@ -150,7 +150,7 @@ class TestFacingSheet < Minitest::Test
   end
 
   def test_a_sprite_from_a_directional_sheet_can_be_drawn_with_other_colors
-    assert_equal Color.resolve(:cyan), Reference.new.run(a_recolored_walker, frames: 3).screen.pixel(44, 44)
+    assert_equal Color.resolve(:cyan), game_player.run(a_recolored_walker, frames: 3).screen.pixel(44, 44)
   end
 
   def test_the_console_draws_it_with_the_other_colors_too

@@ -11,7 +11,7 @@ require "stringio"
 # at the cartridge's speed, which a game that counts its frames cannot have. Nothing measured
 # can see that, so the game says it.
 class TestSaveDataFast < Minitest::Test
-  runs_on :reference
+  runs_on :reference, :native
   include EmulatorSupport
 
   MadeNames = RubyGBA::Messages::MadeNames

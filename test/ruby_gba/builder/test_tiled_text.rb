@@ -10,7 +10,7 @@ require "test_helper"
 # observable result: the right glyph lands in the right place, the number tracks its
 # variable, leading zeros blank out — on the interpreter oracle and on real hardware.
 class TestTiledText < Minitest::Test
-  runs_on :reference
+  runs_on :reference, :native
 
   include RubyGBA::Console::Hardware
 
@@ -49,7 +49,7 @@ class TestTiledText < Minitest::Test
 
   def test_draw_text_paints_its_glyphs_as_sprites
     prog = hud_program { draw_text "AB", 100, 20, :white }
-    s = Reference.new.run(prog, max_steps: 500).screen
+    s = game_player.run(prog, max_steps: 500).screen
     assert_glyph(s, "A", 100, 20, WHITE)
     assert_glyph(s, "B", 100 + Fonts.get(:default).cell_w, 20, WHITE) # one cell over
   end
@@ -59,7 +59,7 @@ class TestTiledText < Minitest::Test
       var :score, 7
       draw_number :score, 100, 20, :white, digits: 1
     end
-    s = Reference.new.run(prog, max_steps: 500).screen
+    s = game_player.run(prog, max_steps: 500).screen
     assert_glyph(s, "7", 100, 20, WHITE)
   end
 
@@ -68,7 +68,7 @@ class TestTiledText < Minitest::Test
       var :score, 42
       draw_number :score, 100, 20, :white, digits: 2
     end
-    s = Reference.new.run(prog, max_steps: 500).screen
+    s = game_player.run(prog, max_steps: 500).screen
     cell = Fonts.get(:default).cell_w
     assert_glyph(s, "4", 100, 20, WHITE)
     assert_glyph(s, "2", 100 + cell, 20, WHITE)
@@ -79,7 +79,7 @@ class TestTiledText < Minitest::Test
       var :score, 5
       draw_number :score, 100, 20, :white, digits: 3 # shows "  5"
     end
-    s = Reference.new.run(prog, max_steps: 500).screen
+    s = game_player.run(prog, max_steps: 500).screen
     cell = Fonts.get(:default).cell_w
     # The ones column (third) shows 5; the two leading columns are blank — no white
     # pixel anywhere in their 8x8 boxes.
@@ -109,7 +109,7 @@ class TestTiledText < Minitest::Test
       end
     end
     b.finalize_program
-    s = Reference.new.run(b.program, max_steps: 2_000).screen
+    s = game_player.run(b.program, max_steps: 2_000).screen
     # Frame N presents score, then adds 1; it halts the frame it presents 5 then makes 6.
     assert_glyph(s, "5", 100, 20, WHITE)
   end
@@ -139,8 +139,8 @@ class TestTiledText < Minitest::Test
   end
 
   def test_text_under_a_condition_is_shown_only_while_it_holds
-    on = Reference.new.run(blinking_prompt_program, frames: 1).screen
-    off = Reference.new.run(blinking_prompt_program, frames: 2).screen
+    on = game_player.run(blinking_prompt_program, frames: 1).screen
+    off = game_player.run(blinking_prompt_program, frames: 2).screen
 
     assert_glyph(on, "A", 100, 20, WHITE)
     assert_glyph(on, "B", 140, 20, WHITE)
@@ -163,8 +163,8 @@ class TestTiledText < Minitest::Test
     b.finalize_program
     prog = b.program
 
-    first = Reference.new.run(prog, frames: 1).screen
-    second = Reference.new.run(prog, frames: 2).screen
+    first = game_player.run(prog, frames: 1).screen
+    second = game_player.run(prog, frames: 2).screen
 
     assert_glyph(first, "A", 100, 20, WHITE)
     refute_glyph(first, "B", 140, 20, WHITE)

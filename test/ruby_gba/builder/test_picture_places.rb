@@ -13,7 +13,7 @@ require "differential"
 # BY PLACE: the two places are one colour in the art and two different colours in the list it is
 # drawn with, so the picture has to remember which of them each pixel meant.
 class TestPicturePlaces < Minitest::Test
-  runs_on :reference
+  runs_on :reference, :native
 
   include Differential
 
@@ -39,14 +39,14 @@ class TestPicturePlaces < Minitest::Test
   end
 
   def test_a_picture_given_places_draws_the_colors_they_name
-    i = Reference.new.run(program { |ship| ship.draw_with :own }, frames: 2)
+    i = game_player.run(program { |ship| ship.draw_with :own }, frames: 2)
 
     assert_equal Color.resolve(:red), i.screen.pixel(41, 41), "place 1"
     assert_equal Color.resolve(:red), i.screen.pixel(45, 41), "place 3, the same colour"
   end
 
   def test_each_place_shows_its_own_color_from_the_list_drawn_with
-    i = Reference.new.run(program { |ship| ship.draw_with :hurt }, frames: 2)
+    i = game_player.run(program { |ship| ship.draw_with :hurt }, frames: 2)
 
     assert_equal Color.resolve(:yellow), i.screen.pixel(41, 41), "place 1"
     assert_equal Color.resolve(:blue), i.screen.pixel(45, 41), "place 3"
@@ -80,7 +80,7 @@ class TestPicturePlaces < Minitest::Test
   end
 
   def test_two_pictures_of_one_colour_at_different_places_are_kept_apart
-    shown = (2..3).map { |frames| Reference.new.run(two_frames_program, frames: frames).screen.pixel(41, 41) }
+    shown = (2..3).map { |frames| game_player.run(two_frames_program, frames: frames).screen.pixel(41, 41) }
 
     assert_equal %i[blue yellow].map { |name| Color.resolve(name) }.sort, shown.sort,
                  "one frame is drawn at place 1 and the other at place 3"
@@ -134,7 +134,7 @@ class TestPicturePlaces < Minitest::Test
   end
 
   def test_a_mirrored_pose_turns_its_places_round_with_it
-    i = Reference.new.run(mirrored_program, frames: 3)
+    i = game_player.run(mirrored_program, frames: 3)
 
     assert_equal Color.resolve(:blue), i.screen.pixel(41, 41), "place 3, now on the left"
     assert_equal Color.resolve(:yellow), i.screen.pixel(45, 41), "and place 1 on the right"
@@ -197,7 +197,7 @@ class TestPicturePlaces < Minitest::Test
   end
 
   def test_one_colour_at_three_places_including_the_see_through_one_stays_apart
-    i = Reference.new.run(cartridge_program, frames: 2)
+    i = game_player.run(cartridge_program, frames: 2)
 
     assert_equal 0x7C00, i.screen.pixel(41, 41), "black from place 3"
     assert_equal 0x03FF, i.screen.pixel(44, 41), "black from place 5"
@@ -284,7 +284,7 @@ class TestPicturePlaces < Minitest::Test
   end
 
   def test_a_list_whose_first_entry_the_art_also_draws_later_draws_it_from_the_later_place
-    i = Reference.new.run(raw_first_program, frames: 2)
+    i = game_player.run(raw_first_program, frames: 2)
 
     assert_equal 0x001F, i.screen.pixel(41, 41), "red, drawn"
     assert_equal 0x7C00, i.screen.pixel(81, 41), "from place 2, which the other list makes blue"

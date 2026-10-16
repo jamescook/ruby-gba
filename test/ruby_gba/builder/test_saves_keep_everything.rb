@@ -7,7 +7,7 @@ require "test_helper"
 # forgotten `keep` becomes a friendly error at build time instead of a load that quietly puts
 # back only part of the game.
 class TestSavesKeepEverything < Minitest::Test
-  runs_on :reference
+  runs_on :reference, :native
 
   private def built(&block)
     builder = Builder.new

@@ -12,7 +12,7 @@ require "test_helper"
 # makes it efficient and scrollable is the next slice. The user code here does not
 # change when that lands.)
 class TestTiledBackground < Minitest::Test
-  runs_on :reference
+  runs_on :reference, :native
 
   # A 4x4 solid tile of one color, as ASCII art (small, so the grid math is easy
   # to read: cell (c, r) covers x 4c..4c+3, y 4r..4r+3).
@@ -41,7 +41,7 @@ class TestTiledBackground < Minitest::Test
   end
 
   def test_each_tile_lands_in_its_grid_cell
-    i = Reference.new.run(checker_program)
+    i = game_player.run(checker_program)
     red = Color.resolve(:red)
     blue = Color.resolve(:blue)
     # 4x4 tiles: cell (0,0)=R, (1,0)=B, (0,1)=B, (1,1)=R.
@@ -96,7 +96,7 @@ class TestTiledBackground < Minitest::Test
       background :spots, tiles: :sparse, map: ["R ", " R"] # a space = empty cell
     end
     b.finalize_program
-    i = Reference.new.run(b.program)
+    i = game_player.run(b.program)
     assert_equal Color.resolve(:red),   i.screen.pixel(0, 0), "cell (0,0) has a tile"
     assert_equal Color.resolve(:green), i.screen.pixel(4, 0), "cell (1,0) is blank — the field shows"
   end
@@ -186,7 +186,7 @@ class TestTiledBackground < Minitest::Test
       game_loop { background :board, tiles: :checker, map: ["RR"] }
     end
     b.finalize_program
-    assert_equal Color.resolve(:red), Reference.new.run(b.program, frames: 2).screen.pixel(4, 0)
+    assert_equal Color.resolve(:red), game_player.run(b.program, frames: 2).screen.pixel(4, 0)
   end
 
   private def grass_builder(screen_kind)

@@ -14,7 +14,7 @@ require "differential"
 # that changes colour. So these tests check the PICTURE on both screens, and the sprite
 # COUNT on the tiled one — the saving is the whole reason the form exists.
 class TestTextTwoColors < Minitest::Test
-  runs_on :reference
+  runs_on :reference, :native
 
   include Differential
 
@@ -60,7 +60,7 @@ class TestTextTwoColors < Minitest::Test
   end
 
   private def walk(program, frames:, press: false)
-    interp = Reference.new
+    interp = game_player
     interp = interp.input_each_frame { |f| press && f == 1 ? [:a] : [] }
     interp.run(program, frames: frames)
     interp

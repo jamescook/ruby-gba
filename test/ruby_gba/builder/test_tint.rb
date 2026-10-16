@@ -9,7 +9,7 @@ require "tempfile"
 # finished picture); a tint mixes a color IN. They reach the screen by different means
 # and round differently, so the numbers below are asserted rather than derived.
 class TestTint < Minitest::Test
-  runs_on :reference
+  runs_on :reference, :native
 
   include Differential
 
@@ -27,7 +27,7 @@ class TestTint < Minitest::Test
   end
 
   private def shown(program)
-    Reference.new.run(program).screen.pixel(120, 80)
+    game_player.run(program).screen.pixel(120, 80)
   end
 
   GREEN = 0x03E0
@@ -172,7 +172,7 @@ class TestTint < Minitest::Test
     b.finalize_program
     program = b.program
 
-    oracle = Reference.new.run(program, frames: 2).screen.pixel(120, 80)
+    oracle = game_player.run(program, frames: 2).screen.pixel(120, 80)
     console = assert_emulator_loads_rom(assemble_rom(program, name: "TINTV"), frames: 6).pixel_gba(120, 80)
 
     assert_equal 0x01EF, oracle
@@ -290,7 +290,7 @@ class TestTint < Minitest::Test
 
   def test_a_tiled_screen_tints_the_scenery_and_the_sprites_together
     seen = TILED_AMOUNTS.map do |amount|
-      screen = Reference.new.run(tiled_tint(amount), frames: 2).screen
+      screen = game_player.run(tiled_tint(amount), frames: 2).screen
       [screen.pixel(*SCENERY_XY), screen.pixel(*SPRITE_XY)]
     end
 
@@ -356,7 +356,7 @@ class TestTint < Minitest::Test
     b.finalize_program
     program = b.program
 
-    oracle = Reference.new.run(program, frames: 2).screen.pixel(120, 80)
+    oracle = game_player.run(program, frames: 2).screen.pixel(120, 80)
     console = assert_emulator_loads_rom(assemble_rom(program, name: "TINTW"), frames: 6).pixel_gba(120, 80)
 
     assert_equal 0x01EF, oracle
@@ -427,7 +427,7 @@ class TestTint < Minitest::Test
     program = crossing_program
     console = assert_emulator_loads_rom(assemble_rom(program, name: "TINTX"), frames: 14)
 
-    assert_equal GREEN, Reference.new.run(program, frames: 10).screen.pixel(120, 80)
+    assert_equal GREEN, game_player.run(program, frames: 10).screen.pixel(120, 80)
     assert_equal GREEN, console.pixel_gba(120, 80)
   end
 

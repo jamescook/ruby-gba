@@ -8,7 +8,7 @@ require "stringio"
 # cartridge beside a sixty-floor one, on another core at the same moment, and neither sees the
 # other's. Before this the only way in was the environment, which the whole process shares.
 class TestSettings < Minitest::Test
-  runs_on :reference
+  runs_on :reference, :native
 
   # A game whose number of floors is a setting, kept in a variable so a run can read it back.
   CUTS = RubyGBA.game("CUTS", maker: "01") do
@@ -18,7 +18,7 @@ class TestSettings < Minitest::Test
     game_loop { wait_vblank }
   end
 
-  private def floors(**settings) = Reference.new.run(CUTS.program(settings: settings), frames: 1)[:floors]
+  private def floors(**settings) = game_player.run(CUTS.program(settings: settings), frames: 1)[:floors]
 
   def test_a_game_gets_its_default_when_the_build_says_nothing
     assert_equal 60, floors
@@ -33,7 +33,7 @@ class TestSettings < Minitest::Test
   def test_text_is_read_as_the_kind_of_thing_the_default_is
     assert_equal 3, floors(floors: "3")
     program = CUTS.program(settings: { start: "playing" })
-    assert_equal 1, Reference.new.run(program, frames: 1)[:start], "a Symbol default reads text as a name"
+    assert_equal 1, game_player.run(program, frames: 1)[:start], "a Symbol default reads text as a name"
   end
 
   def test_text_that_cannot_be_read_that_way_is_a_friendly_error
@@ -59,13 +59,13 @@ class TestSettings < Minitest::Test
     end
 
     assert_match(/:floors has no default/, assert_raises(ArgumentError) { required.program }.message)
-    assert_equal 2, Reference.new.run(required.program(settings: { floors: 2 }), frames: 1)[:floors]
+    assert_equal 2, game_player.run(required.program(settings: { floors: 2 }), frames: 1)[:floors]
   end
 
   # The cartridge is built with them too, not only the tree a test runs.
   def test_a_cartridge_is_built_with_its_settings
     rom = CUTS.build_rom(out: StringIO.new, err: StringIO.new, profile: false, settings: { floors: 5 })
 
-    assert_equal 5, Reference.new.run(rom.source_program, frames: 1)[:floors]
+    assert_equal 5, game_player.run(rom.source_program, frames: 1)[:floors]
   end
 end

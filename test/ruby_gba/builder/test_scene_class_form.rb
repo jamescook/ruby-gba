@@ -12,7 +12,7 @@ require RubyGBA.root.join("test/fixtures/scene_classes/play_screen").to_s
 # scene) and dispatch with case_var. No base class, no registrar, no magic — this test
 # proves only the active screen's presentation shows and only its update runs.
 class TestSceneClassForm < Minitest::Test
-  runs_on :reference
+  runs_on :reference, :native
 
   GREEN = Color.resolve(:green) # TitleScreen's marker
   CYAN = Color.resolve(:cyan)   # PlayScreen's marker
@@ -51,7 +51,7 @@ class TestSceneClassForm < Minitest::Test
   # While :title is active, only TitleScreen's marker is on screen, and it has drifted
   # right from its start (x=20) — proof its own file's update ran and PlayScreen's did not.
   def test_only_the_active_scene_class_presents_and_updates
-    title = Reference.new.run(program, max_steps: 400).screen
+    title = game_player.run(program, max_steps: 400).screen
     tx = first_x_of(title, GREEN)
     refute_nil tx, "the title screen's marker is on screen while :title is active"
     assert_operator tx, :>, 25, "the title screen's own update moved its marker right"
@@ -61,7 +61,7 @@ class TestSceneClassForm < Minitest::Test
   # Switching state switches which scene class runs: on :play only PlayScreen's marker
   # shows and moves; the title screen's is gone and stayed put.
   def test_switching_state_switches_the_active_scene_class
-    play = Reference.new.run(mutate_to_play, max_steps: 400).screen
+    play = game_player.run(mutate_to_play, max_steps: 400).screen
     px = first_x_of(play, CYAN)
     refute_nil px, "the play screen's marker is on screen while :play is active"
     assert_operator px, :>, 25, "the play screen's own update moved its marker right"

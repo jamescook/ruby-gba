@@ -15,7 +15,7 @@ require RubyGBA.root.join("tools/make_example_assets").to_s # colors of the impo
 # same argument and the same tileset; only the two rules change. `nil` is the blank
 # cell in an Array row, which is what a space is in a String row.
 class TestComputedTilemap < Minitest::Test
-  runs_on :reference
+  runs_on :reference, :native
 
   Assets = MakeExampleAssets
 
@@ -59,7 +59,7 @@ class TestComputedTilemap < Minitest::Test
   end
 
   def test_a_row_of_tileset_keys_stamps_the_same_tiles_a_row_of_characters_would
-    i = Reference.new.run(checker_program)
+    i = game_player.run(checker_program)
     red = Color.resolve(:red)
     blue = Color.resolve(:blue)
     assert_equal red,  i.screen.pixel(0, 0), "cell (0,0) is tile 0"
@@ -80,7 +80,7 @@ class TestComputedTilemap < Minitest::Test
                                              [nil, 0]]
     end
     b.finalize_program
-    i = Reference.new.run(b.program)
+    i = game_player.run(b.program)
     assert_equal Color.resolve(:red),   i.screen.pixel(0, 0), "cell (0,0) has a tile"
     assert_equal Color.resolve(:green), i.screen.pixel(4, 0), "cell (1,0) is blank — the field shows"
   end
@@ -99,7 +99,7 @@ class TestComputedTilemap < Minitest::Test
       background :field, tiles: :many, map: (0...10).map { |r| (0...10).map { |c| (r * 10) + c } }
     end
     b.finalize_program
-    i = Reference.new.run(b.program)
+    i = game_player.run(b.program)
     assert_equal RubyGBA::Graphics::Color.rgb(0, 0, 0),  i.screen.pixel(0, 0),   "cell (0,0) is tile 0"
     assert_equal RubyGBA::Graphics::Color.rgb(99 % 32, 0, 0), i.screen.pixel(36, 36),
                  "cell (9,9) is tile 99 — a tile no character could have selected"
@@ -117,7 +117,7 @@ class TestComputedTilemap < Minitest::Test
       background :rooms, tiles: :room, map: { hall: [[0, 0]], cave: [[1, 1]] }
     end
     b.finalize_program
-    i = Reference.new.run(b.program)
+    i = game_player.run(b.program)
     assert_equal Color.resolve(:red), i.screen.pixel(0, 0), "the first map is the one showing at boot"
   end
 
@@ -133,7 +133,7 @@ class TestComputedTilemap < Minitest::Test
       background :room, tiles: :world, map: [[1, 2]]
     end
     b.finalize_program
-    s = Reference.new.run(b.program).screen
+    s = game_player.run(b.program).screen
     assert_equal Assets::BRICK, s.pixel(0, 3), "tile 1 is the sheet's first cell"
     assert_equal Assets::FLOOR, s.pixel(8, 3), "tile 2 is the sheet's second cell"
   end
@@ -200,7 +200,7 @@ class TestComputedTilemap < Minitest::Test
 
   def test_a_computed_map_still_stops_a_mover_at_its_solid_tiles
     # 8px to close at 2px a frame, so 20 frames is well past the wall if nothing stops it.
-    s = Reference.new.input_each_frame { [:right] }.run(walled_room, frames: 20).screen
+    s = game_player.input_each_frame { [:right] }.run(walled_room, frames: 20).screen
     assert_equal Color.resolve(:red),  s.pixel(28, 20), "the hero rests flush against the wall"
     refute_equal Color.resolve(:red),  s.pixel(36, 20), "the hero never entered the wall cell"
   end

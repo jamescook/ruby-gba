@@ -8,7 +8,7 @@ require "test_helper"
 # an ordinary thing to write, so none of the pool's own names can be a name a field has, and
 # two pools cannot meet each other's whatever they and their fields are called.
 class TestPoolFieldNames < Minitest::Test
-  runs_on :reference
+  runs_on :reference, :native
 
   RED = Color.resolve(:red)
   GREEN = Color.resolve(:green)
@@ -34,7 +34,7 @@ class TestPoolFieldNames < Minitest::Test
   private def var_on_both_backends(prog, name, frames: 4)
     rom = assemble_rom(prog)
     console = assert_emulator_loads_rom(rom, frames: frames + 2, vars: rom.var_addresses)
-    [Reference.new.run(prog, frames: frames)[name], console.var(name)]
+    [game_player.run(prog, frames: frames)[name], console.var(name)]
   end
 
   private def refused(&game)
@@ -52,7 +52,7 @@ class TestPoolFieldNames < Minitest::Test
     end
 
     assert_equal [7, 7], var_on_both_backends(prog, :seen), "the field is the number it was given"
-    shown = (3..8).map { |frames| Reference.new.run(prog, frames: frames).screen.pixel(22, 22) }
+    shown = (3..8).map { |frames| game_player.run(prog, frames: frames).screen.pixel(22, 22) }
     assert_equal [RED, GREEN].sort, shown.uniq.sort, "and the pool still steps through its pictures"
   end
 
@@ -70,7 +70,7 @@ class TestPoolFieldNames < Minitest::Test
     end
 
     assert_equal [5, 5], var_on_both_backends(prog, :seen)
-    assert_equal YELLOW, Reference.new.run(prog, frames: 4).screen.pixel(22, 22), "and it is recoloured"
+    assert_equal YELLOW, game_player.run(prog, frames: 4).screen.pixel(22, 22), "and it is recoloured"
   end
 
   # Every word the pool spells one of its own lists, variables or routines with, as a field,
@@ -129,7 +129,7 @@ class TestPoolFieldNames < Minitest::Test
       long.spawn x: 40
       game_loop {}
     end
-    run = Reference.new.run(prog)
+    run = game_player.run(prog)
 
     assert_equal({ guard: { walk_x: [3], active: [9] }, guard_walk: { x: [40] } },
                  run.game_state[:pools].transform_values { |fields| fields.transform_values(&:compact) })

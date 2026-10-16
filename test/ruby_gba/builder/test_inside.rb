@@ -14,7 +14,7 @@ require "differential"
 # question at the one place a cell is painted, and the console works the same edges out again
 # inside every shape. So the two agreeing over the whole screen is the proof.
 class TestInside < Minitest::Test
-  runs_on :reference
+  runs_on :reference, :native
 
   include EmulatorSupport
 
@@ -41,7 +41,7 @@ class TestInside < Minitest::Test
   # --- what it draws ---------------------------------------------------------------
 
   def test_a_fill_stops_at_the_edges_of_the_area
-    run = Reference.new.run(program do
+    run = game_player.run(program do
       game_loop do
         clear_screen :black
         inside(*AREA) { dma_fill_rect 0, 0, 240, 160, :red }
@@ -57,7 +57,7 @@ class TestInside < Minitest::Test
   # A stretched column is the one this exists for: it is the verb whose height a game works out,
   # so it is the one that draws far past an edge and pays for every row of it.
   def test_a_stretched_column_stops_at_the_edges_of_the_area
-    run = Reference.new.run(program do
+    run = game_player.run(program do
       game_loop do
         clear_screen :black
         inside(*AREA) do
@@ -74,7 +74,7 @@ class TestInside < Minitest::Test
 
   # Drawing outside the block is untouched by it, which is the whole point: a panel goes there.
   def test_drawing_after_the_block_is_not_held_to_the_area
-    run = Reference.new.run(program do
+    run = game_player.run(program do
       game_loop do
         clear_screen :black
         inside(*AREA) { dma_fill_rect 0, 0, 240, 160, :red }
@@ -94,8 +94,8 @@ class TestInside < Minitest::Test
       game_loop { inside(*AREA) { draw_column_at :bars, slice: 0, x: 100, top: 40, height: 32 } }
     end
 
-    one = Reference.new.run(plain, frames: 2)
-    two = Reference.new.run(held, frames: 2)
+    one = game_player.run(plain, frames: 2)
+    two = game_player.run(held, frames: 2)
     differ = every_pixel.reject { |x, y| one.screen.pixel(x, y) == two.screen.pixel(x, y) }
 
     assert_empty differ.first(8), "a shape wholly inside the area draws exactly where it did"
@@ -106,7 +106,7 @@ class TestInside < Minitest::Test
   # baked into every shape after the call, so the interpreter dropping them would put the
   # two at odds on exactly the pattern the guardrail steers people toward.
   def test_a_routines_own_area_gives_the_callers_back_when_it_returns
-    run = Reference.new.run(program do
+    run = game_player.run(program do
       func(:paint) { inside(0, 0, 60, 60) { dma_fill_rect 0, 0, 240, 160, :green } }
       game_loop do
         clear_screen :black
@@ -185,7 +185,7 @@ class TestInside < Minitest::Test
       inside(*AREA) { game_loop { camera 6, 0 } }
     end
     seen = nil
-    interp = Reference.new
+    interp = game_player
     interp.each_vblank { |frame| seen = interp.screen.shown if frame == 3 }.run(prog, frames: 3)
     rom = ROM.assemble(GBA.new.lower(prog), title: "INSIDE3", code: "AIN3", maker: "01")
     console = assert_emulator_loads_rom(rom, frames: 6)
@@ -225,7 +225,7 @@ class TestInside < Minitest::Test
   def every_pixel = @every_pixel ||= (0...240).to_a.product((0...160).to_a)
 
   def assert_backends_agree(prog, title, code)
-    interp = Reference.new.run(prog, frames: 3)
+    interp = game_player.run(prog, frames: 3)
     rom = ROM.assemble(GBA.new.lower(prog), title: title, code: code, maker: "01")
     gba = assert_emulator_loads_rom(rom, frames: 6)
 

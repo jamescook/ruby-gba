@@ -9,7 +9,7 @@ require "test_helper"
 # real proof is the differential test at the bottom: the loop advances exactly once
 # per frame on the interpreter AND on real hardware (a hang would miss the count).
 class TestGameLoop < Minitest::Test
-  runs_on :reference
+  runs_on :reference, :native
 
   include RubyGBA::Console::Hardware
 
@@ -144,7 +144,7 @@ class TestGameLoop < Minitest::Test
 
   def test_the_loop_advances_once_per_frame_on_the_interpreter
     program = counting_loop(20)
-    i = Reference.new.run(program, max_steps: 100_000)
+    i = game_player.run(program, max_steps: 100_000)
     assert_equal 20, i[:frames], "the loop bumps the counter once per frame up to the cap"
   end
 

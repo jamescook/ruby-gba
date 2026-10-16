@@ -13,7 +13,7 @@ require RubyGBA.root.join("tools/make_example_assets").to_s # colors of the impo
 # (the example test cross-checks the sheet-import path on real hardware); here we drive
 # the parsing and the number->tile mapping through the DSL surface.
 class TestCsvTilemap < Minitest::Test
-  runs_on :reference
+  runs_on :reference, :native
 
   Assets = MakeExampleAssets
 
@@ -48,7 +48,7 @@ class TestCsvTilemap < Minitest::Test
     b = checker_builder
     with_csv(text) { |path| b.background(:board, tiles: :checker, from: path) }
     b.finalize_program
-    Reference.new.run(b.program).screen
+    game_player.run(b.program).screen
   end
 
   def test_numbers_pick_the_tile_by_the_order_the_tileset_lists_them
@@ -119,7 +119,7 @@ class TestCsvTilemap < Minitest::Test
     end
     with_csv("1,2\n") { |path| b.background(:room, tiles: :world, from: path) }
     b.finalize_program
-    s = Reference.new.run(b.program).screen
+    s = game_player.run(b.program).screen
     assert_equal Assets::BRICK, s.pixel(0, 3), "CSV tile 1 is the sheet's first cell (brick)"
     assert_equal Assets::FLOOR, s.pixel(8, 3), "CSV tile 2 is the sheet's second cell (floor)"
   end

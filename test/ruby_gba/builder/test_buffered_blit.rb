@@ -16,7 +16,7 @@ require "differential"
 # program on both screens and demand the same pixels, rather than pinning numbers that
 # only say what today's code does.
 class TestBufferedBlit < Minitest::Test
-  runs_on :reference
+  runs_on :reference, :native
 
   include RubyGBA::IR::Build
   include Differential
@@ -50,7 +50,7 @@ class TestBufferedBlit < Minitest::Test
     )
   end
 
-  private def pixels_of(prog) = Reference.new.run(prog).screen
+  private def pixels_of(prog) = game_player.run(prog).screen
 
   # --- it draws at all ------------------------------------------------------------
 
@@ -243,7 +243,7 @@ class TestBufferedBlit < Minitest::Test
       wait_vblank,
       halt,
     )
-    s = Reference.new.run(prog).screen
+    s = game_player.run(prog).screen
     assert_equal art_pixel(0, 0), s.pixel(100, 40)
     assemble_rom(prog, name: "BEVEN") # ...and it lowers rather than raising
   end

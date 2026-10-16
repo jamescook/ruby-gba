@@ -9,7 +9,7 @@ require "differential"
 # that must end up on top is written first, so it would be underneath if the stack were
 # being ignored. A test where the two orders agree proves nothing at all.
 class TestLayerStacking < Minitest::Test
-  runs_on :reference
+  runs_on :reference, :native
 
   include Differential
 
@@ -29,7 +29,7 @@ class TestLayerStacking < Minitest::Test
   end
 
   private def screen_of(prog, frames: 3)
-    Reference.new.run(prog, max_steps: 400_000, frames: frames).screen
+    game_player.run(prog, max_steps: 400_000, frames: frames).screen
   end
 
   # Two sprites in the same spot, red written FIRST. Without a stack the blue one is

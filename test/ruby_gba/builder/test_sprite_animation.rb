@@ -9,7 +9,7 @@ require "test_helper"
 # actually changes over time — on the interpreter oracle and on real hardware — by
 # reading the sprite's color a few frames apart.
 class TestSpriteAnimation < Minitest::Test
-  runs_on :reference
+  runs_on :reference, :native
 
   include RubyGBA::Console::Hardware
 
@@ -59,7 +59,7 @@ class TestSpriteAnimation < Minitest::Test
   end
 
   private def spot(program)
-    Reference.new.run(program).screen.pixel(44, 44)
+    game_player.run(program).screen.pixel(44, 44)
   end
 
   def test_a_software_sprite_flipbook_cycles

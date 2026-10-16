@@ -6,7 +6,7 @@ require "test_helper"
 # runs n times with the index counting 0..n-1, on the reference interpreter (the
 # oracle) and on the console. The index is a Value, so it drives real positions.
 class TestRepeat < Minitest::Test
-  runs_on :reference
+  runs_on :reference, :native
 
   include RubyGBA::Console::Hardware
 
@@ -27,7 +27,7 @@ class TestRepeat < Minitest::Test
   end
 
   def test_interpreter_runs_the_body_once_per_index
-    screen = Reference.new.run(marching_program(4)).screen
+    screen = game_player.run(marching_program(4)).screen
 
     # A mark at each of x = 0,4,8,12 (row 40)...
     [0, 4, 8, 12].each { |x| assert_equal Color.resolve(:green), screen.pixel(x, 40), "mark at x=#{x}" }
@@ -36,7 +36,7 @@ class TestRepeat < Minitest::Test
   end
 
   def test_zero_count_runs_the_body_no_times
-    screen = Reference.new.run(marching_program(0)).screen
+    screen = game_player.run(marching_program(0)).screen
     assert_equal Color.resolve(:black), screen.pixel(0, 40), "count 0 draws nothing"
   end
 
@@ -50,7 +50,7 @@ class TestRepeat < Minitest::Test
       halt
     end
     builder.finalize_program
-    screen = Reference.new.run(builder.program).screen
+    screen = game_player.run(builder.program).screen
 
     [0, 8, 16].each { |x| assert_equal Color.resolve(:green), screen.pixel(x, 40), "mark at x=#{x}" }
     assert_equal Color.resolve(:black), screen.pixel(4, 40), "gap between the i*8 marks"

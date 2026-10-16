@@ -10,7 +10,7 @@ require "test_helper"
 #   - the verbs, that imported cells become drawable tiles / animating frames.
 # The whole path against real PNGs (on both backends) is test_sheet_example.rb.
 class TestSheetImport < Minitest::Test
-  runs_on :reference
+  runs_on :reference, :native
 
   Image = RubyGBA::Graphics::Image
 
@@ -106,7 +106,7 @@ class TestSheetImport < Minitest::Test
       builder.program
     end
 
-    s = Reference.new.run(program, max_steps: 200).screen
+    s = game_player.run(program, max_steps: 200).screen
     assert_equal RED,  s.pixel(4, 4),  "cell 0 (#) painted the top-left tile red"
     assert_equal BLUE, s.pixel(12, 4), "cell 1 (.) painted the next tile blue"
   end
@@ -146,7 +146,7 @@ class TestSheetImport < Minitest::Test
       builder.program
     end
 
-    assert_equal RED, Reference.new.run(program, max_steps: 200).screen.pixel(12, 12),
+    assert_equal RED, game_player.run(program, max_steps: 200).screen.pixel(12, 12),
                  "the first imported frame drew the sprite red"
   end
 
@@ -169,7 +169,7 @@ class TestSheetImport < Minitest::Test
   end
 
   def test_a_sprite_from_a_sheet_can_be_drawn_with_other_colors
-    assert_equal Color.resolve(:yellow), Reference.new.run(a_sheet_sprite_drawn_with_other_colors, frames: 3)
+    assert_equal Color.resolve(:yellow), game_player.run(a_sheet_sprite_drawn_with_other_colors, frames: 3)
                                                   .screen.pixel(12, 12),
                  "the first frame's red was not drawn with the other list's first colour"
   end
@@ -195,7 +195,7 @@ class TestSheetImport < Minitest::Test
       builder.program
     end
 
-    assert_equal Color.resolve(:yellow), Reference.new.run(program, frames: 3).screen.pixel(12, 12)
+    assert_equal Color.resolve(:yellow), game_player.run(program, frames: 3).screen.pixel(12, 12)
   end
 
   # Pictures the game declared carry their own list, so colors: on a sprite drawn from them

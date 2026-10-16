@@ -14,7 +14,7 @@ require "differential"
 # With `walls:` they are their own data — which is what a real game's collision is, and
 # what lets a map say it has no walls at all.
 class TestRoomWalls < Minitest::Test
-  runs_on :reference
+  runs_on :reference, :native
 
   include RubyGBA::Console::Hardware
   include Differential
@@ -54,7 +54,7 @@ class TestRoomWalls < Minitest::Test
   end
 
   private def walked_to(program, press_a_on: nil)
-    Reference.new.input_each_frame { |f| f == press_a_on ? [:a] : [] }.run(program, frames: 30)[:moved]
+    game_player.input_each_frame { |f| f == press_a_on ? [:a] : [] }.run(program, frames: 30)[:moved]
   end
 
   # --- the walls follow the room ---

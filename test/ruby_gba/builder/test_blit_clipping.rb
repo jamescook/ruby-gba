@@ -12,7 +12,7 @@ require "test_helper"
 # exactly. The programs are built straight from IR::Build (no DSL sugar) so the
 # clip math is what's under test, not the surface.
 class TestBlitClipping < Minitest::Test
-  runs_on :reference
+  runs_on :reference, :native
 
   include RubyGBA::IR::Build
 
@@ -45,7 +45,7 @@ class TestBlitClipping < Minitest::Test
   private def assert_same_pixels(defn, blit_stmt, expectations)
     prog = program(screen(:bitmap), clear_screen(BG), defn, blit_stmt, halt)
 
-    screen = Reference.new.run(prog).screen
+    screen = game_player.run(prog).screen
     expectations.each do |x, y, color|
       want = Color.resolve(color || BG)
       assert_equal want, screen.pixel(x, y),

@@ -5,7 +5,7 @@ require "test_helper"
 require "tempfile"
 
 class TestMusic < Minitest::Test
-  runs_on :reference
+  runs_on :reference, :native
 
   include RubyGBA::Console::Hardware
 

@@ -12,7 +12,7 @@ require "differential"
 # is about pixels, on both backends, because the two agreeing is what makes the interpreter
 # usable for debugging the renderer.
 class TestDrawColumnAt < Minitest::Test
-  runs_on :reference
+  runs_on :reference, :native
 
   include EmulatorSupport
 
@@ -38,7 +38,7 @@ class TestDrawColumnAt < Minitest::Test
   end
 
   def test_a_column_stretched_to_twice_its_height_shows_each_row_twice
-    run = Reference.new.run(program do
+    run = game_player.run(program do
       game_loop { draw_column_at :bars, slice: 0, x: 10, top: 0, height: 8 }
     end, frames: 2)
 
@@ -46,7 +46,7 @@ class TestDrawColumnAt < Minitest::Test
   end
 
   def test_a_column_squashed_to_half_its_height_drops_the_rows_between
-    run = Reference.new.run(program do
+    run = game_player.run(program do
       game_loop { draw_column_at :bars, slice: 0, x: 10, top: 0, height: 2 }
     end, frames: 2)
 
@@ -56,7 +56,7 @@ class TestDrawColumnAt < Minitest::Test
   # A height the game works out is the whole point — a wall's height is never known while
   # building.
   def test_a_height_the_game_works_out_stretches_the_same_way
-    run = Reference.new.run(program do
+    run = game_player.run(program do
       tall = var :tall, 0
       game_loop do
         tall.set! 8
@@ -70,7 +70,7 @@ class TestDrawColumnAt < Minitest::Test
   # A wall you are nose-to-nose with is taller than the screen, and one at the far end of a
   # corridor has no height at all. Neither needs a test around it.
   def test_no_height_draws_nothing_and_a_column_past_the_screen_is_clipped
-    run = Reference.new.run(program do
+    run = game_player.run(program do
       game_loop do
         draw_column_at :bars, slice: 0, x: 10, top: 0, height: 0
         draw_column_at :bars, slice: 0, x: 12, top: -8, height: 24
@@ -89,7 +89,7 @@ class TestDrawColumnAt < Minitest::Test
   # runtime choosing — a slice past the end reads the last column rather than whatever is next
   # in memory.
   def test_a_slice_past_the_picture_is_held_to_its_last_column
-    run = Reference.new.run(program do
+    run = game_player.run(program do
       game_loop { draw_column_at :bars, slice: 99, x: 10, top: 0, height: 4 }
     end, frames: 2)
 
@@ -115,7 +115,7 @@ class TestDrawColumnAt < Minitest::Test
       end
     end
 
-    interp = Reference.new.run(prog, frames: 2)
+    interp = game_player.run(prog, frames: 2)
     drawn = (0...8).count { |x| interp.screen.pixel(x, 0) == RubyGBA::Graphics::Color.resolve(:red) }
     assert_equal 8, drawn, "the interpreter should draw every column"
 
@@ -151,7 +151,7 @@ class TestDrawColumnAt < Minitest::Test
       end
     end
 
-    run = Reference.new.run(prog, frames: 2)
+    run = game_player.run(prog, frames: 2)
     seen = (0...8).map { |x| run.screen.pixel(x, 3) == RubyGBA::Graphics::Color.resolve(:white) }
 
     assert_equal [true] * 4 + [false] * 4, seen,
@@ -174,7 +174,7 @@ class TestDrawColumnAt < Minitest::Test
       end
     end
 
-    interp = Reference.new.run(prog, frames: 2)
+    interp = game_player.run(prog, frames: 2)
     rom = ROM.assemble(GBA.new.lower(prog), title: "COLUMN", code: "ACOL", maker: "01")
     gba = assert_emulator_loads_rom(rom, frames: 4)
 
@@ -196,8 +196,8 @@ class TestDrawColumnAt < Minitest::Test
       game_loop { draw_column_at :bars, slice: 0, x: 10, top: 4, height: 8, width: 3 }
     end
 
-    one = Reference.new.run(apiece, frames: 2)
-    many = Reference.new.run(strip, frames: 2)
+    one = game_player.run(apiece, frames: 2)
+    many = game_player.run(strip, frames: 2)
     differ = (0...240).to_a.product((0...160).to_a).reject do |x, y|
       one.screen.pixel(x, y) == many.screen.pixel(x, y)
     end
@@ -210,7 +210,7 @@ class TestDrawColumnAt < Minitest::Test
   # a first-person view meets only at the edges, and the one a shared walk could quietly get
   # wrong by drawing the whole strip or none of it.
   def test_a_strip_past_the_edge_keeps_the_part_that_is_on_screen
-    run = Reference.new.run(program do
+    run = game_player.run(program do
       game_loop do
         draw_column_at :bars, slice: 0, x: 238, top: 0, height: 4, width: 4
         draw_column_at :bars, slice: 0, x: -2, top: 0, height: 4, width: 4
@@ -240,7 +240,7 @@ class TestDrawColumnAt < Minitest::Test
       game_loop { draw_column_at :ghost, slice: 0, x: 10, top: 0, height: 8 }
     end
 
-    run = Reference.new.run(prog, frames: 2)
+    run = game_player.run(prog, frames: 2)
 
     assert_equal %i[white white other other other other white white],
                  column_on_screen(run, 10, 0, 8).map { |c| c == :other ? :other : c }
@@ -380,7 +380,7 @@ class TestDrawColumnAtSeeThrough < Minitest::Test
   BOTTOM_ON_SCREEN = LONE_PIXEL_ROW - 200
 
   def test_the_bottom_row_of_a_256_row_picture_is_drawn
-    run = Reference.new.run(tall_picture_program, frames: 2)
+    run = game_player.run(tall_picture_program, frames: 2)
 
     assert_equal Color.resolve(:white), run.screen.pixel(20, BOTTOM_ON_SCREEN),
                  "the lone pixel on the bottom row"

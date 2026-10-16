@@ -12,14 +12,14 @@ require "test_helper"
 # a fixed number of frames, and check how often (and when) the block fired. A
 # the emulator test confirms the schedule holds on real hardware.
 class TestTimers < Minitest::Test
-  runs_on :reference
+  runs_on :reference, :native
 
   include RubyGBA::Console::Hardware
 
   Build = RubyGBA::IR::Build
 
   private def interpret(**opts, &block)
-    Reference.new.run(tree(&block), **opts)
+    game_player.run(tree(&block), **opts)
   end
 
   private def tree(&block)
@@ -264,7 +264,7 @@ class TestTimers < Minitest::Test
 
   def test_after_drives_a_marker_on_both_backends
     program = blink_program(frames: 4)
-    i = Reference.new.run(program)
+    i = game_player.run(program)
     assert_equal Color.resolve(:red), i.screen.pixel(103, 83), "interpreter: marker on after 2 frames"
 
     rom = RubyGBA::Cartridge::ROM.assemble(RubyGBA::IR::Backends::GBA.new.lower(program),
