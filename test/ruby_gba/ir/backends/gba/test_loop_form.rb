@@ -140,7 +140,7 @@ class TestLoopForm < Minitest::Test
   def test_a_loop_around_a_live_number_counts_right_on_the_console
     rom = RubyGBA.build("LOOPDGT", code: "BLDG", maker: "01", err: StringIO.new, out: StringIO.new) do
       screen :bitmap
-      n = var :n, 4
+      var :n, 4
       passes = var :passes, 0
       b = self
       game_loop do

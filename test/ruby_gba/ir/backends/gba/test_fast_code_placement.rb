@@ -456,7 +456,7 @@ class TestFastCodePlacement < Minitest::Test
     builder = Builder.new
     builder.instance_eval do
       screen :bitmap
-      state = var :state, 0
+      var :state, 0
       score = var :score, 0
       func(:tally) { score.add! 1 }
       scene(:title) { clear_screen :black }

@@ -586,7 +586,7 @@ class TestSpriteDrawsWith < Minitest::Test
         names = (1..16).map { |n| colors :"pulse#{n}", [:transparent, RubyGBA::Graphics::Color.rgb(n, 0, 0), :white] }
         sprite(:ship, at: [40, 40]).draw_with names, showing: step
       end
-      state = var :state, 0
+      var :state, 0
       game_loop do
         case_var(:state) do
           when_val 0, :calm

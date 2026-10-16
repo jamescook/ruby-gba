@@ -326,7 +326,7 @@ class TestBiosCompress < Minitest::Test
     data = blob.bytes
     assert_operator second, :>, Pack::MAX_WINDOW, "the repeat has to be out of reach to test anything"
 
-    length, distance = Pack.longest_match(data, second, data.length, Pack.match_chains(data, data.length))
+    length, _distance = Pack.longest_match(data, second, data.length, Pack.match_chains(data, data.length))
     assert_operator length, :<, Pack::MIN_MATCH,
                     "the only match is #{second} bytes back, past the #{Pack::MAX_WINDOW}-byte " \
                     "reach of a back-reference, so nothing can be encoded here"
