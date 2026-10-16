@@ -21,7 +21,6 @@ class TestSound < Minitest::Test
       halt
     end
 
-    code = rom.buffer.byteslice(0xC0, rom.code_offset - 0xC0)
     # Should write to SOUNDCNT_X (0x04000084), SOUNDCNT_L (0x04000080),
     # and SOUNDCNT_H (0x04000082) — 3 register writes × 3 instructions each
     assert_operator rom.code_offset, :>, 0xC0 + (3 * 3 * 4)
@@ -219,9 +218,7 @@ class TestSound < Minitest::Test
 
   def test_beep_writes_correct_frequency_value
     # 440 Hz: freq_val = 2048 - 131072/440 = 2048 - 298 = 1750
-    builder = nil
     rom = RubyGBA.build("TEST", code: "BTST", maker: "01", validate: false) do
-      builder = self
       enable_sound
       beep 440
       halt
@@ -232,7 +229,6 @@ class TestSound < Minitest::Test
     assert_equal 0x86D6, expected_cnt_h
 
     # Verify the value appears in the ROM (as a 16-bit immediate loaded into r0)
-    code = rom.buffer.byteslice(0xC0, rom.code_offset - 0xC0)
     # The frequency register write stores 0x86D6 via load_immediate → store_halfword.
     # Just verify the ROM built without error — the frequency math is tested above.
     assert_operator rom.code_offset, :>, 0xC0

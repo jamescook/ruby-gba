@@ -47,7 +47,6 @@ class TestDMA < Minitest::Test
 
     # Should write to DMA3SAD, DMA3DAD, DMA3CNT
     # Look for stores to these I/O addresses in the instruction stream
-    insts = instructions(rom)
     addresses_stored = find_store_targets(rom)
 
     assert_includes addresses_stored, REG_DMA3SAD, "should write DMA3 source address"

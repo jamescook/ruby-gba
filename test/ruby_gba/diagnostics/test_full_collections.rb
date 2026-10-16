@@ -59,7 +59,6 @@ class TestFullCollections < Minitest::Test
   end
 
   def test_a_pool_walked_every_frame_is_named
-    helper = self
     rom = build do
       screen :bitmap
       sparks = pool :spark, x: 0, capacity: 64
@@ -110,7 +109,6 @@ class TestFullCollections < Minitest::Test
   end
 
   def test_a_walk_that_keeps_up_full_says_nothing
-    helper = self
     rom = build do
       screen :bitmap
       xs = list :xs, capacity: 16

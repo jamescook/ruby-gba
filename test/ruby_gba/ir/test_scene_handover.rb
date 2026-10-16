@@ -26,7 +26,7 @@ class TestSceneHandover < Minitest::Test
         layer(:back) { background :wall, tiles: :set, map: { plain: map, cracked: map } }
       end
       scene(:walk) { nil }
-      state = var :state, 0
+      var :state, 0
       game_loop { case_var(:state) { when_val 0, :menu; when_val 1, :walk } }
     end
     b.finalize_program

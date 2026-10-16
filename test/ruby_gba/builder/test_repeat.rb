@@ -18,7 +18,7 @@ class TestRepeat < Minitest::Test
     builder.instance_eval do
       screen :bitmap
       clear_screen :black
-      c = var :c, count
+      var :c, count
       repeat(:c) { |i| draw_rect_at i * 4, 40, 2, 2, :green }
       halt
     end
