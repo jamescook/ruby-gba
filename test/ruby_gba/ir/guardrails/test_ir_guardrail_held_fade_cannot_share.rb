@@ -6,7 +6,7 @@ require "test_helper"
 # a see-through layer, or a fade placed in the stack. Each is refused; a plain fade or a tint
 # beside a held one is not.
 class TestIrGuardrailHeldFadeCannotShare < Minitest::Test
-  runs_on :reference
+  runs_on :reference, :native
   Check = RubyGBA::IR::Guardrails::Checks::HeldFadeCannotShare
 
   # A tiled room with a fade held to its top half, and +said+ run before the loop.

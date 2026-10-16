@@ -10,13 +10,13 @@ require "test_helper"
 # kind and corrupts saves on the second, so the interpreter refuses it here, where a test sees
 # it, rather than leaving it for a player to find.
 class TestSaveMemoryRules < Minitest::Test
-  runs_on :reference
+  runs_on :reference, :native
 
   B = RubyGBA::IR::Build
 
   private def run_program(*statements)
     store = SaveImage.new
-    Reference.new(save: store).run(B.program(*statements, B.halt), frames: 1)
+    game_player(save: store).run(B.program(*statements, B.halt), frames: 1)
     store
   end
 
@@ -49,7 +49,7 @@ class TestSaveMemoryRules < Minitest::Test
     first = B.save_read(B.int(0x5000), width: :byte)
     program = B.program(B.save_memory(64), byte_write(0x5000, 0x12), B.save_erase(B.int(0x5000), wait: false),
                         B.set(:busy, first), B.set(:done, first), B.halt)
-    run = Reference.new(save: SaveImage.new).run(program, frames: 1)
+    run = game_player(save: SaveImage.new).run(program, frames: 1)
 
     refute_equal 0xFF, run[:busy]
     assert_equal 0xFF, run[:done]
@@ -67,7 +67,7 @@ class TestSaveMemoryRules < Minitest::Test
   def test_a_wipe_after_the_power_went_off_does_not_happen
     store = SaveImage.new.cut_power_after(1)
     program = B.program(B.save_memory(64), byte_write(0x5000, 0x12), B.save_erase(B.int(0x5000)), B.halt)
-    Reference.new(save: store).run(program, frames: 1)
+    game_player(save: store).run(program, frames: 1)
 
     assert_equal 0x12, store.read(0x5000, 1)
   end
@@ -113,23 +113,23 @@ class TestSaveMemoryRules < Minitest::Test
   def test_a_cut_the_run_never_reached_is_gone_at_the_next_run
     store = SaveImage.new.cut_power_after(100)
     copy = store.dup
-    Reference.new(save: store).run(B.program(byte_write(0x1000, 0x12), B.halt), frames: 1)
-    Reference.new(save: store).run(B.program(*(0...200).map { |i| byte_write(0x1000 + i, 0x34) }, B.halt), frames: 1)
-    Reference.new(save: copy).run(B.program(*(0...200).map { |i| byte_write(0x1000 + i, 0x56) }, B.halt), frames: 1)
+    game_player(save: store).run(B.program(byte_write(0x1000, 0x12), B.halt), frames: 1)
+    game_player(save: store).run(B.program(*(0...200).map { |i| byte_write(0x1000 + i, 0x34) }, B.halt), frames: 1)
+    game_player(save: copy).run(B.program(*(0...200).map { |i| byte_write(0x1000 + i, 0x56) }, B.halt), frames: 1)
 
     assert_equal 0x34, store.read(0x1000 + 199, 1)
     assert_equal 0x56, copy.read(0x1000 + 199, 1)
   end
 
   def test_the_interpreter_is_handed_a_save_memory_not_a_hash
-    err = assert_raises(ArgumentError) { Reference.new(save: {}) }
+    err = assert_raises(ArgumentError) { game_player(save: {}) }
     assert_match(/SaveImage.new/, err.message)
   end
 
   # A chip is one size for good, so a program that says another is refused.
   def test_a_save_memory_of_another_size_is_refused
     store = SaveImage.new(kilobytes: 64)
-    err = assert_raises(ArgumentError) { Reference.new(save: store).run(B.program(B.halt), frames: 1) }
+    err = assert_raises(ArgumentError) { game_player(save: store).run(B.program(B.halt), frames: 1) }
     assert_match(/64K/, err.message)
   end
 end

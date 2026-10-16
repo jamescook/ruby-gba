@@ -12,7 +12,7 @@ require "stringio"
 # (.then / .else) or folded into another (& / |). The builder tracks every
 # Condition and reports the unused ones at build-finalize.
 class TestIRGuardrailOrphanedCondition < Minitest::Test
-  runs_on :reference
+  runs_on :reference, :native
 
   Guardrails = RubyGBA::IR::Guardrails
 

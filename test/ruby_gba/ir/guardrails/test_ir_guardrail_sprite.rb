@@ -12,7 +12,7 @@ require "test_helper"
 # Each test asserts the friendly warning fires on the misuse and stays quiet on the
 # correct shipped example.
 class TestSpriteGuardrails < Minitest::Test
-  runs_on :reference
+  runs_on :reference, :native
 
   Cleared = RubyGBA::IR::Guardrails::Checks::SpriteClearedEachFrame
   Manual = RubyGBA::IR::Guardrails::Checks::ManualSpriteBlit

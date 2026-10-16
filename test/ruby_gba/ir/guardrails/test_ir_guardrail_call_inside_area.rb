@@ -18,7 +18,7 @@ require "stringio"
 # the hardware behavior now that the guardrail stops such a program from being
 # built at all.
 class TestIRGuardrailCallInsideArea < Minitest::Test
-  runs_on :reference
+  runs_on :reference, :native
 
   Check = RubyGBA::IR::Guardrails::Checks::CallInsideArea
 
@@ -42,7 +42,7 @@ class TestIRGuardrailCallInsideArea < Minitest::Test
 
   def test_the_console_does_not_clip_a_routine_called_from_inside_an_area
     prog = game_with_call_that_draws
-    interp = Reference.new.run(prog, frames: 2)
+    interp = game_player.run(prog, frames: 2)
     assert_equal 0, interp.screen.pixel(200, 50),
                  "the interpreter clips the routine's fill to the area"
 

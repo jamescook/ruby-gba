@@ -8,7 +8,7 @@ require "test_helper"
 # different image at the same spot. Asserted on the interpreter and on the emulator, and
 # the two backends must agree.
 class TestBlitPose < Minitest::Test
-  runs_on :reference
+  runs_on :reference, :native
 
   include RubyGBA::IR::Build
 
@@ -26,19 +26,19 @@ class TestBlitPose < Minitest::Test
   end
 
   def test_index_zero_draws_the_first_pose
-    s = Reference.new.run(pose_program(0)).screen
+    s = game_player.run(pose_program(0)).screen
     assert_equal Color.resolve(:red), s.pixel(10, 10), "index 0 should draw the red pose"
     assert_equal Color.resolve(:red), s.pixel(11, 11)
   end
 
   def test_index_one_draws_the_second_pose
-    s = Reference.new.run(pose_program(1)).screen
+    s = game_player.run(pose_program(1)).screen
     assert_equal Color.resolve(:green), s.pixel(10, 10), "index 1 should draw the green pose"
     refute_equal Color.resolve(:red), s.pixel(11, 11), "the red pose should not be drawn"
   end
 
   def test_an_out_of_range_index_draws_nothing
-    s = Reference.new.run(pose_program(5)).screen
+    s = game_player.run(pose_program(5)).screen
     assert_equal Color.resolve(:black), s.pixel(10, 10), "an out-of-range pose index draws nothing"
   end
 

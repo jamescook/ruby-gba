@@ -24,7 +24,7 @@ require "test_helper"
 # It is pinned because getting it wrong costs an afternoon: the test says the game is drawing
 # a frame early and the game is right.
 class TestFramePairing < Minitest::Test
-  runs_on :reference
+  runs_on :reference, :native
 
   STEP = 8    # pixels the marker moves per frame, so its column IS the variable
   ROW = 84    # the row both markers sit on
@@ -98,7 +98,7 @@ class TestFramePairing < Minitest::Test
   # value the picture on screen was drawn from. The first boundary is left out: nothing has
   # been drawn yet, so there is no picture to pair with.
   def interpreter_pairs(source)
-    interp = Reference.new
+    interp = game_player
     pairs = []
     interp.each_vblank do |frame|
       drawn = marker_column { |x, y| interp.screen.pixel(x, y).to_i.positive? }

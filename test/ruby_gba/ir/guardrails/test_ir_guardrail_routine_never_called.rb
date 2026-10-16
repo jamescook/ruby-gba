@@ -8,7 +8,7 @@ require "test_helper"
 # count as a call, because a warning about a routine that does run sends the author to delete
 # working code.
 class TestIRGuardrailRoutineNeverCalled < Minitest::Test
-  runs_on :reference
+  runs_on :reference, :native
 
   Guardrails = RubyGBA::IR::Guardrails
 

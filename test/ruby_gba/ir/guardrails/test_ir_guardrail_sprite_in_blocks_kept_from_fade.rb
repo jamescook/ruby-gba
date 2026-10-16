@@ -9,7 +9,7 @@ require "test_helper"
 # What matters as much is what is NOT refused: the same two verbs wherever the fade holds
 # nothing off by its shape.
 class TestIrGuardrailSpriteInBlocksKeptFromFade < Minitest::Test
-  runs_on :reference
+  runs_on :reference, :native
 
   Check = RubyGBA::IR::Guardrails::Checks::SpriteInBlocksKeptFromFade
 

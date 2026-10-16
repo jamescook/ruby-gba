@@ -12,7 +12,7 @@ require "test_helper"
 # (Mode 3 -> Mode 4) has to actually happen: the palette is uploaded, the pages are
 # set up, and the flip only runs while the buffered scene is live.
 class TestPerSceneMode < Minitest::Test
-  runs_on :reference
+  runs_on :reference, :native
 
   include RubyGBA::Console::Hardware
 
@@ -49,10 +49,10 @@ class TestPerSceneMode < Minitest::Test
   # Oracle: the interpreter draws the same pixels regardless of mode, so it pins
   # what each scene should show — red on the title, blue + green once playing.
   def test_the_interpreter_renders_each_scene
-    red = Reference.new.run(mixed_program) # no input: stays on the title
+    red = game_player.run(mixed_program) # no input: stays on the title
     assert_equal Color.resolve(:red), red.screen.pixel(0, 0)
 
-    playing = Reference.new.input_each_frame { |_f| [:start] }.run(mixed_program)
+    playing = game_player.input_each_frame { |_f| [:start] }.run(mixed_program)
     assert_equal Color.resolve(:blue), playing.screen.pixel(0, 0)
     assert_equal Color.resolve(:green), playing.screen.pixel(103, 79)
   end
@@ -235,10 +235,10 @@ class TestPerSceneMode < Minitest::Test
 
   def test_a_bitmap_title_is_gone_once_a_rotozoom_scene_takes_over
     red = Color.resolve(:red)
-    title = Reference.new.run(rotozoom_after_a_bitmap_title, frames: 4)
+    title = game_player.run(rotozoom_after_a_bitmap_title, frames: 4)
     assert_equal red, title.screen.pixel(0, 0), "the title is up"
 
-    spun = Reference.new.input_each_frame { |f| f == 2 ? [:start] : [] }.run(rotozoom_after_a_bitmap_title, frames: 8)
+    spun = game_player.input_each_frame { |f| f == 2 ? [:start] : [] }.run(rotozoom_after_a_bitmap_title, frames: 8)
     refute_equal red, spun.screen.pixel(0, 0), "the interpreter leaves the title's picture behind"
 
     rom = assemble_rom(rotozoom_after_a_bitmap_title, name: "SPINOVER")

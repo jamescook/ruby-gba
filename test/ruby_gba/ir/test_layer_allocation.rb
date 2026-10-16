@@ -12,7 +12,7 @@ require "differential"
 # backgrounds is one thing; putting one between two of the other is what needs the
 # console's own stacking hardware, and what a picture can never fall into by accident.
 class TestLayerAllocation < Minitest::Test
-  runs_on :reference
+  runs_on :reference, :native
 
   include Differential
 
@@ -33,7 +33,7 @@ class TestLayerAllocation < Minitest::Test
   end
 
   private def screen_of(prog, frames: 3)
-    Reference.new.run(prog, max_steps: 400_000, frames: frames).screen
+    game_player.run(prog, max_steps: 400_000, frames: frames).screen
   end
 
   # A red hero standing under a white fence. `in_front` decides whether the fence layer

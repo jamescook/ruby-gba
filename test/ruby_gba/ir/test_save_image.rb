@@ -6,7 +6,7 @@ require "test_helper"
 # plays the game somewhere else — the desktop build, which keeps its save memory in a file —
 # needs from it to start from the same bytes and hand the bytes it ended with back.
 class TestSaveImage < Minitest::Test
-  runs_on :reference
+  runs_on :reference, :native
 
   def test_a_chip_takes_the_bytes_of_a_sav_file_in_place_of_its_own
     left_by_a_run = SaveImage.new(kilobytes: 32)

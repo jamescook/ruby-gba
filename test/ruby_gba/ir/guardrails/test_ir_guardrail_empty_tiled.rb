@@ -17,7 +17,7 @@ require "test_helper"
 # they bypass the validation pass and keep proving the hardware behavior even once
 # the guardrail stops such a program from being built.
 class TestIRGuardrailEmptyTiled < Minitest::Test
-  runs_on :reference
+  runs_on :reference, :native
 
   include RubyGBA::IR::Build
 

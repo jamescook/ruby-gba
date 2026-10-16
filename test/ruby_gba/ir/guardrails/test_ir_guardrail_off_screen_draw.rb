@@ -11,7 +11,7 @@ require "stringio"
 # at a run-time position can't be judged here and is left alone. These assert the
 # behavior on the IR, per the check's contract.
 class TestIRGuardrailOffScreenDraw < Minitest::Test
-  runs_on :reference
+  runs_on :reference, :native
 
   include RubyGBA::IR::Build
 

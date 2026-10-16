@@ -9,7 +9,7 @@ require "test_helper"
 # build always refused that. The interpreter drew it, each picture in its own colors, so a
 # game's own tests were green for a game that could not be built.
 class TestIRGuardrailPosesWithDifferentColors < Minitest::Test
-  runs_on :reference
+  runs_on :reference, :native
 
   Guardrails = RubyGBA::IR::Guardrails
 
@@ -95,7 +95,7 @@ class TestIRGuardrailPosesWithDifferentColors < Minitest::Test
   # The interpreter is the answer key a game's own tests run against, so it refuses the
   # same programs in the same words rather than drawing what the console cannot.
   def test_the_interpreter_refuses_in_the_same_words
-    error = assert_raises(Reference::ProgramError) { Reference.new.run(pool_game) }
+    error = assert_raises(Reference::ProgramError) { game_player.run(pool_game) }
 
     assert_equal refusal(pool_game), error.message
   end

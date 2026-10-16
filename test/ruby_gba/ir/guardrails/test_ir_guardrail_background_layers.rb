@@ -15,7 +15,7 @@ require "test_helper"
 # suite and a build that fails, over a fact about the console that was knowable the
 # whole time.
 class TestIRGuardrailBackgroundLayers < Minitest::Test
-  runs_on :reference
+  runs_on :reference, :native
 
   Guardrails = RubyGBA::IR::Guardrails
 
@@ -339,7 +339,7 @@ class TestIRGuardrailBackgroundLayers < Minitest::Test
   # against, and it has no layers of its own — only a picture — so it drew five happily
   # while the cartridge refused them. Now it refuses in the same sentence.
   def test_the_interpreter_refuses_what_the_console_could_not_show
-    error = assert_raises(Reference::ProgramError) { Reference.new.run(five_scrolling_layers) }
+    error = assert_raises(Reference::ProgramError) { game_player.run(five_scrolling_layers) }
     assert_equal validator.run(five_scrolling_layers, autofix: false).errors.first.message,
                  error.message
   end

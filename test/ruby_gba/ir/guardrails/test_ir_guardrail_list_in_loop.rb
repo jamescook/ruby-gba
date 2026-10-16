@@ -10,7 +10,7 @@ require "stringio"
 # pushes vanish and its length never grows. Caught on the IR as a friendly warning.
 # Reading/changing a list in the loop is normal and not flagged; only the declaration.
 class TestIRGuardrailListInLoop < Minitest::Test
-  runs_on :reference
+  runs_on :reference, :native
 
   include RubyGBA::IR::Build
 

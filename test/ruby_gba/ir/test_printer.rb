@@ -14,7 +14,7 @@ require "test_helper"
 # The lines that carry a severity are the picture verdicts, and each is printed only when
 # the news is bad — so the failure landed exactly where a report is most needed.
 class TestPrinter < Minitest::Test
-  runs_on :reference
+  runs_on :reference, :native
 
   Printer = RubyGBA::IR::Printer
   Profiler = RubyGBA::Diagnostics::Profiler

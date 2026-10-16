@@ -6,7 +6,7 @@ require "test_helper"
 # backend draws into. No IR, no interpreter here: just the screen model and its
 # edge-clipping promise.
 class TestIRFramebuffer < Minitest::Test
-  runs_on :reference
+  runs_on :reference, :native
 
   Framebuffer = RubyGBA::IR::Backends::Reference::Framebuffer
 

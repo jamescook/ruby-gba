@@ -14,7 +14,7 @@ require "test_helper"
 # field, naming a handle — each of those used to look exactly like the mistake, because
 # the framework built a throwaway expression of its own to borrow the scale rules.
 class TestOrphanedExpression < Minitest::Test
-  runs_on :reference
+  runs_on :reference, :native
 
   Checks = RubyGBA::IR::Guardrails::Checks
 

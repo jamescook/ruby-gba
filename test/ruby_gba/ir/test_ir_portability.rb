@@ -7,7 +7,7 @@ require "test_helper"
 # the GBA. Each kind says its tier where it is declared; these tests check the tiers
 # and exercise the queries a lint consumes.
 class TestIRPortability < Minitest::Test
-  runs_on :reference
+  runs_on :reference, :native
 
   include RubyGBA::IR::Build
 

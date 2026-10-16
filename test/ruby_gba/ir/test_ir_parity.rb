@@ -14,7 +14,7 @@ require "test_helper"
 # what the game costs, which is the one failure the cost model exists to prevent. So the
 # tests below come in pairs: what it proves, and the near-miss it must stay quiet about.
 class TestIRParity < Minitest::Test
-  runs_on :reference
+  runs_on :reference, :native
 
   include RubyGBA::IR::Build
 

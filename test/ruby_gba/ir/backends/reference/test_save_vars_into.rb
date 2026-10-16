@@ -6,7 +6,7 @@ require "test_helper"
 # chose rather than being played until it reaches one. The game's own code writes it, so the
 # game reads it back as its own.
 class TestSaveVarsInto < Minitest::Test
-  runs_on :reference
+  runs_on :reference, :native
 
   # A best score and a count of games played, both kept through power-off. A raises the best
   # to 50.
@@ -23,7 +23,7 @@ class TestSaveVarsInto < Minitest::Test
   private def scores(save_memory: nil) = scores_game(save_memory: save_memory).program
 
   private def boot(program, image, pressing: {}, frames: 3)
-    Reference.new(save: image).input_each_frame { |f| Array(pressing[f]) }.run(program, frames: frames)
+    game_player(save: image).input_each_frame { |f| Array(pressing[f]) }.run(program, frames: frames)
   end
 
   def test_the_game_starts_with_a_written_save_var

@@ -10,7 +10,7 @@ require "test_helper"
 # picture is — `test/ruby_gba/builder/test_layer_transparency.rb`. This file is the
 # rule: four decisions, each in the words somebody would ask them in.
 class TestFading < Minitest::Test
-  runs_on :reference
+  runs_on :reference, :native
 
   private def program(&block)
     b = Builder.new

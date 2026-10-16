@@ -9,7 +9,7 @@ require "stringio"
 # does not is never due, and the part goes silent there until the song starts over. The build
 # refuses such a song and says which part, and where.
 class TestNoteNeverPlaysGuardrail < Minitest::Test
-  runs_on :reference
+  runs_on :reference, :native
 
   include RubyGBA::IR::Build
 
@@ -24,7 +24,7 @@ class TestNoteNeverPlaysGuardrail < Minitest::Test
   # WHY IT IS WORTH REFUSING: a second note on the same frame stops the part, and the notes after
   # it are never heard.
   def test_a_second_note_on_one_frame_silences_the_rest_of_the_part
-    i = Reference.new.run(program(enable_sound, tune([[0, 262], [0, 330], [12, 392]]), play_song(:tune),
+    i = game_player.run(program(enable_sound, tune([[0, 262], [0, 330], [12, 392]]), play_song(:tune),
                                   loop_(wait_vblank)), frames: 30)
     heard = i.audio.select { |entry| entry[0] == :note }.map(&:last)
 

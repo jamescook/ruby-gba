@@ -17,7 +17,7 @@ require "stringio"
 # instructions instead of four. And everything together still has to fit in the two memories
 # added up.
 class TestIRGuardrailIwramBudget < Minitest::Test
-  runs_on :reference
+  runs_on :reference, :native
 
   include RubyGBA::IR::Build
 

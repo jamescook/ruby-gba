@@ -10,7 +10,7 @@ require "test_helper"
 # of the ROM lowering as a bare count, after everything else had passed, and said nothing
 # about what the sprites were.
 class TestIRGuardrailTooManySprites < Minitest::Test
-  runs_on :reference
+  runs_on :reference, :native
 
   Guardrails = RubyGBA::IR::Guardrails
 
@@ -59,7 +59,7 @@ class TestIRGuardrailTooManySprites < Minitest::Test
   # The interpreter is the answer key a game's own tests run against, so it refuses the
   # same programs in the same words rather than drawing 150 sprites the console cannot.
   def test_the_interpreter_refuses_in_the_same_words
-    error = assert_raises(Reference::ProgramError) { Reference.new.run(game) }
+    error = assert_raises(Reference::ProgramError) { game_player.run(game) }
 
     assert_equal refusal(game), error.message
   end

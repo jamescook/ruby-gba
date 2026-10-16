@@ -21,7 +21,7 @@ require "differential"
 # it is right in the top-left quarter and wrong in the other three, which is exactly the bug a
 # handful of spot checks miss.
 class TestLargeTiledMaps < Minitest::Test
-  runs_on :reference
+  runs_on :reference, :native
 
   include Differential
 
@@ -52,24 +52,24 @@ class TestLargeTiledMaps < Minitest::Test
   # --- the sizes build and draw ---
 
   def test_a_wide_map_shows_its_left_half_unscrolled
-    screen = Reference.new.run(quartered_program(64, 32)).screen
+    screen = game_player.run(quartered_program(64, 32)).screen
     assert_equal Color.resolve(:red), screen.pixel(4, 4), "the top-left quarter is on screen"
   end
 
   # Scrolled past the first 32 cells, the right half is what shows — which is the half that
   # lives in the second block.
   def test_a_wide_map_shows_its_right_half_when_scrolled_there
-    screen = Reference.new.run(quartered_program(64, 32, scroll: [256, 0])).screen
+    screen = game_player.run(quartered_program(64, 32, scroll: [256, 0])).screen
     assert_equal Color.resolve(:green), screen.pixel(4, 4), "the second block's tiles"
   end
 
   def test_a_tall_map_shows_its_bottom_half_when_scrolled_there
-    screen = Reference.new.run(quartered_program(32, 64, scroll: [0, 256])).screen
+    screen = game_player.run(quartered_program(32, 64, scroll: [0, 256])).screen
     assert_equal Color.resolve(:blue), screen.pixel(4, 4)
   end
 
   def test_the_biggest_map_shows_its_far_corner
-    screen = Reference.new.run(quartered_program(64, 64, scroll: [256, 256])).screen
+    screen = game_player.run(quartered_program(64, 64, scroll: [256, 256])).screen
     assert_equal Color.resolve(:yellow), screen.pixel(4, 4), "the fourth block's tiles"
   end
 

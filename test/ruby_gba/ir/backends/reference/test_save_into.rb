@@ -7,7 +7,7 @@ require "test_helper"
 # so the game treats it the same as its own: good, read by peek and load, saved over, erased
 # and copied like any other.
 class TestSaveInto < Minitest::Test
-  runs_on :reference
+  runs_on :reference, :native
 
   private def built(save_memory: nil, &block)
     save_memory ? RubyGBA.game("PUTSAVE", save_memory: save_memory, &block) : RubyGBA.game("PUTSAVE", &block)
@@ -47,7 +47,7 @@ class TestSaveInto < Minitest::Test
   end
 
   private def boot(program, image, pressing: {}, frames: 3)
-    Reference.new(save: image).input_each_frame { |f| Array(pressing[f]) }.run(program, frames: frames)
+    game_player(save: image).input_each_frame { |f| Array(pressing[f]) }.run(program, frames: frames)
   end
 
   def test_a_written_copy_is_good_and_loads_back
@@ -95,7 +95,7 @@ class TestSaveInto < Minitest::Test
     image = SaveImage.new
     Reference.save_into(image, program, :file, 0, hearts: 12, name: [5, 6])
     Reference.save_into(image, program, :file, 1, hearts: 2)
-    run = Reference.new(save: image).input_each_frame { |f| f == 2 ? [:l] : [] }.run(program, frames: 4)
+    run = game_player(save: image).input_each_frame { |f| f == 2 ? [:l] : [] }.run(program, frames: 4)
 
     assert_equal [2, []], [run[:hearts], run.list(:name)]
   end
@@ -199,7 +199,7 @@ class TestSaveInto < Minitest::Test
     end.program
     image = Reference.save_into(SaveImage.new, program, :run, 0, roll: 2, random_numbers: 12_345)
 
-    assert_equal 12_345, Reference.new(save: image).run(program, frames: 2)[RubyGBA::Builder::Randomness::RNG_STATE]
+    assert_equal 12_345, game_player(save: image).run(program, frames: 2)[RubyGBA::Builder::Randomness::RNG_STATE]
   end
 
   # --- what a test can get wrong ---

@@ -8,7 +8,7 @@ require "stringio"
 # a note from the loop point to the end, that repeat is silence: the music stops after its first
 # time through. The build refuses such a song and says where it loops from.
 class TestSongLoopsIntoSilenceGuardrail < Minitest::Test
-  runs_on :reference
+  runs_on :reference, :native
 
   include RubyGBA::IR::Build
 
@@ -29,7 +29,7 @@ class TestSongLoopsIntoSilenceGuardrail < Minitest::Test
   # WHY IT IS WORTH REFUSING: the introduction is heard once, and then nothing, however long the
   # game plays the song.
   def test_the_introduction_plays_once_and_then_nothing
-    i = Reference.new.run(program(enable_sound, tune(INTRO_ONLY), play_song(:tune), loop_(wait_vblank)),
+    i = game_player.run(program(enable_sound, tune(INTRO_ONLY), play_song(:tune), loop_(wait_vblank)),
                           frames: 200)
     heard = i.audio.select { |entry| entry[0] == :note }.map(&:last)
 

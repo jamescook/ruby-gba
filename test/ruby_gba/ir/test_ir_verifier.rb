@@ -12,7 +12,7 @@ require "conformance_fixture"
 # a buggy verb would) and assert the verifier catches each shape, and that real
 # well-formed trees pass.
 class TestIRVerifier < Minitest::Test
-  runs_on :reference
+  runs_on :reference, :native
 
   # Declares a node kind of its own, to check one the model does not know is caught. Making a
   # class is a change to the whole process, so on the main Ractor. See test_helper.

@@ -5,7 +5,7 @@ require "test_helper"
 # What every backend agrees on about a picture shown in blocks: how big a block can be,
 # and that a program puts its blocks at one place in the stack.
 class TestBlocks < Minitest::Test
-  runs_on :reference
+  runs_on :reference, :native
 
   include RubyGBA::IR::Build
 
@@ -27,7 +27,7 @@ class TestBlocks < Minitest::Test
   end
 
   def test_the_interpreter_refuses_a_program_with_two_places
-    error = assert_raises(Reference::ProgramError) { Reference.new.run(two_places) }
+    error = assert_raises(Reference::ProgramError) { game_player.run(two_places) }
 
     assert_match(/one place/, error.message)
     assert_match(/under :ui/, error.message)
@@ -44,7 +44,7 @@ class TestBlocks < Minitest::Test
     one_place = program(screen(:tiled), layers(%i[world ui]),
                         pixelate(size: int(4), under: :ui), pixelate(size: int(9), under: :ui), halt)
 
-    Reference.new.run(one_place)
+    game_player.run(one_place)
 
     refute_empty GBA.new.lower(one_place)
   end
