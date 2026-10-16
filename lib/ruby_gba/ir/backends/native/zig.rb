@@ -59,7 +59,9 @@ module RubyGBA
             refresh_checker_flags_in_checkout
             folders = [RUNTIME_DIR, *include]
             flags = WARNINGS + OPTIMISE.fetch(mode) + folders.flat_map { |dir| ["-I", dir] }
-            exe = File.join(compiled_programs_dir, cache_key(sources, folders, flags), "program")
+            # Named for what it is rather than "program", so a person watching what is running on
+            # the machine can tell these apart from everything else there.
+            exe = File.join(compiled_programs_dir, cache_key(sources, folders, flags), "ruby-gba-headless")
             return exe if File.exist?(exe)
 
             FileUtils.mkdir_p(File.dirname(exe))
