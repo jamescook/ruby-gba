@@ -41,19 +41,25 @@ class TestScreenPixelate < Minitest::Test
     end
   end
 
-  private def picture_at(program, frames)
-    screen = game_player.run(program, frames: frames).screen
-    Array.new(HEIGHT) { |y| Array.new(WIDTH) { |x| screen.pixel(x, y) } }
-  end
+  private def picture_at(program, frames) = rows_of(game_player.run(program, frames: frames).screen)
+
+  private def rows_of(screen) = Array.new(HEIGHT) { |y| Array.new(WIDTH) { |x| screen.pixel(x, y) } }
 
   # The size of block each of the first +frames+ frames shows: found by putting the picture
-  # as drawn into blocks of every size and seeing which one the frame is.
+  # as drawn into blocks of every size and seeing which one the frame is. Every frame is read
+  # from ONE run as it settles, rather than the game played again for each, which costs the
+  # square of the frames. The first look comes at the boundary before the first pass, so the
+  # run plays one frame more and that look is dropped.
   private def sizes_shown(program, frames)
     drawn = picture_at(painted_game { |_frame| nil }, 2)
     by_size = (1..LARGEST).to_h do |size|
       [Array.new(HEIGHT) { |y| Array.new(WIDTH) { |x| drawn[y - (y % size)][x - (x % size)] } }, size]
     end
-    (1..frames).map { |n| by_size.fetch(picture_at(program, n)) }
+    seen = []
+    run = game_player
+    run.each_vblank { seen << rows_of(run.screen) }
+    run.run(program, frames: frames + 1)
+    seen.drop(1).first(frames).map { |picture| by_size.fetch(picture) }
   end
 
   # --- out and back in ---

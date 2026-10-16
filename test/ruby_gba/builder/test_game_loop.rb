@@ -144,7 +144,7 @@ class TestGameLoop < Minitest::Test
 
   def test_the_loop_advances_once_per_frame_on_the_interpreter
     program = counting_loop(20)
-    i = game_player.run(program, max_steps: 100_000)
+    i = game_player.run(program, frames: 30)
     assert_equal 20, i[:frames], "the loop bumps the counter once per frame up to the cap"
   end
 

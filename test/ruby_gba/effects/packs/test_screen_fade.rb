@@ -11,7 +11,7 @@ require "test_helper"
 # lifts. The picture underneath never changes, which is exactly what makes a fade cheap
 # and also what makes a fade left un-lifted so hard to spot by eye.
 class TestScreenFade < Minitest::Test
-  runs_on :reference
+  runs_on :reference, :native
 
   WHITE = RubyGBA::Graphics::Color.resolve(:white)
   RED = RubyGBA::Graphics::Color.resolve(:red)
@@ -41,8 +41,19 @@ class TestScreenFade < Minitest::Test
   end
 
   # What one spot shows on each of the first +frames+ frames.
-  private def ramp(prog, frames)
-    (1..frames).map { |n| Reference.new.run(prog, frames: n).screen.pixel(120, 80) }
+  private def ramp(prog, frames) = watch(prog, frames) { |run| run.screen.pixel(120, 80) }
+
+  # What +read+ gives back on each of the first +frames+ frames, read from ONE run as each
+  # frame settles. Playing the game again for every frame looked at costs the square of the
+  # frames, which the game built as C, started afresh each time, makes a long wait. The first
+  # look comes at the frame boundary before the first pass, so the run plays one frame more
+  # and that look is dropped: what is left for frame n is what a run of n frames ends on.
+  private def watch(prog, frames, &read)
+    seen = []
+    run = game_player
+    run.each_vblank { seen << read.call(run) }
+    run.run(prog, frames: frames + 1)
+    seen.drop(1).first(frames)
   end
 
   # --- fading out and back in ---
@@ -470,7 +481,7 @@ class TestScreenFade < Minitest::Test
   def test_the_first_frame_of_a_game_that_opens_on_an_effect_has_the_effect
     OPENINGS.each do |name, effect|
       %i[bitmap tiled].each do |kind|
-        assert_equal BLACK, Reference.new.run(opening_on(kind, &effect), frames: 1).screen.pixel(120, 80),
+        assert_equal BLACK, game_player.run(opening_on(kind, &effect), frames: 1).screen.pixel(120, 80),
                      "the first frame of a #{kind} game opening on a #{name} showed the picture without it"
       end
     end
@@ -575,10 +586,7 @@ class TestScreenFade < Minitest::Test
 
   def test_a_long_fade_to_black_is_black_only_while_it_is_all_the_way_down
     walked = long_fade(:tiled, toward: :black, color: DUSK)
-    seen = (1..90).map do |n|
-      i = Reference.new.run(walked, frames: n)
-      [i.screen.pixel(120, 80), i[:fade_level_seen]]
-    end
+    seen = watch(walked, 90) { |run| [run.screen.pixel(120, 80), run[:fade_level_seen]] }
 
     # The colours are walked in the gap before a frame, so the picture shows the level the
     # pass before it reached — one frame on from the variable read beside it.
