@@ -361,6 +361,22 @@ class TestMixer < Minitest::Test
     assert_mixes_agree(playing { sample(:held, pcm: SAWTOOTH.first(500), rate: 8000, holds_from: 320).play(loop: true) })
   end
 
+  # A hold of two samples read two octaves up steps about four at a time, so one read back is not
+  # enough to be inside the recording again: it reads back as many times as it takes, and
+  # never reads what is stored after the recording.
+  def test_a_hold_shorter_than_a_step_is_the_same_bytes
+    assert_mixes_agree(playing do
+      sample(:held, pcm: SAWTOOTH.first(100), rate: 8000, note: :C4, holds_from: 98).play(pitch: :C6, loop: true)
+    end)
+  end
+
+  # The same for a recording that loops whole and is shorter than one step.
+  def test_a_loop_shorter_than_a_step_is_the_same_bytes
+    assert_mixes_agree(playing do
+      sample(:tiny, pcm: SAWTOOTH.first(3), rate: 8000, note: :C4).play(pitch: :C6, loop: true)
+    end)
+  end
+
   # A recording declared with a shape climbs and settles when the game plays it, its loudness
   # sliding across every sample of a frame.
   def test_a_recording_with_a_shape_is_the_same_bytes

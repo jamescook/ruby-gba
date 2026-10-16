@@ -246,10 +246,9 @@ module RubyGBA
               next if voice.position < data.length
               return false if voice.back.zero?
 
-              # As many times as it takes to be inside the recording again. Once is all a step
-              # ever needs unless it is longer than the stretch a recording holds over — a short
-              # hold, read high — and there the cartridge reads back only once and then past the
-              # end of the recording, which is nothing this could copy.
+              # As many times as it takes to be inside the recording again, as the cartridge
+              # does. Once is all a step ever needs unless it is longer than the stretch a
+              # recording holds over — a short hold, read high.
               voice.position -= voice.back while voice.position >= data.length
               @log << [:sample, voice.name] if voice.owner == GAME
             end

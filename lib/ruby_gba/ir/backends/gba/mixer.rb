@@ -1451,12 +1451,20 @@ module RubyGBA
             e.emit_branch(:bcond, sample, cond: :ne)          # more of the frame to fill
             e.emit_branch(:b, end_voice)
 
+            # Reading back goes round as many times as it takes to be inside the recording again.
+            # Once is enough unless a step is longer than the stretch the recording holds over —
+            # a hold of a few samples read high — and then once leaves the pointer past the end,
+            # where the next read is whatever the cartridge stores after the recording.
             wraps.each do |wrapped, back|
+              again = e.gensym
               e.place_label(wrapped)
               e.emit(ASM.ldr_offset(0, 4, SLOT_LOOP))         # how far back at the end, 0 = play once
               e.emit(ASM.cmp_imm(0, 0))
               e.emit_branch(:bcond, retire, cond: :eq)
-              e.emit(ASM.sub_reg(6, 6, 0))                    # back to where it holds from
+              e.place_label(again)
+              e.emit(ASM.sub_reg(6, 6, 0))                    # back toward where it holds from
+              e.emit(ASM.cmp_reg(6, 9))
+              e.emit_branch(:bcond, again, cond: :ge)         # still at or past the end
               e.emit_branch(:b, back)
             end
 
