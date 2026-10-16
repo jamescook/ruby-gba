@@ -15,7 +15,7 @@ require "test_helper"
 #                               has got to — at the next frame boundary if the program has
 #                               frames, so the screen read afterwards is settled and never torn.
 class TestInterpreterBudget < Minitest::Test
-  runs_on :reference
+  runs_on :reference, :native
 
   Build = RubyGBA::IR::Build
 

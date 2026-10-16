@@ -246,7 +246,7 @@ class TestList < Minitest::Test
   # --- Build-level: the constructors and the capacity rule ---
 
   class BuildContract < Minitest::Test
-    runs_on :reference
+    runs_on :reference, :native
 
     Build = RubyGBA::IR::Build
 

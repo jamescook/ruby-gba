@@ -261,7 +261,7 @@ end
 # shave a row off an edge at that height and no other. So the same picture is drawn at every
 # height from squashed to many times the screen, and at tops above and below it.
 class TestDrawColumnAtSeeThrough < Minitest::Test
-  runs_on :reference
+  runs_on :reference, :native
 
   include EmulatorSupport
   include Differential
@@ -401,7 +401,7 @@ end
 # of its own half and a write back, and WHICH HALF depends on the column being even or odd.
 # That is why the odd column has tests of its own here.
 class TestDrawColumnAtTearFree < Minitest::Test
-  runs_on :reference
+  runs_on :reference, :native
 
   include EmulatorSupport
   include Differential
