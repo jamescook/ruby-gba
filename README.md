@@ -211,6 +211,24 @@ end
 
 `rake test` then plays every test twice, one run after the other: on the interpreter, which is what the cartridge is checked against, and as C, where every frame of every game is compared with the interpreter and a difference fails that test, naming the frame. It ends with a line for each. `rake test:lowering:gba` and `rake test:lowering:native` play one side, and each takes `TEST=` for one file. The native side needs zig 0.17. It plays its tests in several processes rather than Ractors, since each test starts the program zig builds. A test that only one side can play goes in a folder that side owns (`t.lowering_folders = { native: ["test/native"] }`), and `skip_on_native "why"` skips one test on the native side, which counts its skips by reason at the end.
 
+A game whose Rakefile keeps its own `rake test`, or a task for each group of its tests, makes only the runs it wants, under its own names, with `RubyGBA::Testing::TestTask`. That is rake's own test task told which lowering it is for, and it defines nothing else:
+
+```ruby
+require "ruby_gba/testing/test_task"
+
+namespace :test do
+  namespace :native do
+    RubyGBA::Testing::TestTask.new(:items) do |t|
+      t.lowering = :native
+      t.libs = %w[game/lib test]
+      t.test_files = FileList["test/items/**/test_*.rb"]
+    end
+  end
+end
+```
+
+`rake test:native:items` then plays that group as C, played the way the native side always is. None of its settings reach a task run after it in the same rake call.
+
 ### Future targets
 
 The backend split is deliberate. Planned peers of the ARM backend, all reusing the same IR:

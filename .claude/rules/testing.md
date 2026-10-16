@@ -307,7 +307,11 @@ than the library's `CheckedRun::Disagreement`; the comparisons are `Native::Diff
 rake tasks are the library's too (`RubyGBA::Testing::RakeTasks`, in
 `lib/ruby_gba/testing/rake_tasks.rb`): this Rakefile makes `rake test` and the two
 `test:lowering:` tasks with it, handing over the test files and the lowering folders, and adds
-only what this repository needs besides (the machine lock, the emulator build, coverage). The
+only what this repository needs besides (the machine lock, the emulator build, coverage). Each
+`test:lowering:` task is a `RubyGBA::Testing::TestTask`, rake's test task told its lowering, and
+that is where how a native run is started lives (no Ractors, several processes, zig asked for
+first), handed to that run alone and never written into rake's own settings. A game that keeps
+its own `rake test` and groups makes its native twins out of the same class. The
 README's "Testing a game on both lowerings" is the game's side.
 `test/ruby_gba/testing/test_game_suite.rb` holds it: it runs the rake of a small game suite
 (`test/fixtures/game_suite/`) that has the library as a gem and nothing from this folder, on each
