@@ -78,15 +78,42 @@ task :suite_lock do
   @suite_lock = SuiteLock.hold("rake #{Rake.application.top_level_tasks.join(' ')}") unless ENV["TEST"]
 end
 
-Rake::TestTask.new(test: %i[suite_lock compile_emulator clear_coverage]) do |t|
-  t.libs << "test" << "lib"
-  # Every file but the native lowering's own, run on the interpreter; a class that names only
-  # native runs nothing here (see TestSuites).
-  t.test_files = TestSuites.files(lowering: :reference)
-  # `test` on the load path is what lets every test file open with the one line
-  # `require "test_helper"` and get the library, minitest, and the shared names.
-  t.description = 'Run the suite (one file with TEST=test/test_foo.rb, one test with ' \
-                  'TESTOPTS="--name=/pattern/")'
+# EVERY LOWERING, ONE AFTER THE OTHER. The suite is played once for each lowering — the GBA
+# lowering's run (the interpreter, with the cartridge checked in the emulator) and the native
+# lowering's (the game built as C, checked against the interpreter) — each with the machine's
+# cores to itself and its own way of spreading tests over them: Ractors for the first, processes
+# for the second, which starts programs a Ractor cannot. One after the other, so the two never
+# compete for a core. Both are played whatever the first one found, and the run ends with one
+# line for each and fails if either did.
+#
+# TEST= names one file, and it is played by each lowering whose run loads it (a file in one
+# lowering's own folder is played by that one alone; see TestSuites::LOWERING_FOLDERS).
+SIDES = { "GBA lowering" => ["test:lowering:gba", :reference],
+          "native lowering" => ["test:lowering:native", :native] }.freeze
+
+desc 'Run the suite on every lowering, one after the other (one file with TEST=test/test_foo.rb, one test ' \
+     'with TESTOPTS="--name=/pattern/")'
+task test: :suite_lock do
+  results = SIDES.filter_map do |label, (task_name, lowering)|
+    named = ENV["TEST"]
+    next [label, :not_played, 0] if named && !TestSuites.files(lowering: lowering).include?(named.delete_prefix("./"))
+
+    started = Process.clock_gettime(Process::CLOCK_MONOTONIC)
+    passed = begin
+      Rake::Task[task_name].invoke
+      true
+    rescue RuntimeError # a test task whose tests failed says so by raising
+      false
+    end
+    [label, passed ? :passed : :failed, Process.clock_gettime(Process::CLOCK_MONOTONIC) - started]
+  end
+
+  puts
+  results.each do |label, outcome, seconds|
+    said = { passed: "passed", failed: "FAILED", not_played: "does not play this file" }.fetch(outcome)
+    puts format("%-16s %s%s", label, said, outcome == :not_played ? "" : format(" in %ds", seconds))
+  end
+  abort "rake test: a lowering's run failed" if results.any? { |_, outcome| outcome == :failed }
 end
 
 namespace :test do
@@ -118,7 +145,7 @@ namespace :test do
     require_relative "lib/ruby_gba/ir/backends/native/zig"
     RubyGBA::IR::Backends::Native::Zig.version
   rescue RubyGBA::IR::Backends::Native::Zig::Error => e
-    abort "rake test:native: #{e.message}"
+    abort "The native lowering's run needs zig, and #{e.message}"
   end
 
   # IN SEVERAL PROCESSES, NOT RACTORS, unlike `rake test`. Every native test starts child
@@ -147,6 +174,8 @@ namespace :test do
     # The interpreter, with the cartridge checked in the emulator where a test asks for it, and
     # the GBA lowering's own folders (TestSuites::LOWERING_FOLDERS).
     Rake::TestTask.new(gba: %i[suite_lock compile_emulator clear_coverage]) do |t|
+      # `test` on the load path is what lets every test file open with the one line
+      # `require "test_helper"` and get the library, minitest, and the shared names.
       t.libs << "test" << "lib"
       t.test_files = TestSuites.files(lowering: :reference)
       t.description = "Run the suite on the GBA lowering: the interpreter, with the cartridge checked in " \

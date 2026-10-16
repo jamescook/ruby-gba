@@ -9,8 +9,9 @@ require "open3"
 # anybody picked a test by name: that one test then ran on plain threads, where something the
 # suite refuses passes, and nothing but a missing word in "Run options" said so.
 #
-# Each case runs the real `rake test` over one quick test of another file, so it cannot run
-# itself again. (One real test and not none: the Ractor runner stops a run with nothing in it.)
+# Each case runs the GBA lowering's real run (`rake test:lowering:gba`, the run that plays tests
+# in Ractors) over one quick test of another file, so it cannot run itself again. (One real
+# test and not none: the Ractor runner stops a run with nothing in it.)
 class TestRakefile < Minitest::Test
   runs_on :reference, :native
 
@@ -21,12 +22,12 @@ class TestRakefile < Minitest::Test
   ROOT = RubyGBA.root.to_s
 
   private def run_options(testopts)
-    # The plain `rake test` whichever run this test is in: a native run's own settings (the
+    # The plain GBA run whichever run this test is in: a native run's own settings (the
     # lowering, one test a process) are left out of the one it starts.
     plain = { "TESTOPTS" => testopts, TestSuites::LOWERING_SETTING => nil, "MT_CPU" => nil, "TEST_PROCESSES" => nil }
-    out, = Open3.capture2e(plain, "bundle", "exec", "rake", "test",
+    out, = Open3.capture2e(plain, "bundle", "exec", "rake", "test:lowering:gba",
                            "TEST=test/ruby_gba/graphics/test_color.rb", chdir: ROOT)
-    out[/^Run options: .*$/] or flunk("rake test printed no run options:\n#{out}")
+    out[/^Run options: .*$/] or flunk("rake test:lowering:gba printed no run options:\n#{out}")
   end
 
   def test_naming_a_test_keeps_every_test_in_its_own_ractor
