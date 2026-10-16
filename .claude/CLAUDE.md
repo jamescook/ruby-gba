@@ -194,6 +194,14 @@ happens to touch:
 | `diagnostics/` | `RubyGBA::Diagnostics` | it reads a built or running cartridge back (`Verifier`, `Profiler`, `BuildReport`) |
 | `playthroughs/` | `RubyGBA::Playthroughs` | it plays a finished cartridge with nobody at the controls, or two side by side to find where they differ (`Playthrough`, `Tape`, `Comparison`, `CommandLine`) |
 | `messages/` | `RubyGBA::Messages` | it is how a build talks to the author while it builds (`PlainWords`, `Progress`, `BuildOutput`, `AuthorSource`) |
+| `testing/` | `RubyGBA::Testing` | it is how a game's own test suite plays its games on each lowering (`CheckedPlayer`, `RakeTasks`, `Processes`) |
+
+`testing/`'s front door is the exception both ways. `lib/ruby_gba.rb` does NOT require it: it
+loads minitest, which a game needs only for its tests, so a game's suite requires
+`ruby_gba/testing` itself, and so does this repository's `test_helper.rb`. And it loads the
+whole library and minitest besides its own files, since it is the one line a game's tests start
+with — but not `rake_tasks.rb` (a Rakefile's, which must not start minitest) or `processes.rb`
+(loaded only into the native run's test processes, where it takes over how minitest plays).
 
 `diagnostics/` and `messages/` both say things to a person, so the line between them is which
 way each one faces. `diagnostics/` needs a finished cartridge before it has anything to say.

@@ -178,6 +178,39 @@ The game is written out as C and compiled with [zig](https://ziglang.org) (insta
 
 `rake test` plays every test's game as C as well as on the cartridge, replaying each game and comparing every frame's picture and sound with the interpreter, so a feature is not done until the C build has it too (`rake test:lowering:native` plays only that side).
 
+### Testing a game on both lowerings
+
+A game's own tests can do the same, with the library's test helper. In the game's test helper (minitest is in the game's Gemfile):
+
+```ruby
+require "ruby_gba/testing"
+
+class Minitest::Test
+  include RubyGBA::Testing
+end
+```
+
+and in a test, play the game through `game_player`, the same calls on either side:
+
+```ruby
+def test_holding_right_walks
+  played = game_player.hold(:right).run(MyGame::GAME.program, frames: 6)
+  assert_equal 6, played[:x]
+end
+```
+
+In the game's Rakefile:
+
+```ruby
+require "ruby_gba/testing/rake_tasks"
+
+RubyGBA::Testing::RakeTasks.new do |t|
+  t.test_files = FileList["test/**/test_*.rb"]   # the default
+end
+```
+
+`rake test` then plays every test twice, one run after the other: on the interpreter, which is what the cartridge is checked against, and as C, where every frame of every game is compared with the interpreter and a difference fails that test, naming the frame. It ends with a line for each. `rake test:lowering:gba` and `rake test:lowering:native` play one side, and each takes `TEST=` for one file. The native side needs zig 0.17. It plays its tests in several processes rather than Ractors, since each test starts the program zig builds. A test that only one side can play goes in a folder that side owns (`t.lowering_folders = { native: ["test/native"] }`), and `skip_on_native "why"` skips one test on the native side, which counts its skips by reason at the end.
+
 ### Future targets
 
 The backend split is deliberate. Planned peers of the ARM backend, all reusing the same IR:

@@ -271,7 +271,7 @@ examples all build still plays them on the interpreter by name (`Reference.new`)
 tests are all of the cartridge, in the emulator, has nothing for the game as C to play.
 
 On the GBA run `game_player` IS `Reference.new`. On a native run it is a
-`CheckedNativeRun`: the game built as C and driven through the same calls (`hold`,
+`CheckedPlayer`: the game built as C and driven through the same calls (`hold`,
 `input_each_frame`, `each_vblank`, `run`, `[]`, `vars`, `screen.pixel`, `screen.to_a`,
 `screen.stored_pixel`, `screen.camera_x` and `screen.camera_y`, `sprites`, `list`, `pool`,
 `game_state`, `buffered`, `audio` so far, growing with each native slice), and then the same
@@ -297,23 +297,24 @@ compared slice for slice on every run (`mixed_sound`, `active_samples`, `sound_o
 watches, the way it may clear the interpreter's: the run is compared by every entry the C logged
 whatever the test did to its copy.
 
-**The checking is the library's, so a game built on it can do the same.** `CheckedNativeRun`
-is this suite's name for `RubyGBA::IR::Backends::Native::CheckedRun`
-(`lib/ruby_gba/ir/backends/native/checked_run.rb`), and the comparisons it says a
-disagreement with are `Native::Differences` beside it. The only difference is how a disagreement
-is reported: the library raises `CheckedRun::Disagreement`, and the suite's wrapper
-(`test/checked_native_run.rb`) turns that into a failed test. A game's own test plays its game
-checked with nothing from this folder:
+**All of this is the library's, so a game built on it does the same** — and this suite takes
+it from the library exactly as a game does, so the two cannot drift apart. `require
+"ruby_gba/testing"` (`lib/ruby_gba/testing.rb`) is minitest, the library, which lowering the run
+is for (`RubyGBA::Testing.lowering`, read once from `RUBY_GBA_LOWERING`), and a module a test
+class includes for `game_player`, `skip_on_native` and `CheckedPlayer`. `CheckedPlayer` is
+`RubyGBA::IR::Backends::Native::CheckedRun` with a disagreement reported as a failed test rather
+than the library's `CheckedRun::Disagreement`; the comparisons are `Native::Differences`. The
+rake tasks are the library's too (`RubyGBA::Testing::RakeTasks`, in
+`lib/ruby_gba/testing/rake_tasks.rb`): this Rakefile makes `rake test` and the two
+`test:lowering:` tasks with it, handing over the test files and the lowering folders, and adds
+only what this repository needs besides (the machine lock, the emulator build, coverage). The
+README's "Testing a game on both lowerings" is the game's side.
+`test/ruby_gba/testing/test_game_suite.rb` holds it: it runs the rake of a small game suite
+(`test/fixtures/game_suite/`) that has the library as a gem and nothing from this folder, on each
+lowering and both.
 
-```ruby
-run = RubyGBA::IR::Backends::Native::CheckedRun.new
-run.input_each_frame { |frame| frame < 30 ? [:right] : [] }.run(MyGame::GAME.program, frames: 60)
-assert_equal 30, run[:x]   # and every frame was compared with the interpreter on the way
-```
-
-It needs zig, and it starts the game as a separate program, so such a test cannot run inside a
-Ractor. `test_checked_run.rb` plays a game this way in a Ruby process with only `lib` on its load
-path, which is what keeps it usable from outside.
+A native player needs zig, and it starts the game as a separate program, so such a test cannot
+run inside a Ractor.
 
 What the native player cannot answer yet raises `HeadlessRun::CannotAnswer` naming the call —
 the native lowering has a gap to fill, or that one test wants `skip_on_native "why"` at its top,
@@ -409,7 +410,7 @@ compiler itself before believing it, which takes a few seconds:
 `rake test:lowering:native TEST=test/ruby_gba/ir/backends/native/test_native_checker_flags.rb`.
 
 **A native run plays its tests in several processes, not Ractors** (a Ractor cannot start the
-child processes a native test needs). `tools/parallel_test.rb` starts `TEST_PROCESSES` of them —
+child processes a native test needs). `lib/ruby_gba/testing/processes.rb` starts `TEST_PROCESSES` of them —
 as many as the GBA run has workers unless told otherwise — and hands them one test at a time, so
 one slow file never decides how long a run takes, even a run of that file alone. Each process
 sends its results back and the run prints them as one report: the same totals, failures and
