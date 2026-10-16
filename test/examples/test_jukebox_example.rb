@@ -187,9 +187,10 @@ class TestJukeboxExample < Minitest::Test
   end
 
   # ONE FRAME OF THE JUKEBOX, as a test reads it: whose each voice was as the frame began, the
-  # voices themselves and how loud the sound was over the frame (the console's only — the
-  # interpreter mixes nothing).
-  Moment = Data.define(:owners, :voices, :loudness)
+  # voices themselves, how loud the sound was over the frame, and every sample the console's
+  # recorded-sound channel played in it, as its value and the cycle it fell due (the last three the
+  # console's only — the interpreter mixes nothing).
+  Moment = Data.define(:owners, :voices, :loudness, :played)
 
   # A run of the jukebox on the interpreter with +listener+ at the buttons: every frame's Moment,
   # from the listener's first press on (from the start, when it never presses), and what the
@@ -198,7 +199,7 @@ class TestJukeboxExample < Minitest::Test
     i = game_player
     moments = []
     i.input_each_frame do |_frame|
-      moments << Moment.new(owners: i.sound_owners, voices: nil, loudness: nil)
+      moments << Moment.new(owners: i.sound_owners, voices: nil, loudness: nil, played: nil)
       listener.keys(moments.last.owners)
     end
     i.run(Jukebox.program, frames: frames)
@@ -215,8 +216,9 @@ class TestJukeboxExample < Minitest::Test
       moments = Array.new(frames) do
         voices = rom.built.voices.read { |address| probe.read32(address) }
         owners = voices.map(&:owner)
-        probe.step(1, keys: listener.keys(owners))
-        Moment.new(owners: owners, voices: voices, loudness: probe.audio_energy)
+        feed = probe.sound_feed(frames: 1, keys: listener.keys(owners))
+        Moment.new(owners: owners, voices: voices, loudness: probe.audio_energy,
+                   played: feed.played.map { |sample| [sample.value, sample.due] })
       end
       probe.close
       from_the_press(moments, listener)
@@ -294,14 +296,22 @@ class TestJukeboxExample < Minitest::Test
   end
 
   # HOORAY OVER THE SMALL CHORD, heard on the console: louder than the same frames with nobody
-  # pressing A, and once it has ended, frame for frame as loud as those — the tune was not
+  # pressing A, and once it has ended, frame for frame the same sound as those — the tune was not
   # touched and did not slip.
+  #
+  # "The same sound" is every sample the console's recorded-sound channel played and the cycle it
+  # fell due, not how loud the speaker was. The emulator places a sample in what it sends to the
+  # speaker by when it got round to it, which is a few cycles after it fell due behind whatever
+  # instruction was running — and the run that played HOORAY has run other code, so its
+  # instructions fall against the sample clock a little differently ever after. The speaker then
+  # differs by a fraction on a few frames with every sample the same, which is the emulator and not
+  # the cartridge (see Probe#sound_feed).
   def test_hooray_adds_to_the_sound_and_leaves_the_tune_as_it_was
     pressed = console_jukebox(Listener.new(chord: :small, presses: [[:a, 0]]), frames: 200)
     quiet = console_jukebox(Listener.new(chord: :small, presses: []), frames: 200) # waits for the same frame
 
     assert_operator pressed.first(40).sum(&:loudness), :>, quiet.first(40).sum(&:loudness), "HOORAY is heard"
-    assert_equal quiet[60, 60].map(&:loudness), pressed[60, 60].map(&:loudness), "and after it, the tune as it was"
+    assert_equal quiet[60, 60].map(&:played), pressed[60, 60].map(&:played), "and after it, the tune as it was"
   end
 
   # A WHOLE PIECE OF REAL MUSIC, BYTE FOR BYTE: moved up to the piano chords (which fades the
