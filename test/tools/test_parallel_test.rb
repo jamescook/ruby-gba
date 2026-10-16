@@ -9,7 +9,7 @@ require "tmpdir"
 # playing every test itself. Each case runs a small fixture suite both ways and compares what
 # they print.
 class TestParallelTest < Minitest::Test
-  runs_on :reference
+  runs_on :reference, :native
 
   # Starts child processes, which Ruby cannot do from inside a Ractor — the spawn waits for
   # ever — so on the main Ractor, not in the pool. See test_helper.

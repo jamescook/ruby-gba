@@ -12,7 +12,7 @@ require "open3"
 # Each case runs the real `rake test` over one quick test of another file, so it cannot run
 # itself again. (One real test and not none: the Ractor runner stops a run with nothing in it.)
 class TestRakefile < Minitest::Test
-  runs_on :reference
+  runs_on :reference, :native
 
   # Starts child processes, which Ruby cannot do from inside a Ractor — the spawn waits for
   # ever — so on the main Ractor, not in the pool. See test_helper.
@@ -21,7 +21,10 @@ class TestRakefile < Minitest::Test
   ROOT = RubyGBA.root.to_s
 
   private def run_options(testopts)
-    out, = Open3.capture2e({ "TESTOPTS" => testopts }, "bundle", "exec", "rake", "test",
+    # The plain `rake test` whichever run this test is in: a native run's own settings (the
+    # lowering, one test a process) are left out of the one it starts.
+    plain = { "TESTOPTS" => testopts, TestSuites::LOWERING_SETTING => nil, "MT_CPU" => nil, "TEST_PROCESSES" => nil }
+    out, = Open3.capture2e(plain, "bundle", "exec", "rake", "test",
                            "TEST=test/ruby_gba/graphics/test_color.rb", chdir: ROOT)
     out[/^Run options: .*$/] or flunk("rake test printed no run options:\n#{out}")
   end

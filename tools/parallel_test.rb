@@ -300,6 +300,9 @@ module ParallelTest
 end
 
 if ParallelTest.child?
+  # The mark is this process's alone: a test it plays may start a run of its own, and that run
+  # is a parent like any other, with no channel to the parent on the other side of this one.
+  ENV.delete(ParallelTest::CHILD_SETTING)
   Minitest.singleton_class.prepend(ParallelTest::PlayHandedTests)
 else
   Minitest.singleton_class.prepend(ParallelTest::PlayInChildren)
