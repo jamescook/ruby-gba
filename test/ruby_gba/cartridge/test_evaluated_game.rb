@@ -8,7 +8,7 @@ require "stringio"
 # something asks a Game what it is — held against each other. They were written out twice
 # and drifted, so what these tests pin is that there is one answer and not two.
 class TestEvaluatedGame < Minitest::Test
-  runs_on :reference
+  runs_on :reference, :native
 
   # Catches a reminder the DSL prints while a game is declared. Nothing is passed a stream
   # on that path, so the only way to catch it is off the process — main Ractor. See
@@ -35,7 +35,7 @@ class TestEvaluatedGame < Minitest::Test
     program = nil
     capture_io { program = truncated_game.program } # swallow the debug_halt reminder
 
-    screen = Reference.new.run(program).screen
+    screen = game_player.run(program).screen
     assert_equal Color.resolve(:blue), screen.pixel(120, 80), "the draw before debug_halt ran"
     refute_equal Color.resolve(:red), screen.pixel(120, 80), "the draw after it never happened"
   end
@@ -91,7 +91,7 @@ class TestEvaluatedGame < Minitest::Test
     fresh = a_small_game.build_rom(out: StringIO.new, err: StringIO.new)
 
     read = a_small_game
-    Reference.new.run(read.program, frames: 4)
+    game_player.run(read.program, frames: 4)
     RubyGBA::IR::GlyphUsage.footprint(read.program)
 
     assert_equal fresh.buffer, read.build_rom(out: StringIO.new, err: StringIO.new).buffer
@@ -119,6 +119,7 @@ class TestEvaluatedGame < Minitest::Test
       game_loop { n.add! 1 }
     end
 
+    # Only the interpreter's step budget stops a loop with no frames; no lowering counts steps.
     ran = Reference.new.run(unpaced.program, frames: 5)
 
     assert_predicate ran, :stopped_at_budget?, "nothing paces a manual loop with no sync in it"

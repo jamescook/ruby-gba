@@ -10,7 +10,7 @@ require "stringio"
 # command loads. These assert the handle behaves, and that just declaring a game is
 # side-effect free (no cartridge written) so tests and the CLI stay in control.
 class TestGame < Minitest::Test
-  runs_on :reference
+  runs_on :reference, :native
 
   # Asserts that declaring a game writes nothing to the process's own output, which is a
   # fact about the process. Main Ractor. See test_helper.
@@ -30,7 +30,7 @@ class TestGame < Minitest::Test
       clear_screen :red
       halt
     end
-    i = Reference.new.run(g.program)
+    i = game_player.run(g.program)
     assert_equal Color.resolve(:red), i.screen.pixel(10, 10)
   end
 
@@ -45,7 +45,7 @@ class TestGame < Minitest::Test
       clear_screen fill
       halt
     end
-    i = Reference.new.run(g.program)
+    i = game_player.run(g.program)
     assert_equal Color.resolve(:green), i.screen.pixel(0, 0)
   end
 
@@ -98,19 +98,19 @@ class TestGame < Minitest::Test
   def test_a_block_parameter_is_captured_by_the_block
     g = GameAroundBlock.declare("BLOCKARG") { 7 }
 
-    assert_equal 7, Reference.new.run(g.program)[:made]
+    assert_equal 7, game_player.run(g.program)[:made]
   end
 
   def test_a_block_parameter_is_captured_by_a_block_inside_the_block
     g = GameAroundBlock.declare_nested("BLOCKIN") { 7 }
 
-    assert_equal 7, Reference.new.run(g.program)[:made]
+    assert_equal 7, game_player.run(g.program)[:made]
   end
 
   def test_a_block_parameter_is_captured_from_a_block_inside_its_method
     g = GameAroundBlock.declare_from_a_block("BLOCKOUT") { 7 }
 
-    assert_equal 7, Reference.new.run(g.program)[:made]
+    assert_equal 7, game_player.run(g.program)[:made]
   end
 
   # Only a block parameter the game's block READS keeps the game on the core that declared
@@ -120,6 +120,8 @@ class TestGame < Minitest::Test
     g = GameAroundBlock.declare_beside_a_block("BLOCKBY") { 7 }
 
     assert Ractor.shareable?(g), "a game that reaches for nothing can cross to another core"
+    # The interpreter by name: the game as C is played from a process of its own, which a
+    # Ractor cannot start, and this asks whether the game crosses to another core.
     assert_equal 3, Ractor.new(g) { |game| Reference.new.run(game.program)[:made] }.value
   end
 
@@ -127,7 +129,7 @@ class TestGame < Minitest::Test
   def test_a_block_made_from_a_symbol_is_still_a_game
     g = RubyGBA.game("FROMSYMBOL", &:halt)
 
-    refute Reference.new.run(g.program).stopped_at_budget?, "the game is its one verb, and it ran"
+    refute game_player.run(g.program).stopped_at_budget?, "the game is its one verb, and it ran"
   end
 
   def test_build_rom_returns_a_written_cartridge

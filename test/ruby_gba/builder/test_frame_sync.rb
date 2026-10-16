@@ -17,7 +17,7 @@ require "stringio"
 # runs its body exactly once per frame, and an unpaced loop spins until the step
 # budget cuts it off.
 class TestFrameSync < Minitest::Test
-  runs_on :reference
+  runs_on :reference, :native
 
   FRAMES = 5
 
@@ -33,7 +33,7 @@ class TestFrameSync < Minitest::Test
 
   # How many times the loop body ran over FRAMES frames.
   private def passes(program)
-    Reference.new.run(program, frames: FRAMES)[:n]
+    game_player.run(program, frames: FRAMES)[:n]
   end
 
   # The whole point: no `wait_vblank` anywhere, and the loop still runs at exactly
@@ -90,6 +90,8 @@ class TestFrameSync < Minitest::Test
       game_loop { add! :n, 1 }
     end
 
+    # The interpreter's step budget is the only thing that stops a loop with no frames, and no
+    # lowering counts steps, so this one asks the interpreter whatever the run is for.
     i = Reference.new.run(program, frames: FRAMES)
     assert i.stopped_at_budget?, "an unpaced loop should spin until the step budget"
     assert_operator i[:n], :>, FRAMES, "and run its body far more than once per frame"
@@ -119,7 +121,7 @@ class TestFrameSync < Minitest::Test
       halt
     end
 
-    assert_equal RubyGBA::Graphics::Color.resolve(:red), Reference.new.run(program).screen.pixel(110, 75),
+    assert_equal RubyGBA::Graphics::Color.resolve(:red), game_player.run(program).screen.pixel(110, 75),
                  "the developer's own sync presented the page"
     refute_match(/frame_sync/, err, "nothing was dropped, so there is nothing to report")
   end

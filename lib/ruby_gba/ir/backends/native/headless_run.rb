@@ -283,6 +283,11 @@ module RubyGBA
 
           def recording_name(number) = @sound_log.recordings.fetch(number).name
 
+          # The C keeps no count of its steps, so nothing stops a run of it at one: it ends at
+          # the frames asked for, or where the game halts. A game only a step budget would stop
+          # never reaches the C at all (CheckedRun#refuse_endless_game_without_frames!).
+          def stopped_at_budget? = false
+
           # The rest of what the interpreter answers, said by name. Anything else is an ordinary
           # NoMethodError, since the interpreter would not answer it either.
           def method_missing(name, *, **, &)
