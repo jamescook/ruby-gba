@@ -9,7 +9,7 @@ require "test_helper"
 # interpreter oracle and on real hardware, that facing picks the right ROW and the
 # frame animates WITHIN it.
 class TestDirectionalAnimation < Minitest::Test
-  runs_on :reference
+  runs_on :reference, :native
 
   include RubyGBA::Console::Hardware
 
@@ -47,7 +47,7 @@ class TestDirectionalAnimation < Minitest::Test
   end
 
   private def spot(program)
-    Reference.new.run(program).screen.pixel(44, 44)
+    game_player.run(program).screen.pixel(44, 44)
   end
 
   # --- the interpreter oracle: facing picks the row, the frame animates within it ---

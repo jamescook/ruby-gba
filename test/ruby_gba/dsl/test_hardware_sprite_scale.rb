@@ -10,7 +10,7 @@ require "differential"
 # like any other number, that the console and the oracle draw the identical picture, and
 # the friendly guardrails. The dev never touches a matrix, a reciprocal, or a division.
 class TestHardwareSpriteScale < Minitest::Test
-  runs_on :reference
+  runs_on :reference, :native
 
   include Differential
 
@@ -48,7 +48,7 @@ class TestHardwareSpriteScale < Minitest::Test
   # How many pixels of the screen the sprite covers — everything in a generous box
   # around it that isn't the blue floor.
   private def covered(program)
-    screen = Reference.new.run(program).screen
+    screen = game_player.run(program).screen
     floor = Color.resolve(:blue)
     box = (-40..80)
     box.sum { |dy| box.count { |dx| screen.pixel(AT[0] + dx, AT[1] + dy) != floor } }
@@ -101,7 +101,7 @@ class TestHardwareSpriteScale < Minitest::Test
       end
     end
     builder.finalize_program
-    interpreter = Reference.new.run(builder.program)
+    interpreter = game_player.run(builder.program)
     # Ten steps of a tenth from 1.0 reaches 2.0 and `approach` holds it there.
     assert_in_delta 2.0, interpreter[:__obj1_scale] / 65_536.0, 0.01
   end

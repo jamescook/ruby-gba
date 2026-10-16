@@ -8,7 +8,7 @@ require "test_helper"
 # delta), so it behaves the same on every backend; these tests assert the value
 # it lands on, both in the interpreter and on real hardware.
 class TestApproach < Minitest::Test
-  runs_on :reference
+  runs_on :reference, :native
 
   include RubyGBA::Console::Hardware
 
@@ -18,7 +18,7 @@ class TestApproach < Minitest::Test
     builder = Builder.new
     builder.instance_eval(&block)
     builder.finalize_program
-    Reference.new.run(builder.program)
+    game_player.run(builder.program)
   end
 
   # Build the IR without running it — for the guardrail tests, which must raise
@@ -262,7 +262,7 @@ class TestApproach < Minitest::Test
     backend = GBA.new
     rom = RubyGBA::Cartridge::ROM.assemble(backend.lower(builder.program), title: "CLAMPLOHI", maker: "01")
     v = assert_emulator_loads_rom(rom, frames: 2, vars: backend.var_addresses)
-    i = Reference.new.run(builder.program)
+    i = game_player.run(builder.program)
 
     assert_equal [10, 10, 10, 10], names.map { |name| i[name] }, "the interpreter"
     assert_equal [10, 10, 10, 10], names.map { |name| v.var(name) }, "the console"
@@ -292,7 +292,7 @@ class TestApproach < Minitest::Test
   end
 
   def test_interpreter_marker_homes_in
-    screen = Reference.new.run(marker_program(frames: 20)).screen
+    screen = game_player.run(marker_program(frames: 20)).screen
     assert_equal Color.resolve(:green), screen.pixel(100, 50), "marker arrived at the target"
     assert_equal Color.resolve(:black), screen.pixel(0, 50),   "and left the start column"
   end
@@ -341,8 +341,8 @@ class TestApproach < Minitest::Test
   MID_JOURNEY = 35
 
   def test_a_run_time_step_and_bound_land_in_the_right_place
-    early = Reference.new.run(limited_marker_program(frames: 5)).screen
-    late = Reference.new.run(limited_marker_program(frames: 20)).screen
+    early = game_player.run(limited_marker_program(frames: 5)).screen
+    late = game_player.run(limited_marker_program(frames: 20)).screen
 
     assert_equal Color.resolve(:green), early.pixel(MID_JOURNEY, 50),
                  "mid-journey it is where the run-time step put it"

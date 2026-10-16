@@ -16,7 +16,7 @@ require "stringio"
 # for any of it, and calling such a routine from outside a walk is refused rather than quietly
 # running on whoever was walked last.
 class TestPoolRoutines < Minitest::Test
-  runs_on :reference
+  runs_on :reference, :native
 
   include Differential
 
@@ -45,7 +45,7 @@ class TestPoolRoutines < Minitest::Test
         b.halt
       end
     end
-    interpreted = Reference.new.run(program)
+    interpreted = game_player.run(program)
 
     assert_equal 1, interpreted[:idler], "the idling guard started at 0 and crept by 1"
     assert_equal 110, interpreted[:chaser], "...and the chasing one started at 100 and moved by 10"
@@ -68,7 +68,7 @@ class TestPoolRoutines < Minitest::Test
       end
     end
 
-    assert_equal 0, Reference.new.run(program)[:left]
+    assert_equal 0, game_player.run(program)[:left]
   end
 
   # TWO WALKS OVER ONE POOL, which is what a pairwise test is. The inner walk moves the pool's
@@ -93,7 +93,7 @@ class TestPoolRoutines < Minitest::Test
       end
     end
 
-    assert_equal 11, Reference.new.run(program)[:seen],
+    assert_equal 11, game_player.run(program)[:seen],
                  "each outer guard ran on itself: 1 + 10, not the last one twice"
   end
 
@@ -137,7 +137,7 @@ class TestPoolRoutines < Minitest::Test
         end
       end
     end
-    seen = Reference.new.run(program, frames: 3).screen
+    seen = game_player.run(program, frames: 3).screen
 
     assert_equal [Color.resolve(:green)] * 2, [seen.pixel(21, 31), seen.pixel(61, 31)]
     assert_backends_agree(program, frames: 3)
@@ -211,7 +211,7 @@ class TestPoolRoutines < Minitest::Test
       end
     end
 
-    assert_equal 25, Reference.new.run(program)[:chased], "and it ran on the right guard"
+    assert_equal 25, game_player.run(program)[:chased], "and it ran on the right guard"
   end
 
   def test_a_routine_needs_a_block

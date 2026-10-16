@@ -14,7 +14,7 @@ require "differential"
 # IR-backend tests.) Guardrail tests assert a friendly error for misuse, and a
 # couple of the emulator tests confirm the same programs on real hardware.
 class TestDSLExpression < Minitest::Test
-  runs_on :reference
+  runs_on :reference, :native
 
   include RubyGBA::IR::Build # constructors, for the guardrail trees
   include Differential
@@ -27,7 +27,7 @@ class TestDSLExpression < Minitest::Test
     builder.instance_eval(&block)
     builder.finalize_program
 
-    ruby = Reference.new
+    ruby = game_player
     ruby = ruby.hold(held) if held
     ruby = ruby.input_each_frame(&each_frame) if each_frame
     ruby.run(builder.program, **opts)
@@ -299,7 +299,7 @@ class TestDSLExpression < Minitest::Test
 
   def test_the_five_words_without_bang_are_new_numbers_on_both_backends
     program = new_numbers_program(Builder.new)
-    i = Reference.new.run(program)
+    i = game_player.run(program)
 
     NEW_NUMBERS.each_with_index do |(want, _), row|
       assert_equal Color.resolve(:white), pixel_at(i, 40 + want, row * 4), "row #{row} is #{want}"
@@ -394,7 +394,7 @@ class TestDSLExpression < Minitest::Test
       draw_rect_at left, 30, 2, 2, :white
       halt
     end
-    i = Reference.new.run(program)
+    i = game_player.run(program)
 
     assert_equal [51, 49, 80], [i[:over], i[:under], i[:left]]
     assert_equal Color.resolve(:green), pixel_at(i, 51, 10)

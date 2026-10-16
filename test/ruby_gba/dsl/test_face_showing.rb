@@ -8,7 +8,7 @@ require "differential"
 # number, and written as a test per pose it is code that grows with the poses. This reads the
 # pose out of a table instead, so a hundred poses cost what three do.
 class TestFaceShowing < Minitest::Test
-  runs_on :reference
+  runs_on :reference, :native
 
   include Differential
 
@@ -41,7 +41,7 @@ class TestFaceShowing < Minitest::Test
   end
 
   private def picture_after(frames, count: 4)
-    Reference.new.run(built(&stepping(count)), frames: frames).sprites(:hero).first.picture
+    game_player.run(built(&stepping(count)), frames: frames).sprites(:hero).first.picture
   end
 
   def test_the_number_picks_the_pose_and_one_past_the_list_leaves_it
@@ -82,7 +82,7 @@ class TestFaceShowing < Minitest::Test
     end
 
     assert_backends_agree(game, frames: 3)
-    pictures = Reference.new.run(game, frames: 3).sprites(:guard).sort_by(&:x).map(&:picture)
+    pictures = game_player.run(game, frames: 3).sprites(:guard).sort_by(&:x).map(&:picture)
     assert_equal %i[pose0 pose1 pose2], pictures
   end
 

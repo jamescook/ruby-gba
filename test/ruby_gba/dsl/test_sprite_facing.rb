@@ -8,7 +8,7 @@ require "test_helper"
 # right, red left) so "which pose is showing" is a pixel check — on the interpreter
 # and on the emulator. (The poses are the same size so they share one save-under buffer.)
 class TestSpriteFacing < Minitest::Test
-  runs_on :reference
+  runs_on :reference, :native
 
   include RubyGBA::Console::Hardware
 
@@ -40,7 +40,7 @@ class TestSpriteFacing < Minitest::Test
   end
 
   def test_a_faceted_sprite_starts_on_its_first_pose
-    s = Reference.new.run(faceted_program(frames: 3)).screen
+    s = game_player.run(faceted_program(frames: 3)).screen
     assert_equal Color.resolve(:green), s.pixel(50, 50), "should start on the first pose (right, green)"
     assert_equal POSE * POSE, count_color(s, :green)
     assert_equal 0, count_color(s, :red), "the other pose should not be drawn"
@@ -48,7 +48,7 @@ class TestSpriteFacing < Minitest::Test
 
   def test_face_swaps_the_pose_in_place_without_a_trail
     prog = faceted_program(frames: 6) { |guy| after(2) { guy.face :left } }
-    s = Reference.new.run(prog).screen
+    s = game_player.run(prog).screen
     assert_equal Color.resolve(:red), s.pixel(50, 50), "face :left should show the left (red) pose"
     assert_equal POSE * POSE, count_color(s, :red), "exactly one pose of red — no smear"
     assert_equal 0, count_color(s, :green), "the old (right) pose was restored, not left behind"
@@ -56,7 +56,7 @@ class TestSpriteFacing < Minitest::Test
 
   def test_move_turns_the_sprite_to_face_its_direction
     prog = faceted_program(frames: 8) { |guy| guy.move :left, by: 1 }
-    i = Reference.new.run(prog)
+    i = game_player.run(prog)
     assert_operator i[:__spr1_x], :<, 50, "move :left should move it left"
     assert_equal POSE * POSE, count_color(i.screen, :red), "moving left should also face left (red)"
     assert_equal 0, count_color(i.screen, :green), "it no longer faces right"
@@ -67,7 +67,7 @@ class TestSpriteFacing < Minitest::Test
   def test_facing_a_direction_the_sprite_lacks_is_a_friendly_error
     err = assert_raises(ArgumentError) do
       program = faceted_program(frames: 2) { |guy| guy.face :up } # only right/left were given
-      Reference.new.run(program)
+      game_player.run(program)
     end
     assert_match(/face/, err.message)
     assert_match(/up/, err.message)

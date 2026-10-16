@@ -11,7 +11,7 @@ require "differential"
 # lie, on the interpreter and on the console. A thing's colour is its `tag` field, so a test
 # says which thing is which without knowing a slot.
 class TestPoolDrawingOrder < Minitest::Test
-  runs_on :reference
+  runs_on :reference, :native
 
   include Differential
 
@@ -43,7 +43,7 @@ class TestPoolDrawingOrder < Minitest::Test
   private def colors_at(prog, x, y)
     rom = ROM.assemble(GBA.new.lower(prog), title: "PDRW")
     v = assert_emulator_loads_rom(rom, frames: 14)
-    seen = Reference.new.run(prog, frames: 12).screen.pixel(x, y)
+    seen = game_player.run(prog, frames: 12).screen.pixel(x, y)
     [COLORS.find { |color| Color.resolve(color) == seen } || seen,
      COLORS.find { |color| v.pixel_is?(x, y, color) } || v.pixel_gba(x, y)]
   end
@@ -161,7 +161,7 @@ class TestPoolDrawingOrder < Minitest::Test
   end
 
   def test_a_thing_keeps_its_colors_when_an_older_one_leaves
-    i = Reference.new.run(recolored_program, frames: 6)
+    i = game_player.run(recolored_program, frames: 6)
 
     assert_equal Color.resolve(:yellow), i.screen.pixel(81, 41), "the hurt ship is still the hurt one"
     assert_equal 0, i.screen.pixel(41, 41), "and the ship that left is gone"
@@ -182,7 +182,7 @@ class TestPoolDrawingOrder < Minitest::Test
       game_loop {}
     end
     b.finalize_program
-    i = Reference.new.run(b.program, frames: 5)
+    i = game_player.run(b.program, frames: 5)
 
     assert_equal i.pool(:crowd, :x).compact, i.sprites(:crowd).map(&:x)
     assert_backends_agree(b.program, frames: 5)

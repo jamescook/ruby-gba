@@ -8,7 +8,7 @@ require "test_helper"
 # interpreter oracle and on real hardware. Still no OAM, tile indices, or palette
 # banks in the game code.
 class TestHardwareSpritesMulti < Minitest::Test
-  runs_on :reference
+  runs_on :reference, :native
 
   include RubyGBA::Console::Hardware
 
@@ -42,7 +42,7 @@ class TestHardwareSpritesMulti < Minitest::Test
   end
 
   def test_later_declared_sprite_draws_in_front_and_colors_do_not_clobber
-    screen = Reference.new.run(overlapping_pair).screen
+    screen = game_player.run(overlapping_pair).screen
     assert_equal Color.resolve(:red),  screen.pixel(41, 41), "the red sprite keeps its own color"
     assert_equal Color.resolve(:blue), screen.pixel(50, 50), "the blue sprite keeps its own color"
     assert_equal Color.resolve(:blue), screen.pixel(46, 46), "the later sprite sits in front in the overlap"
@@ -81,7 +81,7 @@ class TestHardwareSpritesMulti < Minitest::Test
   end
 
   private def spot_color(program)
-    Reference.new.run(program).screen.pixel(44, 44)
+    game_player.run(program).screen.pixel(44, 44)
   end
 
   def test_a_shown_sprite_can_be_hidden

@@ -15,7 +15,7 @@ require "differential"
 # of the tileset's own characters. Nothing here is a tile number, a place in video memory, or a
 # moment it is safe to write.
 class TestSetTile < Minitest::Test
-  runs_on :reference
+  runs_on :reference, :native
 
   include Differential
 
@@ -46,13 +46,13 @@ class TestSetTile < Minitest::Test
   # --- it changes ---
 
   def test_the_cell_holds_the_new_tile_afterwards
-    screen = Reference.new.run(room_program, frames: 4).screen
+    screen = game_player.run(room_program, frames: 4).screen
     assert_equal Color.resolve(:blue), pixel_at(3, 1, screen), "the door is open"
     assert_equal Color.resolve(:red), pixel_at(2, 1, screen), "and its neighbour is untouched"
   end
 
   def test_the_cell_holds_the_old_tile_before
-    screen = Reference.new.run(room_program(open_at: 99), frames: 4).screen
+    screen = game_player.run(room_program(open_at: 99), frames: 4).screen
     assert_equal Color.resolve(:red), pixel_at(3, 1, screen), "the door is still shut"
   end
 
@@ -77,7 +77,7 @@ class TestSetTile < Minitest::Test
   end
 
   def test_the_coordinates_may_be_worked_out
-    screen = Reference.new.run(worked_out_coordinates_program, frames: 6).screen
+    screen = game_player.run(worked_out_coordinates_program, frames: 6).screen
     4.times { |c| assert_equal Color.resolve(:blue), pixel_at(c, 2, screen), "cell #{c} opened" }
     assert_equal Color.resolve(:red), pixel_at(4, 2, screen), "and the loop stopped where it said"
   end
@@ -109,7 +109,7 @@ class TestSetTile < Minitest::Test
     end
     builder.finalize_program
 
-    screen = Reference.new.run(builder.program, frames: 3).screen
+    screen = game_player.run(builder.program, frames: 3).screen
     assert_equal Color.resolve(:red), pixel_at(0, 1, screen), "nothing else was written over"
   end
 
@@ -141,7 +141,7 @@ class TestSetTile < Minitest::Test
   end
 
   def test_a_cell_in_a_wide_maps_second_square_changes
-    screen = Reference.new.run(wide_room_program(35), frames: 4).screen
+    screen = game_player.run(wide_room_program(35), frames: 4).screen
     assert_equal Color.resolve(:blue), pixel_at(3, 1, screen),
                  "column 35, seen from a scroll of 256, is the fourth cell on screen"
   end
@@ -183,7 +183,7 @@ class TestSetTile < Minitest::Test
     end
     builder.finalize_program
 
-    screen = Reference.new.run(builder.program, frames: 3).screen
+    screen = game_player.run(builder.program, frames: 3).screen
     assert_equal Color.resolve(:blue), pixel_at(1, 1, screen)
   end
 

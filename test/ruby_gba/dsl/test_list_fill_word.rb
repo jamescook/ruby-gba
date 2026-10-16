@@ -7,7 +7,7 @@ require "test_helper"
 # set to one value when the box opens, which a loop setting them one at a time spends most of
 # a frame on.
 class TestListFillWord < Minitest::Test
-  runs_on :reference
+  runs_on :reference, :native
 
   SIZE = 3328
 
@@ -38,7 +38,7 @@ class TestListFillWord < Minitest::Test
     builder = Builder.new
     builder.instance_eval(&game)
     builder.finalize_program
-    run = Reference.new.run(builder.program, frames: 3)
+    run = game_player.run(builder.program, frames: 3)
     READINGS.map { |name| run[name] }
   end
 

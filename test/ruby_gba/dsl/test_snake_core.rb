@@ -17,7 +17,7 @@ require "test_helper"
 # point is that game logic is testable headlessly), and the same drawing stack is
 # checked on real hardware via the emulator, so the core is proven on both backends.
 class TestSnakeCore < Minitest::Test
-  runs_on :reference
+  runs_on :reference, :native
 
   # Build a snake whose body starts at +start_cells+ (an array of [x, y]) and then
   # walks +moves+ (an array of [dx, dy]). If +grow+ is true the body keeps every
@@ -50,7 +50,7 @@ class TestSnakeCore < Minitest::Test
       halt
     end
     builder.finalize_program
-    Reference.new.run(builder.program)
+    game_player.run(builder.program)
   end
 
   def test_a_growing_snake_that_loops_back_bites_itself
@@ -111,7 +111,7 @@ class TestSnakeCore < Minitest::Test
       halt
     end
     builder.finalize_program
-    result = Reference.new.run(builder.program)
+    result = game_player.run(builder.program)
 
     assert_equal 3, result[:len], "length stays fixed while sliding"
     assert_equal 4, result[:tail_x], "the tail advanced to the old second cell"
@@ -146,7 +146,7 @@ class TestSnakeCore < Minitest::Test
     # cells (3,5),(4,5),(5,5) at grid 4 -> x = 12,16,20 ; y = 20. Vacated (2,5) -> x=8.
     marks = { 12 => :green, 16 => :green, 20 => :green, 8 => :black }
 
-    screen = Reference.new.run(prog).screen
+    screen = game_player.run(prog).screen
     marks.each do |x, color|
       assert_equal Color.resolve(color), screen.pixel(x, 20),
                    "interpreter: (#{x}, 20) should be #{color}"

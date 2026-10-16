@@ -11,7 +11,7 @@ require "test_helper"
 # DSL codegen, so both backends run the same test — asserted on the interpreter oracle
 # here, with one hardware check.
 class TestHitbox < Minitest::Test
-  runs_on :reference
+  runs_on :reference, :native
 
   include RubyGBA::Console::Hardware
 
@@ -47,7 +47,7 @@ class TestHitbox < Minitest::Test
       end
     end
     b.finalize_program
-    Reference.new.run(b.program, max_steps: 2_000)[:hit] == 1
+    game_player.run(b.program, max_steps: 2_000)[:hit] == 1
   end
 
   # Full 8x8 boxes at x100 (100..107) and x105 (105..112) overlap, but the 4x4 visible
@@ -120,7 +120,7 @@ class TestHitbox < Minitest::Test
     b.finalize_program
     # The union includes the wide pose (full 8 wide), so the box reaches x108 and touches
     # the bar even though the sprite currently shows the narrow pose.
-    assert_equal 1, Reference.new.run(b.program, max_steps: 2_000)[:hit],
+    assert_equal 1, game_player.run(b.program, max_steps: 2_000)[:hit],
                  "the collision box covers the widest pose, not just the one on screen"
   end
 

@@ -7,7 +7,7 @@ require "test_helper"
 # runs (which letter, which frame), and the list then holds exactly those n entries. A loop of
 # `list[i] = table[start + i]` says the same thing a byte at a time; this is one copy.
 class TestListCopyFrom < Minitest::Test
-  runs_on :reference
+  runs_on :reference, :native
 
   LETTERS = (0...32).map { |n| (n * 7) - 100 }.freeze
 
@@ -39,7 +39,7 @@ class TestListCopyFrom < Minitest::Test
     builder = Builder.new
     builder.instance_eval(&game)
     builder.finalize_program
-    Reference.new.run(builder.program, frames: 3)
+    game_player.run(builder.program, frames: 3)
   end
 
   private def readings(run) = %i[first last held].map { |name| run[name] }

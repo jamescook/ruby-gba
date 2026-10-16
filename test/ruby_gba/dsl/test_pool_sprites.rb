@@ -8,7 +8,7 @@ require "test_helper"
 # the scenes it's one hardware-sprite object per slot, bound to the field lists, drawn by
 # the console's sprite hardware. Pinned on the interpreter and on the emulator.
 class TestPoolSprites < Minitest::Test
-  runs_on :reference
+  runs_on :reference, :native
 
   GREEN = Color.resolve(:green)
   BLACK = 0
@@ -34,7 +34,7 @@ class TestPoolSprites < Minitest::Test
       enemies.spawn x: 60, y: 40
       b.game_loop { b.wait_vblank }
     end
-    i = Reference.new.run(prog)
+    i = game_player.run(prog)
     assert_equal GREEN, i.screen.pixel(22, 22), "first instance's sprite drew at its x/y"
     assert_equal GREEN, i.screen.pixel(62, 42), "second instance's sprite drew at its x/y"
     assert_equal BLACK, i.screen.pixel(150, 100), "nowhere an instance isn't"
@@ -49,7 +49,7 @@ class TestPoolSprites < Minitest::Test
         enemies.each { |e| (e.x == 60).then { e.remove } }
       end
     end
-    i = Reference.new.run(prog)
+    i = game_player.run(prog)
     assert_equal GREEN, i.screen.pixel(22, 22), "the kept instance still draws"
     assert_equal BLACK, i.screen.pixel(62, 42), "the removed instance's sprite is gone"
   end
@@ -76,7 +76,7 @@ class TestPoolSprites < Minitest::Test
       end
     end
     b.finalize_program
-    i = Reference.new.run(b.program)
+    i = game_player.run(b.program)
     assert_equal 1, i[:near_hit], "the instance overlapping the box registers a hit"
     assert_equal 0, i[:far_hit], "and doesn't false-positive on a far box"
   end
@@ -92,7 +92,7 @@ class TestPoolSprites < Minitest::Test
         enemies.each { |e| e.off_screen?.then { e.remove } }
       end
     end
-    i = Reference.new.run(prog)
+    i = game_player.run(prog)
     assert_equal 1, i[RubyGBA::DSL::Pool.count_var(:enemy)], "the off-screen instance was removed, the on-screen one kept"
   end
 
@@ -106,7 +106,7 @@ class TestPoolSprites < Minitest::Test
         enemies.each(&:clamp_to_screen)
       end
     end
-    i = Reference.new.run(prog)
+    i = game_player.run(prog)
     # 8x8 sprite clamps its top-left to (240-8, 160-8) = (232, 152)
     assert_equal GREEN, i.screen.pixel(234, 154), "the instance was pinned to the bottom-right edge"
   end
@@ -137,7 +137,7 @@ class TestPoolSprites < Minitest::Test
     b.finalize_program
     prog = b.program
 
-    on_menu = Reference.new.run(prog) # state 0: the play pool is hidden
+    on_menu = game_player.run(prog) # state 0: the play pool is hidden
     assert_equal BLACK, on_menu.screen.pixel(52, 52), "the pool's sprites are hidden on the menu scene"
 
     # start on :play (state 1): the pool's sprite shows
@@ -154,7 +154,7 @@ class TestPoolSprites < Minitest::Test
       game_loop { wait_vblank; case_var(:state) { when_val 0, :menu; when_val 1, :play } }
     end
     b2.finalize_program
-    on_play = Reference.new.run(b2.program)
+    on_play = game_player.run(b2.program)
     assert_equal GREEN, on_play.screen.pixel(52, 52), "the pool's sprite shows while its scene is active"
   end
 
@@ -241,7 +241,7 @@ class TestPoolSprites < Minitest::Test
   private def green_in_front(prog)
     rom = ROM.assemble(GBA.new.lower(prog), title: "PORD", code: "BPOR", maker: "01")
     v = assert_emulator_loads_rom(rom, frames: 6)
-    [Reference.new.run(prog, frames: 4).screen.pixel(44, 44) == GREEN, v.green?(44, 44)]
+    [game_player.run(prog, frames: 4).screen.pixel(44, 44) == GREEN, v.green?(44, 44)]
   end
 
   def test_a_sprite_declared_after_a_pool_is_in_front_of_it

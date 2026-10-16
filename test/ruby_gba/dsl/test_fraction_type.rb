@@ -11,7 +11,7 @@ require "differential"
 # The behaviour is asserted by putting the answer on screen as a marker and reading where
 # it landed, so these tests say what a program DOES rather than which nodes it built.
 class TestFractionType < Minitest::Test
-  runs_on :reference
+  runs_on :reference, :native
 
   include Differential
 
@@ -33,7 +33,7 @@ class TestFractionType < Minitest::Test
       draw_rect_at answer, 40, 2, 2, Color.resolve(:red)
       halt
     end
-    screen = Reference.new.run(program).screen
+    screen = game_player.run(program).screen
     (0...240).find { |x| screen.pixel(x, 40) == Color.resolve(:red) }
   end
 
@@ -193,7 +193,7 @@ class TestFractionType < Minitest::Test
       halt
     end
 
-    assert_equal Color.resolve(:red), Reference.new.run(program).screen.pixel(99, 40)
+    assert_equal Color.resolve(:red), game_player.run(program).screen.pixel(99, 40)
     assert_backends_agree(program)
   end
 

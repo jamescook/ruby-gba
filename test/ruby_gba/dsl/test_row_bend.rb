@@ -12,7 +12,7 @@ require "differential"
 # point of the feature is that the effect is a property of the program and not of the
 # machine.
 class TestRowBend < Minitest::Test
-  runs_on :reference
+  runs_on :reference, :native
 
   include Differential
 
@@ -58,7 +58,7 @@ class TestRowBend < Minitest::Test
   # which row moved by it.
   def test_each_row_is_offset_by_what_the_block_returns
     program = bars_program { |water| water.scroll_each_row { |row| row % 8 } }
-    i = Reference.new.run(program)
+    i = game_player.run(program)
     assert_equal "RR......RR..", row_picture(i, 0), "row 0 is not offset — the bars sit as drawn"
     assert_equal "R......RR...", row_picture(i, 1), "row 1 slid one pixel left"
     assert_equal "......RR....", row_picture(i, 2)
@@ -70,7 +70,7 @@ class TestRowBend < Minitest::Test
   # in, and the console then works each row out as it draws it, so the bend shows all the same.
   def test_a_program_with_no_frame_is_bent_too
     program = bars_program(frames: false) { |water| water.scroll_each_row { |row| row % 8 } }
-    i = Reference.new.run(program)
+    i = game_player.run(program)
 
     assert_equal "R......RR...", row_picture(i, 1), "row 1 slid one pixel left"
     assert_backends_agree(program, frames: 2, name: "BENDNOFR")
@@ -79,7 +79,7 @@ class TestRowBend < Minitest::Test
   # No bend at all leaves every row where it was drawn — the feature costs nothing when
   # it is not used, and this is the baseline the tests above are measured against.
   def test_without_a_bend_every_row_sits_the_same
-    i = Reference.new.run(bars_program)
+    i = game_player.run(bars_program)
     pictures = (0...16).map { |y| row_picture(i, y) }
     assert_equal ["RR......RR.."] * 16, pictures
   end
@@ -96,9 +96,9 @@ class TestRowBend < Minitest::Test
     end
     bend_only = bars_program { |water| water.scroll_each_row { |_row| 2 } }
 
-    scrolled = Reference.new.run(scrolled_only)
-    combined = Reference.new.run(both)
-    bent = Reference.new.run(bend_only)
+    scrolled = game_player.run(scrolled_only)
+    combined = game_player.run(both)
+    bent = game_player.run(bend_only)
 
     refute_equal row_picture(scrolled, 0), row_picture(combined, 0),
                  "the bend moved the row on top of the scroll"
@@ -106,7 +106,7 @@ class TestRowBend < Minitest::Test
                  "...and the scroll still counts — the bend did not replace it"
     # Scrolled 3 and bent 2 is a row sitting at 5, which is the same picture as scrolling
     # 5 and not bending at all.
-    assert_equal row_picture(Reference.new.run(bars_program { |w| w.scroll_to 5, 0 }), 0),
+    assert_equal row_picture(game_player.run(bars_program { |w| w.scroll_to 5, 0 }), 0),
                  row_picture(combined, 0), "the two offsets add"
   end
 
@@ -243,7 +243,7 @@ class TestRowBend < Minitest::Test
   end
 
   def test_a_block_is_asked_once_for_every_row_each_frame
-    i = Reference.new.run(counting_bend_program, frames: 8)
+    i = game_player.run(counting_bend_program, frames: 8)
     rom = assemble_rom(counting_bend_program, name: "BCOUNT")
     v = assert_emulator_loads_rom(rom, frames: 12, vars: rom.var_addresses)
 
@@ -306,7 +306,7 @@ class TestRowBend < Minitest::Test
   end
 
   def test_each_layer_bends_by_its_own_amount
-    i = Reference.new.run(two_bends_program)
+    i = game_player.run(two_bends_program)
     red = ->(y) { (0...16).select { |x| i.screen.pixel(x, y) == Color::PRESETS[:red] } }
     white = ->(y) { (0...16).select { |x| i.screen.pixel(x, y) == Color::PRESETS[:white] } }
 

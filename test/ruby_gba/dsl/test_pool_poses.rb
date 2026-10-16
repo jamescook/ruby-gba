@@ -15,7 +15,7 @@ require "test_helper"
 # direction and the place in the cycle are PER INSTANCE: a hidden slot beside the fields, the
 # pool's own bookkeeping rather than something to declare.
 class TestPoolPoses < Minitest::Test
-  runs_on :reference
+  runs_on :reference, :native
 
   RED = Color.resolve(:red)
   BLUE = Color.resolve(:blue)
@@ -56,7 +56,7 @@ class TestPoolPoses < Minitest::Test
       end
     end
 
-    screen = Reference.new.run(prog).screen
+    screen = game_player.run(prog).screen
     assert_equal RED, screen.pixel(22, 22), "the one at 20 faces left"
     assert_equal GREEN, screen.pixel(62, 22), "the one at 60 faces right, in the same frame"
   end
@@ -67,7 +67,7 @@ class TestPoolPoses < Minitest::Test
       b.game_loop { b.wait_vblank }
     end
 
-    assert_equal RED, Reference.new.run(prog).screen.pixel(22, 22),
+    assert_equal RED, game_player.run(prog).screen.pixel(22, 22),
                  "an instance nobody has turned faces the first direction given"
   end
 
@@ -87,7 +87,7 @@ class TestPoolPoses < Minitest::Test
       end
     end
 
-    assert_equal RED, Reference.new.run(prog).screen.pixel(22, 22),
+    assert_equal RED, game_player.run(prog).screen.pixel(22, 22),
                  "the new instance faces left, not the right the old one was turned to"
   end
 
@@ -100,9 +100,9 @@ class TestPoolPoses < Minitest::Test
     end
 
     # Two pictures at a rate of two: each is shown for two frames, then the cycle wraps.
-    assert_equal RED, Reference.new.run(prog, frames: 2).screen.pixel(22, 22)
-    assert_equal BLUE, Reference.new.run(prog, frames: 3).screen.pixel(22, 22)
-    assert_equal RED, Reference.new.run(prog, frames: 5).screen.pixel(22, 22), "and it wraps"
+    assert_equal RED, game_player.run(prog, frames: 2).screen.pixel(22, 22)
+    assert_equal BLUE, game_player.run(prog, frames: 3).screen.pixel(22, 22)
+    assert_equal RED, game_player.run(prog, frames: 5).screen.pixel(22, 22), "and it wraps"
   end
 
   # A pool declared inside a scene, which is where a game with screens declares its cast. A
@@ -131,7 +131,7 @@ class TestPoolPoses < Minitest::Test
 
   def test_a_pool_declared_inside_a_scene_cycles_its_frames
     prog = scene_pool_program
-    shown = (2..7).map { |frames| Reference.new.run(prog, frames: frames).sprites(:guard).map(&:picture) }
+    shown = (2..7).map { |frames| game_player.run(prog, frames: frames).sprites(:guard).map(&:picture) }
 
     assert_equal [[:left1], [:left2], [:left2], [:left1], [:left1], [:left2]], shown
   end
@@ -161,11 +161,11 @@ class TestPoolPoses < Minitest::Test
       end
     end
 
-    early = Reference.new.run(prog, frames: 2).screen
+    early = game_player.run(prog, frames: 2).screen
     assert_equal RED, early.pixel(22, 22), "the left one is on its first frame"
     assert_equal GREEN, early.pixel(62, 22), "the right one is on its own first frame"
 
-    later = Reference.new.run(prog, frames: 3).screen
+    later = game_player.run(prog, frames: 3).screen
     assert_equal BLUE, later.pixel(22, 22), "the left one stepped to its second frame"
     assert_equal YELLOW, later.pixel(62, 22), "and the right one to its own"
   end
@@ -183,7 +183,7 @@ class TestPoolPoses < Minitest::Test
       end
     end
 
-    screen = Reference.new.run(prog, frames: 5).screen
+    screen = game_player.run(prog, frames: 5).screen
     refute_equal screen.pixel(22, 22), screen.pixel(62, 22),
                  "the one spawned later is at a different point in the cycle"
   end

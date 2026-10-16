@@ -13,7 +13,7 @@ require "stringio"
 # housekeeping; sharing the sentence would cost the reader the one thing the guardrail is
 # for, and nothing else in the suite would notice.
 class TestWholeNumberGuardrails < Minitest::Test
-  runs_on :reference
+  runs_on :reference, :native
 
   private def build(&block)
     RubyGBA.build("WHOLE", code: "BWHL", maker: "01", err: StringIO.new, out: StringIO.new, &block)

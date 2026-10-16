@@ -15,7 +15,7 @@ require "test_helper"
 # ride inside an instruction, a shift count worked out as the game runs, a count past
 # the end of the number — so those are what the programs are built out of.
 class TestBitOperations < Minitest::Test
-  runs_on :reference
+  runs_on :reference, :native
 
   Int32 = RubyGBA::IR::Int32
   B = RubyGBA::IR::Build
@@ -174,7 +174,7 @@ class TestBitOperations < Minitest::Test
     )
     expected = { up: 0, down: -1, down_positive: 0 }
 
-    interpreter = Reference.new.run(program)
+    interpreter = game_player.run(program)
     expected.each { |name, want| assert_equal want, interpreter[name], "the interpreter's #{name}" }
 
     backend = GBA.new
@@ -324,7 +324,7 @@ class TestBitOperations < Minitest::Test
 
   # Run one program through the reference interpreter and assert each named variable.
   def assert_computes(expected, &block)
-    interpreter = Reference.new.run(build_program(&block))
+    interpreter = game_player.run(build_program(&block))
     expected.each do |name, want|
       assert_equal want, interpreter[name], "the interpreter's #{name}"
     end

@@ -8,7 +8,7 @@ require "test_helper"
 # These assert the observable difference through the DSL surface — the case a plain
 # bounding box gets wrong — on the interpreter oracle and on real hardware.
 class TestPixelPerfectCollision < Minitest::Test
-  runs_on :reference
+  runs_on :reference, :native
 
   include RubyGBA::Console::Hardware
 
@@ -44,7 +44,7 @@ class TestPixelPerfectCollision < Minitest::Test
       end
     end
     b.finalize_program
-    Reference.new.run(b.program, max_steps: 2_000)[:hit] == 1
+    game_player.run(b.program, max_steps: 2_000)[:hit] == 1
   end
 
   # Boxes overlap (A 100..107, B 103..110), but A's only pixels in that overlap are its
@@ -83,7 +83,7 @@ class TestPixelPerfectCollision < Minitest::Test
       end
     end
     b.finalize_program
-    assert_equal 1, Reference.new.run(b.program, max_steps: 2_000)[:hit],
+    assert_equal 1, game_player.run(b.program, max_steps: 2_000)[:hit],
                  "a box collides on the sprite's whole rectangle, transparent middle included"
   end
 
@@ -109,7 +109,7 @@ class TestPixelPerfectCollision < Minitest::Test
         end
       end
       b.finalize_program
-      Reference.new.run(b.program, max_steps: 2_000)[:hit]
+      game_player.run(b.program, max_steps: 2_000)[:hit]
     end
     assert_equal 1, hit_when.call(:right), "facing wide, the sprite reaches the bar"
     assert_equal 0, hit_when.call(:left),  "facing narrow, the same sprite doesn't"

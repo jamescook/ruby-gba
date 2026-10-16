@@ -10,7 +10,7 @@ require "tmpdir"
 # reference interpreter's fake screen — see .claude/CLAUDE.md's testing altitude
 # rule: behavior (what a turned/resized picture looks like), not the IR it builds.
 class TestAffineBackground < Minitest::Test
-  runs_on :reference
+  runs_on :reference, :native
 
   include Differential
 
@@ -18,7 +18,7 @@ class TestAffineBackground < Minitest::Test
     builder = Builder.new
     builder.instance_eval(&block)
     builder.finalize_program
-    Reference.new.run(builder.program)
+    game_player.run(builder.program)
   end
 
   # A 32x32 map, blank except the given (col, row) => character marks, so a
@@ -234,7 +234,7 @@ class TestAffineBackground < Minitest::Test
   ZOOM_SAMPLED = [200, 80].freeze
 
   def test_scale_zooms_toward_the_point_it_is_told_to_turn_around
-    i = Reference.new.run(a_board_zoomed_about(40, 80), frames: 4)
+    i = game_player.run(a_board_zoomed_about(40, 80), frames: 4)
 
     assert_equal Color.resolve(:red), i.screen.pixel(*ZOOM_SAMPLED),
                  "the picture zoomed toward the middle of the screen, not toward the point it was given"
@@ -270,7 +270,7 @@ class TestAffineBackground < Minitest::Test
         game_loop { wait_vblank }
       end
       builder.finalize_program
-      Reference.new.run(builder.program, frames: 4).screen
+      game_player.run(builder.program, frames: 4).screen
     end
 
     # Where the mark is drawn, untouched: column 20 of the map is screen pixels 160..167.
@@ -301,7 +301,7 @@ class TestAffineBackground < Minitest::Test
       game_loop { case_var(:state) { when_val 0, :title } }
     end
     builder.finalize_program
-    i = Reference.new.run(builder.program, frames: 8)
+    i = game_player.run(builder.program, frames: 8)
 
     # Eased back to its drawn size, the mark is where it was drawn: column 20 of the map
     # is screen pixels 160..167. Stuck partway, that pixel samples column 10, which is blank.

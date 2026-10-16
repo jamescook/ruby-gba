@@ -15,7 +15,7 @@ require "differential"
 #   * on the ground floor, between the two, the arch covers him and the floor does not;
 #   * on the stairs, behind both, he shows nowhere, since the floor is solid.
 class TestSpriteLayerChoice < Minitest::Test
-  runs_on :reference
+  runs_on :reference, :native
 
   include Differential
 
@@ -56,7 +56,7 @@ class TestSpriteLayerChoice < Minitest::Test
   end
 
   private def pixels(prog)
-    screen = Reference.new.run(prog, max_steps: 400_000, frames: 3).screen
+    screen = game_player.run(prog, max_steps: 400_000, frames: 3).screen
     [screen.pixel(*UNDER_ARCH), screen.pixel(*OVER_FLOOR)]
   end
 

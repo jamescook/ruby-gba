@@ -16,7 +16,7 @@ require "differential"
 # coordinate cannot — and the console lowering is pinned at the bottom, where positions
 # are what a marker's pixels reveal.
 class TestPoolFieldMutation < Minitest::Test
-  runs_on :reference
+  runs_on :reference, :native
 
   include Differential
 
@@ -40,7 +40,7 @@ class TestPoolFieldMutation < Minitest::Test
       halt
     end
     b.finalize_program
-    i = Reference.new.run(b.program)
+    i = game_player.run(b.program)
     [i[:changed], i[:untouched]]
   end
 
@@ -129,7 +129,7 @@ class TestPoolFieldMutation < Minitest::Test
       halt
     end
     b.finalize_program
-    i = Reference.new.run(b.program)
+    i = game_player.run(b.program)
 
     assert_equal [10, 20, 30], [i[:first], i[:second], i[:third]]
   end
@@ -141,7 +141,7 @@ class TestPoolFieldMutation < Minitest::Test
   def test_the_console_mutates_a_row_field_the_same_way
     program = marker_program
 
-    i = Reference.new.run(program)
+    i = game_player.run(program)
     assert_equal Color.resolve(:green), i.screen.pixel(60, 40), "90 less 30"
     assert_equal Color.resolve(:green), i.screen.pixel(30, 60), "-30 made positive"
 

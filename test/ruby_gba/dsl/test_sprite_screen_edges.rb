@@ -9,7 +9,7 @@ require "test_helper"
 # Pinned on the reference interpreter (the oracle); the shmup example exercises them
 # on real hardware.
 class TestSpriteScreenEdges < Minitest::Test
-  runs_on :reference
+  runs_on :reference, :native
 
   # Place an 8x8 sprite at (px, py) and record `predicate.then { flag = 1 }`; return
   # the flag (1 if the predicate held at that position, else 0). The sprite starts on
@@ -27,7 +27,7 @@ class TestSpriteScreenEdges < Minitest::Test
       halt
     end
     b.finalize_program
-    Reference.new.run(b.program)[:flag]
+    game_player.run(b.program)[:flag]
   end
 
   def test_below_bottom_is_true_only_when_fully_below_the_screen
@@ -74,7 +74,7 @@ class TestSpriteScreenEdges < Minitest::Test
       halt
     end
     b.finalize_program
-    i = Reference.new.run(b.program)
+    i = game_player.run(b.program)
     [i[sx], i[sy]]
   end
 
@@ -99,7 +99,7 @@ class TestSpriteScreenEdges < Minitest::Test
       halt
     end
     b.finalize_program
-    i = Reference.new.run(b.program)
+    i = game_player.run(b.program)
     assert_equal 0, i[:on_flag], "a box on screen is not off_screen?"
     assert_equal 1, i[:off_flag], "a box fully past the left edge is off_screen?"
   end

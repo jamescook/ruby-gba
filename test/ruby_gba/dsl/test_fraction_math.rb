@@ -13,7 +13,7 @@ require "test_helper"
 # These tests put the answer on screen as a marker, so what is asserted is where the
 # marker landed — which is exactly what a game would get wrong.
 class TestFractionMath < Minitest::Test
-  runs_on :reference
+  runs_on :reference, :native
 
   ONE = 65_536          # 1.0, with 16 fraction bits
   ONE_AND_A_HALF = 3 * ONE / 2
@@ -42,7 +42,7 @@ class TestFractionMath < Minitest::Test
   # 1.5 * 1.5 is 2.25, so the marker stands at x 45. Getting there needs a product of
   # 9,663,676,416 on the way — four times what a variable can hold.
   def test_the_answer_lands_where_it_should_on_the_interpreter
-    screen = Reference.new.run(marker_program).screen
+    screen = game_player.run(marker_program).screen
 
     assert_equal Color.resolve(:white), screen.pixel(45, MARKER_Y), "1.5 * 1.5 puts the marker at 2.25"
     assert_equal 0, screen.pixel(41, MARKER_Y), "and nowhere near 2.0"
@@ -61,7 +61,7 @@ class TestFractionMath < Minitest::Test
   # backends have to be wrong the SAME way, which is what makes this a fair contrast
   # rather than a claim about one of them.
   def test_a_plain_multiply_overflows_and_loses_the_marker
-    screen = Reference.new.run(marker_program(plain: true)).screen
+    screen = game_player.run(marker_program(plain: true)).screen
     on_screen = (0...240).select { |x| screen.pixel(x, MARKER_Y) == Color.resolve(:white) }
 
     assert_empty on_screen, "the wrapped product puts the marker off screen"
@@ -77,7 +77,7 @@ class TestFractionMath < Minitest::Test
       RubyGBA::IR::Build.halt,
     )
 
-    assert_equal(-(2.25 * ONE), Reference.new.run(prog)[:out])
+    assert_equal(-(2.25 * ONE), game_player.run(prog)[:out])
   end
 
   # fraction_bits is settled while building, so a nonsensical one is a build error

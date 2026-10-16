@@ -6,7 +6,7 @@ require "test_helper"
 # holding a direction. Proves image (ASCII art + transparency) + blit +
 # held-input move a sprite, on both backends.
 class TestSpriteMover < Minitest::Test
-  runs_on :reference
+  runs_on :reference, :native
 
   include RubyGBA::Console::Hardware
 
@@ -44,7 +44,7 @@ class TestSpriteMover < Minitest::Test
   end
 
   def test_interpreter_moves_the_sprite_and_keeps_transparency
-    screen = Reference.new.input_each_frame { [:right] }.run(sprite_program(frames: 4)).screen
+    screen = game_player.input_each_frame { [:right] }.run(sprite_program(frames: 4)).screen
 
     # Ended at x = 108. The heart's top-left is a transparent ".", so the white
     # field shows through; the "#" next to it is red.
@@ -114,7 +114,7 @@ class TestSpriteMover < Minitest::Test
   ].freeze
 
   def test_interpreter_clips_the_heart_at_the_left_edge
-    screen = Reference.new.input_each_frame { [:left] }.run(heart_at_left_edge(frames: 3)).screen
+    screen = game_player.input_each_frame { [:left] }.run(heart_at_left_edge(frames: 3)).screen
     EDGE_PIXELS.each do |x, y, color|
       assert_equal Color.resolve(color || :white), screen.pixel(x, y),
                    "interpreter: (#{x}, #{y}) should be #{color || 'background'}"

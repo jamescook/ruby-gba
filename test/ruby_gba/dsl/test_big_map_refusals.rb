@@ -7,7 +7,7 @@ require "test_helper"
 # IR::TileMap.streams?), so changing one cell, turning the layer, or bending its rows would
 # each reach cells that are not there.
 class TestBigMapRefusals < Minitest::Test
-  runs_on :reference
+  runs_on :reference, :native
 
   private def program(&block)
     b = Builder.new

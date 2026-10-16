@@ -10,7 +10,7 @@ require "test_helper"
 # needs sixty particles drifting at fractional speeds it has to pick a scale and carry it by
 # hand, which is the exact bookkeeping the fraction support exists to remove.
 class TestFractionCollections < Minitest::Test
-  runs_on :reference
+  runs_on :reference, :native
 
   include EmulatorSupport
 
@@ -21,7 +21,7 @@ class TestFractionCollections < Minitest::Test
       screen :bitmap
       instance_eval(&block)
     end.program
-    Reference.new.run(prog, frames: 2)
+    game_player.run(prog, frames: 2)
   end
 
   private def as_number(raw) = raw / ONE.to_f
@@ -203,7 +203,7 @@ class TestFractionCollections < Minitest::Test
       end
     end.program
 
-    interp = Reference.new.run(prog, frames: 3)
+    interp = game_player.run(prog, frames: 3)
     gba = assert_emulator_loads_rom(assemble_rom(prog, name: "FRACH"), frames: 5)
 
     differ = (0...240).to_a.product((0...160).to_a).reject do |x, y|

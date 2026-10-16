@@ -14,7 +14,7 @@ require "differential"
 # cave: ... }` declares them and `rooms.show_map :cave` says which is showing; the copy happens
 # in the gap between frames, and only on the frame the answer changed.
 class TestShowMap < Minitest::Test
-  runs_on :reference
+  runs_on :reference, :native
 
   include Differential
 
@@ -47,7 +47,7 @@ class TestShowMap < Minitest::Test
   end
 
   private def cell_of(program, frames:, col: 1, row: 1)
-    pixel_at(col, row, Reference.new.run(program, frames: frames).screen)
+    pixel_at(col, row, game_player.run(program, frames: frames).screen)
   end
 
   # --- the whole room changes ---
@@ -76,7 +76,7 @@ class TestShowMap < Minitest::Test
 
   def test_the_cells_a_map_actually_holds_are_the_ones_it_was_drawn_with
     program = rooms_program { |rooms, frames| (frames == 2).then { rooms.show_map :mixed } }
-    screen = Reference.new.run(program, frames: 6).screen
+    screen = game_player.run(program, frames: 6).screen
 
     assert_equal Color.resolve(:blue), pixel_at(0, 1, screen), "the two floor cells of row 1"
     assert_equal Color.resolve(:blue), pixel_at(1, 1, screen)
@@ -148,7 +148,7 @@ class TestShowMap < Minitest::Test
     end
     builder.finalize_program
 
-    screen = Reference.new.run(builder.program, max_steps: 100_000).screen
+    screen = game_player.run(builder.program, max_steps: 100_000).screen
 
     assert_equal Color.resolve(:blue), pixel_at(1, 1, screen)
   end
@@ -183,7 +183,7 @@ class TestShowMap < Minitest::Test
   def test_which_map_is_showing_reads_back_as_a_value
     program = rooms_program { |rooms, frames| (frames == 2).then { rooms.show_map :mixed } }
 
-    assert_equal 2, Reference.new.run(program, frames: 6)[:__bg_rooms_map]
+    assert_equal 2, game_player.run(program, frames: 6)[:__bg_rooms_map]
   end
 
   def test_a_map_declared_by_name_has_a_number_to_compare_against
@@ -208,7 +208,7 @@ class TestShowMap < Minitest::Test
       (rooms.showing == rooms.map_number(:cave)).then { here.set! 7 }
     end
 
-    assert_equal 7, Reference.new.run(program, frames: 6)[:here]
+    assert_equal 7, game_player.run(program, frames: 6)[:here]
   end
 
   # --- the console draws the same thing ---
@@ -261,7 +261,7 @@ class TestShowMap < Minitest::Test
   end
 
   def test_a_wide_maps_second_square_is_handed_over_too
-    screen = Reference.new.run(wide_rooms_program, frames: 6).screen
+    screen = game_player.run(wide_rooms_program, frames: 6).screen
 
     assert_equal Color.resolve(:red), pixel_at(3, 1, screen),
                  "column 35, seen from a scroll of 256, is wall in the map that was handed over"
@@ -302,7 +302,7 @@ class TestShowMap < Minitest::Test
   end
 
   def test_the_last_of_many_rooms_is_the_one_that_comes_up
-    screen = Reference.new.run(many_rooms_program(31), frames: 6).screen
+    screen = game_player.run(many_rooms_program(31), frames: 6).screen
 
     assert_equal Color.resolve(:blue), pixel_at(7, 4, screen), "room 31's floor cell"
     assert_equal Color.resolve(:red), pixel_at(6, 4, screen), "and not room 30's"

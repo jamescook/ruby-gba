@@ -9,13 +9,13 @@ require "test_helper"
 # paints exactly its own square, at the right place, in the right color, and
 # nothing else moves" — asserted on the interpreter's screen.
 class TestGrid < Minitest::Test
-  runs_on :reference
+  runs_on :reference, :native
 
   private def interpret_screen(&block)
     builder = Builder.new
     builder.instance_eval(&block)
     builder.finalize_program
-    Reference.new.run(builder.program).screen
+    game_player.run(builder.program).screen
   end
 
   # Assert every pixel of a w-by-h region is one color.
