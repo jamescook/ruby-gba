@@ -7,7 +7,7 @@ require "test_helper"
 # out of the cartridge each frame and advances its play position, so a minutes-long track
 # loops as background music with no special handling. Pinned on the interpreter and the emulator.
 class TestSampleStream < Minitest::Test
-  runs_on :reference
+  runs_on :reference, :native
 
   OLD_LIMIT = 65_536 # the sample count that used to be the hard ceiling
 
@@ -20,7 +20,7 @@ class TestSampleStream < Minitest::Test
       music.play(loop: true)
       game_loop { wait_vblank }
     end
-    i = Reference.new.run(b.program, max_steps: 20_000)
+    i = game_player.run(b.program, max_steps: 20_000)
     plays = i.audio.count { |e| e == [:sample, :music] }
     assert_operator plays, :>, 1, "a clip past the old limit loops just like a short one (#{plays} plays)"
   end

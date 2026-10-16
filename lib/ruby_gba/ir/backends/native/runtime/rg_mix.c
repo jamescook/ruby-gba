@@ -33,12 +33,13 @@
  *
  * rg_game_recording_samples: every recording's samples, -128 to 127, a byte each.
  */
+#include <stdlib.h>
+
 #include "rg_mix.h"
 #include "rg_runtime.h"
 #include "rg_sound.h"
 
 #define VOICES_MOST 16
-#define SLICE_MOST 1024
 #define NUMBERS_PER_RECORDING 7
 
 #define MIXES (rg_game_mix[0])
@@ -90,7 +91,10 @@ typedef struct {
 } mix_voice;
 
 static mix_voice voices[VOICES_MOST];
-static int32_t slice[SLICE_MOST];
+/* One frame's slice of the mix. Its length is the game's (SLICE_SAMPLES), worked out from the
+ * rates its recordings were made at, so it is made that long the first time a frame is mixed
+ * rather than given a size that a game with a fast recording would outgrow. */
+static int32_t *slice;
 static int32_t slices_made;
 static int32_t peak;
 static int32_t drops;
@@ -309,7 +313,8 @@ static int32_t mix_voice_into(mix_voice *voice, int32_t *totals) {
 
 void rg_mix_frame(void) {
   if (!MIXES) return;
-  if (SLICE_SAMPLES > SLICE_MOST) rg_fault("a slice of %d samples is more than the mixer holds", (int)SLICE_SAMPLES);
+  if (!slice) slice = malloc((size_t)SLICE_SAMPLES * sizeof *slice);
+  if (!slice) rg_fault("no memory for a slice of %d samples", (int)SLICE_SAMPLES);
 
   for (int32_t at = 0; at < SLICE_SAMPLES; at++) slice[at] = 0;
   for (int32_t i = 0; i < VOICES; i++) {
