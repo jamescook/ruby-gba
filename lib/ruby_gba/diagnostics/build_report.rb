@@ -341,9 +341,9 @@ module RubyGBA
       # Said only when something is there. A game whose state fits in the quick memory, which
       # is nearly every game, reads nothing about a second memory it never met.
       #
-      # A pool is a list a field and several of its own, and all of them move together, so a
-      # pool is one line with their bytes added up: the author declared one pool and wrote
-      # none of those lists' names.
+      # A list the build made up is said as what the author declared — a pool, a save_data
+      # record, a canvas — with the bytes of all of that one's lists added up: a pool is a
+      # list a field and several of its own, and the author wrote none of those lists' names.
       def roomy_memory_lines(roomy, printer)
         return if roomy.nil? || roomy.used.zero?
 
@@ -411,7 +411,7 @@ module RubyGBA
       end
 
       def record_label(record, copies: false)
-        label = record[:name] == IR::SaveLayout::SAVE_VAR_RECORD ? "the save_var numbers" : "save_data :#{record[:name]}"
+        label = Messages::MadeNames.save_record_words(record[:name])
         copies && record[:copies] > 1 ? "#{label}, #{record[:copies]} copies" : label
       end
 

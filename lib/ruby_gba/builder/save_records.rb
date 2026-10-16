@@ -381,7 +381,7 @@ module RubyGBA
       # The table of places, laid out and declared the way a record is, with only the routines
       # it needs: it is found at power-on, read, and written back (see SavePlaces).
       def declare_table_record(kept, place:)
-        table = lay_out_save_data(:__table, 1, kept, place: place)
+        table = lay_out_save_data(IR::SaveLayout::TABLE_RECORD, 1, kept, place: place)
         declare_save_data_vars(table)
         declare_save_data_lists(table)
         declare_save_data_routines(table, %i[scan save load])

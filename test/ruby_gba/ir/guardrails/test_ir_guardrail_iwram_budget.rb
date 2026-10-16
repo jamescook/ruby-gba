@@ -123,6 +123,22 @@ class TestIRGuardrailIwramBudget < Minitest::Test
     refute_match(/__pool/, message) # the raw storage names never leak to the person
   end
 
+  # A save_data record keeps lists of its own under names the build made up — the biggest a
+  # buffer as big as what it keeps, twice over. The author wrote `save_data :file`, so that is
+  # who is named, and the fix said is one the author can do: a record has no capacity to shrink.
+  def test_a_save_records_lists_are_named_as_the_record
+    stage = RubyGBA::Messages::MadeNames.make(:save_record, record: "file", piece: "stage")
+    prog = program(
+      screen(:bitmap),
+      list_of_bytes(stage, Budget::BUDGET_BYTES + Budget::EWRAM_BYTES + (8 * 1024)),
+      loop_(wait_vblank, halt),
+    )
+    message = findings_for(prog).first.message
+    assert_match(/save_data :file/, message)
+    refute_match(/__save/, message)
+    assert_match(/keep fewer variables and lists in it/, message)
+  end
+
   # End to end through the DSL: a program past every memory there is stops the build with
   # the friendly error on the err stream (a fatal guardrail raises ROMError).
   def test_the_build_stops_on_a_program_past_every_memory

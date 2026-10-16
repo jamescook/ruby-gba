@@ -34,6 +34,24 @@ class TestBuildReport < Minitest::Test
     out.string
   end
 
+  # A save_data record keeps a buffer of its own in the roomy memory, under a name the build
+  # made up. The author wrote `save_data :file`, so that is what the line says.
+  def test_a_save_records_buffer_is_named_as_the_record
+    rom = RubyGBA.build("BRSAVE", out: StringIO.new, err: StringIO.new) do
+      screen :bitmap
+      hearts = var :hearts, 3
+      files = save_data(:file, copies: 2) { keep hearts }
+      game_loop { pressed(:a).then { files[0].save } }
+    end
+    text = report_for(rom)
+
+    roomy = text.lines.drop_while { |line| !line.include?("the roomy memory") }.drop(1)
+                .take_while { |line| line.start_with?("    ") }
+    assert_equal ["save_data :file"], roomy.map { |line| line.split(/\s{2,}/).last.strip },
+                 "the roomy memory's one line is the record, as the author wrote it"
+    refute_match(/__save/, text, "and none of the names the build made up")
+  end
+
   def test_it_says_what_was_kept_in_the_quick_memory_and_how_much_room_is_left
     text = report_for(crowded_game)
 

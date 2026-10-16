@@ -93,6 +93,28 @@ class TestMadeNames < Minitest::Test
                  MadeNames.read(MadeNames.make(:pool_part, pool: :guard_walk, part: :walk1_at))
   end
 
+  # A report or an error names a list the build made up by what the author declared: a
+  # record, a canvas, an order, a pool. The save machinery's own records read as what they are.
+  def test_a_made_up_list_is_said_as_what_the_author_declared
+    said = ->(kind, **parts) { MadeNames.collection_words(MadeNames.make(kind, **parts)) }
+
+    assert_equal "pool :guard", said.call(:pool_field, pool: :guard, field: :x)
+    assert_equal "save_data :file", said.call(:save_record, record: "file", piece: "stage")
+    assert_equal "the save_var numbers",
+                 said.call(:save_record, record: RubyGBA::IR::SaveLayout::SAVE_VAR_RECORD, piece: "stage")
+    assert_equal "the save_data bookkeeping", said.call(:save_record, record: "__table", piece: "stage")
+    assert_equal "canvas :board", said.call(:canvas_part, canvas: :board, part: :pixels)
+    assert_equal "draw_in_order #2", said.call(:draw_order, number: 2, part: :keys)
+    assert_equal "list :trail", MadeNames.collection_words(:trail)
+  end
+
+  # The framework's own records are known by their exact names, so another one it may add, named
+  # with an underscore as they are, is never taken for the save_vars' record.
+  def test_only_the_frameworks_own_records_read_as_its_own
+    assert_equal "save_data :_extra",
+                 MadeNames.collection_words(MadeNames.make(:save_record, record: "_extra", piece: "stage"))
+  end
+
   def test_a_pool_name_cannot_end_its_own_names_early
     %i[guard guard_walk _guard g].each { |name| assert_match MadeNames::POOL_NAME, name.to_s }
     %i[guard_ guard__walk __guard _].each { |name| refute_match MadeNames::POOL_NAME, name.to_s }

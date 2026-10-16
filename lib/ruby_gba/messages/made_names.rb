@@ -81,7 +81,7 @@ module RubyGBA
 
                                 job = SAVE_JOBS[parts[:piece].to_sym] or return nil
                                 # The one record named with one underscore is save_var's.
-                                return job.sub("save_data :%s", "the save_var numbers") if parts[:record].start_with?("_")
+                                return job.sub("save_data :%s", SAVE_VAR_WORDS) if parts[:record].start_with?("_")
 
                                 format(job, parts[:record])
                               end),
@@ -162,14 +162,46 @@ module RubyGBA
         nil
       end
 
-      # What a report calls the collection a list belongs to. A pool is a list a field and
-      # several of its own, and the author declared one pool, so each of those reads as its
-      # pool. Any other list reads as itself.
+      # What a report calls the collection a list belongs to — the thing the author declared,
+      # since a list the build made up has a name the author never wrote. A pool is a list a
+      # field and several of its own, and reads as its pool. A save_data record keeps lists of
+      # its own too — the buffer a save is copied into first, the place each copy is in — and
+      # reads as the record. A canvas keeps its pixels in one, and a draw order its order.
+      # Any other list reads as itself.
       def self.collection_words(list_name)
         kind, parts = read(list_name)
-        return "pool :#{parts[:pool]}" if %i[pool_field pool_part].include?(kind)
+        case kind
+        when :pool_field, :pool_part then "pool :#{parts[:pool]}"
+        when :save_record, :save_directory then save_record_words(parts[:record])
+        when :save_table, :save_places, :save_jobs then SAVE_BOOKKEEPING_WORDS
+        when :canvas_part then "canvas :#{parts[:canvas]}"
+        when :draw_order then "draw_in_order ##{parts[:number]}"
+        else "list :#{list_name}"
+        end
+      end
 
-        "list :#{list_name}"
+      # Is +list_name+ one a save_data record keeps for itself? Its size follows what the record
+      # keeps, so what to do about a big one is keep less, not give it a smaller capacity.
+      def self.save_list?(list_name)
+        kind, = read(list_name)
+        %i[save_record save_directory save_table save_places save_jobs].include?(kind)
+      end
+
+      # What the save machinery that belongs to no one record is called: the table of where
+      # each record lives, and the line saves wait in.
+      SAVE_BOOKKEEPING_WORDS = "the save_data bookkeeping"
+
+      SAVE_VAR_WORDS = "the save_var numbers"
+
+      # The record +record+ as the author wrote it, or as what it is for one of the framework's
+      # own two, known by their exact names (IR::SaveLayout): where the save_vars are kept on
+      # flash or the EEPROM, and the table of where each record lives.
+      def self.save_record_words(record)
+        case record.to_sym
+        when IR::SaveLayout::TABLE_RECORD then SAVE_BOOKKEEPING_WORDS
+        when IR::SaveLayout::SAVE_VAR_RECORD then SAVE_VAR_WORDS
+        else "save_data :#{record}"
+        end
       end
 
       # What a report calls the routine +name+, or nil when it is not one the build made up (or

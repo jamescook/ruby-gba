@@ -53,6 +53,10 @@ module RubyGBA
       # this is its name: one underscore in front, which no `save_data` name can have.
       SAVE_VAR_RECORD = :_save_vars
 
+      # The table of where each record lives is kept the way a record is, under this name: two
+      # underscores in front, so it can be neither a `save_data` name nor the save_vars' record.
+      TABLE_RECORD = :__table
+
       # Where save_var's marker is kept.
       SAVE_VAR_MARKER_AT = 0
 

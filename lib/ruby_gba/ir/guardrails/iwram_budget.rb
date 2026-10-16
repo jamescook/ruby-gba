@@ -88,15 +88,17 @@ module RubyGBA
             items.sort_by { |item| -item[:bytes] }
           end
 
-          # Lists as contributors — but a pool's several backing lists collapse into one
-          # "pool :name" (the author declared one pool, not five lists), while a standalone
-          # list stays "list :name". The node kept under a label is its first declaration,
-          # which is the line the author wrote.
+          # Lists as contributors — but the lists the build made up for one thing the author
+          # declared collapse into that thing ("pool :name", "save_data :name": the author
+          # declared one pool, not five lists), while a standalone list stays "list :name". The
+          # node kept under a label is its first declaration, which is the line the author wrote.
+          # +saved+ marks a save_data record's lists, whose fix is different (#save_record_advice).
           def list_and_pool_items(program)
             grouped = {}
             list_declarations(program).each do |name, (bytes, node)|
               label = Messages::MadeNames.collection_words(name)
-              item = (grouped[label] ||= { label: label, bytes: 0, node: node, movable: true })
+              item = (grouped[label] ||= { label: label, bytes: 0, node: node, movable: true,
+                                           saved: Messages::MadeNames.save_list?(name) })
               item[:bytes] += bytes
             end
             grouped.values
@@ -159,8 +161,19 @@ module RubyGBA
               "#{human_size(IWRAM_BYTES)} of #{Messages::PlainWords::QUICK_MEMORY} and #{human_size(EWRAM_BYTES)} of roomier " \
               "memory, and both are full. The biggest users are #{top_users(users)}. To fix this, use a " \
               "smaller capacity for a pool or a list. Or use fewer fields. Or use narrower items " \
-              "(`width: :byte`). Then it all fits."
+              "(`width: :byte`).#{save_record_advice(users)} Then it all fits."
           end
+
+          # A save_data record has no capacity of its own: its buffers are as big as what it
+          # keeps, so the fix for one among the biggest users is to keep less.
+          def save_record_advice(users)
+            record = top(users).find { |user| user[:saved] } or return ""
+
+            " A save_data record holds a copy of everything it keeps, so for #{record[:label]}, " \
+              "keep fewer variables and lists in it, or make its lists narrower."
+          end
+
+          def top(users) = users.first(TOP_USERS)
 
           # The variables and the sprites' save-buffers can only be in the quick memory, so
           # a program whose variables alone are over it cannot be helped by the other one.
@@ -175,7 +188,7 @@ module RubyGBA
           end
 
           def top_users(users)
-            users.first(TOP_USERS).map { |user| "#{user[:label]} (#{human_size(user[:bytes])})" }.join(", ")
+            top(users).map { |user| "#{user[:label]} (#{human_size(user[:bytes])})" }.join(", ")
           end
 
           # Bytes as a short human size: whole KB where it's exact, one decimal otherwise,
