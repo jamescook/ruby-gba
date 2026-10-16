@@ -92,8 +92,8 @@ class TestConsoleLineUp < Minitest::Test
     err = assert_raises(Minitest::Assertion) do
       assert_backends_agree(over_budget(tear_free: false), frames: 6, name: "TORN", keys: [:right])
     end
-    assert_match(/over budget/, err.message)
-    assert_match(/passes of the game loop/, err.message)
+    assert_match(/too slow for its frame/, err.message)
+    assert_match(/went round the game loop \d+ times/, err.message)
   end
 
   # --- a game that takes longer to boot than the offset ---
@@ -176,7 +176,7 @@ class TestConsoleLineUp < Minitest::Test
       end
     end
     err = assert_raises(ArgumentError) { console_frames_for(prog, 4) }
-    assert_match(/more than one screen mode/, err.message)
+    assert_match(/more than one kind of screen/, err.message)
   end
 
   private

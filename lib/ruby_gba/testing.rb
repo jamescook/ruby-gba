@@ -18,6 +18,10 @@
 # (Lowering::SETTING), which the rake tasks set (ruby_gba/testing/rake_tasks); a plain run is the
 # GBA lowering's.
 #
+# A test that asks whether the CARTRIDGE draws what the interpreter draws includes Pictures as
+# well (`include RubyGBA::Testing::Pictures`, for `assert_backends_agree`). That one plays the
+# cartridge in the emulator, so it needs the ruby-gba-emulator gem in the game's test group.
+#
 # It is not part of `require "ruby_gba"`, because it loads minitest, which a game needs only for
 # its tests: a game's Gemfile names minitest in its test group. The native lowering's run needs
 # zig as well, as every native build does.
@@ -25,6 +29,7 @@ require "minitest/autorun"
 require_relative "../ruby_gba"
 require_relative "testing/lowering"
 require_relative "testing/checked_player"
+require_relative "testing/pictures"
 
 module RubyGBA
   module Testing

@@ -359,7 +359,7 @@ class TestDifferential < Minitest::Test
     bad = differ.mismatched_pixels(oracle, console)
     assert_equal [[120, 80, 0, Color.resolve(:red)]], bad
 
-    report = differ.send(:mismatch_report, bad, oracle, console, 4, 6)
+    report = differ.send(:mismatch_message, bad, 4, 6)
     assert_match(/1 of 38400 pixels differ/, report)
     assert_match(/\(120, 80\)\s+interpreter backdrop\s+console red/, report)
     assert_match(/where they differ/, report)

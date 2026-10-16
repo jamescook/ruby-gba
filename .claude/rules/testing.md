@@ -705,16 +705,19 @@ that uses all of it), and nothing pays for it unless it asks.
 ## Whole-screen differential testing
 
 `test/differential.rb` compares the two backends over **all 38,400 pixels** instead
-of a handful you picked. Reach for it when a feature's whole picture should match
-(most drawing features), and keep the hand-picked assertions for the specific
-values that document intent.
+of a handful you picked. The check itself is the library's (`RubyGBA::Testing::Pictures`, in
+`lib/ruby_gba/testing/pictures.rb`), shipped to games with the test helper; `Differential` is this
+suite's name for the same module, so a change to it is a change for every game too. Reach for it
+when a feature's whole picture should match (most drawing features), and keep the hand-picked
+assertions for the specific values that document intent.
 
 ```ruby
-include Differential                       # from test/differential.rb
+include Differential                              # from test/differential.rb
 
-assert_backends_agree(program, frames: 4)  # every pixel must match, or fail
-backend_pictures(program, frames: 4)       # => [interpreter_pixels, console_pixels]
-mismatched_pixels(oracle, console)         # => [[x, y, want, got], ...]
+assert_backends_agree(program, frames: 4)         # every pixel must match, or fail
+assert_backends_agree(program, frames: [3, 5, 7]) # ...at each of those frames, a run each
+backend_pictures(program, frames: 4)              # => [interpreter_pixels, console_pixels, interpreter_frames]
+mismatched_pixels(oracle, console)                # => [[x, y, want, got], ...]
 ```
 
 `frames:` is how many frames the **interpreter** plays; the console is run for the

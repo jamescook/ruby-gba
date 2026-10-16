@@ -209,6 +209,16 @@ RubyGBA::Testing::RakeTasks.new do |t|
 end
 ```
 
+To check the cartridge itself against the interpreter, include `RubyGBA::Testing::Pictures` as well and ask for the same picture:
+
+```ruby
+def test_the_title_screen_draws_on_the_console
+  assert_backends_agree(MyGame::GAME.program, frames: 4, keys: [:start])
+end
+```
+
+It builds the cartridge, plays it in the emulator with the same buttons held, and compares every one of the 38,400 pixels with the interpreter's picture at the matching moment. `frames:` takes a list too (`frames: [2, 4, 6]`, or `1..20` for every frame of the first twenty), and each is compared. A difference fails the test with how many pixels differ, the first few by place and colour, and a map of the screen marking where. `backend_pictures` hands back both pictures instead, for a difference that is known and not yet fixed. It needs the ruby-gba-emulator gem in the game's Gemfile (the block under "Status", below); without it the test stops and says what to add. On the native side there is no cartridge, so the same line checks the game as C against the interpreter on every frame instead.
+
 `rake test` then plays every test twice, one run after the other: on the interpreter, which is what the cartridge is checked against, and as C, where every frame of every game is compared with the interpreter and a difference fails that test, naming the frame. It ends with a line for each. `rake test:lowering:gba` and `rake test:lowering:native` play one side, and each takes `TEST=` for one file. The native side needs zig 0.17. It plays its tests in several processes rather than Ractors, since each test starts the program zig builds. A test that only one side can play goes in a folder that side owns (`t.lowering_folders = { native: ["test/native"] }`), and `skip_on_native "why"` skips one test on the native side, which counts its skips by reason at the end.
 
 A game whose Rakefile keeps its own `rake test`, or a task for each group of its tests, makes only the runs it wants, under its own names, with `RubyGBA::Testing::TestTask`. That is rake's own test task told which lowering it is for, and it defines nothing else:

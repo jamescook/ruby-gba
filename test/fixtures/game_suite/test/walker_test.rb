@@ -3,17 +3,11 @@
 # A game's own test, as a game in a repository of its own writes it: one require for the
 # library's test helper, and nothing from ruby-gba's own test folder.
 require "ruby_gba/testing"
+require_relative "one_pixel_off"
 
 # Run by test/ruby_gba/testing/test_game_suite.rb, which reads what these leave behind.
 class WalkerTest < Minitest::Test
   include RubyGBA::Testing
-
-  # The same screen as the interpreter's, but with its top left pixel always one colour off, so
-  # the game as C and the interpreter disagree. Only when asked.
-  module OnePixelOff
-    def shown = super.dup.tap { |pixels| pixels[0] ^= 1 }
-  end
-  RubyGBA::IR::Backends::Reference::Framebuffer.prepend(OnePixelOff) if ENV["GAME_SUITE_DISAGREE"] == "1"
 
   def test_holding_right_walks_the_walker
     game = RubyGBA.game "WALKER" do

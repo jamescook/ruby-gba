@@ -5,18 +5,19 @@ require "open3"
 require "tmpdir"
 
 # A GAME IN A REPOSITORY OF ITS OWN runs its tests on either lowering, or both, with nothing
-# but the library: test/fixtures/game_suite is such a game's Rakefile and one test file, and
-# each case here runs its rake from that folder. Its load path is the library and nothing else
-# (RUBYLIB, so the test processes rake starts have it too) — not this repository's test folder
-# and not its bundle, so minitest and rake are the plain installed gems and the Ractor test
-# runner this suite uses is not there at all.
+# but the library and the emulator gem: test/fixtures/game_suite is such a game's Rakefile and
+# its test files, and each case here runs its rake from that folder. Its load path is the two
+# gems' folders and nothing else (RUBYLIB, so the test processes rake starts have it too, as a
+# game's bundle puts them there) — not this repository's test folder and not its bundle, so
+# minitest and rake are the plain installed gems and the Ractor test runner this suite uses is
+# not there at all.
 class TestGameSuite < Minitest::Test
   # Starts child processes, which Ruby cannot do from inside a Ractor — the spawn waits for
   # ever — so on the main Ractor, not in the pool. See test_helper.
   runs_on_the_main_ractor!
 
   GAME = RubyGBA.root.join("test/fixtures/game_suite").to_s
-  LIB = RubyGBA.root.join("lib").to_s
+  LIB = [RubyGBA.root.join("lib"), RubyGBA.root.join("ruby-gba-emulator/lib")].join(File::PATH_SEPARATOR)
   RAKE = Gem.bin_path("rake", "rake")
 
   # A game that keeps its own rake test and a task for each group of its tests, and its code
@@ -59,19 +60,22 @@ class TestGameSuite < Minitest::Test
 
     assert passed, "the game's native run failed:\n#{out}"
     assert_equal %w[native], lowerings
-    assert_match(/Playing 2 tests in \d+ process/, out)
+    assert_match(/Playing 3 tests in \d+ process/, out)
   end
 
-  # A game the C plays differently from the interpreter fails a test on the native run, as a
-  # failed assertion naming the frame, not as an error in the library.
-  def test_a_disagreement_fails_the_games_test_on_the_native_run
+  # An interpreter made to draw one pixel differently fails the game's tests on each run, as
+  # failed assertions and not as errors in the library: on the native run the game as C differs
+  # from it at a frame, and on the GBA lowering's run the cartridge does, at the pixel named.
+  def test_a_disagreement_fails_the_games_test_on_each_run
     out, passed, = rake("test", env: { "GAME_SUITE_DISAGREE" => "1" })
 
     refute passed
-    assert_match(/^GBA lowering\s+passed/, out)
+    assert_match(/^GBA lowering\s+FAILED/, out)
     assert_match(/^native lowering\s+FAILED/, out)
-    assert_match(/1 failures, 0 errors/, out)
     assert_match(/disagree at frame 1: the picture differs/, out)
+    assert_match(/the backends drew different screens: 1 of 38400 pixels differ/, out)
+    assert_match(/\(  0,  0\)/, out)
+    assert_equal %w[0 0], out.scan(/(\d+) errors/).flatten, "each run's tests failed, and none stopped with an error"
   end
 
   WALKING = "test_holding_right_walks_the_walker"
