@@ -308,7 +308,8 @@ module RubyGBA
             @primitives = primitives
             @samples = {}          # name -> { rate:, length: } (a Direct Sound PCM sample)
             @plays_samples = false # does the program play any sample (uses Direct Sound)?
-            @music_takes_voices = false # does a song's recorded part start notes in the slots?
+            @music_takes_voices = false # does a song's or an effect's recorded part start notes in the slots?
+            @songs_have_recorded_parts = false # ...a song's, in particular?
             @uses_envelopes = false # does any note in it have a shape (see #emit_envelope_step)?
             @effect_marks = {}      # a sound effect's part's mark -> [effect, part], when its notes rank
           end
@@ -337,6 +338,17 @@ module RubyGBA
 
           def music_takes_voices? = @music_takes_voices
 
+          # ...said by a song's recorded part, as against a sound effect's (#ranks_voices!): its
+          # marks come to the voice routines unranked in a game that ranks them (see
+          # #emit_rank_song_mark).
+          def songs_have_recorded_parts!
+            music_takes_voices!
+            @songs_have_recorded_parts = true
+          end
+
+          # Does a song's mark come to the voice routines with no rank, for them to put one on?
+          def ranks_song_marks? = ranks_voices? && @songs_have_recorded_parts
+
           # ...and a sound effect's recorded parts do too, so every mark carries its rank
           # (Mixer.ranked_owner) and a note can take the voice of one ranked below it. +effect_marks+
           # is each effect part's mark, to [effect, part], for reading the voices back.
@@ -346,6 +358,11 @@ module RubyGBA
           end
 
           def ranks_voices? = !@effect_marks.empty?
+
+          # THE SLOT NOTHING MIXES, one past the last voice, kept in a game whose notes can find
+          # no voice at all (#ranks_voices?): a note handed it is written there and never heard.
+          # Every walk over the voices stops before it.
+          def unmixed_slot_address = @voice_base + (MAX_VOICES * SLOT_BYTES)
 
           # +reg+ = the mark a voice of recorded lane +lane+ carries, from the rank already in +reg+
           # (Mixer.ranked_owner, worked out as the game runs).
@@ -446,7 +463,9 @@ module RubyGBA
             # cost the same in the roomy memory, and the room they would have taken is the room
             # the totals need.
             @mix_totals = @memory.alloc(@mixer_spf * 2)
-            @voice_base = @memory.alloc_roomy(MAX_VOICES * SLOT_BYTES)
+            # ...and in a game whose notes can find no voice at all, one slot more past the end,
+            # which nothing mixes: where such a note is written (see #unmixed_slot_address).
+            @voice_base = @memory.alloc_roomy((MAX_VOICES + (ranks_voices? ? 1 : 0)) * SLOT_BYTES)
             @mix_routine_iwram = @memory.alloc(MIX_ROUTINE_IWRAM_MAX) # the mix routine is copied here from ROM at boot
             @timers.reserve!(COUNT_TIMER + 1, because: "Sampled sound uses two of them: one to play the " \
                                                        "sound, and one to count how much of it has played.")
@@ -761,16 +780,37 @@ module RubyGBA
             emit_music_voice_find_routine if @music_follows_level
           end
 
+          # A TUNE'S MARK COMES WITHOUT ITS RANK, and each routine below puts it on as it starts,
+          # in a game whose sound effects play recordings (see Audio#emit_song_mark for why it
+          # is here and not at the places that call). A mark with a rank is an effect's, which
+          # comes ranked already, and is left alone: every rank, one more than itself, sits
+          # above the lane's bits. Uses r0 and r12, and only for a tune's mark.
+          #
+          # The mark is Mixer.ranked_owner's, which #emit_ranked_mark also writes; the rank goes
+          # in shifted as it is ORed, one instruction fewer than working the ranked half out first.
+          def emit_rank_song_mark
+            e = @emitter
+            ranked = e.gensym
+            e.emit(ASM.cmp_imm(8, 1 << MARK_RANK_SHIFT))
+            e.emit_branch(:bcond, ranked, cond: :hs)
+            @primitives.load_var(0, Audio::MUSIC_RANK)
+            e.emit(ASM.add_imm(0, 0, 1))
+            e.emit(ASM.orr_reg_lsl(8, 8, 0, MARK_RANK_SHIFT))
+            e.place_label(ranked)
+          end
+
           # The voice sounding the part's note (r8's mark) into r7, or 0 when the part has none —
           # its recording ran out and the mix retired it, or it rested. A voice of the part's that
           # is falling away is an earlier note on its way out, not this one, and is passed over:
-          # the same reading #emit_music_voice_off_routine makes. Uses r0, r1, r7.
+          # the same reading #emit_music_voice_off_routine makes. Uses r0, r1, r7, and r12 for a
+          # tune's mark that comes unranked (#emit_rank_song_mark).
           def emit_music_voice_find_routine
             e = @emitter
             scan = e.gensym
             onward = e.gensym
             done = e.gensym
             e.place_label(MUSIC_VOICE_FIND)
+            emit_rank_song_mark if ranks_song_marks?
             e.emit(ASM.load_immediate(7, @voice_base))
             e.emit(ASM.load_immediate(1, @voice_base + (MAX_VOICES * SLOT_BYTES)))
             e.place_label(scan)
@@ -793,7 +833,8 @@ module RubyGBA
           end
 
           # Stop the voice sounding the part's note (r8's mark) — or nothing, when the part has
-          # none: its last note ran out, and the mix retired it. Uses r0, r1, r7.
+          # none: its last note ran out, and the mix retired it. Uses r0, r1, r7, and r12 for a
+          # tune's mark that comes unranked (#emit_rank_song_mark).
           #
           # A SHAPED NOTE IS NOT STOPPED HERE, it is only told to start falling. What ends it is
           # the pass before the mix, when its level has fallen away to nothing — which is the
@@ -809,6 +850,7 @@ module RubyGBA
             onward = e.gensym
             done = e.gensym
             e.place_label(MUSIC_VOICE_OFF)
+            emit_rank_song_mark if ranks_song_marks?
             e.emit(ASM.load_immediate(7, @voice_base))
             e.emit(ASM.load_immediate(1, @voice_base + (MAX_VOICES * SLOT_BYTES)))
             e.place_label(scan)
@@ -871,8 +913,11 @@ module RubyGBA
           #
           #   5. with no game sound either, the voice of the lowest-ranked note ranked below this
           #      one — the first of them, when two rank the same;
-          #   6. and with none of those, no voice: r7 is 0, the note is not played, and it is
-          #      counted with the sounds that did not play (#emit_count_dropped_sound).
+          #   6. and with none of those, no voice: r7 is the slot nothing mixes (#unmixed_slot_address),
+          #      so the note is written where it is never heard, and it is counted with the
+          #      sounds that did not play (#emit_count_dropped_sound). A slot rather than a 0
+          #      to test for, because the test was written out again at every place a recorded
+          #      part starts a note, and the slot is in the roomy memory, not the quick one.
           #
           # In: r8 = the part's mark. Out: r7 = the voice. Uses r0, r1, r9-r12 — and, in a game that
           # shapes a note, r2 and r3 as well, and in one that ranks its voices r2-r5, which it keeps
@@ -887,6 +932,7 @@ module RubyGBA
             ranked = e.gensym
             kept = ranks_voices? ? [2, 3, 4, 5] : @uses_envelopes ? [2, 3] : []
             e.place_label(MUSIC_VOICE)
+            emit_rank_song_mark if ranks_song_marks?
             e.emit(ASM.push(*kept)) unless kept.empty?
             e.emit(ASM.load_immediate(7, @voice_base))
             e.emit(ASM.load_immediate(1, @voice_base + (MAX_VOICES * SLOT_BYTES)))
@@ -954,7 +1000,7 @@ module RubyGBA
               e.emit(ASM.cmp_imm(7, 0))
               e.emit_branch(:bcond, done, cond: :ne)
               emit_count_dropped_sound                                    # 6. no voice at all
-              e.emit(ASM.load_immediate(7, 0))
+              e.emit(ASM.load_immediate(7, unmixed_slot_address))
             end
             e.place_label(done)
             e.emit(ASM.pop(*kept)) unless kept.empty?

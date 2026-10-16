@@ -357,7 +357,7 @@ module RubyGBA
             # of its number rather than a multiply.
             @entry_rank = ENTRY_STARTS + (4 * @lanes.size)
             @entry_shift = (@entry_rank + (plays_sound_effects? ? 4 : 0) - 1).bit_length
-            @mixer.music_takes_voices! if recorded.positive?
+            @mixer.songs_have_recorded_parts! if recorded.positive?
             @mixer.music_follows_level! if recorded.positive? && @scales
           end
 
@@ -1159,13 +1159,19 @@ module RubyGBA
             @emitter.emit(ASM.pop(EFFECT_SLOT, EFFECT_ENTRY))
           end
 
-          # +reg+ = the mark a voice of the tune's recorded lane +lane+ carries: its own number, or
-          # in a game whose sound effects play recordings, that and the tune's rank.
+          # +reg+ = the mark a voice of the tune's recorded lane +lane+ carries, for the mixer's
+          # voice routines: its own number, and in a game whose sound effects play recordings,
+          # the lane alone, with no rank.
+          #
+          # THE RANK IS PUT ON IN THE ROUTINE, NOT HERE. A mark there is the tune's rank above
+          # the lane, and the rank is a variable, so working it out took a read and three
+          # instructions — at every place a recorded part starts a note, rests or goes quiet,
+          # written out again for every recorded part of every tune, so the routine that answers
+          # the display grew with the number of recorded parts the day one sound effect played a
+          # recording. The routine works it out once (Mixer#emit_rank_song_mark), and a mark
+          # with no rank is how it knows to: every rank sits above the lane's bits.
           def emit_song_mark(reg, lane)
-            return @emitter.emit(ASM.load_immediate(reg, Mixer.music_owner(lane))) unless @mixer.ranks_voices?
-
-            @primitives.load_var(reg, MUSIC_RANK)
-            @mixer.emit_ranked_mark(reg, lane)
+            @emitter.emit(ASM.load_immediate(reg, @mixer.ranks_song_marks? ? lane : Mixer.music_owner(lane)))
           end
 
           # MAY THE NOTE IN +row+, OF RANK +rank+, SOUND ON +lane+'s VOICE? When whoever holds the
@@ -1678,7 +1684,8 @@ module RubyGBA
           # the mixer's to say (Mixer#emit_take_music_voice_routine): the part's own, a free one, or
           # one of the game's. The voice's SOUNDING word goes last, and it is the part's mark. In a
           # game whose sound effects play recordings there may be no voice to have, and then the
-          # note is not played.
+          # note is written to a slot nothing mixes (Mixer#unmixed_slot_address), so it is not played
+          # and nothing here has to test for it.
           #
           # A tune's lane is +number+, and in a game that moves the music volume, the loudness the
           # row says is kept for the lane (see #holds_notes?) and the voice gets it times the
@@ -1694,10 +1701,6 @@ module RubyGBA
             @emitter.emit(ASM.cmp_imm(ACC, 0))
             @emitter.emit_branch(:bcond, rest, cond: :eq)                     # 0 is a rest
             @mixer.emit_take_music_voice                                      # r7 = the voice it gets
-            if @mixer.ranks_voices?
-              @emitter.emit(ASM.cmp_imm(voice, 0))
-              @emitter.emit_branch(:bcond, sounded, cond: :eq)                # ...none: not played
-            end
             @emitter.emit(ASM.ldr_offset(ACC, at, 4))
             @emitter.emit(ASM.str_offset(ACC, voice, Mixer::SLOT_STEP))
             @emitter.emit(ASM.load_halfword_offset(ACC, at, 10))              # how loud
