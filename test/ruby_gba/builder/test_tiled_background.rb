@@ -141,6 +141,62 @@ class TestTiledBackground < Minitest::Test
     assert_match(/same length/, err.message)
   end
 
+  # A background on a layer is declared once and the console draws it every frame from then
+  # on, so one written inside the game loop is in the wrong place, on either screen that has
+  # layers — put up again on every pass, the two backends draw two different pictures.
+  def test_a_background_declared_inside_the_game_loop_is_a_friendly_error
+    %i[tiled rotozoom].each do |screen_kind|
+      b = grass_builder(screen_kind)
+      err = assert_raises(ArgumentError, "on screen :#{screen_kind}") do
+        b.instance_eval do
+          game_loop { (held(:a) == 1).then { background :meadow, tiles: :field, map: Array.new(16, "#" * 16) } }
+        end
+      end
+      assert_match(/above your game_loop/, err.message)
+      assert_match(/inside a scene/, err.message)
+    end
+  end
+
+  # The shape the mistake was found in: scenery from two areas, each map bigger than the
+  # console's grid.
+  def test_a_background_of_several_areas_inside_the_game_loop_is_a_friendly_error
+    b = grass_builder(:tiled)
+    b.image(:sand, "#" => :yellow) { Array.new(8, "#" * 8).join("\n") }
+    b.instance_eval { tiles :beach, "#" => :sand }
+    err = assert_raises(ArgumentError) do
+      b.instance_eval do
+        game_loop do
+          background :ground, tiles: { meadow: :field, coast: :beach },
+                              map: { meadow: { hill: Array.new(80, "#" * 100) },
+                                     coast: { shore: Array.new(80, "#" * 100) } }
+        end
+      end
+    end
+    assert_match(/background :ground once, above your game_loop/, err.message)
+  end
+
+  # A bitmap background is painted into the picture where it is written, the way `blit` is,
+  # so painting one on every pass is what the program said and builds.
+  def test_a_bitmap_background_inside_the_game_loop_builds
+    b = Builder.new
+    b.instance_eval { screen :bitmap }
+    solid_tile(b, :red_tile, :red)
+    b.instance_eval do
+      tiles :checker, "R" => :red_tile
+      game_loop { background :board, tiles: :checker, map: ["RR"] }
+    end
+    b.finalize_program
+    assert_equal Color.resolve(:red), Reference.new.run(b.program, frames: 2).screen.pixel(4, 0)
+  end
+
+  private def grass_builder(screen_kind)
+    b = Builder.new
+    b.instance_eval { screen screen_kind }
+    b.image(:grass, "#" => :green) { Array.new(8, "#" * 8).join("\n") }
+    b.instance_eval { tiles :field, "#" => :grass }
+    b
+  end
+
   # In tile mode the console's tile hardware only handles 8x8 tiles, so a tileset
   # of another size gets a friendly build error naming the fix (rather than a black
   # screen). Bitmap mode has no such limit — it stamps any size — so this is only

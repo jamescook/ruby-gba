@@ -249,6 +249,7 @@ module RubyGBA
       #   mover, apart from the picture. One grid, or a Hash keyed like `map:`.
       # @return [Background] a handle: scroll_by / scroll_to / show_map
       def background(name, tiles:, map: nil, from: nil, walls: nil)
+        refuse_background_in_game_loop!(name)
         if tiles.is_a?(Hash)
           set, map_names, drawn, tile_names, grids, sets = background_from_sets(name, tiles, map, from)
           img_rows = drawn.first.first
@@ -665,6 +666,27 @@ module RubyGBA
               "background :#{name} #{turns} and its maps are bigger than 64x64 cells or are not all one " \
               "size. A background that turns must hold its whole map at once. To fix this, make every map " \
               "of :#{name} one size, 64x64 cells or smaller, or use a background that does not turn."
+      end
+
+      # A BACKGROUND ON A LAYER IS DECLARED ONCE. The console draws a layer every frame from
+      # the moment its tiles and map are in video memory, so a tiled background belongs above
+      # the game loop or in a scene, which is built once off the loop. Put up again on every
+      # pass of the loop, it reaches the screen at a different moment on each backend, and the
+      # two draw different pictures.
+      #
+      # The rule is the loop's body and nothing wider. Tiled text is refused in any routine as
+      # well, but a background declared in a routine the loop calls draws the same picture on
+      # both backends, for a small map and for one bigger than the console's grid, so there is
+      # no mistake there to stop. A bitmap background is painted into the picture
+      # where it is written, as `blit` is, so the loop is no mistake for one either.
+      def refuse_background_in_game_loop!(name)
+        return unless IR::Modes::TILE_SCREENS.include?(@screen_mode)
+        return unless @container_stack.any? { |open| open.kind == :loop }
+
+        raise ArgumentError,
+              "Declare background :#{name} once, above your game_loop or inside a scene. Do not declare it " \
+              "inside the loop. On a tiled screen, the console draws a background every frame after you " \
+              "declare it once. To show another map from the loop, use show_map."
       end
 
       # The background's cells as a grid of tile-image names (nil = blank), plus the
