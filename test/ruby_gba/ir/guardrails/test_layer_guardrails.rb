@@ -31,7 +31,7 @@ class TestLayerGuardrails < Minitest::Test
   # Two pictures every test can draw with, declared up front so no test spends a line
   # on art. A picture is not a thing in the stack, so declaring one changes nothing
   # either check looks at.
-  def built(&block)
+  private def built(&block)
     b = Builder.new
     b.image(:red_guy, "#" => :red) { (["#" * 8] * 8).join("\n") }
     b.image(:blue_guy, "#" => :blue) { (["#" * 8] * 8).join("\n") }
@@ -43,13 +43,13 @@ class TestLayerGuardrails < Minitest::Test
   # Some checks need the build's software sprites (a sprite's layer lives on its handle,
   # not in the tree) and some read the tree alone. Hand the list only to the ones that
   # take it, so a check that stops needing it says so by its own signature.
-  def findings(check, &block)
+  private def findings(check, &block)
     program, sprites = built(&block)
     made = check.instance_method(:initialize).arity.zero? ? check.new : check.new(sprites)
     made.detect(program)
   end
 
-  def only_finding(check, &block)
+  private def only_finding(check, &block)
     found = findings(check, &block)
 
     assert_equal 1, found.length, "expected exactly one finding, got #{found.map(&:message)}"
@@ -561,7 +561,7 @@ class TestLayerGuardrails < Minitest::Test
   # The finding three tests share. `built` runs its block with the BUILDER as `self`, so
   # the setup has to be handed the builder rather than called bare — a bare call would
   # look for a DSL verb of that name.
-  def reversed_background_finding
+  private def reversed_background_finding
     test = self
     only_finding(Checks::StackNotHonored) { test.two_reversed_backgrounds(self) }
   end

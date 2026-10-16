@@ -15,14 +15,14 @@ class TestRaycasterExample < Minitest::Test
   runs_on :reference, :native
 
   # How many screen columns show a wall — any of the three depth shades — at the horizon.
-  def wall_columns(sample)
+  private def wall_columns(sample)
     (0...240).step(8).count { |x| Raycaster::WALL_SHADES.include?(sample.call(x + 3, 80)) }
   end
 
   # The row where the wall starts in each column: how tall that column's wall is drawn.
   # This is the whole picture reduced to 30 numbers, which is what makes the shape of the
   # view assertable instead of something you have to look at.
-  def wall_tops(screen)
+  private def wall_tops(screen)
     (0...Raycaster::NUM_COLS).map do |col|
       x = (col * Raycaster::COL_W) + (Raycaster::COL_W / 2)
       (0...160).find { |row| screen.pixel(x, row) != Raycaster::SKY } || 160

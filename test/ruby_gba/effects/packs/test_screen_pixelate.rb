@@ -18,7 +18,7 @@ class TestScreenPixelate < Minitest::Test
   HEIGHT = 160
   LARGEST = 16
 
-  def program(&block)
+  private def program(&block)
     b = Builder.new
     b.instance_eval(&block)
     b.finalize_program
@@ -27,7 +27,7 @@ class TestScreenPixelate < Minitest::Test
 
   # A painted screen with nothing on a grid, so every size of block is a different
   # picture. +timeline+ is run each frame with the frame's number.
-  def painted_game(&timeline)
+  private def painted_game(&timeline)
     program do
       screen :bitmap
       frame = var :frame, 0
@@ -41,14 +41,14 @@ class TestScreenPixelate < Minitest::Test
     end
   end
 
-  def picture_at(program, frames)
+  private def picture_at(program, frames)
     screen = Reference.new.run(program, frames: frames).screen
     Array.new(HEIGHT) { |y| Array.new(WIDTH) { |x| screen.pixel(x, y) } }
   end
 
   # The size of block each of the first +frames+ frames shows: found by putting the picture
   # as drawn into blocks of every size and seeing which one the frame is.
-  def sizes_shown(program, frames)
+  private def sizes_shown(program, frames)
     drawn = picture_at(painted_game { |_frame| nil }, 2)
     by_size = (1..LARGEST).to_h do |size|
       [Array.new(HEIGHT) { |y| Array.new(WIDTH) { |x| drawn[y - (y % size)][x - (x % size)] } }, size]
@@ -187,7 +187,7 @@ class TestScreenPixelate < Minitest::Test
     assert_raises(ArgumentError) { painted_game { |_frame| pixelate_out frames: 4, duration: 1 } }
   end
 
-  def findings_for(program)
+  private def findings_for(program)
     RubyGBA::IR::Guardrails::Validator.new.run(program, autofix: false).warnings.map(&:check)
   end
 

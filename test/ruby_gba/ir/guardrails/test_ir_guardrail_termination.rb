@@ -16,7 +16,7 @@ class TestIRGuardrailTermination < Minitest::Test
 
   Guardrails = RubyGBA::IR::Guardrails
 
-  def termination_warnings(prog)
+  private def termination_warnings(prog)
     Guardrails::Validator.new.run(prog, autofix: false).warnings
                          .select { |w| w.check == :termination }
   end

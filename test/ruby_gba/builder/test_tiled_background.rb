@@ -16,12 +16,12 @@ class TestTiledBackground < Minitest::Test
 
   # A 4x4 solid tile of one color, as ASCII art (small, so the grid math is easy
   # to read: cell (c, r) covers x 4c..4c+3, y 4r..4r+3).
-  def solid_tile(builder, name, color)
+  private def solid_tile(builder, name, color)
     builder.image(name, "#" => color) { "####\n####\n####\n####" }
   end
 
   # Build a 2x2 checker of two tiles and return the finished interpreter run.
-  def checker_program
+  private def checker_program
     b = Builder.new
     b.instance_eval do
       screen :bitmap

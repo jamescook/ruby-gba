@@ -7,11 +7,11 @@ class TestInput < Minitest::Test
 
   include RubyGBA::Console::Hardware
 
-  def build(validate: false, &block)
+  private def build(validate: false, &block)
     RubyGBA.build("INPTEST", validate: validate, &block)
   end
 
-  def instructions(rom)
+  private def instructions(rom)
     start = RubyGBA::Cartridge::ROM::ENTRY_OFFSET
     result = []
     offset = start

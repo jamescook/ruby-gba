@@ -17,7 +17,7 @@ class TestPoolFieldNames < Minitest::Test
   OWN = %i[transparent red green].freeze
   HURT = %i[transparent yellow white].freeze
 
-  def tiled_program(&game)
+  private def tiled_program(&game)
     builder = Builder.new
     builder.instance_eval do
       screen :tiled
@@ -31,13 +31,13 @@ class TestPoolFieldNames < Minitest::Test
   end
 
   # The variable +name+ after +frames+ frames, on the interpreter and on the console.
-  def var_on_both_backends(prog, name, frames: 4)
+  private def var_on_both_backends(prog, name, frames: 4)
     rom = assemble_rom(prog)
     console = assert_emulator_loads_rom(rom, frames: frames + 2, vars: rom.var_addresses)
     [Reference.new.run(prog, frames: frames)[name], console.var(name)]
   end
 
-  def refused(&game)
+  private def refused(&game)
     assert_raises(ArgumentError) { Builder.new.instance_eval(&game) }.message
   end
 

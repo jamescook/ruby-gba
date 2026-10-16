@@ -28,7 +28,7 @@ class TestSaveDataFast < Minitest::Test
   # of other work it does on every pass, for a game that uses most of each frame. +words+
   # are for the cartridge (`save_memory: 64`), and +save_vars+ is how many numbers it also
   # keeps with `save_var`.
-  def saving_game(fast: nil, asks: [], saves: true, work: 0, save_vars: 0, **words)
+  private def saving_game(fast: nil, asks: [], saves: true, work: 0, save_vars: 0, **words)
     said = fast.nil? ? {} : { fast: fast }
     RubyGBA.game("SAVEFAST", **words) do
       screen :bitmap
@@ -52,13 +52,13 @@ class TestSaveDataFast < Minitest::Test
     end
   end
 
-  def routine(piece, record: :file) = MadeNames.make(:save_record, record: record, piece: piece)
-  def routines(*pieces) = pieces.map { |piece| routine(piece) }
+  private def routine(piece, record: :file) = MadeNames.make(:save_record, record: record, piece: piece)
+  private def routines(*pieces) = pieces.map { |piece| routine(piece) }
 
   # The queue's own routines, which every record's writes go through.
   QUEUE = %i[tick step_running finish await_wipe pick_slot end].map { |piece| MadeNames.make(:save_jobs, piece: piece) }.freeze
 
-  def kept_in_quick_memory(game, profile:)
+  private def kept_in_quick_memory(game, profile:)
     game.build_rom(out: StringIO.new, err: StringIO.new, profile: profile).built.placement.funcs
   end
 
@@ -153,7 +153,7 @@ class TestSaveDataFast < Minitest::Test
   MOST_OF_A_FRAME = 14_000
 
   # A measured build of +game+, played to the frame before the press that saves.
-  def played_to_the_press(game)
+  private def played_to_the_press(game)
     rom = game.build_rom(out: StringIO.new, err: StringIO.new, profile: true)
     pressing = ->(frame) { frame == PRESSED_ON ? KEY_A : 0 }
     RubyGBA::Diagnostics::Verifier.new(rom, frames: PRESSED_ON, keys: pressing, count_passes: true, vars: rom.var_addresses)
@@ -162,7 +162,7 @@ class TestSaveDataFast < Minitest::Test
   # The frames, counted from the press that saves, on which the game finished no pass: a
   # pass that did not fit its frame, so the game is a frame behind from there. And how many
   # saves were written in those frames, since a save that never happened loses no frame.
-  def frames_lost_to_a_save(game)
+  private def frames_lost_to_a_save(game)
     reader = played_to_the_press(game)
     passed = reader.passes
     lost = (1..WATCHED).reject do
@@ -197,7 +197,7 @@ class TestSaveDataFast < Minitest::Test
   # --- what the build says when it cannot ---
 
   # A list that takes nearly all of the quick memory, so no save routine fits beside it.
-  def game_with_no_room(&saving)
+  private def game_with_no_room(&saving)
     RubyGBA.game("SAVEFULL") do
       screen :bitmap
       hearts = var :hearts, 3
@@ -232,7 +232,7 @@ class TestSaveDataFast < Minitest::Test
   CROWDING_LIST = 5200
   CROWDING_THE_MUSIC = 4350
 
-  def game_crowding_its_loop(fast, pile_size: CROWDING_LIST)
+  private def game_crowding_its_loop(fast, pile_size: CROWDING_LIST)
     said = fast.nil? ? {} : { fast: fast }
     RubyGBA.game("SAVELOOP") do
       screen :bitmap

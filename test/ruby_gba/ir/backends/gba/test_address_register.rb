@@ -23,7 +23,7 @@ class TestAddressRegister < Minitest::Test
   # The one instruction this whole change is about: the base put in the address register.
   BASE_LOAD = A.load_immediate(ADDR, BASE)
 
-  def may_write_register?(bytes, reg = ADDR) = A.may_write_register?(bytes.unpack1("V"), reg)
+  private def may_write_register?(bytes, reg = ADDR) = A.may_write_register?(bytes.unpack1("V"), reg)
 
   # ---- which instructions could change a register ----
 
@@ -126,14 +126,14 @@ class TestAddressRegister < Minitest::Test
   # ---- and what the backend emits because of it ----
 
   # Count how many times the base is put in the address register inside +func+.
-  def base_loads_in(func, &block)
+  private def base_loads_in(func, &block)
     gba = GBA.new
     gba.lower(dsl_program(&block))
     span = gba.func_ranges.fetch(func)
     gba.code[span].scan(BASE_LOAD).length
   end
 
-  def dsl_program(&block)
+  private def dsl_program(&block)
     builder = RubyGBA::Builder.new
     builder.instance_eval(&block)
     builder.finalize_program
@@ -236,7 +236,7 @@ class TestAddressRegister < Minitest::Test
   # Deliberately narrower than ASM.may_write_register?, which also says yes to every return and every
   # call. Those really do end what is known about the register, and counting them here
   # would drown the thing being counted.
-  def writes_list_base?(word)
+  private def writes_list_base?(word)
     return true if (word & 0xFFFFF000) == (0xE59F0000 | (LIST_ADDR << 12))
 
     ((word >> 26) & 0b11).zero? && !(word & 0x02000000).zero? && ((word >> 12) & 0xF) == LIST_ADDR
@@ -244,7 +244,7 @@ class TestAddressRegister < Minitest::Test
 
   # Is this the one instruction that STEPS the list register from the address it holds to
   # another: an ADD or a SUB of a plain number, from that register into itself?
-  def steps_list_base?(word)
+  private def steps_list_base?(word)
     [0xE2800000, 0xE2400000].include?(word & 0xFFF00000) && ((word >> 16) & 0xF) == LIST_ADDR &&
       ((word >> 12) & 0xF) == LIST_ADDR
   end
@@ -252,7 +252,7 @@ class TestAddressRegister < Minitest::Test
   # Each RUN of consecutive such instructions inside +func+, as the instructions themselves:
   # how many runs there are says how often the base had to be named at all, and what a run is
   # made of says whether it was named from nothing or stepped from the address already there.
-  def list_base_runs_in(func, &block)
+  private def list_base_runs_in(func, &block)
     gba = GBA.new
     gba.lower(dsl_program(&block))
     words = gba.code[gba.func_ranges.fetch(func)].unpack("V*")

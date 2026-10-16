@@ -12,7 +12,7 @@ class TestTimer < Minitest::Test
   # Run a program that samples `beat.ticks` into :snap every frame and halts at
   # `stop_frame`; returns the interpreter so a test can read :snap. `per_second` sets the
   # rate; if `stop_at` is given, the timer is stopped at that frame.
-  def run_ticks(per_second:, stop_frame:, stop_at: nil)
+  private def run_ticks(per_second:, stop_frame:, stop_at: nil)
     b = Builder.new
     b.instance_eval do
       screen :bitmap
@@ -117,7 +117,7 @@ class TestTimer < Minitest::Test
 
   # Runs `beat.on_tick { add! :hits, 1 }` at the given rate and halts at `stop_frame`;
   # returns the interpreter so a test can read :hits.
-  def run_on_tick(per_second:, stop_frame:, stop_at: nil)
+  private def run_on_tick(per_second:, stop_frame:, stop_at: nil)
     b = Builder.new
     b.instance_eval do
       screen :bitmap
@@ -262,7 +262,7 @@ class TestTimer < Minitest::Test
   # which means the handler is copied bytes running from a different address than the ones the
   # build laid out (see Backends::GBA::Placement#IRQ_ROUTINE). It has to count exactly the
   # same either way, so this counts the same ticks with the handler in both places.
-  def ticks_counted_on_the_console(fast_code:)
+  private def ticks_counted_on_the_console(fast_code:)
     b = Builder.new
     b.instance_eval do
       screen :bitmap

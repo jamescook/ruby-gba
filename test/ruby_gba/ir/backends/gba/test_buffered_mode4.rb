@@ -22,7 +22,7 @@ class TestBufferedMode4 < Minitest::Test
   # a wrong palette index or a mis-computed page address lands the wrong color, so
   # each assertion pins a specific color at a specific pixel. Squares sit on even
   # columns (Mode 4 fills two pixels at a time). One wait_vblank presents the page.
-  def diagnostic_program
+  private def diagnostic_program
     program(
       screen(:bitmap, buffered: true),
       clear_screen(:blue),

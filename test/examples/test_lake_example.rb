@@ -47,11 +47,11 @@ class TestLakeExample < Minitest::Test
   BELL_OVER_WATER = blend(BELL, WATER)
   BELL_OVER_GLINT = blend(BELL, GLINT)
 
-  def screen_at(frames)
+  private def screen_at(frames)
     game_player.run(Lake.program, frames: frames).screen
   end
 
-  def colors_on(screen)
+  private def colors_on(screen)
     (0...160).flat_map { |y| (0...240).map { |x| screen.pixel(x, y) } }.uniq
   end
 

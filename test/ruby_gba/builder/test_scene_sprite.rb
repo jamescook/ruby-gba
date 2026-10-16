@@ -25,7 +25,7 @@ class TestSceneSprite < Minitest::Test
   # A game of two scenes on a blue field, picked by :state, with a counter of the passes so
   # far. The block declares the scenes and is handed both variables. +first+ runs at the top
   # of every pass, before the scene is picked.
-  def scenes_program(first: nil, &scenes)
+  private def scenes_program(first: nil, &scenes)
     b = Builder.new
     b.instance_eval do
       screen :bitmap
@@ -50,7 +50,7 @@ class TestSceneSprite < Minitest::Test
 
   # How many pixels of each colour the picture holds after +frames+ passes, once both
   # backends have been seen to draw the same picture.
-  def colors_after(prog, frames)
+  private def colors_after(prog, frames)
     oracle, console, = backend_pictures(prog, frames: frames, name: "SCNSPR")
     bad = mismatched_pixels(oracle, console)
     assert_empty bad.first(5), "the console drew a different picture at #{bad.length} pixels"
@@ -246,7 +246,7 @@ class TestSceneSprite < Minitest::Test
   # A game whose second scene is drawn from tiles. A tiled screen keeps its tile pictures in
   # the same video memory a painted screen keeps its pixels in, so a software sprite painted
   # or rubbed out while the tiled scene is up writes into the tiles.
-  def mixed_program(&play)
+  private def mixed_program(&play)
     b = Builder.new
     b.instance_eval do
       screen :bitmap
@@ -308,7 +308,7 @@ class TestSceneSprite < Minitest::Test
   # The same two scenes with the red sprite declared ABOVE the loop, so it belongs to every
   # scene. It is a painted-screen sprite all the same, and the tiled scene has no picture for
   # it to be painted into. The block runs at the end of every pass, handed the sprite.
-  def shared_sprite_program(shown: true, &each_pass)
+  private def shared_sprite_program(shown: true, &each_pass)
     b = Builder.new
     b.instance_eval do
       screen :bitmap
@@ -355,7 +355,7 @@ class TestSceneSprite < Minitest::Test
   # The first row of a sprite at the top-left corner, as the console's video memory holds it
   # after +frames+: eight pixels on a painted screen, and on a tiled one the start of the
   # tile pictures, which a sprite painted there would write over.
-  def top_left_of_video_memory(prog, frames)
+  private def top_left_of_video_memory(prog, frames)
     v = assert_emulator_loads_rom(ROM.assemble(GBA.new.lower(prog), title: "SCNMEM"), frames: frames)
     Array.new(SIDE) { |pixel| v.mem16(VIDEO_MEMORY + (pixel * 2)) }
   end

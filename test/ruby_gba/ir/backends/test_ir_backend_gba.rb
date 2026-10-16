@@ -12,13 +12,13 @@ class TestIRBackendGBA < Minitest::Test
   include RubyGBA::IR::Build
 
   # Lower a program to machine code, then assemble it into a runnable ROM.
-  def lower(program)
+  private def lower(program)
     RubyGBA::Cartridge::ROM.assemble(GBA.new.lower(program), title: "IRLOWER", code: "IRLO", maker: "98")
   end
 
   # Decode the branch/call word at byte +at+ back into the target byte offset it
   # jumps to — the inverse of how ASM encodes a PC-relative branch.
-  def branch_target(code, at)
+  private def branch_target(code, at)
     word = code[at, 4].unpack1("V")
     off = word & 0x00FFFFFF
     off -= 0x0100_0000 if off >= 0x0080_0000 # sign-extend the 24-bit field

@@ -28,7 +28,7 @@ class TestSpriteTileSharing < Minitest::Test
   INK2 = RubyGBA::Graphics::Color.rgb(0, 31, 10)
 
   # A +size+-square picture of noise, +seed+ deciding the pattern.
-  def noise(size, seed, ink = INK)
+  private def noise(size, seed, ink = INK)
     rng = Random.new(seed)
     Array.new(size * size) { rng.rand(4).zero? ? CLEAR : ink }
   end
@@ -37,7 +37,7 @@ class TestSpriteTileSharing < Minitest::Test
   # of nothing around them so the picture is ragged and gets cut into several objects.
   # +still_torso+ is the whole question — a torso that is the same in every frame is
   # what a walk cycle has, and it is what there is to share.
-  def creature(canvas, step, still_torso:)
+  private def creature(canvas, step, still_torso:)
     torso = Random.new(still_torso ? 1 : 500 + step)
     legs = Random.new(1000 + step)
     (0...(canvas * canvas)).map do |i|
@@ -51,7 +51,7 @@ class TestSpriteTileSharing < Minitest::Test
   end
 
   # A program whose one sprite cycles +art+ (pictures of +canvas+ square).
-  def cycling(art, canvas, rate: 4)
+  private def cycling(art, canvas, rate: 4)
     clear = CLEAR
     b = Builder.new
     b.instance_eval do
@@ -69,7 +69,7 @@ class TestSpriteTileSharing < Minitest::Test
   end
 
   # ...and the same through RubyGBA.build, which is where the sprite-memory figure is.
-  def sprite_bytes(art, canvas, rate: 4)
+  private def sprite_bytes(art, canvas, rate: 4)
     clear = CLEAR
     rom = RubyGBA.build("SHARE", code: "BSHR", maker: "01", validate: false,
                         out: StringIO.new, err: StringIO.new) do
@@ -87,7 +87,7 @@ class TestSpriteTileSharing < Minitest::Test
 
   # How many instructions a program lowers to — the only way a test can see WHICH draw
   # a sprite got, since the two draw the same picture and differ only in what they cost.
-  def emitted(program)
+  private def emitted(program)
     backend = RubyGBA::IR::Backends::GBA.new
     backend.lower(program)
     backend.instance_variable_get(:@emit).code.length
@@ -99,7 +99,7 @@ class TestSpriteTileSharing < Minitest::Test
   # wing, a pendulum, a torch — and the middle frame used to be stored twice.
   PING_PONG = %i[a b c b].freeze
 
-  def ping_pong_art
+  private def ping_pong_art
     made = { a: noise(32, 11), b: noise(32, 12), c: noise(32, 13) }
     PING_PONG.map { |which| made.fetch(which) }
   end
@@ -137,7 +137,7 @@ class TestSpriteTileSharing < Minitest::Test
   # A FOUR-WAY CHARACTER WITH A REST FRAME IN EVERY DIRECTION, which is what art
   # exported from a drawing tool commonly looks like — and how Pac-Man is drawn, whose
   # shut mouth is the same disc whichever way he faces.
-  def four_way(rest_shared:)
+  private def four_way(rest_shared:)
     clear = CLEAR
     poses = { rest: noise(16, 21), left: noise(16, 22), right: noise(16, 23),
               up: noise(16, 24), down: noise(16, 25) }
@@ -168,7 +168,7 @@ class TestSpriteTileSharing < Minitest::Test
 
   # Eight frames of a 96x96 creature: every frame is different, so nothing here is a
   # repeated pose. What repeats is the torso, which is several pieces of every frame.
-  def walk(still_torso:, frames: 8)
+  private def walk(still_torso:, frames: 8)
     (0...frames).map { |k| creature(96, k, still_torso: still_torso) }
   end
 
@@ -238,7 +238,7 @@ class TestSpriteTileSharing < Minitest::Test
   # A REPEAT AND A MIRROR IN ONE CYCLE. A pose that repeats an earlier one shares its
   # tiles with no flip; a pose that is an earlier one BACKWARDS shares them with one.
   # Both point back into the same run, so the two have to agree about where it is.
-  def mixed_cycle
+  private def mixed_cycle
     clear = CLEAR
     art = [noise(32, 51), noise(32, 52)]
     b = Builder.new

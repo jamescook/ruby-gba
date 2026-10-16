@@ -22,13 +22,13 @@ class TestScenePresentation < Minitest::Test
 
   # Is there a white pixel anywhere in a small box — for finding a HUD glyph without
   # pinning the font's exact pixels.
-  def white_in?(screen, x, y, w, h)
+  private def white_in?(screen, x, y, w, h)
     (y...y + h).any? { |py| (x...x + w).any? { |px| screen.pixel(px, py) == WHITE } }
   end
 
   # A :playing scene owning a red block (top-left), a :over scene owning a blue block
   # (lower-right); START switches playing -> over. Tiled throughout — one display mode.
-  def two_scene_program
+  private def two_scene_program
     b = Builder.new
     b.instance_eval do
       screen :tiled

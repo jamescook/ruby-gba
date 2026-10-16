@@ -20,7 +20,7 @@ class TestPowerOfTwoMath < Minitest::Test
   # Markers sit at `answer + OFFSET` so a negative answer still lands on screen.
   OFFSET = 100
 
-  def build(&block)
+  private def build(&block)
     b = RubyGBA::Builder.new
     b.instance_eval(&block)
     b.finalize_program
@@ -28,7 +28,7 @@ class TestPowerOfTwoMath < Minitest::Test
   end
 
   # A program whose marker x is `answer + OFFSET`. Returns [program, marker_x].
-  def answer_program(&block)
+  private def answer_program(&block)
     program = build do
       screen :bitmap
       clear_screen :blue
@@ -41,7 +41,7 @@ class TestPowerOfTwoMath < Minitest::Test
   end
 
   # Assert an expression's answer, and that the console gets the same picture.
-  def assert_answer(expected, &block)
+  private def assert_answer(expected, &block)
     program, marker = answer_program(&block)
     assert_equal expected, marker - OFFSET
     assert_backends_agree(program)
@@ -117,7 +117,7 @@ class TestPowerOfTwoMath < Minitest::Test
 
   # If the reduction silently stopped happening the answers above would all still pass,
   # because the honest routine computes the same thing. This is what notices.
-  def emitted_bytes(&block)
+  private def emitted_bytes(&block)
     RubyGBA::IR::Backends::GBA.new.lower(build(&block)).bytesize
   end
 

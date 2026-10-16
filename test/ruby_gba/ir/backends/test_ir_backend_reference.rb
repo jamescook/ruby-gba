@@ -13,7 +13,7 @@ class TestIRBackendReference < Minitest::Test
 
   Int32 = RubyGBA::IR::Int32
 
-  def run_ir(node, **opts)
+  private def run_ir(node, **opts)
     Reference.new.run(node, **opts)
   end
 

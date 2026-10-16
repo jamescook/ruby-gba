@@ -18,7 +18,7 @@ class TestFadeHeldToArea < Minitest::Test
 
   WHITE = Color.resolve(:white)
 
-  def program(&block)
+  private def program(&block)
     b = Builder.new
     b.instance_eval(&block)
     b.finalize_program
@@ -26,7 +26,7 @@ class TestFadeHeldToArea < Minitest::Test
   end
 
   # A room drawn all in white on a tiled screen, with +said+ run before the loop.
-  def white_room(&said)
+  private def white_room(&said)
     program do
       screen :tiled
       image(:white_tile, "#" => :white) { (["#" * 8] * 8).join("\n") }
@@ -37,11 +37,11 @@ class TestFadeHeldToArea < Minitest::Test
     end
   end
 
-  def shown(program, frames: 2) = game_player.run(program, frames: frames).screen
+  private def shown(program, frames: 2) = game_player.run(program, frames: frames).screen
 
   # What the whole screen comes to under the same fade with no rectangle, so the expected
   # colour is the fade's own and not worked out again here.
-  def whole_screen_faded(amount)
+  private def whole_screen_faded(amount)
     shown(white_room { fade :black, amount }).pixel(0, 0)
   end
 
@@ -77,7 +77,7 @@ class TestFadeHeldToArea < Minitest::Test
 
   # A bitmap screen has no layers to place a fade under, so a rectangle is the only way to keep
   # part of its picture out of one: the view of a first-person game and its status bar.
-  def painted(&said)
+  private def painted(&said)
     program do
       screen :bitmap
       clear_screen :white
@@ -109,7 +109,7 @@ class TestFadeHeldToArea < Minitest::Test
 
   # The view of a first-person game fading out with its status bar left alone, and coming back:
   # `fade_out` and `fade_in` say the rectangle once, the way they say `under:`.
-  def fading_view
+  private def fading_view
     program do
       screen :bitmap
       clear_screen :white
@@ -172,7 +172,7 @@ class TestFadeHeldToArea < Minitest::Test
   end
 
   # The words a game writes wrongly, refused where the fade is written.
-  def held(**words)
+  private def held(**words)
     Builder.new.instance_eval do
       screen :tiled
       fade :black, 50, **words

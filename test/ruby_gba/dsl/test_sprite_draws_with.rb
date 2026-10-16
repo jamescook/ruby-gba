@@ -19,7 +19,7 @@ class TestSpriteDrawsWith < Minitest::Test
   # swapped colour shows at a known place.
   SHIP = Array.new(64) { |i| (i % 8) < 4 ? :red : :green }.freeze
 
-  def program(&game)
+  private def program(&game)
     builder = Builder.new
     builder.instance_eval do
       screen :tiled
@@ -64,7 +64,7 @@ class TestSpriteDrawsWith < Minitest::Test
 
   # A picture the game paints from a list keeps its pixels as places, so another list swaps
   # its colours by place the same way. A save file's name wears its panel's colours like this.
-  def painted_program
+  private def painted_program
     builder = Builder.new
     builder.instance_eval do
       screen :tiled
@@ -98,7 +98,7 @@ class TestSpriteDrawsWith < Minitest::Test
   # A sprite told to draw with another list before its picture is first painted: the picture is
   # blank to start with, and once it is painted it shows the other list's colours, by the
   # places it holds then.
-  def painted_late_program
+  private def painted_late_program
     builder = Builder.new
     builder.instance_eval do
       screen :tiled
@@ -131,7 +131,7 @@ class TestSpriteDrawsWith < Minitest::Test
 
   # A pulse: a counter walks through two lists and past them, and the ship steps right on
   # the same frames, so a colour a frame early or late shows against the position.
-  def pulse_program
+  private def pulse_program
     builder = Builder.new
     builder.instance_eval do
       screen :tiled
@@ -151,7 +151,7 @@ class TestSpriteDrawsWith < Minitest::Test
   end
 
   # The colour of the ship's left edge, wherever it has got to.
-  def left_edge_color(frames)
+  private def left_edge_color(frames)
     i = game_player.run(pulse_program, frames: frames)
     i.screen.pixel((40..).find { |col| i.screen.pixel(col, 41) != 0 }, 41)
   end
@@ -180,7 +180,7 @@ class TestSpriteDrawsWith < Minitest::Test
   # pose the game picks, turning, and poses that came out different sizes (a mirrored one
   # among them) — and a picture too big for one object is several entries. Each carries the
   # colours.
-  def every_draw_program
+  private def every_draw_program
     long = Array.new(96 * 16) { |i| (i % 96) < 48 ? :red : :green }
     builder = Builder.new
     builder.instance_eval do
@@ -218,7 +218,7 @@ class TestSpriteDrawsWith < Minitest::Test
 
   # Two ships in a pool, and only the one on the right is hurt. After a few frames the hurt
   # one is removed and a new one spawned into its slot, which must not inherit its colours.
-  def pool_program(respawn_at: nil)
+  private def pool_program(respawn_at: nil)
     builder = Builder.new
     builder.instance_eval do
       screen :tiled
@@ -284,11 +284,11 @@ class TestSpriteDrawsWith < Minitest::Test
 
   # --- friendly errors ---
 
-  def built(&block)
+  private def built(&block)
     RubyGBA.build("COLORS", code: "BCOL", maker: "01", out: StringIO.new, err: StringIO.new, &block)
   end
 
-  def refused(error = ArgumentError, &block)
+  private def refused(error = ArgumentError, &block)
     assert_raises(error) { built(&block) }
   end
 
@@ -443,7 +443,7 @@ class TestSpriteDrawsWith < Minitest::Test
   # backdrop, which is a colour of the scenery's table and has to stay as it was. Each list
   # is written with magenta first, the place that means see-through: that is the colour
   # sitting on the first entry of the sprites' table, where nothing draws it.
-  def ship_drawn_with_fifteen_lists
+  private def ship_drawn_with_fifteen_lists
     builder = Builder.new
     builder.instance_eval do
       screen :tiled
@@ -487,9 +487,9 @@ class TestSpriteDrawsWith < Minitest::Test
   SECOND_SCENE_AT = 6
   FIRST_SCENE_AGAIN_AT = 12
 
-  def shade(scene, n) = scene == :one ? RubyGBA::Graphics::Color.rgb(n + 1, 0, 0) : RubyGBA::Graphics::Color.rgb(0, n + 1, 0)
+  private def shade(scene, n) = scene == :one ? RubyGBA::Graphics::Color.rgb(n + 1, 0, 0) : RubyGBA::Graphics::Color.rgb(0, n + 1, 0)
 
-  def two_scenes_of_many_lists
+  private def two_scenes_of_many_lists
     turns = TURNS
     shades = %i[one two].to_h { |scene| [scene, (0...turns).map { |n| shade(scene, n) }] }
     builder = Builder.new
@@ -534,7 +534,7 @@ class TestSpriteDrawsWith < Minitest::Test
   # sent as it takes over have to go in already tinted, or its sprites arrive at full colour in
   # the middle of a red screen. The badge belongs to no scene and has to keep its colours
   # whichever scene's groups are in.
-  def tinted_scenes
+  private def tinted_scenes
     turns = TURNS
     shades = %i[one two].to_h { |scene| [scene, (0...turns).map { |n| shade(scene, n) }] }
     builder = Builder.new

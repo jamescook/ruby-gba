@@ -11,7 +11,7 @@ class TestIRBackendReferenceHardware < Minitest::Test
 
   include RubyGBA::IR::Build
 
-  def run_ir(node, **opts)
+  private def run_ir(node, **opts)
     Reference.new.run(node, **opts)
   end
 
@@ -247,7 +247,7 @@ class TestIRBackendReferenceHardware < Minitest::Test
   # change is the picture: read at the end of a run, it is the one a watcher reading every frame
   # saw at that moment. A scene that scrolls, changes a tile, changes its colours and moves a
   # sprite, so every kind of repaint is owed and settled somewhere in it.
-  def a_scene_that_changes_every_way
+  private def a_scene_that_changes_every_way
     tile = (["#" * 8] * 8).join("\n")
     builder = RubyGBA::Builder.new
     builder.instance_eval do
@@ -274,7 +274,7 @@ class TestIRBackendReferenceHardware < Minitest::Test
 
   # Every frame's picture as a watcher reading it each frame saw it, and the picture read at
   # the end of a run of each length up to +frames+ - 1, which must be the watched one.
-  def assert_each_ending_is_the_one_watched(program, frames:)
+  private def assert_each_ending_is_the_one_watched(program, frames:)
     watched = {}
     watcher = Reference.new
     watcher.each_vblank { |call| watched[call] = watcher.screen.shown }
@@ -300,7 +300,7 @@ class TestIRBackendReferenceHardware < Minitest::Test
   # amount the game works out — is a fact about the screen showing it, not about the game:
   # here a title bends its backdrop and works out how see-through its rays are, hands over to
   # a plain screen that scrolls, and (unless told otherwise) comes back.
-  def title_and_plain_screen(bends: true, comes_back: true)
+  private def title_and_plain_screen(bends: true, comes_back: true)
     tile = (["#" * 8] * 8).join("\n")
     builder = RubyGBA::Builder.new
     builder.instance_eval do
@@ -360,7 +360,7 @@ class TestIRBackendReferenceHardware < Minitest::Test
 
   # How many whole pictures a run of +program+ had painted by each frame, with nothing
   # reading the picture.
-  def paints_by_frame(program, frames:)
+  private def paints_by_frame(program, frames:)
     run = Reference.new
     run.singleton_class.prepend(COUNTS_PAINTS)
     paints = []
@@ -383,7 +383,7 @@ class TestIRBackendReferenceHardware < Minitest::Test
   # A screen with a strip of scenery in front of a field, the field scrolling every frame unless
   # told not to, a background that turns and changes size every frame if asked for, and whatever
   # +each_frame+ adds to the game loop (handed the frame count).
-  def a_screen(see_through: false, scrolls: true, turns: false, &each_frame)
+  private def a_screen(see_through: false, scrolls: true, turns: false, &each_frame)
     tile = (["#." * 4, ".#" * 4] * 4).join("\n")
     builder = RubyGBA::Builder.new
     builder.instance_eval do
@@ -412,7 +412,7 @@ class TestIRBackendReferenceHardware < Minitest::Test
 
   # Nothing painted from the fourth frame on, while nobody read the picture, and each picture
   # read at the end of a run is the one a watcher saw.
-  def assert_effect_paints_only_when_looked_at(program, frames: 30)
+  private def assert_effect_paints_only_when_looked_at(program, frames: 30)
     paints = paints_by_frame(program, frames: frames)
     assert_equal 0, paints.last - paints[3], "the effect painted while nobody looked"
     assert_each_ending_is_the_one_watched(program, frames: frames)

@@ -21,7 +21,7 @@ class TestBlocks < Minitest::Test
   # A program built by hand can say two places, which the DSL refuses as it is written.
   # No backend runs one: the interpreter could, and the console keeps "in blocks" as a
   # switch on each thing that is set once, so neither does.
-  def two_places
+  private def two_places
     program(screen(:tiled), layers(%i[world ui]),
             pixelate(size: int(4), under: :ui), pixelate(size: int(4)), halt)
   end

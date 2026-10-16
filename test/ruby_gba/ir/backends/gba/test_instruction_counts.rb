@@ -11,7 +11,7 @@ require "stringio"
 class TestInstructionCounts < Minitest::Test
   runs_on :reference
 
-  def counts(&block)
+  private def counts(&block)
     b = Builder.new
     b.instance_eval(&block)
     b.finalize_program
@@ -22,7 +22,7 @@ class TestInstructionCounts < Minitest::Test
 
   # Inside the game loop, since a `var` puts a `set` of its own at boot and that one is not
   # what any of these are about.
-  def find(program, kind)
+  private def find(program, kind)
     program.walk.find { |node| node.kind == :loop }.walk.find { |node| node.kind == kind }
   end
 

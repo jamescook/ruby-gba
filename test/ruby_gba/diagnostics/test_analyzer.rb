@@ -13,7 +13,7 @@ class TestAnalyzer < Minitest::Test
   Analyzer = RubyGBA::Diagnostics::Analyzer
 
   # Build a program, write it to a temp .gba, and measure it.
-  def measure(&block)
+  private def measure(&block)
     b = Builder.new
     b.instance_eval(&block)
     b.finalize_program

@@ -15,7 +15,7 @@ class TestNativeDataWidths < Minitest::Test
 
   include NativeComparison
 
-  def tables_game
+  private def tables_game
     program_of do
       screen :bitmap
       bytes = table :bytes, [-128, -1, 0, 1, 127], width: :byte
@@ -50,7 +50,7 @@ class TestNativeDataWidths < Minitest::Test
     assert_operator last.variables[:i], :>, 2, "the game should have read several entries"
   end
 
-  def art_and_sound_game
+  private def art_and_sound_game
     program_of do
       screen :bitmap
       image(:dot, "#" => :red, "." => :transparent) { "#.\n" }

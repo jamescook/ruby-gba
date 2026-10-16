@@ -25,11 +25,11 @@ class TestPictureStorage < Minitest::Test
 
   # A 16x16 picture painted in stripes of the given colours, so every one of them is really
   # drawn and none can be optimised away.
-  def striped(colors)
+  private def striped(colors)
     (0...256).map { |i| colors[i % colors.length] }
   end
 
-  def build(title, &block)
+  private def build(title, &block)
     RubyGBA.build(title, code: "B#{title[0, 3]}", maker: "01",
                          out: StringIO.new, err: StringIO.new, &block)
   end
@@ -76,7 +76,7 @@ class TestPictureStorage < Minitest::Test
   end
 
   # How many tiles of this kind the character block would hold, worked out from what one costs.
-  def tile_budget(colors)
+  private def tile_budget(colors)
     art = striped(colors).first(64)
     rom = build("TILE#{colors.length}") do
       screen :tiled
@@ -133,7 +133,7 @@ class TestPictureStorage < Minitest::Test
   # The acceptance that decides whether a game with hundreds of rooms can be written at all: a
   # sprite declared inside a scene is on screen only while that scene is the active state, so
   # no two scenes' pictures are wanted at once and they can share the room.
-  def scene_art_program(pictures_each, size: 16)
+  private def scene_art_program(pictures_each, size: 16)
     builder = Builder.new
     per_scene = pictures_each
     builder.instance_eval do
@@ -172,7 +172,7 @@ class TestPictureStorage < Minitest::Test
     assert_equal 4 * 128, four, "four each, still one scene's worth"
   end
 
-  def built_sprite_bytes(program)
+  private def built_sprite_bytes(program)
     backend = GBA.new
     backend.lower(program)
     backend.build_record(program).video_memory.sprites.used
@@ -191,7 +191,7 @@ class TestPictureStorage < Minitest::Test
   # sprite memory, and the game changes from one to the other — so the second scene's pictures
   # have to be sent when it takes over, over the first's. A build that sent them at boot would
   # show the wrong picture here, and only after the change.
-  def two_screens_program(switch_at)
+  private def two_screens_program(switch_at)
     builder = Builder.new
     builder.instance_eval do
       screen :tiled
@@ -237,7 +237,7 @@ class TestPictureStorage < Minitest::Test
   # The acceptance that matters. Two pictures with sixteen colours each, sharing none, drawn
   # side by side — which is exactly what one shared table could never do and is the whole
   # reason banks are worth having.
-  def two_palettes_program
+  private def two_palettes_program
     reds = (1..15).map { |i| RubyGBA::Graphics::Color.rgb(i * 2, 0, 0) }
     blues = (1..15).map { |i| RubyGBA::Graphics::Color.rgb(0, 0, i * 2) }
     left = striped(reds)
@@ -266,7 +266,7 @@ class TestPictureStorage < Minitest::Test
 
   # A picture past a bank and a picture inside one, in the same game. The two storages share
   # one table and one block of sprite memory, so this is where an alignment mistake shows.
-  def mixed_program
+  private def mixed_program
     small = striped(FIFTEEN)
     big = striped(SIXTEEN)
     builder = Builder.new
@@ -293,7 +293,7 @@ class TestPictureStorage < Minitest::Test
 
   # A tileset drawn from more colours than a bank holds keeps the big storage, and the blank
   # tile an empty cell points at has to stay readable to it. This is a whole screen of both.
-  def big_tileset_program
+  private def big_tileset_program
     bricks = striped(SIXTEEN).first(64)
     builder = Builder.new
     builder.instance_eval do
@@ -365,7 +365,7 @@ class TestPictureStorage < Minitest::Test
   BLACK = 0x0000
 
   # Fourteen colours plus black, which is what a real imported sprite table looks like.
-  def fifteen_with_black = [*FIFTEEN.first(14), BLACK].freeze
+  private def fifteen_with_black = [*FIFTEEN.first(14), BLACK].freeze
 
   def test_a_picture_that_draws_with_black_takes_the_slot_the_author_put_black_in
     drawn = fifteen_with_black
@@ -402,7 +402,7 @@ class TestPictureStorage < Minitest::Test
   # see-through slot are simply not drawn, so they show whatever is behind them — over a
   # black backdrop that looks identical to working and the test would pass while the
   # cartridge was perforated.
-  def black_outline_program
+  private def black_outline_program
     drawn = fifteen_with_black
     # A ring of black around a block of colour: an outline, which is where a sprite's black
     # actually lives.

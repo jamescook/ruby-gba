@@ -22,7 +22,7 @@ class TestDSLExpression < Minitest::Test
   # Build through the DSL and run it on the reference backend, returning the
   # interpreter — whose #screen holds the pixels the program drew. `held` pins a
   # button down for the whole run; `each_frame` supplies per-frame input.
-  def interpret(held: nil, each_frame: nil, **opts, &block)
+  private def interpret(held: nil, each_frame: nil, **opts, &block)
     builder = Builder.new
     builder.instance_eval(&block)
     builder.finalize_program
@@ -35,20 +35,20 @@ class TestDSLExpression < Minitest::Test
   end
 
   # Build a real ROM (for the emulator-backed hardware-confirmation tests).
-  def build(&block)
+  private def build(&block)
     RubyGBA.build("EXPR", validate: false, &block)
   end
 
   # Build the IR tree without running it — only the guardrail tests need this, to
   # see that a bad call raises before anything executes.
-  def tree(&block)
+  private def tree(&block)
     builder = Builder.new
     builder.instance_eval(&block)
     builder.finalize_program
     builder.program
   end
 
-  def pixel_at(interp, x, y)
+  private def pixel_at(interp, x, y)
     interp.screen.pixel(x, y)
   end
 
@@ -279,7 +279,7 @@ class TestDSLExpression < Minitest::Test
     [-3,  ->(d, _t, _s) { d }],                        # and d itself, untouched
   ].freeze
 
-  def new_numbers_program(builder)
+  private def new_numbers_program(builder)
     builder.instance_eval do
       screen :bitmap
       clear_screen :black

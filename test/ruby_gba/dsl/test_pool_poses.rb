@@ -23,12 +23,12 @@ class TestPoolPoses < Minitest::Test
   YELLOW = Color.resolve(:yellow)
   BLACK = 0
 
-  def solid(color)
+  private def solid(color)
     { "#" => color }
   end
 
   # A tiled program with four 8x8 pictures and a pool the block sets up.
-  def pool_program(**pool_opts)
+  private def pool_program(**pool_opts)
     b = Builder.new
     handle = nil
     b.instance_eval do
@@ -108,7 +108,7 @@ class TestPoolPoses < Minitest::Test
   # A pool declared inside a scene, which is where a game with screens declares its cast. A
   # scene's body is built after the game loop that runs it, and the pool steps its frames
   # all the same.
-  def scene_pool_program
+  private def scene_pool_program
     b = Builder.new
     b.instance_eval do
       screen :tiled

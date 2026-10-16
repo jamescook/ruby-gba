@@ -15,7 +15,7 @@ class TestIris < Minitest::Test
   WHITE = Color.resolve(:white)
   BLACK = Color.rgb(0, 0, 0)
 
-  def program(&block)
+  private def program(&block)
     b = Builder.new
     b.instance_eval(&block)
     b.finalize_program
@@ -23,7 +23,7 @@ class TestIris < Minitest::Test
   end
 
   # A white room; +before+ runs before the loop, +each+ inside it.
-  def room(before: nil, each: nil)
+  private def room(before: nil, each: nil)
     program do
       screen :tiled
       image(:white_tile, "#" => :white) { (["#" * 8] * 8).join("\n") }
@@ -34,14 +34,14 @@ class TestIris < Minitest::Test
     end
   end
 
-  def shown(program, frames:) = game_player.run(program, frames: frames).screen
+  private def shown(program, frames:) = game_player.run(program, frames: frames).screen
 
-  def all_one_color?(screen, color)
+  private def all_one_color?(screen, color)
     (0...160).step(8).all? { |y| (0...240).step(8).all? { |x| screen.pixel(x, y) == color } }
   end
 
   # A walk of ten frames, said before the loop, arrives on the tenth.
-  def closing = room(before: -> { iris_out at: [60, 40], frames: 10 })
+  private def closing = room(before: -> { iris_out at: [60, 40], frames: 10 })
 
   def test_an_iris_out_closes_until_the_screen_is_black
     refute all_one_color?(shown(closing, frames: 4), BLACK), "part way in, some of the room still shows"

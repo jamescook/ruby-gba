@@ -44,7 +44,7 @@ class TestMirroredTiles < Minitest::Test
     b.program
   end
 
-  def build(&block)
+  private def build(&block)
     RubyGBA.build("MIRROR", out: StringIO.new, err: StringIO.new, &block)
   end
 
@@ -97,7 +97,7 @@ class TestMirroredTiles < Minitest::Test
     end
   end
 
-  def numbered_room(count, mirrored)
+  private def numbered_room(count, mirrored)
     build do
       screen :tiled
       total = TestMirroredTiles.numbered_tiles(self, count, mirrored)

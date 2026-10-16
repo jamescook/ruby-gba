@@ -22,7 +22,7 @@ class TestFractionMath < Minitest::Test
 
   # Multiply the two numbers the given way and park a marker at the answer, scaled
   # down to pixels. `plain` picks the ordinary `*` instead, to show what it does.
-  def marker_program(plain: false)
+  private def marker_program(plain: false)
     b = RubyGBA::Builder.new
     b.instance_eval do
       screen :bitmap

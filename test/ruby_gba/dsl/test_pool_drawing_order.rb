@@ -21,7 +21,7 @@ class TestPoolDrawingOrder < Minitest::Test
   # A tiled game with a pool of coloured squares. The block is the game loop's body, handed
   # the pool and a counter of the passes so far; after it, every live thing takes the colour
   # its tag names.
-  def crowd_program(capacity: 3, on_full: :drop, &script)
+  private def crowd_program(capacity: 3, on_full: :drop, &script)
     b = Builder.new
     b.instance_eval do
       screen :tiled
@@ -40,7 +40,7 @@ class TestPoolDrawingOrder < Minitest::Test
   end
 
   # [interpreter, console]: the colour name at (x, y) once the script has played out.
-  def colors_at(prog, x, y)
+  private def colors_at(prog, x, y)
     rom = ROM.assemble(GBA.new.lower(prog), title: "PDRW")
     v = assert_emulator_loads_rom(rom, frames: 14)
     seen = Reference.new.run(prog, frames: 12).screen.pixel(x, y)
@@ -136,7 +136,7 @@ class TestPoolDrawingOrder < Minitest::Test
 
   # Two ships; the newer is told to draw with other colours, and then the older one leaves,
   # so the newer moves up to the front place.
-  def recolored_program
+  private def recolored_program
     b = Builder.new
     b.instance_eval do
       screen :tiled

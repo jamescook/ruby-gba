@@ -23,11 +23,11 @@ class TestProfileJson < Minitest::Test
     require_emulator!
   end
 
-  def build(title, code, &block)
+  private def build(title, code, &block)
     RubyGBA.build(title, code: code, maker: "01", out: StringIO.new, err: StringIO.new, &block)
   end
 
-  def light
+  private def light
     build("LIGHT", "ZLGT") do
       screen :bitmap
       game_loop { fill_rect 0, 0, 40, 8, :green }
@@ -37,7 +37,7 @@ class TestProfileJson < Minitest::Test
   # Draws far more than fits in the gap between frames, AND draws something DIFFERENT each
   # frame — a tear is the display showing a row before the game finished it, so a picture that
   # repaints itself the same colour every frame has no seam to see even when it overruns.
-  def heavy
+  private def heavy
     build("HEAVY", "ZHVY") do
       screen :bitmap
       c = var :c, 0
@@ -49,7 +49,7 @@ class TestProfileJson < Minitest::Test
     end
   end
 
-  def json_of(rom, **opts)
+  private def json_of(rom, **opts)
     io = StringIO.new
     rom.profile(format: :json, out: io, frames: 10, **opts)
     JSON.parse(io.string)

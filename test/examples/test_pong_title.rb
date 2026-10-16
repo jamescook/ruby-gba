@@ -28,11 +28,11 @@ class TestPongTitle < Minitest::Test
 
   # Where the labels start. The example asks the font, so the test asks it the same way
   # rather than carrying a number that would go stale if a row were reworded.
-  def column
+  private def column
     (240 - Fonts.get(:default).text_width(MUSIC_OFF)) / 2
   end
 
-  def title(frames, &keys)
+  private def title(frames, &keys)
     i = game_player
     i = i.input_each_frame(&keys) if keys
     i.run(Pong.program, frames: frames)
@@ -41,7 +41,7 @@ class TestPongTitle < Minitest::Test
 
   # Every lit pixel of +words+ laid on the font's grid from (x, y) — which is how the
   # console lays a row of glyph sprites out.
-  def word_pixels(words, x, y)
+  private def word_pixels(words, x, y)
     font = Fonts.get(:default)
     words.each_char.with_index.flat_map do |char, i|
       found = []
@@ -51,13 +51,13 @@ class TestPongTitle < Minitest::Test
   end
 
   # Is this row saying these words, in this colour?
-  def says?(interp, words, y, color)
+  private def says?(interp, words, y, color)
     pixels = word_pixels(words, column, y)
     refute_empty pixels, "#{words.inspect} should light some pixels"
     pixels.all? { |x, py| interp.screen.pixel(x, py) == color }
   end
 
-  def cursor_row?(interp, y)
+  private def cursor_row?(interp, y)
     word_pixels(CURSOR, column - 11, y).any? { |x, py| interp.screen.pixel(x, py).to_i.positive? }
   end
 
@@ -111,7 +111,7 @@ class TestPongTitle < Minitest::Test
 
   # --- and it actually turns the music off ---
 
-  def notes(interp)
+  private def notes(interp)
     interp.audio.select { |entry| entry[0] == :note }
   end
 
@@ -157,11 +157,11 @@ class TestPongTitle < Minitest::Test
   # That is three plays where it used to be one, and it costs no more waiting: the three run
   # at the same moment on three cores, so the wall clock is one play either way. What it
   # spends is work, which there is plenty of.
-  def finished_game
+  private def finished_game
     Ractor.store_if_absent(:pong_finished_game) { play_to_the_next_game }
   end
 
-  def play_to_the_next_game
+  private def play_to_the_next_game
     i = game_player
     over_at = over = left = nil
     i.input_each_frame do |f|
@@ -231,14 +231,14 @@ class TestPongTitle < Minitest::Test
   DIFF_HARD = 96
 
   # Down twice to the DIFFICULTY row, then A to open it.
-  def open_difficulty(frames, extra = {})
+  private def open_difficulty(frames, extra = {})
     title(frames) { |f| { 1 => [:down], 4 => [:down], 7 => [:a] }.merge(extra).fetch(f, []) }
   end
 
   # The colour a difficulty row's label is drawn in, or nil if it drew nothing. Read from
   # the label itself rather than from the cursor beside it, so "picked" is the row lighting
   # up and not something else on the line.
-  def difficulty_row_color(interp, y)
+  private def difficulty_row_color(interp, y)
     diff_x = (240 - Fonts.get(:default).text_width(NORMAL)) / 2
     (diff_x...(diff_x + 40)).each do |x|
       (0...7).each do |dy|
@@ -270,7 +270,7 @@ class TestPongTitle < Minitest::Test
   # the bottom of the screen, a long way from where the paddle began.
   RALLY = 110
 
-  def cpu_gap(setting)
+  private def cpu_gap(setting)
     keys = { 1 => [:down], 4 => [:down], 7 => [:a] } # to the difficulty screen
     keys[10] = [:up] if setting == :normal           # up from HARD to NORMAL
     keys[13] = [:a]                                  # choose it, which returns to the title
@@ -315,11 +315,11 @@ class TestPongTitle < Minitest::Test
   # "Is it black" is the wrong question of this screen: the title's backdrop is a
   # checkerboard, so that column is a dark tile rather than nothing. The question is
   # whether a LETTER is drawn on it, and a letter is one of the row's two colours.
-  def beyond_the_shorter_words
+  private def beyond_the_shorter_words
     [column + (MUSIC_ON.length * Fonts.get(:default).cell_w), ROW_MUSIC]
   end
 
-  def lettered?(verifier, at)
+  private def lettered?(verifier, at)
     verifier.pixel_is?(*at, :white) || verifier.pixel_is?(*at, :gray)
   end
 

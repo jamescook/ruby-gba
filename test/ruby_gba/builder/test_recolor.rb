@@ -28,7 +28,7 @@ class TestRecolor < Minitest::Test
   def self.set(n) = [:transparent, RubyGBA::Graphics::Color.rgb(n, 31 - n, 5), RubyGBA::Graphics::Color.rgb(31 - n, n, 9)]
 
   # The ship's picture and the lists, then whatever the block declares.
-  def built(&body)
+  private def built(&body)
     builder = Builder.new
     builder.instance_eval do
       screen :tiled
@@ -44,7 +44,7 @@ class TestRecolor < Minitest::Test
 
   # A ship drawn with the list :slot, and a loop that does what the block says. +before+
   # runs once, above the loop.
-  def program(before: nil, &game)
+  private def program(before: nil, &game)
     built do
       ship = sprite :ship, at: [40, 40]
       ship.draw_with :slot
@@ -54,12 +54,12 @@ class TestRecolor < Minitest::Test
   end
 
   # The ship's two halves, as the interpreter draws them after +frames+.
-  def halves(program, frames: 3)
+  private def halves(program, frames: 3)
     i = game_player.run(program, frames: frames)
     [i.screen.pixel(41, 41), i.screen.pixel(45, 41)]
   end
 
-  def colors_of(*names) = names.map { |name| Color.resolve(name) }
+  private def colors_of(*names) = names.map { |name| Color.resolve(name) }
 
   def test_a_list_nothing_recolors_holds_the_colors_it_was_declared_with
     assert_equal colors_of(:blue, :white), halves(program { |_ship| nil })
@@ -71,7 +71,7 @@ class TestRecolor < Minitest::Test
 
   # One of several, by a number the game works out: the ship's column counts up, so the
   # number is 2 by the third frame.
-  def counting_through_the_sets
+  private def counting_through_the_sets
     program do |ship|
       ship.x.add! 1
       recolor :slot, [:slot, :warm, :cold], showing: ship.x - 40
@@ -134,7 +134,7 @@ class TestRecolor < Minitest::Test
 
   # A ship that walks through twenty sets of colors, a new one each frame: by recoloring the
   # one list it is drawn with, or else by being told to draw with each of the twenty.
-  def many_sets(through_one_list:)
+  private def many_sets(through_one_list:)
     klass = self.class
     built do
       names = (0...SETS).map { |n| colors :"set#{n}", klass.set(n) }
@@ -203,7 +203,7 @@ class TestRecolor < Minitest::Test
 
   # --- pools ---
 
-  def guards_drawn_with_the_list
+  private def guards_drawn_with_the_list
     built do
       guards = pool :guard, x: 0, y: 0, capacity: 4, image: :ship
       guards.spawn x: 40, y: 40
@@ -226,7 +226,7 @@ class TestRecolor < Minitest::Test
   # lists that are slots, and walking into the next room fills every slot from that room's
   # row of sets on the same frame. Four slots declared alike, so each has to have a group of
   # its own; room 0 wears sets 0 to 3 and room 1, from the third pass, sets 4 to 7.
-  def room_of_things
+  private def room_of_things
     klass = self.class
     built do
       sets = (0...SETS).map { |n| colors :"set#{n}", klass.set(n) }
@@ -245,7 +245,7 @@ class TestRecolor < Minitest::Test
   end
 
   # The left half of each of the four things, as the interpreter draws them after +frames+.
-  def things_drawn(frames)
+  private def things_drawn(frames)
     i = game_player.run(room_of_things, frames: frames)
     (0...4).map { |n| i.screen.pixel(41 + (n * 20), 41) }
   end
@@ -258,7 +258,7 @@ class TestRecolor < Minitest::Test
 
   # --- friendly errors ---
 
-  def refused(&body) = assert_raises(ArgumentError) { built(&body) }.message
+  private def refused(&body) = assert_raises(ArgumentError) { built(&body) }.message
 
   def test_recoloring_a_name_that_is_not_a_list_says_so
     assert_match(/:ghost, which is not a list of colors/, refused { recolor :ghost, :warm })

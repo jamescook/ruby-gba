@@ -21,7 +21,7 @@ class TestInterpreterBudget < Minitest::Test
 
   # A game loop that fills red, does a chunk of per-frame work, then draws a marker LAST.
   # The screen ends every frame showing the marker; a mid-frame cutoff would show red.
-  def marker_program
+  private def marker_program
     b = Builder.new
     b.instance_eval do
       screen :bitmap
@@ -65,7 +65,7 @@ class TestInterpreterBudget < Minitest::Test
   # cover, and :n reaches the number asked for only if every one of them really ran.
   A_LOT_OF_FRAMES = 1_700
 
-  def counting_program(passes: 600)
+  private def counting_program(passes: 600)
     b = Builder.new
     b.instance_eval do
       screen :bitmap
@@ -100,7 +100,7 @@ class TestInterpreterBudget < Minitest::Test
 
   # And the runaway is still caught — in the frame it happens in, which is better than at some
   # point later, and the message says which frame that was.
-  def stuck_program
+  private def stuck_program
     Build.program(
       Build.screen(:bitmap),
       Build.loop_(

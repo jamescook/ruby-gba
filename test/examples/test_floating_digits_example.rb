@@ -18,10 +18,10 @@ class TestFloatingDigitsExample < Minitest::Test
 
   # Run the program on the interpreter for a fixed budget (deterministic — there's
   # no input), enough for every digit to have been drawn a few frames in.
-  def run_to(steps) = game_player.run(FloatingDigits.program, max_steps: steps)
+  private def run_to(steps) = game_player.run(FloatingDigits.program, max_steps: steps)
 
   # Whether +color+ is painted anywhere on the screen.
-  def color_on?(screen, color)
+  private def color_on?(screen, color)
     (0...SH).any? { |y| (0...SW).any? { |x| screen.pixel(x, y) == color } }
   end
 

@@ -24,11 +24,11 @@ class TestIRGuardrails < Minitest::Test
     end
   end
 
-  def error(message, fix: nil, node: :program)
+  private def error(message, fix: nil, node: :program)
     Guardrails::Finding.new(check: :stub, severity: :error, message: message, node: node, fix: fix)
   end
 
-  def validate(checks, program, **opts)
+  private def validate(checks, program, **opts)
     Guardrails::Validator.new(checks: checks).run(program, **opts)
   end
 

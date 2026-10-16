@@ -16,13 +16,13 @@ class TestGameLoop < Minitest::Test
   # ARM SWI with comment 0x05 in the top byte -> VBlankIntrWait.
   VBLANK_INTR_WAIT = 0xEF000000 | (0x05 << 16)
 
-  def build(validate: false, &block)
+  private def build(validate: false, &block)
     RubyGBA.build("LOOPTEST", code: "BLPT", maker: "01", validate: validate, &block)
   end
 
   # Lower a DSL program built in +block+ and return the backend (for its label table)
   # alongside the raw code bytes.
-  def lower(&block)
+  private def lower(&block)
     builder = RubyGBA::Builder.new
     builder.instance_eval(&block)
     builder.finalize_program
@@ -32,7 +32,7 @@ class TestGameLoop < Minitest::Test
   end
 
   # All ARM words in the ROM's code region, up to the zero padding.
-  def instructions(rom)
+  private def instructions(rom)
     result = []
     offset = RubyGBA::Cartridge::ROM::ENTRY_OFFSET
     while offset + 4 <= rom.buffer.bytesize
@@ -129,7 +129,7 @@ class TestGameLoop < Minitest::Test
   # Count up once per frame, capped at +count+ so the value settles. Reading it back
   # after enough frames tells us the loop really advanced (and didn't hang) — the same
   # program, the same final value, whether interpreted or run on hardware.
-  def counting_loop(count)
+  private def counting_loop(count)
     builder = RubyGBA::Builder.new
     builder.instance_eval do
       screen :bitmap

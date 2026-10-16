@@ -14,14 +14,14 @@ class TestMixer < Minitest::Test
   include MixedSound
 
   # mem8 hands back an unsigned byte; the mix buffer holds signed 8-bit samples.
-  def signed8(byte)
+  private def signed8(byte)
     byte >= 128 ? byte - 256 : byte
   end
 
   # A DSL block that sets up sounds, then loops for `frames` frames — as a program, so the
   # interpreter and the console can be handed the very same one rather than two that look
   # alike.
-  def frames_program(frames, &setup)
+  private def frames_program(frames, &setup)
     b = Builder.new
     b.instance_eval do
       screen :bitmap
@@ -37,7 +37,7 @@ class TestMixer < Minitest::Test
   end
 
   # ...and run it on the interpreter, which is what nearly every test here wants.
-  def run_frames(frames, &setup)
+  private def run_frames(frames, &setup)
     game_player.run(frames_program(frames, &setup), max_steps: 200_000)
   end
 
@@ -302,7 +302,7 @@ class TestMixer < Minitest::Test
   # --- the sound itself, byte for byte (see MixedSound) ---
 
   # A game that plays its recordings on its first pass and then does nothing.
-  def playing(&plays)
+  private def playing(&plays)
     b = Builder.new
     b.instance_eval do
       screen :bitmap
@@ -406,7 +406,7 @@ class TestMixer < Minitest::Test
 
   # A recorded instrument played by a song: notes of their own pitch and loudness, rests that
   # give the voice back, and a note that takes over its part's own voice from the top.
-  def tune_on(instrument_words: {}, part_words: {}, volume_from: nil)
+  private def tune_on(instrument_words: {}, part_words: {}, volume_from: nil)
     b = Builder.new
     b.instance_eval do
       screen :bitmap

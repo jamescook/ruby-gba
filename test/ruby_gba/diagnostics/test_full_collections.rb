@@ -13,9 +13,9 @@ class TestFullCollections < Minitest::Test
 
   def setup = require_emulator!
 
-  def build(&block) = RubyGBA.build("FULL", out: nil, err: nil, &block)
+  private def build(&block) = RubyGBA.build("FULL", out: nil, err: nil, &block)
 
-  def growths(rom) = RubyGBA::Diagnostics::Profiler.survey_scenes(rom, frames: 10).growths
+  private def growths(rom) = RubyGBA::Diagnostics::Profiler.survey_scenes(rom, frames: 10).growths
 
   # A list of four that can hold 448, each item +divides+ divides.
   def heavy_list(game, name = :xs, divides: 12)

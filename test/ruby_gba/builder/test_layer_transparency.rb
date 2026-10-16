@@ -32,7 +32,7 @@ class TestLayerTransparency < Minitest::Test
   # was measured to give, and deriving it would let a wrong rule move both sides.
   HALF_WHITE_OVER_RED = 0x3DFF
 
-  def program(&block)
+  private def program(&block)
     b = Builder.new
     b.instance_eval(&block)
     b.finalize_program
@@ -42,7 +42,7 @@ class TestLayerTransparency < Minitest::Test
   # The build report reads a finished cartridge, so a program under test has to be lowered
   # and carry the record the build made — where each routine ended up cannot be recovered
   # from the bytes afterwards.
-  def report_of(prog)
+  private def report_of(prog)
     backend = RubyGBA::IR::Backends::GBA.new
     machine_code = backend.lower(prog)
     rom = RubyGBA::Cartridge::ROM.assemble(machine_code, title: "LAYR", code: "LAYR", maker: "01",
@@ -53,7 +53,7 @@ class TestLayerTransparency < Minitest::Test
   end
 
   # A red floor with a white pane over it, the pane's layer see-through by +amount+.
-  def scenery_program(amount)
+  private def scenery_program(amount)
     tile = SOLID_TILE
     program do
       screen :tiled
@@ -72,7 +72,7 @@ class TestLayerTransparency < Minitest::Test
 
   # The same picture with the front layer a SPRITE instead — the other mechanism, and the
   # author writes the same thing.
-  def sprite_program(amount)
+  private def sprite_program(amount)
     tile = SOLID_TILE
     program do
       screen :tiled
@@ -89,11 +89,11 @@ class TestLayerTransparency < Minitest::Test
   SCENERY_XY = [8, 8].freeze
   SPRITE_XY = [66, 66].freeze
 
-  def shown(program, x, y, frames: 2)
+  private def shown(program, x, y, frames: 2)
     game_player.run(program, frames: frames).screen.pixel(x, y)
   end
 
-  def console(program, x, y, name, frames: 6)
+  private def console(program, x, y, name, frames: 6)
     assert_emulator_loads_rom(assemble_rom(program, name: name), frames: frames).pixel_gba(x, y)
   end
 
@@ -126,7 +126,7 @@ class TestLayerTransparency < Minitest::Test
   # in the game has to name a layer, since what names none keeps the place it had. The layer
   # and a per-sprite word would reach the same bit of the sprite's table entry and share the
   # console's one amount, so a second spelling would only be a second way to ask.
-  def lone_ghost_program
+  private def lone_ghost_program
     tile = SOLID_TILE
     program do
       screen :tiled
@@ -160,7 +160,7 @@ class TestLayerTransparency < Minitest::Test
   # corner. With +scrolling+ the floor is striped and moves a pixel a pass, which is the
   # other of the two ways the interpreter builds a picture — and stripes, so that scenery
   # kept a pixel out of place under a ghost is a different colour from the right one.
-  def ghost_over_hero_program(scrolling: false)
+  private def ghost_over_hero_program(scrolling: false)
     tile = SOLID_TILE
     stripes = (["###....."] * 8).join("\n")
     program do
@@ -207,7 +207,7 @@ class TestLayerTransparency < Minitest::Test
   # front of both, the ghost shows through the gaps mixed with the floor. Between the two,
   # the ghost is mixed with a bar where there is one and with the floor through a gap, and
   # the hero behind the gap is still not seen.
-  def ghost_and_fence_program(stack)
+  private def ghost_and_fence_program(stack)
     tile = SOLID_TILE
     program do
       screen :tiled
@@ -274,7 +274,7 @@ class TestLayerTransparency < Minitest::Test
 
   # A white pane over a red floor whose see-through amount walks from all the way
   # through (100) to solid (0), a step a frame.
-  def clearing_program(amount = nil)
+  private def clearing_program(amount = nil)
     tile = SOLID_TILE
     program do
       screen :tiled
@@ -292,7 +292,7 @@ class TestLayerTransparency < Minitest::Test
     end
   end
 
-  def walked(program, frames) = (1..frames).map { |f| shown(program, *SCENERY_XY, frames: f) }
+  private def walked(program, frames) = (1..frames).map { |f| shown(program, *SCENERY_XY, frames: f) }
 
   # It starts at the floor (nothing of the pane shows) and ends at the pane (none of the
   # floor does), and every frame between is a different mix — which is the whole claim:
@@ -378,7 +378,7 @@ class TestLayerTransparency < Minitest::Test
   # the water solid for the rest of the game with nothing anywhere to say why.
 
   # The same picture, with a fade held at a fixed amount. `hold` of 0 is a lifted fade.
-  def faded_program(kind, amount, hold, toward: :black)
+  private def faded_program(kind, amount, hold, toward: :black)
     tile = SOLID_TILE
     program do
       screen :tiled
@@ -399,7 +399,7 @@ class TestLayerTransparency < Minitest::Test
     end
   end
 
-  def faded_xy(kind) = kind == :scenery ? SCENERY_XY : SPRITE_XY
+  private def faded_xy(kind) = kind == :scenery ? SCENERY_XY : SPRITE_XY
 
   # A see-through layer under a fade does NOT show what a SOLID layer under the same fade
   # shows. Said that way round on purpose: it needs no number of its own, so it cannot be
@@ -475,7 +475,7 @@ class TestLayerTransparency < Minitest::Test
   # with nothing seen through, and +rooms+ names the one the title hands over to. The other
   # is never gone to. What it changes is that the rooms want different things of the
   # display's blend, so each says its own on every pass it runs, not once for the game.
-  def faded_title_then_misty_room(paints: :every_pass, room_at: 4, rooms: nil, &says)
+  private def faded_title_then_misty_room(paints: :every_pass, room_at: 4, rooms: nil, &says)
     tile = SOLID_TILE
     program do
       screen :tiled
@@ -517,7 +517,7 @@ class TestLayerTransparency < Minitest::Test
     end
   end
 
-  def rgb5(r, g, b) = r | (g << 5) | (b << 10)
+  private def rgb5(r, g, b) = r | (g << 5) | (b << 10)
 
   # Blue half way to black, and the pane's own colour half way to black: the mist drawn
   # solid under the fade. Blue lands on 15, not 16: the display's fade loses the fraction of
@@ -558,7 +558,7 @@ class TestLayerTransparency < Minitest::Test
   end
 
   # Both backends agree on the game at each of +frames+, a fade or a see-through mix in force.
-  def assert_backends_agree_through_the_fade(game, frames)
+  private def assert_backends_agree_through_the_fade(game, frames)
     frames.each { |at| assert_backends_agree(game, frames: at, console_frames: at + 1) }
   end
 
@@ -599,11 +599,11 @@ class TestLayerTransparency < Minitest::Test
     assert_equal seen_through_mist, game_player.run(room, frames: 12).screen.pixel(200, 100)
   end
 
-  def seen_through_mist = game_player.run(scene_mist_with_no_fade, frames: 8).screen.pixel(200, 100)
+  private def seen_through_mist = game_player.run(scene_mist_with_no_fade, frames: 8).screen.pixel(200, 100)
 
   # The same of a fade PLACED in the stack, which is the display's own on any screen: a tint
   # said after it takes its place, and the mist it had made solid is seen through again.
-  def placed_fade_then_a_tint
+  private def placed_fade_then_a_tint
     tile = SOLID_TILE
     program do
       screen :tiled
@@ -632,7 +632,7 @@ class TestLayerTransparency < Minitest::Test
   end
 
   # The same room with no title and no fade: what the mist looks like seen through.
-  def scene_mist_with_no_fade
+  private def scene_mist_with_no_fade
     tile = SOLID_TILE
     program do
       screen :tiled
@@ -653,7 +653,7 @@ class TestLayerTransparency < Minitest::Test
   # `flash_screen :red` reaches a game the water can be seen through and a white one does
   # not. What shows is the layer blending TINTED colors, so it is neither the plain
   # see-through value nor the solid one.
-  def tinted_program(amount, hold)
+  private def tinted_program(amount, hold)
     tile = SOLID_TILE
     program do
       screen :tiled
@@ -682,7 +682,7 @@ class TestLayerTransparency < Minitest::Test
 
   # A fade PLACED in the stack is still a fade — it takes the same blend unit, whatever it
   # leaves alone — so the rule and the hand-back have to reach it too.
-  def placed_fade_program(amount, hold)
+  private def placed_fade_program(amount, hold)
     tile = SOLID_TILE
     program do
       screen :tiled
@@ -720,7 +720,7 @@ class TestLayerTransparency < Minitest::Test
   FLASH_AT = 3
   AFTER_THE_FLASH = 20
 
-  def flashing_program(kind)
+  private def flashing_program(kind)
     tile = SOLID_TILE
     program do
       screen :tiled
@@ -773,7 +773,7 @@ class TestLayerTransparency < Minitest::Test
   # point: it lands at the END of the frame's work, after the amount for this frame has
   # already been sent. So a hand-back that gave the amount the game STARTED with would
   # hold for the whole frame, and the next, and every one after it.
-  def thickening_program(lifting:)
+  private def thickening_program(lifting:)
     tile = SOLID_TILE
     program do
       screen :tiled
@@ -894,7 +894,7 @@ class TestLayerTransparency < Minitest::Test
 
   # --- the guardrail ---
 
-  def warnings(program)
+  private def warnings(program)
     RubyGBA::IR::Guardrails::Validator.new.run(program, autofix: false).warnings.map(&:check)
   end
 

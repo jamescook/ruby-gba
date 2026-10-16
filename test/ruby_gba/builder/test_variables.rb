@@ -12,7 +12,7 @@ class TestVariables < Minitest::Test
   include RubyGBA::Console::Hardware
 
   # Build through the DSL and hand back the Builder for inspection.
-  def build_with_builder(&block)
+  private def build_with_builder(&block)
     builder = RubyGBA::Builder.new
     builder.instance_eval(&block)
     builder

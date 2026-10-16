@@ -14,7 +14,7 @@ class TestBackgroundScroll < Minitest::Test
   # A 32x32-tile world (256x256, bigger than the 240x160 screen and wrapping at 256).
   # It's blue, with a RED landmark tile at cell (10, 10) — map pixels (80, 80) — and a
   # GREEN one at cell (0, 0), so a wrap brings green in from the map's left edge.
-  def world_scrolled_to(sx, sy)
+  private def world_scrolled_to(sx, sy)
     map = Array.new(32) do |r|
       (0...32).map { |c| r == 10 && c == 10 ? "R" : (r.zero? && c.zero? ? "G" : "B") }.join
     end
@@ -54,7 +54,7 @@ class TestBackgroundScroll < Minitest::Test
     assert_equal Color.resolve(:green), wrapped.pixel(8, 4), "past the wrap the map repeats from its left (green)"
   end
 
-  def rom_for(program)
+  private def rom_for(program)
     ROM.assemble(GBA.new.lower(program), title: "SCROLL", code: "BSCR", maker: "01")
   end
 
@@ -72,7 +72,7 @@ class TestBackgroundScroll < Minitest::Test
   # hero sprite parked at screen (100,60), and the view scrolling right 2px/frame,
   # halting after 20 frames so it settles at offset 40 (the landmark has slid left to
   # screen x=40, while the hero stays put on top).
-  def scroll_with_hero
+  private def scroll_with_hero
     map = Array.new(32) { |r| (0...32).map { |c| r == 10 && c == 10 ? "R" : "B" }.join }
     builder = Builder.new
     builder.instance_eval do

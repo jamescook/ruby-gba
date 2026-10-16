@@ -24,7 +24,7 @@ class TestTileSetSwap < Minitest::Test
   # one set. +busywork+ adds a routine called every pass that does a little more work than
   # bringing a still view along does. +measured+ builds the way a game is built: placed by
   # what a run of it measured.
-  def walk(areas:, tinted: false, busywork: false, measured: false)
+  private def walk(areas:, tinted: false, busywork: false, measured: false)
     RubyGBA.build("WALK#{areas}#{tinted ? 'T' : 'P'}", profile: measured, out: StringIO.new, err: StringIO.new) do
       screen :tiled
       image(:shrine_floor, "#" => :red) { (["#" * 8] * 8).join("\n") }
@@ -62,9 +62,9 @@ class TestTileSetSwap < Minitest::Test
     end
   end
 
-  def game_loop_bytes(rom) = rom.built.routines.fetch(FRAME_ROUTINE).size
+  private def game_loop_bytes(rom) = rom.built.routines.fetch(FRAME_ROUTINE).size
 
-  def words(name) = RubyGBA::Messages::MadeNames.words_for_made_name(name)
+  private def words(name) = RubyGBA::Messages::MadeNames.words_for_made_name(name)
 
   # Asking whether the set is changing, and the call, for the two backgrounds together.
   A_QUESTION_AND_A_CALL_FOR_BOTH = 160
@@ -91,7 +91,7 @@ class TestTileSetSwap < Minitest::Test
            "bringing the view of background :scenery along its map"].freeze
 
   # The two routines kept in the quick memory straight after the game loop are the views'.
-  def assert_views_right_behind_the_loop(kept)
+  private def assert_views_right_behind_the_loop(kept)
     behind = kept.drop(kept.index(FRAME_ROUTINE) + 1).first(2).map { |name| words(name) || name.to_s }
 
     assert VIEWS == behind, "kept behind the game loop: #{behind.inspect}, of #{kept.inspect}"

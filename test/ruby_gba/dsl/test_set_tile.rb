@@ -20,7 +20,7 @@ class TestSetTile < Minitest::Test
   include Differential
 
   # A little room with a door in it, and a variable saying whether the door is open.
-  def room_program(open_at: 2, col: 3, row: 1)
+  private def room_program(open_at: 2, col: 3, row: 1)
     builder = Builder.new
     builder.instance_eval do
       screen :tiled
@@ -39,7 +39,7 @@ class TestSetTile < Minitest::Test
     builder.program
   end
 
-  def pixel_at(cell_col, cell_row, screen)
+  private def pixel_at(cell_col, cell_row, screen)
     screen.pixel((cell_col * 8) + 4, (cell_row * 8) + 4)
   end
 
@@ -58,7 +58,7 @@ class TestSetTile < Minitest::Test
 
   # The coordinates may be worked out as the game runs, which is the case a game writes: a
   # loop over the cells a bomb reached, a block being pushed.
-  def worked_out_coordinates_program
+  private def worked_out_coordinates_program
     builder = Builder.new
     builder.instance_eval do
       screen :tiled
@@ -121,7 +121,7 @@ class TestSetTile < Minitest::Test
 
   # A wide map's cells are stored as two squares side by side, so a change in the right half
   # is the one that catches a place worked out with the wrong arithmetic.
-  def wide_room_program(col)
+  private def wide_room_program(col)
     builder = Builder.new
     builder.instance_eval do
       screen :tiled

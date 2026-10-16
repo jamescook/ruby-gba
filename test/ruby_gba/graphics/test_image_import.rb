@@ -143,7 +143,7 @@ class TestImageImport < Minitest::Test
 
   # ---- the whole path: import -> embed -> blit ------------------------------
 
-  def photo_program(x, y)
+  private def photo_program(x, y)
     fixture = TWO_BY_TWO
     builder = RubyGBA::Builder.new
     builder.instance_eval do
@@ -183,7 +183,7 @@ class TestImageImport < Minitest::Test
   # Import the alpha fixture as transparent over a solid blue field. The opaque
   # top row draws; the transparent bottom row must let the blue show through —
   # proving it's a see-through cutout, not a rectangle.
-  def cutout_program(x, y)
+  private def cutout_program(x, y)
     fixture = ALPHA_2X2
     builder = RubyGBA::Builder.new
     builder.instance_eval do

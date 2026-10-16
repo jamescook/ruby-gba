@@ -20,14 +20,14 @@ class TestRandom < Minitest::Test
 
   # Build through the DSL and run it on the reference backend, returning the
   # interpreter so a test can read the variables the draws wrote.
-  def interpret(**opts, &block)
+  private def interpret(**opts, &block)
     ruby = Reference.new
     ruby.run(tree(&block), **opts)
     ruby
   end
 
   # Build the IR tree without running it (for the guardrail and shape tests).
-  def tree(&block)
+  private def tree(&block)
     builder = Builder.new
     builder.instance_eval(&block)
     builder.finalize_program
@@ -35,7 +35,7 @@ class TestRandom < Minitest::Test
   end
 
   # Draw n values from `range` into vars d0..d(n-1) and read them back in order.
-  def draw_sequence(n, range, seed: 42)
+  private def draw_sequence(n, range, seed: 42)
     i = interpret do
       seed seed
       n.times { |k| roll :"d#{k}", range }
@@ -206,7 +206,7 @@ class TestRandom < Minitest::Test
   # The real usage: stir every frame on a title screen until the player presses
   # START. Two players with different reaction times get different games; the same
   # reaction time replays the same one.
-  def reaction_program
+  private def reaction_program
     builder = Builder.new
     builder.instance_eval do
       screen :bitmap
@@ -233,11 +233,11 @@ class TestRandom < Minitest::Test
   end
 
   # Press START on a given frame (held from then on, so its edge fires that frame).
-  def press_start_on(frame)
+  private def press_start_on(frame)
     ->(f) { f >= frame ? [:start] : [] }
   end
 
-  def result_when_start_pressed_on(frame)
+  private def result_when_start_pressed_on(frame)
     Reference.new.input_each_frame(&press_start_on(frame)).run(reaction_program)[:rx]
   end
 
@@ -329,7 +329,7 @@ class TestRandom < Minitest::Test
   # position must land in the same place on both — which confirms the draw works
   # on hardware and that the two backends churn the stream identically.
 
-  def marker_program
+  private def marker_program
     builder = Builder.new
     builder.instance_eval do
       screen :bitmap

@@ -17,7 +17,7 @@ class TestBigMaps < Minitest::Test
 
   KEYS = %w[r g b w].freeze
 
-  def program(&block)
+  private def program(&block)
     b = Builder.new
     b.instance_eval(&block)
     b.finalize_program
@@ -45,7 +45,7 @@ class TestBigMaps < Minitest::Test
   end
 
   # A view walked across a 100x90 map, +step_x+ and +step_y+ pixels a pass, from +start+.
-  def walk(step_x, step_y, start: [0, 0], map: scrambled(100, 90))
+  private def walk(step_x, step_y, start: [0, 0], map: scrambled(100, 90))
     test = self
     program do
       screen :tiled
@@ -90,7 +90,7 @@ class TestBigMaps < Minitest::Test
   end
 
   # A jump far across the map shows the new place on the frame it lands.
-  def jump
+  private def jump
     test = self
     program do
       screen :tiled
@@ -139,7 +139,7 @@ class TestBigMaps < Minitest::Test
   # A small room and a big one on one background. The game walks into the big room on the
   # fourth pass, with the view moved deep into it on the same pass, then walks the view
   # back toward its corner.
-  def rooms
+  private def rooms
     test = self
     program do
       screen :tiled
@@ -171,7 +171,7 @@ class TestBigMaps < Minitest::Test
                     game_player.run(edge_of_hut, frames: 2).screen.pixel(200, 10)
   end
 
-  def edge_of_hut
+  private def edge_of_hut
     test = self
     program do
       screen :tiled
@@ -183,7 +183,7 @@ class TestBigMaps < Minitest::Test
   end
 
   # A big room in an area of its own tiles, walked into from a small room of another area.
-  def areas
+  private def areas
     test = self
     program do
       screen :tiled
@@ -217,7 +217,7 @@ class TestBigMaps < Minitest::Test
   # of the map. Every tile of an area is a different picture from the tile of the same key in
   # the other. With +scene+, both layers belong to a scene given those words, which a title
   # hands over to on pass 3.
-  def two_layers_between_areas(tinted: false, scene: nil)
+  private def two_layers_between_areas(tinted: false, scene: nil)
     test = self
     program do
       screen :tiled
@@ -304,7 +304,7 @@ class TestBigMaps < Minitest::Test
 
   # A scene that takes over again shows its big room from the top, filled whole. The view
   # starts +start+ pixels across and down and moves on from there each pass.
-  def scenes(start: 0)
+  private def scenes(start: 0)
     test = self
     program do
       screen :tiled
@@ -354,14 +354,14 @@ class TestBigMaps < Minitest::Test
 
   # Cells the console copied into the view of background :ground over the 20 frames a profile
   # measures, or 0 when it copied none.
-  def cells_copied(rom)
+  private def cells_copied(rom)
     copies = RubyGBA::Diagnostics::Profiler.run(rom, frames: 20, picture: false).video_copies
     copies.find { |copy| copy.source.include?(":ground") }&.copies || 0
   end
 
   # A scene owning a big room takes over every fourth pass, for one pass. +body+ is what else
   # its body does on that pass.
-  def taking_over_every_fourth_pass(name, &body)
+  private def taking_over_every_fourth_pass(name, &body)
     big = (["#" * 100] * 90).freeze
     RubyGBA.build(name, out: nil, err: nil) do
       screen :tiled
@@ -448,7 +448,7 @@ class TestBigMaps < Minitest::Test
   # A wall far into the second, bigger room stops a mover there: the walls of each room are
   # read at that room's own place, whatever size the first room is. The view sits over the
   # wall so the console's picture shows where the mover stopped.
-  def wall_deep_in_a_bigger_room
+  private def wall_deep_in_a_bigger_room
     field = Array.new(100) { "." * 100 }
     field[80] = ("." * 70) + "#" + ("." * 29)
     program do

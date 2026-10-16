@@ -28,7 +28,7 @@ class TestNamedSprites < Minitest::Test
   runs_on :reference
 
   # Two sprites, still, at places nothing else on screen shares.
-  def two_sprites
+  private def two_sprites
     RubyGBA.game "CAST" do
       screen :tiled
       image(:hero, "#" => :red)    { SOLID_TILE }
@@ -39,12 +39,12 @@ class TestNamedSprites < Minitest::Test
     end
   end
 
-  def running(game, frames: 4)
+  private def running(game, frames: 4)
     assert_emulator_loads_rom(game.build_rom(out: nil, err: nil, profile: false), frames: frames)
   end
 
   # The same game played by the oracle instead of the console.
-  def drawn(game, frames: 4)
+  private def drawn(game, frames: 4)
     Reference.new.run(game.program, frames: frames)
   end
 
@@ -158,7 +158,7 @@ class TestNamedSprites < Minitest::Test
 
   # A hero with two letters of text over him. Text is drawn as a sprite per letter, and the
   # author named no sprite for any of them.
-  def hero_and_text
+  private def hero_and_text
     RubyGBA.game "HUD" do
       screen :tiled
       image(:hero, "#" => :red) { SOLID_TILE }
@@ -316,13 +316,13 @@ class TestNamedSprites < Minitest::Test
   # right for a sprite facing one way and wrong for the same sprite facing the other.
 
   # Art on a 32x8 canvas: a solid run of red from +left+ to +right+, see-through elsewhere.
-  def blob_rows(left, right)
+  private def blob_rows(left, right)
     Array.new(8) { Array.new(32) { |col| col.between?(left, right) ? "#" : "." }.join }.join("\n")
   end
 
   # One sprite facing the way its art was drawn, one facing the other way so its pose is the
   # first one backwards. Both arts sit off-centre on their canvas, so trimming moves them.
-  def two_facings
+  private def two_facings
     facing_right = blob_rows(10, 17)
     facing_left = blob_rows(4, 11)
     RubyGBA.game "FACING" do
@@ -336,7 +336,7 @@ class TestNamedSprites < Minitest::Test
   end
 
   # The first screen column in a row of the picture that has anything drawn on it.
-  def first_drawn_column(verifier, from, to, y, color)
+  private def first_drawn_column(verifier, from, to, y, color)
     (from...to).find { |x| verifier.pixel_is?(x, y, color) }
   end
 

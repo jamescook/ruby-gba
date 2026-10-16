@@ -22,11 +22,11 @@ class TestSongTooManyPartsGuardrail < Minitest::Test
 
   # A part on whichever voice: an instrument by name, or `wave:`/`noise:` for the two the
   # console plays itself. Naming none of them is a square-wave part.
-  def part(instrument = nil, **plays)
+  private def part(instrument = nil, **plays)
     RubyGBA::Audio::Music::Part.new(events: [[0, 262]], instrument: instrument, **plays)
   end
 
-  def detect(voices) = Check.new.detect(program(song(:big, total_frames: 4, voices: voices)))
+  private def detect(voices) = Check.new.detect(program(song(:big, total_frames: 4, voices: voices)))
 
   def test_a_third_square_wave_part_stops_the_build
     findings = detect([part, part, part])
@@ -96,7 +96,7 @@ class TestSongTooManyPartsGuardrail < Minitest::Test
 
   # --- through the build, however the song was made ---
 
-  def build(&program)
+  private def build(&program)
     err = StringIO.new
     assert_raises(RubyGBA::ROMError) do
       RubyGBA.build("PARTS", code: "ZPRT", maker: "01", out: StringIO.new, err: err) do

@@ -19,19 +19,19 @@ class TestIRGuardrailBackgroundLayers < Minitest::Test
 
   Guardrails = RubyGBA::IR::Guardrails
 
-  def validator
+  private def validator
     Guardrails::Validator.new(checks: [Guardrails::Checks::TooManyBackgroundLayers.new])
   end
 
   # A solid 8x8 tile, so a background is a background and nothing about the art matters.
-  def solid_tile(builder, name)
+  private def solid_tile(builder, name)
     builder.image(name, "#" => :blue) { "########\n" * 8 }
   end
 
-  def filled_map(cols, rows) = Array.new(rows) { "#" * cols }
+  private def filled_map(cols, rows) = Array.new(rows) { "#" * cols }
 
   # Five scrolling layers where the console stacks four.
-  def five_scrolling_layers
+  private def five_scrolling_layers
     b = Builder.new
     b.instance_eval { screen :tiled }
     solid_tile(b, :i_blue)
@@ -47,7 +47,7 @@ class TestIRGuardrailBackgroundLayers < Minitest::Test
 
   # The mixed arrangement, where the room is smaller: +scrolling+ plain layers beside
   # one that resizes.
-  def scrolling_layers_beside_a_turning_one(scrolling)
+  private def scrolling_layers_beside_a_turning_one(scrolling)
     b = Builder.new
     b.instance_eval { screen :tiled }
     solid_tile(b, :i_blue)

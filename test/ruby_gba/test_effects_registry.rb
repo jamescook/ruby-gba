@@ -86,7 +86,7 @@ class TestEffectsRegistry < Minitest::Test
     @already_registered.each { |check| Guardrails.register(check) }
   end
 
-  def program(&block)
+  private def program(&block)
     b = RubyGBA::Builder.new
     b.instance_eval(&block)
     b.finalize_program

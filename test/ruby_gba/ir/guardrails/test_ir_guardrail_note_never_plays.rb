@@ -15,11 +15,11 @@ class TestNoteNeverPlaysGuardrail < Minitest::Test
 
   Check = RubyGBA::IR::Guardrails::Checks::NoteNeverPlays
 
-  def tune(events, total_frames: 60)
+  private def tune(events, total_frames: 60)
     song(:tune, total_frames: total_frames, voices: [RubyGBA::Audio::Music::Part.new(events: events)])
   end
 
-  def detect(events, **opts) = Check.new.detect(program(tune(events, **opts)))
+  private def detect(events, **opts) = Check.new.detect(program(tune(events, **opts)))
 
   # WHY IT IS WORTH REFUSING: a second note on the same frame stops the part, and the notes after
   # it are never heard.

@@ -46,7 +46,7 @@ class TestMixerLeavesTheGap < Minitest::Test
     end
   end
 
-  def white_column(verifier, row)
+  private def white_column(verifier, row)
     (0...240).find { |col| verifier.white?(col, row) }
   end
 

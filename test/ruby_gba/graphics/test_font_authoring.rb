@@ -13,13 +13,13 @@ class TestFontAuthoring < Minitest::Test
   # Build a program and hand back the font it declared under +name+. A font belongs to the
   # program that declared it, so there is nothing process-wide for a test to clean up after
   # — which is the whole point of it living there.
-  def declared(name, &block)
+  private def declared(name, &block)
     b = Builder.new
     b.instance_eval(&block)
     b.program.fonts.get(name)
   end
 
-  def interpret(&block)
+  private def interpret(&block)
     b = Builder.new
     b.instance_eval(&block)
     b.finalize_program

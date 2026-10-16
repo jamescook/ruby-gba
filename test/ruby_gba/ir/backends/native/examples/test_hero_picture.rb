@@ -27,7 +27,7 @@ class TestHeroPicture < Minitest::Test
   )
   FRAMES = 96
 
-  def program = Native.new.checked_program(Hero::GAME, err: nil)
+  private def program = Native.new.checked_program(Hero::GAME, err: nil)
 
   def test_hero_matches_the_interpreter_through_a_recorded_walk
     moments = reference_snapshots(program, frames: FRAMES, buttons: RUN)

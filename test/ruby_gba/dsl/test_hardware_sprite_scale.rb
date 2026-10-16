@@ -23,7 +23,7 @@ class TestHardwareSpriteScale < Minitest::Test
   # tested at and the coverage count means what it says.
   AT = [100, 60].freeze
 
-  def sized_program(size = nil, angle: nil, frames: 2)
+  private def sized_program(size = nil, angle: nil, frames: 2)
     builder = Builder.new
     builder.instance_eval do
       screen :tiled
@@ -47,7 +47,7 @@ class TestHardwareSpriteScale < Minitest::Test
 
   # How many pixels of the screen the sprite covers — everything in a generous box
   # around it that isn't the blue floor.
-  def covered(program)
+  private def covered(program)
     screen = Reference.new.run(program).screen
     floor = Color.resolve(:blue)
     box = (-40..80)
@@ -154,7 +154,7 @@ class TestHardwareSpriteScale < Minitest::Test
     assert_match(/screen :tiled/, err.message)
   end
 
-  def scale_a_tiled_sprite_to(size)
+  private def scale_a_tiled_sprite_to(size)
     builder = Builder.new
     builder.instance_eval do
       screen :tiled
@@ -182,7 +182,7 @@ class TestHardwareSpriteScale < Minitest::Test
     assert_operator resizing, :>, turning, "resizing is more work than turning"
   end
 
-  def emitted_bytes(program)
+  private def emitted_bytes(program)
     RubyGBA::IR::Backends::GBA.new.lower(program).bytesize
   end
 

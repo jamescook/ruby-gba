@@ -24,7 +24,7 @@ class TestIRGuardrailBitmapDrawOnTiled < Minitest::Test
 
   FIELD = (["##############################"] * 20).freeze
 
-  def program(&block)
+  private def program(&block)
     b = Builder.new
     b.instance_eval(&block)
     b.finalize_program
@@ -33,7 +33,7 @@ class TestIRGuardrailBitmapDrawOnTiled < Minitest::Test
 
   # A tiled game with a blue background that also fills a red rectangle every
   # frame — the shape this guardrail exists for.
-  def tiled_game_that_also_fills
+  private def tiled_game_that_also_fills
     program do
       screen :tiled
       image(:blue_t, "#" => :blue) { SOLID_TILE }

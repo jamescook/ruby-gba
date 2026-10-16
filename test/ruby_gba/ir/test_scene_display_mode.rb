@@ -22,7 +22,7 @@ class TestSceneDisplayMode < Minitest::Test
   # A direct-color bitmap title (red) that switches on START to a tiled scene whose
   # hardware sprite (a green 8x8) sits at (100, 76). The title is declared first and
   # the tiled scene second, the natural title->game order.
-  def bitmap_to_tiled_program
+  private def bitmap_to_tiled_program
     b = Builder.new
     b.instance_eval do
       image(:hero, "#" => :green) { "########\n" * 8 }

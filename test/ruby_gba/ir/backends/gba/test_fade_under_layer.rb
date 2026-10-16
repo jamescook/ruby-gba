@@ -27,7 +27,7 @@ class TestFadeUnderLayer < Minitest::Test
   # The sample points: (20, 40) is field, (104, 84) is the player, and the HUD is read as
   # the brightest pixel anywhere in the text, since a glyph is mostly see-through and
   # which pixels a letter lights is the font's business.
-  def game(amount, under: nil, place_hud: true)
+  private def game(amount, under: nil, place_hud: true)
     b = Builder.new
     b.instance_eval do
       screen :tiled
@@ -48,18 +48,18 @@ class TestFadeUnderLayer < Minitest::Test
     b
   end
 
-  def interpreted(builder, frames: 8)
+  private def interpreted(builder, frames: 8)
     i = Reference.new.run(builder.program, frames: frames)
     reading { |x, y| i.screen.pixel(x, y) }
   end
 
-  def on_console(builder, frames: 8)
+  private def on_console(builder, frames: 8)
     rom = ROM.assemble(GBA.new.lower(builder.program), title: "FADEUNDER", code: "BFUL", maker: "01")
     v = assert_emulator_loads_rom(rom, frames: frames)
     reading { |x, y| v.pixel_gba(x, y) }
   end
 
-  def reading
+  private def reading
     { field: yield(20, 40), player: yield(104, 84),
       hud: (8...48).flat_map { |x| (8...16).map { |y| yield(x, y) } }.max }
   end
@@ -239,7 +239,7 @@ class TestFadeUnderLayer < Minitest::Test
 
   # --- the effect pack carries the layer through ---
 
-  def pack_game(under:)
+  private def pack_game(under:)
     b = Builder.new
     b.instance_eval do
       screen :tiled

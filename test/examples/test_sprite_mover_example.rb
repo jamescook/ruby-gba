@@ -20,7 +20,7 @@ class TestSpriteMoverExample < Minitest::Test
            (SpriteMover::SCREEN_H - SpriteMover::SPRITE_H) / 2].freeze
 
   # Whether +color+ is painted anywhere on screen.
-  def color_on?(screen, color)
+  private def color_on?(screen, color)
     (0...SpriteMover::SCREEN_H).any? { |y| (0...SpriteMover::SCREEN_W).any? { |x| screen.pixel(x, y) == color } }
   end
 
@@ -61,7 +61,7 @@ class TestSpriteMoverExample < Minitest::Test
   ON_A_POST = 19
   POST_ROW = SpriteMover::POST_Y + 2
 
-  def steered(direction)
+  private def steered(direction)
     game_player.input_each_frame { |_f| [direction] }
              .run(SpriteMover.program, frames: ON_A_POST).screen
   end

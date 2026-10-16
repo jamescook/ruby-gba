@@ -19,12 +19,12 @@ class TestScaledAndScrollingBackgrounds < Minitest::Test
   runs_on :reference
 
   # A solid 8x8 tile of one colour, so a cell's colour is the whole assertion.
-  def solid_tile(builder, name, color)
+  private def solid_tile(builder, name, color)
     builder.image(name, "#" => color) { "########\n" * 8 }
   end
 
   # Rows of cells with one mark in them, the rest blank.
-  def marked_map(cols, rows, marks)
+  private def marked_map(cols, rows, marks)
     grid = Array.new(rows) { Array.new(cols, " ") }
     marks.each { |(c, r), ch| grid[r][c] = ch }
     grid.map(&:join)
@@ -33,7 +33,7 @@ class TestScaledAndScrollingBackgrounds < Minitest::Test
   # THE ARRANGEMENT ITSELF: two ordinary scrolling layers and one that resizes, all on
   # one screen, all three showing. Built at the size it was drawn (1.0) so the picture
   # reads exactly as authored and each layer is judged by one pixel.
-  def three_layer_program(scale: 1.0)
+  private def three_layer_program(scale: 1.0)
     b = Builder.new
     b.instance_eval { screen :tiled }
     solid_tile(b, :i_blue, :blue)
@@ -161,7 +161,7 @@ class TestScaledAndScrollingBackgrounds < Minitest::Test
   # What half red over blue comes out as — measured from the same program with the
   # turning layer left out, so this pins the blend to what screen :tiled already did
   # rather than to arithmetic restated here.
-  def see_through_red_over_blue
+  private def see_through_red_over_blue
     b = Builder.new
     b.instance_eval do
       screen :tiled
@@ -367,7 +367,7 @@ class TestScaledAndScrollingBackgrounds < Minitest::Test
   DISPLAY_MODE = 0x7
 
   # The same three layers with nothing resized — the control for the assertion above.
-  def scrolling_only_program
+  private def scrolling_only_program
     b = Builder.new
     b.instance_eval { screen :tiled }
     solid_tile(b, :i_blue, :blue)

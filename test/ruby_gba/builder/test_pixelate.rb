@@ -30,7 +30,7 @@ class TestPixelate < Minitest::Test
     tiles :set, "a" => :stripes, "b" => :steps
   end
 
-  def program(&block)
+  private def program(&block)
     b = Builder.new
     b.instance_eval(&block)
     b.finalize_program
@@ -38,7 +38,7 @@ class TestPixelate < Minitest::Test
   end
 
   # A room of those tiles, scrolled off the tile grid, with +said+ run before the loop.
-  def tiled_room(&said)
+  private def tiled_room(&said)
     program do
       screen :tiled
       instance_exec(&ROOM_TILES)
@@ -49,13 +49,13 @@ class TestPixelate < Minitest::Test
     end
   end
 
-  def picture_of(program, frames: 2)
+  private def picture_of(program, frames: 2)
     screen = game_player.run(program, frames: frames).screen
     Array.new(HEIGHT) { |y| Array.new(WIDTH) { |x| screen.pixel(x, y) } }
   end
 
   # Every pixel of +blocks+ is the pixel +drawn+ has at the top left corner of its block.
-  def assert_blocks_of(drawn, blocks, wide, tall)
+  private def assert_blocks_of(drawn, blocks, wide, tall)
     wrong = (0...HEIGHT).to_a.product((0...WIDTH).to_a).reject do |y, x|
       blocks[y][x] == drawn[y - (y % tall)][x - (x % wide)]
     end
@@ -206,7 +206,7 @@ class TestPixelate < Minitest::Test
   # --- a background that turns and resizes ---
 
   # A board of the two tiles, turned and resized so that nothing in it sits on a grid.
-  def turned_board(size, screen_kind: :rotozoom)
+  private def turned_board(size, screen_kind: :rotozoom)
     program do
       screen screen_kind
       instance_exec(&ROOM_TILES)
@@ -253,7 +253,7 @@ class TestPixelate < Minitest::Test
   PATCH_COLORS = { "." => :transparent, "A" => :red, "B" => :green, "C" => :blue, "D" => :white }.freeze
 
   # Sprites over a plain floor, off every grid, with +said+ run before the loop.
-  def sprites_at(*places, &said)
+  private def sprites_at(*places, &said)
     cast_on_floor do
       places.each_with_index { |at, i| sprite :"patch#{i}", at: at, facing: { right: :patch } }
       instance_exec(&said) if said
@@ -288,7 +288,7 @@ class TestPixelate < Minitest::Test
   end
 
   # A game over the plain floor, with +cast+ declaring what stands on it.
-  def cast_on_floor(&cast)
+  private def cast_on_floor(&cast)
     program do
       screen :tiled
       image(:floor, "#" => :gray) { (["########"] * 8).join("\n") }
@@ -480,7 +480,7 @@ class TestPixelate < Minitest::Test
   # --- a place in the stack ---
 
   # A room, two sprites on it and a score over them, each in a layer of its own.
-  def stacked(&said)
+  private def stacked(&said)
     program do
       screen :tiled
       layers :world, :actors, :ui
@@ -638,7 +638,7 @@ class TestPixelate < Minitest::Test
 
   # Rectangles and single pixels off every grid, on the screen that holds a whole colour
   # in each pixel. +said+ is run after they are painted.
-  def painted_screen(&said)
+  private def painted_screen(&said)
     program do
       screen :bitmap
       clear_screen :black

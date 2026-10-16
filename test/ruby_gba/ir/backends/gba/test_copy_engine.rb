@@ -20,13 +20,13 @@ class TestCopyEngine < Minitest::Test
   ACC = RubyGBA::IR::Backends::GBA::ACC
   TMP = RubyGBA::IR::Backends::GBA::TMP
 
-  def emitted
+  private def emitted
     emitter = Emit.new
     yield Primitives.new(emitter: emitter, memory: nil), emitter
     emitter.code.unpack("V*")
   end
 
-  def number_named(word)
+  private def number_named(word)
     turn = ((word >> 8) & 0xF) * 2
     byte = word & 0xFF
     ((byte >> turn) | (byte << (32 - turn))) & 0xFFFFFFFF
@@ -34,7 +34,7 @@ class TestCopyEngine < Minitest::Test
 
   # Run a straight line of loads and stores and say what was written where, in order. It
   # knows the four instructions these sequences are made of and stops at anything else.
-  def stores_made_by(words, registers = {})
+  private def stores_made_by(words, registers = {})
     held = registers.dup
     words.filter_map do |word|
       to = (word >> 12) & 0xF
@@ -54,7 +54,7 @@ class TestCopyEngine < Minitest::Test
   LOADS = [0xE3A00000, 0xE3E00000, 0xE3800000].freeze
 
   # How many instructions put a number in +register+.
-  def loads_into(words, register)
+  private def loads_into(words, register)
     words.count { |word| LOADS.include?(word & 0xFFF00000) && ((word >> 12) & 0xF) == register }
   end
 
@@ -152,7 +152,7 @@ class TestCopyEngine < Minitest::Test
   # --- every program: nothing builds the second or third address any more ---
 
   # Each number built from more than one instruction, as [value, instructions].
-  def numbers_built_in(program)
+  private def numbers_built_in(program)
     words = GBA.new.lower(program).unpack("V*")
     built = []
     at = 0
@@ -174,14 +174,14 @@ class TestCopyEngine < Minitest::Test
     built
   end
 
-  def assert_only_the_first_engine_address_is_built(program)
+  private def assert_only_the_first_engine_address_is_built(program)
     built = numbers_built_in(program).map(&:first)
     assert_includes built, REG_DMA3SAD, "this program does start the engine"
     assert_equal 0, built.count(REG_DMA3DAD), "the destination register is a step from the first"
     assert_equal 0, built.count(REG_DMA3CNT), "and so is the one that starts it"
   end
 
-  def dsl_program(&game)
+  private def dsl_program(&game)
     builder = Builder.new
     builder.instance_eval(&game)
     builder.finalize_program

@@ -22,7 +22,7 @@ class TestGridCursorExample < Minitest::Test
   START_PX = START_COL * CELL
   START_PY = START_ROW * CELL
 
-  def assert_cell_is(screen, col, row, color)
+  private def assert_cell_is(screen, col, row, color)
     want = Color.resolve(color)
     CELL.times do |dy|
       CELL.times do |dx|

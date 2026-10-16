@@ -12,12 +12,12 @@ require "test_helper"
 class TestVideoCopies < Minitest::Test
   runs_on :reference
 
-  def build(&block) = RubyGBA.build("VCOPY", out: nil, err: nil, &block)
+  private def build(&block) = RubyGBA.build("VCOPY", out: nil, err: nil, &block)
 
-  def copies(rom) = RubyGBA::Diagnostics::Profiler.run(rom, frames: 20, picture: false).video_copies
+  private def copies(rom) = RubyGBA::Diagnostics::Profiler.run(rom, frames: 20, picture: false).video_copies
 
   # A 104-tile run, painted and copied on every frame — what a box typing a letter a frame does.
-  def painting_every_frame
+  private def painting_every_frame
     build do
       screen :tiled
       colors :ink, %i[transparent white]
@@ -117,7 +117,7 @@ class TestVideoCopies < Minitest::Test
   # A 64x64 picture in fifteen inks, its pixels drawn at random from its own seed, so no 8x8
   # part of it is the same as a part of any other one made here — a pattern would repeat, and
   # the build stores a repeated part once, which would let all seventeen fit.
-  def frame_art(number)
+  private def frame_art(number)
     dice = Random.new(number)
     Array.new(64 * 64) { INKS[dice.rand(15)] }
   end

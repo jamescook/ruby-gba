@@ -21,13 +21,13 @@ require "test_helper"
 class TestOneReaderPerCartridge < Minitest::Test
   runs_on :reference
 
-  def running(game, frames: 4)
+  private def running(game, frames: 4)
     assert_emulator_loads_rom(game.build_rom(out: nil, err: nil, profile: false), frames: frames)
   end
 
   # A character wearing somebody else's colours, which is what a game does while you cannot be
   # hit. His art is drawn in red; the list he is told to draw with puts white in the same place.
-  def hurt_hero
+  private def hurt_hero
     RubyGBA.game "HURT" do
       screen :tiled
       image(:hero, colors: [:transparent, :red], "#" => :red) { SOLID_TILE }
@@ -45,7 +45,7 @@ class TestOneReaderPerCartridge < Minitest::Test
   # byte out of all 256 — and the build picks by how many colours the art uses. Both kinds are in
   # this one program because the question below is whether a row can be asked for the colours it
   # is drawing from without the caller having to know which kind it is holding.
-  def two_kinds_of_picture
+  private def two_kinds_of_picture
     RubyGBA.game "TWOWAY" do
       screen :tiled
       image(:hero, "#" => :red) { SOLID_TILE }
@@ -124,7 +124,7 @@ class TestOneReaderPerCartridge < Minitest::Test
   # --- leaving a layer out of the picture ---
 
   # A hero declared behind a fence: the finished picture cannot say he is there at all.
-  def hero_behind_a_fence
+  private def hero_behind_a_fence
     brick = (["########"] * 8).join("\n")
     wall = ([("#" * 30)] * 20).join("\n")
     RubyGBA.game "BEHIND" do
@@ -164,7 +164,7 @@ class TestOneReaderPerCartridge < Minitest::Test
 
   # --- leaving a voice out of the sound ---
 
-  def humming
+  private def humming
     RubyGBA.game "HUM" do
       screen :bitmap
       enable_sound

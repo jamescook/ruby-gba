@@ -17,7 +17,7 @@ class TestNativeSaves < Minitest::Test
   HeadlessRun = RubyGBA::IR::Backends::Native::HeadlessRun
 
   # A number kept in save memory, counted up two a frame from the 5 it is declared with.
-  def counting_up
+  private def counting_up
     program_of do
       best = save_var :best, 5
       game_loop { best.add! 2 }
@@ -136,7 +136,7 @@ class TestNativeSaves < Minitest::Test
   # ones a save job keeps for itself among them — and at the end if the two chips do not hold the
   # same bytes. What each test asserts on top is that the run did what its name says.
 
-  def program_with(save_memory, &block)
+  private def program_with(save_memory, &block)
     builder = Builder.new(options: RubyGBA::Cartridge::Options.new(save_memory: save_memory))
     builder.instance_eval(&block)
     builder.finalize_program
@@ -147,7 +147,7 @@ class TestNativeSaves < Minitest::Test
   # file `slot` names: A saves the hearts and the name into it, B erases it, L loads it, R copies
   # file 0 over it, SELECT starts a new game, and UP moves the slot on. RIGHT saves 99 hearts.
   # What each file holds, and what state it is in, is read every frame without loading it.
-  def three_files(save_memory: nil)
+  private def three_files(save_memory: nil)
     program_with(save_memory) do
       hearts = var :hearts, 3
       name = list :name, capacity: 3, width: :byte
@@ -184,15 +184,15 @@ class TestNativeSaves < Minitest::Test
   end
 
   # Presses two frames apart, so each is a press of its own.
-  def presses(*buttons) = buttons.each_with_index.to_h { |button, i| [(i * 2) + 2, [button]] }
+  private def presses(*buttons) = buttons.each_with_index.to_h { |button, i| [(i * 2) + 2, [button]] }
 
-  def files_after(store, *buttons, save_memory: nil)
+  private def files_after(store, *buttons, save_memory: nil)
     CheckedNativeRun.new(save: store).input_each_frame { |frame| presses(*buttons).fetch(frame, []) }
                     .run(three_files(save_memory: save_memory), frames: (buttons.length * 2) + 4)
   end
 
-  def shown(run) = (0..2).map { |n| run[:"shown#{n}"] }
-  def states(run) = (0..2).map { |n| run[:"state#{n}"] }
+  private def shown(run) = (0..2).map { |n| run[:"shown#{n}"] }
+  private def states(run) = (0..2).map { |n| run[:"state#{n}"] }
 
   def test_each_copy_keeps_its_own_save_and_is_read_without_loading
     store = SaveImage.new
@@ -266,7 +266,7 @@ class TestNativeSaves < Minitest::Test
   #
   # A saves 7 hearts and a list of sixty numbers; the game counts the passes a save was in hand
   # and the passes one finished on, and loads what is saved as it starts.
-  def slow_save(save_memory)
+  private def slow_save(save_memory)
     program_with(save_memory) do
       hearts = var :hearts, 3
       trail = list :trail, capacity: 60
@@ -288,7 +288,7 @@ class TestNativeSaves < Minitest::Test
     end
   end
 
-  def assert_saves_over_several_passes_and_comes_back(kilobytes, passes_at_least:)
+  private def assert_saves_over_several_passes_and_comes_back(kilobytes, passes_at_least:)
     program = slow_save(kilobytes)
     store = SaveImage.new(kilobytes: kilobytes)
 

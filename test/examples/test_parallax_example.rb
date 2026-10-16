@@ -22,7 +22,7 @@ class TestParallaxExample < Minitest::Test
 
   # Any tree leaf in the tree row (py 136..143) within the given screen-x span — the
   # trees move with the near layer, so this is how we spot where they've slid to.
-  def leaf_in_row?(xs)
+  private def leaf_in_row?(xs)
     xs.any? { |x| (136..143).any? { |y| yield(x, y) } }
   end
 

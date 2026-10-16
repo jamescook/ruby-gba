@@ -14,7 +14,7 @@ class TestSongNeedsFramesGuardrail < Minitest::Test
 
   Check = RubyGBA::IR::Guardrails::Checks::SongNeedsFrames
 
-  def tune
+  private def tune
     song(:tune, events: [[0, 262]], total_frames: 4)
   end
 

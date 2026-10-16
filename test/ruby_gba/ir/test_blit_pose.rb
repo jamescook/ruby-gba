@@ -13,7 +13,7 @@ class TestBlitPose < Minitest::Test
   include RubyGBA::IR::Build
 
   # Two 2x2 poses: one solid red, one solid green. Index picks which one draws.
-  def pose_program(index)
+  private def pose_program(index)
     program(
       screen(:bitmap),
       clear_screen(:black),

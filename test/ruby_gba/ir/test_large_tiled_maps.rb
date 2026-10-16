@@ -29,7 +29,7 @@ class TestLargeTiledMaps < Minitest::Test
   # wrong block shows up as the wrong colour rather than as nothing.
   QUARTERS = %i[red green blue yellow].freeze
 
-  def quartered_program(cols, rows, scroll: [0, 0])
+  private def quartered_program(cols, rows, scroll: [0, 0])
     dx, dy = scroll
     builder = Builder.new
     builder.instance_eval do

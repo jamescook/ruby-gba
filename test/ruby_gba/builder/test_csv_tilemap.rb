@@ -21,7 +21,7 @@ class TestCsvTilemap < Minitest::Test
 
   # A tiny checker tileset of two 4x4 tiles, over a green field. Numbered by the order
   # listed: tile 1 = red, tile 2 = blue.
-  def checker_builder
+  private def checker_builder
     b = Builder.new
     b.instance_eval do
       screen :bitmap
@@ -35,7 +35,7 @@ class TestCsvTilemap < Minitest::Test
 
   # Write +text+ to a real .csv file for the duration of the block (its path is absolute,
   # so it resolves as-is), then clean it up.
-  def with_csv(text)
+  private def with_csv(text)
     Tempfile.create(["tilemap", ".csv"]) do |f|
       f.write(text)
       f.flush
@@ -44,7 +44,7 @@ class TestCsvTilemap < Minitest::Test
   end
 
   # Render a checker background from a CSV and return the interpreter's screen.
-  def checker_screen(text)
+  private def checker_screen(text)
     b = checker_builder
     with_csv(text) { |path| b.background(:board, tiles: :checker, from: path) }
     b.finalize_program

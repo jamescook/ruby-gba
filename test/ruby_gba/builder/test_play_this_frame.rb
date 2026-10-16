@@ -26,7 +26,7 @@ class TestPlayThisFrame < Minitest::Test
   ASKED_ON = 3
 
   # A game that asks for SONG on pass ASKED_ON, saying +options+ as it does.
-  def game(**options)
+  private def game(**options)
     b = Builder.new
     b.instance_eval do
       screen :bitmap
@@ -44,7 +44,7 @@ class TestPlayThisFrame < Minitest::Test
 
   # The first frame each note was read on, from the interpreter: every vblank reads what was
   # played since the one before.
-  def notes_by_frame(program, frames)
+  private def notes_by_frame(program, frames)
     i = game_player
     heard = {}
     logged = 0
@@ -70,7 +70,7 @@ class TestPlayThisFrame < Minitest::Test
   end
 
   # The same, with a song block named by `play_song`: ten frames of rest, then a note.
-  def named_game(**options)
+  private def named_game(**options)
     b = Builder.new
     b.instance_eval do
       screen :bitmap
@@ -104,7 +104,7 @@ class TestPlayThisFrame < Minitest::Test
 
   # A game with the effects given, asking for effect +asks+ on pass ASKED_ON with +options+ —
   # and, given +before+, for that one on pass 1.
-  def effect_game(effects, asks: 0, before: nil, **options)
+  private def effect_game(effects, asks: 0, before: nil, **options)
     b = Builder.new
     b.instance_eval do
       screen :bitmap
@@ -122,7 +122,7 @@ class TestPlayThisFrame < Minitest::Test
   end
 
   # Notes ten frames apart, from frame 10 of the effect.
-  def later_effect(*keys, group: nil, priority: 0)
+  private def later_effect(*keys, group: nil, priority: 0)
     Score.new(tempo: 150, group: group, priority: priority,
               parts: [Part.new(notes: keys.each_with_index.map { |key, n| Note.new(at: 10 * (n + 1), key: key) })])
   end
@@ -157,7 +157,7 @@ class TestPlayThisFrame < Minitest::Test
 
   # Each frame of the cartridge, after it is played: how many passes the game had made, the
   # song its player was on, and whether anything was heard.
-  def console_frames(program)
+  private def console_frames(program)
     backend = GBA.new
     rom = ROM.assemble(backend.lower(program), title: "THISFRAME")
     v = assert_emulator_loads_rom(rom, frames: 1, vars: backend.var_addresses)
@@ -303,7 +303,7 @@ class TestPlayThisFrame < Minitest::Test
 
   # A song on a recording, asked for from a routine kept in the cartridge, and a recording of the
   # game's own, each started on pass ASKED_ON when given.
-  def recorded_game(song: false, click: false)
+  private def recorded_game(song: false, click: false)
     b = Builder.new
     b.instance_eval do
       screen :bitmap
@@ -325,7 +325,7 @@ class TestPlayThisFrame < Minitest::Test
     b.program
   end
 
-  def first_slice_heard(program)
+  private def first_slice_heard(program)
     game_player.run(program, frames: 20).mixed_sound.index { |slice| slice.any?(&:nonzero?) }
   end
 

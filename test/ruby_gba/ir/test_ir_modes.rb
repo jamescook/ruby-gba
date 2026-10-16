@@ -17,7 +17,7 @@ class TestIRModes < Minitest::Test
 
   # A scene func: its screen declares +mode+ (:direct/:buffered), or nil to
   # inherit the mode it's reached in.
-  def scene(name, mode, *draws)
+  private def scene(name, mode, *draws)
     body = []
     body << screen(:bitmap, buffered: mode == :buffered) unless mode.nil?
     func(name, *body.concat(draws))
@@ -25,7 +25,7 @@ class TestIRModes < Minitest::Test
 
   # A two-scene game: a title and a play scene, dispatched by :state, booting in
   # +boot+ mode.
-  def game(title:, play:, boot: :direct)
+  private def game(title:, play:, boot: :direct)
     program(
       screen(:bitmap, buffered: boot == :buffered),
       set(:state, int(0)),

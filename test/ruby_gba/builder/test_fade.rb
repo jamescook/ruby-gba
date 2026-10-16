@@ -22,7 +22,7 @@ class TestFade < Minitest::Test
   BLACK = RubyGBA::Graphics::Color.resolve(:black)
   WHITE = RubyGBA::Graphics::Color.resolve(:white)
 
-  def program(&block)
+  private def program(&block)
     b = Builder.new
     b.instance_eval(&block)
     b.finalize_program
@@ -30,7 +30,7 @@ class TestFade < Minitest::Test
   end
 
   # A blue screen with a red block at (100, 70), under a fade.
-  def faded(toward, amount)
+  private def faded(toward, amount)
     program do
       screen :bitmap
       clear_screen :blue
@@ -40,7 +40,7 @@ class TestFade < Minitest::Test
     end
   end
 
-  def channels(color)
+  private def channels(color)
     [color & 0x1F, (color >> 5) & 0x1F, (color >> 10) & 0x1F]
   end
 
@@ -134,7 +134,7 @@ class TestFade < Minitest::Test
   # look alike and this is where they differ. It has to be checked on the console,
   # not just lowered: a tiled screen draws through different layers than a bitmap
   # one, so "which layers does the blend cover" is only really answered there.
-  def tiled_fade(amount)
+  private def tiled_fade(amount)
     program do
       screen :tiled
       image(:brick, "#" => :red) { (["########"] * 8).join("\n") }
@@ -173,7 +173,7 @@ class TestFade < Minitest::Test
 
   # --- the guardrail ---
 
-  def check
+  private def check
     Guardrails::Checks::FadeNeverLifted.new
   end
 
@@ -239,7 +239,7 @@ class TestFade < Minitest::Test
   # A screenful of one flat tile of +color+, faded. Tiled rather than bitmap because that is
   # where this was found, and because a tiled fade is the one the display does for
   # nothing — the route this rule belongs to.
-  def a_wall_faded(color, toward, amount)
+  private def a_wall_faded(color, toward, amount)
     tile = SOLID_TILE
     program do
       screen :tiled
@@ -250,7 +250,7 @@ class TestFade < Minitest::Test
     end
   end
 
-  def a_red_wall_faded(amount) = a_wall_faded(:red, :black, amount)
+  private def a_red_wall_faded(amount) = a_wall_faded(:red, :black, amount)
 
   def test_a_fade_takes_a_share_away_at_every_level
     EVERY_LEVEL.each_with_index do |percent, step|
@@ -302,7 +302,7 @@ class TestFade < Minitest::Test
 
   # --- on the console ---
 
-  def rom_for(toward, amount)
+  private def rom_for(toward, amount)
     ROM.assemble(GBA.new.lower(faded(toward, amount)), title: "FADE", code: "BFAD", maker: "01")
   end
 

@@ -46,14 +46,14 @@ class TestSpriteOneFrameAtATime < Minitest::Test
   end
 
   # A program built through the DSL; the block is handed this test, for its pictures.
-  def program(&block)
+  private def program(&block)
     b = Builder.new
     b.instance_exec(self, &block)
     b.finalize_program
     b.program
   end
 
-  def sprite_memory_used(prog)
+  private def sprite_memory_used(prog)
     backend = GBA.new
     backend.lower(prog)
     backend.build_record(prog).video_memory.sprites.used
@@ -69,7 +69,7 @@ class TestSpriteOneFrameAtATime < Minitest::Test
 
   def link_pose(facing, what, n) = :"link_#{facing}_#{what}#{n}"
 
-  def link_screen
+  private def link_screen
     program do |t|
       screen :tiled
       poses = {}
@@ -110,7 +110,7 @@ class TestSpriteOneFrameAtATime < Minitest::Test
 
   # A hero who keeps one frame at a time, and a pool of guards walking beside him. The guards'
   # four frames are stored once for all of them, which is less than a frame each.
-  def cast_screen(guard_frames:)
+  private def cast_screen(guard_frames:)
     program do |t|
       screen :tiled
       hero = (0...63).map { |n| :"hero_#{n}" }
@@ -139,7 +139,7 @@ class TestSpriteOneFrameAtATime < Minitest::Test
 
   # Three facings of 21 frames each and the fourth the third reversed, turning left partway
   # through, so a frame drawn from another one's pictures, reversed, is among the ones compared.
-  def turning_screen
+  private def turning_screen
     facings = %i[down up right].to_h { |dir| [dir, (0...21).map { |n| :"hero_#{dir}_#{n}" }] }
     program do |t|
       screen :tiled
@@ -163,7 +163,7 @@ class TestSpriteOneFrameAtATime < Minitest::Test
 
   # A 48x48 character is bigger than any one picture the console draws, so each frame is cut
   # into pieces — and a frame that draws less is cut into fewer, smaller ones.
-  def big_character_screen
+  private def big_character_screen
     program do |t|
       screen :tiled
       frames = (0...33).map { |n| :"giant_#{n}" }
@@ -189,7 +189,7 @@ class TestSpriteOneFrameAtATime < Minitest::Test
   # over — and has to copy it in again though the frame it is showing never changed. Both
   # animate slowly here so that nothing else would copy it. +cast+ names each character of the
   # :playing scene and whether it keeps one frame (70 of them) or its whole two.
-  def two_scene_screen(cast)
+  private def two_scene_screen(cast)
     program do |t|
       screen :tiled
       art = 0
@@ -338,7 +338,7 @@ class TestSpriteOneFrameAtATime < Minitest::Test
   # REVERSED — which is how nearly every 2D game faces a character, and which trims from the
   # other side — and the rest fill their canvas. Every one of them is copied into the same room
   # in sprite memory, so the console's table says the same tile whichever is showing.
-  def banded_screen
+  private def banded_screen
     program do |t|
       screen :tiled
       poses = (0...70).map { |n| :"step_#{n}" }
@@ -355,7 +355,7 @@ class TestSpriteOneFrameAtATime < Minitest::Test
   # A character bigger than any one picture the console draws, so every pose is cut into pieces —
   # and kept to one frame besides. Its pieces are separate rows of the console's table, each
   # trimmed on its own, so this is the case where being keyed by the pose has to hold per piece.
-  def banded_giant_screen
+  private def banded_giant_screen
     program do |t|
       screen :tiled
       poses = (0...40).map { |n| :"stride_#{n}" }
@@ -371,7 +371,7 @@ class TestSpriteOneFrameAtATime < Minitest::Test
   # Read a character back over the frames of its animation: it must say it is where the game put
   # it every time, and the console's own number must really move between those frames, or the
   # test proves nothing.
-  def assert_stands_still(prog, name:, sprite:, frames: 6)
+  private def assert_stands_still(prog, name:, sprite:, frames: 6)
     v = assert_emulator_loads_rom(assemble_rom(prog, name: name), frames: 2)
     raw = []
     frames.times do

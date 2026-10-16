@@ -21,7 +21,7 @@ class TestFastCodePlacement < Minitest::Test
   # A program with a real inner loop — the shape this feature exists for. It walks a
   # counter a few hundred times a frame and paints a bar whose width the loop works out,
   # so there is something to see and something to time.
-  def looping_program(passes: 40, fast: nil, halt_after: 3)
+  private def looping_program(passes: 40, fast: nil, halt_after: 3)
     builder = Builder.new
     builder.instance_eval do
       screen :bitmap
@@ -44,7 +44,7 @@ class TestFastCodePlacement < Minitest::Test
     builder.program
   end
 
-  def placement_of(program, **opts)
+  private def placement_of(program, **opts)
     backend = GBA.new(**opts)
     backend.lower(program)
     backend.iwram_report
@@ -52,7 +52,7 @@ class TestFastCodePlacement < Minitest::Test
 
   # A cartridge that can report on itself, built the way RubyGBA.build builds one: the
   # record of what the build worked out is handed over whole, at assembly.
-  def rom_of(program, title:, code:, **opts)
+  private def rom_of(program, title:, code:, **opts)
     backend = GBA.new(**opts)
     machine_code = backend.lower(program)
     RubyGBA::Cartridge::ROM.assemble(machine_code, title: title, code: code, maker: "01",
@@ -80,7 +80,7 @@ class TestFastCodePlacement < Minitest::Test
     assert_equal 0, differing, "#{differing} pixels differ between the two builds"
   end
 
-  def console_pixels(program, **opts)
+  private def console_pixels(program, **opts)
     rom = RubyGBA::Cartridge::ROM.assemble(GBA.new(**opts).lower(program), title: "PLACE", code: "PLC1", maker: "01")
     verifier = assert_emulator_loads_rom(rom, frames: 4)
     height = RubyGBA::IR::Screen::HEIGHT
@@ -104,7 +104,7 @@ class TestFastCodePlacement < Minitest::Test
                     "expected a real speed-up, got #{format('%.2fx', cart / quick)} (#{cart} -> #{quick})"
   end
 
-  def frame_scanlines(program, **opts)
+  private def frame_scanlines(program, **opts)
     rom = RubyGBA::Cartridge::ROM.assemble(GBA.new(**opts).lower(program), title: "SPEED", code: "SPD1", maker: "01")
     require_emulator!
     Tempfile.create(["place", ".gba"]) do |file|
@@ -214,7 +214,7 @@ class TestFastCodePlacement < Minitest::Test
                     "with the chooser off, nothing moves — including a routine the loop calls"
   end
 
-  def profile_of(rom)
+  private def profile_of(rom)
     RubyGBA::Diagnostics::Profiler.run(rom, frames: 30, picture: false)
   end
 
@@ -224,7 +224,7 @@ class TestFastCodePlacement < Minitest::Test
   # routine the build makes to write its sprites. The menu is up first unless +up+ says the
   # game; START goes from the menu to the game. Small enough that everything fits, so
   # whatever stays out was kept out.
-  def two_scenes(menu_fast: nil, up: 0)
+  private def two_scenes(menu_fast: nil, up: 0)
     builder = Builder.new
     builder.instance_eval do
       screen :tiled
@@ -254,7 +254,7 @@ class TestFastCodePlacement < Minitest::Test
     builder.program
   end
 
-  def menu_sprites = RubyGBA::IR::Backends::GBA::SpriteDrawing.sprites_routine(:_scene_menu)
+  private def menu_sprites = RubyGBA::IR::Backends::GBA::SpriteDrawing.sprites_routine(:_scene_menu)
 
   def test_both_scenes_and_their_sprites_move_when_nothing_is_said
     funcs = placement_of(two_scenes).funcs
@@ -296,7 +296,7 @@ class TestFastCodePlacement < Minitest::Test
   # for and the display has to be interrupted for all of them. Give the helper a block
   # instead and it bends one layer, which an engine feeds and which lands there not at all
   # (see BendForm, and the test below).
-  def bending_program(&block)
+  private def bending_program(&block)
     b = Builder.new
     b.instance_eval do
       screen :tiled
@@ -338,7 +338,7 @@ class TestFastCodePlacement < Minitest::Test
   # A timer is the other thing that can make it busy: `per_second: 4000` runs its handler 67
   # times a frame, off the timer rather than the frame loop. So it moves for that too, which
   # is what "this helps every interrupt, not only bends" has to mean in practice.
-  def ticking_program(per_second: 4000)
+  private def ticking_program(per_second: 4000)
     b = Builder.new
     b.instance_eval do
       screen :bitmap
@@ -452,7 +452,7 @@ class TestFastCodePlacement < Minitest::Test
   # A game of scenes with a live score in it — the two shapes whose calls the author never
   # wrote. A multi-way dispatch calls one scene per clause, and a run-time digit calls a
   # shared glyph routine per digit place; neither is a `call` in the tree.
-  def game_of_scenes
+  private def game_of_scenes
     builder = Builder.new
     builder.instance_eval do
       screen :bitmap
@@ -563,7 +563,7 @@ class TestFastCodePlacement < Minitest::Test
 
   # A routine that calls another ten times, both small enough to keep. +filler+ takes that
   # many bytes of the quick memory away first.
-  def calling_program(filler: nil)
+  private def calling_program(filler: nil)
     builder = Builder.new
     builder.instance_eval do
       screen :bitmap
@@ -621,7 +621,7 @@ class TestFastCodePlacement < Minitest::Test
 
   # More variables than the base register reaches, and a kept routine that uses the one
   # declared last of all.
-  def crowded_program
+  private def crowded_program
     builder = Builder.new
     builder.instance_eval do
       screen :bitmap
@@ -655,7 +655,7 @@ class TestFastCodePlacement < Minitest::Test
 
   # A routine kept in the quick memory written BEFORE one left in the cartridge, each with a
   # loop whose counter has to live in memory (two calls in the body take the registers).
-  def two_loops_program
+  private def two_loops_program
     builder = Builder.new
     builder.instance_eval do
       screen :bitmap

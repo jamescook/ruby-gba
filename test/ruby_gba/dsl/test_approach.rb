@@ -14,7 +14,7 @@ class TestApproach < Minitest::Test
 
   # Build through the DSL and run on the reference backend, returning the
   # interpreter (read a variable's final value with i[:name]).
-  def interpret(&block)
+  private def interpret(&block)
     builder = Builder.new
     builder.instance_eval(&block)
     builder.finalize_program
@@ -23,7 +23,7 @@ class TestApproach < Minitest::Test
 
   # Build the IR without running it — for the guardrail tests, which must raise
   # as the program is built, before anything runs.
-  def tree(&block)
+  private def tree(&block)
     builder = Builder.new
     builder.instance_eval(&block)
     builder.finalize_program
@@ -272,7 +272,7 @@ class TestApproach < Minitest::Test
 
   # A green marker whose x is the approached value: it starts at 0 and homes in
   # on 100, so where it ends up on screen reveals the number approach computed.
-  def marker_program(frames:)
+  private def marker_program(frames:)
     builder = Builder.new
     builder.instance_eval do
       screen :bitmap
@@ -315,7 +315,7 @@ class TestApproach < Minitest::Test
   # lowering that ignored the bound would sail past. A lowering that dropped the value
   # it was clamping and kept the bound would sit on the limit from the first frame, and
   # fail the early reading.
-  def limited_marker_program(frames:)
+  private def limited_marker_program(frames:)
     builder = Builder.new
     builder.instance_eval do
       screen :bitmap
@@ -362,7 +362,7 @@ class TestApproach < Minitest::Test
     assert v_late.green?(60, 50), "and it holds at the same limit"
   end
 
-  def rom_for(program)
+  private def rom_for(program)
     RubyGBA::Cartridge::ROM.assemble(RubyGBA::IR::Backends::GBA.new.lower(program),
                           title: "APPROACH", code: "BAPP", maker: "01")
   end

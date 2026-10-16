@@ -38,11 +38,11 @@ class TestShmupExample < Minitest::Test
   BOSS_ROW = 50 # deep enough into the picture to be in the gun arm and nothing else
   BOSS_KILLED_BY = 300 # firing on a beat: hit off, broken up, and the bonus paid
 
-  def red_somewhere?(screen)
+  private def red_somewhere?(screen)
     (0...160).any? { |y| (0...240).any? { |x| screen.pixel(x, y) == RED } }
   end
 
-  def red_in?(screen, x, y, w, h)
+  private def red_in?(screen, x, y, w, h)
     (y...y + h).any? { |py| (x...x + w).any? { |px| screen.pixel(px, py) == RED } }
   end
 
@@ -50,7 +50,7 @@ class TestShmupExample < Minitest::Test
   # read off the picture rather than out of a variable on purpose: what is under test is
   # that the WHOLE cruiser is on screen and moves together, and the sprite's own x says
   # nothing about the pieces the console was given.
-  def magenta_span(screen)
+  private def magenta_span(screen)
     xs = (0...160).step(2).flat_map do |y|
       (0...240).step(2).select { |x| screen.pixel(x, y) == MAGENTA }
     end
@@ -59,7 +59,7 @@ class TestShmupExample < Minitest::Test
 
   # Which end of the picture the gun arm hangs off — the boss is drawn banking left with
   # the arm under its left shoulder, so the arm swapping ends is the mirrored pose.
-  def arm_ends(screen, span)
+  private def arm_ends(screen, span)
     low, high = span
     [(low..low + 6).any? { |x| screen.pixel(x, BOSS_ROW) == MAGENTA },
      (high - 6..high).any? { |x| screen.pixel(x, BOSS_ROW) == MAGENTA }]
@@ -67,7 +67,7 @@ class TestShmupExample < Minitest::Test
 
   # The boss as the console really drew it, +frames+ into a run: how far its hull reaches
   # across the screen, and whether either end of that is the gun arm.
-  def console_boss(frames)
+  private def console_boss(frames)
     v = assert_emulator_loads_rom(Shmup.build_rom(out: StringIO.new, err: StringIO.new), frames: frames)
     lit = (BOSS_ROW - 20..BOSS_ROW).step(4).flat_map do |y|
       (0...240).step(2).select { |x| v.pixel_is?(x, y, :magenta) }
@@ -82,7 +82,7 @@ class TestShmupExample < Minitest::Test
   end
 
   # What the build made of the game's sprites, which is where the boss's object count is.
-  def video_memory
+  private def video_memory
     backend = RubyGBA::IR::Backends::GBA.new
     backend.lower(Shmup.program)
     backend.build_record(Shmup.program).video_memory
@@ -124,7 +124,7 @@ class TestShmupExample < Minitest::Test
   WARM = %i[yellow orange red].map { |name| Color.resolve(name) }.freeze
 
   # The colour of the ship's hull, frame by frame, alongside how many ships are left.
-  def ship_hull_by_frame(frames)
+  private def ship_hull_by_frame(frames)
     seen = []
     i = game_player
     i.each_vblank { |_f| seen << [i[:lives], i.screen.pixel(119, 146)] } # the hull, not the cockpit

@@ -19,7 +19,7 @@ class TestEvaluatedGame < Minitest::Test
 
   # A game that stops half way through itself. The blue clear is in the program; the red
   # one is written after the `debug_halt` and never happened.
-  def truncated_game
+  private def truncated_game
     RubyGBA.game("DBGHLT", code: "ZDBG", maker: "01") do
       screen :bitmap
       clear_screen :blue
@@ -97,7 +97,7 @@ class TestEvaluatedGame < Minitest::Test
     assert_equal fresh.buffer, read.build_rom(out: StringIO.new, err: StringIO.new).buffer
   end
 
-  def a_small_game
+  private def a_small_game
     RubyGBA.game("SMALL", code: "ZSML", maker: "01") do
       screen :bitmap
       x = var :x, 10
@@ -153,7 +153,7 @@ class TestEvaluatedGame < Minitest::Test
     assert_same Progress.silent, heard
   end
 
-  def talkative_game
+  private def talkative_game
     RubyGBA.game("TALKY", code: "ZTLK", maker: "01") do
       progress.step "reading the floors"
       screen :bitmap

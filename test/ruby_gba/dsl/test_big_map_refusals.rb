@@ -9,7 +9,7 @@ require "test_helper"
 class TestBigMapRefusals < Minitest::Test
   runs_on :reference
 
-  def program(&block)
+  private def program(&block)
     b = Builder.new
     b.instance_eval(&block)
     b.finalize_program

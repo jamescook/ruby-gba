@@ -14,7 +14,7 @@ class TestIRGuardrailScreenInsideScene < Minitest::Test
 
   Check = RubyGBA::IR::Guardrails::Checks::ScreenInsideScene
 
-  def program(&block)
+  private def program(&block)
     b = Builder.new
     b.instance_eval(&block)
     b.finalize_program

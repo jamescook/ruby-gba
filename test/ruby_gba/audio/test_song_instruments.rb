@@ -16,7 +16,7 @@ class TestSongInstruments < Minitest::Test
 
   # A piano recorded at C4, a second long — longer than any note here, so it is the next event
   # that ends a note rather than the recording running out.
-  def piano_game(&extra)
+  private def piano_game(&extra)
     b = Builder.new
     b.instance_eval do
       screen :bitmap
@@ -39,7 +39,7 @@ class TestSongInstruments < Minitest::Test
   end
 
   # What the interpreter has sounding after each of the first +frames+ frames.
-  def sounding_by_frame(program, frames)
+  private def sounding_by_frame(program, frames)
     seen = {}
     i = game_player
     i.each_vblank { |f| seen[f] = i.active_samples }
@@ -61,12 +61,12 @@ class TestSongInstruments < Minitest::Test
 
   VOICES = RubyGBA::Audio::Sound::MIXER_VOICES
   CLIPS = VOICES + 2 # two more of the game's own sounds than there are voices
-  def clip_names(range) = range.map { |n| :"s#{n}" }
+  private def clip_names(range) = range.map { |n| :"s#{n}" }
 
   # A game that starts CLIPS sounds of its own at once, two seconds long each, on pass +at+ — in
   # its game loop, where the burst lands inside one frame on both backends — beside +tune+. The
   # first sound loops when +loop_first+ says so.
-  def sharing_game(at:, loop_first: false, &tune)
+  private def sharing_game(at:, loop_first: false, &tune)
     b = Builder.new
     b.instance_eval do
       screen :bitmap
@@ -86,7 +86,7 @@ class TestSongInstruments < Minitest::Test
   end
 
   # What each backend has sounding, +frames+ in.
-  def sounding_on_both(program, frames:)
+  private def sounding_on_both(program, frames:)
     [game_player.run(program, frames: frames).active_samples,
      assert_emulator_loads_rom(assemble_rom(program, name: "SONGSHARE"), frames: frames + 2).sounding]
   end
@@ -158,7 +158,7 @@ class TestSongInstruments < Minitest::Test
 
   # --- the console ---
 
-  def console_steps_at(frames)
+  private def console_steps_at(frames)
     rom = assemble_rom(piano_game, name: "SONGINST")
     assert_emulator_loads_rom(rom, frames: frames).voices.map { |v| [v.sample, v.step] }
   end
@@ -167,7 +167,7 @@ class TestSongInstruments < Minitest::Test
   # at a rate the sound hardware can sustain (GBA::Timers.sample_clock) rather than at the rate
   # the piano was recorded at, so a note at the recorded pitch is not a step of 1.0.
   RECORDED_AT = 8000
-  def step_for(note)
+  private def step_for(note)
     resample = RECORDED_AT.to_f / GBA::Timers.sample_clock(RECORDED_AT).rate
     (NOTES[note].to_f / NOTES[:C4] * resample * STEP_ONE).round
   end

@@ -12,7 +12,7 @@ class TestDirectSound < Minitest::Test
   LoweringError = RubyGBA::IR::Backends::GBA::LoweringError
 
   # A short square-wave clip — a real, audible waveform to play.
-  def square_wave(cycles: 250)
+  private def square_wave(cycles: 250)
     ([100] * 4 + [-100] * 4) * cycles
   end
 

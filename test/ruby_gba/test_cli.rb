@@ -22,14 +22,14 @@ class TestCLI < Minitest::Test
   LIB = RubyGBA.root.join("lib").to_s
 
   # Run the CLI in +dir+ and return [combined_output, Process::Status].
-  def cli(*args, dir:)
+  private def cli(*args, dir:)
     Open3.capture2e(RUBY, BIN, *args, chdir: dir)
   end
 
   # Run an arbitrary Ruby file (e.g. something `build --format=ir` wrote) as its own
   # process, with the checkout's lib/ on its load path — the way a user who cloned
   # the repo, rather than installed the gem, would run it.
-  def run_ruby(path, dir:)
+  private def run_ruby(path, dir:)
     Open3.capture2e(RUBY, "-I", LIB, path, chdir: dir)
   end
 

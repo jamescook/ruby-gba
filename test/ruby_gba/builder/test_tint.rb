@@ -14,7 +14,7 @@ class TestTint < Minitest::Test
   include Differential
 
   # A green screen and one tint, as the DSL writes it.
-  def tinted(color, amount, screen_kind: :bitmap, tear_free: false, under: :green)
+  private def tinted(color, amount, screen_kind: :bitmap, tear_free: false, under: :green)
     b = RubyGBA::Builder.new
     b.instance_eval do
       screen screen_kind, tear_free: tear_free
@@ -26,7 +26,7 @@ class TestTint < Minitest::Test
     b.program
   end
 
-  def shown(program)
+  private def shown(program)
     Reference.new.run(program).screen.pixel(120, 80)
   end
 
@@ -120,7 +120,7 @@ class TestTint < Minitest::Test
 
   # MID_GRAY tinted half way to yellow, painted on every frame: the tear-free screen keeps
   # two pictures and shows them in turn, so one painted once would show only half the time.
-  def gray_redrawn_under_yellow
+  private def gray_redrawn_under_yellow
     b = RubyGBA::Builder.new
     b.instance_eval do
       screen :bitmap, tear_free: true
@@ -132,7 +132,7 @@ class TestTint < Minitest::Test
   end
 
   # ...and on a tiled screen, which has no picture to clear: a background of gray tiles.
-  def gray_tiles_under_yellow
+  private def gray_tiles_under_yellow
     b = RubyGBA::Builder.new
     b.instance_eval do
       screen :tiled
@@ -223,7 +223,7 @@ class TestTint < Minitest::Test
 
   # A green screen and one tint on the tear-free screen. Its colors are drawn from a
   # table, so this exercises the other mechanism entirely.
-  def buffered_tint(color, amount)
+  private def buffered_tint(color, amount)
     b = RubyGBA::Builder.new
     b.instance_eval do
       screen :bitmap, tear_free: true
@@ -255,7 +255,7 @@ class TestTint < Minitest::Test
   # scenery and the sprite draw from two different tables and BOTH have to move, which
   # is the thing the table mechanism buys over every other way of doing this.
 
-  def tiled_tint(amount, extra_frames: 0)
+  private def tiled_tint(amount, extra_frames: 0)
     tile = SOLID_TILE
     b = RubyGBA::Builder.new
     b.instance_eval do
@@ -391,7 +391,7 @@ class TestTint < Minitest::Test
   # table that is no longer there. Here a tear-free scene tints itself fully red, hands
   # over to a tiled scene, and comes back with the tint lifted — and the picture has to be
   # the green it was drawn as, not the red left in a table nobody put back.
-  def crossing_program
+  private def crossing_program
     tile = SOLID_TILE
     b = RubyGBA::Builder.new
     b.instance_eval do
@@ -445,7 +445,7 @@ class TestTint < Minitest::Test
   # what is drawn — so the difference between them is the walk and nothing else.
   TINT_COST_COLORS = 200
 
-  def tint_cost_program(moving:, tinting: true, tear_free: true)
+  private def tint_cost_program(moving:, tinting: true, tear_free: true)
     colors = TINT_COST_COLORS
     b = RubyGBA::Builder.new
     b.instance_eval do
@@ -499,7 +499,7 @@ class TestTint < Minitest::Test
   end
 
   # How many of a frame's scanlines the CPU was busy for, read off the console.
-  def frame_scanlines(program, name)
+  private def frame_scanlines(program, name)
     require_emulator!
     rom = assemble_rom(program, name: name)
     Tempfile.create([name, ".gba"]) do |file|
@@ -527,7 +527,7 @@ class TestTint < Minitest::Test
 
   # --- the guardrail ---
 
-  def warnings(program)
+  private def warnings(program)
     RubyGBA::IR::Guardrails::Validator.new.run(program, autofix: false).warnings.map(&:check)
   end
 
@@ -592,7 +592,7 @@ class TestTint < Minitest::Test
   # stopped shipping. Emitted code cannot stand in for it either: the palette machinery a tint
   # needs is shared, so it lands wherever it is first required and the same tint reads as 172
   # bytes in one program and 52 in another. So it is run and counted.
-  def cost_of(&body)
+  private def cost_of(&body)
     rom = RubyGBA.build("TINT", code: "TINT", maker: "01", out: StringIO.new, err: StringIO.new) do
       screen :bitmap
       game_loop { body.call(self) }
@@ -619,7 +619,7 @@ class TestTint < Minitest::Test
     assert_operator cost_of { |g| g.tint :red, 50 }, :>, cost_of { |_g| nil }
   end
 
-  def draw_a_lot(builder)
+  private def draw_a_lot(builder)
     40.times { |i| builder.fill_rect 0, i, 40, 1, :blue }
   end
 

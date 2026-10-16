@@ -23,7 +23,7 @@ class TestDrawInOrder < Minitest::Test
   ENEMY_AT = [60, 60].freeze
   OVERLAP = [70, 66].freeze
 
-  def program(&block)
+  private def program(&block)
     b = Builder.new
     b.instance_eval(&block)
     b.finalize_program
@@ -31,7 +31,7 @@ class TestDrawInOrder < Minitest::Test
   end
 
   # The enemy stands at ENEMY_AT; the hero is eight pixels right of it and +hero_y+ down.
-  def two_program(hero_y, ordered: true, step: 0, hero_named_first: false)
+  private def two_program(hero_y, ordered: true, step: 0, hero_named_first: false)
     block = BLOCK
     enemy_at = ENEMY_AT
     program do
@@ -45,7 +45,7 @@ class TestDrawInOrder < Minitest::Test
     end
   end
 
-  def shown(prog, frames: 2) = game_player.run(prog, frames: frames).screen.pixel(*OVERLAP)
+  private def shown(prog, frames: 2) = game_player.run(prog, frames: frames).screen.pixel(*OVERLAP)
 
   def test_without_an_order_the_later_sprite_is_always_in_front
     assert_equal GREEN, shown(two_program(54, ordered: false))
@@ -91,7 +91,7 @@ class TestDrawInOrder < Minitest::Test
 
   # THE NUMBER IS THE GAME'S TO WORK OUT. A puff of smoke starts a step nearer the front and
   # drops back; here a variable the game owns decides, and `front: :lowest` reverses it.
-  def keyed_program(boost, front:)
+  private def keyed_program(boost, front:)
     block = BLOCK
     enemy_at = ENEMY_AT
     program do
@@ -115,7 +115,7 @@ class TestDrawInOrder < Minitest::Test
 
   # A POOL'S THINGS TAKE PART ONE BY ONE. Two of them are spawned so that the older — which
   # a pool draws in front — stands higher; in order, the lower one covers it instead.
-  def pool_program(ordered: true)
+  private def pool_program(ordered: true)
     block = BLOCK
     program do
       screen :tiled
@@ -138,7 +138,7 @@ class TestDrawInOrder < Minitest::Test
 
   # --- what the build refuses ---
 
-  def refusal(&block)
+  private def refusal(&block)
     assert_raises(ArgumentError) { program(&block) }.message
   end
 

@@ -18,15 +18,15 @@ class TestEmittedBaseline < Minitest::Test
   Baseline = Emitted::Baseline
   Verdict = Emitted::Baseline::Verdict
 
-  def sizes(**examples)
+  private def sizes(**examples)
     examples.to_h { |name, (code, data)| [name.to_s, { code: code, data: data.to_i }] }
   end
 
-  def verdict(recorded, measured, errors: {})
+  private def verdict(recorded, measured, errors: {})
     Verdict.new(recorded: recorded, measured: measured, errors: errors)
   end
 
-  def render(v)
+  private def render(v)
     out = StringIO.new
     v.render(out)
     out.string

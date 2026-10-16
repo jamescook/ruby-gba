@@ -24,7 +24,7 @@ class TestShowMap < Minitest::Test
   CAVE = Array.new(6) { "......" }
   MIXED = ["######", "..####", "######", "######", "######", "######"]
 
-  def rooms_program(&steering)
+  private def rooms_program(&steering)
     builder = Builder.new
     builder.instance_eval do
       screen :tiled
@@ -42,11 +42,11 @@ class TestShowMap < Minitest::Test
     builder.program
   end
 
-  def pixel_at(cell_col, cell_row, screen)
+  private def pixel_at(cell_col, cell_row, screen)
     screen.pixel((cell_col * 8) + 4, (cell_row * 8) + 4)
   end
 
-  def cell_of(program, frames:, col: 1, row: 1)
+  private def cell_of(program, frames:, col: 1, row: 1)
     pixel_at(col, row, Reference.new.run(program, frames: frames).screen)
   end
 
@@ -239,7 +239,7 @@ class TestShowMap < Minitest::Test
   # A map wider than 32 cells is stored as two squares side by side rather than as rows of the
   # whole width, so the whole map has to be re-laid the same way — a copy that simply walked
   # the authored rows would put the right half in the wrong place.
-  def wide_rooms_program
+  private def wide_rooms_program
     builder = Builder.new
     builder.instance_eval do
       screen :tiled
@@ -275,7 +275,7 @@ class TestShowMap < Minitest::Test
   # its own test: the map is found by counting strides from the first, and a stride that was
   # a little wrong would still land inside the blob and draw a plausible neighbouring room.
   # The last of thirty-two is where that shows.
-  def many_rooms_program(pick)
+  private def many_rooms_program(pick)
     builder = Builder.new
     builder.instance_eval do
       screen :tiled

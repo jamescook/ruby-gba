@@ -12,7 +12,7 @@ class TestIRGuardrailRoutineNeverCalled < Minitest::Test
 
   Guardrails = RubyGBA::IR::Guardrails
 
-  def findings(&block)
+  private def findings(&block)
     builder = Builder.new
     builder.instance_eval(&block)
     builder.finalize_program

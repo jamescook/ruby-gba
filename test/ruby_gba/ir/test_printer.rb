@@ -22,7 +22,7 @@ class TestPrinter < Minitest::Test
   RED = "\e[31m"
 
   # A coloured printer and the text it wrote.
-  def colored
+  private def colored
     io = StringIO.new
     yield Printer.for(io, color: true)
     io.string
@@ -36,11 +36,11 @@ class TestPrinter < Minitest::Test
 
   # --- the picture verdicts, which are the only lines that carry a severity ---
 
-  def torn = Profiler::Tear.new(looked: 6, torn: 4, worst: 97)
-  def held_together = Profiler::Tear.new(looked: 6, torn: 0, worst: 0)
-  def flickering = RubyGBA::Diagnostics::Flicker::Reading.new(pixels: 1842, first: [40, 12])
-  def all_arrived = RubyGBA::Diagnostics::Flicker::Reading.new(pixels: 0, first: nil)
-  def dropped_sounds = RubyGBA::Diagnostics::SoundDrops::Reading.new(dropped: 7, music_held: 9, voices: 16)
+  private def torn = Profiler::Tear.new(looked: 6, torn: 4, worst: 97)
+  private def held_together = Profiler::Tear.new(looked: 6, torn: 0, worst: 0)
+  private def flickering = RubyGBA::Diagnostics::Flicker::Reading.new(pixels: 1842, first: [40, 12])
+  private def all_arrived = RubyGBA::Diagnostics::Flicker::Reading.new(pixels: 0, first: nil)
+  private def dropped_sounds = RubyGBA::Diagnostics::SoundDrops::Reading.new(dropped: 7, music_held: 9, voices: 16)
 
   def test_a_torn_picture_says_so_in_colour
     line = colored { |printer| Profiler.tearing_line(torn, printer) }

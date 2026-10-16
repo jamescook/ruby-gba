@@ -14,7 +14,7 @@ class TestVerifierSound < Minitest::Test
 
   # A tune and not one held note, so that a frame read back out of its place is a different
   # sound from the frame that belongs there.
-  def tune
+  private def tune
     game = RubyGBA.game "TUNE" do
       screen :bitmap
       enable_sound
@@ -33,7 +33,7 @@ class TestVerifierSound < Minitest::Test
 
   # A RecordedSound that also notes in +handed+ how many frames it was given each time:
   # the one thing about a long run that nothing read back afterwards can show.
-  def sound_noting_frames_handed_over(handed, **settings)
+  private def sound_noting_frames_handed_over(handed, **settings)
     Class.new(RecordedSound) do
       define_method(:keep) do |frames|
         handed << frames.size

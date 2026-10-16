@@ -15,13 +15,13 @@ class TestNativeKindCoverage < Minitest::Test
 
   # What a program can hold that runs anywhere. An `else` is part of an `if` and is written with
   # it; `raw` and the other hardware-only kinds are refused before anything is written.
-  def portable_kinds
+  private def portable_kinds
     (Nodes.of_role(:statement) + Nodes.of_role(:value) + Nodes.of_role(:declaration))
       .reject { |kind| Portability.hardware_only?(kind) }
   end
 
-  def handled = Lowering::STATEMENTS.keys + Lowering::VALUES.keys
-  def not_yet = Lowering::NOT_LOWERED_YET.values.flatten
+  private def handled = Lowering::STATEMENTS.keys + Lowering::VALUES.keys
+  private def not_yet = Lowering::NOT_LOWERED_YET.values.flatten
 
   def test_every_kind_is_written_as_c_or_listed_as_not_yet
     assert_empty portable_kinds - handled - not_yet

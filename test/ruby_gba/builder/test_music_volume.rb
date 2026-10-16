@@ -16,7 +16,7 @@ class TestMusicVolume < Minitest::Test
   # says so.
   # With +shaped_elsewhere+ the game also declares a recording with a shape, which it never plays:
   # a game where any note has a shape mixes every voice by its gain rather than its loudness.
-  def held_note_game(plays: nil, named_once: false, shaped_elsewhere: false, &body)
+  private def held_note_game(plays: nil, named_once: false, shaped_elsewhere: false, &body)
     b = Builder.new
     b.instance_eval do
       screen :bitmap
@@ -50,7 +50,7 @@ class TestMusicVolume < Minitest::Test
   # How loud each voice was set, on the frames it was set, from the interpreter:
   # { frame => [[channel, volume 0..15], ...] }. With +stops+, a frame the music stopped on
   # says :stop_music among them.
-  def loudness_by_frame(program, frames, stops: false)
+  private def loudness_by_frame(program, frames, stops: false)
     i = game_player
     heard = {}
     logged = 0
@@ -140,7 +140,7 @@ class TestMusicVolume < Minitest::Test
 
   # The volume the console's first square voice was set to, frame by frame, with a run of the
   # same volume counted once.
-  def console_volumes(rom, frames:)
+  private def console_volumes(rom, frames:)
     Dir.mktmpdir do |dir|
       path = File.join(dir, "volumes.gba")
       rom.write(path)
@@ -170,7 +170,7 @@ class TestMusicVolume < Minitest::Test
 
   # --- guardrails ---
 
-  def warnings(&block)
+  private def warnings(&block)
     b = Builder.new
     b.instance_eval(&block)
     b.finalize_program
@@ -382,7 +382,7 @@ class TestMusicVolume < Minitest::Test
   # --- a part on the noise voice ---
 
   # A drum part: a hit every second, at volume 12.
-  def drum_game(&body)
+  private def drum_game(&body)
     b = Builder.new
     b.instance_eval do
       screen :bitmap

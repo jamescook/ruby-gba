@@ -22,14 +22,14 @@ class TestLoopForm < Minitest::Test
 
   LoopForm = RubyGBA::IR::Backends::GBA::LoopForm
 
-  def program_with(&block)
+  private def program_with(&block)
     b = RubyGBA::Builder.new
     b.instance_eval(&block)
     b.finalize_program
     b.program
   end
 
-  def shapes_of(&block)
+  private def shapes_of(&block)
     rom = RubyGBA.build("LOOPS", err: StringIO.new,
                                  out: StringIO.new, &block)
     [rom, rom.loop_shapes]
@@ -593,7 +593,7 @@ class TestLoopForm < Minitest::Test
   # finding the variables — cancels out of the difference. The body is given the builder, a
   # variable to count with, and something to read: the loop's index, or with no loop an
   # ordinary variable.
-  def loop_overhead(&body)
+  private def loop_overhead(&body)
     looped = [PASSES, PASSES * 2].map do |passes|
       instructions_a_frame(pass_rom("LOOPED") { |b, n, _stand_in| b.repeat(passes) { |i| body.call(b, n, i) } })
     end
@@ -606,7 +606,7 @@ class TestLoopForm < Minitest::Test
   # Nothing is moved to the quick memory, which changes how a call is made depending on where
   # the caller and the routine each landed — and a body written out four hundred times lands
   # somewhere different from one written out two hundred.
-  def pass_rom(name)
+  private def pass_rom(name)
     RubyGBA.build(name, err: StringIO.new, out: StringIO.new, fast_code: false) do
       screen :bitmap
       n = var :n, 0
@@ -617,7 +617,7 @@ class TestLoopForm < Minitest::Test
     end
   end
 
-  def instructions_a_frame(rom)
+  private def instructions_a_frame(rom)
     result = RubyGBA::Diagnostics::Profiler.run(rom, frames: 10, picture: false)
     refute result.dropping_frames?, "a pass count is only exact while the game keeps up (#{result.fps} fps)"
     result.samples_per_frame
@@ -625,7 +625,7 @@ class TestLoopForm < Minitest::Test
 
   SETTLE = 12
 
-  def read_var(rom, name)
+  private def read_var(rom, name)
     address = rom.var_addresses.fetch(name)
     Dir.mktmpdir do |dir|
       path = File.join(dir, "loops.gba")

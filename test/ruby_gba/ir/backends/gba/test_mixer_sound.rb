@@ -22,7 +22,7 @@ class TestMixerSound < Minitest::Test
 
   PLAYED = 0x5C0E1079
 
-  def rom
+  private def rom
     RubyGBA.build("MIXSAME", out: nil, err: nil) do
       screen :bitmap
       enable_sound

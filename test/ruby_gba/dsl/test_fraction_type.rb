@@ -17,7 +17,7 @@ class TestFractionType < Minitest::Test
 
   ONE = 1 << 16
 
-  def build(&block)
+  private def build(&block)
     b = RubyGBA::Builder.new
     b.instance_eval(&block)
     b.finalize_program
@@ -25,7 +25,7 @@ class TestFractionType < Minitest::Test
   end
 
   # Run a program that puts `answer` (a whole number of pixels) at the marker's x.
-  def marker_x(&block)
+  private def marker_x(&block)
     program = build do
       screen :bitmap
       clear_screen :blue

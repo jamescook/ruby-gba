@@ -15,7 +15,7 @@ class TestWavImport < Minitest::Test
 
   # Build a minimal valid WAV byte string. +samples+ are raw per-channel values (unsigned
   # for 8-bit, signed for 16-bit), interleaved for stereo.
-  def wav_bytes(samples:, rate:, bits: 8, channels: 1)
+  private def wav_bytes(samples:, rate:, bits: 8, channels: 1)
     data = bits == 8 ? samples.pack("C*") : samples.pack("s<*")
     fmt = [1, channels, rate, rate * channels * (bits / 8), channels * (bits / 8), bits].pack("vvVVvv")
     chunks = "fmt " + [fmt.bytesize].pack("V") + fmt + "data" + [data.bytesize].pack("V") + data
@@ -57,7 +57,7 @@ class TestWavImport < Minitest::Test
 
   # --- the DSL path ---
 
-  def with_wav(bytes)
+  private def with_wav(bytes)
     Tempfile.create(["clip", ".wav"]) do |f|
       f.binmode
       f.write(bytes)

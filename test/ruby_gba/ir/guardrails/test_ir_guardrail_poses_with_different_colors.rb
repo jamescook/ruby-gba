@@ -20,11 +20,11 @@ class TestIRGuardrailPosesWithDifferentColors < Minitest::Test
   WARM_ART = Array.new(64, :red).freeze
   COLD_ART = Array.new(64, :blue).freeze
 
-  def validator
+  private def validator
     Guardrails::Validator.new(checks: [Guardrails::Checks::PosesWithDifferentColors.new])
   end
 
-  def program(&game)
+  private def program(&game)
     builder = Builder.new
     builder.instance_eval do
       screen :tiled
@@ -36,7 +36,7 @@ class TestIRGuardrailPosesWithDifferentColors < Minitest::Test
   end
 
   # One sprite that faces two ways, each way a picture with its own list.
-  def sprite_game(left: WARM, right: COLD)
+  private def sprite_game(left: WARM, right: COLD)
     program do
       image :left, width: 8, height: 8, data: WARM_ART, colors: left
       image :right, width: 8, height: 8, data: COLD_ART, colors: right
@@ -44,7 +44,7 @@ class TestIRGuardrailPosesWithDifferentColors < Minitest::Test
     end
   end
 
-  def pool_game
+  private def pool_game
     program do
       image :left, width: 8, height: 8, data: WARM_ART, colors: WARM
       image :right, width: 8, height: 8, data: COLD_ART, colors: COLD
@@ -53,9 +53,9 @@ class TestIRGuardrailPosesWithDifferentColors < Minitest::Test
     end
   end
 
-  def refusals(program) = validator.run(program, autofix: false).errors.map(&:message)
+  private def refusals(program) = validator.run(program, autofix: false).errors.map(&:message)
 
-  def refusal(program) = refusals(program).first
+  private def refusal(program) = refusals(program).first
 
   def test_a_sprite_whose_pictures_have_different_lists_is_refused
     message = refusal(sprite_game)

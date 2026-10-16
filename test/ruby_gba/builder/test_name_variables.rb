@@ -20,7 +20,7 @@ class TestNameVariables < Minitest::Test
 
   include Differential
 
-  def program_with(&block)
+  private def program_with(&block)
     b = RubyGBA::Builder.new
     b.instance_eval(&block)
     b.finalize_program
@@ -207,7 +207,7 @@ class TestNameVariables < Minitest::Test
   BLUE = RubyGBA::Graphics::Color.resolve(:blue)
   WHITE = RubyGBA::Graphics::Color.resolve(:white)
 
-  def scenes_by_name
+  private def scenes_by_name
     tile = SOLID_TILE
     program_with do
       screen :tiled

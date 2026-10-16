@@ -9,14 +9,14 @@ require "test_helper"
 class TestImage < Minitest::Test
   runs_on :reference
 
-  def build(&block)
+  private def build(&block)
     b = Builder.new
     b.instance_eval(&block)
     b.finalize_program
     b.program
   end
 
-  def bitmap_of(program, name)
+  private def bitmap_of(program, name)
     program.each.find { |n| n.kind == :bitmap && n.name == name }
   end
 
@@ -103,7 +103,7 @@ class TestImage < Minitest::Test
 
   # ---- image + blit, observed on the fake screen ----
 
-  def screen_after(&block)
+  private def screen_after(&block)
     prog = build(&block)
     RubyGBA::IR::Backends::Reference.new.run(prog).screen
   end

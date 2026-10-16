@@ -16,14 +16,14 @@ class TestFlickerRule < Minitest::Test
   H = 8
   SIZE = W * H
 
-  def blank = Array.new(SIZE, 0)
+  private def blank = Array.new(SIZE, 0)
 
   # A picture with +count+ pixels set to +ink+, starting at +from+.
-  def marked(count, ink: 1, from: 0)
+  private def marked(count, ink: 1, from: 0)
     blank.tap { |px| count.times { |i| px[from + i] = ink } }
   end
 
-  def read(before, after) = Flicker.read(before, after, width: W)
+  private def read(before, after) = Flicker.read(before, after, width: W)
 
   # THE BUG. Two pictures that disagree, and neither of them moves: a dissolve
   # whose dots went half to each. Nothing is coming to fix those pixels.
@@ -116,7 +116,7 @@ class TestFlickerMeasurable < Minitest::Test
 
   include RubyGBA::IR::Build
 
-  def program_on(**opts)
+  private def program_on(**opts)
     program(screen(:bitmap, **opts), clear_screen(:blue), halt)
   end
 
@@ -163,7 +163,7 @@ class TestFlickerOnTheInterpreter < Minitest::Test
   STEP = 8
 
   # +kept+ draws every mark on two frames running, so both pictures get it.
-  def trail(kept:)
+  private def trail(kept:)
     b = Builder.new
     marks = MARKS
     step = STEP
@@ -181,7 +181,7 @@ class TestFlickerOnTheInterpreter < Minitest::Test
     b.program
   end
 
-  def reading_for(program, at: 30)
+  private def reading_for(program, at: 30)
     before = Reference.new.run(program, frames: at).screen.pages
     after = Reference.new.run(program, frames: at + 2).screen.pages
     RubyGBA::Diagnostics::Flicker.read(before, after)

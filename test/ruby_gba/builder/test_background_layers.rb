@@ -16,7 +16,7 @@ class TestBackgroundLayers < Minitest::Test
   # px (40,40). A NEAR layer (front): transparent everywhere (spaces) except a RED
   # landmark tile at cell (10,5) -> px (80,40). Where near is transparent, far shows.
   # Each layer is scrolled to its own offset, so they can move at different speeds.
-  def two_layers(far_x, near_x)
+  private def two_layers(far_x, near_x)
     far_map  = Array.new(32) { |r| (0...32).map { |c| r == 5 && c == 5  ? "G" : "B" }.join }
     near_map = Array.new(32) { |r| (0...32).map { |c| r == 5 && c == 10 ? "R" : " " }.join }
     builder = Builder.new
@@ -40,7 +40,7 @@ class TestBackgroundLayers < Minitest::Test
     builder.program
   end
 
-  def rom_for(program)
+  private def rom_for(program)
     ROM.assemble(GBA.new.lower(program), title: "LAYERS", code: "BLYR", maker: "01")
   end
 
@@ -66,7 +66,7 @@ class TestBackgroundLayers < Minitest::Test
   # is see-through only where the picture says see-through, never because its number is 0.
   RED = Color.rgb(31, 0, 0)
 
-  def black_over_red(&front)
+  private def black_over_red(&front)
     builder = Builder.new
     builder.instance_eval do
       screen :tiled
@@ -80,7 +80,7 @@ class TestBackgroundLayers < Minitest::Test
     builder.program
   end
 
-  def black_by_place
+  private def black_by_place
     black_over_red do
       colors :inks, [:transparent, RED, 0x0000]
       image :black, width: 8, height: 8, places: [2] * 64, colors: :inks
@@ -89,7 +89,7 @@ class TestBackgroundLayers < Minitest::Test
     end
   end
 
-  def black_drawn_in_characters
+  private def black_drawn_in_characters
     black_over_red do
       image(:black, "#" => :black) { SOLID_TILE }
       tiles :blacks, "b" => :black
@@ -98,7 +98,7 @@ class TestBackgroundLayers < Minitest::Test
   end
 
   # Tiles the game paints hold place numbers too: every pixel here is place 2, black.
-  def black_painted
+  private def black_painted
     black_over_red do
       colors :inks, [:transparent, RED, 0x0000]
       bytes = list :bytes, capacity: 32, width: :byte
@@ -111,7 +111,7 @@ class TestBackgroundLayers < Minitest::Test
 
   # A background that turns reads the whole colour table rather than a group of sixteen,
   # which is the other way a tile is stored: black at a place has to keep a slot there.
-  def black_by_place_turning
+  private def black_by_place_turning
     black_over_red do
       colors :inks, [:transparent, RED, 0x0000]
       image :black, width: 8, height: 8, places: [2] * 64, colors: :inks

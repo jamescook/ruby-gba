@@ -26,7 +26,7 @@ class TestAnalyzerInput < Minitest::Test
   # Enough to be plainly visible in a reading but nowhere near the ceiling.
   A_VISIBLE_SLICE = 1500
 
-  def build(&block)
+  private def build(&block)
     b = Builder.new
     b.instance_eval(&block)
     b.finalize_program
@@ -34,7 +34,7 @@ class TestAnalyzerInput < Minitest::Test
   end
 
   # Free unless the player holds LEFT, then far too much to fit a frame.
-  def expensive_while_held(passes = OVER_A_FRAME, button: :left)
+  private def expensive_while_held(passes = OVER_A_FRAME, button: :left)
     build do
       screen :bitmap
       var :x, 0

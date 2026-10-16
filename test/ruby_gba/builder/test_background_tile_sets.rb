@@ -19,7 +19,7 @@ class TestBackgroundTileSets < Minitest::Test
 
   SPOT = [12, 12].freeze
 
-  def program(&block)
+  private def program(&block)
     b = Builder.new
     b.instance_eval(&block)
     b.finalize_program
@@ -29,7 +29,7 @@ class TestBackgroundTileSets < Minitest::Test
   # Two areas of one room each, drawn from two sets whose first tiles differ only in
   # colour: the shrine's is red and the clearing's green. They land in the same place in
   # tile memory, so the clearing showing green is the clearing's set having been brought in.
-  def two_areas(room)
+  private def two_areas(room)
     program do
       screen :tiled
       image(:shrine_floor, "#" => :red) { (["#" * 8] * 8).join("\n") }
@@ -44,7 +44,7 @@ class TestBackgroundTileSets < Minitest::Test
     end
   end
 
-  def pixel(prog, frames: 3)
+  private def pixel(prog, frames: 3)
     game_player.run(prog, frames: frames).screen.pixel(*SPOT)
   end
 
@@ -69,7 +69,7 @@ class TestBackgroundTileSets < Minitest::Test
   # A ground and a layer of scenery over its left half, each drawn from both areas' sets,
   # walked to the clearing on the third pass and back to the shrine on the sixth. The two
   # backgrounds change set on the same frame, and the second trip brings the first set back.
-  def walk_out_and_back
+  private def walk_out_and_back
     program do
       screen :tiled
       image(:shrine_floor, "#" => :red) { (["#" * 8] * 8).join("\n") }
@@ -119,7 +119,7 @@ class TestBackgroundTileSets < Minitest::Test
 
   # A game tinted blue walks into the clearing, and then a fade lifts the tint: the colours
   # put back are the clearing's, not the shrine's it started with.
-  def tint_lifted_in_the_clearing
+  private def tint_lifted_in_the_clearing
     program do
       screen :tiled
       image(:shrine_floor, "#" => :red) { (["#" * 8] * 8).join("\n") }
@@ -142,7 +142,7 @@ class TestBackgroundTileSets < Minitest::Test
 
   # A sign every area shows, drawn white and told to draw yellow, over a ground that walks
   # into the clearing: the clearing's colours going in leave the sign yellow.
-  def recolored_sign_while_walking
+  private def recolored_sign_while_walking
     program do
       screen :tiled
       image(:shrine_floor, "#" => :red) { (["#" * 8] * 8).join("\n") }
@@ -177,7 +177,7 @@ class TestBackgroundTileSets < Minitest::Test
 
   # A scene that walked into the clearing, handed over to a title screen with no scenery
   # and came back, is put up as declared: the shrine, with the shrine's tiles in.
-  def leave_and_return
+  private def leave_and_return
     program do
       screen :tiled
       image(:shrine_floor, "#" => :red) { (["#" * 8] * 8).join("\n") }
@@ -217,7 +217,7 @@ class TestBackgroundTileSets < Minitest::Test
 
   # The clearing has a row of trees across the hero's path and the shrine has none. The hero
   # walks right for a while in whichever area it is in, and stops at the trees only there.
-  def walk_right_in(room)
+  private def walk_right_in(room)
     program do
       screen :tiled
       image(:floor, "#" => :red) { (["#" * 8] * 8).join("\n") }
@@ -250,7 +250,7 @@ class TestBackgroundTileSets < Minitest::Test
 
   # --- what it refuses ---
 
-  def refused(error = ArgumentError, &block)
+  private def refused(error = ArgumentError, &block)
     assert_raises(error) { RubyGBA::IR::Backends::GBA.new.lower(program(&block)) }
   end
 
@@ -361,14 +361,14 @@ class TestBackgroundTileSets < Minitest::Test
 
   # An area of GROUPS tiles, each drawn in fifteen colours no other tile uses — so each tile
   # needs a group of sixteen of its own, and two areas together need more than there are.
-  def colorful_tiles(area)
+  private def colorful_tiles(area)
     (0...GROUPS).map do |t|
       colors = (0...15).map { |c| ((((area * GROUPS) + t) * 15) + c + 1) * 97 }
       (0...64).map { |at| colors[at % 15] }
     end
   end
 
-  def two_colorful_areas(room, tint: nil)
+  private def two_colorful_areas(room, tint: nil)
     pictures = { shrine: colorful_tiles(0), clearing: colorful_tiles(1) }
     program do
       screen :tiled
@@ -406,7 +406,7 @@ class TestBackgroundTileSets < Minitest::Test
   # Tile +n+ of a set: the corner it is marked in drawn in +mark+, and the number drawn in
   # the bits of the rows between. Only the top-left corner is ever marked, so no tile is
   # another one mirrored, and every one is a picture of its own that has to be stored.
-  def numbered_tile(n, mark)
+  private def numbered_tile(n, mark)
     (0...64).map do |at|
       x = at % 8
       y = at / 8
@@ -422,7 +422,7 @@ class TestBackgroundTileSets < Minitest::Test
   # either fits and both do not. The clearing's tiles carry numbers past the shrine's, so
   # the same place in each set is a different SHAPE — a colour alone would come out right
   # from the wrong set, since a tile names its colours apart from its pixels.
-  def two_big_areas(room)
+  private def two_big_areas(room)
     pictures = { shrine: 0, clearing: BIG_SET }.to_h do |area, from|
       [area, (0...BIG_SET).map { |n| numbered_tile(from + n, :red) }]
     end

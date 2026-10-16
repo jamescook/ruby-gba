@@ -185,7 +185,7 @@ class TestRomBuilder < Minitest::Test
 
   # ---- power-of-two padding (real GBA carts are power-of-two sized) ----
 
-  def power_of_two?(number)
+  private def power_of_two?(number)
     number.positive? && (number & (number - 1)).zero?
   end
 

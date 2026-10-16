@@ -34,7 +34,7 @@ class TestTextTwoColors < Minitest::Test
   # rather than anything to do with two colours: a bitmap screen paints where you call
   # it, so the call goes in the loop; a tiled one declares its text once, above the loop,
   # and the console redraws it for you.
-  def label(on:, showing: nil)
+  private def label(on:, showing: nil)
     build_program do
       screen on
       flag = var :flag, 0
@@ -52,14 +52,14 @@ class TestTextTwoColors < Minitest::Test
     end
   end
 
-  def build_program(&block)
+  private def build_program(&block)
     builder = Builder.new
     builder.instance_eval(&block)
     builder.finalize_program
     builder.program
   end
 
-  def walk(program, frames:, press: false)
+  private def walk(program, frames:, press: false)
     interp = Reference.new
     interp = interp.input_each_frame { |f| press && f == 1 ? [:a] : [] }
     interp.run(program, frames: frames)
@@ -67,7 +67,7 @@ class TestTextTwoColors < Minitest::Test
   end
 
   # The colour the words are drawn in, read off the picture.
-  def words_color(interp)
+  private def words_color(interp)
     lit = []
     Fonts.get(:default).each_pixel(WORDS) { |dx, dy| lit << [X + dx, Y + dy] }
     refute_empty lit
@@ -77,7 +77,7 @@ class TestTextTwoColors < Minitest::Test
     colors.first
   end
 
-  def sprites_in(program)
+  private def sprites_in(program)
     program.walk.count { |node| node.kind == :object }
   end
 
@@ -225,7 +225,7 @@ class TestTextTwoColors < Minitest::Test
   # whole run, and a button already down at power-on is a press on the console and not in
   # the interpreter's model of input, which would be a disagreement about input rather than
   # about the label.
-  def bitmap_label(words, tear_free:, colors:)
+  private def bitmap_label(words, tear_free:, colors:)
     build_program do
       screen :bitmap, tear_free: tear_free
       flag = var :flag, 0
@@ -243,7 +243,7 @@ class TestTextTwoColors < Minitest::Test
 
   # How many bytes the words themselves came to: the program with them, less the same
   # program with nothing to paint.
-  def words_cost(tear_free:, colors:)
+  private def words_cost(tear_free:, colors:)
     with = GBA.new.lower(bitmap_label(LONG, tear_free: tear_free, colors: colors)).bytesize
     without = GBA.new.lower(bitmap_label(" ", tear_free: tear_free, colors: colors)).bytesize
     with - without

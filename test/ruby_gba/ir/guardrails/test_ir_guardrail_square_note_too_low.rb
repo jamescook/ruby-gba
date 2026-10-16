@@ -18,7 +18,7 @@ class TestSquareNoteTooLowGuardrail < Minitest::Test
   Part = RubyGBA::Audio::Score::Part
   Note = RubyGBA::Audio::Score::Note
 
-  def detect(hz, instrument: nil)
+  private def detect(hz, instrument: nil)
     voice = RubyGBA::Audio::Music::Part.new(events: [[0, hz], [4, 0]], instrument: instrument)
     Check.new.detect(program(song(:low, total_frames: 8, voices: [voice])))
   end
@@ -49,7 +49,7 @@ class TestSquareNoteTooLowGuardrail < Minitest::Test
 
   # --- through the build ---
 
-  def warnings(&program)
+  private def warnings(&program)
     err = StringIO.new
     RubyGBA.build("LOWNOTE", code: "ZLOW", maker: "01", out: StringIO.new, err: err) do
       screen :bitmap

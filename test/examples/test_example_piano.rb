@@ -20,7 +20,7 @@ class TestExamplePiano < Minitest::Test
 
   # Run the example on the interpreter for +frames+ frames, calling the block at
   # each vblank with the interpreter (its #screen has the settled previous frame).
-  def play(frames)
+  private def play(frames)
     i = game_player
     i.each_vblank { |f| yield(i, f) if block_given? && f <= frames }
     i.run(Piano.program, frames: frames)
@@ -29,12 +29,12 @@ class TestExamplePiano < Minitest::Test
 
   # The x-center of the MELODY key-light. Scanned on the right of the keyboard so
   # the fixed chord lights on the left can't be mistaken for it. nil if hidden.
-  def melody_light_center(i, row: 141)
+  private def melody_light_center(i, row: 141)
     xs = (120...220).select { |x| i.screen.pixel(x, row) == YELLOW }
     xs.empty? ? nil : (xs.min + xs.max) / 2
   end
 
-  def face_vars(i)
+  private def face_vars(i)
     i.vars.select { |k, _| k.to_s.end_with?("_face") }
   end
 

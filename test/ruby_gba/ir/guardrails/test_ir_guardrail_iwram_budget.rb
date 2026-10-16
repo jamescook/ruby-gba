@@ -24,17 +24,17 @@ class TestIRGuardrailIwramBudget < Minitest::Test
   Guardrails = RubyGBA::IR::Guardrails
   Budget = Guardrails::Checks::IwramBudget
 
-  def validator
+  private def validator
     Guardrails::Validator.new(checks: [Budget.new])
   end
 
-  def findings_for(program)
+  private def findings_for(program)
     validator.run(program, autofix: false).findings
   end
 
   # A list whose capacity, in words, is at least +bytes+ of storage — a blunt way to
   # reserve a known amount of memory in a test.
-  def list_of_bytes(name, bytes)
+  private def list_of_bytes(name, bytes)
     list_new(name, bytes / Budget::WORD)
   end
 

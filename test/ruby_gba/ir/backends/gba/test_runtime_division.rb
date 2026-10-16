@@ -20,7 +20,7 @@ class TestRuntimeDivision < Minitest::Test
   DIVISORS = [0, 1, -1, 2, -2, 3, -3, 7, 10, 60, 100, 256, 1000, 65_536,
               1_000_000, Int32::MAX, Int32::MIN].freeze
 
-  def numerators(divisor)
+  private def numerators(divisor)
     size = divisor.abs
     [0, 1, -1, 7, -7, 12_345, -12_345, 2_000_000_000, -2_000_000_000,
      Int32::MAX, Int32::MIN, Int32::MIN + 1,
@@ -29,7 +29,7 @@ class TestRuntimeDivision < Minitest::Test
     end.uniq
   end
 
-  def cases
+  private def cases
     @cases ||= DIVISORS.flat_map do |d|
       numerators(d).flat_map { |n| [[:/, n, d], [:%, n, d]] }
     end
@@ -38,7 +38,7 @@ class TestRuntimeDivision < Minitest::Test
   # One program that works out every case, so the console runs them all in one boot.
   # Each case loads its own numerator and divisor into variables first, so the divisor
   # really is worked out as the program runs.
-  def sweep_program
+  private def sweep_program
     build = RubyGBA::IR::Build
     statements = cases.each_with_index.flat_map do |(op, n, d), i|
       [build.set(:n, build.int(n)), build.set(:d, build.int(d)),
@@ -87,7 +87,7 @@ class TestRuntimeDivision < Minitest::Test
     left_none: [:%, 0, 0],
   }.freeze
 
-  def by_zero_program
+  private def by_zero_program
     build = RubyGBA::IR::Build
     statements = BY_ZERO.flat_map do |name, (op, n, _want)|
       [build.set(:n, build.int(n)),
@@ -119,14 +119,14 @@ class TestRuntimeDivision < Minitest::Test
 
   # --- the routine is carried only when it is needed ---------------------------
 
-  def program_for(&block)
+  private def program_for(&block)
     builder = RubyGBA::Builder.new
     builder.instance_eval(&block)
     builder.finalize_program
     builder.program
   end
 
-  def emitted_bytes(&block)
+  private def emitted_bytes(&block)
     GBA.new.lower(program_for(&block)).bytesize
   end
 

@@ -22,7 +22,7 @@ class TestIRGuardrailCallInsideArea < Minitest::Test
 
   Check = RubyGBA::IR::Guardrails::Checks::CallInsideArea
 
-  def program(&block)
+  private def program(&block)
     b = Builder.new
     b.instance_eval(&block)
     b.finalize_program
@@ -30,7 +30,7 @@ class TestIRGuardrailCallInsideArea < Minitest::Test
   end
 
   # A routine that fills the whole screen, called from inside a small area.
-  def game_with_call_that_draws
+  private def game_with_call_that_draws
     program do
       screen :bitmap
       func(:draw_something) { fill_rect 0, 0, 240, 160, :red }

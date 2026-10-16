@@ -22,7 +22,7 @@ class TestSprite < Minitest::Test
 
   # Build a sprite program: a blue field cleared once, a red block sprite, the given
   # loop body, and a halt after `frames` so the screen is read on a settled frame.
-  def sprite_program(frames:, &body)
+  private def sprite_program(frames:, &body)
     builder = Builder.new
     builder.instance_eval do
       screen :bitmap
@@ -39,7 +39,7 @@ class TestSprite < Minitest::Test
     builder.program
   end
 
-  def count_color(screen, color)
+  private def count_color(screen, color)
     want = Color.resolve(color)
     n = 0
     240.times { |x| 160.times { |y| n += 1 if screen.pixel(x, y) == want } }
@@ -64,7 +64,7 @@ class TestSprite < Minitest::Test
   # A red band with a distinct blue detail set into it, in the sprite's path. After
   # the sprite has driven across the detail, every pixel it passed over must be
   # exactly as it was — the blue detail intact, the red band unbroken around it.
-  def scenery_program(frames:)
+  private def scenery_program(frames:)
     builder = Builder.new
     builder.instance_eval do
       screen :bitmap
@@ -207,7 +207,7 @@ class TestSprite < Minitest::Test
 
   # A boss declared shown: false, revealed on `show_on`, with the run halted on
   # `halt_on` so the screen is read at a known frame.
-  def boss_program(show_on:, halt_on:)
+  private def boss_program(show_on:, halt_on:)
     builder = Builder.new
     builder.instance_eval do
       screen :bitmap

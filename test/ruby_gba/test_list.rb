@@ -15,7 +15,7 @@ class TestList < Minitest::Test
   # Run a DSL block through the interpreter and hand back the finished run, so a
   # test can read `interpret { ... }[:var]`. The block runs in the builder's
   # context. (Not named `run` — that would shadow Minitest::Test#run.)
-  def interpret(&block)
+  private def interpret(&block)
     builder = Builder.new
     builder.instance_eval(&block)
     builder.finalize_program

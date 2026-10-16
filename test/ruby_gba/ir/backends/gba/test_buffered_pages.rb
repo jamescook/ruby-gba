@@ -30,7 +30,7 @@ class TestBufferedPages < Minitest::Test
   # Cleared once, then one bar added per frame and never repainted. The shape of a
   # dissolve, a trail, a plot filling in — anything that builds a picture up over
   # several frames instead of redrawing it.
-  def adding_program
+  private def adding_program
     b = Builder.new
     b.instance_eval do
       screen :bitmap, tear_free: true
@@ -46,7 +46,7 @@ class TestBufferedPages < Minitest::Test
   end
 
   # Which of the ten bars a finished picture actually holds.
-  def bars_shown(pixels)
+  private def bars_shown(pixels)
     red = Color.resolve(:red)
     (0...BARS).select { |k| pixels[(BAR_ROW * 240) + (k * 20) + 3] == red }
   end

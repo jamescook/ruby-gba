@@ -16,7 +16,7 @@ class TestSpriteUpsideDownStorage < Minitest::Test
 
   # A block at (+ox+, +oy+) with its top row and its left column different colours, so it is
   # not the same picture turned any way.
-  def lopsided(ox, oy, w = 10, h = 12)
+  private def lopsided(ox, oy, w = 10, h = 12)
     (0...(CANVAS * CANVAS)).map do |i|
       x = i % CANVAS
       y = i / CANVAS
@@ -27,11 +27,11 @@ class TestSpriteUpsideDownStorage < Minitest::Test
   end
 
   # The same pixels with the rows in the other order: the picture turned over by hand.
-  def turned_by_hand(data) = data.each_slice(CANVAS).to_a.reverse.flatten
+  private def turned_by_hand(data) = data.each_slice(CANVAS).to_a.reverse.flatten
 
   # A sprite whose cycle runs through +poses+ and then the turned pictures +turn+ makes of
   # them: +turn+ is handed the builder and the names, and gives back the extra names.
-  def program(poses, &turn)
+  private def program(poses, &turn)
     canvas = CANVAS
     clear = CLEAR
     builder = Builder.new
@@ -48,7 +48,7 @@ class TestSpriteUpsideDownStorage < Minitest::Test
     builder.program
   end
 
-  def sprite_bytes(program)
+  private def sprite_bytes(program)
     backend = GBA.new
     rom = ROM.assemble(backend.lower(program), title: "UPSIDE", maker: "01", built: backend.build_record(program))
     rom.built.video_memory.sprites.used
@@ -74,7 +74,7 @@ class TestSpriteUpsideDownStorage < Minitest::Test
   end
 
   # #program, with the sprite turning a little every frame.
-  def turning_program(poses, &turn)
+  private def turning_program(poses, &turn)
     canvas = CANVAS
     clear = CLEAR
     builder = Builder.new

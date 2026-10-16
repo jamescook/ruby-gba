@@ -13,7 +13,7 @@ class TestPool < Minitest::Test
   BLACK = 0
 
   # The variable a pool keeps how many of its instances are live in.
-  def live_count_of(pool) = RubyGBA::DSL::Pool.count_var(pool)
+  private def live_count_of(pool) = RubyGBA::DSL::Pool.count_var(pool)
 
   # spawn several instances with distinct fields; each draws every live one at its own
   # (x, y). Proves spawn, each, per-instance field reads, and that fields stay paired
@@ -147,11 +147,11 @@ class TestPool < Minitest::Test
   # one, and a capacity too big for both memories is the whole-program check's to refuse.
 
   # The lists a pool was built from, as the program declares them.
-  def lists_of(program) = program.walk.select { |node| node.kind == :list_new }
+  private def lists_of(program) = program.walk.select { |node| node.kind == :list_new }
 
   # A cartridge with a pool :crowd of +capacity+ things of four whole-number fields: 25 bytes
   # a thing, counting the pool's own bookkeeping.
-  def crowd_cartridge(capacity:, **words)
+  private def crowd_cartridge(capacity:, **words)
     RubyGBA.build("CROWD", out: StringIO.new, err: StringIO.new) do
       screen :bitmap
       pool :crowd, x: 0, y: 0, vx: 0, vy: 0, capacity: capacity, **words
@@ -160,7 +160,7 @@ class TestPool < Minitest::Test
   end
 
   # How many bytes of the pool :crowd the built cartridge keeps in the roomier memory.
-  def crowd_bytes_in_roomier_memory(rom)
+  private def crowd_bytes_in_roomier_memory(rom)
     placed = rom.built.roomy_memory&.collections || {}
     placed.sum { |list, bytes| RubyGBA::Messages::MadeNames.collection_words(list) == "pool :crowd" ? bytes : 0 }
   end
@@ -267,10 +267,10 @@ class TestPool < Minitest::Test
   # what is counted. Counting it bigger refuses a pool that fits. These insist on the quick
   # memory, which is what holds a pool to the ceiling.
 
-  def too_big(&game) = assert_raises(ArgumentError) { Builder.new.instance_eval(&game) }.message
+  private def too_big(&game) = assert_raises(ArgumentError) { Builder.new.instance_eval(&game) }.message
 
   # How many KB the error says the pool needs.
-  def kilobytes_said(message) = message[/about (\d+)KB/, 1].to_i
+  private def kilobytes_said(message) = message[/about (\d+)KB/, 1].to_i
 
   # A real game's cast: 145 guards of thirteen fields, ten of them narrowed. By its declared
   # widths that is 34 bytes a slot, under five kilobytes.

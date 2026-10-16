@@ -19,7 +19,7 @@ class TestBirdExample < Minitest::Test
 
   # The bird sits at (88, 48) sized 64x64. Somewhere in that box a non-sky pixel is the
   # bird drawn over the sky. +sample+ reads a pixel; nil / 0 / the sky color are "not bird".
-  def bird_over_sky?(sample)
+  private def bird_over_sky?(sample)
     (90..148).step(4).any? do |x|
       (50..108).step(4).any? do |y|
         px = sample.call(x, y)
@@ -55,7 +55,7 @@ class TestBirdExample < Minitest::Test
 
   # The size the console is being told to draw the bird at, as the multiple the example
   # writes — read off the variable the pulse walks.
-  def drawn_size(frames)
+  private def drawn_size(frames)
     interp = game_player.run(Bird.program, frames: frames, max_steps: 50_000_000)
     interp[:__obj1_scale] / RubyGBA::IR::Build::SCALE_ONE.to_f
   end

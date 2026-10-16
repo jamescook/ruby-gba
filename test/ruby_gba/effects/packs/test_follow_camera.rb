@@ -16,7 +16,7 @@ class TestFollowCamera < Minitest::Test
   BLUE = RubyGBA::Graphics::Color.resolve(:blue)
   GREEN = RubyGBA::Graphics::Color.resolve(:green)
 
-  def program(&block)
+  private def program(&block)
     b = Builder.new
     b.instance_eval(&block)
     b.finalize_program
@@ -25,7 +25,7 @@ class TestFollowCamera < Minitest::Test
 
   # A green world with one blue tile as a landmark you can watch slide by, and a red
   # character in the middle of the screen with the camera locked onto it.
-  def walking_game(at: nil, &extra)
+  private def walking_game(at: nil, &extra)
     program do
       screen :tiled
       image(:grass, "#" => :green) { (["#" * 8] * 8).join("\n") }
@@ -45,14 +45,14 @@ class TestFollowCamera < Minitest::Test
   end
 
   # The leftmost column of the character's own colour, on the row through its middle.
-  def hero_left(screen)
+  private def hero_left(screen)
     (0...240).find { |x| screen.pixel(x, 80) == RED }
   end
 
   # The leftmost column of the landmark, or nil once it has slid off. Read on a row the
   # landmark covers wherever the world has been scrolled to, and which the character —
   # pinned at x 116..123 — is never on the same column of.
-  def mark_left(screen)
+  private def mark_left(screen)
     (0...240).find { |x| screen.pixel(x, 81) == BLUE }
   end
 
@@ -203,7 +203,7 @@ class TestFollowCamera < Minitest::Test
 
   # --- guardrail ---
 
-  def warnings(prog)
+  private def warnings(prog)
     RubyGBA::IR::Guardrails::Validator.new.run(prog, autofix: false).warnings.map(&:check)
   end
 

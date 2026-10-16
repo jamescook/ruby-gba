@@ -63,7 +63,7 @@ class TestAseprite < Minitest::Test
 
   # --- the sprite: import the fixture, play named animations (both backends) ---
 
-  def game(mode:, run:, play: nil, file: FIXTURE)
+  private def game(mode:, run:, play: nil, file: FIXTURE)
     builder = Builder.new
     builder.instance_eval do
       screen mode
@@ -87,8 +87,8 @@ class TestAseprite < Minitest::Test
     builder.program
   end
 
-  def spot(program) = Reference.new.run(program).screen.pixel(44, 44)
-  def c(r, g, b) = Color.rgb8(r, g, b)
+  private def spot(program) = Reference.new.run(program).screen.pixel(44, 44)
+  private def c(r, g, b) = Color.rgb8(r, g, b)
 
   def test_the_default_animation_is_the_first_tag_and_it_loops
     assert_equal c(255, 0, 0), spot(game(mode: :bitmap, run: 3)), "walk starts on its first frame (red)"
@@ -163,7 +163,7 @@ class TestAseprite < Minitest::Test
   # Build a tiny 8x8 RGBA .aseprite (one layer, no tags — a single clip) with one solid-color
   # frame per [duration_ms, [r, g, b]] entry, write it to a temp file, and return the path so
   # from_aseprite: can read it. The Tempfile is held on @tmp so it outlives the test body.
-  def timed_aseprite(specs)
+  private def timed_aseprite(specs)
     frames = specs.each_with_index.map do |(duration_ms, rgb), i|
       chunks = (i.zero? ? [ase_layer] : []) + [ase_cel(rgb + [255])]
       ase_frame(chunks, duration_ms)
@@ -186,15 +186,15 @@ class TestAseprite < Minitest::Test
     file.path
   end
 
-  def ase_chunk(type, data) = [6 + data.bytesize].pack("V") + [type].pack("v") + data
-  def ase_layer = ase_chunk(0x2004, [1, 0, 0, 0, 0, 0].pack("v6") + [255].pack("C") + ("\x00" * 3) + [1].pack("v") + "L")
+  private def ase_chunk(type, data) = [6 + data.bytesize].pack("V") + [type].pack("v") + data
+  private def ase_layer = ase_chunk(0x2004, [1, 0, 0, 0, 0, 0].pack("v6") + [255].pack("C") + ("\x00" * 3) + [1].pack("v") + "L")
 
-  def ase_cel(rgba)
+  private def ase_cel(rgba)
     head = [0].pack("v") + [0, 0].pack("s<2") + [255].pack("C") + [0].pack("v") + [0].pack("s<") + ("\x00" * 5) + [8, 8].pack("v2")
     ase_chunk(0x2005, head + (rgba.pack("C4") * 64))
   end
 
-  def ase_frame(chunks, duration_ms)
+  private def ase_frame(chunks, duration_ms)
     body = chunks.join
     [16 + body.bytesize].pack("V") + [0xF1FA].pack("v") + [0].pack("v") + [duration_ms].pack("v") + ("\x00" * 2) + [chunks.length].pack("V") + body
   end
@@ -227,7 +227,7 @@ class TestAseprite < Minitest::Test
 
   # --- drawn with other colours: every frame the file is cut into takes the list given ---
 
-  def an_aseprite_sprite_drawn_with_other_colors
+  private def an_aseprite_sprite_drawn_with_other_colors
     builder = Builder.new
     builder.instance_eval do
       screen :tiled

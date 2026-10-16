@@ -86,14 +86,14 @@ class TestNativeHeadlessRun < Minitest::Test
 
   # A game that never waits for the screen, so it never ends a frame, built from what +game+
   # says. Such a game never ends on its own.
-  def game_with_no_frames(&game)
+  private def game_with_no_frames(&game)
     builder = Builder.new(options: RubyGBA::Cartridge::Options.new(frame_sync: :manual))
     builder.instance_eval(&game)
     builder.finalize_program
     builder.program
   end
 
-  def assert_stopped_before_its_first_frame(program)
+  private def assert_stopped_before_its_first_frame(program)
     error = assert_raises(RubyGBA::IR::Backends::Native::Zig::Error) do
       HeadlessRun.new.allowing_each_frame(1).run(program, frames: 3)
     end
@@ -122,7 +122,7 @@ class TestNativeHeadlessRun < Minitest::Test
 
   # A dot that moves three across every pass, on a screen cleared first: where the dot is says
   # which pass the picture is of.
-  def moving_dot
+  private def moving_dot
     program_of do
       screen :bitmap
       x = var :x, 0
@@ -134,7 +134,7 @@ class TestNativeHeadlessRun < Minitest::Test
     end
   end
 
-  def dot_column(screen) = (0...40).find { |x| screen.pixel(x, 20) == Color.resolve(:green) }
+  private def dot_column(screen) = (0...40).find { |x| screen.pixel(x, 20) == Color.resolve(:green) }
 
   # WATCHING A RUN FRAME BY FRAME, the way a test watches the interpreter: the block is run at
   # every frame boundary with the frame's number, and the game reads then as it stood at that
@@ -203,7 +203,7 @@ class TestNativeHeadlessRun < Minitest::Test
 
   # A small cast: a hero walking right and drawn in other colors, a coin the game has switched
   # off, a walker stepping between two pictures, shots from a pool as A is pressed, and a word.
-  def cast
+  private def cast
     program_of do
       screen :tiled
       image(:hero, colors: %i[transparent red], "#" => :red) { SOLID_TILE }
@@ -226,9 +226,9 @@ class TestNativeHeadlessRun < Minitest::Test
   end
 
   # A press of A on frames 2 and 5, so two shots are spawned where the hero then stood.
-  def pressing_a(player) = player.input_each_frame { |frame| [2, 5].include?(frame) ? [:a] : [] }
+  private def pressing_a(player) = player.input_each_frame { |frame| [2, 5].include?(frame) ? [:a] : [] }
 
-  def drawn(name, x, y, picture) = RubyGBA::Diagnostics::DrawnSprite.new(name: name, x: x, y: y, picture: picture)
+  private def drawn(name, x, y, picture) = RubyGBA::Diagnostics::DrawnSprite.new(name: name, x: x, y: y, picture: picture)
 
   # WHICH SPRITE IS WHICH, asked the way a test asks the interpreter: every row the game drew,
   # each saying whose it is, where it is, and which of its pictures it shows by the name the

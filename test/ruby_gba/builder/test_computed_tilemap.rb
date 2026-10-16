@@ -23,13 +23,13 @@ class TestComputedTilemap < Minitest::Test
 
   # A 4x4 solid tile of one colour, so the grid arithmetic reads easily: cell (c, r)
   # covers x 4c..4c+3, y 4r..4r+3.
-  def solid_tile(builder, name, color)
+  private def solid_tile(builder, name, color)
     builder.image(name, "#" => color) { "####\n####\n####\n####" }
   end
 
   # A tileset of +count+ tiles keyed 0, 1, 2… — bigger than any alphabet, which is the
   # whole point of it. Each tile is its own shade so no two can be confused on screen.
-  def big_tileset(builder, count)
+  private def big_tileset(builder, count)
     count.times { |n| solid_tile(builder, :"tile_#{n}", RubyGBA::Graphics::Color.rgb(n % 32, 0, 0)) }
     keyed = (0...count).to_h { |n| [n, :"tile_#{n}"] }
     builder.tiles(:many, keyed)
@@ -37,13 +37,13 @@ class TestComputedTilemap < Minitest::Test
 
   # A tileset keyed by NUMBERS rather than characters — what a decoder hands over,
   # since the tile it read is a number and was never a character at all.
-  def numbered_tileset(builder)
+  private def numbered_tileset(builder)
     solid_tile(builder, :tile_red, :red)
     solid_tile(builder, :tile_blue, :blue)
     builder.instance_eval { tiles :room, 0 => :tile_red, 1 => :tile_blue }
   end
 
-  def checker_program
+  private def checker_program
     b = Builder.new
     b.instance_eval do
       screen :bitmap
@@ -175,7 +175,7 @@ class TestComputedTilemap < Minitest::Test
   # takes the tileset's keys whatever they are, with nothing new to write. Worth
   # asserting rather than assuming: a wall that quietly stops blocking is a game you
   # can walk out of, and nothing on screen says so.
-  def walled_room
+  private def walled_room
     b = Builder.new
     solid8 = (["########"] * 8).join("\n")
     b.instance_eval do

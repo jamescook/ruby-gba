@@ -17,7 +17,7 @@ class TestHardwareSprite < Minitest::Test
   # slides right by +step+ while :right is held, halting after +frames+ steps so its
   # resting place is deterministic. The hero is drawn each frame by the framework —
   # there's no draw call in the loop, exactly like the software sprite.
-  def hero_program(frames:, step: 8, start: [40, 40])
+  private def hero_program(frames:, step: 8, start: [40, 40])
     start_x, start_y = start
     floor_map = Array.new(20, "#" * 30) # 30x20 tiles = the whole 240x160 screen
     builder = Builder.new
@@ -40,7 +40,7 @@ class TestHardwareSprite < Minitest::Test
     builder.program
   end
 
-  def rom_for(program)
+  private def rom_for(program)
     ROM.assemble(GBA.new.lower(program), title: "HWSPRITE", code: "BHWS", maker: "01")
   end
 

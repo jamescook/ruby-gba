@@ -25,12 +25,12 @@ class TestJukeboxExample < Minitest::Test
   # nothing — leaving the cursor parked on row n. The interpreter samples the
   # script from frame 1, so the presses land on odd frames (1, 3, ...) with a
   # released frame between them, and each is a fresh rising edge the cursor moves on.
-  def tap_down(times)
+  private def tap_down(times)
     down_frames = Array.new(times) { |k| 1 + k * 2 }
     ->(f) { down_frames.include?(f) ? [:down] : [] }
   end
 
-  def notes(interpreter)
+  private def notes(interpreter)
     interpreter.audio.select { |e| e[0] == :note }
   end
 
@@ -92,7 +92,7 @@ class TestJukeboxExample < Minitest::Test
 
   # The leftmost and rightmost columns anything is drawn in, over the rows one line of
   # text occupies.
-  def lit_span(screen, y, height: 7)
+  private def lit_span(screen, y, height: 7)
     xs = (0...240).select { |x| (0...height).any? { |dy| screen.pixel(x, y + dy) != 0 } }
     refute_empty xs, "nothing is drawn at y=#{y}"
     [xs.first, xs.last]
@@ -195,7 +195,7 @@ class TestJukeboxExample < Minitest::Test
   # A run of the jukebox on the interpreter with +listener+ at the buttons: every frame's Moment,
   # from the listener's first press on (from the start, when it never presses), and what the
   # run logged.
-  def interpreted_jukebox(listener, frames:)
+  private def interpreted_jukebox(listener, frames:)
     i = game_player
     moments = []
     i.input_each_frame do |_frame|
@@ -207,7 +207,7 @@ class TestJukeboxExample < Minitest::Test
   end
 
   # ...and on the console.
-  def console_jukebox(listener, frames:)
+  private def console_jukebox(listener, frames:)
     rom = Jukebox.build_rom(out: StringIO.new, err: StringIO.new)
     Dir.mktmpdir do |dir|
       path = File.join(dir, "jukebox.gba")
@@ -224,10 +224,10 @@ class TestJukeboxExample < Minitest::Test
     end
   end
 
-  def from_the_press(moments, listener) = moments.drop((listener.pressed_at || 1) - 1)
+  private def from_the_press(moments, listener) = moments.drop((listener.pressed_at || 1) - 1)
 
   # The same listener's run on both backends: [interpreter, console], each from the first press.
-  def on_both(frames:, **listening)
+  private def on_both(frames:, **listening)
     [interpreted_jukebox(Listener.new(**listening), frames: frames).first,
      console_jukebox(Listener.new(**listening), frames: frames)]
   end

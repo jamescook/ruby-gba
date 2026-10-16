@@ -17,7 +17,7 @@ class TestPoolRecycle < Minitest::Test
   # Build a data pool of `thing`s (a single `tag` field) with the given policy, spawn the
   # given tags in order, then record which tags are live and how many. Returns the
   # interpreter so a test can read :saw<tag> flags, :total, and the pool count.
-  def run_tags(policy, capacity, spawn_tags, remove_tag: nil)
+  private def run_tags(policy, capacity, spawn_tags, remove_tag: nil)
     b = Builder.new
     b.instance_eval do
       screen :bitmap
@@ -95,7 +95,7 @@ class TestPoolRecycle < Minitest::Test
   # A capacity-1 recycling sprite pool: spawn at one spot, then (full) spawn at another —
   # the single instance moves to the new spot and the old one is vacated. A clean pixel
   # proof of recycle that both backends must agree on.
-  def recycle_sprite_program
+  private def recycle_sprite_program
     b = Builder.new
     b.instance_eval do
       screen :tiled

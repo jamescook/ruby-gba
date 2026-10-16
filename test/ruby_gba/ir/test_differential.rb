@@ -32,7 +32,7 @@ class TestDifferential < Minitest::Test
   # case, where the author fills in less than that.
   FULL_MAP = (0...32).map { |r| (0...32).map { |c| (r + c).even? ? "#" : "." }.join }.freeze
 
-  def build(&block)
+  private def build(&block)
     b = RubyGBA::Builder.new
     b.instance_eval(&block)
     b.finalize_program
@@ -410,7 +410,7 @@ class TestDifferential < Minitest::Test
   # "the same picture" is no longer the same frame count. Lined up on the passes the
   # console managed, an over-budget tear-free game still compares — and a held button is
   # held for the passes on both sides, not for the frames.
-  def over_budget(tear_free:)
+  private def over_budget(tear_free:)
     build do
       screen :bitmap, tear_free: tear_free
       x = var :x, 10
@@ -450,7 +450,7 @@ class TestDifferential < Minitest::Test
   # A pool of sprites over a background is what found it. What tips it over is the pool's
   # CAPACITY, not how many are live and not what the body computes: the same program with a
   # capacity of 16 boots inside the offset and this one does not.
-  def slow_to_boot
+  private def slow_to_boot
     build do
       screen :tiled
       image(:brick, "#" => :red) { SOLID_TILE }

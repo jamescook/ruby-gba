@@ -31,7 +31,7 @@ class TestSpritePieces < Minitest::Test
 
   # A ragged character on a +w+ by +h+ canvas: an ellipse of +fill+ across, so the corners
   # of the canvas are empty and the pieces that cover them can be dropped.
-  def ragged(w, h, fill: 0.95)
+  private def ragged(w, h, fill: 0.95)
     cx = w / 2.0
     cy = h / 2.0
     (0...(w * h)).map do |i|
@@ -47,7 +47,7 @@ class TestSpritePieces < Minitest::Test
 
   # A small blob in the top-left corner of a +w+ by +h+ canvas — a pose that draws far
   # less than its canvas, so it needs fewer pieces than one that fills it.
-  def corner_blob(w, h, side: 16)
+  private def corner_blob(w, h, side: 16)
     (0...(w * h)).map do |i|
       x = i % w
       y = i / w
@@ -57,7 +57,7 @@ class TestSpritePieces < Minitest::Test
 
   # A program cycling one sprite through these pictures. +mirror_second+ adds each one
   # turned round, so the cycle plays the character both ways.
-  def program(pictures, w, h, at: [40, 20], rate: 4, mirror_second: false)
+  private def program(pictures, w, h, at: [40, 20], rate: 4, mirror_second: false)
     clear = CLEAR
     b = Builder.new
     b.instance_eval do
@@ -76,7 +76,7 @@ class TestSpritePieces < Minitest::Test
   end
 
   # A program showing exactly one picture, whose sprite is named after it.
-  def still(picture, w, h, at: [40, 20])
+  private def still(picture, w, h, at: [40, 20])
     clear = CLEAR
     b = Builder.new
     b.instance_eval do
@@ -91,7 +91,7 @@ class TestSpritePieces < Minitest::Test
 
   # The build record for a program, which is where the sprite-memory and object figures
   # live. Lowered here rather than through RubyGBA.build so a program built by hand works.
-  def record(prog)
+  private def record(prog)
     backend = RubyGBA::IR::Backends::GBA.new
     backend.lower(prog)
     backend.build_record(prog)
@@ -179,7 +179,7 @@ class TestSpritePieces < Minitest::Test
   # about each piece's own middle — get that wrong and the character turns inside out.
   # `face` picks the direction so the compared frame is a known one rather than wherever
   # a cycle happened to land.
-  def facing_game(look)
+  private def facing_game(look)
     art = ragged(96, 96, fill: 0.6)
     clear = CLEAR
     b = Builder.new
@@ -234,7 +234,7 @@ class TestSpritePieces < Minitest::Test
   # A big sprite collides on its whole picture, not on the one piece the console happened
   # to draw first. The answer is shown rather than read out of a variable, so the two
   # backends have to agree about the collision AND about what it makes the game do.
-  def collision_game(dot_at)
+  private def collision_game(dot_at)
     art = ragged(96, 96)
     dot = Array.new(16 * 16, INKS[6])
     clear = CLEAR
@@ -256,7 +256,7 @@ class TestSpritePieces < Minitest::Test
   # Where the flag stands, so a test can read whether the collision fired.
   FLAG_AT = [12, 145].freeze
 
-  def flag_shown?(prog)
+  private def flag_shown?(prog)
     Reference.new.run(prog, frames: 6).screen.pixel(*FLAG_AT) == INKS[6]
   end
 

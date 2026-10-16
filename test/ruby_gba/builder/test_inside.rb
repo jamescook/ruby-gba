@@ -21,7 +21,7 @@ class TestInside < Minitest::Test
   BARS = %i[red red green green blue blue white white].freeze
   AREA = [40, 20, 120, 80].freeze # x, y, w, h — off every edge of the screen
 
-  def program(mode: :bitmap, tear_free: false, &block)
+  private def program(mode: :bitmap, tear_free: false, &block)
     b = Builder.new
     colours = tear_free ? [:black, :red, :green, :blue, :white, :yellow] : nil
     b.instance_eval do
@@ -33,7 +33,7 @@ class TestInside < Minitest::Test
     b.program
   end
 
-  def inside?(x, y)
+  private def inside?(x, y)
     ax, ay, aw, ah = AREA
     x >= ax && x < ax + aw && y >= ay && y < ay + ah
   end

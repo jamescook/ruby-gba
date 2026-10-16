@@ -28,7 +28,7 @@ class TestTextPlacement < Minitest::Test
 
   # A proportional demo font, both glyphs 5 tall, each lighting its leftmost column in
   # every row — so "where does this glyph start" is one pixel to look at.
-  def define_demo_font(builder)
+  private def define_demo_font(builder)
     builder.instance_eval do
       font :vari do
         glyph "I", "#\n#\n#\n#\n#"
@@ -40,10 +40,10 @@ class TestTextPlacement < Minitest::Test
   # The program the last helper built. A font belongs to the program that declared it, so
   # that is what an assertion asks which font a name means — there is nothing process-wide
   # to set up or put back.
-  attr_reader :built
+  private attr_reader :built
 
   # Run a bitmap program that declares the demo font, and hand back its screen.
-  def bitmap_screen(&block)
+  private def bitmap_screen(&block)
     b = Builder.new
     define_demo_font(b)
     b.instance_eval do
@@ -58,7 +58,7 @@ class TestTextPlacement < Minitest::Test
 
   # Every lit pixel of +text+ is painted white with its top-left at (x, y) — an exact
   # position, so a line one pixel out fails.
-  def assert_text_at(screen, text, x, y, font: :default)
+  private def assert_text_at(screen, text, x, y, font: :default)
     lit = []
     built.fonts.get(font).each_pixel(text) { |dx, dy| lit << [dx, dy] }
     refute_empty lit, "the font should light some pixels for #{text.inspect}"

@@ -35,7 +35,7 @@ class TestSave < Minitest::Test
     game_loop { wait_vblank }
   end
 
-  def build(&block)
+  private def build(&block)
     b = RubyGBA::Builder.new
     b.instance_eval(&block)
     b.finalize_program

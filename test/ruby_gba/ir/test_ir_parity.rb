@@ -20,9 +20,9 @@ class TestIRParity < Minitest::Test
 
   Parity = RubyGBA::IR::Parity
 
-  def assert_even(value, msg = nil) = assert_equal(:even, Parity.of(value), msg)
-  def assert_odd(value, msg = nil) = assert_equal(:odd, Parity.of(value), msg)
-  def assert_unknown(value, msg = nil) = assert_nil(Parity.of(value), msg)
+  private def assert_even(value, msg = nil) = assert_equal(:even, Parity.of(value), msg)
+  private def assert_odd(value, msg = nil) = assert_equal(:odd, Parity.of(value), msg)
+  private def assert_unknown(value, msg = nil) = assert_nil(Parity.of(value), msg)
 
   # --- numbers written into the program ---
 

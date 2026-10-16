@@ -25,7 +25,7 @@ class TestPicturePlaces < Minitest::Test
   # about its pixels tells the two apart.
   PLACES = Array.new(64) { |i| (i % 8) < 4 ? 1 : 3 }.freeze
 
-  def program(&game)
+  private def program(&game)
     builder = Builder.new
     builder.instance_eval do
       screen :tiled
@@ -65,7 +65,7 @@ class TestPicturePlaces < Minitest::Test
   # Two pictures whose pixels are identical and whose places are not. The console stores a
   # pose once when it has seen the same picture before, so it has to judge that on the
   # places too — otherwise the second frame draws the first one's colours.
-  def two_frames_program
+  private def two_frames_program
     builder = Builder.new
     builder.instance_eval do
       screen :tiled
@@ -94,7 +94,7 @@ class TestPicturePlaces < Minitest::Test
   # reversed — which is only the same picture if its PLACES are that pose's places backwards
   # too. Here they are not: both poses draw red beside green, out of different places of the
   # list, so drawing the second as the first reversed would show the wrong colour.
-  def two_ways_round_program
+  private def two_ways_round_program
     builder = Builder.new
     builder.instance_eval do
       screen :tiled
@@ -115,7 +115,7 @@ class TestPicturePlaces < Minitest::Test
   # THE SAME PICTURE THE OTHER WAY ROUND has to turn its places round with it, and nothing
   # about the pixels says so: this art is red both halves, so reversing the pixels changes
   # nothing at all and only the places tell the two sides apart.
-  def mirrored_program
+  private def mirrored_program
     builder = Builder.new
     builder.instance_eval do
       screen :tiled
@@ -183,7 +183,7 @@ class TestPicturePlaces < Minitest::Test
   # Black from place 3, black from place 5, then nothing.
   CART_PLACES = Array.new(64) { |i| [3, 3, 3, 5, 5, 5, 0, 0][i % 8] }.freeze
 
-  def cartridge_program
+  private def cartridge_program
     builder = Builder.new
     builder.instance_eval do
       screen :tiled
@@ -219,7 +219,7 @@ class TestPicturePlaces < Minitest::Test
   # pixel value and nothing says which place either came from.
   COLORS = Array.new(64) { :red }.freeze
 
-  def refused(&block)
+  private def refused(&block)
     assert_raises(ArgumentError) do
       RubyGBA.build("PLACES", code: "BPLC", maker: "01", out: StringIO.new, err: StringIO.new, &block)
     end
@@ -269,7 +269,7 @@ class TestPicturePlaces < Minitest::Test
   # so the list goes in exactly as the cartridge had it.
   RAW_FIRST = [0x001F, 0x7FFF, 0x001F].freeze
 
-  def raw_first_program
+  private def raw_first_program
     builder = Builder.new
     builder.instance_eval do
       screen :tiled

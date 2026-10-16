@@ -21,7 +21,7 @@ class TestTearing < Minitest::Test
   # frame. The band's HEIGHT is how much drawing there is to do, which is what decides
   # whether it can finish before the display arrives. Two draws under opposite tests, so the
   # colour really changes each frame — a repaint in the same colour tears invisibly.
-  def alternating_band(height)
+  private def alternating_band(height)
     RubyGBA.build("TEAR", code: "BTER", maker: "01", err: StringIO.new) do
       screen :bitmap
       c = var :c, 0
@@ -33,7 +33,7 @@ class TestTearing < Minitest::Test
     end
   end
 
-  def tearing_of(rom)
+  private def tearing_of(rom)
     require_emulator!
     readings = RubyGBA::Diagnostics::Analyzer.profile(rom.source_program, options: rom.build_options)
     readings.values.first.tearing

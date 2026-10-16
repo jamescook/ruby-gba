@@ -37,18 +37,18 @@ class TestNoteEnvelope < Minitest::Test
   TEMPO = 150
   TICKS_PER_BEAT = 24
 
-  def score(envelope)
+  private def score(envelope)
     notes = (0...NOTES).map { |n| RubyGBA::Audio::Score::Note.new(at: GAP * n, key: :C4, length: 6 + n) }
     tune_of(notes, envelope)
   end
 
-  def tune_of(notes, envelope)
+  private def tune_of(notes, envelope)
     part = RubyGBA::Audio::Score::Part.new(plays: :tone, notes: notes, envelope: envelope, volume: 15)
     RubyGBA::Audio::Score.new(parts: [part], tempo: TEMPO, ticks_per_beat: TICKS_PER_BEAT,
                        length: GAP * (NOTES + 1))
   end
 
-  def build(envelope, holds_from: nil, tune: score(envelope))
+  private def build(envelope, holds_from: nil, tune: score(envelope))
     RubyGBA.build("ENVELOPE", code: "BENV", maker: "01", validate: false) do
       screen :bitmap
       enable_sound
@@ -60,7 +60,7 @@ class TestNoteEnvelope < Minitest::Test
   end
 
   # One channel of the rendering, and the jump from each sample to the next.
-  def rendered(rom)
+  private def rendered(rom)
     mono = RubyGBA::Diagnostics::Verifier.new(rom, frames: FRAMES).audio_samples.each_slice(2).map(&:first)
     [mono, mono.each_cons(2).map { |a, b| (b - a).abs }]
   end
@@ -69,7 +69,7 @@ class TestNoteEnvelope < Minitest::Test
   # on the same recording played round and round with no note ever starting or stopping, so
   # there is nothing in it but the wave, and measured rather than worked out because what
   # reaches the test is the console's output through the emulator's own resampling.
-  def the_waves_own_step
+  private def the_waves_own_step
     control = RubyGBA.build("ENVELOPE", code: "BENV", maker: "01", validate: false) do
       screen :bitmap
       enable_sound
@@ -93,7 +93,7 @@ class TestNoteEnvelope < Minitest::Test
   QUIET = 400        # below this the speaker is as good as still
   QUIET_RUN = 1500   # ...and this many in a row is a rest rather than a zero crossing
 
-  def steps_at_note_ends(mono, steps)
+  private def steps_at_note_ends(mono, steps)
     ends = []
     quiet = 0
     mono.each_index do |i|
@@ -194,7 +194,7 @@ class TestNoteEnvelope < Minitest::Test
 
   # Run a one-note song on the reference interpreter for +frames+ frames and hand back the
   # interpreter, so a test can ask what is still sounding.
-  def interpret(envelope, frames:)
+  private def interpret(envelope, frames:)
     tune = RubyGBA::Audio::Score.new(
       parts: [RubyGBA::Audio::Score::Part.new(plays: :tone, envelope: envelope,
                                        notes: [RubyGBA::Audio::Score::Note.new(at: 0, key: :C4, length: 6)])],
@@ -237,7 +237,7 @@ class TestNoteEnvelope < Minitest::Test
 
   # A game with two recordings, a part that plays +notes+ shaped by SLOW_RELEASE, and — on pass
   # +burst+ — as many sounds of the game's own as there are voices.
-  def voices_game(notes, burst: nil)
+  private def voices_game(notes, burst: nil)
     tune = RubyGBA::Audio::Score.new(
       parts: [RubyGBA::Audio::Score::Part.new(plays: :low, envelope: SLOW_RELEASE, notes: notes)],
       tempo: TEMPO, ticks_per_beat: TICKS_PER_BEAT, length: 200
@@ -262,7 +262,7 @@ class TestNoteEnvelope < Minitest::Test
   end
 
   # What each backend has sounding +frames+ in, and what each could not play.
-  def voices_on_both(program, frames:)
+  private def voices_on_both(program, frames:)
     ruby = game_player.run(program, frames: frames)
     console = assert_emulator_loads_rom(assemble_rom(program, name: "TAILS"), frames: frames + 2)
     [[ruby.active_samples, ruby.sound_drops], [console.sounding, console.sound_drops]]

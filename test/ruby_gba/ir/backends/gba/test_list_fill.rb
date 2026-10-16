@@ -15,7 +15,7 @@ class TestListFill < Minitest::Test
 
   # A list of ITEMS items of +width+, all 1, with +fill+ (keywords of list_fill) applied, and
   # every item read into a variable :item0, :item1, ... so both backends can be asked.
-  def filled(width, **fill)
+  private def filled(width, **fill)
     program(
       list_new(:items, ITEMS, width: width),
       *Array.new(ITEMS) { list_push(:items, 1) },
@@ -25,20 +25,20 @@ class TestListFill < Minitest::Test
     )
   end
 
-  def items_on_console(prog)
+  private def items_on_console(prog)
     backend = GBA.new
     rom = RubyGBA::Cartridge::ROM.assemble(backend.lower(prog), title: "LISTFILL")
     v = assert_emulator_loads_rom(rom, frames: 2, vars: backend.var_addresses)
     Array.new(ITEMS) { |i| v.var(:"item#{i}") }
   end
 
-  def items_on_interpreter(prog)
+  private def items_on_interpreter(prog)
     i = Reference.new.run(prog)
     Array.new(ITEMS) { |n| i[:"item#{n}"] }
   end
 
   # Items 3 to 9 set to +value+: from part way into the first word to part way into the third.
-  def assert_run_filled(width, value)
+  private def assert_run_filled(width, value)
     prog = filled(width, from: 3, count: 7, value: value)
     want = Array.new(ITEMS) { |i| (3...10).cover?(i) ? value : 1 }
 

@@ -30,7 +30,7 @@ class TestMenu < Minitest::Test
   # block ran, so the action half is observable too. The same program is built for
   # either screen — that one verb reads the same way on both is the thing under test
   # in the tiled section below.
-  def menu_program(press: :a, repeat_every: nil, on: :bitmap, starts_on: nil, &extra)
+  private def menu_program(press: :a, repeat_every: nil, on: :bitmap, starts_on: nil, &extra)
     build_program do
       screen on
       var :chose, 0
@@ -50,7 +50,7 @@ class TestMenu < Minitest::Test
     end
   end
 
-  def build_program(&block)
+  private def build_program(&block)
     builder = Builder.new
     builder.instance_eval(&block)
     builder.finalize_program
@@ -58,7 +58,7 @@ class TestMenu < Minitest::Test
   end
 
   # Run a program, feeding it a fresh set of held buttons each frame.
-  def walk(program, frames:, &keys)
+  private def walk(program, frames:, &keys)
     interp = Reference.new
     interp = interp.input_each_frame(&keys) if keys
     interp.run(program, frames: frames)
@@ -68,12 +68,12 @@ class TestMenu < Minitest::Test
   NOTHING_HELD = ->(_frame) { [] }
 
   # Which row the cursor is drawn beside, or nil if it is nowhere.
-  def cursor_row(interp, column = X)
+  private def cursor_row(interp, column = X)
     ROWS.each_index.find { |row| lit?(interp, column - CURSOR_W, row) }
   end
 
   # The colour a row's label is drawn in, or nil if the row drew nothing.
-  def row_color(interp, row)
+  private def row_color(interp, row)
     top = Y + (row * SPACING)
     (X...(X + 60)).each do |x|
       (0...7).each do |dy|
@@ -84,7 +84,7 @@ class TestMenu < Minitest::Test
     nil
   end
 
-  def lit?(interp, x, row)
+  private def lit?(interp, x, row)
     top = Y + (row * SPACING)
     (x...(x + CURSOR_W)).any? do |px|
       (0...7).any? { |dy| interp.screen.pixel(px, top + dy).to_i.positive? }
@@ -180,7 +180,7 @@ class TestMenu < Minitest::Test
   # Counting the moves rather than reading the row the walk ended on: a menu that
   # raced down the list one row a frame can land on the right row by coincidence, and
   # in a three-row walk it often does.
-  def counting_moves(repeat_every:)
+  private def counting_moves(repeat_every:)
     menu_program(repeat_every: repeat_every) { |m| m.moved.then { add! :chose, 1 } }
   end
 
@@ -369,7 +369,7 @@ class TestMenu < Minitest::Test
   # A settings row says a different thing depending on the setting, so it carries the
   # list of things it can say and the variable that decides. The words are part of the
   # row: they light up with it and dim with it.
-  def settings_menu(&extra)
+  private def settings_menu(&extra)
     build_program do
       screen :bitmap
       music = var :music, 1
@@ -385,7 +385,7 @@ class TestMenu < Minitest::Test
   end
 
   # The two labels differ in length, so how far the row reaches says which one is up.
-  def row_extent(interp, row)
+  private def row_extent(interp, row)
     top = Y + (row * SPACING)
     lit = (0...240).select { |x| (0...7).any? { |dy| interp.screen.pixel(x, top + dy).to_i.positive? } }
     lit.empty? ? nil : lit.last
@@ -412,7 +412,7 @@ class TestMenu < Minitest::Test
     end
   end
 
-  def interp_pixel(interp, x, y)
+  private def interp_pixel(interp, x, y)
     interp.screen.pixel(x, y).to_i
   end
 
@@ -578,7 +578,7 @@ class TestMenu < Minitest::Test
   # that a game cannot tell, because they are the bitmap tests again with one word
   # changed.
 
-  def tiled_menu(**options, &extra)
+  private def tiled_menu(**options, &extra)
     menu_program(on: :tiled, **options, &extra)
   end
 
@@ -664,7 +664,7 @@ class TestMenu < Minitest::Test
 
   # A long menu, for counting sprites with. 12 rows of 12 characters is past the
   # console's 128; 8 rows of 10 is not.
-  def long_menu(rows_of:, on: :tiled)
+  private def long_menu(rows_of:, on: :tiled)
     build_program do
       screen on
       game_loop do
@@ -676,7 +676,7 @@ class TestMenu < Minitest::Test
     end
   end
 
-  def sprites_in(program)
+  private def sprites_in(program)
     program.walk.count { |node| node.kind == :object }
   end
 
@@ -771,7 +771,7 @@ class TestMenu < Minitest::Test
 
   # ---- the guardrail ----
 
-  def warnings(program)
+  private def warnings(program)
     RubyGBA::IR::Guardrails::Validator.new.run(program, autofix: false).warnings.map(&:check)
   end
 
@@ -828,7 +828,7 @@ class TestMenu < Minitest::Test
   # Row TWO can be picked while `open` is 1 (said as a test), row THREE while `open` is not
   # 0 (said as the variable itself). L opens and closes both.
 
-  def changing_menu(on: :bitmap, opens_at: nil, repeat_every: nil)
+  private def changing_menu(on: :bitmap, opens_at: nil, repeat_every: nil)
     build_program do
       screen on
       var :chose, 0

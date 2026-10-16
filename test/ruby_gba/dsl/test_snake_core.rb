@@ -24,7 +24,7 @@ class TestSnakeCore < Minitest::Test
   # cell (push only); otherwise it slides (push a head, shift the tail). Before
   # each head is added, the body is scanned for a cell the new head would land on
   # — a self-bite — which sets :hit to 1. Returned as a finished interpreter run.
-  def run_snake(start_cells:, moves:, grow:)
+  private def run_snake(start_cells:, moves:, grow:)
     builder = Builder.new
     builder.instance_eval do
       screen :bitmap

@@ -17,7 +17,7 @@ class TestDirectionalAnimation < Minitest::Test
   # gray field: right cycles red -> green, down cycles blue -> white. Each direction is
   # its own pair of colors, so the pixel at the hero says both which way it faces and
   # which frame is up. It halts after +run+ frames, so the screen is deterministic.
-  def walker(mode:, face:, run:, rate: 2)
+  private def walker(mode:, face:, run:, rate: 2)
     builder = Builder.new
     builder.instance_eval do
       screen mode
@@ -46,7 +46,7 @@ class TestDirectionalAnimation < Minitest::Test
     builder.program
   end
 
-  def spot(program)
+  private def spot(program)
     Reference.new.run(program).screen.pixel(44, 44)
   end
 
@@ -88,7 +88,7 @@ class TestDirectionalAnimation < Minitest::Test
 
   # --- friendly errors ---
 
-  def sprite_error(&block)
+  private def sprite_error(&block)
     b = Builder.new
     assert_raises(ArgumentError) { b.instance_eval(&block) }
   end

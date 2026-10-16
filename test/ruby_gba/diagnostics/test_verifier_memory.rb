@@ -15,7 +15,7 @@ class TestVerifierMemory < Minitest::Test
 
   # A ROM that computes a couple of variables and halts, plus the backend that
   # lowered it (so we know where the variables live).
-  def computed_rom
+  private def computed_rom
     builder = Builder.new
     builder.instance_eval do
       screen :bitmap
@@ -75,7 +75,7 @@ class TestVerifierMemory < Minitest::Test
   # the opposite of what it means.
 
   # Two counts taken below nothing by the program itself, rather than merely declared there.
-  def counted_below_nothing
+  private def counted_below_nothing
     builder = Builder.new
     builder.instance_eval do
       screen :bitmap
@@ -89,7 +89,7 @@ class TestVerifierMemory < Minitest::Test
     builder.program
   end
 
-  def below_nothing_on_the_console
+  private def below_nothing_on_the_console
     program = counted_below_nothing
     backend = GBA.new
     rom = ROM.assemble(backend.lower(program), title: "BELOW", code: "BNEG", maker: "01")

@@ -12,7 +12,7 @@ require "test_helper"
 class TestLayers < Minitest::Test
   runs_on :reference, :native
 
-  def program(&block)
+  private def program(&block)
     b = Builder.new
     b.instance_eval(&block)
     b.finalize_program
@@ -21,16 +21,16 @@ class TestLayers < Minitest::Test
 
   # Every node of a kind, anywhere in the tree (a scene's declarations live in a func
   # body, so a top-level scan would miss them).
-  def nodes(prog, kind)
+  private def nodes(prog, kind)
     prog.walk.select { |node| node.kind == kind }
   end
 
-  def layers_of(prog, kind)
+  private def layers_of(prog, kind)
     nodes(prog, kind).map(&:layer)
   end
 
   # A tiled game with one background and one sprite, each in its own layer.
-  def stacked_game(&extra)
+  private def stacked_game(&extra)
     program do
       screen :tiled
       layers :scenery, :actors, :ui
@@ -266,7 +266,7 @@ class TestLayers < Minitest::Test
 
   OVERLAP = [60, 60].freeze
 
-  def two_reversed_sprites(kind)
+  private def two_reversed_sprites(kind)
     program do
       screen kind
       image(:pillar, "#" => :green) { (["#" * 8] * 8).join("\n") }
@@ -281,7 +281,7 @@ class TestLayers < Minitest::Test
     end
   end
 
-  def shown_where_they_overlap(kind)
+  private def shown_where_they_overlap(kind)
     game_player.run(two_reversed_sprites(kind), frames: 3)
              .screen.pixel(OVERLAP[0] + 3, OVERLAP[1] + 3)
   end

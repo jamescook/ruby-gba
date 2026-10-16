@@ -21,7 +21,7 @@ class TestPacmanExample < Minitest::Test
   START_X, START_Y = Pacman::START
 
   # Is there a pixel of +color+ anywhere in the box (x0..x1, y0..y1)?
-  def any_pixel?(screen, color, x_range, y_range)
+  private def any_pixel?(screen, color, x_range, y_range)
     want = Color.resolve(color)
     x_range.any? { |x| y_range.any? { |y| screen.pixel(x, y) == want } }
   end
@@ -69,7 +69,7 @@ class TestPacmanExample < Minitest::Test
   CAUGHT_AND_WHITE = 80
   BLINK_OVER = 130
 
-  def pac_centre(screen) = screen.pixel(START_X + 8, START_Y + 8)
+  private def pac_centre(screen) = screen.pixel(START_X + 8, START_Y + 8)
 
   def test_a_caught_pac_blinks_white_then_is_yellow_again
     assert_equal Color.resolve(:white), pac_centre(game_player.run(Pacman.program, frames: CAUGHT_AND_WHITE).screen)

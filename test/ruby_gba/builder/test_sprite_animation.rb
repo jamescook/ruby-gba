@@ -20,7 +20,7 @@ class TestSpriteAnimation < Minitest::Test
   # +in_scene+ declares the blinker inside a scene instead of above the game loop. A scene's
   # body is built after the loop that runs it, which is the order that once left such a
   # sprite on its first picture for ever.
-  def blinker(mode:, run:, rate: 4, in_scene: false)
+  private def blinker(mode:, run:, rate: 4, in_scene: false)
     builder = Builder.new
     builder.instance_eval do
       screen mode
@@ -58,7 +58,7 @@ class TestSpriteAnimation < Minitest::Test
     builder.program
   end
 
-  def spot(program)
+  private def spot(program)
     Reference.new.run(program).screen.pixel(44, 44)
   end
 
@@ -91,7 +91,7 @@ class TestSpriteAnimation < Minitest::Test
     end
   end
 
-  def rom_for(program)
+  private def rom_for(program)
     ROM.assemble(GBA.new.lower(program), title: "ANIM", code: "BANM", maker: "01")
   end
 
@@ -111,7 +111,7 @@ class TestSpriteAnimation < Minitest::Test
 
   # --- friendly guardrails ---
 
-  def build_with(&block)
+  private def build_with(&block)
     b = Builder.new
     b.instance_eval(&block)
     b

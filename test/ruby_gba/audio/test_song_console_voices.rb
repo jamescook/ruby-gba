@@ -21,7 +21,7 @@ class TestSongConsoleVoices < Minitest::Test
   Registers = RubyGBA::Audio::Sound::Registers
 
   # A tune whose parts cover every voice there is: two square, one wave, one noise, one recorded.
-  def every_voice_game(frames: 60)
+  private def every_voice_game(frames: 60)
     b = Builder.new
     b.instance_eval do
       screen :bitmap
@@ -47,7 +47,7 @@ class TestSongConsoleVoices < Minitest::Test
 
   # The interpreter logs a song's wave and noise notes the way it logs the `wave` and `noise`
   # VERBS, because they really are the same voice — so one read of the log answers both.
-  def logged(program, frames: 6)
+  private def logged(program, frames: 6)
     game_player.run(program, frames: frames).audio
   end
 
@@ -147,7 +147,7 @@ class TestSongConsoleVoices < Minitest::Test
 
   # Wave RAM as its eight halfwords. Read by the word, since a halfword read at an odd offset
   # is not aligned.
-  def wave_ram(probe)
+  private def wave_ram(probe)
     (0...(Registers.wavetable_halfwords(:triangle).length / 2)).flat_map do |word|
       value = probe.read32(REG_WAVE_RAM + (word * 4))
       [value & 0xFFFF, (value >> 16) & 0xFFFF]
@@ -196,7 +196,7 @@ class TestSongConsoleVoices < Minitest::Test
 
   # --- what `plays:` accepts ---
 
-  def part_for(plays)
+  private def part_for(plays)
     RubyGBA::Audio::Music::VoiceContext.new(RubyGBA::Audio::Music::SongContext.new, plays: plays).to_voice
   end
 
@@ -248,7 +248,7 @@ class TestSongConsoleVoices < Minitest::Test
   end
 
   # The same tune twice: one square-wave part, optionally told how a drum hit would fade.
-  def square_song(fade: false)
+  private def square_song(fade: false)
     b = Builder.new
     b.instance_eval do
       screen :bitmap
@@ -280,7 +280,7 @@ class TestSongConsoleVoices < Minitest::Test
   PULSE_50 = ([15] * 16 + [0] * 16).freeze
 
   # One part on the wave voice, playing whatever it is given.
-  def pad_song(plays)
+  private def pad_song(plays)
     b = Builder.new
     shape = plays
     b.instance_eval do
@@ -296,7 +296,7 @@ class TestSongConsoleVoices < Minitest::Test
   end
 
   # Wave RAM as the console really holds it — the eight halfwords of the bank the CPU is shown.
-  def wave_ram_of(program, name)
+  private def wave_ram_of(program, name)
     backend = GBA.new
     rom = ROM.assemble(backend.lower(program), title: name, code: "BWAV", maker: "01",
                                                built: backend.build_record(program))

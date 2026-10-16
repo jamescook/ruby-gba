@@ -21,7 +21,7 @@ class TestSceneBackgroundColors < Minitest::Test
 
   ROOM_TILES = 16
 
-  def program(&block)
+  private def program(&block)
     b = Builder.new
     b.instance_eval(&block)
     b.finalize_program
@@ -31,7 +31,7 @@ class TestSceneBackgroundColors < Minitest::Test
   # A title whose light rays shimmer — a layer drawn with other colours keeps a group to
   # itself — then, from the sixth pass, a room whose sixteen tiles fill all sixteen groups.
   # Together they need seventeen groups; one screen at a time, neither needs more than sixteen.
-  def title_then_room(switch_at: 6, tint: nil)
+  private def title_then_room(switch_at: 6, tint: nil)
     klass = self.class
     program do
       screen :tiled
@@ -112,7 +112,7 @@ class TestSceneBackgroundColors < Minitest::Test
 
   # The rays told to shimmer from inside the room, every pass, while the room is up: the
   # room's colours stay its own, and the title shimmers again when it comes back.
-  def rays_told_from_outside
+  private def rays_told_from_outside
     klass = self.class
     program do
       screen :tiled
@@ -154,7 +154,7 @@ class TestSceneBackgroundColors < Minitest::Test
   # Backgrounds every scene shows that walk between areas, beside a scene with a background of
   # its own: the area's colours and the scene's own both stay right as the ground walks into
   # the second area and the scene takes over.
-  def walking_everywhere_beside_a_scene
+  private def walking_everywhere_beside_a_scene
     program do
       screen :tiled
       image(:shrine_floor, "#" => :red, "." => :blue) { (["#.#.#.#."] * 8).join("\n") }

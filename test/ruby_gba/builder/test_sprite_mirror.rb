@@ -27,7 +27,7 @@ class TestSpriteMirror < Minitest::Test
   # A pose that is deliberately NOT symmetric and NOT centred: a block at (+ox+, +oy+)
   # with its left column a different colour, so a mirror that is drawn in the wrong
   # place — or the right place but the wrong way round — shows up as different pixels.
-  def lopsided(ox, oy, w = 10, h = 12)
+  private def lopsided(ox, oy, w = 10, h = 12)
     (0...(CANVAS * CANVAS)).map do |i|
       x = i % CANVAS
       y = i / CANVAS
@@ -40,7 +40,7 @@ class TestSpriteMirror < Minitest::Test
   # Build a program through the DSL. +poses+ is a list of pixel arrays and +mirrors+ a
   # list of indexes into it: each named pose is followed by mirrors of the ones listed,
   # so the sprite's cycle runs through the originals and then their mirrors.
-  def program(poses, mirror_of: [], rate: 3, at: [40, 30])
+  private def program(poses, mirror_of: [], rate: 3, at: [40, 30])
     canvas = CANVAS
     clear = CLEAR
     builder = Builder.new
@@ -59,7 +59,7 @@ class TestSpriteMirror < Minitest::Test
     builder.program
   end
 
-  def sprite_bytes(poses, mirror_of: [])
+  private def sprite_bytes(poses, mirror_of: [])
     canvas = CANVAS
     clear = CLEAR
     rom = RubyGBA.build("MIRR", code: "BMIR", maker: "01", validate: false,

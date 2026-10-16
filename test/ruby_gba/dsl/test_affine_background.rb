@@ -14,7 +14,7 @@ class TestAffineBackground < Minitest::Test
 
   include Differential
 
-  def interpret(&block)
+  private def interpret(&block)
     builder = Builder.new
     builder.instance_eval(&block)
     builder.finalize_program
@@ -24,7 +24,7 @@ class TestAffineBackground < Minitest::Test
   # A 32x32 map, blank except the given (col, row) => character marks, so a
   # transform is judged by which mark lands under a fixed screen point rather than
   # by re-deriving the matrix math in the test itself.
-  def marked_map(marks)
+  private def marked_map(marks)
     Array.new(32) { Array.new(32, " ") }.tap do |rows|
       marks.each { |(col, row), ch| rows[row][col] = ch }
     end.map(&:join)
@@ -108,7 +108,7 @@ class TestAffineBackground < Minitest::Test
   # squares of a checkerboard get BIGGER, so these measure the squares.
 
   # A checkerboard of 8x8 tiles, sized +size+.
-  def checkerboard_at(size)
+  private def checkerboard_at(size)
     rows = (0...32).map { |r| (0...32).map { |c| (r + c).even? ? "L" : "D" }.join }
     interpret do
       screen :rotozoom
@@ -123,7 +123,7 @@ class TestAffineBackground < Minitest::Test
 
   # How wide the checkerboard's squares read along a screen row: the run lengths of
   # same-colored pixels, dropping the first and last (those are cut by the screen edge).
-  def square_widths(screen, y = 80)
+  private def square_widths(screen, y = 80)
     runs = []
     (0...240).each do |x|
       color = screen.pixel(x, y)
@@ -152,7 +152,7 @@ class TestAffineBackground < Minitest::Test
   end
 
   # A checkerboard of two colours, as a whole program, for the two tests below.
-  def board_program(scale: nil)
+  private def board_program(scale: nil)
     rows = (0...32).map { |r| (0...32).map { |c| (r + c).even? ? "L" : "D" }.join }
     builder = Builder.new
     builder.instance_eval do

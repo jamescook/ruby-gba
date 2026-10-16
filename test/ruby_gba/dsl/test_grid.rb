@@ -11,7 +11,7 @@ require "test_helper"
 class TestGrid < Minitest::Test
   runs_on :reference
 
-  def interpret_screen(&block)
+  private def interpret_screen(&block)
     builder = Builder.new
     builder.instance_eval(&block)
     builder.finalize_program
@@ -19,7 +19,7 @@ class TestGrid < Minitest::Test
   end
 
   # Assert every pixel of a w-by-h region is one color.
-  def assert_region_is(screen, x, y, w, h, color)
+  private def assert_region_is(screen, x, y, w, h, color)
     want = Color.resolve(color)
     h.times do |dy|
       w.times { |dx| assert_equal want, screen.pixel(x + dx, y + dy), "(#{x + dx},#{y + dy}) not #{color}" }
@@ -122,7 +122,7 @@ class TestGrid < Minitest::Test
 
   # ---- cross-backend: the same board renders on the console ----
 
-  def grid_rom
+  private def grid_rom
     builder = Builder.new
     builder.instance_eval do
       screen :bitmap

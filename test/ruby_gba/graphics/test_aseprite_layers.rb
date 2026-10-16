@@ -14,9 +14,9 @@ class TestAsepriteLayers < Minitest::Test
 
   # --- a minimal in-memory .aseprite builder (RGBA or grayscale, solid-color cels) ---
 
-  def chunk(type, data) = [6 + data.bytesize].pack("V") + [type].pack("v") + data
+  private def chunk(type, data) = [6 + data.bytesize].pack("V") + [type].pack("v") + data
 
-  def layer_chunk(visible:, blend:, opacity:)
+  private def layer_chunk(visible:, blend:, opacity:)
     data = +""
     data << [visible ? 1 : 0].pack("v")  # flags: bit 0 = visible
     data << [0, 0].pack("vv")            # layer type (normal), child level
@@ -27,7 +27,7 @@ class TestAsepriteLayers < Minitest::Test
     chunk(0x2004, data)
   end
 
-  def cel_chunk(width, height, layer:, color:, opacity: 255, type: 0)
+  private def cel_chunk(width, height, layer:, color:, opacity: 255, type: 0)
     data = +""
     data << [layer].pack("v") << [0, 0].pack("s<s<") << [opacity].pack("C")
     data << [type].pack("v") << [0].pack("s<") << ("\x00" * 5)
@@ -36,7 +36,7 @@ class TestAsepriteLayers < Minitest::Test
     chunk(0x2005, data)
   end
 
-  def frame_chunk(chunks)
+  private def frame_chunk(chunks)
     body = chunks.join
     header = [16 + body.bytesize].pack("V") + [0xF1FA].pack("v") + [0].pack("v") +
              [100].pack("v") + ("\x00" * 2) + [chunks.length].pack("V")
@@ -46,7 +46,7 @@ class TestAsepriteLayers < Minitest::Test
   # +layers+: [{ visible:, blend:, opacity: }]. +cels+: [{ layer:, color:, opacity:, type: }],
   # painted in order onto one frame. +depth+ 32 = RGBA (color is [r,g,b,a]), 16 = grayscale
   # (color is [value, alpha]).
-  def build_ase(cels, layers:, depth: 32, w: 2, h: 2)
+  private def build_ase(cels, layers:, depth: 32, w: 2, h: 2)
     header = ("\x00" * 128).b
     header[4, 2] = [0xA5E0].pack("v")
     header[6, 2] = [1].pack("v") # one frame
@@ -60,7 +60,7 @@ class TestAsepriteLayers < Minitest::Test
     file
   end
 
-  def first_pixel(bytes) = Aseprite.load_binary(bytes).frames.first.data.first
+  private def first_pixel(bytes) = Aseprite.load_binary(bytes).frames.first.data.first
 
   # --- the cases ---
 

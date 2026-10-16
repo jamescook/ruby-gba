@@ -14,7 +14,7 @@ class TestFrameFromCartridgeGuardrail < Minitest::Test
   # A loop with a large piece of code in it that seldom runs. +cold_in_a_func+ moves that code
   # into a routine of its own, marked so the chooser leaves it in the cartridge — the fix the
   # warning names.
-  def game(cold_in_a_func:)
+  private def game(cold_in_a_func:)
     err = StringIO.new
     rom = RubyGBA.build("COLD", code: "ZCLD", maker: "01", out: StringIO.new, err: err) do
       screen :bitmap
@@ -62,7 +62,7 @@ class TestFrameFromCartridgeGuardrail < Minitest::Test
   # work is +work+ passes of a sum: written in a routine of its own, which the build keeps in
   # the quick memory, or with +inline+ written in the loop itself. With +scenes+ the game has
   # a title that does nothing and a playing scene that draws a second bar.
-  def measured_game(inline:, work: 5000, scenes: false)
+  private def measured_game(inline:, work: 5000, scenes: false)
     err = StringIO.new
     rom = RubyGBA.build("WORK#{inline ? 'IN' : 'OUT'}#{'S' if scenes}", out: StringIO.new, err: err, profile: true) do
       screen :bitmap
@@ -130,7 +130,7 @@ class TestFrameFromCartridgeGuardrail < Minitest::Test
   # WHERE THE LINE IS: a tenth of a frame's work. What the check finds for a loop left out of
   # a 2K gap, given the per cent of the busiest scene's work its own code was measured to do —
   # or nil for a build that measured nothing.
-  def findings_for(percent, scene: nil)
+  private def findings_for(percent, scene: nil)
     placement = GBA::Placement
     measured = percent && RubyGBA::Diagnostics::RoutineProfile::Share.new(percent: percent, scene: scene)
     over = placement::PassedOver.new(name: placement::FRAME_ROUTINE, bytes: 3584, room: 2048, measured: measured)

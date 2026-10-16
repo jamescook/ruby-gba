@@ -29,7 +29,7 @@ class TestBuildOutput < Minitest::Test
   # A game that gives the guardrails something to report. Writing the wait for the
   # screen by hand is harmless and the build says so, which is all this needs: a
   # warning, on a build that otherwise does nothing.
-  def game_that_warns
+  private def game_that_warns
     RubyGBA.game "OUTPUT" do
       screen :bitmap
       var :n, 0
@@ -40,7 +40,7 @@ class TestBuildOutput < Minitest::Test
     end
   end
 
-  def build(game, out: nil, err: nil)
+  private def build(game, out: nil, err: nil)
     game.build_rom(out: out, err: err, profile: false)
   end
 

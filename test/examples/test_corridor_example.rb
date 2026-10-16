@@ -76,10 +76,10 @@ class TestCorridorExample < Minitest::Test
     end
   end
 
-  def profile_of(game)
+  private def profile_of(game)
     rom = game.build_rom(out: StringIO.new, err: StringIO.new, profile: false)
     RubyGBA::Diagnostics::Profiler.run(rom, frames: 30, picture: false)
   end
 
-  def idle_share_of(game) = profile_of(game).idle_share
+  private def idle_share_of(game) = profile_of(game).idle_share
 end

@@ -14,14 +14,14 @@ class TestDrawNumber < Minitest::Test
 
   W = Builder::Text::GLYPH_WIDTH # 6px per digit column
 
-  def interpret_screen(&block)
+  private def interpret_screen(&block)
     builder = Builder.new
     builder.instance_eval(&block)
     builder.finalize_program
     Reference.new.run(builder.program).screen
   end
 
-  def tree(&block)
+  private def tree(&block)
     builder = Builder.new
     builder.instance_eval(&block)
     builder.finalize_program
@@ -30,7 +30,7 @@ class TestDrawNumber < Minitest::Test
 
   # Assert two horizontal bands of pixels are identical — the way to say "these
   # rendered the same glyphs" without pinning exact font pixels.
-  def assert_bands_match(screen, x:, w:, y1:, y2:, h: 7)
+  private def assert_bands_match(screen, x:, w:, y1:, y2:, h: 7)
     h.times do |dy|
       w.times do |dx|
         a = screen.pixel(x + dx, y1 + dy)
@@ -40,7 +40,7 @@ class TestDrawNumber < Minitest::Test
     end
   end
 
-  def assert_region_is(screen, x, y, w, h, color)
+  private def assert_region_is(screen, x, y, w, h, color)
     want = Color.resolve(color)
     h.times do |dy|
       w.times { |dx| assert_equal want, screen.pixel(x + dx, y + dy), "(#{x + dx},#{y + dy}) not #{color}" }
@@ -132,7 +132,7 @@ class TestDrawNumber < Minitest::Test
 
   # ---- the runtime digits land on real hardware ----
 
-  def hw_program
+  private def hw_program
     tree do
       screen :bitmap
       clear_screen :black
@@ -183,7 +183,7 @@ class TestDrawNumber < Minitest::Test
   end
 
   # One draw_digit node at (x, y), reading a run-time variable.
-  def digit_program_at(x, y)
+  private def digit_program_at(x, y)
     Build.program(
       Build.screen(:bitmap), Build.set(:d, 0),
       Build.loop_(Build.wait_vblank, Build.draw_digit(Build.var_ref(:d), x, y, :white), Build.halt),
@@ -191,7 +191,7 @@ class TestDrawNumber < Minitest::Test
   end
 
   # The same drawing spelled out as the ten-way fan-out the backend falls back to.
-  def digit_fan_out_at(x, y)
+  private def digit_fan_out_at(x, y)
     Build.program(
       Build.screen(:bitmap), Build.set(:d, 0),
       Build.loop_(Build.wait_vblank,

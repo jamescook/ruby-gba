@@ -25,21 +25,21 @@ class TestLayerAllocation < Minitest::Test
   SPOT_X = 104
   SPOT_Y = 64
 
-  def program(&block)
+  private def program(&block)
     b = Builder.new
     b.instance_eval(&block)
     b.finalize_program
     b.program
   end
 
-  def screen_of(prog, frames: 3)
+  private def screen_of(prog, frames: 3)
     Reference.new.run(prog, max_steps: 400_000, frames: frames).screen
   end
 
   # A red hero standing under a white fence. `in_front` decides whether the fence layer
   # sits in front of the hero or behind it — the same program either way, so the only
   # thing that can change the picture is the stack.
-  def hero_and_fence(in_front:)
+  private def hero_and_fence(in_front:)
     order = in_front ? %i[hero fence] : %i[fence hero]
     program do
       screen :tiled
@@ -120,7 +120,7 @@ class TestLayerAllocation < Minitest::Test
   # Four backgrounds and a layer of sprites behind all of them needs five levels: the
   # sprites cannot share the backmost background's level, because on that level a sprite
   # is drawn in FRONT.
-  def deep_stack
+  private def deep_stack
     program do
       screen :tiled
       image(:tile, "#" => :green) { (["#" * 8] * 8).join("\n") }

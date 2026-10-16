@@ -54,7 +54,7 @@ class TestNativeDesktop < Minitest::Test
   # A game that keeps one number in save memory: 5 on a new cartridge, and two more at each
   # press of A. Made where it is used, since a game is not something a test may keep in a
   # constant.
-  def game_that_keeps_a_count
+  private def game_that_keeps_a_count
     RubyGBA.game("KEEPER") do
       screen :bitmap
       best = save_var :best, 5

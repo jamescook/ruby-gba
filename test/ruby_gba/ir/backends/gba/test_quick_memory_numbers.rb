@@ -17,7 +17,7 @@ class TestQuickMemoryNumbers < Minitest::Test
   QUICK_MEMORY = 0x03000000...0x03008000
   CARTRIDGE = 0x08000000...0x0A000000
 
-  def program_of(&block)
+  private def program_of(&block)
     builder = Builder.new
     builder.instance_eval(&block)
     builder.finalize_program
@@ -26,7 +26,7 @@ class TestQuickMemoryNumbers < Minitest::Test
 
   # The words of routine +name+, and the numbers its reads read: each read says how far past
   # itself its word is, counting from two instructions on.
-  def words_read_by(backend, name)
+  private def words_read_by(backend, name)
     span = backend.func_ranges.fetch(name)
     words = backend.code[span].unpack("V*")
     words.each_with_index.filter_map do |word, index|
@@ -35,9 +35,9 @@ class TestQuickMemoryNumbers < Minitest::Test
   end
 
   # LDR reg, [pc, #n]: the one instruction that reads a word a fixed distance ahead.
-  def table_read?(word) = (word & 0xFFFF0000) == 0xE59F0000
+  private def table_read?(word) = (word & 0xFFFF0000) == 0xE59F0000
 
-  def reads_in(backend, name)
+  private def reads_in(backend, name)
     backend.code[backend.func_ranges.fetch(name)].unpack("V*").count { |word| table_read?(word) }
   end
 
@@ -51,7 +51,7 @@ class TestQuickMemoryNumbers < Minitest::Test
   #
   # The first list is there only to move the second one along: with nothing before it a list
   # starts on an address the chip builds in two instructions, which no table would take.
-  def program_with_every_kind(fast:)
+  private def program_with_every_kind(fast:)
     program_of do
       screen :bitmap
       big = var :big, 0
@@ -106,7 +106,7 @@ class TestQuickMemoryNumbers < Minitest::Test
   # A READ REACHES 4K AND NO FURTHER, and the table is at the routine's end. So in a long
   # routine a number near the top is built and the same number near the bottom is read —
   # and both have to be the number.
-  def long_program
+  private def long_program
     program_of do
       screen :bitmap
       first = var :first, 0
@@ -143,7 +143,7 @@ class TestQuickMemoryNumbers < Minitest::Test
   # numbers become reads, and this one is nearly all numbers: read, it is about half the
   # length, and its first number is in reach of its end after all. The build counts the
   # shrinking it is sure of before it asks whether a load reaches.
-  def shrinking_program(fast: true)
+  private def shrinking_program(fast: true)
     program_of do
       screen :bitmap
       first = var :first, 0

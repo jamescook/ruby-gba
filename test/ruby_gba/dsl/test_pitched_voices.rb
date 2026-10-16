@@ -11,7 +11,7 @@ class TestPitchedVoices < Minitest::Test
   runs_on :reference, :native
 
   # Play sample :s (recorded at :C4) once at the given pitch, then loop `frames` frames.
-  def play_for(frames, pitch)
+  private def play_for(frames, pitch)
     b = Builder.new
     b.instance_eval do
       screen :bitmap

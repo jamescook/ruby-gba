@@ -16,25 +16,25 @@ class TestPixelsOverlap < Minitest::Test
   SOLID = 0x1F
 
   # A 4x4 image whose left two columns are drawn and right two are see-through.
-  def left_half
+  private def left_half
     (Array.new(4) { [SOLID, SOLID, TRANSPARENT, TRANSPARENT] }).flatten.pack("v*")
   end
 
   # a's solid columns are x0..1; b's solid columns are bx..bx+1. They share a solid
   # column only for bx in {0, 1}.
-  def touch_node(bx)
+  private def touch_node(bx)
     pixels_overlap(a_poses: [:a], a_pose: int(0), a_x: int(0), a_y: int(0),
                    b_poses: [:b], b_pose: int(0), b_x: int(bx), b_y: int(0))
   end
 
-  def images
+  private def images
     [bitmap(:a, width: 4, height: 4, pixels: left_half, transparent: TRANSPARENT),
      bitmap(:b, width: 4, height: 4, pixels: left_half, transparent: TRANSPARENT)]
   end
 
   # --- interpreter oracle: exact per-pixel truth ---
 
-  def interpreter_hit(bx)
+  private def interpreter_hit(bx)
     prog = program(screen(:bitmap), *images, set(:hit, int(0)),
                    if_(touch_node(bx), set(:hit, int(1))), halt)
     Reference.new.run(prog)[:hit]
@@ -50,7 +50,7 @@ class TestPixelsOverlap < Minitest::Test
   # --- hardware: the same answer, computed by the ARM routine ---
 
   # Draw a red marker only when the pixels overlap, so a real hit is visible on screen.
-  def rom_for(bx)
+  private def rom_for(bx)
     prog = program(screen(:bitmap), clear_screen(Color.resolve(:black)), *images,
                    if_(touch_node(bx), fill_rect(100, 100, 4, 4, Color.resolve(:red))), halt)
     ROM.assemble(GBA.new.lower(prog), title: "PIXHIT", code: "BPXO", maker: "01")

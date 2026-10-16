@@ -23,7 +23,7 @@ class TestPoolFieldMutation < Minitest::Test
   # Two instances start out holding the same number; +mutate+ is applied to the first
   # only. Both come back. The untouched one is half the point: a row writes at an index
   # the game works out, so changing a neighbour by mistake is the failure this shape has.
-  def mutating(start, &mutate)
+  private def mutating(start, &mutate)
     b = Builder.new
     b.instance_eval do
       screen :bitmap
@@ -149,7 +149,7 @@ class TestPoolFieldMutation < Minitest::Test
   end
 
   # Two rows, mutated by which row they are, each drawing itself where it ended up.
-  def marker_program
+  private def marker_program
     b = Builder.new
     b.instance_eval do
       screen :bitmap

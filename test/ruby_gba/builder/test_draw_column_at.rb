@@ -22,7 +22,7 @@ class TestDrawColumnAt < Minitest::Test
             RubyGBA::Graphics::Color.resolve(:blue) => :blue, RubyGBA::Graphics::Color.resolve(:white) => :white,
             0 => nil }.freeze
 
-  def program(&block)
+  private def program(&block)
     b = Builder.new
     b.instance_eval do
       screen :bitmap
@@ -33,7 +33,7 @@ class TestDrawColumnAt < Minitest::Test
     b.program
   end
 
-  def column_on_screen(run, x, from, to)
+  private def column_on_screen(run, x, from, to)
     (from...to).map { |y| NAMES.fetch(run.screen.pixel(x, y), :other) }
   end
 
@@ -302,7 +302,7 @@ class TestDrawColumnAtSeeThrough < Minitest::Test
 
   HEIGHTS = [1, 2, 3, 5, 8, 13, 16, 31, 64, 159, 160, 161, 400, 1200].freeze
 
-  def lamp_program(tear_free:, art: LAMP)
+  private def lamp_program(tear_free:, art: LAMP)
     b = Builder.new
     b.instance_eval do
       screen :bitmap, tear_free: tear_free
@@ -354,7 +354,7 @@ class TestDrawColumnAtSeeThrough < Minitest::Test
   TALL_ROWS = 256
   LONE_PIXEL_ROW = TALL_ROWS - 1
 
-  def tall_picture_program
+  private def tall_picture_program
     data = Array.new(2 * TALL_ROWS, :transparent)
     data[(10 * 2) + 0] = :white                 # column 0, near the top
     data[(LONE_PIXEL_ROW * 2) + 0] = :white     # ...and a lone pixel on the bottom row
@@ -409,7 +409,7 @@ class TestDrawColumnAtTearFree < Minitest::Test
   BARS = %i[red red green green blue blue white white].freeze
 
   # The same program on either screen, so the two can be held against each other.
-  def column_program(tear_free:)
+  private def column_program(tear_free:)
     b = Builder.new
     b.instance_eval do
       screen :bitmap, tear_free: tear_free

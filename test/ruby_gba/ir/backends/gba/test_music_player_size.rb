@@ -21,7 +21,7 @@ class TestMusicPlayerSize < Minitest::Test
   # A song on seven lanes — two square parts, the wave voice, the noise voice and three
   # recordings — beside a sound effect, asked for the plain way or `this_frame: true`. With
   # +once+ it is a song that plays once and ends, which the player silences when it has.
-  def program(this_frame:, once: false)
+  private def program(this_frame:, once: false)
     notes = [Note.new(at: 0, key: :C4), Note.new(at: 10, key: :E4)]
     parts = [Part.new(notes: notes), Part.new(notes: notes), Part.new(plays: :wave, notes: notes),
              Part.new(plays: :noise, notes: notes), *Array.new(3) { Part.new(plays: :piano, notes: notes) }]
@@ -43,7 +43,7 @@ class TestMusicPlayerSize < Minitest::Test
     b.program
   end
 
-  def interrupt_routine_bytes(program)
+  private def interrupt_routine_bytes(program)
     backend = GBA.new
     backend.lower(program)
     backend.func_sizes.fetch(GBA::Placement::IRQ_ROUTINE)

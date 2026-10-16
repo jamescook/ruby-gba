@@ -23,7 +23,7 @@ class TestTiledCollisionCost < Minitest::Test
 
   # A bordered room with +pillars+ single solid cells scattered inside it, so the number
   # of solid rectangles can be varied without changing anything else about the game.
-  def room_map(pillars)
+  private def room_map(pillars)
     r = Random.new(1)
     spots = Array.new(pillars) { [r.rand(2...(COLS - 2)), r.rand(2...(ROWS - 2))] }.to_set
     (0...ROWS).map do |row|
@@ -34,7 +34,7 @@ class TestTiledCollisionCost < Minitest::Test
     end
   end
 
-  def game(movers:, pillars:)
+  private def game(movers:, pillars:)
     map = room_map(pillars)
     RubyGBA.build("COLL", code: "BCOL", maker: "01", validate: false,
                   out: StringIO.new, err: StringIO.new) do
@@ -51,7 +51,7 @@ class TestTiledCollisionCost < Minitest::Test
     end
   end
 
-  def loop_bytes(rom) = rom.built.placement.sizes[RubyGBA::Cartridge::BuildRecord::FRAME_ROUTINE].to_i
+  private def loop_bytes(rom) = rom.built.placement.sizes[RubyGBA::Cartridge::BuildRecord::FRAME_ROUTINE].to_i
 
   # THE ONE THAT MATTERS. A bare room and a room full of pillars are the same code. The
   # grid is consulted, so what the room is MADE of never reaches the mover.
@@ -87,7 +87,7 @@ class TestTiledCollisionCost < Minitest::Test
   # A POOL CAN HAVE IT TOO, which is the case that most needs it: a game with many movers
   # is exactly the one that could not afford tile collision before. The pool is told once
   # and every instance is checked, sharing the one routine a hand-declared sprite uses.
-  def pooled_game(movers)
+  private def pooled_game(movers)
     map = room_map(60)
     builder = Builder.new
     builder.instance_eval do

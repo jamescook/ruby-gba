@@ -23,18 +23,18 @@ class TestBlitClipping < Minitest::Test
   FOUR = [:red, :green, :blue, :white].map { |c| Color.resolve(c) }.freeze
 
   # A 4-wide, 1-tall opaque strip: red, green, blue, white left-to-right.
-  def strip_h(name)
+  private def strip_h(name)
     bitmap(name, width: 4, height: 1, pixels: FOUR.pack("v*"))
   end
 
   # A 1-wide, 4-tall opaque strip: red, green, blue, white top-to-bottom.
-  def strip_v(name)
+  private def strip_v(name)
     bitmap(name, width: 1, height: 4, pixels: FOUR.pack("v*"))
   end
 
   # A 4x4 opaque block whose rows are red / green / blue / white (each row one
   # colour), so a corner clip reveals which rows survived.
-  def block(name)
+  private def block(name)
     rows = FOUR.flat_map { |c| [c, c, c, c] }
     bitmap(name, width: 4, height: 4, pixels: rows.pack("v*"))
   end
@@ -42,7 +42,7 @@ class TestBlitClipping < Minitest::Test
   # Run +stmts+ (a blit sandwiched between screen/clear/halt) on both backends
   # and assert each [x, y, colour] expectation holds on each. A nil colour means
   # "background here" — i.e. clipped, nothing drawn.
-  def assert_same_pixels(defn, blit_stmt, expectations)
+  private def assert_same_pixels(defn, blit_stmt, expectations)
     prog = program(screen(:bitmap), clear_screen(BG), defn, blit_stmt, halt)
 
     screen = Reference.new.run(prog).screen

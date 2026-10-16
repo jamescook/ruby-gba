@@ -22,7 +22,7 @@ class TestDroppedSounds < Minitest::Test
   # More sounds at once than there are voices. Each one gets bytes of its own so no two can
   # share a place in the cartridge — this is about the mixer, not about identical sounds
   # being stored once. They loop, so nothing retires and frees a voice mid-run.
-  def over_subscribed(extra)
+  private def over_subscribed(extra)
     names = (0...(VOICES + extra)).map { |i| :"s#{i}" }
     b = Builder.new
     b.instance_eval do
@@ -39,7 +39,7 @@ class TestDroppedSounds < Minitest::Test
   # LOSING A SOUND EVERY FRAME, which is what a run has to be doing for a profile to see it:
   # the mixer is filled at boot with loops that never retire, and the game then asks for one
   # more effect on every pass. Every one of those finds no room.
-  def losing_every_frame
+  private def losing_every_frame
     names = (0...VOICES).map { |i| :"m#{i}" }
     b = Builder.new
     b.instance_eval do
@@ -61,7 +61,7 @@ class TestDroppedSounds < Minitest::Test
   # voices of their own while their notes sound, and the game fills the rest and then asks for
   # one more every frame. Over-subscribing at boot alone would not do: every one of those is
   # dropped before the song has played a note, and the split would read as all the game's.
-  def song_under_the_sounds
+  private def song_under_the_sounds
     b = Builder.new
     b.instance_eval do
       screen :bitmap
@@ -87,7 +87,7 @@ class TestDroppedSounds < Minitest::Test
   end
 
   # Comfortably inside the mixer — nothing can be lost.
-  def within_budget
+  private def within_budget
     b = Builder.new
     b.instance_eval do
       screen :bitmap
@@ -210,7 +210,7 @@ class TestDroppedSounds < Minitest::Test
 
   # --- the report ---
 
-  def profiled(program, **options)
+  private def profiled(program, **options)
     out = StringIO.new
     rom = assemble_rom(program, name: "DROP")
     [rom.profile(out: out, frames: 8, settle: 4, **options), out.string]

@@ -16,7 +16,7 @@ class TestCameraShake < Minitest::Test
   RED = RubyGBA::Graphics::Color.resolve(:red)
   BLUE = RubyGBA::Graphics::Color.resolve(:blue)
 
-  def program(&block)
+  private def program(&block)
     b = Builder.new
     b.instance_eval(&block)
     b.finalize_program
@@ -25,7 +25,7 @@ class TestCameraShake < Minitest::Test
 
   # A blue screen with a red block at (100, 70), and a shake fired on frame 3.
   # Halting after +frames+ lets each test look at one exact moment.
-  def shaking_game(frames:, intensity: 4, length: 3)
+  private def shaking_game(frames:, intensity: 4, length: 3)
     program do
       screen :bitmap
       clear_screen :blue

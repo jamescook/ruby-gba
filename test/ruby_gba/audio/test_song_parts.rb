@@ -20,7 +20,7 @@ class TestSongParts < Minitest::Test
   CHORD = %i[C4 Cs4 D4 Ds4 E4 F4 Fs4 G4 Gs4 A4 As4 B4].freeze
 
   # A song of two square-wave parts and a recorded part for each of +chord+.
-  def song_of(chord)
+  private def song_of(chord)
     lambda do
       instrument :organ, pcm: [60, -60] * 4000, rate: 8000, note: :C4
       song :big do
@@ -32,7 +32,7 @@ class TestSongParts < Minitest::Test
   end
 
   # The fourteen-part song, and a sound of the game's own sounding beside it the whole time.
-  def fourteen_part_game
+  private def fourteen_part_game
     tune = song_of(CHORD)
     b = Builder.new
     b.instance_eval do
@@ -80,7 +80,7 @@ class TestSongParts < Minitest::Test
   #
   # So this is four parts on one instrument, no square part, no sound of the game's: if the
   # recordings are silent there is nothing left to hear.
-  def recorded_parts_only_game
+  private def recorded_parts_only_game
     b = Builder.new
     b.instance_eval do
       screen :bitmap

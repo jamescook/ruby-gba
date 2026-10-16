@@ -24,7 +24,7 @@ class TestProportionalFont < Minitest::Test
   # A tiny proportional demo font: a 1-pixel-wide "I" and a 5-pixel-wide "M", both 5
   # tall, both with their left column lit in every row (so "where does the glyph
   # start" is a single clear pixel test).
-  def define_demo_font(builder)
+  private def define_demo_font(builder)
     builder.instance_eval do
       font :vari do
         glyph "I", <<~ART
@@ -47,7 +47,7 @@ class TestProportionalFont < Minitest::Test
 
   # A font belongs to the program that declared it, so read it back off that program
   # rather than from anywhere shared.
-  def demo_font
+  private def demo_font
     builder = Builder.new
     define_demo_font(builder)
     builder.program.fonts.get(:vari)
@@ -70,7 +70,7 @@ class TestProportionalFont < Minitest::Test
 
   # ---- the pen advances by the narrow glyph, on both backends ----
 
-  def interpret_screen(&block)
+  private def interpret_screen(&block)
     b = Builder.new
     b.instance_eval(&block)
     b.finalize_program
@@ -139,7 +139,7 @@ class TestProportionalFont < Minitest::Test
   # digit renders shifted and garbled. Only hardware exercises that loop (the
   # interpreter always reads a glyph at its own width), so this is an emulator check:
   # the run-time digit must match the same digit drawn as fixed text.
-  def register_hud_font
+  private def register_hud_font
     wide_w = [0b10001, 0b10001, 0b10101, 0b11011, 0b10001] # 5 wide, 5 tall
     glyphs = RubyGBA::Graphics::Font::TINY_GLYPHS.merge("W" => wide_w) # tiny's digits are 3 wide
     widths = glyphs.keys.to_h { |k| [k, k == "W" ? 5 : 3] }

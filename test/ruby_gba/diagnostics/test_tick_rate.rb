@@ -11,7 +11,7 @@ class TestTickRateRule < Minitest::Test
 
   TickRate = RubyGBA::Diagnostics::TickRate
 
-  def read(asked:, ticks:, seconds: 1.0)
+  private def read(asked:, ticks:, seconds: 1.0)
     TickRate.read(name: :beat, asked: asked, ticks: ticks, seconds: seconds)
   end
 

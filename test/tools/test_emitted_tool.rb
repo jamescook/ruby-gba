@@ -36,34 +36,34 @@ class TestEmittedTool < Minitest::Test
 
   # An example that built, sized in instructions so the tests read in the unit the
   # report speaks.
-  def built(name, instructions:, data: 0, frame: 0.0, shape: SAME_SHAPE)
+  private def built(name, instructions:, data: 0, frame: 0.0, shape: SAME_SHAPE)
     Measurement.new(name: name, title: name.upcase, code: instructions * INSTRUCTION,
                     data: data, frame: frame, shape: shape)
   end
 
-  def failed(name, error: "NoMethodError: undefined method 'fade'")
+  private def failed(name, error: "NoMethodError: undefined method 'fade'")
     Measurement.new(name: name, error: error)
   end
 
-  def row(name, before, after) = Row.new(name: name, before: before, after: after)
+  private def row(name, before, after) = Row.new(name: name, before: before, after: after)
 
   # One example that grew by +instructions+ between the two sides.
-  def grew_by(name, instructions, from: 1000, data: 0, frame: 0.0)
+  private def grew_by(name, instructions, from: 1000, data: 0, frame: 0.0)
     row(name, built(name, instructions: from, data: data, frame: frame),
         built(name, instructions: from + instructions, data: data, frame: frame))
   end
 
-  def render(rows)
+  private def render(rows)
     out = StringIO.new
     Report.new(Array(rows), ref: "HEAD (abc1234)").render(out)
     out.string
   end
 
-  def summary(rows) = Report.new(Array(rows), ref: "HEAD (abc1234)").summary
+  private def summary(rows) = Report.new(Array(rows), ref: "HEAD (abc1234)").summary
 
   # One example the library built differently on the two sides — the same source
   # file, a different tree out of it.
-  def rebuilt(name, instructions: 0, from: 1000)
+  private def rebuilt(name, instructions: 0, from: 1000)
     row(name, built(name, instructions: from, shape: { program: 1, loop: 1, fill_rect: 4 }),
         built(name, instructions: from + instructions,
                     shape: { program: 1, loop: 1, fill_rect: 4, wait_vblank: 1 }))
@@ -228,11 +228,11 @@ class TestEmittedTool < Minitest::Test
 
   Drilldown = Emitted::Drilldown
 
-  def detail(kinds: {}, funcs: {}, lines: {}, unattributed: 0)
+  private def detail(kinds: {}, funcs: {}, lines: {}, unattributed: 0)
     { kinds: kinds, funcs: funcs, lines: lines, unattributed: unattributed }
   end
 
-  def drilldown(before, after)
+  private def drilldown(before, after)
     out = StringIO.new
     Drilldown.new(before: before, after: after).render(out)
     out.string
@@ -380,5 +380,5 @@ class TestEmittedTool < Minitest::Test
     end
   end
 
-  def emitted(measurement) = measurement.code + measurement.data
+  private def emitted(measurement) = measurement.code + measurement.data
 end

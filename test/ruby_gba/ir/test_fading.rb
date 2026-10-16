@@ -12,20 +12,20 @@ require "test_helper"
 class TestFading < Minitest::Test
   runs_on :reference
 
-  def program(&block)
+  private def program(&block)
     b = Builder.new
     b.instance_eval(&block)
     b.finalize_program
     b.program
   end
 
-  def fading(prog) = RubyGBA::IR::Fading.resolve(prog)
+  private def fading(prog) = RubyGBA::IR::Fading.resolve(prog)
 
-  def fades(prog) = prog.walk.select { |node| node.kind == :fade }
+  private def fades(prog) = prog.walk.select { |node| node.kind == :fade }
 
   # A red floor with a white pane over it, the pane's layer half see-through, and a fade
   # written either over the whole screen or placed under the badge on top.
-  def see_through_program(under: nil, transparency: 50)
+  private def see_through_program(under: nil, transparency: 50)
     tile = SOLID_TILE
     program do
       screen :tiled
@@ -48,7 +48,7 @@ class TestFading < Minitest::Test
   end
 
   # The same tiled game with nothing see-through in it at all.
-  def plain_tiled_program
+  private def plain_tiled_program
     tile = SOLID_TILE
     program do
       screen :tiled
@@ -59,7 +59,7 @@ class TestFading < Minitest::Test
     end
   end
 
-  def bitmap_program(tear_free:)
+  private def bitmap_program(tear_free:)
     program do
       screen :bitmap, tear_free: tear_free
       clear_screen :red
@@ -153,7 +153,7 @@ class TestFading < Minitest::Test
   # An amount with a fraction is the asking. The display counts in sixteenths, so a long
   # fade on it changes every other frame; a walk counts in thirty-seconds. Nothing about a
   # see-through layer comes into this one.
-  def finely_faded(screen_kind, tear_free: false, under: nil)
+  private def finely_faded(screen_kind, tear_free: false, under: nil)
     tile = SOLID_TILE
     program do
       screen_kind == :tiled ? screen(:tiled) : screen(:bitmap, tear_free: tear_free)

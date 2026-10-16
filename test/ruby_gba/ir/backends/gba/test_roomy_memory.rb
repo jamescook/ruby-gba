@@ -22,12 +22,12 @@ class TestRoomyMemory < Minitest::Test
   runs_on :reference
   include Differential
 
-  def build(title, &block)
+  private def build(title, &block)
     RubyGBA.build(title, code: "B#{title[0, 3]}", maker: "01",
                          out: StringIO.new, err: StringIO.new, &block)
   end
 
-  def roomy_of(rom) = rom.built.roomy_memory
+  private def roomy_of(rom) = rom.built.roomy_memory
 
   # --- a game that used to fail to build ---
 
@@ -153,7 +153,7 @@ class TestRoomyMemory < Minitest::Test
   POOL_NAMES = %i[pool_field pool_part].freeze
 
   # The variables the build made for a collection, by the name the author gave it.
-  def counters_of(rom, words)
+  private def counters_of(rom, words)
     rom.var_addresses.select do |name, _address|
       kind, = RubyGBA::Messages::MadeNames.read(name)
       collection = name.to_s.delete_suffix("__len").delete_suffix("__head")
@@ -162,7 +162,7 @@ class TestRoomyMemory < Minitest::Test
     end
   end
 
-  def in_quick_memory(counters) = counters.select { |_name, address| QUICK.cover?(address) }.keys
+  private def in_quick_memory(counters) = counters.select { |_name, address| QUICK.cover?(address) }.keys
 
   def test_a_pool_given_room_keeps_its_own_counters_there
     rom = build("POOLVARS") do
@@ -214,7 +214,7 @@ class TestRoomyMemory < Minitest::Test
   # list kept in the roomy memory are played here on both backends and every pixel compared:
   # things spawned, walked, removed when they reach the edge and drawn oldest in front, and a
   # list pushed and shifted whose length is a bar's width.
-  def roomy_counters_program
+  private def roomy_counters_program
     builder = Builder.new
     builder.instance_eval do
       screen :tiled
@@ -249,7 +249,7 @@ class TestRoomyMemory < Minitest::Test
   # The one that matters: a list in the roomy memory is read and written like any other, and
   # the program comes out with the right answer. Held on both backends, since the interpreter
   # has one memory and the console has two — so agreeing means the addresses are right.
-  def counting_program
+  private def counting_program
     builder = Builder.new
     builder.instance_eval do
       screen :bitmap

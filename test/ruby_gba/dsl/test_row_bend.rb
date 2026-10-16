@@ -20,7 +20,7 @@ class TestRowBend < Minitest::Test
 
   # A background of narrow vertical bars. Vertical edges are what a sideways shift moves,
   # so where a row's bars land IS its offset, read straight off the screen.
-  def bars_program(frames: true, &bend)
+  private def bars_program(frames: true, &bend)
     b = Builder.new
     b.instance_eval do
       screen :tiled
@@ -47,7 +47,7 @@ class TestRowBend < Minitest::Test
 
   # A screen row as a picture: "R" where a bar covers it, "." where it does not. The bars
   # are 2 pixels of every 8, so this reads as the row's own offset directly.
-  def row_picture(interpreter, y, width = 12)
+  private def row_picture(interpreter, y, width = 12)
     (0...width).map { |x| interpreter.screen.pixel(x, y).to_i.zero? ? "." : "R" }.join
   end
 
@@ -130,7 +130,7 @@ class TestRowBend < Minitest::Test
   # needs anyway (Differential::BOOT_FRAMES). The sweep below is what establishes the
   # pairing rather than assuming it, which is the point: this is measured, like BOOT_FRAMES
   # itself, and not worked out from first principles.
-  def ripple_program
+  private def ripple_program
     b = Builder.new
     b.instance_eval do
       screen :tiled
@@ -178,7 +178,7 @@ class TestRowBend < Minitest::Test
   # showed what THIS body had just done — one frame further on. No frame count lined both
   # up, so the strongest test in the project could not be pointed at the combination at all.
   # Working the rows out in the gap, beside the sprites, is what put them in step.
-  def ripple_and_sprite_program(layers: 1)
+  private def ripple_and_sprite_program(layers: 1)
     b = Builder.new
     b.instance_eval do
       screen :tiled
@@ -217,7 +217,7 @@ class TestRowBend < Minitest::Test
   # (counts, rolls a random number) has to be asked as often on the interpreter or the two
   # play different games. The background scrolls and a sprite moves, which are the things that
   # once had the interpreter asking again.
-  def counting_bend_program
+  private def counting_bend_program
     b = Builder.new
     b.instance_eval do
       screen :tiled
@@ -287,7 +287,7 @@ class TestRowBend < Minitest::Test
   # Two layers, each with its own bend, going opposite ways. Working one row's offset out
   # needs the accumulator the row number is sitting in, so the second layer would read a
   # clobbered row unless every bend is told the row before any offset is worked out.
-  def two_bends_program
+  private def two_bends_program
     b = Builder.new
     b.instance_eval do
       screen :tiled
@@ -326,7 +326,7 @@ class TestRowBend < Minitest::Test
   # each with its own table, its own engine and its own rhythm. Every one of the 38,400
   # pixels, because the way this breaks is subtle: two engines aimed at one scroll register,
   # or a table handed to the wrong layer, still draws a picture that bends.
-  def three_bends_program
+  private def three_bends_program
     b = Builder.new
     b.instance_eval do
       screen :tiled
@@ -466,7 +466,7 @@ class TestRowBend < Minitest::Test
   end
 
   # A program with as many bending layers as asked for, each on its own background.
-  def many_bends_program(count)
+  private def many_bends_program(count)
     b = Builder.new
     b.instance_eval do
       screen :tiled
@@ -482,12 +482,12 @@ class TestRowBend < Minitest::Test
     b.program
   end
 
-  def four_bends_program = many_bends_program(4)
+  private def four_bends_program = many_bends_program(4)
 
   # The same two fixtures as cartridges that can be RUN, for the measured comparison. Built
   # through the DSL rather than assembled from a program, because a profile needs the record
   # the build makes — where every routine ended up cannot be recovered from the bytes.
-  def bars_rom(&bend)
+  private def bars_rom(&bend)
     RubyGBA.build("BEND", code: "BEND", maker: "01", out: StringIO.new, err: StringIO.new) do
       screen :tiled
       image(:bar, "." => :transparent, "#" => :red) { (["##......"] * 8).join("\n") }
@@ -498,7 +498,7 @@ class TestRowBend < Minitest::Test
     end
   end
 
-  def four_bends_rom
+  private def four_bends_rom
     RubyGBA.build("BND4", code: "BND4", maker: "01", out: StringIO.new, err: StringIO.new) do
       screen :tiled
       image(:bar, "." => :transparent, "#" => :red) { (["##......"] * 8).join("\n") }
@@ -513,7 +513,7 @@ class TestRowBend < Minitest::Test
 
   # The same, playing a sample — which is fed from an engine of its own and keeps the pair
   # this framework holds back for sound.
-  def sounding_program(bends:)
+  private def sounding_program(bends:)
     b = Builder.new
     b.instance_eval do
       screen :tiled
@@ -579,7 +579,7 @@ class TestRowBend < Minitest::Test
                     "#{copied.round} against #{interrupted.round} instructions a frame"
   end
 
-  def instructions_a_frame(rom)
+  private def instructions_a_frame(rom)
     RubyGBA::Diagnostics::Profiler.run(rom, frames: 20, picture: false).samples_per_frame
   end
 end

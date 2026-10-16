@@ -12,12 +12,12 @@ class TestSongInstrumentUnknownGuardrail < Minitest::Test
 
   Check = RubyGBA::IR::Guardrails::Checks::SongInstrumentUnknown
 
-  def tune(instrument)
+  private def tune(instrument)
     song(:tune, total_frames: 4,
                 voices: [RubyGBA::Audio::Music::Part.new(events: [[0, 262]], instrument: instrument)])
   end
 
-  def clip = sample(:piano, [0, 60, 0, -60].pack("c*"), 8000)
+  private def clip = sample(:piano, [0, 60, 0, -60].pack("c*"), 8000)
 
   def test_a_part_that_plays_an_undeclared_instrument_stops_the_build
     findings = Check.new.detect(program(tune(:pinao), clip))

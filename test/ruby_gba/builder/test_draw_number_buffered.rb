@@ -17,7 +17,7 @@ class TestDrawNumberBuffered < Minitest::Test
   # so the data-driven loop renders it) and once fixed (folded to glyphs at build
   # time, the per-pixel path). An odd origin (x = 41) deliberately exercises both the
   # even and odd column byte-splice on the indexed screen.
-  def two_ways_program
+  private def two_ways_program
     b = Builder.new
     b.instance_eval do
       screen :bitmap, tear_free: true

@@ -28,7 +28,7 @@ class TestPixelPerfectCollision < Minitest::Test
   ART
 
   # Do two corner-shapes at these spots register a hit? Returns the :hit flag.
-  def collided?(a_at, b_at, hitbox: nil)
+  private def collided?(a_at, b_at, hitbox: nil)
     b = Builder.new
     b.instance_eval do
       screen :bitmap
@@ -117,7 +117,7 @@ class TestPixelPerfectCollision < Minitest::Test
 
   # --- hardware: the console agrees the boxes-overlap-but-pixels-don't case is a miss ---
 
-  def rom_for(hitbox)
+  private def rom_for(hitbox)
     b = Builder.new
     b.instance_eval do
       screen :bitmap

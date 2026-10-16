@@ -30,7 +30,7 @@ class TestFlickerMeasured < Minitest::Test
   # A TRAIL, written the way somebody writes one the first time: add a mark a frame
   # and never repaint. Half the marks land in each of the screen's two pictures, and
   # once the trail stops they stay that way.
-  def losing_rom
+  private def losing_rom
     RubyGBA.build("FLICKLOSE", code: "FLKL", maker: "01", validate: false) do
       screen :bitmap, tear_free: true
       clear_screen :black
@@ -46,7 +46,7 @@ class TestFlickerMeasured < Minitest::Test
   # screen's pictures. This is wolf3d's fizzle in miniature, and it is the case a
   # build-time check cannot tell apart from the one above: same verbs, same shape,
   # and the only difference is how many frames each mark is drawn on.
-  def kept_rom
+  private def kept_rom
     RubyGBA.build("FLICKKEEP", code: "FLKK", maker: "01", validate: false) do
       screen :bitmap, tear_free: true
       clear_screen :black
@@ -69,7 +69,7 @@ class TestFlickerMeasured < Minitest::Test
   # time would overlap itself and leave only a sliver of difference between the two
   # pictures — under the floor, and the reading would come out clean whether or not the
   # rule was right. Stepping clear each time makes a wrong rule show up.
-  def repainting_rom
+  private def repainting_rom
     RubyGBA.build("FLICKFULL", code: "FLKF", maker: "01", validate: false) do
       screen :bitmap, tear_free: true
       n = var :n, 0
@@ -81,7 +81,7 @@ class TestFlickerMeasured < Minitest::Test
     end
   end
 
-  def flicker_of(rom) = RubyGBA::Diagnostics::Profiler.run(rom, frames: 12).flicker
+  private def flicker_of(rom) = RubyGBA::Diagnostics::Profiler.run(rom, frames: 12).flicker
 
   # THE ONE THAT MATTERS. The console really is showing two different pictures in
   # turn, and the reading says so and says where.

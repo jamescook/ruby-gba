@@ -24,7 +24,7 @@ class TestScrollTearing < Minitest::Test
   # frame — so any horizontal shift changes which color sits at a given x, and a
   # shear shows as one column of screen holding two colors. +work+ is busywork done
   # before the scroll, to push the write later and later into the frame.
-  def striped_scroller(work)
+  private def striped_scroller(work)
     builder = Builder.new
     builder.instance_eval do
       screen :tiled

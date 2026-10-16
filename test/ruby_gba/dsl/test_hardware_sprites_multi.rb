@@ -14,14 +14,14 @@ class TestHardwareSpritesMulti < Minitest::Test
 
   FLOOR_MAP = Array.new(20, "#" * 30).freeze # a white floor filling the screen
 
-  def rom_for(program)
+  private def rom_for(program)
     ROM.assemble(GBA.new.lower(program), title: "MULTISPR", code: "BMSP", maker: "01")
   end
 
   # Two overlapping sprites: a red one declared first, a blue one declared second,
   # each a different color (so this also proves they share one palette without
   # clobbering each other). They overlap in 44..47 x 44..47.
-  def overlapping_pair
+  private def overlapping_pair
     builder = Builder.new
     builder.instance_eval do
       screen :tiled
@@ -59,7 +59,7 @@ class TestHardwareSpritesMulti < Minitest::Test
   # sprite that starts +shown+ hides itself; one that starts hidden shows itself. So
   # the observable result at the sprite's spot (44, 44) inverts between a 1-frame run
   # (before the flip) and a longer run (after it).
-  def visibility_program(shown:, frames:)
+  private def visibility_program(shown:, frames:)
     builder = Builder.new
     builder.instance_eval do
       screen :tiled
@@ -80,7 +80,7 @@ class TestHardwareSpritesMulti < Minitest::Test
     builder.program
   end
 
-  def spot_color(program)
+  private def spot_color(program)
     Reference.new.run(program).screen.pixel(44, 44)
   end
 

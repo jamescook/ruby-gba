@@ -30,7 +30,7 @@ class TestPongScoring < Minitest::Test
   # left out on purpose: the ball holds its row so the test isolates the paddle's
   # vertical-overlap gate — the exact thing the bug got wrong. Returns the
   # finished interpreter run (read scores with r[:player_score] / r[:cpu_score]).
-  def run_rally(ball_x:, ball_dx:, ball_row:, player_paddle_y:, cpu_paddle_y:, frames:)
+  private def run_rally(ball_x:, ball_dx:, ball_row:, player_paddle_y:, cpu_paddle_y:, frames:)
     builder = Builder.new
     builder.instance_eval do
       screen :bitmap
@@ -117,7 +117,7 @@ class TestPongScoring < Minitest::Test
   ONCE_IT_HAS_EASED_OFF = 411
 
   # The center line's three channels, as red / green / blue.
-  def pong_line_at(frames)
+  private def pong_line_at(frames)
     i = game_player
     i.input_each_frame { |f| f < 3 ? [:a] : [] } # choose START on the title menu, then hands off
     i.run(Pong.program, frames: frames)

@@ -15,7 +15,7 @@ class TestPreviewTool < Minitest::Test
   include PNGReading
 
   # A tiny program that paints the screen red and loops, so a capture has real frames.
-  def red_loop
+  private def red_loop
     b = Builder.new
     b.instance_eval do
       screen :bitmap

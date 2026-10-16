@@ -17,7 +17,7 @@ class TestSceneClassForm < Minitest::Test
   GREEN = Color.resolve(:green) # TitleScreen's marker
   CYAN = Color.resolve(:cyan)   # PlayScreen's marker
 
-  def program
+  private def program
     b = Builder.new
     b.instance_eval do
       screen :tiled
@@ -43,7 +43,7 @@ class TestSceneClassForm < Minitest::Test
   end
 
   # The leftmost x where a color appears in the marker's row band, or nil if absent.
-  def first_x_of(screen, color)
+  private def first_x_of(screen, color)
     (40..47).each { |y| (0...240).each { |x| return x if screen.pixel(x, y) == color } }
     nil
   end
@@ -69,7 +69,7 @@ class TestSceneClassForm < Minitest::Test
   end
 
   # The same program but starting in :play (state = 1).
-  def mutate_to_play
+  private def mutate_to_play
     b = Builder.new
     b.instance_eval do
       screen :tiled

@@ -8,13 +8,13 @@ class TestInspector < Minitest::Test
   runs_on :reference
 
   # Helper: disassemble a single instruction word via Inspector internals.
-  def disasm(word)
+  private def disasm(word)
     inspector = RubyGBA::Diagnostics::Inspector.from_rom(minimal_rom)
     desc, = inspector.send(:disassemble, word, Array.new(16, 0))
     desc
   end
 
-  def minimal_rom
+  private def minimal_rom
     RubyGBA.build("TEST", code: "BTST", maker: "01", validate: false) do
       halt
     end

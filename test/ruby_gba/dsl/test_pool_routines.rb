@@ -20,7 +20,7 @@ class TestPoolRoutines < Minitest::Test
 
   include Differential
 
-  def program_with(&block)
+  private def program_with(&block)
     b = RubyGBA::Builder.new
     b.instance_eval(&block)
     b.finalize_program

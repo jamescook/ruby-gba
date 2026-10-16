@@ -20,7 +20,7 @@ class TestTiledText < Minitest::Test
 
   # Build a tiled program that declares some HUD text once, then loops one frame and
   # halts (long enough for the sprites to be composited).
-  def hud_program(&declare)
+  private def hud_program(&declare)
     b = Builder.new
     b.instance_eval do
       screen :tiled
@@ -37,7 +37,7 @@ class TestTiledText < Minitest::Test
   # Assert the glyph for +char+ of the default font is painted in +color+ at origin
   # (gx, gy) on +screen+: every lit pixel of the glyph is that color. Reading the font
   # itself keeps this independent of the exact glyph shape.
-  def assert_glyph(screen, char, gx, gy, color)
+  private def assert_glyph(screen, char, gx, gy, color)
     lit = []
     Fonts.get(:default).each_pixel(char) { |dx, dy| lit << [dx, dy] }
     refute_empty lit, "the font should have a glyph for #{char.inspect}"
@@ -123,7 +123,7 @@ class TestTiledText < Minitest::Test
   # A prompt that flips on and off every frame: shown while `blink` is 1, gone while
   # it's 0, with a second label beside it that named no condition and therefore never
   # goes away (so "gone" reads as this glyph, not as a blank screen).
-  def blinking_prompt_program
+  private def blinking_prompt_program
     b = Builder.new
     b.instance_eval do
       screen :tiled
@@ -189,7 +189,7 @@ class TestTiledText < Minitest::Test
 
   # No lit pixel of +char+'s glyph is painted in +color+ at (gx, gy) — the negative of
   # #assert_glyph, for a glyph that should not be on screen at all.
-  def refute_glyph(screen, char, gx, gy, color)
+  private def refute_glyph(screen, char, gx, gy, color)
     Fonts.get(:default).each_pixel(char) do |dx, dy|
       refute_equal color, screen.pixel(gx + dx, gy + dy),
                    "glyph #{char.inspect} pixel (#{dx},#{dy}) should NOT be painted at (#{gx + dx},#{gy + dy})"
@@ -197,7 +197,7 @@ class TestTiledText < Minitest::Test
   end
 
   # The screen coordinates of every lit pixel of +char+'s glyph drawn at (gx, gy).
-  def lit_pixels(_verifier, char, gx, gy)
+  private def lit_pixels(_verifier, char, gx, gy)
     pixels = []
     Fonts.get(:default).each_pixel(char) { |dx, dy| pixels << [gx + dx, gy + dy] }
     pixels

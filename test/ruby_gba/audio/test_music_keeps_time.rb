@@ -14,13 +14,13 @@ require "test_helper"
 class TestMusicKeepsTime < Minitest::Test
   runs_on :reference, :native
 
-  def notes(interpreter)
+  private def notes(interpreter)
     interpreter.audio.select { |entry| entry[0] == :note }.map(&:last)
   end
 
   # A note every ten frames — C4, E4, G4 — so which notes a run heard says how far into the tune
   # it got. The block is the loop's body, handed how many passes have run.
-  def scale_game(&loop_body)
+  private def scale_game(&loop_body)
     loop_body ||= proc { play_song :scale }
     b = Builder.new
     b.instance_eval do
@@ -78,7 +78,7 @@ class TestMusicKeepsTime < Minitest::Test
   # A recording of thirty frames, played once at the start. The console mixes it a frame at a
   # time from the screen's own interrupt, so it ends thirty frames in however long a pass takes
   # (test_mixer_keeps_time.rb holds the console to that).
-  def clip_game
+  private def clip_game
     b = Builder.new
     b.instance_eval do
       screen :bitmap
@@ -111,7 +111,7 @@ class TestMusicKeepsTime < Minitest::Test
 
   # --- switching tunes, which is what a jukebox or a scene change does ---
 
-  def two_tunes_game
+  private def two_tunes_game
     b = Builder.new
     b.instance_eval do
       screen :bitmap
@@ -201,7 +201,7 @@ class TestMusicKeepsTime < Minitest::Test
   # than a test quietly measuring nothing.
   BURNS = { 1 => 0, 2 => 35_000, 3 => 60_000 }.freeze
 
-  def beat_game(burn)
+  private def beat_game(burn)
     b = Builder.new
     b.instance_eval do
       screen :bitmap
@@ -224,7 +224,7 @@ class TestMusicKeepsTime < Minitest::Test
   end
 
   # How many frames a pass took on the console, and how many times the sound started.
-  def beats_heard(burn)
+  private def beats_heard(burn)
     backend = GBA.new
     program = beat_game(burn)
     rom = ROM.assemble(backend.lower(program), title: "MUSTIME", code: "ZMST", maker: "01")

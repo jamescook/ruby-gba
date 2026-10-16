@@ -15,7 +15,7 @@ class TestIrGuardrailSpriteInBlocksKeptFromFade < Minitest::Test
 
   # A cloud far off, a hero in the game and a score over it, each a sprite in a layer of
   # its own, with +said+ run before the loop.
-  def findings(&said)
+  private def findings(&said)
     builder = Builder.new
     builder.instance_eval do
       screen :tiled

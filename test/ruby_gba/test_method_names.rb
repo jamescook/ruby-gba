@@ -26,7 +26,7 @@ class TestMethodNames < Minitest::Test
   # `bx` is the ARM instruction of that name, and `ok?` is plain English.
   SHORT_NAMES = %w[x y w h id at of to io op ok bx].freeze
 
-  def defined_methods
+  private def defined_methods
     Dir.glob("#{LIB}/**/*.rb").flat_map do |path|
       File.foreach(path).with_index(1).filter_map do |line, number|
         name = line[/^\s*def (?:self\.)?([a-z_][a-zA-Z0-9_]*[?!=]?)/, 1]
@@ -35,12 +35,12 @@ class TestMethodNames < Minitest::Test
     end
   end
 
-  def offenders(&rule)
+  private def offenders(&rule)
     defined_methods.select { |name, _| rule.call(name.delete_suffix("?").delete_suffix("!").delete_suffix("=")) }
                    .map { |name, where| "#{where}  #{name}" }
   end
 
-  def assert_none(found, why)
+  private def assert_none(found, why)
     assert_empty found, "#{why}\n#{found.join("\n")}"
   end
 

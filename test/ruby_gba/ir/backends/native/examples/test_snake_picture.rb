@@ -29,7 +29,7 @@ class TestSnakePicture < Minitest::Test
   )
   GAME_OVER_BY = 160
 
-  def program = Native.new.checked_program(Snake::GAME, err: nil)
+  private def program = Native.new.checked_program(Snake::GAME, err: nil)
 
   def test_snake_matches_the_interpreter_through_a_recorded_game
     last = assert_native_matches_reference(program, frames: 200, buttons: RUN)

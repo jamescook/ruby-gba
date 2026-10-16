@@ -17,7 +17,7 @@ class TestBiosCompress < Minitest::Test
 
   # --- The packer: pack then expand gives back the original bytes ---
 
-  def assert_round_trips(bytes)
+  private def assert_round_trips(bytes)
     codec, blob = Pack.pack_smallest(bytes)
     skip "nothing to expand — best kept it raw" if codec == :none
     assert_equal bytes, Pack.decode(blob), "packed #{codec} blob did not expand to the original"
@@ -112,7 +112,7 @@ class TestBiosCompress < Minitest::Test
 
   # --- The build records the packing report on the ROM (display is the CLI's job) ---
 
-  def compressible_tiled
+  private def compressible_tiled
     RubyGBA.build("PACK", code: "BPAK", maker: "01", out: StringIO.new, err: StringIO.new) do
       screen :tiled
       image(:red_t, "#" => :red) { (["########"] * 8).join("\n") }
@@ -146,7 +146,7 @@ class TestBiosCompress < Minitest::Test
   # The BIOS routine that expands into video memory writes two bytes at a time, so a
   # back-reference to the single byte just written is unsafe. The packer must never
   # emit one. Walk an LZ77 payload and collect every reference distance.
-  def reference_distances(payload, size)
+  private def reference_distances(payload, size)
     distances = []
     out = 0
     ip = 0
@@ -185,7 +185,7 @@ class TestBiosCompress < Minitest::Test
   # A tiled background of solid 8x8 tiles: the shared tile block is long runs of one
   # palette index, and the 32x32 map is mostly one repeated tile — both pack well, so
   # the backend uploads them with the BIOS expander instead of a plain copy.
-  def solid_board
+  private def solid_board
     solid8 = (["########"] * 8).join("\n")
     b = Builder.new
     b.instance_eval do
@@ -233,7 +233,7 @@ class TestBiosCompress < Minitest::Test
   # trusting: run the exhaustive search alongside and require the same answer.
 
   # The exhaustive search, written out plainly as the thing to agree with.
-  def full_scan_match(data, pos, n)
+  private def full_scan_match(data, pos, n)
     best_len = 0
     best_dist = 0
     earliest = [0, pos - Pack::MAX_WINDOW].max
@@ -254,7 +254,7 @@ class TestBiosCompress < Minitest::Test
   # Compare the two searches at every position. Report the first disagreement
   # rather than asserting per byte — one assertion for the claim, and a message
   # that names the byte to go and look at.
-  def assert_finds_the_same_matches(blob, what)
+  private def assert_finds_the_same_matches(blob, what)
     data = blob.bytes
     n = data.length
     chains = Pack.match_chains(data, n)
@@ -278,7 +278,7 @@ class TestBiosCompress < Minitest::Test
 
   # A byte string from a fixed seed — random-looking but the same on every run, so
   # a failure is always reproducible.
-  def seeded(size, seed, &pick)
+  private def seeded(size, seed, &pick)
     rng = Random.new(seed)
     (0...size).map { pick.call(rng) }.pack("C*")
   end

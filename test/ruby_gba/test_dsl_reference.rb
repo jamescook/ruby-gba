@@ -67,7 +67,7 @@ class TestDslReference < Minitest::Test
 
   # …plus the verbs the loaded effect packs contribute. A pack's verb is an ordinary
   # DSL verb at the call site, so it has to be looked up in the same place.
-  def dsl_verbs
+  private def dsl_verbs
     (CONCERNS.flat_map { |m| m.public_instance_methods(false) } +
      BUILDER_VERBS + RubyGBA::Effects.verbs.keys - SKIP).uniq.sort
   end

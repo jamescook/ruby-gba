@@ -15,7 +15,7 @@ class TestBackingStore < Minitest::Test
 
   # A scene with a distinctive patch, save an 8x8 area over it, cover that area
   # with green, then restore. The scene should look untouched afterwards.
-  def cover_and_restore(save_xy, restore_xy)
+  private def cover_and_restore(save_xy, restore_xy)
     program(
       screen(:bitmap),
       clear_screen(:blue),

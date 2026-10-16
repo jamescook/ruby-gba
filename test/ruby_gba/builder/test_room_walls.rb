@@ -30,7 +30,7 @@ class TestRoomWalls < Minitest::Test
   PLAIN = [".....", ".....", "....."].freeze
   HALL_WALLS = ["     ", "  #  ", "     "].freeze
 
-  def rooms(maps:, walls: nil, solid: ["#"], start: [8, 8])
+  private def rooms(maps:, walls: nil, solid: ["#"], start: [8, 8])
     builder = Builder.new
     builder.instance_eval do
       screen :tiled
@@ -53,7 +53,7 @@ class TestRoomWalls < Minitest::Test
     builder.program
   end
 
-  def walked_to(program, press_a_on: nil)
+  private def walked_to(program, press_a_on: nil)
     Reference.new.input_each_frame { |f| f == press_a_on ? [:a] : [] }.run(program, frames: 30)[:moved]
   end
 
@@ -123,7 +123,7 @@ class TestRoomWalls < Minitest::Test
 
   # A bordered room with a scattering of pillars, +seed+ deciding where they fall, so two
   # rooms can differ without anything else about the game changing.
-  def scattered_room(seed)
+  private def scattered_room(seed)
     r = Random.new(seed)
     (0...10).map do |row|
       (0...20).map do |col|
@@ -133,7 +133,7 @@ class TestRoomWalls < Minitest::Test
     end
   end
 
-  def blocked_game(room_count)
+  private def blocked_game(room_count)
     maps = (0...room_count).to_h { |i| [:"r#{i}", scattered_room(i)] }
     RubyGBA.build("ROOMS", code: "BRMS", maker: "01", validate: false,
                   out: StringIO.new, err: StringIO.new) do
@@ -149,7 +149,7 @@ class TestRoomWalls < Minitest::Test
     end
   end
 
-  def check_bytes(rom)
+  private def check_bytes(rom)
     rom.built.placement.sizes.select { |name, _| name.to_s.include?("tile_collision") }.values.sum
   end
 

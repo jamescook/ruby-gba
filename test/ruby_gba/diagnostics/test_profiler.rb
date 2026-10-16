@@ -16,7 +16,7 @@ class TestProfiler < Minitest::Test
   include EmulatorSupport
 
   # One routine doing nearly all the work, one doing almost none, and one nothing calls.
-  def lopsided_game
+  private def lopsided_game
     RubyGBA.build("PROF", code: "PROF", maker: "01", err: nil) do
       screen :bitmap
       clear_screen :black
@@ -115,7 +115,7 @@ class TestProfiler < Minitest::Test
 
   # A game boots to its title and a held button will not get past one, because a menu reads
   # the press EDGE. So which screen gets measured has to be said rather than played to.
-  def scened_game
+  private def scened_game
     RubyGBA.build("PSCN", code: "PSCN", maker: "01") do
       screen :bitmap
       clear_screen :black
@@ -234,7 +234,7 @@ class TestProfiler < Minitest::Test
   # The work runs only once a variable is set, and nothing sets it. No held button reaches
   # this and no scene contains it — it is STATE, which is what a saved moment carries and a
   # booted scene does not.
-  def armed_game(bump = 1)
+  private def armed_game(bump = 1)
     RubyGBA.build("PSAV", code: "PSAV", maker: "01") do
       screen :bitmap
       clear_screen :black
@@ -247,7 +247,7 @@ class TestProfiler < Minitest::Test
 
   # Play to the moment — here by reaching in and arming it, which is what a player pressing
   # buttons would have done — and save it.
-  def moment_in(rom, dir, name: "moment.state")
+  private def moment_in(rom, dir, name: "moment.state")
     path = File.join(dir, name)
     rom_path = File.join(dir, "#{name}.gba")
     rom.write(rom_path)

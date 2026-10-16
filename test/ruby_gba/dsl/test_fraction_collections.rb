@@ -16,7 +16,7 @@ class TestFractionCollections < Minitest::Test
 
   ONE = 1 << RubyGBA::DSL::Fraction::DEFAULT_BITS
 
-  def run_program(&block)
+  private def run_program(&block)
     prog = RubyGBA.game("FRAC", code: "ZFRC", maker: "01") do
       screen :bitmap
       instance_eval(&block)
@@ -24,7 +24,7 @@ class TestFractionCollections < Minitest::Test
     Reference.new.run(prog, frames: 2)
   end
 
-  def as_number(raw) = raw / ONE.to_f
+  private def as_number(raw) = raw / ONE.to_f
 
   # --- a list ---
 

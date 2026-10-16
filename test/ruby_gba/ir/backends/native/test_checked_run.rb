@@ -208,7 +208,7 @@ class TestCheckedRun < Minitest::Test
   end
 
   # A sprite drawn at +x+ across, showing the picture of its own name.
-  def drawn(name, x) = RubyGBA::Diagnostics::DrawnSprite.new(name: name, x: x, y: 40, picture: name)
+  private def drawn(name, x) = RubyGBA::Diagnostics::DrawnSprite.new(name: name, x: x, y: 40, picture: name)
 
   def test_the_first_frame_they_disagree_on_is_named_with_what_differs
     agreed = Moment.new(frame: 1, variables: { x: 0 }, picture: 7, sounds: 0, sprites: [])

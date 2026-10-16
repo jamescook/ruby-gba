@@ -9,7 +9,7 @@ class TestASM < Minitest::Test
 
   # Helper: decode a load_immediate sequence back to the value it loads.
   # Simulates ARM execution of MOV/MVN/ORR with rotated immediates.
-  def decode_load_immediate(bytes)
+  private def decode_load_immediate(bytes)
     instructions = bytes.unpack("V*")
     result = 0
 
@@ -34,22 +34,22 @@ class TestASM < Minitest::Test
     result
   end
 
-  def rotate_right(value, amount)
+  private def rotate_right(value, amount)
     amount &= 31
     ((value >> amount) | (value << (32 - amount))) & 0xFFFFFFFF
   end
 
   # Extract fields from a single-instruction encoding
-  def unpack(bytes)
+  private def unpack(bytes)
     bytes.unpack1("V")
   end
 
-  def rd(inst)  = (inst >> 12) & 0xF
-  def rn(inst)  = (inst >> 16) & 0xF
-  def rm(inst)  = inst & 0xF
-  def cond(inst) = (inst >> 28) & 0xF
-  def imm12(inst) = inst & 0xFFF
-  def decode_imm(inst)
+  private def rd(inst)  = (inst >> 12) & 0xF
+  private def rn(inst)  = (inst >> 16) & 0xF
+  private def rm(inst)  = inst & 0xF
+  private def cond(inst) = (inst >> 28) & 0xF
+  private def imm12(inst) = inst & 0xFFF
+  private def decode_imm(inst)
     rotate_right(inst & 0xFF, ((inst >> 8) & 0xF) * 2)
   end
 

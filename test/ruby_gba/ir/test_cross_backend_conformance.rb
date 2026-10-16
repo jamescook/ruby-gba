@@ -111,7 +111,7 @@ class TestCrossBackendConformance < Minitest::Test
   end
 
   # A program that declares one of each and then stops.
-  def asset_program
+  private def asset_program
     b = RubyGBA::IR::Build
     b.program(
       b.screen(:bitmap),
@@ -121,7 +121,7 @@ class TestCrossBackendConformance < Minitest::Test
     )
   end
 
-  def registry(backend, name)
+  private def registry(backend, name)
     backend.instance_variable_get(name)
   end
 

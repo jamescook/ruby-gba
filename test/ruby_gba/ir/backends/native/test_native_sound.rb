@@ -16,7 +16,7 @@ class TestNativeSound < Minitest::Test
 
   # +about+ is the kinds of entry the test is there for, which the interpreter's log has to hold
   # for the comparison to be worth anything.
-  def assert_same_sounds(program, frames:, about:)
+  private def assert_same_sounds(program, frames:, about:)
     want = Reference.new.run(program, frames: frames).audio
     about.each { |kind| assert want.any? { |entry| entry.first == kind }, "the interpreter's log has no #{kind}: #{want.inspect}" }
 

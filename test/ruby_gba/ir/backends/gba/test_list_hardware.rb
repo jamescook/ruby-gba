@@ -20,14 +20,14 @@ class TestListHardware < Minitest::Test
   ROW = 40 # the row every marker is drawn on
 
   # Draw a 4x4 green marker at each x currently in the list, left to right.
-  def draw_each_marker(name)
+  private def draw_each_marker(name)
     repeat(list_len(name), :i,
            draw_rect_at(list_get(name, var_ref(:i)), ROW, 4, 4, :green))
   end
 
   # Run +prog+ on both backends and assert every [x, colour] holds at row ROW on
   # each. A nil colour means "background here" (black) — nothing drawn.
-  def assert_same_markers(prog, expectations)
+  private def assert_same_markers(prog, expectations)
     screen = Reference.new.run(prog).screen
     expectations.each do |x, color|
       want = Color.resolve(color || :black)

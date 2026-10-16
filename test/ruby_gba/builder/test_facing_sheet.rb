@@ -52,12 +52,12 @@ class TestFacingSheet < Minitest::Test
     def rgba_pixels(_path, **) = nil
   end
 
-  def with_adapter(cols, &block) = Image.with_adapter(SheetAdapter.new(cols), &block)
+  private def with_adapter(cols, &block) = Image.with_adapter(SheetAdapter.new(cols), &block)
 
   # A hero at (40, 40) whose four-way art is imported from a +cols+-column sheet, facing
   # +face+, run +run+ frames then halted (so the screen is deterministic). An absolute
   # image path skips the on-disk lookup, so the fake sheet never has to exist.
-  def walker(mode:, face:, run:, cols: 2, rate: 2)
+  private def walker(mode:, face:, run:, cols: 2, rate: 2)
     builder = Builder.new
     with_adapter(cols) do
       builder.instance_eval do
@@ -85,11 +85,11 @@ class TestFacingSheet < Minitest::Test
     builder.program
   end
 
-  def spot(program)
+  private def spot(program)
     Reference.new.run(program).screen.pixel(44, 44)
   end
 
-  def color(r, g, b) = Color.rgb8(r, g, b)
+  private def color(r, g, b) = Color.rgb8(r, g, b)
 
   # --- the interpreter oracle: each row imported to the right direction; frames animate ---
 
@@ -133,7 +133,7 @@ class TestFacingSheet < Minitest::Test
   # Every picture the sheet is cut into is drawn from the list given, so another list swaps
   # them by place: the right-facing yellow is the list's third colour, drawn in the third of
   # the other list.
-  def a_recolored_walker
+  private def a_recolored_walker
     builder = Builder.new
     with_adapter(1) do
       builder.instance_eval do
@@ -159,7 +159,7 @@ class TestFacingSheet < Minitest::Test
     assert_equal Color.resolve(:cyan), v.pixel_gba(44, 44)
   end
 
-  def sprite_error(cols, &block)
+  private def sprite_error(cols, &block)
     b = Builder.new
     with_adapter(cols) { assert_raises(ArgumentError) { b.instance_eval(&block) } }
   end

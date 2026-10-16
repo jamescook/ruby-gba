@@ -15,7 +15,7 @@ class TestLayerTwoAmounts < Minitest::Test
 
   include Differential
 
-  def program(&block)
+  private def program(&block)
     b = Builder.new
     b.instance_eval(&block)
     b.finalize_program
@@ -25,7 +25,7 @@ class TestLayerTwoAmounts < Minitest::Test
   # Two columns of floor under a pane: on the left a dim pane over a dim floor, where
   # nothing reaches full brightness; on the right white over red, where red and green
   # both run past it. +effect+ is a verb, a color and an amount said every frame.
-  def pane_program(shows:, behind:, effect: nil)
+  private def pane_program(shows:, behind:, effect: nil)
     tile = SOLID_TILE
     program do
       screen :tiled
@@ -44,7 +44,7 @@ class TestLayerTwoAmounts < Minitest::Test
     end
   end
 
-  def rgb5(r, g, b) = r | (g << 5) | (b << 10)
+  private def rgb5(r, g, b) = r | (g << 5) | (b << 10)
 
   # Each channel is (pane x 15 + floor x 10) / 16, the sixteenth dropped once, worked in
   # eight bits the way the emulator mixes (16 is 132, 20 is 165, 31 is 255) and taken back
@@ -66,7 +66,7 @@ class TestLayerTwoAmounts < Minitest::Test
   # AMOUNTS THE GAME WORKS OUT, the way a retail title steps its light rays through
   # (9,9) (8,10) (7,11) sixteenths — the layer fading as what is behind comes up. Here the
   # step moves every frame, so the frame read decides the pair.
-  def stepping_program
+  private def stepping_program
     tile = SOLID_TILE
     program do
       screen :tiled
@@ -99,7 +99,7 @@ class TestLayerTwoAmounts < Minitest::Test
   # A WALKER IN FRONT OF MIST THAT THICKENS, on a picture where nothing scrolls. The mist's
   # amounts step every third frame while the walker moves a pixel every frame: the walker is
   # drawn on every one of those frames, the ones where the mist changed included.
-  def walker_in_front_of_thickening_mist
+  private def walker_in_front_of_thickening_mist
     tile = SOLID_TILE
     program do
       screen :tiled
@@ -155,7 +155,7 @@ class TestLayerTwoAmounts < Minitest::Test
   # scrolls, so the scenery is painted once and a walker in front of it is drawn onto it,
   # the scenery put back behind it as it moves on. What is put back is a mix too, and the
   # tint has to reach both sides of it.
-  def walker_over_still_glass
+  private def walker_over_still_glass
     tile = SOLID_TILE
     program do
       screen :tiled
@@ -181,7 +181,7 @@ class TestLayerTwoAmounts < Minitest::Test
 
   # A see-through SPRITE under a tint: it is mixed with the scenery behind it, and the
   # tint reaches both before the mix, as it does for a layer of scenery.
-  def ghost_under_a_tint
+  private def ghost_under_a_tint
     tile = SOLID_TILE
     program do
       screen :tiled
@@ -227,7 +227,7 @@ class TestLayerTwoAmounts < Minitest::Test
   # steps, and a file screen whose window sits over its backdrop at fixed amounts: each
   # scene has a see-through layer of its own, and the two are never on screen together.
   # A press of A moves from the title to the file screen, and a press of B back.
-  def two_screens_program
+  private def two_screens_program
     tile = SOLID_TILE
     program do
       screen :tiled
@@ -265,9 +265,9 @@ class TestLayerTwoAmounts < Minitest::Test
 
   # (forest x 8 + ray x 10) / 16 in eight-bit channels: 165*8 + 132*8 ... worked out as
   # the title's rays at 51 and 63, which are 8 and 10 sixteenths.
-  def title_pixel = game_player.run(two_screens_program, frames: 4).screen.pixel(*DIM)
+  private def title_pixel = game_player.run(two_screens_program, frames: 4).screen.pixel(*DIM)
 
-  def files_pixel
+  private def files_pixel
     game_player.input_each_frame { |frame| frame == 1 ? [:a] : [] }
              .run(two_screens_program, frames: 6).screen.pixel(*DIM)
   end
@@ -322,7 +322,7 @@ class TestLayerTwoAmounts < Minitest::Test
 
   # --- friendly errors ---
 
-  def refused(**amounts)
+  private def refused(**amounts)
     assert_raises(ArgumentError) do
       program do
         screen :tiled

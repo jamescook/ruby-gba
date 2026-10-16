@@ -418,7 +418,7 @@ class TestNativePicture < Minitest::Test
   end
 
   # Two blocks that overlap, the red one listed first, and a list a test keeps an order in by hand.
-  def two_blocks_and_a_list(&game)
+  private def two_blocks_and_a_list(&game)
     block = "#{'#' * 16}\n" * 16
     program = program_of do
       screen :tiled
@@ -472,7 +472,7 @@ class TestNativePicture < Minitest::Test
 
   # The colors of +names+ seen at one pixel over a run, in the order they were first seen and
   # seen again: [:red, :white] for a pixel that was red for a while and then white.
-  def colors_in_turn(moments, (x, y), names)
+  private def colors_in_turn(moments, (x, y), names)
     by_color = names.to_h { |name| [Color.resolve(name), name] }
     moments.filter_map { |moment| by_color[moment.picture[(y * WIDTH) + x]] }.chunk_while { |a, b| a == b }.map(&:first)
   end
@@ -1901,7 +1901,7 @@ class TestNativePicture < Minitest::Test
   # A color under the display's fade of half toward black: each channel is widened to eight bits
   # and loses half of itself there, red keeping the odd step and green and blue losing it, and is
   # brought back to five bits.
-  def half_way_to_black(color)
+  private def half_way_to_black(color)
     (0..2).sum do |channel|
       level = (color >> (5 * channel)) & 31
       wide = (level << 3) | (level >> 2)
@@ -2061,7 +2061,7 @@ class TestNativePicture < Minitest::Test
   # A run's moments at its frame boundaries, without the one at its end: a run stops at a frame
   # boundary before a bend's rows are worked out there, so the end shows the last boundary's bend
   # and has asked no block since it.
-  def at_frames(moments) = moments.take_while { |moment| moment.heading != "end" }
+  private def at_frames(moments) = moments.take_while { |moment| moment.heading != "end" }
 
   # The block that bends the water also counts each time it is asked: once for every row in the
   # gap between frames, as the console works its rows out, however often the picture is built —

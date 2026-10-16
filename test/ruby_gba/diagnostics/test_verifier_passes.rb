@@ -21,7 +21,7 @@ class TestVerifierPasses < Minitest::Test
   # A loop that counts its own passes, so the emulator's count has something exact to be
   # checked against. The counter is the last thing in the body, so it says how many passes
   # FINISHED — which is what #passes reports.
-  def self_counting_rom
+  private def self_counting_rom
     RubyGBA.build("PASSES", validate: false) do
       screen :bitmap
       clear_screen :black
@@ -32,7 +32,7 @@ class TestVerifierPasses < Minitest::Test
 
   # A pass far too big for one frame: the console gets fewer passes than the frames that ran,
   # which is the situation the count exists for.
-  def overrunning_rom
+  private def overrunning_rom
     RubyGBA.build("HEAVY", validate: false) do
       screen :bitmap
       passes = var :passes, 0

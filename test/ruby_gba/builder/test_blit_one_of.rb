@@ -27,7 +27,7 @@ class TestBlitOneOf < Minitest::Test
 
   # Three same-size pictures and a variable that picks between them. A still picture:
   # drawn once, then held, so the two backends can be held against each other.
-  def faces_program(pick)
+  private def faces_program(pick)
     b = Builder.new
     b.instance_eval do
       screen :bitmap
@@ -43,7 +43,7 @@ class TestBlitOneOf < Minitest::Test
     b.program
   end
 
-  def pixel_after(pick)
+  private def pixel_after(pick)
     Reference.new.run(faces_program(pick)).screen.pixel(42, 42)
   end
 
@@ -133,7 +133,7 @@ class TestBlitOneOf < Minitest::Test
     assert_match(/:nobody/, error.message)
   end
 
-  def build_with(&block)
+  private def build_with(&block)
     b = Builder.new
     b.instance_eval do
       screen :bitmap

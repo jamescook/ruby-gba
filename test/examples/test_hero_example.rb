@@ -26,7 +26,7 @@ class TestHeroExample < Minitest::Test
   # True if any pixel in the box reads blue, by whatever "is it blue here?" test the
   # caller supplies (interpreter framebuffer or the emulator). Scanning a box (not one pixel)
   # keeps the "did the pond move?" checks robust to a frame of hardware timing slack.
-  def blue_in?(xs, ys)
+  private def blue_in?(xs, ys)
     xs.any? { |x| ys.any? { |y| yield(x, y) } }
   end
 
@@ -40,7 +40,7 @@ class TestHeroExample < Minitest::Test
 
   # Start a new game, then play +frames+ more, holding what the block gives for each frame
   # of the walk (counted from 1).
-  def play(frames:, store: SaveImage.new, &walk)
+  private def play(frames:, store: SaveImage.new, &walk)
     game_player(save: store)
       .input_each_frame { |f| [1, 3].include?(f) ? [:a] : Array(f >= STARTED ? walk&.call(f - 3) : nil) }
       .run(Hero.program, frames: frames + STARTED)
@@ -48,7 +48,7 @@ class TestHeroExample < Minitest::Test
 
   # Power the console on again with the same save memory and press what +presses+ says, by
   # frame from power-on.
-  def power_on(store, frames:, presses: {})
+  private def power_on(store, frames:, presses: {})
     game_player(save: store).input_each_frame { |f| Array(presses[f]) }.run(Hero.program, frames: frames)
   end
 
@@ -56,7 +56,7 @@ class TestHeroExample < Minitest::Test
   # the game opens on its file screen, A picks FILE 1, whose menu opens on NEW GAME since
   # the file is empty, and A again starts the game. Nothing in it is counted, so each
   # test's own script begins with the hero standing in the world.
-  def new_game_lead_in
+  private def new_game_lead_in
     RubyGBA.playthrough "hero: a new game" do
       wait frames: 10
       press :a
@@ -69,15 +69,15 @@ class TestHeroExample < Minitest::Test
   # THE CARTRIDGE AS IT SHIPS, built the way `ruby examples/hero.rb` builds it: measured, and
   # its code placed by what the measuring found. The tests that say the game really renders
   # on the console run this one, since it is the one a player gets.
-  def shipped_hero = Hero.build_rom(err: StringIO.new)
+  private def shipped_hero = Hero.build_rom(err: StringIO.new)
 
   # The same game built without the measuring, which is quicker and is the same game: for
   # the tests that are about what the game does and not about how it was laid out.
-  def unmeasured_hero = Hero.build_rom(err: StringIO.new, profile: false)
+  private def unmeasured_hero = Hero.build_rom(err: StringIO.new, profile: false)
 
   # The running cartridge after +steps+ have been played on a console from a new game, as
   # the last frame left it.
-  def console_after(name, rom, &steps)
+  private def console_after(name, rom, &steps)
     require_emulator!
     RubyGBA.playthrough("hero: #{name}", &steps).play(rom, lead_in: new_game_lead_in).game
   end
@@ -114,7 +114,7 @@ class TestHeroExample < Minitest::Test
   # every frame from how far north the player has walked.
 
   # Walk one way for a while, then read the pixel the hero's body sits on.
-  def after_walking(direction, frames)
+  private def after_walking(direction, frames)
     play(frames: frames + 1) { |f| f <= frames ? direction : nil }.screen.pixel(*CENTER)
   end
 
@@ -146,7 +146,7 @@ class TestHeroExample < Minitest::Test
   WORDS = { xs: (24..215), ys: (144..159) }.freeze
   MAP_CORNER = [204, 4].freeze
 
-  def white_pixels_in_box(screen)
+  private def white_pixels_in_box(screen)
     WORDS[:xs].sum { |x| WORDS[:ys].count { |y| screen.pixel(x, y) == Color.resolve(:white) } }
   end
 

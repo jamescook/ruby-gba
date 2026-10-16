@@ -14,7 +14,7 @@ class TestTiledCollision < Minitest::Test
 
   # A 10x5-tile room, floor everywhere but one wall tile at cell (4, 2) -> px (32, 16).
   # A red 8x8 hero starts at +hero_at+; +body+ is the per-frame game-loop code.
-  def scene(hero_at:, &body)
+  private def scene(hero_at:, &body)
     builder = Builder.new
     builder.instance_eval do
       screen :tiled
@@ -32,13 +32,13 @@ class TestTiledCollision < Minitest::Test
     builder.program
   end
 
-  def rom_for(program)
+  private def rom_for(program)
     ROM.assemble(GBA.new.lower(program), title: "COLLIDE", code: "BCOL", maker: "01")
   end
 
   # The hero starts at px (16,16) with a wall at px (32,16); holding right, it walks up
   # to the wall and stops flush (its right edge at x32), never entering the wall cell.
-  def walk_into_wall
+  private def walk_into_wall
     scene(hero_at: [16, 16]) do |hero|
       game_loop do
         wait_vblank

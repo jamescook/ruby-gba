@@ -22,7 +22,7 @@ class TestHardwareSpriteRotation < Minitest::Test
 
   # The sprite over a blue floor, at a fixed build-time angle so its resting picture is
   # deterministic. face_angle with a whole number turns the sprite once, up front.
-  def turned_program(angle:, at: [40, 40])
+  private def turned_program(angle:, at: [40, 40])
     floor_map = Array.new(20, "#" * 30) # a blue floor filling the 240x160 screen
     builder = Builder.new
     builder.instance_eval do
@@ -44,7 +44,7 @@ class TestHardwareSpriteRotation < Minitest::Test
     builder.program
   end
 
-  def rom_for(program)
+  private def rom_for(program)
     ROM.assemble(GBA.new.lower(program), title: "ROTATE", code: "BROT", maker: "01")
   end
 
@@ -152,7 +152,7 @@ class TestHardwareSpriteRotation < Minitest::Test
   FAR_CX = 108
 
   # The same disc twice: one turned a quarter, one turned a half.
-  def two_turned_program
+  private def two_turned_program
     floor_map = Array.new(20, "#" * 30)
     builder = Builder.new
     builder.instance_eval do

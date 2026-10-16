@@ -16,7 +16,7 @@ class TestOverlaps < Minitest::Test
   # Draw a white marker at (0, 0) iff box A overlaps box B, and report the marker
   # pixel from the interpreter. Coordinates are plain integers here so the test
   # pins the geometry, not the machinery.
-  def marker_when(a_dims, b_dims)
+  private def marker_when(a_dims, b_dims)
     b = Builder.new
     b.instance_eval do
       screen :bitmap
@@ -81,7 +81,7 @@ class TestOverlaps < Minitest::Test
   # The headline: a sprite knows its own bounds (position + image size), so two
   # sprites collide with no box at all — `hero.overlaps?(item)`. Draw a green marker
   # when they touch, and report it, for a pair placed overlapping vs far apart.
-  def sprites_touch?(hero_at, item_at)
+  private def sprites_touch?(hero_at, item_at)
     b = Builder.new
     b.instance_eval do
       screen :bitmap
@@ -110,7 +110,7 @@ class TestOverlaps < Minitest::Test
   # The same test, run on the console: a green marker is painted only while the two
   # boxes overlap. Two static cases — one overlapping, one apart — prove the verb
   # lowers to hardware, not just the interpreter.
-  def rom_for(a_dims, b_dims)
+  private def rom_for(a_dims, b_dims)
     b = Builder.new
     b.instance_eval do
       screen :bitmap

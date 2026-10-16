@@ -28,7 +28,7 @@ class TestBreakoutPicture < Minitest::Test
   )
   GAME_OVER_BY = 380
 
-  def program = Native.new.checked_program(Breakout::GAME, err: nil)
+  private def program = Native.new.checked_program(Breakout::GAME, err: nil)
 
   def test_breakout_matches_the_interpreter_through_a_recorded_game
     last = assert_native_matches_reference(program, frames: 420, buttons: RUN)

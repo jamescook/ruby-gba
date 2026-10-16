@@ -17,7 +17,7 @@ class TestTickRateMeasured < Minitest::Test
 
   # +work+ is how many times the handler spins; +clears+ how many full-screen fills the
   # frame does. Both are the two things that cost ticks, and this can make either.
-  def rom_for(rate:, work: 0, clears: 1, name: "TICK")
+  private def rom_for(rate:, work: 0, clears: 1, name: "TICK")
     RubyGBA.build(name, code: "TCKM", maker: "01", validate: false) do
       screen :bitmap
       beats = var :beats, 0
@@ -33,7 +33,7 @@ class TestTickRateMeasured < Minitest::Test
     end
   end
 
-  def rate_of(rom) = RubyGBA::Diagnostics::Profiler.run(rom, frames: 60, picture: false).tick_rates.first
+  private def rate_of(rom) = RubyGBA::Diagnostics::Profiler.run(rom, frames: 60, picture: false).tick_rates.first
 
   # THE MECHANISM. A game that draws nothing gets every tick it asked for, which is what
   # says the handler was found and the ticks counted against real time correctly.

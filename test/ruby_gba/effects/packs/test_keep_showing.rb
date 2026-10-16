@@ -18,7 +18,7 @@ class TestKeepShowing < Minitest::Test
   # A counter shown as a bar, repainted only when it changes. `bump` says when.
   # The bar is drawn over a field that is NOT repainted, which is what makes a
   # missed page visible: the old bar stays there.
-  def counter_program(tear_free:, bump_on_frame: 2)
+  private def counter_program(tear_free:, bump_on_frame: 2)
     b = Builder.new
     b.instance_eval do
       if tear_free

@@ -17,7 +17,7 @@ class TestIRGuardrailOrphanedCondition < Minitest::Test
   Guardrails = RubyGBA::IR::Guardrails
 
   # The Conditions a build block left unused (the builder's leftover "pending" set).
-  def orphans_for(&block)
+  private def orphans_for(&block)
     builder = Builder.new
     builder.instance_eval(&block)
     builder.pending_conditions

@@ -21,20 +21,20 @@ class TestLayerStacking < Minitest::Test
   OVERLAP_X = 104
   OVERLAP_Y = 64
 
-  def program(&block)
+  private def program(&block)
     b = Builder.new
     b.instance_eval(&block)
     b.finalize_program
     b.program
   end
 
-  def screen_of(prog, frames: 3)
+  private def screen_of(prog, frames: 3)
     Reference.new.run(prog, max_steps: 400_000, frames: frames).screen
   end
 
   # Two sprites in the same spot, red written FIRST. Without a stack the blue one is
   # in front, because a sprite declared later sits on top.
-  def two_sprites(stacked:)
+  private def two_sprites(stacked:)
     program do
       screen :tiled
       image(:red_guy, "#" => :red) { (["#" * 8] * 8).join("\n") }
@@ -55,7 +55,7 @@ class TestLayerStacking < Minitest::Test
   # Two full-screen backgrounds, red declared FIRST. Without a stack the blue one
   # covers it. `scrolled` picks which of the interpreter's two paths runs: a still
   # scene is stamped once, a scrolling one is recomposited every frame.
-  def two_backgrounds(stacked:, scrolled: false)
+  private def two_backgrounds(stacked:, scrolled: false)
     program do
       screen :tiled
       image(:red_tile, "#" => :red) { (["#" * 8] * 8).join("\n") }
@@ -121,14 +121,14 @@ class TestLayerStacking < Minitest::Test
   # A glyph lights only some of its 8x8 cell, so asking one pixel would answer about the
   # letter's shape rather than about the stack. Ask whether ANY of the cell shows the
   # text's color instead.
-  def glyph_shows?(screen, x, y)
+  private def glyph_shows?(screen, x, y)
     (0...8).any? { |dy| (0...8).any? { |dx| screen.pixel(x + dx, y + dy) == RED } }
   end
 
   # A game with a red "X" of tiled text and a solid blue sprite over the same 8x8 cell.
   # Tiled text is drawn as hardware-sprite glyphs among the game's sprites, so the two
   # are competing for the same place in one order.
-  def hud_over_sprite(stacked:)
+  private def hud_over_sprite(stacked:)
     program do
       screen :tiled
       image(:blue_guy, "#" => :blue) { (["#" * 8] * 8).join("\n") }

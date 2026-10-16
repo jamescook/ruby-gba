@@ -16,7 +16,7 @@ class TestFillScratchWord < Minitest::Test
   A = RubyGBA::IR::Backends::GBA::ASM
 
   # A game that names a lot of variables before it ever fills anything.
-  def program_with_many_variables
+  private def program_with_many_variables
     builder = Builder.new
     builder.instance_eval do
       screen :bitmap

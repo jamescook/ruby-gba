@@ -15,7 +15,7 @@ class TestSpriteScreenEdges < Minitest::Test
   # the flag (1 if the predicate held at that position, else 0). The sprite starts on
   # screen and is moved to (px, py), so no coordinate literals appear in the helper
   # under test — only in the fixture that positions it.
-  def flag_at(px, py, &predicate)
+  private def flag_at(px, py, &predicate)
     b = Builder.new
     b.instance_eval do
       image(:dot, "#" => :red) { "########\n" * 8 } # 8x8, fully opaque -> hitbox is the whole tile
@@ -60,7 +60,7 @@ class TestSpriteScreenEdges < Minitest::Test
 
   # clamp_to_screen pins the sprite's position so its box stays within the screen,
   # using the sprite's own size — no coordinate literals in game code.
-  def clamped(px, py)
+  private def clamped(px, py)
     b = Builder.new
     sx = sy = nil
     b.instance_eval do

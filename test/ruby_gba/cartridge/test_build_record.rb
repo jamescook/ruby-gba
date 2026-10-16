@@ -10,7 +10,7 @@ require "stringio"
 class TestBuildRecord < Minitest::Test
   runs_on :reference
 
-  def a_built_rom
+  private def a_built_rom
     RubyGBA.build("RECORD", code: "ZREC", maker: "01", out: StringIO.new, err: StringIO.new) do
       screen :bitmap
       clear_screen :black

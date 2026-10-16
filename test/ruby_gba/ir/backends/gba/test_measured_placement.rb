@@ -26,7 +26,7 @@ class TestMeasuredPlacement < Minitest::Test
 
   # The work lives in the second scene. Nothing reaches it by holding a button — a scene is
   # switched by a press, and a held button is one press however long it is held.
-  def game_with_work_in_a_later_scene
+  private def game_with_work_in_a_later_scene
     RubyGBA.game("MPLC", code: "MPLC", maker: "01") do
       screen :bitmap
       clear_screen :black
@@ -46,7 +46,7 @@ class TestMeasuredPlacement < Minitest::Test
     end
   end
 
-  def placement_for(profile)
+  private def placement_for(profile)
     game_with_work_in_a_later_scene
       .build_rom(out: StringIO.new, err: StringIO.new, profile: profile).built.placement
   end
@@ -90,7 +90,7 @@ class TestMeasuredPlacement < Minitest::Test
   #
   # Here :everywhere does 300 steps on each of four screens and :one_screen 800 on one: less
   # than it on the one screen, and far more than it across the game.
-  def game_with_a_routine_on_every_screen
+  private def game_with_a_routine_on_every_screen
     RubyGBA.game("MPL3", maker: "01") do
       screen :bitmap
       clear_screen :black

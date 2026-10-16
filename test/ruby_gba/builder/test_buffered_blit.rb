@@ -31,15 +31,15 @@ class TestBufferedBlit < Minitest::Test
   # be copied whole.
   SIDE = 4
 
-  def art_pixel(col, row) = Color.rgb(4 + (col * 6), 4 + (row * 6), 20)
+  private def art_pixel(col, row) = Color.rgb(4 + (col * 6), 4 + (row * 6), 20)
 
-  def stripes
+  private def stripes
     pixels = (0...SIDE).flat_map { |row| (0...SIDE).map { |col| art_pixel(col, row) } }
     bitmap(:stripes, width: SIDE, height: SIDE, pixels: pixels.pack("v*"))
   end
 
   # The same drawing on either screen. +buffered+ picks which.
-  def blit_program(x, y, buffered:)
+  private def blit_program(x, y, buffered:)
     program(
       screen(:bitmap, buffered: buffered),
       clear_screen(:black),
@@ -50,7 +50,7 @@ class TestBufferedBlit < Minitest::Test
     )
   end
 
-  def pixels_of(prog) = Reference.new.run(prog).screen
+  private def pixels_of(prog) = Reference.new.run(prog).screen
 
   # --- it draws at all ------------------------------------------------------------
 
@@ -164,7 +164,7 @@ class TestBufferedBlit < Minitest::Test
   # all. A row one past the bottom of the SCREEN lands in memory nobody ever shows, so
   # no pixel can tell you about it; a row one past the bottom of an AREA lands in plain
   # sight, on a part of the screen the area said to leave alone.
-  def area_program(x, y, buffered:)
+  private def area_program(x, y, buffered:)
     program(
       screen(:bitmap, buffered: buffered),
       clear_screen(:black),

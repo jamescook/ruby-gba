@@ -103,7 +103,7 @@ class TestIRGuardrailEmptyTiled < Minitest::Test
 
   Guardrails = RubyGBA::IR::Guardrails
 
-  def validator
+  private def validator
     Guardrails::Validator.new(checks: [Guardrails::Checks::EmptyTiledScreen.new])
   end
 

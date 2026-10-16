@@ -31,7 +31,7 @@ class TestHitbox < Minitest::Test
   # Two dots at ax and bx (same y), asked whether they overlap; returns the :hit flag
   # (1 if they collided). Both get the same +hitbox+ so the box rule under test is what
   # decides it.
-  def collided?(ax, bx, hitbox: nil)
+  private def collided?(ax, bx, hitbox: nil)
     b = Builder.new
     b.instance_eval do
       screen :bitmap

@@ -19,7 +19,7 @@ class TestCanvas < Minitest::Test
 
   # A 64x16 canvas shown at the top-left of a tiled screen. +body+ runs every pass with the
   # canvas and a frame counter.
-  def game(&body)
+  private def game(&body)
     b = Builder.new
     b.instance_eval do
       screen :tiled
@@ -37,7 +37,7 @@ class TestCanvas < Minitest::Test
     b.program
   end
 
-  def screen(prog, frames) = game_player.run(prog, frames: frames).screen
+  private def screen(prog, frames) = game_player.run(prog, frames: frames).screen
 
   def test_a_pixel_shows_on_the_frame_after_it_is_drawn
     prog = game { |board, frame| (frame == 2).then { board.pixel 3, 2, :white } }
@@ -73,7 +73,7 @@ class TestCanvas < Minitest::Test
 
   # Every word at once, with positions and a letter the game works out, compared over the
   # whole screen between the console and the interpreter.
-  def every_word
+  private def every_word
     game do |board, frame|
       board.clear :blue
       board.fill_rect 1, 1, 5, 3, :red
@@ -147,7 +147,7 @@ class TestCanvas < Minitest::Test
     assert_operator rom.size, :>, 0
   end
 
-  def refusal(screen_kind: :tiled, &block)
+  private def refusal(screen_kind: :tiled, &block)
     assert_raises(ArgumentError) do
       b = Builder.new
       b.instance_eval do

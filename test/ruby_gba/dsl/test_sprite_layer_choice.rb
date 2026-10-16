@@ -30,14 +30,14 @@ class TestSpriteLayerChoice < Minitest::Test
   WALKING = 1
   STAIRS = 2
 
-  def program(&block)
+  private def program(&block)
     b = Builder.new
     b.instance_eval(&block)
     b.finalize_program
     b.program
   end
 
-  def room(floor)
+  private def room(floor)
     program do
       screen :tiled
       image(:floor, "#" => :white) { (["#" * 8] * 8).join("\n") }
@@ -55,7 +55,7 @@ class TestSpriteLayerChoice < Minitest::Test
     end
   end
 
-  def pixels(prog)
+  private def pixels(prog)
     screen = Reference.new.run(prog, max_steps: 400_000, frames: 3).screen
     [screen.pixel(*UNDER_ARCH), screen.pixel(*OVER_FLOOR)]
   end
@@ -92,7 +92,7 @@ class TestSpriteLayerChoice < Minitest::Test
 
   # The same room as a scene of its own, beside a title screen that has no backgrounds:
   # the depths are worked out for each screen apart, and the hero's choices with them.
-  def scene_room(floor)
+  private def scene_room(floor)
     program do
       screen :tiled
       image(:floor, "#" => :white) { (["#" * 8] * 8).join("\n") }
@@ -131,7 +131,7 @@ class TestSpriteLayerChoice < Minitest::Test
   # A hero declared ONCE, for every room, in a game with a plain room (a floor and nothing
   # over it) and the arched one. The ground floor is one depth from the front in the plain
   # room and two in the arched one, so the console has to be told which room is up.
-  def two_rooms(mode)
+  private def two_rooms(mode)
     program do
       screen :tiled
       image(:floor, "#" => :white) { (["#" * 8] * 8).join("\n") }
@@ -175,7 +175,7 @@ class TestSpriteLayerChoice < Minitest::Test
 
   # --- what it refuses ---
 
-  def build_error(&block)
+  private def build_error(&block)
     assert_raises(ArgumentError) { program(&block) }
   end
 

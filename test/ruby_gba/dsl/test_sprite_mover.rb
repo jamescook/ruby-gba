@@ -13,7 +13,7 @@ class TestSpriteMover < Minitest::Test
   # A heart that starts at (100, 60), slides right while :right is held, and halts
   # after +frames+ steps so its final resting place is deterministic. Holding
   # right for 4 frames leaves it at x = 108.
-  def sprite_program(frames:)
+  private def sprite_program(frames:)
     builder = Builder.new
     builder.instance_eval do
       screen :bitmap
@@ -73,7 +73,7 @@ class TestSpriteMover < Minitest::Test
   #       col: 0  1  2  3  4        screen_x = col - 2
   #   row0:    .  #  .  #  .   ->   lit col1 @ -1 (clipped), col3 @ 1 (drawn)
   #   row1:    #  #  #  #  #   ->   cols 2,3,4 @ 0,1,2 drawn; cols 0,1 clipped
-  def heart_at_left_edge(frames:)
+  private def heart_at_left_edge(frames:)
     builder = Builder.new
     builder.instance_eval do
       screen :bitmap

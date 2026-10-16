@@ -13,7 +13,7 @@ class TestScrollExample < Minitest::Test
 
   # The lake sits at map cols 12-19, rows 10-14 -> pixels x 96..159, y 80..119, all on
   # screen at the starting (0,0) offset.
-  def blue_in_lake?(pixel)
+  private def blue_in_lake?(pixel)
     (100..150).any? { |x| (84..116).any? { |y| pixel.call(x, y) } }
   end
 

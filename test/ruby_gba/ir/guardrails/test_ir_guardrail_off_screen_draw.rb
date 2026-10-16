@@ -21,7 +21,7 @@ class TestIRGuardrailOffScreenDraw < Minitest::Test
   H = RubyGBA::IR::Screen::HEIGHT # 160
 
   # The off-screen-draw warnings the checker raises for a program.
-  def off_screen_warnings(prog)
+  private def off_screen_warnings(prog)
     Guardrails::Validator.new.run(prog, autofix: false).findings
                          .select { |f| f.check == :off_screen_draw }
   end

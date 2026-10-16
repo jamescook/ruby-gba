@@ -14,7 +14,7 @@ class TestFontsExample < Minitest::Test
   GREEN = Color.resolve(:green)
 
   # Count green pixels in a horizontal band [y, y+h).
-  def green_in_band(screen, y, h)
+  private def green_in_band(screen, y, h)
     n = 0
     240.times { |x| (y...y + h).each { |yy| n += 1 if screen.pixel(x, yy) == GREEN } }
     n
@@ -41,11 +41,11 @@ class TestFontsExample < Minitest::Test
     assert_operator tiny, :<, default, "the tiny font draws smaller glyphs, so it emits less"
   end
 
-  def emitted_bytes(program)
+  private def emitted_bytes(program)
     RubyGBA::IR::Backends::GBA.new.lower(program).bytesize
   end
 
-  def build_number(font:)
+  private def build_number(font:)
     b = RubyGBA::Builder.new
     b.instance_eval { screen :bitmap; draw_number FontsDemo::SCORE, 8, 8, :green, digits: 5, font: font; halt }
     b.finalize_program

@@ -25,7 +25,7 @@ class TestCallOneOf < Minitest::Test
   # How many dispatches a frame the measuring programs make.
   DISPATCHES = 16
 
-  def program_with(&block)
+  private def program_with(&block)
     b = RubyGBA::Builder.new
     b.instance_eval(&block)
     b.finalize_program

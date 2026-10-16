@@ -14,12 +14,12 @@ class TestIRGuardrailTooManySprites < Minitest::Test
 
   Guardrails = RubyGBA::IR::Guardrails
 
-  def validator
+  private def validator
     Guardrails::Validator.new(checks: [Guardrails::Checks::TooManySprites.new])
   end
 
   # 100 declared sprites, a pool of 20 and 30 letters of text: 150 in all.
-  def game(sprites: 100, letters: 30)
+  private def game(sprites: 100, letters: 30)
     b = Builder.new
     b.instance_eval do
       screen :tiled
@@ -33,7 +33,7 @@ class TestIRGuardrailTooManySprites < Minitest::Test
     b.program
   end
 
-  def refusal(program) = validator.run(program, autofix: false).errors.first&.message
+  private def refusal(program) = validator.run(program, autofix: false).errors.first&.message
 
   def test_more_sprites_than_the_console_has_places_for_is_refused
     message = refusal(game)

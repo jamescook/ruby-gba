@@ -16,14 +16,14 @@ class TestRepeatStopWhen < Minitest::Test
   Build = RubyGBA::IR::Build
   LoopForm = RubyGBA::IR::Backends::GBA::LoopForm
 
-  def program(&block)
+  private def program(&block)
     b = Builder.new
     b.instance_eval(&block)
     b.finalize_program
     b.program
   end
 
-  def marching
+  private def marching
     program do
       screen :bitmap
       hit = var :hit, 0

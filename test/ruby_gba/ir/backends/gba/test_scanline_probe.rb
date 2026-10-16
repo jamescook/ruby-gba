@@ -17,7 +17,7 @@ class TestScanlineProbe < Minitest::Test
 
   # Wait for vblank, do +fills+ full-width fills (drawing work), then sample the
   # scanline and halt. Returns the sampled scanline read back from IWRAM on the emulator.
-  def scanline_after(fills)
+  private def scanline_after(fills)
     builder = Builder.new
     builder.extend(RubyGBA::Builder::Debug)
     builder.instance_eval do

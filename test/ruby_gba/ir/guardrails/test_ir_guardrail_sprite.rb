@@ -17,14 +17,14 @@ class TestSpriteGuardrails < Minitest::Test
   Cleared = RubyGBA::IR::Guardrails::Checks::SpriteClearedEachFrame
   Manual = RubyGBA::IR::Guardrails::Checks::ManualSpriteBlit
 
-  def program(&block)
+  private def program(&block)
     b = Builder.new
     b.instance_eval(&block)
     b.finalize_program
     b.program
   end
 
-  def a_heart(&extra)
+  private def a_heart(&extra)
     program do
       screen :bitmap
       image(:heart, "#" => :red) { "##\n##" }

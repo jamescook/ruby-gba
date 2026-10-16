@@ -7,7 +7,7 @@ class TestSound < Minitest::Test
 
   include RubyGBA::Console::Hardware
 
-  def build(validate: false, &block)
+  private def build(validate: false, &block)
     RubyGBA.build("SNDTEST", code: "BSND", maker: "01", validate: validate, &block)
   end
 

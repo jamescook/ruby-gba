@@ -21,13 +21,13 @@ class TestSongLoopPoint < Minitest::Test
 
   # At 150 beats a minute and 24 ticks a beat, a tick is one frame. Every song here is 72 ticks
   # long and loops from tick 24 unless it says otherwise: frames 0-23 are the introduction.
-  def score(*parts, loop_from: 24, length: 72)
+  private def score(*parts, loop_from: 24, length: 72)
     Score.new(tempo: 150, length: length, loop_from: loop_from, parts: parts)
   end
 
-  def part(*notes) = Part.new(plays: :organ, notes: notes.map { |at, key| Note.new(at: at, key: key) })
+  private def part(*notes) = Part.new(plays: :organ, notes: notes.map { |at, key| Note.new(at: at, key: key) })
 
-  def game(song)
+  private def game(song)
     b = Builder.new
     b.instance_eval do
       screen :bitmap
@@ -42,13 +42,13 @@ class TestSongLoopPoint < Minitest::Test
   end
 
   # Every note the interpreter played, in order, over +frames+.
-  def heard(song, frames: 190)
+  private def heard(song, frames: 190)
     game_player.run(game(song), frames: frames).audio.select { |entry| entry[0] == :note }.map(&:last)
   end
 
   # What the console's music voice is doing +frames+ in: [step, how far into the recording], or
   # nil when it is silent.
-  def console_voice(song, frames:)
+  private def console_voice(song, frames:)
     voice = assert_emulator_loads_rom(assemble_rom(game(song), name: "LOOPPT"), frames: frames).voices.first
     voice && [voice.step, voice.position]
   end
@@ -58,7 +58,7 @@ class TestSongLoopPoint < Minitest::Test
   # can sustain rather than at the rate of the recording (GBA::Timers.sample_clock), so a note
   # at the recorded pitch is not a step of 1.0. Asked of the same function the build asks.
   RECORDED_AT = 8000
-  def step(key)
+  private def step(key)
     resample = RECORDED_AT.to_f / GBA::Timers.sample_clock(RECORDED_AT).rate
     (NOTES[key].to_f / NOTES[:C4] * resample * STEP_ONE).round
   end

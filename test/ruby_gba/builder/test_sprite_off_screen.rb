@@ -26,7 +26,7 @@ class TestSpriteOffScreen < Minitest::Test
     (0...height).map { |row| (0...width).map { |col| (row + col).even? ? "#" : "o" }.join }.join("\n")
   end
 
-  def program(&block)
+  private def program(&block)
     b = Builder.new
     b.instance_eval(&block)
     b.finalize_program
@@ -34,7 +34,7 @@ class TestSpriteOffScreen < Minitest::Test
   end
 
   # A game over a plain floor, with +cast+ declaring what stands on it.
-  def cast_on_floor(&cast)
+  private def cast_on_floor(&cast)
     program do
       screen :tiled
       image(:floor, "#" => :gray) { (["########"] * 8).join("\n") }
@@ -46,7 +46,7 @@ class TestSpriteOffScreen < Minitest::Test
 
   # One sprite of +width+ by +height+ at +at+, resized to +scale+ and turned to +angle+ when
   # those are given.
-  def one_sprite(at, width, height = width, scale: nil, angle: nil)
+  private def one_sprite(at, width, height = width, scale: nil, angle: nil)
     cast_on_floor do
       image(:block, "#" => :red, "o" => :white) { TestSpriteOffScreen.checks(width, height) }
       thing = sprite :block, at: at
@@ -58,7 +58,7 @@ class TestSpriteOffScreen < Minitest::Test
 
   # The rows and the columns of the screen the interpreter drew something on, as two ranges,
   # or nil for a picture that is all floor.
-  def drawn_on(program, frames: 3)
+  private def drawn_on(program, frames: 3)
     screen = Reference.new.run(program, frames: frames).screen
     rows = (0...HEIGHT).select { |y| (0...WIDTH).any? { |x| screen.pixel(x, y) != FLOOR } }
     cols = (0...WIDTH).select { |x| (0...HEIGHT).any? { |y| screen.pixel(x, y) != FLOOR } }
@@ -66,7 +66,7 @@ class TestSpriteOffScreen < Minitest::Test
   end
 
   # Both backends show the floor and nothing else.
-  def assert_nothing_drawn(program, name:, frames: 3)
+  private def assert_nothing_drawn(program, name:, frames: 3)
     assert_nil drawn_on(program, frames: frames), "#{name}: the interpreter drew it"
     assert_backends_agree(program, frames: frames, name: name)
   end

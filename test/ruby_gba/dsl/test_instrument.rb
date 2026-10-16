@@ -13,7 +13,7 @@ class TestInstrument < Minitest::Test
   NOTES = RubyGBA::Audio::Music::NOTE_FREQUENCIES
 
   # Build a piano, hand it to the block to play, then loop `frames` frames.
-  def play_frames(frames, &use)
+  private def play_frames(frames, &use)
     b = Builder.new
     b.instance_eval do
       screen :bitmap

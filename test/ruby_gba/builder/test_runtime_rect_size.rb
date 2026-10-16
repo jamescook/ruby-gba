@@ -20,7 +20,7 @@ class TestRuntimeRectSize < Minitest::Test
 
   include Differential
 
-  def build(&block)
+  private def build(&block)
     b = RubyGBA::Builder.new
     b.instance_eval(&block)
     b.finalize_program
@@ -29,7 +29,7 @@ class TestRuntimeRectSize < Minitest::Test
 
   # A bar `height` tall at (40, 20), over a background that makes "not drawn" visible.
   # A tear-free screen draws to a hidden page, so it needs a vblank to present it.
-  def bar(height, tear_free: false, x: 40)
+  private def bar(height, tear_free: false, x: 40)
     build do
       screen :bitmap, tear_free: tear_free
       var :h, height
@@ -40,7 +40,7 @@ class TestRuntimeRectSize < Minitest::Test
     end
   end
 
-  def rows_painted(interp, x: 44)
+  private def rows_painted(interp, x: 44)
     (0...160).count { |y| interp.screen.pixel(x, y) == Color.resolve(:red) }
   end
 
@@ -97,7 +97,7 @@ class TestRuntimeRectSize < Minitest::Test
   # Nothing about the picture may change, which is what these check across all 38,400
   # pixels: proving it wrong would splice the rect's end pixels into the wrong halves of
   # their pairs, painting a neighbour and missing an end.
-  def grid_bar(times, offset)
+  private def grid_bar(times, offset)
     build do
       screen :bitmap, tear_free: true
       cell = var :cell, 5
@@ -132,7 +132,7 @@ class TestRuntimeRectSize < Minitest::Test
   # the case a wrong offset inside the row would break silently, painting the column next
   # door. Every width from one to nine, at both parities, over a background that makes a
   # stray pixel visible.
-  def columns(width, x)
+  private def columns(width, x)
     build do
       screen :bitmap, tear_free: true
       var :h, 40
@@ -249,7 +249,7 @@ class TestRuntimeRectSize < Minitest::Test
   # --- a width the game works out ---
 
   # A bar `width` wide at (x, 20), over a background that makes "not drawn" visible.
-  def sideways_bar(width, tear_free: false, x: 40)
+  private def sideways_bar(width, tear_free: false, x: 40)
     build do
       screen :bitmap, tear_free: tear_free
       var :w, width
@@ -260,7 +260,7 @@ class TestRuntimeRectSize < Minitest::Test
     end
   end
 
-  def columns_painted(interp, y: 22)
+  private def columns_painted(interp, y: 22)
     (0...240).count { |x| interp.screen.pixel(x, y) == Color.resolve(:red) }
   end
 
@@ -369,7 +369,7 @@ class TestRuntimeRectSize < Minitest::Test
 
   include RubyGBA::IR::Build
 
-  def lowered(node)
+  private def lowered(node)
     RubyGBA::IR::Backends::GBA.new.lower(program(screen(:bitmap), node, halt))
   end
 

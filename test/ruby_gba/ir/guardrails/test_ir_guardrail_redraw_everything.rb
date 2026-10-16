@@ -13,7 +13,7 @@ class TestRedrawEverythingGuardrail < Minitest::Test
   Check = RubyGBA::IR::Guardrails::Checks::RedrawEverything
   Build = RubyGBA::IR::Build
 
-  def program(&block)
+  private def program(&block)
     b = Builder.new
     b.instance_eval(&block)
     b.finalize_program

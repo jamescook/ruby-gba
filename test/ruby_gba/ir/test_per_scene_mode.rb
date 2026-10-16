@@ -20,7 +20,7 @@ class TestPerSceneMode < Minitest::Test
 
   # A direct-color (Mode 3) title in red; START switches to a double-buffered
   # (Mode 4) play scene showing a blue field with a green cell.
-  def mixed_program
+  private def mixed_program
     b = Builder.new
     b.instance_eval do
       screen :bitmap # default: direct-color Mode 3
@@ -211,7 +211,7 @@ class TestPerSceneMode < Minitest::Test
   # FROM A PAINTED PICTURE TO A TURNING ONE, the whole display changes: the console stops
   # showing the bitmap the title painted the moment the rotozoom screen takes over, so where
   # the new scene draws nothing, what shows is the backdrop — not the title's red.
-  def rotozoom_after_a_bitmap_title
+  private def rotozoom_after_a_bitmap_title
     b = Builder.new
     b.instance_eval do
       screen :bitmap

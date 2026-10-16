@@ -9,14 +9,14 @@ require "test_helper"
 class TestTable < Minitest::Test
   runs_on :reference
 
-  def interpret(&block)
+  private def interpret(&block)
     b = Builder.new
     b.instance_eval(&block)
     b.finalize_program
     Reference.new.run(b.program)
   end
 
-  def rom_for(title, code, &block)
+  private def rom_for(title, code, &block)
     b = Builder.new
     b.instance_eval(&block)
     b.finalize_program

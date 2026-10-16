@@ -21,7 +21,7 @@ class TestConstantDivision < Minitest::Test
   # The emitted sequence, instruction for instruction, in Ruby: multiply and keep the
   # high word, add the numerator back for the divisors that need it, shift, then nudge a
   # negative answer up to truncate toward zero.
-  def apply(recipe, numerator)
+  private def apply(recipe, numerator)
     multiplier = Int32.wrap(recipe.multiplier)
     high = (multiplier * numerator) >> 32
     high = Int32.wrap(high + numerator) if recipe.add_numerator
@@ -31,7 +31,7 @@ class TestConstantDivision < Minitest::Test
 
   # Numerators worth trying for one divisor: the ends of the range, and both sides of
   # enough exact multiples that an off-by-one in the rounding cannot hide.
-  def numerators(divisor)
+  private def numerators(divisor)
     edges = [0, 1, -1, Int32::MIN, Int32::MAX, Int32::MIN + 1, Int32::MAX - 1]
     boundaries = (1..30).flat_map { |k| [(k * divisor) - 1, k * divisor, (k * divisor) + 1] }
     spread = Random.new(divisor).then { |r| Array.new(60) { r.rand(Int32::MIN..Int32::MAX) } }
@@ -81,7 +81,7 @@ class TestConstantDivision < Minitest::Test
   ].freeze
 
   # One program that works out every case, so the console runs them all in one boot.
-  def sweep_program
+  private def sweep_program
     builder = Builder.new
     builder.instance_eval do
       screen :bitmap
@@ -130,18 +130,18 @@ class TestConstantDivision < Minitest::Test
 
   # A variable read off the console, as a signed number. The bus hands back the raw
   # 32 bits, so a negative answer arrives as its unsigned pattern.
-  def console_var(verifier, name)
+  private def console_var(verifier, name)
     Int32.wrap(verifier.var(name))
   end
 
-  def program_for(&block)
+  private def program_for(&block)
     builder = Builder.new
     builder.instance_eval(&block)
     builder.finalize_program
     builder.program
   end
 
-  def emitted_bytes(&block)
+  private def emitted_bytes(&block)
     RubyGBA::IR::Backends::GBA.new.lower(program_for(&block)).bytesize
   end
 

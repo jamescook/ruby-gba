@@ -18,7 +18,7 @@ class TestIRGuardrailScreenMode < Minitest::Test
   # A validator running only the screen-mode check, so these unit tests assert it
   # in isolation. The tiny fixtures here (a lone pixel, no halt) would also trip
   # the vblank and termination guardrails, which aren't what's under test.
-  def screen_validator
+  private def screen_validator
     Guardrails::Validator.new(checks: [Guardrails::Checks::ScreenModeSet.new])
   end
 

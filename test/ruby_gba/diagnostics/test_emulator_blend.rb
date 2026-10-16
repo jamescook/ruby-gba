@@ -20,25 +20,25 @@ class TestEmulatorBlend < Minitest::Test
 
   # What the console shows for a one-cell screen of +color+ under a fade — the real
   # implementation, not a copy of it.
-  def console_shows(color, toward, amount)
+  private def console_shows(color, toward, amount)
     screen = Framebuffer.new(width: 1, height: 1, fill: color)
     screen.fade_to(toward, amount)
     screen.pixel(0, 0)
   end
 
-  def channel_of(color, field)
+  private def channel_of(color, field)
     (color >> (field * 5)) & 0x1F
   end
 
   # What the console shows under a tint, again through the real implementation.
-  def console_tints(color, toward, amount)
+  private def console_tints(color, toward, amount)
     screen = Framebuffer.new(width: 1, height: 1, fill: color)
     screen.tint_to(toward, amount)
     screen.pixel(0, 0)
   end
 
   # Every value, every amount, both fade directions, all three channels.
-  def each_fade_deviation
+  private def each_fade_deviation
     return enum_for(:each_fade_deviation) unless block_given?
 
     %i[black white].each do |toward|
@@ -63,7 +63,7 @@ class TestEmulatorBlend < Minitest::Test
   # A tint mixes two colors, so the sweep is every picture value against every tint
   # value. The amounts walk one percentage per distinct sixteenth rather than all
   # hundred, which is the same domain without a hundred repeats of each step.
-  def each_tint_deviation
+  private def each_tint_deviation
     return enum_for(:each_tint_deviation) unless block_given?
 
     EmulatorBlend.percents_for_every_step.each do |amount|

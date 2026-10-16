@@ -18,7 +18,7 @@ class TestPulsePack < Minitest::Test
   HALF = 30
 
   # A pulse from its own size up to half again, run for +frames+ frames.
-  def pulse_program(frames, to: 1.5, from: 1.0, over: SECONDS)
+  private def pulse_program(frames, to: 1.5, from: 1.0, over: SECONDS)
     builder = Builder.new
     builder.instance_eval do
       screen :tiled
@@ -40,7 +40,7 @@ class TestPulsePack < Minitest::Test
   end
 
   # The sprite's size after +frames+ frames, as the multiple the author writes.
-  def size_after(frames, **opts)
+  private def size_after(frames, **opts)
     interpreter = Reference.new.run(pulse_program(frames, **opts), max_steps: 50_000_000)
     interpreter[:__obj1_scale] / RubyGBA::IR::Build::SCALE_ONE.to_f
   end

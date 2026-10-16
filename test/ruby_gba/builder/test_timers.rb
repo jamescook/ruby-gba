@@ -18,11 +18,11 @@ class TestTimers < Minitest::Test
 
   Build = RubyGBA::IR::Build
 
-  def interpret(**opts, &block)
+  private def interpret(**opts, &block)
     Reference.new.run(tree(&block), **opts)
   end
 
-  def tree(&block)
+  private def tree(&block)
     builder = Builder.new
     builder.instance_eval(&block)
     builder.finalize_program
@@ -32,7 +32,7 @@ class TestTimers < Minitest::Test
   # A loop that runs `frames` frames, counting them in :frame, then halts — so a
   # timer's behavior over a known window is observable. The block is spliced into
   # the loop body after the frame counter ticks.
-  def run_for(frames, &body)
+  private def run_for(frames, &body)
     interpret(frames: frames) do
       var :frame, 0
       var :fires, 0
@@ -243,7 +243,7 @@ class TestTimers < Minitest::Test
   # once on, every(4) flips it. Running a fixed number of frames lands on a known
   # on/off phase the interpreter and the console must agree on.
 
-  def blink_program(frames:)
+  private def blink_program(frames:)
     builder = Builder.new
     builder.instance_eval do
       screen :bitmap

@@ -18,7 +18,7 @@ class TestCaveExample < Minitest::Test
 
   GRASS = [Color.rgb(6, 20, 6), Color.rgb(10, 26, 8)].freeze
 
-  def walk_right(frames) = game_player.hold(:right).run(Cave.program, frames: frames)
+  private def walk_right(frames) = game_player.hold(:right).run(Cave.program, frames: frames)
 
   def test_it_builds_with_nothing_to_warn_about
     out = StringIO.new

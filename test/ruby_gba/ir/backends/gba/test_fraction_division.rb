@@ -46,7 +46,7 @@ class TestFractionDivision < Minitest::Test
   # One program that works out every case twice: once with both sides worked out as it
   # runs, and once with the numerator written into the program (which the build may widen
   # for itself). Both have to give the same answer.
-  def sweep_program
+  private def sweep_program
     statements = CASES.each_with_index.flat_map do |(a, b, bits), i|
       [Build.set(:a, Build.int(a)), Build.set(:b, Build.int(b)),
        Build.set(:"run#{i}", Build.div_fix(Build.var_ref(:a), Build.var_ref(:b), bits)),
@@ -145,14 +145,14 @@ class TestFractionDivision < Minitest::Test
 
   # --- the surface ---------------------------------------------------------------
 
-  def program_for(&block)
+  private def program_for(&block)
     builder = RubyGBA::Builder.new
     builder.instance_eval(&block)
     builder.finalize_program
     builder.program
   end
 
-  def interpret(&block)
+  private def interpret(&block)
     Reference.new.run(program_for(&block))
   end
 
@@ -180,7 +180,7 @@ class TestFractionDivision < Minitest::Test
 
   # --- the shortcut for a numerator written into the program ----------------------
 
-  def emitted_bytes(&block)
+  private def emitted_bytes(&block)
     GBA.new.lower(program_for(&block)).bytesize
   end
 

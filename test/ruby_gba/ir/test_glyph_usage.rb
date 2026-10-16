@@ -12,7 +12,7 @@ class TestGlyphUsage < Minitest::Test
   Usage = RubyGBA::IR::GlyphUsage
   Fonts = RubyGBA::Graphics::Fonts
 
-  def program(&block)
+  private def program(&block)
     b = Builder.new
     b.instance_eval(&block)
     b.finalize_program

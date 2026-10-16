@@ -17,7 +17,7 @@ class TestEmittedAttribution < Minitest::Test
 
   Attribution = EmittedAttribution
 
-  def measure(&block)
+  private def measure(&block)
     b = Builder.new
     b.instance_eval(&block)
     b.finalize_program

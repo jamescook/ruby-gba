@@ -24,7 +24,7 @@ class TestFrameStep < Minitest::Test
   # drawn straight into the one being shown, so a test that cleared the screen and burned before
   # drawing would be read black nearly every time. This way the answer is on screen for all but a
   # sliver of each pass.
-  def program(busy)
+  private def program(busy)
     b = RubyGBA::Builder.new
     b.instance_eval do
       screen :bitmap
@@ -41,7 +41,7 @@ class TestFrameStep < Minitest::Test
   end
 
   # The bar's width in frames: how many WIDE-wide blocks of white are on that row.
-  def reading(screen_pixel, row: 4)
+  private def reading(screen_pixel, row: 4)
     white = RubyGBA::Graphics::Color.resolve(:white)
     lit = (0...240).count { |x| screen_pixel.call(x, row) == white }
     lit / WIDE
@@ -78,7 +78,7 @@ class TestFrameStep < Minitest::Test
   # the promise its name makes. Both numbers are drawn — how many frames the pass took, and how
   # many times the body ran — so the test says they AGREE rather than merely that the body ran
   # more than once.
-  def counting_program(busy)
+  private def counting_program(busy)
     b = RubyGBA::Builder.new
     b.instance_eval do
       screen :bitmap
@@ -157,7 +157,7 @@ class TestFrameStep < Minitest::Test
   # world runs at a third speed and the game is in slow motion; written in `once_a_frame` it
   # moves once a FRAME, so it keeps real time and what a slow game costs is a jerkier picture.
   # Neither is a bug — the choice is the author's — but they are different games.
-  def slow_motion_or_choppy
+  private def slow_motion_or_choppy
     b = RubyGBA::Builder.new
     b.instance_eval do
       screen :bitmap
@@ -183,7 +183,7 @@ class TestFrameStep < Minitest::Test
   #
   # A game burning past a frame is run long enough for several beats, and the test asks whether
   # the number of beats matches the number of FRAMES rather than the number of passes.
-  def beating_program(busy, period)
+  private def beating_program(busy, period)
     b = RubyGBA::Builder.new
     b.instance_eval do
       screen :bitmap
@@ -222,7 +222,7 @@ class TestFrameStep < Minitest::Test
   # worth six can take a counter from nought straight past five — so a one-shot that waited for
   # equality would wait for ever, which is the worst way for this to fail: silently, and only on
   # the games too heavy to test by eye.
-  def one_shot_program(busy, wait)
+  private def one_shot_program(busy, wait)
     b = RubyGBA::Builder.new
     b.instance_eval do
       screen :bitmap

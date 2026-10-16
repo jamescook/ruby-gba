@@ -13,7 +13,7 @@ class TestTintAcrossScreens < Minitest::Test
 
   include Differential
 
-  def program(&body)
+  private def program(&body)
     b = RubyGBA::Builder.new
     b.instance_eval(&body)
     b.finalize_program
@@ -35,7 +35,7 @@ class TestTintAcrossScreens < Minitest::Test
   # Two scenes on two screens and a tint said once before the loop, which takes +ground+
   # toward +toward+. The game starts on +from+'s scene and moves to +to+'s on its fourth pass,
   # where it stays. +before_loop+ is said after the tint.
-  def tinted_handover(from, to, amount: 50, ground: :green, toward: :red, &before_loop)
+  private def tinted_handover(from, to, amount: 50, ground: :green, toward: :red, &before_loop)
     tile = SOLID_TILE
     screens = [from, to]
     program do
@@ -70,7 +70,7 @@ class TestTintAcrossScreens < Minitest::Test
   end
 
   # The colour in the middle of the screen once the game is on its second screen.
-  def shown_after_handover(handover)
+  private def shown_after_handover(handover)
     game_player.run(handover, frames: 10).screen.pixel(120, 80)
   end
 
@@ -157,7 +157,7 @@ class TestTintAcrossScreens < Minitest::Test
 
   # A game that boots on a painted screen and fires a coloured flash while a tiled scene is
   # up. The flash is walked by a routine of its own every frame, wherever the game is.
-  def flash_on_tiles
+  private def flash_on_tiles
     tile = SOLID_TILE
     program do
       screen :bitmap

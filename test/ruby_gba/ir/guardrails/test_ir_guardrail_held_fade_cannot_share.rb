@@ -10,7 +10,7 @@ class TestIrGuardrailHeldFadeCannotShare < Minitest::Test
   Check = RubyGBA::IR::Guardrails::Checks::HeldFadeCannotShare
 
   # A tiled room with a fade held to its top half, and +said+ run before the loop.
-  def findings(&said)
+  private def findings(&said)
     builder = Builder.new
     builder.instance_eval do
       screen :tiled

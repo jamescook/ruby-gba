@@ -21,21 +21,21 @@ class TestScores < Minitest::Test
   # at a rate the sound hardware can sustain (GBA::Timers.sample_clock) rather than at the rate
   # these instruments were recorded at, so a note at the recorded pitch is not a step of 1.0.
   RECORDED_AT = 8000
-  def step_for(note)
+  private def step_for(note)
     resample = RECORDED_AT.to_f / GBA::Timers.sample_clock(RECORDED_AT).rate
     (NOTES[note].to_f / NOTES[:C4] * resample * STEP_ONE).round
   end
 
   # At 150 beats a minute and 24 ticks a beat, a tick is one frame — so a note's tick is the
   # frame it sounds on, counted from the frame the song starts.
-  def notes_every_ten_ticks(*keys, plays: nil, tempo: 150)
+  private def notes_every_ten_ticks(*keys, plays: nil, tempo: 150)
     notes = keys.each_with_index.map { |key, n| Note.new(at: n * 10, key: key) }
     Score.new(tempo: tempo, parts: [Part.new(plays: plays, notes: notes)])
   end
 
   # A game that hands over +scores+, names one each pass with the block, and otherwise does
   # nothing. The block is handed the song list and how many passes have run.
-  def game(scores, &body)
+  private def game(scores, &body)
     b = Builder.new
     b.instance_eval do
       screen :bitmap
@@ -54,7 +54,7 @@ class TestScores < Minitest::Test
   end
 
   # Which notes sounded on which frame.
-  def notes_by_frame(program, frames)
+  private def notes_by_frame(program, frames)
     i = game_player
     heard = {}
     logged = 0
@@ -181,7 +181,7 @@ class TestScores < Minitest::Test
   # --- a song that plays once ---
 
   # Two notes ten frames apart in a song twenty frames long, which says it plays once.
-  def two_notes_once(**options)
+  private def two_notes_once(**options)
     Score.new(tempo: 150, length: 20, plays_once: true, **options,
               parts: [Part.new(notes: [Note.new(at: 0, key: :C4), Note.new(at: 10, key: :E4)])])
   end
@@ -232,7 +232,7 @@ class TestScores < Minitest::Test
   end
 
   # One note held for the whole of a song twenty frames long.
-  def held_note(plays: nil, **options)
+  private def held_note(plays: nil, **options)
     Score.new(tempo: 150, length: 20, **options, parts: [Part.new(plays: plays, notes: [Note.new(at: 0, key: :C5)])])
   end
 
@@ -267,7 +267,7 @@ class TestScores < Minitest::Test
   # Which recordings are sounding on each of sixty frames, on the interpreter and then on the
   # console, each counted from the first frame any is — so the two are laid side by side
   # whatever frame each one started on.
-  def recordings_by_frame(program)
+  private def recordings_by_frame(program)
     require_emulator!
     i = Reference.new
     interpreted = []
@@ -450,7 +450,7 @@ class TestScores < Minitest::Test
   # loudness out finer than sixteen steps. A volume of 15 x L / 256 plays the recording at L
   # 256ths of its size — the scale a cartridge's own engine mixes at — so its loudest note, about
   # half the recording, and its quietest are both heard as it heard them.
-  def engine_levels_score(*levels)
+  private def engine_levels_score(*levels)
     notes = levels.each_with_index.map { |level, n| Note.new(at: n * 10, key: :C4, volume: Rational(15 * level, 256)) }
     Score.new(tempo: 150, length: levels.size * 10, parts: [Part.new(plays: :piano, notes: notes)])
   end
@@ -528,7 +528,7 @@ class TestScores < Minitest::Test
 
   # --- what cannot be had, said plainly ---
 
-  def build_error(&program)
+  private def build_error(&program)
     err = assert_raises(ArgumentError) do
       b = Builder.new
       b.instance_eval do

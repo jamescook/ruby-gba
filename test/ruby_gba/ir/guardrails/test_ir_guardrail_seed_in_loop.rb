@@ -18,11 +18,11 @@ class TestIRGuardrailSeedInLoop < Minitest::Test
   Guardrails = RubyGBA::IR::Guardrails
   RNG = RubyGBA::Builder::Randomness::RNG_STATE
 
-  def validator
+  private def validator
     Guardrails::Validator.new(checks: [Guardrails::Checks::SeedInLoop.new])
   end
 
-  def findings_for(program)
+  private def findings_for(program)
     validator.run(program, autofix: false).findings
   end
 

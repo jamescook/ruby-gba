@@ -13,14 +13,14 @@ class TestFontStylesExample < Minitest::Test
   runs_on :reference, :native
 
   # The lit pixels of the word band drawn at (8, y), height h — relative coords.
-  def word_pixels(screen, y, h, color)
+  private def word_pixels(screen, y, h, color)
     want = Color.resolve(color)
     pixels = []
     60.times { |dx| h.times { |dy| pixels << [dx, dy] if screen.pixel(8 + dx, y + dy) == want } }
     pixels
   end
 
-  def screen
+  private def screen
     @screen ||= game_player.run(FontStyles.program).screen
   end
 

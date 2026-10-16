@@ -10,7 +10,7 @@ require "stringio"
 class TestVerifierRegisters < Minitest::Test
   runs_on :reference
 
-  def counting_rom
+  private def counting_rom
     RubyGBA.build("REGS", code: "BREG", maker: "01", validate: false, out: StringIO.new, err: StringIO.new) do
       screen :bitmap
       count = var :count, 0

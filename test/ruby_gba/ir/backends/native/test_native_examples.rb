@@ -18,7 +18,7 @@ class TestNativeExamples < Minitest::Test
   EXAMPLE_TESTS = File.join(ROOT, "test", "examples")
 
   # The names of the examples that build, as the tool prints them: "name<tab>builds".
-  def examples_that_build
+  private def examples_that_build
     printed, complaint, status = Open3.capture3(Gem.ruby, TOOL, chdir: ROOT)
     flunk "tools/native_examples.rb failed:\n#{complaint}" unless status.success?
 

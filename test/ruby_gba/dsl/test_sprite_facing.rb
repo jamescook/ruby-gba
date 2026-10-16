@@ -14,7 +14,7 @@ class TestSpriteFacing < Minitest::Test
 
   POSE = 2 # a 2x2 pose
 
-  def faceted_program(frames:, &body)
+  private def faceted_program(frames:, &body)
     builder = Builder.new
     builder.instance_eval do
       screen :bitmap
@@ -32,7 +32,7 @@ class TestSpriteFacing < Minitest::Test
     builder.program
   end
 
-  def count_color(screen, color)
+  private def count_color(screen, color)
     want = Color.resolve(color)
     n = 0
     240.times { |x| 160.times { |y| n += 1 if screen.pixel(x, y) == want } }

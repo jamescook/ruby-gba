@@ -68,7 +68,7 @@ class TestMixerSampleClock < Minitest::Test
 
   # A held sine, and the silence after it. Built at a rate whose naive clock would divide a
   # frame into 137.16 samples — the case that went wrong — so this fails on the old arithmetic.
-  def sounded(hz, frames: 90, stop_at: 40)
+  private def sounded(hz, frames: 90, stop_at: 40)
     pcm = (0...hz).map { |i| (Math.sin(2 * Math::PI * 220 * i / hz) * 100).round }
     rom = RubyGBA.build("MIXCLK", validate: false,
                         out: StringIO.new, err: StringIO.new) do
@@ -92,7 +92,7 @@ class TestMixerSampleClock < Minitest::Test
   # The steepest a 220Hz sine of this height can climb between two output samples. The emulator
   # holds each of the mix's samples, so a step is one of the mix's, and a break in the stream
   # measures several times this.
-  def steepest(clock)
+  private def steepest(clock)
     amplitude = 100 / 128.0 * 32_767
     amplitude * 2 * Math::PI * 220 / clock.rate
   end

@@ -18,19 +18,19 @@ class TestRoutineProfile < Minitest::Test
 
   # A scene measured over thirty frames, running +each_frame+ instructions a frame, with each
   # routine's part of them in per cent.
-  def reading(each_frame, shares)
+  private def reading(each_frame, shares)
     lines = shares.map { |name, share| Line.new(name: name, label: name.to_s, samples: 0, share: share, where: :rom) }
     Reading.new(30, 30 * each_frame, lines)
   end
 
   # A game whose loop runs two thousand instructions in every scene: next to nothing beside
   # the playing scene's hundred thousand, and most of what the five menus do.
-  def one_heavy_scene_among_menus
+  private def one_heavy_scene_among_menus
     menus = %i[title files options credits over].to_h { |name| [name, reading(2_500, __frame: 80.0, name => 20.0)] }
     menus.merge(playing: reading(102_000, __frame: 2.0, _scene_playing: 98.0))
   end
 
-  def profile_of(scenes)
+  private def profile_of(scenes)
     work = { __frame: 12_000, _scene_playing: 100_000 }
     RoutineProfile.new(work: work, busiest: RoutineProfile.busiest_in(scenes))
   end

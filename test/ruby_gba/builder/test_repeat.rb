@@ -13,7 +13,7 @@ class TestRepeat < Minitest::Test
   # One green 2px mark per iteration, spaced 4 apart (2 drawn, 2 gap) so the
   # marks stay discrete: column = i * 4. After repeat(n) there are marks at
   # x = 0, 4, ... 4*(n-1); the gaps and the absence past the last prove the count.
-  def marching_program(count)
+  private def marching_program(count)
     builder = Builder.new
     builder.instance_eval do
       screen :bitmap

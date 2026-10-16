@@ -28,21 +28,21 @@ class TestNativeSongPlaysOnce < Minitest::Test
   G4 = 392
 
   # Two notes ten frames apart in a song twenty frames long, which says it plays once.
-  def two_notes_once(**said)
+  private def two_notes_once(**said)
     song(:jingle, total_frames: 20, events: [[0, C4], [10, E4]], plays_once: true, **said)
   end
 
   # A game that counts its passes in :pass and runs +each_pass+ on every one, with these songs.
   # Each pass waits for the screen first, as a `game_loop` does: so what the game says on pass 1
   # is taken up by the player as frame 2 starts.
-  def game(songs, *each_pass)
+  private def game(songs, *each_pass)
     program(enable_sound, *songs, set(:pass, 0), loop_(wait_vblank, add(:pass, 1), *each_pass))
   end
 
-  def on_pass(number, *body) = if_(binop(:==, :pass, number), *body)
+  private def on_pass(number, *body) = if_(binop(:==, :pass, number), *body)
 
   # Which notes sounded on which frame, read off a run's sound log as it grows.
-  def notes_by_frame(player, program, frames)
+  private def notes_by_frame(player, program, frames)
     heard = {}
     logged = 0
     player.each_vblank do |frame|
@@ -56,7 +56,7 @@ class TestNativeSongPlaysOnce < Minitest::Test
 
   # The desktop build plays +wanted+ — the notes worked out by hand, by the frame each sounds on —
   # and agrees with the interpreter on every entry of the sound log at every frame.
-  def assert_plays(wanted, program, frames:)
+  private def assert_plays(wanted, program, frames:)
     assert_equal wanted, notes_by_frame(Reference.new, program, frames), "the interpreter, which is the answer key"
     assert_equal wanted, notes_by_frame(HeadlessRun.new, program, frames)
     assert_native_matches_reference program, frames: frames

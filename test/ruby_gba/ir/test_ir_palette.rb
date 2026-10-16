@@ -16,7 +16,7 @@ class TestIRPalette < Minitest::Test
   Build = RubyGBA::IR::Build
 
   # Build a program through the DSL, the way a game author would.
-  def program(&block)
+  private def program(&block)
     b = Builder.new
     b.instance_eval(&block)
     b.finalize_program

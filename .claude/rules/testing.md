@@ -57,6 +57,15 @@ thing, and it lives with the thing.
 **One file, one `Minitest::Test` subclass.** A second class in a file hides from
 the directory it sits in and from anyone grepping for a test name. Split it.
 
+**Only tests are public.** Minitest calls the `test_` methods and the `setup`/`teardown`
+hooks; every other instance method in a test class is the file's own scaffolding, so write
+it `private def name`, beside the tests it serves (a `private` section below the last test
+says the same). The one exception is a helper a game
+block calls back through a name for the test (`test = self`, then `test.tileset(self)`):
+the block runs as the game being built, so that is a call from outside, and it stays
+public. The same goes for a class method called as `TestThing.helper`. A helper another
+test file needs is not one file's business: it goes in a shared helper at `test/` (below).
+
 **No directory the lib does not have.** A new directory under `test/` is a new
 directory under `lib/` first. That is what stops the tree growing a folder per
 feature. The one exception mirrors a directory too, just not lib's:
@@ -242,7 +251,7 @@ Opting a file in is two edits, and no assertion changes:
 class TestPongScoring < Minitest::Test
   runs_on :reference, :native        # this class's tests are true of both
 
-  def pong_line_at(frames)
+  private def pong_line_at(frames)
     i = game_player                  # was Reference.new; takes save: the same way
     i.input_each_frame { |f| f < 3 ? [:a] : [] }
     i.run(Pong.program, frames: frames)

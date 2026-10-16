@@ -66,7 +66,7 @@ class TestBuildReproducibility < Minitest::Test
   end
 
   # The whole pipeline, twice: run the DSL block again, lower the tree again.
-  def build(game) = GBA.new.lower(game.program)
+  private def build(game) = GBA.new.lower(game.program)
 
   # When these fail, the cause is nearly always one of three things, so say so
   # rather than printing two multi-kilobyte strings that differ at byte 4,912.
@@ -75,13 +75,13 @@ class TestBuildReproducibility < Minitest::Test
     "built from object identity, a counter that is not reset for each build, or state " \
     "left in a global registry by the build before"
 
-  def assert_same_build(game, what)
+  private def assert_same_build(game, what)
     assert_same_bytes build(game), build(game), what
   end
 
   # Never assert_equal two ROMs: they are tens of kilobytes of binary, and minitest
   # would print both in full to tell you they differ somewhere. Say where instead.
-  def assert_same_bytes(first, second, what)
+  private def assert_same_bytes(first, second, what)
     assert_equal first.bytesize, second.bytesize,
                  "#{what}: the second build came out a different size. #{WHAT_TO_LOOK_AT}"
 
@@ -91,7 +91,7 @@ class TestBuildReproducibility < Minitest::Test
   end
 
   # Where two builds first disagree, or nil if they never do.
-  def first_difference(first, second)
+  private def first_difference(first, second)
     return nil if first == second
 
     (0...first.bytesize).find { |i| first.getbyte(i) != second.getbyte(i) }

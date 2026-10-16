@@ -20,12 +20,12 @@ class TestNativeCheckerFlags < Minitest::Test
   # has fetched SDL; every other file needs nothing but the runtime's own folder.
   WINDOW_FILE = "rg_sdl.c"
 
-  def runtime_files = Dir.glob(File.join(Zig::RUNTIME_DIR, "*.c")).sort
+  private def runtime_files = Dir.glob(File.join(Zig::RUNTIME_DIR, "*.c")).sort
 
   # What the compiler says about one file read with those flags and nothing else, or nil when it
   # has nothing to say. The file is compiled on its own into something thrown away, which is the
   # nearest zig comes to only checking it.
-  def complaints_about(file)
+  private def complaints_about(file)
     Dir.mktmpdir do |dir|
       _out, err, status = Open3.capture3("zig", "cc", "-c", *Zig.checker_flags, "-o", File.join(dir, "checked.o"), file)
       status.success? ? nil : "#{File.basename(file)}:\n#{err}"

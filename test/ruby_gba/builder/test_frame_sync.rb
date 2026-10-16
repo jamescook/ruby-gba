@@ -24,7 +24,7 @@ class TestFrameSync < Minitest::Test
   # Build through the real entry point, so the flag is exercised the way a
   # developer meets it, and hand back both the program and anything the build
   # said to the developer.
-  def build(frame_sync: :auto, &block)
+  private def build(frame_sync: :auto, &block)
     err = StringIO.new
     rom = RubyGBA.build("SYNC", code: "BSYN", maker: "01",
                         out: StringIO.new, err: err, frame_sync: frame_sync, &block)
@@ -32,7 +32,7 @@ class TestFrameSync < Minitest::Test
   end
 
   # How many times the loop body ran over FRAMES frames.
-  def passes(program)
+  private def passes(program)
     Reference.new.run(program, frames: FRAMES)[:n]
   end
 

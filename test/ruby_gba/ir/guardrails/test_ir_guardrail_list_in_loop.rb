@@ -16,11 +16,11 @@ class TestIRGuardrailListInLoop < Minitest::Test
 
   Guardrails = RubyGBA::IR::Guardrails
 
-  def validator
+  private def validator
     Guardrails::Validator.new(checks: [Guardrails::Checks::ListInLoop.new])
   end
 
-  def findings_for(program)
+  private def findings_for(program)
     validator.run(program, autofix: false).findings
   end
 

@@ -15,7 +15,7 @@ class TestBuilderIR < Minitest::Test
   # deferred in the DSL (so call/func order is free), so their bodies are only
   # evaluated — and recorded — when finalize_program runs, just like a real
   # build does.
-  def tree(&block)
+  private def tree(&block)
     builder = Builder.new
     builder.instance_eval(&block)
     builder.finalize_program

@@ -7,11 +7,11 @@ class TestDMA < Minitest::Test
 
   include RubyGBA::Console::Hardware
 
-  def build(validate: false, &block)
+  private def build(validate: false, &block)
     RubyGBA.build("DMATEST", code: "BDMA", maker: "01", validate: validate, &block)
   end
 
-  def instructions(rom)
+  private def instructions(rom)
     start = RubyGBA::Cartridge::ROM::ENTRY_OFFSET
     result = []
     offset = start

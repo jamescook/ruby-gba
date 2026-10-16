@@ -14,7 +14,7 @@ class TestNativeZig < Minitest::Test
 
   # Ruby threads that do nothing but count, for as long as the block runs: what the tests beside
   # this one are doing whenever they replay a game on the interpreter.
-  def beside_busy_threads(count)
+  private def beside_busy_threads(count)
     stop = false
     busy = Array.new(count) { Thread.new { nil until stop } }
     yield

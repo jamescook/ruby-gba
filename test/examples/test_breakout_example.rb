@@ -26,7 +26,7 @@ class TestBreakoutExample < Minitest::Test
   # its own — so this is enough to exercise real gameplay). 120 frames is a
   # comfortable margin: the ball breaks its first brick and a held paddle clamps at
   # the wall well before frame 40, so the asserted state has settled by here.
-  def play(then_hold: [], frames: 120)
+  private def play(then_hold: [], frames: 120)
     script = lambda do |frame|
       frame == 1 ? [:start] : then_hold
     end

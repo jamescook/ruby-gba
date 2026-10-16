@@ -19,7 +19,7 @@ class TestScreenFade < Minitest::Test
   BLUE = RubyGBA::Graphics::Color.resolve(:blue)
   BLACK = 0
 
-  def program(&block)
+  private def program(&block)
     b = Builder.new
     b.instance_eval(&block)
     b.finalize_program
@@ -28,7 +28,7 @@ class TestScreenFade < Minitest::Test
 
   # A red screen that starts a fade on frame 2. Reading one spot every frame gives the
   # whole ramp, which is the only way to see an effect that exists over time.
-  def fading_game(&fade)
+  private def fading_game(&fade)
     program do
       screen :bitmap
       frame = var :frame, 0
@@ -41,7 +41,7 @@ class TestScreenFade < Minitest::Test
   end
 
   # What one spot shows on each of the first +frames+ frames.
-  def ramp(prog, frames)
+  private def ramp(prog, frames)
     (1..frames).map { |n| Reference.new.run(prog, frames: n).screen.pixel(120, 80) }
   end
 
@@ -115,7 +115,7 @@ class TestScreenFade < Minitest::Test
 
   # A slow fade out and back sets a slow speed. A bare flash after it is still a hit, so it
   # has to last as long as a flash says it does, not as long as the fade before it took.
-  def after_a_slow_fade(&effect)
+  private def after_a_slow_fade(&effect)
     program do
       screen :bitmap
       frame = var :frame, 0
@@ -130,7 +130,7 @@ class TestScreenFade < Minitest::Test
   end
 
   # How many frames from frame +from+ on show something other than the picture.
-  def frames_not_red(prog, from:, to:)
+  private def frames_not_red(prog, from:, to:)
     ramp(prog, to).drop(from).count { |px| px != RED }
   end
 
@@ -290,7 +290,7 @@ class TestScreenFade < Minitest::Test
 
   # --- guardrails ---
 
-  def warnings(prog)
+  private def warnings(prog)
     RubyGBA::IR::Guardrails::Validator.new.run(prog, autofix: false).warnings.map(&:check)
   end
 
@@ -446,7 +446,7 @@ class TestScreenFade < Minitest::Test
   # A tiled screen is set up by sending its tiles and maps, which is what makes a real game's
   # setting up long, so it is asked too; there a whole screenful of scenery stands in for the
   # painted screen.
-  def opening_on(screen_kind, &effect)
+  private def opening_on(screen_kind, &effect)
     tile = (["#" * 8] * 8).join("\n")
     program do
       screen screen_kind
@@ -498,7 +498,7 @@ class TestScreenFade < Minitest::Test
   # A red screen that fades up to white over 33 frames from frame 2, and back from frame
   # 50. Red toward white leaves the red channel alone and walks green and blue from 0 to
   # 31, which is 32 levels: a new picture on every frame of the fade but its first.
-  def long_fade(screen_kind, frames: 33, toward: :white, color: :red)
+  private def long_fade(screen_kind, frames: 33, toward: :white, color: :red)
     tile = (["#" * 8] * 8).join("\n")
     program do
       screen screen_kind

@@ -30,7 +30,7 @@ class TestMeadowExample < Minitest::Test
 
   # The picture after each of the first frames of the walk with DOWN held: far enough to
   # reach the cabin door, go through it, and walk a little way down the path.
-  def pictures_of_walk_out(frames = 70)
+  private def pictures_of_walk_out(frames = 70)
     (1..frames).map do |n|
       screen = game_player.hold(:down).run(Meadow.program, frames: n).screen
       Array.new(HEIGHT) { |y| Array.new(WIDTH) { |x| screen.pixel(x, y) } }
@@ -40,7 +40,7 @@ class TestMeadowExample < Minitest::Test
   # Is the bottom left of the picture — clear of the hero, wherever he stands in either
   # room, and of the room's name — in blocks of +size+: every pixel the colour at the corner
   # of its block?
-  def bottom_in_blocks?(picture, size)
+  private def bottom_in_blocks?(picture, size)
     (96...HEIGHT).all? do |y|
       (0...96).all? { |x| picture[y][x] == picture[y - (y % size)][x - (x % size)] }
     end
@@ -48,16 +48,16 @@ class TestMeadowExample < Minitest::Test
 
   # The sizes of block the bottom left of the picture is in, 1 left out since every
   # picture is in blocks of one pixel. None for a picture as drawn.
-  def block_sizes(picture) = (2..BIGGEST).select { |size| bottom_in_blocks?(picture, size) }
+  private def block_sizes(picture) = (2..BIGGEST).select { |size| bottom_in_blocks?(picture, size) }
 
   # Where the room's name is: every white pixel, which nothing else in either room is.
-  def lettering(picture)
+  private def lettering(picture)
     (0...HEIGHT).to_a.product((0...WIDTH).to_a).select { |y, x| picture[y][x] == WHITE }
   end
 
   # The walk as its pictures, and the two frames that bound the change: the first one in
   # blocks at all, and the first one whose name is the meadow's.
-  def walk_through_door
+  private def walk_through_door
     pictures = pictures_of_walk_out
     cabin_name = lettering(pictures[2])
     broke_up = pictures.find_index { |picture| block_sizes(picture).any? }

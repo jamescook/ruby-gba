@@ -20,7 +20,7 @@ class TestDrawRectAtClipping < Minitest::Test
 
   AREA = [40, 30, 120, 80].freeze # x, y, w, h — well off every edge of the screen
 
-  def program(tear_free: false, &block)
+  private def program(tear_free: false, &block)
     b = Builder.new
     b.instance_eval do
       tear_free ? (screen :bitmap, tear_free: true, colors: [:black, :red]) : (screen :bitmap)

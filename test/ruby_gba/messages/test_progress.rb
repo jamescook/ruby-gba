@@ -27,7 +27,7 @@ class TestProgress < Minitest::Test
     def pass(seconds) = @now += seconds
   end
 
-  def a_terminal
+  private def a_terminal
     out = StringIO.new
     def out.tty? = true
     out
@@ -37,7 +37,7 @@ class TestProgress < Minitest::Test
   # it got to (which is the rest of the line, and may be nothing at all).
   Phase = Data.define(:name, :took, :where)
 
-  def phases_in(out)
+  private def phases_in(out)
     out.string.lines.map do |line|
       name, took, *where = line.strip.split(/\s{2,}/)
       Phase.new(name: name, took: took, where: where.join("  "))
@@ -55,7 +55,7 @@ class TestProgress < Minitest::Test
   end
 
   # Build it while a progress is listening, and hand back its phase lines in columns.
-  def phases_of_a_build
+  private def phases_of_a_build
     out = StringIO.new
     RubyGBA.build("SPEAK", code: "ASPK", maker: "01", out: StringIO.new, err: StringIO.new,
                           progress: Progress.to(out), &MANY_STATEMENTS)
@@ -63,7 +63,7 @@ class TestProgress < Minitest::Test
   end
 
   # ...keyed by phase, so a test can ask one phase where it got to.
-  def where_each_phase_got_to
+  private def where_each_phase_got_to
     phases_of_a_build.to_h { |phase| [phase.name, phase.where] }
   end
 
@@ -282,7 +282,7 @@ class TestProgress < Minitest::Test
     RubyGBA::Effects.unregister(:paint_the_rows)
   end
 
-  def a_cartridge_built_with(progress)
+  private def a_cartridge_built_with(progress)
     RubyGBA.build("PACK", code: "APAK", maker: "01", out: StringIO.new, err: StringIO.new,
                           progress: progress) do
       screen :bitmap

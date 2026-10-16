@@ -11,7 +11,7 @@ class TestIrGuardrailLightCannotShare < Minitest::Test
 
   # A tiled room with a light, and +said+ run before the loop. +loop+ false leaves the game
   # with no frames.
-  def findings(loop: true, &said)
+  private def findings(loop: true, &said)
     builder = Builder.new
     builder.instance_eval do
       screen :tiled

@@ -23,24 +23,24 @@ class TestNumberTable < Minitest::Test
   FOUR = 0x12345678
   HEADER = RubyGBA::Console::Hardware::ROM_START + RubyGBA::Cartridge::ROM::ENTRY_OFFSET
 
-  def words_of(emitter) = emitter.code.unpack("V*")
+  private def words_of(emitter) = emitter.code.unpack("V*")
 
   # Is this a read of a word ahead of it, and if so into which register and how far on?
-  def read_from_table(word)
+  private def read_from_table(word)
     return nil unless (word & 0xFFFF0000) == 0xE59F0000
 
     { register: (word >> 12) & 0xF, ahead: word & 0xFFF }
   end
 
   # The word a read at instruction +index+ names: the chip counts from two instructions on.
-  def word_named_by(words, index)
+  private def word_named_by(words, index)
     read = read_from_table(words[index]) or flunk format("not a read from a table: 0x%08X", words[index])
     words[index + 2 + (read[:ahead] / 4)]
   end
 
   # A routine measured at +measured_bytes+ with every number built, in which a load within
   # +read_within+ of that measured end is read — the whole routine unless a test says.
-  def routine(measured_bytes: 64, read_within: measured_bytes)
+  private def routine(measured_bytes: 64, read_within: measured_bytes)
     emitter = Emit.new
     emitter.open_number_table(measured_bytes: measured_bytes, read_within: read_within, routine: :work)
     yield emitter

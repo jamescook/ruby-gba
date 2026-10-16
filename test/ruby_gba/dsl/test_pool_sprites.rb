@@ -15,7 +15,7 @@ class TestPoolSprites < Minitest::Test
 
   # A tiled program with an :ufo image (8x8 green) and an enemy pool; the block spawns
   # instances and adds per-frame behavior via the pool handle.
-  def enemy_program
+  private def enemy_program
     b = Builder.new
     handle = nil
     b.instance_eval do
@@ -214,7 +214,7 @@ class TestPoolSprites < Minitest::Test
   # A POOL TAKES ITS DECLARED PLACE AMONG THE SPRITES, the same rule two sprites follow:
   # declared later is in front. A red pool and a green sprite overlap at (44, 44); whichever
   # was declared second is the colour there, on the interpreter and on the console.
-  def overlap_program(pool_first:)
+  private def overlap_program(pool_first:)
     b = Builder.new
     b.instance_eval do
       screen :tiled
@@ -238,7 +238,7 @@ class TestPoolSprites < Minitest::Test
   end
 
   # [interpreter, console]: whether the overlap shows the sprite's green.
-  def green_in_front(prog)
+  private def green_in_front(prog)
     rom = ROM.assemble(GBA.new.lower(prog), title: "PORD", code: "BPOR", maker: "01")
     v = assert_emulator_loads_rom(rom, frames: 6)
     [Reference.new.run(prog, frames: 4).screen.pixel(44, 44) == GREEN, v.green?(44, 44)]

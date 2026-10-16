@@ -20,7 +20,7 @@ class TestHardwareSpriteFacing < Minitest::Test
   # wall you hold and clamps there, so its resting spot AND pose are deterministic:
   # holding left, it ends against the left wall (x=8) showing the blue pose; holding
   # right, against the right wall (x=224) showing the red pose.
-  def facing_program(frames: 40)
+  private def facing_program(frames: 40)
     builder = Builder.new
     builder.instance_eval do
       screen :tiled
@@ -44,7 +44,7 @@ class TestHardwareSpriteFacing < Minitest::Test
     builder.program
   end
 
-  def rom_for(program)
+  private def rom_for(program)
     ROM.assemble(GBA.new.lower(program), title: "FACING", code: "BFAC", maker: "01")
   end
 

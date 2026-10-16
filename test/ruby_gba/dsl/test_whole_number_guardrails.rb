@@ -15,12 +15,12 @@ require "stringio"
 class TestWholeNumberGuardrails < Minitest::Test
   runs_on :reference
 
-  def build(&block)
+  private def build(&block)
     RubyGBA.build("WHOLE", code: "BWHL", maker: "01", err: StringIO.new, out: StringIO.new, &block)
   end
 
   # Each verb, and the words only that verb's message has any business saying.
-  def refusals
+  private def refusals
     {
       "timer" => [/every/, -> { build { screen :bitmap; timer :beat, per_second: 0 } }],
       "grid cols" => [/grid :board/, -> { build { screen :bitmap; grid :board, cols: 0, rows: 4, cell: 8, over: :black } }],

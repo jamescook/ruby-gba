@@ -12,7 +12,7 @@ class TestIRGuardrailPaintedPictureWithOtherPoses < Minitest::Test
 
   Check = RubyGBA::IR::Guardrails::Checks::PaintedPictureWithOtherPoses
 
-  def program(&block)
+  private def program(&block)
     b = Builder.new
     b.instance_eval do
       screen :tiled

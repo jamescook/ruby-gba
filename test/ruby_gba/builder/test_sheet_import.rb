@@ -35,10 +35,10 @@ class TestSheetImport < Minitest::Test
   # Run a block with +fake+ standing in as the default image adapter, so the verbs
   # (which don't take an adapter) import through it and need no ImageMagick. An
   # absolute image path skips the on-disk lookup, so the fake path never has to exist.
-  def with_default_adapter(fake, &block) = Image.with_adapter(fake, &block)
+  private def with_default_adapter(fake, &block) = Image.with_adapter(fake, &block)
 
   # A 16x8 opaque sheet: an 8x8 solid-red cell, then an 8x8 solid-blue cell.
-  def two_tile_rgb
+  private def two_tile_rgb
     bytes = (+"").b
     8.times do
       8.times { bytes << 255.chr << 0.chr << 0.chr } # left cell: red
@@ -47,10 +47,10 @@ class TestSheetImport < Minitest::Test
     bytes
   end
 
-  def two_tile_fake = FakeAdapter.new(dims: [16, 8], rgb: two_tile_rgb)
+  private def two_tile_fake = FakeAdapter.new(dims: [16, 8], rgb: two_tile_rgb)
 
   # An 8x8 cut-out: an opaque red top row, everything below fully transparent.
-  def cutout_rgba
+  private def cutout_rgba
     bytes = (+"").b
     8.times do |y|
       8.times { bytes << (y.zero? ? "\xFF\x00\x00\xFF".b : "\x00\x00\x00\x00".b) }
@@ -153,7 +153,7 @@ class TestSheetImport < Minitest::Test
   # A sprite sliced from a sheet takes a list of colours for every frame it makes, which is
   # what lets it be drawn with another list: a character flashing warm while it cannot be hit
   # is no different for being cut out of a sheet.
-  def a_sheet_sprite_drawn_with_other_colors
+  private def a_sheet_sprite_drawn_with_other_colors
     with_default_adapter(two_tile_fake) do
       builder = RubyGBA::Builder.new
       builder.instance_eval do

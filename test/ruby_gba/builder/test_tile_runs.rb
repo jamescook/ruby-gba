@@ -21,7 +21,7 @@ class TestTileRuns < Minitest::Test
 
   # A red backdrop behind a two-tile run, side by side at the top left. +body+ runs every
   # pass with the list, the run's handle and a frame counter.
-  def game(&body)
+  private def game(&body)
     b = Builder.new
     b.instance_eval do
       screen :tiled
@@ -43,7 +43,7 @@ class TestTileRuns < Minitest::Test
     b.program
   end
 
-  def pixel(prog, frames, x, y) = game_player.run(prog, frames: frames).screen.pixel(x, y)
+  private def pixel(prog, frames, x, y) = game_player.run(prog, frames: frames).screen.pixel(x, y)
 
   def test_pixels_written_into_the_list_show_on_the_frame_after_changed
     prog = game do |canvas, box, frame|
@@ -82,7 +82,7 @@ class TestTileRuns < Minitest::Test
   # between used the same video memory, so the list is the only place the pixels still are.
   # Here the pixel is drawn and shown in the first visit, wiped from the list (unannounced)
   # in the second scene, and gone when the first comes back.
-  def scene_game
+  private def scene_game
     b = Builder.new
     b.instance_eval do
       screen :tiled
@@ -122,7 +122,7 @@ class TestTileRuns < Minitest::Test
   # The list declared inside the scene that shows it. The scene puts its run up as it takes
   # over, which is before the scene's own lines have run once — so the list has to be there
   # already, empty, the way every list is from power-on.
-  def list_in_scene_game
+  private def list_in_scene_game
     b = Builder.new
     b.instance_eval do
       screen :tiled
@@ -155,7 +155,7 @@ class TestTileRuns < Minitest::Test
   # first, so its tiles go in ahead of the box's and the box lands somewhere else in video
   # memory there — which is the case one copy to one place cannot serve. A pixel painted in
   # each scene has to show in that scene, and survive the trip to the other one.
-  def shared_box_game
+  private def shared_box_game
     b = Builder.new
     b.instance_eval do
       screen :tiled
@@ -270,7 +270,7 @@ class TestTileRuns < Minitest::Test
   # Every byte of both tiles gets a different pattern of places from a four-colour list, so a
   # copy that landed a tile late, a byte off, or with its two pixels swapped draws a different
   # picture somewhere — and the whole screen is compared, console against interpreter.
-  def patterned_game
+  private def patterned_game
     b = Builder.new
     b.instance_eval do
       screen :tiled
@@ -307,7 +307,7 @@ class TestTileRuns < Minitest::Test
   # A 16x8 picture is two tiles side by side, so its list is 64 bytes, the left tile first —
   # the order the console keeps a sprite's tiles in. +body+ runs each pass with the list, the
   # picture's handle and a frame counter.
-  def tag_game(&body)
+  private def tag_game(&body)
     b = Builder.new
     b.instance_eval do
       screen :tiled
@@ -354,7 +354,7 @@ class TestTileRuns < Minitest::Test
 
   # The sprite side of a scene coming back: its painted picture goes up from the list as it is
   # then, so a pixel wiped from the list while the scene was away is gone on return.
-  def tag_scene_game
+  private def tag_scene_game
     b = Builder.new
     b.instance_eval do
       screen :tiled
@@ -391,7 +391,7 @@ class TestTileRuns < Minitest::Test
   # One name tag shown by a sprite in two scenes, the second of which has a sprite picture of
   # its own declared first — so the scenes' sprite art lays out differently, and the tag has to
   # show in each and its pixels survive the trip.
-  def shared_tag_game
+  private def shared_tag_game
     b = Builder.new
     b.instance_eval do
       screen :tiled
@@ -434,7 +434,7 @@ class TestTileRuns < Minitest::Test
   end
 
   # Three save slots, each with a name tag of its own: three lists, three pictures.
-  def three_tags
+  private def three_tags
     b = Builder.new
     b.instance_eval do
       screen :tiled
@@ -462,7 +462,7 @@ class TestTileRuns < Minitest::Test
     assert_backends_agree(three_tags, frames: 3)
   end
 
-  def refusal(screen_kind: :tiled, &block)
+  private def refusal(screen_kind: :tiled, &block)
     assert_raises(ArgumentError) do
       b = Builder.new
       b.instance_eval do
@@ -535,7 +535,7 @@ class TestTileRuns < Minitest::Test
   # --- what painted pictures cost the frame's own code ---
 
   # A file screen of +count+ painted name tags, each changed every frame, and a play scene.
-  def name_tags(count)
+  private def name_tags(count)
     proc do
       screen :tiled
       scene(:files) do

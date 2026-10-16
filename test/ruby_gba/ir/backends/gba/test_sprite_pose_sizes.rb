@@ -25,7 +25,7 @@ class TestSpritePoseSizes < Minitest::Test
   CLEAR = RubyGBA::Graphics::Color.rgb(0, 0, 1)
 
   # A pose drawing a +w+ by +h+ block at (+ox+, +oy+) on a CANVAS-square canvas.
-  def pose(w, h, ox, oy)
+  private def pose(w, h, ox, oy)
     (0...(CANVAS * CANVAS)).map do |i|
       x = i % CANVAS
       y = i / CANVAS
@@ -35,7 +35,7 @@ class TestSpritePoseSizes < Minitest::Test
 
   # +shapes+ is [w, h, ox, oy] per pose, so a test can make them all alike or all
   # different.
-  def program(shapes, rate: 4)
+  private def program(shapes, rate: 4)
     # Worked out here rather than inside the block: instance_eval makes `self` the
     # builder, where this test's own helpers are not in scope.
     art = shapes.map { |w, h, ox, oy| pose(w, h, ox, oy) }
@@ -58,7 +58,7 @@ class TestSpritePoseSizes < Minitest::Test
 
   # Built through RubyGBA.build so the build record — which is where the sprite-memory
   # figure lives — comes back with it.
-  def built(shapes, rate: 4)
+  private def built(shapes, rate: 4)
     art = shapes.map { |w, h, ox, oy| pose(w, h, ox, oy) }
     canvas = CANVAS
     clear = CLEAR
@@ -75,7 +75,7 @@ class TestSpritePoseSizes < Minitest::Test
     end
   end
 
-  def sprite_bytes(shapes) = built(shapes).built.video_memory.sprites.used
+  private def sprite_bytes(shapes) = built(shapes).built.video_memory.sprites.used
 
   # Every pose the same shape in the same place: they trim alike, and the sprite keeps
   # the plain draw (one size in its own entry, one stride between poses).
@@ -142,7 +142,7 @@ class TestSpritePoseSizes < Minitest::Test
   INKS = (0...20).map { |i| RubyGBA::Graphics::Color.rgb(i + 5, 31 - i, 3) }
 
   # An 8x8 block running through all twenty inks from +from+, on a 16x16 canvas.
-  def wide_pose(from)
+  private def wide_pose(from)
     (0...(16 * 16)).map do |i|
       x = i % 16
       next CLEAR unless x < 8 && (i / 16) < 8

@@ -15,7 +15,7 @@ class TestSparksExample < Minitest::Test
 
   YELLOW = Color.resolve(:yellow)
 
-  def yellow_rows(screen)
+  private def yellow_rows(screen)
     (0...160).select { |y| (0...240).any? { |x| screen.pixel(x, y) == YELLOW } }
   end
 

@@ -23,7 +23,7 @@ class TestSpriteClearedField < Minitest::Test
 
   # A white field with a red block sprite declared above the loop. The block is the game
   # loop's body, handed the sprite and a counter of the passes so far.
-  def field_program(&body)
+  private def field_program(&body)
     b = Builder.new
     b.instance_eval do
       screen :bitmap
@@ -42,7 +42,7 @@ class TestSpriteClearedField < Minitest::Test
 
   # How many pixels of each colour the picture holds after +frames+ passes, once both
   # backends have been seen to draw the same picture.
-  def colors_after(prog, frames)
+  private def colors_after(prog, frames)
     oracle, console, = backend_pictures(prog, frames: frames, name: "SPRCLR")
     bad = mismatched_pixels(oracle, console)
     assert_empty bad.first(5), "the console drew a different picture at #{bad.length} pixels"
@@ -129,7 +129,7 @@ class TestSpriteClearedField < Minitest::Test
 
   # A game of two scenes, the first with the sprite. The block is the first scene's body,
   # handed the sprite, the state and the pass counter.
-  def scenes_program(&play)
+  private def scenes_program(&play)
     b = Builder.new
     b.instance_eval do
       screen :bitmap

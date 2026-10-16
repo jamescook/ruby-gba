@@ -14,7 +14,7 @@ class TestBuildReport < Minitest::Test
   runs_on :reference
 
   # Two routines far too big for the 32K, so something must be kept and something passed over.
-  def crowded_game
+  private def crowded_game
     RubyGBA.build("BRPT", code: "BRPT", maker: "01") do
       screen :bitmap, tear_free: true
       clear_screen :black
@@ -28,7 +28,7 @@ class TestBuildReport < Minitest::Test
     end
   end
 
-  def report_for(rom)
+  private def report_for(rom)
     out = StringIO.new
     RubyGBA::Diagnostics::BuildReport.render(rom, out: out)
     out.string
@@ -166,7 +166,7 @@ class TestBuildReport < Minitest::Test
   # --- how fine a fade goes ---
 
   # A tiled game that fades out over +frames+, placed under a HUD when +under+ says so.
-  def fading_game(frames, under: nil)
+  private def fading_game(frames, under: nil)
     tile = SOLID_TILE
     RubyGBA.build("BRFD") do
       screen :tiled

@@ -22,7 +22,7 @@ class TestSpriteUpsideDown < Minitest::Test
 
   # A block at (+ox+, +oy+) with its top row and its left column different colours, so a pose
   # turned the wrong way, or drawn in the wrong place, shows up as different pixels.
-  def lopsided(ox, oy, w = 10, h = 12)
+  private def lopsided(ox, oy, w = 10, h = 12)
     (0...(CANVAS * CANVAS)).map do |i|
       x = i % CANVAS
       y = i / CANVAS
@@ -34,7 +34,7 @@ class TestSpriteUpsideDown < Minitest::Test
 
   # A sprite whose cycle runs through +poses+ and then the turned pictures +turn+ makes of
   # them: +turn+ is handed the builder and the names, and gives back the extra names.
-  def program(poses, &turn)
+  private def program(poses, &turn)
     canvas = CANVAS
     clear = CLEAR
     builder = Builder.new

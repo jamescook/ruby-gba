@@ -78,7 +78,7 @@ class TestValueCoercion < Minitest::Test
 
   # Exercise every runtime value-verb with bare symbols/ints, then again with
   # Value handles, and assert the two programs build the identical IR tree.
-  def build_with(&block)
+  private def build_with(&block)
     b = Builder.new
     b.instance_eval(&block)
     b.finalize_program

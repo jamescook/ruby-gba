@@ -21,7 +21,7 @@ class TestSpotlight < Minitest::Test
 
   WHITE = Color.resolve(:white)
 
-  def program(&block)
+  private def program(&block)
     b = Builder.new
     b.instance_eval(&block)
     b.finalize_program
@@ -29,7 +29,7 @@ class TestSpotlight < Minitest::Test
   end
 
   # A room drawn all in white, with a light at (120, 80) and +said+ run before the loop.
-  def lit_room(radius: 40, dark: 75, &said)
+  private def lit_room(radius: 40, dark: 75, &said)
     program do
       screen :tiled
       image(:white_tile, "#" => :white) { (["#" * 8] * 8).join("\n") }
@@ -41,7 +41,7 @@ class TestSpotlight < Minitest::Test
     end
   end
 
-  def shown(program, frames: 2) = game_player.run(program, frames: frames).screen
+  private def shown(program, frames: 2) = game_player.run(program, frames: frames).screen
 
   # White taken three quarters of the way to black the way the emulator's display does it,
   # at eight bits a channel: red comes to 64 of 255, which is 8, and green and blue lose

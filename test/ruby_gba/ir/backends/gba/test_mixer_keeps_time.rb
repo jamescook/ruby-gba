@@ -38,7 +38,7 @@ class TestMixerKeepsTime < Minitest::Test
   BURNS = { 1 => 0, 2 => 35_000, 3 => 57_000 }.freeze
 
   # A game that plays one clip at the start and then burns +burn+ steps a pass.
-  def late_game(burn)
+  private def late_game(burn)
     tone = TONE
     rate = RATE
     b = Builder.new
@@ -62,7 +62,7 @@ class TestMixerKeepsTime < Minitest::Test
   end
 
   # Play it on the console and report how many frames a pass took and which frames had sound.
-  def heard(burn)
+  private def heard(burn)
     backend = GBA.new
     program = late_game(burn)
     rom = ROM.assemble(backend.lower(program), title: "MIXTIME", code: "ZMXT", maker: "01")

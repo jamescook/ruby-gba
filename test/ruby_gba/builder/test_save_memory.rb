@@ -15,7 +15,7 @@ class TestSaveMemory < Minitest::Test
   runs_on :reference
 
   # A game whose one record keeps +bytes+ flags, +copies+ times over.
-  def game(bytes:, copies:, **options)
+  private def game(bytes:, copies:, **options)
     RubyGBA.build("SAVEMEM", out: nil, err: nil, **options) do
       screen :bitmap
       flags = list :flags, capacity: bytes, width: :byte
@@ -24,7 +24,7 @@ class TestSaveMemory < Minitest::Test
     end
   end
 
-  def refusal(**)
+  private def refusal(**)
     assert_raises(ArgumentError) { game(**) }.message
   end
 
