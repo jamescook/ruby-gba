@@ -73,15 +73,17 @@ module RubyGBA
           # zig's build system (build/build.zig), and gives back where it landed under +prefix+.
           # SDL is fetched and compiled into a cache kept between builds and shared by every
           # game, so only the first build pays for it. Raises, as #version does, on a zig this
-          # was not written against.
-          def build_with_sdl(src_dir, sources, name:, prefix:)
+          # was not written against. +target+ is another computer to build for, as zig names it
+          # (see Native::TARGETS), and nil is this one.
+          def build_with_sdl(src_dir, sources, name:, prefix:, target: nil)
             version
             capture_command("zig", "build", "--build-file", BUILD_FILE,
                             "--cache-dir", File.join(sdl_build_cache_dir, "cache"),
                             "--pkg-dir", File.join(sdl_build_cache_dir, "packages"),
                             "-p", prefix, "-Dsrc_dir=#{src_dir}", *sources.map { |file| "-Dsources=#{file}" },
-                            "-Dname=#{name}", "-Doptimize=ReleaseFast")
-            File.join(prefix, "bin", Gem.win_platform? ? "#{name}.exe" : name)
+                            "-Dname=#{name}", "-Doptimize=ReleaseFast", *(target ? ["-Dtarget=#{target}"] : []))
+            windows = target ? target.include?("windows") : Gem.win_platform?
+            File.join(prefix, "bin", windows ? "#{name}.exe" : name)
           ensure
             # After the build, which is what fetches SDL and its headers — and after one that
             # fetched them and then failed, too.

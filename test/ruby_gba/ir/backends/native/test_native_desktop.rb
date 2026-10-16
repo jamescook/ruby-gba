@@ -84,6 +84,28 @@ class TestNativeDesktop < Minitest::Test
     end
   end
 
+  # THE SAME GAME FOR ANOTHER COMPUTER, built from this one: zig carries the C library of each, and
+  # SDL is compiled for each from its own source. These are only built here, not run — nothing
+  # here can run them — so what is checked is that each is a program for the computer it was asked
+  # for, read off the first bytes of the file the way that computer reads them.
+  WINDOWS_PROGRAM = "MZ".b
+  LINUX_PROGRAM = "\x7FELF".b
+  ELF_MACHINE = { linux: 0x3E, linux_arm: 0xB7 }.freeze # x86-64 and 64-bit ARM, at byte 18
+
+  def test_a_program_for_windows_and_for_linux_is_built_from_here
+    Dir.mktmpdir do |dir|
+      windows = Native.new.build_desktop(PongGame::GAME, File.join(dir, "pong.exe"), target: :windows, err: nil)
+      assert_equal WINDOWS_PROGRAM, File.binread(windows, 2)
+
+      ELF_MACHINE.each do |target, machine|
+        linux = Native.new.build_desktop(PongGame::GAME, File.join(dir, "pong-#{target}"), target: target, err: nil)
+        head = File.binread(linux, 20)
+        assert_equal LINUX_PROGRAM, head[0, 4], "#{target} is a Linux program"
+        assert_equal machine, head.byteslice(18, 2).unpack1("v"), "#{target} is for the processor asked for"
+      end
+    end
+  end
+
   private
 
   # What a run of the game with its window (on SDL's stand-in display) printed at its end, with

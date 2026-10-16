@@ -23,6 +23,21 @@ class TestNativeZig < Minitest::Test
     busy.each(&:join)
   end
 
+  # A program for another computer is asked for by name, and a name there is no build for is
+  # refused before anything is built, saying which there are.
+  def test_a_computer_there_is_no_build_for_is_refused
+    game = RubyGBA.game("NOWHERE") do
+      screen :bitmap
+      game_loop { clear_screen :red }
+    end
+    error = assert_raises(RubyGBA::IR::Backends::Native::LoweringError) do
+      Native.new.build_desktop(game, File.join(Dir.tmpdir, "nowhere"), target: :amiga, err: nil)
+    end
+
+    assert_match(/amiga/, error.message)
+    assert_match(/windows, linux, linux_arm/, error.message)
+  end
+
   # A PROGRAM'S RUN DOES NOT WAIT ON RUBY. Ruby runs one thread at a time, and a thread reading
   # what a program prints as it prints it takes its turn again for every piece, behind every
   # thread that is busy. A native run puts tests side by side, so a program that ends in a

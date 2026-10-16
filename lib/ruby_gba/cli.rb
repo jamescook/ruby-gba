@@ -59,7 +59,8 @@ module RubyGBA
       with a window, the keyboard as the console's buttons (mGBA's keys), and nothing
       else to install. It is written next to the game file, named from the title with no
       extension. It needs zig (`mise install`), and the first one takes a while because
-      it compiles SDL.
+      it compiles SDL. --target builds it for another computer instead: windows, linux
+      or linux-arm. Those programs are built here and have not been run on those systems.
 
       A game that saves keeps its save in a file, in the folder your computer has for
       each program's own files. To keep it in a different file, start the program with
@@ -82,6 +83,8 @@ module RubyGBA
                   desc: "With --profile, hold these buttons while measuring"
     option :set, type: :array, banner: "NAME=VALUE", default: [],
                  desc: "Tell the game a setting it reads with `setting` (for example --set floors=1)"
+    option :target, banner: "COMPUTER",
+                    desc: "With --format=native, build for another computer: windows, linux or linux-arm"
     def build(game_file)
       case options[:format]
       when "game" then build_cartridge(game_file)
@@ -323,12 +326,21 @@ module RubyGBA
     # the end where that name is already a folder, as a game split across files often has.
     def build_native(game_file)
       game = load_game(game_file)
+      target = options[:target]&.tr("-", "_")&.to_sym
+      if target && !RubyGBA::IR::Backends::Native::TARGETS.key?(target)
+        names = RubyGBA::IR::Backends::Native::TARGETS.keys.map { |name| name.to_s.tr("_", "-") }
+        raise Thor::Error, "There is no build for #{options[:target]}. A game can be built for " \
+                           "#{names.join(', ')}. To build for this computer, leave out --target."
+      end
       path = options[:output] || begin
         plain = File.join(File.dirname(File.expand_path(game_file)), game.default_filename.delete_suffix(".gba"))
-        File.directory?(plain) ? "#{plain}-desktop" : plain
+        plain = "#{plain}-#{options[:target]}" if target
+        plain = "#{plain}-desktop" if File.directory?(plain)
+        target == :windows ? "#{plain}.exe" : plain
       end
-      say "Building #{File.basename(path)} for this computer (the first build compiles SDL, which takes a while)"
-      RubyGBA::IR::Backends::Native.new.build_desktop(game, path, settings: given_settings)
+      say "Building #{File.basename(path)} for #{target ? options[:target] : 'this computer'} " \
+          "(the first build compiles SDL, which takes a while)"
+      RubyGBA::IR::Backends::Native.new.build_desktop(game, path, settings: given_settings, target: target)
       say "Built #{path}"
     rescue RubyGBA::IR::Backends::Native::LoweringError, RubyGBA::IR::Backends::Native::Zig::Error => e
       raise Thor::Error, e.message

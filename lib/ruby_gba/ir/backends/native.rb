@@ -76,14 +76,25 @@ module RubyGBA
                                   mode: mode)
         end
 
-        # +game+ built into ONE program for this computer, with a window, written to +path+: the
-        # game checked as a cartridge build checks it, written as C, and compiled with SDL3 by
-        # zig into an executable that needs nothing installed beside it. The first build fetches
-        # SDL's source and compiles it, which takes a while once; every build after that reuses it.
-        def build_desktop(game, path, settings: {}, err: $stderr)
+        # THE OTHER COMPUTERS A GAME CAN BE BUILT FOR FROM THIS ONE, by the name a build asks for
+        # each, and what zig calls it. zig carries the C library of each and SDL is compiled for
+        # each from its own source, so nothing for them has to be installed here. Linux is held to
+        # a C library from 2018, so the program also starts on an older system. A Mac cannot be
+        # built for from anywhere else (Apple's licence keeps its SDK to Macs), so it is not here;
+        # on a Mac, leaving the target out builds for the Mac.
+        TARGETS = Ractor.make_shareable({ windows: "x86_64-windows-gnu", linux: "x86_64-linux-gnu.2.28",
+                                          linux_arm: "aarch64-linux-gnu.2.28" })
+
+        # +game+ built into ONE program with a window, written to +path+: the game checked as a
+        # cartridge build checks it, written as C, and compiled with SDL3 by zig into an
+        # executable that needs nothing installed beside it. The first build fetches SDL's source
+        # and compiles it, which takes a while once; every build after that reuses it. +target+
+        # names another computer to build for (see TARGETS), and left out it is this one.
+        def build_desktop(game, path, settings: {}, target: nil, err: $stderr)
           if File.directory?(path)
             raise LoweringError, "#{path} is a folder, so the program cannot be written there. Name a file instead."
           end
+          refuse_unknown_target!(target)
 
           source = lower(checked_program(game, settings: settings, err: err), title: game.title)
           Dir.mktmpdir("ruby-gba-native") do |dir|
@@ -91,11 +102,19 @@ module RubyGBA
             FileUtils.mkdir_p(src)
             File.write(File.join(src, "game.c"), source)
             Dir.glob(File.join(Zig::RUNTIME_DIR, "*")).each { |file| FileUtils.cp(file, src) }
-            exe = Zig.build_with_sdl(src, ["game.c", *DESKTOP_RUNTIME], name: "game", prefix: File.join(dir, "out"))
+            exe = Zig.build_with_sdl(src, ["game.c", *DESKTOP_RUNTIME], name: "game", prefix: File.join(dir, "out"),
+                                                                        target: target && TARGETS.fetch(target))
             FileUtils.cp(exe, path)
           end
           FileUtils.chmod(0o755, path)
           path
+        end
+
+        def refuse_unknown_target!(target)
+          return if target.nil? || TARGETS.key?(target)
+
+          raise LoweringError, "There is no build for #{target.inspect}. A game can be built for " \
+                               "#{TARGETS.keys.join(', ')}, or for this computer with no target."
         end
 
         private

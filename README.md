@@ -108,7 +108,7 @@ This matters because those handles and comparisons are **data the compiler can s
 
 ### The IR — one description, many targets
 
-The DSL does **not** emit ARM directly. Each verb builds a node in an in-memory **intermediate representation** (IR) — a plain-Ruby, inspectable op-tree. A separate pass validates it, then a **backend** consumes it: one *lowers* it to an ARM7 ROM, another *interprets* it in pure Ruby to a framebuffer (used for headless tests and as the reference oracle). A **cross-backend conformance fixture** keeps them honest against shared reference semantics (`IR::Int32`, signed 32-bit).
+The DSL does **not** emit ARM directly. Each verb builds a node in an in-memory **intermediate representation** (IR) — a plain-Ruby, inspectable op-tree. A separate pass validates it, then a **backend** consumes it: one *lowers* it to an ARM7 ROM, another *interprets* it in pure Ruby to a framebuffer (used for headless tests and as the reference oracle), and a third writes it out as C and builds it into a program for a computer (see [Playing on a computer](#playing-on-a-computer)). A **cross-backend conformance fixture** keeps them honest against shared reference semantics (`IR::Int32`, signed 32-bit).
 
 This adds a layer of machinery, and it earns it: forward references (branches, calls, scene jumps) resolve automatically in a two-pass lowering instead of hand-rolled offset math; whole-program passes like register allocation and constant-pooling become possible; guardrails inspect the whole program *before* a byte is emitted; and — the big one — **new targets are new backends, not a rewrite of the language.** Nodes are tagged **portable vs hardware-only**, which is what makes the future web/GBC targets tractable.
 
@@ -158,9 +158,25 @@ The same measurement is also a **build decision**: a build runs the game and use
 
 Tearing is split the same way. Whether a game **can** tear is a fact about the screen it chose — one that draws straight into the picture the display is reading can, a double-buffered or tiled one cannot, however slow it is — so the build says it. Whether one that can **does** is a race between the display's row and the game's, and the run settles it by holding what the display showed against what the game had finished drawing.
 
-This framework used to ship a cost *estimator* instead: a frame priced in scanlines against a budget, with a verdict of fits or tears. It was a second statement of what the hardware costs, kept in step with the backend by hand, so every mispricing was a bug — 169 of the repo's first 567 commits touched it. It is being retired in favour of the above.
+This framework used to ship a cost *estimator* instead: a frame priced in scanlines against a budget, with a verdict of fits or tears. It was a second statement of what the hardware costs, kept in step with the backend by hand, so every mispricing was a bug — 169 of the repo's first 567 commits touched it. It has been deleted in favour of the above.
 
 [^fast]: How much quicker, why, and how the build chooses what goes there: [`placement.rb`](lib/ruby_gba/ir/backends/gba/placement.rb). `rom.profile` prints what it chose, how much room is left, and what did not fit.
+
+### Playing on a computer
+
+A game can also be built as a program for a computer, with a window, the keyboard as the console's buttons, and its sound — one file that needs nothing installed beside it:
+
+```bash
+ruby-gba build examples/pong.rb --format=native                   # for this computer
+ruby-gba build examples/pong.rb --format=native --target windows  # 64-bit Windows (pong-windows.exe)
+ruby-gba build examples/pong.rb --format=native --target linux    # 64-bit Linux; also linux-arm
+```
+
+The game is written out as C and compiled with [zig](https://ziglang.org) (installed through mise), which carries the C library of every system it builds for and compiles [SDL3](https://libsdl.org) from source for each, so a Mac builds the Windows and Linux programs with nothing else installed. The first build takes a while because it compiles SDL; every build after reuses it.
+
+**The Windows and Linux programs have not yet been run on those systems.** They are built and checked to be programs for the computer asked for; the Mac build is the one that is played and tested. A Mac program can only be built on a Mac.
+
+This build trails the cartridge: a feature works on the console and the interpreter first, and the C build learns it after. Its tests replay each game and compare every frame's picture and sound with the interpreter (`rake test:native`).
 
 ### Future targets
 
@@ -202,7 +218,9 @@ A rough map of the GBA surface. Checked = working today; unchecked = planned (tr
 - [x] Tiled backgrounds (Mode 0) — text or CSV maps, scrolling, stacked parallax layers
 - [x] Rotozoom backgrounds — a whole tiled layer that turns and resizes as one piece (`screen :rotozoom`), for a zooming title screen or a spinning race track; sprites already do both
 - [x] Layers — name the stack once (`layers :sky, :world, :ui`), then say where a thing belongs; one layer can be see-through
-- [x] Screen effects — `fade` / `tint` / `flash_screen` / `fade_out` / `fade_in`, and a fade can be placed *in* the stack (dim the game, keep the HUD)
+- [x] Screen effects — `fade` / `tint` / `flash_screen` / `fade_out` / `fade_in`; a fade can be placed *in* the stack (dim the game, keep the HUD) or held to a rectangle of the screen (`inside:` / `outside:`), and `pixelate` / `pixelate_out` / `pixelate_in` break the picture into blocks
+- [x] Lights — `spotlight` (a lantern in a cave), and `iris_out` / `iris_in` closing a circle on a point between scenes, done by the console's window hardware
+- [x] Menus — `menu` with rows, a cursor, held-button repeat, rows that open and shut, and rows whose words change
 - [x] Camera — `camera`, `camera_follows` (the follow-you camera), `shake_screen`, `pulse`
 - [x] Row-by-row bends — `background.scroll_each_row` gives every row its own offset: rippling water, heat haze, a screen melting
 - [x] Sound — four PSG channels (music, SFX, noise, wave) + multi-voice songs (`song`/`voice`, `beep`, `noise`, `wave`)
@@ -212,21 +230,23 @@ A rough map of the GBA surface. Checked = working today; unchecked = planned (tr
 - [x] VBlank-IRQ frame timing — `game_loop` paces itself at one pass per frame, sleeping the CPU on the BIOS interrupt wait rather than busy-waiting
 - [x] Numbers with a fraction — write a Float and the fixed point is managed for you, multiplies and divides included
 - [x] Runtime collections — `list`, `pool` (many of a component, without desyncing parallel lists), `grid`, and build-time `table` lookups in ROM
-- [x] Save / load persistence — `save_var` over battery-backed SRAM, loaded at boot and re-saved on change
+- [x] Save / load persistence — `save_var` (saved on change), and `save_data` records of variables, lists and pools saved when the game says so, several copies each, written in the background; on battery-backed memory, flash or an EEPROM, sized by the build
 - [x] Asset pipeline — PNG → tiles / sprites / animation frames, CSV tilemaps → backgrounds, and native `.aseprite` files read straight (layers, frames, palette, named animations — no export step)
 - [x] Fonts — built-in + register your own (`font` from glyph art)
 - [x] Guardrails (extensible registry) + build-time validation, findings traced to the DSL line
 - [x] Effect packs — register your own DSL verbs (and their guardrails); four ship by default (screen shake, screen fade, follow camera, pulse)
 - [x] `rom.profile` — what the build made, and what it cost when it ran
-- [x] IR + two backends (GBA lowering, reference interpreter in pure Ruby) with a conformance fixture + portability tagging
-- [x] CLI — `ruby-gba build / profile / inspect / new` (Thor): per-command help, typed options, friendly errors
+- [x] Playthroughs — play a cartridge from a script with nobody at the controls, record what was pressed as a tape, and compare two cartridges frame by frame to find where they drift
+- [x] IR + three backends (GBA lowering, reference interpreter in pure Ruby, C for a desktop program) with a conformance fixture + portability tagging
+- [x] A program for a computer — `--format=native`, for this Mac or built for Windows and Linux (see [Playing on a computer](#playing-on-a-computer))
+- [x] CLI — `ruby-gba build / profile / play / compare / inspect / new` (Thor): per-command help, typed options, friendly errors
 
 **Planned / Ideas**
 
-- [ ] Tiled TMX import + larger streamed maps (beyond one 32×32 screenblock)
+- [ ] Tiled TMX import (maps bigger than the console's grid already work, from text or CSV)
 - [ ] More motion verbs — lerp / wrap / bounce / snap
 - [ ] Target-neutral draw layer (decouple draw intent from the framebuffer)
-- [ ] Flash save memory (beyond SRAM)
+- [ ] A layer shown only inside a box the game moves, and a light shaped by a sprite (the rest of the console's windows)
 - [ ] CLI `preview` — run a game in the browser (JS backend)
 - [ ] JS / `<canvas>` backend (web target + live preview)
 - [ ] Terminal (TTY) and Game Boy Color backends
@@ -243,7 +263,7 @@ its approach over the alternatives*. Build any of them with `ruby examples/<name
 
 | Example | Teaches | How it draws |
 |---|---|---|
-| [`pong.rb`](examples/pong.rb) | Paddle/ball bounce, AABB `overlaps?` collision, scoring, music + SFX | Direct Mode 3, whole frame redrawn |
+| [`pong.rb`](examples/pong.rb) | Paddle/ball bounce, AABB `overlaps?` collision, scoring, music + SFX, a title `menu` over a zooming backdrop | Direct Mode 3 game, whole frame redrawn; the title on `screen :rotozoom` |
 | [`breakout.rb`](examples/breakout.rb) | A whole grid of `overlaps?` bricks, lives, angle-on-paddle-hit | Tear-free (double-buffered), whole frame redrawn |
 | [`snake.rb`](examples/snake.rb) | A growing `list` body, an `every` movement beat, live score | Direct Mode 3, **only the changed cells** redrawn |
 | [`snake_buffered.rb`](examples/snake_buffered.rb) | The *same* game written the naïve way and still tear-free | Double-buffered, whole board redrawn each frame |
@@ -263,6 +283,15 @@ its approach over the alternatives*. Build any of them with `ruby examples/<name
 | [`shmup.rb`](examples/shmup.rb) + [`shmup/`](examples/shmup) | A game **split across files** with real **scenes**: `player.rb`, `enemies.rb`, `hud.rb` are plain Ruby objects that take the build — no base class, no magic. Ship, diving enemies, per-pixel shot hits, a live HUD, and a **PLAYING → GAME OVER → restart** flow where losing the last ship hides the field and shows the game-over screen (no visibility flags) | Tiled: hardware sprites + text HUD + per-pixel collision, scene-scoped |
 | [`piano.rb`](examples/piano.rb) | The sampled-sound showcase: two hands playing a tune from ONE recorded note, re-pitched across the keyboard by `instrument`, with three voices sounding together through the software mixer | Tiled: hands and key-lights as hardware sprites over a keyboard background |
 | [`jukebox.rb`](examples/jukebox.rb) | The PSG sound showcase: three classical tunes written as plain notes (`song` / `note`) — Ode to Joy played two-handed with a `voice :melody` over a `voice :bass` — a cursor that picks one to play and loop, and bobbing "now playing" bars | Tear-free (double-buffered) bitmap menu |
+
+Newer showcases: [`dive.rb`](examples/dive.rb) + [`dive/`](examples/dive) (a game where
+several awkward features meet: a turning disc of sunlight, see-through water, one fish
+picture in six species' colours, an air gauge), [`meadow.rb`](examples/meadow.rb) (a map
+far bigger than the console's grid, and a cabin door that pixelates the room out and back
+in), [`cave.rb`](examples/cave.rb) (a lantern `spotlight`, and an iris out of the cave),
+[`corridor.rb`](examples/corridor.rb) (a first-person crawl that uses most of each frame on
+purpose), [`sparks.rb`](examples/sparks.rb) (a `pool` of particles) and
+[`rotozoom_bg.rb`](examples/rotozoom_bg.rb) (a background that turns and resizes).
 
 Smaller demos round out the surface: [`pixels.rb`](examples/pixels.rb) (static
 drawing), [`grid_cursor.rb`](examples/grid_cursor.rb) (a `grid` with a moving
@@ -333,24 +362,28 @@ Which to reach for:
 ```
 lib/ruby_gba/
   builder.rb, builder/*      # the DSL surface, split by concern (drawing, input, sound, ...)
-  value.rb, condition.rb     # the value-centric expression model
+  dsl/                       # what a game names: Value, Condition, Sprite, List, Pool, ...
+  audio/, graphics/          # the sound and music model; colours, fonts, images
+  effects/                   # effect packs: verbs built from other verbs (screen fade, shake, ...)
   ir/
     node.rb, build.rb        # the IR op-tree + constructors
     int32.rb, portability.rb # reference semantics; portable vs hardware-only tags
     guardrails/              # the check registry + individual footgun checks
-    backends/gba*            # lower IR -> ARM7 ROM
+    backends/gba*            # lower IR -> ARM7 ROM (gba/asm.rb is the ARM encoder)
     backends/reference*      # interpret IR -> framebuffer (headless oracle)
-  asm.rb, rom.rb             # ARM encoding + cartridge assembly
-  build_report.rb            # what the build made: sizes, quick-memory placement, the stack
-  profiler.rb                # what it cost when it ran: per-routine, measured on the emulator
-  verifier.rb                # read back real pixels from an emulator (via ruby-gba-emulator, the libmgba binding)
+    backends/native*         # write IR as C, built by zig into a desktop program
+  console/                   # the console's hardware: addresses, registers, flags
+  cartridge/                 # cartridge bytes: ROM assembly, header, game code, validation
+  diagnostics/               # reading a built or running cartridge back: Verifier, Profiler, BuildReport
+  playthroughs/              # playing a cartridge with nobody at the controls; tapes; comparisons
+  messages/                  # how a build talks while it builds: progress, plain-language findings
 examples/                    # runnable games + demos (see the Examples section above)
 assets/                      # captured GIFs / screenshots
 ```
 
 ## Status
 
-Pre-1.0. Full games work end-to-end on both bitmap and tiled screens — sprites (rotated and scaled), scrolling and bending backgrounds, a named layer stack, screen effects, four-channel and sampled sound, and the asset pipeline are all in (see `examples/`). Affine backgrounds and the alternate backends are still planned. The current proving ground is a Wolfenstein 3D port ([ruby-wolf3d](https://github.com/jamescook/ruby-wolf3d)) — a real game in its own repository that depends on this one as a gem, which is what's surfacing most of the framework gaps that still need closing.
+Pre-1.0. Full games work end-to-end on both bitmap and tiled screens — sprites (rotated and scaled), scrolling, bending and turning backgrounds, a named layer stack, screen effects and lights, four-channel and sampled sound, saves, and the asset pipeline are all in (see `examples/`). The C build for a computer plays on a Mac the examples it can build so far (`ruby tools/native_examples.rb` lists which, and why not the rest); the web and terminal backends are still planned. The current proving ground is a Wolfenstein 3D port ([ruby-wolf3d](https://github.com/jamescook/ruby-wolf3d)) — a real game in its own repository that depends on this one as a gem, which is what's surfacing most of the framework gaps that still need closing.
 
 Building and shipping a ROM is **pure Ruby** — no compiler, no C extension. Anything that reads what a ROM *actually did* runs it in an emulator through **`ruby-gba-emulator`**, a separate gem (in this repository, under `ruby-gba-emulator/`) binding libmgba, which needs a C compiler and libmgba to build. It is deliberately not a dependency of this gem, so somebody who only builds cartridges installs no compiler; add it to your Gemfile when you want to verify or profile one:
 

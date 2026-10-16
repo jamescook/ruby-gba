@@ -343,6 +343,19 @@ class TestCLI < Minitest::Test
     end
   end
 
+  # A computer there is no build for is refused before anything is built, in the command's own
+  # words for the ones there are.
+  def test_format_native_rejects_an_unknown_target
+    Dir.mktmpdir do |dir|
+      cli("new", "demo", dir: dir)
+      out, status = cli("build", "demo.rb", "--format", "native", "--target", "amiga", dir: dir)
+      refute status.success?, "an unknown computer should fail"
+      assert_match(/no build for amiga/, out)
+      assert_match(/windows, linux, linux-arm/, out)
+      refute_match(/Building/, out, "nothing is built")
+    end
+  end
+
   # A game split across files the way examples/hero.rb's "scene as a class in its
   # own file" pattern does — the dumped IR has to be one self-contained class
   # regardless of how many source files built the tree it holds.
