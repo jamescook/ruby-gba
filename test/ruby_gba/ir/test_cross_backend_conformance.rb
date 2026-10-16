@@ -10,7 +10,7 @@ require "conformance_fixture"
 # behind another. Complementary to the differential test (gba-cbw), which checks
 # the backends AGREE on output; this one checks they all COVER every feature.
 class TestCrossBackendConformance < Minitest::Test
-  runs_on :reference
+  runs_on :reference, :native
 
   Node = RubyGBA::IR::Node
   ROMValidator = RubyGBA::Cartridge::ROMValidator
@@ -47,6 +47,13 @@ class TestCrossBackendConformance < Minitest::Test
 
     refute interp.stopped_at_budget?,
            "the fixture should sync-then-halt cleanly, not run out the step budget"
+  end
+
+  # The lowering this run is for plays the fixture too: on a native run, the game built as C,
+  # checked against the interpreter on every frame. The fixture's console-only kinds sit in a
+  # routine nothing calls, so a lowering that cannot write them still has nothing to refuse.
+  def test_the_lowering_under_test_plays_the_whole_fixture
+    game_player.run(ConformanceFixture.program, max_steps: 10_000)
   end
 
   def test_gba_backend_lowers_the_whole_fixture_to_a_clean_rom

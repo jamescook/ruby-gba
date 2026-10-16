@@ -340,8 +340,11 @@ module RubyGBA
 
           # --- refusing what cannot be written yet ---
 
+          # What is refused is only what the program can reach: a console-only step in a routine
+          # nothing calls never runs, so the game as C plays the same without it, as the
+          # interpreter does, which complains of one only when it is reached.
           def refuse_unlowered_kinds!
-            hardware = Portability.hardware_only_kinds_in(@program)
+            hardware = @reachable.map(&:kind).uniq.select { |kind| Portability.hardware_only?(kind) }
             unless hardware.empty?
               raise LoweringError,
                     "this program uses #{hardware.map(&:inspect).join(', ')}, which only means something on " \
