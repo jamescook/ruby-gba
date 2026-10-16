@@ -9,7 +9,7 @@ require "tempfile"
 # after lowering, so they run at finalization rather than as IR guardrails (which
 # reason about the program before any ROM exists).
 class TestROMValidator < Minitest::Test
-  runs_on :reference
+  runs_on :reference, :native
 
   ROMValidator = RubyGBA::Cartridge::ROMValidator
 

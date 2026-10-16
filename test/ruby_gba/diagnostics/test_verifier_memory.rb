@@ -9,7 +9,7 @@ require "test_helper"
 # state on hardware. Needs the backend's variable-address map, since the backend —
 # not the builder — decides where each variable lives.
 class TestVerifierMemory < Minitest::Test
-  runs_on :reference
+  runs_on :reference, :native
 
   ANSWER = 51_966 # 0xCAFE — a distinctive sentinel
 
@@ -108,7 +108,7 @@ class TestVerifierMemory < Minitest::Test
   # that has nothing to do with the game.
   def test_the_two_backends_read_a_negative_variable_the_same_way
     program, _backend, console = below_nothing_on_the_console
-    oracle = Reference.new.run(program)
+    oracle = game_player.run(program)
 
     assert_equal(-1, oracle[:hurt], "the oracle counted below nothing, as the program says")
     assert_equal oracle[:hurt], console.var(:hurt)

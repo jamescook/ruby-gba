@@ -25,7 +25,7 @@ require "test_helper"
 # has no slots to give out, so a slot number is the one thing missing from its rows, which is
 # the half worth losing.
 class TestNamedSprites < Minitest::Test
-  runs_on :reference
+  runs_on :reference, :native
 
   # Two sprites, still, at places nothing else on screen shares.
   private def two_sprites
@@ -45,7 +45,7 @@ class TestNamedSprites < Minitest::Test
 
   # The same game played by the oracle instead of the console.
   private def drawn(game, frames: 4)
-    Reference.new.run(game.program, frames: frames)
+    game_player.run(game.program, frames: frames)
   end
 
   # The whole point: name the sprite, get its rows, know nothing about slots.

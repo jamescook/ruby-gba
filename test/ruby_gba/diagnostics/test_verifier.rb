@@ -4,7 +4,7 @@ require "test_helper"
 require "comparison_games"
 
 class TestVerifier < Minitest::Test
-  runs_on :reference
+  runs_on :reference, :native
 
   include ComparisonGames
 

@@ -7,7 +7,7 @@ require "test_helper"
 # hundreds of megabytes, so past a set number of frames the sound goes to a scratch file, and
 # what is read back is the file and the memory put together.
 class TestRecordedSound < Minitest::Test
-  runs_on :reference
+  runs_on :reference, :native
 
   RecordedSound = RubyGBA::Diagnostics::RecordedSound
 

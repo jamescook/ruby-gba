@@ -18,7 +18,7 @@ require "test_helper"
 # scrolling. Its column of pixels has to come out one flat color: two colors in a
 # column means the picture sheared, and where it changes is where the write landed.
 class TestScrollTearing < Minitest::Test
-  runs_on :reference
+  runs_on :reference, :native
 
   # A field of alternating 8px red and blue columns, scrolled 8px further every
   # frame — so any horizontal shift changes which color sits at a given x, and a
@@ -88,8 +88,8 @@ class TestScrollTearing < Minitest::Test
     builder.finalize_program
     program = builder.program
 
-    still = Reference.new.run(program, frames: 6).screen
-    moved = Reference.new.hold(:right).run(program, frames: 6).screen
+    still = game_player.run(program, frames: 6).screen
+    moved = game_player.hold(:right).run(program, frames: 6).screen
 
     assert_equal Color.resolve(:green), still.pixel(44, 44),
                  "left alone, the landmark stays where the map put it"

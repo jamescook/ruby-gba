@@ -5,7 +5,7 @@ require "test_helper"
 require "stringio"
 
 class TestInspector < Minitest::Test
-  runs_on :reference
+  runs_on :reference, :native
 
   # Helper: disassemble a single instruction word via Inspector internals.
   private def disasm(word)

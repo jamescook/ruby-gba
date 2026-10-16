@@ -9,7 +9,7 @@ require "test_helper"
 # build runs each scene again with every collection held at its capacity and says which ones
 # make it fall behind, with the frame rate it measured.
 class TestFullCollections < Minitest::Test
-  runs_on :reference
+  runs_on :reference, :native
 
   def setup = require_emulator!
 

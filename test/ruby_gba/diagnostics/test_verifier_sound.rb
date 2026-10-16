@@ -8,7 +8,7 @@ require "test_helper"
 # test here runs one cartridge twice, once with everything in memory and once with room for
 # a few frames only, and asks both the same things.
 class TestVerifierSound < Minitest::Test
-  runs_on :reference
+  runs_on :reference, :native
 
   RecordedSound = RubyGBA::Diagnostics::RecordedSound
 

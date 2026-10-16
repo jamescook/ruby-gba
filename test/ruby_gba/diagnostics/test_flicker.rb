@@ -8,7 +8,7 @@ require "test_helper"
 # one, at every shape that matters. The pictures are tiny; the rule does not care
 # how big they are.
 class TestFlickerRule < Minitest::Test
-  runs_on :reference
+  runs_on :reference, :native
 
   Flicker = RubyGBA::Diagnostics::Flicker
 
@@ -182,8 +182,8 @@ class TestFlickerOnTheInterpreter < Minitest::Test
   end
 
   private def reading_for(program, at: 30)
-    before = Reference.new.run(program, frames: at).screen.pages
-    after = Reference.new.run(program, frames: at + 2).screen.pages
+    before = game_player.run(program, frames: at).screen.pages
+    after = game_player.run(program, frames: at + 2).screen.pages
     RubyGBA::Diagnostics::Flicker.read(before, after)
   end
 

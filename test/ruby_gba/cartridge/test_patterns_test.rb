@@ -3,7 +3,7 @@
 require "test_helper"
 
 class TestTestPatterns < Minitest::Test
-  runs_on :reference
+  runs_on :reference, :native
 
   def test_solid_fill_builds
     rom = RubyGBA::Cartridge::TestPatterns.solid_fill(:red)
