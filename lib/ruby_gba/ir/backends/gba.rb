@@ -549,6 +549,7 @@ module RubyGBA
                                    streamed_sprite_pose_vars: streamed_sprite_pose_vars,
                                    sprite_runs: sprite_runs,
                                    scene_sets: scene_sets_record,
+                                   missed_routine_parts: missed_routine_parts,
                                    build_options: { fast_cartridge: @fast_cartridge, fast_code: @fast_code })
         end
 
@@ -635,6 +636,21 @@ module RubyGBA
 
             [site, site.merge(at: swapped_address(name) + (copy.at - span.begin), set: set)]
           end
+        end
+
+        # WHERE EACH STATEMENT OF A ROUTINE THAT MISSED THE QUICK MEMORY IS, by the routine: the
+        # line of the game that wrote it and the addresses its code runs at, from the cartridge.
+        # A measured run adds up the time inside each, to say which part of such a routine is
+        # worth making a `func` of (see Diagnostics::SplitHints). Only the routines that missed:
+        # the others are already as fast as they will be.
+        def missed_routine_parts
+          base = ROM_START + RubyGBA::Cartridge::ROM::ENTRY_OFFSET
+          missed = (@passed_over || []).map(&:name).select { |name| region_of(name) == :cartridge }
+          missed.to_h do |name|
+            span = @functions.func_ranges[name]
+            parts = span ? @attribution.statement_spans.select { |part| span.cover?(part.from) && part.to <= span.end } : []
+            [name, parts.map { |part| { source: part.source, at: (base + part.from)...(base + part.to) } }]
+          end.reject { |_, parts| parts.empty? }
         end
 
         def routine_addresses
@@ -866,8 +882,7 @@ module RubyGBA
           # know what "the quick memory" or "a DMA transfer's size" mean, so Placement
           # hands its own resolvers in rather than Emit reaching for them by name.
           @emit.resolve_fixups(fast_addr: method(:resolve_fast_address), hot_size: method(:resolve_hot_size),
-                               routine_word: method(:resolve_routine_word), quick_word: method(:resolve_quick_word),
-                               quick_base: method(:resolve_quick_base))
+                               routine_word: method(:resolve_routine_word), quick_word: method(:resolve_quick_word))
           @emit.code
         end
 

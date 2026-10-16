@@ -86,6 +86,15 @@ module RubyGBA
           # difference between "it emitted nothing" and "this build never saw it".
           attr_reader :emitted
 
+          # WHERE EACH STATEMENT'S CODE IS: the line of the game that wrote it, and the stretch
+          # of the emitted code it came to, nested statements included. A statement's code is
+          # one stretch because it is emitted in one go. This is what lets a measured run say
+          # which part of a routine its time went to, by the line an author would open.
+          StatementSpan = Data.define(:source, :from, :to)
+
+          # Every statement lowered this pass that knows its line, in the order lowered.
+          attr_reader :statement_spans
+
           # +emit+ is the code buffer being written — this watches it rather than being told,
           # since where the bytes and the branches come from is its whole subject.
           def initialize(emit)
@@ -94,6 +103,7 @@ module RubyGBA
             # One frame per node still being lowered, holding what its nested nodes have
             # claimed so far. The innermost is last.
             @nested = []
+            @statement_spans = []
           end
 
           # Nothing counted so far belongs to this pass. Called at the top of one, so a
@@ -101,6 +111,15 @@ module RubyGBA
           def reset
             @emitted.clear
             @nested.clear
+            @statement_spans.clear
+          end
+
+          # Lower statement +node+ as #measure_node does, and remember where its code is.
+          def measure_statement(node, &)
+            from = @emit.pos
+            result = measure_node(node, &)
+            @statement_spans << StatementSpan.new(source: node.source, from: from, to: @emit.pos) if node.source && @emit.pos > from
+            result
           end
 
           # Lower +node+ (whatever the block does) and remember what it alone emitted.

@@ -58,7 +58,7 @@ module RubyGBA
           # reported on each would spend more time saying so than emitting.
           def statement(node)
             @progress.tick { "#{@emitted.call} bytes" }
-            @attribution.measure_node(node) { @statements.fetch(node.kind) { unknown_statement(node) }.call(node) }
+            @attribution.measure_statement(node) { @statements.fetch(node.kind) { unknown_statement(node) }.call(node) }
           end
 
           # Every kind with a value/statement handler — read by the coverage test that

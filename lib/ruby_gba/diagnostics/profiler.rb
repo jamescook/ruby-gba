@@ -91,7 +91,11 @@ module RubyGBA
       # whose rate halves for one line of work says why here and nowhere else.
       Result = Data.define(:frames, :samples, :fps, :idle_share, :lines, :unattributed, :keys,
                            :reached, :tearing, :flicker, :tick_rates, :sound_drops, :video_copies,
-                           :late_passes) do
+                           :late_passes, :split_hints) do
+        # +split_hints+ are the parts of routines that missed the quick memory worth making a
+        # `func` of (see SplitHints), busiest first.
+        def initialize(split_hints: [], **rest) = super
+
         def dropping_frames? = fps < 59.5
 
         # Instructions a frame — what the game actually does, where a share only says how that
@@ -103,6 +107,7 @@ module RubyGBA
           { frames: frames, samples: samples, fps: fps, idle_share: idle_share,
             keys: keys.map(&:to_s), unattributed: unattributed, reached: reached.to_h,
             late_passes: late_passes,
+            split_hints: split_hints.map { |hint| hint.to_h.merge(routine: hint.routine.to_s) },
             tearing: tearing && { looked: tearing.looked, torn: tearing.torn, worst: tearing.worst },
             flicker: flicker&.measured? ? { pixels: flicker.pixels, first: flicker.first } : nil,
             timers: tick_rates.select(&:measured?).map do |tick|
@@ -136,7 +141,7 @@ module RubyGBA
       def self.run(rom, frames: FRAMES, settle: SETTLE, keys: [], scene: nil, from: nil,
                    picture: true, holding: nil)
         routines = rom.built.routines
-        loaded_set = 0 # which scene's own routines were in the quick memory; read as the run ends
+        loaded_sets = 0 # which scenes' own routines were in the quick memory; read as the run ends
         held = Array(keys)
         raise ArgumentError, "give `scene:` or `from:`, not both. A saved moment already says " \
                              "which scene the game was in." if from && scene
@@ -163,8 +168,8 @@ module RubyGBA
             # READ BEFORE the picture is looked at, because looking at it steps the game on a
             # few more frames — and those frames are not the frames that were measured.
             lost_sounds = drops_in(probe, drops)
-            loaded_set = loaded_set_number(rom, probe, scene)
-            routines = rom.built.routines_with_set(loaded_set)
+            loaded_sets = sets_in(rom, probe)
+            routines = rom.built.routines_with_sets(loaded_sets)
             [measured,
              picture ? tearing_in(probe, program, held) : nil,
              picture ? flicker_in(probe, program, held) : nil,
@@ -176,16 +181,17 @@ module RubyGBA
 
         build_result(profile, routines, held, reached, tearing, flicker,
                      tick_rates_in(profile, rom.built.timer_handlers), lost,
-                     video_copies_in(profile, rom.built.video_copies, loaded_set))
+                     video_copies_in(profile, rom.built.video_copies, loaded_sets))
+          .with(split_hints: SplitHints.of(profile, rom))
       end
 
-      # WHICH SCENE'S OWN ROUTINES WERE IN THE QUICK MEMORY, in a game that swaps them as a scene
-      # takes over (see Cartridge::BuildRecord::SceneSets): every scene's set runs from the same
-      # place, so naming what ran there needs to know whose. A run held in a scene had that
-      # scene's set in; any other run is named by the set in when it ended. 0 for none.
-      def self.loaded_set_number(rom, probe, scene)
+      # WHICH SCENES' OWN ROUTINES WERE IN THE QUICK MEMORY, in a game that swaps them as a scene
+      # takes over (see Cartridge::BuildRecord::SceneSets): scenes' sets share one room, so
+      # naming what ran there needs to know whose. Read as the run ends, a bit for each set in —
+      # so a run held in a scene is named by that scene's set, and a run that crossed scenes by
+      # the sets in at its end. 0 for none, and for a game that swaps nothing.
+      def self.sets_in(rom, probe)
         sets = rom.built.scene_sets or return 0
-        return rom.built.scene_set_number(scene) || 0 if scene
 
         probe.read32(sets.loaded_at)
       end
@@ -198,11 +204,11 @@ module RubyGBA
       #
       # A copy inside a scene's own routine is at two places, the cartridge and where scenes'
       # routines are copied to — and that second place is another scene's code while its set is
-      # in, so a site there is counted only for +loaded_set+ (see #loaded_set_number).
-      def self.video_copies_in(profile, copies, loaded_set = 0)
+      # in, so a site there is counted only while its set is one of +loaded_sets+ (see #sets_in).
+      def self.video_copies_in(profile, copies, loaded_sets = 0)
         return [] if copies.nil? || copies.empty? || profile.frames.zero?
 
-        copies.reject { |copy| copy[:set] && copy[:set] != loaded_set }.group_by { |copy| copy[:source] }.filter_map do |source, sites|
+        copies.reject { |copy| copy[:set] && loaded_sets[copy[:set]].zero? }.group_by { |copy| copy[:source] }.filter_map do |source, sites|
           runs = sites.sum { |site| profile.pc.fetch(site[:at], 0) }
           next if runs.zero?
 
@@ -636,6 +642,28 @@ module RubyGBA
 
         result.lines.each do |line|
           printer.cost_line(label_for(line), "#{line.share}% of the instructions, #{line.time_share}% of the time")
+        end
+        split_hint_lines(result.split_hints, printer)
+      end
+
+      # WHICH PART OF A ROUTINE THAT MISSED THE QUICK MEMORY TO MAKE A `func` OF (see
+      # SplitHints): said by the line that wrote it, with how much of the time it holds and
+      # whether it would fit. Said only where there is such a part.
+      def self.split_hint_lines(hints, printer)
+        return if hints.nil? || hints.empty?
+
+        printer.puts("")
+        printer.puts("  these parts run from the cartridge, inside code too big for the quick memory:")
+        hints.each do |hint|
+          size = format("%.1fK", hint.bytes / 1024.0)
+          printer.puts("    #{hint.source}, in #{Messages::PlainWords.routine(hint.routine)}: #{hint.share}% of " \
+                       "that code's time and #{hint.frame_share}% of the frame's, #{size}.")
+          if hint.fits
+            printer.puts("      It fits in the quick memory. To make it run there, put this code in a `func`.")
+          else
+            printer.puts("      It does not fit: there is #{format('%.1fK', hint.room / 1024.0)} for it. " \
+                         "To fit it, make a smaller part of it a `func`.")
+          end
         end
       end
 

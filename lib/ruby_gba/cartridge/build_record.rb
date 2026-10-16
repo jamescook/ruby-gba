@@ -90,34 +90,32 @@ module RubyGBA
                                     :build_options, :findings, :emitted, :routines, :video_memory,
                                     :roomy_memory, :timer_handlers, :voices, :sound_drops,
                                     :sprite_slots, :sprite_offsets, :streamed_sprite_pose_vars,
-                                    :video_copies, :lists, :sprite_runs, :scene_sets)
+                                    :video_copies, :lists, :sprite_runs, :scene_sets, :missed_routine_parts)
       def initialize(findings: [], emitted: nil, routines: {}, video_memory: nil,
                      roomy_memory: nil, timer_handlers: {}, voices: nil, sound_drops: nil,
                      sprite_slots: {}, sprite_offsets: {}, streamed_sprite_pose_vars: {},
-                     video_copies: [], lists: {}, sprite_runs: [], scene_sets: nil, **rest)
+                     video_copies: [], lists: {}, sprite_runs: [], scene_sets: nil, missed_routine_parts: {}, **rest)
         super
       end
 
       # WHERE EACH SCENE'S OWN ROUTINES RUN, for a game whose quick memory is swapped as a scene
-      # takes over (see IR::Backends::GBA::SceneQuickMemory). Every scene's set is copied to the
-      # same place, so an address there is a different routine depending on which set is in —
-      # and +routines+, which can say one place per routine, gives such a routine the place it
-      # sits in the cartridge. +loaded_at+ is the address of the word saying which set is in,
-      # +scenes+ each scene's set number, and +routines+ each set's routines where they run
-      # while it is in.
+      # takes over (see IR::Backends::GBA::SceneQuickMemory). Scenes' sets share one room, so an
+      # address there is a different routine depending on which sets are in — and +routines+,
+      # which can say one place per routine, gives such a routine the place it sits in the
+      # cartridge. +loaded_at+ is the address of the word saying which sets are in, a bit for
+      # each set by its number; +scenes+ each scene's set number, and +routines+ each set's
+      # routines where they run while it is in.
       SceneSets = Data.define(:loaded_at, :scenes, :routines)
 
-      # The routines and where they run with set +number+ in: its own at the place sets are
-      # copied to, every other routine where +routines+ says. Every routine as it is when no
-      # set is in, for 0, or for a game that swaps nothing.
-      def routines_with_set(number)
+      # The routines and where they run with the sets of +loaded+ in, a bit for each set by its
+      # number: those sets' own at their places in the quick memory, every other routine where
+      # +routines+ says. Sets that are in together never overlap, so neither do their routines.
+      def routines_with_sets(loaded)
         return routines unless scene_sets
 
-        routines.merge(scene_sets.routines.fetch(number, {}))
+        scene_sets.routines.select { |number, _| loaded[number] == 1 }.values.reduce(routines) { |all, set| all.merge(set) }
       end
 
-      # The number of the set scene +scene+ copies in, or nil.
-      def scene_set_number(scene) = scene_sets&.scenes&.[](scene.to_sym)
 
       # One run of the sprite table drawn in an order the game works out: +order+ is the address
       # of its order, and +homes+ is each of its sprites' own first place and how many places it

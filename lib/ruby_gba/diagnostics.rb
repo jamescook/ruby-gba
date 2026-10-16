@@ -19,6 +19,7 @@ require_relative "diagnostics/sound_drops"
 require_relative "diagnostics/analyzer"
 require_relative "diagnostics/build_report" # the exact half of a profile: what the build made
 require_relative "diagnostics/full_collections" # every list and pool, and how to hold each one full
+require_relative "diagnostics/split_hints" # which part of a routine too big for the quick memory to make a func of
 require_relative "diagnostics/profiler" # ...and the measured half: where the frames went
 require_relative "diagnostics/routine_profile"
 require_relative "diagnostics/cartridge_file" # a cartridge that is only its file, with no record of its build

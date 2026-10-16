@@ -42,19 +42,23 @@ class TestQuickMemoryByScene < Minitest::Test
 
   # A game whose play screen insists on a routine of about +adds+ additions in the quick memory,
   # and whose file screen saves a record that insists on its save routines there too.
-  private def two_insisting_screens(adds:)
+  # With +logos+, the game opens on a screen of logos that has no routines of its own, as a
+  # real game does, before the file screen.
+  private def two_insisting_screens(adds:, logos: false)
     builder = Builder.new
     builder.instance_eval do
       b = var :b, 0
       hearts = var :hearts, 3
-      var :where, 0
+      var :where, logos ? 2 : 0
       files = save_data(:file, copies: 1, fast: true) { keep hearts }
       func(:play_work, fast: true) { adds.times { b.add! 1 } }
+      scene(:logos) { pressed(:a).then { set! :where, 0 } } if logos
       scene(:files) { pressed(:a).then { files[0].save } }
       scene(:play) { call :play_work }
       game_loop do
         pressed(:start).then { set! :where, 1 }
         case_var(:where) do
+          when_val 2, :logos if logos
           when_val 0, :files
           when_val 1, :play
         end
@@ -109,6 +113,18 @@ class TestQuickMemoryByScene < Minitest::Test
     assert_includes report.scenes.fetch(:play), :play_work
     assert(report.scenes.fetch(:files).any? { |name| name.to_s.start_with?("__save_file__") },
            "the file screen keeps its save routines: #{report.scenes[:files]}")
+  end
+
+  # A SCREEN WITH NOTHING OF ITS OWN LEAVES WHAT IS IN, and power-on puts in the first set a
+  # screen has. A game checks its saves as it opens, under its logos, and with nothing in the
+  # quick memory then that check ran from the cartridge: a pass of a real game's opening ended
+  # late, and the opening was a frame behind from there.
+  def test_the_logos_run_with_the_file_screens_routines_already_in
+    rom = assemble_rom(two_insisting_screens(adds: 1500, logos: true), name: "LOGOS")
+    sets = rom.built.scene_sets
+    v = assert_emulator_loads_rom(rom, frames: 10)
+
+    assert_equal 1, v.mem32(sets.loaded_at)[sets.scenes.fetch(:files)], "the file screen's set is in under the logos"
   end
 
   # ...and the save those routines write from the file screen's room is the save the

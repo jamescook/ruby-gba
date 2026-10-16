@@ -50,7 +50,7 @@ module RubyGBA
           # clause, the call to them, and a call to the scene that reads where it is rather than
           # jumping straight there. Counted at their dearest, with the words they read far from
           # the base of the variables.
-          DISPATCH_ENTRY_BYTES = 64
+          DISPATCH_ENTRY_BYTES = 80
           DISPATCH_CLAUSE_BYTES = 16
 
           # A call into a set routine from the game loop that is not the dispatch's — a scene's
@@ -81,6 +81,9 @@ module RubyGBA
             index = quick_memory_sets.keys.index(scene)
             index && (index + 1)
           end
+
+          # Does scene routine +scene+ have routines of its own in a set?
+          def scene_keeps_routines?(scene) = !quick_memory_sets.fetch(scene, []).empty?
 
           # Is +node+ the dispatch that swaps?
           def swaps_at?(node) = swaps_quick_memory? && node.equal?(@quick_memory_dispatch)
@@ -149,6 +152,7 @@ module RubyGBA
           def choose_scene_sets(program, wanted, sizes, room, insisted, chosen)
             dispatch = quick_memory_dispatch(program) or return nil
             scenes = dispatch.clauses.map(&:last).uniq
+            return nil if scenes.size > MOST_SETS
             owners = scene_owners(program, scenes)
             only_scene = ->(name) { (o = owners[name]).size == 1 && scenes.include?(o.first) ? o.first : nil }
 
@@ -309,68 +313,145 @@ module RubyGBA
           # How big each set's block came out, by number.
           def set_bytes(number) = @emit.labels.fetch(set_end_label(number)) - @emit.labels.fetch(set_start_label(number))
 
-          def biggest_set_bytes
-            (1..quick_memory_sets.size).map { |number| set_bytes(number) }.max.to_i
+          def set_numbers = (1..quick_memory_sets.size)
+
+          # The room the sets are copied into: as big as the biggest of them.
+          def biggest_set_bytes = set_numbers.map { |number| set_bytes(number) }.max.to_i
+
+          # WHERE IN THAT ROOM EACH SET GOES. Sets small enough to sit side by side are given
+          # places that do not overlap, so copying one in leaves the other in: a game's logos and
+          # title, with a routine or two of their own, then leave the file screen's routines in
+          # quick memory through the opening, where the file screen's saves are checked. Only a
+          # set that overlaps another puts it out. Biggest first, each at the place that overlaps
+          # the fewest sets already placed, the lowest of those on a tie.
+          def place_scene_sets
+            room = biggest_set_bytes
+            @set_offsets = {}
+            set_numbers.sort_by { |number| [-set_bytes(number), number] }.each do |number|
+              size = set_bytes(number)
+              places = @set_offsets.map { |other, at| at + set_bytes(other) }.unshift(0).uniq.select { |at| at + size <= room }
+              @set_offsets[number] = places.min_by do |at|
+                [@set_offsets.count { |other, there| stretches_overlap?(at, size, there, set_bytes(other)) }, at]
+              end
+            end
           end
+
+          def stretches_overlap?(at, size, other_at, other_size) = at < other_at + other_size && other_at < at + size
+
+          # The sets that copying set +number+ in puts out.
+          def sets_put_out_by(number)
+            set_numbers.select do |other|
+              other != number &&
+                stretches_overlap?(@set_offsets.fetch(number), set_bytes(number), @set_offsets.fetch(other), set_bytes(other))
+            end
+          end
+
+          # Each set's bit in the word saying which sets are in. None for "no set".
+          def set_bit(number) = number.zero? ? 0 : 1 << number
+
+          # A word has a bit for each set, so a game gets as many sets as that, less "no set".
+          MOST_SETS = 31
 
           # Where a routine in a set runs while its set is in: where the sets are copied to,
-          # plus how far into its own set it sits.
+          # plus its set's place there, plus how far into its own set it sits.
           def swapped_address(name)
             number = set_holding(name)
-            @swap_base + (@emit.labels.fetch(@functions.func_label(name)) - @emit.labels.fetch(set_start_label(number)))
+            @swap_base + @set_offsets.fetch(number) +
+              (@emit.labels.fetch(@functions.func_label(name)) - @emit.labels.fetch(set_start_label(number)))
           end
 
-          # THE TABLE THE SWAP READS: for no set and for each set, where its code is in the
-          # cartridge, the copying engine's word for how much of it there is (0 for none), and
-          # where the words saying where each routine is are kept for it. And for each, those
-          # words: in this set, where the set is copied to; in any other, the cartridge.
+          # THE TABLES THE SWAP READS. For no set and for each set, a list of what to do, kept in
+          # the cartridge: which sets stay in, this set's bit, and then each copy to make — the
+          # set's code to its place, its routines' words saying the quick memory, and the words of
+          # each set it puts out saying the cartridge again. Each copy is the copying engine's
+          # three numbers. "No set", at power-on, makes one copy: every word saying the cartridge.
           QUICK_TABLE = :__scene_set_table
-          QUICK_ENTRY_BYTES = 12
 
           def register_quick_tables
             return unless swaps_quick_memory?
 
-            names = routines_in_sets
-            count = quick_memory_sets.size
-            @emit.data_blobs[QUICK_TABLE] = "\x00".b * (QUICK_ENTRY_BYTES * (count + 1))
-            (0..count).each do |number|
-              blob = :"__scene_set_places_#{number}"
-              @emit.data_blobs[blob] = "\x00".b * (WHERE_WORD_BYTES * names.size)
-              names.each_with_index do |name, i|
-                value = lambda do
-                  set_holding(name) == number ? swapped_address(name) : @emit.label_address(@functions.func_label(name))
-                end
-                @emit.fixups << Emit::BlobWord.new(kind: :quick_word, blob: blob, offset: i * WHERE_WORD_BYTES, target: value)
-              end
-              entry = number * QUICK_ENTRY_BYTES
-              next @emit.link_data(QUICK_TABLE, entry + 8, blob) if number.zero?
-
-              @emit.fixups << Emit::BlobWord.new(kind: :quick_word, blob: QUICK_TABLE, offset: entry,
-                                                 target: -> { @emit.label_address(set_start_label(number)) })
-              @emit.fixups << Emit::BlobWord.new(kind: :quick_word, blob: QUICK_TABLE, offset: entry + 4,
-                                                 target: -> { set_copy_control(number) })
-              @emit.link_data(QUICK_TABLE, entry + 8, blob)
+            @emit.data_blobs[QUICK_TABLE] = "\x00".b * (WHERE_WORD_BYTES * (quick_memory_sets.size + 1))
+            register_word_tables
+            (0..quick_memory_sets.size).each do |number|
+              copies = number.zero? ? [word_copy(:all, routines_in_sets)] : copies_for_set(number)
+              blob = :"__scene_set_jobs_#{number}"
+              keep = number.zero? ? 0 : ~sets_put_out_by(number).sum { |other| set_bit(other) } & 0xFFFF_FFFF
+              register_words(blob, [-> { keep }, -> { set_bit(number) }, -> { copies.size }] + copies.flatten)
+              @emit.link_data(QUICK_TABLE, number * WHERE_WORD_BYTES, blob)
             end
           end
 
-          # The copying engine's word for a set: whole words, both ends moving on, and go. A set
-          # with nothing in it is 0, which the swap reads as nothing to copy — the engine itself
-          # would read a count of 0 as the most it can move.
-          def set_copy_control(number)
-            words = set_bytes(number) / 4
-            words.zero? ? 0 : (words | DMA_32BIT | DMA_ENABLE)
+          # The copies set +number+ makes as it goes in, each as the engine's three numbers.
+          def copies_for_set(number)
+            names = quick_memory_sets.values[number - 1]
+            code = [-> { @emit.label_address(set_start_label(number)) },
+                    -> { @swap_base + @set_offsets.fetch(number) },
+                    -> { set_bytes(number) / 4 | DMA_32BIT | DMA_ENABLE }]
+            put_out = sets_put_out_by(number).filter_map do |other|
+              others = quick_memory_sets.values[other - 1]
+              word_copy(other, others) unless others.empty?
+            end
+            [code, word_copy(:"in_#{number}", names), *put_out]
+          end
+
+          # A copy of the words of +names+ from table +which+ (see #register_word_tables) into
+          # their places in the quick memory.
+          def word_copy(which, names)
+            [-> { @emit.data_address(:"__scene_set_words_#{which}") },
+             -> { var_addr(where_word(names.first)) },
+             -> { names.size | DMA_32BIT | DMA_ENABLE }]
+          end
+
+          # THE WORDS EACH COPY READS: every routine at its place in the cartridge, each set's
+          # routines at their place in the quick memory, and each set's at the cartridge.
+          def register_word_tables
+            cartridge = ->(name) { -> { @emit.label_address(@functions.func_label(name)) } }
+            register_words(:__scene_set_words_all, routines_in_sets.map(&cartridge))
+            quick_memory_sets.values.each_with_index do |names, index|
+              register_words(:"__scene_set_words_in_#{index + 1}", names.map { |name| -> { swapped_address(name) } })
+              register_words(:"__scene_set_words_#{index + 1}", names.map(&cartridge))
+            end
+          end
+
+          # A table in the cartridge of words worked out once everything has its place.
+          def register_words(blob, values)
+            @emit.data_blobs[blob] = "\x00".b * (WHERE_WORD_BYTES * values.size)
+            values.each_with_index do |value, i|
+              @emit.fixups << Emit::BlobWord.new(kind: :quick_word, blob: blob, offset: i * WHERE_WORD_BYTES, target: value)
+            end
           end
 
           def resolve_quick_word(fix)
             @emit.patch_word(fix.blob, fix.offset, fix.target.call)
           end
 
-          # At power-on no set is in, and every word says the cartridge.
-          def emit_power_on_scene_set
-            return unless swaps_quick_memory?
+          # AT POWER-ON every word says the cartridge, and then each set that has routines goes
+          # in, in the order the dispatch names its scenes, unless it would put out one already
+          # in — so the opening runs with as many sets in as sit side by side. Which those are is
+          # known only once every set's code is written, so power-on calls a routine of its own,
+          # written with the swap.
+          POWER_ON_ROUTINE = :__swap_quick_memory_at_power_on
 
-            emit(ASM.load_immediate(ACC, 0))
-            emit_call_cold_routine(SWAP_ROUTINE)
+          def emit_power_on_scene_set
+            emit_call_cold_routine(POWER_ON_ROUTINE) if swaps_quick_memory?
+          end
+
+          def emit_power_on_routine
+            place_label(POWER_ON_ROUTINE)
+            emit(ASM.push(14))
+            [0, *power_on_sets].each do |number|
+              emit(ASM.load_immediate(ACC, number))
+              emit_branch(:bl, SWAP_ROUTINE)
+            end
+            emit(ASM.pop(15))
+          end
+
+          def power_on_sets
+            set_numbers.each_with_object([]) do |number, chosen|
+              next if quick_memory_sets.values[number - 1].empty?
+
+              chosen << number if chosen.none? { |other| sets_put_out_by(number).include?(other) }
+            end
           end
 
           # BEFORE THE DISPATCH CALLS A SCENE, its set is copied in unless it is in already. That
@@ -385,9 +466,12 @@ module RubyGBA
             place_label(entry)
             emit(ASM.push(14))
             @primitives.load_var(TMP, LOADED_SET)
-            emit(ASM.cmp_reg(TMP, ACC))
+            emit(ASM.load_immediate(SWAP_TABLE, 1))
+            emit(ASM.mov_reg_lsl_reg(SWAP_TABLE, SWAP_TABLE, ACC))   # this set's bit
+            emit(ASM.and_reg(SWAP_TABLE, TMP, SWAP_TABLE))
+            emit(ASM.cmp_imm(SWAP_TABLE, 0))
             done = @emit.gensym
-            emit_branch(:bcond, done, cond: :eq)
+            emit_branch(:bcond, done, cond: :ne)                     # in already
             emit_call_cold_routine(SWAP_ROUTINE)
             place_label(done)
             emit(ASM.pop(15))
@@ -395,50 +479,50 @@ module RubyGBA
             entry
           end
 
-          # The registers the swap works in, beside r0 (the set's number, then the engine's
-          # numbers) and r1 (the copying engine's own address): the set's row of the table, and
-          # the two numbers read out of it for the engine.
-          SWAP_ROW = 12 # ADDR, which is not defined yet when this file loads
-          SWAP_SOURCE = 2
-          SWAP_CONTROL = 3
+          # The registers the swap works in, beside r0 (the set's number, then the word saying
+          # which sets are in, then the engine's numbers) and r1 (the copying engine's own
+          # address): the set's list of what to do, and how many copies are left in it.
+          SWAP_TABLE = 12 # ADDR, which is not defined yet when this file loads
+          SWAP_LIST = 2
+          SWAP_LEFT = 3
 
-          # THE SWAP, with the set's number in r0. Uses r0 to r3 and r12, and returns to where
-          # it was called from.
+          # THE SWAP, with the set's number in r0: say which sets are in now, then make the
+          # copies its list holds (see #register_quick_tables). Uses r0 to r3 and r12, and
+          # returns to where it was called from.
           #
           # The code goes in before the words saying where it is, so for the moment between the
-          # two copies the old set's words point at the new set's code. Nothing runs in that
-          # moment but this routine and an interrupt, and nothing an interrupt reaches is in a
-          # set (see #refuse_interrupt_call_into_set!), so no call reads a word then.
+          # copies some words point at the new set's code. Nothing runs in that moment but this
+          # routine and an interrupt, and nothing an interrupt reaches is in a set (see
+          # #refuse_interrupt_call_into_set!), so no call reads a word then.
           def emit_swap_routine
             return unless swaps_quick_memory?
 
+            place_scene_sets # every set's code is written, so their sizes and places are known
             place_label(SWAP_ROUTINE)
+            @emit.emit_load_data_address(SWAP_TABLE, QUICK_TABLE)
+            emit(ASM.ldr_reg_lsl(SWAP_LIST, SWAP_TABLE, ACC, 2))      # this set's list
+            @primitives.load_var(ACC, LOADED_SET)
+            emit(ASM.ldr(SWAP_LEFT, SWAP_LIST))                       # the sets that stay in...
+            emit(ASM.and_reg(ACC, ACC, SWAP_LEFT))
+            emit(ASM.ldr_offset(SWAP_LEFT, SWAP_LIST, 4))             # ...and this one
+            emit(ASM.orr_reg(ACC, ACC, SWAP_LEFT))
             @primitives.store_var(ACC, LOADED_SET)
-            emit(ASM.lsl_imm(SWAP_SOURCE, ACC, 2))                    # number * 4...
-            emit(ASM.lsl_imm(SWAP_CONTROL, ACC, 3))                   # ...plus number * 8, a row being 12
-            @emit.emit_load_data_address(SWAP_ROW, QUICK_TABLE)
-            emit(ASM.add_reg(SWAP_ROW, SWAP_ROW, SWAP_SOURCE))
-            emit(ASM.add_reg(SWAP_ROW, SWAP_ROW, SWAP_CONTROL))       # this set's row
-            emit(ASM.ldr(SWAP_SOURCE, SWAP_ROW))                      # where its code is
-            emit(ASM.ldr_offset(SWAP_CONTROL, SWAP_ROW, 4))           # how much, as the engine's word
-            no_code = @emit.gensym
-            emit(ASM.cmp_imm(SWAP_CONTROL, 0))
-            emit_branch(:bcond, no_code, cond: :eq)
-            @primitives.emit_start_copy_engine(
-              from: Primitives::InRegister.new(SWAP_SOURCE),
-              to: lambda do
-                @emit.fixups << Emit::AddressLoad.new(pos: pos, kind: :quick_base, reg: ACC, target: nil)
-                emit(ASM.load_immediate_fixed(ACC, 0))
-              end,
-              control: Primitives::InRegister.new(SWAP_CONTROL)
-            )
-            place_label(no_code)
-            emit(ASM.ldr_offset(SWAP_SOURCE, SWAP_ROW, 8))            # where its words are
-            words = routines_in_sets.size
-            @primitives.emit_start_copy_engine(from: Primitives::InRegister.new(SWAP_SOURCE),
-                                               to: var_addr(where_word(routines_in_sets.first)),
-                                               control: words | DMA_32BIT | DMA_ENABLE)
+            emit(ASM.ldr_offset(SWAP_LEFT, SWAP_LIST, 8))             # how many copies
+            emit(ASM.add_imm(SWAP_LIST, SWAP_LIST, 12))
+            again = @emit.gensym
+            done = @emit.gensym
+            place_label(again)
+            emit(ASM.cmp_imm(SWAP_LEFT, 0))
+            emit_branch(:bcond, done, cond: :eq)
+            @primitives.emit_start_copy_engine(from: -> { emit(ASM.ldr(ACC, SWAP_LIST)) },
+                                               to: -> { emit(ASM.ldr_offset(ACC, SWAP_LIST, 4)) },
+                                               control: -> { emit(ASM.ldr_offset(ACC, SWAP_LIST, 8)) })
+            emit(ASM.add_imm(SWAP_LIST, SWAP_LIST, 12))
+            emit(ASM.sub_imm(SWAP_LEFT, SWAP_LEFT, 1))
+            emit_branch(:b, again)
+            place_label(done)
             emit(ASM.bx(14))
+            emit_power_on_routine
             place_label(:"#{SWAP_ROUTINE}_end")
           end
 
@@ -454,10 +538,6 @@ module RubyGBA
               [number, names.to_h { |name| [name, swapped_address(name)...(swapped_address(name) + @functions.func_ranges.fetch(name).size)] }]
             end
             RubyGBA::Cartridge::BuildRecord::SceneSets.new(loaded_at: var_addr(LOADED_SET), scenes: scenes, routines: routines)
-          end
-
-          def resolve_quick_base(fix)
-            @emit.patch16(fix.pos, ASM.load_immediate_fixed(fix.reg, @swap_base))
           end
         end
       end

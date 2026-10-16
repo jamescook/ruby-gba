@@ -151,8 +151,12 @@ module RubyGBA
             @lowering.value(test)
             @emitter.emit(ASM.cmp_imm(ACC, 0))
             @emitter.emit_branch(:bcond, skip, cond: :eq)
-            @emitter.emit(ASM.load_immediate(ACC, @placement.scene_set_number(target)))
-            @emitter.emit_branch(:bl, @entering_scene_set)
+            # A scene with no routines of its own leaves whichever set is in, in: its code is
+            # still there, and the words saying where each routine is are still right.
+            if @placement.scene_keeps_routines?(target)
+              @emitter.emit(ASM.load_immediate(ACC, @placement.scene_set_number(target)))
+              @emitter.emit_branch(:bl, @entering_scene_set)
+            end
             @lowering.statement(Build.call(target))
             @emitter.place_label(skip)
           end
