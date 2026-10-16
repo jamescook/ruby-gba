@@ -247,7 +247,7 @@ static void headless_halt(void) { finish(); }
 static void headless_fault(const char *format, va_list args) {
   vfprintf(stderr, format, args);
   fputc('\n', stderr);
-  exit(1);
+  exit(RG_GAME_WENT_WRONG);
 }
 
 /* "var" first, so no name a game gives a variable can be read as one of the other lines: a game

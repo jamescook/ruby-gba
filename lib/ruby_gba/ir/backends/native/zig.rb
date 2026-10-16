@@ -206,10 +206,25 @@ module RubyGBA
               end
               status = waiter.value
               raise Error, "#{File.basename(exe)} was still running after #{seconds} seconds, and was stopped" unless finished
-              raise Error, "#{File.basename(exe)} stopped (#{status}):\n#{File.read(complained)}" unless status.success?
 
+              refuse_stopped_program!(exe, status, File.read(complained))
               File.read(printed)
             end
+          end
+
+          # The code a built program ends with when the GAME went wrong (rg_fault in the runtime,
+          # RG_GAME_WENT_WRONG there): pushed onto a full list, played a recording nobody
+          # declared. Any other way of stopping is the program's own failure.
+          GAME_WENT_WRONG = 3
+
+          # Raises for a program that did not end well: IR::ProgramError, with the program's own
+          # sentence, for a game that went wrong — the error the interpreter raises for the same
+          # game — and Error for anything else, a crash or a check the compiler put in.
+          def refuse_stopped_program!(exe, status, complaint)
+            return if status.success?
+            raise IR::ProgramError, complaint.strip if status.exitstatus == GAME_WENT_WRONG
+
+            raise Error, "#{File.basename(exe)} stopped (#{status}):\n#{complaint}"
           end
 
           # The most a program run by #run_program may print before the system stops it. What it

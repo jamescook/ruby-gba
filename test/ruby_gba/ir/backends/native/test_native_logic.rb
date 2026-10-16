@@ -311,8 +311,10 @@ class TestNativeLogic < Minitest::Test
       game_loop { full.push 1 }
     end
 
-    assert_raises(RubyGBA::IR::Backends::Reference::ProgramError) { reference_snapshots(program, frames: 4, buttons: {}) }
-    error = assert_raises(Native::Zig::Error) { native_snapshots(program, frames: 4, buttons: {}, mode: :checked) }
+    # One error for a game that goes wrong, whichever lowering played it, so a game's own test
+    # asserts one thing.
+    assert_raises(RubyGBA::IR::ProgramError) { reference_snapshots(program, frames: 4, buttons: {}) }
+    error = assert_raises(RubyGBA::IR::ProgramError) { native_snapshots(program, frames: 4, buttons: {}, mode: :checked) }
     assert_includes error.message, "list :full is full"
   end
 

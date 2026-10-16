@@ -466,7 +466,7 @@ class TestNativePicture < Minitest::Test
     end
 
     assert_raises(IndexError) { reference_snapshots(program, frames: 3, buttons: {}) }
-    error = assert_raises(Native::Zig::Error) { native_snapshots(program, frames: 3, buttons: {}, mode: :checked) }
+    error = assert_raises(RubyGBA::IR::ProgramError) { native_snapshots(program, frames: 3, buttons: {}, mode: :checked) }
     assert_match(/draw order names sprite 2 of the 2/, error.message)
   end
 

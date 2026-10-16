@@ -43,8 +43,11 @@ void rg_wait_vblank(void);
 _Noreturn void rg_halt(void);
 
 /* The game did something the interpreter refuses (pushed onto a full list, read past the end
- * of one): says so, in the words given printf-style, and stops. Never comes back. */
+ * of one): says so, in the words given printf-style, and stops. Never comes back. A program
+ * with no window ends with RG_GAME_WENT_WRONG, so whoever started it can tell the game going
+ * wrong from the program failing in its own right (Native::Zig::GAME_WENT_WRONG). */
 _Noreturn void rg_fault(const char *format, ...) __attribute__((format(printf, 1, 2)));
+#define RG_GAME_WENT_WRONG 3
 
 /* Whether a button is down (held), or went down since the last frame (pressed): 1 or 0. The
  * buttons are numbered in the order the console's key register holds them — a, b, select,

@@ -51,7 +51,9 @@ module RubyGBA
       class Reference
         include SaveWriting
 
-        class ProgramError < StandardError; end
+        # The error every backend raises for a program that goes wrong (IR::ProgramError), under
+        # the name the interpreter has always given it.
+        ProgramError = IR::ProgramError
 
         # A table as this backend needs it: the numbers themselves, because it reads them
         # to run the program. What the asset IS lives in IR::Assets, shared with every

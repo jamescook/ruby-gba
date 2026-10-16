@@ -55,7 +55,7 @@ class TestDirectSound < Minitest::Test
   def test_playing_an_undefined_sample_is_a_friendly_error
     b = Builder.new
     b.instance_eval { screen :bitmap; RubyGBA::DSL::Sample.new(self, :ghost).play; halt }
-    err = assert_raises(Reference::ProgramError) { Reference.new.run(b.program) }
+    err = assert_raises(Reference::ProgramError) { game_player.run(b.program) }
     assert_match(/ghost/, err.message)
   end
 

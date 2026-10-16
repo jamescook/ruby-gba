@@ -458,9 +458,7 @@ module RubyGBA
             stdout.gets&.chomp
           end
 
-          def refuse_failed_run!(exe, status, complaint)
-            raise Zig::Error, "#{File.basename(exe)} stopped (#{status}):\n#{complaint}" unless status.success?
-          end
+          def refuse_failed_run!(exe, status, complaint) = Zig.refuse_stopped_program!(exe, status, complaint)
         end
       end
     end

@@ -33,7 +33,7 @@ class TestNativeRefusals < Minitest::Test
       RubyGBA::IR::Build.loop_(RubyGBA::IR::Build.wait_vblank)
     )
 
-    error = assert_raises(Native::Zig::Error) { Native::HeadlessRun.new.run(program, frames: 3) }
+    error = assert_raises(RubyGBA::IR::ProgramError) { Native::HeadlessRun.new.run(program, frames: 3) }
     assert_match(/more parts on the square wave than the 2 there are/, error.message)
   end
 
