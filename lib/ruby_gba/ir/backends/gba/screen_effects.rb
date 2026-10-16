@@ -79,9 +79,13 @@ module RubyGBA
           # number; an amount the game computes is scaled at run time, which is a
           # multiply and a divide once per call — nothing next to a frame.
           def emit_fade(node)
+            if @layout.fading.palette_walk?(node)
+              return emit_walked_fade_by_screen_up(node) if @palette_tint.tint_crosses_screens?
+
+              return emit_palette_fade(node)
+            end
             # A fade takes the tint's place, so no tint is left to put back on a change of screen.
             @palette_tint.emit_clear_remembered_tint if @palette_tint.tint_crosses_screens?
-            return emit_palette_fade(node) if @layout.fading.palette_walk?(node)
 
             # On a screen drawn through a color table the two effects are separate pieces
             # of hardware, so nothing puts a tint away by itself. The display still holds
@@ -114,13 +118,66 @@ module RubyGBA
           # placed in the stack, or one left on from a painted screen that has no colors to
           # walk. That fade holds the blend the layer needs, and nothing but this statement
           # is going to lift it (see LayerBlend#emit_blend_back_from_display_fade).
-          def emit_palette_fade(node)
+          def emit_palette_fade(node, mode: @layout.modes.mode_at(node))
             @layer_blend.emit_blend_back_from_display_fade
             toward = node.toward == :black ? PaletteTint::DARKEN : Graphics::Color.resolve(node.toward)
             @palette_tint.emit_palette_tint(color: toward,
                                             amount: node.amount,
                                             fraction_bits: node.fraction_bits,
-                                            mode: @layout.modes.mode_at(node))
+                                            mode: mode)
+          end
+
+          # A FADE THAT WALKS THE COLORS, IN A GAME WITH MORE THAN ONE SCREEN, is done the way
+          # the screen up NOW does it, as a tint is (see #emit_tint_by_screen_up): a flash runs
+          # from a routine of its own every frame, whichever scene is up. The plain bitmap
+          # screen has no colors to walk, so there the display fades it, in sixteenths; every
+          # other screen walks its tables. And it is kept, like a tint, so the next screen to
+          # take over puts it back its own way (see #emit_kept_tint_on_entry).
+          def emit_walked_fade_by_screen_up(node)
+            toward = walked_fade_color(node)
+            @palette_tint.emit_remember_tint(toward, node.amount, node.fraction_bits)
+            emit_for_each_screen_kind do |mode|
+              mode == IR::Modes::DIRECT ? emit_walked_fade_by_display : emit_palette_fade(node, mode: mode)
+            end
+          end
+
+          # The color a walked fade is kept as: black's rounding marker, or white with the bit
+          # that tells it from a tint toward white.
+          def walked_fade_color(node)
+            node.toward == :black ? PaletteTint::DARKEN : Graphics::Color.resolve(:white) | PaletteTint::BRIGHTEN
+          end
+
+          # The fade just kept in TINT_ASKED, done by the display on the plain bitmap screen:
+          # toward black or white by the marker, as far as the walk's thirty-seconds come to in
+          # the display's sixteenths. A fade of nothing leaves the effect off rather than a fade
+          # of nothing on, which is what a screen with a see-through layer looks for on arrival.
+          def emit_walked_fade_by_display
+            load_var(KEPT, PaletteTint::TINT_ASKED)
+            emit_display_fade_from_kept
+          end
+
+          # KEPT holds a kept fade (its color is DARKEN or carries BRIGHTEN): tell the display.
+          def emit_display_fade_from_kept
+            off = gensym
+            brighten = gensym
+            done = gensym
+            emit(ASM.and_imm(ACC, KEPT, (1 << PaletteTint::TINT_COLOR_SHIFT) - 1))
+            emit(ASM.lsr_imm(ACC, ACC, 1))                     # a walk's thirty-seconds, in sixteenths
+            emit(ASM.cmp_imm(ACC, 0))
+            emit_branch(:bcond, off, cond: :eq)
+            store_halfword_acc(REG_BLDY)
+            emit_whole_screen_window
+            emit(ASM.lsr_imm(ACC, KEPT, PaletteTint::TINT_COLOR_SHIFT))
+            emit(ASM.tst_imm(ACC, PaletteTint::DARKEN))
+            emit_branch(:bcond, brighten, cond: :eq)
+            write_reg16(REG_BLDCNT, BLD_DARKEN | placed_fade.blend_target_bits(nil))
+            emit_branch(:b, done)
+            place_label(brighten)
+            write_reg16(REG_BLDCNT, BLD_BRIGHTEN | placed_fade.blend_target_bits(nil))
+            emit_branch(:b, done)
+            place_label(off)
+            write_reg16(REG_BLDCNT, 0)
+            place_label(done)
           end
 
           # Which layers the fade reaches and which way, then how far.
@@ -317,13 +374,19 @@ module RubyGBA
           # other by which screen the display is in.
           def emit_tint_by_screen_up(node)
             @palette_tint.emit_remember_tint(Graphics::Color.resolve(node.color), node.amount, node.fraction_bits)
+            emit_for_each_screen_kind { |mode| emit_tint_for_mode(node, mode) }
+          end
+
+          # The block's code once for each kind of screen the game draws on, each run only while
+          # the display is in that one: a compare against which screen is up, per kind.
+          def emit_for_each_screen_kind
             done = gensym
             @layout.modes.modes_in_use.each do |mode|
               other = gensym
               load_var(ACC, MODE_STATE)
               emit(ASM.cmp_imm(ACC, MODE_MARKERS.fetch(mode)))
               emit_branch(:bcond, other, cond: :ne)
-              emit_tint_for_mode(node, mode)
+              yield mode
               emit_branch(:b, done)
               place_label(other)
             end
@@ -342,8 +405,13 @@ module RubyGBA
             @palette_tint.emit_walk_to_kept_tint(mode) do
               # The blend the plain bitmap screen tinted with would mix this screen's third
               # layer with its backdrop. A see-through layer's own blend is written as the
-              # screen takes over.
-              write_reg16(REG_BLDCNT, 0) unless @layer_blend.see_through?
+              # screen takes over — unless the display was fading the screen before, which
+              # held it; the kept effect is walked into the colors now, so it hands it back.
+              if @layer_blend.see_through?
+                @layer_blend.emit_blend_back_from_display_fade
+              else
+                write_reg16(REG_BLDCNT, 0)
+              end
             end
           end
 
@@ -353,9 +421,26 @@ module RubyGBA
 
           def emit_blend_to_kept_tint
             skip = gensym
+            fade = gensym
             load_var(KEPT, PaletteTint::TINT_ASKED)
             emit(ASM.cmp_imm(KEPT, 0))
             emit_branch(:bcond, skip, cond: :eq)
+            # A kept fade is the display's fade on this screen, not a tint (see
+            # #emit_walked_fade_by_screen_up).
+            emit(ASM.lsr_imm(ACC, KEPT, PaletteTint::TINT_COLOR_SHIFT))
+            emit(ASM.tst_imm(ACC, PaletteTint::DARKEN))
+            emit_branch(:bcond, fade, cond: :ne)
+            emit(ASM.tst_imm(ACC, PaletteTint::BRIGHTEN))
+            emit_branch(:bcond, fade, cond: :ne)
+            emit_tint_from_kept
+            emit_branch(:b, skip)
+            place_label(fade)
+            emit_display_fade_from_kept
+            place_label(skip)
+          end
+
+          # KEPT holds a kept tint: the backdrop becomes its color and the picture is mixed with it.
+          def emit_tint_from_kept
             emit(ASM.lsr_imm(ACC, KEPT, PaletteTint::TINT_COLOR_SHIFT))
             store_halfword_acc(PALETTE_START) # the backdrop IS the tint
             emit_whole_screen_window # a tint said on another screen did not say where it reaches
@@ -363,7 +448,6 @@ module RubyGBA
             emit(ASM.and_imm(ACC, KEPT, (1 << PaletteTint::TINT_COLOR_SHIFT) - 1))
             emit(ASM.lsr_imm(ACC, ACC, 1)) # a walk's thirty-seconds, in the display's sixteenths
             emit_blend_weights_from_acc
-            place_label(skip)
           end
 
           # The weight pair as one halfword: how much of the picture survives in the low

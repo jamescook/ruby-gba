@@ -479,7 +479,12 @@ module RubyGBA
           # and the two round in opposite directions: a channel at the top taken a quarter of
           # the way to black comes back 24, where keeping three quarters would leave 23.
           def faded(color, fade_here: true)
-            return walked_toward(color, @tint_color, @tint_steps) if @tint_color.is_a?(Symbol)
+            if @tint_color.is_a?(Symbol)
+              # On the plain bitmap screen the display does a walked fade, in sixteenths.
+              return faded_by_display(color, @tint_color, @tint_steps >> 1) if @tint_by_display
+
+              return walked_toward(color, @tint_color, @tint_steps)
+            end
             # The display counts in sixteenths, the even thirty-seconds, so an odd step is dropped.
             return mixed_by_display(color, @tint_color, @tint_steps & ~1) if @tint_color && @tint_by_display
             return mixed(color, @tint_color, @tint_steps) if @tint_color

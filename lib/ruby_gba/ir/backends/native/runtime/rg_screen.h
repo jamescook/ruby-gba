@@ -136,9 +136,11 @@ void rg_shade_darkness(int32_t amount);
 void rg_game_shade_span(void);
 void rg_game_shade_amount(void);
 
-/* A scene taking over: remembered, then its screen, then what comes down. */
+/* A scene taking over: remembered, then its screen, then what comes down, and once its scenery is
+ * up the sprites of this frame back over it. */
 void rg_scene_enter(int32_t scene);
 void rg_scene_take_down(int32_t brings_scenery);
+void rg_scene_redraw_sprites(void);
 
 /* The sprites on screen this frame, said between begin and end. Each sprite has a number of its
  * own, the same every frame. First every sprite the frame draws is taken off, shown or not

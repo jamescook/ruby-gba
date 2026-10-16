@@ -96,6 +96,13 @@ module RubyGBA
           # and contributes nothing to the shares but the rounding.
           DARKEN = 0x8000
 
+          # A FADE TOWARD WHITE, kept across a change of screen (TINT_ASKED). On a screen drawn
+          # through a color table it walks to exactly what `tint :white` walks to, so the walk
+          # never looks at this bit. The plain bitmap screen is where the two part: there the
+          # display brightens for a fade and mixes the backdrop in for a tint, and the two
+          # round differently, so a screen arriving has to know which it is putting back.
+          BRIGHTEN = 0x10000
+
           # The palette layout this object reads, handed over once the prepare passes that
           # decide it have all run (see #layout=): the color table a buffered scene draws
           # through, the screen's layout ({ScreenLayout}, which made the shared background
@@ -277,7 +284,9 @@ module RubyGBA
           def prepare_palette_tint(program, fading:)
             @program_fades = program.walk.any? { |node| node.kind == :fade }
             tints = program.walk.select { |node| node.kind == :tint }
-            @tint_crosses_screens = tints.any? && @modes.modes_in_use.size > 1
+            # A fade that walks the colors is a tint toward black or white, and crosses screens
+            # the same way (see ScreenEffects#emit_walked_fade_by_screen_up).
+            @tint_crosses_screens = (tints.any? || fading.any_fade_walks_palette?) && @modes.modes_in_use.size > 1
             @palette_tint = tints.any? { |node| palette_screen?(node) } || fading.any_fade_walks_palette? ||
                             @tint_crosses_screens
             @darkens = program.walk.any? do |node|
@@ -296,8 +305,9 @@ module RubyGBA
           # Nought is no tint.
           TINT_ASKED = :__tint_asked
 
-          # Does this game tint, and draw on more than one screen? Only such a game keeps
-          # TINT_ASKED, so every other one builds as it did.
+          # Does this game tint, or fade by walking its colors (a tint toward black or white),
+          # and draw on more than one screen? Only such a game keeps TINT_ASKED, so every other
+          # one builds as it did.
           def tint_crosses_screens? = @tint_crosses_screens
 
           # Keep the tint a statement asks for, worked out the way a walk counts it.

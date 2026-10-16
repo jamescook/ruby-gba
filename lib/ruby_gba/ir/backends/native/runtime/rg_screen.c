@@ -563,6 +563,8 @@ static uint16_t mixed(uint16_t color, int32_t toward, int32_t steps, int32_t by_
 /* Framebuffer#faded. +fade_here+ is nought where a fade held to a rectangle does not reach
  * (fade_reaches). */
 static uint16_t faded_where(uint16_t color, int32_t fade_here) {
+  /* On the plain bitmap screen the display does a walked fade, in sixteenths. */
+  if (tint_mode == TINT_TOWARD && tint_by_display) return faded_by_display(color, tint_white, tint_steps >> 1);
   if (tint_mode == TINT_TOWARD) return walked_toward(color, tint_white, tint_steps);
   /* The display counts in sixteenths, the even thirty-seconds, so an odd step is dropped. */
   if (tint_mode == TINT_COLOR) return mixed(color, tint_color, tint_by_display ? tint_steps & ~1 : tint_steps, tint_by_display);
@@ -594,6 +596,8 @@ static int32_t fade_reaches(int32_t x, int32_t y) {
   return fade_side == RG_FADE_INSIDE ? within : !within;
 }
 
+static int32_t tint_mixed_by_display(void);
+
 /* Reference#exec_fade, through Framebuffer#fade_steps_to or, for a fade that walks the colors,
  * #tint_steps_to. +placed+ is 1 for a fade placed in the stack under the layer at +layer_place+.
  *
@@ -612,6 +616,7 @@ static void fade_to(int32_t placed, int32_t layer_place, int32_t toward_white, i
     tint_mode = TINT_TOWARD;
     tint_white = toward_white;
     tint_steps = steps;
+    tint_by_display = tint_mixed_by_display(); /* Reference#fade_by_tint */
     fade_steps = 0;
   } else {
     fade_white = toward_white;
@@ -1514,9 +1519,11 @@ void rg_objects_add_turned(int32_t sprite, int32_t image, int32_t x, int32_t y, 
  * screen now are kept (#snapshot_object_layer) and the rebuild is owed. On one that is not, each
  * is drawn where it is now, and where that was is remembered for taking it off again. */
 void rg_objects_end(void) {
+  /* Kept whichever way the picture is made: a scene taking over later in this pass builds the
+   * picture again from it (rg_scene_redraw_sprites). */
+  for (int32_t i = 0; i < drawing_count; i++) sprite_layer[i] = drawing[i];
+  sprite_layer_count = drawing_count;
   if (rebuilt_whole()) {
-    for (int32_t i = 0; i < drawing_count; i++) sprite_layer[i] = drawing[i];
-    sprite_layer_count = drawing_count;
     request_repaint();
     return;
   }
@@ -1694,6 +1701,15 @@ void rg_scene_take_down(int32_t brings_scenery) {
   scenery_kept = 0;
   clear_to(0);
   stamp_in_stack_order(-1);
+}
+
+/* Reference#redraw_sprites_over_arrived_scenery: the sprites of this frame were drawn as it began,
+ * the leaving scene's among them, and the scenery a scene put up after them covered them. The
+ * display draws sprites over whatever scenery is up, so the picture is built again from the
+ * scenery and the sprites kept when they were drawn. A painted screen is left alone. */
+void rg_scene_redraw_sprites(void) {
+  if (painted_screen() || sprite_layer_count == 0) return;
+  request_repaint();
 }
 
 /* --- reading it back --- */

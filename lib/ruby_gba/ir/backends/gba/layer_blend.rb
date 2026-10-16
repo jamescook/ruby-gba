@@ -279,11 +279,25 @@ module RubyGBA
           # WHICH SEE-THROUGH LAYER THIS SCENE'S SCREEN SHOWS, written as the scene runs so
           # the frame boundary tells the display that one's amounts. Nothing for a game that
           # never has to ask (see #tracks_see_through_screen?).
+          #
+          # ON THE PASS IT CHANGES, the scene tells the display its layer's amounts there and
+          # then. The boundary is too late for that one frame: the scene has just said which
+          # layers to mix, the display holds one pair of amounts, and until the boundary that
+          # pair is the last screen's — so the scene's first frame would be mixed by the other
+          # layer's amounts, or by nothing at all coming from a screen that saw through none.
+          # Every pass after, the marker already holds and this is a compare.
           def emit_screen_marker(scene)
             return unless see_through? && tracks_see_through_screen?
 
             screenful = @screenfuls.find { |each| each.scene == scene }
-            emit_store_see_through_screen(screenful && see_through_layer_on(screenful))
+            layer = screenful && see_through_layer_on(screenful)
+            @primitives.load_var(ACC, SCREEN_STATE)
+            @emitter.emit(ASM.cmp_imm(ACC, screen_number(layer)))
+            same = @emitter.gensym
+            @emitter.emit_branch(:bcond, same, cond: :eq)
+            emit_store_see_through_screen(layer)
+            emit_blend_amounts_or_call(layer) if layer
+            @emitter.place_label(same)
           end
 
           # Turn the blend on for the screen this program starts with. A program whose

@@ -1258,6 +1258,20 @@ module RubyGBA
           arrival.map_choices.each { |var| @vars[var] = 0 }
           (arrival.painted_tiles + arrival.painted_pictures).each { |run| copy_run_tiles(run) }
           arrival.scenery.each { |bg| put_up_background(bg) }
+          redraw_sprites_over_arrived_scenery(arrival)
+        end
+
+        # THE SPRITES OF THIS FRAME STAY IN FRONT OF SCENERY THAT ARRIVED AFTER THEM. They were
+        # drawn as the frame began, from the pass before — the leaving scene's among them, which
+        # is still on screen for this one frame on the console too, since its row of the table is
+        # written in the gap after the frame. Stamping the new scene's scenery covered them here,
+        # where the console draws sprites over whatever scenery is up whenever it arrived. So the
+        # picture is built again from the scenery and those sprites, as they were kept when they
+        # were drawn. A painted screen keeps its own sprites in its picture and is left alone.
+        def redraw_sprites_over_arrived_scenery(arrival)
+          return if arrival.scenery.empty? || painted_screen? || @obj_layer.empty?
+
+          request_repaint
         end
 
         # The routine at position +which+ of the list. A number below 0 or past the end names
@@ -1929,8 +1943,13 @@ module RubyGBA
         # What it buys is everything the tint already has: the
         # display's blend unit is never told anything, so the see-through layer goes on
         # blending and the mix darkens along with both sides of it.
+        #
+        # THE PLAIN BITMAP SCREEN HAS NO COLORS TO WALK — it holds a whole color in every
+        # pixel — so while one is up the display fades it, in its own sixteenths, the way a
+        # tint is mixed there. The fade is the same one either way, and a screen that takes
+        # over while it is in force does it that screen's way (see #exec_screen).
         def fade_by_tint(node, steps)
-          @screen.tint_steps_to(node.toward, steps)
+          @screen.tint_steps_to(node.toward, steps, by_display: tint_by_display?)
         end
 
         # SHOW THE PICTURE IN FLAT BLOCKS of this many pixels each way, from now on. Nothing
@@ -2235,9 +2254,12 @@ module RubyGBA
         # objects on top). See #request_repaint.
         def exec_present_objects(node)
           @drawn = objects_on_screen(names_in_draw_order(node))
+          # Kept whichever way the picture is made, with each sprite's depth and colours as they
+          # are now: a scene taking over later in this pass builds the picture again from it
+          # (see #redraw_sprites_over_arrived_scenery).
+          snapshot_object_layer
 
           if @repaints
-            snapshot_object_layer
             request_repaint
             return
           end

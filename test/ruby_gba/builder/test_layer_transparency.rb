@@ -1025,6 +1025,148 @@ class TestLayerTransparency < Minitest::Test
     assert_backends_agree(scenes_that_take_turns, frames: SWITCH_AT + 4)
   end
 
+  # A PLAIN BITMAP TITLE AND A MISTY ROOM, in either order, with nothing faded until a block
+  # says so. +first+ is the scene the game starts in and +swap_at+ the pass the other takes
+  # over on; +title+ and +room+ are what each says on its passes, handed the count.
+  #
+  # A fade or a flash in this game walks the colors, since the mist is seen through. The
+  # title has no colors to walk — it holds a whole color in every pixel — so there the
+  # display does it, and whichever screen comes next takes it up its own way.
+  private def title_and_misty_room(first:, swap_at:, title: nil, room: nil)
+    tile = SOLID_TILE
+    program do
+      screen :tiled
+      image(:dim_floor, "#" => rgb(20, 4, 30)) { tile }
+      image(:dim_pane, "#" => rgb(16, 8, 2)) { tile }
+      tiles :floors, "d" => :dim_floor
+      tiles :panes, "d" => :dim_pane
+      where = var :where, first == :title ? 0 : 1
+      pass = var :pass, 0
+      layers :ground, :mist
+      scene :title do
+        screen :bitmap
+        clear_screen :blue
+        instance_exec(pass, &title) if title
+      end
+      scene :room do
+        layer(:ground) { background :floor, tiles: :floors, map: Array.new(20) { "d" * 30 } }
+        layer(:mist, transparency: 50) { background :pane, tiles: :panes, map: Array.new(20) { "d" * 30 } }
+        instance_exec(pass, &room) if room
+      end
+      game_loop do
+        pass.add! 1
+        (pass == swap_at).then { where.set!(first == :title ? 1 : 0) }
+        case_var(:where) do
+          when_val 0, :title
+          when_val 1, :room
+        end
+      end
+    end
+  end
+
+  # A tint said on the title is still in force as the room takes over: both backends tint the
+  # room, by walking its colors, from its first frame.
+  def test_a_tint_left_on_from_the_title_tints_the_room
+    game = title_and_misty_room(first: :title, swap_at: 4, title: ->(_) { tint :red, 50 })
+    assert_backends_agree_through_the_fade(game, [3, 4, 5, 8])
+    untinted = title_and_misty_room(first: :title, swap_at: 4)
+
+    refute_equal game_player.run(untinted, frames: 8).screen.pixel(200, 100),
+                 game_player.run(game, frames: 8).screen.pixel(200, 100), "the room is tinted"
+  end
+
+  # A flash on the title shows there, done by the display.
+  def test_a_flash_on_the_title_shows_on_the_title
+    game = title_and_misty_room(first: :title, swap_at: 12, title: ->(pass) { (pass == 3).then { flash_screen frames: 8 } })
+    assert_backends_agree_through_the_fade(game, [3, 4, 5, 7, 9, 11])
+  end
+
+  # A flash said on the title's last pass reaches the room's first frame, and walks on in the
+  # room's colors from there.
+  def test_a_flash_from_the_title_goes_on_in_the_room
+    game = title_and_misty_room(first: :title, swap_at: 4, title: ->(pass) { (pass == 3).then { flash_screen frames: 8 } })
+    assert_backends_agree_through_the_fade(game, [3, 4, 5, 6, 9])
+  end
+
+  # A fade out in the room leaves the title that follows it dark, until something lifts it.
+  def test_a_fade_out_in_the_room_leaves_the_title_dark
+    game = title_and_misty_room(first: :room, swap_at: 8, room: ->(pass) { (pass == 3).then { fade_out frames: 4 } })
+    assert_backends_agree_through_the_fade(game, [4, 6, 7, 8, 9, 12])
+    assert_equal [0], game_player.run(game, frames: 10).screen.shown.uniq, "the title, faded all the way to black"
+  end
+
+  # TWO ROOMS, EACH SEEING THROUGH A LAYER OF ITS OWN BY ITS OWN AMOUNT, taking turns. The
+  # display holds one pair of amounts, so each room has to tell it its own as it takes over —
+  # on that frame, not the one after, or the room's first frame is mixed by the other room's
+  # amounts.
+  #
+  # With +walker+ the misty room has a sprite of its own walking in front of its mist. With
+  # +title+ the game opens on a plain bitmap title and goes title, misty, foggy, misty.
+  private def two_misty_rooms(walker: false, title: false)
+    tile = SOLID_TILE
+    program do
+      screen :tiled
+      image(:back, "#" => :red) { tile }
+      image(:front, "#" => :white) { tile }
+      image(:walker, "#" => :green) { tile }
+      tiles :backset, "#" => :back
+      tiles :frontset, "#" => :front
+      full = Array.new(20) { "#" * 30 }
+      layers :deep, :mist, :fog, :walkers
+      where = var :where, title ? 2 : 0
+      pass = var :pass, 0
+      if title
+        scene :title do
+          screen :bitmap
+          clear_screen :blue
+        end
+      end
+      scene :misty do
+        layer(:deep) { background :floor, tiles: :backset, map: full }
+        layer(:mist, transparency: 50) { background :pane, tiles: :frontset, map: full }
+        layer(:walkers) { sprite :walker, at: [40, 40] }.x.add! 1 if walker
+      end
+      scene :foggy do
+        layer(:deep) { background :fog_floor, tiles: :backset, map: full }
+        layer(:fog, transparency: 25) { background :fog_pane, tiles: :frontset, map: full }
+      end
+      game_loop do
+        pass.add! 1
+        (pass == 3).then { where.set! 0 } if title
+        (pass == (title ? 6 : 4)).then { where.set! 1 }
+        (pass == (title ? 9 : 8)).then { where.set! 0 }
+        case_var(:where) do
+          when_val 0, :misty
+          when_val 1, :foggy
+          when_val 2, :title if title
+        end
+      end
+    end
+  end
+
+  def test_each_room_is_seen_through_by_its_own_amount_from_the_frame_it_takes_over
+    [3, 4, 5, 8, 9].each { |frames| assert_backends_agree(two_misty_rooms, frames: frames) }
+  end
+
+  # A sprite shows the numbers of the pass before, so on the frame the next room takes over
+  # the leaving room's walker is still drawn — over the new room's scenery, which went up
+  # after it in that frame — and gone the frame after.
+  def test_a_leaving_rooms_sprite_is_drawn_over_the_next_rooms_scenery_for_one_frame
+    rooms = two_misty_rooms(walker: true)
+    [3, 4, 5].each { |frames| assert_backends_agree(rooms, frames: frames) }
+    green = RubyGBA::Graphics::Color.resolve(:green)
+
+    assert_includes game_player.run(rooms, frames: 4).screen.shown, green, "the walker on the frame the fog takes over"
+    refute_includes game_player.run(rooms, frames: 5).screen.shown, green, "and gone the frame after"
+  end
+
+  # The whole round from a plain bitmap title: the misty room, the foggy one, and the misty one
+  # again, compared on every frame a room takes over and the one after.
+  def test_rooms_after_a_title_agree_on_every_change_of_room
+    rooms = two_misty_rooms(walker: true, title: true)
+    [2, 3, 4, 6, 7, 9, 10, 12].each { |frames| assert_backends_agree(rooms, frames: frames, console_frames: frames + 1) }
+  end
+
   # ...and the scene BEFORE it, which sees through nothing, must not have picked up the
   # blend. Its two backgrounds sit on the layers the dive's floor and pane later use, so a
   # blend set up once at boot would quietly make the banner see-through.
