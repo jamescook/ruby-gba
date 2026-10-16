@@ -82,7 +82,14 @@ module Differential
   # instead of failing the build.
   # @return [Array(Array<Integer>, Array<Integer>, Integer)] the interpreter's, the
   #   console's, the interpreter's frame count
+  #
+  # ON A NATIVE RUN the second picture is the game as C's, after the same frames with the same
+  # buttons held, so every test written as "the two pictures agree" asks it of the lowering the
+  # run is for. The C is checked against the interpreter on every frame on the way there
+  # (CheckedNativeRun), and the frames the console would have needed mean nothing.
   def backend_pictures(program, frames: 4, name: "DIFF", console_frames: nil, keys: [])
+    return native_pictures(program, frames, keys) if TestSuites.native?
+
     cf = console_frames || console_frames_for(program, frames)
     console, passes = console_picture(program, cf, name, keys)
     ran = passes ? oracle_frames_for(program, frames, passes, cf) : frames
@@ -128,8 +135,8 @@ module Differential
   # and therefore changes what is being compared. The emulator counts arrivals at the loop's
   # own first instruction instead, so nothing is added to the program.
   #
-  # A comparison with the console is a check of the cartridge, so on a native run the test that
-  # asks for one skips itself here (see EmulatorSupport#require_emulator!).
+  # A comparison with the console is a check of the cartridge, so a native run never asks for
+  # one: #backend_pictures hands it the game as C's picture instead.
   def console_picture(program, cf, name, keys)
     require_emulator!
     mask = keys.sum { |key| KEY_BITS.fetch(key) }
@@ -138,6 +145,13 @@ module Differential
                                                        built: backend.build_record(program))
     verifier = RubyGBA::Diagnostics::Verifier.new(rom, frames: cf, keys: mask, count_passes: true)
     [verifier.frame_gba, verifier.passes]
+  end
+
+  # The interpreter's picture and the game as C's after +frames+ frames, with +keys+ held.
+  def native_pictures(program, frames, keys)
+    native = CheckedNativeRun.new.hold(*keys).run(program, frames: frames).screen.shown
+    oracle = RubyGBA::IR::Backends::Reference.new.hold(*keys).run(program, frames: frames).screen.shown
+    [oracle, native, frames]
   end
 
   # A game whose picture cannot be lined up on passes is allowed to be this many passes
