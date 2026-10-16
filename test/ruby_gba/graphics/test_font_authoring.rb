@@ -6,7 +6,7 @@ require "test_helper"
 # These assert a custom font registers, renders its own glyphs (interpreter + the emulator),
 # and that malformed art is a friendly error.
 class TestFontAuthoring < Minitest::Test
-  runs_on :reference
+  runs_on :reference, :native
 
   Fonts = RubyGBA::Graphics::Fonts
 
@@ -23,7 +23,7 @@ class TestFontAuthoring < Minitest::Test
     b = Builder.new
     b.instance_eval(&block)
     b.finalize_program
-    Reference.new.run(b.program).screen
+    game_player.run(b.program).screen
   end
 
   def test_a_font_defined_inline_renders_its_glyphs
@@ -194,7 +194,7 @@ class TestFontAuthoring < Minitest::Test
       end
     end
     b.finalize_program
-    s = Reference.new.run(b.program, max_steps: 500).screen
+    s = game_player.run(b.program, max_steps: 500).screen
     assert_equal Color.resolve(:white), s.pixel(100, 20), "the one lit corner of the glyph"
   end
 

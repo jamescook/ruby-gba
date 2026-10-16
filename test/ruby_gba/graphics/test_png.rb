@@ -11,7 +11,7 @@ require "png_reading"
 # What is checked is the file, read back by something that is not the writer: an image tool
 # that knows nothing about this framework, and the PNG format's own rules read by hand.
 class TestPNG < Minitest::Test
-  runs_on :reference
+  runs_on :reference, :native
 
   # The image tool that reads the pictures back is a child process, which Ruby cannot reliably
   # start from inside a Ractor — the spawn can wait for ever — so on the main Ractor, not in

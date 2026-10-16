@@ -10,7 +10,7 @@ require "differential"
 # frames. Nothing is redrawn, so what a test looks at is the same drawing showing in
 # bigger blocks as the frames pass, and as it was drawn again once the walk comes back.
 class TestScreenPixelate < Minitest::Test
-  runs_on :reference
+  runs_on :reference, :native
 
   include Differential
 
@@ -42,7 +42,7 @@ class TestScreenPixelate < Minitest::Test
   end
 
   private def picture_at(program, frames)
-    screen = Reference.new.run(program, frames: frames).screen
+    screen = game_player.run(program, frames: frames).screen
     Array.new(HEIGHT) { |y| Array.new(WIDTH) { |x| screen.pixel(x, y) } }
   end
 
@@ -114,9 +114,9 @@ class TestScreenPixelate < Minitest::Test
         end
       end
     end
-    late = Reference.new.run(swapping, frames: 40)
+    late = game_player.run(swapping, frames: 40)
 
-    assert_equal Color.resolve(:red), Reference.new.run(swapping, frames: 5).screen.pixel(120, 80),
+    assert_equal Color.resolve(:red), game_player.run(swapping, frames: 5).screen.pixel(120, 80),
                  "not before the blocks were at their biggest"
     assert_equal Color.resolve(:blue), late.screen.pixel(120, 80), "the scene changed once they were"
   end
@@ -130,7 +130,7 @@ class TestScreenPixelate < Minitest::Test
       (frame == 2).then { pixelate_out frames: 8 }
       ((pixelate_size == 16) & (reached == 0)).then { reached.set! frame }
     end
-    reached = Reference.new.run(watching, frames: 30)[:reached]
+    reached = game_player.run(watching, frames: 30)[:reached]
 
     assert_operator reached, :>, 2
     assert_equal LARGEST, sizes_shown(watching, reached).last, "on the frame the game first read 16"
@@ -147,7 +147,7 @@ class TestScreenPixelate < Minitest::Test
         pixelate_in
       end
     end
-    turned = Reference.new.run(turning, frames: 40)[:turned]
+    turned = game_player.run(turning, frames: 40)[:turned]
     seen = sizes_shown(turning, turned + 3)
 
     assert_equal [LARGEST, LARGEST], seen[(turned - 1)..turned], "the frame it turned on, and the one after"

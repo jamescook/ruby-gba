@@ -9,7 +9,7 @@ require "test_helper"
 # would push M five pixels further right; asserting M's left edge lands at x+2 is
 # what distinguishes the two. Checked on the interpreter and on real hardware.
 class TestProportionalFont < Minitest::Test
-  runs_on :reference
+  runs_on :reference, :native
 
   # Registers into the library itself, which changes the whole process — so on the
   # main Ractor, not in the pool. See test_helper.
@@ -74,7 +74,7 @@ class TestProportionalFont < Minitest::Test
     b = Builder.new
     b.instance_eval(&block)
     b.finalize_program
-    Reference.new.run(b.program).screen
+    game_player.run(b.program).screen
   end
 
   def test_the_interpreter_advances_by_the_glyphs_width

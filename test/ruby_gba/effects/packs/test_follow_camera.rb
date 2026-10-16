@@ -10,7 +10,7 @@ require "test_helper"
 # has not moved on screen, and that the scenery has. Reading only one of them would pass
 # for a game where nothing happens at all.
 class TestFollowCamera < Minitest::Test
-  runs_on :reference
+  runs_on :reference, :native
 
   RED = RubyGBA::Graphics::Color.resolve(:red)
   BLUE = RubyGBA::Graphics::Color.resolve(:blue)
@@ -61,7 +61,7 @@ class TestFollowCamera < Minitest::Test
   def test_the_character_stays_put_while_the_world_slides_under_it
     prog = walking_game { |hero| held(:right).then { hero.move :right, by: 2 } }
     seen = (1..8).map do |n|
-      Reference.new.hold(:right).run(prog, frames: n).screen
+      game_player.hold(:right).run(prog, frames: n).screen
     end
 
     assert_equal [116] * 8, seen.map { |s| hero_left(s) },
@@ -75,8 +75,8 @@ class TestFollowCamera < Minitest::Test
 
   def test_walking_the_other_way_scrolls_the_other_way
     prog = walking_game { |hero| held(:left).then { hero.move :left, by: 2 } }
-    first = Reference.new.hold(:left).run(prog, frames: 2).screen
-    later = Reference.new.hold(:left).run(prog, frames: 8).screen
+    first = game_player.hold(:left).run(prog, frames: 2).screen
+    later = game_player.hold(:left).run(prog, frames: 8).screen
 
     assert_equal 116, hero_left(later), "still planted"
     assert_operator mark_left(later), :>, mark_left(first),
@@ -85,8 +85,8 @@ class TestFollowCamera < Minitest::Test
 
   def test_a_game_that_stands_still_does_not_drift
     prog = walking_game { |hero| hero } # no input, no movement
-    early = Reference.new.run(prog, frames: 2).screen
-    late = Reference.new.run(prog, frames: 30).screen
+    early = game_player.run(prog, frames: 2).screen
+    late = game_player.run(prog, frames: 30).screen
 
     assert_equal hero_left(early), hero_left(late), "the character does not wander"
     assert_equal mark_left(early), mark_left(late), "and neither does the world"
@@ -99,8 +99,8 @@ class TestFollowCamera < Minitest::Test
   # second one, and this is the test that they really are different: two games whose
   # sprites sit in the same place show different parts of the world.
   def test_at_says_where_in_the_world_the_character_starts
-    here = Reference.new.run(walking_game(at: [120, 80]), frames: 2).screen
-    there = Reference.new.run(walking_game(at: [140, 80]), frames: 2).screen
+    here = game_player.run(walking_game(at: [120, 80]), frames: 2).screen
+    there = game_player.run(walking_game(at: [140, 80]), frames: 2).screen
 
     assert_equal hero_left(here), hero_left(there), "the character sits in the same spot either way"
     assert_equal mark_left(here) - 20, mark_left(there),
@@ -131,8 +131,8 @@ class TestFollowCamera < Minitest::Test
       end
     end
 
-    going_right = Reference.new.hold(:right).run(prog, frames: 4).screen
-    going_left = Reference.new.hold(:left).run(prog, frames: 4).screen
+    going_right = game_player.hold(:right).run(prog, frames: 4).screen
+    going_left = game_player.hold(:left).run(prog, frames: 4).screen
 
     assert_equal RED, going_right.pixel(120, 80), "moving right swapped to the right-facing pose"
     assert_equal BLUE, going_left.pixel(120, 80), "and moving left to the left-facing one"
@@ -147,7 +147,7 @@ class TestFollowCamera < Minitest::Test
       sprite(:big, at: [0, 0]).center_on_screen
       game_loop {}
     end
-    screen = Reference.new.run(prog, frames: 2).screen
+    screen = game_player.run(prog, frames: 2).screen
 
     left = (0...240).find { |x| screen.pixel(x, 80) == RED }
     right = (0...240).reverse_each.find { |x| screen.pixel(x, 80) == RED }

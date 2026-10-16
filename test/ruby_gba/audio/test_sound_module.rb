@@ -8,7 +8,7 @@ require "test_helper"
 # exact hardware writes) — so any drift is caught here rather than as a silent
 # change in how a game sounds.
 class TestSoundModule < Minitest::Test
-  runs_on :reference
+  runs_on :reference, :native
 
   include RubyGBA::Console::Hardware
 

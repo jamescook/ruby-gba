@@ -19,7 +19,7 @@ require "pathname"
 # give would fail at the worst possible moment — the build that finally has something to
 # say would be the build that cannot say it.
 class TestBuildOutput < Minitest::Test
-  runs_on :reference
+  runs_on :reference, :native
 
   # Asserts that nothing reaches the PROCESS's own output, which is the whole point of it.
   # That is a fact about the process, so on the main Ractor. See test_helper.

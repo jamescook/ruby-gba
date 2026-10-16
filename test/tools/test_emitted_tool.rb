@@ -21,7 +21,7 @@ require RubyGBA.root.join("tools/emitted").to_s
 # a test of git — and it would need git installed to say anything at all. The tool
 # itself is how we know that part works.
 class TestEmittedTool < Minitest::Test
-  runs_on :reference
+  runs_on :reference, :native
 
   Measurement = Emitted::Measurement
   Row = Emitted::Row

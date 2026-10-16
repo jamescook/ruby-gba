@@ -12,7 +12,7 @@ require "differential"
 # distinct colours for the same reason: "picked" is a colour on the screen, not a
 # flag in memory.
 class TestMenu < Minitest::Test
-  runs_on :reference
+  runs_on :reference, :native
 
   include Differential
 
@@ -59,7 +59,7 @@ class TestMenu < Minitest::Test
 
   # Run a program, feeding it a fresh set of held buttons each frame.
   private def walk(program, frames:, &keys)
-    interp = Reference.new
+    interp = game_player
     interp = interp.input_each_frame(&keys) if keys
     interp.run(program, frames: frames)
     interp

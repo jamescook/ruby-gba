@@ -11,7 +11,7 @@ require "tempfile"
 # frames' durations set the speed. This is the metadata-driven complement to the blind
 # grid slice of frames_from: / facing_from:.
 class TestAseprite < Minitest::Test
-  runs_on :reference
+  runs_on :reference, :native
 
   include RubyGBA::Console::Hardware
 
@@ -87,7 +87,7 @@ class TestAseprite < Minitest::Test
     builder.program
   end
 
-  private def spot(program) = Reference.new.run(program).screen.pixel(44, 44)
+  private def spot(program) = game_player.run(program).screen.pixel(44, 44)
   private def c(r, g, b) = Color.rgb8(r, g, b)
 
   def test_the_default_animation_is_the_first_tag_and_it_loops
@@ -240,7 +240,7 @@ class TestAseprite < Minitest::Test
   end
 
   def test_a_sprite_from_aseprite_can_be_drawn_with_other_colors
-    assert_equal Color.resolve(:cyan), Reference.new.run(an_aseprite_sprite_drawn_with_other_colors, frames: 3)
+    assert_equal Color.resolve(:cyan), game_player.run(an_aseprite_sprite_drawn_with_other_colors, frames: 3)
                                                 .screen.pixel(44, 44), "walk's red, drawn in the other list's first colour"
   end
 

@@ -3,7 +3,7 @@
 require "test_helper"
 
 class TestColor < Minitest::Test
-  runs_on :reference
+  runs_on :reference, :native
 
   def test_rgb_packs_channels
     # Red in low bits, green in middle, blue in high bits

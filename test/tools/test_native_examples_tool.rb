@@ -8,7 +8,7 @@ require "open3"
 # runs on every `rake test`: what the list is USED for — holding an example that builds to
 # having its tests played as C — is the native run's (test_native_examples.rb).
 class TestNativeExamplesTool < Minitest::Test
-  runs_on :reference
+  runs_on :reference, :native
 
   # Starts a child process, which Ruby cannot do from inside a Ractor — the spawn waits for
   # ever — so on the main Ractor, not in the pool. See test_helper.

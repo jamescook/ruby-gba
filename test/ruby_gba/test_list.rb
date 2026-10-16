@@ -8,7 +8,7 @@ require "test_helper"
 # variables it leaves behind. Overflow / underflow / out-of-range surface as
 # friendly ProgramErrors, checked headlessly.
 class TestList < Minitest::Test
-  runs_on :reference
+  runs_on :reference, :native
 
   Build = RubyGBA::IR::Build
 
@@ -19,7 +19,7 @@ class TestList < Minitest::Test
     builder = Builder.new
     builder.instance_eval(&block)
     builder.finalize_program
-    Reference.new.run(builder.program)
+    game_player.run(builder.program)
   end
 
   # --- reading back what was pushed ---
@@ -238,7 +238,7 @@ class TestList < Minitest::Test
     # Built straight from the IR: the DSL can't express this (a handle only comes
     # from `list`), but a stray push must still fail loudly rather than silently.
     err = assert_raises(Reference::ProgramError) do
-      Reference.new.run(Build.program(Build.list_push(:ghost, 1), Build.halt))
+      game_player.run(Build.program(Build.list_push(:ghost, 1), Build.halt))
     end
     assert_match(/before it was created/i, err.message)
   end

@@ -14,7 +14,7 @@ require RubyGBA.root.join("examples/snake_buffered").to_s
 # renders its title and playing board on the console — through Mode 4's auto
 # palette and page flip, with the whole board repainted each frame.
 class TestSnakeBufferedExample < Minitest::Test
-  runs_on :reference
+  runs_on :reference, :native
 
   include RubyGBA::Console::Hardware
 

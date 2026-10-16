@@ -6,7 +6,7 @@ require "test_helper"
 # fonts by name and a draw picks one. These cover the default 5x7 font's glyph data
 # and layout, and the registry / a second font.
 class TestFont < Minitest::Test
-  runs_on :reference
+  runs_on :reference, :native
 
   # Registers into the library itself, which changes the whole process — so on the
   # main Ractor, not in the pool. See test_helper.

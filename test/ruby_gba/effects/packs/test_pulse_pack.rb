@@ -9,7 +9,7 @@ require "test_helper"
 # `sprite.scale`, so it needs no backend of its own; that it runs on the oracle at all is
 # the evidence for that.
 class TestPulsePack < Minitest::Test
-  runs_on :reference
+  runs_on :reference, :native
 
   BLOCK = (["#" * 16] * 16).join("\n")
 
@@ -41,7 +41,7 @@ class TestPulsePack < Minitest::Test
 
   # The sprite's size after +frames+ frames, as the multiple the author writes.
   private def size_after(frames, **opts)
-    interpreter = Reference.new.run(pulse_program(frames, **opts), max_steps: 50_000_000)
+    interpreter = game_player.run(pulse_program(frames, **opts), max_steps: 50_000_000)
     interpreter[:__obj1_scale] / RubyGBA::IR::Build::SCALE_ONE.to_f
   end
 

@@ -13,7 +13,7 @@ require RubyGBA.root.join("tools/emitted_baseline").to_s
 # never compile anything. Measuring the real corpus takes about three seconds, which
 # is what the rake task is for; it is not something the suite should pay on every run.
 class TestEmittedBaseline < Minitest::Test
-  runs_on :reference
+  runs_on :reference, :native
 
   Baseline = Emitted::Baseline
   Verdict = Emitted::Baseline::Verdict

@@ -7,7 +7,7 @@ require "test_helper"
 # mistake in how a DSL method shapes the tree is caught here directly. (The
 # lowered output is exercised by the behavioral backend tests.)
 class TestBuilderIR < Minitest::Test
-  runs_on :reference
+  runs_on :reference, :native
 
   include RubyGBA::IR::Build # the expected-tree constructors
 
@@ -64,7 +64,7 @@ class TestBuilderIR < Minitest::Test
       add! :x, 100     # 110
       clamp! :x, 0, 20 # -> 20
     end
-    assert_equal 20, Reference.new.run(got)[:x]
+    assert_equal 20, game_player.run(got)[:x]
   end
 
   def test_draw_ops_build_a_matching_ir_tree
@@ -96,7 +96,7 @@ class TestBuilderIR < Minitest::Test
       pixel 10, 20, :red
       fill_rect 5, 5, 4, 3, :green
     end
-    screen = Reference.new.run(got).screen
+    screen = game_player.run(got).screen
     assert_equal RubyGBA::Graphics::Color.resolve(:red), screen.pixel(10, 20)
     assert_equal RubyGBA::Graphics::Color.resolve(:green), screen.pixel(5, 5)
     assert_equal RubyGBA::Graphics::Color.resolve(:black), screen.pixel(0, 0)
@@ -185,7 +185,7 @@ class TestBuilderIR < Minitest::Test
         end
       end
     end
-    assert_equal 3, Reference.new.run(got)[:x]
+    assert_equal 3, game_player.run(got)[:x]
   end
 
   # ---- sound ----
@@ -220,7 +220,7 @@ class TestBuilderIR < Minitest::Test
       beep :high
       stop_music
     end
-    audio = Reference.new.run(got).audio
+    audio = game_player.run(got).audio
     assert_equal [:enabled], audio[0]
     assert_equal 880, audio[1][1].frequency # :high resolves to 880 Hz
     assert_equal 2, audio.length, "no tune is playing, so stopping the music makes no sound"
@@ -247,7 +247,7 @@ class TestBuilderIR < Minitest::Test
       end
     end
 
-    i = Reference.new.run(got)
+    i = game_player.run(got)
     assert_equal 2, i[:score]
     assert_equal 2, i.audio.count { |e| e[0] == :beep } # awarded twice
   end

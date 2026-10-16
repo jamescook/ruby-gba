@@ -14,7 +14,7 @@ require "test_helper"
 # whole point of the feature, so its absence is a real failure with a message
 # that names the install (not a silent green run).
 class TestImageImport < Minitest::Test
-  runs_on :reference
+  runs_on :reference, :native
 
   include RubyGBA::IR::Build
 
@@ -158,7 +158,7 @@ class TestImageImport < Minitest::Test
   end
 
   def test_imported_image_embeds_and_blits_on_the_interpreter
-    screen = Reference.new.run(photo_program(10, 20)).screen
+    screen = game_player.run(photo_program(10, 20)).screen
 
     assert_equal EXPECTED[0], screen.pixel(10, 20), "top-left red"
     assert_equal EXPECTED[1], screen.pixel(11, 20), "top-right green"
@@ -198,7 +198,7 @@ class TestImageImport < Minitest::Test
   end
 
   def test_cutout_shows_background_through_transparent_pixels_on_the_interpreter
-    screen = Reference.new.run(cutout_program(10, 20)).screen
+    screen = game_player.run(cutout_program(10, 20)).screen
 
     assert_equal Color.resolve(:red),   screen.pixel(10, 20), "opaque top-left"
     assert_equal Color.resolve(:green), screen.pixel(11, 20), "opaque top-right"

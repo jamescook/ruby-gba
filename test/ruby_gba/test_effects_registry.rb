@@ -12,7 +12,7 @@ require "stringio"
 # tests build real programs through the DSL and read the screen, rather than
 # checking that a method got defined.
 class TestEffectsRegistry < Minitest::Test
-  runs_on :reference
+  runs_on :reference, :native
 
   # Registers into the library itself, which changes the whole process — so on the
   # main Ractor, not in the pool. See test_helper.
@@ -101,7 +101,7 @@ class TestEffectsRegistry < Minitest::Test
   end
 
   def test_a_shipped_pack_verb_is_an_ordinary_dsl_verb
-    i = Reference.new.run(program do
+    i = game_player.run(program do
       screen :bitmap
       clear_screen :blue
       frame = var :frame, 0
@@ -125,7 +125,7 @@ class TestEffectsRegistry < Minitest::Test
 
   def test_a_packs_verb_draws_the_same_pixels_a_built_in_one_would
     RubyGBA.register_effects(Corners)
-    i = Reference.new.run(program do
+    i = game_player.run(program do
       screen :bitmap
       clear_screen :blue
       paint_corner :red
@@ -164,7 +164,7 @@ class TestEffectsRegistry < Minitest::Test
     err = assert_raises(Effects::DuplicateVerb) { RubyGBA.register_effects(Impostor) }
     assert_match(/clear_screen/, err.message)
 
-    i = Reference.new.run(program { screen :bitmap; clear_screen :blue; halt })
+    i = game_player.run(program { screen :bitmap; clear_screen :blue; halt })
     assert_equal BLUE, i.screen.pixel(10, 10), "the real verb still means what it meant"
   end
 
@@ -177,7 +177,7 @@ class TestEffectsRegistry < Minitest::Test
 
   def test_an_inline_block_verb_runs_in_the_builder
     Effects.register(:paint_stripe) { |color| fill_rect 0, 40, 240, 10, color }
-    i = Reference.new.run(program do
+    i = game_player.run(program do
       screen :bitmap
       clear_screen :blue
       paint_stripe :red
@@ -283,7 +283,7 @@ class TestEffectsRegistry < Minitest::Test
   # --- once_a_frame: the seam a pack composes on ---
 
   def test_a_once_a_frame_body_runs_once_on_every_frame
-    i = Reference.new.run(program do
+    i = game_player.run(program do
       screen :bitmap
       ticks = var :ticks, 0
       frame = var :frame, 0
@@ -300,7 +300,7 @@ class TestEffectsRegistry < Minitest::Test
   # The whole point of the verb: the game's own code took a different path this
   # frame — a different scene entirely — and the body still ran.
   def test_it_runs_on_frames_the_games_own_code_does_not
-    i = Reference.new.run(program do
+    i = game_player.run(program do
       screen :bitmap
       var :state, 0
       ticks = var :ticks, 0
@@ -332,7 +332,7 @@ class TestEffectsRegistry < Minitest::Test
   end
 
   def test_a_program_with_no_game_loop_never_runs_it
-    i = Reference.new.run(program do
+    i = game_player.run(program do
       screen :bitmap
       ticks = var :ticks, 0
       once_a_frame { ticks.add! 1 }

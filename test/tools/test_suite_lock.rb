@@ -8,7 +8,7 @@ require RubyGBA.root.join("tools/suite_lock").to_s
 # A WHOLE RUN OF EITHER SUITE HAS THE MACHINE TO ITSELF. `rake test` and `rake test:native` are
 # each sized to use the machine, so the second to start waits for the first, and says so.
 class TestSuiteLock < Minitest::Test
-  runs_on :reference
+  runs_on :reference, :native
 
   def test_a_second_run_waits_for_the_first_and_says_what_it_waits_for
     Dir.mktmpdir do |folder|
