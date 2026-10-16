@@ -88,9 +88,7 @@ moment a file moves.
 require "test_helper"
 
 class TestThing < Minitest::Test
-  runs_on :reference   # or `runs_on :reference, :native`: every class says (see below)
-
-  def test_it_does_the_thing
+  def test_it_does_the_thing   # played on both lowerings (see "Two lowerings" below)
     ...
   end
 end
@@ -111,16 +109,31 @@ which points `Color` at the printer's palette).
 Narrower helpers stay **opt-in**, so their names appear only where used:
 `include Differential`, `include CostArith`, `include RubyGBA::IR::Build`.
 
-Running them. **The suite is `rake test`** — one process, with each test given a core of its
-own (see "Ractors" below). `TEST=` names one file, `TESTOPTS=` one test:
+Running them. **The suite is `rake test`** — every lowering's run, one after the other (see
+"Two lowerings" below). `TEST=` names one file, `TESTOPTS=` one test:
 
 ```bash
-rake test                                                       # the suite
-rake test TEST=test/ruby_gba/dsl/test_thing.rb                  # one file
+rake test                                                       # the suite, on every lowering
+rake test TEST=test/ruby_gba/dsl/test_thing.rb                  # one file, on each lowering that plays it
 rake test TEST=test/ruby_gba/dsl/test_thing.rb TESTOPTS="--name=/pattern/"  # one test; -n /pat/ trips shell quoting
+rake test:lowering:gba                                          # the GBA lowering's run alone (TEST= too)
+rake test:lowering:native                                       # the native lowering's run alone (TEST= too)
 rake test:playthroughs                                          # one module: every test in test/ruby_gba/playthroughs/
 bundle exec ruby -Itest test/ruby_gba/dsl/test_thing.rb         # one file, no rake (plain minitest)
 ```
+
+**Which run a change needs:**
+
+| what changed | what to run |
+|---|---|
+| the native lowering's own code: the C it writes, its runtime | `rake test:lowering:native` |
+| the GBA lowering's own code: the ARM it emits | `rake test:lowering:gba` |
+| anything both lowerings read: the DSL, the IR, the interpreter, the build checks, the test helpers | `rake test` |
+
+Every lowering's run checks its output against the interpreter, so a change inside one lowering
+can break that lowering's run and no other. The interpreter is the answer key both are checked
+against, so a change to it is never narrow. A JS lowering would add `rake test:lowering:js` and
+one more run to `rake test`.
 
 The last one needs `bundle exec`, because the runner is a gem.
 
@@ -129,7 +142,7 @@ not run and does not know about.
 
 ## Ractors — fix what the runner reports
 
-`rake test` runs the suite through **minitest-ractor**
+The GBA lowering's run (`rake test:lowering:gba`, the first half of `rake test`) runs the suite through **minitest-ractor**
 (`github.com/jamescook/minitest-ractor`, taken from git until it is released). It gives each
 test a Ractor of its own — Ruby's way of using several cores in one process — and reports
 every test that reached state the whole process shares.
@@ -210,62 +223,59 @@ pixels — see `test/ruby_gba/builder/test_blit_clipping.rb` (`assert_same_pixel
 and the two `*_at_the_left_edge` tests in
 `test/ruby_gba/dsl/test_sprite_mover.rb` as the worked examples.
 
-## Running a file on the native lowering too
+## Two lowerings
 
-The native backend (`Backends::Native`, the game as C) trails the two above, and it is checked
-with the tests that already exist rather than with copies of them. A run of the suite tests ONE
-lowering (`test/support/suites.rb`): `rake test` the interpreter, `rake test:native` the C. A
-class runs only on the lowerings it names.
+**Every test plays on both lowerings, with nothing written to say so.** `rake test` plays the
+suite once for each (`test/support/suites.rb`): the GBA lowering's run — the interpreter, with the
+cartridge checked in the emulator — and then the native lowering's — the game built as C
+(`Backends::Native`), checked against the interpreter on every frame. A test that does not pass
+on both fails the run, so a new feature is not done until both lowerings have it.
 
-**Every test class has to name them**, on a line straight after its `class` line:
+**A test of one lowering's own output lives in that lowering's folder** and is played by its run
+alone: `test/ruby_gba/ir/backends/gba/` (the ARM it emits), `test/ruby_gba/diagnostics/` and
+`test/ruby_gba/playthroughs/` (a finished cartridge read back, or driven, in the emulator) for the
+GBA lowering, and `test/ruby_gba/ir/backends/native/` (the C it writes) for the native one. The
+list is `TestSuites::LOWERING_FOLDERS`, which the Rakefile and the tests both read. Anywhere else,
+a test is about the game, and plays on both.
+
+**A test makes its player with `game_player`**, never `Reference.new`, when the question is what
+the game does:
 
 ```ruby
-runs_on :reference             # only the interpreter and the cartridge play these
-runs_on :reference, :native    # the game built as C plays them too
-runs_on :native                # the native lowering's own tests
+private def pong_line_at(frames)
+  i = game_player                  # the interpreter, or the game as C; takes save: the same way
+  i.input_each_frame { |f| f < 3 ? [:a] : [] }
+  i.run(Pong.program, frames: frames)
+  ...
 ```
 
-A class with tests that says nothing stops the run before a test is played, naming the class
-and its file. Saying nothing used to mean "the interpreter alone", and that read the same
-whether the native lowering could not play the tests yet or nobody had looked — so a new test
-file starts with `runs_on :reference` when native has no part in what it tests (the cartridge's
-machine code, a guardrail's wording, the emulator), and with both when it plays a game native
-can build. A native run ends by counting the classes each way.
+`Reference.new` by name is for a test of the interpreter itself — its step budget, its own log —
+which then plays the interpreter on both runs. A test that reaches for the emulator
+(`require_emulator!`, `assert_emulator_loads_rom`, the console's picture) skips itself on the
+native run, since the cartridge is the GBA run's, and whatever it checked of the game before that
+has already run. A test the native lowering cannot play yet says `skip_on_native "why"`, and the
+native run ends by counting its skips by reason.
+
+**Reading every frame of a run is one run, not one a frame.** A helper that plays the game again
+for each frame it looks at costs the square of the frames, and the native lowering starts the game
+as C afresh for each: read the frames as they settle with `each_vblank` instead (see the `watch`
+helper in `test_screen_fade.rb`, which also shows the one-frame offset to allow for).
 
 **An example that becomes buildable is not left behind.** `ruby tools/native_examples.rb` lists
 the examples the native lowering can write as C today and what each of the others is refused
 for. `test_native_examples.rb` fails when one that builds has no recorded run
 (`native/examples/test_<example>_picture.rb`), or when a test file in `test/examples/` whose
-examples all build still plays them on the interpreter by name (`Reference.new`), or asks for
-`game_player` in a class that does not name both lowerings. A file whose tests are all of the
-cartridge, in the emulator, has nothing for the game as C to play and stays
-`runs_on :reference`. So when a native feature lands, run the tool: every example it newly
-lists is work the next native run will ask for.
+examples all build still plays them on the interpreter by name (`Reference.new`). A file whose
+tests are all of the cartridge, in the emulator, has nothing for the game as C to play.
 
-A class inherits what the class above it said, so a subclass of a test class that has said
-need not say again.
-
-Opting a file in is two edits, and no assertion changes:
-
-```ruby
-class TestPongScoring < Minitest::Test
-  runs_on :reference, :native        # this class's tests are true of both
-
-  private def pong_line_at(frames)
-    i = game_player                  # was Reference.new; takes save: the same way
-    i.input_each_frame { |f| f < 3 ? [:a] : [] }
-    i.run(Pong.program, frames: frames)
-    ...
-```
-
-On a `rake test` run `game_player` IS `Reference.new`. On a native run it is a
+On the GBA run `game_player` IS `Reference.new`. On a native run it is a
 `CheckedNativeRun`: the game built as C and driven through the same calls (`hold`,
 `input_each_frame`, `each_vblank`, `run`, `[]`, `vars`, `screen.pixel`, `screen.to_a`,
 `screen.stored_pixel`, `screen.camera_x` and `screen.camera_y`, `sprites`, `list`, `pool`,
 `game_state`, `buffered`, `audio` so far, growing with each native slice), and then the same
 buttons replayed on the interpreter, failing at the first frame where any variable, any list or
-pool field, any pixel, the sound log or the sprites drawn differ. So an opted-in file's own
-checks are backed by a whole-picture comparison on every frame. **A game that saves is played both ways from the same save memory**:
+pool field, any pixel, the sound log or the sprites drawn differ. So every test's own checks
+are backed by a whole-picture comparison on every frame on the native run. **A game that saves is played both ways from the same save memory**:
 `game_player(save: image)` hands the game as C the image's bytes as a .sav file, puts what the
 run left back into the image (so the SAME image handed to two runs is a power cycle, as it is
 for the interpreter), replays on the interpreter from a copy taken first, and fails if the two
@@ -303,22 +313,21 @@ It needs zig, and it starts the game as a separate program, so such a test canno
 Ractor. `test_checked_run.rb` plays a game this way in a Ruby process with only `lib` on its load
 path, which is what keeps it usable from outside.
 
-Opt a file in once native can play its games, and in chunks that go with the native slice that
-made them pass. What the native player cannot answer yet raises `HeadlessRun::CannotAnswer`
-naming the call — the file came too early, or that one test wants `skip_on_native "why"` at
-its top, which does nothing on the interpreter's run. A test that reaches
-for the emulator (`require_emulator!`, `assert_emulator_loads_rom`, or the console's picture
-through `Differential#backend_pictures`) skips itself on a native
-run, since the cartridge is `rake test`'s; any check on the game before it has already run.
-Every skip says why, and a native run ends with the skips counted by reason.
+What the native player cannot answer yet raises `HeadlessRun::CannotAnswer` naming the call —
+the native lowering has a gap to fill, or that one test wants `skip_on_native "why"` at its top,
+which does nothing on the GBA run. A test that reaches for the emulator (`require_emulator!`,
+`assert_emulator_loads_rom`) skips itself on a native run, since the cartridge is the GBA run's;
+any check on the game before it has already run. Every skip says why, and a native run ends
+with the skips counted by reason.
 
-**`assert_backends_agree` does not skip there.** On `rake test` it asks whether the console draws
-what the interpreter draws. On a native run the same line asks that of the game as C: the
-program is played as C with the same buttons held and compared with the interpreter on every
-frame (it hands back the `CheckedNativeRun`). So a file full of whole-picture comparisons is
-worth opting in for those alone, with no line of it changed.
+**`assert_backends_agree` and `backend_pictures` do not skip there.** On the GBA run they ask
+whether the console draws what the interpreter draws. On a native run the same lines ask that of
+the game as C: the program is played as C with the same buttons held and compared with the
+interpreter on every frame, and `backend_pictures` hands back the C's picture in place of the
+console's. How the console is lined up against the interpreter (boot frames, passes managed) is
+the GBA lowering's alone, tested in `ir/backends/gba/test_console_line_up.rb`.
 
-**A whole example on native gets files of its own**, beside the opted-in tests in
+**A whole example on native gets files of its own**, beside the tests in
 `test/examples/`, under `test/ruby_gba/ir/backends/native/examples/`: `test_<game>_picture.rb`
 plays a recorded run of buttons and compares every variable, every pixel and the sound log with
 the interpreter's on every frame, and `test_<game>_sounds.rb` compares what comes out of the
@@ -395,24 +404,26 @@ them. What that cannot cure: after a header is edited
 the checker can go on reading it at its old positions and report nonsense, such as "invalid
 suffix on integer constant" on a line that only names a number the header defines. Ask the
 compiler itself before believing it, which takes a few seconds:
-`rake test:native TEST=test/ruby_gba/ir/backends/native/test_native_checker_flags.rb`.
+`rake test:lowering:native TEST=test/ruby_gba/ir/backends/native/test_native_checker_flags.rb`.
 
 **A native run plays its tests in several processes, not Ractors** (a Ractor cannot start the
 child processes a native test needs). `tools/parallel_test.rb` starts `TEST_PROCESSES` of them —
-as many as `rake test` has workers unless told otherwise — and hands them one test at a time, so
+as many as the GBA run has workers unless told otherwise — and hands them one test at a time, so
 one slow file never decides how long a run takes, even a run of that file alone. Each process
-sends its results back and the run prints them as one report: the same totals, failures, skips
-by reason and class counts one process would print. A process that dies under a test costs that
-test, reported as an error saying how it died, and a new one takes its place. Not threads: a
-native test is nearly all Ruby work, and threads take turns at that, so they bought next to
-nothing. A native run never checks for shared state — `rake test` runs the same file and does.
-The native backend's own tests (`test/ruby_gba/ir/backends/native/`) say `runs_on :native`
-alone, and `rake test` loads them and runs nothing in them.
+sends its results back and the run prints them as one report: the same totals, failures and
+skips by reason one process would print. A process that dies under a test costs that test,
+reported as an error saying how it died, and a new one takes its place. Not threads: a native
+test is nearly all Ruby work, and threads take turns at that, so they bought next to nothing. A
+native run never checks for shared state — the GBA run plays the same file and does. The native
+backend's own tests (`test/ruby_gba/ir/backends/native/`) are in its own folder, which the GBA
+run does not load.
 
-**A whole run of either suite has the machine to itself.** `rake test` and `rake test:native`
-each take one lock for the whole machine (`tools/suite_lock.rb`) before they start, so the
-second waits for the first and says which run it is waiting for. A run of one file (`TEST=`)
-does not take it.
+**A whole run has the machine to itself.** `rake test`, and each lowering's run on its own, take
+one lock for the whole machine (`tools/suite_lock.rb`) before they start — `rake test` once for
+both lowerings — so a second run waits for the first and says which run it is waiting for. A
+run of one file (`TEST=`) does not take it. The two lowerings' runs inside `rake test` go one
+after the other, each with the machine's cores, so they never compete for one; running them at
+the same time would want a shared pool of permits across both, and is not done.
 
 ## Which frame's numbers the picture was drawn from
 
@@ -770,8 +781,9 @@ exact wording (which is free to improve). See the guardrail tests for the shape.
 
 - Don't name a test helper `run` — it shadows `Minitest::Test#run`. The blit
   tests use `interpret`/`assert_same_pixels`/domain names instead.
-- `rake test` runs everything; a single file is `rake test TEST=test/the_file.rb`.
+- `rake test` runs everything on every lowering; a single file is `rake test TEST=test/the_file.rb`.
+  It needs zig 0.17 on the path (`mise use zig@0.17.0`), or the native run stops it at the start.
 - Integration tests **fail loudly** without the emulator rather than skipping — it is
   required, not optional, so a missing build is a real error and not a quiet pass with the
-  coverage gutted. The one exception is a native run (`rake test:native`), which is there to
-  test the game as C: there they skip, saying so, and `rake test` still runs them every time.
+  coverage gutted. The one exception is the native lowering's run, which is there to test the
+  game as C: there they skip, saying so, and the GBA run plays them every time.

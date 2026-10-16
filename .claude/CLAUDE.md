@@ -84,37 +84,43 @@ newer, which cannot see a Ruby version change — after switching Ruby, run `rak
 
 It is **required, not optional**: if it can't build or load, the emulator-backed tests **fail
 loudly** rather than skipping — `require_emulator!` (in `EmulatorSupport`) raises. The one run
-they skip on is `rake test:native`, which is there to test the game as C and not the cartridge;
-`rake test` runs them every time. Building it
+they skip on is the native lowering's, which is there to test the game as C and not the
+cartridge; the GBA lowering's run plays them every time. Building it
 needs a C compiler and a system libmgba (`brew install mgba` / `apt install libmgba-dev`).
 
 ## Running Tests
 
-**`rake test` is how the suite is run.** One process, with each test given a core of its own —
-and a test that reaches state the whole process shares is reported rather than tolerated. See
-"Ractors" in `.claude/rules/testing.md`: fix what it reports, never work around it.
+**`rake test` is how the suite is run.** It plays the suite once for each lowering, one after
+the other: the GBA lowering's run (every game on the interpreter, the cartridge checked in the
+emulator, each test given a core of its own, and a test that reaches state the whole process
+shares reported rather than tolerated — see "Ractors" in `.claude/rules/testing.md`: fix what
+it reports, never work around it), then the native lowering's (every game built as C and
+checked against the interpreter on every frame, in several processes). It ends with a line for
+each and fails if either did. It needs zig 0.17 as well as the emulator (`mise use zig@0.17.0`).
 
 ```bash
-rake test                                                       # the suite
-rake test TEST=test/ruby_gba/dsl/test_thing.rb                  # one file
+rake test                                                       # the suite, on every lowering
+rake test TEST=test/ruby_gba/dsl/test_thing.rb                  # one file, on every lowering that plays it
 rake test TEST=test/ruby_gba/dsl/test_thing.rb TESTOPTS="--name=/pattern/"  # one test
+rake test:lowering:gba                                          # the GBA lowering's run alone (takes TEST= too)
+rake test:lowering:native                                       # the native lowering's run alone (takes TEST= too)
 rake test:playthroughs                                          # one module's tests: every file in test/ruby_gba/playthroughs/
-rake test:native                                                # the suite on the native lowering
-rake test:native TEST=test/examples/test_pong_scoring.rb       # one file on the native lowering
 ```
 
-**A run tests one lowering.** `rake test` plays every game on the interpreter and checks the
-cartridge in the emulator; `rake test:native` plays them as C (`Backends::Native`), and needs
-zig, installed through mise. Both load every test file, and a class runs only on the lowerings
-it names. **Every test class has to name them** — `runs_on :reference` for tests only the
-interpreter and the cartridge play, `runs_on :reference, :native` for ones the game as C plays
-too — and a class that says nothing stops the run before it starts, naming the class.
-Native trails the other two backends (see the cross-backend rule below), so a file is opted in
-once native can play its games, and its tests are never rewritten for it: the class names both
-lowerings and says `game_player` where it said `Reference.new`. On a native run that hands it
-the game as C, checked against the interpreter on every frame; a test that reaches for the
-emulator skips itself. `.claude/rules/testing.md` has the details, and `test/support/suites.rb`
-the setting.
+**Which run a change needs:** a change inside one lowering — the ARM the GBA lowering emits,
+the C the native lowering writes — can only break that lowering's run, so its own task is
+enough while working. A change to anything both read — the DSL, the IR, the interpreter (the
+answer key both are checked against, so never a narrow change), the build checks — wants
+`rake test`.
+
+**Every test plays on both lowerings**, with nothing written to say so: a test makes its player
+with `game_player` (the interpreter on the GBA run, the game as C on the native one), and a test
+that reaches for the emulator skips itself on the native run. A test that does not pass on both
+fails `rake test`. The one exception is a test of one lowering's own output, which lives in a
+folder that lowering owns and is played by its run alone: `test/ruby_gba/ir/backends/gba/`, the
+cartridge-reading `diagnostics/` and `playthroughs/` for the GBA lowering, and
+`test/ruby_gba/ir/backends/native/` for the native one (`TestSuites::LOWERING_FOLDERS` in
+`test/support/suites.rb`). `.claude/rules/testing.md` has the details.
 
 The test tree mirrors the code's directories: a test of a file in `lib/ruby_gba/audio/`
 lives in `test/ruby_gba/audio/`, a test of an example in `test/examples/`, a test of a
@@ -276,12 +282,9 @@ Keep the IR **target-agnostic**: `IR::Node` describes *what the program does*, n
 
 **Backends** consume the IR and live under `IR::Backends`, named for the platform they target (the ROM backend is `GBA`, not `Arm` — the target is the whole platform, not just the CPU). `Backends::Reference` runs the IR in Ruby (the headless test oracle — named for its role as the answer key, not for the language, since every backend here happens to be written in Ruby); `Backends::GBA` lowers it to a ROM; a `Backends::JS` could run it in a browser. All honor `IR::Int32`'s signed-32-bit semantics — that shared contract is what keeps them agreeing.
 
-**Cross-backend rule:** a hardware feature (sound, tiles, sprites, paged modes…) isn't *done* until it works on every backend that needs it — the GBA lowering **and** the Ruby interpreter. The moment a feature is on the radar, write down each backend's slice as its own piece of work — even before the details are known — so it can't be forgotten while you're heads-down on the feature elsewhere. Don't lean on this principle to remember; record it. The rule holds for the two FIRST-CLASS
-backends only. `Backends::Native` (the game as C, built by zig into a desktop program) TRAILS:
-a feature is done without it, and what it cannot do yet is a gap recorded against it rather
-than a broken build (see the comment atop `IR::Backends`).
+**Cross-backend rule:** a hardware feature (sound, tiles, sprites, paged modes…) isn't *done* until it works on every backend — the GBA lowering, the native lowering (`Backends::Native`, the game as C, built by zig into a desktop program) **and** the Ruby interpreter. `rake test` holds it to that: every test plays on both lowerings, so a feature one of them lacks fails the run (see the comment atop `IR::Backends`). The moment a feature is on the radar, write down each backend's slice as its own piece of work — even before the details are known — so it can't be forgotten while you're heads-down on the feature elsewhere. Don't lean on this principle to remember; record it.
 
-**Conformance-fixture obligation:** a new IR feature (a `Node::CATEGORY` kind or a `binop` operator) isn't done until it's added to the kitchen-sink fixture in `test/conformance_fixture.rb`. That one program is run through every backend by `test/ruby_gba/ir/test_cross_backend_conformance.rb`; a backend missing a feature the fixture uses hits its "unsupported" branch and fails. The coverage test asserts the fixture touches every kind/operator, so a forgotten feature fails loudly — but only if you added it to the fixture. Hardware-only kinds (`raw` and `read_scanline` today) are exempt via `HARDWARE_ONLY_KINDS` and kept in an uncalled func. This guards *coverage*; the differential test (behavioral *agreement*) is separate.
+**Conformance-fixture obligation:** a new IR feature (a `Node::CATEGORY` kind or a `binop` operator) isn't done until it's added to the kitchen-sink fixture in `test/conformance_fixture.rb`. That one program is run through every backend by `test/ruby_gba/ir/test_cross_backend_conformance.rb` — on the native run it is built as C and checked against the interpreter — and a backend missing a feature the fixture uses hits its "unsupported" branch and fails. The coverage test asserts the fixture touches every kind/operator, so a forgotten feature fails loudly — but only if you added it to the fixture. Hardware-only kinds (`raw` and `read_scanline` today) are exempt via `HARDWARE_ONLY_KINDS` and kept in an uncalled func. This guards *coverage*; the differential test (behavioral *agreement*) is separate.
 
 ### Key Patterns
 
