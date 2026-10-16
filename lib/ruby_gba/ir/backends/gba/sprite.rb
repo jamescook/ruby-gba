@@ -64,13 +64,17 @@ module RubyGBA
         # leaves the bank out, since the bank is the part of that word a frame decides. nil for
         # every other sprite.
         #
+        # +pose_sends+ is set on every sprite of a pool whose poses go into sprite memory the first
+        # time one of its things shows each (see PoseSends::Pool): which pictures, and where each
+        # pose's tiles are among them. nil for every other sprite.
+        #
         # +layer_depths+ is the same kind of table for a sprite that can be put in other
         # layers: the depth each one puts it at, counted the way +layer_pick+ counts them,
         # and last the layer it was declared in (ScreenLayout#sprite_layer_depth_table). Its
         # +attr2_base+ then leaves the depth out. nil for every other sprite.
         Sprite = Data.define(
           :slot, :pieces, :scene,
-          :tiles, :tile_units, :tile_index, :frames, :frame_bytes,
+          :tiles, :tile_units, :tile_index, :frames, :frame_bytes, :pose_sends,
           :pose, :pose_count, :alike, :per_pose, :pose_table, :pose_words, :mirrors,
           :offset_x, :offset_y, :width, :height,
           :x, :y, :active, :angle, :scale, :transformed, :scales, :affine_slot,

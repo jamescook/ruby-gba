@@ -316,6 +316,14 @@ module RubyGBA
           # own, or no scene at all, sends nothing.
           def scene_send(scene) = @scene_sends.fetch(scene, NOTHING_SENT)
 
+          # Each pool whose poses go into sprite memory as they are first shown, by the blob of its
+          # pictures (see PoseSends). Empty in a game with none.
+          def pools_sending_poses = @pools_sending_poses || {}
+
+          # ...the ones +scene+ owns, whose record of what has been sent goes back to nothing as it
+          # takes over.
+          def pools_sending_poses_in(scene) = pools_sending_poses.each_value.select { |pool| pool.scene == scene }
+
           # Do the tiled scenes want different layers on? Only then does each scene tell the
           # display which, as it takes over (see #scene_screens_for).
           def layers_differ_by_scene? = @scene_sends.each_value.filter_map(&:screen).uniq.size > 1
@@ -1583,9 +1591,15 @@ module RubyGBA
                                                               bytes: run.width * run.height / 2, list: run.list,
                                                               what: "image")
             end
+            # A pool's pictures that wait to be shown are copied a pose at a time out of the
+            # cartridge, so they stay unpacked too; they are just not copied as the scene arrives.
+            @pools_sending_poses = PoseSends.new(objects: @objects, pictures: @obj_pictures, blobs: @blobs).pools
+            @pools_sending_poses.each_value do |pool|
+              pool.sprites.each { |name| @objects[name] = @objects.fetch(name).with(pose_sends: pool) }
+            end
             @sprite_art.scene_art.each do |scene, sent|
               sent.each { |blob, *| keep_unpacked!(blob) }
-              record_scene_send(scene, art: sent)
+              record_scene_send(scene, art: sent.reject { |blob, *| @pools_sending_poses.key?(blob) })
             end
           end
 
@@ -2091,6 +2105,7 @@ module RubyGBA
               scene: node.scene, # sent when that scene takes over, rather than at boot
               tile_index: tile_index, # this sprite's base tile number
               frames: frames, frame_bytes: frame_bytes, # every frame in the cartridge, for one kept to one frame
+              pose_sends: nil, # a pool's poses sent as they are first shown, settled once every sprite has landed
               per_pose: per_pose,    # stride to the next pose's tiles
               pose: node.pose,     # the run-time pose selector (which pose to show)
               pose_count: node.poses.length, # how long one piece's row of the pose table is

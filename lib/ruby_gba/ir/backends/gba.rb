@@ -6,6 +6,7 @@ require_relative "gba/pose_cutter" # how a sprite's picture is cut into the rect
 require_relative "gba/sprite_pictures" # one sprite's pictures, and the sets of them sprites share
 require_relative "gba/object_art" # where the sprites' pictures go in sprite memory
 require_relative "gba/sprite_layout" # ...and one attempt at fitting them all into it
+require_relative "gba/pose_sends" # ...and a pool's poses, sent the first time one is shown
 require_relative "gba/placed_fade" # a fade that sits at a place in the stack, and the twins holding it off
 require_relative "gba/pixelation" # which backgrounds are drawn in blocks when the game pixelates
 require_relative "gba/stretched_columns" # the pictures a stretched column draws, and where each holds pixels
@@ -743,6 +744,15 @@ module RubyGBA
                        else
                          []
                        end
+          # A byte a pose for each pool whose poses are sent as they are first shown, saying
+          # which are in sprite memory (see PoseSends). In the roomy memory: it is read once a
+          # thing, where the quick memory is worth more to the code a frame runs.
+          @pose_sent_bytes = @screen.pools_sending_poses.transform_values do |pool|
+            @memory.alloc_roomy(pool.count) or
+              raise LoweringError, "The console's roomy memory is full. So there is no room for the #{pool.count} " \
+                                   "bytes that say which pictures of a pool are in sprite memory. " \
+                                   "To fix this, make a list or a pool smaller."
+          end
           # Save data reaches the chip too, so it needs the marker that maps it as much as a
           # saved number does.
           @uses_save = program.walk.any? { |node| SAVE_KINDS.include?(node.kind) }
@@ -763,7 +773,7 @@ module RubyGBA
             scene_blend: @scene_blend || {}, movement: @movement || IR::Movement::EVERYTHING_MOVES,
             scene_sprites: @scene_sprites || [],
             waits_for_frames: @uses_vblank,
-            draw_runs: @draw_runs,
+            draw_runs: @draw_runs, pose_sent_bytes: @pose_sent_bytes,
           )
           @drawing.layout = layout
           @buffered.layout = layout

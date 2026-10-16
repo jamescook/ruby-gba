@@ -518,6 +518,7 @@ module RubyGBA
             place_label(draw)
             emit_store_object_picked_attr2(obj) if obj.picks_attr2?
             emit_send_object_frame(obj, name) if obj.frames
+            emit_send_pose_first_shown(obj.pose_sends, obj.pose) if obj.pose_sends
             # Worked out once for the whole sprite when it is drawn as several objects:
             # every piece stands at the same place and reads it back from there.
             emit_stash_object_position(obj) if obj.pieces > 1
@@ -648,6 +649,63 @@ module RubyGBA
             emit_start_copy_engine(from: in_register(ACC), to: OBJ_TILE_BASE + (obj.tile_index * 32),
                                    control: (obj.frame_bytes / 4) | DMA_ENABLE | DMA_32BIT)
             place_label(already)
+          end
+
+          # COPY A POOL'S POSE INTO SPRITE MEMORY THE FIRST TIME ONE OF ITS THINGS SHOWS IT since
+          # the scene took over (see PoseSends). Its byte says whether it is there; nought, and
+          # the pose's run of tiles is copied out of the cartridge to where the whole set would
+          # have gone, so the table entries every pose's draw already writes point at it.
+          #
+          #   r0  the pose, then where its tiles are in the cartridge
+          #   r1  its byte, then its table, then the copy engine's address
+          #   r2  its word in the table, then the copy's size and how it is told to run
+          #   r3  where its tiles go in sprite memory
+          def emit_send_pose_first_shown(pool, pose)
+            done = gensym
+            @lowering.value(pose)
+            emit_number(TMP, pool.count)
+            emit(ASM.cmp_reg(ACC, TMP))
+            emit_branch(:bcond, done, cond: :hs) # a pose the pool does not have shows nothing new
+            emit_number(TMP, @layout.pose_sent_bytes.fetch(pool.blob))
+            emit(ASM.add_reg(TMP, TMP, ACC))
+            emit(ASM.ldrb_offset(2, TMP, 0))
+            emit(ASM.cmp_imm(2, 0))
+            emit_branch(:bcond, done, cond: :ne) # sent already
+            emit_number(2, 1)
+            emit(ASM.strb(2, TMP))
+            emit_load_data_address(TMP, pool.table)
+            emit(ASM.ldr_reg_lsl(2, TMP, ACC, 2))
+            emit(ASM.lsl_imm(3, 2, 16))
+            emit(ASM.lsr_imm(3, 3, 11))                  # r3 = how far into the set, in bytes
+            emit_load_data_address(ACC, pool.blob)
+            emit(ASM.add_reg(ACC, ACC, 3))
+            emit_number(TMP, OBJ_TILE_BASE + (pool.tile_index * 32))
+            emit(ASM.add_reg(3, 3, TMP))
+            emit(ASM.lsr_imm(2, 2, 16))
+            emit(ASM.lsl_imm(2, 2, 3))                   # its tiles, eight words each
+            emit(ASM.cmp_imm(2, 0))
+            emit_branch(:bcond, done, cond: :eq)         # a count of nought would copy the most there is
+            emit_number(TMP, DMA_ENABLE | DMA_32BIT)
+            emit(ASM.orr_reg(2, 2, TMP))
+            emit_start_copy_engine(from: in_register(ACC), to: in_register(3), control: in_register(2))
+            place_label(done)
+          end
+
+          # NOTHING OF A POOL'S POSES IS IN SPRITE MEMORY YET, as its scene takes over: every
+          # pose's byte back to nought, and the blank tile its filler pieces draw cleared (see
+          # PoseSends). Nought is loaded once and stored a word at a time, since both are a few words.
+          def emit_forget_poses_sent(pool)
+            emit_number(ACC, 0)
+            at = @layout.pose_sent_bytes.fetch(pool.blob)
+            words = (0...pool.count).step(4).map { |offset| at + offset }
+            if pool.blank_at
+              blank = OBJ_TILE_BASE + ((pool.tile_index + pool.blank_at) * 32)
+              words += (0...pool.blank_bytes).step(4).map { |offset| blank + offset }
+            end
+            words.each do |address|
+              emit_number(TMP, address)
+              emit(ASM.str(ACC, TMP))
+            end
           end
 
           # An upright sprite: position and size straight into its slot.

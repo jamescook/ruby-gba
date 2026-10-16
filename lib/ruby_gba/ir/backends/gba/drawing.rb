@@ -82,7 +82,7 @@ module RubyGBA
           # copied out, so a thing the layout decides has one home.
           Layout = Data.define(:screen, :bitmaps, :palette, :indexed_bitmaps, :blob_codecs, :blob_raw_bytes,
                                 :modes, :fading, :tiled, :has_objects, :scene_blend, :movement,
-                                :scene_sprites, :waits_for_frames, :draw_runs) do
+                                :scene_sprites, :waits_for_frames, :draw_runs, :pose_sent_bytes) do
             # The backgrounds that turn AND sit on the tiled screen — the ones that decide
             # which way the console arranges that screen's layers. A background that turns
             # on `screen :rotozoom` is on a screen of its own, up at a different moment, so
@@ -612,6 +612,10 @@ module RubyGBA
           # rather than the whole game's — and it is guarded, so staying in a scene costs
           # one compare a frame while changing scene costs the copy.
           #
+          # A pool's pictures are not among them: each pose goes in the first time one of its
+          # things shows it (see PoseSends), so here the pool's record of what has been sent goes
+          # back to nothing instead.
+          #
           # A scene with no art of its own emits nothing at all, which is every scene in a
           # game that declares its sprites at the top level. A scene whose characters keep one
           # frame at a time has art of its own even when it has nothing to send: another
@@ -629,7 +633,8 @@ module RubyGBA
             colors = own.obj_palette
             arrival = @layout.screen.handover.arrival(name)
             painted = arrival.painted_pictures
-            if art.empty? && rooms.empty? && colors.nil? && painted.empty?
+            pools = @layout.screen.pools_sending_poses_in(name)
+            if art.empty? && rooms.empty? && colors.nil? && painted.empty? && pools.empty?
               # A scene with no sprite art of its own normally leaves the last scene's marked as
               # loaded, which is right: nothing overwrote it. A painted picture is the exception,
               # since its list can change while its scene is away and it goes up from the list
@@ -644,6 +649,7 @@ module RubyGBA
               @palette_tint.emit_send_scene_obj_palette(colors, @layout.screen.obj_palette_units, name) if colors
               art.each { |blob, at, units| @uploads.emit_dma_blob(blob, SpriteDrawing::OBJ_TILE_BASE + (at * 32), units * 16) }
               @sprite_drawing.emit_reset_resident_frames(rooms)
+              pools.each { |pool| @sprite_drawing.emit_forget_poses_sent(pool) }
               # A picture the game paints goes up from its list as it is now: the scene before
               # used the same memory (see IR::SceneHandover).
               painted.each { |run| @background_drawing.emit_copy_tiles(Build.copy_tiles(run.name)) }
