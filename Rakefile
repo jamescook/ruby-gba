@@ -80,9 +80,9 @@ end
 
 Rake::TestTask.new(test: %i[suite_lock compile_emulator clear_coverage]) do |t|
   t.libs << "test" << "lib"
-  # Every file, run on the interpreter; a class that names only native runs nothing here (see
-  # TestSuites).
-  t.test_files = TestSuites.files
+  # Every file but the native lowering's own, run on the interpreter; a class that names only
+  # native runs nothing here (see TestSuites).
+  t.test_files = TestSuites.files(lowering: :reference)
   # `test` on the load path is what lets every test file open with the one line
   # `require "test_helper"` and get the library, minitest, and the shared names.
   t.description = 'Run the suite (one file with TEST=test/test_foo.rb, one test with ' \
@@ -139,16 +139,34 @@ namespace :test do
     ENV[TestSuites::LOWERING_SETTING] = "native"
   end
 
-  # The emulator is built for it too: the cartridge's own sound, in the emulator, is the answer
-  # key for the sound the desktop build makes (test/sound_comparison.rb).
-  Rake::TestTask.new(native: %i[suite_lock zig compile_emulator native_run]) do |t|
-    t.libs << "test" << "lib"
-    t.ruby_opts << "-r#{File.expand_path('tools/parallel_test.rb', __dir__)}"
-    t.test_files = TestSuites.files(desktop: ENV["SDL"] == "1")
-    t.description = "Run the suite on the native lowering: the classes that say `runs_on :native` " \
-                    "(needs zig, and the emulator for its sound). SDL=1 also builds and runs the " \
-                    "desktop program, with its window"
+  # ONE LOWERING AT A TIME, for a change inside one lowering. Every lowering's run checks its
+  # output against the interpreter, so a change to the ARM the GBA lowering emits, or to the C
+  # the native lowering writes, can only break that lowering's run. A change to anything they
+  # all read — the DSL, the IR, the interpreter itself — wants every lowering.
+  namespace :lowering do
+    # The interpreter, with the cartridge checked in the emulator where a test asks for it, and
+    # the GBA lowering's own folders (TestSuites::LOWERING_FOLDERS).
+    Rake::TestTask.new(gba: %i[suite_lock compile_emulator clear_coverage]) do |t|
+      t.libs << "test" << "lib"
+      t.test_files = TestSuites.files(lowering: :reference)
+      t.description = "Run the suite on the GBA lowering: the interpreter, with the cartridge checked in " \
+                      "the emulator (one file with TEST=)"
+    end
+
+    # The emulator is built for it too: the cartridge's own sound, in the emulator, is the answer
+    # key for the sound the desktop build makes (test/sound_comparison.rb).
+    Rake::TestTask.new(native: %i[suite_lock zig compile_emulator native_run]) do |t|
+      t.libs << "test" << "lib"
+      t.ruby_opts << "-r#{File.expand_path('tools/parallel_test.rb', __dir__)}"
+      t.test_files = TestSuites.files(lowering: :native, desktop: ENV["SDL"] == "1")
+      t.description = "Run the suite on the native lowering: the game built as C, checked against the " \
+                      "interpreter (needs zig, and the emulator for its sound; one file with TEST=). " \
+                      "SDL=1 also builds and runs the desktop program, with its window"
+    end
   end
+
+  desc "The same as test:lowering:native"
+  task native: "lowering:native"
 end
 
 desc "Did a compiler change alter what it emits? Build every example twice (rake emitted REF=HEAD~3 ONLY=pong)"

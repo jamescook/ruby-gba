@@ -63,6 +63,23 @@ class TestSuitesSplit < Minitest::Test
     assert_nil TestSuites.unnamed_lowerings_message([HELPERS_ONLY, INTERPRETER, BOTH, NATIVE])
   end
 
+  # A test of one lowering's own output — the ARM a cartridge is made of, the cartridge played in
+  # the emulator, the C the native lowering writes — lives in a folder that lowering owns, and
+  # the other lowering's run never loads it. Every other file is loaded by both.
+  def test_a_lowering_run_leaves_out_the_other_lowerings_folders
+    native_run = TestSuites.files(lowering: :native)
+    interpreter_run = TestSuites.files(lowering: :reference)
+
+    assert_includes native_run, "test/ruby_gba/ir/backends/native/test_native_picture.rb"
+    refute_includes native_run, "test/ruby_gba/ir/backends/gba/test_asm.rb"
+    refute_includes native_run, "test/ruby_gba/playthroughs/test_playthrough.rb"
+    assert_includes interpreter_run, "test/ruby_gba/ir/backends/gba/test_asm.rb"
+    refute_includes interpreter_run, "test/ruby_gba/ir/backends/native/test_native_picture.rb"
+    shared = "test/ruby_gba/dsl/test_pool_walk_order.rb"
+    assert_includes native_run, shared
+    assert_includes interpreter_run, shared
+  end
+
   # What a native run says at its end, so the classes it did not play are counted in plain sight.
   def test_the_classes_are_counted_by_where_they_run
     counts = TestSuites.class_counts_by_lowerings([INTERPRETER, INTERPRETER, BOTH, NATIVE, HELPERS_ONLY])

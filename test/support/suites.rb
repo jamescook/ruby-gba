@@ -26,6 +26,17 @@ module TestSuites
     raise ArgumentError, "#{LOWERING_SETTING} is #{LOWERING}, and a run can test #{LOWERINGS.join(' or ')}"
   end
 
+  # THE FOLDERS THAT BELONG TO ONE LOWERING. A test there is about that lowering's own output —
+  # the ARM a cartridge is made of, the cartridge played in the emulator, the C the native
+  # lowering writes — and the other lowering's run never loads it. Every test outside them is
+  # about the game, and every lowering's run loads it. Each folder mirrors a part of lib that is
+  # that lowering's alone: the GBA backend, the playthroughs that drive a cartridge in the
+  # emulator, and the native backend.
+  LOWERING_FOLDERS = Ractor.make_shareable({
+                                             reference: ["test/ruby_gba/ir/backends/gba", "test/ruby_gba/playthroughs"],
+                                             native: [NATIVE_DIR]
+                                           })
+
   # The test of the program a player runs, with its window. It builds with SDL, whose first build
   # fetches its source over the network, so it is loaded only when asked (SDL=1).
   DESKTOP_TEST = Ractor.make_shareable("#{NATIVE_DIR}/test_native_desktop.rb")
@@ -34,9 +45,11 @@ module TestSuites
 
   def native? = LOWERING == :native
 
-  # Every test file, for either run; the desktop test too when +desktop+.
-  def files(desktop: false)
-    found = Dir.glob("test/**/test_*.rb").sort
+  # Every test file +lowering+'s run loads: all of them but those in another lowering's folders,
+  # and the desktop test only when +desktop+.
+  def files(lowering: LOWERING, desktop: false)
+    others = LOWERING_FOLDERS.reject { |owner, _| owner == lowering }.values.flatten
+    found = Dir.glob("test/**/test_*.rb").sort.reject { |path| others.any? { |dir| path.start_with?("#{dir}/") } }
     desktop ? found : found - [DESKTOP_TEST]
   end
 
