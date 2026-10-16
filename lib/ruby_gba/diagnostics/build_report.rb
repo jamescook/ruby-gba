@@ -219,7 +219,7 @@ module RubyGBA
       # it gives up. A game whose fades are all short hears nothing (see IR::Fading).
       def fade_steps_lines(program, printer)
         fading = IR::Fading.resolve(program)
-        return unless fading.fine_palette_fade? || fading.coarse_placed.any?
+        return unless fading.fine_palette_fade? || fading.kept_coarse.any?
 
         levels = IR::Backends::FadeSteps::WALK + 1
         display = IR::Backends::FadeSteps::DISPLAY + 1
@@ -229,9 +229,10 @@ module RubyGBA
                        "The display's own fade has #{display}."
           printer.puts "      ...which costs a blend per declared colour, on each frame it moves"
         end
-        return if fading.coarse_placed.empty?
+        return if fading.kept_coarse.empty?
 
-        printer.puts "    a fade placed in the stack keeps the display's #{display} levels. " \
+        where = fading.rectangle_fades? ? "held to part of the screen" : "placed in the stack"
+        printer.puts "    a fade #{where} keeps the display's #{display} levels. " \
                      "A long one changes the picture every other frame."
       end
 

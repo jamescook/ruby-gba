@@ -225,20 +225,74 @@ module RubyGBA
       #   layers :world, :actors, :ui
       #   fade :black, 100, under: :ui
       #
+      # `inside:` holds the fade to a rectangle of the screen, `[x, y, width, height]`, and
+      # leaves the rest as drawn; `outside:` fades everything but the rectangle. Fade the view
+      # and keep the status bar under it, or dim a game behind a pause box:
+      #
+      #   fade :black, 100, inside: [0, 0, 240, 128]
+      #   fade :black, 50, outside: [60, 40, 120, 80]
+      #
+      # The display does it with a window — a rectangle it is told about — and its darkening
+      # switched on in one part and off in the other, so it is as free as a whole-screen fade.
+      #
       # @param toward [Symbol] :black or :white
       # @param amount [Symbol, Integer, Float, Value] how far, 0 to 100 (a fraction asks for finer steps)
       # @param under [Symbol, nil] a layer this fade sits under, or nil for the whole screen
-      def fade(toward, amount = 100, under: nil)
+      # @param inside [Array<Integer>, nil] the rectangle the fade is held to
+      # @param outside [Array<Integer>, nil] the rectangle the fade leaves alone
+      def fade(toward, amount = 100, under: nil, inside: nil, outside: nil)
         unless FADE_COLORS.include?(toward)
           raise ArgumentError,
                 "fade goes to :black or :white. You gave #{toward.inspect}."
         end
         node, bits = effect_amount(:fade, amount)
+        reaches, area = fade_area(under, inside, outside)
         check_effect_layer!(:fade, under) if under
 
-        record(Build.fade(toward: toward, amount: node, under: under, fraction_bits: bits))
+        record(Build.fade(toward: toward, amount: node, under: under, fraction_bits: bits, reaches: reaches,
+                          area: area))
         ensure_var(amount)
       end
+
+      private
+
+      # Which side of a rectangle a fade reaches, and the rectangle as the display's window
+      # takes it: [left, top, right, bottom], the right and bottom one past the last column and
+      # row, clipped to the screen. A rectangle wholly off the screen, or of no width or
+      # height, holds nothing. Nil and nil for a fade over the whole screen.
+      def fade_area(under, inside, outside)
+        return [nil, nil] if inside.nil? && outside.nil?
+
+        refuse_fade_area_beside!(under, inside, outside)
+        reaches, rect = inside ? [:inside, inside] : [:outside, outside]
+        refuse_fade_area_shape!(reaches, rect)
+        x, y, w, h = rect
+        left, right = [x, x + w].map { |edge| edge.clamp(0, Console::Hardware::SCREEN_WIDTH) }
+        top, bottom = [y, y + h].map { |edge| edge.clamp(0, Console::Hardware::SCREEN_HEIGHT) }
+        empty = left >= right || top >= bottom
+        [reaches, empty ? [0, 0, 0, 0] : [left, top, right, bottom]]
+      end
+
+      def refuse_fade_area_beside!(under, inside, outside)
+        if inside && outside
+          raise ArgumentError, "fade takes `inside:` or `outside:`, not both. Give the one rectangle the fade " \
+                               "is held to (`inside:`) or the one it leaves alone (`outside:`)."
+        end
+        return unless under
+
+        raise ArgumentError, "fade takes `under:` or a rectangle, not both. `under:` places the fade in the " \
+                             "stack, and `inside:` or `outside:` holds it to part of the screen. To fix this, " \
+                             "give one of them."
+      end
+
+      def refuse_fade_area_shape!(word, rect)
+        return if rect.is_a?(Array) && rect.size == 4 && rect.all?(Integer)
+
+        raise ArgumentError, "fade `#{word}:` takes a rectangle as four whole numbers you write: " \
+                             "[x, y, width, height], in pixels. You gave #{rect.inspect}."
+      end
+
+      public
 
       # Tint the whole screen toward a color — red for damage, blue for cold water,
       # orange for a sunset. `fade`'s sibling, for the colors a fade cannot reach.

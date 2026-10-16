@@ -488,11 +488,15 @@ module RubyGBA
         operands counter: :name, period: :int
       end
 
+      # A fade toward black or white. +under+ places it in the stack; +reaches+ keeps it to one
+      # part of the screen instead — :inside the rectangle +area+ holds, or :outside it — with
+      # +area+ as [left, top, right, bottom] in screen pixels, already clipped to the screen,
+      # the right and bottom one past the last column and row.
       class Fade
         include Node
         kind :fade
         category :draw
-        operands toward: :option, amount: :value, under: :name, fraction_bits: :int
+        operands toward: :option, amount: :value, under: :name, fraction_bits: :int, reaches: :option, area: :list
       end
 
       class FillRect

@@ -62,6 +62,13 @@ module RubyGBA
     # is theirs (see Effects::Packs::ScreenFade).
     #
     # A placed fade cannot have them, for the reason above: only the display can place one.
+    #
+    # A FADE HELD TO A RECTANGLE (`fade :black, 75, inside: [...]`) is the display's too, and
+    # for the same reason: the display decides, pixel by pixel, whether its darkening applies,
+    # and a table of colors has no notion of where on the screen it is read. So in a game that
+    # holds a fade anywhere, EVERY fade is the display's. A fade that walked the colors beside
+    # one the display holds would leave the display's darkening on under it, and the two would
+    # add up. Such a fade with a fraction keeps the display's steps, as a placed one does.
     module Fading
       def self.resolve(program) = Answer.new(program)
 
@@ -98,7 +105,7 @@ module RubyGBA
           @walking = {}.compare_by_identity
           @fades = []
           @blend_fades = []
-          @coarse_placed = []
+          @kept_coarse = []
           @fine = false
           classify_fades(program)
         end
@@ -112,9 +119,14 @@ module RubyGBA
         # through? The build report says what that costs.
         def fine_palette_fade? = @fine
 
+        # Is any fade in this program held to a rectangle of the screen? Then every fade in it
+        # says where it reaches, a plain one included.
+        def rectangle_fades? = @fades.any?(&:reaches)
+
         # The fades that asked for the finer steps and cannot have them, being placed in the
-        # stack — seventeen levels, so a long one changes the picture every other frame.
-        attr_reader :coarse_placed
+        # stack or in a game that holds a fade to a rectangle — seventeen levels, so a long one
+        # changes the picture every other frame.
+        attr_reader :kept_coarse
 
         # Does any fade in this program? The color tables have to be kept readable in the
         # cartridge for one that does, and the build report names the mechanism it got.
@@ -144,8 +156,14 @@ module RubyGBA
           return if fades.empty? && tints.empty?
 
           modes = Modes.resolve(program)
-          mark_fine_fades(fades, modes)
           mark_fine_tints(tints.select(&:fraction_bits), modes)
+          # Every fade is the display's, so one asking for the finer steps keeps the display's.
+          # On the plain bitmap screen it would have anyway, so that is no trade to report.
+          if rectangle_fades?
+            return @kept_coarse.concat(fades.select { |node| node.fraction_bits && modes.mode_at(node) != Modes::DIRECT })
+          end
+
+          mark_fine_fades(fades, modes)
           return unless blend_unit_held?(program)
 
           fades.select { |node| modes.mode_at(node) == Modes::TILED }.each do |node|
@@ -157,7 +175,7 @@ module RubyGBA
           # so both of these go back to empty however far the walk above had got.
           @walking.clear
           @blend_fades.clear
-          @coarse_placed.clear
+          @kept_coarse.clear
           @fine = false
         end
 
@@ -168,7 +186,7 @@ module RubyGBA
         def mark_fine_fades(fades, modes)
           fades.select(&:fraction_bits).each do |node|
             next if modes.mode_at(node) == Modes::DIRECT
-            next @coarse_placed << node if node.under
+            next @kept_coarse << node if node.under
 
             @walking[node] = true
             @fine = true

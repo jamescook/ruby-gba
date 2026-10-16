@@ -196,6 +196,6 @@ class TestFading < Minitest::Test
     prog = finely_faded(:tiled, under: :ui)
 
     refute fading(prog).palette_walk?(fades(prog).first)
-    assert_equal fades(prog), fading(prog).coarse_placed
+    assert_equal fades(prog), fading(prog).kept_coarse
   end
 end

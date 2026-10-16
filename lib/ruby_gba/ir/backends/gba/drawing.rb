@@ -142,6 +142,7 @@ module RubyGBA
             # Turn the sprite layer on alongside the chosen mode when the program has
             # sprites, and pick the simple 1D tile arrangement they're packed for.
             value |= OBJ_ENABLE | OBJ_1D_MAP if @layout.has_objects
+            value |= display_window_bits
             late = late_layer_enable_bits
             return @emitter.write_reg16(REG_DISPCNT, value | initial_forced_blank_bit) if late.zero?
 
@@ -285,8 +286,15 @@ module RubyGBA
             # ...and the first window, for a program with a light: its edges are the circle,
             # fed a row at a time (see Raster#emit_boot_shade).
             bits |= WIN0_ENABLE if @raster.feeds_light?
-            bits
+            bits | display_window_bits
           end
+
+          # THE FIRST WINDOW, ON EVERY SCREEN OF A GAME THAT HOLDS A FADE TO A RECTANGLE (see
+          # ScreenEffects#emit_fade_window). The window is switched on here, in the display's
+          # settings, and those are written whole each time the screen changes kind, so every
+          # one of them carries it — the bitmap screens' too, where the picture is the console's
+          # third layer and the window cuts the effect on it like any other.
+          def display_window_bits = @layout.fading.rectangle_fades? ? WIN0_ENABLE : 0
 
           # The layers a program that says nothing about scenes uses — every one its
           # backgrounds landed on, and the first layer for a program with none, so a tiled
@@ -328,7 +336,7 @@ module RubyGBA
           def enter_buffered_mode(held = 0)
             @background_drawing.reset_bg2_affine_if_needed
             emit_painted_screen_in_blocks
-            base = MODE_4 | BG2_ENABLE
+            base = MODE_4 | BG2_ENABLE | display_window_bits
             @primitives.store_word_immediate(base, @primitives.var_addr(DISPCNT_STATE))
             @primitives.store_word_immediate(PAGE1, @primitives.var_addr(BACKBUF))
             @emitter.write_reg16(REG_DISPCNT, base | held)
@@ -354,7 +362,7 @@ module RubyGBA
           def enter_direct_mode(held = 0)
             @background_drawing.reset_bg2_affine_if_needed
             emit_painted_screen_in_blocks
-            @emitter.write_reg16(REG_DISPCNT, MODE_3 | BG2_ENABLE | held)
+            @emitter.write_reg16(REG_DISPCNT, MODE_3 | BG2_ENABLE | display_window_bits | held)
             @primitives.store_word_immediate(MODE_DIRECT, @primitives.var_addr(MODE_STATE))
             @scene_entry.emit_clear_used_markers # a new display: nothing any scene put up is there
             @effects.emit_kept_tint_on_entry(IR::Modes::DIRECT)
@@ -406,7 +414,7 @@ module RubyGBA
             emit_objects_again
             @layer_blend.emit_layer_blend_on_entry if @layer_blend.see_through?
             @effects.emit_kept_tint_on_entry(IR::Modes::AFFINE)
-            value = MODE_2 | BG2_ENABLE
+            value = MODE_2 | BG2_ENABLE | display_window_bits
             value |= OBJ_ENABLE | OBJ_1D_MAP if @layout.has_objects
             @emitter.write_reg16(REG_DISPCNT, value | held)
             @primitives.store_word_immediate(MODE_AFFINE, @primitives.var_addr(MODE_STATE))

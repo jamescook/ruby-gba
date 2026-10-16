@@ -214,6 +214,15 @@ void rg_screen_fade(int32_t toward_white, int32_t steps, int32_t walked);
  * everything fades. Each thing says how far forward such a layer can be and still leave it as
  * drawn (RG_BG_FADE_PLACE, rg_game_sprite_fade_places). */
 void rg_screen_fade_under(int32_t layer_place, int32_t toward_white, int32_t steps, int32_t walked);
+/* The same fade HELD TO A RECTANGLE: inside it (+reaches+ RG_FADE_INSIDE) or everywhere but it
+ * (RG_FADE_OUTSIDE), the rest of the screen as drawn. The rectangle is +left+, +top+, +right+
+ * and +bottom+ in screen pixels, the right and bottom one past the last pixel. Always the
+ * display's own fade, in sixteenths (see IR::Fading). */
+#define RG_FADE_WHOLE_SCREEN 0
+#define RG_FADE_INSIDE 1
+#define RG_FADE_OUTSIDE 2
+void rg_screen_fade_in_area(int32_t reaches, int32_t left, int32_t top, int32_t right, int32_t bottom,
+                            int32_t toward_white, int32_t steps);
 /* A tint toward +color+, in thirty-seconds. On the plain bitmap screen the display mixes it in as
  * it draws, at eight bits a channel; on every other screen the game writes the tinted colors
  * itself. That follows the screen up, so a tint kept across a change of screen changes with it. */

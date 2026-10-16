@@ -125,6 +125,7 @@ module RubyGBA
 
           # Which layers the fade reaches and which way, then how far.
           def emit_fade_registers(node)
+            emit_fade_window(node.reaches, node.area) if @layout.fading.rectangle_fades?
             emit_fade_control(node)
 
             if (steps = constant_fade_steps(node))
@@ -133,6 +134,46 @@ module RubyGBA
               @lowering.value(display_steps_value(node))
               store_halfword_acc(REG_BLDY)
             end
+          end
+
+          # A FADE HELD TO A RECTANGLE is the display's own fade with its first window switched
+          # on. The window is a rectangle the display is told about, and two registers say what
+          # happens inside it and outside: which layers show (all of them, both sides, always
+          # here) and whether the color effect — the darkening a fade is — applies. So holding a
+          # fade inside a rectangle is the effect switched on inside and off outside, and
+          # `outside:` is the other way round.
+          #
+          # The window is switched on for the whole of a game that holds a fade anywhere (see
+          # Drawing#display_window_bits), so every fade in it says where it reaches, a fade over
+          # the whole screen included: the effect on both sides. The last fade said is the one
+          # in force, as it always is. Four register writes, every one of a number settled at
+          # build time.
+          #
+          # Right and bottom are one past the last column and row the window covers, which is how
+          # the display counts them. The rectangle was clipped to the screen as the program was
+          # built, so the display is never handed an edge past it. +reaches+ nil is the whole
+          # screen, and then the rectangle does not matter and nothing is written for it.
+          def emit_fade_window(reaches, area)
+            write_reg16(REG_WIN0H, reaches ? (area[0] << 8) | area[2] : 0)
+            write_reg16(REG_WIN0V, reaches ? (area[1] << 8) | area[3] : 0)
+            inside, outside = fade_window_switches(reaches)
+            write_reg16(REG_WININ, inside)
+            write_reg16(REG_WINOUT, outside)
+          end
+
+          # What the window's two regions are told: every layer shows in both, and the darkening
+          # applies on the side the fade reaches, or on both for a fade over the whole screen.
+          def fade_window_switches(reaches)
+            [reaches == :outside ? WIN_ALL_LAYERS : WIN_ALL_LAYERS | WIN_EFFECT,
+             reaches == :inside ? WIN_ALL_LAYERS : WIN_ALL_LAYERS | WIN_EFFECT]
+          end
+
+          # The window as power-on leaves it in a game that holds a fade, and as a tint the
+          # display mixes in leaves it: no rectangle, and the effect on everywhere. A tint is the
+          # same color effect, so it has to say it reaches the whole screen, or it would stop at
+          # the rectangle the last fade was held to.
+          def emit_whole_screen_window
+            emit_fade_window(nil, nil) if @layout.fading.rectangle_fades?
           end
 
           def emit_fade_control(node)
@@ -255,6 +296,7 @@ module RubyGBA
             end
 
             write_reg16(PALETTE_START, Graphics::Color.resolve(node.color)) # the backdrop IS the tint
+            emit_whole_screen_window
             write_reg16(REG_BLDCNT, TINT_BLEND)
             if (steps = constant_fade_steps(node))
               write_reg16(REG_BLDALPHA, tint_weights(steps))
@@ -316,6 +358,7 @@ module RubyGBA
             emit_branch(:bcond, skip, cond: :eq)
             emit(ASM.lsr_imm(ACC, KEPT, PaletteTint::TINT_COLOR_SHIFT))
             store_halfword_acc(PALETTE_START) # the backdrop IS the tint
+            emit_whole_screen_window # a tint said on another screen did not say where it reaches
             write_reg16(REG_BLDCNT, TINT_BLEND)
             emit(ASM.and_imm(ACC, KEPT, (1 << PaletteTint::TINT_COLOR_SHIFT) - 1))
             emit(ASM.lsr_imm(ACC, ACC, 1)) # a walk's thirty-seconds, in the display's sixteenths

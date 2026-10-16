@@ -271,6 +271,10 @@ module ConformanceFixture
       # way, so the picture is the same and what this pins is that every backend can say
       # where an effect sits.
       B.fade(toward: :black, amount: B.int(0), under: :actors),
+      # ...and the same effect held to a rectangle of the screen, the rest left as drawn. At 0
+      # nothing is blended inside it either, so what this pins is that every backend can be
+      # told a rectangle at all.
+      B.fade(toward: :black, amount: B.int(0), reaches: :inside, area: [0, 0, 120, 80]),
       # ...and the sibling effect that mixes a color IN rather than changing brightness.
       # Also at 0, for the same reason: nothing is blended either way, so the picture is
       # unchanged and what this pins is that every backend can be told to tint at all.

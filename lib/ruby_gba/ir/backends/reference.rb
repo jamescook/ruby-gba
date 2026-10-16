@@ -1899,7 +1899,7 @@ module RubyGBA
           if walked
             fade_by_tint(node, steps)
           else
-            @screen.fade_steps_to(node.toward, @fade_placed ? 0 : steps)
+            @screen.fade_steps_to(node.toward, @fade_placed ? 0 : steps, reaches: node.reaches, area: node.area)
           end
           # A fade that takes the see-through layer's blend hands it back when it lifts
           # (see #fading?), so the picture has to be built again at each of those two

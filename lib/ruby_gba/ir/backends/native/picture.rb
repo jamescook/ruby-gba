@@ -829,9 +829,17 @@ module RubyGBA
           # rg_screen.c knows by how far forward it is (IR::Stacking.at_or_above).
           def lower_fade(node)
             fade = [C::Int.new(node.toward == :white ? 1 : 0), fade_steps(node), walks_colors(node)]
+            return [eval_call("rg_screen_fade_in_area", *fade_area(node), *fade.first(2))] if node.reaches
             return [eval_call("rg_screen_fade", *fade)] unless node.under
 
             [eval_call("rg_screen_fade_under", C::Int.new(stack_place(node.under)), *fade)]
+          end
+
+          # Which side of its rectangle a fade reaches, then the rectangle's four edges, as
+          # rg_screen_fade_in_area takes them.
+          def fade_area(node)
+            side = node.reaches == :inside ? "RG_FADE_INSIDE" : "RG_FADE_OUTSIDE"
+            [C::Name.new(side), *node.area.map { |edge| C::Int.new(edge) }]
           end
 
           # Reference#exec_pixelate. Where the blocks stop is not this statement's to say: a

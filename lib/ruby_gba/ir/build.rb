@@ -771,9 +771,9 @@ module RubyGBA
       # +fraction_bits+ says the amount carries a fraction with that many bits, and nil a
       # whole percentage. A fraction is also a request for finer steps than a hundredth can
       # give over a long fade (see IR::Fading).
-      def fade(toward:, amount:, under: nil, fraction_bits: nil)
+      def fade(toward:, amount:, under: nil, fraction_bits: nil, reaches: nil, area: nil)
         Nodes.build(:fade, toward: toward, amount: to_value_node(amount), **under_field(under),
-                           **fraction_bits_field(fraction_bits))
+                           **fraction_bits_field(fraction_bits), **(reaches ? { reaches: reaches, area: area } : {}))
       end
 
       # Blend the whole displayed picture toward any color, not only black or white.

@@ -318,6 +318,7 @@ require_relative "guardrails/poses_with_different_colors"
 require_relative "guardrails/see_through_per_screen"
 require_relative "guardrails/sprite_in_blocks_kept_from_fade"
 require_relative "guardrails/light_cannot_share"
+require_relative "guardrails/held_fade_cannot_share"
 require_relative "guardrails/routine_never_called"
 
 module RubyGBA
@@ -358,6 +359,7 @@ module RubyGBA
         Checks::SeeThroughPerScreen.new,
         Checks::SpriteInBlocksKeptFromFade.new,
         Checks::LightCannotShare.new,
+        Checks::HeldFadeCannotShare.new,
         Checks::ScreenInsideScene.new,
         Checks::PaintedPictureWithOtherPoses.new,
         Checks::RoutineNeverCalled.new,

@@ -807,6 +807,7 @@ module RubyGBA
           # table rather than a picture — there is nothing here for a bitmap scene to
           # overwrite.
           emit_boot_row_bends if @raster.row_bend_tables?
+          @effects.emit_whole_screen_window # a game that holds a fade to a rectangle starts with none
           emit_tint_state_init if @palette_tint.moves_color_table? # the tables start as they were drawn
           @lowering.in_mode(@modes.default_mode) do
             program.children.each { |stmt| @lowering.statement(stmt) }

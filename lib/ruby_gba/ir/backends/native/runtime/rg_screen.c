@@ -560,20 +560,38 @@ static uint16_t mixed(uint16_t color, int32_t toward, int32_t steps, int32_t by_
   return (uint16_t)out;
 }
 
-static uint16_t faded(uint16_t color) {
+/* Framebuffer#faded. +fade_here+ is nought where a fade held to a rectangle does not reach
+ * (fade_reaches). */
+static uint16_t faded_where(uint16_t color, int32_t fade_here) {
   if (tint_mode == TINT_TOWARD) return walked_toward(color, tint_white, tint_steps);
   /* The display counts in sixteenths, the even thirty-seconds, so an odd step is dropped. */
   if (tint_mode == TINT_COLOR) return mixed(color, tint_color, tint_by_display ? tint_steps & ~1 : tint_steps, tint_by_display);
+  if (!fade_here) return color;
   return faded_by_display(color, fade_white, fade_steps);
 }
+
+static uint16_t faded(uint16_t color) { return faded_where(color, 1); }
 
 /* Framebuffer#shown_color: the stored cell at +at+ with the fade or tint in force. A cell a
  * see-through layer was mixed into, under a tint, is mixed again from its two colors tinted: a
  * tint on a screen drawn through a color table moves the colors the display then mixes, so it
  * reaches each side before the two are added, and past a whole the order shows. */
-static uint16_t shown_color(int64_t at, uint16_t stored) {
-  if (tint_mode == TINT_NONE || pixels != viewed || !picture_mixes.is_mixed[at]) return faded(stored);
+static uint16_t shown_color(int64_t at, uint16_t stored, int32_t fade_here) {
+  if (tint_mode == TINT_NONE || pixels != viewed || !picture_mixes.is_mixed[at]) return faded_where(stored, fade_here);
   return mixed_with_under(faded(picture_mixes.tops[at]), faded(picture_mixes.unders[at]), mixed_cells_by);
+}
+
+/* Which part of the screen the display's fade reaches (Framebuffer#fade_steps_to's +reaches+):
+ * RG_FADE_WHOLE_SCREEN, or RG_FADE_INSIDE or RG_FADE_OUTSIDE a rectangle held as left, top, right
+ * and bottom, the right and bottom one past the last pixel. */
+static int32_t fade_side = RG_FADE_WHOLE_SCREEN;
+static int32_t fade_area[4];
+
+/* Framebuffer#fade_reaches?: does the display's fade reach the screen pixel (x, y)? */
+static int32_t fade_reaches(int32_t x, int32_t y) {
+  if (fade_side == RG_FADE_WHOLE_SCREEN) return 1;
+  int32_t within = x >= fade_area[0] && x < fade_area[2] && y >= fade_area[1] && y < fade_area[3];
+  return fade_side == RG_FADE_INSIDE ? within : !within;
 }
 
 /* Reference#exec_fade, through Framebuffer#fade_steps_to or, for a fade that walks the colors,
@@ -605,10 +623,22 @@ static void fade_to(int32_t placed, int32_t layer_place, int32_t toward_white, i
 }
 
 void rg_screen_fade(int32_t toward_white, int32_t steps, int32_t walked) {
+  fade_side = RG_FADE_WHOLE_SCREEN;
   fade_to(0, RG_NO_LAYER, toward_white, steps, walked);
 }
 
+void rg_screen_fade_in_area(int32_t reaches, int32_t left, int32_t top, int32_t right, int32_t bottom,
+                            int32_t toward_white, int32_t steps) {
+  fade_side = reaches;
+  fade_area[0] = left;
+  fade_area[1] = top;
+  fade_area[2] = right;
+  fade_area[3] = bottom;
+  fade_to(0, RG_NO_LAYER, toward_white, steps, 0);
+}
+
 void rg_screen_fade_under(int32_t layer_place, int32_t toward_white, int32_t steps, int32_t walked) {
+  fade_side = RG_FADE_WHOLE_SCREEN;
   fade_to(1, layer_place, toward_white, steps, walked);
 }
 
@@ -1730,7 +1760,8 @@ const uint16_t *rg_screen_shown(void) {
     for (int32_t x = 0; x < RG_SCREEN_WIDTH; x++) {
       int64_t from_x = block_corner_across(x) + camera_x, from_y = (int64_t)(y - y % read_block) + camera_y;
       int64_t at = from_y * RG_SCREEN_WIDTH + from_x;
-      uint16_t color = on_screen(from_x, from_y) ? shown_color(at, viewed[at]) : faded(0);
+      int32_t fade_here = fade_reaches(x, y);
+      uint16_t color = on_screen(from_x, from_y) ? shown_color(at, viewed[at], fade_here) : faded_where(0, fade_here);
       shown[y * RG_SCREEN_WIDTH + x] = held ? (uint16_t)0x7FFF : lit(x, y) ? color : darkened_by_display(color, shade_steps);
     }
   return shown;

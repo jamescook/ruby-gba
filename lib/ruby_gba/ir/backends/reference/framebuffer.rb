@@ -128,11 +128,26 @@ module RubyGBA
             fade_steps_to(toward, FadeSteps.steps(amount, fraction_bits: nil, walked: false))
           end
 
-          # The same, said in the sixteenths the display counts in.
-          def fade_steps_to(toward, steps)
+          # The same, said in the sixteenths the display counts in. +reaches+ keeps it to one
+          # part of the screen — :inside the rectangle +area+ ([left, top, right, bottom], the
+          # right and bottom one past the last pixel) or :outside it — and nil is the whole screen.
+          def fade_steps_to(toward, steps, reaches: nil, area: nil)
             @fade_toward = toward
             @fade_steps = steps
+            @fade_side = reaches
+            @fade_area = area
             @tint_color = nil # a display holds one of these at a time — see #tint_to
+          end
+
+          # Does the display's fade reach the screen pixel (x, y)? Everywhere, unless the fade
+          # is held to a rectangle: then inside it for :inside and everywhere else for :outside.
+          # Asked by where the pixel is on the SCREEN, since that is where the window is.
+          def fade_reaches?(x, y)
+            return true unless @fade_side
+
+            left, top, right, bottom = @fade_area
+            within = x >= left && x < right && y >= top && y < bottom
+            @fade_side == :inside ? within : !within
           end
 
           # Blend everything shown toward +color+ by +amount+, 0 to 100. Same idea as
@@ -251,7 +266,7 @@ module RubyGBA
             return HELD_OFF if @held
 
             seen_x, seen_y = @block > 1 ? block_corner(x, y) : [x, y]
-            color = shown_color(seen_x + @camera_x, seen_y + @camera_y)
+            color = shown_color(seen_x + @camera_x, seen_y + @camera_y, fade_here: fade_reaches?(x, y))
             lit?(x, y) ? color : darkened_by_display(color, @shade_steps)
           end
 
@@ -463,11 +478,12 @@ module RubyGBA
           # toward black it TAKES AWAY a share of what it has. Neither keeps a share instead,
           # and the two round in opposite directions: a channel at the top taken a quarter of
           # the way to black comes back 24, where keeping three quarters would leave 23.
-          def faded(color)
+          def faded(color, fade_here: true)
             return walked_toward(color, @tint_color, @tint_steps) if @tint_color.is_a?(Symbol)
             # The display counts in sixteenths, the even thirty-seconds, so an odd step is dropped.
             return mixed_by_display(color, @tint_color, @tint_steps & ~1) if @tint_color && @tint_by_display
             return mixed(color, @tint_color, @tint_steps) if @tint_color
+            return color unless fade_here
 
             faded_by_display(color, @fade_toward, @fade_steps)
           end
@@ -553,9 +569,11 @@ module RubyGBA
           #
           # The two sides are kept for the page drawn into, which is the page shown on every
           # screen that has layers to see through.
-          def shown_color(x, y)
+          #
+          # +fade_here+ is false where a fade held to a rectangle does not reach (#fade_reaches?).
+          def shown_color(x, y, fade_here: true)
             top = @mixed_tops && @tint_color && !paged? && on_screen?(x, y) && @mixed_tops[(y * @width) + x]
-            return faded(shown_pixel(x, y) || @fill) unless top
+            return faded(shown_pixel(x, y) || @fill, fade_here: fade_here) unless top
 
             mix_see_through(faded(top), faded(@mixed_unders[(y * @width) + x]), *@mixed_weights)
           end

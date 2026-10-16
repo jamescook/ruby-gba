@@ -86,16 +86,23 @@ module RubyGBA
         #
         #   fade_out under: :ui
         #
-        # `fade_in` with no arguments comes back the same way, so the layer is said once.
-        # A layer and a color other than :black or :white cannot be asked for together,
-        # which is a friendly error saying why.
+        # `inside:` and `outside:` hold it to a rectangle of the screen instead, the way
+        # `fade` takes them: fade the view out and keep the status bar under it.
+        #
+        #   fade_out inside: [0, 0, 240, 128]
+        #
+        # `fade_in` with no arguments comes back the same way, so the layer or the rectangle
+        # is said once. Either of those and a color other than :black or :white cannot be
+        # asked for together, which is a friendly error saying why.
         #
         # @param color [Symbol, String, Integer] the color to fade toward
         # @param frames [Integer, nil] how long the fade takes, in frames
         # @param duration [Numeric, nil] how long it takes, in seconds (instead of frames)
         # @param under [Symbol, nil] a layer the fade sits under, or nil for the whole screen
-        def fade_out(color = :black, frames: nil, duration: nil, under: nil)
-          start_fade(color, FULL, frames, duration, under: under)
+        # @param inside [Array<Integer>, nil] the rectangle the fade is held to
+        # @param outside [Array<Integer>, nil] the rectangle the fade leaves alone
+        def fade_out(color = :black, frames: nil, duration: nil, under: nil, inside: nil, outside: nil)
+          start_fade(color, FULL, frames, duration, under: under, rectangle: fade_rectangle(inside, outside))
         end
 
         # Bring the screen back from a fade — the other half of `fade_out`, and the one
@@ -131,10 +138,13 @@ module RubyGBA
         # @param frames [Integer, nil] how long the flash lasts, in frames
         # @param duration [Numeric, nil] how long it lasts, in seconds
         # @param under [Symbol, nil] a layer the flash sits under, or nil for the whole screen
-        def flash_screen(color = :white, frames: nil, duration: nil, under: nil)
+        # @param inside [Array<Integer>, nil] the rectangle the flash is held to
+        # @param outside [Array<Integer>, nil] the rectangle the flash leaves alone
+        def flash_screen(color = :white, frames: nil, duration: nil, under: nil, inside: nil, outside: nil)
           state = screen_fade_state
           state[:level].set! FULL # start full, so the first frame shown is the bright one
-          start_fade(color, 0.0, frames, duration, default: FLASH_FRAMES, under: under)
+          start_fade(color, 0.0, frames, duration, default: FLASH_FRAMES, under: under,
+                                                   rectangle: fade_rectangle(inside, outside))
         end
 
         # How far the screen is faded right now, as a value the game can read: 0 is the
@@ -267,9 +277,17 @@ module RubyGBA
         # `default:` of nil does the same for the speed, and only `fade_in` passes one —
         # a bare `fade_out` or `flash_screen` takes its own length, so a quick flash
         # cannot make the next scene change a blink, nor a slow fade make a flash linger.
-        def start_fade(color, target, frames, duration, default: DEFAULT_FRAMES, under: nil)
-          refuse_colored_placed_fade!(color, under)
+        #
+        # +rectangle+ is `{ inside: [...] }` or `{ outside: [...] }`, the word `fade` is given.
+        def start_fade(color, target, frames, duration, default: DEFAULT_FRAMES, under: nil, rectangle: nil)
+          refuse_colored_fade_kept_in_place!(color, under, rectangle)
+          # The same refusal `fade` makes, said here at the author's line rather than where the
+          # routine's body is built.
+          if (kept = rectangle || @fade_rectangle)
+            refuse_fade_area_beside!(under || @fade_place, kept[:inside], kept[:outside])
+          end
           set_fade_layer!(under) if under
+          set_fade_rectangle!(rectangle) if rectangle
           state = screen_fade_state
           state[:color].set! fade_color_code(color) if color
           state[:target].set! target
@@ -308,8 +326,8 @@ module RubyGBA
             once_a_frame(ROUTINE) do
               amount = fade_amount(level)
               (active == 1).then do
-                (color == BLACK).then { fade :black, amount, under: @fade_place }
-                (color == WHITE).then { fade :white, amount, under: @fade_place }
+                (color == BLACK).then { fade :black, amount, under: @fade_place, **(@fade_rectangle || {}) }
+                (color == WHITE).then { fade :white, amount, under: @fade_place, **(@fade_rectangle || {}) }
                 fade_tint_colors.each_with_index do |tint_color, i|
                   (color == FIRST_TINT + i).then { tint tint_color, amount }
                 end
@@ -396,6 +414,32 @@ module RubyGBA
           @fade_place = under
         end
 
+        # The rectangle a verb was given, as the word `fade` takes it, or nil for none. A wrong
+        # one is refused here, at the line the author wrote it, with `fade`'s own words.
+        def fade_rectangle(inside, outside)
+          return nil if inside.nil? && outside.nil?
+
+          refuse_fade_area_beside!(nil, inside, outside)
+          word, rect = inside ? [:inside, inside] : [:outside, outside]
+          refuse_fade_area_shape!(word, rect)
+          { word => rect }
+        end
+
+        # The rectangle this game's screen fade is held to, said once for all the verbs, for the
+        # same reason as the layer above: one ramp, one place.
+        def set_fade_rectangle!(rectangle)
+          if @fade_rectangle && @fade_rectangle != rectangle
+            raise ArgumentError,
+                  "This game already holds its screen fade to #{fade_rectangle_words(@fade_rectangle)}, and " \
+                  "now asks for #{fade_rectangle_words(rectangle)}. A game has one screen fade, and it sits " \
+                  "in one place. To fix this, give every `fade_out` and `flash_screen` the same rectangle, " \
+                  "or call `fade` yourself for a second one."
+          end
+          @fade_rectangle = rectangle
+        end
+
+        def fade_rectangle_words(rectangle) = rectangle.map { |word, rect| "`#{word}: #{rect.inspect}`" }.first
+
         def fade_seconds_in_frames(duration)
           unless duration.is_a?(Numeric) && duration.positive?
             raise ArgumentError,
@@ -431,18 +475,29 @@ module RubyGBA
         # A game has one screen fade, so this asks about the whole game and not one call:
         # either order of the two — a color then a layer, or a layer then a color — leaves
         # the same game asking for something the console cannot show.
-        def refuse_colored_placed_fade!(color, under)
-          place = under || @fade_place
+        #
+        # A fade held to a rectangle is the same: the display's window can keep only its
+        # brightness change to one part of the screen.
+        def refuse_colored_fade_kept_in_place!(color, under, rectangle)
           wanted = color unless color.nil? || COLORS.key?(color)
           wanted ||= fade_tint_colors.first
-          return unless place && wanted
+          return unless wanted
+
+          if (place = under || @fade_place)
+            raise ArgumentError,
+                  "This game fades under :#{place}, and it also fades toward " \
+                  "#{wanted.inspect}. The console can put only a fade to :black or :white " \
+                  "at a place in the stack. Every other color mixes into the whole picture. " \
+                  "To fix this, fade to :black or :white, or drop `under:` from every fade " \
+                  "in this game."
+          end
+          return unless (rect = rectangle || @fade_rectangle)
 
           raise ArgumentError,
-                "This game fades under :#{place}, and it also fades toward " \
-                "#{wanted.inspect}. The console can put only a fade to :black or :white " \
-                "at a place in the stack. Every other color mixes into the whole picture. " \
-                "To fix this, fade to :black or :white, or drop `under:` from every fade " \
-                "in this game."
+                "This game holds its screen fade to #{fade_rectangle_words(rect)}, and it also fades " \
+                "toward #{wanted.inspect}. The console can hold only a fade to :black or :white to part " \
+                "of the screen. Every other color mixes into the whole picture. To fix this, fade to " \
+                ":black or :white, or drop `inside:` and `outside:` from every fade in this game."
         end
 
         # Down here because the check classes it names are declared above it.
