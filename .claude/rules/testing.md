@@ -229,7 +229,9 @@ and the two `*_at_the_left_edge` tests in
 suite once for each (`test/support/suites.rb`): the GBA lowering's run — the interpreter, with the
 cartridge checked in the emulator — and then the native lowering's — the game built as C
 (`Backends::Native`), checked against the interpreter on every frame. A test that does not pass
-on both fails the run, so a new feature is not done until both lowerings have it.
+on both fails the run, so a new feature is not done until both lowerings have it. It needs zig
+0.17 as well as the emulator. Measured on 2026-10-16, a whole `rake test` took a little over eight
+minutes: 155 seconds for the GBA run and 333 for the native one.
 
 **A test of one lowering's own output lives in that lowering's folder** and is played by its run
 alone: `test/ruby_gba/ir/backends/gba/` (the ARM it emits), `test/ruby_gba/diagnostics/` and

@@ -92,7 +92,7 @@ module EmulatorSupport
   # (A native run does use the emulator for one thing — as the answer key for the desktop
   # build's sound — and asks it directly, not through here: see test/sound_comparison.rb.)
   def require_emulator!
-    skip "checks the cartridge in the emulator, which `rake test` runs" if TestSuites.native?
+    skip "checks the cartridge in the emulator, which the GBA lowering's run plays" if TestSuites.native?
 
     RubyGBA::Diagnostics::Emulator.load!
   end
