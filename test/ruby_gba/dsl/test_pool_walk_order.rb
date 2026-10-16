@@ -11,13 +11,13 @@ require "test_helper"
 # number, a digit per thing: 123 is 1, then 2, then 3. The interpreter and the console must
 # read the same number.
 class TestPoolWalkOrder < Minitest::Test
-  runs_on :reference
+  runs_on :reference, :native
 
   # A game whose pool of +capacity+ things is walked once a pass, the order written into
   # :order, and the order the first pass's walk wrote kept in :first. +setup+ runs before the
   # loop; +pass+ runs in the loop before the walk, given the pool and the pass number;
   # +visit+ runs on each thing in the walk, given the pool, it and the pass number.
-  private def walking_game(capacity: 4, on_full: :drop, setup: nil, pass: nil, visit: nil)
+  private def walking_game(capacity: 4, on_full: :drop, setup: nil, pass: nil, visit: nil, newest_first: false)
     RubyGBA.game("WALKORDER") do
       screen :bitmap
       order = var :order, 0
@@ -28,7 +28,7 @@ class TestPoolWalkOrder < Minitest::Test
       game_loop do
         instance_exec(things, passes, &pass) if pass
         order.set! 0
-        things.each do |t|
+        things.each(newest_first: newest_first) do |t|
           order.set! order * 10 + t.id
           instance_exec(things, t, passes, &visit) if visit
         end
@@ -44,7 +44,7 @@ class TestPoolWalkOrder < Minitest::Test
   # [:first, :order] after enough frames for every event to have happened and the walk to
   # have settled — on the interpreter, then on the console.
   private def orders(game, frames: 8)
-    run = Reference.new.run(game.program, frames: frames)
+    run = game_player.run(game.program, frames: frames)
     rom = game.build_rom(out: nil, err: nil, profile: false)
     console = assert_emulator_loads_rom(rom, frames: frames, vars: rom.var_addresses)
     [[run[:first], run[:order]], [console.var(:first), console.var(:order)]]
@@ -119,6 +119,106 @@ class TestPoolWalkOrder < Minitest::Test
     assert_orders [123, 123], game
   end
 
+  # A WALK CAN GO THE OTHER WAY, newest first, where the last thing added has to act first.
+  # It is the exact reverse of the walk above, and what each promises during a walk holds
+  # the same way round.
+  def test_a_newest_first_walk_is_the_reverse_of_spawn_order
+    assert_orders [321, 321], walking_game(setup: spawning(1, 2, 3), newest_first: true)
+  end
+
+  # D takes B's freed slot and, as the newest, is walked first.
+  def test_a_newest_first_walk_starts_at_a_thing_spawned_into_a_freed_slot
+    game = walking_game(setup: spawning(1, 2, 3), newest_first: true,
+                        visit: ->(_things, t, passes) { ((passes == 0) & (t.id == 2)).then { t.remove } },
+                        pass: ->(things, passes) { (passes == 1).then { things.spawn id: 4 } })
+
+    assert_orders [321, 431], game
+  end
+
+  # C, walked first, removes itself, and the walk goes on to B and A.
+  def test_a_thing_that_removes_itself_does_not_stop_a_newest_first_walk
+    game = walking_game(setup: spawning(1, 2, 3), newest_first: true,
+                        visit: ->(_things, t, passes) { ((passes == 0) & (t.id == 3)).then { t.remove } })
+
+    assert_orders [321, 21], game
+  end
+
+  # C walks the pool again, newest first, and removes A there: the inner walk ends, the outer
+  # one carries on from where it was to B, and passes A over.
+  def test_a_newest_first_walk_inside_one_keeps_its_place
+    game = walking_game(setup: spawning(1, 2, 3), newest_first: true,
+                        visit: lambda { |things, t, passes|
+                          ((passes == 0) & (t.id == 3)).then do
+                            things.each(newest_first: true) { |other| (other.id == 1).then { other.remove } }
+                          end
+                        })
+
+    assert_orders [32, 32], game
+  end
+
+  # A, walked last, removes itself and a spawn arrives in the same walk: the new thing is
+  # first walked on the next pass, where it is the newest.
+  def test_a_thing_spawned_during_a_newest_first_walk_waits_for_the_next_walk
+    game = walking_game(setup: spawning(1, 2, 3), newest_first: true,
+                        visit: lambda { |things, t, passes|
+                          ((passes == 0) & (t.id == 1)).then do
+                            t.remove
+                            things.spawn id: 9
+                          end
+                        })
+
+    assert_orders [321, 932], game
+  end
+
+  # A full pool recycling its oldest drops A, and the newcomer, as the newest, is walked first.
+  def test_a_newest_first_walk_starts_at_the_thing_a_full_pool_recycled_for
+    game = walking_game(capacity: 3, on_full: :recycle_oldest, setup: spawning(1, 2, 3), newest_first: true,
+                        pass: ->(things, passes) { (passes == 1).then { things.spawn id: 4 } })
+
+    assert_orders [321, 432], game
+  end
+
+  # Inside its own walk a full recycling pool cannot move its first thing, which is where a
+  # newest-first walk stops, so the spawn is dropped here too.
+  def test_a_full_pool_recycling_inside_its_own_newest_first_walk_drops_the_spawn
+    game = walking_game(capacity: 3, on_full: :recycle_oldest, setup: spawning(1, 2, 3), newest_first: true,
+                        visit: ->(things, t, passes) { ((passes == 0) & (t.id == 2)).then { things.spawn id: 4 } })
+
+    assert_orders [321, 321], game
+  end
+
+  # A routine of the pool's, called from a newest-first walk, is handed each thing in that
+  # order, and the slot it is handed is the thing's own: :first_slot is where C sits.
+  def test_a_pool_routine_called_from_a_newest_first_walk_gets_each_thing_in_turn
+    game = RubyGBA.game("WALKROUTINE") do
+      screen :bitmap
+      order = var :order, 0
+      first_slot = var :first_slot, -1
+      things = pool :thing, id: 0, capacity: 4
+      [1, 2, 3].each { |id| things.spawn id: id }
+      things.func(:visit) do |t|
+        (order == 0).then { first_slot.set! t.index }
+        order.set! order * 10 + t.id
+      end
+      game_loop do
+        order.set! 0
+        things.each(newest_first: true) { call :visit }
+      end
+    end
+    run = game_player.run(game.program, frames: 2)
+    rom = game.build_rom(out: nil, err: nil, profile: false)
+    console = assert_emulator_loads_rom(rom, frames: 4, vars: rom.var_addresses)
+    slot_of_c = run.pool(:thing, :id).index(3)
+
+    assert_equal [[321, slot_of_c], [321, slot_of_c]],
+                 [[run[:order], run[:first_slot]], [console.var(:order), console.var(:first_slot)]]
+  end
+
+  def test_a_walk_order_that_is_not_true_or_false_is_a_friendly_error
+    err = assert_raises(ArgumentError) { walking_game(newest_first: :yes).program }
+    assert_match(/needs true or false/, err.message)
+  end
+
   # TWO THINGS ROLL THE SAME NUMBERS WHATEVER SLOTS THEY LANDED IN. Both games spawn 1 then 2
   # on the third pass and walk them on the fourth, each rolling as it is visited. In the plain
   # game 1 takes the highest slot and 2 the one below it. The other first spawns 7, 8 and 9 and
@@ -151,13 +251,13 @@ class TestPoolWalkOrder < Minitest::Test
 
   # The slots 1 and 2 landed in, after the walk that rolls.
   private def slots_of_one_and_two(game)
-    run = Reference.new.run(game.program, frames: 6)
+    run = game_player.run(game.program, frames: 6)
     ids = run.pool(:thing, :id) # an entry a slot, nil where the slot is free
     [1, 2].map { |id| ids.index(id) }
   end
 
   private def rolls(game)
-    run = Reference.new.run(game.program, frames: 6)
+    run = game_player.run(game.program, frames: 6)
     rom = game.build_rom(out: nil, err: nil, profile: false)
     console = assert_emulator_loads_rom(rom, frames: 6, vars: rom.var_addresses)
     [[run[:first_roll], run[:second_roll]], [console.var(:first_roll), console.var(:second_roll)]]
@@ -200,8 +300,8 @@ class TestPoolWalkOrder < Minitest::Test
       end
     end
     image = RubyGBA::IR::SaveImage.new
-    Reference.new(save: image).run(game.program, frames: 10)
-    loaded = Reference.new(save: image).run(game.program, frames: 1)
+    game_player(save: image).run(game.program, frames: 10)
+    loaded = game_player(save: image).run(game.program, frames: 1)
     rom = game.build_rom(out: nil, err: nil, profile: false)
     console = assert_emulator_loads_rom(rom, frames: 6, save: image, vars: rom.var_addresses)
 
@@ -237,8 +337,8 @@ class TestPoolWalkOrder < Minitest::Test
       end
     end
     image = RubyGBA::IR::SaveImage.new
-    Reference.new(save: image).run(game.program, frames: 10)
-    loaded = Reference.new(save: image).run(game.program, frames: 1)
+    game_player(save: image).run(game.program, frames: 10)
+    loaded = game_player(save: image).run(game.program, frames: 1)
     rom = game.build_rom(out: nil, err: nil, profile: false)
     console = assert_emulator_loads_rom(rom, frames: 6, save: image, vars: rom.var_addresses)
 
@@ -260,7 +360,7 @@ class TestPoolWalkOrder < Minitest::Test
                           said = var :said_full_after, 0
                           (passes == 1).then { things.full?.then { said.set! 1 } }
                         })
-    run = Reference.new.run(game.program, frames: 4)
+    run = game_player.run(game.program, frames: 4)
     rom = game.build_rom(out: nil, err: nil, profile: false)
     console = assert_emulator_loads_rom(rom, frames: 8, vars: rom.var_addresses)
 
@@ -286,7 +386,7 @@ class TestPoolWalkOrder < Minitest::Test
         end
       end
     end
-    run = Reference.new.run(game.program, frames: 2)
+    run = game_player.run(game.program, frames: 2)
     rom = game.build_rom(out: nil, err: nil, profile: false)
     console = assert_emulator_loads_rom(rom, frames: 4, vars: rom.var_addresses)
 

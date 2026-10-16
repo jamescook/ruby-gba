@@ -441,19 +441,27 @@ module RubyGBA
       # that step: a removal during a walk leaves the chain alone until the walk is over (see
       # #retired_list). A thing removed before its turn is still in the chain, dead, and is
       # passed over.
-      def each(&block)
+      #
+      # `newest_first: true` walks the same chain from its other end, following each thing's
+      # link back to the one added before it, for a game where the last thing added has to act
+      # first. Everything above holds the same way round: the walk stops at the thing that was
+      # first when it began, and a thing spawned during it is added after where it started, so
+      # it is first visited by the next walk.
+      def each(newest_first: false, &block)
+        refuse_unknown_walk_order!(newest_first)
         pool = self
         active = List.new(@builder, active_list)
         at, ahead, last = walk_vars
+        start, finish, links = newest_first ? [tail_var, head_var, prev_list] : [head_var, tail_var, next_list]
         record(Build.add(walking_var, Build.int(1)))
         preserving_current_slot do
-          record(Build.set(ahead, Build.var_ref(head_var)))
-          record(Build.set(last, Build.var_ref(tail_var)))
+          record(Build.set(ahead, Build.var_ref(start)))
+          record(Build.set(last, Build.var_ref(finish)))
           finished = Value.new(@builder, Build.var_ref(ahead)) == NONE
           @builder.repeat(@capacity, stop_when: finished) do
             record(Build.set(at, Build.var_ref(ahead)))
             step = Build.if_(Build.binop(:==, Build.var_ref(at), Build.var_ref(last)), Build.set(ahead, Build.int(NONE)))
-            step.else = Build.else_(Build.set(ahead, Build.list_get(next_list, Build.var_ref(at))))
+            step.else = Build.else_(Build.set(ahead, Build.list_get(links, Build.var_ref(at))))
             record(step)
             slot = Value.new(@builder, Build.var_ref(at), name: at)
             # The walk can pass a thing removed before its turn, so the body is only for a live
@@ -472,6 +480,16 @@ module RubyGBA
         record(release_when_idle)
         self
       end
+
+      def refuse_unknown_walk_order!(newest_first)
+        return if [true, false].include?(newest_first)
+
+        raise ArgumentError,
+              "`each` on pool :#{@name} was given newest_first: #{newest_first.inspect}. It needs true or false. " \
+              "With true, the walk " \
+              "starts at the thing added last. With false, or with nothing said, it starts at the thing added first."
+      end
+      private :refuse_unknown_walk_order!
 
       # A ROUTINE THAT WORKS ON ONE INSTANCE — the body of `each` moved into a routine of its
       # own, which is where a game of any size puts it:
@@ -661,8 +679,8 @@ module RubyGBA
       # of the chain, as the newest.
       #
       # The one place it cannot take the oldest is a walk of this same pool: the walk is
-      # following the chain, and moving its first thing to the end would cut the walk short.
-      # There, a full pool drops the spawn, as a `:drop` pool always does.
+      # following the chain, and moving its first thing to the end would cut the walk short, or
+      # carry a newest-first walk past the thing it stops at. There, a full pool drops the spawn, as a `:drop` pool always does.
       def spawn_recycling(values)
         slot = Build.var_ref(slot_var)
         take_oldest = Build.if_(not_walking,
