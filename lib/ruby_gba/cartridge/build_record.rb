@@ -90,13 +90,34 @@ module RubyGBA
                                     :build_options, :findings, :emitted, :routines, :video_memory,
                                     :roomy_memory, :timer_handlers, :voices, :sound_drops,
                                     :sprite_slots, :sprite_offsets, :streamed_sprite_pose_vars,
-                                    :video_copies, :lists, :sprite_runs)
+                                    :video_copies, :lists, :sprite_runs, :scene_sets)
       def initialize(findings: [], emitted: nil, routines: {}, video_memory: nil,
                      roomy_memory: nil, timer_handlers: {}, voices: nil, sound_drops: nil,
                      sprite_slots: {}, sprite_offsets: {}, streamed_sprite_pose_vars: {},
-                     video_copies: [], lists: {}, sprite_runs: [], **rest)
+                     video_copies: [], lists: {}, sprite_runs: [], scene_sets: nil, **rest)
         super
       end
+
+      # WHERE EACH SCENE'S OWN ROUTINES RUN, for a game whose quick memory is swapped as a scene
+      # takes over (see IR::Backends::GBA::SceneQuickMemory). Every scene's set is copied to the
+      # same place, so an address there is a different routine depending on which set is in —
+      # and +routines+, which can say one place per routine, gives such a routine the place it
+      # sits in the cartridge. +loaded_at+ is the address of the word saying which set is in,
+      # +scenes+ each scene's set number, and +routines+ each set's routines where they run
+      # while it is in.
+      SceneSets = Data.define(:loaded_at, :scenes, :routines)
+
+      # The routines and where they run with set +number+ in: its own at the place sets are
+      # copied to, every other routine where +routines+ says. Every routine as it is when no
+      # set is in, for 0, or for a game that swaps nothing.
+      def routines_with_set(number)
+        return routines unless scene_sets
+
+        routines.merge(scene_sets.routines.fetch(number, {}))
+      end
+
+      # The number of the set scene +scene+ copies in, or nil.
+      def scene_set_number(scene) = scene_sets&.scenes&.[](scene.to_sym)
 
       # One run of the sprite table drawn in an order the game works out: +order+ is the address
       # of its order, and +homes+ is each of its sprites' own first place and how many places it

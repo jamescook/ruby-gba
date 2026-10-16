@@ -136,6 +136,7 @@ module RubyGBA
       def self.run(rom, frames: FRAMES, settle: SETTLE, keys: [], scene: nil, from: nil,
                    picture: true, holding: nil)
         routines = rom.built.routines
+        loaded_set = 0 # which scene's own routines were in the quick memory; read as the run ends
         held = Array(keys)
         raise ArgumentError, "give `scene:` or `from:`, not both. A saved moment already says " \
                              "which scene the game was in." if from && scene
@@ -162,6 +163,8 @@ module RubyGBA
             # READ BEFORE the picture is looked at, because looking at it steps the game on a
             # few more frames — and those frames are not the frames that were measured.
             lost_sounds = drops_in(probe, drops)
+            loaded_set = loaded_set_number(rom, probe, scene)
+            routines = rom.built.routines_with_set(loaded_set)
             [measured,
              picture ? tearing_in(probe, program, held) : nil,
              picture ? flicker_in(probe, program, held) : nil,
@@ -173,7 +176,18 @@ module RubyGBA
 
         build_result(profile, routines, held, reached, tearing, flicker,
                      tick_rates_in(profile, rom.built.timer_handlers), lost,
-                     video_copies_in(profile, rom.built.video_copies))
+                     video_copies_in(profile, rom.built.video_copies, loaded_set))
+      end
+
+      # WHICH SCENE'S OWN ROUTINES WERE IN THE QUICK MEMORY, in a game that swaps them as a scene
+      # takes over (see Cartridge::BuildRecord::SceneSets): every scene's set runs from the same
+      # place, so naming what ran there needs to know whose. A run held in a scene had that
+      # scene's set in; any other run is named by the set in when it ended. 0 for none.
+      def self.loaded_set_number(rom, probe, scene)
+        sets = rom.built.scene_sets or return 0
+        return rom.built.scene_set_number(scene) || 0 if scene
+
+        probe.read32(sets.loaded_at)
       end
 
       # HOW MUCH THE GAME COPIED INTO VIDEO MEMORY, counted off the same histogram the routine
@@ -181,10 +195,14 @@ module RubyGBA
       # is the number of copies, and each one moves a number of bytes the build already knows.
       # Nothing is added to the cartridge to count them. A copy that never ran in the measured
       # frames says nothing, and a game with none says nothing at all.
-      def self.video_copies_in(profile, copies)
+      #
+      # A copy inside a scene's own routine is at two places, the cartridge and where scenes'
+      # routines are copied to — and that second place is another scene's code while its set is
+      # in, so a site there is counted only for +loaded_set+ (see #loaded_set_number).
+      def self.video_copies_in(profile, copies, loaded_set = 0)
         return [] if copies.nil? || copies.empty? || profile.frames.zero?
 
-        copies.group_by { |copy| copy[:source] }.filter_map do |source, sites|
+        copies.reject { |copy| copy[:set] && copy[:set] != loaded_set }.group_by { |copy| copy[:source] }.filter_map do |source, sites|
           runs = sites.sum { |site| profile.pc.fetch(site[:at], 0) }
           next if runs.zero?
 

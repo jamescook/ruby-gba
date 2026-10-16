@@ -59,7 +59,7 @@ module RubyGBA
           def generated_func?(name) = @minted.key?(name)
 
           def emit_functions
-            cold = @funcs.reject { |name, _| @placement.fast_funcs.include?(name) }
+            cold = @funcs.reject { |name, _| @placement.emitted_for_quick_memory?(name) }
             return if cold.empty?
 
             @emitter.emit(ASM.loop_forever) # fall-through guard
@@ -133,10 +133,28 @@ module RubyGBA
           def emit_case(node)
             picked = :"_picked_#{node.var}"
             @lowering.statement(Build.copy(picked, node.var))
+            @entering_scene_set = @placement.emit_scene_set_entry if @placement.swaps_at?(node)
             node.clauses.each do |value, target|
               test = Build.binop(:==, Build.var_ref(picked), Build.int(value))
+              next emit_clause_entering_scene_set(test, target) if @placement.swaps_at?(node)
+
               @lowering.statement(Build.if_(test, Build.call(target)))
             end
+          end
+
+          # A CLAUSE OF THE DISPATCH THAT SWAPS: the scene's own routines are copied into the
+          # quick memory before its routine is called, unless they are in already (see
+          # SceneQuickMemory). The swap belongs on the branch that calls the scene, so a pass
+          # that calls no new scene copies nothing.
+          def emit_clause_entering_scene_set(test, target)
+            skip = @emitter.gensym
+            @lowering.value(test)
+            @emitter.emit(ASM.cmp_imm(ACC, 0))
+            @emitter.emit_branch(:bcond, skip, cond: :eq)
+            @emitter.emit(ASM.load_immediate(ACC, @placement.scene_set_number(target)))
+            @emitter.emit_branch(:bl, @entering_scene_set)
+            @lowering.statement(Build.call(target))
+            @emitter.place_label(skip)
           end
 
           # A CALL PICKED BY NUMBER, which costs the same for a list of two as for a list of

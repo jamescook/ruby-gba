@@ -58,6 +58,32 @@ class TestBuildReport < Minitest::Test
     assert_match(/free/, text)
   end
 
+  # A GAME WHOSE SCENES EACH KEEP THEIR OWN is told which routines each scene keeps while it is
+  # up — the split is a decision nobody wrote, so the report is the only place it shows.
+  def test_it_says_what_each_scene_keeps_while_it_is_up
+    rom = RubyGBA.build("BRSETS", out: StringIO.new, err: StringIO.new, profile: false) do
+      x = var :x, 0
+      var :where, 0
+      func(:title_work) { 1200.times { x.add! 1 } }
+      func(:play_work) { 1200.times { x.add! 2 } }
+      scene(:title) { call :title_work }
+      scene(:play) { call :play_work }
+      game_loop do
+        pressed(:a).then { set! :where, 1 }
+        case_var(:where) do
+          when_val 0, :title
+          when_val 1, :play
+        end
+      end
+    end
+    text = report_for(rom)
+
+    assert_match(/kept in quick memory for the whole game/, text)
+    assert_match(/while its scene is up/, text)
+    assert_match(/scene :title:\n(\s+.*\n)*?\s+.*func :title_work/, text)
+    assert_match(/scene :play:\n(\s+.*\n)*?\s+.*func :play_work/, text)
+  end
+
   # THE ACTIONABLE HALF, and the one a finished cartridge cannot answer: a routine that just
   # missed is exactly where a game lost that speed, and by then the evidence is gone.
   def test_it_names_what_did_not_fit_with_what_it_wanted_and_what_was_left

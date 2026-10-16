@@ -320,15 +320,32 @@ module RubyGBA
         if placement.funcs.empty?
           printer.puts "  nothing was kept in quick memory (#{faster}):"
         else
-          printer.puts "  kept in quick memory (#{faster}):"
+          whole = placement.scenes.empty? ? "" : " for the whole game"
+          printer.puts "  kept in quick memory#{whole} (#{faster}):"
           placement.funcs.each do |name|
             printer.puts "    #{routine_size(placement, name)}#{Messages::PlainWords.routine(name)}"
           end
           printer.puts format("    %s of 32K used, %s free",
                               kilobytes(placement.used_bytes), kilobytes(placement.free_bytes))
         end
+        scene_set_lines(placement, printer)
         printer.puts("    #{chosen_from_line(placement)}")
         passed_over_lines(placement, program, printer, emitted)
+      end
+
+      # WHAT EACH SCENE KEEPS THERE WHILE IT IS UP, for a game whose routines did not all fit at
+      # once: each scene's own are copied in as it takes over, into one place the scenes share,
+      # and run from the cartridge while another scene is up. A scene that keeps nothing of its
+      # own is left out.
+      def scene_set_lines(placement, printer)
+        kept = placement.scenes.reject { |_, names| names.empty? }
+        return if kept.empty?
+
+        printer.puts "  kept in quick memory while its scene is up, copied in as the scene takes over:"
+        kept.each do |scene, names|
+          printer.puts "    scene #{scene.inspect}:"
+          names.each { |name| printer.puts "      #{routine_size(placement, name)}#{Messages::PlainWords.routine(name)}" }
+        end
       end
 
       # WHAT WENT IN THE OTHER WORK MEMORY, which is a decision nobody wrote down.
@@ -555,6 +572,9 @@ module RubyGBA
           chosen_from: placement.chosen_from.to_s,
           kept: placement.funcs.map do |name|
             { name: name.to_s, label: Messages::PlainWords.routine(name), bytes: placement.sizes[name] }
+          end,
+          scenes: placement.scenes.to_h do |scene, names|
+            [scene.to_s, names.map { |name| { name: name.to_s, label: Messages::PlainWords.routine(name), bytes: placement.sizes[name] } }]
           end,
           passed_over: placement.passed_over.map do |over|
             { name: over.name.to_s, label: Messages::PlainWords.routine(over.name),

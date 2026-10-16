@@ -163,9 +163,12 @@ module RubyGBA
           # order came from what the frame can reach. It is on the report because the
           # difference is the difference between a tuned game and an untuned one, and an
           # author cannot tell by looking at the numbers.
+          # +scenes+ is each scene's own set, by the scene's name, for a game whose room was split
+          # between the whole game and its scenes (see {SceneQuickMemory}); empty otherwise, when
+          # +funcs+ is everything kept.
           Report = Data.define(:funcs, :code_bytes, :used_bytes, :free_bytes, :total_bytes,
-                               :sizes, :passed_over, :chosen_from) do
-            def initialize(chosen_from: :shape, **rest) = super
+                               :sizes, :passed_over, :chosen_from, :scenes) do
+            def initialize(chosen_from: :shape, scenes: {}, **rest) = super
           end
 
           # A routine the chooser skipped, and by how much. +measured+ is what the routine was
@@ -185,7 +188,8 @@ module RubyGBA
                        total_bytes: IWRAM_SIZE,
                        sizes: @routine_sizes || {},
                        passed_over: @passed_over || [],
-                       chosen_from: @routine_profile ? :measurement : :shape)
+                       chosen_from: @routine_profile ? :measurement : :shape,
+                       scenes: scene_sets_by_name)
           end
 
           # Decide what moves. Runs before anything is emitted, and answers a set of func
@@ -291,6 +295,38 @@ module RubyGBA
             ranked = @fast_code ? ranked_by_frame_cost(program, sizes) : []
             wanted = wanted_by_frame_cost(program, ranked, sizes)
             saving, asked = insisted.partition { |name| save_record_insisting_on(name, insisted) }
+            begin
+              room = place_insisted_for_whole_game(program, wanted, sizes, room, chosen, insisted, saving, asked)
+            rescue QuickMemoryFull
+              # TWO WORDS THAT DO NOT FIT TOGETHER may each fit in the room of the one scene
+              # that runs it — play's routine and the file screen's save routines are never
+              # wanted at the same moment. Only when that fails too does the build stop.
+              split = choose_scene_sets(program, wanted, sizes, probe.iwram_free, insisted, chosen)
+              raise unless split
+
+              sizes = split.sizes
+              chosen = split.resident
+              @routine_sizes = sizes.merge(chosen.to_h { |name| [name, sizes[name] - bytes_given_back(name, chosen)] })
+              return chosen
+            end
+            place_by_frame_cost(ranked, wanted, sizes, room, chosen) if @fast_code
+            # WHAT ONE SET FOR THE WHOLE GAME LEFT OUT, a scene's own room may hold (see
+            # {SceneQuickMemory}). A game where everything fits is built as it always was.
+            if @fast_code && !@passed_over.empty?
+              split = choose_scene_sets(program, wanted, sizes, probe.iwram_free, insisted, chosen)
+              sizes, chosen = split.sizes, split.resident if split
+            end
+            # Kept for the report: what each routine came to, and what a reader will want to
+            # know afterwards is why theirs is not on the list. A routine that was kept is
+            # down as what it was charged in the end, its calls to its neighbours given back.
+            @routine_sizes = sizes.merge(chosen.to_h { |name| [name, sizes[name] - bytes_given_back(name, chosen)] })
+            chosen
+          end
+
+          # What the author insisted on, kept for the whole game: the routines they named
+          # first, then — for a game whose records insist — what every frame runs, then the
+          # records' save routines. Answers the room left; raises where one does not fit.
+          def place_insisted_for_whole_game(program, wanted, sizes, room, chosen, insisted, saving, asked)
             room = place_insisted(program, asked, sizes, room, chosen, insisted)
             # A RECORD'S WORD COMES AFTER WHAT EVERY FRAME RUNS. `save_data ..., fast: true`
             # keeps the routines a save's passes run, and a save is a few passes now and then;
@@ -303,13 +339,7 @@ module RubyGBA
             # and no fast timer does too little to be worth the room, and a build told not to
             # choose (`fast_code: false`) keeps neither, so then nothing goes ahead.
             room = place_what_fits(wanted & every_frame_routines, sizes, room, chosen) unless saving.empty?
-            room = place_insisted(program, saving, sizes, room, chosen, insisted)
-            place_by_frame_cost(ranked, wanted, sizes, room, chosen) if @fast_code
-            # Kept for the report: what each routine came to, and what a reader will want to
-            # know afterwards is why theirs is not on the list. A routine that was kept is
-            # down as what it was charged in the end, its calls to its neighbours given back.
-            @routine_sizes = sizes.merge(chosen.to_h { |name| [name, sizes[name] - bytes_given_back(name, chosen)] })
-            chosen
+            place_insisted(program, saving, sizes, room, chosen, insisted)
           end
 
           # The memory address a func runs from once the program is lowered — its place in
@@ -377,16 +407,35 @@ module RubyGBA
           # between. One block, not several, so their distances from each other survive
           # the copy and they go on calling each other with a plain jump.
           def emit_hot_functions
-            return if @fast_funcs.empty?
+            return if @fast_funcs.empty? && !swaps_quick_memory?
 
             emit(ASM.loop_forever) # fall-through guard, outside the block so it is not copied
-            place_label(HOT_START)
-            @emitting_hot = true
-            @functions.funcs.each { |name, node| @functions.emit_one_function(name, node) if @fast_funcs.include?(name) }
-            emit_irq_handler if irq_runs_fast?
-            @emitting_hot = false
-            place_label(HOT_END)
+            unless @fast_funcs.empty?
+              place_label(HOT_START)
+              @emitting_hot = true
+              @emitting_region = :resident
+              @functions.funcs.each { |name, node| @functions.emit_one_function(name, node) if @fast_funcs.include?(name) }
+              while_emitting_interrupt { emit_irq_handler } if irq_runs_fast?
+              @emitting_hot = false
+              @emitting_region = nil
+              place_label(HOT_END)
+            end
+            emit_scene_sets
           end
+
+          # Is +name+ emitted in a block copied to the quick memory, rather than with the
+          # routines that stay in the cartridge?
+          def emitted_for_quick_memory?(name) = @fast_funcs.include?(name) || !set_holding(name).nil?
+
+          # WHERE A ROUTINE RUNS: :resident for one kept for the whole game, the number of the
+          # set that holds it, or :cartridge. A call between two routines in the same place is
+          # a plain jump; any other has to name the place it is going.
+          def region_of(name)
+            set_holding(name) || (@fast_funcs.include?(name) ? :resident : :cartridge)
+          end
+
+          # Where the code being emitted right now will run.
+          def emitting_region = @emitting_region || :cartridge
 
           # Does the routine the console interrupts into run from the quick memory this
           # build? When it does, it is emitted inside the moved block above and the vector
@@ -398,12 +447,16 @@ module RubyGBA
           # Give the moved block its home: the first spare word above everything else in
           # the quick memory. Nothing may be given an address there afterwards.
           def place_hot_code
-            return if @fast_funcs.empty?
+            return if @fast_funcs.empty? && !swaps_quick_memory?
 
             # The copy moves whole words, and every allocation is rounded up to one, so
             # what comes back is already on a word.
-            @hot_bytes = @emit.labels.fetch(HOT_END) - @emit.labels.fetch(HOT_START)
-            @hot_base = @memory.alloc(@hot_bytes)
+            unless @fast_funcs.empty?
+              @hot_bytes = @emit.labels.fetch(HOT_END) - @emit.labels.fetch(HOT_START)
+              @hot_base = @memory.alloc(@hot_bytes)
+            end
+            # Every scene's set goes to one place, as big as the biggest of them.
+            @swap_base = @memory.alloc(biggest_set_bytes) if swaps_quick_memory?
             check_fast_code_fits!
           end
 
@@ -412,7 +465,7 @@ module RubyGBA
           # takes off) is still the upper bound it claims to be (a charge that is short does not fail here — it fails much later, in
           # #check_fast_code_fits!, on a game that fits). Valid after #lower.
           def charged_and_emitted_sizes
-            @fast_funcs.to_h do |name|
+            (@fast_funcs.to_a + routines_in_sets).to_h do |name|
               [name, [(@routine_sizes || {})[name].to_i, @functions.func_ranges[name]&.size.to_i]]
             end
           end
@@ -455,13 +508,14 @@ module RubyGBA
           # quick memory it is read from that routine's number table where the read reaches.
           def emit_call_func(name)
             generated_call_sites << [@emit.pos, name] if @functions.generated_func?(name)
-            target_is_fast = @fast_funcs.include?(name)
-            return emit_branch(:bl, @functions.func_label(name)) if target_is_fast == @emitting_hot
+            refuse_interrupt_call_into_set!(name)
+            target = region_of(name)
+            return emit_branch(:bl, @functions.func_label(name)) if target == emitting_region
 
-            if target_is_fast
-              emit_load_fast_address(ADDR, @functions.func_label(name))
-            else
-              emit_load_label_address(ADDR, @functions.func_label(name))
+            case target
+            when :resident then emit_load_fast_address(ADDR, @functions.func_label(name))
+            when :cartridge then emit_load_label_address(ADDR, @functions.func_label(name))
+            else @primitives.load_var(ADDR, where_word(name)) # wherever its set has put it
             end
             emit_call_through(ADDR)
           end
@@ -490,7 +544,7 @@ module RubyGBA
           # routine would, and it is counted as one (see #crossing_call_targets).
           def emit_call_irq_routine(label)
             generated_call_sites << [@emit.pos, IRQ_ROUTINE]
-            return emit_branch(:bl, label) if irq_runs_fast? == @emitting_hot
+            return emit_branch(:bl, label) if (irq_runs_fast? ? :resident : :cartridge) == emitting_region
 
             if irq_runs_fast?
               emit_load_fast_address(ADDR, label)
@@ -1114,7 +1168,7 @@ module RubyGBA
             return if size <= room
 
             if (record = save_record_insisting_on(name, insisted))
-              raise LoweringError,
+              raise QuickMemoryFull,
                     "`save_data :#{record}, fast: true` asks to keep the save routines of that record " \
                     "in the console's quick memory. One of them needs #{size} bytes, and only " \
                     "#{[room, 0].max} are free.#{kept_ahead_of_saves(chosen)} To fix this, use fewer " \
@@ -1122,7 +1176,7 @@ module RubyGBA
                     "`fast: true` from the record."
             end
 
-            raise LoweringError,
+            raise QuickMemoryFull,
                   "#{fast_true_snippet(name)} asks to keep that routine in the console's quick " \
                   "memory, but it needs #{size} bytes and only #{[room, 0].max} are free. To fix " \
                   "this, make the routine smaller, or use fewer variables and lists."

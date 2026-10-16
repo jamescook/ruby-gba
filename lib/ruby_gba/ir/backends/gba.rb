@@ -31,6 +31,7 @@ require_relative "gba/background_drawing" # putting background layers up, and ch
 require_relative "gba/framebuffer"
 require_relative "gba/scene_entry"
 require_relative "gba/drawing"
+require_relative "gba/scene_quick_memory" # each scene its own share of the quick memory, swapped as it takes over
 require_relative "gba/placement"
 require_relative "gba/buffered"
 require_relative "gba/audio"
@@ -104,8 +105,14 @@ module RubyGBA
       class GBA
         include RubyGBA::Console::Hardware
         include Placement
+        include SceneQuickMemory
 
         class LoweringError < StandardError; end
+
+        # A routine the author insisted on did not fit in the quick memory beside the rest — the
+        # one refusal the build can still answer, by giving each scene a share of its own (see
+        # SceneQuickMemory), before it lets the author see it.
+        class QuickMemoryFull < LoweringError; end
 
         # Friendly screen-mode names → the display-control register value. Only
         # the direct-color bitmap mode is lowered here; other modes are their own
@@ -541,6 +548,7 @@ module RubyGBA
                                    sprite_offsets: @screen.sprite_offsets,
                                    streamed_sprite_pose_vars: streamed_sprite_pose_vars,
                                    sprite_runs: sprite_runs,
+                                   scene_sets: scene_sets_record,
                                    build_options: { fast_cartridge: @fast_cartridge, fast_code: @fast_code })
         end
 
@@ -614,12 +622,18 @@ module RubyGBA
         # runs it from, with what it is and how many bytes it moves (see Emit::VideoCopy). The
         # instruction's position in the emitted code is turned into an address the way a
         # routine's is: by the routine it sits in, which may have been copied into the quick
-        # memory, or else where the cartridge holds it.
+        # memory, or else where the cartridge holds it. One in a scene's own routine runs from
+        # either, so it is given at both, the second saying which set has to be in (see
+        # SceneQuickMemory).
         def video_copy_addresses
-          @emit.video_copies.map do |copy|
+          @emit.video_copies.flat_map do |copy|
             name, span = @functions.func_ranges.find { |_, range| range.cover?(copy.at) }
             at = span ? runtime_base(name, span) + (copy.at - span.begin) : ROM_START + RubyGBA::Cartridge::ROM::ENTRY_OFFSET + copy.at
-            { source: copy.source, bytes: copy.bytes, at: at }
+            site = { source: copy.source, bytes: copy.bytes, at: at }
+            set = name && set_holding(name)
+            next [site] unless set
+
+            [site, site.merge(at: swapped_address(name) + (copy.at - span.begin), set: set)]
           end
         end
 
@@ -684,6 +698,7 @@ module RubyGBA
         def lower(program, fast_funcs: nil, variables_first: [])
           variables_first.each { |name| var_addr(name) }
           @fast_funcs = fast_funcs || choose_fast_funcs(program)
+          allocate_where_words # where each scene's own routines are, side by side, before any other variable
           # The throwaway measuring pass keeps the phase its caller named, since from the
           # outside it IS that phase — it is not lowering the program, it is finding out how
           # big the routines come out.
@@ -787,6 +802,7 @@ module RubyGBA
           @save.emit_wake_chip if @uses_save
           emit_copy_divide_routines_to_iwram # a no-op when neither routine was reserved
           emit_copy_hot_code_to_iwram unless @fast_funcs.empty?
+          emit_power_on_scene_set # no scene's own routines are in yet, so each runs from the cartridge
           # THE MIXER IS BROUGHT UP BEFORE THE INTERRUPTS ARE ARMED, and the order is load-bearing
           # rather than tidy. The screen's interrupt builds the next slice of sound (see
           # #emit_irq_handler), and it does that by jumping into a routine that boot copies into
@@ -830,7 +846,7 @@ module RubyGBA
           emit_divide_fix_routine # and the one for dividing numbers that hold a fraction
           # The interrupt dispatcher itself, reached only via the vector. When it was worth
           # keeping in the quick memory it has already been emitted inside the moved block.
-          emit_irq_handler if uses_irq? && !irq_runs_fast?
+          while_emitting_interrupt { emit_irq_handler } if uses_irq? && !irq_runs_fast?
           # After every body that can draw a number: a hot func's body is only ever lowered
           # inside emit_hot_functions, and a timer's tick inside the interrupt dispatcher, so a
           # digit routine one of them alone reaches would still be unregistered any earlier.
@@ -839,6 +855,8 @@ module RubyGBA
           @background_drawing.emit_set_swap_routines # bringing another set of tiles in, a routine a background
           @lists.emit_fill_routine # the one routine every list_fill calls, for the same reason
           @lists.emit_copy_routine # ...and every list_copy
+          emit_swap_routine # copying a scene's own routines in as it takes over
+          register_quick_tables
           emit_data_region
           emit_save_signature if @uses_save # the marker that maps the save chip (past all code/data)
           # Only now does every variable have a home, so only now is it known where the
@@ -848,7 +866,8 @@ module RubyGBA
           # know what "the quick memory" or "a DMA transfer's size" mean, so Placement
           # hands its own resolvers in rather than Emit reaching for them by name.
           @emit.resolve_fixups(fast_addr: method(:resolve_fast_address), hot_size: method(:resolve_hot_size),
-                               routine_word: method(:resolve_routine_word))
+                               routine_word: method(:resolve_routine_word), quick_word: method(:resolve_quick_word),
+                               quick_base: method(:resolve_quick_base))
           @emit.code
         end
 
