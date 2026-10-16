@@ -9,12 +9,11 @@ if ENV["COVERAGE"] == "1"
   SimpleCov.start(&Coverage::FILTERS)
 end
 
-require "minitest/autorun"
+# The library's test helper, the one a game's own suite requires: minitest, the library, and
+# which lowering this run tests. This suite uses it as a game does, so the two cannot drift.
+require_relative "../lib/ruby_gba/testing"
 require "minitest/ractor"
-require_relative "../lib/ruby_gba"
 require "support/suites"
-require "support/native_skips" if TestSuites.native?
-require "checked_native_run"
 
 # The one require a test file needs. It pulls in minitest and the library, and
 # hands every test the names and helpers that nearly all of them want, so a test
@@ -92,7 +91,7 @@ module EmulatorSupport
   # (A native run does use the emulator for one thing — as the answer key for the desktop
   # build's sound — and asks it directly, not through here: see test/sound_comparison.rb.)
   def require_emulator!
-    skip "checks the cartridge in the emulator, which the GBA lowering's run plays" if TestSuites.native?
+    skip "checks the cartridge in the emulator, which the GBA lowering's run plays" if RubyGBA::Testing.native?
 
     RubyGBA::Diagnostics::Emulator.load!
   end
@@ -148,6 +147,7 @@ class Minitest::Test # rubocop:disable Style/ClassAndModuleChildren
   include SharedConstants
   include EmulatorSupport
   include TreeAssertions
+  include RubyGBA::Testing # game_player, skip_on_native and CheckedPlayer, as a game's suite has them
 
   # Hand every test to the pool. Minitest runs a class serially until the class asks not to.
   parallelize_me!
@@ -171,22 +171,6 @@ class Minitest::Test # rubocop:disable Style/ClassAndModuleChildren
         reporter.record klass.new(method_name).run
       end
     end
-  end
-
-  # What plays a game in this run: the interpreter on the GBA lowering's run, and on the native
-  # lowering's the game built as C, driven through the same calls and checked against the
-  # interpreter frame by frame (CheckedNativeRun). +save+ is the save memory the game starts
-  # with, as Reference.new takes it.
-  def game_player(save: nil)
-    player = TestSuites.native? ? CheckedNativeRun : Reference
-    save ? player.new(save: save) : player.new
-  end
-
-  # A test the native lowering cannot play yet skips itself on a native run, saying +why+ — and a
-  # native run ends by counting the skips by reason, so these cannot pile up unseen. On the GBA
-  # lowering's run it does nothing.
-  def skip_on_native(why)
-    skip "native cannot play this yet: #{why}" if TestSuites.native?
   end
 
   # EVERY FIXTURE A TEST CLASS PARKS IN A CONSTANT IS FROZEN, ALL THE WAY DOWN, the moment it

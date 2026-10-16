@@ -8,14 +8,14 @@ require "tmpdir"
 # totals, the same failures, the same skips by reason and the same class counts as one process
 # playing every test itself. Each case runs a small fixture suite both ways and compares what
 # they print.
-class TestParallelTest < Minitest::Test
+class TestProcesses < Minitest::Test
   # Starts child processes, which Ruby cannot do from inside a Ractor — the spawn waits for
   # ever — so on the main Ractor, not in the pool. See test_helper.
   runs_on_the_main_ractor!
 
   ROOT = RubyGBA.root.to_s
-  FIXTURE = File.join(ROOT, "test/fixtures/parallel_test/mixed_results.rb")
-  RUNNER = File.join(ROOT, "tools/parallel_test.rb")
+  FIXTURE = File.join(ROOT, "test/fixtures/processes/mixed_results.rb")
+  RUNNER = File.join(ROOT, "lib/ruby_gba/testing/processes.rb")
 
   # Rake's own loader, which `rake test:lowering:native` starts the suite with: it takes every argument
   # that does not start with a dash for a file to load.
@@ -52,7 +52,7 @@ class TestParallelTest < Minitest::Test
   # Each test the native run plays leaves a file named for the process that played it.
   private def processes_that_played(processes, env = {}, seed: 7)
     Dir.mktmpdir do |folder|
-      out, = run_fixture(processes: processes, env: env.merge("PARALLEL_FIXTURE_PIDS" => folder), seed: seed)
+      out, = run_fixture(processes: processes, env: env.merge("PROCESSES_FIXTURE_PIDS" => folder), seed: seed)
       played = Dir.children(folder)
       seeds = played.map { |file| File.read(File.join(folder, file)) }.uniq
       [out, played.size, played.map { |file| file.split("-").first }.uniq.size, seeds]
@@ -78,19 +78,19 @@ class TestParallelTest < Minitest::Test
   # A process that dies under a test costs that test, said as an error; a new process takes
   # its place, and every other test is still played. One process, so nobody else would.
   def test_a_process_that_dies_costs_only_the_test_it_was_playing
-    out, tests, = processes_that_played(1, { "PARALLEL_FIXTURE_DIE" => "1" })
+    out, tests, = processes_that_played(1, { "PROCESSES_FIXTURE_DIE" => "1" })
 
     assert_equal 18, tests
     assert_match(/18 runs, \d+ assertions, 1 failures, 1 errors, 3 skips/, out)
-    assert_match(/ParallelFixturePasses#test_dies_when_asked:\nRuntimeError: .*killed by SIGKILL/, out)
+    assert_match(/ProcessesFixturePasses#test_dies_when_asked:\nRuntimeError: .*killed by SIGKILL/, out)
   end
 
   # A result the reporting process cannot rebuild is still an error of that test, and keeps the
   # message the test failed with.
   def test_an_error_only_the_playing_process_knows_keeps_its_message
-    out, = run_fixture(processes: 2, env: { "PARALLEL_FIXTURE_STRANGE_ERROR" => "1" })
+    out, = run_fixture(processes: 2, env: { "PROCESSES_FIXTURE_STRANGE_ERROR" => "1" })
 
-    assert_match(/ParallelFixturePasses#test_raises_what_only_its_process_knows_when_asked:\n.*could not be read back/, out)
-    assert_includes out, "ParallelFixtureStrangeError: a message worth keeping"
+    assert_match(/ProcessesFixturePasses#test_raises_what_only_its_process_knows_when_asked:\n.*could not be read back/, out)
+    assert_includes out, "ProcessesFixtureStrangeError: a message worth keeping"
   end
 end

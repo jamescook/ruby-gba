@@ -2,23 +2,23 @@
 
 require "test_helper"
 
-# A small suite for test/tools/test_parallel_test.rb to run across processes: tests that pass,
+# A small suite for test/ruby_gba/testing/test_processes.rb to run across processes: tests that pass,
 # one that fails, and skips for two reasons. Not named test_*.rb, so the suite itself never loads
 # it.
 #
-# Each test leaves a file named for the process that ran it in the folder PARALLEL_FIXTURE_PIDS
+# Each test leaves a file named for the process that ran it in the folder PROCESSES_FIXTURE_PIDS
 # names, holding the seed that process was given, so the test of the runner can see the work was
-# spread and every process had the run's one seed. With PARALLEL_FIXTURE_DIE set, one test takes
+# spread and every process had the run's one seed. With PROCESSES_FIXTURE_DIE set, one test takes
 # its own process down.
-module ParallelFixture
+module ProcessesFixture
   def note_process
-    folder = ENV.fetch("PARALLEL_FIXTURE_PIDS", nil)
+    folder = ENV.fetch("PROCESSES_FIXTURE_PIDS", nil)
     File.write(File.join(folder, "#{Process.pid}-#{name}"), Minitest.seed.to_s) if folder
   end
 end
 
-class ParallelFixturePasses < Minitest::Test
-  include ParallelFixture
+class ProcessesFixturePasses < Minitest::Test
+  include ProcessesFixture
 
   12.times do |i|
     define_method(:"test_passes_#{i}") do
@@ -30,7 +30,7 @@ class ParallelFixturePasses < Minitest::Test
 
   def test_dies_when_asked
     note_process
-    Process.kill(:KILL, Process.pid) if ENV["PARALLEL_FIXTURE_DIE"]
+    Process.kill(:KILL, Process.pid) if ENV["PROCESSES_FIXTURE_DIE"]
     assert true
   end
 
@@ -38,15 +38,15 @@ class ParallelFixturePasses < Minitest::Test
   # only that test required would be: the process that reports the run cannot rebuild it.
   def test_raises_what_only_its_process_knows_when_asked
     note_process
-    return assert(true) unless ENV["PARALLEL_FIXTURE_STRANGE_ERROR"]
+    return assert(true) unless ENV["PROCESSES_FIXTURE_STRANGE_ERROR"]
 
-    Object.const_set(:ParallelFixtureStrangeError, Class.new(StandardError)) unless defined?(ParallelFixtureStrangeError)
-    raise ParallelFixtureStrangeError, "a message worth keeping"
+    Object.const_set(:ProcessesFixtureStrangeError, Class.new(StandardError)) unless defined?(ProcessesFixtureStrangeError)
+    raise ProcessesFixtureStrangeError, "a message worth keeping"
   end
 end
 
-class ParallelFixtureMixed < Minitest::Test
-  include ParallelFixture
+class ProcessesFixtureMixed < Minitest::Test
+  include ProcessesFixture
 
   def test_fails
     note_process

@@ -7,8 +7,8 @@ require "rbconfig"
 
 # The game played as C, and then the same buttons played on the interpreter, with the run
 # stopped at the first frame the two do not agree on (Native::CheckedRun) — which is what a test
-# opted into native runs is handed there (CheckedNativeRun, the suite's own name for it), so a
-# file's hand-picked checks are backed by every variable and every pixel of every frame.
+# is handed on a native run (RubyGBA::Testing::CheckedPlayer, the test helper's name for it), so
+# a file's hand-picked checks are backed by every variable and every pixel of every frame.
 class TestCheckedRun < Minitest::Test
   include NativeComparison
 
@@ -71,11 +71,11 @@ class TestCheckedRun < Minitest::Test
     assert_equal "nil", minitest
   end
 
-  # The suite's own name for it reports a disagreement as a failed test, as every other check
-  # here fails, and not as an error.
-  def test_the_suites_checked_run_fails_a_test_on_a_disagreement
+  # The test helper's player reports a disagreement as a failed test, as every other check here
+  # fails, and not as an error.
+  def test_the_checked_player_fails_a_test_on_a_disagreement
     # An interpreter that remembers x wrong at the first frame.
-    wrapper = Class.new(CheckedNativeRun) do
+    wrapper = Class.new(CheckedPlayer) do
       def play_on_interpreter(...) = super.tap { |_, moments| moments.first.variables[:x] = 99 }
     end
     program = program_of do

@@ -43,9 +43,9 @@ class TestHeroPicture < Minitest::Test
   # back where the save left them, out of the bytes the game as C wrote.
   def test_a_walk_saved_as_c_continues_where_it_was_saved
     store = SaveImage.new
-    saved = CheckedNativeRun.new(save: store).input_each_frame { |frame| RUN.fetch(frame, []) }.run(program, frames: 82)
+    saved = CheckedPlayer.new(save: store).input_each_frame { |frame| RUN.fetch(frame, []) }.run(program, frames: 82)
 
-    continued = CheckedNativeRun.new(save: store).input_each_frame { |frame| [1, 3].include?(frame) ? [:a] : [] }
+    continued = CheckedPlayer.new(save: store).input_each_frame { |frame| [1, 3].include?(frame) ? [:a] : [] }
                                 .run(program, frames: 8)
 
     assert_operator saved[:steps], :>, 20

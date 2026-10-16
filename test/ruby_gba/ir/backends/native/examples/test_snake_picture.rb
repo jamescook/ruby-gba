@@ -39,11 +39,11 @@ class TestSnakePicture < Minitest::Test
   # The same game played from a new cartridge, and then the cartridge switched on again.
   def test_the_best_score_is_still_there_when_the_game_is_switched_on_again
     store = SaveImage.new
-    played = CheckedNativeRun.new(save: store).input_each_frame { |frame| RUN.fetch(frame, []) }
+    played = CheckedPlayer.new(save: store).input_each_frame { |frame| RUN.fetch(frame, []) }
                              .run(program, frames: GAME_OVER_BY)
     assert_equal [GAME_OVER, 2], [played[:state], played[:high_score]]
 
-    again = CheckedNativeRun.new(save: store).run(program, frames: 3)
+    again = CheckedPlayer.new(save: store).run(program, frames: 3)
 
     assert_equal 2, again[:high_score]
   end

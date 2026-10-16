@@ -44,7 +44,7 @@ module MixedSound
   # +at_least+ frames. On a native run the two are the game as C and the interpreter, frame for
   # frame from the same first frame, since neither spends frames setting itself up.
   def assert_mixes_agree(program, frames: 24, presses: {}, at_least: frames / 2)
-    return assert_native_mixes_agree(program, frames, presses, at_least) if TestSuites.native?
+    return assert_native_mixes_agree(program, frames, presses, at_least) if RubyGBA::Testing.native?
 
     from_sound = ->(slices) { slices.drop_while { |slice| slice.all?(&:zero?) } }
     interpreted = from_sound.call(interpreted_mixes(program, frames, presses: presses))

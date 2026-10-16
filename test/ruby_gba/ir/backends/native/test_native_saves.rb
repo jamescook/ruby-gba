@@ -128,7 +128,7 @@ class TestNativeSaves < Minitest::Test
 
   # --- save data ---
   #
-  # From here every run is a CheckedNativeRun: the game as C, then the same buttons on the
+  # From here every run is a CheckedPlayer: the game as C, then the same buttons on the
   # interpreter from the same save memory, failing at the first frame any variable differs — the
   # ones a save job keeps for itself among them — and at the end if the two chips do not hold the
   # same bytes. What each test asserts on top is that the run did what its name says.
@@ -184,7 +184,7 @@ class TestNativeSaves < Minitest::Test
   private def presses(*buttons) = buttons.each_with_index.to_h { |button, i| [(i * 2) + 2, [button]] }
 
   private def files_after(store, *buttons, save_memory: nil)
-    CheckedNativeRun.new(save: store).input_each_frame { |frame| presses(*buttons).fetch(frame, []) }
+    CheckedPlayer.new(save: store).input_each_frame { |frame| presses(*buttons).fetch(frame, []) }
                     .run(three_files(save_memory: save_memory), frames: (buttons.length * 2) + 4)
   end
 
@@ -289,8 +289,8 @@ class TestNativeSaves < Minitest::Test
     program = slow_save(kilobytes)
     store = SaveImage.new(kilobytes: kilobytes)
 
-    saved = CheckedNativeRun.new(save: store).input_each_frame { |frame| frame == 2 ? [:a] : [] }.run(program, frames: 150)
-    back = CheckedNativeRun.new(save: store).run(program, frames: 3)
+    saved = CheckedPlayer.new(save: store).input_each_frame { |frame| frame == 2 ? [:a] : [] }.run(program, frames: 150)
+    back = CheckedPlayer.new(save: store).run(program, frames: 3)
 
     assert_equal [1, 0], [saved[:done], saved[:failed]], "the save finished once"
     assert_operator saved[:busy], :>=, passes_at_least, "the save was in hand over several passes"
@@ -336,15 +336,15 @@ class TestNativeSaves < Minitest::Test
       end
     end
     before = SaveImage.new(kilobytes: 64)
-    CheckedNativeRun.new(save: before).input_each_frame { |frame| { 2 => [:a], 100 => [:b] }.fetch(frame, []) }
+    CheckedPlayer.new(save: before).input_each_frame { |frame| { 2 => [:a], 100 => [:b] }.fetch(frame, []) }
                     .run(program, frames: 200)
 
     found = [0, 1, 2, 3, 12, 5000].map do |cut|
       store = before.dup
-      CheckedNativeRun.new(save: store.cut_power_after(cut)).input_each_frame { |frame| frame == 2 ? [:l] : [] }
+      CheckedPlayer.new(save: store.cut_power_after(cut)).input_each_frame { |frame| frame == 2 ? [:l] : [] }
                       .run(program, frames: 100)
 
-      CheckedNativeRun.new(save: store).run(program, frames: 2)[:hearts].tap do |hearts|
+      CheckedPlayer.new(save: store).run(program, frames: 2)[:hearts].tap do |hearts|
         assert_includes [9, 11], hearts, "cut after #{cut} steps"
       end
     end
@@ -360,12 +360,12 @@ class TestNativeSaves < Minitest::Test
       game_loop { pressed(:a).then { best.add! 2 } }
     end
     store = SaveImage.new(kilobytes: 64)
-    CheckedNativeRun.new(save: store).input_each_frame { |frame| frame == 2 ? [:a] : [] }.run(program, frames: 400)
+    CheckedPlayer.new(save: store).input_each_frame { |frame| frame == 2 ? [:a] : [] }.run(program, frames: 400)
 
-    assert_equal 7, CheckedNativeRun.new(save: store).run(program, frames: 2)[:best]
+    assert_equal 7, CheckedPlayer.new(save: store).run(program, frames: 2)[:best]
   end
 
-  # THE OPTIMISED BUILD saves the same way. A CheckedNativeRun plays the build with every check
+  # THE OPTIMISED BUILD saves the same way. A CheckedPlayer plays the build with every check
   # on; this plays both builds from a new cartridge, on battery memory and on flash, and holds
   # each to the interpreter's variables on every frame.
   def test_both_builds_keep_save_data_as_the_interpreter_does
@@ -396,6 +396,6 @@ class TestNativeSaves < Minitest::Test
   def test_a_save_var_a_test_wrote_starts_the_game_as_c
     store = Reference.save_vars_into(SaveImage.new, counting_up, best: 100)
 
-    assert_equal 104, CheckedNativeRun.new(save: store).run(counting_up, frames: 2)[:best]
+    assert_equal 104, CheckedPlayer.new(save: store).run(counting_up, frames: 2)[:best]
   end
 end

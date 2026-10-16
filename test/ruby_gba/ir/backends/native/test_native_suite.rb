@@ -11,7 +11,7 @@ class TestNativeSuite < Minitest::Test
   include Differential
 
   def test_a_test_in_the_native_lowerings_folder_runs_only_on_its_run
-    assert_equal :native, TestSuites::LOWERING, "a test in the native lowering's folder ran on a #{TestSuites::LOWERING} run"
+    assert_equal :native, RubyGBA::Testing.lowering, "a test in the native lowering's folder ran on a #{RubyGBA::Testing.lowering} run"
   end
 
   # A file opted into native runs keeps its tests of the cartridge, which skip themselves here.
@@ -39,7 +39,7 @@ class TestNativeSuite < Minitest::Test
 
     played = assert_backends_agree(builder.program, frames: 4, keys: [:right])
 
-    assert_kind_of CheckedNativeRun, played
+    assert_kind_of CheckedPlayer, played
     assert_equal 4, played[:x], "the buttons were held on all four frames, so the game moved four times"
   end
 

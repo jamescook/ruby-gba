@@ -61,10 +61,10 @@ module Differential
   # ON A NATIVE RUN THERE IS NO CONSOLE TO ASK, and the question still has an answer worth
   # having there: does the game as C draw what the interpreter draws? So the same line plays the
   # program as C with the same buttons held and compares it with the interpreter on every frame,
-  # every variable and the sound log with the picture (see CheckedNativeRun, which is what comes
+  # every variable and the sound log with the picture (see CheckedPlayer, which is what comes
   # back). The frames the console would have needed mean nothing there.
   def assert_backends_agree(program, frames: 4, name: "DIFF", console_frames: nil, keys: [])
-    return CheckedNativeRun.new.hold(*keys).run(program, frames: frames) if TestSuites.native?
+    return RubyGBA::Testing::CheckedPlayer.new.hold(*keys).run(program, frames: frames) if RubyGBA::Testing.native?
 
     oracle, console, ran = backend_pictures(program, frames: frames, name: name,
                                             console_frames: console_frames, keys: keys)
@@ -86,9 +86,9 @@ module Differential
   # ON A NATIVE RUN the second picture is the game as C's, after the same frames with the same
   # buttons held, so every test written as "the two pictures agree" asks it of the lowering the
   # run is for. The C is checked against the interpreter on every frame on the way there
-  # (CheckedNativeRun), and the frames the console would have needed mean nothing.
+  # (CheckedPlayer), and the frames the console would have needed mean nothing.
   def backend_pictures(program, frames: 4, name: "DIFF", console_frames: nil, keys: [])
-    return native_pictures(program, frames, keys) if TestSuites.native?
+    return native_pictures(program, frames, keys) if RubyGBA::Testing.native?
 
     cf = console_frames || console_frames_for(program, frames)
     console, passes = console_picture(program, cf, name, keys)
@@ -149,7 +149,7 @@ module Differential
 
   # The interpreter's picture and the game as C's after +frames+ frames, with +keys+ held.
   def native_pictures(program, frames, keys)
-    native = CheckedNativeRun.new.hold(*keys).run(program, frames: frames).screen.shown
+    native = RubyGBA::Testing::CheckedPlayer.new.hold(*keys).run(program, frames: frames).screen.shown
     oracle = RubyGBA::IR::Backends::Reference.new.hold(*keys).run(program, frames: frames).screen.shown
     [oracle, native, frames]
   end

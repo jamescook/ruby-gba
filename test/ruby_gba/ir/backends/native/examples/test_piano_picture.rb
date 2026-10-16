@@ -2,7 +2,6 @@
 
 require "test_helper"
 require "native_comparison"
-require "checked_native_run"
 require RubyGBA.root.join("examples/piano").to_s
 
 # examples/piano.rb built for the desktop shows the interpreter's picture pixel for pixel, frame
@@ -23,7 +22,7 @@ class TestPianoPicture < Minitest::Test
 
   def test_piano_mixes_the_interpreters_sound
     program = Native.new.checked_program(Piano::GAME, err: nil)
-    played = CheckedNativeRun.new.run(program, frames: FRAMES)
+    played = CheckedPlayer.new.run(program, frames: FRAMES)
 
     assert_operator played.peak_voices, :>=, 3, "a downbeat sounds the melody and a two-note chord at once"
     assert(played.mixed_sound.any? { |slice| slice.any?(&:nonzero?) }, "the tune should be heard")

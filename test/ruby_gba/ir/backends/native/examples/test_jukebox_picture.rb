@@ -2,7 +2,6 @@
 
 require "test_helper"
 require "native_comparison"
-require "checked_native_run"
 require RubyGBA.root.join("examples/jukebox").to_s
 
 # examples/jukebox.rb built for the desktop shows the interpreter's picture pixel for pixel, frame
@@ -20,7 +19,7 @@ class TestJukeboxPicture < Minitest::Test
 
   def test_jukebox_matches_the_interpreter_while_effects_play_over_the_chords
     program = Native.new.checked_program(Jukebox::GAME, err: nil)
-    played = CheckedNativeRun.new.input_each_frame { |frame| BUTTONS.fetch(frame, []) }.run(program, frames: FRAMES)
+    played = CheckedPlayer.new.input_each_frame { |frame| BUTTONS.fetch(frame, []) }.run(program, frames: FRAMES)
 
     assert_includes played.audio, [:sound_effect, :"sfx.hooray"]
     assert_includes played.audio, [:sound_effect, :"sfx.blip"]

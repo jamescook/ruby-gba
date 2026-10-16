@@ -40,11 +40,11 @@ class TestBreakoutPicture < Minitest::Test
   # as a bar, which a game with no best score never draws.
   def test_the_best_score_is_still_there_when_the_game_is_switched_on_again
     store = SaveImage.new
-    played = CheckedNativeRun.new(save: store).input_each_frame { |frame| RUN.fetch(frame, []) }
+    played = CheckedPlayer.new(save: store).input_each_frame { |frame| RUN.fetch(frame, []) }
                              .run(program, frames: GAME_OVER_BY)
     assert_equal [GAME_OVER, 170], [played[:state], played[:high_score]]
 
-    again = CheckedNativeRun.new(save: store).input_each_frame { |frame| RUN.fetch(frame, []) }.run(program, frames: 60)
+    again = CheckedPlayer.new(save: store).input_each_frame { |frame| RUN.fetch(frame, []) }.run(program, frames: 60)
 
     assert_equal 170, again[:high_score]
     assert_equal [10, 9], [again[:score], again[:_best_bar]], "one brick down: ten points of 170, along a bar of 160"

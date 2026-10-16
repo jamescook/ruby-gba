@@ -22,7 +22,7 @@ class TestRakefile < Minitest::Test
   private def run_options(testopts)
     # The plain GBA run whichever run this test is in: a native run's own settings (the
     # lowering, one test a process) are left out of the one it starts.
-    plain = { "TESTOPTS" => testopts, TestSuites::LOWERING_SETTING => nil, "MT_CPU" => nil, "TEST_PROCESSES" => nil }
+    plain = { "TESTOPTS" => testopts, RubyGBA::Testing::Lowering::SETTING => nil, "MT_CPU" => nil, "TEST_PROCESSES" => nil }
     out, = Open3.capture2e(plain, "bundle", "exec", "rake", "test:lowering:gba",
                            "TEST=test/ruby_gba/graphics/test_color.rb", chdir: ROOT)
     out[/^Run options: .*$/] or flunk("rake test:lowering:gba printed no run options:\n#{out}")
