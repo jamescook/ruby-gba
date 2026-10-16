@@ -73,6 +73,7 @@ class TestSuitesSplit < Minitest::Test
     assert_includes native_run, "test/ruby_gba/ir/backends/native/test_native_picture.rb"
     refute_includes native_run, "test/ruby_gba/ir/backends/gba/test_asm.rb"
     refute_includes native_run, "test/ruby_gba/playthroughs/test_playthrough.rb"
+    refute_includes native_run, "test/ruby_gba/diagnostics/test_verifier.rb"
     assert_includes interpreter_run, "test/ruby_gba/ir/backends/gba/test_asm.rb"
     refute_includes interpreter_run, "test/ruby_gba/ir/backends/native/test_native_picture.rb"
     shared = "test/ruby_gba/dsl/test_pool_walk_order.rb"

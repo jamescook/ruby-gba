@@ -162,7 +162,7 @@ Test each layer the way a player experiences it, not by restating the code.
     not the wording verbatim.
 
 - **IR backend level — opcodes and lowering are fair game.** Here the generated
-  code *is* the contract, so `test/ruby_gba/ir/backends/test_ir_backend_gba.rb` may assert
+  code *is* the contract, so `test/ruby_gba/ir/backends/gba/test_ir_backend_gba.rb` may assert
   the two-pass jump math, register conventions, or instruction shapes, and
   `test/ruby_gba/ir/backends/test_ir_backend_reference.rb` asserts interpreter state. These build hand-made
   `IR::Build` trees (not the DSL) because they test the backend, not the surface.

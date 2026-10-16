@@ -30,10 +30,11 @@ module TestSuites
   # the ARM a cartridge is made of, the cartridge played in the emulator, the C the native
   # lowering writes — and the other lowering's run never loads it. Every test outside them is
   # about the game, and every lowering's run loads it. Each folder mirrors a part of lib that is
-  # that lowering's alone: the GBA backend, the playthroughs that drive a cartridge in the
-  # emulator, and the native backend.
+  # that lowering's alone: the GBA backend; the diagnostics, which read back a finished
+  # cartridge; the playthroughs, which drive one in the emulator; and the native backend.
   LOWERING_FOLDERS = Ractor.make_shareable({
-                                             reference: ["test/ruby_gba/ir/backends/gba", "test/ruby_gba/playthroughs"],
+                                             reference: ["test/ruby_gba/ir/backends/gba", "test/ruby_gba/diagnostics",
+                                                         "test/ruby_gba/playthroughs"],
                                              native: [NATIVE_DIR]
                                            })
 
