@@ -35,19 +35,16 @@ module RubyGBA
       # At most this many parts of one routine, the busiest first.
       MOST_PARTS = 3
 
-      # How long one frame is, in the console's cycles: 228 lines of 1232. A part's share of the
-      # frame is counted against the whole of it, asleep or not — counted against only the time
-      # the console was awake, a game that sleeps most of each frame would make a few
-      # instructions look like most of it.
-      CYCLES_A_FRAME = 228 * 1232
-
       module_function
 
       # The hints for +rom+'s routines that missed the quick memory, from +profile+ — busiest
       # first. Empty for a build that missed nothing, or a run that spent no time in what missed.
       def of(profile, rom)
         built = rom.built
-        frame = profile.frames * CYCLES_A_FRAME
+        # A part's share of the frame is counted against the whole of each frame, asleep or not:
+        # against only the time the console was awake, a game that sleeps most of each frame
+        # would make a few instructions look like most of it.
+        frame = profile.frames * profile.cycles_per_frame
         return [] if frame.zero?
 
         built.missed_routine_parts.flat_map do |routine, parts|
@@ -64,20 +61,20 @@ module RubyGBA
       # overlap it. Where two hold the same time, the smaller — a block and the one statement it
       # holds are the same time, and the statement is what to cut out.
       def busiest_parts(profile, built, routine, parts, total, frame)
+        # Each part with its time and the room a `func` that busy could have — worked out once,
+        # so the part picked because it fits is the part said to fit.
         timed = parts.map { |part| [part, time_in(profile, part[:at])] }
                      .select { |_, time| 100.0 * time / total >= WORTH_NAMING && 100.0 * time / frame >= WORTH_A_FRAME }
+                     .map { |part, time| [part, time, room_for(profile, built, time, routine)] }
         chosen = []
         MOST_PARTS.times do
-          free = timed.reject { |part, _| chosen.any? { |taken, _| overlap?(taken[:at], part[:at]) } }
+          free = timed.reject { |part, _, _| chosen.any? { |taken, _, _| taken[:at].overlap?(part[:at]) } }
           break if free.empty?
 
-          room = room_for(profile, built, free.map(&:last).max)
-          fitting = free.select { |part, _| part[:at].size <= room }
-          pick = (fitting.empty? ? free : fitting).max_by { |part, time| [time, -part[:at].size] }
-          chosen << pick
+          fitting = free.select { |part, _, room| part[:at].size <= room }
+          chosen << (fitting.empty? ? free : fitting).max_by { |part, time, _| [time, -part[:at].size] }
         end
-        chosen.map do |part, time|
-          room = room_for(profile, built, time)
+        chosen.map do |part, time, room|
           Hint.new(routine: routine, source: part[:source], share: (100.0 * time / total).round(1),
                    frame_share: (100.0 * time / frame).round(1), bytes: part[:at].size,
                    fits: part[:at].size <= room, room: room)
@@ -89,17 +86,30 @@ module RubyGBA
         profile.cycles.sum { |at, spent| span.cover?(at) ? spent : 0 }
       end
 
-      def overlap?(one, other) = one.begin < other.end && other.begin < one.end
 
-      # The bytes a `func` that spends +time+ could have: what is spare, and every routine kept
-      # that the run spent less time in.
-      def room_for(profile, built, time)
+      # The bytes a `func` that spends +time+ in +routine+ could have: what is spare, every
+      # routine kept for the whole game that the run spent less time in — and, for a scene's own
+      # routine in a game whose scenes each keep their own (see Cartridge::BuildRecord::SceneSets),
+      # the room that scene's set leaves in the place the sets share, and every routine in its
+      # set the run spent less time in. Other scenes' sets are never in at the same moment, so
+      # nothing of theirs is in the way.
+      def room_for(profile, built, time, routine)
         placement = built.placement
         given_up = placement.funcs.sum do |name|
           span = built.routines[name]
           span && time_in(profile, span) < time ? placement.sizes.fetch(name, 0) : 0
         end
-        placement.free_bytes + given_up
+        placement.free_bytes + given_up + room_in_scene_set(profile, built, time, routine)
+      end
+
+      def room_in_scene_set(profile, built, time, routine)
+        sets = built.scene_sets or return 0
+        number = sets.scenes[routine.to_s.delete_prefix("_scene_").to_sym] or return 0
+
+        own = sets.routines.fetch(number, {})
+        biggest = sets.routines.values.map { |set| set.values.sum(&:size) }.max.to_i
+        less_busy = own.values.sum { |span| time_in(profile, span) < time ? span.size : 0 }
+        biggest - own.values.sum(&:size) + less_busy
       end
     end
   end

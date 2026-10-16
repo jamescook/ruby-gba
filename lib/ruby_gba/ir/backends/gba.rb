@@ -644,11 +644,11 @@ module RubyGBA
         # worth making a `func` of (see Diagnostics::SplitHints). Only the routines that missed:
         # the others are already as fast as they will be.
         def missed_routine_parts
-          base = ROM_START + RubyGBA::Cartridge::ROM::ENTRY_OFFSET
           missed = (@passed_over || []).map(&:name).select { |name| region_of(name) == :cartridge }
           missed.to_h do |name|
             span = @functions.func_ranges[name]
             parts = span ? @attribution.statement_spans.select { |part| span.cover?(part.from) && part.to <= span.end } : []
+            base = span && (runtime_base(name, span) - span.begin)
             [name, parts.map { |part| { source: part.source, at: (base + part.from)...(base + part.to) } }]
           end.reject { |_, parts| parts.empty? }
         end
@@ -818,7 +818,7 @@ module RubyGBA
           @save.emit_wake_chip if @uses_save
           emit_copy_divide_routines_to_iwram # a no-op when neither routine was reserved
           emit_copy_hot_code_to_iwram unless @fast_funcs.empty?
-          emit_power_on_scene_set # no scene's own routines are in yet, so each runs from the cartridge
+          emit_call_power_on_swap # the scenes' own routines that fit side by side, the ones the game loop runs first
           # THE MIXER IS BROUGHT UP BEFORE THE INTERRUPTS ARE ARMED, and the order is load-bearing
           # rather than tidy. The screen's interrupt builds the next slice of sound (see
           # #emit_irq_handler), and it does that by jumping into a routine that boot copies into

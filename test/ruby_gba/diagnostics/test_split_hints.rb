@@ -66,6 +66,26 @@ class TestSplitHints < Minitest::Test
     assert_empty result.split_hints
   end
 
+  # A PART IS PICKED BY THE ROOM IT WOULD HAVE ITSELF. The room a `func` gets includes the
+  # routines kept that the run spent less time in, so a quieter part has less room than a busier
+  # one: here the busy part A (5K) and the quieter part B (3K) both outgrow what each would get,
+  # and the hint names A, saying it does not fit — not B, picked by A's room and then said not to.
+  def test_a_part_is_said_to_fit_only_in_the_room_it_would_have
+    cartridge = 0x0800_0000
+    parts = [{ source: "game.rb:10", at: cartridge...(cartridge + 5120) },
+             { source: "game.rb:20", at: (cartridge + 5120)...(cartridge + 8192) }]
+    placement = Struct.new(:funcs, :sizes, :free_bytes).new([:kept], { kept: 2048 }, 1536)
+    built = Struct.new(:missed_routine_parts, :routines, :placement, :scene_sets)
+                  .new({ big: parts }, { big: cartridge...(cartridge + 8192), kept: 0x0300_0000...0x0300_0800 }, placement, nil)
+    profile = Struct.new(:cycles, :frames, :cycles_per_frame)
+                    .new({ cartridge => 10_000, cartridge + 5120 => 6000, 0x0300_0000 => 8000 }, 1, 280_896)
+    hints = RubyGBA::Diagnostics::SplitHints.of(profile, Struct.new(:built).new(built))
+
+    assert_equal "game.rb:10", hints.first.source
+    refute hints.first.fits
+    assert(hints.all? { |hint| hint.fits == (hint.bytes <= hint.room) })
+  end
+
   # A game whose routines all fit has nothing to split, and says nothing about it.
   def test_a_game_whose_routines_all_fit_gets_no_hint
     builder = Builder.new

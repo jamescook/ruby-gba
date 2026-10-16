@@ -44,7 +44,8 @@ class TestQuickMemoryByScene < Minitest::Test
   # and whose file screen saves a record that insists on its save routines there too.
   # With +logos+, the game opens on a screen of logos that has no routines of its own, as a
   # real game does, before the file screen.
-  private def two_insisting_screens(adds:, logos: false)
+  # With +play_first+, the dispatch names play before the file screen.
+  private def two_insisting_screens(adds:, logos: false, play_first: false)
     builder = Builder.new
     builder.instance_eval do
       b = var :b, 0
@@ -59,8 +60,9 @@ class TestQuickMemoryByScene < Minitest::Test
         pressed(:start).then { set! :where, 1 }
         case_var(:where) do
           when_val 2, :logos if logos
+          when_val 1, :play if play_first
           when_val 0, :files
-          when_val 1, :play
+          when_val 1, :play unless play_first
         end
       end
     end
@@ -121,6 +123,16 @@ class TestQuickMemoryByScene < Minitest::Test
   # late, and the opening was a frame behind from there.
   def test_the_logos_run_with_the_file_screens_routines_already_in
     rom = assemble_rom(two_insisting_screens(adds: 1500, logos: true), name: "LOGOS")
+    sets = rom.built.scene_sets
+    v = assert_emulator_loads_rom(rom, frames: 10)
+
+    assert_equal 1, v.mem32(sets.loaded_at)[sets.scenes.fetch(:files)], "the file screen's set is in under the logos"
+  end
+
+  # ...whatever order the dispatch names the scenes in: the save's routines are what the game
+  # loop runs under the logos, so theirs is the set that goes in first, not play's.
+  def test_the_saves_set_goes_in_first_though_play_is_named_first
+    rom = assemble_rom(two_insisting_screens(adds: 1500, logos: true, play_first: true), name: "LOGOS")
     sets = rom.built.scene_sets
     v = assert_emulator_loads_rom(rom, frames: 10)
 

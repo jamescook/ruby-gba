@@ -216,6 +216,12 @@ module RubyGBA
             @quick_memory_sets.each_with_index do |(_, names), index|
               names.each { |name| @set_of_routine[name] = index + 1 }
             end
+            # The sets holding a routine the game loop reaches outside their scene — a save's
+            # routines, written a piece a pass whichever screen is up. They go in first at
+            # power-on and are kept clear of where the others go (see #place_scene_sets).
+            @sets_run_by_loop = @quick_memory_sets.values.each_with_index.filter_map do |names, index|
+              index + 1 if names.any? { |name| owners[name].include?(:frame) }
+            end
             @passed_over = passed_over
             SceneSplit.new(resident: resident, sizes: sizes)
           end
@@ -323,7 +329,8 @@ module RubyGBA
           # title, with a routine or two of their own, then leave the file screen's routines in
           # quick memory through the opening, where the file screen's saves are checked. Only a
           # set that overlaps another puts it out. Biggest first, each at the place that overlaps
-          # the fewest sets already placed, the lowest of those on a tie.
+          # the fewest sets the game loop runs (see #choose_scene_sets) — those are what an
+          # opening needs left in — then the fewest sets of any kind, then the lowest place.
           def place_scene_sets
             room = biggest_set_bytes
             @set_offsets = {}
@@ -331,10 +338,13 @@ module RubyGBA
               size = set_bytes(number)
               places = @set_offsets.map { |other, at| at + set_bytes(other) }.unshift(0).uniq.select { |at| at + size <= room }
               @set_offsets[number] = places.min_by do |at|
-                [@set_offsets.count { |other, there| stretches_overlap?(at, size, there, set_bytes(other)) }, at]
+                hit = @set_offsets.select { |other, there| stretches_overlap?(at, size, there, set_bytes(other)) }.keys
+                [(hit & sets_run_by_loop).size, hit.size, at]
               end
             end
           end
+
+          def sets_run_by_loop = @sets_run_by_loop || []
 
           def stretches_overlap?(at, size, other_at, other_size) = at < other_at + other_size && other_at < at + size
 
@@ -371,19 +381,23 @@ module RubyGBA
             return unless swaps_quick_memory?
 
             @emit.data_blobs[QUICK_TABLE] = "\x00".b * (WHERE_WORD_BYTES * (quick_memory_sets.size + 1))
-            register_word_tables
+            register_where_word_tables
             (0..quick_memory_sets.size).each do |number|
               copies = number.zero? ? [word_copy(:all, routines_in_sets)] : copies_for_set(number)
               blob = :"__scene_set_jobs_#{number}"
               keep = number.zero? ? 0 : ~sets_put_out_by(number).sum { |other| set_bit(other) } & 0xFFFF_FFFF
-              register_words(blob, [-> { keep }, -> { set_bit(number) }, -> { copies.size }] + copies.flatten)
+              register_word_blob(blob, [-> { keep }, -> { set_bit(number) }, -> { copies.size }] + copies.flatten)
               @emit.link_data(QUICK_TABLE, number * WHERE_WORD_BYTES, blob)
             end
           end
 
-          # The copies set +number+ makes as it goes in, each as the engine's three numbers.
+          # The copies set +number+ makes as it goes in, each as the engine's three numbers. A set
+          # with nothing in it makes none: the engine reads a count of nothing as the most it can
+          # move, and the swap never asks for such a set anyway (see #scene_keeps_routines?).
           def copies_for_set(number)
             names = quick_memory_sets.values[number - 1]
+            return [] if names.empty?
+
             code = [-> { @emit.label_address(set_start_label(number)) },
                     -> { @swap_base + @set_offsets.fetch(number) },
                     -> { set_bytes(number) / 4 | DMA_32BIT | DMA_ENABLE }]
@@ -394,7 +408,7 @@ module RubyGBA
             [code, word_copy(:"in_#{number}", names), *put_out]
           end
 
-          # A copy of the words of +names+ from table +which+ (see #register_word_tables) into
+          # A copy of the words of +names+ from table +which+ (see #register_where_word_tables) into
           # their places in the quick memory.
           def word_copy(which, names)
             [-> { @emit.data_address(:"__scene_set_words_#{which}") },
@@ -404,17 +418,17 @@ module RubyGBA
 
           # THE WORDS EACH COPY READS: every routine at its place in the cartridge, each set's
           # routines at their place in the quick memory, and each set's at the cartridge.
-          def register_word_tables
+          def register_where_word_tables
             cartridge = ->(name) { -> { @emit.label_address(@functions.func_label(name)) } }
-            register_words(:__scene_set_words_all, routines_in_sets.map(&cartridge))
+            register_word_blob(:__scene_set_words_all, routines_in_sets.map(&cartridge))
             quick_memory_sets.values.each_with_index do |names, index|
-              register_words(:"__scene_set_words_in_#{index + 1}", names.map { |name| -> { swapped_address(name) } })
-              register_words(:"__scene_set_words_#{index + 1}", names.map(&cartridge))
+              register_word_blob(:"__scene_set_words_in_#{index + 1}", names.map { |name| -> { swapped_address(name) } })
+              register_word_blob(:"__scene_set_words_#{index + 1}", names.map(&cartridge))
             end
           end
 
           # A table in the cartridge of words worked out once everything has its place.
-          def register_words(blob, values)
+          def register_word_blob(blob, values)
             @emit.data_blobs[blob] = "\x00".b * (WHERE_WORD_BYTES * values.size)
             values.each_with_index do |value, i|
               @emit.fixups << Emit::BlobWord.new(kind: :quick_word, blob: blob, offset: i * WHERE_WORD_BYTES, target: value)
@@ -426,13 +440,13 @@ module RubyGBA
           end
 
           # AT POWER-ON every word says the cartridge, and then each set that has routines goes
-          # in, in the order the dispatch names its scenes, unless it would put out one already
-          # in — so the opening runs with as many sets in as sit side by side. Which those are is
-          # known only once every set's code is written, so power-on calls a routine of its own,
-          # written with the swap.
+          # in — those the game loop runs first, then the rest in the order the dispatch names
+          # their scenes — unless it would put out one already in, so the opening runs with as
+          # many sets in as sit side by side. Which those are is known only once every set's code
+          # is written, so power-on calls a routine of its own, written with the swap.
           POWER_ON_ROUTINE = :__swap_quick_memory_at_power_on
 
-          def emit_power_on_scene_set
+          def emit_call_power_on_swap
             emit_call_cold_routine(POWER_ON_ROUTINE) if swaps_quick_memory?
           end
 
@@ -446,8 +460,9 @@ module RubyGBA
             emit(ASM.pop(15))
           end
 
+          # The sets the game loop runs go first, whatever order the dispatch names their scenes in.
           def power_on_sets
-            set_numbers.each_with_object([]) do |number, chosen|
+            (sets_run_by_loop + (set_numbers.to_a - sets_run_by_loop)).each_with_object([]) do |number, chosen|
               next if quick_memory_sets.values[number - 1].empty?
 
               chosen << number if chosen.none? { |other| sets_put_out_by(number).include?(other) }
@@ -465,11 +480,12 @@ module RubyGBA
             emit_branch(:b, over)
             place_label(entry)
             emit(ASM.push(14))
+            bit = 2
             @primitives.load_var(TMP, LOADED_SET)
-            emit(ASM.load_immediate(SWAP_TABLE, 1))
-            emit(ASM.mov_reg_lsl_reg(SWAP_TABLE, SWAP_TABLE, ACC))   # this set's bit
-            emit(ASM.and_reg(SWAP_TABLE, TMP, SWAP_TABLE))
-            emit(ASM.cmp_imm(SWAP_TABLE, 0))
+            emit(ASM.load_immediate(bit, 1))
+            emit(ASM.mov_reg_lsl_reg(bit, bit, ACC))                 # this set's bit
+            emit(ASM.and_reg(bit, TMP, bit))
+            emit(ASM.cmp_imm(bit, 0))
             done = @emit.gensym
             emit_branch(:bcond, done, cond: :ne)                     # in already
             emit_call_cold_routine(SWAP_ROUTINE)
