@@ -9,8 +9,6 @@ require "differential"
 # moved. The tint is one thing to the game, so it has to survive the change whichever way
 # round it goes, on every backend, and be mixed the way the new screen mixes it.
 class TestTintAcrossScreens < Minitest::Test
-  runs_on :reference, :native
-
   include Differential
 
   private def program(&body)

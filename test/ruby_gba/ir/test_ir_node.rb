@@ -6,8 +6,6 @@ require "test_helper"
 # ever constructing a ROM or emitting a single ARM byte. That headlessness is
 # the property under test as much as any individual assertion.
 class TestIRNode < Minitest::Test
-  runs_on :reference, :native
-
   include RubyGBA::IR::Build
   include NodeTypes
 

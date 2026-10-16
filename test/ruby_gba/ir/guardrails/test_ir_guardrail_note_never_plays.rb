@@ -9,8 +9,6 @@ require "stringio"
 # does not is never due, and the part goes silent there until the song starts over. The build
 # refuses such a song and says which part, and where.
 class TestNoteNeverPlaysGuardrail < Minitest::Test
-  runs_on :reference, :native
-
   include RubyGBA::IR::Build
 
   Check = RubyGBA::IR::Guardrails::Checks::NoteNeverPlays

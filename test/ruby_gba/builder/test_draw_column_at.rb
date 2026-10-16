@@ -12,8 +12,6 @@ require "differential"
 # is about pixels, on both backends, because the two agreeing is what makes the interpreter
 # usable for debugging the renderer.
 class TestDrawColumnAt < Minitest::Test
-  runs_on :reference, :native
-
   include EmulatorSupport
 
   # Four rows, each its own color, so a stretch is readable row by row.
@@ -261,8 +259,6 @@ end
 # shave a row off an edge at that height and no other. So the same picture is drawn at every
 # height from squashed to many times the screen, and at tops above and below it.
 class TestDrawColumnAtSeeThrough < Minitest::Test
-  runs_on :reference, :native
-
   include EmulatorSupport
   include Differential
 
@@ -401,8 +397,6 @@ end
 # of its own half and a write back, and WHICH HALF depends on the column being even or odd.
 # That is why the odd column has tests of its own here.
 class TestDrawColumnAtTearFree < Minitest::Test
-  runs_on :reference, :native
-
   include EmulatorSupport
   include Differential
 

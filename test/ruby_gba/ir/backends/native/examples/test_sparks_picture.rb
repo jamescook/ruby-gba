@@ -9,9 +9,6 @@ require RubyGBA.root.join("examples/sparks").to_s
 # the run, the oldest is being given up for each new one. Which spark is the oldest is the order
 # they are kept in, so a pool that kept it wrongly shows as the wrong spark gone.
 class TestSparksPicture < Minitest::Test
-  # The native lowering's own tests, which only a native run plays (see TestSuites).
-  runs_on :native
-
   include NativeComparison
 
   def test_sparks_matches_the_interpreter_once_the_pool_is_full

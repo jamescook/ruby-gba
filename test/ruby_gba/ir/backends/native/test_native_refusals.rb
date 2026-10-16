@@ -5,9 +5,6 @@ require "native_comparison"
 
 # What a desktop build refuses, and that it says so in plain words before anything is written.
 class TestNativeRefusals < Minitest::Test
-  # The native lowering's own tests, which only a native run plays (see TestSuites).
-  runs_on :native
-
   include NativeComparison
 
   LoweringError = RubyGBA::IR::Backends::Native::LoweringError

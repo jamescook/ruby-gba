@@ -10,8 +10,6 @@ require "differential"
 # emulator, so it is the GBA lowering's; on a native run the same helper hands back the game
 # as C's picture, and none of this applies. test_differential.rb holds what is true of both.
 class TestConsoleLineUp < Minitest::Test
-  runs_on :reference
-
   include Differential
 
   # A full 32x32 checkerboard map — the whole grid the console gives a background.

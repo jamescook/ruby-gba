@@ -8,9 +8,6 @@ require RubyGBA.root.join("examples/pixels").to_s
 # flag, three dots and the four corner markers, drawn once by a program with no game loop that
 # then stops.
 class TestPixelsPicture < Minitest::Test
-  # The native lowering's own tests, which only a native run plays (see TestSuites).
-  runs_on :native
-
   include NativeComparison
 
   def test_pixels_matches_the_interpreter

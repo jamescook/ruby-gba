@@ -10,8 +10,6 @@ require RubyGBA.root.join("examples/tiles").to_s
 # renders the room — the right tile in the right cell — on the interpreter oracle
 # and on real hardware.
 class TestTilesExample < Minitest::Test
-  runs_on :reference, :native
-
   # Points chosen from the map (examples/tiles.rb), one per tile kind:
   #   (3,3)    — inside the top-left wall tile (cell 0,0)
   #   (40,24)  — inside the top-left water pool (cols 3-7, rows 2-4)

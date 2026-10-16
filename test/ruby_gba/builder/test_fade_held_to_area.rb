@@ -13,7 +13,6 @@ require "differential"
 # assert are the two halves — which pixels darken and which stay as drawn — and that the
 # console and the game built as C draw the same picture, pixel for pixel.
 class TestFadeHeldToArea < Minitest::Test
-  runs_on :reference, :native
   include Differential
 
   WHITE = Color.resolve(:white)

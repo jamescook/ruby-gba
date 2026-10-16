@@ -17,8 +17,6 @@ require "test_helper"
 # point is that game logic is testable headlessly), and the same drawing stack is
 # checked on real hardware via the emulator, so the core is proven on both backends.
 class TestSnakeCore < Minitest::Test
-  runs_on :reference, :native
-
   # Build a snake whose body starts at +start_cells+ (an array of [x, y]) and then
   # walks +moves+ (an array of [dx, dy]). If +grow+ is true the body keeps every
   # cell (push only); otherwise it slides (push a head, shift the tail). Before

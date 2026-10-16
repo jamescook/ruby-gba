@@ -14,8 +14,6 @@ require "test_helper"
 # one pixel across and "M" is five, so a fixed-grid guess lands in a visibly different
 # place from a proportional one.
 class TestTextPlacement < Minitest::Test
-  runs_on :reference, :native
-
   Fonts = RubyGBA::Graphics::Fonts
 
   WHITE = Color.resolve(:white)

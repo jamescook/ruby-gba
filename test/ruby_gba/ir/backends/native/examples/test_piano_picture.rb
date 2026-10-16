@@ -9,9 +9,6 @@ require RubyGBA.root.join("examples/piano").to_s
 # by frame, while both hands play — and mixes the same bytes of sound, slice for slice, with the
 # melody note and the left hand's two-note chord sounding together on each downbeat.
 class TestPianoPicture < Minitest::Test
-  # The native lowering's own tests, which only a native run plays (see TestSuites).
-  runs_on :native
-
   include NativeComparison
 
   # Two seconds: the tune's first bars, with a chord on every downbeat.

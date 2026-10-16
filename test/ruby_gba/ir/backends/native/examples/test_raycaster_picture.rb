@@ -9,9 +9,6 @@ require RubyGBA.root.join("examples/raycaster").to_s
 # right: every ray's distance is worked out in fractions and every wall is a rectangle as tall as
 # that distance says, so arithmetic a hair out moves a wall's edge.
 class TestRaycasterPicture < Minitest::Test
-  # The native lowering's own tests, which only a native run plays (see TestSuites).
-  runs_on :native
-
   include NativeComparison
 
   # A turn to the left for nine frames, forward for twenty (a step is only taken into an empty

@@ -10,8 +10,6 @@ require "tmpdir"
 # reference interpreter's fake screen — see .claude/CLAUDE.md's testing altitude
 # rule: behavior (what a turned/resized picture looks like), not the IR it builds.
 class TestAffineBackground < Minitest::Test
-  runs_on :reference, :native
-
   include Differential
 
   private def interpret(&block)

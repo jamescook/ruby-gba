@@ -9,8 +9,6 @@ require "conformance_fixture"
 # address of the first is the only one that has to be built; the other two are a step along
 # from it, and a store can name a step for nothing.
 class TestCopyEngine < Minitest::Test
-  runs_on :reference
-
   include RubyGBA::Console::Hardware
 
   A = RubyGBA::IR::Backends::GBA::ASM

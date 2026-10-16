@@ -10,8 +10,6 @@ require "test_helper"
 # test_layer_guardrails.rb. What each layer becomes on a console, and the drawing order
 # that follows from it, is asserted with the backends.
 class TestLayers < Minitest::Test
-  runs_on :reference, :native
-
   private def program(&block)
     b = Builder.new
     b.instance_eval(&block)

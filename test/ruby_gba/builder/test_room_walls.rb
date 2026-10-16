@@ -14,8 +14,6 @@ require "differential"
 # With `walls:` they are their own data — which is what a real game's collision is, and
 # what lets a map say it has no walls at all.
 class TestRoomWalls < Minitest::Test
-  runs_on :reference, :native
-
   include RubyGBA::Console::Hardware
   include Differential
 

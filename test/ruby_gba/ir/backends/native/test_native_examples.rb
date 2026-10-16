@@ -9,9 +9,6 @@ require "open3"
 # tools/native_examples.rb reports as building, there is a recorded run compared with the
 # interpreter, and the example's own test file plays it through `game_player`.
 class TestNativeExamples < Minitest::Test
-  # The native lowering's own tests, which only a native run plays (see TestSuites).
-  runs_on :native
-
   ROOT = RubyGBA.root.to_s
   TOOL = File.join(ROOT, "tools", "native_examples.rb")
   RECORDED_RUNS = File.join(ROOT, "test", "ruby_gba", "ir", "backends", "native", "examples")
@@ -35,7 +32,7 @@ class TestNativeExamples < Minitest::Test
   end
 
   # A test file of such an example that still plays the game on the interpreter by name has been
-  # left behind: it wants `runs_on :reference, :native` and `game_player`.
+  # left behind: on a native run it would test the interpreter again, and it wants `game_player`.
   def test_every_test_of_an_example_that_builds_plays_it_as_c_too
     built = examples_that_build
     left_behind = Dir.glob(File.join(EXAMPLE_TESTS, "test_*.rb")).select do |path|
@@ -46,15 +43,13 @@ class TestNativeExamples < Minitest::Test
 
     assert_empty left_behind.map { |path| path.delete_prefix("#{ROOT}/") },
                  "these test files are of examples that build as C, and still play them on the interpreter " \
-                 "alone: say `runs_on :reference, :native` and `game_player` in place of `Reference.new`"
+                 "alone: say `game_player` in place of `Reference.new`"
   end
 
   private
 
-  # A file that plays the game on the interpreter by name, or that asks for `game_player` in a
-  # class the native run never plays. A file that does neither — its tests are all of the
-  # cartridge, in the emulator — has nothing for the game as C to play, and is left alone.
-  def left_to_the_interpreter?(text)
-    text.include?("Reference.new") || (text.include?("game_player") && !text.match?(/^\s*runs_on :reference, :native\s*(#.*)?$/))
-  end
+  # A file that plays the game on the interpreter by name. A file that does not — its tests are
+  # all of the cartridge, in the emulator — has nothing for the game as C to play, and is left
+  # alone.
+  def left_to_the_interpreter?(text) = text.include?("Reference.new")
 end

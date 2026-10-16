@@ -8,8 +8,6 @@ require "test_helper"
 # clip re-triggers when it plays out, so the loop shows up in the audio log. Pinned on
 # both backends.
 class TestSampleLoop < Minitest::Test
-  runs_on :reference, :native
-
   # A one-frame-ish clip, so a few game frames cross its end several times.
   private def short_clip
     [50, -50] * 8 # 16 samples ~ a fraction of a frame at 8000 Hz

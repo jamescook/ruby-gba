@@ -17,8 +17,6 @@ require "test_helper"
 # they bypass the validation pass and keep proving the hardware behavior even once
 # the guardrail stops such a program from being built.
 class TestIRGuardrailEmptyTiled < Minitest::Test
-  runs_on :reference, :native
-
   include RubyGBA::IR::Build
 
   # Points spread over the screen — corners, edges and center. A tile layer with no

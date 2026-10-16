@@ -10,8 +10,6 @@ require "stringio"
 # command loads. These assert the handle behaves, and that just declaring a game is
 # side-effect free (no cartridge written) so tests and the CLI stay in control.
 class TestGame < Minitest::Test
-  runs_on :reference, :native
-
   # Asserts that declaring a game writes nothing to the process's own output, which is a
   # fact about the process. Main Ractor. See test_helper.
   runs_on_the_main_ractor!

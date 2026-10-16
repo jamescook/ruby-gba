@@ -12,8 +12,6 @@ require RubyGBA.root.join("examples/piano").to_s
 # sample, re-pitched across the keys and summed by the software mixer. This pins
 # that behavior on the interpreter, and that it renders and sounds on the emulator.
 class TestExamplePiano < Minitest::Test
-  runs_on :reference, :native
-
   YELLOW = Color.resolve(:yellow)
   WHITE  = Color.resolve(:white)
   SKIN   = Color.rgb(31, 23, 17)

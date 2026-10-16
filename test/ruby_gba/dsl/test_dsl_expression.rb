@@ -14,8 +14,6 @@ require "differential"
 # IR-backend tests.) Guardrail tests assert a friendly error for misuse, and a
 # couple of the emulator tests confirm the same programs on real hardware.
 class TestDSLExpression < Minitest::Test
-  runs_on :reference, :native
-
   include RubyGBA::IR::Build # constructors, for the guardrail trees
   include Differential
 

@@ -12,8 +12,6 @@ require "test_helper"
 # The number is read off the SCREEN rather than out of memory, as a bar so many pixels wide, so
 # that what is tested is what a game would actually get.
 class TestFrameStep < Minitest::Test
-  runs_on :reference
-
   Frames = RubyGBA::IR::Backends::GBA::Frames
   WIDE = 8 # pixels of bar per frame counted, so the reading is legible and hard to misread
 

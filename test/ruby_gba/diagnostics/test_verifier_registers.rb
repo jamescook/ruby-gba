@@ -8,8 +8,6 @@ require "stringio"
 # instruction rather than what came out on screen. The routine is named the way the program
 # named it; where it landed is the build's business.
 class TestVerifierRegisters < Minitest::Test
-  runs_on :reference, :native
-
   private def counting_rom
     RubyGBA.build("REGS", code: "BREG", maker: "01", validate: false, out: StringIO.new, err: StringIO.new) do
       screen :bitmap

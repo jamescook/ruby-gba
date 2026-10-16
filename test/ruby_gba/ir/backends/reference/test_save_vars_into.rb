@@ -6,8 +6,6 @@ require "test_helper"
 # chose rather than being played until it reaches one. The game's own code writes it, so the
 # game reads it back as its own.
 class TestSaveVarsInto < Minitest::Test
-  runs_on :reference, :native
-
   # A best score and a count of games played, both kept through power-off. A raises the best
   # to 50.
   private def scores_game(save_memory: nil)

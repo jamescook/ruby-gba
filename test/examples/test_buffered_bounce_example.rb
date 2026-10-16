@@ -11,9 +11,6 @@ require RubyGBA.root.join("examples/buffered_bounce").to_s
 # clean (which runs the guardrails and ROM-image checks) and actually renders its
 # balls on a blue field, on both backends, so it can't rot into a black screen.
 class TestBufferedBounceExample < Minitest::Test
-  # True of the game however it is played: see TestSuites.
-  runs_on :reference, :native
-
   include RubyGBA::Console::Hardware
 
   BALL_COLORS = %i[yellow cyan magenta].freeze

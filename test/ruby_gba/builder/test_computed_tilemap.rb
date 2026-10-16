@@ -15,8 +15,6 @@ require RubyGBA.root.join("tools/make_example_assets").to_s # colors of the impo
 # same argument and the same tileset; only the two rules change. `nil` is the blank
 # cell in an Array row, which is what a space is in a String row.
 class TestComputedTilemap < Minitest::Test
-  runs_on :reference, :native
-
   Assets = MakeExampleAssets
 
   SHEET = RubyGBA.root.join("examples/assets/tiles.png").to_s # brick = tile 1, floor = tile 2

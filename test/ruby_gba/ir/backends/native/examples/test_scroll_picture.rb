@@ -9,9 +9,6 @@ require RubyGBA.root.join("examples/scroll").to_s
 # takes it below nought and round to the world's far side each way, then right and down back
 # through the start and on.
 class TestScrollPicture < Minitest::Test
-  # The native lowering's own tests, which only a native run plays (see TestSuites).
-  runs_on :native
-
   include NativeComparison
 
   PAN = Ractor.make_shareable(

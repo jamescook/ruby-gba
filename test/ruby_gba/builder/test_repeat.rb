@@ -6,8 +6,6 @@ require "test_helper"
 # runs n times with the index counting 0..n-1, on the reference interpreter (the
 # oracle) and on the console. The index is a Value, so it drives real positions.
 class TestRepeat < Minitest::Test
-  runs_on :reference, :native
-
   include RubyGBA::Console::Hardware
 
   # One green 2px mark per iteration, spaced 4 apart (2 drawn, 2 gap) so the

@@ -6,8 +6,6 @@ require "test_helper"
 # running. Both backends carry this plan out — the interpreter by painting, the lowering by
 # telling the console — so what it says is what both of them do.
 class TestSceneHandover < Minitest::Test
-  runs_on :reference, :native
-
   Handover = RubyGBA::IR::SceneHandover
   Stacking = RubyGBA::IR::Stacking
 

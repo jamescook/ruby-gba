@@ -8,9 +8,6 @@ require RubyGBA.root.join("examples/level").to_s
 # by frame, while the hero is walked round a level whose tiles and map came from files: right,
 # down, left and up again.
 class TestLevelPicture < Minitest::Test
-  # The native lowering's own tests, which only a native run plays (see TestSuites).
-  runs_on :native
-
   include NativeComparison
 
   WALK = Ractor.make_shareable(

@@ -9,9 +9,6 @@ require RubyGBA.root.join("examples/maze").to_s
 # until a wall has stopped him and for some frames after. Which cells stop him is read off the
 # map, so a wall in the wrong place shows as the hero a cell out.
 class TestMazePicture < Minitest::Test
-  # The native lowering's own tests, which only a native run plays (see TestSuites).
-  runs_on :native
-
   include NativeComparison
 
   # He is stopped by the pillar to his right after eight frames, by the bottom wall sixty-four

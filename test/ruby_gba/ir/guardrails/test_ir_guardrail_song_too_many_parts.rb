@@ -9,8 +9,6 @@ require "stringio"
 # either number some part would never be heard, so the build stops and says which song and what
 # to do — for a song block and for a Score alike, since both reach the same program.
 class TestSongTooManyPartsGuardrail < Minitest::Test
-  runs_on :reference, :native
-
   include RubyGBA::IR::Build
 
   Check = RubyGBA::IR::Guardrails::Checks::SongTooManyParts

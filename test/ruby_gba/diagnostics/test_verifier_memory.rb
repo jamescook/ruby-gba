@@ -9,8 +9,6 @@ require "test_helper"
 # state on hardware. Needs the backend's variable-address map, since the backend —
 # not the builder — decides where each variable lives.
 class TestVerifierMemory < Minitest::Test
-  runs_on :reference, :native
-
   ANSWER = 51_966 # 0xCAFE — a distinctive sentinel
 
   # A ROM that computes a couple of variables and halts, plus the backend that

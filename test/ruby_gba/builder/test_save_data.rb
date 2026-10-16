@@ -10,8 +10,6 @@ require "test_helper"
 # The interpreter's save memory outlives the interpreter: handing the same store to a second
 # run is turning the console off and on again.
 class TestSaveData < Minitest::Test
-  runs_on :reference, :native
-
   include RubyGBA::Console::Hardware
 
   private def built(&block)

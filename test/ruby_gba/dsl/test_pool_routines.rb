@@ -16,8 +16,6 @@ require "stringio"
 # for any of it, and calling such a routine from outside a walk is refused rather than quietly
 # running on whoever was walked last.
 class TestPoolRoutines < Minitest::Test
-  runs_on :reference, :native
-
   include Differential
 
   private def program_with(&block)

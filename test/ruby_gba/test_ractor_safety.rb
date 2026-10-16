@@ -28,8 +28,6 @@ require "conformance_fixture"
 # difference that matters here: the count grew between the day it was first taken and the day
 # it was fixed, and a test naming the ones it knew about would have passed through both.
 class TestRactorSafety < Minitest::Test
-  runs_on :reference, :native
-
   # How many builds race each other, and how many times over. Eight is more than the cores
   # most machines have, which is the point — workers waiting to be let on a core interleave
   # differently each round, and a shared thing being written wants that to find it.

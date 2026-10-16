@@ -13,8 +13,6 @@ require "tmpdir"
 # The console holds four scrolling layers AT ONCE, so what has to fit is one scene's
 # worth, not the whole game's, exactly as the 32K of sprite pictures already works.
 class TestSceneBackgrounds < Minitest::Test
-  runs_on :reference, :native
-
   include Differential
 
   RED = RubyGBA::Graphics::Color.resolve(:red)

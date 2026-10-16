@@ -11,8 +11,6 @@ require "test_helper"
 # This pins the model on the reference interpreter (the oracle). The GBA hardware
 # realization — reconfiguring DISPCNT / VRAM / OAM on the crossing — is its sibling.
 class TestSceneDisplayMode < Minitest::Test
-  runs_on :reference, :native
-
   include RubyGBA::Console::Hardware
 
   RED = Color.resolve(:red)     # the bitmap title's fill

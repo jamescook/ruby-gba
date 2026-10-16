@@ -10,9 +10,6 @@ require RubyGBA.root.join("examples/floating_digits").to_s
 # These assert BEHAVIOR — the digits render in their colors and actually move — on
 # the interpreter, with an emulator check that it renders on the console.
 class TestFloatingDigitsExample < Minitest::Test
-  # True of the game however it is played: see TestSuites.
-  runs_on :reference, :native
-
   SW = FloatingDigits::SCREEN_W
   SH = FloatingDigits::SCREEN_H
 

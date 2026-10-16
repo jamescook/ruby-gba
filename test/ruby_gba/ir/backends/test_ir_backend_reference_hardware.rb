@@ -7,8 +7,6 @@ require "test_helper"
 # supplied button state took. Still no emulator and no ROM — the point is that a
 # game's *visible* behavior is assertable in-process.
 class TestIRBackendReferenceHardware < Minitest::Test
-  runs_on :reference, :native
-
   include RubyGBA::IR::Build
 
   private def run_ir(node, **opts)

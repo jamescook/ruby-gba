@@ -9,8 +9,6 @@ require RubyGBA.root.join("examples/scroll").to_s
 # than the screen. This confirms the example is valid and the world renders; the
 # scrolling and wrapping themselves are pinned in test_background_scroll.rb.
 class TestScrollExample < Minitest::Test
-  runs_on :reference, :native
-
   # The lake sits at map cols 12-19, rows 10-14 -> pixels x 96..159, y 80..119, all on
   # screen at the starting (0,0) offset.
   private def blue_in_lake?(pixel)

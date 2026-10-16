@@ -7,9 +7,6 @@ require "native_comparison"
 # interpreter says, entry for entry. Nothing comes out of a speaker in these runs; the log is
 # what the player DID, which is what the tests of the music check.
 class TestNativeSound < Minitest::Test
-  # The native lowering's own tests, which only a native run plays (see TestSuites).
-  runs_on :native
-
   include NativeComparison
 
   HeadlessRun = RubyGBA::IR::Backends::Native::HeadlessRun

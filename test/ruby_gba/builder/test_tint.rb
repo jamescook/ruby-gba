@@ -9,8 +9,6 @@ require "tempfile"
 # finished picture); a tint mixes a color IN. They reach the screen by different means
 # and round differently, so the numbers below are asserted rather than derived.
 class TestTint < Minitest::Test
-  runs_on :reference, :native
-
   include Differential
 
   # A green screen and one tint, as the DSL writes it.

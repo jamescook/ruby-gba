@@ -8,8 +8,6 @@ require "test_helper"
 # one, at every shape that matters. The pictures are tiny; the rule does not care
 # how big they are.
 class TestFlickerRule < Minitest::Test
-  runs_on :reference, :native
-
   Flicker = RubyGBA::Diagnostics::Flicker
 
   W = 8
@@ -112,8 +110,6 @@ end
 # Which screens the question applies to. A game has one screen or the other, so
 # exactly one of Flicker/Tearing can be asked of it.
 class TestFlickerMeasurable < Minitest::Test
-  runs_on :reference
-
   include RubyGBA::IR::Build
 
   private def program_on(**opts)
@@ -157,8 +153,6 @@ end
 # and two flips apart the pictures are back in the same roles, so they are labelled
 # the same way in both.
 class TestFlickerOnTheInterpreter < Minitest::Test
-  runs_on :reference
-
   MARKS = 24
   STEP = 8
 

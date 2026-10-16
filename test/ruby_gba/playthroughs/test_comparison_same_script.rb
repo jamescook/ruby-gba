@@ -13,8 +13,6 @@ require "png_reading"
 # The two cartridges are the walker and a walker twice as quick. The script walks the box
 # to the same place on each, which takes the quick one half as many frames.
 class TestComparisonSameScript < Minitest::Test
-  runs_on :reference
-
   include ComparisonGames
   include PNGReading
 

@@ -13,8 +13,6 @@ require "png_reading"
 # The game is the walker: a white box that stands at column 20 and, with RIGHT down for
 # twenty frames, ends forty pixels on.
 class TestPlaythroughPictures < Minitest::Test
-  runs_on :reference
-
   include ComparisonGames
   include PNGReading
 

@@ -8,9 +8,6 @@ require RubyGBA.root.join("examples/fonts").to_s
 # and a number in the two built-in fonts, drawn once by a program that then stops, so every lit
 # pixel of every letter is compared.
 class TestFontsPicture < Minitest::Test
-  # The native lowering's own tests, which only a native run plays (see TestSuites).
-  runs_on :native
-
   include NativeComparison
 
   def test_fonts_matches_the_interpreter

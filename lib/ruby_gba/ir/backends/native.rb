@@ -24,9 +24,9 @@ module RubyGBA
       # one executable. The cartridge stays the main thing this library makes; this is a second
       # one beside it.
       #
-      # It TRAILS the other two backends rather than standing beside them. `rake test` never
-      # runs its tests (`rake test:native` does), and a feature that works on the console and
-      # in the interpreter is done without it; anything it cannot do yet is a gap to fill here.
+      # It stands beside the other two backends: `rake test` plays every game in the suite as C
+      # too (`rake test:lowering:native` plays only that), checked against the interpreter on
+      # every frame, so a feature is not done until it works here as well.
       #
       # How it writes C, and why that way (doc/research/writing-c.md has the reading behind it):
       #

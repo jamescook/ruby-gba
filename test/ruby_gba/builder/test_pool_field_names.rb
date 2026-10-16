@@ -8,8 +8,6 @@ require "test_helper"
 # an ordinary thing to write, so none of the pool's own names can be a name a field has, and
 # two pools cannot meet each other's whatever they and their fields are called.
 class TestPoolFieldNames < Minitest::Test
-  runs_on :reference, :native
-
   RED = Color.resolve(:red)
   GREEN = Color.resolve(:green)
   YELLOW = Color.resolve(:yellow)

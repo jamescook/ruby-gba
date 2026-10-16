@@ -12,8 +12,6 @@ require "test_helper"
 # called from both places, so asking that way costs a routine's worth of calling and not a
 # second copy of the player.
 class TestMusicPlayerSize < Minitest::Test
-  runs_on :reference
-
   Score = RubyGBA::Audio::Score
   Part = Score::Part
   Note = Score::Note

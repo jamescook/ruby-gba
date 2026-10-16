@@ -9,9 +9,6 @@ require "tmpdir"
 # compile_flags.txt above it by every build) are enough to read every one of its files the way
 # the build does: the build's own warnings, and the folders its headers are found in.
 class TestNativeCheckerFlags < Minitest::Test
-  # The native lowering's own tests, which only a native run plays (see TestSuites).
-  runs_on :native
-
   include NativeComparison
 
   Zig = RubyGBA::IR::Backends::Native::Zig

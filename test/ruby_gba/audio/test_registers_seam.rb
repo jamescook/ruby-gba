@@ -19,8 +19,6 @@ require "prism"
 # silence. So the claim is a test now: reach into Registers from outside the GBA lowering and
 # this fails, naming the file and what it asked for.
 class TestRegistersSeam < Minitest::Test
-  runs_on :reference, :native
-
   LIB = RubyGBA.root.join("lib").to_s
 
   # Where writing sound registers is somebody's job. The encoder's own file defines the thing,

@@ -10,8 +10,6 @@ require "test_helper"
 # needs sixty particles drifting at fractional speeds it has to pick a scale and carry it by
 # hand, which is the exact bookkeeping the fraction support exists to remove.
 class TestFractionCollections < Minitest::Test
-  runs_on :reference, :native
-
   include EmulatorSupport
 
   ONE = 1 << RubyGBA::DSL::Fraction::DEFAULT_BITS

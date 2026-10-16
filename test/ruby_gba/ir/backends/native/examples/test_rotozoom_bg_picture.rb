@@ -8,9 +8,6 @@ require RubyGBA.root.join("examples/rotozoom_bg").to_s
 # frame by frame, while its checkerboard is turned one way, grown, turned back past upright and
 # shrunk: every pixel of every frame is worked back through the turn to the board.
 class TestRotozoomBgPicture < Minitest::Test
-  # The native lowering's own tests, which only a native run plays (see TestSuites).
-  runs_on :native
-
   include NativeComparison
 
   TURNS = Ractor.make_shareable(

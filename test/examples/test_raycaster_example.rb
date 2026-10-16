@@ -11,9 +11,6 @@ require RubyGBA.root.join("examples/raycaster").to_s
 # carry a fraction). The player stands inside a walled room, so every screen column hits a
 # wall and draws a shaded strip through the eye line.
 class TestRaycasterExample < Minitest::Test
-  # True of the game however it is played: see TestSuites.
-  runs_on :reference, :native
-
   # How many screen columns show a wall — any of the three depth shades — at the horizon.
   private def wall_columns(sample)
     (0...240).step(8).count { |x| Raycaster::WALL_SHADES.include?(sample.call(x + 3, 80)) }

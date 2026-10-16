@@ -9,8 +9,6 @@ require "test_helper"
 # interpreter oracle and on real hardware, that facing picks the right ROW and the
 # frame animates WITHIN it.
 class TestDirectionalAnimation < Minitest::Test
-  runs_on :reference, :native
-
   include RubyGBA::Console::Hardware
 
   # A hero at (40, 40) facing +face+, with a two-frame walk cycle per direction over a

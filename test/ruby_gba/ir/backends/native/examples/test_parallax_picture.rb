@@ -8,9 +8,6 @@ require RubyGBA.root.join("examples/parallax").to_s
 # frame by frame, while its two layers slide at their own speeds: right for a second, then left
 # for longer, so both pass back through where they started and on below nought.
 class TestParallaxPicture < Minitest::Test
-  # The native lowering's own tests, which only a native run plays (see TestSuites).
-  runs_on :native
-
   include NativeComparison
 
   SLIDE = Ractor.make_shareable(NativeComparison.held_for([2..60, :right], [61..150, :left]))

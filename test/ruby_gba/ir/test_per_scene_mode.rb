@@ -12,8 +12,6 @@ require "test_helper"
 # (Mode 3 -> Mode 4) has to actually happen: the palette is uploaded, the pages are
 # set up, and the flip only runs while the buffered scene is live.
 class TestPerSceneMode < Minitest::Test
-  runs_on :reference, :native
-
   include RubyGBA::Console::Hardware
 
   Build = RubyGBA::IR::Build

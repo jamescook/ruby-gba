@@ -14,8 +14,6 @@ require "differential"
 # console's quick memory. A title screen's lettering is a dozen of those objects and more, so
 # it took its share of that memory from a routine that really does run every frame.
 class TestStillObjects < Minitest::Test
-  runs_on :reference
-
   include Differential
   include RubyGBA::Console::Hardware
 

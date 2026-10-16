@@ -12,8 +12,6 @@ require "test_helper"
 # stepped once per pass of the game loop plays at half speed in a game that takes two frames a
 # pass, and at no speed at all in a frame whose branch skipped the call.
 class TestMusicKeepsTime < Minitest::Test
-  runs_on :reference, :native
-
   private def notes(interpreter)
     interpreter.audio.select { |entry| entry[0] == :note }.map(&:last)
   end

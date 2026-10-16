@@ -13,8 +13,6 @@ require RubyGBA.root.join("tools/make_example_assets").to_s # colors of the impo
 # (the example test cross-checks the sheet-import path on real hardware); here we drive
 # the parsing and the number->tile mapping through the DSL surface.
 class TestCsvTilemap < Minitest::Test
-  runs_on :reference, :native
-
   Assets = MakeExampleAssets
 
   SHEET = RubyGBA.root.join("examples/assets/tiles.png").to_s # brick = tile 1, floor = tile 2

@@ -19,8 +19,6 @@ require "differential"
 # regular shares by accident — a solid block cut into cells gives cell after cell of
 # identical bytes — and then a test would pass without the sharing doing any work.
 class TestSpriteTileSharing < Minitest::Test
-  runs_on :reference
-
   include Differential
 
   CLEAR = RubyGBA::Graphics::Color.rgb(0, 0, 1)

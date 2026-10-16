@@ -7,8 +7,6 @@ require "test_helper"
 # whether the game asked for the turn with `upside_down` or drew the turned art by hand — the
 # sameness is judged on the pixels.
 class TestSpriteUpsideDownStorage < Minitest::Test
-  runs_on :reference
-
   CANVAS = 32
   INK = RubyGBA::Graphics::Color.rgb(31, 20, 0)
   EDGE = RubyGBA::Graphics::Color.rgb(0, 31, 10)

@@ -9,9 +9,6 @@ require RubyGBA.root.join("examples/pacman").to_s
 # until the ghost catches him and he blinks white. Its variables and its sound log match on every
 # frame too.
 class TestPacmanPicture < Minitest::Test
-  # The native lowering's own tests, which only a native run plays (see TestSuites).
-  runs_on :native
-
   include NativeComparison
 
   # Up into the pellet above him, left along the room, down and right again, then nothing held.

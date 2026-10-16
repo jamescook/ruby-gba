@@ -19,8 +19,6 @@ require "differential"
 #
 # A new thing a scene owns is a new row, and it is tested on both backends by being a row.
 class TestSceneHandoverScenarios < Minitest::Test
-  runs_on :reference, :native
-
   include Differential
 
   # One scenario: its name, the program (the name of a method below that builds it), how many

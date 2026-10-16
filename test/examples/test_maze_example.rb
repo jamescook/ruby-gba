@@ -10,9 +10,6 @@ require RubyGBA.root.join("examples/maze").to_s
 # the room renders, the hero starts on the floor, and holding into a wall stops it flush
 # instead of passing through — on the interpreter oracle and on real hardware.
 class TestMazeExample < Minitest::Test
-  # True of the game however it is played: see TestSuites.
-  runs_on :reference, :native
-
   include RubyGBA::Console::Hardware
 
   HERO = Color.rgb(31, 20, 0)  # the hero disc's body

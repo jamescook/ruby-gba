@@ -10,8 +10,6 @@ require "differential"
 # frames. Nothing is redrawn, so what a test looks at is the same drawing showing in
 # bigger blocks as the frames pass, and as it was drawn again once the walk comes back.
 class TestScreenPixelate < Minitest::Test
-  runs_on :reference, :native
-
   include Differential
 
   WIDTH = 240

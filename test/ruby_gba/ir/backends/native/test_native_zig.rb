@@ -5,9 +5,6 @@ require "native_comparison"
 
 # How a program zig built is run and read back (Native::Zig.run_program).
 class TestNativeZig < Minitest::Test
-  # The native lowering's own tests, which only a native run plays (see TestSuites).
-  runs_on :native
-
   include NativeComparison
 
   Zig = RubyGBA::IR::Backends::Native::Zig

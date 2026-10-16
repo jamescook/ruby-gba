@@ -9,9 +9,6 @@ require RubyGBA.root.join("examples/snake_buffered").to_s
 # and on until it runs into a wall and the game is over. Its variables and its sound log — the
 # beep as it dies — match on every frame too.
 class TestSnakeBufferedPicture < Minitest::Test
-  # The native lowering's own tests, which only a native run plays (see TestSuites).
-  runs_on :native
-
   include NativeComparison
 
   GAME_OVER = 2

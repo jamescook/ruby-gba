@@ -8,8 +8,6 @@ require "test_helper"
 # test here runs one cartridge twice, once with everything in memory and once with room for
 # a few frames only, and asks both the same things.
 class TestVerifierSound < Minitest::Test
-  runs_on :reference, :native
-
   RecordedSound = RubyGBA::Diagnostics::RecordedSound
 
   # A tune and not one held note, so that a frame read back out of its place is a different

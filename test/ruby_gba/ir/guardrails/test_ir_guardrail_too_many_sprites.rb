@@ -10,8 +10,6 @@ require "test_helper"
 # of the ROM lowering as a bare count, after everything else had passed, and said nothing
 # about what the sprites were.
 class TestIRGuardrailTooManySprites < Minitest::Test
-  runs_on :reference, :native
-
   Guardrails = RubyGBA::IR::Guardrails
 
   private def validator

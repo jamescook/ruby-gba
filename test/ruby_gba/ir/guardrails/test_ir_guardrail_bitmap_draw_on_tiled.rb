@@ -18,8 +18,6 @@ require "stringio"
 # RubyGBA.build, so it bypasses the validation pass and keeps proving the hardware
 # behavior now that the guardrail stops such a program from being built.
 class TestIRGuardrailBitmapDrawOnTiled < Minitest::Test
-  runs_on :reference, :native
-
   Check = RubyGBA::IR::Guardrails::Checks::BitmapDrawOnTiled
 
   FIELD = (["##############################"] * 20).freeze

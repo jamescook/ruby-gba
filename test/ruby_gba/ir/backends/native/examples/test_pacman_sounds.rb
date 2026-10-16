@@ -10,9 +10,6 @@ require RubyGBA.root.join("examples/pacman").to_s
 # voice, compared with the emulator frame by frame (see SoundComparison). The game has no song,
 # so the first voice is not asked about.
 class TestPacmanSounds < Minitest::Test
-  # The native lowering's own tests, which only a native run plays (see TestSuites).
-  runs_on :native
-
   include SoundComparison
 
   # Up through the pellet above him and on into the wall, then left alone until the ghost arrives.

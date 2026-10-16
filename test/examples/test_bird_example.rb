@@ -9,8 +9,6 @@ require RubyGBA.root.join("examples/bird").to_s
 # Proves it builds a clean ROM and the bird actually renders over the sky, on the
 # interpreter oracle and on the console.
 class TestBirdExample < Minitest::Test
-  runs_on :reference, :native
-
   SKY = RubyGBA::Graphics::Color.rgb(12, 18, 28) # the background tile color
 
   def test_it_builds_a_rom

@@ -7,8 +7,6 @@ require "tmpdir"
 require "stringio"
 
 class TestRomBuilder < Minitest::Test
-  runs_on :reference, :native
-
   def test_debug_halt_truncates_the_rom
     # Everything up to debug_halt lowers and runs; everything after is dropped,
     # so the lowered ROM stops there. The blue clear runs, the red one never does.

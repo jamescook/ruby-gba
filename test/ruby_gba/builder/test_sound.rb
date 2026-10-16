@@ -3,8 +3,6 @@
 require "test_helper"
 
 class TestSound < Minitest::Test
-  runs_on :reference, :native
-
   include RubyGBA::Console::Hardware
 
   private def build(validate: false, &block)

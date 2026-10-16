@@ -11,9 +11,6 @@ require "test_helper"
 #
 # The rule is plain counting, so it is asked directly, through a small C program, with no window.
 class TestNativeSaveFile < Minitest::Test
-  # The native lowering's own tests, which only a native run plays (see TestSuites).
-  runs_on :native
-
   Zig = RubyGBA::IR::Backends::Native::Zig
   HARNESS = Ractor.make_shareable(File.expand_path("save_harness.c", __dir__))
 

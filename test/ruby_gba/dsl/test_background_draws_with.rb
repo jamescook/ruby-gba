@@ -14,8 +14,6 @@ require "differential"
 # is recoloured by writing the new colours INTO the set its tiles read. Nothing about that
 # reaches the program, which is the point of the verb reading the same.
 class TestBackgroundDrawsWith < Minitest::Test
-  runs_on :reference, :native
-
   include Differential
 
   OWN = %i[transparent red green].freeze

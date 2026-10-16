@@ -8,9 +8,6 @@ require RubyGBA.root.join("examples/bird").to_s
 # by frame, through a flight: right, then a climb with the nose tipped up, a dive with it tipped
 # down, and level again, while the bird drifts nearer and further the whole time.
 class TestBirdPicture < Minitest::Test
-  # The native lowering's own tests, which only a native run plays (see TestSuites).
-  runs_on :native
-
   include NativeComparison
 
   FLIGHT = Ractor.make_shareable(

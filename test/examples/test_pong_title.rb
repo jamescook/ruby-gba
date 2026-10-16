@@ -15,7 +15,6 @@ require RubyGBA.root.join("examples/pong").to_s
 # The MUSIC row is the part that could not be written before: what it SAYS depends on the
 # setting, so the row carries the list of things it can say and the variable that decides.
 class TestPongTitle < Minitest::Test
-  runs_on :reference, :native
   Fonts = RubyGBA::Graphics::Fonts
 
   ROW_START = 90       # the menu's first row (examples/pong.rb: `at: [menu_x, 90]`)

@@ -9,9 +9,6 @@ require RubyGBA.root.join("examples/animate").to_s
 # and puts it back — is walked right and then down. The frames of the spin change on the same
 # frames in both.
 class TestAnimatePicture < Minitest::Test
-  # The native lowering's own tests, which only a native run plays (see TestSuites).
-  runs_on :native
-
   include NativeComparison
 
   # Right for fourteen frames and then down for fifteen, from the middle of the screen, while

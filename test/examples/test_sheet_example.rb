@@ -15,9 +15,6 @@ require RubyGBA.root.join("tools/make_example_assets").to_s # the art's colors, 
 # It uses the real ImageMagick adapter and does NOT skip when it's missing:
 # importing is the whole point, so its absence is a real failure.
 class TestSheetExample < Minitest::Test
-  # True of the game however it is played: see TestSuites.
-  runs_on :reference, :native
-
   include RubyGBA::Console::Hardware
 
   Assets = MakeExampleAssets

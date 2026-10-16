@@ -8,9 +8,6 @@ require RubyGBA.root.join("examples/sheet").to_s
 # by frame, while a hero whose walk cycle was cut from a sprite sheet is walked right, down, left
 # and up again: the frames of the cycle change on the same frames in both.
 class TestSheetPicture < Minitest::Test
-  # The native lowering's own tests, which only a native run plays (see TestSuites).
-  runs_on :native
-
   include NativeComparison
 
   WALK = Ractor.make_shareable(

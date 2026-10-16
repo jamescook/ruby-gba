@@ -9,8 +9,6 @@ require "stringio"
 # ROM is built — detect, explain in plain language, and auto-fix by switching the
 # screen on for you.
 class TestIRGuardrailScreenMode < Minitest::Test
-  runs_on :reference, :native
-
   include RubyGBA::IR::Build
 
   Guardrails = RubyGBA::IR::Guardrails

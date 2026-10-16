@@ -12,9 +12,6 @@ require RubyGBA.root.join("examples/pacman").to_s
 # the whole stack renders and behaves — on the interpreter oracle and on real
 # hardware. (Facing correctness itself is pinned in test_hardware_sprite_facing.rb.)
 class TestPacmanExample < Minitest::Test
-  # True of the game however it is played: see TestSuites.
-  runs_on :reference, :native
-
   include RubyGBA::Console::Hardware
   include Differential
 

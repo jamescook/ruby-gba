@@ -9,9 +9,6 @@ require "test_helper"
 # differ. Any other monitor, and one that does not say its rate, leaves the pacing to the
 # console's own clock.
 class TestNativePacing < Minitest::Test
-  # The native lowering's own tests, which only a native run plays (see TestSuites).
-  runs_on :native
-
   Zig = RubyGBA::IR::Backends::Native::Zig
   HARNESS = Ractor.make_shareable(File.expand_path("pacing_harness.c", __dir__))
 

@@ -7,8 +7,6 @@ require "test_helper"
 # pixels to the GBA's 15-bit BGR555 for embedding in the ROM. Drawing it is
 # blit's job (separate); here we cover the definition and its validation.
 class TestImage < Minitest::Test
-  runs_on :reference, :native
-
   private def build(&block)
     b = Builder.new
     b.instance_eval(&block)

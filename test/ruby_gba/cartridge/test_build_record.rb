@@ -8,8 +8,6 @@ require "stringio"
 # assembled and then filled in field by field from outside, so there was a moment when it
 # was a valid cartridge and half a report. These pin that a ROM is one or the other.
 class TestBuildRecord < Minitest::Test
-  runs_on :reference, :native
-
   private def a_built_rom
     RubyGBA.build("RECORD", code: "ZREC", maker: "01", out: StringIO.new, err: StringIO.new) do
       screen :bitmap

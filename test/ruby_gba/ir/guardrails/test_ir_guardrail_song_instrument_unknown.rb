@@ -6,8 +6,6 @@ require "test_helper"
 # with no declaration behind it — a typo, or a forgotten `instrument` — stops the build with the
 # name, rather than failing deep in the lowering.
 class TestSongInstrumentUnknownGuardrail < Minitest::Test
-  runs_on :reference, :native
-
   include RubyGBA::IR::Build
 
   Check = RubyGBA::IR::Guardrails::Checks::SongInstrumentUnknown

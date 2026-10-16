@@ -15,8 +15,6 @@ require "test_helper"
 # suite and a build that fails, over a fact about the console that was knowable the
 # whole time.
 class TestIRGuardrailBackgroundLayers < Minitest::Test
-  runs_on :reference, :native
-
   Guardrails = RubyGBA::IR::Guardrails
 
   private def validator

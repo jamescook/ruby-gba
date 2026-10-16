@@ -14,8 +14,6 @@ require RubyGBA.root.join("examples/hero").to_s
 # The two cartridges are the walker and a walker whose ground turns red part way through.
 # What each showed on a frame is found by playing it on its own to that frame.
 class TestComparisonSideBySidePicture < Minitest::Test
-  runs_on :reference
-
   include ComparisonGames
   include PNGReading
 

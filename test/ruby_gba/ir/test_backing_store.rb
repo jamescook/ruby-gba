@@ -9,8 +9,6 @@ require "test_helper"
 # via the emulator. The proof is "after cover-then-restore, every pixel is exactly what
 # it was before" — including a patch hanging off a screen edge.
 class TestBackingStore < Minitest::Test
-  runs_on :reference, :native
-
   include RubyGBA::IR::Build
 
   # A scene with a distinctive patch, save an 8x8 area over it, cover that area

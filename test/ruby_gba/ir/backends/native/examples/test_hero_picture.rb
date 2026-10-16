@@ -15,9 +15,6 @@ require RubyGBA.root.join("examples/hero").to_s
 # worked out each frame, a canvas the game letters and dots as it runs, one painted picture
 # shown on two screens, and three files in save memory.
 class TestHeroPicture < Minitest::Test
-  # The native lowering's own tests, which only a native run plays (see TestSuites).
-  runs_on :native
-
   include NativeComparison
 
   # A on the file screen picks file 1 and A again starts a new game; then the walk.

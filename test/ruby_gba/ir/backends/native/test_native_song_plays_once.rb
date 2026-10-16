@@ -14,9 +14,6 @@ require "sound_comparison"
 # play yet; `play_song` plays the same node, so a song node that says it is handed straight to
 # that.
 class TestNativeSongPlaysOnce < Minitest::Test
-  # The native lowering's own tests, which only a native run plays (see TestSuites).
-  runs_on :native
-
   include SoundComparison
   include RubyGBA::IR::Build
 

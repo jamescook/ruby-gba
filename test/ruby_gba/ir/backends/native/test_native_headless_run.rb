@@ -7,9 +7,6 @@ require "native_comparison"
 # Native::HeadlessRun): the game built with no window, driven and read back through the same
 # calls a test already makes on Backends::Reference.
 class TestNativeHeadlessRun < Minitest::Test
-  # The native lowering's own tests, which only a native run plays (see TestSuites).
-  runs_on :native
-
   include NativeComparison
 
   HeadlessRun = RubyGBA::IR::Backends::Native::HeadlessRun

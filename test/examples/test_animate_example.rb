@@ -10,9 +10,6 @@ require RubyGBA.root.join("examples/animate").to_s
 # valid and renders; that the flipbook actually cycles over time is pinned in
 # test_sprite_animation.rb.
 class TestAnimateExample < Minitest::Test
-  # True of the game however it is played: see TestSuites.
-  runs_on :reference, :native
-
   # The coin's centre column is gold on every frame of the spin (only its width
   # changes), so it's a stable point to find it.
   CENTRE = [119, 79].freeze

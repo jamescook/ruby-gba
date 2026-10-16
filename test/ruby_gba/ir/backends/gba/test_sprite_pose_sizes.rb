@@ -16,8 +16,6 @@ require "differential"
 # own feet as the cycle plays — which is why every test here compares the two backends
 # rather than only counting bytes.
 class TestSpritePoseSizes < Minitest::Test
-  runs_on :reference
-
   include Differential
 
   CANVAS = 64

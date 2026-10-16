@@ -8,9 +8,6 @@ require RubyGBA.root.join("examples/sprite_mover").to_s
 # frame by frame, while its heart is walked across a painted field with two posts on it — in
 # front of the left post and behind the right one, which is the order its layers say.
 class TestSpriteMoverPicture < Minitest::Test
-  # The native lowering's own tests, which only a native run plays (see TestSuites).
-  runs_on :native
-
   include NativeComparison
 
   # The heart starts between the posts and moves two pixels a frame. Left for twenty-nine frames

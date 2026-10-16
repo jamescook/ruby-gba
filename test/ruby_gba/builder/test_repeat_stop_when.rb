@@ -9,8 +9,6 @@ require "test_helper"
 # branches, and does nothing. A ray that hits a third of the way through pays for the other two
 # thirds, and a first-person view casts one of these per strip across the screen.
 class TestRepeatStopWhen < Minitest::Test
-  runs_on :reference, :native
-
   include EmulatorSupport
 
   Build = RubyGBA::IR::Build

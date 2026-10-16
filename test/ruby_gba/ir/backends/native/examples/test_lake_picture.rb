@@ -9,9 +9,6 @@ require RubyGBA.root.join("examples/lake").to_s
 # at its own place across, and three half see-through jellyfish drifting over it, two of them
 # off the right edge and back in at the left.
 class TestLakePicture < Minitest::Test
-  # The native lowering's own tests, which only a native run plays (see TestSuites).
-  runs_on :native
-
   include NativeComparison
 
   FRAMES = 140

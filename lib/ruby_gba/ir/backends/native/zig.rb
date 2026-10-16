@@ -121,7 +121,7 @@ module RubyGBA
           # goes when it reads the header again, and it is not a fault in the code. To ask the
           # compiler itself:
           #
-          #   rake test:native TEST=test/ruby_gba/ir/backends/native/test_native_checker_flags.rb
+          #   rake test:lowering:native TEST=test/ruby_gba/ir/backends/native/test_native_checker_flags.rb
 
           CHECKER_FLAGS_FILE = Ractor.make_shareable(File.expand_path("compile_flags.txt", __dir__))
 

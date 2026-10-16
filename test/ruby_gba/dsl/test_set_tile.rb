@@ -15,8 +15,6 @@ require "differential"
 # of the tileset's own characters. Nothing here is a tile number, a place in video memory, or a
 # moment it is safe to write.
 class TestSetTile < Minitest::Test
-  runs_on :reference, :native
-
   include Differential
 
   # A little room with a door in it, and a variable saying whether the door is open.

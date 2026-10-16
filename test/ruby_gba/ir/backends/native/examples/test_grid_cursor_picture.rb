@@ -8,9 +8,6 @@ require RubyGBA.root.join("examples/grid_cursor").to_s
 # frame by frame, while the cursor is tapped round the board in all four directions. A button
 # held for two frames is one press, so one cell.
 class TestGridCursorPicture < Minitest::Test
-  # The native lowering's own tests, which only a native run plays (see TestSuites).
-  runs_on :native
-
   include NativeComparison
 
   # Left three times and right once, up twice, down held for two frames, and up again: two cells

@@ -1,10 +1,10 @@
 # frozen_string_literal: true
 
 # THE NATIVE RUN'S TESTS, SPREAD OVER SEVERAL PROCESSES and reported as one run. `rake
-# test:native` loads this beside the test files (ruby -r), and it changes one thing about the run:
-# where each test is played.
+# test:lowering:native` loads this beside the test files (ruby -r), and it changes one thing about
+# the run: where each test is played.
 #
-# Why processes. `rake test` puts each test in a Ractor, which is how one Ruby process uses
+# Why processes. The GBA lowering's run puts each test in a Ractor, which is how one Ruby process uses
 # several cores, but a native test starts child processes (zig, and the program it builds) and
 # Ruby cannot do that from inside a Ractor. Threads can, and the native run used to put its tests
 # on threads — which bought next to nothing, because a native test is nearly all Ruby work

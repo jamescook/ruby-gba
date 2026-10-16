@@ -10,8 +10,6 @@ require RubyGBA.root.join("tools/preview").to_s
 # pin the two things that could silently produce a broken page — the frame capture and
 # the pictures in the page — plus the CLI's example lookup.
 class TestPreviewTool < Minitest::Test
-  runs_on :reference, :native
-
   include PNGReading
 
   # A tiny program that paints the screen red and loops, so a capture has real frames.

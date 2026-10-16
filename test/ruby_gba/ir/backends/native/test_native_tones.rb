@@ -10,9 +10,6 @@ require "sound_comparison"
 # small program that does one thing; a whole game's sound is checked in a file of its own under
 # examples/ beside this one.
 class TestNativeTones < Minitest::Test
-  # The native lowering's own tests, which only a native run plays (see TestSuites).
-  runs_on :native
-
   include SoundComparison
 
   # A beep that fades: 440 Hz, a thin quarter wave, dropping a step of volume every 3/64 of a

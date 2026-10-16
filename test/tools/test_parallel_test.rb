@@ -9,8 +9,6 @@ require "tmpdir"
 # playing every test itself. Each case runs a small fixture suite both ways and compares what
 # they print.
 class TestParallelTest < Minitest::Test
-  runs_on :reference, :native
-
   # Starts child processes, which Ruby cannot do from inside a Ractor — the spawn waits for
   # ever — so on the main Ractor, not in the pool. See test_helper.
   runs_on_the_main_ractor!
@@ -19,11 +17,11 @@ class TestParallelTest < Minitest::Test
   FIXTURE = File.join(ROOT, "test/fixtures/parallel_test/mixed_results.rb")
   RUNNER = File.join(ROOT, "tools/parallel_test.rb")
 
-  # Rake's own loader, which `rake test:native` starts the suite with: it takes every argument
+  # Rake's own loader, which `rake test:lowering:native` starts the suite with: it takes every argument
   # that does not start with a dash for a file to load.
   LOADER = File.join(Gem::Specification.find_by_name("rake").full_gem_path, "lib/rake/rake_test_loader.rb")
 
-  # The fixture suite played the way `rake test:native` plays the suite: by one process when
+  # The fixture suite played the way `rake test:lowering:native` plays the suite: by one process when
   # +processes+ is nil, else by that many. What it printed, and whether it passed.
   private def run_fixture(processes: nil, env: {}, seed: 7)
     command = [RbConfig.ruby, "-rbundler/setup", "-Itest", "-Ilib"]
@@ -36,7 +34,7 @@ class TestParallelTest < Minitest::Test
   end
 
   # Everything a run prints from the end of its timing line on: the failures, the totals, and
-  # what the suite's own reporters say about skips and classes.
+  # what the suite's own reporters say about skips.
   private def report_of(out)
     out[/^Finished in .*?\n(.*)\z/m, 1] or flunk("the run printed no report:\n#{out}")
   end

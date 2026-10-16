@@ -9,9 +9,6 @@ require RubyGBA.root.join("examples/meadow").to_s
 # whose map is bigger than any grid the console has, on down the path, right and back left with
 # the view following, and up through the door into the cabin again.
 class TestMeadowPicture < Minitest::Test
-  # The native lowering's own tests, which only a native run plays (see TestSuites).
-  runs_on :native
-
   include NativeComparison
 
   # He is out of the door going into frame 34 and back inside going into frame 192.

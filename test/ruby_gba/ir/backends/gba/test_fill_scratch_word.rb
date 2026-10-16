@@ -10,8 +10,6 @@ require "test_helper"
 # The word used to get whatever address was free when the first fill was lowered, so what
 # every fill in a game cost was decided by how many variables happened to be named before it.
 class TestFillScratchWord < Minitest::Test
-  runs_on :reference
-
   FIRST = RubyGBA::Console::Hardware::IWRAM_START
   A = RubyGBA::IR::Backends::GBA::ASM
 

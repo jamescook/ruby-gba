@@ -10,9 +10,6 @@ require RubyGBA.root.join("examples/sparks").to_s
 # cost:regimes) reach the walk's own regimes. These assert BEHAVIOUR: sparks appear and
 # fall, on the interpreter and on the console.
 class TestSparksExample < Minitest::Test
-  # True of the game however it is played: see TestSuites.
-  runs_on :reference, :native
-
   YELLOW = Color.resolve(:yellow)
 
   private def yellow_rows(screen)

@@ -12,7 +12,6 @@ require RubyGBA.root.join("examples/jukebox").to_s
 # tune's notes actually fire — on the interpreter oracle AND that a real ROM drives
 # the music channel on hardware.
 class TestJukeboxExample < Minitest::Test
-  runs_on :reference, :native
   include MixedSound
 
   # The opening (downbeat) note of each tune, in Hz — distinct so each is a

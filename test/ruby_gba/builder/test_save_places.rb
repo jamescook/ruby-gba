@@ -9,8 +9,6 @@ require "test_helper"
 # record ended up. The rules are the ones the console runs (see Builder::SavePlaces), run
 # here on the interpreter; nothing else says them, so nothing here can drift from them.
 class TestSavePlaces < Minitest::Test
-  runs_on :reference, :native
-
   Layout = RubyGBA::IR::SaveLayout
   Table = Layout::Table
   START = Layout::PACKED.data_start

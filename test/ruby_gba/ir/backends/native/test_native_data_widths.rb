@@ -10,9 +10,6 @@ require "native_comparison"
 # C is the contract, so the tests read it; and a game reading every width both ways round still
 # plays as the interpreter does.
 class TestNativeDataWidths < Minitest::Test
-  # The native lowering's own tests, which only a native run plays (see TestSuites).
-  runs_on :native
-
   include NativeComparison
 
   private def tables_game

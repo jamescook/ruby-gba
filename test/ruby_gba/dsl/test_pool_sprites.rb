@@ -8,8 +8,6 @@ require "test_helper"
 # the scenes it's one hardware-sprite object per slot, bound to the field lists, drawn by
 # the console's sprite hardware. Pinned on the interpreter and on the emulator.
 class TestPoolSprites < Minitest::Test
-  runs_on :reference, :native
-
   GREEN = Color.resolve(:green)
   BLACK = 0
 

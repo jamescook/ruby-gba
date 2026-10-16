@@ -2,11 +2,11 @@
 
 require "fileutils"
 
-# ONE WHOLE TEST RUN ON THE MACHINE AT A TIME. `rake test` (which plays cartridges in the
-# emulator) and `rake test:native` (which builds every game as C) are each sized to use the
-# machine, and two at once take twice as long each and slow everything else besides. So a whole
-# run of either takes this lock first, and one that finds it held waits, saying which run it is
-# waiting for. A run of one file (TEST=) does not take it: it is short, and it is what somebody
+# ONE WHOLE TEST RUN ON THE MACHINE AT A TIME. Each lowering's run — the GBA lowering's (which
+# plays cartridges in the emulator) and the native lowering's (which builds every game as C) — is
+# sized to use the machine, and two at once take twice as long each and slow everything else
+# besides. So a whole run takes this lock first, once for both lowerings when `rake test` plays
+# them in turn, and one that finds it held waits, saying which run it is waiting for. A run of one file (TEST=) does not take it: it is short, and it is what somebody
 # working on one thing runs over and over.
 #
 # The lock is the operating system's lock on a file, so it lets go when the run that holds it

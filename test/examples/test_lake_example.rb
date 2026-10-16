@@ -15,8 +15,6 @@ require RubyGBA.root.join("examples/lake").to_s
 # colour in the art, and on screen it comes out as several, each one that colour mixed
 # with whatever the water happens to be doing underneath.
 class TestLakeExample < Minitest::Test
-  runs_on :reference, :native
-
   include Differential
 
   # The art, as the example draws it.

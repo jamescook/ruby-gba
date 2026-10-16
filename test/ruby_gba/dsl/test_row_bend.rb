@@ -12,8 +12,6 @@ require "differential"
 # point of the feature is that the effect is a property of the program and not of the
 # machine.
 class TestRowBend < Minitest::Test
-  runs_on :reference, :native
-
   include Differential
 
   BendForm = RubyGBA::IR::Backends::GBA::BendForm

@@ -10,7 +10,6 @@ require "mixed_sound"
 # matches it), down to every byte of sound it makes. The surface stays plain: play and
 # stop, no voices or channels exposed.
 class TestMixer < Minitest::Test
-  runs_on :reference, :native
   include MixedSound
 
   # mem8 hands back an unsigned byte; the mix buffer holds signed 8-bit samples.

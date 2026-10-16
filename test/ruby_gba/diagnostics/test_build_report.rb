@@ -11,8 +11,6 @@ require "stringio"
 # something a running cartridge cannot tell you afterwards, which is the whole reason this
 # report exists beside the measured one.
 class TestBuildReport < Minitest::Test
-  runs_on :reference, :native
-
   # Two routines far too big for the 32K, so something must be kept and something passed over.
   private def crowded_game
     RubyGBA.build("BRPT", code: "BRPT", maker: "01") do

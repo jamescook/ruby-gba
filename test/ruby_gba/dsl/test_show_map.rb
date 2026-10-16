@@ -14,8 +14,6 @@ require "differential"
 # cave: ... }` declares them and `rooms.show_map :cave` says which is showing; the copy happens
 # in the gap between frames, and only on the frame the answer changed.
 class TestShowMap < Minitest::Test
-  runs_on :reference, :native
-
   include Differential
 
   # Two rooms over one tileset. HALL is all wall, CAVE all floor, so which one is showing is

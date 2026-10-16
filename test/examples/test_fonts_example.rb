@@ -8,9 +8,6 @@ require RubyGBA.root.join("examples/fonts").to_s
 # render, that the tiny one is genuinely smaller (fewer pixels, shorter box), and
 # that the tiny draw emits less code — on the interpreter and the emulator.
 class TestFontsExample < Minitest::Test
-  # True of the game however it is played: see TestSuites.
-  runs_on :reference, :native
-
   GREEN = Color.resolve(:green)
 
   # Count green pixels in a horizontal band [y, y+h).

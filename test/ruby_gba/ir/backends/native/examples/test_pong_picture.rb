@@ -9,9 +9,6 @@ require RubyGBA.root.join("examples/pong").to_s
 # rally with the paddle moved up and down. Its sound log — the song, the beeps — matches entry
 # for entry too; what comes out of the speaker is test_pong_sounds.rb's.
 class TestPongPicture < Minitest::Test
-  # The native lowering's own tests, which only a native run plays (see TestSuites).
-  runs_on :native
-
   include NativeComparison
 
   # The buttons held, frame by frame: down and up on the title's menu, A on START, then the

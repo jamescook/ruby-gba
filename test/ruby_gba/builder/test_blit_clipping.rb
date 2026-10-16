@@ -12,8 +12,6 @@ require "test_helper"
 # exactly. The programs are built straight from IR::Build (no DSL sugar) so the
 # clip math is what's under test, not the surface.
 class TestBlitClipping < Minitest::Test
-  runs_on :reference, :native
-
   include RubyGBA::IR::Build
 
   BG = :yellow # a background distinct from the bitmap's four colours

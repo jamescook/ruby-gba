@@ -9,8 +9,6 @@ require "stringio"
 # number it works out as it runs: `music = songs :music, scores` then `music.play track`.
 # Nothing about the tune is written in the program.
 class TestScores < Minitest::Test
-  runs_on :reference, :native
-
   Score = RubyGBA::Audio::Score
   Part = Score::Part
   Note = Score::Note

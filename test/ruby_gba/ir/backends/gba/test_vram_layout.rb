@@ -18,8 +18,6 @@ require "test_helper"
 # that replaced was a fixed rule (tiles capped at the first 16K, maps at fixed
 # places just above it) which gave a whole game 256 tiles however few maps it had.
 class TestVramLayout < Minitest::Test
-  runs_on :reference
-
   include RubyGBA::IR::Build
 
   # How many background layers the console stacks. The count and the rule that reads it

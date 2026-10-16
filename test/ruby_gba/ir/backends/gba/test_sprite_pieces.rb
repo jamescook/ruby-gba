@@ -16,8 +16,6 @@ require "differential"
 # nearly every test here compares the two backends pixel for pixel — the interpreter draws
 # the whole picture at once and knows nothing about pieces, which makes it the answer key.
 class TestSpritePieces < Minitest::Test
-  runs_on :reference
-
   include Differential
 
   # Seven colors laid out by tile, so a piece drawn in the wrong place shows as a color

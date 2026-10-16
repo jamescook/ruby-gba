@@ -7,8 +7,6 @@ require "test_helper"
 # mistake in how a DSL method shapes the tree is caught here directly. (The
 # lowered output is exercised by the behavioral backend tests.)
 class TestBuilderIR < Minitest::Test
-  runs_on :reference, :native
-
   include RubyGBA::IR::Build # the expected-tree constructors
 
   # Build through the DSL and hand back the IR tree it constructed. Functions are

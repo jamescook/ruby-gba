@@ -10,8 +10,6 @@ require "stringio"
 # Assert which programs warn and which don't, by whether control can fall off the
 # end.
 class TestIRGuardrailTermination < Minitest::Test
-  runs_on :reference, :native
-
   include RubyGBA::IR::Build
 
   Guardrails = RubyGBA::IR::Guardrails

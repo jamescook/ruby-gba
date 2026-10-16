@@ -10,9 +10,6 @@ require RubyGBA.root.join("examples/snake_buffered").to_s
 # voice — is compared with the emulator frame by frame (see SoundComparison). The game has no
 # song, so the first voice is not asked about.
 class TestSnakeBufferedSounds < Minitest::Test
-  # The native lowering's own tests, which only a native run plays (see TestSuites).
-  runs_on :native
-
   include SoundComparison
 
   GAME_OVER = 2

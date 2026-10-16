@@ -9,9 +9,6 @@ require RubyGBA.root.join("examples/pong").to_s
 # voice, and its beeps — the ball off the walls and the paddles, a point scored — on the second,
 # compared with the emulator voice by voice and frame by frame (see SoundComparison).
 class TestPongSounds < Minitest::Test
-  # The native lowering's own tests, which only a native run plays (see TestSuites).
-  runs_on :native
-
   include SoundComparison
 
   # A held for a few frames, since the console is a frame or two behind the desktop build.

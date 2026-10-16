@@ -14,8 +14,6 @@ require RubyGBA.root.join("examples/hero").to_s
 # off. Asserted on the interpreter oracle and on real hardware. The player never touches
 # object memory, tile numbers, a scroll register or save memory.
 class TestHeroExample < Minitest::Test
-  runs_on :reference, :native
-
   CENTER = [120, 80].freeze # the middle of the screen, where the hero's body always sits
 
   # The game opens on its file screen. A on the first frame picks FILE 1, whose menu opens

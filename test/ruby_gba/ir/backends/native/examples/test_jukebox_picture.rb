@@ -10,9 +10,6 @@ require RubyGBA.root.join("examples/jukebox").to_s
 # first tune out and the chords in, and both sound effects are asked for over the chords — one
 # ranked above the tune and one below it.
 class TestJukeboxPicture < Minitest::Test
-  # The native lowering's own tests, which only a native run plays (see TestSuites).
-  runs_on :native
-
   include NativeComparison
 
   FRAMES = 240

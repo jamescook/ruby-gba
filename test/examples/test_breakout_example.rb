@@ -15,8 +15,6 @@ require RubyGBA.root.join("examples/breakout").to_s
 # where the headless run is cut off; and the emulator for the *picture* (the title, the
 # brick wall, and the paddle really render), read from settled frames on hardware.
 class TestBreakoutExample < Minitest::Test
-  runs_on :reference, :native
-
   include RubyGBA::Console::Hardware
 
   NUM_BRICKS = Breakout::BRICKS.length

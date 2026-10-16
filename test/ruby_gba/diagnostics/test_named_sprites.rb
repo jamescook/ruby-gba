@@ -25,8 +25,6 @@ require "test_helper"
 # has no slots to give out, so a slot number is the one thing missing from its rows, which is
 # the half worth losing.
 class TestNamedSprites < Minitest::Test
-  runs_on :reference, :native
-
   # Two sprites, still, at places nothing else on screen shares.
   private def two_sprites
     RubyGBA.game "CAST" do

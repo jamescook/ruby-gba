@@ -11,8 +11,6 @@ require "differential"
 # lie, on the interpreter and on the console. A thing's colour is its `tag` field, so a test
 # says which thing is which without knowing a slot.
 class TestPoolDrawingOrder < Minitest::Test
-  runs_on :reference, :native
-
   include Differential
 
   COLORS = %i[red green blue].freeze

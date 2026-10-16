@@ -11,8 +11,6 @@ require "differential"
 # that the console shows the same picture pixel for pixel, which is what keeps the rule
 # honest — every place it bends is a place the two would disagree.
 class TestPixelate < Minitest::Test
-  runs_on :reference, :native
-
   include Differential
 
   WIDTH = 240

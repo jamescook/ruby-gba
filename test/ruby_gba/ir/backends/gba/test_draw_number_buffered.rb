@@ -9,8 +9,6 @@ require "test_helper"
 # loop got the odd/even-column byte splice wrong, the live digits would come out
 # garbled next to the fixed ones. Verified on real hardware.
 class TestDrawNumberBuffered < Minitest::Test
-  runs_on :reference, :native
-
   W = Builder::Text::GLYPH_WIDTH # 6px per default-font column
 
   # A buffered game that draws the same number two ways: once live (from a variable,

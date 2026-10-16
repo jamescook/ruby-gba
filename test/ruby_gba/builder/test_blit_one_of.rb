@@ -14,8 +14,6 @@ require "differential"
 # The word is the one the DSL already uses for "this value decides which": `showing:`, the same
 # as on a menu row and a two-colour label.
 class TestBlitOneOf < Minitest::Test
-  runs_on :reference, :native
-
   include Differential
 
   RED = Color.resolve(:red)

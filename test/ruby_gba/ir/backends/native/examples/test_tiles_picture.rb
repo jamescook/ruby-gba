@@ -10,9 +10,6 @@ require RubyGBA.root.join("examples/tiles").to_s
 # is shut again because the room came back as declared. There the door is shut once more, which
 # changes nothing, and then opened.
 class TestTilesPicture < Minitest::Test
-  # The native lowering's own tests, which only a native run plays (see TestSuites).
-  runs_on :native
-
   include NativeComparison
 
   # Each button is a tap, since the example reads the press and not the hold.

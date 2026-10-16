@@ -9,9 +9,6 @@ require RubyGBA.root.join("examples/corridor").to_s
 # walls are rectangles as tall as the distance says, taller than the screen up close, drawn
 # inside the part of the screen above its bar and cut off there.
 class TestCorridorPicture < Minitest::Test
-  # The native lowering's own tests, which only a native run plays (see TestSuites).
-  runs_on :native
-
   include NativeComparison
 
   # A turn to the left for seven frames, forward for twenty-two (a step is only taken into an

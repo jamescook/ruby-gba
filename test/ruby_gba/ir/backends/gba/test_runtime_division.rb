@@ -13,8 +13,6 @@ require "test_helper"
 # answer both backends are held to, and that a program which never needs the routine does
 # not carry it.
 class TestRuntimeDivision < Minitest::Test
-  runs_on :reference
-
   Int32 = RubyGBA::IR::Int32
 
   DIVISORS = [0, 1, -1, 2, -2, 3, -3, 7, 10, 60, 100, 256, 1000, 65_536,

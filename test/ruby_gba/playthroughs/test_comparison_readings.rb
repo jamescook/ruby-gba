@@ -12,8 +12,6 @@ require "comparison_games"
 # walks, where the first counts one. Nothing on the screen shows the count, so the two
 # pictures never differ; the count differs from the first frame of the walk.
 class TestComparisonReadings < Minitest::Test
-  runs_on :reference
-
   include ComparisonGames
 
   private def counting_twice = walker(counts_by: 2)

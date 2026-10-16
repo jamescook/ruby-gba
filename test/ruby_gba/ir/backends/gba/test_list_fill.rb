@@ -7,8 +7,6 @@ require "test_helper"
 # checking is every item around both ends, for each width an item can be: a run that starts
 # part way into a word and stops part way into another is where a lead or a tail goes wrong.
 class TestListFill < Minitest::Test
-  runs_on :reference
-
   include RubyGBA::IR::Build
 
   ITEMS = 13

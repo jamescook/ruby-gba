@@ -16,8 +16,6 @@ require "differential"
 # the parities: which of the rect's end pixels have to be spliced in one at a time
 # depends on a width that is not known until it runs.
 class TestRuntimeRectSize < Minitest::Test
-  runs_on :reference, :native
-
   include Differential
 
   private def build(&block)

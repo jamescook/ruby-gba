@@ -14,8 +14,6 @@ require "cli_playing"
 # forty-fifth tick, after the walk. Each is there as a cartridge file and as a game file,
 # since only a game file has variables with names.
 class TestCommandLineCompare < Minitest::Test
-  runs_on :reference
-
   include CLIPlaying
 
   AGREED = 0

@@ -176,7 +176,7 @@ The game is written out as C and compiled with [zig](https://ziglang.org) (insta
 
 **The Windows and Linux programs have not yet been run on those systems.** They are built and checked to be programs for the computer asked for; the Mac build is the one that is played and tested. A Mac program can only be built on a Mac.
 
-This build trails the cartridge: a feature works on the console and the interpreter first, and the C build learns it after. Its tests replay each game and compare every frame's picture and sound with the interpreter (`rake test:native`).
+`rake test` plays every test's game as C as well as on the cartridge, replaying each game and comparing every frame's picture and sound with the interpreter, so a feature is not done until the C build has it too (`rake test:lowering:native` plays only that side).
 
 ### Future targets
 

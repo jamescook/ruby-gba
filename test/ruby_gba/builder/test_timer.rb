@@ -7,8 +7,6 @@ require "test_helper"
 # it. The rate is a prescaler + reload on the GBA, and a frame-clock model on the
 # interpreter — both agree on the elapsed-tick count. Pinned on the interpreter and the emulator.
 class TestTimer < Minitest::Test
-  runs_on :reference, :native
-
   # Run a program that samples `beat.ticks` into :snap every frame and halts at
   # `stop_frame`; returns the interpreter so a test can read :snap. `per_second` sets the
   # rate; if `stop_at` is given, the timer is stopped at that frame.

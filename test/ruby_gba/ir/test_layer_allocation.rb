@@ -12,8 +12,6 @@ require "differential"
 # backgrounds is one thing; putting one between two of the other is what needs the
 # console's own stacking hardware, and what a picture can never fall into by accident.
 class TestLayerAllocation < Minitest::Test
-  runs_on :reference, :native
-
   include Differential
 
   Stacking = RubyGBA::IR::Stacking

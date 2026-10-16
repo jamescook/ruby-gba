@@ -10,9 +10,6 @@ require RubyGBA.root.join("examples/dive").to_s
 # see-through water with the fish in their own colors, until the air is gone, the world fades
 # out and the dive ends; then START again, and a new dive. Its variables match on every frame.
 class TestDivePicture < Minitest::Test
-  # The native lowering's own tests, which only a native run plays (see TestSuites).
-  runs_on :native
-
   include NativeComparison
 
   # The title for forty frames, START, then down all the way. START is tapped again well after

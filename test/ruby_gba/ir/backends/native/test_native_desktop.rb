@@ -10,14 +10,11 @@ require RubyGBA.root.join("examples/pong").to_s
 # The program a player runs — pong with its window, built with SDL — is the same program the
 # tests drive, and it stands on its own.
 #
-# Only under `rake test:native SDL=1`: the first desktop build fetches SDL's source over the
+# Only under `rake test:lowering:native SDL=1`: the first desktop build fetches SDL's source over the
 # network and compiles it, which no ordinary run of the suite should have to wait for. One test
 # of pong, because each desktop build is a whole game built with SDL — and one of a game of a few
 # lines that saves, since pong keeps nothing and the window's save file is the window's own code.
 class TestNativeDesktop < Minitest::Test
-  # The native lowering's own tests, which only a native run plays (see TestSuites).
-  runs_on :native
-
   include NativeComparison
 
   RUN = Ractor.make_shareable({ 10 => %i[down], 14 => %i[up], 20 => %i[a] })

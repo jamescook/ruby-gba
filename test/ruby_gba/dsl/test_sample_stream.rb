@@ -7,8 +7,6 @@ require "test_helper"
 # out of the cartridge each frame and advances its play position, so a minutes-long track
 # loops as background music with no special handling. Pinned on the interpreter and the emulator.
 class TestSampleStream < Minitest::Test
-  runs_on :reference, :native
-
   OLD_LIMIT = 65_536 # the sample count that used to be the hard ceiling
 
   def test_a_long_looping_clip_still_loops_on_the_interpreter

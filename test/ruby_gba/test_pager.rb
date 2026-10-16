@@ -11,8 +11,6 @@ require "stringio"
 # subprocess, +out+ stands in for the terminal, +env+ stands in for ENV/PATH. No test
 # here starts a real pager or needs a real TTY.
 class TestPager < Minitest::Test
-  runs_on :reference, :native
-
   # An out: double that claims to be an interactive terminal (a plain StringIO
   # doesn't define #tty? at all, which Pager already treats as "not interactive").
   class FakeTTY

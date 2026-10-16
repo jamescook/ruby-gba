@@ -19,7 +19,6 @@ require "differential"
 # give it room"; `fast: true` insists. It is the same word `func` already takes for the same
 # question about code.
 class TestRoomyMemory < Minitest::Test
-  runs_on :reference
   include Differential
 
   private def build(title, &block)

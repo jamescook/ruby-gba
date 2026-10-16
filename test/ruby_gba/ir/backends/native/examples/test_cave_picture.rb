@@ -11,9 +11,6 @@ require RubyGBA.root.join("examples/cave").to_s
 # each frame from where the hero stands, so a span a column out, or darkened by a step too few,
 # shows on the first frame of the walk.
 class TestCavePicture < Minitest::Test
-  # The native lowering's own tests, which only a native run plays (see TestSuites).
-  runs_on :native
-
   include NativeComparison
 
   # Right from the start along the mouth's row and out of it at frame 210 or so; the circle shuts

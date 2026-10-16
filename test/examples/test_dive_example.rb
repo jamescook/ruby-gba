@@ -12,8 +12,6 @@ require RubyGBA.root.join("examples/dive").to_s
 # empties by changing cells, and a blackout that fades the world while the water goes on
 # blending. Each of those is a thing the framework only had tests for; here it is a game.
 class TestDiveExample < Minitest::Test
-  runs_on :reference, :native
-
   include Differential
   include RubyGBA::Console::Hardware # REG_DISPCNT
 

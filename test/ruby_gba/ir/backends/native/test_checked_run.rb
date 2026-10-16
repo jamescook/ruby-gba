@@ -10,9 +10,6 @@ require "rbconfig"
 # opted into native runs is handed there (CheckedNativeRun, the suite's own name for it), so a
 # file's hand-picked checks are backed by every variable and every pixel of every frame.
 class TestCheckedRun < Minitest::Test
-  # The native lowering's own tests, which only a native run plays (see TestSuites).
-  runs_on :native
-
   include NativeComparison
 
   CheckedRun = RubyGBA::IR::Backends::Native::CheckedRun

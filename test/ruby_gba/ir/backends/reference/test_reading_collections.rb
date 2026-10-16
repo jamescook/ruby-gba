@@ -6,8 +6,6 @@ require "test_helper"
 # list, and every field of a pool, is read the same way — by the name the game declared it
 # with — rather than by reaching into how the interpreter happens to keep them.
 class TestReadingCollections < Minitest::Test
-  runs_on :reference, :native
-
   private def ran(frames: 3, &block)
     builder = Builder.new
     builder.instance_eval(&block)

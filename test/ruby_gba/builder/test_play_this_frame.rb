@@ -12,7 +12,6 @@ require "mixed_sound"
 # game takes the song up itself as it asks, and the screen's next interrupt plays its second
 # frame.
 class TestPlayThisFrame < Minitest::Test
-  runs_on :reference, :native
   include MixedSound
 
   Score = RubyGBA::Audio::Score

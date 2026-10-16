@@ -13,9 +13,6 @@ require "test_helper"
 # native backend is built at: unoptimised with every undefined-behaviour check on (a check that
 # fires stops the program, and the test with it), and optimised the way a release is.
 class TestNativeInt32Helpers < Minitest::Test
-  # The native lowering's own tests, which only a native run plays (see TestSuites).
-  runs_on :native
-
   Int32 =RubyGBA::IR::Int32
   Zig = RubyGBA::IR::Backends::Native::Zig
   ListValue = RubyGBA::IR::Backends::Reference::ListValue

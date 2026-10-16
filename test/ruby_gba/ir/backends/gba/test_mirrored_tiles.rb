@@ -9,8 +9,6 @@ require "differential"
 # real game can come to twice the tiles one layer can name if each is kept as drawn. A map cell
 # has a bit for each way round, so the console draws a mirror for nothing.
 class TestMirroredTiles < Minitest::Test
-  runs_on :reference
-
   include Differential
 
   # A tile with one corner marked, so each of its mirrors is a different picture: the mark

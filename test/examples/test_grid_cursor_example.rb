@@ -10,9 +10,6 @@ require RubyGBA.root.join("examples/grid_cursor").to_s
 # assert BEHAVIOR (the cursor lights the right cell and leaves nothing behind) on
 # the interpreter, plus an emulator check that it renders and steers on the console.
 class TestGridCursorExample < Minitest::Test
-  # True of the game however it is played: see TestSuites.
-  runs_on :reference, :native
-
   include RubyGBA::Console::Hardware
 
   CELL = GridCursor::CELL

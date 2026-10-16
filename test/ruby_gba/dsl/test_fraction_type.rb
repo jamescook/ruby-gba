@@ -11,8 +11,6 @@ require "differential"
 # The behaviour is asserted by putting the answer on screen as a marker and reading where
 # it landed, so these tests say what a program DOES rather than which nodes it built.
 class TestFractionType < Minitest::Test
-  runs_on :reference, :native
-
   include Differential
 
   ONE = 1 << 16

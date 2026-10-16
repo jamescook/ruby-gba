@@ -17,8 +17,6 @@ require "stringio"
 # runs its body exactly once per frame, and an unpaced loop spins until the step
 # budget cuts it off.
 class TestFrameSync < Minitest::Test
-  runs_on :reference, :native
-
   FRAMES = 5
 
   # Build through the real entry point, so the flag is exercised the way a

@@ -19,8 +19,6 @@ require "differential"
 # picture is the game as C's. How the console is lined up against the interpreter is the
 # GBA lowering's alone, and is tested in ir/backends/gba/test_console_line_up.rb.
 class TestDifferential < Minitest::Test
-  runs_on :reference, :native
-
   # Makes a test class of its own, to check what a mismatch reports. Making a class is a
   # change to the whole process, so on the main Ractor. See test_helper.
   runs_on_the_main_ractor!

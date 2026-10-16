@@ -137,9 +137,9 @@ namespace :test do
     t.description = "Run the tests of playthroughs, tapes and comparisons"
   end
 
-  # The suite run on the native lowering: every class that names it with `runs_on`. They compile
-  # C, so they need zig (the version the backend is written against), and a missing or wrong zig
-  # stops them here with one plain line rather than failing every test in turn.
+  # The native lowering's run compiles C, so it needs zig (the version the backend is written
+  # against), and a missing or wrong zig stops it here with one plain line rather than failing
+  # every test in turn.
   task :zig do
     require_relative "lib/ruby_gba/root"
     require_relative "lib/ruby_gba/ir/backends/native/zig"
@@ -148,15 +148,15 @@ namespace :test do
     abort "The native lowering's run needs zig, and #{e.message}"
   end
 
-  # IN SEVERAL PROCESSES, NOT RACTORS, unlike `rake test`. Every native test starts child
-  # processes — zig, and the program it builds — which Ruby cannot do from inside a Ractor (the
-  # spawn waits for ever). So this run is plain minitest's, whatever the caller said about
+  # IN SEVERAL PROCESSES, NOT RACTORS, unlike the GBA lowering's run. Every native test starts
+  # child processes — zig, and the program it builds — which Ruby cannot do from inside a Ractor
+  # (the spawn waits for ever). So this run is plain minitest's, whatever the caller said about
   # Ractors, and tools/parallel_test.rb plays its tests in TEST_PROCESSES processes, as many as
-  # `rake test` has workers unless told otherwise, and reports them as one run. Not threads: a
+  # the GBA run has workers unless told otherwise, and reports them as one run. Not threads: a
   # native test is nearly all Ruby work, which threads take turns at, so they bought next to
   # nothing. The cost is that a native run never checks a test for reaching state the whole
-  # process shares; a file opted in from the main suite is still checked for it by `rake test`,
-  # and the native lowering's own tests keep none.
+  # process shares; a test both runs play is still checked for it by the GBA run, and the native
+  # lowering's own tests keep none.
   #
   # It also says the run is the native lowering's, which every test reads (TestSuites::LOWERING).
   task :native_run do
@@ -193,9 +193,6 @@ namespace :test do
                       "SDL=1 also builds and runs the desktop program, with its window"
     end
   end
-
-  desc "The same as test:lowering:native"
-  task native: "lowering:native"
 end
 
 desc "Did a compiler change alter what it emits? Build every example twice (rake emitted REF=HEAD~3 ONLY=pong)"

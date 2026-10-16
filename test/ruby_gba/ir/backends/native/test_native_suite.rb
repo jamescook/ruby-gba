@@ -2,19 +2,16 @@
 
 require "test_helper"
 require "differential"
-require "stringio"
 
-# Names only the native lowering, so it fails if anything but `rake test:native` runs it. Every
-# test in this folder names only native too, and `rake test` loads them all: this is the one that
-# says so the day the filter stops working. Its other side is test/test_suites.rb.
+# Sits in the native lowering's own folder, so it fails if anything but the native lowering's
+# run plays it. Every test in this folder is the native lowering's alone, and the GBA lowering's
+# run leaves the folder out: this is the one that says so the day that stops working
+# (TestSuites::LOWERING_FOLDERS).
 class TestNativeSuite < Minitest::Test
-  runs_on :native
-
   include Differential
 
-  def test_a_class_that_names_only_native_runs_only_on_a_native_run
-    assert_equal :native, TestSuites::LOWERING,
-                 "a test class that said `runs_on :native` alone ran on a #{TestSuites::LOWERING} run"
+  def test_a_test_in_the_native_lowerings_folder_runs_only_on_its_run
+    assert_equal :native, TestSuites::LOWERING, "a test in the native lowering's folder ran on a #{TestSuites::LOWERING} run"
   end
 
   # A file opted into native runs keeps its tests of the cartridge, which skip themselves here.
@@ -44,18 +41,6 @@ class TestNativeSuite < Minitest::Test
 
     assert_kind_of CheckedNativeRun, played
     assert_equal 4, played[:x], "the buttons were held on all four frames, so the game moved four times"
-  end
-
-  # The classes a native run leaves to the interpreter print nothing as it goes, so it ends by
-  # counting every class each way.
-  def test_a_native_run_ends_by_counting_the_classes_each_way
-    said = StringIO.new
-
-    NativeSkips.new(said).report
-
-    assert_match(/^\s*\d+  on both lowerings$/, said.string)
-    assert_match(/^\s*[1-9]\d*  on the native lowering alone$/, said.string, "this class is one of them")
-    assert_match(/^\s*\d+  on the interpreter alone, so not played here/, said.string)
   end
 
   # ...and a test that asks something native cannot answer yet says so, with its reason.

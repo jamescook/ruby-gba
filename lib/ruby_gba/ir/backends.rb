@@ -26,12 +26,12 @@ module RubyGBA
     # rather than for the language it happens to be written in also keeps it from
     # reading as "the Ruby one" in a project where every backend is written in Ruby.
     #
-    # FIRST-CLASS AND TRAILING BACKENDS. Two of them are first-class: GBA and Reference. `rake
-    # test` runs both, and a feature is not done until it works on both. Native (the game as a
-    # desktop program) trails: its tests run under `rake test:native` and never under `rake
-    # test`, and a feature that works on the first two is done without it — what it cannot do
-    # yet is a gap to fill there, never a broken build. (IR::Portability's "tier" is a different
-    # thing: which kinds of node can run anywhere at all.)
+    # EVERY BACKEND IS FIRST-CLASS. `rake test` plays the suite once for each lowering — GBA (the
+    # cartridge) and Native (the game as a desktop program) — and checks each against Reference,
+    # so a feature is not done until it works on all three: a test that one of them cannot pass
+    # fails the run. A test of one lowering's own output (the ARM it emits, the C it writes) lives
+    # in that lowering's own test folder and is played by its run alone. (IR::Portability's
+    # "tier" is a different thing: which kinds of node can run anywhere at all.)
     module Backends
     end
   end

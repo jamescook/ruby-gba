@@ -11,8 +11,6 @@ require RubyGBA.root.join("examples/hero").to_s
 # Every test here builds a cartridge, plays it in the emulator, and asks what a player would
 # see: what a variable came to, where a moment fell. None asks how a script is kept.
 class TestPlaythrough < Minitest::Test
-  runs_on :reference
-
   # A game that counts what happens to it. It goes round its loop once a frame, and each time:
   # one more tick; one more tap if A was pressed (the press, not the hold); two pixels across
   # if RIGHT is down; and one more if B and LEFT are down together. It does so little that it

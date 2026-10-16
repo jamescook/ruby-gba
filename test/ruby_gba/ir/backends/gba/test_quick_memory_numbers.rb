@@ -11,8 +11,6 @@ require "test_helper"
 # before it runs — so a word of the wrong kind, a distance one word out, or a table left
 # behind by the copy would each hand a routine a number that is plausible and wrong.
 class TestQuickMemoryNumbers < Minitest::Test
-  runs_on :reference
-
   PLAIN = 0x12345678
   QUICK_MEMORY = 0x03000000...0x03008000
   CARTRIDGE = 0x08000000...0x0A000000

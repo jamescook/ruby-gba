@@ -8,8 +8,6 @@ require "tmpdir"
 # measured counterpart to the static cost estimate. These run real ROMs through the emulator
 # and read the busy scanlines a frame burns.
 class TestAnalyzer < Minitest::Test
-  runs_on :reference, :native
-
   Analyzer = RubyGBA::Diagnostics::Analyzer
 
   # Build a program, write it to a temp .gba, and measure it.

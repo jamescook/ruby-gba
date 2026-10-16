@@ -11,8 +11,6 @@ require "test_helper"
 # interpreter refuses it (it has no real timing). It's built through the non-public
 # Builder::Debug mixin as a regular IR node, not raw assembly.
 class TestScanlineProbe < Minitest::Test
-  runs_on :reference
-
   Build = RubyGBA::IR::Build
 
   # Wait for vblank, do +fills+ full-width fills (drawing work), then sample the

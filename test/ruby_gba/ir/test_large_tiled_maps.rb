@@ -21,8 +21,6 @@ require "differential"
 # it is right in the top-left quarter and wrong in the other three, which is exactly the bug a
 # handful of spot checks miss.
 class TestLargeTiledMaps < Minitest::Test
-  runs_on :reference, :native
-
   include Differential
 
   # A map of the given size, with a different colour in each quarter, so a cell landing in the

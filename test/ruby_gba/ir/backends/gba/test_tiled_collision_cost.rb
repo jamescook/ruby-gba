@@ -14,8 +14,6 @@ require "differential"
 # hundred pillars cost twenty-five times a bare one, and eight movers put the game loop
 # past 32K, which drops the WHOLE frame to cartridge speed rather than just the moving.
 class TestTiledCollisionCost < Minitest::Test
-  runs_on :reference
-
   include Differential
 
   COLS = 30

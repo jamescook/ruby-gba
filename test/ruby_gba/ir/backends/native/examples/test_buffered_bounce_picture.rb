@@ -8,9 +8,6 @@ require RubyGBA.root.join("examples/buffered_bounce").to_s
 # pixel, frame by frame, on a tear-free screen: two pictures shown in turn, each repainted whole,
 # with its three balls somewhere new on every one.
 class TestBufferedBouncePicture < Minitest::Test
-  # The native lowering's own tests, which only a native run plays (see TestSuites).
-  runs_on :native
-
   include NativeComparison
 
   def test_buffered_bounce_matches_the_interpreter

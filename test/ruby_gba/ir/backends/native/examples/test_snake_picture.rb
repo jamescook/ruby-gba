@@ -12,9 +12,6 @@ require RubyGBA.root.join("examples/snake").to_s
 # The game keeps its best score in save memory (`save_var`), so it is also switched off and on
 # again here, and the best score is still there.
 class TestSnakePicture < Minitest::Test
-  # The native lowering's own tests, which only a native run plays (see TestSuites).
-  runs_on :native
-
   include NativeComparison
 
   PLAYING = 1

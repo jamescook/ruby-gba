@@ -16,8 +16,6 @@ require "differential"
 # coordinate cannot — and the console lowering is pinned at the bottom, where positions
 # are what a marker's pixels reveal.
 class TestPoolFieldMutation < Minitest::Test
-  runs_on :reference, :native
-
   include Differential
 
   # Two instances start out holding the same number; +mutate+ is applied to the first

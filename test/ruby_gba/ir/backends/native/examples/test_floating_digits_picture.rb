@@ -8,9 +8,6 @@ require RubyGBA.root.join("examples/floating_digits").to_s
 # pixel, frame by frame: ten digits, each a picture painted where its own two variables say it
 # is, drifting across the screen and bouncing off its edges.
 class TestFloatingDigitsPicture < Minitest::Test
-  # The native lowering's own tests, which only a native run plays (see TestSuites).
-  runs_on :native
-
   include NativeComparison
 
   def test_floating_digits_matches_the_interpreter

@@ -3,8 +3,8 @@
 require "test_helper"
 
 # A small suite for test/tools/test_parallel_test.rb to run across processes: tests that pass,
-# one that fails, skips for two reasons, and a class the native run leaves alone. Not named
-# test_*.rb, so the suite itself never loads it.
+# one that fails, and skips for two reasons. Not named test_*.rb, so the suite itself never loads
+# it.
 #
 # Each test leaves a file named for the process that ran it in the folder PARALLEL_FIXTURE_PIDS
 # names, holding the seed that process was given, so the test of the runner can see the work was
@@ -18,7 +18,6 @@ module ParallelFixture
 end
 
 class ParallelFixturePasses < Minitest::Test
-  runs_on :native
   include ParallelFixture
 
   12.times do |i|
@@ -47,7 +46,6 @@ class ParallelFixturePasses < Minitest::Test
 end
 
 class ParallelFixtureMixed < Minitest::Test
-  runs_on :reference, :native
   include ParallelFixture
 
   def test_fails
@@ -69,10 +67,4 @@ class ParallelFixtureMixed < Minitest::Test
     note_process
     skip "cannot yet: the second reason"
   end
-end
-
-class ParallelFixtureInterpreterOnly < Minitest::Test
-  runs_on :reference
-
-  def test_never_played_on_native = flunk("a native run must not play this")
 end

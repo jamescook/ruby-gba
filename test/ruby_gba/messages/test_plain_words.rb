@@ -23,8 +23,6 @@ require "stringio"
 #   is replaced and both readers are made to say the new one — which they can only do if
 #   they really are reading the one place.
 class TestPlainWords < Minitest::Test
-  runs_on :reference, :native
-
   # Swaps a word the library says for a different one, to prove both readers really ask it
   # rather than keeping copies. That is a change to the whole process while it is in force,
   # so it runs before the pool starts rather than beside it. See test_helper.

@@ -10,8 +10,6 @@ require "differential"
 # like any other number, that the console and the oracle draw the identical picture, and
 # the friendly guardrails. The dev never touches a matrix, a reciprocal, or a division.
 class TestHardwareSpriteScale < Minitest::Test
-  runs_on :reference, :native
-
   include Differential
 
   # A solid 16x16 red square. Solid on purpose: how many pixels it covers IS its drawn

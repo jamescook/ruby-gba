@@ -19,8 +19,6 @@ require "differential"
 # Every expectation here was measured on the console FIRST and the interpreter made
 # to agree, not the other way round — including which half of the bars survive.
 class TestBufferedPages < Minitest::Test
-  runs_on :reference
-
   include Differential
   include EmulatorSupport
 

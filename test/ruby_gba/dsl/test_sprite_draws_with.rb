@@ -8,8 +8,6 @@ require "differential"
 # every pixel keeps its place in the sprite's own list of colours, and only the colours those
 # places show are swapped for the ones in another list.
 class TestSpriteDrawsWith < Minitest::Test
-  runs_on :reference, :native
-
   include Differential
 
   OWN = [:transparent, :red, :green].freeze

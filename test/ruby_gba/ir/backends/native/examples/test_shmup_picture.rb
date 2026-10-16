@@ -9,9 +9,6 @@ require RubyGBA.root.join("examples/shmup").to_s
 # until its last ship is lost, the field dims away under the score, and the game-over screen
 # comes up; then START, and a fresh game. Its variables match on every frame too.
 class TestShmupPicture < Minitest::Test
-  # The native lowering's own tests, which only a native run plays (see TestSuites).
-  runs_on :native
-
   include NativeComparison
 
   # Right, a shot, left again, then nothing held while the enemies take every ship. START is

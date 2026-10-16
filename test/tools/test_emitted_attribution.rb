@@ -13,8 +13,6 @@ require RubyGBA.root.join("tools/emitted_attribution").to_s
 # charged for what it contains. Everything else the drill-down does is arithmetic on
 # these numbers, and is tested without a backend in test_emitted_tool.rb.
 class TestEmittedAttribution < Minitest::Test
-  runs_on :reference, :native
-
   Attribution = EmittedAttribution
 
   private def measure(&block)

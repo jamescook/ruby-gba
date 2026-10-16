@@ -7,8 +7,6 @@ require "test_helper"
 # what a report calls each one. Made and read back through one table, so these ask the table
 # itself: no build is needed to find out whether two names can meet.
 class TestMadeNames < Minitest::Test
-  runs_on :reference, :native
-
   MadeNames = RubyGBA::Messages::MadeNames
 
   # One set of parts for every kind of name, as the build would hand them over.

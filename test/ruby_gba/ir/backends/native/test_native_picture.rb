@@ -7,9 +7,6 @@ require "native_comparison"
 # does, at every frame boundary. Each test is a small game built through the DSL; the answer is
 # the interpreter's picture (see NativeComparison).
 class TestNativePicture < Minitest::Test
-  # The native lowering's own tests, which only a native run plays (see TestSuites).
-  runs_on :native
-
   include NativeComparison
 
   def test_rectangles_pixels_and_a_clear_on_a_bitmap_screen

@@ -10,8 +10,6 @@ require "stringio"
 # or in a routine — changes the screen part way through a frame, after the scenery went up, and
 # the scene shows nothing.
 class TestIRGuardrailScreenInsideScene < Minitest::Test
-  runs_on :reference, :native
-
   Check = RubyGBA::IR::Guardrails::Checks::ScreenInsideScene
 
   private def program(&block)

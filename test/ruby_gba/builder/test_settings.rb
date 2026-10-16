@@ -8,8 +8,6 @@ require "stringio"
 # cartridge beside a sixty-floor one, on another core at the same moment, and neither sees the
 # other's. Before this the only way in was the environment, which the whole process shares.
 class TestSettings < Minitest::Test
-  runs_on :reference, :native
-
   # A game whose number of floors is a setting, kept in a variable so a run can read it back.
   CUTS = RubyGBA.game("CUTS", maker: "01") do
     screen :bitmap

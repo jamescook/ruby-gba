@@ -6,8 +6,6 @@ require "test_helper"
 # wraparound, signed ordering. Every backend (register-based today, a float64
 # interpreter later) must agree with this.
 class TestIRInt32 < Minitest::Test
-  runs_on :reference, :native
-
   Int32 = RubyGBA::IR::Int32
 
   def test_signed_32bit_range

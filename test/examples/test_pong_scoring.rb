@@ -15,8 +15,6 @@ require RubyGBA.root.join("examples/pong").to_s
 # paddle that is either lined up with it (bounce) or out of the way (score), and
 # read the scores back from the interpreter oracle.
 class TestPongScoring < Minitest::Test
-  runs_on :reference, :native
-
   # The example's field/paddle geometry (examples/pong.rb).
   SCREEN_W  = 240
   PADDLE_W  = 4

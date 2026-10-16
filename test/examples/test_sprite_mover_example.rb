@@ -10,9 +10,6 @@ require RubyGBA.root.join("examples/sprite_mover").to_s
 # everything pattern is gone from the loop — and that it still renders and steers,
 # on the interpreter and on the emulator.
 class TestSpriteMoverExample < Minitest::Test
-  # True of the game however it is played: see TestSuites.
-  runs_on :reference, :native
-
   include RubyGBA::Console::Hardware
 
   FIELD = RubyGBA::Graphics::Color.rgb(4, 6, 14)

@@ -7,9 +7,6 @@ require "native_comparison"
 # variables the interpreter ends it with. Each test is a small game built through the DSL; the
 # answer is whatever the interpreter says, frame by frame (see NativeComparison).
 class TestNativeLogic < Minitest::Test
-  # The native lowering's own tests, which only a native run plays (see TestSuites).
-  runs_on :native
-
   include NativeComparison
 
   def test_a_counter_in_a_game_loop_counts_every_frame

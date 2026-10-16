@@ -9,9 +9,6 @@ require RubyGBA.root.join("examples/font_styles").to_s
 # custom fonts really are different (distinct glyph pixels), and that it renders on
 # the emulator.
 class TestFontStylesExample < Minitest::Test
-  # True of the game however it is played: see TestSuites.
-  runs_on :reference, :native
-
   # The lit pixels of the word band drawn at (8, y), height h — relative coords.
   private def word_pixels(screen, y, h, color)
     want = Color.resolve(color)

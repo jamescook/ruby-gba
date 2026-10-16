@@ -11,8 +11,6 @@ require "differential"
 # console, checks the two pictures are the same picture, and then counts colours: one block
 # of red is one sprite, more is a trail, none is a sprite that left.
 class TestSceneSprite < Minitest::Test
-  runs_on :reference, :native
-
   include Differential
 
   SIDE = 8

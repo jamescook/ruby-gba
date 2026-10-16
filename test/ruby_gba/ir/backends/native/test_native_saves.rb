@@ -9,9 +9,6 @@ require "tmpdir"
 # made by any of the three starts a game on any other. These are small made-up programs; the
 # interpreter is the answer key for every one.
 class TestNativeSaves < Minitest::Test
-  # The native lowering's own tests, which only a native run plays (see TestSuites).
-  runs_on :native
-
   include NativeComparison
 
   HeadlessRun = RubyGBA::IR::Backends::Native::HeadlessRun

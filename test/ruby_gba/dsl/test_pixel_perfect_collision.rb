@@ -8,8 +8,6 @@ require "test_helper"
 # These assert the observable difference through the DSL surface — the case a plain
 # bounding box gets wrong — on the interpreter oracle and on real hardware.
 class TestPixelPerfectCollision < Minitest::Test
-  runs_on :reference, :native
-
   include RubyGBA::Console::Hardware
 
   # An 8x8 shape drawn only in two opposite corners (top-left and bottom-right 2x2

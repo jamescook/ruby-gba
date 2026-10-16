@@ -10,8 +10,6 @@ require "test_helper"
 # hands each one a table slot. A human can check the numbers below by eye against
 # the named-color values in Color::PRESETS.
 class TestIRPalette < Minitest::Test
-  runs_on :reference, :native
-
   Palette = RubyGBA::IR::Palette
   Build = RubyGBA::IR::Build
 

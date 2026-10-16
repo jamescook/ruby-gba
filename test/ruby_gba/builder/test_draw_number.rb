@@ -8,8 +8,6 @@ require "test_helper"
 # runtime digit machinery must land the same pixels as the trusted text path, in
 # the interpreter and on real hardware.
 class TestDrawNumber < Minitest::Test
-  runs_on :reference, :native
-
   Build = RubyGBA::IR::Build
 
   W = Builder::Text::GLYPH_WIDTH # 6px per digit column

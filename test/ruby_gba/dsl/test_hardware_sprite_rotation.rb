@@ -10,8 +10,6 @@ require "test_helper"
 # guardrails — on the interpreter oracle and on real hardware. The dev never
 # touches the OAM affine matrix, a sine table, or fixed-point math.
 class TestHardwareSpriteRotation < Minitest::Test
-  runs_on :reference, :native
-
   include RubyGBA::Console::Hardware
 
   # A 16x16 sprite whose LEFT half is red and RIGHT half is green — two big regions,

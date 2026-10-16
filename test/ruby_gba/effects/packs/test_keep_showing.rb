@@ -10,8 +10,6 @@ require "differential"
 # once flickers; a plain screen keeps one, so a change drawn once is done. The same
 # game code has to be right on both, which is what these tests pin.
 class TestKeepShowing < Minitest::Test
-  runs_on :reference, :native
-
   include Differential
   include EmulatorSupport
 

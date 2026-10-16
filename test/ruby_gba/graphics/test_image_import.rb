@@ -14,8 +14,6 @@ require "test_helper"
 # whole point of the feature, so its absence is a real failure with a message
 # that names the install (not a silent green run).
 class TestImageImport < Minitest::Test
-  runs_on :reference, :native
-
   include RubyGBA::IR::Build
 
   Image = RubyGBA::Graphics::Image

@@ -15,8 +15,6 @@ require "differential"
 # right of centre facing the other way, not jump. That is why almost every test here
 # compares the two backends over a played cycle rather than counting bytes.
 class TestSpriteMirror < Minitest::Test
-  runs_on :reference, :native
-
   include Differential
 
   CANVAS = 32

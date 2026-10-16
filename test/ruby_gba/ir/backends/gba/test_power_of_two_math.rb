@@ -13,8 +13,6 @@ require "differential"
 # (especially on negatives, where the shortcut and the honest routine round differently)
 # and that the shortcut is actually being taken.
 class TestPowerOfTwoMath < Minitest::Test
-  runs_on :reference
-
   include Differential
 
   # Markers sit at `answer + OFFSET` so a negative answer still lands on screen.

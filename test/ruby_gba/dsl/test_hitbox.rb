@@ -11,8 +11,6 @@ require "test_helper"
 # DSL codegen, so both backends run the same test — asserted on the interpreter oracle
 # here, with one hardware check.
 class TestHitbox < Minitest::Test
-  runs_on :reference, :native
-
   include RubyGBA::Console::Hardware
 
   # An 8x8 dot with a 4x4 visible block in the middle (columns/rows 2..5) and a 2px

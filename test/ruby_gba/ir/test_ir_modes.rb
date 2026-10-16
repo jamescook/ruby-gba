@@ -9,8 +9,6 @@ require "test_helper"
 # working it out. These tests build tiny programs straight from the IR (the
 # analysis is what's under test, not the DSL) and assert the resolution.
 class TestIRModes < Minitest::Test
-  runs_on :reference, :native
-
   include RubyGBA::IR::Build
 
   Modes = RubyGBA::IR::Modes

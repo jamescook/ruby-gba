@@ -12,8 +12,6 @@ require RubyGBA.root.join("test/fixtures/scene_classes/play_screen").to_s
 # scene) and dispatch with case_var. No base class, no registrar, no magic — this test
 # proves only the active screen's presentation shows and only its update runs.
 class TestSceneClassForm < Minitest::Test
-  runs_on :reference, :native
-
   GREEN = Color.resolve(:green) # TitleScreen's marker
   CYAN = Color.resolve(:cyan)   # PlayScreen's marker
 
