@@ -468,11 +468,20 @@ module RubyGBA
         return if placement.passed_over.empty?
 
         placement.passed_over.first(NAMED_MISSES).each do |over|
-          printer.puts format("    (%s did not fit — it needs %s and %s was left when its " \
+          printer.puts format("    (%s did not fit%s — it needs %s and %s was left when its " \
                               "turn came, so it runs from the cartridge.%s)",
-                              Messages::PlainWords.routine(over.name), kilobytes(over.bytes), kilobytes(over.room),
-                              repeated_note(program, over, emitted))
+                              Messages::PlainWords.routine(over.name), missed_share_words(placement, over),
+                              kilobytes(over.bytes), kilobytes(over.room), repeated_note(program, over, emitted))
         end
+      end
+
+      # Whose share of the quick memory a routine missed, once the room is split between the
+      # whole game and its scenes; nothing to say when it is one room.
+      def missed_share_words(placement, over)
+        return " in scene #{over.scene.inspect}'s share" if over.scene
+        return " in the share kept for the whole game" unless placement.scenes.empty?
+
+        ""
       end
 
       # THE LINE A ROUTINE'S SIZE COMES FROM, ranked by the bytes emitted for it rather than by
@@ -578,7 +587,7 @@ module RubyGBA
           end,
           passed_over: placement.passed_over.map do |over|
             { name: over.name.to_s, label: Messages::PlainWords.routine(over.name),
-              bytes: over.bytes, room: over.room }
+              bytes: over.bytes, room: over.room, scene: over.scene&.to_s }
           end
         })
       end

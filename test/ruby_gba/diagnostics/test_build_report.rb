@@ -84,6 +84,36 @@ class TestBuildReport < Minitest::Test
     assert_match(/scene :play:\n(\s+.*\n)*?\s+.*func :play_work/, text)
   end
 
+  # ...AND WHICH SCENE'S SHARE A ROUTINE MISSED. With the room split, a routine of play's that
+  # does not fit missed play's share, not the whole game's: the title's routine took none of it.
+  def test_it_says_which_scenes_share_a_routine_did_not_fit_in
+    rom = RubyGBA.build("BRMISS", out: StringIO.new, err: StringIO.new, profile: false) do
+      x = var :x, 0
+      var :where, 0
+      func(:title_work) { 1200.times { x.add! 1 } }
+      func(:play_work) { 1200.times { x.add! 2 } }
+      func(:play_more) { 1200.times { x.add! 3 } }
+      scene(:title) { call :title_work }
+      scene(:play) do
+        call :play_work
+        call :play_more
+      end
+      game_loop do
+        pressed(:a).then { set! :where, 1 }
+        case_var(:where) do
+          when_val 0, :title
+          when_val 1, :play
+        end
+      end
+    end
+    text = report_for(rom)
+
+    assert_match(/func :play_(work|more) did not fit in scene :play's share — it needs/, text)
+    refute_match(/func :title_work did not fit/, text)
+    missed = RubyGBA::Diagnostics::BuildReport.as_json(rom).dig(:quick_memory, :passed_over)
+    assert_equal ["play"], missed.map { |over| over[:scene] }.uniq
+  end
+
   # THE ACTIONABLE HALF, and the one a finished cartridge cannot answer: a routine that just
   # missed is exactly where a game lost that speed, and by then the evidence is gone.
   def test_it_names_what_did_not_fit_with_what_it_wanted_and_what_was_left

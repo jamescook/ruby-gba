@@ -46,11 +46,19 @@ module RubyGBA
       # One routine's part of the busiest scene's work, in per cent, and which scene that was.
       Share = Data.define(:percent, :scene)
 
-      def initialize(work:, game: nil, measured_at: nil, busiest: nil)
+      # EACH SCENE'S OWN COUNTS, by the scene's name: instructions a frame of that scene ran in
+      # each routine. Empty for a game with no scenes, and for a profile saved before these
+      # were kept. The added-up counts rank a routine by what it is worth over the whole game;
+      # these say what it is worth to any ONE frame, which is what a scene's own share of the
+      # quick memory is chosen by (see #order_by_scene_work).
+      attr_reader :scenes
+
+      def initialize(work:, game: nil, measured_at: nil, busiest: nil, scenes: {})
         @work = work
         @game = game
         @measured_at = measured_at
         @busiest = busiest
+        @scenes = scenes
       end
 
       # Read a saved profile. Returns nil when there is no file — a missing profile is the
@@ -60,7 +68,8 @@ module RubyGBA
 
         data = JSON.parse(File.read(path))
         new(work: data.fetch("routines", {}).transform_keys(&:to_sym),
-            game: data["game"], measured_at: data["measured_at"], busiest: busiest_from(data["busiest_scene"]))
+            game: data["game"], measured_at: data["measured_at"], busiest: busiest_from(data["busiest_scene"]),
+            scenes: data.fetch("scenes", {}).to_h { |scene, counts| [scene.to_sym, counts.transform_keys(&:to_sym)] })
       rescue JSON::ParserError => e
         raise ProfileError, "#{path} is not a profile this can read (#{e.message}). To fix this, " \
                             "measure the game again with `rom.profile` and save it."
@@ -81,7 +90,8 @@ module RubyGBA
 
       # ...and from the whole of what it answers: the counts, and the busiest scene's reading.
       def self.from_survey(survey, game: nil)
-        new(work: survey.work, game: game, measured_at: Time.now.utc.iso8601, busiest: busiest_in(survey.scenes))
+        new(work: survey.work, game: game, measured_at: Time.now.utc.iso8601, busiest: busiest_in(survey.scenes),
+            scenes: survey.scenes.filter_map { |scene, reading| [scene, Profiler.work_in(reading)] if scene }.to_h)
       end
 
       # The scene that ran the most instructions a frame, out of +scenes+ (each scene's name
@@ -105,8 +115,8 @@ module RubyGBA
       end
 
       def as_json
-        saved = { "game" => game, "measured_at" => measured_at,
-                  "routines" => work.sort_by { |_, n| -n }.to_h { |name, n| [name.to_s, n] } }
+        saved = { "game" => game, "measured_at" => measured_at, "routines" => counts_as_json(work) }
+        saved["scenes"] = scenes.to_h { |scene, counts| [scene.to_s, counts_as_json(counts)] } unless scenes.empty?
         return saved unless busiest
 
         saved.merge("busiest_scene" => { "scene" => busiest.scene&.to_s,
@@ -143,9 +153,21 @@ module RubyGBA
       # +names+ ordered by what a frame was measured to spend in each, dearest first. A routine
       # the profile never saw goes last, in the order it was given — it is new since the
       # measuring, and nothing here can say what it costs.
-      def order_by_work(names)
-        measured, unmeasured = names.partition { |name| measured?(name) }
-        measured.sort_by { |name| [-work.fetch(name), name.to_s] } + unmeasured
+      def order_by_work(names) = order_measured_first(names) { |name| work.fetch(name) }
+
+      # +names+ ordered by the most a frame of any one scene was measured to spend in each,
+      # dearest first — the second order the scenes' shares of the quick memory are tried in
+      # (see GBA::SceneQuickMemory#choose_scene_sets). Added up over every scene, a routine two
+      # scenes run reads dearer than one scene's own busier routine, though a frame of either
+      # spends less in it. With no scene's counts, it is #order_by_work.
+      #
+      # A routine measured but in no scene's counts ranks at nothing, behind every scene's
+      # routines and ahead of the ones never measured. The game loop is one, and it is placed
+      # before anything this orders.
+      def order_by_scene_work(names)
+        return order_by_work(names) if scenes.empty?
+
+        order_measured_first(names) { |name| scenes.values.map { |counts| counts.fetch(name, 0) }.max }
       end
 
       # A routine has to do enough work to be worth the room. The same job WORTH_MOVING did for
@@ -161,6 +183,17 @@ module RubyGBA
       WORTH_MOVING = 24
 
       def worth_quick_memory?(name) = work.fetch(name, 0) >= WORTH_MOVING
+
+      private
+
+      # +names+ the profile measured, dearest by the block first, then the rest as given.
+      def order_measured_first(names, &cost)
+        measured, unmeasured = names.partition { |name| measured?(name) }
+        measured.sort_by { |name| [-cost.call(name), name.to_s] } + unmeasured
+      end
+
+      # Counts by routine, dearest first, as a saved profile keeps them.
+      def counts_as_json(counts) = counts.sort_by { |_, n| -n }.to_h { |name, n| [name.to_s, n] }
     end
   end
 

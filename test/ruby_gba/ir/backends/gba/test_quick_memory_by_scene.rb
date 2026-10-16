@@ -40,6 +40,29 @@ class TestQuickMemoryByScene < Minitest::Test
     builder.program
   end
 
+  # The same game, whose screen is a variable holding the scene's name, run with `call where`.
+  private def two_screens_by_name(adds:)
+    builder = Builder.new
+    builder.instance_eval do
+      a = var :a, 0
+      b = var :b, 0
+      t = var :t, 0
+      where = var :where, :title
+      func(:title_work) { adds.times { a.add! 1 } }
+      func(:play_work) { adds.times { b.add! 1 } }
+      scene(:title) { call :title_work }
+      scene(:play) { call :play_work }
+      game_loop do
+        t.add! 1
+        (t == 6).then { where.set! :play }
+        (t == 12).then { where.set! :title }
+        call where
+      end
+    end
+    builder.finalize_program
+    builder.program
+  end
+
   # A game whose play screen insists on a routine of about +adds+ additions in the quick memory,
   # and whose file screen saves a record that insists on its save routines there too.
   # With +logos+, the game opens on a screen of logos that has no routines of its own, as a
@@ -70,8 +93,38 @@ class TestQuickMemoryByScene < Minitest::Test
     builder.program
   end
 
-  private def placement_of(program)
-    backend = GBA.new
+  # Two screens that each run a routine of their own and one they share, each about +adds+
+  # additions long.
+  private def two_screens_sharing(adds:)
+    builder = Builder.new
+    builder.instance_eval do
+      x = var :x, 0
+      var :where, 0
+      func(:shared_work) { adds.times { x.add! 1 } }
+      func(:title_work) { adds.times { x.add! 2 } }
+      func(:play_work) { adds.times { x.add! 3 } }
+      scene(:title) do
+        call :shared_work
+        call :title_work
+      end
+      scene(:play) do
+        call :shared_work
+        call :play_work
+      end
+      game_loop do
+        pressed(:a).then { set! :where, 1 }
+        case_var(:where) do
+          when_val 0, :title
+          when_val 1, :play
+        end
+      end
+    end
+    builder.finalize_program
+    builder.program
+  end
+
+  private def placement_of(program, routine_profile: nil)
+    backend = GBA.new(routine_profile: routine_profile)
     backend.lower(program)
     backend.iwram_report
   end
@@ -84,6 +137,55 @@ class TestQuickMemoryByScene < Minitest::Test
 
     assert_includes report.scenes.fetch(:title), :title_work
     assert_includes report.scenes.fetch(:play), :play_work
+  end
+
+  # A GAME THAT PICKS ITS SCREEN BY NAME (`call where`) splits the room the same way, and the
+  # console runs each scene's routine whole across the swaps.
+  def test_screens_picked_by_name_each_keep_their_own_busy_routine
+    program = two_screens_by_name(adds: BIG)
+    report = placement_of(program)
+    rom = assemble_rom(program, name: "BYNAME")
+    v = assert_emulator_loads_rom(rom, frames: 30, vars: rom.var_addresses)
+
+    assert_includes report.scenes.fetch(:title), :title_work
+    assert_includes report.scenes.fetch(:play), :play_work
+    assert_equal BIG * 6, v.var(:b), "play ran its six passes, each whole"
+    assert_equal BIG * v.var(:t), v.var(:a) + v.var(:b), "every pass ran one scene's routine whole"
+  end
+
+  # EACH SCENE'S ROOM GOES TO WHAT A FRAME OF THAT SCENE SPENDS THE MOST IN. A routine both
+  # screens run is counted once for each in the measurement added up over every scene, so it
+  # reads dearer than either screen's own routine, though a frame of either spends less in it.
+  # Kept for the whole game, it would take the room both screens' own routines need.
+  def test_each_scenes_room_goes_to_what_a_frame_of_it_spends_most_in
+    frame = GBA::Placement::FRAME_ROUTINE
+    profile = RubyGBA::Diagnostics::RoutineProfile.new(
+      work: { frame => 400, _scene_title: 30, _scene_play: 30, shared_work: 2000, title_work: 1500, play_work: 1500 },
+      scenes: { title: { frame => 200, _scene_title: 30, shared_work: 1000, title_work: 1500 },
+                play: { frame => 200, _scene_play: 30, shared_work: 1000, play_work: 1500 } }
+    )
+    report = placement_of(two_screens_sharing(adds: BIG), routine_profile: profile)
+
+    assert_includes report.scenes.fetch(:title, []), :title_work, "kept: #{report.funcs}, sets: #{report.scenes}"
+    assert_includes report.scenes.fetch(:play, []), :play_work
+    refute_includes report.funcs, :shared_work
+  end
+
+  # ...BUT NOT AT THE OTHER SCENES' COST. Here play's own routine is a little busier than the
+  # one both screens run, and the title runs nothing of its own: keeping the shared one for the
+  # whole game speeds up both screens, where play's own would speed up play a little more and
+  # the title not at all.
+  def test_a_routine_both_screens_run_keeps_its_room_when_that_is_worth_more
+    frame = GBA::Placement::FRAME_ROUTINE
+    profile = RubyGBA::Diagnostics::RoutineProfile.new(
+      work: { frame => 400, _scene_title: 30, _scene_play: 30, shared_work: 2000, title_work: 0, play_work: 1100 },
+      scenes: { title: { frame => 200, _scene_title: 30, shared_work: 1000 },
+                play: { frame => 200, _scene_play: 30, shared_work: 1000, play_work: 1100 } }
+    )
+    report = placement_of(two_screens_sharing(adds: BIG), routine_profile: profile)
+
+    assert_includes report.funcs, :shared_work, "kept: #{report.funcs}, sets: #{report.scenes}"
+    refute_includes report.scenes.fetch(:play, []), :play_work
   end
 
   # A ROUTINE A TIMER REACHES IS IN NO SCENE'S SET, though only play calls it otherwise: a tick

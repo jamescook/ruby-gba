@@ -149,16 +149,70 @@ module RubyGBA
           #
           # Answers a {SceneSplit}, or nil when splitting keeps nothing
           # more than one set did, and the game is built as it was.
+          #
+          # WHICH ROUTINES GO FIRST is tried two ways when the measurement kept each scene's own
+          # counts, and the one that leaves more of the scenes' measured work in the quick memory
+          # is kept. Added up over every scene, a routine two scenes run reads dearer than either
+          # scene's own busier routine, though a frame of either spends less in it; taken by what
+          # one scene spends, a routine five scenes run loses its room to one scene's own routine
+          # that is barely busier. Neither order is right for every game, and filling the room
+          # is cheap enough to do twice.
           def choose_scene_sets(program, wanted, sizes, room, insisted, chosen)
             dispatch = quick_memory_dispatch(program) or return nil
             scenes = dispatch.clauses.map(&:last).uniq
             return nil if scenes.size > MOST_SETS
-            owners = scene_owners(program, scenes)
-            only_scene = ->(name) { (o = owners[name]).size == 1 && scenes.include?(o.first) ? o.first : nil }
 
             frame = Placement::FRAME_ROUTINE
-
             sizes = sizes.merge(frame => sizes[frame] + DISPATCH_ENTRY_BYTES + (DISPATCH_CLAUSE_BYTES * dispatch.clauses.size)) if sizes[frame]
+            room_to_split = RoomToSplit.new(scenes: scenes, owners: scene_owners(program, scenes), sizes: sizes,
+                                            room: room, insisted: insisted, chosen: chosen)
+            orders = [wanted]
+            orders << @routine_profile.order_by_scene_work(wanted) if @routine_profile && !@routine_profile.scenes.empty?
+            filled = orders.uniq.filter_map { |order| fill_scene_sets(order, room_to_split) }
+            best = filled.max_by { |filling| work_kept_in_scenes(filling) } or return nil
+
+            @quick_memory_dispatch = dispatch
+            @quick_memory_sets = best.sets.transform_values(&:to_a)
+            @set_of_routine = {}
+            @quick_memory_sets.each_with_index do |(_, names), index|
+              names.each { |name| @set_of_routine[name] = index + 1 }
+            end
+            # The sets holding a routine the game loop reaches outside their scene — a save's
+            # routines, written a piece a pass whichever screen is up. They go in first at
+            # power-on and are kept clear of where the others go (see #place_scene_sets).
+            @sets_run_by_loop = @quick_memory_sets.values.each_with_index.filter_map do |names, index|
+              index + 1 if names.any? { |name| room_to_split.owners[name].include?(:frame) }
+            end
+            @passed_over = best.passed_over
+            SceneSplit.new(resident: best.resident, sizes: sizes)
+          end
+
+          # What a split is worked out from: the scene routines the dispatch names, who runs each
+          # routine (see #scene_owners), what each routine is charged, the room there is, and the
+          # routines the author insisted on and the whole-game choice kept.
+          RoomToSplit = Data.define(:scenes, :owners, :sizes, :room, :insisted, :chosen)
+
+          # One way of filling the room: the routines kept for the whole game, each scene's set,
+          # and what was turned away.
+          SceneFilling = Data.define(:resident, :sets, :passed_over)
+
+          # HOW MUCH OF THE SCENES' MEASURED WORK A FILLING KEEPS IN THE QUICK MEMORY: for each
+          # scene, what a frame of it spends in the routines kept for the whole game and in its
+          # own set, added up over the scenes. Nothing without each scene's own counts, when
+          # there is only one filling to choose from.
+          def work_kept_in_scenes(filling)
+            counts_by_scene = @routine_profile&.scenes || {}
+            filling.sets.sum do |scene, set|
+              counts = counts_by_scene.fetch(scene_name(scene), {})
+              (filling.resident.to_a + set.to_a).sum { |name| counts.fetch(name, 0) }
+            end
+          end
+
+          # FILL THE ROOM taking +wanted+ in that order. Answers a {SceneFilling}, or nil when
+          # the filling is no split worth having.
+          def fill_scene_sets(wanted, room_to_split)
+            room_to_split => { scenes:, owners:, sizes:, room:, insisted:, chosen: }
+            only_scene = ->(name) { (o = owners[name]).size == 1 && scenes.include?(o.first) ? o.first : nil }
             rooms = scenes.to_h { |scene| [scene, room - (FAR_WORD_SLACK * scenes.size) - 4] }
             resident = Set.new
             sets = scenes.to_h { |scene| [scene, Set.new] }
@@ -172,8 +226,15 @@ module RubyGBA
               own = scene ? bytes_added_by(name, sets[scene], sizes) : bytes_added_by(name, resident, sizes)
               everywhere = scene ? WHERE_WORD_BYTES : own
               left_here = scene ? rooms[scene] : rooms.values.min
-              if (scene && own + everywhere > left_here) || everywhere > rooms.values.min
-                passed_over << passed_over_note(name, scene ? own + everywhere : own, left_here)
+              if scene && own + everywhere > left_here
+                passed_over << passed_over_note(name, adds: own + everywhere, room: left_here, scene: scene)
+                next false
+              end
+              if everywhere > rooms.values.min
+                # What did not fit is in the scene with the least room left: the routine's word,
+                # or the whole routine kept for the whole game.
+                tightest, left = rooms.min_by { |_, left_there| left_there }
+                passed_over << passed_over_note(name, adds: everywhere, room: left, scene: scene && tightest)
                 next false
               end
 
@@ -210,20 +271,7 @@ module RubyGBA
             # split worth having: the game is built as it was.
             return nil unless (chosen & every_frame_routines).all? { |name| resident.include?(name) }
 
-            @quick_memory_dispatch = dispatch
-            @quick_memory_sets = sets.transform_values(&:to_a)
-            @set_of_routine = {}
-            @quick_memory_sets.each_with_index do |(_, names), index|
-              names.each { |name| @set_of_routine[name] = index + 1 }
-            end
-            # The sets holding a routine the game loop reaches outside their scene — a save's
-            # routines, written a piece a pass whichever screen is up. They go in first at
-            # power-on and are kept clear of where the others go (see #place_scene_sets).
-            @sets_run_by_loop = @quick_memory_sets.values.each_with_index.filter_map do |names, index|
-              index + 1 if names.any? { |name| owners[name].include?(:frame) }
-            end
-            @passed_over = passed_over
-            SceneSplit.new(resident: resident, sizes: sizes)
+            SceneFilling.new(resident: resident, sets: sets, passed_over: passed_over)
           end
 
           # What splitting the room settled: the routines kept for the whole game, and what each
@@ -245,10 +293,12 @@ module RubyGBA
             askers.size == 1 ? askers.first : nil
           end
 
-          # A routine turned away, with what a frame was measured to spend in it, for the report
-          # and the warning that reads it.
-          def passed_over_note(name, adds, room)
-            Placement::PassedOver.new(name: name, bytes: adds, room: room, measured: @routine_profile&.busiest_share_of(name))
+          # A routine turned away from +scene+'s set (nil: from the room kept for the whole
+          # game), with what a frame was measured to spend in it, for the report and the warning
+          # that reads it.
+          def passed_over_note(name, adds:, room:, scene:)
+            Placement::PassedOver.new(name: name, bytes: adds, room: room, measured: @routine_profile&.busiest_share_of(name),
+                                      scene: scene && scene_name(scene))
           end
 
           public

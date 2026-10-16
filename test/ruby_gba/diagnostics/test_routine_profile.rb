@@ -77,6 +77,24 @@ class TestRoutineProfile < Minitest::Test
     end
   end
 
+  # EACH SCENE'S OWN COUNTS ARE KEPT, and saved: a routine both scenes run is counted once for
+  # each in the added-up counts, and only these say what a frame of either spends in it.
+  def test_each_scenes_own_counts_are_kept_and_saved
+    title = Reading.new(30, 0, [Line.new(name: :shared, label: "", samples: 30 * 100, share: 0, time_share: 0, where: :rom),
+                                Line.new(name: :title_art, label: "", samples: 30 * 150, share: 0, time_share: 0, where: :rom)])
+    play = Reading.new(30, 0, [Line.new(name: :shared, label: "", samples: 30 * 100, share: 0, time_share: 0, where: :rom)])
+    survey = RubyGBA::Diagnostics::Profiler::Survey.new(work: { shared: 200, title_art: 150 }, scenes: { title: title, play: play })
+
+    Dir.mktmpdir do |dir|
+      path = RoutineProfile.from_survey(survey).write(File.join(dir, "game.profile.json"))
+      read = RoutineProfile.read(path)
+
+      assert_equal({ shared: 100, title_art: 150 }, read.scenes.fetch(:title))
+      assert_equal %i[title_art shared], read.order_by_scene_work(%i[shared title_art])
+      assert_equal %i[shared title_art], read.order_by_work(%i[shared title_art]), "added up, the shared one is dearer"
+    end
+  end
+
   # A profile saved before the busiest scene was kept still reads, and has no share to give.
   def test_a_profile_saved_without_a_busiest_scene_still_reads
     Dir.mktmpdir do |dir|

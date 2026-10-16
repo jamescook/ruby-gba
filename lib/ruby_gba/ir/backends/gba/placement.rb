@@ -174,9 +174,10 @@ module RubyGBA
           # A routine the chooser skipped, and by how much. +measured+ is what the routine was
           # measured to be of the busiest scene's work (a Diagnostics::RoutineProfile::Share) —
           # what is lost by leaving it out — and nil where that was not measured, and nobody
-          # knows.
-          PassedOver = Data.define(:name, :bytes, :room, :measured) do
-            def initialize(measured: nil, **rest) = super
+          # knows. +scene+ is the name of the scene whose share it missed, for a game whose room
+          # was split (see {SceneQuickMemory}); nil for the room kept for the whole game.
+          PassedOver = Data.define(:name, :bytes, :room, :measured, :scene) do
+            def initialize(measured: nil, scene: nil, **rest) = super
           end
 
           # Valid after #lower.
