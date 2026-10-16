@@ -752,7 +752,16 @@ module RubyGBAEmulator
     # most misleading thing this could report. It is in CYCLES, not instructions,
     # because a sleep is time rather than code; {#idle_share} puts it against the
     # frame it slept through.
-    Profile = Data.define(:frames, :samples, :halted, :elsewhere, :finished, :pc,
+    #
+    # +cycles+ is the TIME each address took, beside +pc+'s count of how often it ran. The two
+    # part company at a copy: the console's copy engine stops the processor until it is done, so
+    # the one instruction that starts a copy can take a frame's worth of cycles, and only this
+    # says so.
+    #
+    # +late+ is, for each pass that went to sleep inside a break between pictures that began
+    # while it ran, how many lines sooner it had to end to make that break. A game's pass waits
+    # for the NEXT break, so such a pass sleeps a whole picture however few lines late it was.
+    Profile = Data.define(:frames, :samples, :halted, :elsewhere, :finished, :pc, :cycles, :late,
                           :cycles_per_frame) do
       # The addresses that came up most, dearest first.
       #
@@ -827,7 +836,7 @@ module RubyGBAEmulator
       @pixels = @core.video_buffer
       Profile.new(frames: raw[:frames], samples: raw[:samples], halted: raw[:halted],
                   elsewhere: raw[:elsewhere], finished: raw[:finished], pc: raw[:pc],
-                  cycles_per_frame: frame_cycles)
+                  cycles: raw[:cycles], late: raw[:late], cycles_per_frame: frame_cycles)
     end
 
     # --- stopping inside a frame, for somebody debugging generated code ------

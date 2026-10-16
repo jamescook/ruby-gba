@@ -36,7 +36,13 @@ module RubyGBA
       # One routine's share of the run. +where+ is the memory it ran from, which an author never
       # chose and often wants to know: the same routine is about two and a third times faster in
       # the console's quick memory than in the cartridge.
-      Line = Data.define(:name, :label, :samples, :share, :where)
+      #
+      # +share+ is its share of the INSTRUCTIONS run and +time_share+ its share of the TIME the
+      # console was awake, and the two are told apart because a copy into video memory makes them
+      # differ. The console's copy engine stops the processor until the copy is done, so a routine
+      # that starts one runs a dozen instructions and can take most of a frame. Counted only by
+      # instructions, a scene sending its pictures as it arrives looks free.
+      Line = Data.define(:name, :label, :samples, :share, :time_share, :where)
 
       # How the measured moment was reached. A profile without this is not reproducible: the same
       # cartridge measured on its title screen and measured in its boss fight are different
@@ -79,8 +85,13 @@ module RubyGBA
       # ran, and the bytes it moved a frame, on average.
       VideoCopyLine = Data.define(:source, :copies, :bytes_per_frame)
 
+      # +late_passes+ is, for each pass of the game loop that ended inside a break between
+      # pictures that began while it ran, how many lines sooner it had to end. Such a pass
+      # waits for the break after, a whole picture, however few lines late it was — so a game
+      # whose rate halves for one line of work says why here and nowhere else.
       Result = Data.define(:frames, :samples, :fps, :idle_share, :lines, :unattributed, :keys,
-                           :reached, :tearing, :flicker, :tick_rates, :sound_drops, :video_copies) do
+                           :reached, :tearing, :flicker, :tick_rates, :sound_drops, :video_copies,
+                           :late_passes) do
         def dropping_frames? = fps < 59.5
 
         # Instructions a frame — what the game actually does, where a share only says how that
@@ -91,6 +102,7 @@ module RubyGBA
         def to_h
           { frames: frames, samples: samples, fps: fps, idle_share: idle_share,
             keys: keys.map(&:to_s), unattributed: unattributed, reached: reached.to_h,
+            late_passes: late_passes,
             tearing: tearing && { looked: tearing.looked, torn: tearing.torn, worst: tearing.worst },
             flicker: flicker&.measured? ? { pixels: flicker.pixels, first: flicker.first } : nil,
             timers: tick_rates.select(&:measured?).map do |tick|
@@ -104,7 +116,7 @@ module RubyGBA
             end,
             routines: lines.map do |line|
               { name: line.name.to_s, label: line.label, samples: line.samples,
-                share: line.share, where: line.where.to_s }
+                share: line.share, time_share: line.time_share, where: line.where.to_s }
             end }
         end
       end
@@ -392,7 +404,8 @@ module RubyGBA
         a.with(frames: a.frames + b.frames, samples: a.samples + b.samples,
                halted: a.halted + b.halted, elsewhere: a.elsewhere + b.elsewhere,
                finished: a.finished + b.finished,
-               pc: a.pc.merge(b.pc) { |_, x, y| x + y })
+               pc: a.pc.merge(b.pc) { |_, x, y| x + y },
+               cycles: a.cycles.merge(b.cycles) { |_, x, y| x + y }, late: a.late + b.late)
       end
 
       # Frames to run before setting the scene, so the game is past its own start-up and the
@@ -511,22 +524,25 @@ module RubyGBA
                             tearing = nil, flicker = nil, tick_rates = [],
                             sound_drops = SoundDrops::Reading.unmeasured, video_copies = [])
         tally, outside = tally_by_routine(profile.pc, routines)
+        time, time_outside = tally_by_routine(profile.cycles, routines)
         total = profile.samples
+        awake = profile.cycles.sum { |_, spent| spent }
 
         lines = tally.sort_by { |_, seen| -seen }.map do |name, seen|
           Line.new(name: name, label: Messages::PlainWords.routine(name), samples: seen,
-                   share: share(seen, total), where: where_of(routines[name]))
+                   share: share(seen, total), time_share: share(time[name], awake),
+                   where: where_of(routines[name]))
         end
         lines += outside.sort_by { |_, seen| -seen }.map do |region, seen|
           Line.new(name: region, label: OUTSIDE.fetch(region), samples: seen,
-                   share: share(seen, total), where: region)
+                   share: share(seen, total), time_share: share(time_outside[region], awake), where: region)
         end
 
         Result.new(frames: profile.frames, samples: total, fps: profile.frames_per_second,
                    idle_share: profile.idle_share.round(4), lines: lines,
                    unattributed: share(outside.sum { |_, seen| seen }, total), keys: held,
                    reached: reached, tearing: tearing, flicker: flicker, tick_rates: tick_rates,
-                   sound_drops: sound_drops, video_copies: video_copies)
+                   sound_drops: sound_drops, video_copies: video_copies, late_passes: profile.late)
       end
 
       # WHAT RAN THAT IS NOT A ROUTINE THE AUTHOR WROTE, named by where it ran rather than
@@ -592,6 +608,7 @@ module RubyGBA
         printer.puts("")
         printer.puts("  #{result.fps} frames a second#{frame_drop_suffix(result)}")
         printer.puts("  #{(result.idle_share * 100).round(1)}% of each frame spare")
+        late_pass_line(result.late_passes, printer)
         tearing_line(result.tearing, printer)
         flicker_line(result.flicker, printer)
         tick_rate_lines(result.tick_rates, printer)
@@ -599,7 +616,9 @@ module RubyGBA
         video_copy_lines(result.video_copies, printer)
         printer.puts("")
 
-        result.lines.each { |line| printer.cost_line(label_for(line), "#{line.share}%") }
+        result.lines.each do |line|
+          printer.cost_line(label_for(line), "#{line.share}% of the instructions, #{line.time_share}% of the time")
+        end
       end
 
       # A routine's line says which memory it ran from, because that is worth about two and a
@@ -613,6 +632,20 @@ module RubyGBA
 
       def self.words_for(where)
         { quick_memory: "quick memory", cartridge: "cartridge" }.fetch(where, "somewhere else")
+      end
+
+      # Said only about passes that ended late. A pass waits for the NEXT break between pictures,
+      # so one that ends a line after a break began sleeps a whole picture; said as how many lines
+      # sooner it had to end, because that is what keeps the picture.
+      def self.late_pass_line(late, printer)
+        return if late.nil? || late.empty?
+
+        lines = late.minmax.uniq.join(" to ")
+        unit = late.max == 1 ? "line" : "lines"
+        passes = late.one? ? "1 pass" : "#{late.size} passes"
+        printer.puts("  #{passes} ended after the break between pictures began. Each one then waited " \
+                     "a whole picture for the next break. Ending #{lines} #{unit} sooner keeps the picture.",
+                     severity: :bad)
       end
 
       # Said only where a tear could be looked for. A screen that cannot tear says nothing here,

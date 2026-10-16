@@ -2711,9 +2711,28 @@ enum {
  * every odd slot empty. */
 #define PROF_GRAIN 2
 
+/* The most late passes one profile keeps: one a frame for longer than anybody profiles. */
+#define PROF_LATE_MAX 4096
+
 struct pc_tally {
     uint32_t *count[PROF_REGIONS];
+    /* CYCLES each address took, beside how many times it ran. Not the same thing: a store that
+     * starts the console's copy engine is one instruction, and the processor then stands still
+     * until the copy is done, so that one instruction can take most of a frame. Counting it once
+     * is how a whole-screen copy went unseen. Each step's cycles are charged to the instruction
+     * it ran, which is the instruction that started the copy. */
+    uint64_t *cycles[PROF_REGIONS];
+    uint64_t *copier;    /* where the copy now under way was started, or NULL */
     size_t    slots[PROF_REGIONS];
+    /* PASSES THAT ENDED A FEW LINES LATE. The wait at the end of a game's pass waits for the
+     * NEXT break between pictures, so a pass that goes to sleep a line after a break began sleeps
+     * a whole picture. +break_began+ says a break began while the game's own code was running;
+     * +last_line+ is the line the screen was on at the step before; +late+ holds, for each pass
+     * that then went to sleep inside that break, how many lines sooner it had to end to make it. */
+    int       break_began;
+    int       last_line;
+    int      *late;
+    size_t    late_count;
     uint64_t  samples;   /* instructions seen */
     uint64_t  halted;    /* CYCLES slept, not steps — see profile_one_frame */
     uint64_t  elsewhere; /* executing somewhere we have no room to count */
@@ -2753,9 +2772,13 @@ pc_tally_free(struct pc_tally *t)
 {
     for (int r = 0; r < PROF_REGIONS; ++r) {
         free(t->count[r]);
+        free(t->cycles[r]);
         t->count[r] = NULL;
+        t->cycles[r] = NULL;
         t->slots[r] = 0;
     }
+    free(t->late);
+    t->late = NULL;
 }
 
 /* Flat arrays rather than a hash: an address maps straight to a slot, so the
@@ -2774,15 +2797,23 @@ pc_tally_init(struct pc_tally *t, size_t rom_bytes)
         if (t->slots[r] == 0)
             continue;
         t->count[r] = calloc(t->slots[r], sizeof(uint32_t));
-        if (!t->count[r]) {
+        t->cycles[r] = calloc(t->slots[r], sizeof(uint64_t));
+        if (!t->count[r] || !t->cycles[r]) {
             pc_tally_free(t);
             return 0;
         }
     }
+    t->late = calloc(PROF_LATE_MAX, sizeof(int));
+    if (!t->late) {
+        pc_tally_free(t);
+        return 0;
+    }
     return 1;
 }
 
-static inline void
+/* Count one instruction at +addr+, and hand back where its cycles go once it has run — NULL for
+ * an address with no room to count it. */
+static inline uint64_t *
 pc_tally_hit(struct pc_tally *t, uint32_t addr)
 {
     uint32_t offset;
@@ -2790,9 +2821,10 @@ pc_tally_hit(struct pc_tally *t, uint32_t addr)
     size_t slot = offset / PROF_GRAIN;
     if (region < 0 || slot >= t->slots[region]) {
         t->elsewhere++;
-        return;
+        return NULL;
     }
     t->count[region][slot]++;
+    return &t->cycles[region][slot];
 }
 
 /* THE ADDRESS OF THE INSTRUCTION ABOUT TO RUN, which is not what r15 holds.
@@ -2823,6 +2855,22 @@ executing_pc(struct ARMCore *cpu)
 {
     uint32_t width = cpu->cpsr.t ? WORD_SIZE_THUMB : WORD_SIZE_ARM;
     return (uint32_t)cpu->gprs[ARM_PC] - width;
+}
+
+/* Which of the four copy engines have a copy under way that runs the moment it is started, as a
+ * mask. Those are the copies that stop the processor at a time the program chose. One that waits
+ * for the screen or the sound to ask for it stays switched on between runs, and is left out: its
+ * stalls still land on whatever instruction is running when it takes over. */
+static unsigned
+copies_under_way(struct GBA *gba)
+{
+    unsigned mask = 0;
+    for (int i = 0; i < 4; ++i) {
+        GBADMARegister reg = gba->memory.dma[i].reg;
+        if (GBADMARegisterIsEnable(reg) && GBADMARegisterGetTiming(reg) == 0)
+            mask |= 1u << i;
+    }
+    return mask;
 }
 
 /* Step one frame, writing down where the CPU was at each step.
@@ -2860,10 +2908,43 @@ profile_one_frame(struct mgba_core *mc, struct pc_tally *t)
         uint64_t before = gba->timing.globalCycles;
 
         if (!gba->cpu->halted) {
-            pc_tally_hit(t, executing_pc(gba->cpu));
+            uint32_t pc = executing_pc(gba->cpu);
+            uint64_t *spent = pc_tally_hit(t, pc);
+            unsigned copying = copies_under_way(gba);
+            /* Read before the step: the break's own interrupt is taken a few cycles after the
+             * break begins, so a long step (a slow load, a copy) can cross the line AND enter
+             * the handler, and after it the game's code would not look like the game's. */
+            int games_code = gba->cpu->cpsr.priv != MODE_IRQ && pc >= SIZE_BIOS;
+            /* mTimingGlobalTime, not globalCycles: the emulator brings globalCycles up to date
+             * only when it next has something scheduled to do, so between two of those every
+             * step reads as nothing and the step that catches up reads as all of it. */
+            uint64_t started = mTimingGlobalTime(&gba->timing);
             t->samples++;
             t->awake = 1;
             core->step(core);
+            uint64_t took = mTimingGlobalTime(&gba->timing) - started;
+            unsigned now = copies_under_way(gba);
+
+            /* A COPY TAKES OVER A FEW CYCLES AFTER THE STORE THAT STARTS IT, so the stall lands on
+             * whichever instruction runs then — often the return from the routine that started
+             * it, and so the next routine's. While a copy is under way, each step's cycles go to
+             * the instruction that started it. */
+            uint64_t *charged = (copying && t->copier) ? t->copier : spent;
+            if (charged)
+                *charged += took;
+            if (now & ~copying)
+                t->copier = spent;
+            else if (!now)
+                t->copier = NULL;
+
+            /* The break between pictures begins as the screen reaches its first line below the
+             * picture. Only a break that begins while the GAME's code runs counts — not the
+             * console's own code, and not the handler the break itself wakes, which is how every
+             * pass after a sleep begins. */
+            int line = gba->video.vcount;
+            if (t->last_line < GBA_VIDEO_VERTICAL_PIXELS && line >= GBA_VIDEO_VERTICAL_PIXELS && games_code)
+                t->break_began = 1;
+            t->last_line = line;
             continue;
         }
 
@@ -2871,8 +2952,16 @@ profile_one_frame(struct mgba_core *mc, struct pc_tally *t)
          * starts partway through a wait would otherwise count that leftover as
          * this frame's finish, and one frame in a whole run is enough to read
          * 30.3 where the game is doing a clean 30. */
-        if (t->awake)
+        if (t->awake) {
             slept_this_frame = 1;
+            int line = gba->video.vcount;
+            /* Asleep on the break's first line still missed it, so ending on the line before
+             * was one line sooner: that is why it is the line before the break that is
+             * counted from. */
+            if (t->break_began && line >= GBA_VIDEO_VERTICAL_PIXELS && t->late_count < PROF_LATE_MAX)
+                t->late[t->late_count++] = line - (GBA_VIDEO_VERTICAL_PIXELS - 1);
+            t->break_began = 0;
+        }
         t->awake = 0;
 
         core->step(core);
@@ -2909,7 +2998,7 @@ profile_one_frame(struct mgba_core *mc, struct pc_tally *t)
  * cartridge hands back a small hash. Regions cannot collide — each reports
  * against its own base — so they all go in the one hash. */
 static void
-pc_region_into(VALUE out, const struct pc_tally *t, int region)
+pc_region_into(VALUE out, VALUE cycles_out, const struct pc_tally *t, int region)
 {
     const uint32_t *count = t->count[region];
     if (!count)
@@ -2920,6 +3009,7 @@ pc_region_into(VALUE out, const struct pc_tally *t, int region)
             continue;
         uint32_t addr = PROF_BASE[region] + (uint32_t)(slot * PROF_GRAIN);
         rb_hash_aset(out, UINT2NUM(addr), UINT2NUM(count[slot]));
+        rb_hash_aset(cycles_out, UINT2NUM(addr), ULL2NUM(t->cycles[region][slot]));
     }
 }
 
@@ -2932,6 +3022,9 @@ pc_region_into(VALUE out, const struct pc_tally *t, int region)
  *   :frames    frames actually run
  *   :finished  of those, how many the game got its work done in
  *   :pc        { address => times seen }
+ *   :cycles    { address => cycles it took }, a copy it started included
+ *   :late      for each pass that went to sleep inside a break that began while it
+ *              ran, how many lines sooner it had to end to make that break
  *
  * The caller decides what has settled and what to hold: run it after stepping
  * past the boot frames, with whatever keys the measured behaviour needs.
@@ -2955,6 +3048,10 @@ mgba_core_profile(VALUE self, VALUE rb_frames, VALUE rb_keys)
     if (!NIL_P(rb_keys))
         core->setKeys(core, (uint32_t)NUM2UINT(rb_keys));
 
+    /* From the line the screen is on now, so a profile that starts inside a break does not
+     * read the break as having begun under the game's first step. */
+    tally.last_line = ((struct GBA *)core->board)->video.vcount;
+
     for (long f = 0; f < frames; ++f)
         profile_one_frame(mc, &tally);
 
@@ -2966,9 +3063,16 @@ mgba_core_profile(VALUE self, VALUE rb_frames, VALUE rb_keys)
     rb_hash_aset(out, ID2SYM(rb_intern("finished")),  ULL2NUM(tally.finished));
 
     VALUE pc = rb_hash_new();
+    VALUE cycles = rb_hash_new();
     for (int r = 0; r < PROF_REGIONS; ++r)
-        pc_region_into(pc, &tally, r);
+        pc_region_into(pc, cycles, &tally, r);
     rb_hash_aset(out, ID2SYM(rb_intern("pc")), pc);
+    rb_hash_aset(out, ID2SYM(rb_intern("cycles")), cycles);
+
+    VALUE late = rb_ary_new_capa((long)tally.late_count);
+    for (size_t i = 0; i < tally.late_count; ++i)
+        rb_ary_push(late, INT2NUM(tally.late[i]));
+    rb_hash_aset(out, ID2SYM(rb_intern("late")), late);
 
     pc_tally_free(&tally);
     return out;

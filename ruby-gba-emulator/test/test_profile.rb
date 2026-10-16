@@ -249,6 +249,33 @@ class TestRubyGBAEmulatorProfile < Minitest::Test
     end
   end
 
+  # A COPY STOPS THE PROCESSOR, so the time is charged to the store that started it. The clear
+  # is one copy of the whole screen: a dozen instructions, and most of the time the game is awake.
+  def test_the_time_a_copy_takes_is_charged_to_the_instruction_that_started_it
+    clearing = build_rom("PCYC", code: "PCYC") do
+      screen :bitmap
+      var :x, 0
+      game_loop do
+        clear_screen :black
+        repeat(50) { add! :x, 1 }
+      end
+    end
+    with_probe(clearing) do |probe|
+      profile = probe.profile(settle: 10)
+      awake = profile.cycles.values.sum
+      dearest, spent = profile.cycles.max_by { |_, cycles| cycles }
+
+      assert_equal 1, profile.pc[dearest], "the dearest instruction ran once: it started the copy"
+      assert_operator spent, :>, awake / 2, "and the copy is most of the time the game was awake"
+    end
+  end
+
+  def test_a_game_that_keeps_up_has_no_late_passes
+    with_probe(adding_rom(500, "PLAT", "PLAT")) do |probe|
+      assert_empty probe.profile(settle: 10).late
+    end
+  end
+
   def test_frames_must_be_positive
     with_probe(idle_rom) do |probe|
       assert_raises(ArgumentError) { probe.profile(frames: 0) }

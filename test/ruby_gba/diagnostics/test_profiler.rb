@@ -105,6 +105,83 @@ class TestProfiler < Minitest::Test
     assert_equal [:left], walking.keys
   end
 
+  # A COPY RUNS NO INSTRUCTIONS. The console's copy engine stops the processor until it is done,
+  # so a routine that starts a whole-screen clear runs a dozen instructions and takes most of a
+  # frame. Counted by instructions the sums win; counted by time the clear has to.
+  def test_the_time_a_copy_takes_is_charged_to_the_routine_that_starts_it
+    game = RubyGBA.build("PCPY", err: nil) do
+      screen :bitmap
+      var :x, 0
+      func(:the_clear) { clear_screen :black }
+      func(:the_sums) { repeat(200) { add! :x, 1 } }
+      game_loop do
+        call :the_clear
+        call :the_sums
+      end
+    end
+
+    lines = game.profile(out: StringIO.new, frames: 10).lines.to_h { |line| [line.name, line] }
+
+    assert_operator lines[:the_sums].share, :>, lines[:the_clear].share,
+                    "the sums run more instructions"
+    assert_operator lines[:the_clear].time_share, :>, lines[:the_sums].time_share,
+                    "the clear takes more of the time, all of it in the copy"
+  end
+
+  def test_the_printed_report_gives_each_routine_its_share_of_the_time
+    out = StringIO.new
+    lopsided_game.profile(out: out, frames: 10)
+
+    assert_match(/func :the_hot_one.*% of the time/, out.string)
+  end
+
+  # A game whose every pass waits for the screen to leave the break and then to reach +line+,
+  # so each pass ends on that line of the next picture whatever the lowering emits.
+  private def game_ending_on_line(line)
+    RubyGBA.build("PLIN", err: nil) do
+      extend RubyGBA::Builder::Debug
+      screen :bitmap
+      var :spin, 0
+      game_loop do
+        repeat(100_000, stop_when: read_scanline < 160) { add! :spin, 1 }
+        repeat(100_000, stop_when: read_scanline >= line) { add! :spin, 1 }
+      end
+    end
+  end
+
+  # A PASS THAT ENDS A LINE LATE LOSES A WHOLE PICTURE. The wait at the end of a pass waits for the
+  # NEXT break between pictures, so a pass that ends just after one began sleeps until the one
+  # after. Measured by rate alone that is a game running at half speed with nothing to say why.
+  def test_a_pass_that_ends_just_after_the_break_began_is_reported_with_how_late_it_was
+    late = game_ending_on_line(165).profile(out: StringIO.new, frames: 10)
+
+    refute_empty late.late_passes
+    assert(late.late_passes.all? { |lines| (5..9).cover?(lines) },
+           "each pass had to end about six lines sooner: #{late.late_passes.inspect}")
+  end
+
+  def test_the_report_says_a_late_pass_lost_a_whole_picture
+    out = StringIO.new
+    game_ending_on_line(165).profile(out: out, frames: 10)
+
+    assert_match(/ended after the break between pictures began/, out.string)
+    assert_match(/Ending \d+ lines? sooner keeps the picture/, out.string)
+  end
+
+  def test_late_passes_come_back_as_data_too
+    out = StringIO.new
+    game_ending_on_line(165).profile(format: :json, out: out, frames: 10)
+
+    refute_empty JSON.parse(out.string)["late_passes"]
+  end
+
+  def test_a_pass_that_ends_before_the_break_is_not_late
+    in_time = game_ending_on_line(150).profile(out: StringIO.new, frames: 10)
+
+    assert_empty in_time.late_passes
+    assert_in_delta 60.0, in_time.fps, 0.5
+  end
+
   def test_an_unknown_format_says_so
     assert_raises(ArgumentError) { lopsided_game.profile(format: :sideways, out: StringIO.new) }
   end

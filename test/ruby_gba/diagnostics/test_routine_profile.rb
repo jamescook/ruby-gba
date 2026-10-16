@@ -17,7 +17,7 @@ class TestRoutineProfile < Minitest::Test
   # A scene measured over thirty frames, running +each_frame+ instructions a frame, with each
   # routine's part of them in per cent.
   private def reading(each_frame, shares)
-    lines = shares.map { |name, share| Line.new(name: name, label: name.to_s, samples: 0, share: share, where: :rom) }
+    lines = shares.map { |name, share| Line.new(name: name, label: name.to_s, samples: 0, share: share, time_share: share, where: :rom) }
     Reading.new(30, 30 * each_frame, lines)
   end
 
