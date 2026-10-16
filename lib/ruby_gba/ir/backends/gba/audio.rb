@@ -28,6 +28,7 @@ module RubyGBA
             @primitives = primitives
             @lowering = lowering # works out a song's number when the game names it by one
             @mixer = mixer # where a recorded part's notes are played
+            @recorded_note_routines = Set.new # the routines a recorded part called to start a note
             @memory = memory # where the sound effects keep how far each one has got
             @defined_sounds = sounds
             @songs = songs
@@ -329,6 +330,7 @@ module RubyGBA
               @songs.key?(node.name) || raise(LoweringError, "play_song for undefined song #{node.name.inspect}")
             end
             assign_song_numbers!(program)
+            @recorded_note_routines.clear
             @counts_stops = program.walk.any? { |node| node.kind == :stop_music }
             @starts_songs_here = program.walk.any? { |node| %i[play_song play_from_list].include?(node.kind) && node.this_frame }
             @starts_effects_here = program.walk.any? { |node| node.kind == :play_sound_effect && node.this_frame }
@@ -465,6 +467,12 @@ module RubyGBA
           START_EFFECT_HERE = :__start_effect_here
 
           def emit_call_start_effect_here = @drawing.emit_call_irq_routine(START_EFFECT_HERE)
+
+          # Each routine some recorded part called to start a note (see #emit_recorded_note),
+          # emitted once inside the screen's interrupt, after everything that calls them.
+          def emit_called_recorded_note_routines
+            @recorded_note_routines.each { |routine| emit_start_recorded_note_routine(routine) }
+          end
 
           # START AN EFFECT WHERE THE GAME ASKS FOR IT, rather than in the next frame's interrupt:
           # the table walked as a frame walks it, in rank order, playing only the effect asked for
@@ -1140,12 +1148,12 @@ module RubyGBA
           # AN EFFECT'S NOTE ON A RECORDED LANE, in the row at +row+: played the way a song's is
           # (#emit_recorded_note), on a voice whose mark carries the effect's rank in +rank+.
           def emit_effect_recorded_note(lane, rank, row)
-            mark, base, at = 8, 2, 3
+            mark, at = 8, 3
             @emitter.emit(ASM.push(*EFFECT_KEEPS))
             @emitter.emit(ASM.mov_reg(at, row))
             @emitter.emit(ASM.mov_reg(mark, rank))
             @mixer.emit_ranked_mark(mark, lane.index)
-            emit_recorded_note(lane: lane.index, base: base, at: at)
+            emit_recorded_note(lane: lane.index)
             @emitter.emit(ASM.pop(*EFFECT_KEEPS))
           end
 
@@ -1642,7 +1650,7 @@ module RubyGBA
             end
 
             if lane.kind == :recorded
-              emit_recorded_note(lane: lane.index, number: number, base: base, at: at)
+              emit_recorded_note(lane: lane.index, number: number)
               @emitter.emit(ASM.add_imm(cursor, cursor, RECORDED_ROW))
             elsif @scales
               @emitter.emit(ASM.ldr_offset(NOTE_REG, at, 4))           # both register values
@@ -1691,8 +1699,13 @@ module RubyGBA
           # row says is kept for the lane (see #holds_notes?) and the voice gets it times the
           # level. With no +number+ the note is a sound effect's, whose mark is already in r8 and
           # whose volume is its own.
-          def emit_recorded_note(lane:, base:, at:, number: nil)
-            voice, mark, recording = 7, 8, 9
+          #
+          # THE NOTE ITSELF IS ONE ROUTINE, called from here (#emit_start_recorded_note_routine): it
+          # is the same three dozen instructions for every recorded part of every song and for the
+          # sound effects, and written out at each it was most of what a recorded part cost the
+          # routine that answers the display. The score is in r2 and the row in r3 for both callers.
+          def emit_recorded_note(lane:, number: nil)
+            mark, at = 8, 3
             rest = @emitter.gensym
             sounded = @emitter.gensym
             follows_level = @scales && number # an effect keeps its own volume
@@ -1700,14 +1713,38 @@ module RubyGBA
             @emitter.emit(ASM.ldr_offset(ACC, at, 4))                         # how fast to read it
             @emitter.emit(ASM.cmp_imm(ACC, 0))
             @emitter.emit_branch(:bcond, rest, cond: :eq)                     # 0 is a rest
+            if follows_level
+              @emitter.emit(ASM.load_halfword_offset(ACC, at, 10))            # how loud, kept for the lane
+              @primitives.store_var(ACC, self.class.music_note(number))
+            end
+            routine = follows_level ? START_RECORDED_NOTE_SCALED : START_RECORDED_NOTE
+            @recorded_note_routines << routine
+            @emitter.emit_branch(:bl, routine)
+            @emitter.emit_branch(:b, sounded)
+            @emitter.place_label(rest)
+            emit_clear_held_note(number) if follows_level
+            @mixer.emit_music_voice_off
+            @emitter.place_label(sounded)
+          end
+
+          # The routines that start a recorded note, the second scaling its loudness by the music
+          # volume (a song's part, in a game that moves the music volume).
+          START_RECORDED_NOTE = :__start_recorded_note
+          START_RECORDED_NOTE_SCALED = :__start_recorded_note_scaled
+
+          # START THE ROW'S NOTE ON A MIXER VOICE: the score in r2, the row in r3, the part's mark
+          # in r8. Changes r0, r1, r7, r9, r10, r11 and r12, and hands r8 back with the part's rank
+          # put on it (Mixer#emit_take_music_voice); keeps its return address on the stack, since
+          # finding the note a voice is a call of its own.
+          def emit_start_recorded_note_routine(routine)
+            voice, mark, recording, base, at = 7, 8, 9, 2, 3
+            @emitter.place_label(routine)
+            @emitter.emit(ASM.push(Mixer::LR))
             @mixer.emit_take_music_voice                                      # r7 = the voice it gets
             @emitter.emit(ASM.ldr_offset(ACC, at, 4))
             @emitter.emit(ASM.str_offset(ACC, voice, Mixer::SLOT_STEP))
             @emitter.emit(ASM.load_halfword_offset(ACC, at, 10))              # how loud
-            if follows_level
-              @primitives.store_var(ACC, self.class.music_note(number))
-              emit_scaled_loudness(ACC)
-            end
+            emit_scaled_loudness(ACC) if routine == START_RECORDED_NOTE_SCALED
             @emitter.emit(ASM.str_offset(ACC, voice, Mixer::SLOT_VOL))
             @emitter.emit(ASM.load_halfword_offset(ACC, at, 8))               # which recording...
             @emitter.emit(ASM.lsl_imm(ACC, ACC, INSTRUMENT_SHIFT))
@@ -1729,11 +1766,7 @@ module RubyGBA
             end
             emit_note_shape(voice, recording) if @mixer.shapes_notes?
             @emitter.emit(ASM.str_offset(mark, voice, Mixer::SLOT_ACTIVE))      # the part's now
-            @emitter.emit_branch(:b, sounded)
-            @emitter.place_label(rest)
-            emit_clear_held_note(number) if follows_level
-            @mixer.emit_music_voice_off
-            @emitter.place_label(sounded)
+            @emitter.emit(ASM.pop(PC))
           end
 
           # WHERE THE NOTE STARTS IN ITS OWN SHAPE, read off the recording's table entry.

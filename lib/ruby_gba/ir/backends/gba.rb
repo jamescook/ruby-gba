@@ -1165,6 +1165,9 @@ module RubyGBA
             @audio.emit_start_song_here_routine
           end
           @audio.emit_start_effect_here_routine if @audio.starts_effects_here?
+          # ...and the routine every recorded part calls to start a note, after everything above
+          # that calls it (see Audio#emit_recorded_note).
+          @audio.emit_called_recorded_note_routines
           # Its byte span, so the build can weigh keeping it in the quick memory against
           # everything else that wants the room (see Placement#IRQ_ROUTINE).
           @functions.func_ranges[Placement::IRQ_ROUTINE] = (start...pos)
