@@ -732,7 +732,8 @@ module RubyGBA
             in_range = call("rg_both", call("rg_ge", pose, C::Int.new(0)), call("rg_lt", pose, C::Int.new(obj.poses.length)))
             placed = [sprite_number(obj), picture_drawn(obj, pose), value(obj.x), value(obj.y), level_drawn_at(obj)]
             add = if turns_or_resizes?(obj)
-                    eval_call("rg_objects_add_turned", *placed, value(obj.angle), value(obj.scale))
+                    eval_call("rg_objects_add_turned", *placed, value(obj.angle), value(obj.scale),
+                              yes_or_no(!constant?(obj.scale, Build::SCALE_ONE)))
                   else
                     eval_call("rg_objects_add", *placed)
                   end

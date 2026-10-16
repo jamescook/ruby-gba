@@ -15,7 +15,7 @@ require "differential"
 # past the bottom of the screen. Hanging far enough off the top or the bottom, the far end
 # of that box shows at the other edge.
 class TestSpriteOffScreen < Minitest::Test
-  runs_on :reference
+  runs_on :reference, :native
   include Differential
 
   WIDTH = 240
@@ -59,7 +59,7 @@ class TestSpriteOffScreen < Minitest::Test
   # The rows and the columns of the screen the interpreter drew something on, as two ranges,
   # or nil for a picture that is all floor.
   private def drawn_on(program, frames: 3)
-    screen = Reference.new.run(program, frames: frames).screen
+    screen = game_player.run(program, frames: frames).screen
     rows = (0...HEIGHT).select { |y| (0...WIDTH).any? { |x| screen.pixel(x, y) != FLOOR } }
     cols = (0...WIDTH).select { |x| (0...HEIGHT).any? { |y| screen.pixel(x, y) != FLOOR } }
     rows.empty? ? nil : [rows.min..rows.max, cols.min..cols.max]

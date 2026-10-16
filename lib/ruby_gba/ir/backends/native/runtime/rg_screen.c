@@ -159,8 +159,9 @@ typedef struct { int32_t turned, angle, size, pivot_x, pivot_y; } background_tur
 static background_turn turns[RG_MAX_BACKGROUNDS];
 
 /* The sprites on screen this frame: being said (drawing), and as the last rebuild draws them.
- * One that turns or resizes carries its angle and its size for this frame. */
-typedef struct { int32_t sprite, image, x, y, level, turned, angle, size; } placed_object;
+ * One that turns or resizes carries its angle and its size for this frame, and whether its size
+ * ever changes. */
+typedef struct { int32_t sprite, image, x, y, level, turned, angle, size, resizes; } placed_object;
 static placed_object drawing[RG_MAX_SPRITES], sprite_layer[RG_MAX_SPRITES];
 static int32_t drawing_count, sprite_layer_count;
 
@@ -1239,6 +1240,36 @@ static void blit_image(int32_t image, int32_t x, int32_t y) {
     }
 }
 
+static int64_t whole_root(int64_t value);
+
+/* WHICH ROWS OF THE SCREEN THE BOX OF A TURNED SPRITE IS SHOWN ON (Reference::TurnedBox, which
+ * says why). The display counts the rows of a sprite's box in 256 lines that come round, and the
+ * screen is fewer than that, so a box taller than the lines below the screen — a picture 64
+ * pixels tall, whose box is 128 rows — shows its end at the top of the screen when it stands near
+ * the bottom, and its start at the bottom when it hangs off the top. */
+enum { TURNED_BOX_LINES = 256 };
+
+/* The screen row the box row +row+ lands on when the box's first row is at +top+, or -1 for a
+ * line below the screen, where the box stands unseen. */
+static int64_t turned_box_line(int64_t top, int64_t row) {
+  int64_t line = floor_mod(top + row, TURNED_BOX_LINES);
+  return line < RG_SCREEN_HEIGHT ? line : -1;
+}
+
+/* TurnedBox.rows_shown's first test, with Affine.rows_reached: a sprite is drawn at all only
+ * while some of the rows its picture can reach are on the screen, wherever the rest of its box
+ * would come round to. A picture that +resizes+ can fill its whole box; one that only turns
+ * stays within a square as wide as its diagonal, and a pixel each side, about the middle. */
+static int turned_box_on_screen(int64_t top, int64_t width, int64_t height, int32_t resizes) {
+  int64_t first = 0, past = height * 2;
+  if (!resizes) {
+    int64_t reach = whole_root(width * width + height * height) + 2;
+    first = height - reach / 2;
+    past = first + reach;
+  }
+  return top + past > 0 && top + first < RG_SCREEN_HEIGHT;
+}
+
 /* Reference#blit_image_transformed: a picture turned +angle+ degrees clockwise and drawn at
  * +size+, about its own middle, its top left as drawn at (x, y).
  *
@@ -1248,14 +1279,18 @@ static void blit_image(int32_t image, int32_t x, int32_t y) {
  * the picture each way, centered on it, so a corner swung out by the turn has room, and a
  * picture grown past twice its size is cut off at that box. A screen pixel is taken at its whole
  * coordinate and the answer rounded down, which is what puts every edge pixel where the other
- * backends put it. */
-static void blit_image_turned(int32_t image, int32_t x, int32_t y, int32_t angle, int32_t size) {
+ * backends put it. Each row of the patch lands on the screen row the display counts it at (see
+ * turned_box_line). */
+static void blit_image_turned(int32_t image, int32_t x, int32_t y, int32_t angle, int32_t size, int32_t resizes) {
   picture art = picture_of(image);
   int64_t width = art.width, height = art.height, one_th = rg_game_turn_rules[1];
   int64_t turn_cos, turn_sin;
   affine_matrix((int32_t)floor_mod(angle, 360), size, &turn_cos, &turn_sin);
   int64_t left = (int64_t)x - width / 2, top = (int64_t)y - height / 2;
+  if (!turned_box_on_screen(top, width, height, resizes)) return;
   for (int64_t iy = 0; iy < height * 2; iy++) {
+    int64_t line = turned_box_line(top, iy);
+    if (line < 0) continue;
     int64_t dy = iy - height;
     for (int64_t ix = 0; ix < width * 2; ix++) {
       int64_t dx = ix - width;
@@ -1263,14 +1298,15 @@ static void blit_image_turned(int32_t image, int32_t x, int32_t y, int32_t angle
       int64_t from_y = floor_div(-turn_sin * dx + turn_cos * dy, one_th) + height / 2;
       if (from_x < 0 || from_x >= width || from_y < 0 || from_y >= height) continue;
       int32_t color = art.pixels[from_y * width + from_x];
-      if (color != RG_NOT_DRAWN) set_pixel(left + ix, top + iy, color);
+      if (color != RG_NOT_DRAWN) set_pixel(left + ix, line, color);
     }
   }
 }
 
 /* Reference#draw_object and #paint_snapshot_object */
 static void draw_placed(const placed_object *placed) {
-  if (placed->turned) blit_image_turned(placed->image, placed->x, placed->y, placed->angle, placed->size);
+  if (placed->turned)
+    blit_image_turned(placed->image, placed->x, placed->y, placed->angle, placed->size, placed->resizes);
   else blit_image(placed->image, placed->x, placed->y);
 }
 
@@ -1354,10 +1390,12 @@ static void paint_turned_in_blocks(const placed_object *placed) {
   int64_t turn_cos, turn_sin;
   affine_matrix((int32_t)floor_mod(placed->angle, 360), placed->size, &turn_cos, &turn_sin);
   int64_t left = (int64_t)placed->x - width / 2, top = (int64_t)placed->y - height / 2;
-  int64_t first_row = top > 0 ? top : 0, past_row = top + height * 2 < RG_SCREEN_HEIGHT ? top + height * 2 : RG_SCREEN_HEIGHT;
   int64_t first_col = left > 0 ? left : 0, past_col = block_end(left + width * 2);
   if (past_col > RG_SCREEN_WIDTH) past_col = RG_SCREEN_WIDTH;
-  for (int64_t py = first_row; py < past_row; py++) {
+  if (!turned_box_on_screen(top, width, height, placed->resizes)) return;
+  for (int64_t iy = 0; iy < height * 2; iy++) {
+    int64_t py = turned_box_line(top, iy);
+    if (py < 0) continue;
     int64_t dy = turned_row(py, top, height * 2) - height;
     for (int64_t px = first_col; px < past_col; px++) {
       int64_t start = block_start(px);
@@ -1453,6 +1491,14 @@ static void restore_patch(int64_t left, int64_t top, int64_t width, int64_t heig
     }
 }
 
+/* The same over a turned sprite's patch, each row on the screen row the display counts it at. */
+static void restore_turned_patch(int64_t left, int64_t top, int64_t width, int64_t height) {
+  for (int64_t row = 0; row < height; row++) {
+    int64_t line = turned_box_line(top, row);
+    if (line >= 0) restore_patch(left, line, width, 1);
+  }
+}
+
 /* Forgets where a sprite was last drawn straight onto the picture, and hands that place over for
  * the scenery to be put back there; NULL when it is not on the picture. */
 static const drawn_place *forget_drawn_place(int32_t sprite) {
@@ -1483,7 +1529,9 @@ static int64_t whole_root(int64_t value) {
  * The patch has to hold the picture at whatever angle and size it was last drawn, since the
  * putting back cannot depend on knowing which. One that only turns reaches no further from its
  * middle than half its own diagonal, so a square that wide does; one that +resizes+ has no bound
- * short of the whole box the display gives it, twice the picture each way. */
+ * short of the whole box the display gives it, twice the picture each way. Each row is put back
+ * on the screen row it was drawn on, which for a tall box near an edge is the other edge (see
+ * turned_box_line). */
 void rg_object_take_off_turned(int32_t sprite, int32_t image, int32_t resizes) {
   const drawn_place *place = forget_drawn_place(sprite);
   if (!place) return;
@@ -1491,11 +1539,11 @@ void rg_object_take_off_turned(int32_t sprite, int32_t image, int32_t resizes) {
   int64_t width = art.width, height = art.height;
   int64_t middle_x = (int64_t)place->x + width / 2, middle_y = (int64_t)place->y + height / 2;
   if (resizes) {
-    restore_patch(middle_x - width, middle_y - height, width * 2, height * 2);
+    restore_turned_patch(middle_x - width, middle_y - height, width * 2, height * 2);
     return;
   }
   int64_t side = whole_root(width * width + height * height) + 2;
-  restore_patch(middle_x - side / 2, middle_y - side / 2, side, side);
+  restore_turned_patch(middle_x - side / 2, middle_y - side / 2, side, side);
 }
 
 /* One more sprite on screen this frame. */
@@ -1510,9 +1558,9 @@ void rg_objects_add(int32_t sprite, int32_t image, int32_t x, int32_t y, int32_t
 }
 
 void rg_objects_add_turned(int32_t sprite, int32_t image, int32_t x, int32_t y, int32_t level, int32_t angle,
-                           int32_t size) {
+                           int32_t size, int32_t resizes) {
   add_placed((placed_object){.sprite = sprite, .image = image, .x = x, .y = y, .level = level,
-                             .turned = 1, .angle = angle, .size = size});
+                             .turned = 1, .angle = angle, .size = size, .resizes = resizes});
 }
 
 /* The rest of Reference#exec_present_objects. On a picture that is rebuilt whole, the sprites on

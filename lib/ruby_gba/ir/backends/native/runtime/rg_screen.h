@@ -156,13 +156,14 @@ void rg_scene_redraw_sprites(void);
  * from upright, +size+ counted as the game counts a size (rg_game_turn_rules says what 1.0 is),
  * both about the middle of its picture. Taking one off puts back every pixel it could have
  * covered: the whole box the display gives it when it +resizes+, and a square as wide as its
- * own diagonal when it only turns. */
+ * own diagonal when it only turns. Adding one says +resizes+ too, because the rows of that box a
+ * picture that only turns can reach decide whether it is on the screen at all. */
 void rg_objects_begin(void);
 void rg_object_take_off(int32_t sprite, int32_t image);
 void rg_object_take_off_turned(int32_t sprite, int32_t image, int32_t resizes);
 void rg_objects_add(int32_t sprite, int32_t image, int32_t x, int32_t y, int32_t level);
 void rg_objects_add_turned(int32_t sprite, int32_t image, int32_t x, int32_t y, int32_t level, int32_t angle,
-                           int32_t size);
+                           int32_t size, int32_t resizes);
 void rg_objects_end(void);
 
 /* Which sprite of a run the game puts in order is drawn next: the one the number +said+ names of
