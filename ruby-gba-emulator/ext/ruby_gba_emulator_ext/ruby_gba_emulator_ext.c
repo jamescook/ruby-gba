@@ -196,6 +196,33 @@ struct mgba_core {
     struct display_recorder *display;
     /* The addresses a search has got down to — see Core#addresses_holding. One at a time. */
     struct mCoreMemorySearchResults *search;
+    /* Where each word in recorded-sound channel A's queue came from — see Core#sound_feed_start.
+     * Kept between feeds, so a feed read a frame at a time is one feed, for as long as nothing ran
+     * unrecorded in between (+stopped_at+ says when the last feed stopped). */
+    struct feed_queue_mirror {
+        int known;                           /* whether this says anything at all yet */
+        uint64_t stopped_at;                 /* the emulator's clock when the last feed stopped */
+        uint32_t from[GBA_AUDIO_FIFO_SIZE];  /* each slot of the queue: the address its word came from */
+        uint32_t word[GBA_AUDIO_FIFO_SIZE];  /* ...and the word, as it went in */
+        uint32_t playing_from;               /* the word being played: where it came from, 0 unknown */
+        uint32_t playing_word;               /* ...and the word, all four bytes */
+    } feed_queue;
+    /* What a feed saw, in the order it happened: a plain list, since it is written while a frame
+     * runs with Ruby's lock released. */
+    struct feed_log {
+        int recording;                       /* between Core#sound_feed_start and #sound_feed_finish */
+        int cut_short;                       /* the list could not grow, and things went unwritten */
+        struct feed_event {
+            uint64_t at;
+            int line;
+            int kind;                        /* a sample played, a word fetched, or silence (feed_event_kind) */
+            uint32_t from;
+            uint32_t value;                  /* the word, or the sample's byte */
+            uint32_t late;                   /* how long after it was due the emulator got to it */
+        } *events;
+        size_t count;
+        size_t room;
+    } feed_log;
 };
 
 /* WHICH CARTRIDGE IS RUNNING RIGHT NOW, so the callbacks mGBA fires part-way through a
@@ -282,6 +309,8 @@ mgba_core_cleanup(struct mgba_core *mc)
     mgba_rewind_free(mc);
     display_recorder_free(mc);
     search_free(mc);
+    free(mc->feed_log.events); /* a sound feed started and never finished */
+    mc->feed_log.events = NULL;
     if (!mc->destroyed && mc->core) {
         mc->core->deinit(mc->core);
         mc->core = NULL;
@@ -1011,6 +1040,7 @@ mgba_core_load_state_from_file(VALUE self, VALUE rb_path)
 
     bool ok = mCoreLoadStateNamed(mc->core, vf, SAVESTATE_ALL);
     vf->close(vf);
+    mc->feed_queue.known = 0; /* the sound queue is the state's now, and nothing says where its words came from */
     return ok ? Qtrue : Qfalse;
 }
 
@@ -3078,6 +3108,273 @@ mgba_core_profile(VALUE self, VALUE rb_frames, VALUE rb_keys)
     return out;
 }
 
+/* WHAT RECORDED-SOUND CHANNEL A WAS FED AND PLAYED, worked out from the emulator's own state.
+ *
+ * The channel has a queue of eight words. Each time its timer runs out it plays one sample, the
+ * low byte of the word it is on, and moves to the next byte; after four it takes the next word
+ * off the queue. Whenever three words or fewer are left it asks its copy engine for four more,
+ * which reads them from wherever the engine's read address has got to. Nothing about any of that
+ * is in memory a program can read: the mixer's buffers and the speaker are either side of it.
+ *
+ * So the two things that move the queue are watched as they happen: the timer running out, which
+ * plays a sample, and the copy engine moving a word, which puts one in. Each is an event the
+ * emulator keeps a function for, and while a feed is recorded that function is wrapped: the
+ * queue's places are read, the emulator's own function runs, and they are read again. A word
+ * that went in came from the four bytes before where the engine's read address has got to; a word
+ * taken off is the one in the slot the queue read from. Which byte of it is played is read off the
+ * emulator each time rather than counted here, so nothing here can drift from it. Nothing is added
+ * to the cartridge and nothing it does takes a cycle longer, so a fault that hangs on timing is
+ * still there to be seen.
+ *
+ * These run with Ruby's lock released, part-way through a frame, so what they see goes into a
+ * plain list of the core's own, and Ruby reads it once the frames are done. Only frames run by
+ * Core#run_frame are seen, since that is what says which core a thread is running.
+ *
+ * A word the program writes into the queue itself, not through the copy engine, is not seen
+ * arriving at all, so its slot keeps the word and address that were there before and its samples
+ * are put down to those; the framework never does that. A timer running out with the queue empty
+ * plays silence, which comes from nowhere and is noted as such, since a queue running dry is
+ * exactly the kind of fault this is for. */
+
+/* What a noted event was. */
+enum feed_event_kind { FEED_PLAYED, FEED_FETCHED, FEED_SILENCE };
+
+/* Note one thing the feed saw. A list that cannot grow says so rather than stopping the frame. */
+static void
+feed_log_event(struct mgba_core *mc, int kind, uint32_t from, uint32_t value, uint32_t late)
+{
+    struct feed_log *log = &mc->feed_log;
+    if (log->count == log->room) {
+        size_t room = log->room ? log->room * 2 : 4096;
+        struct feed_event *grown = realloc(log->events, room * sizeof *grown);
+        if (!grown) {
+            log->cut_short = 1;
+            return;
+        }
+        log->events = grown;
+        log->room = room;
+    }
+    struct GBA *gba = (struct GBA *)mc->core->board;
+    struct feed_event *e = &log->events[log->count++];
+    e->at = mTimingGlobalTime(&gba->timing);
+    e->line = gba->video.vcount;
+    e->kind = kind;
+    e->from = from;
+    e->value = value;
+    e->late = late;
+}
+
+/* What the queue holds when nothing has been seen of how it got there: its words, from address 0,
+ * which is what a sample of one of them says it came from. */
+static void
+feed_seed_queue_mirror(struct mgba_core *mc, struct GBAAudioFIFO *fifo)
+{
+    struct feed_queue_mirror *q = &mc->feed_queue;
+    for (int slot = 0; slot < GBA_AUDIO_FIFO_SIZE; ++slot) {
+        q->from[slot] = 0;
+        q->word[slot] = fifo->fifo[slot];
+    }
+    /* The word being played has been shifted down by the bytes already played, so it is put back
+     * where they were — and a word with none left to play has nothing to put back. */
+    int played = 4 - fifo->internalRemaining;
+    q->playing_from = 0;
+    q->playing_word = played < 4 ? fifo->internalSample << (8 * played) : 0;
+    q->known = 1;
+}
+
+/* Where the queue's reading and writing have got to, and how many bytes of the word being played
+ * are left. */
+struct queue_places {
+    int write;
+    int read;
+    int remaining;
+};
+
+static struct queue_places
+feed_queue_places(struct GBA *gba)
+{
+    struct GBAAudioFIFO *fifo = &gba->audio.chA;
+    struct queue_places places = { fifo->fifoWrite, fifo->fifoRead, fifo->internalRemaining };
+    return places;
+}
+
+/* Note what one event did to the queue: the word it took off and the byte it played, or the word
+ * the copy engine put in. One event does one or the other. +sound_tick+ says the event was the
+ * channel's own timer running out, which plays a sample whatever the queue holds — silence, when
+ * it holds nothing. */
+static void
+feed_record_queue_changes(struct mgba_core *mc, struct GBA *gba, struct queue_places before, uint32_t late,
+                          int sound_tick)
+{
+    struct GBAAudioFIFO *fifo = &gba->audio.chA;
+    struct feed_queue_mirror *q = &mc->feed_queue;
+    int pushed = (fifo->fifoWrite - before.write + GBA_AUDIO_FIFO_SIZE) % GBA_AUDIO_FIFO_SIZE;
+    int taken = (fifo->fifoRead - before.read + GBA_AUDIO_FIFO_SIZE) % GBA_AUDIO_FIFO_SIZE;
+    int played = before.remaining + (4 * taken) - fifo->internalRemaining;
+
+    /* The queue emptied itself (its reset was written): nothing in it any more came from where
+     * this thought, so start again from what is there. */
+    if (played < 0 || played > 4) {
+        feed_seed_queue_mirror(mc, fifo);
+        return;
+    }
+
+    int first_byte = 4 - before.remaining;
+    for (int k = 0; k < taken; ++k) {
+        int slot = (before.read + k) % GBA_AUDIO_FIFO_SIZE;
+        q->playing_from = q->from[slot];
+        q->playing_word = q->word[slot];
+        first_byte = 0;
+    }
+    for (int i = 0; i < played && first_byte + i < 4; ++i) {
+        int byte = first_byte + i;
+        uint32_t value = (q->playing_word >> (8 * byte)) & 0xFF;
+        uint32_t from = q->playing_from ? q->playing_from + (uint32_t)byte : 0;
+        feed_log_event(mc, FEED_PLAYED, from, value, late);
+    }
+    if (sound_tick && played == 0)
+        feed_log_event(mc, FEED_SILENCE, 0, fifo->internalSample & 0xFF, late);
+
+    if (pushed > 0) {
+        int source = fifo->dmaSource;
+        uint32_t next = source > 0 ? gba->memory.dma[source].nextSource : 0;
+        for (int k = 0; k < pushed; ++k) {
+            int slot = (before.write + k) % GBA_AUDIO_FIFO_SIZE;
+            uint32_t from = next - (uint32_t)(4 * (pushed - k));
+            q->from[slot] = from;
+            q->word[slot] = fifo->fifo[slot];
+            feed_log_event(mc, FEED_FETCHED, from, fifo->fifo[slot], late);
+        }
+    }
+}
+
+/* The emulator's own functions for the four timers and the copy engine, which the wrappers below
+ * call. They are the same functions for every cartridge, so one copy serves every core: two cores
+ * starting a feed at once on two threads write the same value here, which is why there is no lock. */
+typedef void (*timing_callback)(struct mTiming *, void *, uint32_t);
+static timing_callback s_feed_timer_callback[4];
+static timing_callback s_feed_dma_callback;
+
+/* Run one of the emulator's event functions, noting what it did to the queue when the core this
+ * thread is running is recording a feed (see s_logging_core). +timer+ is which timer the event is,
+ * or -1 for the copy engine. */
+static void
+feed_run_event_recorded(timing_callback original, int timer, struct mTiming *timing, void *context, uint32_t late)
+{
+    struct mgba_core *mc = s_logging_core;
+    if (!mc || !mc->feed_log.recording) {
+        original(timing, context, late);
+        return;
+    }
+    struct GBA *gba = (struct GBA *)mc->core->board;
+    struct queue_places before = feed_queue_places(gba);
+    original(timing, context, late);
+    /* The test the emulator's own timer makes before it plays channel A (GBATimerUpdate). A channel
+     * clocked by a timer that counts another's overflows plays inside that one's event, and its
+     * silences are not noted; the framework clocks its sound by timer 0 directly. */
+    int sound_tick = gba->audio.enable && (gba->audio.chALeft || gba->audio.chARight) &&
+                     timer == (gba->audio.chATimer ? 1 : 0);
+    feed_record_queue_changes(mc, gba, before, late, sound_tick);
+}
+
+static void feed_timer0(struct mTiming *t, void *c, uint32_t l) { feed_run_event_recorded(s_feed_timer_callback[0], 0, t, c, l); }
+static void feed_timer1(struct mTiming *t, void *c, uint32_t l) { feed_run_event_recorded(s_feed_timer_callback[1], 1, t, c, l); }
+static void feed_timer2(struct mTiming *t, void *c, uint32_t l) { feed_run_event_recorded(s_feed_timer_callback[2], 2, t, c, l); }
+static void feed_timer3(struct mTiming *t, void *c, uint32_t l) { feed_run_event_recorded(s_feed_timer_callback[3], 3, t, c, l); }
+static void feed_dma(struct mTiming *t, void *c, uint32_t l) { feed_run_event_recorded(s_feed_dma_callback, -1, t, c, l); }
+
+static const timing_callback FEED_TIMER_WRAPPERS[4] = { feed_timer0, feed_timer1, feed_timer2, feed_timer3 };
+
+/* Put the wrappers in place of the emulator's functions, or the emulator's back. */
+static void
+feed_wrap_events(struct GBA *gba, int wrap)
+{
+    for (int i = 0; i < 4; ++i) {
+        struct mTimingEvent *event = &gba->timers[i].event;
+        if (wrap && event->callback != FEED_TIMER_WRAPPERS[i]) {
+            s_feed_timer_callback[i] = event->callback;
+            event->callback = FEED_TIMER_WRAPPERS[i];
+        } else if (!wrap && event->callback == FEED_TIMER_WRAPPERS[i]) {
+            event->callback = s_feed_timer_callback[i];
+        }
+    }
+    struct mTimingEvent *dma = &gba->memory.dmaEvent;
+    if (wrap && dma->callback != feed_dma) {
+        s_feed_dma_callback = dma->callback;
+        dma->callback = feed_dma;
+    } else if (!wrap && dma->callback == feed_dma) {
+        dma->callback = s_feed_dma_callback;
+    }
+}
+
+/* Core#sound_feed_start — record what recorded-sound channel A is fed and plays, from now until
+ * Core#sound_feed_finish, over the frames Core#run_frame runs between. It carries on from the last
+ * feed only when nothing has run since that one stopped; otherwise the queue's words are of
+ * unknown origin again. GBA-only. */
+static VALUE
+mgba_core_sound_feed_start(VALUE self)
+{
+    struct mgba_core *mc = get_mgba_core(self);
+    if (mc->core->platform(mc->core) != mPLATFORM_GBA)
+        rb_raise(rb_eRuntimeError, "sound_feed is GBA-only");
+
+    struct GBA *gba = (struct GBA *)mc->core->board;
+    if (!mc->feed_queue.known || mc->feed_queue.stopped_at != mTimingGlobalTime(&gba->timing))
+        feed_seed_queue_mirror(mc, &gba->audio.chA);
+    mc->feed_log.count = 0;
+    mc->feed_log.cut_short = 0;
+    mc->feed_log.recording = 1;
+    feed_wrap_events(gba, 1);
+    return Qnil;
+}
+
+/* Core#sound_feed_finish — stop recording, and hand back what was seen as a Hash:
+ *
+ *   :played    [time, line, from, value, late] for each sample played: the emulator's clock in
+ *              cycles when it got to the sample, the screen's line, the address the byte came
+ *              from, the byte, signed, and how many cycles after the timer ran out it got there;
+ *              silence played from an empty queue has nil for its address
+ *   :fetched   [time, line, from, word, late] for each word the copy engine put in the queue
+ *   :cut_short true when the list could not grow and some of it went unwritten */
+static VALUE
+mgba_core_sound_feed_finish(VALUE self)
+{
+    struct mgba_core *mc = get_mgba_core(self);
+    struct GBA *gba = (struct GBA *)mc->core->board;
+    feed_wrap_events(gba, 0);
+    mc->feed_log.recording = 0;
+    mc->feed_queue.stopped_at = mTimingGlobalTime(&gba->timing);
+
+    VALUE played = rb_ary_new();
+    VALUE fetched = rb_ary_new();
+    for (size_t i = 0; i < mc->feed_log.count; ++i) {
+        const struct feed_event *e = &mc->feed_log.events[i];
+        VALUE entry = rb_ary_new_capa(5);
+        rb_ary_push(entry, ULL2NUM(e->at));
+        rb_ary_push(entry, INT2NUM(e->line));
+        rb_ary_push(entry, e->kind == FEED_SILENCE ? Qnil : UINT2NUM(e->from));
+        if (e->kind == FEED_FETCHED) {
+            rb_ary_push(entry, UINT2NUM(e->value));
+            rb_ary_push(entry, UINT2NUM(e->late));
+            rb_ary_push(fetched, entry);
+        } else {
+            rb_ary_push(entry, INT2NUM((int8_t)e->value));
+            rb_ary_push(entry, UINT2NUM(e->late));
+            rb_ary_push(played, entry);
+        }
+    }
+    free(mc->feed_log.events);
+    mc->feed_log.events = NULL;
+    mc->feed_log.count = 0;
+    mc->feed_log.room = 0;
+
+    VALUE result = rb_hash_new();
+    rb_hash_aset(result, ID2SYM(rb_intern("played")), played);
+    rb_hash_aset(result, ID2SYM(rb_intern("fetched")), fetched);
+    rb_hash_aset(result, ID2SYM(rb_intern("cut_short")), mc->feed_log.cut_short ? Qtrue : Qfalse);
+    return result;
+}
+
 /* Core#registers — what the processor holds right now, as a Hash: :r0 through
  * :r14, :pc and :cpsr.
  *
@@ -3547,6 +3844,8 @@ Init_ruby_gba_emulator_ext(void)
     rb_define_method(cCore, "measure_frame_busy_cycles", mgba_core_measure_frame_busy_cycles, 0);
     rb_define_method(cCore, "measure_frame_work", mgba_core_measure_frame_work, 0);
     rb_define_method(cCore, "profile",       mgba_core_profile, 2);
+    rb_define_method(cCore, "sound_feed_start",  mgba_core_sound_feed_start, 0);
+    rb_define_method(cCore, "sound_feed_finish", mgba_core_sound_feed_finish, 0);
     rb_define_method(cCore, "registers",     mgba_core_registers, 0);
     rb_define_method(cCore, "wave_rate",     mgba_core_wave_rate, 0);
     rb_define_method(cCore, "run_until",     mgba_core_run_until, 2);

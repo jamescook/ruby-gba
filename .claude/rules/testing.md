@@ -596,6 +596,19 @@ sprite's tiles were PUT rather than where its picture starts. Reach for that han
 what the Verifier deliberately does not do (cost and timing, watching an address change,
 profiling); never for a second reading of something the Verifier already answers.
 
+**What the recorded sound actually played** is one of those: `probe.sound_feed(frames: 1, keys:)`
+says, for every sample the console's recorded-sound channel played, the address its byte came
+from, its value, and when it fell due (`sample.due`), silence where the queue ran dry
+(`sample.silence?`), and for every word the copy engine put in the channel's queue, where it read
+it. The mixer's buffers and the speaker are either side of that step, so it is where to rule out a
+fault that would show in neither — a buffer handed over at the wrong place, a queue running dry.
+It is read from the emulator's own state as the frames run, so the
+cartridge's timing is untouched, which a probe written into the game cannot promise. **Compare
+two runs by what was played, not by the speaker**: the emulator places a sample in its speaker
+output by when it got round to it, a few cycles after it fell due behind whatever instruction was
+running, so two runs that play the same samples on the same cycles with different code around
+them come out of the speaker a fraction different (`sample.late` says by how much).
+
 `showing` and `hearing` change the **console**, not the reading, so the block must `v.step`
 before it reads anything or it reads the picture from before the layer went. The layers and
 voices go back as they were when the block ends. Taking a voice out from under a note it is

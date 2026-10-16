@@ -818,6 +818,64 @@ module RubyGBAEmulator
       def dropping_frames? = finished < frames
     end
 
+    # WHAT THE RECORDED SOUND WAS FED, AND WHAT IT PLAYED: run +frames+ frames holding +keys+, and
+    # say for each sample the console's recorded-sound channel played where in memory it came from
+    # and what it was, and for each word its copy engine put in the channel's queue where that came
+    # from. Asked a frame at a time it is one feed, so a caller can change the buttons between.
+    #
+    # The mixer's buffers in memory and the sound out of the speaker can be read any time; this is
+    # the step between them, which nothing in memory says: the channel taking bytes from the
+    # buffers into a queue of its own and playing them one at a time. It is worked out from the
+    # emulator's own state as the frames run, so the cartridge runs exactly as it would, and a
+    # fault that comes and goes with a cycle's difference is still there to be seen.
+    #
+    # Read on channel A, the one the framework plays through. A sample played from an empty queue
+    # is silence from nowhere, and is in the list with no address (+silence?+): a queue running dry
+    # is exactly the kind of fault this is for. Samples of words that were already in the
+    # queue when nobody was watching say they came from address 0: that is the first few of a
+    # first feed, and of a feed after frames run some other way since the last.
+    #
+    # @return [SoundFeed]
+    def sound_feed(frames: 1, keys: nil)
+      ensure_open!
+      raise ArgumentError, "frames must be positive, got #{frames}" unless frames.positive?
+
+      @core.sound_feed_start
+      begin
+        step(frames, keys: keys)
+      ensure
+        raw = @core.sound_feed_finish
+      end
+      raise "The sound feed ran out of memory before the #{frames} frames were over. Ask for fewer frames at a time." if raw[:cut_short]
+
+      SoundFeed.new(played: raw[:played].map { |at, line, from, value, late| PlayedSample.new(at:, line:, from:, value:, late:) },
+                    fetched: raw[:fetched].map { |at, line, from, word, late| FetchedWord.new(at:, line:, from:, word:, late:) })
+    end
+
+    # A sample the channel played: +at+ is the emulator's clock in cycles when it got to it, +line+
+    # the line the screen was on, +from+ the address its byte came from, and +value+ the byte,
+    # signed. +late+ is how many cycles after the timer ran out the emulator got to it: it gets to
+    # an event at the end of whatever instruction is running, so the same sample is handled a few
+    # cycles later behind a slow one. +due+ takes that back off, and is the same however the
+    # instructions fell.
+    #
+    # WORTH KNOWING BEFORE COMPARING TWO RUNS' SPEAKER OUTPUT: the emulator places a sample in what
+    # it sends to the speaker by +at+, not +due+. So two runs that play the same samples at the same
+    # moments, with different instructions running around them, can come out of the speaker a
+    # little different. Compare what was played, and when it was due, to ask about the cartridge.
+    PlayedSample = Data.define(:at, :line, :from, :value, :late) do
+      def due = at - late
+
+      # Played with the queue empty: no byte came from anywhere.
+      def silence? = from.nil?
+    end
+
+    # A word the copy engine put in the channel's queue, and the address it read it from.
+    FetchedWord = Data.define(:at, :line, :from, :word, :late)
+
+    # What {#sound_feed} saw, in the order it happened.
+    SoundFeed = Data.define(:played, :fetched)
+
     # Run +frames+ frames and report where the CPU was — see {Profile}.
     #
     # Pass +settle:+ to run that many frames first so the ROM is past its boot
