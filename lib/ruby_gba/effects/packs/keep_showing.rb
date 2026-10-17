@@ -101,7 +101,7 @@ module RubyGBA
           # of, under anything that covers it. A frame with no change outstanding costs
           # one comparison and draws nothing.
           def draw
-            (@todo > 0).then(estimate: { usually: 1, in: REPAINTS_IN }) do
+            (@todo > 0).then do
               @todo.sub! 1
               @b.call(routine)
             end
@@ -117,11 +117,6 @@ module RubyGBA
             @todo.set! 0
             self
           end
-
-          # How often a picture like this is repainted: a figure that moves when you are
-          # hit or when you fire changes on a handful of frames in every sixty. Said
-          # here because an unsaid body is counted on every frame.
-          REPAINTS_IN = 10
 
           # How many times a change is painted on this screen: one per picture the
           # screen keeps.

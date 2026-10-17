@@ -427,12 +427,7 @@ module RubyGBA
         include Node
         kind :draw_rect_at
         category :draw
-        # +usually+ is how many rows this rectangle normally covers — the estimate's business,
-        # not the program's, and the same hint DrawColumnAt takes for the same reason. A height
-        # the game works out has no size a build can prove, and a rectangle drawn on the screen
-        # has a known ceiling to measure it against (see the note on Pricing#stretched_rows), so
-        # the author can say rather than let it guess.
-        operands x: :value, y: :value, w: :value, h: :value, color: :color, usually: :int
+        operands x: :value, y: :value, w: :value, h: :value, color: :color
       end
 
       # One column of a picture, stretched to a height the program works out. The whole of a
@@ -447,12 +442,7 @@ module RubyGBA
         include Node
         kind :draw_column_at
         category :draw
-        # +usually+ is how many rows this column normally draws — the estimate's, not the
-        # program's. A height the game works out has no size a build can prove, and this is the
-        # rare case where it has a known ceiling to be measured against (see the note on
-        # Pricing#column_rows), so the author can say rather than let it guess.
-        operands name: :name, slice: :value, x: :value, top: :value, height: :value,
-                 width: :int, usually: :int
+        operands name: :name, slice: :value, x: :value, top: :value, height: :value, width: :int
       end
 
       # Words at a fixed place. +picked+ is a second colour and +showing+ the test that picks
@@ -549,12 +539,7 @@ module RubyGBA
         include Node
         kind :if
         category :control
-        # over/usually/of and runs/per are the estimate's, not the program's. The first three
-        # say how many slots of a walk over `of` of them are usually in use, and which set
-        # they belong to; runs/per say the body runs on `runs` frames in every `per`. Nothing
-        # runs differently either way; see Build#if_.
-        operands cond: :value, else: :branch, over: :name, usually: :int, of: :int,
-                 runs: :int, per: :int
+        operands cond: :value, else: :branch
       end
 
       class Int
@@ -641,8 +626,7 @@ module RubyGBA
         # to insist on the quick one, absent to let the framework decide. It is the same
         # word a routine takes for the same question, and it changes nothing a program
         # does — only how long a read takes.
-        operands name: :name, capacity: :int, declared: :int, usually: :int, width: :option,
-                 fast: :flag
+        operands name: :name, capacity: :int, declared: :int, width: :option, fast: :flag
       end
 
       class ListPush
@@ -868,16 +852,11 @@ module RubyGBA
       # +stop_when+ is a value checked before each pass: when it is true the loop ends early,
       # which is what a search wants — a ray that has met a wall has its answer and every step
       # after it is spent proving nothing.
-      # +usually+ is how many passes a loop that can STOP EARLY normally makes. The count is
-      # then a ceiling rather than a number of passes, and nothing in the program says where
-      # the loop really leaves — so this is the same hint a list and a pool take, and for the
-      # same reason: what the estimate needs is the every-frame load, not the worst moment.
-      # nil where nothing was said, or where the loop runs to its count every time.
       class Repeat
         include Node
         kind :repeat
         category :control
-        operands count: :value, index: :name, stop_when: :value, usually: :int, most: :int
+        operands count: :value, index: :name, stop_when: :value
       end
 
       class RestoreRegion

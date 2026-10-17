@@ -447,7 +447,9 @@ module RubyGBA
       # @param top [Symbol, Integer, Value] the screen row it starts on
       # @param height [Symbol, Integer, Value] how tall to stretch it
       # @param width [Integer] how many pixels across, settled while building
+      # @param estimate [Object] does nothing but earn a warning (see Builder#record_estimate_line)
       def draw_column_at(name, slice:, x:, top:, height:, width: 1, estimate: nil)
+        record_estimate_line(estimate)
         unless @images.key?(name)
           raise ArgumentError,
                 "draw_column_at needs a picture. There is no image :#{name}. " \
@@ -461,8 +463,7 @@ module RubyGBA
         end
 
         record(Build.draw_column_at(name, DSL::Value.node_for(slice), DSL::Value.node_for(x),
-                                    DSL::Value.node_for(top), DSL::Value.node_for(height), width: width,
-                                    usually: usual_stretch_height(height, estimate, "column")))
+                                    DSL::Value.node_for(top), DSL::Value.node_for(height), width: width))
         [slice, x, top, height].each { |operand| ensure_var(operand) }
       end
 
@@ -484,12 +485,11 @@ module RubyGBA
       # @param w [Integer] width in pixels (must be even, settled while building)
       # @param h [Symbol, Integer, Value] height in pixels
       # @param c [Symbol, String, Integer] fill color
-      # @param estimate [Hash, nil] `{ usually: N }` — how tall it normally is, for the
-      #   estimate only. Changes nothing about how the game runs; see {#draw_column_at}.
+      # @param estimate [Object] does nothing but earn a warning (see Builder#record_estimate_line)
       def draw_rect_at(x_pos, y_pos, w, h, c, estimate: nil)
+        record_estimate_line(estimate)
         record(Build.draw_rect_at(DSL::Value.node_for(x_pos), DSL::Value.node_for(y_pos),
-                                  DSL::Value.node_for(w), DSL::Value.node_for(h), c,
-                                  usually: usual_stretch_height(h, estimate, "rectangle")))
+                                  DSL::Value.node_for(w), DSL::Value.node_for(h), c))
         ensure_var(x_pos)
         ensure_var(y_pos)
         ensure_var(w)
@@ -630,22 +630,6 @@ module RubyGBA
         end
 
         [node, bits]
-      end
-
-      # What `estimate: { usually: N }` said about how tall this shape normally is — a stretched
-      # column or a rectangle, which take the hint for the same reason and refuse it for the
-      # same one. Only a height the game works out can be told: one written in the program is
-      # already known, and saying it twice invites the two to disagree.
-      def usual_stretch_height(height, estimate, shape)
-        return nil if estimate.nil?
-
-        if height.is_a?(Integer)
-          raise ArgumentError,
-                "`estimate:` belongs on a #{shape} whose height the game works out. This one is " \
-                "#{height} rows tall every time, so the estimate already knows. Remove it."
-        end
-
-        usual_length(estimate, SCREEN_HEIGHT)
       end
 
       # The colors a screen was told to show, resolved the same way every draw verb

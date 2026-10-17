@@ -101,6 +101,7 @@ module RubyGBA
       @progress = progress
       @has_paced_loop = false  # set once a game_loop is pacing the program
       @dropped_syncs = 0       # `wait_vblank` calls the game loop already covers
+      @estimate_lines = []     # where an `estimate:` was given, which nothing reads (see #record_estimate_line)
       @variables = {}          # name → { address:, initial: } — introspection metadata
       @fraction_vars = {}      # name → fraction bits, for variables that hold a fraction (see Fraction)
       @fraction_lists = {}     # ...and the same for lists, from what `holds:` showed
@@ -232,23 +233,9 @@ module RubyGBA
     # the hardware can wrap an index cheaply, and every backend enforces that same
     # ceiling, so a program overflows at the same point everywhere.
     #
-    # `estimate:` tells the COST ESTIMATE something it cannot work out for itself. It
-    # changes nothing about how the game runs — it is not part of the program, and no
-    # backend reads it — which is why it is nested rather than sitting beside `capacity:`.
-    #
-    # Today it takes one thing, `usually:`: how many items the list normally holds. A walk
-    # over a list can only be bounded by the capacity, and that is the only number a build
-    # can prove — a snake's body list is sized for every cell of the board and holds four
-    # cells for most of a game. Nothing reads it now: the estimate it was written for is
-    # deleted, and the build measures the worst it could reach instead, with the list held at
-    # its capacity (RubyGBA.warn_of_collections_that_fill).
-    #
-    #   body  = list :body,  capacity: 256, estimate: { usually: 12 }
-    #   shots = list :shots, capacity: 32,  estimate: { usually: 3..6 }
-    #
-    # A RANGE says a length that moves, and the estimate counts its TOP — the dearest of
-    # the frames that usually happen. That is also why a range cannot talk the estimate
-    # down: a wider one always reads dearer, never cheaper.
+    # `estimate:` does nothing but earn a warning (see #record_estimate_line). The build
+    # measures each scene with the list held at its capacity instead
+    # (RubyGBA.warn_of_collections_that_fill).
     #
     # `holds:` says what KIND of number the list keeps, by showing one. Write a Float and
     # the list holds numbers with a fraction, exactly as writing one makes a variable hold
@@ -281,7 +268,7 @@ module RubyGBA
     #
     # @param name [Symbol] the list's name
     # @param capacity [Integer] the most items it can hold
-    # @param estimate [Hash] what the estimate cannot know — today `usually:` (Integer or Range)
+    # @param estimate [Object] does nothing but earn a warning
     # @param holds [Numeric] an example of what it holds; a Float means it holds fractions
     # WHERE IT LIVES is a question you almost never have to answer. The console has two
     # work memories — a small quick one and a large one that makes it wait — and the
@@ -297,8 +284,8 @@ module RubyGBA
     # @param fast [Boolean, nil] insist on the quick memory (true) or give it up (false)
     # @return [List] a handle to the list
     def list(name, capacity:, estimate: nil, holds: nil, width: :word, fast: nil)
-      record(Build.list_new(name, capacity, usually: usual_length(estimate, capacity),
-                                            width: width, fast: fast))
+      record_estimate_line(estimate)
+      record(Build.list_new(name, capacity, width: width, fast: fast))
       bits = list_fraction_bits(name, holds)
       @fraction_lists[name] = bits if bits
       DSL::List.new(self, name, fraction_bits: bits)
@@ -317,59 +304,19 @@ module RubyGBA
       DSL::Fraction.bits_of(holds)
     end
 
-    # What the `estimate:` hint says this list usually holds, as the one number a walk is
-    # counted at. A range gives its top; a number is already that; nothing said is nil, and
-    # then the estimate guesses and says so.
-    #
-    # A KEY IT DOES NOT KNOW IS AN ERROR rather than a shrug. A hint that quietly does
-    # nothing is worse than no hint at all: the report goes on calling the number a guess
-    # while the author believes they answered it.
-    # `most:` is only meaningful where nothing in the program bounds the thing — a `repeat`
-    # counted by a value the game works out. Everywhere else the capacity or the count is the
-    # ceiling and saying it again would be a second answer to a settled question.
-    ESTIMATE_HINTS = %i[usually most].freeze
-
-    def usual_length(estimate, capacity)
-      return nil if estimate.nil?
-
-      unless estimate.is_a?(Hash)
-        raise ArgumentError, "`estimate:` takes a hint in braces. Write `estimate: { usually: 12 }`."
-      end
-
-      unknown = estimate.keys - ESTIMATE_HINTS
-      unless unknown.empty?
-        raise ArgumentError, "The hint `#{unknown.first}:` is not known. " \
-                             "`estimate:` knows these hints: #{ESTIMATE_HINTS.join(', ')}."
-      end
-
-      usual_top(estimate[:usually], capacity)
+    # AN `estimate:` DOES NOTHING, whatever it says, except have its line kept. A list, a pool, a `repeat`, a
+    # `.then` and a stretched rectangle or column once took one — `{ usually: N }`, how big or
+    # how often the thing normally was — for a cost estimate that worked a frame's time out from
+    # the program. That estimate is gone: the build measures a game by running it. A game
+    # written while the hint meant something still says it, so it is not refused; the line is
+    # kept, and one warning names every such line (Guardrails::Checks::EstimateDoesNothing).
+    # Nothing about it reaches the program.
+    def record_estimate_line(estimate)
+      @estimate_lines << caller_source_location unless estimate.nil?
     end
 
-    # The top of a range, or the number itself.
-    #
-    # A range wider than half the capacity is refused. Not because it is dangerous —
-    # counting the top means a vague range can only read dearer — but because it is not an
-    # answer: `0..255` of 256 says "somewhere between empty and full", which is what the
-    # estimate had to assume anyway, dressed up as a fact the author checked.
-    def usual_top(usually, capacity)
-      return usually unless usually.is_a?(Range)
-
-      top = usually.max
-      if top.nil?
-        raise ArgumentError, "`usually: #{usually}` contains no lengths. " \
-                             "Give a range that goes up, like 3..6."
-      end
-
-      # A ceiling the game works out has no number to measure a range against, so only its
-      # direction can be checked.
-      if usually.min.negative? || (capacity && (top - usually.min) * 2 > capacity)
-        raise ArgumentError, "`usually: #{usually}` covers more than half of the capacity " \
-                             "#{capacity}. A range that wide does not give a usual length. " \
-                             "Give a narrower range, or one number."
-      end
-
-      top
-    end
+    # The lines that gave an `estimate:`, for the warning.
+    attr_reader :estimate_lines
 
     # Ship a build-time array as a read-only ROM table, read at run time by a Value
     # index. The array is plain Ruby, evaluated as the program is built, so work the
@@ -779,12 +726,8 @@ module RubyGBA
     # node from an already-built condition node and gather the block's statements
     # into it, returning the node so an `.else` can attach to it. A {Condition}
     # calls this; user code writes `.then`, not this.
-    #
-    # The estimate hints (over/usually/of — see Build#if_) come in here rather than through
-    # `.then`, because the one thing that sets them is a {Pool}'s walk over its slots, and
-    # they would be noise on every conditional an author writes.
-    def record_conditional(cond_node, over: nil, usually: nil, of: nil, runs: nil, per: nil, &block)
-      if_node = Build.if_(cond_node, over: over, usually: usually, of: of, runs: runs, per: per)
+    def record_conditional(cond_node, &block)
+      if_node = Build.if_(cond_node)
       push_container(if_node) do
         run_block(&block)
       end

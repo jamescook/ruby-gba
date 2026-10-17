@@ -215,7 +215,7 @@ module RubyGBA
         (from < upto).then do
           tile.set! from >> 3
           tiles = ((upto - 1) >> 3) - tile + 1
-          @builder.repeat(tiles, estimate: { usually: 2, most: (@width / 8) + 1 }) do
+          @builder.repeat(tiles) do
             fill_row_in_tile(row_y, tile, from, upto, place)
             tile.add! 1
           end

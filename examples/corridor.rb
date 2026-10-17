@@ -49,7 +49,6 @@ module Corridor
   STEPS_PER_CELL = 10         # a ray advances a tenth of a cell at a time...
   STEP = 1.0 / STEPS_PER_CELL
   STEPS = 50                  # ...50 times, so it sees five cells before it gives up
-  USUAL_STEPS = 23            # ...and meets a wall in about 23, measured. See `estimate:`.
 
   # The view is the top of the screen; the status bar has the rest.
   VIEW_H = 128
@@ -69,7 +68,6 @@ module Corridor
   SOFTEN = 0.5
   MAX_H = VIEW_H - 8
   MIN_H = 6
-  USUAL_H = 31 # about how tall a wall stands on a normal frame, measured. See `estimate:`.
 
   SKY = Ractor.make_shareable(RubyGBA::Graphics::Color.rgb(4, 6, 11))
   FLOOR = RubyGBA::Graphics::Color.rgb(10, 7, 4)
@@ -83,7 +81,7 @@ module Corridor
   # The game, with the ray count left as a parameter. It is a parameter because it is the one
   # knob that decides whether this fits in a frame, and the example is about that: at the
   # sixty rays it ships with the console spends about four fifths of a frame, and at eighty it
-  # does not fit at all. A test drives both sides to check the estimate agrees.
+  # does not fit at all. A test plays both sides on the console to show it.
   def self.game(name: "CORRIDOR", cols: NUM_COLS, col_w: COL_W)
     RubyGBA.game(name) do
       screen :bitmap, tear_free: true # double-buffered: the whole view is repainted each frame
@@ -146,7 +144,7 @@ module Corridor
             dist.set!(STEPS * STEP) # if nothing is hit in range, treat it as far away
 
             # March until the ray meets a wall, and stop there. This loop is the frame.
-            repeat(STEPS, stop_when: hit == 1, estimate: { usually: USUAL_STEPS }) do |step|
+            repeat(STEPS, stop_when: hit == 1) do |step|
               rx.add! dx
               ry.add! dy
               (world[(ry.to_i * MAP_W) + rx.to_i] == 1).then do
@@ -166,12 +164,12 @@ module Corridor
 
             # Shade by distance, which is what reads as depth. Exactly one band runs.
             (dist < 1.5).then do
-              draw_rect_at((col * col_w), top, col_w, col_h, NEAR, estimate: { usually: USUAL_H })
+              draw_rect_at((col * col_w), top, col_w, col_h, NEAR)
             end.else do
               (dist < 3.0).then do
-                draw_rect_at((col * col_w), top, col_w, col_h, MID, estimate: { usually: USUAL_H })
+                draw_rect_at((col * col_w), top, col_w, col_h, MID)
               end.else do
-                draw_rect_at((col * col_w), top, col_w, col_h, FAR, estimate: { usually: USUAL_H })
+                draw_rect_at((col * col_w), top, col_w, col_h, FAR)
               end
             end
           end

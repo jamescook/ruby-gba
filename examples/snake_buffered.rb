@@ -62,7 +62,6 @@ module BufferedSnake
   STAT_NUMBER = (((SCREEN_W / 2) + STAT_GAP)...SCREEN_W)
 
   BODY_CAP = (MAX_COL - MIN_COL + 1) * (MAX_ROW - MIN_ROW + 1)
-  BODY_USUAL = 4..20           # what it really holds — see snake.rb, which explains why
 
   STEP = 6                     # frames between moves
   START_ROW   = (MIN_ROW + MAX_ROW) / 2
@@ -81,8 +80,8 @@ module BufferedSnake
     define_sound :die, frequency: 140, duty: :half, decay: :medium
 
     # The body: two parallel lists, one entry per cell (xs[i], ys[i]).
-    xs = list :xs, capacity: BODY_CAP, estimate: { usually: BODY_USUAL }
-    ys = list :ys, capacity: BODY_CAP, estimate: { usually: BODY_USUAL }
+    xs = list :xs, capacity: BODY_CAP
+    ys = list :ys, capacity: BODY_CAP
 
     var :state, 0               # 0 = title, 1 = playing, 2 = game over
     blink    = var :blink, 1
@@ -136,8 +135,8 @@ module BufferedSnake
     # Start a fresh game: reset the body, face right, zero the score, place the food.
     # No board painting here — the playing scene repaints every frame anyway.
     func :new_game do
-      list :xs, capacity: BODY_CAP, estimate: { usually: BODY_USUAL }
-      list :ys, capacity: BODY_CAP, estimate: { usually: BODY_USUAL }
+      list :xs, capacity: BODY_CAP
+      list :ys, capacity: BODY_CAP
       START_CELLS.each do |cx, cy|
         xs.push cx
         ys.push cy

@@ -17,7 +17,6 @@ require_relative "../lib/ruby_gba"
 
 module Sparks
   SLOTS = 32 # sparks alive at once; a full pool recycles its oldest
-  USUAL = 20 # about how many are falling on a normal frame, for the cost report
 
   # The game as a block the builder runs, so a test can drive the exact program that
   # ships — the headless interpreter runs THIS, the console runs the ROM.
@@ -26,7 +25,7 @@ module Sparks
     seed 0x5EED # a fixed stream, so every run is the same run
 
     sparks = pool(:spark, x: 0, y: 0, vy: 0, capacity: SLOTS, on_full: :recycle_oldest,
-                          estimate: { usually: USUAL }, widths: { vy: :byte })
+                          widths: { vy: :byte })
 
     game_loop do
       clear_screen :black

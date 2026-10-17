@@ -18,10 +18,6 @@ module RubyGBA
 
       # A count of something there must be at least one of.
       def positive?(value) = value.is_a?(Integer) && value.positive?
-
-      # A whole number inside a range the caller names — a volume of 0 to 15, a percentage,
-      # a list's usual length against its capacity.
-      def within?(value, range) = value.is_a?(Integer) && range.cover?(value)
     end
   end
 end

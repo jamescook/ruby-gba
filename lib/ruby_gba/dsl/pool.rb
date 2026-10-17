@@ -49,12 +49,9 @@ module RubyGBA
       #   [x, y, w, h] relative to an instance's top-left, from the image (nil = no size)
       # @param on_full [Symbol] what spawn does when there's no free slot — :drop (ignore
       #   it, a safe no-op) or :recycle_oldest (reuse the longest-lived instance)
-      # @param usually [Integer, nil] how many instances are normally live — for the cost
-      #   estimate only (see Builder#pool), never for anything the program does
       # @param art [Builder::Composition::PoolArt, nil] what the instances look like — the
       #   pictures they can show and how a slot picks one (nil for a pure-data pool)
-      def initialize(builder, name, fields, capacity, image: nil, hitbox: nil, on_full: :drop,
-                     usually: nil, art: nil)
+      def initialize(builder, name, fields, capacity, image: nil, hitbox: nil, on_full: :drop, art: nil)
         @builder = builder
         @name = name
         @fields = fields
@@ -62,7 +59,6 @@ module RubyGBA
         @image = image
         @hitbox = hitbox
         @on_full = on_full
-        @usually = usually
         @art = art
         @fast = nil
         # A field declared with a NAME — `state: :idle` — holds one of a set of them, exactly as
@@ -470,12 +466,8 @@ module RubyGBA
             record(step)
             slot = Value.new(@builder, Build.var_ref(at), name: at)
             # The walk can pass a thing removed before its turn, so the body is only for a live
-            # one. The guard is recorded through the builder rather than with `.then` so it can
-            # carry the pool's name and `usually:` without those becoming something an author
-            # can write on any `.then`.
-            live = active[slot] == 1
-            @builder.consume_condition(live)
-            @builder.record_conditional(live.node, over: @name, usually: @usually, of: @capacity) do
+            # one.
+            (active[slot] == 1).then do
               record_current_slot(slot)
               block.call(Instance.new(pool, slot))
             end

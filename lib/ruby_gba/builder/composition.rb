@@ -52,16 +52,7 @@ module RubyGBA
       #
       #   sparks = pool :spark, x: 0, y: 0, life: 0, capacity: 32, on_full: :recycle_oldest
       #
-      # `estimate:` tells the COST ESTIMATE something it cannot work out for itself, the same
-      # hint a {Builder#list} takes and with the same words. `usually:` is how many instances
-      # are normally live. `each` walks every slot whatever happens — that part is real work
-      # and is counted whole — but the BODY only runs for a live one, and a pool is sized for
-      # the worst moment of a game rather than a normal one:
-      #
-      #   bullets = pool :bullet, x: 0, y: 0, vy: 0, capacity: 64, estimate: { usually: 6 }
-      #
-      # So the guardrails count the body six times a frame instead of sixty-four. A range
-      # (`usually: 4..8`) counts at its top.
+      # `estimate:` does nothing but earn a warning (see Builder#record_estimate_line).
       #
       # A pooled thing FACES AND ANIMATES the way a sprite does, spelled the same way.
       # Give the pool `facing:` (a picture per direction, or a list of frames per
@@ -91,7 +82,7 @@ module RubyGBA
       # @param frames [Array<Symbol>, nil] same-size pictures to cycle as an animation
       # @param rate [Integer, nil] game-frames per animation step (needed with an animation)
       # @param on_full [Symbol] :drop (default) or :recycle_oldest — see above
-      # @param estimate [Hash, nil] what the estimate cannot know — today `usually:` (Integer or Range)
+      # @param estimate [Object] does nothing but earn a warning
       # @param fields [Hash{Symbol=>Object}] field name => default value
       # @return [Pool]
       def pool(name, capacity:, image: nil, facing: nil, frames: nil, rate: nil,
@@ -101,8 +92,9 @@ module RubyGBA
         validate_pool_widths!(name, fields, widths)
         refuse_field_spelled_as_pool_word!(name, facing: facing, frames: frames, rate: rate, fast: fast)
         art = pool_art!(name, image: image, facing: facing, frames: frames, rate: rate, fields: fields)
+        record_estimate_line(estimate)
         handle = DSL::Pool.new(self, name, fields, capacity, image: image, hitbox: art&.hitbox, on_full: on_full,
-                                                        usually: usual_length(estimate, capacity), art: art)
+                                                        art: art)
         # A pool too big to share the quick memory is kept out of it, as though the game had
         # said `fast: false` — unless it said `fast: true`, which is then a friendly error.
         bytes = pool_bytes(handle, fields, widths)

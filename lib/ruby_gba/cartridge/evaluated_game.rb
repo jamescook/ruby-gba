@@ -68,6 +68,9 @@ module RubyGBA
       # How many `wait_vblank` calls the game loop already covered.
       def dropped_syncs = @builder.dropped_syncs
 
+      # Where the game gave an `estimate:`, which nothing reads.
+      def estimate_lines = @builder.estimate_lines
+
       # The software sprites, in the order they were declared — which on a bitmap screen is
       # the order they are painted in.
       def sprites = @builder.sprites

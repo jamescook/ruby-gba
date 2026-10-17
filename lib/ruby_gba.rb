@@ -141,12 +141,14 @@ module RubyGBA
       # effect pack's own guardrails) — walk the IR. The rest are appended per build
       # because they report from what the run learned rather than from the tree:
       # leftover Conditions (a native-`if` slip leaves no trace there), covered
-      # `wait_vblank` calls, and the software sprites, whose layer lives on the handle.
+      # `wait_vblank` calls, the lines that gave an `estimate:`, and the software sprites,
+      # whose layer lives on the handle.
       # All are just checks in the list, so the Validator treats them alike.
       checks = IR::Guardrails.default_checks +
                [IR::Guardrails::Checks::OrphanedCondition.new(evaluated.unused_conditions),
                 IR::Guardrails::Checks::OrphanedExpression.new(evaluated.expressions),
                 IR::Guardrails::Checks::DroppedFrameSync.new(evaluated.dropped_syncs),
+                IR::Guardrails::Checks::EstimateDoesNothing.new(evaluated.estimate_lines),
                 IR::Guardrails::Checks::LayerHoldsNothing.new(evaluated.sprites),
                 IR::Guardrails::Checks::StackNotHonored.new(evaluated.sprites)]
       findings = IR::Guardrails::Validator.new(checks: checks, progress: progress)

@@ -40,7 +40,7 @@ module RubyGBA
           end
 
           # Which shape each loop got (register/spilled/memory), keyed by its index —
-          # read by GBA#loop_shapes for the cost estimate.
+          # handed on by GBA#loop_shapes to the build record.
           attr_reader :loop_shapes
 
           # The loops whose index nothing reads, which count down (see LoopForm.unread_indexes).
@@ -170,10 +170,10 @@ module RubyGBA
           # Where those two numbers are kept is the whole difference between the two shapes
           # below, and it is decided by the body and nothing else — see LoopForm.
           #
-          # The answer is REMEMBERED as it is made, because the cost estimate has to charge for
-          # the shape that will really run and must not work that out for itself: which
-          # registers are free is this file's business. #loop_shapes hands it over the way
-          # #var_addresses hands over where a variable landed.
+          # The answer is REMEMBERED as it is made, so the build record says which shape really
+          # runs without anyone working it out again: which registers are free is this file's
+          # business. #loop_shapes hands it over the way #var_addresses hands over where a
+          # variable landed.
           def emit_repeat(node)
             return record_loop_shape(node, :registers) { emit_repeat_in_registers(node) } if LoopForm.counter_in_registers?(node)
             return record_loop_shape(node, :spilled) { emit_repeat_spilled(node) } if LoopForm.spills?(node)

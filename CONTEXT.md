@@ -73,8 +73,8 @@ _Avoid_: fixed point, Q16.16, scaled integer, fraction_bits
 
 **Estimate hint**:
 `estimate: { usually: N }` on a list, pool, loop, branch or stretched column — what a
-normal frame does, said by the author. It changes nothing about how the game runs, and
-since the cost of a frame stopped being worked out from the program nothing reads it.
+normal frame does, as an author once said it for a cost estimate that is gone. A game that
+still writes one is warned and plays the same; nothing reads it.
 _Avoid_: annotation, pragma
 
 **Effect pack**:

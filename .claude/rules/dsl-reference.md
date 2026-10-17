@@ -38,7 +38,7 @@ variable; an `Integer` is a literal; a `Value` (from `var`) is an expression.
 
 - `pixel x, y, color` — one pixel.
 - `fill_rect x, y, w, h, color` / `dma_fill_rect …` — a filled rectangle at fixed place, even width.
-- `draw_rect_at x, y, w, h, color` — a rectangle whose place and size are worked out at run time, any width; `estimate: { usually: }`.
+- `draw_rect_at x, y, w, h, color` — a rectangle whose place and size are worked out at run time, any width.
 - `draw_column_at :picture, slice:, x:, top:, height:, width: 1` — one picture column stretched to a run-time height (a first-person wall, a scaled sprite).
 - `clear_screen color` — the whole screen, or the area an `inside` holds.
 - `inside x, y, w, h do … end` — clip everything drawn in the block to that rectangle (fixed edges, no nesting).
@@ -124,14 +124,15 @@ variable; an `Integer` is a literal; a `Value` (from `var`) is an expression.
 - `clamp! :name, lo, hi`, `approach! :name, target, step` — bounds and step may be worked out at run time.
 - A word without `!` never changes a variable. On a handle (`abs`, `clamp`, `approach`, `flip`, `negate_abs`) it is a new number, and alone on a line a friendly error. As a flat verb (`set`, `add`, `sub`, `add_var`, `sub_var`, `copy`, `negate`, `flip`, `abs`, …) it is always a friendly error naming the `!` word.
 - Introspection: `variables`, `var_address :name`.
-- Expressions on a `Value`: `+ - * / %`, unary `-`, comparisons → `Condition`, `&`/`|` on conditions, `.then { } .else { }`, `.then(estimate: { usually: 0 })`; an expression never kept is a friendly error.
+- Expressions on a `Value`: `+ - * / %`, unary `-`, comparisons → `Condition`, `&`/`|` on conditions, `.then { } .else { }`; an expression never kept is a friendly error.
+- `estimate: { usually: N }` (on `list`, `pool`, `repeat`, `.then`, `draw_rect_at`, `draw_column_at`) does nothing: it is set aside, with one warning naming every line that gives one.
 - Bits: `& | ^ ~ >> <<` for packed data; `%` wraps like Ruby; dividing by zero gives 1/-1 and `%` the number.
 - Numbers with a fraction: write a Float (`var :px, 3.5`); `.to_i`, `.to_f`; fraction × fraction and ÷ are done at full width.
 
 ## Control flow — `.claude/dsl/control-flow.md`
 
 - `game_loop do … end` — once a frame; the screen stays off until the first frame is set up. `frame_sync: :manual` to place `wait_vblank` yourself.
-- `repeat(n) { |i| … }` (`stop_when:`, `estimate:`) — a run-time counted loop.
+- `repeat(n) { |i| … }` (`stop_when:`) — a run-time counted loop.
 - `every(n) { … }` / `every(0.5, :seconds)` — on a beat. `after(n) { … }` — once, n frames in.
 - `once_a_frame { … }` — always runs, once for each frame that really passed (movement that keeps real time).
 - `timer :name, per_second: N` → `Timer` with `ticks`, `on_tick`, `stop`.
@@ -158,7 +159,7 @@ variable; an `Integer` is a literal; a `Value` (from `var`) is an expression.
 
 ## Lists — `.claude/dsl/lists.md`
 
-- `list :name, capacity: N` → `List`: `push`/`<<`, `pop`, `shift`, `[]`, `[]=`, `first`, `last`, `length`, `each`, `fill`, `copy_from`; `holds: 0.0`, `width: :byte`/`:half`, `fast:`, `estimate:`.
+- `list :name, capacity: N` → `List`: `push`/`<<`, `pop`, `shift`, `[]`, `[]=`, `first`, `last`, `length`, `each`, `fill`, `copy_from`; `holds: 0.0`, `width: :byte`/`:half`, `fast:`.
 
 ## Tables — `.claude/dsl/tables.md`
 
@@ -166,7 +167,7 @@ variable; an `Integer` is a literal; a `Value` (from `var`) is an expression.
 
 ## Pools — `.claude/dsl/pools.md`
 
-- `pool :name, field: default, …, capacity: N` → `Pool`: `spawn`, `each` (oldest first, `newest_first:`), `remove`, `index`, `count`, `full?`; `on_full:`, `image:`/`facing:`/`frames:`, `widths:`, `estimate:`, `pool.func(:name) { |g| … }`.
+- `pool :name, field: default, …, capacity: N` → `Pool`: `spawn`, `each` (oldest first, `newest_first:`), `remove`, `index`, `count`, `full?`; `on_full:`, `image:`/`facing:`/`frames:`, `widths:`, `pool.func(:name) { |g| … }`.
 
 ## Randomness — `.claude/dsl/randomness.md`
 

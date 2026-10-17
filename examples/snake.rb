@@ -74,17 +74,12 @@ module Snake
   STAT_LABEL  = (0...(SCREEN_W / 2))
   STAT_NUMBER = (((SCREEN_W / 2) + STAT_GAP)...SCREEN_W)
 
-  # The interior holds at most this many cells, so the body can never outgrow its
-  # list — a `list` rounds its capacity up to a power of two, comfortably above this.
+  # The interior holds at most this many cells, so a body list this long can never
+  # overflow. It opens at four cells and grows one per apple, so a played game spends its time far
+  # below that. The build also measures each scene with the body held at its capacity,
+  # and would warn if a full board did not keep up. It does: the body is walked once a
+  # step, not once a frame.
   BODY_CAP = (MAX_COL - MIN_COL + 1) * (MAX_ROW - MIN_ROW + 1)
-
-  # ...and this is how long it really is: it opens at four cells and grows one per
-  # apple, so a played game spends its time near the bottom of this. Playing it
-  # measures those few cells; the build also measures each scene with the body held
-  # at its capacity, and would warn if a full board did not keep up. It does: the
-  # body is walked once a step, not once a frame. This line changes nothing about how
-  # the game runs.
-  BODY_USUAL = 4..20
 
   STEP = 6                     # frames between moves — the snake steps ~10x a second
 
@@ -111,8 +106,8 @@ module Snake
     define_sound :die, frequency: 140, duty: :half, decay: :medium
 
     # --- The body: two parallel lists, one entry per cell (xs[i], ys[i]) ---
-    xs = list :xs, capacity: BODY_CAP, estimate: { usually: BODY_USUAL }
-    ys = list :ys, capacity: BODY_CAP, estimate: { usually: BODY_USUAL }
+    xs = list :xs, capacity: BODY_CAP
+    ys = list :ys, capacity: BODY_CAP
 
     # --- RAM variables (each `var` hands back a handle we compare and mutate) ---
     var :state, 0               # 0 = title, 1 = playing, 2 = game over (read via case_var)
@@ -196,8 +191,8 @@ module Snake
     # score, place the first food, paint the board once, and switch to playing.
     func :new_game do
       # Re-declaring a list empties it — the clean way to start the body over.
-      list :xs, capacity: BODY_CAP, estimate: { usually: BODY_USUAL }
-      list :ys, capacity: BODY_CAP, estimate: { usually: BODY_USUAL }
+      list :xs, capacity: BODY_CAP
+      list :ys, capacity: BODY_CAP
       START_CELLS.each do |cx, cy|
         xs.push cx
         ys.push cy

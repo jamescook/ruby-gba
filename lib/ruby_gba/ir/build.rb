@@ -190,21 +190,14 @@ module RubyGBA
       # A size the program works out is what a bar or a column needs: a health meter
       # that empties sideways, a wall column in a first-person view, a tower rising
       # out of the ground. A width or height of zero or less draws nothing.
-      # +usually+ is how many rows it normally covers, for the estimate only — nothing about how
-      # the program runs reads it. See #draw_column_at, which takes it for the same reason.
-      def draw_rect_at(x, y, w, h, color, usually: nil)
+      def draw_rect_at(x, y, w, h, color)
         Nodes.build(:draw_rect_at, x: to_value_node(x), y: to_value_node(y), w: to_value_node(w), h: to_value_node(h),
-                                   color: color, usually: usually)
+                                   color: color)
       end
 
-      # +usually+ is how many rows this column normally draws, for the estimate only — nothing
-      # about how the program runs reads it. A height the game works out has no size a build can
-      # prove, and unlike most such numbers this one has a known ceiling (a column is clipped to
-      # the screen), so the estimate can be told rather than left to guess.
-      def draw_column_at(name, slice, x, top, height, width: 1, usually: nil)
+      def draw_column_at(name, slice, x, top, height, width: 1)
         Nodes.build(:draw_column_at, name: name, slice: to_value_node(slice), x: to_value_node(x),
-                                     top: to_value_node(top), height: to_value_node(height), width: width,
-                                     usually: usually)
+                                     top: to_value_node(top), height: to_value_node(height), width: width)
       end
 
       # Fill a rectangle at a fixed position and size — same picture as
@@ -362,24 +355,8 @@ module RubyGBA
       # --- control flow ---  (bodies are nested statements)
 
       # A test, and the statements that run when it holds.
-      #
-      # `over`/`usually`/`of` are for the COST ESTIMATE and change nothing about what the
-      # program does — no backend reads them. They describe a walk over a fixed set of
-      # slots that acts on the ones in use: the test is asked on every one of `of` slots,
-      # and holds for about `usually` of them. Without that, a walk over sixty-four slots
-      # with six in use is counted at sixty-four bodies a frame, since a build can prove
-      # the slot count and nothing else. `over` names the set the author named, so a
-      # report can say which one it counted.
-      # +over+/+usually+/+of+ say a pool's live slots; +runs+/+per+ say how many frames in
-      # every +per+ the body runs. Both are read by the estimate only.
-      def if_(cond, *body, over: nil, usually: nil, of: nil, runs: nil, per: nil)
-        if usually && !DSL::Whole.within?(usually, 1..of.to_i)
-          raise ArgumentError,
-                "`usually:` must be between 1 and the #{of.inspect} slots of :#{over}. " \
-                "You gave #{usually.inspect}."
-        end
-        hints = { over: over, usually: usually, of: of, runs: runs, per: per }.compact
-        Nodes.build(:if, children: body, cond: cond, **hints)
+      def if_(cond, *body)
+        Nodes.build(:if, children: body, cond: cond)
       end
 
       # The else-branch of an `if`: its statements run when the condition is
@@ -405,14 +382,9 @@ module RubyGBA
       # +stop_when+ is always present, because a value slot that is sometimes there is a slot
       # every reader has to remember to check. Zero is "nothing to stop for", which is what a
       # plain counted loop has, and both backends recognise the constant and emit nothing.
-      # +usually+ is how many passes it normally makes and +most+ how many it can ever make.
-      # Both are for the estimate only and change nothing about how the loop runs. A loop counted
-      # by a number needs neither — the count IS both — and one that stops early carries its
-      # ceiling in the count, so `most` is only ever wanted where the count is worked out as the
-      # game runs and nothing in the program bounds it.
-      def repeat(count, index, *body, stop_when: nil, usually: nil, most: nil)
+      def repeat(count, index, *body, stop_when: nil)
         Nodes.build(:repeat, children: body, count: to_value_node(count), index: index,
-                             stop_when: to_value_node(stop_when || 0), usually: usually, most: most)
+                             stop_when: to_value_node(stop_when || 0))
       end
 
       # A repeating timer: run +body+ once every +period+ frames. +counter+ names
@@ -926,25 +898,14 @@ module RubyGBA
 
       # Create a named list that can hold up to `capacity` items.
       #
-      # `usually` is how many it normally holds, and it changes nothing about what the
-      # program does — no backend reads it. It is what a walk over the list is counted
-      # at when the estimate asks what a frame USUALLY costs, where the capacity is what
-      # the same walk is counted at when it asks what a frame could cost at worst. A
-      # snake's body list holds every cell of the board and holds four of them for most
-      # of a game, so the two questions have answers 128 times apart.
       # `fast` is what the author said about where it should live on a machine with more
       # than one work memory: false for "I know this is cold — give it room", true to
       # insist on the quick one, nil to let the framework decide. It changes nothing the
       # program does, only how long a read takes.
-      def list_new(name, capacity, usually: nil, width: :word, fast: nil)
+      def list_new(name, capacity, width: :word, fast: nil)
         unless DSL::Whole.positive?(capacity)
           raise ArgumentError,
                 "a list's capacity must be a positive whole number, got #{capacity.inspect}"
-        end
-        if usually && !DSL::Whole.within?(usually, 1..capacity)
-          raise ArgumentError,
-                "`usually:` must be between 1 and the capacity of #{capacity}. " \
-                "You gave #{usually.inspect}."
         end
         unless ELEMENT_BYTES.key?(width)
           raise ArgumentError,
@@ -955,7 +916,7 @@ module RubyGBA
         # was wrapped with a mask — so `capacity: 340` quietly held 512, and the memory for
         # those 172 slots nobody planned for came out of the console's 32K. How that storage
         # is arranged is the backend's business now, and it is arranged around this number.
-        attrs = { name: name, capacity: capacity, usually: usually, width: width }
+        attrs = { name: name, capacity: capacity, width: width }
         attrs[:fast] = fast unless fast.nil?
         Nodes.build(:list_new, **attrs)
       end
