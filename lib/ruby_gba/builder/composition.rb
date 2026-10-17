@@ -505,6 +505,7 @@ module RubyGBA
       # per-instance, so ten guards face ten ways and do not march in step.
       def setup_pool_art(pool, capacity, art, widths = {}, fast = nil)
         (@spriteful_pools ||= []) << pool
+        pool.scene_gate = @current_scene_gate
         setup_pool_stacking(pool, capacity, widths, fast)
         capacity.times do |place|
           rank = pool.rank_at_place(place)
@@ -558,12 +559,18 @@ module RubyGBA
           next unless at
 
           pools.reverse_each do |pool|
-            node = Build.call(pool.stacking_routine)
+            node = call_stacking_while_shown(pool)
             container.children.insert(at + 1, node)
             node.parent = container
           end
         end
       end
+
+      # The call that puts +pool+ in order — asked only while its scene is up, for a pool
+      # declared in one. Its things are shown only then, so on any other scene's frames the
+      # copy would be work nobody sees. The scene is asked in the same gap the things are
+      # drawn in, so a scene's first frame is put in order and drawn alike.
+      def call_stacking_while_shown(pool) = while_scene_up(pool.scene_gate, Build.call(pool.stacking_routine))
 
       # THE POOL'S RHYTHM IS SHARED AND ITS PLACE IN THE CYCLE IS NOT, which is what makes
       # this cheap enough to put on every frame. One counter for the whole pool decides

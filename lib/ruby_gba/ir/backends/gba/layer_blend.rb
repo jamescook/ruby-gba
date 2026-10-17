@@ -271,9 +271,11 @@ module RubyGBA
           # A pair of numbers the author wrote needs none: that is one write of a number.
           def amount_routines = @amount_routines || {}
 
-          # The body of one of those routines.
+          # The body of one of those routines. Whether its layer's screen is up is asked before
+          # the call (see #emit_blend_amounts_or_call), so another screen's frames do not call
+          # it at all.
           def emit_amounts_routine(name)
-            emit_amounts_if_on_screen(@amount_layers.fetch(name))
+            emit_blend_amounts(@amount_layers.fetch(name))
           end
 
           # WHICH SEE-THROUGH LAYER THIS SCENE'S SCREEN SHOWS, written as the scene runs so
@@ -385,9 +387,9 @@ module RubyGBA
           # where they change, and by writing them here where they are numbers.
           def emit_blend_amounts_or_call(layer)
             name = routine_name(layer)
-            return @lowering.statement(Build.call(name)) if amount_routines.key?(name)
-
-            emit_amounts_if_on_screen(layer)
+            emit_if_on_screen(layer) do
+              amount_routines.key?(name) ? @lowering.statement(Build.call(name)) : emit_blend_amounts(layer)
+            end
           end
 
           def routine_name(layer) = Messages::MadeNames.make(:see_through_amounts, layer: layer.name)
@@ -401,16 +403,16 @@ module RubyGBA
             scenes.size == 1 && scenes.first ? scenes.first : Placement::FRAME_ROUTINE
           end
 
-          # Tell the display +layer+'s amounts — where the game asks which screen is up, only
-          # while +layer+'s screen is the one up.
-          def emit_amounts_if_on_screen(layer)
-            return emit_blend_amounts(layer) unless tracks_see_through_screen?
+          # Emit the block's code to run — where the game asks which screen is up — only while
+          # +layer+'s screen is the one up.
+          def emit_if_on_screen(layer)
+            return yield unless tracks_see_through_screen?
 
             @primitives.load_var(ACC, SCREEN_STATE)
             @emitter.emit(ASM.cmp_imm(ACC, screen_number(layer)))
             skip = @emitter.gensym
             @emitter.emit_branch(:bcond, skip, cond: :ne)
-            emit_blend_amounts(layer)
+            yield
             @emitter.place_label(skip)
           end
 

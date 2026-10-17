@@ -88,6 +88,11 @@ module RubyGBA
       # Builder::Composition#pool), and read by the lists a pool only gains later.
       attr_accessor :fast
 
+      # The scene a pool that draws was declared in, as the variable the game picks its scenes
+      # with and the value that picks this one; nil for a pool declared outside every scene.
+      # Its things show only while that scene is up, so that is when they are put in order.
+      attr_accessor :scene_gate
+
       # Whether instances draw themselves as sprites.
       def spriteful? = !@art.nil?
 

@@ -209,6 +209,25 @@ class TestSeeThroughAmountsPlacement < Minitest::Test
     assert_equal 1, in_play.uniq.size, "in play nothing works the title's pair out"
   end
 
+  # ...NOR IS THE ROUTINE THAT WOULD WORK THEM OUT EVEN CALLED: on play's frames the gap before
+  # each frame asks which screen is up and goes past the call — from the first frame, since a
+  # scene says which screen it is before the gap after its first pass. Measured on the game that
+  # never walks back to the title by itself.
+  private def time_in_rays(scene)
+    rom = assemble_rom(steps_whatever_is_up, name: "RAYSOFF")
+    line = RubyGBA::Diagnostics::Profiler.run(rom, scene: scene, frames: 10, picture: false)
+                                         .lines.find { |l| l.name == RAYS }
+    line ? line.samples : 0
+  end
+
+  def test_play_spends_nothing_in_the_titles_amounts_routine
+    assert_equal 0, time_in_rays(:playing)
+  end
+
+  def test_the_title_still_works_its_amounts_out
+    assert_operator time_in_rays(:title), :>, 0
+  end
+
   # THE PICTURE DOES NOT CHANGE, frame by frame: the step moves every frame on the title, so
   # any frame of lag in the pair would show, and the title comes back after play.
   def test_the_console_mixes_each_frame_at_that_frames_pair

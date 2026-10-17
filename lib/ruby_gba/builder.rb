@@ -960,9 +960,16 @@ module RubyGBA
     def gated_by_scene(active_node)
       return active_node unless @current_scene_gate
 
-      state_var, value = @current_scene_gate
-      Build.binop(:*, active_node, Build.binop(:==, Build.var_ref(state_var), Build.int(value)))
+      Build.binop(:*, active_node, scene_up(@current_scene_gate))
     end
+
+    # "The scene +gate+ names is the one up": the variable the game picks its scenes with holds
+    # the value that picks it. A gate is that variable and that value.
+    def scene_up((state_var, value)) = Build.binop(:==, Build.var_ref(state_var), Build.int(value))
+
+    # +node+, run only while the scene +gate+ names is up — or as it is, for a nil gate: a
+    # thing declared outside every scene is there in all of them.
+    def while_scene_up(gate, node) = gate ? Build.if_(scene_up(gate), node) : node
 
     # Gate a declaration's visibility on the conditions it was WRITTEN under, so a
     # blinking prompt is the plain thing an author would write:
@@ -1044,8 +1051,7 @@ module RubyGBA
       write_between_frames(@inline_scroll_nodes, backgrounds_that(&:scrolls?)) do |name, background|
         scroll = Build.scroll_background(name, x: Build.var_ref(background.scroll_x),
                                                y: Build.var_ref(background.scroll_y))
-        gate = background.scene_gate
-        gate ? Build.if_(Build.binop(:==, Build.var_ref(gate[0]), Build.int(gate[1])), scroll) : scroll
+        while_scene_up(background.scene_gate, scroll)
       end
     end
 
@@ -1145,8 +1151,7 @@ module RubyGBA
         # Gated to the owning scene, as a scroll is: a scene's backgrounds draw from colour
         # groups other scenes use while they are up, so a list asked for from elsewhere waits
         # until its scene is back, and goes in then.
-        gate = background.scene_gate
-        gate ? Build.if_(Build.binop(:==, Build.var_ref(gate[0]), Build.int(gate[1])), write) : write
+        while_scene_up(background.scene_gate, write)
       end
     end
 
@@ -1207,10 +1212,7 @@ module RubyGBA
       # A background turned inside one scene says nothing at all while another scene is up:
       # the display has one turning layer and they share it, so a title screen's zoom must
       # not go on distorting the game that took over from it.
-      gate = background.scene_gate
-      return write unless gate
-
-      Build.if_(Build.binop(:==, Build.var_ref(gate[0]), Build.int(gate[1])), write)
+      while_scene_up(background.scene_gate, write)
     end
 
     # The angle and the size the display was last told. They are declared here rather than
