@@ -100,7 +100,8 @@ module RubyGBA
             samples = mixes ? mix_clock.samples_a_frame : 0
             sound_table("mix", [mixes ? 1 : 0, samples, Mixing.shapes_any_note?(@program) ? 1 : 0,
                                 mixes ? Mixing.slide_share(samples) : 0, sound::MIXER_VOICES, sound::VOL_SHIFT,
-                                sound::STEP_SHIFT, sound::GAIN_FRACTION, sound::RAMP_SPLIT, envelope::FULL, envelope::SCALE])
+                                sound::STEP_SHIFT, sound::GAIN_FRACTION, sound::RAMP_SPLIT, envelope::FULL, envelope::SCALE,
+                                sound::LOUDNESS_TO_GAIN, envelope::WHOLE_GAIN_SHIFT])
           end
 
           # Every recording the game declares, seven numbers each; and all their samples, in an

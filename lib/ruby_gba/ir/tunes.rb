@@ -35,7 +35,7 @@ module RubyGBA
 
       # A part's written volume, 0..15 like the console voices', as a mixer voice's loudness. A
       # recorded note's volume can hold a fraction (Score::Note), which is how a note gets a
-      # loudness between two whole volumes: 15 x L / 256 is L exactly. Worked out as an exact
+      # loudness between two whole volumes: 15 x L / 512 is L exactly. Worked out as an exact
       # fraction so a Float and a Rational of the same value come out the same.
       def mix_loudness(volume) = (volume.to_r * MIX_FULL / 15).round
 

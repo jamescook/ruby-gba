@@ -165,7 +165,7 @@ static void print_sprites(void) {
 }
 
 /* For a game that mixes recordings: the slice made since the last moment ("mix" and its
- * samples), each sounding voice's recording, loudness out of 256, how far its shape has climbed or
+ * samples), each sounding voice's recording, loudness out of 512, how far its shape has climbed or
  * fallen, and whose it is — 0 the game's, 1 the song's, 2 a sound effect's, then the effect's
  * number and the part's lane ("mixing", six numbers a voice; rg_mix_voice_reading), the most voices
  * that ever sounded at once ("mix_peak"), and how many plays found every voice busy with the

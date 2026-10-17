@@ -15,7 +15,7 @@ module RubyGBA
         #
         # ONE FRAME'S SLICE, as the cartridge makes it (#mix). Each sounding voice reads its
         # recording from where it got to, one sample for each sample of the slice, and adds the
-        # sample times its loudness, over 256, into a running total for that place in the slice.
+        # sample times its loudness, over 512, into a running total for that place in the slice.
         # How fast it reads is its STEP: how many samples of the recording go by for each sample
         # of the slice, in 65536ths, so a note pitched up reads faster and one recorded at
         # another rate is read at the rate the mix runs at. The part of a sample that does not
@@ -54,6 +54,7 @@ module RubyGBA
           STEP_SHIFT = Audio::Sound::STEP_SHIFT
           GAIN_FRACTION = Audio::Sound::GAIN_FRACTION
           RAMP_SPLIT = Audio::Sound::RAMP_SPLIT
+          LOUDNESS_TO_GAIN = Audio::Sound::LOUDNESS_TO_GAIN
 
           # ONE SOUNDING VOICE: the sample it is playing, whose it is, the level a game's play
           # asked for, and its ticket — and where it has got to in its recording.
@@ -67,8 +68,8 @@ module RubyGBA
           # +fraction+ the part of a sample carried toward the next one (out of 65536), and
           # +step+ how far it moves for each sample of the slice (65536 is one). +back+ is how far
           # it reads back at the end of the recording, and 0 for one that stops there.
-          # +loudness+ is out of 256, and +gain+ is the loudness the mix really multiplies by,
-          # with GAIN_FRACTION bits under it, which +ramp+ moves a little each sample while a
+          # +loudness+ is out of 512, and +gain+ is the loudness the mix really multiplies by, in
+          # 256ths with GAIN_FRACTION bits under it, which +ramp+ moves a little each sample while a
           # shaped note slides. A voice with no shape keeps its gain until the music volume moves
           # (see #rescale_music).
           #
@@ -196,7 +197,7 @@ module RubyGBA
           end
 
           # A VOICE AT THE TOP OF RECORDING +name+, read at +frequency+, going +back+ at its end,
-          # at +loudness+ out of 256 and shaped by +envelope+. One with a shape starts at nothing and
+          # at +loudness+ out of 512 and shaped by +envelope+. One with a shape starts at nothing and
           # climbs, its gain at nothing until the shape's first frame sets it; one without carries
           # no shape at all and sounds flat out from its first sample.
           def recording_fields(name, frequency, back, loudness, envelope)
@@ -205,7 +206,7 @@ module RubyGBA
               phase: RubyGBA::Audio::Envelope::CLIMBING,
               data: @data.fetch(name), position: 0, fraction: 0, back: back,
               step: IR::Mixing.step(@samples.fetch(name), frequency, @clock.rate),
-              loudness: loudness, gain: shape ? 0 : loudness << GAIN_FRACTION, ramp: 0 }
+              loudness: loudness, gain: shape ? 0 : loudness << LOUDNESS_TO_GAIN, ramp: 0 }
           end
 
           # Stop a sample: drop its voices from the mix (or every voice of the game's, if no
@@ -236,7 +237,7 @@ module RubyGBA
             data = voice.data
             whole = voice.step >> STEP_SHIFT
             part = voice.step & ((1 << STEP_SHIFT) - 1)
-            gain = @shapes ? voice.gain : voice.loudness << GAIN_FRACTION
+            gain = @shapes ? voice.gain : voice.loudness << LOUDNESS_TO_GAIN
             totals.each_index do |at|
               totals[at] += (gain * data[voice.position]) >> (VOL_SHIFT + GAIN_FRACTION)
               gain += voice.ramp
@@ -282,7 +283,7 @@ module RubyGBA
           # song or effect. +name+ is the recording and +frequency+ the note, which is how fast it
           # is read: a higher note reads it faster, so it runs out sooner — unless the recording
           # HOLDS, and then a note reads round its hold point for as long as it lasts. +loudness+
-          # is out of 256. +envelope+ is the shape this note was asked for — the note's own, or its
+          # is out of 512. +envelope+ is the shape this note was asked for — the note's own, or its
           # part's. A note that asks for none takes whatever the recording itself was declared
           # with.
           def start_music_note(owner:, rank:, name:, frequency:, loudness:, envelope:)
@@ -308,7 +309,7 @@ module RubyGBA
             slot = sounding_slot(owner) or return false
             voice = @slots[slot]
             voice.loudness = loudness
-            voice.gain = loudness << GAIN_FRACTION unless voice.envelope
+            voice.gain = loudness << LOUDNESS_TO_GAIN unless voice.envelope
             true
           end
 
@@ -396,14 +397,15 @@ module RubyGBA
           #
           # The end is the loudness asked for, scaled by the level: a level is a byte and the
           # scale out of 256, so the level's own top bit is added back in, making a full 255 count
-          # as 256. The product is a WHOLE loudness, the rest dropped, which is how a cartridge's
-          # own sound engine works a channel's loudness out once a frame: so a quiet note falls
-          # silent on the frame its whole loudness reaches nothing, while its level is still above
-          # it, where a fraction kept would go on adding a step below nothing on every sample
-          # below the middle until the level ran out. Below half a level the two are the same sum.
-          # Above it they part by the top bit added back: a note held at full is the loudness
-          # asked for, where the engine's comes out a step under it, so every game's full notes
-          # stay as loud as they were asked. A note's FIRST frame does not slide, it
+          # as 256. The product is a WHOLE number of 256ths, the rest dropped — the loudness's
+          # own half a 256th included — which is how a cartridge's own sound engine works a
+          # channel's loudness out once a frame, (level x (right + left)) >> 9: so a quiet note
+          # falls silent on the frame its whole loudness reaches nothing, while its level is still
+          # above it, where a fraction kept would go on adding a step below nothing on every
+          # sample below the middle until the level ran out. Below half a level the two are the
+          # same sum. Above it they part by the top bit added back: a note held at full is the
+          # loudness asked for, where the engine's comes out a step under it, so every game's full
+          # notes stay as loud as they were asked. A note's FIRST frame does not slide, it
           # starts there: a recording starts from its own beginning, so there is nothing before
           # it to be smooth with.
           #
@@ -415,7 +417,7 @@ module RubyGBA
           # a little below it.
           def slide_gain(voice, first)
             level = voice.level
-            target = ((voice.loudness * (level + (level >> 7))) >> RubyGBA::Audio::Envelope::SCALE) << GAIN_FRACTION
+            target = ((voice.loudness * (level + (level >> 7))) >> RubyGBA::Audio::Envelope::WHOLE_GAIN_SHIFT) << GAIN_FRACTION
             voice.gain = first ? target : IR::Mixing.nearest_whole_gain(voice.gain)
             share = IR::Mixing.slide_share(@clock.samples_a_frame)
             voice.ramp = (((target - voice.gain) >> RAMP_SPLIT) * share) >> RAMP_SPLIT

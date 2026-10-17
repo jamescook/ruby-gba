@@ -496,17 +496,19 @@ class TestMixer < Minitest::Test
   end
 
   # A QUIET NOTE FALLING AWAY GOES SILENT WHILE ITS LEVEL IS STILL ABOVE NOTHING. A voice's
-  # loudness for a frame is a whole number, the loudness asked for times the level, over 256,
-  # the rest dropped — as a cartridge's own sound engine works it out. So a note asked at 17
-  # (out of 256) is at 1 while its level is 16 and at nothing from 15 down, and from the frame
+  # loudness for a frame is a whole number of 256ths, the loudness asked for (out of 512) times
+  # the level, over 512, the rest dropped — as a cartridge's own sound engine works it out from
+  # its right and left volumes, (level x (right + left)) >> 9. So a note asked at 51 (25 and a
+  # half 256ths) is at 1 while its level is 11 and at nothing from 10 down, and from the frame
   # it gets there it adds nothing to the mix, though its voice is still held until the level
-  # runs out.
-  QUIET = 17
+  # runs out. Rounded to 26 256ths it would still be at 1 on level 10.
+  QUIET = 51
+  SILENT_FROM_LEVEL = 10
 
   private def quiet_note_let_go
     score = RubyGBA::Audio::Score
     shape = RubyGBA::Audio::Envelope.new(attack: 255, decay: 255, sustain: 255, release: 235)
-    note = score::Note.new(at: 0, key: :C4, length: 4, volume: Rational(QUIET * 15, 256), envelope: shape)
+    note = score::Note.new(at: 0, key: :C4, length: 4, volume: Rational(QUIET * 15, 512), envelope: shape)
     tune = score.new(tempo: 150, length: 400, plays_once: true, parts: [score::Part.new(plays: :tone, notes: [note])])
     b = Builder.new
     b.instance_eval do
@@ -528,9 +530,9 @@ class TestMixer < Minitest::Test
     slices = i.mixed_sound
 
     # A frame's slice slides from the loudness one level reading back to the one the reading
-    # before that, so it is wholly at nothing two readings after the level reaches 15.
-    silent_from = levels.each_index.find { |f| f > 1 && levels[f - 2] && levels[f - 2] <= 15 }
-    refute_nil silent_from, "the note never fell to level 15 in the run: #{levels.compact.last(5)}"
+    # before that, so it is wholly at nothing two readings after the level reaches 10.
+    silent_from = levels.each_index.find { |f| f > 1 && levels[f - 2] && levels[f - 2] <= SILENT_FROM_LEVEL }
+    refute_nil silent_from, "the note never fell to level #{SILENT_FROM_LEVEL} in the run: #{levels.compact.last(5)}"
     sounding = (silent_from...levels.size).select { |f| levels[f] }
     refute_empty sounding, "the voice was let go as its loudness reached nothing, so there is no frame to check"
     sounding.each do |f|

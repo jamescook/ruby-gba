@@ -96,7 +96,7 @@ module RubyGBA
 
           # A voice slot, in EWRAM: the sample's address in ROM, how far it has played (a whole
           # sample index), its length, HOW FAR BACK it goes at the end (0 for a sound that plays
-          # once), whether it's sounding, its level (0..256), and — for pitch — a 16.16
+          # once), whether it's sounding, its loudness (0..512), and — for pitch — a 16.16
           # fixed-point STEP (how many source samples to advance per output sample: 1.0 = 0x10000
           # plays at the recorded pitch, 2.0 an octave up) plus a FRAC accumulator carrying the
           # leftover fraction between frames, kept in its TOP 16 bits so that adding to it
@@ -156,6 +156,11 @@ module RubyGBA
           GAIN_FRACTION = RubyGBA::Audio::Sound::GAIN_FRACTION
           RAMP_SPLIT = RubyGBA::Audio::Sound::RAMP_SPLIT
 
+          # A slot's VOL is a loudness in 512ths and its GAIN 256ths with GAIN_FRACTION bits under
+          # them: a loudness shifted up this far is its gain (see Sound::LOUDNESS_FRACTION).
+          LOUDNESS_FRACTION = RubyGBA::Audio::Sound::LOUDNESS_FRACTION
+          LOUDNESS_TO_GAIN = RubyGBA::Audio::Sound::LOUDNESS_TO_GAIN
+
           # The link register: where a routine returns to, and the one register the mix borrows
           # past r12 (see #emit_mix_routine).
           LR = 14
@@ -214,8 +219,8 @@ module RubyGBA
 
           # ONE SOUNDING VOICE, read back off a running console: which sample it is playing,
           # how far through it (a whole sample index), how long that sample is, how fast it
-          # reads it (16.16 — STEP_ONE is the recorded pitch), whether it loops, its level
-          # (0..256), and whose it is — :game, [:song, part] or [effect, part], the same answer the
+          # reads it (16.16 — STEP_ONE is the recorded pitch), whether it loops, its loudness
+          # (0..512), and whose it is — :game, [:song, part] or [effect, part], the same answer the
           # interpreter's Reference#sound_owners gives. Values rather than addresses, so a test
           # asks what is playing and never learns where in memory it is kept.
           Voice = Data.define(:sample, :position, :length, :step, :loop, :volume, :owner)
@@ -290,11 +295,11 @@ module RubyGBA
             end
           end
 
-          # Volume level names → a 0..256 gain the mix multiplies each sample by (then shifts
-          # right by 8, i.e. divides by 256) — so :full leaves a sample unchanged and :half
+          # Volume level names → a 0..512 loudness the mix multiplies each sample by (then shifts
+          # right by 9, i.e. divides by 512) — so :full leaves a sample unchanged and :half
           # halves it. The same words the other sound verbs use.
           MIX_LEVELS = RubyGBA::Audio::Sound::MIX_LEVELS
-          VOL_SHIFT = RubyGBA::Audio::Sound::VOL_SHIFT # 2**8 = 256, the :full gain
+          VOL_SHIFT = RubyGBA::Audio::Sound::VOL_SHIFT # 2**8 = 256, a gain's whole steps (:full is 512 of a loudness's)
 
           # Which of the two output buffers the DMA is playing right now (0 or 1).
           MIX_FRONT = :__mix_front
@@ -630,7 +635,7 @@ module RubyGBA
               @emitter.emit(ASM.load_immediate(TMP, loop_back_distance(node, sample)))
               @emitter.emit(ASM.str_offset(TMP, 0, SLOT_LOOP))         # how far back at the end
               @emitter.emit(ASM.load_immediate(TMP, MIX_LEVELS.fetch(node.volume, MIX_LEVELS[:full])))
-              @emitter.emit(ASM.str_offset(TMP, 0, SLOT_VOL))          # slot.volume (0..256 gain)
+              @emitter.emit(ASM.str_offset(TMP, 0, SLOT_VOL))          # slot.volume (0..512 loudness)
               emit_start_envelope(0, TMP, sample.envelope) if @uses_envelopes
               @emitter.emit(ASM.load_immediate(TMP, voice_step(node, sample)))
               @emitter.emit(ASM.str_offset(TMP, 0, SLOT_STEP))         # slot.step (pitch + rate, 16.16)
@@ -678,13 +683,13 @@ module RubyGBA
             @emitter.emit(ASM.str_offset(scratch, slot, SLOT_RAMP))
             unless shape
               @emitter.emit(ASM.ldr_offset(scratch, slot, SLOT_VOL))
-              @emitter.emit(ASM.lsl_imm(scratch, scratch, GAIN_FRACTION))
+              @emitter.emit(ASM.lsl_imm(scratch, scratch, LOUDNESS_TO_GAIN))
             end
             @emitter.emit(ASM.str_offset(scratch, slot, SLOT_GAIN))
           end
 
           # A NOTE'S LOUDNESS HAS MOVED and the voice at +slot+ is to play it at +loudness+: the
-          # gain the mix reads becomes that loudness with the gain's fraction under it — unless
+          # gain the mix reads becomes that loudness moved up into the gain's fraction — unless
           # the voice has a shape, whose pass before the mix works its gain out every frame.
           # Called only in a game that shapes notes; in one that shapes none the mix reads the
           # loudness itself. Clobbers +loudness+ (shifted up in place) and +scratch+.
@@ -693,7 +698,7 @@ module RubyGBA
             @emitter.emit(ASM.ldr_offset(scratch, slot, SLOT_ENV))
             @emitter.emit(ASM.cmp_imm(scratch, 0))
             @emitter.emit_branch(:bcond, shaped, cond: :ne)
-            @emitter.emit(ASM.lsl_imm(loudness, loudness, GAIN_FRACTION))
+            @emitter.emit(ASM.lsl_imm(loudness, loudness, LOUDNESS_TO_GAIN))
             @emitter.emit(ASM.str_offset(loudness, slot, SLOT_GAIN))
             @emitter.place_label(shaped)
           end
@@ -1153,18 +1158,19 @@ module RubyGBA
             e.emit(ASM.str_offset(2, 4, SLOT_LEVEL))
             e.emit(ASM.str_offset(6, 4, SLOT_PHASE))
             # THE LOUDNESS THE FRAME ENDS AT: what the note asked for, scaled by the level, as a
-            # WHOLE number. The level is a byte and the scale is out of 256, so the level's own
-            # top bit is added back in: a full 255 counts as 256, exactly the loudness asked for.
-            # The fraction of the product is dropped, which is how a cartridge's own sound engine
-            # works a channel's loudness out once a frame — so a quiet note falls silent on the
+            # WHOLE number of 256ths. The level is a byte and the scale is out of 256, so the
+            # level's own top bit is added back in: a full 255 counts as 256, exactly the loudness
+            # asked for. The fraction of the product is dropped, the loudness's own half a 256th
+            # with it, which is how a cartridge's own sound engine works a channel's loudness out
+            # once a frame, (level x (right + left)) >> 9 — so a quiet note falls silent on the
             # frame its whole loudness reaches nothing, while its level is still above it (a note
             # held at full stays the loudness asked for, a step above the engine's, for the top bit
-            # added back). Down by the scale's eight bits to the whole number, then up by the
-            # gain's sixteen of fraction.
+            # added back). Down by the scale's eight bits and the loudness's one to the whole
+            # number, then up by the gain's sixteen of fraction.
             e.emit(ASM.ldr_offset(0, 4, SLOT_VOL))
             e.emit(ASM.add_reg_lsr(3, 2, 2, 7))
             e.emit(ASM.mul(0, 3, 0))
-            e.emit(ASM.lsr_imm(0, 0, RubyGBA::Audio::Envelope::SCALE))
+            e.emit(ASM.lsr_imm(0, 0, RubyGBA::Audio::Envelope::WHOLE_GAIN_SHIFT))
             e.emit(ASM.lsl_imm(0, 0, GAIN_FRACTION))
             e.emit(ASM.cmp_imm(7, 0))
             # Where the gain starts the frame: last frame's slide aimed at a whole loudness and,
@@ -1616,7 +1622,7 @@ module RubyGBA
             else
               e.emit(ASM.mul(1, 0, 12))                       # r1 = sample × volume
               e.emit(ASM.ldrsh(0, 7))                         # r0 = the total so far
-              e.emit(ASM.add_reg_asr(0, 0, 1, VOL_SHIFT))     # ...plus sample × volume ÷ 256 (:full is unchanged)
+              e.emit(ASM.add_reg_asr(0, 0, 1, VOL_SHIFT + LOUDNESS_FRACTION)) # ...plus sample × volume ÷ 512 (:full is unchanged)
               e.emit(ASM.store_halfword_post(0, 7, 2))        # put it back, and on to the next total
             end
             e.emit(ASM.adds_reg(11, 11, 10))                  # fraction += the step's; a carry is one more sample

@@ -71,8 +71,13 @@ module RubyGBA
       # byte the numbers off a real cartridge fall in the frames they were measured falling in;
       # kept finer they take about twice as long, and every note rings on past where its music
       # wanted it. There is nothing to lose either, because what the mix multiplies by is 0 to 256 —
-      # one step of the loudness is already one step of the level.
-      SCALE = 8 # the level scales a loudness of 0..256 through a shift of this many bits
+      # one step of the gain is already one step of the level.
+      SCALE = 8 # a level is out of 1 << this
+
+      # A loudness (out of 512) times a level, shifted down this far, is the whole number of
+      # 256ths a shaped note's gain aims at for the frame: the level's scale, and the bit of
+      # fraction a loudness keeps (Sound::LOUDNESS_FRACTION), both dropped.
+      WHOLE_GAIN_SHIFT = SCALE + Sound::LOUDNESS_FRACTION
 
       # AS IT WAS WITHOUT AN ENVELOPE: full at once, no fall, and it stops the instant the note
       # ends. So `envelope: {}` changes nothing, and each key you write changes one thing.

@@ -1791,7 +1791,7 @@ module RubyGBA
             @emitter.emit(ASM.str_offset(ACC, voice, Mixer::SLOT_LEVEL))
             @emitter.emit(ASM.ldr_offset(ACC, voice, Mixer::SLOT_VOL))
             @emitter.emit(ASM.mov_imm_cond(:ne, ACC, 0))     # a shaped note is silent until it climbs
-            @emitter.emit(ASM.lsl_imm(ACC, ACC, Mixer::GAIN_FRACTION))
+            @emitter.emit(ASM.lsl_imm(ACC, ACC, Mixer::LOUDNESS_TO_GAIN))
             @emitter.emit(ASM.str_offset(ACC, voice, Mixer::SLOT_GAIN))
             @emitter.emit(ASM.load_immediate(ACC, 0))
             @emitter.emit(ASM.str_offset(ACC, voice, Mixer::SLOT_RAMP)) # and it does not slide
@@ -1989,7 +1989,7 @@ module RubyGBA
             end
           end
 
-          # A part's volume, 0..15 like the square voices', as the mix's 0..256.
+          # A part's volume, 0..15 like the square voices', as the mix's 0..512.
           def loudness(volume) = IR::Tunes.mix_loudness(volume)
 
           # Which two sound registers carry a music note's varying values on a given lane — the

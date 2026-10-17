@@ -341,7 +341,7 @@ module RubyGBA
         end
 
         # A loudness is 0 (silent) to 15 (the loudest), the same scale a song block's `volume` is.
-        # A note that plays a recording can hold a fraction, since the mixer has 256 steps where a
+        # A note that plays a recording can hold a fraction, since the mixer has 512 steps where a
         # console voice has 16.
         def volume!(volume, where, recorded)
           unless volume.is_a?(Numeric) && volume.real? && volume.between?(0, 15)

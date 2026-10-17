@@ -491,7 +491,7 @@ typedef struct {
  * second voice while the part's note is still being held, and it is the part's note the music
  * volume sounds again. A hit on the noise voice is never held: it rings and fades by itself, so
  * a new volume waits for the next hit. A recorded part's note is held on the mixer, by its lane,
- * and its volume is a loudness out of 256. */
+ * and its volume is a loudness out of 512. */
 typedef struct {
   int32_t voice; /* a console voice, or 0 for the mixer */
   int32_t lane;  /* a recorded part's lane, for the mixer */
@@ -735,7 +735,7 @@ static bool switch_to_wanted_song(void) {
 }
 
 /* A note of a part that plays a recording, due on this frame (Reference::Player#play_song_frame's
- * recorded branch). Its loudness on the mixer, out of 256, is written in the note itself (see
+ * recorded branch). Its loudness on the mixer, out of 512, is written in the note itself (see
  * IR::Tunes.mix_loudness), since a recorded note's volume can hold a fraction. A note that makes
  * no sound — a rest, or one at loudness 0 — lets the part's voice go and is heard; one that does
  * is heard only if the mixer found it a voice, and a note that was not heard is not logged at
@@ -898,7 +898,7 @@ static void play_effect_note(int32_t effect, const part_walk *part, const int32_
 
   if (part->kind == PART_RECORDED) {
     int32_t sound = note[3];    /* its row of rg_game_note_sounds */
-    int32_t loudness = note[2]; /* a recorded note's volume is written as its loudness, out of 256 */
+    int32_t loudness = note[2]; /* a recorded note's volume is written as its loudness, out of 512 */
     int32_t heard = sounds ? rg_mix_start_music_note(effect, part->tone, rank,
                                                      &rg_game_note_sounds[1 + (sound * NUMBERS_PER_NOTE_SOUND)],
                                                      loudness)

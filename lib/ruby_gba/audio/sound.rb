@@ -61,22 +61,29 @@ module RubyGBA
       # cartridge's mixer and the interpreter's work out the same bytes of sound, and a number
       # written in each would drift.
       #
-      # A play's loudness, out of 256, by the name it was asked at — and the shift that divides by
-      # those 256. 256 steps is the scale a cartridge's own sound engine mixes a voice at, so music
-      # decoded off one can be given its notes' loudness as that engine had them: its quietest
-      # notes are still heard, and its loudest, about half the recording, is that loud here too.
+      # A play's loudness, out of 512, by the name it was asked at. The mix multiplies by 256ths
+      # (VOL_SHIFT divides by them), and a loudness keeps LOUDNESS_FRACTION bit under that: half
+      # a 256th. That is the scale a cartridge's own sound engine keeps a voice at. It holds the
+      # voice's right and left volumes and mixes by their SUM, so 17 + 16 is 33 512ths, and a
+      # note handed over as 17 256ths would be louder than the engine's by the half it dropped.
+      # Music decoded off one is given its notes' loudness as that engine had them: its
+      # quietest notes are still heard, and its loudest, about half the recording, is that loud
+      # here too.
       # A STEP, how far a voice reads through its recording for each sample of the mix, is
-      # counted in 65536ths, so STEP_SHIFT bits of it are the part of a sample. A note with a
-      # shape slides its loudness, its GAIN, which keeps GAIN_FRACTION bits of fraction under it:
-      # sixteen is as many as fit, since a gain of at most 256 is then 24 bits and a sample of at
-      # most 128 is 7 more, which the sign bit has room for. The slide is a distance divided by
-      # the samples in a frame, done as a multiply by one sample's share out of
-      # 1 << (2 * RAMP_SPLIT), with the distance shifted down RAMP_SPLIT bits before it and the
-      # product after, so a whole gain's worth of distance stays inside 32 bits on the way.
-      MIX_LEVELS = { full: 256, three_quarter: 192, half: 128, quarter: 64, mute: 0 }.freeze
+      # counted in 65536ths, so STEP_SHIFT bits of it are the part of a sample. What the mix
+      # multiplies by is a voice's GAIN, its loudness in 256ths with GAIN_FRACTION bits of
+      # fraction under it, which a note with a shape slides: sixteen is as many as fit, since a
+      # gain of at most 256 is then 24 bits and a sample of at most 128 is 7 more, which the sign
+      # bit has room for. A loudness's half a 256th is the top one of those sixteen. The slide is
+      # a distance divided by the samples in a frame, done as a multiply by one sample's share
+      # out of 1 << (2 * RAMP_SPLIT), with the distance shifted down RAMP_SPLIT bits before it and
+      # the product after, so a whole gain's worth of distance stays inside 32 bits on the way.
+      MIX_LEVELS = { full: 512, three_quarter: 384, half: 256, quarter: 128, mute: 0 }.freeze
       VOL_SHIFT = 8
+      LOUDNESS_FRACTION = 1
       STEP_SHIFT = 16
       GAIN_FRACTION = 16
+      LOUDNESS_TO_GAIN = GAIN_FRACTION - LOUDNESS_FRACTION # a loudness shifted up this far is its gain
       RAMP_SPLIT = 8
 
       # Resolve a beep into concrete musical values. +tone+ is either a preset name

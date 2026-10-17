@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require "test_helper"
+require "mixed_sound"
 
 require "stringio"
 
@@ -9,6 +10,8 @@ require "stringio"
 # number it works out as it runs: `music = songs :music, scores` then `music.play track`.
 # Nothing about the tune is written in the program.
 class TestScores < Minitest::Test
+  include MixedSound
+
   Score = RubyGBA::Audio::Score
   Part = Score::Part
   Note = Score::Note
@@ -441,39 +444,60 @@ class TestScores < Minitest::Test
     assert_equal [:piano], early.map(&:sample)
     assert_equal [:harp], later.map(&:sample), "the second note names its own instrument"
     assert_in_delta step_for(:E4), later.first.step, 2
-    assert_equal (6 * 256 / 15.0).round, later.first.volume, "...and its own loudness"
+    assert_equal (6 * 512 / 15.0).round, later.first.volume, "...and its own loudness"
   end
 
   # A RECORDED NOTE CAN BE GIVEN A VOLUME WITH A FRACTION, for music whose engine works its
-  # loudness out finer than sixteen steps. A volume of 15 x L / 256 plays the recording at L
-  # 256ths of its size — the scale a cartridge's own engine mixes at — so its loudest note, about
-  # half the recording, and its quietest are both heard as it heard them.
-  private def engine_levels_score(*levels)
-    notes = levels.each_with_index.map { |level, n| Note.new(at: n * 10, key: :C4, volume: Rational(15 * level, 256)) }
-    Score.new(tempo: 150, length: levels.size * 10, parts: [Part.new(plays: :piano, notes: notes)])
+  # loudness out finer than sixteen steps. A volume of 15 x L / 512 plays the recording at L
+  # 512ths of its size. A cartridge's own engine keeps a voice's right and left volumes and
+  # mixes by their sum, out of 512, so a note keeps the odd half a sum can have: 51 is 25 and a
+  # half 256ths, where rounded to 256ths it would be 26.
+  private def engine_levels_score(*levels, envelope: nil)
+    notes = levels.each_with_index.map { |level, n| Note.new(at: n * 10, key: :C4, volume: Rational(15 * level, 512)) }
+    Score.new(tempo: 150, length: levels.size * 10, parts: [Part.new(plays: :piano, envelope: envelope, notes: notes)])
   end
 
-  def test_a_recorded_note_plays_at_the_256ths_its_volume_gives
+  # The loudest byte of each note's sound, in turn.
+  private def loudest_of_each_note(score)
     i = game_player
-    i.run(game([engine_levels_score(256, 126, 5)]) { |music, _| music.play 0 }, frames: 40)
-    loudest = i.mixed_sound.map(&:max).reject(&:zero?).chunk_while { |a, b| a == b }.map(&:first)
+    i.run(game([score]) { |music, _| music.play 0 }, frames: score.length + 2)
+    i.mixed_sound.map(&:max).reject(&:zero?).chunk_while { |a, b| a == b }.map(&:first)
+  end
 
-    # The piano's recording swings to 60: 60 at its own size, 60 x 126 / 256 and 60 x 5 / 256.
-    assert_equal [60, 29, 1], loudest.first(3)
+  def test_a_recorded_note_plays_at_the_512ths_its_volume_gives
+    # The piano's recording swings to 60: 60 at its own size, then 60 x 252, x 51 and x 10 / 512.
+    assert_equal [60, 29, 5, 1], loudest_of_each_note(engine_levels_score(512, 252, 51, 10)).first(4)
+  end
+
+  # A shaped note works its loudness out once a frame as a whole number of 256ths, the engine's
+  # own (level x (right + left)) >> 9, so held at full a note at 51 is 25 256ths, not 26.
+  def test_a_shaped_note_at_full_drops_its_half_a_step_as_the_engine_does
+    held = RubyGBA::Audio::Envelope.new(release: 216)
+
+    # 60 x 25 / 256 is 5; at 26 it would be 6.
+    assert_equal [5], loudest_of_each_note(engine_levels_score(51, envelope: held)).uniq
   end
 
   def test_the_console_gives_a_recorded_note_the_loudness_its_volume_gives
-    rom = assemble_rom(game([engine_levels_score(256, 126)]) { |music, _| music.play 0 }, name: "SCORE256")
+    rom = assemble_rom(game([engine_levels_score(512, 51)]) { |music, _| music.play 0 }, name: "SCORE512")
 
-    assert_equal [126], assert_emulator_loads_rom(rom, frames: 20).voices.map(&:volume)
+    assert_equal [51], assert_emulator_loads_rom(rom, frames: 20).voices.map(&:volume)
   end
 
-  # A volume that comes to less than one 256th is a rest: the note takes no voice.
+  def test_the_console_mixes_a_note_with_half_a_step_as_the_interpreter_does
+    plain = game([engine_levels_score(51, 10)]) { |music, _| music.play 0 }
+    shaped = game([engine_levels_score(51, 10, envelope: RubyGBA::Audio::Envelope.new(release: 216))]) { |music, _| music.play 0 }
+
+    assert_mixes_agree(plain, frames: 24)
+    assert_mixes_agree(shaped, frames: 24)
+  end
+
+  # A volume that comes to less than half a 512th is a rest: the note takes no voice.
   def test_a_recorded_note_too_quiet_for_one_step_is_a_rest
     i = game_player
     seen = {}
     i.each_vblank { |frame| seen[frame] = i.active_samples }
-    i.run(game([engine_levels_score(256, 0.25)]) { |music, _| music.play 0 }, frames: 20)
+    i.run(game([engine_levels_score(512, 0.4)]) { |music, _| music.play 0 }, frames: 20)
 
     assert_equal [:piano], seen[5]
     assert_empty seen[15], "the second note is a rest"

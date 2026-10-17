@@ -24,8 +24,10 @@
  * rg_game_mix: 1 if the game mixes anything at all; how many samples a frame's slice holds; 1 if
  * any note in the game has a shape; one sample's share of a frame, out of 65536 (what a shaped
  * note's distance to its next gain is multiplied by to slide it there); how many voices there
- * are; and the shifts the arithmetic is done in — the loudness's, the step's, the gain's
- * fraction, the slide's split, and a shape's full level and the shift it scales by.
+ * are; and the shifts the arithmetic is done in — the gain's whole 256ths, the step's, the gain's
+ * fraction, the slide's split, a shape's full level and the shift it scales by, how far a
+ * loudness (out of 512) is shifted up to be its gain, and how far a loudness times a level is
+ * shifted down to the whole 256ths a shaped note's gain aims at.
  *
  * rg_game_recordings: how many recordings, then seven numbers each — where its samples start in
  * rg_game_recording_samples, how many there are, 1 if it has a shape, and the shape's four
@@ -53,6 +55,8 @@
 #define RAMP_SPLIT (rg_game_mix[8])
 #define SHAPE_FULL (rg_game_mix[9])
 #define SHAPE_SCALE (rg_game_mix[10])
+#define LOUDNESS_TO_GAIN (rg_game_mix[11])
+#define WHOLE_GAIN_SHIFT (rg_game_mix[12])
 
 /* Which part of its shape a note is in, and the frame after it has fallen to nothing, which the
  * voice is held for so it comes free on the same frame the console's does. */
@@ -81,8 +85,8 @@ typedef struct {
   int32_t fraction; /* the part of a sample carried toward the next one, out of 65536 */
   int32_t step;     /* how far it moves for each sample of the slice; 65536 is one */
   int32_t back;     /* how far it reads back at the end of its recording; 0 stops there */
-  int32_t loudness; /* out of 256 */
-  int32_t gain;     /* the loudness the mix multiplies by, with GAIN_FRACTION bits under it */
+  int32_t loudness; /* out of 512 */
+  int32_t gain;     /* the loudness the mix multiplies by, in 256ths with GAIN_FRACTION bits under it */
   int32_t ramp;     /* how far the gain moves each sample, while a shaped note slides */
   int32_t shaped;
   int32_t level;    /* how far its shape has climbed or fallen, 0 to SHAPE_FULL */
@@ -171,7 +175,7 @@ static int32_t lowest_ranked_voice_below(int32_t rank) {
 }
 
 /* A voice at the top of +recording+, read +step+ at a time, going +back+ at its end, at +loudness+
- * out of 256, and shaped by +shape+ (whether it has one, then its four numbers). One with a shape
+ * out of 512, and shaped by +shape+ (whether it has one, then its four numbers). One with a shape
  * starts at nothing and climbs, its gain at nothing until the shape's first frame sets it; one
  * without sounds flat out from its first sample. */
 static void start_voice(int32_t at, int32_t recording, int32_t step, int32_t back, int32_t loudness, const int32_t *shape) {
@@ -184,7 +188,7 @@ static void start_voice(int32_t at, int32_t recording, int32_t step, int32_t bac
                            .step = step,
                            .back = back,
                            .loudness = loudness,
-                           .gain = shaped ? 0 : loudness << GAIN_FRACTION,
+                           .gain = shaped ? 0 : loudness << LOUDNESS_TO_GAIN,
                            .shaped = shaped,
                            .level = shaped ? 0 : SHAPE_FULL,
                            .phase = CLIMBING,
@@ -273,7 +277,7 @@ int32_t rg_mix_rescale_music(int32_t lane, int32_t loudness) {
   voices[at].loudness = loudness;
   /* In a game that shapes a note the mix reads the gain, and a note with no shape has nothing
    * else to move it. */
-  if (!voices[at].shaped) voices[at].gain = loudness << GAIN_FRACTION;
+  if (!voices[at].shaped) voices[at].gain = loudness << LOUDNESS_TO_GAIN;
   return 1;
 }
 
@@ -294,7 +298,7 @@ static int32_t mix_voice_into(mix_voice *voice, int32_t *totals) {
   int32_t length = numbers[1];
   int32_t whole = voice->step >> STEP_SHIFT;
   int32_t part = voice->step & ((1 << STEP_SHIFT) - 1);
-  int32_t gain = SHAPES ? voice->gain : voice->loudness << GAIN_FRACTION;
+  int32_t gain = SHAPES ? voice->gain : voice->loudness << LOUDNESS_TO_GAIN;
   for (int32_t at = 0; at < SLICE_SAMPLES; at++) {
     totals[at] += (int32_t)(((int64_t)gain * data[voice->position]) >> (VOL_SHIFT + GAIN_FRACTION));
     gain += voice->ramp;
@@ -360,15 +364,16 @@ static int32_t nearest_whole_gain(int32_t gain) {
 }
 
 /* The gain a shaped note ends the frame at — the loudness scaled by the level, a full 255
- * counting as 256, as a whole number with the rest dropped, the way a cartridge's own sound engine
- * works a channel's loudness out once a frame — and the slide there, one step a sample. A note's
+ * counting as 256, as a whole number of 256ths with the rest dropped (the loudness's half a 256th
+ * with it), the way a cartridge's own sound engine works a channel's loudness out once a frame,
+ * (level x (right + left)) >> 9 — and the slide there, one step a sample. A note's
  * first frame does not slide: it starts there. Any other frame starts from the gain rounded to the
  * nearest whole loudness, since a slide shared out in whole steps lands off where it was going.
  * The distance is shifted down before it is multiplied and the product after, so the sum fits in
  * 32 bits, as the console's does. */
 static void slide_gain(mix_voice *voice, int32_t first) {
   int32_t level = voice->level;
-  int32_t target = ((voice->loudness * (level + (level >> 7))) >> SHAPE_SCALE) << GAIN_FRACTION;
+  int32_t target = ((voice->loudness * (level + (level >> 7))) >> WHOLE_GAIN_SHIFT) << GAIN_FRACTION;
   voice->gain = first ? target : nearest_whole_gain(voice->gain);
   voice->ramp = (((target - voice->gain) >> RAMP_SPLIT) * SLIDE_SHARE) >> RAMP_SPLIT;
 }
