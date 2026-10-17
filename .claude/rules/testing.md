@@ -137,8 +137,8 @@ one more run to `rake test`.
 
 The last one needs `bundle exec`, because the runner is a gem.
 
-The Wolfenstein port (`~/open_source/ruby-wolf3d`) has a suite of its own, which this one does
-not run and does not know about.
+The Wolfenstein port (its own repository, usually `../ruby-wolf3d`; anywhere else, say where in
+`CLAUDE.local.md`) has a suite of its own, which this one does not run and does not know about.
 
 ## Ractors — fix what the runner reports
 

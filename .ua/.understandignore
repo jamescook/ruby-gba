@@ -23,7 +23,7 @@ Gemfile.lock
 # fingerprint baseline (5k) as if they were project config.
 .ua/
 
-# Wolfenstein moved to its own repository (~/open_source/ruby-wolf3d). What is left here is
+# Wolfenstein moved to its own repository (ruby-wolf3d). What is left here is
 # built cartridges and a stray config pointer, no source.
 games/
 

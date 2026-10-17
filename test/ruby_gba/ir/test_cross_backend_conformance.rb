@@ -4,10 +4,10 @@ require "test_helper"
 
 require "conformance_fixture"
 
-# The coverage guard (gba-8sq): run ONE kitchen-sink IR program through every
+# The coverage guard: run ONE kitchen-sink IR program through every
 # backend. If a backend doesn't implement a feature the fixture uses, it hits its
 # "unsupported" branch and this test fails — so a backend can't silently lag
-# behind another. Complementary to the differential test (gba-cbw), which checks
+# behind another. Complementary to the differential test, which checks
 # the backends AGREE on output; this one checks they all COVER every feature.
 class TestCrossBackendConformance < Minitest::Test
   Node = RubyGBA::IR::Node

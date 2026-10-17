@@ -33,11 +33,15 @@ zig-out/
 # bug in a bd command once dumped a live secret straight into this db.
 .beads/
 
+# Claude Code's project files are shared here: its rules and the DSL reference.
+# This undoes a machine-wide ignore of .claude/ that some contributors keep for other repos.
+!.claude/
+
 # Personal Claude Code settings (permissions, local overrides) — not shared config.
 .claude/settings.local.json
 
-# Local agent notes, holding everything about the issue tracker. That tracker is internal to
-# one machine, so a checked-in file must not name it; this is where it goes instead.
+# Local agent notes: what is true of one machine (where a sibling checkout lives) and
+# everything about the issue tracker, which is internal to one machine and named nowhere else.
 CLAUDE.local.md
 
 # "rake cost:check passed against exactly this code", read by the pre-commit hook. Local

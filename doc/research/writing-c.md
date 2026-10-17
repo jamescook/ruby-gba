@@ -98,8 +98,8 @@ Today the backends give three answers:
 **Native gives the cartridge's answer.** Generated C never contains a `/` or `%`. It calls `rg_div`,
 `rg_mod` and `rg_div_fix`, and each tests for a zero divisor and returns what the console's routine
 returns. The answer key still raises, so a program that divides by zero cannot be compared until
-`Int32` gives the cartridge's answer too. That change belongs to the main backends and is tracked in
-its own bead. Until it lands, the native tests do not divide by zero.
+`Int32` gives the cartridge's answer too. That change belongs to the main backends and is tracked as
+its own piece of work. Until it lands, the native tests do not divide by zero.
 
 Reading a list out of range is a different case. Reference raises, and what the cartridge does has
 not been checked. Native stops with the game's source line (`rg_fault`) until that is settled.
@@ -143,13 +143,13 @@ lib/ruby_gba/ir/backends/native/runtime/rg_runtime.h   The seam the generated co
                                                        buttons, drawing, sound, saving). With
                                                        rg_int32.h and rg_list.h (the game's
                                                        lists), all game.c includes.
-lib/ruby_gba/ir/backends/native/runtime/rg_sdl.c       The SDL3 implementation (later beads).
+lib/ruby_gba/ir/backends/native/runtime/rg_sdl.c       The SDL3 implementation (later work).
 lib/ruby_gba/ir/backends/native/runtime/rg_headless.c  The test and replay implementation.
 ```
 
 How large: the tree, printer and names come to a few hundred lines of Ruby, and `rg_int32.h` to about
-150 lines of C. Building with zig is gba-vldy's, and the screen and sound runtime are their own beads.
-The emitter does not depend on either.
+150 lines of C. Building with zig, the screen and the sound runtime are each their own piece of work.
+The emitter does not depend on any of them.
 
 ### Where SDL sits
 
@@ -165,7 +165,7 @@ handing each to a DRIVER (`rg_driver.h`), picked when the program starts. There 
   - Hand the frame's mixed sound to an `SDL_AudioStream` (not yet; sound is its own piece of work).
   - Wait on its own clock until the next console frame (about 59.73 a second), not the monitor's
     refresh.
-- **`rg_headless.c`, no window**, for tests and fast replay (gba-srp2). It reads the held buttons for
+- **`rg_headless.c`, no window**, for tests and fast replay. It reads the held buttons for
   each frame from standard input, prints each frame's picture and variables for the comparison with
   Reference, and never sleeps.
 
@@ -208,7 +208,7 @@ runtime.
 - `test_printer.rb` checks behaviour, not text. Every edge literal is printed into a C program that
   prints it back. A corpus of awkward IR names (taken from the examples' real programs, plus
   generated ones) must compile under `-Wreserved-identifier -Werror` and come out distinct.
-- `test_native_conformance.rb` (gba-zz2e) runs the conformance fixture: it must cover every portable
+- `test_native_conformance.rb` runs the conformance fixture: it must cover every portable
   kind, and its variables after N frames must match Reference's. Built at `-O0` with UBSan and at
   `-O2`.
 

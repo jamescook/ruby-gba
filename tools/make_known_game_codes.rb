@@ -16,17 +16,16 @@ require_relative "../lib/ruby_gba/root"
 #
 # Run it when the source list is updated:
 #
-#   ruby tools/make_known_game_codes.rb [path/to/gba_games.json]
+#   ruby tools/make_known_game_codes.rb path/to/gba_games.json
 #
 # The source is a serial-keyed catalogue in the No-Intro naming convention
 # ("AGB-AXVE" => "Pokemon - Ruby Version (USA)"). Only the codes are kept — the names
 # are nobody's to copy, and the check does not need them.
 module MakeKnownGameCodes
-  DEFAULT_SOURCE = File.expand_path("~/open_source/gemba/src/gemba/data/gba_games.json")
   OUT = RubyGBA.root.join("lib/ruby_gba/data/known_game_codes.txt").to_s
 
-  def self.run(source = DEFAULT_SOURCE)
-    unless File.file?(source)
+  def self.run(source = nil)
+    unless source && File.file?(source)
       raise "I cannot read #{source}. Pass the catalogue's path as an argument: " \
             "ruby tools/make_known_game_codes.rb path/to/gba_games.json"
     end

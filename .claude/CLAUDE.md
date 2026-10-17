@@ -129,8 +129,9 @@ file that defines the verb it is about. Tests are NOT split by which backend the
 against; most assert against both. The shared helpers stay at `test/` and are loaded by
 bare name. See `.claude/rules/testing.md` for the rule that decides a new file's home.
 
-The framework's largest consumer, a Wolfenstein 3D port, lives in its own repository at
-`~/open_source/ruby-wolf3d` and depends on this one as a gem. It has a suite of its own which
+The framework's largest consumer, a Wolfenstein 3D port, lives in its own repository —
+usually a checkout beside this one, `../ruby-wolf3d` (anywhere else, say where in
+`CLAUDE.local.md`) — and depends on this one as a gem. It has a suite of its own which
 this one does not run and must not learn about: a library that names the games built on it is
 coupled to them. Its whole purpose is to find gaps here, and a gap it finds is tracked against
 this framework rather than worked around there. To work on both at once, point its bundler at
