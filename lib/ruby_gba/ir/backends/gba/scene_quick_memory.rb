@@ -110,36 +110,89 @@ module RubyGBA
           # exactly one scene reaches can go in a set. A routine nothing here reaches — one the
           # build calls for itself from places the tree does not show — is said to be the
           # frame's, which keeps it out of every set.
-          def scene_owners(program, scenes)
+          def scene_owners(program, scenes, dispatch)
             bodies = program.walk.select { |node| node.kind == :func }.to_h { |node| [node.name, node] }
             owners = Hash.new { |hash, key| hash[key] = Set.new }
-            mark = lambda do |root, owner, stop|
+            # Mark everything +names+ reach as run by +owner+, short of the routines in +stop+.
+            mark = lambda do |names, owner, stop|
               seen = Set.new
-              visit = lambda do |node|
-                callees_of(node).each do |name|
+              visit = lambda do |callees|
+                callees.each do |name|
                   next if stop.include?(name) || seen.include?(name)
 
                   seen << name
                   owners[name] << owner
-                  body = bodies[name] and visit.call(body)
+                  body = bodies[name] and visit.call(callees_of(body))
                 end
               end
-              visit.call(root) if root
+              visit.call(names)
             end
-            mark.call(frame_body(program), :frame, scenes.to_set)
+            frame_calls_by_owner(frame_body(program), dispatch, scenes).each do |owner, names|
+              mark.call(names, owner, scenes.to_set)
+            end
             scenes.each do |scene|
               owners[scene] << scene
-              mark.call(bodies[scene], scene, Set.new)
+              mark.call(bodies[scene] ? callees_of(bodies[scene]) : [], scene, Set.new)
             end
-            irq_bodies(program).each { |body| mark.call(body, :irq, Set.new) }
+            irq_bodies(program).each { |body| mark.call(callees_of(body), :irq, Set.new) }
             owners[Placement::FRAME_ROUTINE] << :frame
             owners[Placement::IRQ_ROUTINE] << :irq
-            scene_routines.each { |routine, scene| owners[routine] << (scenes.include?(scene) ? scene : :frame) }
-            routines_placed_with_frame.each { |routine| owners[routine] << :frame }
+            # What the build made for a scene is that scene's, or the frame's for one no scene
+            # the dispatch names owns.
+            scene_routines.merge(scene_of_map_views(program)).each do |routine, scene|
+              owners[routine] << (scenes.include?(scene) ? scene : :frame)
+            end
             # A routine picked by number is reached through a table of addresses, and a table
             # cannot follow a routine about.
             program.walk.each { |node| node.targets.each { |name| owners[name] << :table } if node.kind == :call_one_of }
             owners
+          end
+
+          # WHAT THE GAME LOOP'S OWN BODY CALLS, BY WHO IT CALLS IT FOR: :frame for a call it
+          # makes whatever is up, and a scene routine for a call it makes only while that scene
+          # is up — under a test of the variable the dispatch picks scenes with, asking for that
+          # scene's value. The gap after each frame tends each scene's things that way (its
+          # pool put in order: Builder#while_scene_up writes that test), and a game's own
+          # `(where == :play).then { call :x }` reads the same; either is that scene's work
+          # however it is reached. A test of any other shape is the frame's, which is only ever
+          # slower, never wrong.
+          def frame_calls_by_owner(frame, dispatch, scenes)
+            calls = Hash.new { |hash, key| hash[key] = [] }
+            return calls unless frame
+
+            by_value = dispatch.clauses.select { |_, target| scenes.include?(target) }.to_h
+            gated = frame.walk.filter_map do |node|
+              scene = scene_tested_for(node, dispatch.var, by_value)
+              [node, scene] if scene
+            end
+            inside = Set.new.compare_by_identity
+            gated.each do |node, scene|
+              node.walk.each { |part| inside << part }
+              calls[scene].concat(callees_of(node))
+            end
+            calls[:frame].concat(frame.walk.reject { |node| inside.include?(node) }.flat_map(&:callees))
+            calls
+          end
+
+          # The scene routine whose value +node+ tests +var+ for — an `if` with no `else`, whose
+          # test is that variable equal to a value the dispatch names, the shape
+          # Builder#scene_up makes — or nil.
+          def scene_tested_for(node, var, by_value)
+            return nil unless node.kind == :if && node.else.nil?
+
+            test = node.cond
+            return nil unless test.kind == :binop && test.op == :== && test.lhs.kind == :var_ref &&
+                              test.lhs.name == var && test.rhs.kind == :int
+
+            by_value[test.rhs.value]
+          end
+
+          # The routine that brings each big map's view along, by the scene routine its
+          # background was declared in (nil for one declared outside every scene).
+          def scene_of_map_views(program)
+            declared = program.walk.select { |node| node.kind == :background }
+                              .to_h { |node| [MapStreaming.view_routine(node.name), node.scene] }
+            routines_placed_with_frame.to_h { |routine| [routine, declared[routine]] }
           end
 
           # SPLIT THE ROOM BETWEEN THE WHOLE GAME AND EACH SCENE, when keeping one set for the
@@ -164,7 +217,7 @@ module RubyGBA
 
             frame = Placement::FRAME_ROUTINE
             sizes = sizes.merge(frame => sizes[frame] + DISPATCH_ENTRY_BYTES + (DISPATCH_CLAUSE_BYTES * dispatch.clauses.size)) if sizes[frame]
-            room_to_split = RoomToSplit.new(scenes: scenes, owners: scene_owners(program, scenes), sizes: sizes,
+            room_to_split = RoomToSplit.new(scenes: scenes, owners: scene_owners(program, scenes, dispatch), sizes: sizes,
                                             room: room, insisted: insisted, chosen: chosen)
             orders = [wanted]
             orders << @routine_profile.order_by_scene_work(wanted) if @routine_profile && !@routine_profile.scenes.empty?
@@ -245,12 +298,17 @@ module RubyGBA
             end
             placed = ->(name) { resident.include?(name) || sets.any? { |_, set| set.include?(name) } }
 
-            # WHAT EVERY SCENE RUNS GOES FIRST. Taken in the order of what was measured, a menu's
+            # WHAT EVERY FRAME RUNS GOES FIRST. Taken in the order of what was measured, a menu's
             # own big routine came before the game loop — and a routine kept for the whole game
             # needs its room in every scene, so the menu's set left none in that scene and the
-            # game loop ran from the cartridge everywhere, play included.
-            first = wanted & every_frame_routines
-            first.each { |name| place.call(name, nil) }
+            # game loop ran from the cartridge everywhere, play included. The routine that brings
+            # a big map's view along goes with them, for what a run with nobody playing cannot
+            # measure — unless its background is a scene's, when it goes into that scene's set,
+            # after what that scene insists on (below): in the room every scene keeps it would
+            # take the room of whatever another scene insists on, and first in its own it would
+            # take the room of what its own scene does.
+            whole_game_first, scene_first = (wanted & every_frame_routines).partition { |name| only_scene.call(name).nil? }
+            whole_game_first.each { |name| place.call(name, nil) }
             # Then what the author insisted on, where its scenes run it: a save record's routines
             # go with the scene that asks for the save, though every pass of the game loop can
             # reach them, since a save is written a piece a pass and finishes wherever it is.
@@ -260,6 +318,8 @@ module RubyGBA
             # A split that cannot keep what the author insisted on is no answer.
             return nil unless insisted.all? { |name| sizes[name].nil? || placed.call(name) }
 
+            # Then each scene's own map view, ahead of everything the build is free to leave out.
+            scene_first.each { |name| place.call(name, only_scene.call(name)) }
             loop do
               placed_before = resident.size + sets.sum { |_, set| set.size }
               passed_over = []
@@ -267,9 +327,10 @@ module RubyGBA
               break if resident.size + sets.sum { |_, set| set.size } == placed_before
             end
             return nil if sets.values.all?(&:empty?)
-            # ...and a split that cannot keep what one set for the whole game kept of it is no
-            # split worth having: the game is built as it was.
-            return nil unless (chosen & every_frame_routines).all? { |name| resident.include?(name) }
+            # ...and a split that cannot keep what every frame runs, where one set for the whole
+            # game kept it, is no split worth having: the game is built as it was. A scene's map
+            # view is not held to that, since it comes after what its scene insists on.
+            return nil unless (chosen & whole_game_first).all? { |name| resident.include?(name) }
 
             SceneFilling.new(resident: resident, sets: sets, passed_over: passed_over)
           end

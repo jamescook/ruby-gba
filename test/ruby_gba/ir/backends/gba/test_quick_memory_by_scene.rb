@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require "test_helper"
+require "differential"
 
 # QUICK MEMORY CHOSEN PER SCENE, AND SWAPPED AS A SCENE TAKES OVER.
 #
@@ -11,6 +12,8 @@ require "test_helper"
 # busy routines are copied in as it takes over, and the last scene's go back to running from
 # the cartridge.
 class TestQuickMemoryByScene < Minitest::Test
+  include Differential
+
   # A game of two screens that each spend their frame in a routine of their own, each about
   # +adds+ additions long. It walks between them by itself: the title until frame 6, play
   # until frame 12, then the title again.
@@ -123,6 +126,98 @@ class TestQuickMemoryByScene < Minitest::Test
     builder.program
   end
 
+  # Two tiled screens that each spend their frame in a routine of their own; play also has a
+  # pool of things to draw and scenery on a map too big for the console's grid, both declared
+  # in play, so the routines that put the pool in order and bring the map's view along are
+  # play's alone. The game loop itself calls one more routine only while play is up. The game
+  # walks by itself: the title until frame 3, play until frame 9, then the title again.
+  private def two_screens_with_play_scenery(adds:)
+    builder = Builder.new
+    builder.instance_eval do
+      screen :tiled
+      image(:dot, "#" => :yellow) { "########\n" * 8 }
+      image(:grass, "#" => :green) { "########\n" * 8 }
+      image(:dirt, "#" => :orange, "." => :black) { "####....\n" * 8 }
+      tiles :field, "#" => :grass, "." => :dirt
+      a = var :a, 0
+      b = var :b, 0
+      t = var :t, 0
+      where = var :where, 0
+      func(:title_work) { adds.times { a.add! 1 } }
+      func(:play_work) { adds.times { b.add! 1 } }
+      func(:play_extra) { (adds / 4).times { b.add! 2 } }
+      scene(:title) { call :title_work }
+      scene :play do
+        ground = background :ground, tiles: :field, map: Array.new(30) { |row| ("#.." * 24)[row % 3, 70] }
+        sparks = pool :spark, x: 0, y: 0, capacity: 4, image: :dot
+        (sparks.count == 0).then { sparks.spawn(x: 10, y: 10) }
+        sparks.each { |spark| spark.x.add! 1 }
+        ground.scroll_by 1, 0
+        call :play_work
+      end
+      game_loop do
+        t.add! 1
+        (t == 3).then { where.set! 1 }
+        (t == 9).then { where.set! 0 }
+        (where == 1).then { call :play_extra }
+        case_var(:where) do
+          when_val 0, :title
+          when_val 1, :play
+        end
+      end
+    end
+    builder.finalize_program
+    builder.program
+  end
+
+  # A title with a busy routine of its own, and a play screen with a map too big for the
+  # console's grid that insists on a routine of about +adds+ additions in the quick memory.
+  private def play_insisting_beside_its_map(adds:)
+    builder = Builder.new
+    builder.instance_eval do
+      screen :tiled
+      image(:grass, "#" => :green) { "########\n" * 8 }
+      tiles :field, "#" => :grass
+      a = var :a, 0
+      b = var :b, 0
+      var :where, 0
+      func(:title_work) { BIG.times { a.add! 1 } }
+      func(:play_work, fast: true) { adds.times { b.add! 1 } }
+      scene(:title) { call :title_work }
+      scene :play do
+        ground = background :ground, tiles: :field, map: Array.new(30) { "#" * 70 }
+        ground.scroll_by 1, 0
+        call :play_work
+      end
+      game_loop do
+        pressed(:a).then { set! :where, 1 }
+        case_var(:where) do
+          when_val 0, :title
+          when_val 1, :play
+        end
+      end
+    end
+    builder.finalize_program
+    builder.program
+  end
+
+  # The most additions play can insist on and still have the routine in its own share, to
+  # within a few: found by halving, from a size that splits the room to one that does not fit.
+  private def most_play_can_insist_on
+    low = 600
+    high = 2000
+    while high - low > 4
+      middle = (low + high) / 2
+      play_keeps_it = begin
+        placement_of(play_insisting_beside_its_map(adds: middle)).scenes.fetch(:play, []).include?(:play_work)
+      rescue GBA::QuickMemoryFull
+        false
+      end
+      play_keeps_it ? low = middle : high = middle
+    end
+    low
+  end
+
   private def placement_of(program, routine_profile: nil)
     backend = GBA.new(routine_profile: routine_profile)
     backend.lower(program)
@@ -186,6 +281,41 @@ class TestQuickMemoryByScene < Minitest::Test
 
     assert_includes report.funcs, :shared_work, "kept: #{report.funcs}, sets: #{report.scenes}"
     refute_includes report.scenes.fetch(:play, []), :play_work
+  end
+
+  # WHAT ONLY PLAY RUNS GOES IN PLAY'S SET, though the game loop is what calls it: putting
+  # play's pool in order and bringing play's big map along, which the gap after each frame does
+  # while play is up, and a routine the game loop calls under its own test that play is up.
+  # Kept for the whole game, they take the room every other screen's own routines need.
+  def test_routines_the_game_loop_runs_for_one_scene_go_in_that_scenes_set
+    report = placement_of(two_screens_with_play_scenery(adds: BIG))
+    stacking = RubyGBA::Messages::MadeNames.make(:pool_stacking, pool: :spark)
+    view = RubyGBA::Messages::MadeNames.make(:view_along_map, background: :ground)
+
+    [stacking, view, :play_extra].each do |routine|
+      refute_includes report.funcs, routine, "kept: #{report.funcs}, sets: #{report.scenes}"
+      assert_includes report.scenes.fetch(:play), routine
+    end
+    assert_includes report.scenes.fetch(:title), :title_work
+  end
+
+  # WHAT A SCENE INSISTS ON COMES BEFORE ITS MAP'S VIEW. Play insists on as big a routine as
+  # its share holds, which leaves no room for the routine that brings its map along — so that
+  # one runs from the cartridge, and the build never refuses what the author asked for because
+  # of a routine the build picked.
+  def test_what_a_scene_insists_on_goes_in_before_its_maps_view
+    report = placement_of(play_insisting_beside_its_map(adds: most_play_can_insist_on))
+    view = RubyGBA::Messages::MadeNames.make(:view_along_map, background: :ground)
+
+    assert_includes report.scenes.fetch(:play), :play_work
+    refute_includes report.scenes.fetch(:play), view, "the view needs more room than play has left"
+  end
+
+  # ...and they draw what the interpreter draws — the pool's thing, the map scrolled along —
+  # frame by frame, through the swap into play and the swap back to the title.
+  def test_play_scrolls_and_draws_its_pool_across_both_swaps
+    program = two_screens_with_play_scenery(adds: BIG)
+    [2, 4, 6, 8, 10, 12].each { |f| assert_backends_agree(program, frames: f) }
   end
 
   # A ROUTINE A TIMER REACHES IS IN NO SCENE'S SET, though only play calls it otherwise: a tick
