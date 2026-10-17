@@ -123,7 +123,7 @@ module RubyGBA
     # Run the guardrails over the finished IR and collect every finding — its
     # plain-language explanation and the suggested fix. A warning is advisory (a
     # game loop with no frame sync, say): the build goes on. A fatal problem
-    # (drawing with no screen mode, which would leave the screen black) stops the
+    # (drawing on a tiled screen, which would leave the screen black) stops the
     # build so the mistake can't ship silently. Nothing is auto-corrected — the fix
     # is suggested, never applied (an opt-in `--auto-fix` is future work). Skipped
     # for a debug_halt build, whose tree is deliberately truncated.

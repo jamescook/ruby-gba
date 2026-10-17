@@ -381,7 +381,8 @@ class TestProgress < Minitest::Test
     assert_raises(RubyGBA::ROMError) do
       RubyGBA.build("BROKE", code: "ABRK", maker: "01", out: StringIO.new, err: StringIO.new,
                              progress: Progress.to(out)) do
-        fill_rect 0, 0, 8, 8, :red # drawing with no screen mode: a guardrail error
+        screen :tiled
+        fill_rect 0, 0, 8, 8, :red # painting on a tiled screen: a guardrail error
         halt
       end
     end

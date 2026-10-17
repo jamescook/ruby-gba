@@ -149,6 +149,21 @@ module RubyGBA
             emit_display_control_keeping(value & ~late, late)
           end
 
+          # A GAME THAT NEVER SAYS `screen` DRAWS ON A BITMAP SCREEN, as if its first line were
+          # `screen :bitmap` — the interpreter and the native build have always drawn it there.
+          # The console needs telling: at power-on its display-control register says "mode 0,
+          # every layer off", so a pixel written to video memory sits there unseen and the
+          # screen shows nothing but the backdrop colour. So the build writes the bitmap screen
+          # here, at boot, ahead of the game's first statement. A program that draws nothing
+          # has nothing to show, and is left exactly as it was.
+          def emit_default_screen(program)
+            nodes = program.walk.to_a
+            return if nodes.any? { |node| node.kind == :screen }
+            return unless nodes.any? { |node| node.category == :draw }
+
+            emit_screen(Build.screen(:bitmap))
+          end
+
           # A SCREEN THE GAME PAINTS IS ONE BACKGROUND TO THE CONSOLE — its third — and that
           # background's own settings say whether it is drawn in blocks, as any background's
           # do. Nothing else on such a screen reads those settings, so in a game that

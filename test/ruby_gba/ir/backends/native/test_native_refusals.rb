@@ -80,7 +80,8 @@ class TestNativeRefusals < Minitest::Test
   # would refuse is refused here too, by the same friendly error.
   def test_a_game_the_cartridge_build_refuses_is_refused_for_the_desktop
     game = RubyGBA.game("REFUSED") do
-      game_loop { pixel 10, 10, :red } # drawing with no screen chosen: a black screen on the console
+      screen :tiled
+      game_loop { pixel 10, 10, :red } # painting on a tiled screen: a black screen on the console
     end
 
     assert_raises(RubyGBA::ROMError) { Native.new.checked_program(game, err: nil) }

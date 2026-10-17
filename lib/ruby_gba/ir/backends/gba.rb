@@ -852,6 +852,7 @@ module RubyGBA
           @effects.emit_whole_screen_window # a game that holds a fade to a rectangle starts with none
           emit_tint_state_init if @palette_tint.moves_color_table? # the tables start as they were drawn
           @lowering.in_mode(@modes.default_mode) do
+            @drawing.emit_default_screen(program) # a game with no `screen` line is on a bitmap one
             program.children.each { |stmt| @lowering.statement(stmt) }
           end
           refuse_variables_overlapping_divide!

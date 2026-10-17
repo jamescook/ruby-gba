@@ -5,7 +5,7 @@ module RubyGBA
     # Guardrails turn known footguns into friendly, plain-language messages by
     # inspecting the IR *before* it is lowered to a target. That's the payoff of
     # having the whole program as inspectable data: a check can walk the semantic
-    # tree and say "you drew but never turned the display on" far more reliably
+    # tree and say "you painted pixels on a tiled screen" far more reliably
     # than anything scanning finished machine code could.
     #
     # This file is only the *mechanism* — a registry of checks and a pass that
@@ -277,7 +277,6 @@ end
 
 require_relative "guardrails/frame_reach"
 require_relative "guardrails/tiled_display" # shared by the two tiled-screen checks below
-require_relative "guardrails/screen_mode_set"
 require_relative "guardrails/empty_tiled_screen"
 require_relative "guardrails/bitmap_draw_on_tiled"
 require_relative "guardrails/call_inside_area"
@@ -330,7 +329,6 @@ module RubyGBA
       # Guardrails.default_checks appends whatever's been registered on top of
       # these; instantiate a Validator with your own list to run a different set.
       BUILTIN_CHECKS = Ractor.make_shareable([
-        Checks::ScreenModeSet.new,
         Checks::EmptyTiledScreen.new,
         Checks::BitmapDrawOnTiled.new,
         Checks::CallInsideArea.new,

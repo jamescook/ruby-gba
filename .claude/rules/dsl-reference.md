@@ -28,7 +28,7 @@ variable; an `Integer` is a literal; a `Value` (from `var`) is an expression.
 ## Build / screen — `.claude/dsl/screen.md`
 
 - `RubyGBA.game "NAME" do … end` — the name is all a cartridge needs; its four-character code is worked out from it (`code:`/`maker:` optional, a real cartridge's code refused).
-- `screen :bitmap` / `screen :bitmap, tear_free: true` / `screen :tiled` / `screen :rotozoom` — pick the display; per scene, and a turning background on `:tiled` is picked by the build.
+- `screen :bitmap` / `screen :bitmap, tear_free: true` / `screen :tiled` / `screen :rotozoom` — pick the display; per scene, and a turning background on `:tiled` is picked by the build. No `screen` line means `screen :bitmap`.
 - `screen :bitmap, tear_free: true, colors: [...]` — give the colour table in an imported picture's own order.
 - `setting :floors, 60` — a value handed to one build (`settings:`, `--set`), never read from the environment.
 - `wait_vblank` — wait for the safe window to draw (a `game_loop` does it for you).
