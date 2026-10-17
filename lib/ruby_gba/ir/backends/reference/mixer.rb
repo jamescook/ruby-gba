@@ -396,17 +396,27 @@ module RubyGBA
           #
           # The end is the loudness asked for, scaled by the level: a level is a byte and the
           # scale out of 256, so the level's own top bit is added back in, making a full 255 count
-          # as 256, and the product keeps GAIN_FRACTION bits of fraction. A note's FIRST frame
-          # does not slide, it starts there: a recording starts from its own beginning, so there
-          # is nothing before it to be smooth with.
+          # as 256. The product is a WHOLE loudness, the rest dropped, which is how a cartridge's
+          # own sound engine works a channel's loudness out once a frame: so a quiet note falls
+          # silent on the frame its whole loudness reaches nothing, while its level is still above
+          # it, where a fraction kept would go on adding a step below nothing on every sample
+          # below the middle until the level ran out. Below half a level the two are the same sum.
+          # Above it they part by the top bit added back: a note held at full is the loudness
+          # asked for, where the engine's comes out a step under it, so every game's full notes
+          # stay as loud as they were asked. A note's FIRST frame does not slide, it
+          # starts there: a recording starts from its own beginning, so there is nothing before
+          # it to be smooth with.
           #
           # The slide is the distance shared out over the frame's samples, as a multiply by the
           # share one sample gets (worked out once, as the cartridge is built), with the distance
-          # shifted down before it and the product after so that it fits in 32 bits.
+          # shifted down before it and the product after so that it fits in 32 bits. Shared out in
+          # whole steps, it lands off where it was going, so each frame's slide starts from the
+          # gain rounded to the nearest whole loudness — and a note at nothing is at nothing, not
+          # a little below it.
           def slide_gain(voice, first)
             level = voice.level
-            target = (voice.loudness * (level + (level >> 7))) << (GAIN_FRACTION - RubyGBA::Audio::Envelope::SCALE)
-            voice.gain = target if first
+            target = ((voice.loudness * (level + (level >> 7))) >> RubyGBA::Audio::Envelope::SCALE) << GAIN_FRACTION
+            voice.gain = first ? target : IR::Mixing.nearest_whole_gain(voice.gain)
             share = IR::Mixing.slide_share(@clock.samples_a_frame)
             voice.ramp = (((target - voice.gain) >> RAMP_SPLIT) * share) >> RAMP_SPLIT
           end

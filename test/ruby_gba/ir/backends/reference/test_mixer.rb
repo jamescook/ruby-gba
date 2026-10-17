@@ -495,6 +495,54 @@ class TestMixer < Minitest::Test
     assert_mixes_agree(tune_on(part_words: { envelope: { release: 0.2 } }, volume_from: 8), frames: 60)
   end
 
+  # A QUIET NOTE FALLING AWAY GOES SILENT WHILE ITS LEVEL IS STILL ABOVE NOTHING. A voice's
+  # loudness for a frame is a whole number, the loudness asked for times the level, over 256,
+  # the rest dropped — as a cartridge's own sound engine works it out. So a note asked at 17
+  # (out of 256) is at 1 while its level is 16 and at nothing from 15 down, and from the frame
+  # it gets there it adds nothing to the mix, though its voice is still held until the level
+  # runs out.
+  QUIET = 17
+
+  private def quiet_note_let_go
+    score = RubyGBA::Audio::Score
+    shape = RubyGBA::Audio::Envelope.new(attack: 255, decay: 255, sustain: 255, release: 235)
+    note = score::Note.new(at: 0, key: :C4, length: 4, volume: Rational(QUIET * 15, 256), envelope: shape)
+    tune = score.new(tempo: 150, length: 400, plays_once: true, parts: [score::Part.new(plays: :tone, notes: [note])])
+    b = Builder.new
+    b.instance_eval do
+      screen :bitmap
+      enable_sound
+      instrument :tone, pcm: [127, 127, -127, -127] * 64, rate: 8000, note: :C4, holds_from: 0
+      music = songs :music, [tune]
+      game_loop { music.play 0 }
+    end
+    b.finalize_program
+    b.program
+  end
+
+  def test_a_quiet_note_is_silent_once_its_whole_loudness_is_nothing
+    levels = []
+    i = game_player
+    i.each_vblank { levels << i.level_of(:tone) }
+    i.run(quiet_note_let_go, frames: 120)
+    slices = i.mixed_sound
+
+    # A frame's slice slides from the loudness one level reading back to the one the reading
+    # before that, so it is wholly at nothing two readings after the level reaches 15.
+    silent_from = levels.each_index.find { |f| f > 1 && levels[f - 2] && levels[f - 2] <= 15 }
+    refute_nil silent_from, "the note never fell to level 15 in the run: #{levels.compact.last(5)}"
+    sounding = (silent_from...levels.size).select { |f| levels[f] }
+    refute_empty sounding, "the voice was let go as its loudness reached nothing, so there is no frame to check"
+    sounding.each do |f|
+      assert(slices[f].all?(&:zero?), "frame #{f}, level #{levels[f]}: #{slices[f].uniq.first(4)}")
+    end
+  end
+
+  # ...and the console makes the same bytes.
+  def test_a_quiet_note_fading_is_the_same_bytes
+    assert_mixes_agree(quiet_note_let_go, frames: 100)
+  end
+
   # A note at volume 0 sounds nothing, so it takes no voice: the part is silent there, and the
   # part's voice from before it is let go as a rest lets it go.
   def test_a_note_at_volume_nought_is_the_same_bytes

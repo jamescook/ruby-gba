@@ -352,14 +352,24 @@ static void step_shape(mix_voice *voice) {
   }
 }
 
+/* The whole loudness nearest +gain+, which keeps GAIN_FRACTION bits of fraction: half a step
+ * added and the fraction cleared (IR::Mixing.nearest_whole_gain). A mask rather than shifts, since
+ * shifting a negative number left is not defined in C. */
+static int32_t nearest_whole_gain(int32_t gain) {
+  return (gain + (1 << (GAIN_FRACTION - 1))) & ~((1 << GAIN_FRACTION) - 1);
+}
+
 /* The gain a shaped note ends the frame at — the loudness scaled by the level, a full 255
- * counting as 256 — and the slide there, one step a sample. A note's first frame does not slide:
- * it starts there. The distance is shifted down before it is multiplied and the product after, so
- * the sum fits in 32 bits, as the console's does. */
+ * counting as 256, as a whole number with the rest dropped, the way a cartridge's own sound engine
+ * works a channel's loudness out once a frame — and the slide there, one step a sample. A note's
+ * first frame does not slide: it starts there. Any other frame starts from the gain rounded to the
+ * nearest whole loudness, since a slide shared out in whole steps lands off where it was going.
+ * The distance is shifted down before it is multiplied and the product after, so the sum fits in
+ * 32 bits, as the console's does. */
 static void slide_gain(mix_voice *voice, int32_t first) {
   int32_t level = voice->level;
-  int32_t target = (voice->loudness * (level + (level >> 7))) << (GAIN_FRACTION - SHAPE_SCALE);
-  if (first) voice->gain = target;
+  int32_t target = ((voice->loudness * (level + (level >> 7))) >> SHAPE_SCALE) << GAIN_FRACTION;
+  voice->gain = first ? target : nearest_whole_gain(voice->gain);
   voice->ramp = (((target - voice->gain) >> RAMP_SPLIT) * SLIDE_SHARE) >> RAMP_SPLIT;
 }
 

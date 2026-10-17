@@ -55,6 +55,14 @@ module RubyGBA
       # samples. A multiply by a number worked out ahead of time, rather than a divide each
       # frame.
       def slide_share(samples_a_frame) = (1 << (2 * RubyGBA::Audio::Sound::RAMP_SPLIT)) / samples_a_frame
+
+      # THE WHOLE LOUDNESS NEAREST +gain+, which keeps Sound::GAIN_FRACTION bits of fraction:
+      # half a step added, and the fraction cleared. A frame's slide aims at a whole loudness and
+      # lands off it, so the next frame starts from the whole loudness nearest where it landed.
+      def nearest_whole_gain(gain)
+        fraction = RubyGBA::Audio::Sound::GAIN_FRACTION
+        (gain + (1 << (fraction - 1))) & ~((1 << fraction) - 1)
+      end
     end
   end
 end

@@ -130,9 +130,10 @@ module RubyGBA
           # worth of change, whatever fade was asked for.
           #
           # SO THE GAIN KEEPS A FRACTION under it (GAIN_FRACTION bits), which a slide needs: a
-          # quiet fade moves the gain by far less than one whole step a sample. The mix writes
-          # back where the slide left it, and the next frame's slide starts from there, so any
-          # rounding in one frame is taken up by the next rather than piling up.
+          # quiet fade moves the gain by far less than one whole step a sample. Each frame aims
+          # at a WHOLE loudness, and the next frame's slide starts from the whole loudness nearest
+          # where the last one left the gain, so the rounding of one frame never carries into
+          # the next (see #emit_envelope_step).
           SLOT_SRC = 0
           SLOT_POS = 4
           SLOT_LEN = 8
@@ -1151,20 +1152,31 @@ module RubyGBA
             e.place_label(write)
             e.emit(ASM.str_offset(2, 4, SLOT_LEVEL))
             e.emit(ASM.str_offset(6, 4, SLOT_PHASE))
-            # THE LOUDNESS THE FRAME ENDS AT: what the note asked for, scaled by the level. The
-            # level is a byte and the scale is out of 256, so the level's own top bit is added
-            # back in: a full 255 counts as 256, exactly the loudness asked for, and nothing
-            # counts as nothing — a fade that ended a shade above silence would leave the
-            # speaker a shade off the middle, and dropping the voice then is a small click of its
-            # own. The gain keeps sixteen bits of fraction, so the product goes up by eight bits
-            # more rather than down, and the fraction the level gives is kept.
+            # THE LOUDNESS THE FRAME ENDS AT: what the note asked for, scaled by the level, as a
+            # WHOLE number. The level is a byte and the scale is out of 256, so the level's own
+            # top bit is added back in: a full 255 counts as 256, exactly the loudness asked for.
+            # The fraction of the product is dropped, which is how a cartridge's own sound engine
+            # works a channel's loudness out once a frame — so a quiet note falls silent on the
+            # frame its whole loudness reaches nothing, while its level is still above it (a note
+            # held at full stays the loudness asked for, a step above the engine's, for the top bit
+            # added back). Down by the scale's eight bits to the whole number, then up by the
+            # gain's sixteen of fraction.
             e.emit(ASM.ldr_offset(0, 4, SLOT_VOL))
             e.emit(ASM.add_reg_lsr(3, 2, 2, 7))
             e.emit(ASM.mul(0, 3, 0))
-            e.emit(ASM.lsl_imm(0, 0, GAIN_FRACTION - RubyGBA::Audio::Envelope::SCALE))
+            e.emit(ASM.lsr_imm(0, 0, RubyGBA::Audio::Envelope::SCALE))
+            e.emit(ASM.lsl_imm(0, 0, GAIN_FRACTION))
             e.emit(ASM.cmp_imm(7, 0))
-            e.emit(ASM.ldr_offset(3, 4, SLOT_GAIN))           # where the gain is now...
-            e.emit(ASM.mov_reg_cond(:ne, 3, 0))               # ...or, on a first frame, already there
+            # Where the gain starts the frame: last frame's slide aimed at a whole loudness and,
+            # shared out in whole steps, landed off it, so the gain is put on the whole number
+            # nearest (see IR::Mixing.nearest_whole_gain) — a note at nothing is at nothing, where
+            # a little below it rounds every sample below the middle down a step. On a note's
+            # first frame it starts at the target itself.
+            e.emit(ASM.ldr_offset(3, 4, SLOT_GAIN))
+            e.emit(ASM.add_imm(3, 3, 1 << (GAIN_FRACTION - 1)))
+            e.emit(ASM.asr_imm(3, 3, GAIN_FRACTION))
+            e.emit(ASM.lsl_imm(3, 3, GAIN_FRACTION))
+            e.emit(ASM.mov_reg_cond(:ne, 3, 0))               # a first frame: the target
             e.emit(ASM.str_offset(3, 4, SLOT_GAIN))
             # ...and the slide to it: how far, shared out over the frame. Shifted down before the
             # multiply and down again after, so the product fits: a whole gain's worth of distance
