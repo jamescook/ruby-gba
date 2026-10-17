@@ -29,11 +29,11 @@ Single-context repo (this repo):
 
 When your output names a domain concept (in an issue title, a refactor
 proposal, a hypothesis, a test name), use the term as defined in `CONTEXT.md`.
-Don't drift to synonyms the glossary explicitly avoids. This repo already has
-a strong DX/naming philosophy documented in `.claude/CLAUDE.md` and
-the DSL reference (the index `.claude/rules/dsl-reference.md`, and each group's
-whole story under `.claude/dsl/`) — prefer those as the source of truth for
-DSL-facing terms until a `CONTEXT.md` exists.
+Don't drift to synonyms the glossary explicitly avoids. The exact name of a DSL
+verb or option comes from the DSL reference (the index
+`.claude/rules/dsl-reference.md`, and each group's whole story under
+`.claude/dsl/`), and wins where the glossary disagrees. For the rules a new name
+follows, read "Naming methods" in `.claude/CLAUDE.md`.
 
 If the concept you need isn't in the glossary yet, that's a signal: either
 you're inventing language the project doesn't use (reconsider) or there's a
