@@ -107,6 +107,7 @@ module RubyGBA
       @name_vars = {}          # name → the NameSet, for variables that hold one of a set of names
       @var_declarations = {}   # name → what its first `var` started it at, and where (see Variables#var)
       @name_dispatches = []    # [dispatch node, NameSet] — filled in at finalize, once every name is known
+      @scene_name_sets = []    # the NameSet of each `call` that picks a scene, checked once every name is known
       @next_var_addr = IWRAM_START
       @functions = {}          # name → deferred body block (evaluated at emit time)
       @tile_runs = []          # runs of tiles painted from a list, in declaration order (see TileRuns)
@@ -578,6 +579,7 @@ module RubyGBA
       finalize_layer_blend
       finalize_per_frame_routines
       finalize_per_pass_routines
+      refuse_non_scenes_in_scene_dispatch!
       finalize_name_dispatches
       finalize_pool_walks
       finalize_pool_colors
@@ -1365,6 +1367,7 @@ module RubyGBA
 
         refuse_scene_routine_name_clash!(held.names)
         scenes.each { |scene| held.number_for(scene) }
+        @scene_name_sets << held
         clauses = held.names.each_with_index.map { |name, number| [number, :"_scene_#{name}"] }
         swap_node(node, Build.case_(node.which.name, clauses))
         true
@@ -1377,6 +1380,41 @@ module RubyGBA
 
       raise ArgumentError, "`call` was given a variable that holds :#{both}, and :#{both} is both a scene " \
                            "and a func, so it cannot tell which to run. To fix this, rename one of them."
+    end
+
+    # A variable that picks a scene is the game's screen: each of its names is a scene, shown
+    # while the variable holds it. A func among them would be a screen that is not a scene —
+    # looked for as a scene and not found, or, when the name first turned up inside a routine's
+    # body after the dispatch was made, a value that silently runs nothing. So it is refused,
+    # and only once every body is built, since that is when the set of names stops growing.
+    #
+    # A dispatch whose names held no scene when scenes were picked out is still a plain one, and
+    # a scene set inside a routine later joins it there: that is the same mix the other way
+    # round, looked for as a func and not found, so it is refused in the same words.
+    def refuse_non_scenes_in_scene_dispatch!
+      scene = ->(name) { @functions.key?(:"_scene_#{name}") }
+      later = @name_dispatches.filter_map { |node, held| held if node.which.kind == :var_ref && held.names.any?(scene) }
+      (@scene_name_sets + later).each do |held|
+        others = held.names.reject(&scene)
+        next if others.empty?
+
+        funcs, missing = others.partition { |name| @functions.key?(name) }
+        raise ArgumentError, non_scenes_in_scene_dispatch_message(funcs, missing)
+      end
+    end
+
+    def non_scenes_in_scene_dispatch_message(funcs, missing)
+      listed = ->(list) { list.map { |name| ":#{name}" }.join(", ") }
+      found = ["`call` was given a variable that picks a scene."]
+      found << "It also holds funcs (#{listed.(funcs)})." unless funcs.empty?
+      unless missing.empty?
+        found << (missing.one? ? "It also holds #{listed.(missing)}, which is not a scene or a func." :
+                                 "It also holds #{listed.(missing)}, which are not scenes or funcs.")
+      end
+      fixes = []
+      fixes << "make each func a scene, or keep the funcs in a variable of their own" unless funcs.empty?
+      fixes << "declare each missing name with `scene`, or correct the name where the variable is set" unless missing.empty?
+      "#{found.join(' ')} A variable that picks a scene can hold only scenes. To fix this, #{fixes.join('; and ')}."
     end
 
     # Put +replacement+ where +node+ sits in the tree.

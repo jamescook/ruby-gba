@@ -269,6 +269,82 @@ class TestNameVariables < Minitest::Test
     assert_match(/:title is both a scene and a func/, err.message)
   end
 
+  # A variable whose names are partly scenes and partly funcs would make `call` pick a screen
+  # for some values and run a routine for others, so it is refused, naming which are which.
+  def test_names_that_mix_scenes_and_routines_are_refused
+    err = assert_raises(ArgumentError) do
+      program_with do
+        screen :bitmap
+        mode = var :mode, :title
+        b = self
+        b.scene(:title) { mode.set! :tick }
+        b.func(:tick) { mode.set! :title }
+        game_loop { b.call mode }
+      end
+    end
+
+    assert_match(/picks a scene\. It also holds funcs \(:tick\)/, err.message)
+    refute_match(/_scene_/, err.message)
+  end
+
+  # The same mix said where the game loop reads it, before any routine's body is built.
+  def test_names_that_mix_scenes_and_routines_are_refused_wherever_the_func_is_named
+    err = assert_raises(ArgumentError) do
+      program_with do
+        screen :bitmap
+        mode = var :mode, :title
+        b = self
+        b.scene(:title) { b.halt }
+        b.func(:tick) { b.halt }
+        game_loop do
+          pressed(:a).then { mode.set! :tick }
+          b.call mode
+        end
+      end
+    end
+
+    assert_match(/picks a scene\. It also holds funcs \(:tick\)/, err.message)
+  end
+
+  # The mix the other way round: the variable starts on a func, and a scene's name is set
+  # only inside that func's body, so it is first seen after the build looked for scenes.
+  def test_a_scene_set_only_inside_a_routine_beside_funcs_is_refused
+    err = assert_raises(ArgumentError) do
+      program_with do
+        screen :bitmap
+        mode = var :mode, :tick
+        b = self
+        b.func(:tick) { mode.set! :title }
+        b.scene(:title) { b.halt }
+        game_loop { b.call mode }
+      end
+    end
+
+    assert_match(/picks a scene\. It also holds funcs \(:tick\)/, err.message)
+    refute_match(/never defined/, err.message)
+  end
+
+  # Names that are no routine at all, beside scenes, are named as missing, along with any func.
+  def test_names_beside_scenes_that_name_nothing_are_refused_as_missing
+    err = assert_raises(ArgumentError) do
+      program_with do
+        screen :bitmap
+        mode = var :mode, :title
+        b = self
+        b.scene(:title) { pressed(:a).then { mode.set! :walk }.else { mode.set! :run } }
+        b.func(:tick) { mode.set! :title }
+        game_loop do
+          pressed(:b).then { mode.set! :tick }
+          b.call mode
+        end
+      end
+    end
+
+    assert_match(/It also holds funcs \(:tick\)/, err.message)
+    assert_match(/:walk, :run, which are not scenes or funcs/, err.message)
+    refute_match(/_scene_/, err.message)
+  end
+
   def test_a_value_and_a_number_together_are_refused
     err = assert_raises(ArgumentError) do
       program_with do
