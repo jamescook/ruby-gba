@@ -26,7 +26,8 @@ module RubyGBA
     # A NOTE has a +key+ — a MIDI note number (60 is middle C) or a note name like :C4 — or no
     # key at all, which is a rest. It can also name its own +instrument+ and +volume+, for music
     # that changes instrument or loudness from one note to the next. What a part cannot do is
-    # change from a square wave to a recording halfway through: it plays one or the other.
+    # change from a square wave to a recording halfway through: it plays one or the other. A note
+    # on the noise voice can give `hz:` instead of a key, for a hiss faster than any key reaches.
     #
     # A SONG WITH AN INTRODUCTION says where its loop starts: `loop_from: 384` plays the first 384
     # ticks once, then everything from there to the end over and over. Without it, the whole song
@@ -122,16 +123,24 @@ module RubyGBA
         end
       end
 
-      Note = Data.define(:at, :key, :length, :instrument, :volume, :envelope)
+      Note = Data.define(:at, :key, :length, :instrument, :volume, :envelope, :hz)
 
       class Note
-        def initialize(at:, key: nil, length: nil, instrument: nil, volume: nil, envelope: nil)
+        # A NOTE ON THE NOISE VOICE CAN GIVE +hz+ IN PLACE OF A KEY: how many times a second its
+        # hiss steps. A key cannot say most of them. The voice steps up to 524,288 times a second,
+        # and the highest MIDI key is 12,543 Hz — so a drum that wants a thin, fast hiss, which is
+        # most drums another game's sound engine plays, has no key to ask for it with. The voice
+        # still plays the rung of its ladder nearest the rate (Sound.noise_rung), as it does for a
+        # key.
+        def initialize(at:, key: nil, length: nil, instrument: nil, volume: nil, envelope: nil, hz: nil)
           super
         end
 
-        # How high the note is, in Hz — 0 for a rest. A MIDI note number is tuned the usual
-        # way, from A above middle C (number 69) at 440 Hz.
+        # How high the note is, in Hz — 0 for a rest. A note that gives +hz+ is that; a MIDI note
+        # number is tuned the usual way, from A above middle C (number 69) at 440 Hz.
         def frequency
+          return hz if hz
+
           case key
           when nil then 0
           when Symbol then Music::NOTE_FREQUENCIES.fetch(key)
@@ -275,11 +284,11 @@ module RubyGBA
           raise ArgumentError, "Part #{number} is not a Score::Part." unless part.is_a?(Part)
           raise ArgumentError, "Part #{number} needs its notes in `notes:`." unless part.notes.is_a?(Array)
 
-          recorded = plays_recording?(part.plays)
-          volume!(part.volume, "Part #{number}", recorded)
+          voice = Music.resolve_plays(part.plays)
+          volume!(part.volume, "Part #{number}", recording?(voice))
 
           part.notes.each_with_index do |note, index|
-            note!(note, "Note #{index} of part #{number}", recorded)
+            note!(note, "Note #{index} of part #{number}", voice)
             next unless note.instrument && !part.plays
 
             raise ArgumentError, "Note #{index} of part #{number} plays #{note.instrument_name.inspect}, " \
@@ -288,7 +297,8 @@ module RubyGBA
           end
         end
 
-        def note!(note, where, recorded)
+        # +voice+ is what the note's part plays, as Music.resolve_plays answers it.
+        def note!(note, where, voice)
           raise ArgumentError, "#{where} is not a Score::Note." unless note.is_a?(Note)
           unless note.at.is_a?(Integer) && note.at >= 0
             raise ArgumentError, "#{where} starts at tick #{note.at.inspect}. A tick is a whole number, 0 or more."
@@ -298,11 +308,37 @@ module RubyGBA
                                  "more than 0, or nothing for a note that lasts until the next one."
           end
           key!(note.key, where)
-          volume!(note.volume, where, recorded) if note.volume
+          noise_rate!(note, where, voice) if note.hz
+          volume!(note.volume, where, recording?(voice)) if note.volume
         end
 
         # Does a part play a recording, rather than one of the console's own voices?
-        def plays_recording?(plays) = Music.resolve_plays(plays).key?(:instrument)
+        def recording?(voice) = voice.key?(:instrument)
+
+        # Does a part play the console's noise voice?
+        def noise?(voice) = voice.key?(:noise)
+
+        # The fastest the noise voice steps, with its thousands marked, as a message prints it.
+        NOISE_CLOCK_HZ_TEXT = Ractor.make_shareable(Sound::NOISE_CLOCK_HZ.digits.each_slice(3).map(&:join)
+                                                                         .join(",").reverse)
+
+        # A note that gives +hz+ is on the noise voice, gives no key as well, and names a rate the
+        # voice can step at.
+        def noise_rate!(note, where, voice)
+          unless noise?(voice)
+            raise ArgumentError, "#{where} gives its pitch with `hz:`. Only a part on the noise voice " \
+                                 "(`plays: :noise`) can do that. Give the note a MIDI note number with " \
+                                 "`key:`, or play the part on the noise voice."
+          end
+          if note.key
+            raise ArgumentError, "#{where} has both a key and `hz:`. A note has one pitch. Remove one of them."
+          end
+          return if note.hz.is_a?(Numeric) && note.hz.real? && note.hz.positive? && note.hz <= Sound::NOISE_CLOCK_HZ
+
+          raise ArgumentError, "#{where} has `hz: #{note.hz.inspect}`. On the noise voice, `hz:` is how many " \
+                               "times a second the hiss steps: a number more than 0, and #{NOISE_CLOCK_HZ_TEXT} " \
+                               "or less. Give a number in that range."
+        end
 
         # A loudness is 0 (silent) to 15 (the loudest), the same scale a song block's `volume` is.
         # A note that plays a recording can hold a fraction, since the mixer has 256 steps where a

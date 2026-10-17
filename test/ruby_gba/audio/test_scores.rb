@@ -484,6 +484,41 @@ class TestScores < Minitest::Test
     assert_match(/whole number/, build_error { songs :music, [square] })
   end
 
+  # --- a noise note that names how fast its hiss steps ---
+
+  # A MIDI key reaches no further than 12,543 Hz, and the noise voice steps as fast as 524,288
+  # times a second, so a drum decoded off another cartridge says its rate with `hz:` instead.
+  # These are rates the voice really makes: each one is a rung of its ladder, every rung past
+  # 13,107 being one no key can reach.
+  RUNGS = [9_362, 10_922, 13_107, 16_384, 131_072, 524_288].freeze
+
+  private def drums_at(*rates, plays: :noise)
+    notes = rates.each_with_index.map { |rate, n| Note.new(at: n * 4, hz: rate) }
+    Score.new(tempo: 150, parts: [Part.new(plays: plays, notes: notes)])
+  end
+
+  # The rate a hit was played at, as the rung of the ladder it landed on.
+  private def rung_played(pitch)
+    RubyGBA::Audio::Sound.noise_rung_hz(*RubyGBA::Audio::Sound.noise_rung(pitch)).round
+  end
+
+  def test_a_noise_note_steps_at_the_rate_it_names
+    program = game([drums_at(*RUNGS)]) { |music, _| music.play 0 }
+    hits = game_player.run(program, frames: (RUNGS.size * 4) + 2).audio
+                      .select { |entry| entry.first == :noise }.map(&:last).compact
+
+    assert_equal RUNGS, hits.map { |hit| rung_played(hit[:pitch]) }
+  end
+
+  # The console is told the rung in the noise voice's register, and those bits read back: the
+  # low three are the divider and the four above the metallic bit are the halvings.
+  def test_the_console_steps_a_noise_note_at_the_rate_it_names
+    rom = assemble_rom(game([drums_at(131_072)]) { |music, _| music.play 0 }, name: "DRUMS")
+    register = assert_emulator_loads_rom(rom, frames: 8).mem16(RubyGBA::Console::Hardware::REG_SOUND4CNT_H)
+
+    assert_equal 131_072, RubyGBA::Audio::Sound.noise_rung_hz(register & 0x7, (register >> 4) & 0xF).round
+  end
+
   def test_the_console_plays_the_song_a_number_picks
     scores = [notes_every_ten_ticks(:C4, plays: :piano), notes_every_ten_ticks(:G4, plays: :harp)]
     rom = assemble_rom(game(scores) do |music, _|
@@ -545,6 +580,27 @@ class TestScores < Minitest::Test
   def test_a_note_before_the_start_is_a_friendly_error
     bad = Score.new(parts: [Part.new(notes: [Note.new(at: -4, key: :C4)])])
     assert_match(/tick/, build_error { songs :music, [bad] })
+  end
+
+  def test_a_rate_on_a_part_that_is_not_the_noise_voice_is_a_friendly_error
+    pad = drums_at(440, plays: :wave)
+    message = build_error { songs :music, [pad] }
+
+    assert_match(/only a part on the noise voice/i, message)
+    assert_match(/key:/, message, "says what the part gives instead")
+  end
+
+  def test_a_note_with_both_a_key_and_a_rate_is_a_friendly_error
+    both = Score.new(parts: [Part.new(plays: :noise, notes: [Note.new(at: 0, key: 60, hz: 131_072)])])
+
+    assert_match(/both/, build_error { songs :music, [both] })
+  end
+
+  def test_a_rate_the_noise_voice_cannot_make_is_a_friendly_error
+    [0, -5, 600_000, "fast"].each do |rate|
+      drums = drums_at(rate)
+      assert_match(/524,288/, build_error { songs :music, [drums] }, "hz: #{rate.inspect}")
+    end
   end
 
   def test_a_written_number_past_the_last_song_is_a_friendly_error
