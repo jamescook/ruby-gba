@@ -276,6 +276,27 @@ class TestRubyGBAEmulatorProfile < Minitest::Test
     end
   end
 
+  # WHAT A FRAME READS AND WRITES, word by word, beside what it runs. A number kept in the quick
+  # memory and read 300 times a pass is touched 300 times a frame; one that a frame never reads is
+  # not in the count at all. This is what lets a build weigh keeping a list in the quick memory
+  # against keeping a routine there.
+  def test_each_word_a_frame_reads_is_counted_once_a_read
+    rom = RubyGBA.build("PTCH", code: "PTCH", maker: "01") do
+      screen :bitmap
+      clear_screen :black
+      var :x, 0
+      step = var :step, 3
+      var :unread, 9
+      game_loop { repeat(300) { add! :x, step } }
+    end
+    with_probe(write_rom(rom, "touches")) do |probe|
+      touches = probe.profile(settle: 10).touches
+
+      assert_equal 300, touches[rom.var_addresses.fetch(:step)], "read once a pass, 300 passes"
+      refute touches.key?(rom.var_addresses.fetch(:unread)), "a word the frame never reads is not counted"
+    end
+  end
+
   def test_frames_must_be_positive
     with_probe(idle_rom) do |probe|
       assert_raises(ArgumentError) { probe.profile(frames: 0) }

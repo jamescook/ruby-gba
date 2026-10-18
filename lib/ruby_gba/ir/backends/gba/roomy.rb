@@ -40,8 +40,10 @@ module RubyGBA
         #
         # AGAINST THE CODE that wants the same room, each collection is a claim like a routine
         # (see Placement#collection_claims, a pool being one collection): what the author
-        # insisted on goes first, then the collections a frame touches, then the routines the
-        # build picks, then the collections no frame touches.
+        # insisted on goes first. In a build that measured the game, each collection then goes
+        # among the routines by how often a frame read it; in one that did not, the collections
+        # a frame touches go next, then the routines the build picks, then the collections no
+        # frame touches.
         #
         # WHAT A FRAME TOUCHES is read off the program rather than guessed: the game loop's
         # body, and every routine reachable from it. That is a structural fact — this
@@ -61,12 +63,20 @@ module RubyGBA
           # is what was considered, this is what happened — and the only way an author can see
           # it, since a collection moving here is a decision nobody wrote. Seeing it is what
           # lets them say `fast: false` about the one that should have moved instead.
-          Usage = Data.define(:used, :free, :collections) do
+          #
+          # +touches+ is how many times one frame was measured to read or write each list that
+          # moved, by name — the busiest scene's frame, in a game with scenes — or nil for a build
+          # that measured nothing.
+          Usage = Data.define(:used, :free, :collections, :touches) do
+            def initialize(touches: nil, **rest) = super
+
             def total = used + free
 
             def to_h
               { used: used, free: free, total: total,
-                collections: collections.map { |name, bytes| { name: name.to_s, bytes: bytes } } }
+                collections: collections.map do |name, bytes|
+                  { name: name.to_s, bytes: bytes, touches: touches&.fetch(name, 0) }.compact
+                end }
             end
           end
 

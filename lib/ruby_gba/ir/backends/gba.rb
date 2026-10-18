@@ -599,12 +599,15 @@ module RubyGBA
           return nil if placed.empty? && @memory.roomy_used.zero?
 
           Roomy::Usage.new(used: @memory.roomy_used, free: @memory.roomy_free,
-                           collections: placed)
+                           collections: placed, touches: @routine_profile&.touches_in_one_frame&.slice(*placed.keys))
         end
 
         # The collections this pass put in the quick memory that the framework may still move,
         # with the room each holds there. Read off the throwaway measuring pass.
         def movable_quick_lists = @lists.movable_quick_lists
+
+        # How many bytes a slot of each list is, by name.
+        def list_widths = @lists.list_widths
 
         # WHERE EACH ROUTINE ENDED UP, as the span of addresses it really occupies while the
         # console runs. This is what turns a profile's raw addresses back into the author's own

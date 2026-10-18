@@ -761,8 +761,13 @@ module RubyGBAEmulator
     # +late+ is, for each pass that went to sleep inside a break between pictures that began
     # while it ran, how many lines sooner it had to end to make that break. A game's pass waits
     # for the NEXT break, so such a pass sleeps a whole picture however few lines late it was.
+    #
+    # +touches+ is how many times the program read or wrote each word of the console's two working
+    # memories, by the word's address. A byte or half counts against its word; fetching an
+    # instruction is not a touch (that is +pc+), and a word the run never touched is not there.
     Profile = Data.define(:frames, :samples, :halted, :elsewhere, :finished, :pc, :cycles, :late,
-                          :cycles_per_frame) do
+                          :cycles_per_frame, :touches) do
+      def initialize(touches: {}, **rest) = super
       # The addresses that came up most, dearest first.
       #
       # @return [Array<Array(Integer, Integer)>] pairs of [address, times seen]
@@ -894,7 +899,7 @@ module RubyGBAEmulator
       @pixels = @core.video_buffer
       Profile.new(frames: raw[:frames], samples: raw[:samples], halted: raw[:halted],
                   elsewhere: raw[:elsewhere], finished: raw[:finished], pc: raw[:pc],
-                  cycles: raw[:cycles], late: raw[:late], cycles_per_frame: frame_cycles)
+                  cycles: raw[:cycles], late: raw[:late], cycles_per_frame: frame_cycles, touches: raw[:touches])
     end
 
     # --- stopping inside a frame, for somebody debugging generated code ------

@@ -381,6 +381,9 @@ module RubyGBA
             @lists.reject { |_name, info| info[:roomy] || !info[:fast].nil? }.transform_values { |info| info[:want] }
           end
 
+          # How many bytes a slot of each list is, by name: what one read of it moves.
+          def list_widths = @lists.transform_values { |info| info[:bytes] }
+
           # The collections that ended up in the roomy memory, and how big each is — the
           # one thing a build report has to say about a decision nobody wrote.
           def roomy_lists
@@ -393,12 +396,18 @@ module RubyGBA
           # the number saying how many it holds now. A measurement that wants a list held full
           # writes that number (see Diagnostics::FullCollections), and nothing but this build
           # knows where it is.
-          Place = Data.define(:base, :capacity, :bytes, :length_at)
+          #
+          # +slots+ is how many slots it really has, which is more than its capacity for a list the
+          # game shifts from: those are rounded up to a power of two so the wrap is one AND, and
+          # the oldest walks round all of them. +head_at+ is where such a list keeps the place of
+          # its oldest, and nil for one that never moves it.
+          Place = Data.define(:base, :capacity, :bytes, :length_at, :slots, :head_at)
 
           def list_places
             @lists.to_h do |name, info|
               [name, Place.new(base: info[:base], capacity: info[:capacity], bytes: info[:bytes],
-                               length_at: @primitives.vars.fetch(length_var(name)))]
+                               length_at: @primitives.vars.fetch(length_var(name)), slots: info[:mask] + 1,
+                               head_at: (@primitives.vars.fetch(head_var(name)) if info[:ring]))]
             end
           end
 

@@ -12,7 +12,9 @@ class TestRoutineProfile < Minitest::Test
   Line = RubyGBA::Diagnostics::Profiler::Line
 
   # As much of a scene's reading as the profile looks at.
-  Reading = Struct.new(:frames, :samples, :lines)
+  Reading = Struct.new(:frames, :samples, :lines, :list_touches) do
+    def initialize(frames, samples, lines, list_touches = {}) = super
+  end
 
   # A scene measured over thirty frames, running +each_frame+ instructions a frame, with each
   # routine's part of them in per cent.
@@ -81,8 +83,10 @@ class TestRoutineProfile < Minitest::Test
   # each in the added-up counts, and only these say what a frame of either spends in it.
   def test_each_scenes_own_counts_are_kept_and_saved
     title = Reading.new(30, 0, [Line.new(name: :shared, label: "", samples: 30 * 100, share: 0, time_share: 0, where: :rom),
-                                Line.new(name: :title_art, label: "", samples: 30 * 150, share: 0, time_share: 0, where: :rom)])
-    play = Reading.new(30, 0, [Line.new(name: :shared, label: "", samples: 30 * 100, share: 0, time_share: 0, where: :rom)])
+                                Line.new(name: :title_art, label: "", samples: 30 * 150, share: 0, time_share: 0, where: :rom)],
+                        { board: 30 * 40 })
+    play = Reading.new(30, 0, [Line.new(name: :shared, label: "", samples: 30 * 100, share: 0, time_share: 0, where: :rom)],
+                       { board: 30 * 2 })
     survey = RubyGBA::Diagnostics::Profiler::Survey.new(work: { shared: 200, title_art: 150 }, scenes: { title: title, play: play })
 
     Dir.mktmpdir do |dir|
@@ -91,7 +95,21 @@ class TestRoutineProfile < Minitest::Test
 
       assert_equal({ shared: 100, title_art: 150 }, read.scenes.fetch(:title))
       assert_equal %i[shared title_art], read.order_by_work(%i[shared title_art]), "added up, the shared one is dearer"
+      assert_equal({ board: 42 }, read.touches, "a list's touches a frame, added up over the scenes as the counts are")
+      assert_equal({ board: 40 }, read.scene_touches.fetch(:title), "and each scene's own")
+      assert_equal({ board: 40 }, read.touches_in_one_frame, "one frame touches it at most what the busier scene's does")
     end
+  end
+
+  # A READ OF A WORD IS WORTH ABOUT FOUR INSTRUCTIONS, and of a byte about one and a half: what
+  # keeping each in the quick memory saves against what keeping an instruction there saves.
+  def test_a_list_is_worth_its_reads_in_instructions_by_how_wide_a_read_is
+    profile = RoutineProfile.new(work: {}, touches: { words: 30, bytes: 30, idle: 0 })
+
+    assert_in_delta 4 * 30, profile.worth_of_lists({ words: 4 }), 10
+    assert_in_delta 1.5 * 30, profile.worth_of_lists({ bytes: 1 }), 3
+    assert_equal 0, profile.worth_of_lists({ idle: 4 }), "a list the run never touched is worth nothing"
+    assert_nil profile.worth_of_lists({ added_since: 4 }), "and one the run never saw has no worth to give"
   end
 
   # A profile saved before the busiest scene was kept still reads, and has no share to give.
@@ -101,6 +119,7 @@ class TestRoutineProfile < Minitest::Test
 
       assert_nil RoutineProfile.read(path).busiest_share_of(:__frame)
       assert_equal 500, RoutineProfile.read(path).work_of(:__frame)
+      assert_nil RoutineProfile.read(path).worth_of_lists({ board: 4 }), "nor any list's worth: it counted none"
     end
   end
 end

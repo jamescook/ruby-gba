@@ -91,10 +91,11 @@ module RubyGBA
       # whose rate halves for one line of work says why here and nowhere else.
       Result = Data.define(:frames, :samples, :fps, :idle_share, :lines, :unattributed, :keys,
                            :reached, :tearing, :flicker, :tick_rates, :sound_drops, :video_copies,
-                           :late_passes, :split_hints) do
+                           :late_passes, :split_hints, :list_touches) do
         # +split_hints+ are the parts of routines that missed the quick memory worth making a
-        # `func` of (see SplitHints), busiest first.
-        def initialize(split_hints: [], **rest) = super
+        # `func` of (see SplitHints), busiest first. +list_touches+ is how many times the run read
+        # or wrote each list, by its name.
+        def initialize(split_hints: [], list_touches: {}, **rest) = super
 
         def dropping_frames? = fps < 59.5
 
@@ -182,7 +183,7 @@ module RubyGBA
         build_result(profile, routines, held, reached, tearing, flicker,
                      tick_rates_in(profile, rom.built.timer_handlers), lost,
                      video_copies_in(profile, rom.built.video_copies, loaded_sets))
-          .with(split_hints: SplitHints.of(profile, rom))
+          .with(split_hints: SplitHints.of(profile, rom), list_touches: touches_by_list(profile.touches, rom.built.lists))
       end
 
       # WHICH SCENES' OWN ROUTINES WERE IN THE QUICK MEMORY, in a game that swaps them as a scene
@@ -429,7 +430,21 @@ module RubyGBA
                halted: a.halted + b.halted, elsewhere: a.elsewhere + b.elsewhere,
                finished: a.finished + b.finished,
                pc: a.pc.merge(b.pc) { |_, x, y| x + y },
-               cycles: a.cycles.merge(b.cycles) { |_, x, y| x + y }, late: a.late + b.late)
+               cycles: a.cycles.merge(b.cycles) { |_, x, y| x + y }, late: a.late + b.late,
+               touches: a.touches.merge(b.touches) { |_, x, y| x + y })
+      end
+
+      # HOW MANY TIMES THE RUN READ OR WROTE EACH LIST, by the list's name, out of the console's
+      # count of every word touched. A list holds its items from its base, a whole word at a time,
+      # in every slot it has (a list shifted from has more than its capacity). Its length, and the
+      # place of its oldest where it keeps one, go wherever the list goes, and nearly every use of
+      # the list reads them, so they are counted with it.
+      def self.touches_by_list(touches, lists)
+        lists.to_h do |name, place|
+          words = ((place.slots * place.bytes) + 3) / 4
+          items = (0...words).sum { |word| touches.fetch(place.base + (word * 4), 0) }
+          [name, items + [place.length_at, place.head_at].compact.sum { |at| touches.fetch(at, 0) }]
+        end
       end
 
       # Frames to run before setting the scene, so the game is past its own start-up and the
@@ -532,6 +547,19 @@ module RubyGBA
         results.map { |r| work_in(r) }.reduce({}) do |total, scene|
           total.merge(scene) { |_, a, b| a + b }
         end
+      end
+
+      # ...and how many times a frame read or wrote each list, added up over the scenes the same
+      # way: a list every scene walks is worth the quick memory to each of them.
+      def self.sum_touches_across_scenes(results)
+        results.map { |r| touches_in(r) }.reduce({}) { |total, scene| total.merge(scene) { |_, a, b| a + b } }
+      end
+
+      # How many times a frame of +result+ read or wrote each list, as #work_in counts instructions.
+      def self.touches_in(result)
+        return {} if result.frames.zero?
+
+        result.list_touches.transform_values { |touches| (touches.to_f / result.frames).round }
       end
 
       # How many instructions a frame each routine ran, counted rather than shared out. Straight

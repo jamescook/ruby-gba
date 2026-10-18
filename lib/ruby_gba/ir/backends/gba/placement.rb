@@ -343,12 +343,14 @@ module RubyGBA
             owners = dispatch ? scene_owners(program, scenes, dispatch) : {}
             lists = probe.movable_quick_lists
             collections = lists.keys.group_by { |name| collection_of(name) }
+            widths = probe.list_widths
+            worth = measured_worth_of_collections(collections, widths)
             claims = quick_memory_claims(program, wanted, insisted, sizes, owners, scenes) +
-                     collection_claims(program, collections, lists)
+                     collection_claims(program, collections, lists, widths, measured: !worth.nil?)
             # Every allocation is rounded up to a whole word, so the gap the probe leaves is
             # the gap there really is — there is no alignment slop to keep back for. The
             # collections the plan weighs are given their room back to be weighed for.
-            plan = QuickMemoryPlan.choose(claims_in_planning_order(claims),
+            plan = QuickMemoryPlan.choose(claims_in_planning_order(claims, worth),
                                           room: probe.iwram_free + lists.values.sum,
                                           dispatch: dispatch && QuickMemoryPlan::Dispatch.new(scenes: scenes, clauses: dispatch.clauses.size))
             @lists_left_out = collections.reject { |collection, _| plan.kept?(list_claim_name(collection)) }
@@ -939,20 +941,42 @@ module RubyGBA
           def scene_work_of(name)
             return nil unless @routine_profile&.measured?(name)
 
-            @routine_profile.scenes.to_h { |scene, counts| [:"#{SceneQuickMemory::SCENE_PREFIX}#{scene}", counts.fetch(name, 0)] }
+            @routine_profile.scenes.to_h { |scene, counts| [scene_routine_named(scene), counts.fetch(name, 0)] }
           end
+
+          # The routine that runs the scene a measurement names by the scene's own name.
+          def scene_routine_named(scene) = :"#{SceneQuickMemory::SCENE_PREFIX}#{scene}"
 
           # A COLLECTION IN THE QUICK MEMORY IS A CLAIM ON IT TOO, weighed by the same rule as the
           # code: a read from the roomy memory waits about six times as long, as a routine left in
           # the cartridge runs slower. Each the author said nothing about is one, named apart from
           # every routine (see #list_claim_name). +collections+ is the lists of each, by
-          # collection, and +lists+ the room each list holds.
-          def collection_claims(program, collections, lists)
+          # collection, +lists+ the room each list holds, and +widths+ the bytes a slot of each is.
+          #
+          # MEASURED, a collection is weighed by what each scene's frames were measured to save by
+          # keeping it, as a routine is by what they spend in it, and not as something every frame
+          # needs: in a set per scene that would put every list a frame touches ahead of every
+          # routine again, whatever the counts said.
+          def collection_claims(program, collections, lists, widths, measured:)
             touched = Roomy.touched_every_frame(program)
             collections.map do |collection, names|
               QuickMemoryPlan::Claim.new(name: list_claim_name(collection), bytes: names.sum { |name| lists.fetch(name) },
-                                         every_frame: names.any? { |name| touched.include?(name) })
+                                         every_frame: !measured && names.any? { |name| touched.include?(name) },
+                                         scene_work: (if measured
+                                                        @routine_profile.worth_of_lists_by_scene(widths.slice(*names))
+                                                                        .transform_keys { |scene| scene_routine_named(scene) }
+                                                      end))
             end
+          end
+
+          # What keeping each collection in the quick memory was measured to save a frame, by claim
+          # name, in instructions a frame; nil where the measurement counted no list, or missed one
+          # of these (added since it was taken), so that every collection is weighed one way.
+          def measured_worth_of_collections(collections, widths)
+            worth = collections.to_h do |collection, names|
+              [list_claim_name(collection), @routine_profile&.worth_of_lists(widths.slice(*names))]
+            end
+            worth if worth.values.all?
           end
 
           # THE COLLECTION A LIST IS PART OF: a pool for each of its columns and the lists it keeps
@@ -963,18 +987,35 @@ module RubyGBA
             %i[pool_field pool_part].include?(kind) ? :"pool #{parts[:pool]}" : name
           end
 
-          # WHERE A COLLECTION COMES AMONG THE CLAIMS: after what the author insisted on, one a
-          # frame touches ahead of the routines the build would pick, and one no frame touches
-          # after all of them. What a frame touches is waited on every frame, as the code is; but
-          # nothing measures how much a frame reads a collection the way it measures a routine,
-          # so nothing can say the game loop is worth more than a list it walks, and a busy one
-          # keeps the place it always had. One no frame touches is waited on by nobody, and it
-          # holds room a routine a frame runs would use.
-          def claims_in_planning_order(claims)
+          # WHERE A COLLECTION COMES AMONG THE CLAIMS, after what the author insisted on.
+          #
+          # MEASURED, by what keeping it saves a frame (+worth+, by claim name, in instructions a
+          # frame — see Diagnostics::RoutineProfile#worth_of_lists), against what each routine
+          # was measured to run: a collection goes ahead of the first routine worth less than it.
+          # The routines keep the order they were ranked in. A routine the measurement never saw
+          # counts as worth nothing, as it ranks last among the routines.
+          #
+          # NOT MEASURED (+worth+ nil), one a frame touches goes ahead of the routines the build
+          # would pick, and one no frame touches after all of them. What a frame touches is waited
+          # on every frame, as the code is, and with nothing to say how often, a busy one keeps the
+          # place it always had. One no frame touches is waited on by nobody, and it holds room a
+          # routine a frame runs would use.
+          def claims_in_planning_order(claims, worth)
             insisted, rest = claims.partition(&:insisted)
             lists, routines = rest.partition { |claim| list_claim?(claim.name) }
+            return insisted + merge_lists_into_routines(lists, routines, worth) if worth
+
             touched, untouched = lists.partition(&:every_frame)
             insisted + touched + routines + untouched
+          end
+
+          def merge_lists_into_routines(lists, routines, worth)
+            waiting = lists.sort_by { |claim| -worth.fetch(claim.name) }
+            routines.flat_map do |routine|
+              ahead = waiting.take_while { |claim| worth.fetch(claim.name) > (@routine_profile.work_of(routine.name) || 0) }
+              waiting = waiting.drop(ahead.size)
+              ahead + [routine]
+            end + waiting
           end
 
           # A collection's claim is named so no routine can share it: a routine's name is one word.

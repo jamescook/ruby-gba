@@ -37,8 +37,8 @@ module RubyGBA
           #
           # +every_frame+ marks what every frame runs or reads — the game loop, the routine the
           # console interrupts into, the routines placed with the game loop, a collection a frame
-          # touches. A set per scene is not used where it would leave one of those out that one
-          # set for the whole game kept.
+          # touches where nothing measured how often. A set per scene is not used where it would
+          # leave one of those out that one set for the whole game kept.
           #
           # +scene_work+ is what a frame of each scene was measured to spend in it, by scene
           # routine — empty for a routine measured in no scene's counts, nil for one never

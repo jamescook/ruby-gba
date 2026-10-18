@@ -214,6 +214,84 @@ class TestRoomyMemory < Minitest::Test
     assert_includes roomy_of(rom).collections.keys, :cold
   end
 
+  # A list every frame writes to once, and a routine every frame runs a few thousand instructions
+  # of, where the quick memory has room for one of the two.
+  private def trickle_beside_busy_work
+    RubyGBA.game("TRICKLE") do
+      screen :bitmap
+      trickle = list :trickle, capacity: TRICKLE_WORDS
+      spin = var :spin, 0
+      func(:busy) { BUSY_ADDS.times { spin.add! 1 } }
+      game_loop do
+        trickle[3] = spin
+        call :busy
+      end
+    end
+  end
+
+  TRICKLE_WORDS = 6000
+  BUSY_ADDS = 600
+
+  # A LIST A FRAME BARELY READS GIVES WAY TO A ROUTINE IT RUNS ALL THE TIME, once the game is
+  # measured. A word kept in the roomy memory costs a few cycles each time it is read, and a frame
+  # that touches it once loses a few cycles; a routine left in the cartridge costs a cycle or so on
+  # every instruction it runs. Without a measurement nothing says how often the list is read, so
+  # the list a frame touches keeps the place it always had.
+  def test_a_list_a_frame_barely_reads_gives_way_to_busy_code_once_measured
+    measured = trickle_beside_busy_work.build_rom(out: StringIO.new, err: StringIO.new, profile: true).built
+    guessed = trickle_beside_busy_work.build_rom(out: StringIO.new, err: StringIO.new, profile: false).built
+
+    refute_includes moved_lists(guessed), :trickle, "unmeasured, the touched list keeps its place"
+    refute_includes guessed.placement.funcs, :busy, "and the routine does not fit beside it"
+    assert_includes measured.placement.funcs, :busy, "measured, the busy routine is kept"
+    assert_includes moved_lists(measured), :trickle, "and the list moves to the roomy memory"
+  end
+
+  # Two screens, each with a routine of its own that a frame of it runs all the time, and a list
+  # both write to once a frame. The left screen's routine is the smaller and runs three times a
+  # frame, so it is the busier. The two routines do not fit together; the left one fits beside the
+  # list, and the right one does not.
+  private def trickle_beside_two_busy_screens
+    RubyGBA.game("TRICKLE2") do
+      screen :bitmap
+      trickle = list :trickle, capacity: SHARED_TRICKLE_WORDS
+      spin = var :spin, 0
+      var :where, 0
+      func(:left_work) { LEFT_ADDS.times { spin.add! 1 } }
+      func(:right_work) { RIGHT_ADDS.times { spin.add! 2 } }
+      scene(:left) { 3.times { call :left_work } }
+      scene(:right) { call :right_work }
+      game_loop do
+        trickle[3] = spin
+        pressed(:start).then { set! :where, 1 }
+        case_var(:where) do
+          when_val 0, :left
+          when_val 1, :right
+        end
+      end
+    end
+  end
+
+  SHARED_TRICKLE_WORDS = 2500
+  LEFT_ADDS = 750
+  RIGHT_ADDS = 1375
+
+  # ...AND THE SAME IN A GAME THAT KEEPS A SET FOR EACH SCREEN. Each screen's routine goes in its
+  # own screen's set, and the list a frame barely touches is what gives way. Weighed as something
+  # every frame needs, the list went in ahead of both routines, and the right screen's routine ran
+  # from the cartridge.
+  def test_a_list_a_frame_barely_reads_gives_way_to_each_screens_busy_code
+    built = trickle_beside_two_busy_screens.build_rom(out: StringIO.new, err: StringIO.new, profile: true).built
+    kept = built.placement.funcs + built.placement.scenes.values.flatten
+
+    assert_includes kept, :left_work
+    assert_includes kept, :right_work, "each screen keeps its own busy routine"
+    assert_includes moved_lists(built), :trickle
+  end
+
+  # The lists a build moved to the roomy memory; none where it moved nothing.
+  private def moved_lists(built) = built.roomy_memory&.collections&.keys || []
+
   # A pool is one list per field, so it is the thing most likely to want this.
   def test_a_pool_can_be_given_room
     rom = build("POOL") do
@@ -383,6 +461,31 @@ class TestRoomyMemory < Minitest::Test
     assert_match(/roomy memory/, printed)
     assert_match(/:world/, printed, "it names what moved")
     assert_match(/waits/, printed, "and says what that costs")
+  end
+
+  # A LIST THE MEASUREMENT MOVED SAYS WHAT IT WAS MEASURED AT, which is the reason it moved: the
+  # trickle is written once a frame, and the routine kept in its place runs far more than that.
+  def test_the_report_says_how_often_a_frame_touched_a_list_it_moved
+    out = StringIO.new
+    RubyGBA::Diagnostics::BuildReport.render(trickle_beside_busy_work.build_rom(out: StringIO.new, err: StringIO.new),
+                                             out: out)
+
+    assert_match(/list :trickle, read or written 1 time a frame/, out.string)
+    assert_match(/code kept in its place saves more time/, out.string, "and why that moved it")
+  end
+
+  # A build that measured nothing has no count to say, and no reason of that kind.
+  def test_an_unmeasured_report_names_a_moved_list_without_a_count
+    rom = build("UNCOUNTED") do
+      screen :bitmap
+      world = list :world, capacity: 64, fast: false
+      game_loop { world.push 1 }
+    end
+    out = StringIO.new
+    RubyGBA::Diagnostics::BuildReport.render(rom, out: out)
+
+    assert_match(/list :world\n/, out.string, "the list is named, and nothing follows it on its line")
+    refute_match(/saves more time/, out.string)
   end
 
   # A pool is one list a field and several of its own, under names the build made up. An

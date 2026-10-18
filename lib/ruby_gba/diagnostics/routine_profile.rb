@@ -53,12 +53,21 @@ module RubyGBA
       # quick memory is chosen by (see GBA::QuickMemoryPlan).
       attr_reader :scenes
 
-      def initialize(work:, game: nil, measured_at: nil, busiest: nil, scenes: {})
+      # HOW MANY TIMES A FRAME READ OR WROTE EACH LIST, by the list's name, added up over the
+      # scenes as the counts are. It is what keeping a list in the quick memory is worth, as the
+      # counts are for a routine (see #worth_of_list). nil for a profile saved before these were
+      # kept, which is different from one that measured every list at nothing. +scene_touches+
+      # are each scene's own, by the scene's name, as #scenes are for the counts.
+      attr_reader :touches, :scene_touches
+
+      def initialize(work:, game: nil, measured_at: nil, busiest: nil, scenes: {}, touches: nil, scene_touches: {})
         @work = work
         @game = game
         @measured_at = measured_at
         @busiest = busiest
         @scenes = scenes
+        @touches = touches
+        @scene_touches = scene_touches
       end
 
       # Read a saved profile. Returns nil when there is no file — a missing profile is the
@@ -69,7 +78,9 @@ module RubyGBA
         data = JSON.parse(File.read(path))
         new(work: data.fetch("routines", {}).transform_keys(&:to_sym),
             game: data["game"], measured_at: data["measured_at"], busiest: busiest_from(data["busiest_scene"]),
-            scenes: data.fetch("scenes", {}).to_h { |scene, counts| [scene.to_sym, counts.transform_keys(&:to_sym)] })
+            scenes: data.fetch("scenes", {}).to_h { |scene, counts| [scene.to_sym, counts.transform_keys(&:to_sym)] },
+            touches: data["lists"]&.transform_keys(&:to_sym),
+            scene_touches: data.fetch("scene_lists", {}).to_h { |scene, counts| [scene.to_sym, counts.transform_keys(&:to_sym)] })
       rescue JSON::ParserError => e
         raise ProfileError, "#{path} is not a profile this can read (#{e.message}). To fix this, " \
                             "measure the game again with `rom.profile` and save it."
@@ -91,7 +102,9 @@ module RubyGBA
       # ...and from the whole of what it answers: the counts, and the busiest scene's reading.
       def self.from_survey(survey, game: nil)
         new(work: survey.work, game: game, measured_at: Time.now.utc.iso8601, busiest: busiest_in(survey.scenes),
-            scenes: survey.scenes.filter_map { |scene, reading| [scene, Profiler.work_in(reading)] if scene }.to_h)
+            scenes: survey.scenes.filter_map { |scene, reading| [scene, Profiler.work_in(reading)] if scene }.to_h,
+            touches: Profiler.sum_touches_across_scenes(survey.scenes.values),
+            scene_touches: survey.scenes.filter_map { |scene, reading| [scene, Profiler.touches_in(reading)] if scene }.to_h)
       end
 
       # The scene that ran the most instructions a frame, out of +scenes+ (each scene's name
@@ -117,6 +130,8 @@ module RubyGBA
       def as_json
         saved = { "game" => game, "measured_at" => measured_at, "routines" => counts_as_json(work) }
         saved["scenes"] = scenes.to_h { |scene, counts| [scene.to_s, counts_as_json(counts)] } unless scenes.empty?
+        saved["lists"] = counts_as_json(touches) if touches
+        saved["scene_lists"] = scene_touches.to_h { |scene, counts| [scene.to_s, counts_as_json(counts)] } unless scene_touches.empty?
         return saved unless busiest
 
         saved.merge("busiest_scene" => { "scene" => busiest.scene&.to_s,
@@ -171,6 +186,43 @@ module RubyGBA
       WORTH_MOVING = 24
 
       def worth_quick_memory?(name) = work.fetch(name, 0) >= WORTH_MOVING
+
+      # WHAT ONE READ OF A LIST IS WORTH, in instructions of a routine — so a list and a routine
+      # can be weighed for the same room by the same count.
+      #
+      # A read of the quick memory takes one cycle. A read of the roomy memory waits: six cycles
+      # for a whole word, three for a half or a byte, since its chip hands over half a word at a
+      # time. So keeping a list in the quick memory saves five cycles a read of a word and two a
+      # read of anything narrower. An instruction kept in the quick memory saves a bit over one
+      # cycle — it runs about two and a third times as fast as from the cartridge — so a read of a
+      # word is worth about four instructions, and a read of a half or a byte about one and a half.
+      CYCLES_SAVED_BY_READ = { 4 => 5, 2 => 2, 1 => 2 }.freeze
+      CYCLES_SAVED_BY_INSTRUCTION = Rational(4, 3)
+
+      # What a frame was measured to save by keeping +lists+ (each list's name with how many bytes
+      # a slot of it is) in the quick memory, in instructions a frame: added up over the scenes,
+      # or of one +scene+'s frames. nil where this profile counted none of them — it counted no
+      # list at all, or these were added since — which leaves the build to the order it keeps
+      # without a measurement.
+      def worth_of_lists(lists, scene: nil)
+        return nil unless touches && lists.keys.any? { |name| touches.key?(name) }
+
+        counts = scene ? scene_touches.fetch(scene, {}) : touches
+        lists.sum { |name, width| counts.fetch(name, 0) * CYCLES_SAVED_BY_READ.fetch(width) / CYCLES_SAVED_BY_INSTRUCTION }
+             .round
+      end
+
+      # ...and what a frame of each scene was measured to save by keeping them, by the scene's name.
+      def worth_of_lists_by_scene(lists) = scene_touches.keys.to_h { |scene| [scene, worth_of_lists(lists, scene: scene)] }
+
+      # HOW MANY TIMES ONE FRAME TOUCHED EACH LIST, by its name: the most any one scene's frame
+      # did, since the counts added up over the scenes are no one frame's. A game with no scenes
+      # has only the one count. nil where this profile counted no list.
+      def touches_in_one_frame
+        return touches if touches.nil? || scene_touches.empty?
+
+        scene_touches.values.reduce({}) { |most, counts| most.merge(counts) { |_, a, b| [a, b].max } }
+      end
 
       private
 

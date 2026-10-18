@@ -3043,6 +3043,195 @@ pc_region_into(VALUE out, VALUE cycles_out, const struct pc_tally *t, int region
     }
 }
 
+/* WHAT THE PROGRAM READ AND WROTE, word by word, in the console's two working memories.
+ *
+ * The counts of where the processor RAN say what keeping a routine in the quick memory is worth.
+ * They cannot say what keeping a list there is worth: a list is not run, it is read, and every read
+ * of the roomy memory waits several cycles a read of the quick memory does not. So while a profile
+ * runs, the processor's own way of reading and writing memory is wrapped. Each read or write is
+ * counted against the word it lands in, and the emulator's own function then does the work. Nothing
+ * is added to the cartridge and no access takes a cycle longer.
+ *
+ * Fetching an instruction does not come through here: the processor reads its code another way,
+ * and that is what +pc+ counts. A copy the console's copy engine makes does, since it moves words
+ * through the same functions. A load or store of several registers at once is counted a word each.
+ *
+ * The wrapped functions are told only the processor, so the tally they add to is kept per thread,
+ * the same way a watched core is (see GEMBA_PER_THREAD). */
+enum { TOUCH_EWRAM = 0, TOUCH_IWRAM, TOUCH_REGIONS };
+
+/* One count a word: a byte or half read counts against the word it is part of. */
+#define TOUCH_GRAIN 4
+
+struct touch_tally {
+    uint32_t *count[TOUCH_REGIONS];
+    size_t    slots[TOUCH_REGIONS];
+    struct ARMMemory wrapped; /* the functions the wrappers hand on to */
+};
+
+static GEMBA_PER_THREAD struct touch_tally *s_touching = NULL;
+
+static const uint32_t TOUCH_BASE[TOUCH_REGIONS] = { BASE_WORKING_RAM, BASE_WORKING_IRAM };
+
+static inline void
+touch_word(uint32_t address)
+{
+    struct touch_tally *t = s_touching;
+    int region;
+    uint32_t offset;
+    switch (address >> BASE_OFFSET) {
+    case 0x2: region = TOUCH_EWRAM; offset = address & (SIZE_WORKING_RAM - 1);  break;
+    case 0x3: region = TOUCH_IWRAM; offset = address & (SIZE_WORKING_IRAM - 1); break;
+    default: return;
+    }
+    t->count[region][offset / TOUCH_GRAIN]++;
+}
+
+/* Each register a load or store of several moves is a word of its own, one after another up from
+ * the lowest. Where that lowest word is depends on which way the instruction walks from its base,
+ * and whether it steps before or after each word. */
+static void
+touch_words(uint32_t base, int mask, enum LSMDirection direction)
+{
+    int words = __builtin_popcount((unsigned)mask & 0xFFFF);
+    uint32_t span = (uint32_t)(words * 4);
+    uint32_t lowest;
+    switch (direction) {
+    case LSM_IA: lowest = base;            break;
+    case LSM_IB: lowest = base + 4;        break;
+    case LSM_DA: lowest = base - span + 4; break;
+    default:     lowest = base - span;     break; /* LSM_DB */
+    }
+    for (int i = 0; i < words; ++i)
+        touch_word(lowest + (uint32_t)(i * 4));
+}
+
+static uint32_t
+touch_load32(struct ARMCore *cpu, uint32_t address, int *cycles)
+{
+    touch_word(address);
+    return s_touching->wrapped.load32(cpu, address, cycles);
+}
+
+static uint32_t
+touch_load16(struct ARMCore *cpu, uint32_t address, int *cycles)
+{
+    touch_word(address);
+    return s_touching->wrapped.load16(cpu, address, cycles);
+}
+
+static uint32_t
+touch_load8(struct ARMCore *cpu, uint32_t address, int *cycles)
+{
+    touch_word(address);
+    return s_touching->wrapped.load8(cpu, address, cycles);
+}
+
+static void
+touch_store32(struct ARMCore *cpu, uint32_t address, int32_t value, int *cycles)
+{
+    touch_word(address);
+    s_touching->wrapped.store32(cpu, address, value, cycles);
+}
+
+static void
+touch_store16(struct ARMCore *cpu, uint32_t address, int16_t value, int *cycles)
+{
+    touch_word(address);
+    s_touching->wrapped.store16(cpu, address, value, cycles);
+}
+
+static void
+touch_store8(struct ARMCore *cpu, uint32_t address, int8_t value, int *cycles)
+{
+    touch_word(address);
+    s_touching->wrapped.store8(cpu, address, value, cycles);
+}
+
+static uint32_t
+touch_load_multiple(struct ARMCore *cpu, uint32_t base, int mask, enum LSMDirection direction, int *cycles)
+{
+    touch_words(base, mask, direction);
+    return s_touching->wrapped.loadMultiple(cpu, base, mask, direction, cycles);
+}
+
+static uint32_t
+touch_store_multiple(struct ARMCore *cpu, uint32_t base, int mask, enum LSMDirection direction, int *cycles)
+{
+    touch_words(base, mask, direction);
+    return s_touching->wrapped.storeMultiple(cpu, base, mask, direction, cycles);
+}
+
+static void
+touch_tally_free(struct touch_tally *t)
+{
+    for (int r = 0; r < TOUCH_REGIONS; ++r) {
+        free(t->count[r]);
+        t->count[r] = NULL;
+    }
+}
+
+static int
+touch_tally_init(struct touch_tally *t)
+{
+    memset(t, 0, sizeof(*t));
+    size_t bytes[TOUCH_REGIONS] = { SIZE_WORKING_RAM, SIZE_WORKING_IRAM };
+    for (int r = 0; r < TOUCH_REGIONS; ++r) {
+        t->slots[r] = bytes[r] / TOUCH_GRAIN;
+        t->count[r] = calloc(t->slots[r], sizeof(uint32_t));
+        if (!t->count[r]) {
+            touch_tally_free(t);
+            return 0;
+        }
+    }
+    return 1;
+}
+
+/* Put the wrappers in front of the processor's own functions, and take them away again. */
+static void
+touch_wrap(struct touch_tally *t, struct ARMCore *cpu)
+{
+    t->wrapped = cpu->memory;
+    cpu->memory.load32 = touch_load32;
+    cpu->memory.load16 = touch_load16;
+    cpu->memory.load8 = touch_load8;
+    cpu->memory.store32 = touch_store32;
+    cpu->memory.store16 = touch_store16;
+    cpu->memory.store8 = touch_store8;
+    cpu->memory.loadMultiple = touch_load_multiple;
+    cpu->memory.storeMultiple = touch_store_multiple;
+    s_touching = t;
+}
+
+static void
+touch_unwrap(struct touch_tally *t, struct ARMCore *cpu)
+{
+    cpu->memory.load32 = t->wrapped.load32;
+    cpu->memory.load16 = t->wrapped.load16;
+    cpu->memory.load8 = t->wrapped.load8;
+    cpu->memory.store32 = t->wrapped.store32;
+    cpu->memory.store16 = t->wrapped.store16;
+    cpu->memory.store8 = t->wrapped.store8;
+    cpu->memory.loadMultiple = t->wrapped.loadMultiple;
+    cpu->memory.storeMultiple = t->wrapped.storeMultiple;
+    s_touching = NULL;
+}
+
+/* The words touched at all, as address => times. */
+static VALUE
+touch_tally_hash(const struct touch_tally *t)
+{
+    VALUE out = rb_hash_new();
+    for (int r = 0; r < TOUCH_REGIONS; ++r) {
+        for (size_t slot = 0; slot < t->slots[r]; ++slot) {
+            if (t->count[r][slot] == 0)
+                continue;
+            rb_hash_aset(out, UINT2NUM(TOUCH_BASE[r] + (uint32_t)(slot * TOUCH_GRAIN)), UINT2NUM(t->count[r][slot]));
+        }
+    }
+    return out;
+}
+
 /* Core#profile(frames, keys) — run that many frames and report where the CPU
  * was. Returns a Hash:
  *
@@ -3055,6 +3244,7 @@ pc_region_into(VALUE out, VALUE cycles_out, const struct pc_tally *t, int region
  *   :cycles    { address => cycles it took }, a copy it started included
  *   :late      for each pass that went to sleep inside a break that began while it
  *              ran, how many lines sooner it had to end to make that break
+ *   :touches   { word address => reads and writes } in the two working memories
  *
  * The caller decides what has settled and what to hold: run it after stepping
  * past the boot frames, with whatever keys the measured behaviour needs.
@@ -3071,9 +3261,15 @@ mgba_core_profile(VALUE self, VALUE rb_frames, VALUE rb_keys)
         rb_raise(rb_eArgError, "frames must be positive, got %ld", frames);
 
     struct mCore *core = mc->core;
+    struct ARMCore *cpu = ((struct GBA *)core->board)->cpu;
     struct pc_tally tally;
+    struct touch_tally touched;
     if (!pc_tally_init(&tally, core->romSize(core)))
         rb_raise(rb_eNoMemError, "could not allocate the profile tally");
+    if (!touch_tally_init(&touched)) {
+        pc_tally_free(&tally);
+        rb_raise(rb_eNoMemError, "could not allocate the profile tally");
+    }
 
     if (!NIL_P(rb_keys))
         core->setKeys(core, (uint32_t)NUM2UINT(rb_keys));
@@ -3082,8 +3278,10 @@ mgba_core_profile(VALUE self, VALUE rb_frames, VALUE rb_keys)
      * read the break as having begun under the game's first step. */
     tally.last_line = ((struct GBA *)core->board)->video.vcount;
 
+    touch_wrap(&touched, cpu);
     for (long f = 0; f < frames; ++f)
         profile_one_frame(mc, &tally);
+    touch_unwrap(&touched, cpu);
 
     VALUE out = rb_hash_new();
     rb_hash_aset(out, ID2SYM(rb_intern("frames")),    LONG2NUM(frames));
@@ -3103,8 +3301,10 @@ mgba_core_profile(VALUE self, VALUE rb_frames, VALUE rb_keys)
     for (size_t i = 0; i < tally.late_count; ++i)
         rb_ary_push(late, INT2NUM(tally.late[i]));
     rb_hash_aset(out, ID2SYM(rb_intern("late")), late);
+    rb_hash_aset(out, ID2SYM(rb_intern("touches")), touch_tally_hash(&touched));
 
     pc_tally_free(&tally);
+    touch_tally_free(&touched);
     return out;
 }
 

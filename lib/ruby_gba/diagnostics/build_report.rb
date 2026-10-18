@@ -361,16 +361,33 @@ module RubyGBA
       # A list the build made up is said as what the author declared — a pool, a save_data
       # record, a canvas — with the bytes of all of that one's lists added up: a pool is a
       # list a field and several of its own, and the author wrote none of those lists' names.
+      #
+      # A MEASURED BUILD SAYS HOW OFTEN A FRAME TOUCHED EACH, at most, in any one scene. For a
+      # collection the build moved, that is what it was weighed by against the code that took its
+      # place; one the author moved with `fast: false` is said the same way.
       def roomy_memory_lines(roomy, printer)
         return if roomy.nil? || roomy.used.zero?
 
         printer.puts format("  the roomy memory (a read there waits ~%dx longer): %s of %s used, %s free",
                             ROOMY_MEMORY_SLOWDOWN, kilobytes(roomy.used), kilobytes(roomy.total), kilobytes(roomy.free))
-        moved = roomy.collections.each_with_object(Hash.new(0)) do |(name, bytes), by_words|
-          by_words[Messages::MadeNames.collection_words(name)] += bytes
+        bytes = Hash.new(0)
+        touches = Hash.new(0)
+        roomy.collections.each do |name, size|
+          words = Messages::MadeNames.collection_words(name)
+          bytes[words] += size
+          touches[words] += roomy.touches.fetch(name, 0) if roomy.touches # a pool's columns, added up
         end
-        moved.each { |words, bytes| printer.puts format("    %8s  %s", kilobytes(bytes), words) }
+        bytes.each do |words, size|
+          measured = roomy.touches ? ", read or written #{times_in_words(touches[words])} a frame" : ""
+          printer.puts format("    %8s  %s%s", kilobytes(size), words, measured)
+        end
+        return unless roomy.touches
+
+        printer.puts "    the build moved a collection when the code kept in its place saves more time. In the quick " \
+                     "memory, one read of a whole number saves about as much time as four instructions of code."
       end
+
+      def times_in_words(count) = count == 1 ? "1 time" : "#{count} times"
 
       # WHICH SAVE MEMORY THE CARTRIDGE HAS, and what takes it. The build picks 32K, or 64K or
       # 128K of flash, from the save_data records unless the game named a size, and nothing in
