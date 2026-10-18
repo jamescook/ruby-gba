@@ -260,6 +260,7 @@ module RubyGBA
     found = StringIO.new
     warn_of_slow_scenes(survey, found)
     warn_of_collections_that_fill(survey, found)
+    warn_of_late_hand_overs(survey, found)
     begin
       built.call(profile: Diagnostics::RoutineProfile.from_survey(survey, game: title), progress: progress)
     ensure
@@ -343,6 +344,14 @@ module RubyGBA
         do less work for each item.
       MSG
     end
+  end
+
+  # A SCENE THAT RUNS LATE ON THE FRAME THE GAME HANDS OVER TO IT is said at build time too,
+  # measured like the two above (see Diagnostics::HandOvers): the build handed over to each
+  # scene once and read whether that frame finished. It is the one late frame no frame rate
+  # shows, since every frame after it fits.
+  def self.warn_of_late_hand_overs(survey, err)
+    survey.late_hand_overs.each { |late| err.puts("\n#{Diagnostics::HandOvers.message(late)}") }
   end
 
   # A PROFILE THAT HAS DRIFTED FROM ITS GAME still decides what goes in the quick memory, and

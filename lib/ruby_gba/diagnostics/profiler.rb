@@ -91,11 +91,12 @@ module RubyGBA
       # whose rate halves for one line of work says why here and nowhere else.
       Result = Data.define(:frames, :samples, :fps, :idle_share, :lines, :unattributed, :keys,
                            :reached, :tearing, :flicker, :tick_rates, :sound_drops, :video_copies,
-                           :late_passes, :split_hints, :list_touches) do
+                           :late_passes, :split_hints, :list_touches, :late_hand_overs) do
         # +split_hints+ are the parts of routines that missed the quick memory worth making a
         # `func` of (see SplitHints), busiest first. +list_touches+ is how many times the run read
-        # or wrote each list, by its name.
-        def initialize(split_hints: [], list_touches: {}, **rest) = super
+        # or wrote each list, by its name. +late_hand_overs+ are the scenes that run late on the
+        # frame the game hands over to them (see HandOvers).
+        def initialize(split_hints: [], list_touches: {}, late_hand_overs: [], **rest) = super
 
         def dropping_frames? = fps < 59.5
 
@@ -108,6 +109,7 @@ module RubyGBA
           { frames: frames, samples: samples, fps: fps, idle_share: idle_share,
             keys: keys.map(&:to_s), unattributed: unattributed, reached: reached.to_h,
             late_passes: late_passes,
+            late_hand_overs: late_hand_overs.map { |late| { scene: late.scene.to_s, loads_first: late.loads_first } },
             split_hints: split_hints.map { |hint| hint.to_h.merge(routine: hint.routine.to_s) },
             tearing: tearing && { looked: tearing.looked, torn: tearing.torn, worst: tearing.worst },
             flicker: flicker&.measured? ? { pixels: flicker.pixels, first: flicker.first } : nil,
@@ -134,7 +136,8 @@ module RubyGBA
       # went — whether the game tore, and whether it is losing half its drawing. Exactly one of
       # those two applies to any game (see {Flicker}), and both cost a bus read per pixel, which
       # is the dearest thing here by a wide margin. The run the BUILD makes of itself to choose
-      # what goes in the quick memory wants the routine counts and nothing else, so it says no.
+      # what goes in the quick memory wants the routine counts and nothing else, so it says no —
+      # and to the hand-over of each scene as well (see HandOvers), which it asks once itself.
       # +holding+ is words written before every frame, [address, value], to hold the game in a
       # state it reaches only in play (see FullCollections). nil starts the game from power-on;
       # a list, even an empty one, starts it the way a held game is started, so two held runs
@@ -183,7 +186,8 @@ module RubyGBA
         build_result(profile, routines, held, reached, tearing, flicker,
                      tick_rates_in(profile, rom.built.timer_handlers), lost,
                      video_copies_in(profile, rom.built.video_copies, loaded_sets))
-          .with(split_hints: SplitHints.of(profile, rom), list_touches: touches_by_list(profile.touches, rom.built.lists))
+          .with(split_hints: SplitHints.of(profile, rom), list_touches: touches_by_list(profile.touches, rom.built.lists),
+                late_hand_overs: picture ? HandOvers.late(rom, keys: held) : [])
       end
 
       # WHICH SCENES' OWN ROUTINES WERE IN THE QUICK MEMORY, in a game that swaps them as a scene
@@ -490,16 +494,19 @@ module RubyGBA
         growths = scenes.filter_map do |name, writes|
           growth_in(rom, name, writes, measured[name], collections, frames: frames, keys: keys)
         end
-        Survey.new(work: sum_work_across_scenes(measured.values), scenes: measured, growths: growths)
+        Survey.new(work: sum_work_across_scenes(measured.values), scenes: measured, growths: growths,
+                   late_hand_overs: HandOvers.late(rom, keys: keys))
       end
 
       # WHAT A WHOLE GAME MEASURED, scene by scene. +work+ is what the placement is decided
       # from; +scenes+ is each scene's own reading, kept because the build warns from it — a
       # game that misses 60 frames a second is worth saying so at build time, and the build has
       # just run it, so that costs nothing extra. +growths+ are the scenes that keep up as the
-      # game stands and would not with its collections full (see #growth_in).
-      Survey = Data.define(:work, :scenes, :growths) do
-        def initialize(work:, scenes:, growths: [])
+      # game stands and would not with its collections full (see #growth_in), and
+      # +late_hand_overs+ the scenes that run late on the frame the game hands over to them
+      # (see HandOvers).
+      Survey = Data.define(:work, :scenes, :growths, :late_hand_overs) do
+        def initialize(work:, scenes:, growths: [], late_hand_overs: [])
           super
         end
 
@@ -661,6 +668,7 @@ module RubyGBA
         printer.puts("  #{result.fps} frames a second#{frame_drop_suffix(result)}")
         printer.puts("  #{(result.idle_share * 100).round(1)}% of each frame spare")
         late_pass_line(result.late_passes, printer)
+        result.late_hand_overs.each { |late| printer.puts("  #{HandOvers.message(late)}") }
         tearing_line(result.tearing, printer)
         flicker_line(result.flicker, printer)
         tick_rate_lines(result.tick_rates, printer)
