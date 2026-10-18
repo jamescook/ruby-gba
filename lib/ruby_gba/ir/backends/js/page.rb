@@ -8,7 +8,8 @@ module RubyGBA
     module Backends
       class JS
         # THE PAGE A GAME PLAYS IN: one HTML file holding the game and its runtime, with nothing
-        # to fetch, so it opens from a disk as well as from a server. The picture is a <canvas> the
+        # to fetch unless its data was built separate (JS#build_page), so it opens from a disk as
+        # well as from a server. The picture is a <canvas> the
         # size of the console's screen, enlarged without smoothing so a pixel stays a square; the
         # keyboard and any controller are the gamepad (runtime/rg_page.js says which is which).
         #

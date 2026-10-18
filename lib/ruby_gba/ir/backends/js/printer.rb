@@ -39,6 +39,9 @@ module RubyGBA
           # The most numbers a table is written out as; a bigger one is written as base64.
           MOST_WRITTEN_AS_NUMBERS = 256
 
+          # How many bytes of a data file's fingerprint it starts with (see #data_file).
+          DATA_STAMP_BYTES = 8
+
           # How each array's numbers are packed into bytes: little-endian, the width the array holds.
           PACKING = Ractor.make_shareable({ "Int8Array" => "c*", "Uint8Array" => "C*", "Int16Array" => "s<*",
                                             "Uint16Array" => "S<*", "Int32Array" => "l<*" })
@@ -84,8 +87,6 @@ module RubyGBA
 
             stamp + @payload
           end
-
-          DATA_STAMP_BYTES = 8
 
           private
 
@@ -182,20 +183,24 @@ module RubyGBA
           # person can scroll. Base64 holds no backtick and no `${`, so nothing in it is read as
           # anything but text.
           def print_table_as_base64(name, type, values)
-            values.each { |value| integer(value) } # refuses one that is not a 32-bit whole number
-            bytes = values.pack(PACKING.fetch(type))
             line(0, "const #{name} = rg_table_from_base64(#{type}, `")
-            [bytes].pack("m76").each_line { |row| @out << row }
+            [packed_bytes(type, values)].pack("m76").each_line { |row| @out << row }
             line(0, "`);")
           end
 
           # A table whose bytes are in the data file: empty until rg_data_fill puts them in, which is
           # before anything reads it, since no frame is played until the data is in.
           def print_table_in_data_file(name, type, values)
-            values.each { |value| integer(value) } # refuses one that is not a 32-bit whole number
             @fills << "#{name} = rg_table_from_bytes(#{type}, bytes, #{@payload.bytesize + DATA_STAMP_BYTES}, #{values.size});"
-            @payload << values.pack(PACKING.fetch(type))
+            @payload << packed_bytes(type, values)
             line(0, "let #{name} = null;")
+          end
+
+          # +values+ as the bytes of an array of +type+, little-endian; a value that is not a 32-bit
+          # whole number is refused, as it is anywhere else in the file (#integer).
+          def packed_bytes(type, values)
+            values.each { |value| integer(value) }
+            values.pack(PACKING.fetch(type))
           end
 
           def print_data_fill

@@ -104,6 +104,7 @@ module RubyGBA
                   desc: "With --format=web, where the game's big tables go: inline (in the one file, which opens " \
                         "from a disk) or separate (a .data file beside it, fetched when the game starts; serve it)"
     def build(game_file)
+      refuse_web_options_out_of_place!
       case options[:format]
       when "game" then build_cartridge(game_file)
       when "ir" then build_ir(game_file)
@@ -389,6 +390,22 @@ module RubyGBA
       say "Built #{path}"
     rescue RubyGBA::IR::Backends::Native::LoweringError, RubyGBA::IR::Backends::Native::Zig::Error => e
       raise Thor::Error, e.message
+    end
+
+    # An option for the web build given where it does nothing — on another format, or beside an
+    # output it is not for — is refused, so nobody thinks it did something.
+    def refuse_web_options_out_of_place!
+      given = { js: options[:js] != "page", data: options[:data] != "inline", template: options[:template],
+                global: options[:global] }.select { |_, said| said }.keys
+      if options[:format] != "web" && !given.empty?
+        raise Thor::Error, "--#{given.first} works only with --format=web. Add --format=web, or remove --#{given.first}."
+      end
+      if options[:global] && options[:js] != "script"
+        raise Thor::Error, "--global works only with --js=script. Add --js=script, or remove --global."
+      end
+      return unless options[:template] && options[:js] != "page"
+
+      raise Thor::Error, "--template works only with the page (--js=page). Remove --js, or remove --template."
     end
 
     # What --js names, and the ending of the file each is written to.

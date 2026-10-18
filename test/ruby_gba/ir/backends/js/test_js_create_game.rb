@@ -146,6 +146,76 @@ class TestJSCreateGame < Minitest::Test
     assert_match(/cannot read the data.*address, or its bytes/, told)
   end
 
+  # A host's own key layout takes the place of the window's: D is right here, and the arrows are
+  # nothing.
+  def test_a_host_can_lay_the_keys_out_its_own_way
+    html = page_of(walking_game, %w[one], "window.games = [createGame({ canvas: #{canvas('one')}, keyMap: { KeyD: \"right\" } })];")
+    by_d = pictures_in(played_page(["down KeyD", "play 10", "picture one"], html: html)).first
+    by_arrow = pictures_in(played_page(["down ArrowRight", "play 10", "picture one"], html: html)).first
+
+    assert_same_picture walked_right, by_d, "with D held as right"
+    assert_same_picture stood_still, by_arrow, "with the arrow held, which this layout leaves out"
+  end
+
+  # Keys heard on one element (a canvas given tabindex) are not heard on the rest of the page, so
+  # two games on one page each hear only their own.
+  def test_a_host_can_hear_keys_on_one_element_only
+    html = page_of(walking_game, %w[one], "window.games = [createGame({ canvas: #{canvas('one')}, keyTarget: #{canvas('one')} })];")
+    lines = played_page(["down ArrowRight", "play 10", "picture one", "state"], html: html)
+
+    assert_same_picture stood_still, pictures_in(lines).first, "with right pressed elsewhere on the page"
+    assert_includes lines, "state audio=none fullscreen=none kept=0"
+  end
+
+  # Turned off, the F key, controllers and sound are each left alone.
+  def test_a_host_can_turn_off_the_f_key_controllers_and_sound
+    html = page_of(walking_game, %w[one], <<~JS)
+      window.said = [];
+      window.games = [createGame({ canvas: #{canvas('one')}, fullscreenKey: null, gamepads: false, audio: false,
+                                   onMessage: (kind, text) => said.push(kind) })];
+    JS
+    lines = played_page(["pad connect", "pad press 15", "down KeyF", "play 10", "picture one", "state", 'js said.join(",")'],
+                        html: html)
+
+    assert_same_picture stood_still, pictures_in(lines).first, "with the controller's right held and controllers off"
+    assert_includes lines, "state audio=none fullscreen=none kept=0"
+    refute_includes lines.grep(/\Ajs /).first.to_s, "controller"
+  end
+
+  # A game made with autostart false plays nothing until start, and then plays from its first
+  # frame; ready settles once it can play.
+  def test_a_host_can_start_the_game_when_it_chooses
+    html = page_of(ticking_game, %w[one], <<~JS)
+      window.games = [createGame({ canvas: #{canvas('one')}, autostart: false })];
+      games[0].ready.then(() => { window.isReady = true; });
+    JS
+    lines = played_page(["play 5", "js games[0].start()", "play 4", "picture one", "js isReady"], html: html)
+    four = pictures_in(played_page(["play 4", "picture"], ticking_game)).first
+
+    assert_same_picture four, pictures_in(lines).first, "four frames after start, with five before it"
+    assert_includes lines, "js true"
+  end
+
+  # The save is kept under the name the host gives, in place of the game's.
+  def test_a_host_can_name_the_save
+    game = RubyGBA.game "SAVER" do
+      screen :bitmap
+      count = save_var :count, 0
+      count.add! 1
+      halt
+    end
+    html = page_of(game, %w[one], <<~JS)
+      window.kept = [];
+      const storage = { getItem: () => null, setItem: (key) => kept.push(key) };
+      window.games = [createGame({ canvas: #{canvas('one')}, storage, saveKey: "my-own-slot" })];
+    JS
+
+    assert_includes played_page(["play 3", 'js kept.join(",")'], html: html), "js my-own-slot"
+  end
+
+  private def walked_right = pictures_in(played_page(["down ArrowRight", "play 10", "picture"])).first
+  private def stood_still = pictures_in(played_page(["play 10", "picture"])).first
+
   # The save goes where the host says, under the game's name unless the host names it.
   def test_the_save_goes_where_the_host_keeps_it
     game = RubyGBA.game "SAVER" do

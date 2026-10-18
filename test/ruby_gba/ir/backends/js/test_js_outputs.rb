@@ -11,7 +11,7 @@ class TestJSOutputs < Minitest::Test
   include WebPage
   JS = RubyGBA::IR::Backends::JS
 
-  # The file +build+ writes for the walking game, read back.
+  # The file called +name+ that the block writes (handed its path, in a folder of its own), read back.
   private def built(name)
     Dir.mktmpdir do |dir|
       path = File.join(dir, name)

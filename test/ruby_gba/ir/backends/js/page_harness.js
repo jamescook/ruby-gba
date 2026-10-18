@@ -3,8 +3,9 @@
  * stand-in for each part of the browser it uses: a canvas that keeps the last picture put on it
  * and can fill the screen, a window that hands out key presses, focus and the browser's frame
  * callbacks, a document that can be hidden behind another tab, a sound device that can be paused,
- * and storage that keeps the save. test_js_page.rb drives it, so what runs is the page's own
- * driver and not the windowless one. Of the page's parts the script looks for by id, only those
+ * and storage that keeps the save, a server for the files beside the page, and the global scope a
+ * classic script or a module finds all that on. The WebPage test helper (test/web_page.rb) drives
+ * it, so what runs is the page's own driver and not the windowless one. Of the page's parts the script looks for by id, only those
  * the page's HTML has are there to find — and, as in a browser, which reads a page from the top
  * and runs a script where it meets it, only those above the script while the script first runs.
  * The rest are there once the page has loaded, which the document then says (DOMContentLoaded).
@@ -246,31 +247,32 @@ async function main() {
   steps();
 }
 
+/* Every step read from the input, in order, and then what was printed. */
 function steps() {
-const printed = [];
-for (const line of fs.readFileSync(0, "utf8").split("\n")) {
-  const [step, what, ...rest] = line.trim().split(" ");
-  if (step === "down") key("keydown", what, rest[0]);
-  else if (step === "up") key("keyup", what);
-  else if (step === "pad") pad(what, ...rest);
-  else if (step === "blur") { focused = false; tell(page, "blur"); }
-  else if (step === "focus") { focused = true; tell(page, "focus"); }
-  else if (step === "hide") visible(false);
-  else if (step === "show") visible(true);
-  else if (step === "click") { tell(element(what), "click"); tell(page, "pointerdown"); }
-  else if (step === "check" || step === "uncheck") { element(what).checked = step === "check"; tell(element(what), "change"); }
-  else if (step === "play") play(Number(what));
-  else if (step === "picture") printed.push(`picture ${picture(what)}`);
-  else if (step === "js") {
-    const result = vm.runInThisContext(line.trim().slice(3));
-    if (result !== undefined) printed.push(`js ${result}`);
+  const printed = [];
+  for (const line of fs.readFileSync(0, "utf8").split("\n")) {
+    const [step, what, ...rest] = line.trim().split(" ");
+    if (step === "down") key("keydown", what, rest[0]);
+    else if (step === "up") key("keyup", what);
+    else if (step === "pad") pad(what, ...rest);
+    else if (step === "blur") { focused = false; tell(page, "blur"); }
+    else if (step === "focus") { focused = true; tell(page, "focus"); }
+    else if (step === "hide") visible(false);
+    else if (step === "show") visible(true);
+    else if (step === "click") { tell(element(what), "click"); tell(page, "pointerdown"); }
+    else if (step === "check" || step === "uncheck") { element(what).checked = step === "check"; tell(element(what), "change"); }
+    else if (step === "play") play(Number(what));
+    else if (step === "picture") printed.push(`picture ${picture(what)}`);
+    else if (step === "js") {
+      const result = vm.runInThisContext(line.trim().slice(3));
+      if (result !== undefined) printed.push(`js ${result}`);
+    }
+    else if (step === "text") printed.push(text(what));
+    else if (step === "state") printed.push(state());
+    else if (step) throw new Error(`page_harness: no step called ${step}`);
   }
-  else if (step === "text") printed.push(text(what));
-  else if (step === "state") printed.push(state());
-  else if (step) throw new Error(`page_harness: no step called ${step}`);
-}
-if (ids.has("said") && !element("said").hidden) printed.push(`said ${element("said").textContent}`);
-fs.writeSync(1, `${printed.join("\n")}\n`);
+  if (ids.has("said") && !element("said").hidden) printed.push(`said ${element("said").textContent}`);
+  fs.writeSync(1, `${printed.join("\n")}\n`);
 }
 
 main().catch((error) => {

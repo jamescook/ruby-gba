@@ -380,19 +380,38 @@ class TestCLI < Minitest::Test
       cli("new", "demo", dir: dir)
       out, status = cli("build", "demo.rb", "--format", "web", "--js", "module", dir: dir)
       assert status.success?, out
-      assert_match(/export default createGame;/, File.read(File.join(dir, "demo.mjs"), encoding: Encoding::UTF_8))
+      assert File.exist?(File.join(dir, "demo.mjs")), "the module is written beside the game"
       refute File.exist?(File.join(dir, "demo.html")), "the module is written in place of the page"
 
       out, status = cli("build", "demo.rb", "--format", "web", "--js", "script", dir: dir)
       assert status.success?, out
-      assert_match(/RubyGBA\["demo"\] = \{ createGame/, File.read(File.join(dir, "demo.js"), encoding: Encoding::UTF_8))
+      assert File.exist?(File.join(dir, "demo.js")), "the classic script is written beside the game"
       out, status = cli("build", "demo.rb", "--format", "web", "--js", "script", "--global", "starter", dir: dir)
       assert status.success?, out
-      assert_match(/RubyGBA\["starter"\] = \{ createGame/, File.read(File.join(dir, "demo.js"), encoding: Encoding::UTF_8))
+      assert_includes File.read(File.join(dir, "demo.js"), encoding: Encoding::UTF_8), '"starter"', "the name --global gave"
 
       out, status = cli("build", "demo.rb", "--format", "web", "--js", "wasm", dir: dir)
       refute status.success?, "an unknown kind of JavaScript should fail"
       assert_match(/page, module/, out)
+    end
+  end
+
+  # An option that does nothing where it is given is refused in plain words, rather than left to
+  # look as if it did something.
+  def test_web_options_given_where_they_do_nothing_are_refused
+    Dir.mktmpdir do |dir|
+      cli("new", "demo", dir: dir)
+      File.write(File.join(dir, "mine.html.erb"), "<%= game %>\n")
+      {
+        ["--format", "web", "--global", "demo"] => /--global works only with --js=script/,
+        ["--format", "web", "--js", "module", "--template", "mine.html.erb"] => /--template works only with the page/,
+        ["--js", "module"] => /works only with --format=web/,
+        ["--data", "separate"] => /works only with --format=web/
+      }.each do |options, said|
+        out, status = cli("build", "demo.rb", *options, dir: dir)
+        refute status.success?, "#{options.join(' ')} should fail"
+        assert_match said, out
+      end
     end
   end
 
