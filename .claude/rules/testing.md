@@ -244,15 +244,16 @@ holds for it too, with `skip_on_js` for its own skip and `test/ruby_gba/ir/backe
 own folder. What it cannot answer raises `HeadlessRun::CannotAnswer` naming the call. The sound
 a speaker would make is compared with the cartridge's on the native run alone
 (`test/sound_comparison.rb`); the JavaScript runtime's voices are the native one's, function for
-function. Measured on 2026-10-16, a whole `rake test` took a little over eight
-minutes: 155 seconds for the GBA run and 333 for the native one.
+function. Measured on 2026-10-18, a whole `rake test` took about fifteen minutes: 177 seconds
+for the GBA run, 531 for the native one and 199 for the JavaScript one.
 
 **A test of one lowering's own output lives in that lowering's folder** and is played by its run
 alone: `test/ruby_gba/ir/backends/gba/` (the ARM it emits), `test/ruby_gba/diagnostics/` and
 `test/ruby_gba/playthroughs/` (a finished cartridge read back, or driven, in the emulator) for the
-GBA lowering, and `test/ruby_gba/ir/backends/native/` (the C it writes) for the native one. The
-list is `TestSuites::LOWERING_FOLDERS`, which the Rakefile and the tests both read. Anywhere else,
-a test is about the game, and plays on both.
+GBA lowering, `test/ruby_gba/ir/backends/native/` (the C it writes) for the native one, and
+`test/ruby_gba/ir/backends/js/` (the JavaScript it writes, and the page that plays it) for the
+JavaScript one. The list is `TestSuites::LOWERING_FOLDERS`, which the Rakefile and the tests both
+read. Anywhere else, a test is about the game, and plays on every lowering.
 
 **A test makes its player with `game_player`**, never `Reference.new`, when the question is what
 the game does:
