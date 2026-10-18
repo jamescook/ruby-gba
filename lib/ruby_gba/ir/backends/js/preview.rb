@@ -80,12 +80,16 @@ module RubyGBA
             Dir.mktmpdir("ruby-gba-preview") do |dir|
               path = File.join(dir, "game.html")
               said, status = Open3.capture2e(RbConfig.ruby, RubyGBA.root.join("bin", "ruby-gba").to_s, "build", @game_file,
-                                             "--format", "web", "-o", path, *@settings.flat_map { |set| ["--set", set] })
+                                             "--format", "web", "-o", path, *settings_arguments)
               built = status.success? && File.exist?(path)
               @out.puts(built ? "Built #{File.basename(@game_file)}" : "The build stopped:\n#{said}")
               built ? File.read(path, encoding: Encoding::UTF_8) : stopped_page(said)
             end
           end
+
+          # Every setting after one --set: the command line keeps only the last of several --set
+          # flags, so one flag a setting would hand the build only the last.
+          def settings_arguments = @settings.empty? ? [] : ["--set", *@settings]
 
           def stopped_page(said)
             <<~HTML

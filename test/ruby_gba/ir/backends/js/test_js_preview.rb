@@ -21,8 +21,8 @@ class TestJSPreview < Minitest::Test
   end
 
   # Serves +file+ for the length of the block, which is handed a way to fetch the page.
-  private def serving(file)
-    preview = Preview.new(file, port: 0, out: StringIO.new)
+  private def serving(file, settings: [])
+    preview = Preview.new(file, settings: settings, port: 0, out: StringIO.new)
     server = Thread.new { preview.serve }
     yield -> { Net::HTTP.get_response(URI(preview.url)) }
   ensure
@@ -41,6 +41,28 @@ class TestJSPreview < Minitest::Test
 
         File.write(file, game_source("SECOND", :red))
         assert_match(/<title>SECOND<\/title>/, fetch.call.body.force_encoding(Encoding::UTF_8))
+      end
+    end
+  end
+
+  # Every setting reaches the build, not only the last: the game below has no default for either,
+  # so a build missing one stops.
+  def test_every_setting_reaches_the_build
+    Dir.mktmpdir do |dir|
+      file = File.join(dir, "game.rb")
+      File.write(file, <<~RUBY)
+        RubyGBA.game "SETTINGS" do
+          screen :bitmap
+          setting :first
+          setting :second
+          game_loop { clear_screen :black }
+        end
+      RUBY
+      serving(file, settings: %w[first=1 second=2]) do |fetch|
+        page = fetch.call.body.force_encoding(Encoding::UTF_8)
+
+        refute_match(/did not build/, page)
+        assert_match(/<title>SETTINGS<\/title>/, page)
       end
     end
   end
