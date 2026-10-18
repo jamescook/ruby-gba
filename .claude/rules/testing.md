@@ -88,7 +88,7 @@ moment a file moves.
 require "test_helper"
 
 class TestThing < Minitest::Test
-  def test_it_does_the_thing   # played on both lowerings (see "Two lowerings" below)
+  def test_it_does_the_thing   # played on every lowering (see "Three lowerings" below)
     ...
   end
 end
@@ -110,7 +110,7 @@ Narrower helpers stay **opt-in**, so their names appear only where used:
 `include Differential`, `include CostArith`, `include RubyGBA::IR::Build`.
 
 Running them. **The suite is `rake test`** — every lowering's run, one after the other (see
-"Two lowerings" below). `TEST=` names one file, `TESTOPTS=` one test:
+"Three lowerings" below). `TEST=` names one file, `TESTOPTS=` one test:
 
 ```bash
 rake test                                                       # the suite, on every lowering
@@ -118,6 +118,7 @@ rake test TEST=test/ruby_gba/dsl/test_thing.rb                  # one file, on e
 rake test TEST=test/ruby_gba/dsl/test_thing.rb TESTOPTS="--name=/pattern/"  # one test; -n /pat/ trips shell quoting
 rake test:lowering:gba                                          # the GBA lowering's run alone (TEST= too)
 rake test:lowering:native                                       # the native lowering's run alone (TEST= too)
+rake test:lowering:js                                           # the JavaScript lowering's run alone (TEST= too)
 rake test:playthroughs                                          # one module: every test in test/ruby_gba/playthroughs/
 bundle exec ruby -Itest test/ruby_gba/dsl/test_thing.rb         # one file, no rake (plain minitest)
 ```
@@ -126,14 +127,15 @@ bundle exec ruby -Itest test/ruby_gba/dsl/test_thing.rb         # one file, no r
 
 | what changed | what to run |
 |---|---|
-| the native lowering's own code: the C it writes, its runtime | `rake test:lowering:native` |
+| the native lowering's C runtime | `rake test:lowering:native` |
+| the JavaScript lowering's own code: its printer, its runtime | `rake test:lowering:js` |
+| the native lowering's statements (`Native::Lowering`, `Picture`, `Sound`, `Saving`), which the JavaScript lowering prints too | `rake test:lowering:native` and `rake test:lowering:js` |
 | the GBA lowering's own code: the ARM it emits | `rake test:lowering:gba` |
-| anything both lowerings read: the DSL, the IR, the interpreter, the build checks, the test helpers | `rake test` |
+| anything every lowering reads: the DSL, the IR, the interpreter, the build checks, the test helpers | `rake test` |
 
 Every lowering's run checks its output against the interpreter, so a change inside one lowering
-can break that lowering's run and no other. The interpreter is the answer key both are checked
-against, so a change to it is never narrow. A JS lowering would add `rake test:lowering:js` and
-one more run to `rake test`.
+can break that lowering's run and no other. The interpreter is the answer key all of them are
+checked against, so a change to it is never narrow.
 
 The last one needs `bundle exec`, because the runner is a gem.
 
@@ -223,14 +225,26 @@ pixels — see `test/ruby_gba/builder/test_blit_clipping.rb` (`assert_same_pixel
 and the two `*_at_the_left_edge` tests in
 `test/ruby_gba/dsl/test_sprite_mover.rb` as the worked examples.
 
-## Two lowerings
+## Three lowerings
 
-**Every test plays on both lowerings, with nothing written to say so.** `rake test` plays the
+**Every test plays on every lowering, with nothing written to say so.** `rake test` plays the
 suite once for each (`test/support/suites.rb`): the GBA lowering's run — the interpreter, with the
-cartridge checked in the emulator — and then the native lowering's — the game built as C
-(`Backends::Native`), checked against the interpreter on every frame. A test that does not pass
-on both fails the run, so a new feature is not done until both lowerings have it. It needs zig
-0.17 as well as the emulator. Measured on 2026-10-16, a whole `rake test` took a little over eight
+cartridge checked in the emulator — then the native lowering's — the game built as C
+(`Backends::Native`), checked against the interpreter on every frame — and then the JavaScript
+lowering's — the game built as JavaScript (`Backends::JS`) and played by node, checked the same
+way. A test that does not pass on all three fails the run, so a new feature is not done until
+every lowering has it. It needs zig 0.17 and node 18 or later as well as the emulator.
+
+**The JavaScript run is the native run's twin.** Its game is the native lowering's statements
+printed as JavaScript, its windowless program prints what the native one prints, and its player
+(`JSCheckedPlayer`, `JS::CheckedRun`) is the native checked run with that program swapped in —
+so everything said below about the native run (what `game_player` answers, what it compares on
+every frame, saves, step budgets, `each_vblank`, the process runner, the skips counted by reason)
+holds for it too, with `skip_on_js` for its own skip and `test/ruby_gba/ir/backends/js/` for its
+own folder. What it cannot answer raises `HeadlessRun::CannotAnswer` naming the call. The sound
+a speaker would make is compared with the cartridge's on the native run alone
+(`test/sound_comparison.rb`); the JavaScript runtime's voices are the native one's, function for
+function. Measured on 2026-10-16, a whole `rake test` took a little over eight
 minutes: 155 seconds for the GBA run and 333 for the native one.
 
 **A test of one lowering's own output lives in that lowering's folder** and is played by its run
@@ -312,7 +326,7 @@ only what this repository needs besides (the machine lock, the emulator build, c
 that is where how a native run is started lives (no Ractors, several processes, zig asked for
 first), handed to that run alone and never written into rake's own settings. A game that keeps
 its own `rake test` and groups makes its native twins out of the same class. The
-README's "Testing a game on both lowerings" is the game's side.
+README's "Testing a game on every lowering" is the game's side.
 `test/ruby_gba/testing/test_game_suite.rb` holds it: it runs the rake of a small game suite
 (`test/fixtures/game_suite/`) that has the library as a gem and nothing from this folder, on each
 lowering and both.

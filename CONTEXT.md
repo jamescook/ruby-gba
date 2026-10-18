@@ -106,13 +106,14 @@ _Avoid_: opcode, type, node type
 
 **Backend**:
 A consumer of a program, named for the platform it targets. `GBA` lowers to a cartridge;
-`Native` writes the game as C, built into a desktop program; `Reference` runs the program
-in Ruby.
+`Native` writes the game as C, built into a desktop program; `JS` writes it as JavaScript, for a
+web page; `Reference` runs the program in Ruby.
 _Avoid_: compiler, emitter, target (the CPU is not the target — the platform is)
 
 **Lowering**:
 Turning a program into code for one platform. Everything machine-specific lives here and
-never in the IR. There are two: the GBA lowering and the native lowering.
+never in the IR. There are three: the GBA lowering, the native lowering and the JavaScript
+lowering.
 _Avoid_: codegen, compiling, emitting
 
 **Reference interpreter**:

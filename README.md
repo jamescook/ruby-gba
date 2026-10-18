@@ -178,7 +178,20 @@ The game is written out as C and compiled with [zig](https://ziglang.org) (insta
 
 `rake test` plays every test's game as C as well as on the cartridge, replaying each game and comparing every frame's picture and sound with the interpreter, so a feature is not done until the C build has it too (`rake test:lowering:native` plays only that side).
 
-### Testing a game on both lowerings
+### Playing in a browser
+
+A game can also be built as one web page that plays it in a browser — the picture in a canvas, the window's keys as the console's buttons, the sound through the browser, and saves kept by the browser between visits. The page holds everything it needs, so it opens from a disk or any web server:
+
+```bash
+ruby-gba build examples/pong.rb --format=web   # pong.html, beside the game
+ruby-gba preview examples/pong.rb              # serve it; every reload builds it again from the file
+```
+
+`preview` is the quick loop while you work: edit the game, reload the page, and it plays as the file now says — no cartridge, no emulator. What it shows is the game as the framework understands it, so a mistake in the game's own logic shows there and a mistake only the console makes does not; check the cartridge too before shipping. A step only the console can run (raw instructions given with `entry`) cannot be built for the web, and the build names each such line. A game meant for both can hear that on every cartridge build as well, as a warning: `RubyGBA::IR::Guardrails.register(RubyGBA::IR::Guardrails::Checks::WebPortability.new)`.
+
+The page is the game written as JavaScript: the same statements the C build writes, played by a runtime that is the C build's written again, function for function. `rake test` plays every test's game that way too, under [node](https://nodejs.org), and compares every frame with the interpreter (`rake test:lowering:js` plays only that side).
+
+### Testing a game on every lowering
 
 A game's own tests can do the same, with the library's test helper. In the game's test helper (minitest is in the game's Gemfile):
 
@@ -217,9 +230,9 @@ def test_the_title_screen_draws_on_the_console
 end
 ```
 
-It builds the cartridge, plays it in the emulator with the same buttons held, and compares every one of the 38,400 pixels with the interpreter's picture at the matching moment. `frames:` takes a list too (`frames: [2, 4, 6]`, or `1..20` for every frame of the first twenty), and each is compared. A difference fails the test with how many pixels differ, the first few by place and colour, and a map of the screen marking where. `backend_pictures` hands back both pictures instead, for a difference that is known and not yet fixed. It needs the ruby-gba-emulator gem in the game's Gemfile (the block under "Status", below); without it the test stops and says what to add. On the native side there is no cartridge, so the same line checks the game as C against the interpreter on every frame instead.
+It builds the cartridge, plays it in the emulator with the same buttons held, and compares every one of the 38,400 pixels with the interpreter's picture at the matching moment. `frames:` takes a list too (`frames: [2, 4, 6]`, or `1..20` for every frame of the first twenty), and each is compared. A difference fails the test with how many pixels differ, the first few by place and colour, and a map of the screen marking where. `backend_pictures` hands back both pictures instead, for a difference that is known and not yet fixed. It needs the ruby-gba-emulator gem in the game's Gemfile (the block under "Status", below); without it the test stops and says what to add. On the native and JavaScript sides there is no cartridge, so the same line checks the game as C, or as JavaScript, against the interpreter on every frame instead.
 
-`rake test` then plays every test twice, one run after the other: on the interpreter, which is what the cartridge is checked against, and as C, where every frame of every game is compared with the interpreter and a difference fails that test, naming the frame. It ends with a line for each. `rake test:lowering:gba` and `rake test:lowering:native` play one side, and each takes `TEST=` for one file. The native side needs zig 0.17. It plays its tests in several processes rather than Ractors, since each test starts the program zig builds. A test that only one side can play goes in a folder that side owns (`t.lowering_folders = { native: ["test/native"] }`), and `skip_on_native "why"` skips one test on the native side, which counts its skips by reason at the end.
+`rake test` then plays every test three times, one run after the other: on the interpreter, which is what the cartridge is checked against; as C; and as JavaScript — where every frame of every game is compared with the interpreter and a difference fails that test, naming the frame. It ends with a line for each. `rake test:lowering:gba`, `rake test:lowering:native` and `rake test:lowering:js` play one side, and each takes `TEST=` for one file. The native side needs zig 0.17, and the JavaScript side node 18 or later. Both play their tests in several processes rather than Ractors, since each test starts a program. A test that only one side can play goes in a folder that side owns (`t.lowering_folders = { native: ["test/native"] }`), and `skip_on_native "why"` or `skip_on_js "why"` skips one test on that side, which counts its skips by reason at the end.
 
 A game whose Rakefile keeps its own `rake test`, or a task for each group of its tests, makes only the runs it wants, under its own names, with `RubyGBA::Testing::TestTask`. That is rake's own test task told which lowering it is for, and it defines nothing else:
 
@@ -298,9 +311,10 @@ A rough map of the GBA surface. Checked = working today; unchecked = planned (tr
 - [x] Effect packs — register your own DSL verbs (and their guardrails); four ship by default (screen shake, screen fade, follow camera, pulse)
 - [x] `rom.profile` — what the build made, and what it cost when it ran
 - [x] Playthroughs — play a cartridge from a script with nobody at the controls, record what was pressed as a tape, and compare two cartridges frame by frame to find where they drift
-- [x] IR + three backends (GBA lowering, reference interpreter in pure Ruby, C for a desktop program) with a conformance fixture + portability tagging
+- [x] IR + four backends (GBA lowering, reference interpreter in pure Ruby, C for a desktop program, JavaScript for a browser) with a conformance fixture + portability tagging
 - [x] A program for a computer — `--format=native`, for this Mac or built for Windows and Linux (see [Playing on a computer](#playing-on-a-computer))
-- [x] CLI — `ruby-gba build / profile / play / compare / inspect / new` (Thor): per-command help, typed options, friendly errors
+- [x] A page for a browser — `--format=web`, and `ruby-gba preview` to play a game in a tab that rebuilds on every reload (see [Playing in a browser](#playing-in-a-browser))
+- [x] CLI — `ruby-gba build / preview / profile / play / compare / inspect / new` (Thor): per-command help, typed options, friendly errors
 
 **Planned / Ideas**
 
@@ -433,6 +447,7 @@ lib/ruby_gba/
     backends/gba*            # lower IR -> ARM7 ROM (gba/asm.rb is the ARM encoder)
     backends/reference*      # interpret IR -> framebuffer (headless oracle)
     backends/native*         # write IR as C, built by zig into a desktop program
+    backends/js*             # the same statements as JavaScript, for a web page (and node, for tests)
   console/                   # the console's hardware: addresses, registers, flags
   cartridge/                 # cartridge bytes: ROM assembly, header, game code, validation
   diagnostics/               # reading a built or running cartridge back: Verifier, Profiler, BuildReport
@@ -444,7 +459,7 @@ assets/                      # captured GIFs / screenshots
 
 ## Status
 
-Pre-1.0. Full games work end-to-end on both bitmap and tiled screens — sprites (rotated and scaled), scrolling, bending and turning backgrounds, a named layer stack, screen effects and lights, four-channel and sampled sound, saves, and the asset pipeline are all in (see `examples/`). The C build for a computer plays on a Mac the examples it can build so far (`ruby tools/native_examples.rb` lists which, and why not the rest); the web and terminal backends are still planned. The current proving ground is a Wolfenstein 3D port ([ruby-wolf3d](https://github.com/jamescook/ruby-wolf3d)) — a real game in its own repository that depends on this one as a gem, which is what's surfacing most of the framework gaps that still need closing.
+Pre-1.0. Full games work end-to-end on both bitmap and tiled screens — sprites (rotated and scaled), scrolling, bending and turning backgrounds, a named layer stack, screen effects and lights, four-channel and sampled sound, saves, and the asset pipeline are all in (see `examples/`). The C build for a computer plays on a Mac the examples it can build so far (`ruby tools/native_examples.rb` lists which, and why not the rest); the browser build plays every example the C build does, and is checked against the interpreter the same way; the terminal backend is still planned. The current proving ground is a Wolfenstein 3D port ([ruby-wolf3d](https://github.com/jamescook/ruby-wolf3d)) — a real game in its own repository that depends on this one as a gem, which is what's surfacing most of the framework gaps that still need closing.
 
 Building and shipping a ROM is **pure Ruby** — no compiler, no C extension. Anything that reads what a ROM *actually did* runs it in an emulator through **`ruby-gba-emulator`**, a separate gem (in this repository, under `ruby-gba-emulator/`) binding libmgba, which needs a C compiler and libmgba to build. It is deliberately not a dependency of this gem, so somebody who only builds cartridges installs no compiler; add it to your Gemfile when you want to verify or profile one:
 

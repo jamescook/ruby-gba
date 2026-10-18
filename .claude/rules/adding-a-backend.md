@@ -6,10 +6,11 @@ paths:
 
 # Adding a backend
 
-How to add the next lowering (a JavaScript one for the browser is the likely one): what every
-backend has to do, where it plugs in, what it is checked against, and the traps. Written from
-what the native lowering (`Backends::Native`, the game as C) actually took. C-only decisions are
-in the comment atop `Backends::Native`, not here.
+How to add the next lowering (a terminal one is the likely one): what every backend has to do,
+where it plugs in, what it is checked against, and the traps. Written from what the native
+lowering (`Backends::Native`, the game as C) actually took, and checked against what the
+JavaScript one (`Backends::JS`) took after it. C-only decisions are in the comment atop
+`Backends::Native`, JavaScript-only ones atop `Backends::JS`, not here.
 
 ## What a backend is
 
@@ -18,12 +19,28 @@ guardrails) and either runs it or writes it out as something else that runs. It 
 IR does not say: the IR is target-neutral, and a backend never reaches back into the DSL or the
 builder.
 
-There are three today:
+There are four today:
 
 - `Backends::Reference` runs the tree in Ruby. **It is the answer key**: what a program means is
   what Reference does with it. It is named for that role, not for its language.
 - `Backends::GBA` lowers the tree to ARM and a cartridge.
 - `Backends::Native` writes the tree out as C, built by zig into a desktop program.
+- `Backends::JS` writes the tree out as JavaScript, for a web page, and for node in the tests.
+
+## Start from the native lowering's statements
+
+`Native::Lowering` does not write C text: it builds a small tree of statements (`Native::C`) —
+globals, routines, constant tables, and calls into a runtime — and only `Native::Printer` turns
+that into C. There is no operator anywhere in it (every number goes through a runtime function
+that does what `IR::Int32` does), so nothing in it is C's alone. The JavaScript lowering is that
+same tree printed by `JS::Printer`, and a runtime (`js/runtime/*.js`) that is the native one's C
+written again, function for function: `JS::Lowering < Native::Lowering`. Everything that decides
+what a program says — which art is worked out in Ruby, which kinds are not lowered yet — is then
+said once, and the two lowerings can only differ in how a runtime does a thing, which the checked
+run finds.
+
+A new lowering for a machine that can run a runtime of that shape should start there too, and
+only write a lowering of its own when the tree cannot say what its machine needs.
 
 A new backend is named for the platform it targets (`JS`, not `Canvas` or `V8`), lives in
 `lib/ruby_gba/ir/backends/<name>.rb` beside a folder of the same name, and is required from
@@ -100,28 +117,38 @@ Each of these is what Reference does; check the line before relying on it.
 - **A frame can end anywhere.** `wait_vblank` may sit deep inside a routine, in a loop, in a
   scene called from a scene: the runtime has to take a frame from the middle of a call and come
   back to it (Reference's `advance_frame` runs synchronously inside `exec_wait_vblank`; Native's
-  `rg_wait_vblank` hands the frame to its driver and returns). A JavaScript backend in a browser
-  cannot block, so this decides its whole shape: generators, or a program turned inside out.
+  `rg_wait_vblank` hands the frame to its driver and returns). A browser cannot block, so the
+  JavaScript lowering writes every routine that can reach a wait as a generator, the wait as
+  `yield` and a call to one as `yield*`, and its driver plays the game a frame at a time
+  (`JS::Printer` says how; a routine that never waits stays a plain function).
 - **`halt` never returns.**
 
 ## Joining the test runs
 
-`rake test` plays the suite once for each lowering; a new one is a third run.
+`rake test` plays the suite once for each lowering; a new one is a fourth run.
 `RubyGBA::Testing` (lib/ruby_gba/testing/) is where that is decided, and it is the same code a
 game's own suite uses:
 
 - `Testing::Lowering::NAMES` lists the lowerings and `RUBY_GBA_LOWERING` picks one.
 - `RubyGBA::Testing#game_player` hands a test the player for the run: Reference on the GBA run,
-  the checked player on the native one. A new lowering adds its checked player here.
-- `Testing::TestTask` says how a run is started (the native one in several processes, never in
-  Ractors, since it starts programs); `Testing::RakeTasks` makes `rake test` and a
+  the checked player on the native and JavaScript ones (`Testing.player_class`). A new lowering
+  adds its checked player there, and to `Lowering::CHECKED`.
+- `Testing::TestTask` says how a run is started (the native and JavaScript ones in several
+  processes, never in Ractors, since they start programs); `Testing::RakeTasks` makes `rake test` and a
   `test:lowering:<name>` task for each.
 - `TestSuites::LOWERING_FOLDERS` (test/support/suites.rb) names the folders only one lowering's
   run loads: put the new backend's own tests in `test/ruby_gba/ir/backends/<name>/`.
-- **Places that assume the only other run is native**, which a third run has to be added to:
-  `require_emulator!` in `test/test_helper.rb` (a test of the cartridge skips on every run but
-  the GBA one), `test/differential.rb` and `test/mixed_sound.rb` (on a native run they compare
-  the game as C instead of the cartridge), and `RubyGBA::Testing#skip_on_native`.
+- **What a checked run does differently** is asked as `Testing.checked?`, which a new lowering
+  joins through `Lowering::CHECKED`: `require_emulator!` in `test/test_helper.rb` (a test of the
+  cartridge skips on every run but the GBA one), `Testing::Pictures` and `test/mixed_sound.rb`
+  (on a checked run they compare the lowered game instead of the cartridge), and the process
+  runner `Testing::TestTask` starts such a run with. A lowering adds its own skip
+  (`skip_on_native`, `skip_on_js`), and its test folder to `TestSuites::LOWERING_FOLDERS`.
+- **Reuse the native checked run.** `Native::HeadlessRun` reads a program that prints
+  runtime/rg_headless.c's lines, and `Native::CheckedRun` compares it with the interpreter; a
+  windowless program of the new lowering that prints the same lines is read and checked by
+  them, through a subclass that says how its program is built (`JS::HeadlessRun`,
+  `JS::CheckedRun`).
 
 ## What done means
 
