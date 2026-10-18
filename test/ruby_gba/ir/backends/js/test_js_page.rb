@@ -46,18 +46,10 @@ class TestJSPage < Minitest::Test
   # Each of the controller's buttons is the console's button it is labelled as, and the keyboard
   # adds to the controller rather than taking turns with it.
   def test_each_controller_button_is_its_console_button_and_the_keyboard_adds_to_them
-    buttons = %i[a b select start right left up down r l]
-    game = RubyGBA.game "BUTTONS" do
-      screen :bitmap
-      game_loop do
-        clear_screen :black
-        buttons.each_with_index { |button, i| held(button).then { fill_rect i * 10, 0, 8, 8, :white } }
-      end
-    end
     picture = pictures_in(played_page(["pad connect", *[0, 1, 8, 9, 5, 4].map { |n| "pad press #{n}" },
-                                       "down ArrowRight", "play 3", "picture"], game)).first
+                                       "down ArrowRight", "play 3", "picture"], buttons_game)).first
     held = %i[a b select start r l right]
-    interpreter = Reference.new.input_each_frame { |frame| frame >= 2 ? held : [] }.run(game.program, frames: 3)
+    interpreter = Reference.new.input_each_frame { |frame| frame >= 2 ? held : [] }.run(buttons_game.program, frames: 3)
 
     assert_same_picture interpreter.screen.shown, picture, "with A, B, Select, Start, L and R on the controller and right on the keys"
   end
@@ -144,9 +136,17 @@ class TestJSPage < Minitest::Test
   # back; F with Cmd, Ctrl or Alt stays the browser's.
   def test_the_button_and_the_f_key_fill_the_screen_with_the_game
     lines = played_page(["click fullscreen", "state", "down KeyF", "up KeyF", "state", "down KeyF", "up KeyF", "state",
-                         "down KeyF meta", "state"])
+                         "down KeyF meta", "state"], template: "<%= game %>\n<%= fullscreen %>")
 
     assert_equal %w[screen none screen screen], lines.grep(/\Astate /).map { |line| line[/fullscreen=(\S+)/, 1] }
+  end
+
+  # A page with the pad on the screen fills the screen with the whole page, so the pad comes too: a
+  # phone filled with the game alone could not be played.
+  def test_a_page_with_the_pad_fills_the_screen_with_the_pad_as_well
+    lines = played_page(["click fullscreen", "state"], pointer: :finger)
+
+    assert_equal %w[page], lines.grep(/\Astate /).map { |line| line[/fullscreen=(\S+)/, 1] }
   end
 
   # +steps+ played on the ticking game's page end on the picture the same page shows after
@@ -186,38 +186,70 @@ class TestJSPage < Minitest::Test
     assert_plays_frames(2, ["play 10", "focus", "play 2", "picture"], [], focused: false)
   end
 
-  # The pad on the screen plays the game as the keys do: a finger on its right arrow is right held.
-  def test_a_finger_on_the_pads_right_arrow_walks_like_the_arrow_key
-    assert_walks_right_for_frames_two_to_eleven(["touch pad-right", "play 10", "picture", "untouch pad-right", "play 5",
+  # The pad on the screen plays the game as the keys do: a finger on the right of its cross is right
+  # held.
+  def test_a_finger_on_the_right_of_the_pads_cross_walks_like_the_arrow_key
+    assert_walks_right_for_frames_two_to_eleven(["finger 1 pad-cross 1 0", "play 10", "picture", "lift 1", "play 5",
                                                  "picture"])
   end
 
   # Each of the pad's buttons is its console button, and a tap — on and off again between two
   # frames, as a quick finger is — still counts for the next frame.
   def test_a_tap_on_each_pad_button_presses_its_console_button
-    buttons = %i[a b select start right left up down r l]
-    game = RubyGBA.game "BUTTONS" do
-      screen :bitmap
-      game_loop do
-        clear_screen :black
-        buttons.each_with_index { |button, i| held(button).then { fill_rect i * 10, 0, 8, 8, :white } }
-      end
+    on_cross = { right: "1 0", left: "-1 0", up: "0 -1", down: "0 1" }
+    taps = RubyGBA::IR::Buttons::NAMES.flat_map do |button|
+      ["finger 1 #{on_cross.key?(button) ? "pad-cross #{on_cross[button]}" : "pad-#{button}"}", "lift 1"]
     end
-    taps = buttons.flat_map { |button| ["touch pad-#{button}", "untouch pad-#{button}"] }
-    picture = pictures_in(played_page([*taps, "play 2", "picture"], game)).first
-    interpreter = Reference.new.input_each_frame { |frame| frame == 2 ? buttons : [] }.run(game.program, frames: 2)
+    picture = pictures_in(played_page([*taps, "play 2", "picture"], buttons_game)).first
+    interpreter = Reference.new.input_each_frame { |frame| frame == 2 ? RubyGBA::IR::Buttons::NAMES : [] }
+                           .run(buttons_game.program, frames: 2)
 
     assert_same_picture interpreter.screen.shown, picture, "on the frame after every button was tapped"
   end
 
-  # The pad is for a screen a finger points at: a page on one shows it, and one with a mouse has it
-  # hidden.
-  def test_the_pad_shows_on_a_touch_screen_only
-    on_touch = played_page(["play 1", "text touchpad"], touchscreen: true)
-    on_mouse = played_page(["play 1", "text touchpad"])
+  # The cross is one piece, as a console's is: a thumb rocked round it moves from one direction to
+  # the next without lifting, holds two at once between them, and holds none at its middle.
+  def test_a_thumb_rocked_round_the_cross_moves_from_one_direction_to_the_next
+    assert_pad_holds(["1 0", "0.7 0.7", "0 1", "0 0"].map { |at| ["finger 1 pad-cross #{at}"] },
+                     [%i[right], %i[right down], %i[down], []])
+  end
 
-    refute_match(/hidden/, on_touch.grep(/\Atext touchpad/).first)
-    assert_match(/\Atext touchpad hidden/, on_mouse.grep(/\Atext touchpad/).first)
+  # Each finger holds what it is on now: one slid from B to A lets go of B, a second on A keeps A
+  # held when the first lifts, and a finger slid off the pad, or taken back by the browser, holds
+  # nothing.
+  def test_each_finger_holds_what_it_is_on_until_it_lifts_or_slides_off
+    assert_pad_holds([["finger 1 pad-b"], ["finger 1 pad-a", "finger 2 pad-cross 1 0"], ["finger 3 pad-a", "lift 1"],
+                      ["cancel 2", "finger 3 nowhere"]],
+                     [%i[b], %i[a right], %i[a right], []])
+  end
+
+  # The pad is for a screen whose main pointer is a finger: a phone shows it, and a computer with a
+  # mouse has it hidden even when its screen can be touched too. A tablet that has its keyboard put
+  # on or taken off shows or hides it then.
+  def test_the_pad_shows_while_a_finger_is_the_screens_main_pointer
+    shown = lambda do |steps, pointer|
+      played_page([*steps, "text touchpad"], pointer: pointer).grep(/\Atext touchpad/).map { |line| !line.include?("hidden") }
+    end
+
+    assert_equal [true], shown.call([], :finger)
+    assert_equal [false], shown.call([], :mouse)
+    assert_equal [false], shown.call([], :touch_and_mouse)
+    assert_equal [false, true, false], shown.call(["text touchpad", "pointer coarse", "text touchpad", "pointer fine"], :mouse)
+  end
+
+  # Each of +moves+ (the steps of one move of the fingers) is followed by two frames and a picture,
+  # which is the interpreter's with the buttons in +held+ at that move's place held. The page reads
+  # its buttons after each frame, for the next, so the first move, made before the page's first
+  # frame, counts from frame 2, and each after it, made after an even frame, from the next but one.
+  private def assert_pad_holds(moves, held)
+    steps = moves.flat_map { |move| [*move, "play 2", "picture"] }
+    pictures = pictures_in(played_page(steps, buttons_game))
+    held.each_with_index do |buttons, i|
+      frame = 2 + (2 * i)
+      interpreter = Reference.new.input_each_frame { |f| f < 2 ? [] : held.fetch((f - 2) / 2, []) }
+                             .run(buttons_game.program, frames: frame)
+      assert_same_picture interpreter.screen.shown, pictures[i], "at frame #{frame}, with #{buttons.inspect} held"
+    end
   end
 
   # +steps+ hold right from the page's start to frame 10 and take two pictures, at frames 10 and

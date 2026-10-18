@@ -26,8 +26,9 @@ module RubyGBA
         #   pause       a checkbox, ticked, for pausing the game while another window has the
         #               keyboard; write your own <input type="checkbox" id="pause"> without
         #               `checked` to start with it off, and a page without one pauses
-        #   touchpad    the console's buttons on the screen, for a phone or a tablet, shown only on
-        #               a screen a finger points at
+        #   touchpad    the console's buttons on the screen, for a phone or a tablet, shown only
+        #               while a finger is the screen's main pointer; with it on the page, the full
+        #               screen button fills the screen with the whole page, so the pad comes too
         #   message     where a game that stops, or a page waiting for a click, says so
         #   extras      touchpad, keys, controller, fullscreen, pause and message together, in
         #               that order
@@ -57,13 +58,14 @@ module RubyGBA
 
           def pieces(title:, script:, scale:)
             keys = <<~HTML.chomp
-              <p>Arrows move. <kbd>X</kbd> is A, <kbd>Z</kbd> is B, <kbd>Enter</kbd> is Start, <kbd>Backspace</kbd> is
+              <p class="keys">Arrows move. <kbd>X</kbd> is A, <kbd>Z</kbd> is B, <kbd>Enter</kbd> is Start, <kbd>Backspace</kbd> is
               Select, <kbd>A</kbd> and <kbd>S</kbd> are L and R, <kbd>F</kbd> fills the screen. Press a key or click
               to hear the sound.</p>
             HTML
             controller = '<p id="controller"></p>'
             fullscreen = '<button id="fullscreen" type="button">Full screen</button>'
             pause = '<label><input type="checkbox" id="pause" checked> Pause when another window is in front</label>'
+            touchpad = touchpad()
             message = '<p id="said" hidden></p>'
             { title: CGI.escapeHTML(title.to_s), style: style(scale), game: game(script), keys: keys,
               controller: controller, fullscreen: fullscreen, pause: pause, touchpad: touchpad, message: message,
@@ -72,17 +74,20 @@ module RubyGBA
 
           # THE PAD ON THE SCREEN, for a phone or a tablet, which has no keys: the console's buttons
           # laid out as a GBA lays them out — L and R along the top, the cross on the left, B and A
-          # on the right, Select and Start between — each pressing its button while a finger is on
-          # it (runtime/rg_mount.js finds them by id, "pad-" and the button's name). It is hidden
-          # until the page finds a screen a finger points at.
+          # on the right, Select and Start between. runtime/rg_mount.js finds them by id, "pad-" and
+          # the button's name, and the cross, "pad-cross", is one piece a thumb rocks round; its
+          # arrows are only drawn. It is hidden until the page finds a finger is the screen's main
+          # pointer. How it is laid out is in `style`, so a template that leaves that out lays the
+          # pad out itself.
           def touchpad
-            key = ->(name, label, area) { %(<button id="pad-#{name}" type="button" style="grid-area: #{area}">#{label}</button>) }
+            pad_button = ->(name, label) { %(<button id="pad-#{name}" type="button">#{label}</button>) }
+            arrow = ->(direction, label) { %(<span class="pad-#{direction}">#{label}</span>) }
             [%(<div id="touchpad" class="touchpad" hidden>),
-             key.call("l", "L", "l"), key.call("r", "R", "r"),
-             %(<div class="pad-cross">), key.call("up", "▲", "up"), key.call("left", "◀", "left"),
-             key.call("right", "▶", "right"), key.call("down", "▼", "down"), "</div>",
-             %(<div class="pad-middle">), key.call("select", "SELECT", "auto"), key.call("start", "START", "auto"), "</div>",
-             %(<div class="pad-face">), key.call("b", "B", "b"), key.call("a", "A", "a"), "</div>",
+             pad_button.call("l", "L"), pad_button.call("r", "R"),
+             %(<div id="pad-cross" class="pad-cross">), arrow.call("up", "▲"), arrow.call("left", "◀"),
+             arrow.call("right", "▶"), arrow.call("down", "▼"), "</div>",
+             %(<div class="pad-middle">), pad_button.call("select", "SELECT"), pad_button.call("start", "START"), "</div>",
+             %(<div class="pad-face">), pad_button.call("b", "B"), pad_button.call("a", "A"), "</div>",
              "</div>"].join("\n")
           end
 
@@ -109,17 +114,41 @@ module RubyGBA
                 kbd { border: 1px solid #555; border-radius: 3px; padding: 0 4px; }
                 button { font: inherit; color: inherit; background: #222; border: 1px solid #555; border-radius: 4px;
                          padding: 4px 12px; cursor: pointer; }
-                .touchpad { display: grid; grid-template-columns: 1fr auto 1fr; grid-template-areas: "l . r" "cross middle face";
+                .touchpad { display: grid; grid-template: "l . r" "cross . face" "middle middle middle" / auto 1fr auto;
                             gap: 16px; align-items: center; width: min(#{Screen::WIDTH * scale}px, 96vw);
                             touch-action: none; user-select: none; -webkit-user-select: none; }
                 .touchpad[hidden] { display: none; }
                 .touchpad button { touch-action: none; padding: 0; min-width: 48px; min-height: 48px; font-size: 18px; }
-                .pad-cross { grid-area: cross; display: grid; grid-template-areas: ". up ." "left . right" ". down .";
-                             gap: 2px; justify-self: start; }
-                .pad-middle { grid-area: middle; display: flex; gap: 8px; align-self: end; }
+                #pad-l { grid-area: l; justify-self: start; }
+                #pad-r { grid-area: r; justify-self: end; }
+                .pad-cross { grid-area: cross; justify-self: start; display: grid; gap: 2px;
+                             grid-template: ". up ." 50px "left . right" 50px ". down ." 50px / 50px 50px 50px; }
+                .pad-cross span { display: flex; align-items: center; justify-content: center; font-size: 18px;
+                                  background: #222; border: 1px solid #555; border-radius: 4px; }
+                .pad-up { grid-area: up; } .pad-left { grid-area: left; }
+                .pad-right { grid-area: right; } .pad-down { grid-area: down; }
+                .pad-middle { grid-area: middle; display: flex; gap: 8px; justify-content: center; }
                 .pad-middle button { min-height: 28px; font-size: 11px; padding: 0 8px; border-radius: 14px; }
                 .pad-face { grid-area: face; display: grid; grid-template-areas: ". a" "b ."; gap: 8px; justify-self: end; }
                 .pad-face button { width: 60px; height: 60px; border-radius: 50%; }
+                #pad-a { grid-area: a; } #pad-b { grid-area: b; }
+                /* The whole page filling the screen, as it does with the pad on it: the game as big
+                   as fits, the pad, and nothing else. */
+                :root:fullscreen body { background: #000; gap: 8px; }
+                :root:fullscreen body > :not(canvas):not(.touchpad) { display: none; }
+                :root:fullscreen canvas { width: min(100vw, 150vh); }
+                /* A screen played with a finger has no keys to say. */
+                @media (pointer: coarse) { .keys { display: none; } }
+                /* A phone on its side: the game as tall as the screen, between the cross and the
+                   buttons, as a GBA has them either side of its screen, and Select and Start under
+                   the cross, as a GBA SP has them. */
+                @media (pointer: coarse) and (orientation: landscape) {
+                  body { justify-content: flex-start; padding-top: 8px; }
+                  canvas, :root:fullscreen canvas { width: min(calc((100vh - 16px) * 1.5), calc(100vw - 360px)); }
+                  .touchpad { position: fixed; inset: 0; width: auto; padding: 12px; box-sizing: border-box; pointer-events: none;
+                              grid-template: "l . r" auto "cross . face" 1fr "middle . ." auto / auto 1fr auto; }
+                  .touchpad button, .pad-cross { pointer-events: auto; }
+                }
               </style>
             HTML
           end

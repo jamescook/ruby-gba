@@ -23,7 +23,13 @@
  *   blur / focus        the window losing the keyboard to another, and getting it back
  *   hide / show         the page's tab hidden behind another, and shown again
  *   click ID            the page's element of that id clicked
- *   touch ID / untouch ID   a finger put on the page's element of that id, and lifted off it
+ *   finger N ID [DX DY] finger N put on the page's element of that id, or slid onto it if it is
+ *                       down already: at its middle, or DX and DY of the way from there to its
+ *                       right and bottom edges (each -1 to 1, so "1 0" is its right edge)
+ *   finger N nowhere    ...slid off every part of the page
+ *   lift N / cancel N   finger N lifted, or taken back by the browser (a scroll, a call coming in)
+ *   pointer coarse / pointer fine   the screen's main pointer becoming a finger (a tablet with its
+ *                       keyboard taken off) or a mouse (with it put back), which the page is told of
  *   check ID / uncheck ID   the page's checkbox of that id ticked or cleared (each starts as the
  *                       page's HTML says, ticked where it is written "checked")
  *   play N              N of the browser's frames, each a console frame after the one before, so
@@ -40,8 +46,15 @@
  *                       and how many key presses the page kept from the browser
  *
  * Started with "unfocused" after the page, the window starts without the keyboard, as a page in
- * a frame on another site does; with "touchscreen", the screen is one a finger points at. At the end it prints "said" and the words the page showed under
- * the canvas, if it showed any.
+ * a frame on another site does. With "touchscreen" the screen's main pointer is a finger, as a
+ * phone's is; with "touch-and-mouse" a finger can point but a mouse is the main pointer, as on a
+ * laptop with a touch screen. At the end it prints "said" and the words the page showed under the
+ * canvas, if it showed any.
+ *
+ * There is no layout here: each part of the page is a box of its own, side by side in the order
+ * the page first asks for them, so a finger is on one part or on none. A finger's events go to the
+ * touchpad, as a browser's go up to it from the part a finger is on, and stay there once it
+ * captures them.
  */
 "use strict";
 
@@ -85,14 +98,18 @@ const shown = {};
 let kept = 0;
 const flags = process.argv.slice(3);
 let focused = !flags.includes("unfocused");
-const touchscreen = flags.includes("touchscreen");
+let finger_first = flags.includes("touchscreen");
+const finger_too = finger_first || flags.includes("touch-and-mouse");
 
 /* Every element of the page, made the first time it is asked for: each can hold words, be hidden,
- * be ticked, be listened to, and be drawn on as a canvas or fill the screen. */
+ * be ticked, be listened to, be drawn on as a canvas or fill the screen, and has a box of its own
+ * a finger can be on. Asked for the parts whose id starts a certain way, it finds them all. */
+const BOX = 100;
 const elements = {};
 function element(id) {
   if (elements[id]) return elements[id];
   const checked = new RegExp(`<input[^>]*\\bid="${id}"[^>]*\\bchecked\\b|<input[^>]*\\bchecked\\b[^>]*\\bid="${id}"`).test(html);
+  const left = Object.keys(elements).length * BOX * 2;
   elements[id] = {
     id, textContent: "", hidden: id === "said", checked, ...listening(),
     getContext: () => ({
@@ -100,8 +117,60 @@ function element(id) {
       putImageData: (image) => { shown[id] = Uint8ClampedArray.from(image.data); },
     }),
     requestFullscreen() { document.fullscreenElement = this; return Promise.resolve(); },
+    getBoundingClientRect: () => ({ left, top: 0, right: left + BOX, bottom: BOX, width: BOX, height: BOX }),
+    querySelectorAll(selector) {
+      const start = selector.match(/^\[id\^="([^"]+)"\]$/)[1];
+      return [...ids].filter((each) => each.startsWith(start)).map(element);
+    },
+    setPointerCapture() {},
   };
   return elements[id];
+}
+
+/* What the page asks of the screen's pointers: whether the main one is a finger, and whether any
+ * is. A page listening for the answer to change is told when the main one does. */
+const asked_media = [];
+function media(query) {
+  const answer = {
+    ...listening(),
+    get matches() {
+      if (query === "(pointer: coarse)") return finger_first;
+      if (query === "(any-pointer: coarse)") return finger_too || finger_first;
+      return false;
+    },
+  };
+  asked_media.push(answer);
+  return answer;
+}
+
+function pointer(kind) {
+  finger_first = kind === "coarse";
+  for (const answer of asked_media) tell(answer, "change", { matches: answer.matches });
+}
+
+/* The fingers down, and what each was last put on. */
+const fingers = new Set();
+function finger(n, id, dx = 0, dy = 0) {
+  const at = id === "nowhere" ? { clientX: -BOX, clientY: -BOX } : (() => {
+    const box = element(id).getBoundingClientRect();
+    /* The middle, and a pixel short of an edge at the most: as in a browser, a box's right and
+     * bottom edges are just outside it. */
+    const reach = BOX / 2 - 1;
+    return { clientX: box.left + BOX / 2 + reach * Number(dx), clientY: box.top + BOX / 2 + reach * Number(dy) };
+  })();
+  const pad = element("touchpad");
+  if (fingers.has(n)) {
+    tell(pad, "pointermove", { pointerId: Number(n), pointerType: "touch", ...at });
+  } else {
+    fingers.add(n);
+    tell(pad, "pointerdown", { pointerId: Number(n), pointerType: "touch", ...at });
+    tell(page, "pointerdown");
+  }
+}
+
+function lift(n, type) {
+  fingers.delete(n);
+  tell(element("touchpad"), type, { pointerId: Number(n), pointerType: "touch" });
 }
 
 const document = {
@@ -110,6 +179,7 @@ const document = {
   visibilityState: "visible",
   readyState: "loading",
   fullscreenElement: null,
+  documentElement: { id: "page", requestFullscreen() { document.fullscreenElement = this; return Promise.resolve(); } },
   getElementById: (id) => (ids.has(id) ? element(id) : null),
   hasFocus: () => focused,
   exitFullscreen() { document.fullscreenElement = null; return Promise.resolve(); },
@@ -145,8 +215,7 @@ const browser = {
   navigator: { getGamepads: () => pads.slice() },
   performance: { now: () => now },
   requestAnimationFrame: (callback) => { waiting.push(callback); },
-  /* A screen a finger points at, or one a mouse does: "(any-pointer: coarse)" is the first. */
-  matchMedia: (query) => ({ matches: touchscreen && query.includes("coarse") }),
+  matchMedia: media,
   /* A web server holding the files beside the page: a name, or a file: URL to one of them. */
   fetch: async (url) => {
     const name = String(url).startsWith("file:") ? new URL(String(url)).pathname : path.resolve(page_dir, String(url));
@@ -265,8 +334,10 @@ function steps() {
     else if (step === "hide") visible(false);
     else if (step === "show") visible(true);
     else if (step === "click") { tell(element(what), "click"); tell(page, "pointerdown"); }
-    else if (step === "touch") { tell(element(what), "pointerdown"); tell(page, "pointerdown"); }
-    else if (step === "untouch") tell(element(what), "pointerup");
+    else if (step === "finger") finger(what, ...rest);
+    else if (step === "lift") lift(what, "pointerup");
+    else if (step === "cancel") lift(what, "pointercancel");
+    else if (step === "pointer") pointer(what);
     else if (step === "check" || step === "uncheck") { element(what).checked = step === "check"; tell(element(what), "change"); }
     else if (step === "play") play(Number(what));
     else if (step === "picture") printed.push(`picture ${picture(what)}`);

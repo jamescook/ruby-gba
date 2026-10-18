@@ -53,17 +53,32 @@ module WebPage
   # What the harness printed for +steps+ (one a line), played on +game+'s page — or on +html+, a
   # page written by hand, with +beside+ ({ name => text }) the files it loads from beside it.
   # +focused+ false starts the window without the keyboard, as a page in a frame on another site;
-  # +touchscreen+ true makes the screen one a finger points at.
-  private def played_page(steps, game = walking_game, template: nil, focused: true, touchscreen: false, html: nil,
+  # +pointer+ is what the screen is pointed at with: :mouse, :finger (a phone) or :touch_and_mouse
+  # (a laptop with a touch screen, where the mouse is the main one).
+  private def played_page(steps, game = walking_game, template: nil, focused: true, pointer: :mouse, html: nil,
                           beside: {})
     Dir.mktmpdir do |dir|
       path = File.join(dir, "page.html")
       File.write(path, html || built_page(game, template: template))
       beside.each { |name, text| File.binwrite(File.join(dir, name), text) }
-      flags = [("unfocused" unless focused), ("touchscreen" if touchscreen)].compact
+      screen = { mouse: nil, finger: "touchscreen", touch_and_mouse: "touch-and-mouse" }.fetch(pointer)
+      flags = [("unfocused" unless focused), screen].compact
       out, said, status = Open3.capture3("node", HARNESS, path, *flags, stdin_data: steps.join("\n"))
       assert status.success?, said
       out.lines(chomp: true)
+    end
+  end
+
+  # A square lit along the top of the screen for each of the console's buttons held, in
+  # IR::Buttons::NAMES order, so one picture says which are held.
+  private def buttons_game
+    buttons = RubyGBA::IR::Buttons::NAMES
+    RubyGBA.game "BUTTONS" do
+      screen :bitmap
+      game_loop do
+        clear_screen :black
+        buttons.each_with_index { |button, i| held(button).then { fill_rect i * 10, 0, 8, 8, :white } }
+      end
     end
   end
 
