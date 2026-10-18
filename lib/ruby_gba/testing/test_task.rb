@@ -82,11 +82,12 @@ module RubyGBA
       # it is for: the lowering, and on a native run the rest of how it is played.
       def ruby(*args, **options, &block)
         refuse_native_run_without_zig! if native?
-        refuse_js_run_without_node! if lowering == :js
+        refuse_js_run_without_node! if javascript?
         sh(run_settings, "#{FileUtils::RUBY} #{args.join(' ')}", **options, &block)
       end
 
       def native? = lowering == :native
+      def javascript? = lowering == :js
       def checked? = Lowering::CHECKED.include?(lowering)
 
       def without_ractor(options) = (options.split - %w[--ractor]).join(" ")

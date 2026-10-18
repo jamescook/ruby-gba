@@ -62,14 +62,11 @@ module RubyGBA
       save ? player.new(save: save) : player.new
     end
 
+    # The class game_player makes one of, on each lowering's run.
+    PLAYERS = Ractor.make_shareable({ gba: IR::Backends::Reference, native: CheckedPlayer, js: JSCheckedPlayer })
+
     # The class game_player makes one of, for this run.
-    def self.player_class
-      case LOWERING
-      when :native then CheckedPlayer
-      when :js then JSCheckedPlayer
-      else IR::Backends::Reference
-      end
-    end
+    def self.player_class = PLAYERS.fetch(LOWERING)
 
     # A test the native lowering cannot play yet skips itself on a native run, saying +why+ — and
     # a native run ends by counting its skips by reason, so these cannot pile up unseen. On the

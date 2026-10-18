@@ -52,7 +52,7 @@ class TestGameSuite < Minitest::Test
     assert_equal %w[gba js native], lowerings
     assert_match(/^GBA lowering\s+passed/, out)
     assert_match(/^native lowering\s+passed/, out)
-    assert_match(/^JS lowering\s+passed/, out)
+    assert_match(/^JavaScript lowering\s+passed/, out)
   end
 
   # The native lowering's run alone, its tests played in several processes rather than Ractors.
@@ -74,7 +74,7 @@ class TestGameSuite < Minitest::Test
     refute passed
     assert_match(/^GBA lowering\s+FAILED/, out)
     assert_match(/^native lowering\s+FAILED/, out)
-    assert_match(/^JS lowering\s+FAILED/, out)
+    assert_match(/^JavaScript lowering\s+FAILED/, out)
     assert_match(/disagree at frame 1: the picture differs/, out)
     assert_match(/the backends drew different screens: 1 of 38400 pixels differ/, out)
     assert_match(/\(  0,  0\)/, out)

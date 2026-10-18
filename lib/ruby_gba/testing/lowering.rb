@@ -17,6 +17,11 @@ module RubyGBA
       SETTING = "RUBY_GBA_LOWERING"
       NAMES = %i[gba native js].freeze
 
+      # What a sentence calls each lowering, in the order `rake test` plays them: "the GBA
+      # lowering", "this JavaScript run". Everything that says a lowering's name to a person reads
+      # it from here.
+      TITLES = { gba: "GBA", native: "native", js: "JavaScript" }.freeze
+
       # The lowerings whose run plays the game itself, built for another machine and checked
       # against the interpreter, rather than the interpreter alone: a run of one of these starts
       # programs, so it is played in processes rather than Ractors.

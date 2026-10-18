@@ -7,6 +7,9 @@ require_relative "js/printer"
 require_relative "js/lowering"
 require_relative "js/headless_run"
 require_relative "js/checked_run"
+require_relative "js/node"
+require_relative "js/page"
+require_relative "js/preview"
 
 module RubyGBA
   module IR
@@ -129,7 +132,3 @@ module RubyGBA
     end
   end
 end
-
-require_relative "js/node"
-require_relative "js/page"
-require_relative "js/preview"

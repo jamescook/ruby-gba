@@ -38,7 +38,7 @@ module RubyGBA
     # but the task it is asked for.
     class RakeTasks < Rake::TaskLib
       # What `rake test` calls each lowering's run in the lines it ends with, in the order it plays them.
-      LABELS = { gba: "GBA lowering", native: "native lowering", js: "JS lowering" }.freeze
+      LABELS = Lowering::TITLES.transform_values { |title| "#{title} lowering" }.freeze
       OUTCOMES = { passed: "passed", failed: "FAILED", not_played: "does not play this file" }.freeze
 
       # The test files; the folders a test file can require from by bare name (the game's own code
@@ -68,7 +68,8 @@ module RubyGBA
           results = LABELS.map { |lowering, label| run_lowering(lowering, label) }
           puts
           results.each do |label, outcome, seconds|
-            puts format("%-16s %s%s", label, OUTCOMES.fetch(outcome), outcome == :not_played ? "" : format(" in %ds", seconds))
+            puts format("%-*s %s%s", LABELS.values.map(&:length).max, label, OUTCOMES.fetch(outcome),
+                        outcome == :not_played ? "" : format(" in %ds", seconds))
           end
           abort "rake test: a lowering's run failed" if results.any? { |_, outcome| outcome == :failed }
         end

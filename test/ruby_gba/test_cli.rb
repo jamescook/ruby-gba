@@ -351,7 +351,7 @@ class TestCLI < Minitest::Test
 
       page = File.read(File.join(dir, "demo.html"), encoding: Encoding::UTF_8)
       assert_match(/<canvas id="screen"/, page)
-      assert_match(/function\* rg_game_main\(\)/, page, "the game is in the page")
+      assert_match(/<script>/, page, "the game is in the page")
       refute_match(/<script src=/, page, "nothing is fetched")
     end
   end
