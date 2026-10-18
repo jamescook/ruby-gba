@@ -306,6 +306,14 @@ class TestNativeHeadlessRun < Minitest::Test
     assert_match(/frames_each_pass/, error.message)
   end
 
+  # Every question a test can ask the interpreter is one the headless run has a method for, an
+  # answer or a refusal by name, so none of them meets a bare NoMethodError.
+  def test_every_question_the_interpreter_answers_has_a_method_here
+    unanswered = Reference.public_instance_methods.reject { |name| HeadlessRun.public_method_defined?(name) }
+
+    assert_empty unanswered, "give HeadlessRun a method for each, a refusal with refuse_unanswered! if nothing else"
+  end
+
   # The sound comes as so many numbers a second, and the C and the Ruby each say how many.
   def test_the_sound_rate_is_the_one_the_runtime_makes_it_at
     header = File.read(File.join(RubyGBA::IR::Backends::Native::Zig::RUNTIME_DIR, "rg_sound.h"))

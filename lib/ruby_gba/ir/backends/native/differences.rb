@@ -10,7 +10,7 @@ module RubyGBA
         # disagreements with these.
         #
         # It also plays a program both ways a frame at a time and keeps every pixel of every
-        # frame (#native_snapshots, #reference_snapshots), which is dear, and is what a check
+        # frame (#lowered_snapshots, #reference_snapshots), which is dear, and is what a check
         # that found two pictures differ uses to say where.
         module Differences
           # One moment of a run: its heading ("frame 3", "end"), the variables, the picture shown,
@@ -20,11 +20,18 @@ module RubyGBA
           # The snapshots the windowless program printed. +held+ is down from power-on, before
           # the game's first statement, and +buttons+ say what is held on each frame from the
           # first on.
-          def native_snapshots(program, frames:, buttons:, mode:, held: [])
-            exe = Native.new.build_headless(program, mode: mode)
+          def lowered_snapshots(program, frames:, buttons:, mode:, held: [])
             input = (1..frames).map { |frame| "#{HeadlessRun.button_mask(buttons.fetch(frame, []))}\n" }.join
             from_power_on = held.empty? ? [] : ["--held-from-power-on", HeadlessRun.button_mask(held)]
-            parse_snapshots(Zig.run_program(exe, args: [frames, "--every-picture", *from_power_on], input: input), program)
+            parse_snapshots(run_headless_program(program, mode, args: [frames, "--every-picture", *from_power_on],
+                                                                input: input), program)
+          end
+
+          # +program+ built to run with no window and run with +args+ and +input+, giving back what it
+          # printed: the game as C, built the way +mode+ says. JS::Differences runs the game as
+          # JavaScript instead, which prints the same lines.
+          def run_headless_program(program, mode, args:, input:)
+            Zig.run_program(Native.new.build_headless(program, mode: mode), args: args, input: input)
           end
 
           def reference_snapshots(program, frames:, buttons:, held: [])

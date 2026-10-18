@@ -311,7 +311,7 @@ class TestNativeLogic < Minitest::Test
     # One error for a game that goes wrong, whichever lowering played it, so a game's own test
     # asserts one thing.
     assert_raises(RubyGBA::IR::ProgramError) { reference_snapshots(program, frames: 4, buttons: {}) }
-    error = assert_raises(RubyGBA::IR::ProgramError) { native_snapshots(program, frames: 4, buttons: {}, mode: :checked) }
+    error = assert_raises(RubyGBA::IR::ProgramError) { lowered_snapshots(program, frames: 4, buttons: {}, mode: :checked) }
     assert_includes error.message, "list :full is full"
   end
 

@@ -58,7 +58,7 @@ module NativeComparison
   def assert_native_matches_reference(program, frames: 5, buttons: {}, played: nil)
     expected = played || reference_snapshots(program, frames: frames, buttons: buttons)
     %i[checked fast].each do |mode|
-      actual = native_snapshots(program, frames: frames, buttons: buttons, mode: mode)
+      actual = lowered_snapshots(program, frames: frames, buttons: buttons, mode: mode)
       assert_equal expected.map(&:heading), actual.map(&:heading), "the frame boundaries differ (#{mode} build)"
       expected.zip(actual).each { |want, got| assert_same_moment(want, got, mode) }
     end

@@ -140,7 +140,7 @@ class TestCheckedRun < Minitest::Test
     end
 
     want = reference_snapshots(program, frames: 1, buttons: {}, held: [:a]).last
-    got = native_snapshots(program, frames: 1, buttons: {}, mode: :checked, held: [:a]).last
+    got = lowered_snapshots(program, frames: 1, buttons: {}, mode: :checked, held: [:a]).last
 
     assert_equal 1, want.variables[:early]
     assert_equal 1, got.variables[:early]

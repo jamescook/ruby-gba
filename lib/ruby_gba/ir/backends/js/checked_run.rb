@@ -13,13 +13,10 @@ module RubyGBA
 
           def lowered_side = "JS"
 
-          # The snapshots the windowless program printed, as Native::Differences reads the C's.
-          # There is only one way to build JavaScript, so +mode+ is taken and not read.
-          def native_snapshots(program, frames:, buttons:, mode: nil, held: [])
-            script = JS.new.build_headless(program)
-            input = (1..frames).map { |frame| "#{Native::HeadlessRun.button_mask(buttons.fetch(frame, []))}\n" }.join
-            from_power_on = held.empty? ? [] : ["--held-from-power-on", Native::HeadlessRun.button_mask(held)]
-            parse_snapshots(Node.run_program(script, args: [frames, "--every-picture", *from_power_on], input: input), program)
+          # The game as JavaScript, run by node. There is one way to build JavaScript, so the C's
+          # build +mode+ has nothing to say here.
+          def run_headless_program(program, _mode, args:, input:)
+            Node.run_program(JS.new.build_headless(program), args: args, input: input)
           end
         end
 

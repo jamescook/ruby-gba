@@ -288,18 +288,28 @@ module RubyGBA
           # never reaches the C at all (CheckedRun#refuse_endless_game_without_frames!).
           def stopped_at_budget? = false
 
-          # The rest of what the interpreter answers, said by name. Anything else is an ordinary
-          # NoMethodError, since the interpreter would not answer it either.
-          def method_missing(name, *, **, &)
-            return super unless Reference.public_method_defined?(name)
-
-            raise CannotAnswer, "the native lowering cannot answer `#{name}` yet, which this test asks the " \
-                                "interpreter. Leave its file interpreter-only, or say `skip_on_native` in this one test."
-          end
-
-          def respond_to_missing?(_name, _include_private = false) = false
+          # The rest of what the interpreter answers, each said by name, so a test asking one meets
+          # a sentence saying so rather than a NoMethodError that reads like a typo in the test.
+          # test_native_headless_run.rb holds this list to every public method the interpreter
+          # has, so one added there and not here fails that test.
+          def frame = refuse_unanswered!(:frame)
+          def frames_each_pass(&) = refuse_unanswered!(:frames_each_pass)
+          def log = refuse_unanswered!(:log)
+          def screen_mode = refuse_unanswered!(:screen_mode)
+          def write_save_copy(*) = refuse_unanswered!(:write_save_copy)
+          def write_save_vars(*) = refuse_unanswered!(:write_save_vars)
 
           private
+
+          def refuse_unanswered!(name)
+            raise CannotAnswer, "#{lowering_name} cannot answer `#{name}` yet, which this test asks the " \
+                                "interpreter. Leave its file interpreter-only, or say `#{skip_helper_name}` in this one test."
+          end
+
+          # What a refusal calls this lowering, and the helper a test says to skip it there.
+          # JS::HeadlessRun says its own.
+          def lowering_name = "the native lowering"
+          def skip_helper_name = "skip_on_native"
 
           # The program a run plays: the game built as C with no window. JS::HeadlessRun plays the
           # game as JavaScript instead, which prints the same lines, and builds that here.

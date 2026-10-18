@@ -104,4 +104,14 @@ class TestJSCheckedRun < Minitest::Test
 
     assert_equal 2, again[:count]
   end
+
+  # A question only the interpreter answers so far names this lowering and its own skip.
+  def test_a_question_only_the_interpreter_can_answer_yet_names_the_javascript_skip
+    error = assert_raises(RubyGBA::IR::Backends::JS::HeadlessRun::CannotAnswer) do
+      RubyGBA::IR::Backends::JS::HeadlessRun.new.frames_each_pass { 2 }
+    end
+
+    assert_match(/JavaScript lowering/, error.message)
+    assert_match(/skip_on_js/, error.message)
+  end
 end

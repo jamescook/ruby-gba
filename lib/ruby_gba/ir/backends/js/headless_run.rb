@@ -16,21 +16,11 @@ module RubyGBA
           # answer yet. The native one's, since both are asked the same questions.
           CannotAnswer = Native::HeadlessRun::CannotAnswer
 
-          # The rest of what the interpreter answers, said by name, as the native run says it.
-          def method_missing(name, *, **, &)
-            return super unless Reference.public_method_defined?(name)
-
-            raise CannotAnswer, "the JavaScript lowering cannot answer `#{name}` yet, which this test asks the " \
-                                "interpreter. Leave its file interpreter-only, or say `skip_on_js` in this one test."
-          end
-
-          def respond_to_missing?(_name, _include_private = false) = false
-
           private
 
           def headless_program(program) = JS.new.build_headless(program)
-
-          def refuse_failed_run!(exe, status, complaint) = Node.refuse_stopped_program!(exe, status, complaint)
+          def lowering_name = "the JavaScript lowering"
+          def skip_helper_name = "skip_on_js"
         end
       end
     end

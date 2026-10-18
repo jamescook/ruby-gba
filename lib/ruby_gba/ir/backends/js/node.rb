@@ -1,7 +1,6 @@
 # frozen_string_literal: true
 
 require "open3"
-require "tmpdir"
 
 module RubyGBA
   module IR
@@ -14,8 +13,7 @@ module RubyGBA
           # carries, which every supported node has.
           OLDEST = 18
 
-          # Raised when node is missing or too old, or the program it ran stopped with an error of
-          # its own (a fault in the runtime, rather than in the game).
+          # Raised when node is missing or too old.
           class Error < StandardError; end
 
           module_function
@@ -33,38 +31,13 @@ module RubyGBA
             raise Error, "node was not found. Install node #{OLDEST} or later to play the JavaScript lowering's tests."
           end
 
-          # The command that runs +script+ with +args+.
-          def command(script, *args) = ["node", script, *args.map(&:to_s)]
-
-          # Runs +script+ with +args+, feeding it +input+, and gives back what it printed. Through
-          # files rather than pipes, for the reason Native::Zig.run_program gives.
+          # Runs +script+ with node, handing it +args+ and feeding it +input+, and gives back what
+          # it printed. It is the native lowering's own runner with node as the program, so a
+          # script is held to everything a C program is: stopped after +seconds+, stopped if it
+          # prints more than Native::Zig::MOST_PRINTED_BYTES, and its ending read the same way —
+          # IR::ProgramError for a game that went wrong, Native::Zig::Error for anything else.
           def run_program(script, args: [], input: "", seconds: 60)
-            Dir.mktmpdir("ruby-gba-run") do |dir|
-              fed, printed, complained = %w[fed printed complained].map { |name| File.join(dir, name) }
-              File.binwrite(fed, input)
-              pid = Process.spawn(*command(script, *args), in: fed, out: printed, err: complained)
-              waiter = Process.detach(pid)
-              begin
-                finished = waiter.join(seconds)
-              ensure
-                Native::Zig.stop_program(pid) if waiter.alive?
-              end
-              status = waiter.value
-              raise Error, "#{File.basename(script)} was still running after #{seconds} seconds, and was stopped" unless finished
-
-              refuse_stopped_program!(script, status, File.read(complained))
-              File.read(printed)
-            end
-          end
-
-          # Raises for a program that did not end well: IR::ProgramError, with the program's own
-          # sentence, for a game that went wrong — the error the interpreter raises for the same
-          # game — and Error for anything else.
-          def refuse_stopped_program!(script, status, complaint)
-            return if status.success?
-            raise IR::ProgramError, complaint.strip if status.exitstatus == Native::Zig::GAME_WENT_WRONG
-
-            raise Error, "#{File.basename(script)} stopped (#{status}):\n#{complaint}"
+            Native::Zig.run_program("node", args: [script, *args], input: input, seconds: seconds)
           end
         end
       end

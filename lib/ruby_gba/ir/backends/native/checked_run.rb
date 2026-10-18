@@ -229,7 +229,7 @@ module RubyGBA
             return message unless difference.include?("picture")
 
             want = reference_snapshots(program, frames: frames, buttons: @played, held: @held)
-            got = native_snapshots(program, frames: frames, buttons: @played, mode: :checked, held: @held)
+            got = lowered_snapshots(program, frames: frames, buttons: @played, mode: :checked, held: @held)
             first = want.zip(got).find { |reference, native| reference.picture != native.picture }
             first ? "#{message} (#{first.last.heading}: #{picture_difference(first.first.picture, first.last.picture)})" : message
           end
