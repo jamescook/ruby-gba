@@ -1925,6 +1925,36 @@ mgba_core_take_changes(VALUE self)
 /* The bit layout is read with mGBA's own accessors, so which */
 /* bit means what stays mGBA's business and not ours.         */
 /* --------------------------------------------------------- */
+/* A GAME BOY'S SPRITE TABLE, as Core#sprites answers it: forty entries of four bytes — the row it
+ * stands on plus 16, the column plus 8, its tile, and its attributes. An entry whose place puts it
+ * wholly off the screen is how a Game Boy game switches one off, so it is left out. Each row says
+ * its slot, where its 8×8 picture stands on the screen, its tile and the bank of video memory that
+ * tile is in, its list of colours, and whether it is behind the background and mirrored. */
+static VALUE
+gb_sprites(struct GB *gb)
+{
+    VALUE out = rb_ary_new();
+    for (int i = 0; i < 40; i++) {
+        struct GBObj *obj = &gb->video.oam.obj[i];
+        uint8_t attr = (uint8_t)obj->attr;
+        if (obj->y == 0 || obj->y >= 160 || obj->x == 0 || obj->x >= 168) {
+            continue;
+        }
+        VALUE entry = rb_hash_new();
+        rb_hash_aset(entry, ID2SYM(rb_intern("slot")),    INT2NUM(i));
+        rb_hash_aset(entry, ID2SYM(rb_intern("x")),       INT2NUM((int)obj->x - 8));
+        rb_hash_aset(entry, ID2SYM(rb_intern("y")),       INT2NUM((int)obj->y - 16));
+        rb_hash_aset(entry, ID2SYM(rb_intern("tile")),    INT2NUM(obj->tile));
+        rb_hash_aset(entry, ID2SYM(rb_intern("bank")),    INT2NUM((attr >> 3) & 1));
+        rb_hash_aset(entry, ID2SYM(rb_intern("palette")), INT2NUM(attr & 7));
+        rb_hash_aset(entry, ID2SYM(rb_intern("behind")),  (attr & 0x80) ? Qtrue : Qfalse);
+        rb_hash_aset(entry, ID2SYM(rb_intern("mirrored_across")), (attr & 0x20) ? Qtrue : Qfalse);
+        rb_hash_aset(entry, ID2SYM(rb_intern("mirrored_down")),   (attr & 0x40) ? Qtrue : Qfalse);
+        rb_ary_push(out, entry);
+    }
+    return out;
+}
+
 static VALUE
 mgba_core_sprites(VALUE self)
 {
@@ -1933,8 +1963,11 @@ mgba_core_sprites(VALUE self)
     VALUE out;
     int i;
 
+    if (mc->core->platform(mc->core) == mPLATFORM_GB) {
+        return gb_sprites((struct GB *)mc->core->board);
+    }
     if (mc->core->platform(mc->core) != mPLATFORM_GBA) {
-        rb_raise(rb_eRuntimeError, "sprites is GBA-only");
+        rb_raise(rb_eRuntimeError, "sprites reads a Game Boy Advance or a Game Boy");
     }
     gba = (struct GBA *)mc->core->board;
     out = rb_ary_new();
@@ -1999,8 +2032,17 @@ mgba_core_palette(VALUE self)
     VALUE out;
     int i;
 
+    if (mc->core->platform(mc->core) == mPLATFORM_GB) {
+        /* A Game Boy Color's 64: eight lists of four for the background, then eight for the sprites. */
+        struct GB *gb = (struct GB *)mc->core->board;
+        out = rb_ary_new_capa(64);
+        for (i = 0; i < 64; i++) {
+            rb_ary_push(out, INT2NUM(gb->video.palette[i]));
+        }
+        return out;
+    }
     if (mc->core->platform(mc->core) != mPLATFORM_GBA) {
-        rb_raise(rb_eRuntimeError, "palette is GBA-only");
+        rb_raise(rb_eRuntimeError, "palette reads a Game Boy Advance or a Game Boy");
     }
     gba = (struct GBA *)mc->core->board;
     out = rb_ary_new_capa(512);

@@ -85,6 +85,7 @@ module RubyGBA
 
             @rom = GBC.new.build(program, title: "CHECKED")
             @places = @rom.built
+            @drawn_sprites = Native::DrawnSprites.new(program)
             @declared_lists = program.walk.select { |node| node.kind == :list_new }.map(&:name).uniq
             @moments = []
             @vars = {}
@@ -98,7 +99,14 @@ module RubyGBA
           def stopped_at_budget? = false
 
           # The rest of what the interpreter answers, each refused by name.
-          %i[audio sprites mixed_sound active_samples peak_voices sound_drops sound_owners frame log screen_mode
+          # What it drew at the moment the run ended, as the interpreter says it (Reference#sprites):
+          # every sprite, back to front, or the ones the game declared as +name+.
+          def sprites(name = nil)
+            rows = @sprites || []
+            name ? @drawn_sprites.rows_named(rows, name) : rows
+          end
+
+          %i[audio mixed_sound active_samples peak_voices sound_drops sound_owners frame log screen_mode
              buffered].each do |name|
             define_method(name) { |*| refuse_unanswered!(name) }
           end
@@ -156,7 +164,7 @@ module RubyGBA
               waited += 1
               refuse_stuck_game! if waited > LONGEST_PASS_FRAMES
               if pending && shown_pass == pending.first
-                pass, variables, lists = pending
+                pass, variables, lists, @sprites = pending
                 pending = nil
                 return record_end(variables, lists, picture_now) if pass > frames
 
@@ -168,7 +176,7 @@ module RubyGBA
               end
               next unless pending.nil? && waiting? && passes > @moments.size
 
-              pending = [passes, read_variables, read_lists]
+              pending = [passes, read_variables, read_lists, read_sprites]
               hold_after_this_pass if passes > frames
               waited = 0
               decide_buttons(passes) if passes <= frames
@@ -187,7 +195,7 @@ module RubyGBA
             @lists = lists
             @screen = picture
             @moments << Moment.new(frame: pass, variables: variables, picture: picture_check(picture), sounds: 0,
-                                   sprites: [], collections: game_state.except(:vars), sounding: [])
+                                   sprites: @sprites, collections: game_state.except(:vars), sounding: [])
             @on_vblank&.call(pass)
           end
 
@@ -200,6 +208,7 @@ module RubyGBA
               frames += 1
             end
             @core.run_frame
+            @sprites = read_sprites
             record_end(read_variables, read_lists, picture_now)
           end
 
@@ -208,7 +217,7 @@ module RubyGBA
             @lists = lists
             @screen = picture
             @moments << Moment.new(frame: :end, variables: variables, picture: picture_check(picture), sounds: 0,
-                                   sprites: [], collections: game_state.except(:vars), sounding: [])
+                                   sprites: @sprites, collections: game_state.except(:vars), sounding: [])
           end
 
           def picture_check(picture) = Native::HeadlessRun.picture_check(picture.shown)
@@ -226,6 +235,23 @@ module RubyGBA
           end
 
           def read_variables = @places.variables.transform_values { |address| word(address) }
+
+          # The sprites the game placed in its last pass (Runtime::Picture::DRAWN), back to front: the
+          # runtime writes them front-most first, as the console draws them.
+          def read_sprites
+            at = runtime_place(Runtime::Picture::DRAWN)
+            count = @core.bus_read8(at)
+            rows = Array.new(count) do |i|
+              place = at + 1 + (i * Runtime::Picture::DRAWN_BYTES)
+              whose, picture, x, y = [[0, 1], [1, 2], [3, 2], [5, 2]].map { |from, width| little(place + from, width) }
+              line = "sprite #{whose - 1} #{picture} #{signed16(x)} #{signed16(y)}"
+              @drawn_sprites.row_from(line)
+            end
+            rows.reverse
+          end
+
+          def little(address, width) = (0...width).sum { |i| @core.bus_read8(address + i) << (8 * i) }
+          def signed16(value) = value >= 0x8000 ? value - 0x10000 : value
 
           def read_lists
             @places.lists.to_h do |name, (address, _capacity, width, _label)|

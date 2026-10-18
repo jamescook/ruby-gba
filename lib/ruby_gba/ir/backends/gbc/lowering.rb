@@ -52,7 +52,7 @@ module RubyGBA
           def top_level
             refuse_unlowered_kinds!
             refuse_too_many_paint_colors!
-            refuse_save_memory_the_color_lacks!
+            refuse_unsupported_save_memory!
             refuse_routines_that_call_themselves!
             routines = @called.map { |name| C::Function.new(name: routine(name), body: body_of(@funcs.fetch(name))) }
             main = C::Function.new(name: @names.own("main"), body: lower(@program), exported: true)
@@ -94,7 +94,7 @@ module RubyGBA
 
           # A Game Boy Color cartridge saves in 32K of battery-backed memory (Runtime::Saving): a game
           # that asks for flash, an EEPROM or more memory is refused, naming what it asked for.
-          def refuse_save_memory_the_color_lacks!
+          def refuse_unsupported_save_memory!
             return unless Native::Saving.named_by?(@program)
 
             memory = SaveLayout.memory_of(@program)

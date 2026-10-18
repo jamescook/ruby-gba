@@ -33,6 +33,7 @@ module RubyGBA
             # Every background's name, for a statement naming one (Native's #background_number).
             @backgrounds = @program.walk.select { |node| node.kind == :background }.to_h { |bg| [bg.name, 0] }
             @drawing_arrays = []
+            @drawn_sprites = Native::DrawnSprites.new(@program) # the names a run says its sprites by
           end
 
           # --- the screen ---
@@ -277,8 +278,8 @@ module RubyGBA
             return nil unless [x, y, pose].all?(C::Int) && Array(obj.recolors).empty?
 
             name = obj.poses.fetch(pose.value)
-            attributes = palette_of(name, nil) | (behind_scenery?(obj) ? Console::GBCHardware::OBJ_BEHIND : 0)
-            record = [picture_number(name), x.value, y.value, attributes]
+            attributes = said_attributes(obj, name, palette_of(name, nil))
+            record = [picture_number(name), x.value, y.value, attributes & 0xFFFF, attributes >> 16]
             eval_call("rg_gbc_sprite_fixed", drawing_array("fixed_sprite", "int16_t", record))
           end
 
@@ -302,12 +303,11 @@ module RubyGBA
           def picture_and_attributes_drawn(obj, pose)
             lists = Array(obj.recolors)
             sets = [[nil], *lists.map { |colors| colors.is_a?(Symbol) ? sets_held_by(colors) : [colors] }]
-            behind = behind_scenery?(obj) ? Console::GBCHardware::OBJ_BEHIND : 0
             rows = sets.flatten(1).flat_map do |colors|
-              obj.poses.map { |name| [picture_number(name), palette_of(name, colors) | behind] }
+              obj.poses.map { |name| [picture_number(name), said_attributes(obj, name, palette_of(name, colors))] }
             end
             pictures = drawing_array("pose_pictures", "int16_t", rows.map(&:first))
-            palettes = drawing_array("pose_attributes", "uint8_t", rows.map(&:last))
+            palettes = drawing_array("pose_attributes", "int32_t", rows.map(&:last))
             at = if lists.empty?
                    pose
                  else
@@ -317,6 +317,16 @@ module RubyGBA
           end
 
           def picture_number(name) = @art.sprite_picture(name, picture_named(name)).number
+
+          # A sprite's attributes as rg_gbc_sprite takes them: in the low byte, its palette and
+          # whether it is behind the background, as the sprite table keeps them; above that, the
+          # numbers a run says it by (Native::DrawnSprites) — whose it is, one up so nought is
+          # nobody's, and which picture it is showing.
+          def said_attributes(obj, picture, palette)
+            behind = behind_scenery?(obj) ? Console::GBCHardware::OBJ_BEHIND : 0
+            whose = @drawn_sprites.name_number(obj.declared) + 1
+            palette | behind | (whose << 8) | (@drawn_sprites.picture_number(picture) << 16)
+          end
 
           # The palette picture +name+ is drawn in with the list +colors+ (nil for its own): the
           # colour each of its places shows, as the interpreter draws it (Native's #sprite_pixels).

@@ -32,6 +32,11 @@ module RubyGBA
             OVERLAP = "rt picture overlap" # two sprites' masks and where they meet, while they are tested
             GRID_UP = "rt picture grid up" # the number of the grid up, or being put up
             TINT = "rt picture tint" # what the colours are moved toward (TOWARD_*), the colour, and how far
+            # The sprites placed this pass, for a reader of the run: how many, then for each whose it
+            # is (one up), which picture, and where, x and y (16 bits each) — DRAWN_BYTES a sprite.
+            DRAWN = "rt picture drawn"
+            DRAWN_BYTES = 7
+            MOST_DRAWN = 40
 
             # How many of the grid's 32 rows are copied in one blank: their tiles and their cells'
             # colours, 512 bytes, which the console's own copy does in about a quarter of the blank.
@@ -49,6 +54,7 @@ module RubyGBA
               memory.reserve(OVERLAP, OVERLAP_BYTES)
               memory.reserve(GRID_UP, 1)
               memory.reserve(TINT, 4)
+              memory.reserve(DRAWN, 1 + (MOST_DRAWN * DRAWN_BYTES))
             end
 
             def emit(asm, memory, sprite_tiles:, background_tiles:)
@@ -245,6 +251,7 @@ module RubyGBA
               asm.label("rg_gbc_sprites_begin")
               asm.xor_a(:a)
               asm.load([memory[NEXT_SPRITE]], :a)
+              asm.load([memory[DRAWN]], :a)
               asm.ret
 
               asm.label("rg_gbc_sprites_end")
@@ -270,11 +277,11 @@ module RubyGBA
               asm.load(:a, [:hli])
               asm.load(:h, [:hl])
               asm.load(:l, :a)
-              (0..3).each do |i|
+              [args.call(0), args.call(1), args.call(2), args.call(3), args.call(3) + 2].each do |to|
                 asm.load(:a, [:hli])
-                asm.load_high(args.call(i), :a)
+                asm.load_high(to, :a)
                 asm.load(:a, [:hli])
-                asm.load_high(args.call(i) + 1, :a)
+                asm.load_high(to + 1, :a)
               end
               asm.jump_relative("rg_gbc_sprite_taken")
 
@@ -283,6 +290,30 @@ module RubyGBA
               asm.load(:b, 16)
               asm.call("rt_take_args")
               asm.label("rg_gbc_sprite_taken")
+              # Written down for a reader of the run: whose, which picture, where.
+              asm.load(:a, [memory[DRAWN]])
+              asm.cp_a(MOST_DRAWN)
+              asm.jump_relative(:nc, "rg_gbc_sprite_noted")
+              asm.load(:e, :a)
+              asm.inc(:a)
+              asm.load([memory[DRAWN]], :a)
+              asm.load(:l, :e)
+              asm.load(:h, 0)
+              3.times { asm.add_hl(:hl) }
+              asm.load(:a, :l) # × 8, less one: × 7
+              asm.sub_a(:e)
+              asm.load(:l, :a)
+              asm.load(:a, :h)
+              asm.sbc_a(0)
+              asm.load(:h, :a)
+              asm.load(:de, memory[DRAWN] + 1)
+              asm.add_hl(:de)
+              [args.call(3) + 1, args.call(3) + 2, args.call(3) + 3, args.call(1), args.call(1) + 1,
+               args.call(2), args.call(2) + 1].each do |from|
+                asm.load_high(:a, from)
+                asm.load([:hli], :a)
+              end
+              asm.label("rg_gbc_sprite_noted")
               asm.load_high(:a, args.call(0)) # the picture's entry: the table + 2 × its number
               asm.load(:l, :a)
               asm.load_high(:a, args.call(0) + 1)
