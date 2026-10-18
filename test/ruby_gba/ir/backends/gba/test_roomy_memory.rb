@@ -126,6 +126,94 @@ class TestRoomyMemory < Minitest::Test
                     "the author insisted, so it stayed however cold it looks"
   end
 
+  # --- data and code share the quick memory by one rule ---
+
+  # A ROUTINE THE AUTHOR INSISTED ON OUTRANKS A LIST NOBODY SAID ANYTHING ABOUT, however busy:
+  # the list moves to the roomy memory and the build goes on, where it used to stop because the
+  # list had taken the room first.
+  def test_an_insisted_routine_moves_a_list_out_rather_than_stop_the_build
+    rom = build("INSIST") do
+      screen :bitmap
+      hoard = list :hoard, capacity: 6500
+      total = var :total, 0
+      func(:tally, fast: true) { 200.times { total.add! 1 } }
+      game_loop do
+        hoard.push 1
+        call :tally
+      end
+    end
+
+    assert_includes rom.built.placement.funcs, :tally
+    assert_includes roomy_of(rom).collections.keys, :hoard
+  end
+
+  # ...and the list the build moved for it still holds what was put in it: a stripe as wide as
+  # what the game read back, the same on the console as on the interpreter.
+  private def insisting_beside_a_hoard
+    builder = Builder.new
+    builder.instance_eval do
+      screen :bitmap
+      hoard = list :hoard, capacity: 6500
+      total = var :total, 0
+      spin = var :spin, 0
+      func(:tally, fast: true) { 200.times { spin.add! 1 } }
+      clear_screen :black
+      repeat(8) { hoard.push 3 }
+      repeat(8) { |n| total.add! hoard[n] }
+      draw_rect_at 0, 10, total, 4, :green
+      game_loop { call :tally }
+    end
+    builder.finalize_program
+    builder.program
+  end
+
+  def test_a_list_moved_for_an_insisted_routine_plays_as_the_oracle_does
+    backend = GBA.new
+    backend.lower(insisting_beside_a_hoard)
+
+    assert_includes backend.roomy_memory_report.collections.keys, :hoard
+    assert_backends_agree(insisting_beside_a_hoard, frames: 4)
+  end
+
+  # A POOL GIVES WAY WHOLE. It is a list for each field and a few of its own, and a walk of it
+  # reads them side by side, so the build moves all of them or none — never the x of a thing to
+  # the memory that waits while its y stays in the quick one.
+  def test_a_pool_moved_for_an_insisted_routine_moves_all_its_columns
+    rom = build("POOLMOVE") do
+      screen :bitmap
+      rocks = pool :rock, x: 0, y: 0, capacity: 400
+      dust = list :dust, capacity: 5000
+      spin = var :spin, 0
+      func(:tally, fast: true) { 150.times { spin.add! 1 } }
+      game_loop do
+        rocks.spawn(x: 1, y: 2)
+        rocks.each { |rock| rock.x.add! 1 }
+        dust.push 1
+        call :tally
+      end
+    end
+    moved = roomy_of(rom).collections.keys.select { |name| name.to_s.include?("rock") }
+
+    refute_empty moved, "the pool is what gave way"
+    assert_equal %i[__poolfield_rock__x __poolfield_rock__y].to_set, moved.select { |name| name.to_s.start_with?("__poolfield") }.to_set
+  end
+
+  # A LIST NO FRAME TOUCHES GIVES WAY TO CODE A FRAME RUNS. Kept in the quick memory it buys
+  # nothing — nobody waits on it — and it used to hold the room the game loop wanted, so the
+  # whole frame ran from the cartridge.
+  def test_a_list_no_frame_touches_gives_way_to_the_game_loop
+    rom = build("GIVEWAY") do
+      screen :bitmap
+      cold = list :cold, capacity: 6500
+      spin = var :spin, 0
+      cold.push 1
+      game_loop { 300.times { spin.add! 1 } }
+    end
+
+    assert_includes rom.built.placement.funcs, GBA::Placement::FRAME_ROUTINE
+    assert_includes roomy_of(rom).collections.keys, :cold
+  end
+
   # A pool is one list per field, so it is the thing most likely to want this.
   def test_a_pool_can_be_given_room
     rom = build("POOL") do

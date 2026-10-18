@@ -17,13 +17,14 @@ module RubyGBA
         # that asked for more than fits did not build. Meanwhile a quarter of a megabyte
         # sat idle, touched by nothing but the audio mixer's two output buffers.
         #
-        # AND THE QUICK ONE IS ALSO WHERE THE HOT CODE GOES. Data is handed out first, so a
-        # big cold collection quietly pushes a routine the frame spends its time in back
-        # into the cartridge, where it runs about two and a third times slower. That is
-        # invisible from the program and it is the expensive half of this.
+        # AND THE QUICK ONE IS ALSO WHERE THE HOT CODE GOES. Data used to be handed out first,
+        # so a big cold collection quietly pushed a routine the frame spends its time in back
+        # into the cartridge, where it runs about two and a third times slower — invisible from
+        # the program, and the expensive half of this. Code and collections are now weighed
+        # against each other by one rule (below), before any collection is given its place.
         #
-        # SO THE RULE IS: everything stays in the quick memory until it will not fit, and
-        # then the COLDEST things move — not the biggest, and not the last declared.
+        # AMONG THE COLLECTIONS THE RULE IS: everything stays in the quick memory until it will
+        # not fit, and then the COLDEST things move — not the biggest, and not the last declared.
         #
         #   what the author asked for      `fast: false` says "I know this is cold"; those
         #                                  move first, whatever their size.
@@ -36,6 +37,11 @@ module RubyGBA
         #
         # `fast: true` keeps one where it is and takes it out of the reckoning entirely, so
         # an author who knows better than the rule can say so.
+        #
+        # AGAINST THE CODE that wants the same room, each collection is a claim like a routine
+        # (see Placement#collection_claims, a pool being one collection): what the author
+        # insisted on goes first, then the collections a frame touches, then the routines the
+        # build picks, then the collections no frame touches.
         #
         # WHAT A FRAME TOUCHES is read off the program rather than guessed: the game loop's
         # body, and every routine reachable from it. That is a structural fact — this

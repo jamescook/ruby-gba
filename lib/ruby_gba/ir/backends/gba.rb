@@ -595,6 +595,10 @@ module RubyGBA
                            collections: placed)
         end
 
+        # The collections this pass put in the quick memory that the framework may still move,
+        # with the room each holds there. Read off the throwaway measuring pass.
+        def movable_quick_lists = @lists.movable_quick_lists
+
         # WHERE EACH ROUTINE ENDED UP, as the span of addresses it really occupies while the
         # console runs. This is what turns a profile's raw addresses back into the author's own
         # names, and nothing can recover it from the finished bytes afterwards.
@@ -711,9 +715,12 @@ module RubyGBA
         # throwaway measuring pass inside {Placement}#choose_fast_funcs passes it, so that
         # pass cannot set off another one. +variables_first+ is that pass's too: variables
         # to give addresses to before the program names any, nearest the base first (see
-        # {Placement}#variables_kept_routines_want_nearer).
-        def lower(program, fast_funcs: nil, variables_first: [])
+        # {Placement}#variables_kept_routines_want_nearer). +lists_to_roomy+ is that pass's as
+        # well: collections the plan gave the quick memory's room away from (see
+        # {Placement}#choose_fast_funcs).
+        def lower(program, fast_funcs: nil, variables_first: [], lists_to_roomy: Set.new)
           variables_first.each { |name| var_addr(name) }
+          @lists_to_roomy = lists_to_roomy
           @fast_funcs = fast_funcs || choose_fast_funcs(program)
           allocate_where_words # where each scene's own routines are, side by side, before any other variable
           # The throwaway measuring pass keeps the phase its caller named, since from the
@@ -1335,15 +1342,17 @@ module RubyGBA
         # into the roomy one.
         #
         # Nothing is moved once it is placed — a collection simply takes whichever memory
-        # has room when its turn comes. So the ORDER of the turns is the whole decision,
-        # and it must not be declaration order: a game with a lot of state declares its
+        # has room when its turn comes. So among the collections the ORDER of the turns is
+        # the decision (what code gets is settled before, by {QuickMemoryPlan}), and it must
+        # not be declaration order: a game with a lot of state declares its
         # big cold tables early, those take the quick memory, and the things a frame walks
         # every pass land in the memory that makes the processor wait. Which is the wrong
         # way round, and invisible from the program.
         #
         # So the turns go: what a frame touches, then what it does not, then what the
         # author said is cold. See Roomy for how "what a frame touches" is read off the
-        # program rather than guessed at.
+        # program rather than guessed at. A collection the plan gave the room away from (see
+        # {QuickMemoryPlan}) goes to the roomy memory whatever its turn.
         def register_lists_hot_first(program, declarations)
           roomy = Roomy.new(program)
           ranked = declarations.sort_by do |node, _ring|
@@ -1351,8 +1360,8 @@ module RubyGBA
             [asked == false ? 2 : (asked || roomy.hot?(node.name) ? 0 : 1), -node.capacity]
           end
           ranked.each do |node, ring|
-            @lists.register_list(node.name, node.capacity, ring: ring,
-                                                           width: node.width || :word, fast: node.fast)
+            @lists.register_list(node.name, node.capacity, ring: ring, width: node.width || :word,
+                                                           fast: node.fast, roomy: @lists_to_roomy.include?(node.name))
           end
         end
 

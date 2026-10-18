@@ -5,9 +5,10 @@ module RubyGBA
     module Backends
       class GBA
         # WHAT GOES IN THE CONSOLE'S QUICK MEMORY, worked out from plain numbers: each routine
-        # that wants a place there, how big it is, which scene runs it, and whether the author
-        # insisted on it. Nothing here lowers anything or reads the program; {Placement} measures
-        # the routines and hands them over, and emits what comes back.
+        # or collection that wants a place there, how big it is, which scene runs it, and whether
+        # the author insisted on it. Nothing here lowers anything or reads the program;
+        # {Placement} measures them and hands them over, and emits what comes back. A collection
+        # is weighed like a routine with no calls that only the whole game's room can hold.
         #
         # THE RULE. What the author insisted on (`fast: true` on a routine, a scene or a save
         # record) goes in first, in the room of the scene that runs it. Then whatever the build
@@ -21,7 +22,7 @@ module RubyGBA
         # a word in every scene saying where each of its routines is, so it is used only when one
         # set for the whole game cannot hold what the author insisted on, or leaves something out.
         module QuickMemoryPlan
-          # One routine that wants a place.
+          # One routine, or one collection, that wants a place.
           #
           # +bytes+ is what it is charged, as though every call it makes crossed between the two
           # memories. +calls+ names the routine each such call goes to, one entry a call, and
@@ -34,9 +35,10 @@ module RubyGBA
           # +insisted+ is what the author wrote to insist on it ("`save_data :file, fast: true`"),
           # or nil for a routine the build is free to leave out.
           #
-          # +every_frame+ marks what every frame runs — the game loop, the routine the console
-          # interrupts into, the routines placed with the game loop. A set per scene is not used
-          # where it would leave one of those out that one set for the whole game kept.
+          # +every_frame+ marks what every frame runs or reads — the game loop, the routine the
+          # console interrupts into, the routines placed with the game loop, a collection a frame
+          # touches. A set per scene is not used where it would leave one of those out that one
+          # set for the whole game kept.
           #
           # +scene_work+ is what a frame of each scene was measured to spend in it, by scene
           # routine — empty for a routine measured in no scene's counts, nil for one never
@@ -312,7 +314,7 @@ module RubyGBA
               where = shortfall.scene == :game ? "That" : "While the #{scene} scene is up, that"
               "#{claim.insisted} asks to keep code in the console's quick memory. #{where} code needs " \
                 "#{shortfall.needed} bytes, and only #{[shortfall.left, 0].max} are free. To fix this, use " \
-                "fewer variables and lists, or remove `fast: true` from this line or from another one."
+                "fewer variables, or remove `fast: true` from this line or from another one."
             end
           end
         end

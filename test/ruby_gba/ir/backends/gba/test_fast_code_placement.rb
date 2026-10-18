@@ -687,7 +687,7 @@ class TestFastCodePlacement < Minitest::Test
     builder.instance_eval do
       screen :bitmap
       clear_screen :black
-      list :big, capacity: 7000 # eats nearly all of the quick memory
+      list :big, capacity: 7000, fast: true # eats nearly all of the quick memory, and insists on it
       big = var :b, 0
       func(:work, fast: true) { 400.times { big.add! 1 } }
       game_loop { wait_vblank; call :work }

@@ -199,9 +199,20 @@ module RubyGBA
             insisted = funcs_marked(program, true)
             return insisted if insisted.empty? && !@fast_code
 
-            first = measure_routines(program)
-            probe = first
+            probe = measure_routines(program)
             chosen = choose_from_measurement(program, probe, insisted)
+            # MEASURED AGAIN FOR EACH COLLECTION THE PLAN GAVE THE ROOM AWAY FROM. A collection in
+            # the roomy memory is reached by another address, which can change the size of every
+            # routine that touches it, so the sizes the plan chose by are of the other layout. The
+            # moved ones stay moved, and only those left in the quick memory are weighed again,
+            # so this ends: each time round moves more, or stops.
+            until (more = @lists_left_out - @lists_to_roomy).empty?
+              @lists_to_roomy |= more
+              @measuring_after = :lists
+              probe = measure_routines(program)
+              chosen = choose_from_measurement(program, probe, insisted)
+            end
+            first = probe
             nearer = variables_kept_routines_want_nearer(probe, chosen + routines_in_sets)
             unless nearer.empty?
               # MEASURED AGAIN, with those variables where they are going to be. Moving a
@@ -210,15 +221,21 @@ module RubyGBA
               # is the only charge that is of the program really built; a game pays for it
               # only when it has more variables than the base register reaches AND keeps a
               # routine that uses one past the line.
-              @measuring_again = true # the second time is said as such (see #measuring_phase_name)
+              @measuring_after = :variables # the second time is said as such (see #measuring_phase_name)
               probe = measure_routines(program, variables_first: nearer)
+              # WHICH VARIABLES MOVED NEARER followed what the build picked, and that follows what
+              # the measuring run found — so a build that stopped here and not on the measurement
+              # before would stop on a measurement, which only what the author insisted on may do
+              # (see {QuickMemoryPlan}). And a plan here that gave away the room of one more
+              # collection would be of a layout no pass measured. Either way the layout before
+              # fitted, so it is kept.
               begin
                 chosen = choose_from_measurement(program, probe, insisted)
+                kept_layout = (@lists_left_out - @lists_to_roomy).empty?
               rescue QuickMemoryFull
-                # WHICH VARIABLES MOVED NEARER followed what the build picked, and that follows
-                # what the measuring run found — so a build that stopped here and not on the first
-                # measurement would stop on a measurement, which only what the author insisted on
-                # may do (see {QuickMemoryPlan}). The first layout fitted, so it is kept.
+                kept_layout = false
+              end
+              unless kept_layout
                 probe = first
                 chosen = choose_from_measurement(program, probe, insisted)
               end
@@ -227,15 +244,16 @@ module RubyGBA
             chosen
           end
 
-          # Lower the program once with nothing moved, to learn how big each routine comes out
+          # Lower the program once with no routine moved, to learn how big each routine comes out
           # and how much memory is left. +variables_first+ are given their addresses before
-          # anything else names a variable.
+          # anything else names a variable; the collections the plan moved so far are in the
+          # roomy memory.
           def measure_routines(program, variables_first: [])
             # The probe reports through the same object this one does, so the measuring pass
             # shows its own progress rather than going quiet for as long as a lowering takes.
             @progress.step(measuring_phase_name)
             probe = self.class.new(fast_cartridge: @fast_cartridge, progress: @progress)
-            probe.lower(program, fast_funcs: Set.new, variables_first: variables_first)
+            probe.lower(program, fast_funcs: Set.new, variables_first: variables_first, lists_to_roomy: @lists_to_roomy)
             probe
           end
 
@@ -261,15 +279,17 @@ module RubyGBA
             used.any? { |name| far.key?(name) } ? used : []
           end
 
-          # WHAT THE TWO MEASURING PHASES ARE CALLED, the first time and the second. The second is
-          # a different measurement — of the program with some variables moved nearer — so a
-          # build that says the same words twice looks as if it ran a phase twice by mistake.
-          def measuring_phase_name
-            @measuring_again ? "measuring again, variables moved nearer" : "measuring the routines"
-          end
+          # WHAT THE MEASURING PHASES ARE CALLED, the first time and the times after. A later one is
+          # a different measurement — of the program with some collections moved out, or some
+          # variables moved nearer — so a build that says the same words twice looks as if it ran
+          # a phase twice by mistake.
+          MEASURING_AFTER = { lists: "measuring again, collections moved out",
+                              variables: "measuring again, variables moved nearer" }.freeze
+
+          def measuring_phase_name = MEASURING_AFTER.fetch(@measuring_after, "measuring the routines")
 
           def choosing_phase_name
-            @measuring_again ? "choosing again" : "choosing what goes in the quick memory"
+            @measuring_after ? "choosing again" : "choosing what goes in the quick memory"
           end
 
           # The variables the routine +name+ names, read off this pass.
@@ -302,21 +322,29 @@ module RubyGBA
             dispatch = quick_memory_dispatch(program)
             scenes = dispatch ? dispatch.clauses.map(&:last).uniq : []
             owners = dispatch ? scene_owners(program, scenes, dispatch) : {}
+            lists = probe.movable_quick_lists
+            collections = lists.keys.group_by { |name| collection_of(name) }
+            claims = quick_memory_claims(program, wanted, insisted, sizes, owners, scenes) +
+                     collection_claims(program, collections, lists)
             # Every allocation is rounded up to a whole word, so the gap the probe leaves is
-            # the gap there really is — there is no alignment slop to keep back for.
-            plan = QuickMemoryPlan.choose(quick_memory_claims(program, wanted, insisted, sizes, owners, scenes),
-                                          room: probe.iwram_free,
+            # the gap there really is — there is no alignment slop to keep back for. The
+            # collections the plan weighs are given their room back to be weighed for.
+            plan = QuickMemoryPlan.choose(claims_in_planning_order(claims),
+                                          room: probe.iwram_free + lists.values.sum,
                                           dispatch: dispatch && QuickMemoryPlan::Dispatch.new(scenes: scenes, clauses: dispatch.clauses.size))
+            @lists_left_out = collections.reject { |collection, _| plan.kept?(list_claim_name(collection)) }
+                                         .values.flatten.to_set
             adopt_scene_sets(plan, dispatch, scenes, owners)
             # Kept for the report: what each routine came to, and what a reader will want to
-            # know afterwards is why theirs is not on the list.
-            @passed_over = plan.missed.map do |missed|
+            # know afterwards is why theirs is not on the list. A collection the plan left out is
+            # said by the roomy memory's own report.
+            @passed_over = plan.missed.reject { |missed| list_claim?(missed.name) }.map do |missed|
               PassedOver.new(name: missed.name, bytes: missed.bytes, room: missed.room,
                              measured: @routine_profile&.busiest_share_of(missed.name),
                              scene: missed.scene && scene_name(missed.scene))
             end
-            @routine_sizes = sizes.merge(plan.charged)
-            plan.resident
+            @routine_sizes = sizes.merge(plan.charged.reject { |name, _| list_claim?(name) })
+            plan.resident.reject { |name| list_claim?(name) }.to_set
           end
 
           # The memory address a func runs from once the program is lowered — its place in
@@ -884,6 +912,48 @@ module RubyGBA
 
             @routine_profile.scenes.to_h { |scene, counts| [:"#{SceneQuickMemory::SCENE_PREFIX}#{scene}", counts.fetch(name, 0)] }
           end
+
+          # A COLLECTION IN THE QUICK MEMORY IS A CLAIM ON IT TOO, weighed by the same rule as the
+          # code: a read from the roomy memory waits about six times as long, as a routine left in
+          # the cartridge runs slower. Each the author said nothing about is one, named apart from
+          # every routine (see #list_claim_name). +collections+ is the lists of each, by
+          # collection, and +lists+ the room each list holds.
+          def collection_claims(program, collections, lists)
+            touched = Roomy.touched_every_frame(program)
+            collections.map do |collection, names|
+              QuickMemoryPlan::Claim.new(name: list_claim_name(collection), bytes: names.sum { |name| lists.fetch(name) },
+                                         every_frame: names.any? { |name| touched.include?(name) })
+            end
+          end
+
+          # THE COLLECTION A LIST IS PART OF: a pool for each of its columns and the lists it keeps
+          # for itself, since a walk of it reads them side by side and they move together or not
+          # at all; the list itself for any other.
+          def collection_of(name)
+            kind, parts = Messages::MadeNames.read(name)
+            %i[pool_field pool_part].include?(kind) ? :"pool #{parts[:pool]}" : name
+          end
+
+          # WHERE A COLLECTION COMES AMONG THE CLAIMS: after what the author insisted on, one a
+          # frame touches ahead of the routines the build would pick, and one no frame touches
+          # after all of them. What a frame touches is waited on every frame, as the code is; but
+          # nothing measures how much a frame reads a collection the way it measures a routine,
+          # so nothing can say the game loop is worth more than a list it walks, and a busy one
+          # keeps the place it always had. One no frame touches is waited on by nobody, and it
+          # holds room a routine a frame runs would use.
+          def claims_in_planning_order(claims)
+            insisted, rest = claims.partition(&:insisted)
+            lists, routines = rest.partition { |claim| list_claim?(claim.name) }
+            touched, untouched = lists.partition(&:every_frame)
+            insisted + touched + routines + untouched
+          end
+
+          # A collection's claim is named so no routine can share it: a routine's name is one word.
+          LIST_CLAIM_PREFIX = "collection "
+
+          def list_claim_name(collection) = :"#{LIST_CLAIM_PREFIX}#{collection}"
+
+          def list_claim?(name) = name.to_s.start_with?(LIST_CLAIM_PREFIX)
 
           # The routines of +ranked+ the build may keep: not kept out by their author, not
           # holding raw bytes, and measured at all.

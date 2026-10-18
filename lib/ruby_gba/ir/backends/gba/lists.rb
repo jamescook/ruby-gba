@@ -306,8 +306,9 @@ module RubyGBA
           #
           # +fast+ is what the author said about where it should live: false for "I know
           # this is cold — give it room", true to insist on the quick memory, nil to let the
-          # framework decide (see #place_list).
-          def register_list(name, capacity, ring: true, width: :word, fast: nil)
+          # framework decide (see #place_list). +roomy+ is the framework's own decision, made
+          # by {QuickMemoryPlan}, that the room is worth more to something else.
+          def register_list(name, capacity, ring: true, width: :word, fast: nil, roomy: false)
             if (existing = @lists[name])
               return if existing[:capacity] == capacity && existing[:width] == width
 
@@ -321,10 +322,10 @@ module RubyGBA
             # Rounded up to a whole word so the NEXT thing allocated stays word-aligned — a
             # narrow list is allowed to be an odd number of bytes long, but nothing after it is.
             want = ((slots * bytes) + 3) & ~3
-            base, roomy = place_list(name, want, fast)
+            base, in_roomy = place_list(name, want, roomy ? false : fast)
             # Placed before its counters are named, since where they go follows where it went.
             @lists[name] = { capacity: capacity, ring: ring, mask: slots - 1, base: base,
-                             width: width, bytes: bytes, roomy: roomy }
+                             width: width, bytes: bytes, roomy: in_roomy, want: want, fast: fast }
             counters = ring ? [head_var(name), length_var(name)] : [length_var(name)] # a plain array's head can never move
             counters.each do |counter|
               @counter_owners[counter] = name
@@ -348,10 +349,12 @@ module RubyGBA
           # need to be there, or there is no longer room — and then the roomy one, which is
           # eight times the size and about six times the wait on a read.
           #
-          # Nothing is moved to make space: the caller registers the collections a frame
-          # touches FIRST (see Roomy), so whatever is left when the quick memory fills is
-          # the coldest thing the program has. Running out of BOTH is a real ceiling, and
-          # the message says which one gave way.
+          # Nothing is moved to make space for another collection: the caller registers the
+          # collections a frame touches FIRST (see Roomy), so whatever is left when the quick
+          # memory fills is the coldest thing the program has. Room for CODE is weighed before
+          # this runs (see {QuickMemoryPlan}), and a collection that gives way to code comes
+          # here already said to go to the roomy memory. Running out of BOTH is a real
+          # ceiling, and the message says which one gave way.
           def place_list(name, want, fast)
             if fast == false || !@memory.room_for?(want)
               addr = @memory.alloc_roomy(want)
@@ -369,6 +372,13 @@ module RubyGBA
               "console's work memories has room left. It has 32K of quick memory (which also holds the " \
               "code kept there) and 256K of roomy memory, and both are full. Use a smaller capacity, or " \
               "narrower items (`width: :byte`)."
+          end
+
+          # THE COLLECTIONS IN THE QUICK MEMORY THAT THE FRAMEWORK MAY STILL MOVE, and the room
+          # each holds there: every one the author said nothing about. {Placement} weighs them
+          # against the code that wants the same room.
+          def movable_quick_lists
+            @lists.reject { |_name, info| info[:roomy] || !info[:fast].nil? }.transform_values { |info| info[:want] }
           end
 
           # The collections that ended up in the roomy memory, and how big each is — the
