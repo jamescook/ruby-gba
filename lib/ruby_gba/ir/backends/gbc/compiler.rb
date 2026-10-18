@@ -462,8 +462,8 @@ module RubyGBA
                                               "rg_le" => "rg_gt", "rg_eq" => "rg_ne", "rg_ne" => "rg_eq" })
 
           # +node+ said more simply where a number written in the program makes part of it nothing:
-          # x × 1 and x + 0 are x, and a test that comes to 1 or 0, asked whether it is 1 (or not
-          # 0), is the test itself — so `active == 1` of a sprite whose `active` is `1 * (state ==
+          # x × 1 and x + 0 are x, two tests multiplied are both of them, and a test that comes to 1
+          # or 0, asked whether it is 1 (or not 0), is the test itself — so `active == 1` of a sprite whose `active` is `1 * (state ==
           # 0)` is one comparison of `state` with 0.
           def simplified(node)
             return node unless node.is_a?(C::Call)
@@ -475,6 +475,8 @@ module RubyGBA
             when "rg_mul"
               return args[1] if numbers[0] == 1
               return args[0] if numbers[1] == 1
+              # Two tests multiplied are 1 when both hold and 0 when not: both of them.
+              return C::Call.new(function: C::Name.new("rg_both"), args: args) if args.all? { |arg| yes_or_no?(arg) }
             when "rg_add"
               return args[1] if numbers[0]&.zero?
               return args[0] if numbers[1]&.zero?
@@ -629,6 +631,7 @@ module RubyGBA
               return call_routine(@routines.fetch(name))
             end
             return call_one_of(call.args.first) if name == "rg_call_routine"
+            return if name == "rg_mul" && multiplied_cheaply?(call.args)
 
             if WITH_HL.key?(name) then binary(call, WITH_HL.fetch(name))
             elsif ALONE.key?(name)
@@ -642,6 +645,39 @@ module RubyGBA
             else
               runtime_call(name, call.args)
             end
+          end
+
+          # A product worked out without the runtime's multiply where one side makes it easy: by a
+          # power of two written in the program, a shift of the four bytes a place at a time; by
+          # a test (1 or 0), the other side, or nought without working it out at all. True when it
+          # was done so.
+          def multiplied_cheaply?(args)
+            args.each_with_index do |side, i|
+              other = args[1 - i]
+              number = folded(side)
+              if number && number.positive? && (number & (number - 1)).zero? && number <= 16
+                value(other)
+                number.bit_length.pred.times do
+                  @asm.sla(:e)
+                  @asm.rl(:d)
+                  @asm.rl(:c)
+                  @asm.rl(:b)
+                end
+                return true
+              end
+              next unless yes_or_no?(side) && quiet?(other)
+
+              nought = fresh("times_nought")
+              done = fresh("times_done")
+              jump_unless(side, nought)
+              value(other)
+              @asm.jump(done)
+              @asm.label(nought)
+              load_constant(0)
+              @asm.label(done)
+              return true
+            end
+            false
           end
 
           def binary(call, routine)

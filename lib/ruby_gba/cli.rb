@@ -152,9 +152,14 @@ module RubyGBA
       different build of the game is refused, since all of its addresses have moved.
 
       --format=json prints the same numbers as data, for comparing two builds.
+
+      --console=gbc profiles the game's Game Boy Color cartridge instead: where its frames went,
+      by routine, the frame rate it played at, and how much of the time it slept.
     TEXT
     option :format, banner: "NAME", default: "human",
                     desc: "What to print: human (the report) or json (the same numbers as data)"
+    option :console, banner: "NAME", default: "gba",
+                     desc: "Which console's cartridge to profile: gba, or gbc for a game built for the Color too"
     option :frames, type: :numeric, banner: "N", default: RubyGBA::Diagnostics::Profiler::FRAMES,
                     desc: "How many frames to measure over"
     option :settle, type: :numeric, banner: "N", default: RubyGBA::Diagnostics::Profiler::SETTLE,
@@ -173,9 +178,9 @@ module RubyGBA
       game = load_game(game_file)
       # Built the same way `build` builds it — measured placement included — so this reports on
       # the cartridge somebody would actually ship, not a differently-placed one.
-      game.build_rom(settings: given_settings).profile(format: format, frames: options[:frames],
-                             settle: options[:settle], scene: options[:scene],
-                             from: options[:from], keys: held_buttons || [])
+      game.build_rom(settings: given_settings, console: options[:console].to_sym)
+          .profile(format: format, frames: options[:frames], settle: options[:settle], scene: options[:scene],
+                   from: options[:from], keys: held_buttons || [])
     rescue ArgumentError => e
       raise Thor::Error, e.message
     end

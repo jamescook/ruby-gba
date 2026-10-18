@@ -21,6 +21,7 @@ require_relative "diagnostics/build_report" # the exact half of a profile: what 
 require_relative "diagnostics/full_collections" # every list and pool, and how to hold each one full
 require_relative "diagnostics/split_hints" # which part of a routine too big for the quick memory to make a func of
 require_relative "diagnostics/profiler" # ...and the measured half: where the frames went
+require_relative "diagnostics/gbc_profiler" # ...and where a Game Boy Color cartridge's went
 require_relative "diagnostics/hand_overs" # which scenes run late on the frame the game hands over to them
 require_relative "diagnostics/routine_profile"
 require_relative "diagnostics/cartridge_file" # a cartridge that is only its file, with no record of its build

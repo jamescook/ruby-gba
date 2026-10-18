@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+require "json"
+
 module RubyGBA
   module Cartridge
     # A GAME BOY COLOR CARTRIDGE: the banks the GBC lowering linked, with the header the console
@@ -54,6 +56,27 @@ module RubyGBA
       def title = @bytes.byteslice(TITLE_AT, TITLE_LENGTH).delete("\0")
 
       def write(path) = ROM.write_bytes(path, @bytes)
+
+      # WHERE ITS FRAMES WENT: the cartridge run in the emulator (Diagnostics::GBCProfiler), reported
+      # for a person or as JSON. +keys+ are held from power-on, and +settle+ frames run before the
+      # +frames+ measured. The Advance's profile can be told a scene or a saved moment to measure;
+      # the Color's cannot yet, and says so.
+      def profile(format: :human, out: $stdout, frames: Diagnostics::GBCProfiler::FRAMES,
+                  settle: Diagnostics::GBCProfiler::SETTLE, keys: [], scene: nil, from: nil)
+        if scene || from
+          raise ArgumentError, "a Game Boy Color profile measures the game as it plays from power-on, and cannot be " \
+                               "told a #{scene ? 'scene' : 'saved moment'} yet. To fix this, leave out " \
+                               "#{scene ? '--scene' : '--from'}, and use --keys and --settle to reach the moment."
+        end
+
+        result = Diagnostics::GBCProfiler.run(self, frames: frames, settle: settle, keys: keys)
+        case format
+        when :human then Diagnostics::GBCProfiler.render(result, out: out)
+        when :json then out.puts(JSON.generate(result.to_h))
+        else raise ArgumentError, "unknown profile format #{format.inspect} (use :human or :json)"
+        end
+        result
+      end
 
       # Whether the header checksum and the logo are what the console checks for.
       def valid_header? = @bytes.getbyte(HEADER_CHECKSUM_AT) == header_checksum && logo_intact?

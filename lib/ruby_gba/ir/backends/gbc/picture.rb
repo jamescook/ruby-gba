@@ -261,10 +261,25 @@ module RubyGBA
             pose = said.is_a?(C::Int) ? said : local_name("pose")
             in_range = call("rg_below", pose, C::Int.new(obj.poses.length))
             picture, attributes = picture_and_attributes_drawn(obj, pose)
-            add = eval_call("rg_gbc_sprite", picture, value(obj.x), value(obj.y), attributes)
+            add = fixed_sprite(obj, pose) ||
+                  eval_call("rg_gbc_sprite", picture, value(obj.x), value(obj.y), attributes)
             kept = said.is_a?(C::Int) ? [] : [C::Local.new(name: pose, value: said)]
             C::If.new(condition: call("rg_eq", value(obj.active), C::Int.new(1)),
                       body: [C::Block.new([*kept, C::If.new(condition: in_range, body: [add])])])
+          end
+
+          # A sprite whose picture, place and colours are all written in the program — a letter of
+          # tiled text — is placed from a record of the four kept in the cartridge
+          # (rg_gbc_sprite_fixed), with nothing worked out as the game runs.
+          def fixed_sprite(obj, pose)
+            x = value(obj.x)
+            y = value(obj.y)
+            return nil unless [x, y, pose].all?(C::Int) && Array(obj.recolors).empty?
+
+            name = obj.poses.fetch(pose.value)
+            attributes = palette_of(name, nil) | (behind_scenery?(obj) ? Console::GBCHardware::OBJ_BEHIND : 0)
+            record = [picture_number(name), x.value, y.value, attributes]
+            eval_call("rg_gbc_sprite_fixed", drawing_array("fixed_sprite", "int16_t", record))
           end
 
           def behind_scenery?(obj)

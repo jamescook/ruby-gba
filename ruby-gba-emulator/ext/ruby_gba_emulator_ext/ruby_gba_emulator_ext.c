@@ -2573,11 +2573,13 @@ mgba_core_profile_gb(VALUE self, VALUE frames_v)
         rb_raise(rb_eNoMemError, "no room to count a profile");
     }
     uint64_t halted = 0, total = 0;
-    int32_t frame_c = core->frameCycles(core);
-    for (long f = 0; f < frames; ++f) {
-        uint64_t start = mTimingGlobalTime(&gb->timing);
-        long guard = 0;
-        while (mTimingGlobalTime(&gb->timing) - start < (uint64_t)frame_c && ++guard < (long)frame_c * 4) {
+    /* Frames are counted as the screen draws them: in double speed the processor's clock runs
+     * twice as fast as the frame's, so a frame's worth of cycles is not a frame. */
+    uint32_t until = core->frameCounter(core) + (uint32_t)frames;
+    long guard = 0;
+    long most = (long)core->frameCycles(core) * 8 * (frames + 1);
+    {
+        while (core->frameCounter(core) != until && ++guard < most) {
             uint64_t before = mTimingGlobalTime(&gb->timing);
             int was_halted = gb->cpu->halted;
             uint16_t pc = gb->cpu->pc;
@@ -2585,7 +2587,7 @@ mgba_core_profile_gb(VALUE self, VALUE frames_v)
             core->step(core);
             uint64_t took = mTimingGlobalTime(&gb->timing) - before;
             total += took;
-            if (was_halted)
+            if (was_halted || gb->cpu->halted) /* asleep, or the step that went to sleep and slept */
                 halted += took;
             else if (pc >= 0x4000 && pc < 0x8000 && bank < GB_PROFILE_BANKS)
                 banked[(size_t)bank * 0x4000 + (pc - 0x4000)] += (uint32_t)took;

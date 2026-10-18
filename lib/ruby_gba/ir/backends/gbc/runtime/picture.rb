@@ -263,10 +263,26 @@ module RubyGBA
               # pieces — a count, then for each its dx, dy, tile and bank. The attributes are the
               # palette and whether it is drawn behind the background (OBJ_BEHIND), as the sprite
               # table keeps them.
+              # rg_gbc_sprite_fixed(record): the same, from a record in the cartridge of the four
+              # numbers, sixteen bits each, put where rg_gbc_sprite's numbers are put.
+              asm.label("rg_gbc_sprite_fixed")
+              asm.load_hl_sp(2)
+              asm.load(:a, [:hli])
+              asm.load(:h, [:hl])
+              asm.load(:l, :a)
+              (0..3).each do |i|
+                asm.load(:a, [:hli])
+                asm.load_high(args.call(i), :a)
+                asm.load(:a, [:hli])
+                asm.load_high(args.call(i) + 1, :a)
+              end
+              asm.jump_relative("rg_gbc_sprite_taken")
+
               asm.label("rg_gbc_sprite")
               asm.load_hl_sp(2)
               asm.load(:b, 16)
               asm.call("rt_take_args")
+              asm.label("rg_gbc_sprite_taken")
               asm.load_high(:a, args.call(0)) # the picture's entry: the table + 2 × its number
               asm.load(:l, :a)
               asm.load_high(:a, args.call(0) + 1)

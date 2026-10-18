@@ -884,8 +884,9 @@ module RubyGBA
             def emit_scan(asm, memory, quick)
               h = Console::GBCHardware
               at = memory[SCRATCH]
-              read = at       # 16 bits: how far along a list
+              read = at       # 16 bits: where the list being walked has got to
               kept = at + 2   # 16 bits: how many of the own list are kept
+              left = at + 4   # 16 bits: how many of its entries are left
               asm.label("rt_paint_scan")
               asm.load(:a, [memory[SCREEN_KIND]])
               asm.cp_a(PAINTED)
@@ -930,13 +931,11 @@ module RubyGBA
               # at the clearing colour if not.
               asm.label("rt_paint_scan_own")
               asm.xor_a(:a)
-              %i[read kept].each do |which|
-                place = which == :read ? read : kept
-                asm.load([place], :a)
-                asm.load([place + 1], :a)
-              end
-              asm.label("rt_paint_scan_own_next")
+              asm.load([kept], :a)
+              asm.load([kept + 1], :a)
               asm.load(:hl, memory[OWN_LIST])
+              asm.call("rt_paint_list_begin")
+              asm.label("rt_paint_scan_own_next")
               asm.call("rt_paint_list_entry")
               asm.jump(:nc, "rt_paint_scan_own_done")
               asm.call("rt_paint_state_now") # Z: painted in this generation
@@ -973,11 +972,9 @@ module RubyGBA
 
               # Every tile painted since the pass before.
               asm.label("rt_paint_scan_dirty")
-              asm.xor_a(:a)
-              asm.load([read], :a)
-              asm.load([read + 1], :a)
-              asm.label("rt_paint_scan_dirty_next")
               asm.load(:hl, memory[DIRTY_LIST])
+              asm.call("rt_paint_list_begin")
+              asm.label("rt_paint_scan_dirty_next")
               asm.call("rt_paint_list_entry")
               asm.jump(:nc, "rt_paint_scan_dirty_done")
               asm.call("rt_paint_state_now")
@@ -1014,43 +1011,47 @@ module RubyGBA
               asm.load_high(h::SVBK, :a)
               asm.ret
 
-              # Entry number +read+ of the list at HL, and +read+ moved on: C = the tile in its bank,
-              # E = the bank's number among BANKS, that bank in view. Carry clear past the last.
-              asm.label("rt_paint_list_entry")
+              # Walking a list: rt_paint_list_begin with HL = the list, then each rt_paint_list_entry
+              # hands back the next entry — C = the tile in its bank, E = the bank's number among
+              # BANKS, that bank in view — with carry clear once there are none left.
+              asm.label("rt_paint_list_begin")
               asm.load(:a, [:hli])
-              asm.load(:c, :a)
+              asm.load([left], :a)
               asm.load(:a, [:hli])
-              asm.load(:b, :a) # BC = how many
-              asm.load(:a, [read])
-              asm.load(:e, :a)
-              asm.load(:a, [read + 1])
-              asm.load(:d, :a)
-              asm.load(:a, :e)
-              asm.cp_a(:c)
-              asm.jump_relative(:nz, "rt_paint_list_entry_there")
-              asm.load(:a, :d)
-              asm.cp_a(:b)
-              asm.jump_relative(:nz, "rt_paint_list_entry_there")
-              asm.and_a(:a)
-              asm.ret
-              asm.label("rt_paint_list_entry_there")
-              asm.push(:de)
-              asm.inc(:de)
-              asm.load(:a, :e)
+              asm.load([left + 1], :a)
+              asm.load(:a, :l)
               asm.load([read], :a)
-              asm.load(:a, :d)
+              asm.load(:a, :h)
               asm.load([read + 1], :a)
-              asm.pop(:de)
-              asm.sla(:e)
-              asm.rl(:d)
-              asm.add_hl(:de)
+              asm.ret
+
+              asm.label("rt_paint_list_entry")
+              asm.load(:hl, left)
+              asm.load(:a, [:hli])
+              asm.or_a([:hl])
+              asm.ret(:z) # none left: the OR leaves carry clear
+              asm.dec(:hl)
+              asm.load(:a, [:hl])
+              asm.sub_a(1)
+              asm.load([:hli], :a)
+              asm.load(:a, [:hl])
+              asm.sbc_a(0)
+              asm.load([:hl], :a)
+              asm.load(:a, [read])
+              asm.load(:l, :a)
+              asm.load(:a, [read + 1])
+              asm.load(:h, :a)
               asm.load(:a, [:hli])
               asm.load(:c, :a)
-              asm.load(:a, [:hl])
+              asm.load(:a, [:hli])
               asm.and_a(3)
               asm.load(:e, :a)
               asm.add_a(BANKS.first)
               asm.load_high(h::SVBK, :a)
+              asm.load(:a, :l)
+              asm.load([read], :a)
+              asm.load(:a, :h)
+              asm.load([read + 1], :a)
               asm.scf
               asm.ret
 
@@ -1114,17 +1115,18 @@ module RubyGBA
 
               # Z when tile C is as last sent. Keeps C and E.
               asm.label("rt_paint_same_as_sent")
+              # A tile is sixteen bytes from an address that is a multiple of sixteen, so only the low
+              # byte of each address moves along it.
               push_keeping(asm) do
                 asm.call("rt_paint_tile_pair")
-                asm.load(:b, 16)
-                asm.label("rt_paint_same_as_sent_next")
-                asm.load(:a, [:de])
-                asm.cp_a([:hl])
-                asm.jump_relative(:nz, "rt_paint_same_as_sent_done")
-                asm.inc(:hl)
-                asm.inc(:de)
-                asm.dec(:b)
-                asm.jump_relative(:nz, "rt_paint_same_as_sent_next")
+                16.times do
+                  asm.load(:a, [:de])
+                  asm.cp_a([:hl])
+                  asm.jump_relative(:nz, "rt_paint_same_as_sent_done")
+                  asm.inc(:e)
+                  asm.inc(:l)
+                end
+                asm.xor_a(:a) # the same throughout: the zero flag set
                 asm.label("rt_paint_same_as_sent_done")
               end
               asm.ret
@@ -1133,8 +1135,11 @@ module RubyGBA
               asm.label("rt_paint_copy_sent")
               push_keeping(asm) do
                 asm.call("rt_paint_tile_pair")
-                asm.load(:b, 16)
-                asm.call("rt_copy_b")
+                16.times do
+                  asm.load(:a, [:hli])
+                  asm.load([:de], :a)
+                  asm.inc(:e)
+                end
               end
               asm.ret
             end
