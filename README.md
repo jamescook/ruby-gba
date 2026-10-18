@@ -180,35 +180,18 @@ The game is written out as C and compiled with [zig](https://ziglang.org) (insta
 
 ### Playing in a browser
 
-A game can also be built as one web page that plays it in a browser — the picture in a canvas, the window's keys or a controller as the console's buttons, the sound through the browser, and saves kept by the browser between visits. The page holds everything it needs, so it opens from a disk or any web server:
+A game can also be built as one web page that plays it in a browser — the keyboard, a controller or buttons on a phone's screen as the console's buttons, sound, and saves kept between visits. The page holds everything it needs, so it opens from a disk or any web server:
 
 ```bash
 ruby-gba build examples/pong.rb --format=web   # pong.html, beside the game
 ruby-gba preview examples/pong.rb              # serve it; every reload builds it again from the file
 ```
 
-The page is written from a template, and you can give your own with `--template my_page.html.erb` (on `build` and on `preview`). It is ERB, and `<%= game %>` puts the game in it; `<%= extras %>` adds the console's buttons on the screen for a phone or a tablet (shown only where a finger is the main pointer, and laid out by `style`), the default key help, the controller note, the full-screen button, the checkbox that pauses the game while another window is in front, and the line where a game that stops says why, or each of them alone as `touchpad`, `keys`, `controller`, `fullscreen`, `pause` and `message`. The game pauses when another window has the keyboard; a template without the checkbox keeps that, and one with its own `<input type="checkbox" id="pause">` written without `checked` starts with it off. `title` and `style` are there too. A template without `game` stops the build.
+`preview` is the quick loop while you work: edit the game, reload the page. It shows the game as the framework understands it, so check the cartridge too before shipping.
 
-To put the game in a page of your own — a site, a framework, a bundler's build — write it as an ES module instead of a page, and make the game where you want it:
+A page of your own, the game as a module for your site or a bundler, and the game's options are described at the top of [`lib/ruby_gba/ir/backends/js.rb`](lib/ruby_gba/ir/backends/js.rb).
 
-```bash
-ruby-gba build examples/pong.rb --format=web --js=module   # pong.mjs
-```
-
-```js
-import { createGame } from "./pong.mjs";
-const game = createGame({ canvas: document.querySelector("canvas") });
-```
-
-For a page without modules, `--js=script` writes a classic script (`pong.js`) that a plain `<script src="pong.js">` loads; it puts the game on `window.RubyGBA` under the file's name (`--global NAME` for another), so the page calls `RubyGBA.pong.createGame({ canvas })`.
-
-A game's maps, pictures and sound are in the one file by default, which is what lets a page open from a disk. For a game you host, `--data=separate` writes them to a `.data` file beside the page, module or script instead, so the code stays small and the data is cached apart from it; the game fetches it before its first frame, from beside itself unless `createGame({ data })` gives another address or the bytes themselves. A browser fetches nothing beside a page opened from a disk, so serve a game built that way. A data file from another build of the game is refused in plain words rather than played.
-
-`createGame` makes a new game each time, so two on one page never meet. Everything but the canvas is optional and has the page's own behaviour as its default: `keys: false` leaves the keyboard alone, `keyTarget` hears keys on one element instead of the whole window, `keyMap` changes which key is which button, `gamepads: false` ignores controllers, `storage` keeps the save somewhere else (`null` keeps none), `audio: false` plays no sound, `fullscreenKey: null` turns off the F key, `fullscreenElement` fills the screen with a part of the page that holds the canvas instead of the canvas alone, `pauseWhenUnfocused: false` plays on when another window is in front, `autostart: false` waits for `game.start()`, and `onMessage(kind, text)` hears what the page would say. The game you get back has `pause`, `resume`, `stop`, `press("a")` and `release("a")` for an on-screen pad (a press counts for the next frame even if it is released first), `readSave()` and `writeSave(bytes)` to export and import a save, `toggleFullscreen`, `ready`, a promise that settles once the game can play, and `finished`, one that settles when it stops.
-
-`preview` is the quick loop while you work: edit the game, reload the page, and it plays as the file now says — no cartridge, no emulator. What it shows is the game as the framework understands it, so a mistake in the game's own logic shows there and a mistake only the console makes does not; check the cartridge too before shipping. A step only the console can run (raw instructions given with `entry`) cannot be built for the web, and the build names each such line. One inside a routine nothing calls never runs, so the web build leaves it out and warns you instead. A game meant for both can hear that on every cartridge build as well, as a warning: `RubyGBA::IR::Guardrails.register(RubyGBA::IR::Guardrails::Checks::WebPortability.new)`.
-
-The page is the game written as JavaScript: the same statements the C build writes, played by a runtime that is the C build's written again, function for function. `rake test` plays every test's game that way too, under [node](https://nodejs.org), and compares every frame with the interpreter (`rake test:lowering:js` plays only that side).
+`rake test` plays every test's game this way too, under [node](https://nodejs.org), and compares every frame with the interpreter (`rake test:lowering:js` plays only that side).
 
 ### Testing a game on every lowering
 

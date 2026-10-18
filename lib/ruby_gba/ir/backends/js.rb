@@ -18,6 +18,32 @@ module RubyGBA
       # The game as JavaScript: a page that plays it in a browser, drawing to a <canvas>, and the
       # same program with no page at all, which node plays for the tests.
       #
+      # PUTTING A GAME ON THE WEB. `ruby-gba build game.rb --format=web` writes it in one of three
+      # forms, and each is described where it is written:
+      #
+      #   --js=page     (the default) one HTML file, game.html, that plays the game when opened;
+      #                 --template FILE writes it from a page of your own (Page says what a
+      #                 template is handed: the game, the buttons on the screen, the key help...)
+      #   --js=module   game.mjs, for a site, a framework or a bundler: import createGame and
+      #                 call it with a canvas (build_module)
+      #   --js=script   game.js, for a page that loads it with a plain <script src>; the game is
+      #                 on window.RubyGBA under the file's name, or --global NAME (build_script)
+      #
+      #     import { createGame } from "./game.mjs";
+      #     const game = createGame({ canvas: document.querySelector("canvas") });
+      #
+      # Everything createGame takes besides the canvas (which keys, saves, sound, full screen,
+      # pausing) and what the game it gives back can do (pause, press a button, read the save) is
+      # listed atop runtime/rg_page.js, the code that reads it. --data=separate puts the game's
+      # pictures, maps and sound in a file beside the code, which then has to be served rather
+      # than opened from a disk (see "where a game's big tables go", below).
+      #
+      # `ruby-gba preview game.rb` serves the page and builds it again from the file on every
+      # reload (Preview). It plays the game as the framework understands it, so a mistake only
+      # the console makes does not show there: check the cartridge before shipping one. A step
+      # only the console can run (raw instructions given with `entry`) cannot be built for the
+      # web, and the build names each line that has one (Guardrails::Checks::WebPortability).
+      #
       # It stands beside the other lowerings: `rake test` plays every game in the suite as
       # JavaScript too (`rake test:lowering:js` plays only that), checked against the interpreter
       # on every frame, so a feature is not done until it works here as well.
