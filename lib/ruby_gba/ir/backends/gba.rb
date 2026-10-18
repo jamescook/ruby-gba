@@ -383,7 +383,8 @@ module RubyGBA
           @timer_handlers = {}
           @functions = Functions.new(emitter: @emit, lowering: @lowering, placement: self,
                                      scene_preamble: method(:emit_scene_preamble),
-                                     scene_art: method(:emit_scene_art_upload))
+                                     scene_art: method(:emit_scene_art_upload),
+                                     scene_arrival_pass: method(:emit_return_on_arrival_pass))
           @statements = Statements.new(emitter: @emit, primitives: @primitives, lowering: @lowering,
                                        placement: self, functions: @functions)
           @framebuffer = Framebuffer.new(emitter: @emit, primitives: @primitives, lowering: @lowering,
@@ -1052,6 +1053,7 @@ module RubyGBA
         # before @drawing exists, so it is given these instead.
         def emit_scene_preamble(name) = @drawing.emit_scene_preamble(name)
         def emit_scene_art_upload(name) = @drawing.emit_scene_art_upload(name)
+        def emit_return_on_arrival_pass(name) = @drawing.emit_return_on_arrival_pass(name)
 
         # Does the program need any interrupt at all — VBlank (for wait_vblank) or a timer
         # (for an on_tick handler)? The mixer adds none of its own: a game that plays recorded

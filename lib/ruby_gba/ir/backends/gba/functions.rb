@@ -17,12 +17,13 @@ module RubyGBA
           # known at construction, so it's set afterward with #modes= rather than
           # passed in here. +scene_preamble+ is Drawing's own #emit_scene_preamble,
           # handed in as a bound method rather than a reference to Drawing as a whole.
-          def initialize(emitter:, lowering:, placement:, scene_preamble:, scene_art:)
+          def initialize(emitter:, lowering:, placement:, scene_preamble:, scene_art:, scene_arrival_pass:)
             @emitter = emitter
             @lowering = lowering
             @placement = placement
             @scene_preamble = scene_preamble
             @scene_art = scene_art
+            @scene_arrival_pass = scene_arrival_pass
             @modes = nil
             @funcs = {}
             @minted = {}
@@ -97,6 +98,9 @@ module RubyGBA
                 # ...and its own sprite pictures, which scenes share the room for, so a
                 # scene taking over sends its own and one already running sends nothing.
                 @scene_art.call(name)
+                # ...and, with its pictures up, the end of the pass it took over on, for a scene
+                # that has that pass to itself.
+                @scene_arrival_pass.call(name)
               end
               fnode.children.each { |stmt| @lowering.statement(stmt) }
             end

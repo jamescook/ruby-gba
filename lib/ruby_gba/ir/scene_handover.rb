@@ -35,6 +35,9 @@ module RubyGBA
     #     the scenery every screen shows included, which nothing else puts up after
     #     power-on, and the pictures painted from lists that it and the sprites every
     #     screen shows are drawn from (see #always_up).
+    #   * A scene that asks for it (`loads_first: true`) spends the pass it takes over on
+    #     putting its pictures up, and its own work starts on the pass after (see
+    #     Arrival#loads_first?).
     class SceneHandover
       # Each kind of screen a `screen` names, and the kind of display it is. Two screens of
       # the same kind share a display; two kinds cannot.
@@ -52,10 +55,20 @@ module RubyGBA
       # pictures its sprites show, each copied in from its list. The last two flags are for a
       # scene with none of its own: the last scene's scenery or painted pictures still come
       # down, and a backend that only keeps note of whose are up has to be told.
+      #
+      # +loads_first+ says the scene's own work waits for the pass after it takes over, which
+      # a scene asks for with `loads_first: true`. Putting its pictures up is a copy as big as
+      # the pictures are, and on a pass shared with the scene's first pass of game the two
+      # together can run past the end of the frame — later the more the scene holds. Asked
+      # for, the copy has that pass to itself and the work starts on the next, so the work
+      # begins the same number of passes after a hand-over whatever the scene holds: always
+      # exactly one. What else the game loop does on that pass, outside the scene, still runs.
+      # In a program with no game loop there is no pass after, so the scene starts at once.
       Arrival = Data.define(:scene, :screen, :mode, :scenery, :map_choices, :painted_tiles, :painted_pictures,
-                            :takes_down_scenery, :takes_down_art) do
+                            :takes_down_scenery, :takes_down_art, :loads_first) do
         def takes_down_scenery? = takes_down_scenery
         def takes_down_art? = takes_down_art
+        def loads_first? = loads_first
       end
 
       # WHAT EVERY SCREEN DRAWN FROM TILES SHOWS, to put up again after a screen of another
@@ -84,6 +97,7 @@ module RubyGBA
         @tile_runs, @picture_runs = program.walk.select { |node| node.kind == :tile_run }.partition { |run| run.picture.nil? }
         @funcs = program.children.select { |node| node.kind == :func }.to_h { |func| [func.name, func] }
         @modes = Modes.resolve(program)
+        @paced = program.walk.any? { |node| node.kind == :wait_vblank }
         @arrivals = {}
       end
 
@@ -96,9 +110,13 @@ module RubyGBA
                       mode: @modes.mode_of(scene), scenery: scenery, map_choices: scenery.flat_map(&:choice),
                       painted_tiles: painted_tiles_of(scenery), painted_pictures: pictures,
                       takes_down_scenery: scenery.empty? && @scenery.any? { |node| on_arrival?(node) },
-                      takes_down_art: pictures.empty? && @objects.any? { |obj| obj.scene && painted?(obj) })
+                      takes_down_art: pictures.empty? && @objects.any? { |obj| obj.scene && painted?(obj) },
+                      loads_first: loads_first_in_loop?(@funcs[scene]))
         end
       end
+
+      # Whether any scene loads first.
+      def any_loads_first? = @funcs.each_value.any? { |func| loads_first_in_loop?(func) }
 
       # What to put up again on arriving at a screen drawn from tiles from a screen of another
       # kind (see AlwaysUp).
@@ -119,6 +137,9 @@ module RubyGBA
       def on_arrival?(background) = !background.scene.nil? && drawn_from_tiles?(background.scene)
 
       private
+
+      # Whether +func+ asked to load first, in a program with a game loop to give it a pass after.
+      def loads_first_in_loop?(func) = @paced && func&.loads_first == true
 
       def drawn_from_tiles?(scene) = self.class.tiles?(Modes::SCREEN_OF_MODE.fetch(@modes.mode_of(scene)))
 

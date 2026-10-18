@@ -187,6 +187,62 @@ class TestScenes < Minitest::Test
   end
 
   # ========================================================================
+  # scene loads_first: its pictures go up on a pass of their own
+  # ========================================================================
+
+  # A title that hands over on its third pass to :play, on a tiled screen. :play has a sprite
+  # of its own, whose picture is copied into video memory as it takes over, and notes the
+  # pass it first ran on.
+  private def handing_over(loads_first:)
+    builder = Builder.new
+    builder.instance_eval do
+      screen :tiled
+      image(:block, "#" => :red) { "########\n" * 8 }
+      state = var :state, 0
+      step = var :step, 0
+      began = var :began, -1
+      scene(:title) { (step == 2).then { state.set! 1 } }
+      scene(:play, loads_first: loads_first) do
+        sprite :block, at: [40, 40]
+        (began == -1).then { began.set! step }
+      end
+      game_loop do
+        case_var(:state) do
+          when_val 0, :title
+          when_val 1, :play
+        end
+        step.add! 1
+      end
+    end
+    builder.finalize_program
+    builder.program
+  end
+
+  # The title hands over on pass 2, so :play takes over on pass 3. Its pictures are copied
+  # on that pass, and its own work starts on pass 4, in a frame the copy has no part of.
+  def test_a_scene_that_loads_first_starts_its_work_on_the_pass_after_it_takes_over
+    assert_equal 4, game_player.run(handing_over(loads_first: true), frames: 8)[:began]
+  end
+
+  def test_a_scene_starts_its_work_on_the_pass_it_takes_over_unless_it_loads_first
+    assert_equal 3, game_player.run(handing_over(loads_first: false), frames: 8)[:began]
+  end
+
+  # The console counts the same passes, however many frames it took to start the game.
+  def test_the_console_starts_a_scene_that_loads_first_on_the_pass_after
+    rom = assemble_rom(handing_over(loads_first: true), name: "SCNPASS")
+    v = assert_emulator_loads_rom(rom, frames: 12, vars: rom.var_addresses)
+
+    assert_equal 4, v.var(:began)
+  end
+
+  def test_loads_first_that_is_not_true_or_false_is_a_friendly_error
+    error = assert_raises(ArgumentError) { Builder.new.instance_eval { scene(:play, loads_first: 1) {} } }
+
+    assert_match(/must be true or false/, error.message)
+  end
+
+  # ========================================================================
   # func declared from inside another func's body
   # ========================================================================
 

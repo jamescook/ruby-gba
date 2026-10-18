@@ -671,6 +671,9 @@ module RubyGBA
             end
           end
 
+          # End the pass a scene that loads first takes over on (see SceneEntry).
+          def emit_return_on_arrival_pass(name) = @scene_entry.emit_return_on_arrival_pass(name)
+
           # A scene's resolved mode -> the marker stored in MODE_STATE, and the routine
           # that switches the hardware into it.
           def mode_state_marker(mode) = MODE_MARKERS.fetch(mode, MODE_DIRECT)

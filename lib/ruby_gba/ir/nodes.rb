@@ -501,7 +501,7 @@ module RubyGBA
         kind :func
         declaration!
         category :control
-        operands name: :name, fast: :flag
+        operands name: :name, fast: :flag, loads_first: :flag
       end
 
       # A part of the picture that everything inside this stays within. Whatever the children

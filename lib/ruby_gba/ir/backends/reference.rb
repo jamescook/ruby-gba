@@ -1235,7 +1235,10 @@ module RubyGBA
           node.clauses.each do |clause_value, target|
             next unless value == clause_value
 
-            take_over(target)
+            # A scene that loads first has the pass it takes over on to itself for its
+            # pictures (see IR::SceneHandover::Arrival#loads_first?).
+            next if take_over(target) && @handover.arrival(target).loads_first?
+
             call_func(target)
           end
         end
@@ -1246,9 +1249,9 @@ module RubyGBA
         # its own (waiting for its first background to say so left a file screen's backdrop up
         # over the game it handed to); then its own scenery up as declared, and what it paints
         # from lists copied in as the lists are now. Only on the frame the scene changes;
-        # staying in it changes nothing.
+        # staying in it changes nothing. True when it took over.
         def take_over(scene)
-          return if scene == @scene
+          return false if scene == @scene
 
           @scene = scene
           arrival = @handover.arrival(scene)
@@ -1261,6 +1264,7 @@ module RubyGBA
           (arrival.painted_tiles + arrival.painted_pictures).each { |run| copy_run_tiles(run) }
           arrival.scenery.each { |bg| put_up_background(bg) }
           redraw_sprites_over_arrived_scenery(arrival)
+          true
         end
 
         # THE SPRITES OF THIS FRAME STAY IN FRONT OF SCENERY THAT ARRIVED AFTER THEM. They were

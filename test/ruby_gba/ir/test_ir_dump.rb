@@ -121,9 +121,9 @@ class TestIRDump < Minitest::Test
 
     keywords = call.arguments.arguments.last
     assert_instance_of Prism::KeywordHashNode, keywords
-    # Func's own declared operands (name, then fast — see Nodes::Func) come first,
-    # in that order; children (this func's two statements) come last, always.
-    assert_equal %i[name fast children], keywords.elements.map { |assoc| assoc.key.unescaped.to_sym }
+    # Func's own declared operands (name, fast, then loads_first — see Nodes::Func) come
+    # first, in that order; children (this func's two statements) come last, always.
+    assert_equal %i[name fast loads_first children], keywords.elements.map { |assoc| assoc.key.unescaped.to_sym }
   end
 
   def test_children_are_each_their_own_build_call_in_source_order

@@ -115,6 +115,7 @@ module RubyGBA
       @painted_colors = {}     # picture painted from a list → the colours its places pick (see TileRuns)
       @inline_tile_copies = [] # their copies where `changed` was said, moved to the frame gap at finalize
       @func_fast = {}          # name → where the author insisted the routine live (func fast:)
+      @scene_loads_first = {}  # scene routine → true where its work waits a pass (scene loads_first:)
       @dump_requests = []      # function names to disassemble from the lowered ROM
       @songs = {}              # name → Music::SongContext or Score (for build-time validation)
       @song_lists = {}         # name → the songs a `songs` list holds, in order
@@ -562,7 +563,7 @@ module RubyGBA
           @deferred_layer = @routine_layer[name]
           @screen_mode = default_screen_mode
           @building_routine = name
-          push_container(Build.func(name, fast: @func_fast[name])) do
+          push_container(Build.func(name, fast: @func_fast[name], loads_first: @scene_loads_first[name])) do
             run_block(&block)
           end
           @scene_screens[name] = @screen_mode if @building_scene

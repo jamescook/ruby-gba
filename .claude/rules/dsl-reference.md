@@ -143,6 +143,7 @@ variable; an `Integer` is a literal; a `Value` (from `var`) is an expression.
 - `func(:name, fast:) { … }` + `call :name` — a routine, emitted once; the build picks what goes in quick memory, per scene when it does not all fit.
 - `call [:a, :b], number: n` — one of several routines by a run-time number.
 - `scene(:name, fast:) { … }` + `case_var(:state) do when_val 0, :title … end` — game states, one run per frame.
+- `scene(:name, loads_first: true)` — the pass it takes over on puts its pictures up, and its work starts on the pass after: a big level's first frame does not run late.
 - A scene owns what it draws: its sprites, text, backgrounds, colours and memory are up only while it runs, so the budgets are per scene.
 - A scene may declare its own `screen`; a scene can be a class in its own file.
 - `dump_func :name` — disassemble a func from the built ROM.

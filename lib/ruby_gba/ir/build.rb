@@ -416,8 +416,12 @@ module RubyGBA
       # so does one that has run out of the fast kind. Nothing about what the routine
       # DOES changes either way, which is why this can sit on the node without making the
       # IR describe a machine.
-      def func(name, *body, fast: nil)
-        Nodes.build(:func, children: body, name: name, fast: fast)
+      #
+      # +loads_first+, on a scene's routine, is not a hint: the scene's own work starts on the
+      # pass after it takes over, so the pictures it puts up have that pass to themselves (see
+      # SceneHandover::Arrival#loads_first?).
+      def func(name, *body, fast: nil, loads_first: nil)
+        Nodes.build(:func, children: body, name: name, fast: fast, loads_first: loads_first)
       end
 
       # --- hardware timers ---

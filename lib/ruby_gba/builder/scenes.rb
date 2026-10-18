@@ -94,9 +94,21 @@ module RubyGBA
       # insists on both. A menu shown for seconds is measured for as long as the scene the game
       # is played in, so without it a busy menu can take the quick memory ahead of the game.
       #
+      # +loads_first: true+ gives the scene the pass it takes over on to put its pictures up —
+      # its scenery and its sprites, a copy into video memory as big as they are — and starts
+      # its own work on the pass after. A scene with a lot of art otherwise copies it on the
+      # same pass as its first pass of game, and the two can run past the end of the frame.
+      # It is always exactly one pass, so a game counting passes from a hand-over can count it.
+      #
       # @param name [Symbol] scene name
-      def scene(name, fast: nil, &block)
+      def scene(name, fast: nil, loads_first: false, &block)
         refuse_scene_in_layer!
+        unless [true, false].include?(loads_first)
+          raise ArgumentError, "`scene :#{name}` was given `loads_first: #{loads_first.inspect}`. " \
+                               "`loads_first:` must be true or false. To fix this, write " \
+                               "`loads_first: true`, or remove it."
+        end
+        @scene_loads_first[:"_scene_#{name}"] = true if loads_first
         declare_func(:"_scene_#{name}", fast: fast, &block)
       end
 

@@ -492,19 +492,25 @@ module RubyGBA
           def lower_case(node)
             state = local_name("state")
             clauses = node.clauses.map do |clause_value, target|
-              C::If.new(condition: call("rg_eq", state, C::Int.new(clause_value)),
-                        body: [*record_scene_arrival(target), C::Eval.new(C::Call.new(function: routine(target)))])
+              C::If.new(condition: call("rg_eq", state, C::Int.new(clause_value)), body: scene_call_statements(target))
             end
             [C::Block.new([C::Local.new(name: state, value: variable(node.var)), *clauses])]
           end
 
-          # A scene taking over is remembered, so what a scene does as it arrives — its screen, its
-          # scenery — happens on the frame it changes and not again while it stays.
-          def record_scene_arrival(scene)
+          # The statements that run +scene+ for a pass. A scene taking over is remembered, so what
+          # a scene does as it arrives — its screen, its scenery — happens on the frame it changes
+          # and not again while it stays. A scene that loads first has that pass to itself for its
+          # pictures, and its routine runs from the pass after (see
+          # IR::SceneHandover::Arrival#loads_first?).
+          def scene_call_statements(scene)
             current = @names.own("scene")
             number = C::Int.new(@scenes.fetch(scene))
-            [C::If.new(condition: call("rg_ne", current, number),
-                       body: [C::Assign.new(current, number), *scene_arrival(scene)])]
+            work = [C::Eval.new(C::Call.new(function: routine(scene)))]
+            arriving = [C::Assign.new(current, number), *scene_arrival(scene)]
+            taking_over = call("rg_ne", current, number)
+            return [C::If.new(condition: taking_over, body: arriving, otherwise: work)] if @handover.arrival(scene).loads_first?
+
+            [C::If.new(condition: taking_over, body: arriving), *work]
           end
 
           def lower_halt(_node) = [eval_call("rg_halt")]
