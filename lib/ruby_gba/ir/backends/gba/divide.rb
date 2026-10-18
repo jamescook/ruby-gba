@@ -32,10 +32,12 @@ module RubyGBA
         class Divide
           include Console::Hardware
 
-          # Room reserved in fast internal memory for each routine, which is copied there
-          # at boot. The build fails if one ever outgrows its room.
-          DIVIDE_ROUTINE_IWRAM_MAX = 1024
-          DIVIDE_FIX_ROUTINE_IWRAM_MAX = 1280
+          # What each routine comes to, in bytes, and so the room {TopOfQuickMemory} holds for it in
+          # the quick memory, where it is copied at boot. Each is the same code in every game, so
+          # these are counts of what it is, not guesses; the build stops (see
+          # #refuse_oversized_routine!) if a change ever makes one bigger.
+          ROUTINE_BYTES = 668
+          FIX_ROUTINE_BYTES = 1000
 
           # What the two routines are called. This chip cannot divide, so every division in a
           # program goes through one of them — which makes them routines a measured profile has
@@ -70,17 +72,6 @@ module RubyGBA
 
           SIGN_BIT = 1 << 31
           INT32_MAX = (1 << 31) - 1
-
-          # Where in internal memory the routines are copied to: the far end of it, out of
-          # the way of the variables, which grow from the near end toward them.
-          #
-          # It matters which end. Variables start at the very beginning of internal
-          # memory, and that address is one the chip can name in a single instruction —
-          # a rare piece of luck worth keeping, because a program names a variable
-          # thousands of times and names a divide routine a handful. Putting a routine
-          # there instead pushed every variable past the single-instruction address and
-          # cost one game an extra 5,700 bytes of code, all of it in variable reads.
-          ROUTINES_TOP = IWRAM_START + IWRAM_SIZE - 0x1000 # below the stack the BIOS uses
 
           # +scales_objects+ answers, for one :object node, whether it needs a divide —
           # the one thing #needs_divide_routine? asks about that isn't its own to know
@@ -166,12 +157,13 @@ module RubyGBA
             Divide.folds_to_plain_divide?(@primitives.const_int(node.lhs), node.fraction_bits)
           end
 
-          def reserve_divide_routine
-            @divide_routine_iwram = ROUTINES_TOP
+          # Each routine's place in the quick memory, which {TopOfQuickMemory} keeps for it.
+          def reserve_divide_routine(at:)
+            @divide_routine_iwram = at
           end
 
-          def reserve_divide_fix_routine
-            @divide_fix_routine_iwram = ROUTINES_TOP + DIVIDE_ROUTINE_IWRAM_MAX
+          def reserve_divide_fix_routine(at:)
+            @divide_fix_routine_iwram = at
           end
 
           # WHERE THE DIVIDE ROUTINES RUN, for a profile of the finished game to report against.
@@ -282,7 +274,7 @@ module RubyGBA
             @emitter.place_label(by_zero)
             emit_divide_by_zero
             @emitter.place_label(:__divide_routine_end)
-            refuse_oversized_routine!("divide", @emitter.pos - start, DIVIDE_ROUTINE_IWRAM_MAX)
+            refuse_oversized_routine!("divide", @emitter.pos - start, ROUTINE_BYTES)
           end
 
           # The other routine: dividing one number that holds a fraction by another.
@@ -358,7 +350,7 @@ module RubyGBA
             @emitter.place_label(by_zero)
             emit_divide_by_zero
             @emitter.place_label(:__divide_fix_routine_end)
-            refuse_oversized_routine!("fraction divide", @emitter.pos - start, DIVIDE_FIX_ROUTINE_IWRAM_MAX)
+            refuse_oversized_routine!("fraction divide", @emitter.pos - start, FIX_ROUTINE_BYTES)
           end
 
           private

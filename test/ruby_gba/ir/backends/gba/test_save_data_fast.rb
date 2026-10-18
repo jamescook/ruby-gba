@@ -228,7 +228,7 @@ class TestSaveDataFast < Minitest::Test
   # music is worth the room. CROWDING_LIST leaves too little room for the save routines and the
   # game loop together in either build. CROWDING_THE_MUSIC leaves room for the game loop beside
   # them, and not for the music too.
-  CROWDING_LIST = 5200
+  CROWDING_LIST = 5900
   CROWDING_THE_MUSIC = 4350
 
   private def game_crowding_its_loop(fast, pile_size: CROWDING_LIST)

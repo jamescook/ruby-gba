@@ -88,13 +88,16 @@ module RubyGBA
   # +save_memory+ is how much save memory the cartridge has, in kilobytes: 8, 32, 64 or 128. Leave
   # it out and the build picks the smallest of 32, 64 and 128 that holds the game's save_data
   # records; 8, the EEPROM, a game has to ask for.
+  # +stack_room+ is how many bytes of the console's quick memory the game's stack is given. Leave it
+  # out and the build gives it 1024, or more for a game whose calls nest deeply; every byte held
+  # for the stack is one the game's variables, lists and code cannot have.
   def self.build(title, code: nil, maker: nil, validate: true, frame_sync: :auto, fast_cartridge: true,
                  fast_code: true, out: $stdout, err: $stderr, progress: Messages::Progress.silent,
-                 profile: false, settings: {}, save_memory: nil, &block)
-    # The four that say how the game is built travel as one value from here on (see
+                 profile: false, settings: {}, save_memory: nil, stack_room: nil, &block)
+    # The five that say how the game is built travel as one value from here on (see
     # {Cartridge::Options}), checked now so a setting that cannot be right stops the build first.
     options = Cartridge::Options.new(frame_sync: frame_sync, fast_cartridge: fast_cartridge,
-                                     fast_code: fast_code, save_memory: save_memory)
+                                     fast_code: fast_code, save_memory: save_memory, stack_room: stack_room)
     # Settle where this build prints BEFORE anything is read or checked, so a caller
     # that named somewhere the build cannot write is told on every build rather than on
     # the one build that finally has a warning to give (see {Messages::BuildOutput}).

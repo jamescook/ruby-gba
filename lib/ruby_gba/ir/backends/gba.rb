@@ -32,6 +32,7 @@ require_relative "gba/framebuffer"
 require_relative "gba/scene_entry"
 require_relative "gba/drawing"
 require_relative "gba/quick_memory_plan" # what goes in the quick memory, worked out from plain numbers
+require_relative "gba/top_of_quick_memory" # what the build holds back at its top: the stack, the divide routines
 require_relative "gba/scene_quick_memory" # each scene its own share of the quick memory, swapped as it takes over
 require_relative "gba/placement"
 require_relative "gba/buffered"
@@ -318,10 +319,13 @@ module RubyGBA
         # one by name with `func :thing, fast: true`.
         # +progress+ is what this pass says it is doing while it does it. Most of a build's
         # time is spent in here, so it names its own phases; the default says nothing.
+        # +stack_room+ is the bytes the game said its stack wants, or nil for the build to decide
+        # (see {TopOfQuickMemory}).
         def initialize(fast_cartridge: true, fast_code: true, progress: Messages::Progress.silent,
-                       routine_profile: nil)
+                       routine_profile: nil, stack_room: nil)
           @fast_cartridge = fast_cartridge
           @fast_code = fast_code
+          @stack_room = stack_room
           @progress = progress
           # What a previous run of this game was MEASURED to spend its frames on, when there is
           # such a measurement. It decides what goes in the quick memory; without it the choice
@@ -332,9 +336,10 @@ module RubyGBA
           @hot_base = nil        # where that block lands, once every variable has a home
           @hot_bytes = 0
           @emit = Emit.new       # the code buffer + two-pass label/fixup machinery
-          # The IWRAM allocator. It stops below the last 4K, which is where the divide
-          # routines are copied and where the console's own startup code keeps its stack.
-          @memory = Memory.new(start: IWRAM_START, ceiling: Placement::HOT_CEILING,
+          # The IWRAM allocator. Its far end is set when the program is known, below what the
+          # build holds back at the top for the stack and the divide routines (see #lower and
+          # {TopOfQuickMemory}).
+          @memory = Memory.new(start: IWRAM_START, ceiling: IWRAM_START + IWRAM_SIZE,
                                roomy: EWRAM_START, roomy_ceiling: EWRAM_START + EWRAM_SIZE)
           @primitives = Primitives.new(emitter: @emit, memory: @memory)
           @primitives.claim_first_address_for_fill_scratch # before anything else names a variable
@@ -552,7 +557,8 @@ module RubyGBA
                                    sprite_runs: sprite_runs,
                                    scene_sets: scene_sets_record,
                                    missed_routine_parts: missed_routine_parts,
-                                   build_options: { fast_cartridge: @fast_cartridge, fast_code: @fast_code })
+                                   build_options: { fast_cartridge: @fast_cartridge, fast_code: @fast_code,
+                                                    stack_room: @stack_room })
         end
 
 
@@ -721,6 +727,11 @@ module RubyGBA
         # {Placement}#choose_fast_funcs). +scene_blocks+ is too: whether the game loop's blocks
         # for one scene are made that scene's routines (see SceneQuickMemory#prepare_scene_loop_work).
         def lower(program, fast_funcs: nil, variables_first: [], lists_to_roomy: Set.new, scene_blocks: false)
+          # What is held back at the top of the quick memory, settled before anything has a place
+          # there: the stack, and the divide routines this program needs.
+          @top = TopOfQuickMemory.for(program, stack_room: @stack_room, divides: needs_divide_routine?(program),
+                                               divides_fractions: needs_divide_fix_routine?(program))
+          @memory.ceiling = @top.ceiling
           variables_first.each { |name| var_addr(name) }
           @lists_to_roomy = lists_to_roomy
           @scene_blocks = scene_blocks
@@ -738,11 +749,11 @@ module RubyGBA
           @stretched_columns = StretchedColumns.new(program, emitter: @emit)
           @framebuffer.stretched_columns = @stretched_columns
           @statements.unread_indexes = LoopForm.unread_indexes(program)
-          # First in internal memory, before anything else is given a home there: only a
-          # program that divides by something it works out as it runs carries the divide
-          # routine, and every other division is settled at build time.
-          reserve_divide_routine if needs_divide_routine?(program)
-          reserve_divide_fix_routine if needs_divide_fix_routine?(program)
+          # Only a program that divides by something it works out as it runs carries the divide
+          # routines, and every other division is settled at build time; the layout above kept
+          # their places for the ones it needs.
+          @divide.reserve_divide_routine(at: @top.divide_at) if @top.divide_at
+          @divide.reserve_divide_fix_routine(at: @top.divide_fix_at) if @top.divide_fix_at
           collect_definitions(program)
           register_frame_routine(program) # the game loop's body counts as a routine once it moves
           @mixer.prepare_direct_sound(program) # embed the program's samples as ROM data
@@ -990,8 +1001,6 @@ module RubyGBA
         # Forwards to @divide (see {Divide}).
         def needs_divide_routine?(program) = @divide.needs_divide_routine?(program)
         def needs_divide_fix_routine?(program) = @divide.needs_divide_fix_routine?(program)
-        def reserve_divide_routine = @divide.reserve_divide_routine
-        def reserve_divide_fix_routine = @divide.reserve_divide_fix_routine
         def refuse_variables_overlapping_divide! = @divide.refuse_variables_overlapping_divide!
         def emit_copy_divide_routines_to_iwram = @divide.emit_copy_divide_routines_to_iwram
         def emit_divide_routine = @divide.emit_divide_routine

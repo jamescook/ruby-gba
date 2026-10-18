@@ -20,8 +20,10 @@ module RubyGBA
     # +save_memory+ is how much save memory the cartridge has, in kilobytes (8, 32, 64 or 128),
     # or nil to let the game's save_data records decide. 8 is the EEPROM, which only a game that
     # asks for it gets (see IR::SaveLayout::EEPROM).
-    Options = Data.define(:frame_sync, :fast_cartridge, :fast_code, :save_memory) do
-      def initialize(frame_sync: :auto, fast_cartridge: true, fast_code: true, save_memory: nil)
+    # +stack_room+ is how many bytes of the quick memory the game's stack is given, or nil for the
+    # build to decide (see IR::Backends::GBA::TopOfQuickMemory).
+    Options = Data.define(:frame_sync, :fast_cartridge, :fast_code, :save_memory, :stack_room) do
+      def initialize(frame_sync: :auto, fast_cartridge: true, fast_code: true, save_memory: nil, stack_room: nil)
         unless %i[auto manual].include?(frame_sync)
           raise ArgumentError, "frame_sync must be :auto or :manual, got #{frame_sync.inspect}"
         end
@@ -30,13 +32,30 @@ module RubyGBA
                                "has 8, 32, 64 or 128 kilobytes. To fix this, use one of those numbers, or leave " \
                                "save_memory: out and the build picks the smallest that holds the saves."
         end
+        refuse_unusable_stack_room!(stack_room)
 
         super
       end
 
-      # The two the lowering takes, which is also what a finished cartridge records it was told
+      # The least stack room a game can ask for: the console's own routines a game calls need this
+      # much of it.
+      LEAST_STACK_ROOM = 64
+
+      # The three the lowering takes, which is also what a finished cartridge records it was told
       # (see {BuildRecord#build_options}) and what must be given again to build it the same way.
-      def lowering = { fast_cartridge: fast_cartridge, fast_code: fast_code }
+      def lowering = { fast_cartridge: fast_cartridge, fast_code: fast_code, stack_room: stack_room }
+
+      private
+
+      def refuse_unusable_stack_room!(stack_room)
+        most = IR::Backends::GBA::TopOfQuickMemory::MOST_STACK_BYTES
+        return if stack_room.nil? ||
+                  (stack_room.is_a?(Integer) && stack_room.between?(LEAST_STACK_ROOM, most) && (stack_room % 4).zero?)
+
+        raise ArgumentError, "stack_room: #{stack_room.inspect} is not a size the stack can have. It must be a " \
+                             "number of bytes that is a multiple of 4, from #{LEAST_STACK_ROOM} to #{most}. To fix " \
+                             "this, use such a number, or remove stack_room: and the build picks the size."
+      end
     end
   end
 end

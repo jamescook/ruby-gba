@@ -323,6 +323,11 @@ class TestQuickMemoryByScene < Minitest::Test
   # music as well. Picked for the cartridge the build makes today.
   CROWDING_PILE = 4350
 
+  # Additions in the routine play insists on: enough that it and the file screen's save routines
+  # do not fit together in the room kept for the whole game, and each fits its own scene's.
+  # Picked for the room the build leaves today.
+  PLAY_INSISTS = 1750
+
   def test_each_scene_keeps_its_own_busy_routine_while_it_is_up
     report = placement_of(two_screens(adds: BIG))
 
@@ -438,7 +443,7 @@ class TestQuickMemoryByScene < Minitest::Test
   # whole game, play's routine and the file screen's save routines need more room than there is,
   # and that used to stop the build. Each needs it only while its own screen is up.
   def test_two_insisted_routines_of_two_screens_each_get_their_screens_room
-    report = placement_of(two_insisting_screens(adds: 1500))
+    report = placement_of(two_insisting_screens(adds: PLAY_INSISTS))
 
     assert_includes report.scenes.fetch(:play), :play_work
     assert(report.scenes.fetch(:files).any? { |name| name.to_s.start_with?("__save_file__") },
@@ -497,7 +502,7 @@ class TestQuickMemoryByScene < Minitest::Test
   # quick memory then that check ran from the cartridge: a pass of a real game's opening ended
   # late, and the opening was a frame behind from there.
   def test_the_logos_run_with_the_file_screens_routines_already_in
-    rom = assemble_rom(two_insisting_screens(adds: 1500, logos: true), name: "LOGOS")
+    rom = assemble_rom(two_insisting_screens(adds: PLAY_INSISTS, logos: true), name: "LOGOS")
     sets = rom.built.scene_sets
     v = assert_emulator_loads_rom(rom, frames: 10)
 
@@ -507,7 +512,7 @@ class TestQuickMemoryByScene < Minitest::Test
   # ...whatever order the dispatch names the scenes in: the save's routines are what the game
   # loop runs under the logos, so theirs is the set that goes in first, not play's.
   def test_the_saves_set_goes_in_first_though_play_is_named_first
-    rom = assemble_rom(two_insisting_screens(adds: 1500, logos: true, play_first: true), name: "LOGOS")
+    rom = assemble_rom(two_insisting_screens(adds: PLAY_INSISTS, logos: true, play_first: true), name: "LOGOS")
     sets = rom.built.scene_sets
     v = assert_emulator_loads_rom(rom, frames: 10)
 
@@ -517,7 +522,7 @@ class TestQuickMemoryByScene < Minitest::Test
   # ...and the save those routines write from the file screen's room is the save the
   # interpreter writes, byte for byte.
   def test_a_save_written_from_the_file_screens_room_is_the_save
-    program = two_insisting_screens(adds: 1500)
+    program = two_insisting_screens(adds: PLAY_INSISTS)
     console = RubyGBA.playthrough("save on the file screen") do
       wait frames: 10
       press :a

@@ -194,16 +194,16 @@ module RubyGBA
     # handle. Building and writing are left to the caller — see Game — except for the
     # `ruby game.rb` convenience above.
     #
-    # +frame_sync+, +fast_cartridge+, +fast_code+ and +save_memory+ say how it is built, the same
-    # four {RubyGBA.build} takes; see {Cartridge::Options}.
+    # +frame_sync+, +fast_cartridge+, +fast_code+, +save_memory+ and +stack_room+ say how it is
+    # built, the same five {RubyGBA.build} takes; see {Cartridge::Options}.
     def game(title, code: nil, maker: nil, frame_sync: :auto, fast_cartridge: true, fast_code: true,
-             save_memory: nil, &block)
+             save_memory: nil, stack_room: nil, &block)
       unless block
         raise ArgumentError, %(RubyGBA.game needs a block: RubyGBA.game("NAME") { ... })
       end
 
       options = Cartridge::Options.new(frame_sync: frame_sync, fast_cartridge: fast_cartridge,
-                                       fast_code: fast_code, save_memory: save_memory)
+                                       fast_code: fast_code, save_memory: save_memory, stack_room: stack_room)
       handle = Cartridge::Game.new(title, code: code, maker: maker, block: block, options: options)
       Ractor.current[:ruby_gba_registered_games] = registered_games + [handle]
       handle

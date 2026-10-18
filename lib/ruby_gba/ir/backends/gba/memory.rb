@@ -54,6 +54,17 @@ module RubyGBA
             @roomy_far = roomy_ceiling
           end
 
+          # Where the far end starts, once it is known what is held back above it (see
+          # TopOfQuickMemory). Only before anything has been claimed there — or again where it
+          # already is, as a program lowered a second time says it.
+          def ceiling=(address)
+            return if address == @ceiling
+            raise ArgumentError, "the quick memory's far end is set after something was claimed there" unless @far == @ceiling
+
+            @ceiling = address
+            @far = address
+          end
+
           # Claim +bytes+ next to the base, for something that is cheaper to reach
           # there. Only variables want this.
           def alloc_near_base(bytes)

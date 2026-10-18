@@ -107,7 +107,7 @@ module RubyGBA
       # separately, because a font lived in a table shared by the whole process rather than
       # in the game that wrote it. The two fonts the framework ships need nothing here —
       # requiring the library brings those.
-      def class_source(program, class_name:, fast_cartridge:, fast_code:)
+      def class_source(program, class_name:, fast_cartridge:, fast_code:, stack_room: nil)
         body = source(program, level: 2)
         <<~RUBY
           # frozen_string_literal: true
@@ -128,7 +128,8 @@ module RubyGBA
 
             def lower
               RubyGBA::IR::Backends::GBA.new(fast_cartridge: #{fast_cartridge.inspect},
-                                             fast_code: #{fast_code.inspect}).lower(program)
+                                             fast_code: #{fast_code.inspect},
+                                             stack_room: #{stack_room.inspect}).lower(program)
             end
           end
 

@@ -83,11 +83,6 @@ module RubyGBA
           # runs wherever the console keeps it however fast our memory is.
           IRQ_ROUTINE = :__interrupt
 
-          # The top of the memory the moved block may use. The last 4KB is where the
-          # divide routines are copied and where the console's own startup code keeps its
-          # stack, so nothing of ours may grow into it.
-          HOT_CEILING = IWRAM_START + IWRAM_SIZE - 0x1000
-
           # A routine has to earn its place: below this many scanlines a frame, moving it
           # saves less than the four instructions each of its call sites now costs. It
           # also stops a program with no hot loop at all from filling the quick memory
@@ -274,7 +269,7 @@ module RubyGBA
             # The probe reports through the same object this one does, so the measuring pass
             # shows its own progress rather than going quiet for as long as a lowering takes.
             @progress.step(measuring_phase_name)
-            probe = self.class.new(fast_cartridge: @fast_cartridge, progress: @progress)
+            probe = self.class.new(fast_cartridge: @fast_cartridge, progress: @progress, stack_room: @stack_room)
             probe.lower(program, fast_funcs: Set.new, variables_first: variables_first, lists_to_roomy: @lists_to_roomy,
                                  scene_blocks: @scene_blocks)
             probe

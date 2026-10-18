@@ -134,7 +134,7 @@ class TestRoomyMemory < Minitest::Test
   def test_an_insisted_routine_moves_a_list_out_rather_than_stop_the_build
     rom = build("INSIST") do
       screen :bitmap
-      hoard = list :hoard, capacity: 6500
+      hoard = list :hoard, capacity: 7300
       total = var :total, 0
       func(:tally, fast: true) { 200.times { total.add! 1 } }
       game_loop do
@@ -153,7 +153,7 @@ class TestRoomyMemory < Minitest::Test
     builder = Builder.new
     builder.instance_eval do
       screen :bitmap
-      hoard = list :hoard, capacity: 6500
+      hoard = list :hoard, capacity: 7300
       total = var :total, 0
       spin = var :spin, 0
       func(:tally, fast: true) { 200.times { spin.add! 1 } }
@@ -182,7 +182,7 @@ class TestRoomyMemory < Minitest::Test
     rom = build("POOLMOVE") do
       screen :bitmap
       rocks = pool :rock, x: 0, y: 0, capacity: 400
-      dust = list :dust, capacity: 5000
+      dust = list :dust, capacity: 5700
       spin = var :spin, 0
       func(:tally, fast: true) { 150.times { spin.add! 1 } }
       game_loop do
@@ -204,7 +204,7 @@ class TestRoomyMemory < Minitest::Test
   def test_a_list_no_frame_touches_gives_way_to_the_game_loop
     rom = build("GIVEWAY") do
       screen :bitmap
-      cold = list :cold, capacity: 6500
+      cold = list :cold, capacity: 7300
       spin = var :spin, 0
       cold.push 1
       game_loop { 300.times { spin.add! 1 } }
