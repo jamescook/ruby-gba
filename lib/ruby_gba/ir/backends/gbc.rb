@@ -1,0 +1,66 @@
+# frozen_string_literal: true
+
+require_relative "gbc/sm83"
+require_relative "gbc/linker"
+require_relative "gbc/memory"
+require_relative "gbc/runtime"
+require_relative "gbc/compiler"
+require_relative "gbc/lowering"
+require_relative "gbc/headless_run"
+require_relative "gbc/checked_run"
+
+module RubyGBA
+  module IR
+    module Backends
+      # The game as a GAME BOY COLOR cartridge: the same program every other backend runs, lowered
+      # to the SM83, the Color's 8-bit processor, and laid out in a cartridge with a memory bank
+      # controller.
+      #
+      # HOW IT IS MADE. The native lowering already says a program as a small tree of statements
+      # and calls into a runtime, with no operator anywhere on a game's number (see the comment
+      # atop Native); GBC::Lowering builds that same tree, and GBC::Compiler turns it into SM83
+      # machine code rather than text. The runtime the calls go to (runtime/*.rb) is written in
+      # SM83 here, in Ruby, the way the GBA lowering writes its ARM: the arithmetic of IR::Int32 a
+      # byte at a time (Runtime::Int32), the frame and the buttons, the lists, and the console's
+      # own picture and sound.
+      #
+      # What the picture is made of is the Color's, not the Advance's: a background of tiles of
+      # four colours, forty sprites, eight lists of colours of each kind. What a game asks for that
+      # a Color does not have is answered by Console::GBCFeatures — it works, it degrades with a
+      # warning, or it is refused — before anything is lowered.
+      #
+      # A game is checked by playing the cartridge in the emulator and the program on the
+      # interpreter, given the Color's screen, and comparing every variable, list and pixel after
+      # every pass of the game loop (GBC::CheckedRun).
+      class GBC
+        # Raised when a program cannot be made into a Game Boy Color cartridge.
+        LoweringError = Native::LoweringError
+
+        # WHERE A RUNNING CARTRIDGE KEEPS WHAT A READER WANTS, which nothing in its bytes says:
+        # every variable by the game's name, every list (its place, its capacity, its slot width),
+        # and where the runtime keeps how the run stands (Runtime::Frame's names).
+        Places = Data.define(:variables, :lists, :runtime, :source_program)
+
+        # +program+ as a cartridge (Cartridge::GBCROM), carrying its Places.
+        def build(program, title: "RUBYGBA")
+          lowering = Lowering.new(program, title: title)
+          statements = lowering.top_level
+          memory = Memory.new
+          runtime = Runtime.sections(memory, main: "game_#{lowering.main_routine}")
+          compiled = Compiler.new(memory: memory).compile(statements)
+          linked = Linker.new(runtime + compiled.sections, fixed_from: Console::GBCHardware::HEADER_END).link
+          Cartridge::GBCROM.new(linked.banks, title: title, built: places(lowering, compiled, memory, program))
+        end
+
+        private
+
+        def places(lowering, compiled, memory, program)
+          variables = lowering.variable_names_in_statements.transform_values { |text| compiled.globals.fetch(text) }
+          lists = lowering.list_names_in_statements.transform_values { |text| compiled.lists.fetch(text) }
+          runtime = memory.places.select { |name, _| name.start_with?("rt ") }
+          Places.new(variables: variables, lists: lists, runtime: runtime, source_program: program)
+        end
+      end
+    end
+  end
+end

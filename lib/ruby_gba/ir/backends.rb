@@ -7,6 +7,7 @@ require_relative "backends/reference"
 require_relative "backends/gba"
 require_relative "backends/native"
 require_relative "backends/js"
+require_relative "backends/gbc"
 
 module RubyGBA
   module IR
