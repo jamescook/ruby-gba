@@ -108,9 +108,9 @@ This matters because those handles and comparisons are **data the compiler can s
 
 ### The IR — one description, many targets
 
-The DSL does **not** emit ARM directly. Each verb builds a node in an in-memory **intermediate representation** (IR) — a plain-Ruby, inspectable op-tree. A separate pass validates it, then a **backend** consumes it: one *lowers* it to an ARM7 ROM, another *interprets* it in pure Ruby to a framebuffer (used for headless tests and as the reference oracle), and a third writes it out as C and builds it into a program for a computer (see [Playing on a computer](#playing-on-a-computer)). A **cross-backend conformance fixture** keeps them honest against shared reference semantics (`IR::Int32`, signed 32-bit).
+The DSL does **not** emit ARM directly. Each verb builds a node in an in-memory **intermediate representation** (IR) — a plain-Ruby, inspectable op-tree. A separate pass validates it, then a **backend** consumes it: one *lowers* it to an ARM7 ROM, another *interprets* it in Ruby to a framebuffer (used for headless tests and as the reference oracle), a third writes it out as C and builds it into a program for a computer (see [Playing on a computer](#playing-on-a-computer)), and a fourth writes the same statements as JavaScript for a web page (see [Playing in a browser](#playing-in-a-browser)). A **cross-backend conformance fixture** keeps them honest against shared reference semantics (`IR::Int32`, signed 32-bit).
 
-This adds a layer of machinery, and it earns it: forward references (branches, calls, scene jumps) resolve automatically in a two-pass lowering instead of hand-rolled offset math; whole-program passes like register allocation and constant-pooling become possible; guardrails inspect the whole program *before* a byte is emitted; and — the big one — **new targets are new backends, not a rewrite of the language.** Nodes are tagged **portable vs hardware-only**, which is what makes the future web/GBC targets tractable.
+This adds a layer of machinery, and it earns it: forward references (branches, calls, scene jumps) resolve automatically in a two-pass lowering instead of hand-rolled offset math; whole-program passes like register allocation and constant-pooling become possible; guardrails inspect the whole program *before* a byte is emitted; and — the big one — **new targets are new backends, not a rewrite of the language.** Nodes are tagged **portable vs hardware-only**, which is what made the web target tractable and keeps the terminal and GBC ones so.
 
 ### Effect packs — add verbs without touching the compiler
 
@@ -273,9 +273,8 @@ end
 
 ### Future targets
 
-The backend split is deliberate. Planned peers of the ARM backend, all reusing the same IR:
+The backend split is deliberate. Planned peers of the ARM, C and JavaScript backends, all reusing the same IR:
 
-- **JavaScript / `<canvas>`** — ship a game to the web, plus an instant in-browser live preview.
 - **Terminal (TTY)** — render the framebuffer as half-block ANSI; run a game in any terminal, even over SSH.
 - **Game Boy Color** — an all-new lowering (8-bit SM83, tile/OAM/palette rendering). Large, but the architecture already supports adding it cleanly.
 
@@ -478,9 +477,21 @@ assets/                      # captured GIFs / screenshots
 
 ## Status
 
-Pre-1.0. Full games work end-to-end on both bitmap and tiled screens — sprites (rotated and scaled), scrolling, bending and turning backgrounds, a named layer stack, screen effects and lights, four-channel and sampled sound, saves, and the asset pipeline are all in (see `examples/`). The C build for a computer plays on a Mac the examples it can build so far (`ruby tools/native_examples.rb` lists which, and why not the rest); the browser build plays every example the C build does, and is checked against the interpreter the same way; the terminal backend is still planned. The current proving ground is a Wolfenstein 3D port ([ruby-wolf3d](https://github.com/jamescook/ruby-wolf3d)) — a real game in its own repository that depends on this one as a gem, which is what's surfacing most of the framework gaps that still need closing.
+Pre-1.0. Full games work end-to-end on both bitmap and tiled screens — sprites (rotated and scaled), scrolling, bending and turning backgrounds, a named layer stack, screen effects and lights, four-channel and sampled sound, saves, and the asset pipeline are all in (see `examples/`). Every example builds as a program for a computer (`ruby tools/native_examples.rb` checks them all) and as a web page, and both are checked against the interpreter frame by frame. The Mac program is the one that is played; the Windows and Linux ones are built but not yet run on those systems. The terminal and Game Boy Color backends are still planned. The current proving ground is a Wolfenstein 3D port ([ruby-wolf3d](https://github.com/jamescook/ruby-wolf3d)) — a real game in its own repository that depends on this one as a gem, which is what's surfacing most of the framework gaps that still need closing.
 
-Building and shipping a ROM is **pure Ruby** — no compiler, no C extension. Anything that reads what a ROM *actually did* runs it in an emulator through **`ruby-gba-emulator`**, a separate gem (in this repository, under `ruby-gba-emulator/`) binding libmgba, which needs a C compiler and libmgba to build. It is deliberately not a dependency of this gem, so somebody who only builds cartridges installs no compiler; add it to your Gemfile when you want to verify or profile one:
+**A game is written in Ruby, and the framework that reads it is Ruby.** What a build needs beyond that depends on what it makes:
+
+| To… | you need |
+|---|---|
+| build a cartridge (`.gba`) | Ruby only |
+| run a game on the interpreter (headless tests) | Ruby only |
+| build a web page, or `ruby-gba preview` | Ruby to build it, a browser to play it |
+| build a program for a computer | zig 0.17, which compiles the C and SDL3 |
+| import a picture from a PNG | ImageMagick (`.aseprite` files are read in Ruby) |
+| test a game as JavaScript | node 18 or later |
+| check or measure a cartridge | the `ruby-gba-emulator` gem: a C compiler and libmgba |
+
+Anything that reads what a ROM *actually did* runs it in an emulator through **`ruby-gba-emulator`**, a separate gem (in this repository, under `ruby-gba-emulator/`) binding libmgba. It is deliberately not a dependency of this gem, so somebody who only builds cartridges installs no compiler; add it to your Gemfile when you want to verify or profile one:
 
 ```ruby
 git "https://github.com/jamescook/ruby-gba.git", glob: "{,ruby-gba-emulator/}*.gemspec" do
