@@ -186,6 +186,40 @@ class TestJSPage < Minitest::Test
     assert_plays_frames(2, ["play 10", "focus", "play 2", "picture"], [], focused: false)
   end
 
+  # The pad on the screen plays the game as the keys do: a finger on its right arrow is right held.
+  def test_a_finger_on_the_pads_right_arrow_walks_like_the_arrow_key
+    assert_walks_right_for_frames_two_to_eleven(["touch pad-right", "play 10", "picture", "untouch pad-right", "play 5",
+                                                 "picture"])
+  end
+
+  # Each of the pad's buttons is its console button, and a tap — on and off again between two
+  # frames, as a quick finger is — still counts for the next frame.
+  def test_a_tap_on_each_pad_button_presses_its_console_button
+    buttons = %i[a b select start right left up down r l]
+    game = RubyGBA.game "BUTTONS" do
+      screen :bitmap
+      game_loop do
+        clear_screen :black
+        buttons.each_with_index { |button, i| held(button).then { fill_rect i * 10, 0, 8, 8, :white } }
+      end
+    end
+    taps = buttons.flat_map { |button| ["touch pad-#{button}", "untouch pad-#{button}"] }
+    picture = pictures_in(played_page([*taps, "play 2", "picture"], game)).first
+    interpreter = Reference.new.input_each_frame { |frame| frame == 2 ? buttons : [] }.run(game.program, frames: 2)
+
+    assert_same_picture interpreter.screen.shown, picture, "on the frame after every button was tapped"
+  end
+
+  # The pad is for a screen a finger points at: a page on one shows it, and one with a mouse has it
+  # hidden.
+  def test_the_pad_shows_on_a_touch_screen_only
+    on_touch = played_page(["play 1", "text touchpad"], touchscreen: true)
+    on_mouse = played_page(["play 1", "text touchpad"])
+
+    refute_match(/hidden/, on_touch.grep(/\Atext touchpad/).first)
+    assert_match(/\Atext touchpad hidden/, on_mouse.grep(/\Atext touchpad/).first)
+  end
+
   # +steps+ hold right from the page's start to frame 10 and take two pictures, at frames 10 and
   # 15: each is the interpreter's with right held for frames 2 to 11, since the page reads its
   # buttons after each frame, for the next.

@@ -23,6 +23,7 @@
  *   blur / focus        the window losing the keyboard to another, and getting it back
  *   hide / show         the page's tab hidden behind another, and shown again
  *   click ID            the page's element of that id clicked
+ *   touch ID / untouch ID   a finger put on the page's element of that id, and lifted off it
  *   check ID / uncheck ID   the page's checkbox of that id ticked or cleared (each starts as the
  *                       page's HTML says, ticked where it is written "checked")
  *   play N              N of the browser's frames, each a console frame after the one before, so
@@ -39,7 +40,7 @@
  *                       and how many key presses the page kept from the browser
  *
  * Started with "unfocused" after the page, the window starts without the keyboard, as a page in
- * a frame on another site does. At the end it prints "said" and the words the page showed under
+ * a frame on another site does; with "touchscreen", the screen is one a finger points at. At the end it prints "said" and the words the page showed under
  * the canvas, if it showed any.
  */
 "use strict";
@@ -82,7 +83,9 @@ const stored = new Map();
 let now = 0;
 const shown = {};
 let kept = 0;
-let focused = process.argv[3] !== "unfocused";
+const flags = process.argv.slice(3);
+let focused = !flags.includes("unfocused");
+const touchscreen = flags.includes("touchscreen");
 
 /* Every element of the page, made the first time it is asked for: each can hold words, be hidden,
  * be ticked, be listened to, and be drawn on as a canvas or fill the screen. */
@@ -142,6 +145,8 @@ const browser = {
   navigator: { getGamepads: () => pads.slice() },
   performance: { now: () => now },
   requestAnimationFrame: (callback) => { waiting.push(callback); },
+  /* A screen a finger points at, or one a mouse does: "(any-pointer: coarse)" is the first. */
+  matchMedia: (query) => ({ matches: touchscreen && query.includes("coarse") }),
   /* A web server holding the files beside the page: a name, or a file: URL to one of them. */
   fetch: async (url) => {
     const name = String(url).startsWith("file:") ? new URL(String(url)).pathname : path.resolve(page_dir, String(url));
@@ -260,6 +265,8 @@ function steps() {
     else if (step === "hide") visible(false);
     else if (step === "show") visible(true);
     else if (step === "click") { tell(element(what), "click"); tell(page, "pointerdown"); }
+    else if (step === "touch") { tell(element(what), "pointerdown"); tell(page, "pointerdown"); }
+    else if (step === "untouch") tell(element(what), "pointerup");
     else if (step === "check" || step === "uncheck") { element(what).checked = step === "check"; tell(element(what), "change"); }
     else if (step === "play") play(Number(what));
     else if (step === "picture") printed.push(`picture ${picture(what)}`);

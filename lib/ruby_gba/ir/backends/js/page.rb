@@ -26,8 +26,11 @@ module RubyGBA
         #   pause       a checkbox, ticked, for pausing the game while another window has the
         #               keyboard; write your own <input type="checkbox" id="pause"> without
         #               `checked` to start with it off, and a page without one pauses
+        #   touchpad    the console's buttons on the screen, for a phone or a tablet, shown only on
+        #               a screen a finger points at
         #   message     where a game that stops, or a page waiting for a click, says so
-        #   extras      keys, controller, fullscreen, pause and message together, in that order
+        #   extras      touchpad, keys, controller, fullscreen, pause and message together, in
+        #               that order
         #
         # The script finds the pieces it fills in by their id, and a page without one of them plays
         # the same, with nothing said there.
@@ -63,8 +66,24 @@ module RubyGBA
             pause = '<label><input type="checkbox" id="pause" checked> Pause when another window is in front</label>'
             message = '<p id="said" hidden></p>'
             { title: CGI.escapeHTML(title.to_s), style: style(scale), game: game(script), keys: keys,
-              controller: controller, fullscreen: fullscreen, pause: pause, message: message,
-              extras: [keys, controller, fullscreen, pause, message].join("\n") }
+              controller: controller, fullscreen: fullscreen, pause: pause, touchpad: touchpad, message: message,
+              extras: [touchpad, keys, controller, fullscreen, pause, message].join("\n") }
+          end
+
+          # THE PAD ON THE SCREEN, for a phone or a tablet, which has no keys: the console's buttons
+          # laid out as a GBA lays them out — L and R along the top, the cross on the left, B and A
+          # on the right, Select and Start between — each pressing its button while a finger is on
+          # it (runtime/rg_mount.js finds them by id, "pad-" and the button's name). It is hidden
+          # until the page finds a screen a finger points at.
+          def touchpad
+            key = ->(name, label, area) { %(<button id="pad-#{name}" type="button" style="grid-area: #{area}">#{label}</button>) }
+            [%(<div id="touchpad" class="touchpad" hidden>),
+             key.call("l", "L", "l"), key.call("r", "R", "r"),
+             %(<div class="pad-cross">), key.call("up", "▲", "up"), key.call("left", "◀", "left"),
+             key.call("right", "▶", "right"), key.call("down", "▼", "down"), "</div>",
+             %(<div class="pad-middle">), key.call("select", "SELECT", "auto"), key.call("start", "START", "auto"), "</div>",
+             %(<div class="pad-face">), key.call("b", "B", "b"), key.call("a", "A", "a"), "</div>",
+             "</div>"].join("\n")
           end
 
           def game(script)
@@ -90,6 +109,17 @@ module RubyGBA
                 kbd { border: 1px solid #555; border-radius: 3px; padding: 0 4px; }
                 button { font: inherit; color: inherit; background: #222; border: 1px solid #555; border-radius: 4px;
                          padding: 4px 12px; cursor: pointer; }
+                .touchpad { display: grid; grid-template-columns: 1fr auto 1fr; grid-template-areas: "l . r" "cross middle face";
+                            gap: 16px; align-items: center; width: min(#{Screen::WIDTH * scale}px, 96vw);
+                            touch-action: none; user-select: none; -webkit-user-select: none; }
+                .touchpad[hidden] { display: none; }
+                .touchpad button { touch-action: none; padding: 0; min-width: 48px; min-height: 48px; font-size: 18px; }
+                .pad-cross { grid-area: cross; display: grid; grid-template-areas: ". up ." "left . right" ". down .";
+                             gap: 2px; justify-self: start; }
+                .pad-middle { grid-area: middle; display: flex; gap: 8px; align-self: end; }
+                .pad-middle button { min-height: 28px; font-size: 11px; padding: 0 8px; border-radius: 14px; }
+                .pad-face { grid-area: face; display: grid; grid-template-areas: ". a" "b ."; gap: 8px; justify-self: end; }
+                .pad-face button { width: 60px; height: 60px; border-radius: 50%; }
               </style>
             HTML
           end
