@@ -937,6 +937,9 @@ module RubyGBA
         @tempfile.flush
         write_save_memory if @save
         @probe = Emulator.probe(@tempfile.path, save_dir: self.class.save_dir)
+        # The picture is the size the console draws, which the emulator knows from the cartridge.
+        @width = @probe.width
+        @height = @probe.height
         @rendered = true
         watch_game_loop_passes! if @count_passes
         play(@frames)
