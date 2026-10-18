@@ -130,3 +130,4 @@ end
 
 require_relative "js/node"
 require_relative "js/page"
+require_relative "js/preview"

@@ -341,6 +341,21 @@ class TestCLI < Minitest::Test
     end
   end
 
+  # A game built for the web is one page beside it, holding the game and what plays it, with
+  # nothing to fetch.
+  def test_format_web_writes_one_page_that_plays_the_game
+    Dir.mktmpdir do |dir|
+      cli("new", "demo", dir: dir)
+      out, status = cli("build", "demo.rb", "--format", "web", dir: dir)
+      assert status.success?, out
+
+      page = File.read(File.join(dir, "demo.html"), encoding: Encoding::UTF_8)
+      assert_match(/<canvas id="screen"/, page)
+      assert_match(/function\* rg_game_main\(\)/, page, "the game is in the page")
+      refute_match(/<script src=/, page, "nothing is fetched")
+    end
+  end
+
   # A computer there is no build for is refused before anything is built, in the command's own
   # words for the ones there are.
   def test_format_native_rejects_an_unknown_target
