@@ -9,6 +9,7 @@ require_relative "runtime/picture"
 require_relative "runtime/paint"
 require_relative "runtime/sound"
 require_relative "runtime/music"
+require_relative "runtime/saving"
 
 module RubyGBA
   module IR
@@ -54,6 +55,7 @@ module RubyGBA
             Paint.emit(asm, memory, painting: art.painting?)
             Sound.emit(asm)
             Music.emit(asm, memory, level: music_level, songs: songs)
+            Saving.emit(asm, memory)
             emit_start(asm)
             emit_main(asm, main)
             emit_unfinished(asm)

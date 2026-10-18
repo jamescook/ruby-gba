@@ -34,6 +34,8 @@ module RubyGBA
             COPY_TOO_LONG = 4
             COPY_PAST_TABLE = 5
             PICTURE_NOT_THERE = 6
+            SAVE_READ_OUTSIDE = 7
+            SAVE_WRITE_OUTSIDE = 8
 
             # Where the reader finds each of them: the place in work memory each was given.
             STATE = "rt state" # RUNNING, HALTED or WENT_WRONG
@@ -44,6 +46,10 @@ module RubyGBA
             SEEN = "rt seen"
             PRESSED = "rt pressed"
             FAULT = "rt fault" # what went wrong, then the list, then two numbers that say how
+            # Set by whoever reads the run (GBC::HeadlessRun) when it has the pass it wanted last:
+            # the game then shows that pass and goes no further, so nothing it would do next —
+            # writing its save memory above all — happens after the moment the run ended on.
+            HOLD = "rt hold"
 
             module_function
 
@@ -56,6 +62,7 @@ module RubyGBA
               memory.reserve(SEEN, 1)
               memory.reserve(PRESSED, 1)
               memory.reserve(FAULT, 11)
+              memory.reserve(HOLD, 4)
             end
 
             def emit(asm, memory)
@@ -96,6 +103,9 @@ module RubyGBA
               asm.call("rt_upload_whole")
               asm.call("rt_shown_is_passes")
               asm.label("rg_wait_vblank_buttons")
+              asm.load(:a, [memory[HOLD]])
+              asm.and_a(:a)
+              asm.jump(:nz, "rt_stopped")
               asm.call("rt_read_buttons")
               asm.call("rt_frame_begins")
               asm.xor_a(:a)

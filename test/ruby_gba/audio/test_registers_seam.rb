@@ -5,7 +5,7 @@ require "prism"
 
 # THE LINE THROUGH THE SOUND MODULE, which its own comment draws: the musical half is what a
 # "beep" or a note means, and every backend reads it; Sound::Registers is the console's bit
-# patterns, and only the backend that writes a real cartridge has any business there.
+# patterns, and only the backends that write a real cartridge have any business there.
 #
 # The comment said that before this test did, and the comment was WRONG — twice. The headless
 # interpreter was asking Registers how loud a wave note is, and a guardrail that runs before
@@ -16,19 +16,22 @@ require "prism"
 #
 # Nothing about that drift was visible. Both files kept working, the comment kept claiming the
 # opposite, and the next person to reach across would have had the same reason and the same
-# silence. So the claim is a test now: reach into Registers from outside the GBA lowering and
-# this fails, naming the file and what it asked for.
+# silence. So the claim is a test now: reach into Registers from outside the lowerings that write
+# cartridges and this fails, naming the file and what it asked for. The Game Boy Color's voices
+# are the ones the Advance kept from it, so its lowering asks for the Advance's writes and says
+# each again for its own registers (GBC::Sound).
 class TestRegistersSeam < Minitest::Test
   LIB = RubyGBA.root.join("lib").to_s
 
   # Where writing sound registers is somebody's job. The encoder's own file defines the thing,
-  # and the GBA backend is the one that lowers to a cartridge.
+  # and the GBA and GBC backends are the ones that lower to a cartridge.
   ALLOWED = [
     "lib/ruby_gba/audio/sound.rb",
-    "lib/ruby_gba/ir/backends/gba/"
+    "lib/ruby_gba/ir/backends/gba/",
+    "lib/ruby_gba/ir/backends/gbc/"
   ].freeze
 
-  def test_only_the_gba_lowering_reads_the_sound_registers
+  def test_only_the_cartridge_lowerings_read_the_sound_registers
     reaching = Hash.new { |h, k| h[k] = [] }
 
     Dir.glob(File.join(LIB, "**/*.rb")).sort.each do |path|
@@ -39,7 +42,7 @@ class TestRegistersSeam < Minitest::Test
     end
 
     assert_empty reaching, <<~WHY
-      These read the console's sound registers from outside the GBA lowering:
+      These read the console's sound registers from outside the cartridge lowerings:
 
       #{reaching.map { |file, names| "  #{file}: #{names.uniq.join(', ')}" }.join("\n")}
 

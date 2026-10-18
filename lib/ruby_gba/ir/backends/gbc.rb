@@ -59,7 +59,9 @@ module RubyGBA
                                              music_level: level, songs: lowering.music.any?)
           data = [*lowering.art.sections, *(lowering.music.any? ? [lowering.music.section] : [])]
           linked = Linker.new(runtime + compiled.sections + data, fixed_from: Console::GBCHardware::HEADER_END).link
-          Cartridge::GBCROM.new(linked.banks, title: title, built: places(lowering, compiled, memory, program, linked))
+          save_bytes = Native::Saving.named_by?(program) ? Runtime::Saving::SIZE : 0
+          Cartridge::GBCROM.new(linked.banks, title: title, save_bytes: save_bytes,
+                                              built: places(lowering, compiled, memory, program, linked))
         end
 
         private

@@ -63,11 +63,15 @@ module RubyGBA
 
             frames ||= Reference::DEFAULT_FRAMES
             refuse_endless_game_without_frames!(program)
+            before = @save.dup # the interpreter starts from the save memory the cartridge started from
             @cartridge.run(program, frames: frames)
             width, height = @cartridge.screen.then { |picture| [picture.width, picture.height] }
-            moments = play_on_interpreter(program, frames, width, height)
+            moments, saved = play_on_interpreter(program, frames, width, height, before)
             difference = self.class.first_difference(moments, @cartridge.moments)
             raise Disagreement, "the Game Boy Color lowering and the interpreter disagree at #{difference}" if difference
+            if Native::Saving.named_by?(program) && saved.to_sav != @save.to_sav
+              raise Disagreement, "the Game Boy Color lowering and the interpreter end with different save memory"
+            end
 
             self
           end
@@ -117,13 +121,13 @@ module RubyGBA
                                              "cartridge keeps no count of its steps"
           end
 
-          def play_on_interpreter(program, frames, width, height)
-            interpreter = Reference.new(save: @save.dup).hold(*@held)
+          def play_on_interpreter(program, frames, width, height, save)
+            interpreter = Reference.new(save: save).hold(*@held)
             moments = []
             interpreter.input_each_frame { |frame| @played.fetch(frame, []) }
                        .each_vblank { |frame| moments << moment_of(interpreter, frame, width, height) }
                        .run(program, frames: frames)
-            moments << moment_of(interpreter, :end, width, height)
+            [moments << moment_of(interpreter, :end, width, height), save]
           end
 
           def moment_of(interpreter, frame, width, height)

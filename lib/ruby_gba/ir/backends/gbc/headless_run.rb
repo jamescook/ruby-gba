@@ -115,17 +115,33 @@ module RubyGBA
                                 "interpreter. Say `skip_on_gbc` in this one test."
           end
 
+          # THE SAVE MEMORY goes in as the file the emulator keeps a cartridge's battery-backed
+          # memory in, and what the run left there comes back into the same image when the console
+          # is off again — so one image handed to two runs is a power cycle, as it is for the
+          # interpreter.
           def play(frames)
+            saves = Native::Saving.named_by?(@rom.built.source_program)
+            refuse_power_cut! if saves
             Dir.mktmpdir("ruby-gba-gbc") do |dir|
               path = File.join(dir, "game.gbc")
+              sav = File.join(dir, "game.sav")
               @rom.write(path)
+              File.binwrite(sav, @save.to_sav) if saves
               @core = RubyGBAEmulator::Core.new(path, dir, nil)
               @core.set_keys(Native::HeadlessRun.button_mask(@held))
               play_passes(frames)
             ensure
               @core&.destroy
               @core = nil
+              @save.replace_with_sav(File.binread(sav), from: "The cartridge's save memory") if saves && File.size?(sav)
             end
+          end
+
+          def refuse_power_cut!
+            return unless @save.power_left
+
+            raise CannotAnswer, "a Game Boy Color cartridge keeps no count of its steps, so it cannot have its power " \
+                                "cut after #{@save.power_left} of them"
           end
 
           # Pass by pass until +frames+ have ended or the game stops: each pass's numbers when the game
@@ -153,6 +169,7 @@ module RubyGBA
               next unless pending.nil? && waiting? && passes > @moments.size
 
               pending = [passes, read_variables, read_lists]
+              hold_after_this_pass if passes > frames
               waited = 0
               decide_buttons(passes) if passes <= frames
             end
@@ -233,6 +250,9 @@ module RubyGBA
           def half(address) = @core.bus_read8(address) | (@core.bus_read8(address + 1) << 8)
 
           def runtime_place(name) = @places.runtime.fetch(name)
+
+          # The last pass the run reads: the game is told to show it and go no further.
+          def hold_after_this_pass = @core.bus_write32(runtime_place(Runtime::Frame::HOLD), 1)
           def state = @core.bus_read8(runtime_place(Runtime::Frame::STATE))
           def waiting? = @core.bus_read8(runtime_place(Runtime::Frame::WAITING)) == 1
           def passes = word(runtime_place(Runtime::Frame::PASSES))
@@ -280,6 +300,11 @@ module RubyGBA
             when Runtime::Frame::COPY_PAST_TABLE
               "a copy of #{first} entries is longer than its table (#{second} entries)"
             when Runtime::Frame::PICTURE_NOT_THERE then "a sprite is showing picture #{first} of its #{second}"
+            when Runtime::Frame::SAVE_READ_OUTSIDE, Runtime::Frame::SAVE_WRITE_OUTSIDE
+              did = code == Runtime::Frame::SAVE_READ_OUTSIDE ? "read" : "wrote to"
+              format("The program %<did>s save memory at 0x%<at>X, and save memory is %<kb>dK, which ends at " \
+                     "0x%<end>X. A program must keep to the save memory it has.", did: did, at: first, kb: second / 1024,
+                                                                                    end: second)
             else "the game went wrong (#{code})"
             end
           end

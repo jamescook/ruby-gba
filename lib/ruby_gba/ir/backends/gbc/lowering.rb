@@ -23,7 +23,6 @@ module RubyGBA
                                 scroll_rows shade_outside set_tile show_map background_colors
                                 copy_tiles copy_owed_tiles pixelate see_through],
             "sound" => %i[play_from_list play_sound_effect play_sample stop_sample],
-            "save memory" => %i[save_init save_store save_write save_erase save_read save_sum],
             "timers" => %i[timer_start timer_stop timer_ticks on_timer]
           })
 
@@ -32,7 +31,8 @@ module RubyGBA
           MADE = %i[screen background scroll_background present_objects pixels_overlap color_list_holds
                     clear_screen fill_rect dma_fill_rect draw_rect_at pixel draw_text draw_digit fade tint
                     affine_background
-                    enable_sound beep noise wave stop_wave play_song stop_music].freeze
+                    enable_sound beep noise wave stop_wave play_song stop_music
+                    save_init save_store save_write save_erase save_read save_sum].freeze
 
           include Picture
           include Sound
@@ -52,6 +52,7 @@ module RubyGBA
           def top_level
             refuse_unlowered_kinds!
             refuse_too_many_paint_colors!
+            refuse_save_memory_the_color_lacks!
             refuse_routines_that_call_themselves!
             routines = @called.map { |name| C::Function.new(name: routine(name), body: body_of(@funcs.fetch(name))) }
             main = C::Function.new(name: @names.own("main"), body: lower(@program), exported: true)
@@ -89,6 +90,19 @@ module RubyGBA
             uses = missing.values.flatten & kinds
             raise LoweringError, "this program uses #{uses.map(&:inspect).join(', ')}, which #{build_name} cannot " \
                                  "make yet (#{missing.keys.join(', ')})."
+          end
+
+          # A Game Boy Color cartridge saves in 32K of battery-backed memory (Runtime::Saving): a game
+          # that asks for flash, an EEPROM or more memory is refused, naming what it asked for.
+          def refuse_save_memory_the_color_lacks!
+            return unless Native::Saving.named_by?(@program)
+
+            memory = SaveLayout.memory_of(@program)
+            return if memory.chip == :battery && memory.size == Runtime::Saving::SIZE
+
+            raise LoweringError, "this game saves in #{memory.kilobytes}K of #{memory.kind_words}, and a Game Boy Color " \
+                                 "cartridge saves in 32K of battery-backed memory. To fix this, leave `save_memory:` " \
+                                 "out of RubyGBA.game, or say 32."
           end
 
           # A routine's own numbers are kept at fixed places (see Compiler), so a routine that can
