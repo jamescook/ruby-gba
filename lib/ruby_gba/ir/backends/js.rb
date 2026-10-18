@@ -2,6 +2,7 @@
 
 require "digest"
 require "fileutils"
+require "json"
 require "tmpdir"
 require_relative "js/printer"
 require_relative "js/lowering"
@@ -114,9 +115,7 @@ module RubyGBA
         # when opened. +scale+ is how many times the console's picture is enlarged, and +page+ the
         # template the page is written from (see Page for what one is handed).
         def build_page(game, path, settings: {}, scale: 3, page: Page::DEFAULT, err: $stderr)
-          if File.directory?(path)
-            raise LoweringError, "#{path} is a folder, so the page cannot be written there. Name a file instead."
-          end
+          refuse_folder!(path)
           raise LoweringError, "There is no page template at #{page}. Name an .html.erb file that exists." unless File.file?(page)
 
           script = page_script(checked_program(game, settings: settings, err: err), title: game.title)
@@ -124,9 +123,27 @@ module RubyGBA
           path
         end
 
+        # +game+ as an ES MODULE, written to +path+ (game.mjs): createGame, exported by name and as
+        # the module's default, and the game's title, for a page of the author's own to import —
+        # through a bundler, a framework, or a <script type="module"> — and call with its canvas.
+        def build_module(game, path, settings: {}, err: $stderr)
+          refuse_folder!(path)
+          program = checked_program(game, settings: settings, err: err)
+          File.write(path, [WRITTEN_BY, factory(program, title: game.title),
+                            "export const title = #{JSON.generate(game.title.to_s)};\n",
+                            "export { createGame };\nexport default createGame;\n"].join)
+          path
+        end
+
         private
 
         def runtime_files(names) = names.map { |name| File.read(File.join(RUNTIME_DIR, name), encoding: Encoding::UTF_8) }
+
+        def refuse_folder!(path)
+          return unless File.directory?(path)
+
+          raise LoweringError, "#{path} is a folder, so the game cannot be written there. Name a file instead."
+        end
 
         # The script on disk, in a folder named for what it holds so two programs never write over
         # each other, written under a name of its own and then renamed into place, so two tests

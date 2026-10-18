@@ -43,15 +43,22 @@
 "use strict";
 
 const fs = require("fs");
+const path = require("path");
 const vm = require("vm");
+const { pathToFileURL } = require("url");
 
 const FRAME_MS = 1000 * 280896 / 2 ** 24;
 
+/* The page's one script: a classic one, run where the browser meets it, or a module
+ * (type="module"), which a browser runs once the whole page is read, importing what it names from
+ * beside the page. */
 const html = fs.readFileSync(process.argv[2], "utf8");
-const script = html.match(/<script>\n([\s\S]*)<\/script>/)[1];
+const found_script = html.match(/<script( type="module")?>\n([\s\S]*)<\/script>/);
+const is_module = Boolean(found_script[1]);
+const script = found_script[2];
 const ids_in = (text) => new Set(Array.from(text.matchAll(/\bid="([^"]+)"/g), (found) => found[1]));
 const at_script = html.indexOf(script);
-let ids = ids_in(html.slice(0, at_script));
+let ids = ids_in(is_module ? html : html.slice(0, at_script));
 
 /* Who is listening for what: the window's own, the document's, and each element's. */
 function listening() {
@@ -119,17 +126,23 @@ const controller = {
   axes: [0, 0, 0, 0],
 };
 
-const page = {
+/* The browser's own names, put on node's global scope — node has a navigator, a performance clock
+ * and a localStorage of its own, which these take the place of — so a classic script and a
+ * module both find them as they would in a browser. */
+const page = globalThis;
+const browser = {
   ...listening(),
+  window: page,
   document,
   AudioContext,
   navigator: { getGamepads: () => pads.slice() },
   performance: { now: () => now },
-  atob, btoa, console,
+  requestAnimationFrame: (callback) => { waiting.push(callback); },
+  localStorage: { getItem: (key) => stored.get(key) ?? null, setItem: (key, value) => stored.set(key, value) },
 };
-page.window = page;
-page.requestAnimationFrame = (callback) => { waiting.push(callback); };
-page.localStorage = { getItem: (key) => stored.get(key) ?? null, setItem: (key, value) => stored.set(key, value) };
+for (const [name, value] of Object.entries(browser)) {
+  Object.defineProperty(page, name, { value, writable: true, configurable: true, enumerable: true });
+}
 
 function key(type, code, modifier) {
   tell(page, type, { code, metaKey: modifier === "meta", ctrlKey: modifier === "ctrl", altKey: modifier === "alt" });
@@ -187,13 +200,38 @@ function state() {
   return `state audio=${audio ? audio.state : "none"} fullscreen=${filling} kept=${kept}`;
 }
 
-const context = vm.createContext(page);
-vm.runInContext(script, context);
 /* The rest of the page read in: every part there, and the document says it has loaded. */
-ids = new Set([...ids, ...ids_in(html.slice(at_script + script.length))]);
-document.readyState = "interactive";
-tell(document, "DOMContentLoaded");
+function page_read() {
+  ids = new Set([...ids, ...ids_in(html)]);
+  document.readyState = "interactive";
+  tell(document, "DOMContentLoaded");
+}
 
+/* A module is written beside the page for the moment it runs, so what it imports by a relative
+ * name ("./game.mjs") is found where the browser would find it. */
+async function run_module() {
+  const file = path.join(path.dirname(path.resolve(process.argv[2])), `.page-module-${process.pid}.mjs`);
+  fs.writeFileSync(file, script);
+  try {
+    await import(pathToFileURL(file).href);
+  } finally {
+    fs.rmSync(file, { force: true });
+  }
+}
+
+async function main() {
+  if (is_module) {
+    document.readyState = "interactive";
+    await run_module();
+    page_read();
+  } else {
+    vm.runInThisContext(script);
+    page_read();
+  }
+  steps();
+}
+
+function steps() {
 const printed = [];
 for (const line of fs.readFileSync(0, "utf8").split("\n")) {
   const [step, what, ...rest] = line.trim().split(" ");
@@ -209,7 +247,7 @@ for (const line of fs.readFileSync(0, "utf8").split("\n")) {
   else if (step === "play") play(Number(what));
   else if (step === "picture") printed.push(`picture ${picture(what)}`);
   else if (step === "js") {
-    const result = vm.runInContext(line.trim().slice(3), context);
+    const result = vm.runInThisContext(line.trim().slice(3));
     if (result !== undefined) printed.push(`js ${result}`);
   }
   else if (step === "text") printed.push(text(what));
@@ -218,3 +256,9 @@ for (const line of fs.readFileSync(0, "utf8").split("\n")) {
 }
 if (ids.has("said") && !element("said").hidden) printed.push(`said ${element("said").textContent}`);
 fs.writeSync(1, `${printed.join("\n")}\n`);
+}
+
+main().catch((error) => {
+  console.error(error);
+  process.exit(1);
+});

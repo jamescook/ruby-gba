@@ -51,12 +51,13 @@ module WebPage
   end
 
   # What the harness printed for +steps+ (one a line), played on +game+'s page — or on +html+, a
-  # page written by hand. +focused+ false starts the window without the keyboard, as a page in a
-  # frame on another site.
-  private def played_page(steps, game = walking_game, template: nil, focused: true, html: nil)
+  # page written by hand, with +beside+ ({ name => text }) the files it loads from beside it.
+  # +focused+ false starts the window without the keyboard, as a page in a frame on another site.
+  private def played_page(steps, game = walking_game, template: nil, focused: true, html: nil, beside: {})
     Dir.mktmpdir do |dir|
       path = File.join(dir, "page.html")
       File.write(path, html || built_page(game, template: template))
+      beside.each { |name, text| File.binwrite(File.join(dir, name), text) }
       out, said, status = Open3.capture3("node", HARNESS, path, *("unfocused" unless focused),
                                          stdin_data: steps.join("\n"))
       assert status.success?, said

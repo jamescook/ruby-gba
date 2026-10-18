@@ -373,6 +373,22 @@ class TestCLI < Minitest::Test
     end
   end
 
+  # --js module writes the game as an ES module beside it in place of the page; a kind of
+  # JavaScript there is none of is refused in the command's own words for the ones there are.
+  def test_format_web_writes_the_kind_of_javascript_asked_for
+    Dir.mktmpdir do |dir|
+      cli("new", "demo", dir: dir)
+      out, status = cli("build", "demo.rb", "--format", "web", "--js", "module", dir: dir)
+      assert status.success?, out
+      assert_match(/export default createGame;/, File.read(File.join(dir, "demo.mjs"), encoding: Encoding::UTF_8))
+      refute File.exist?(File.join(dir, "demo.html")), "the module is written in place of the page"
+
+      out, status = cli("build", "demo.rb", "--format", "web", "--js", "wasm", dir: dir)
+      refute status.success?, "an unknown kind of JavaScript should fail"
+      assert_match(/page, module/, out)
+    end
+  end
+
   # A computer there is no build for is refused before anything is built, in the command's own
   # words for the ones there are.
   def test_format_native_rejects_an_unknown_target

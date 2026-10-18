@@ -94,6 +94,9 @@ module RubyGBA
                     desc: "With --format=native, build for another computer: windows, linux or linux-arm"
     option :page, banner: "TEMPLATE",
                   desc: "With --format=web, write the page from this .html.erb template; it must have <%= game %>"
+    option :js, default: "page", enum: %w[page module],
+                desc: "With --format=web, what to write: page (one HTML page that plays the game) or module " \
+                      "(an ES module exporting createGame, for a page of your own)"
     def build(game_file)
       case options[:format]
       when "game" then build_cartridge(game_file)
@@ -382,14 +385,24 @@ module RubyGBA
       raise Thor::Error, e.message
     end
 
-    # The "web" format: the game as one web page that plays it in a browser. Written beside the
-    # game file, named like the cartridge with .html in place of .gba.
+    # What --js names, and the ending of the file each is written to.
+    WEB_OUTPUTS = { "page" => ".html", "module" => ".mjs" }.freeze
+
+    # The "web" format: the game as one web page that plays it in a browser, or with --js the game
+    # alone as JavaScript for a page of the author's own. Written beside the game file, named like
+    # the cartridge with the output's ending in place of .gba.
     def build_web(game_file)
       game = load_game(game_file)
+      js = options[:js]
       path = options[:output] ||
-             File.join(File.dirname(File.expand_path(game_file)), game.default_filename.delete_suffix(".gba") + ".html")
-      page = options[:page] ? File.expand_path(options[:page]) : RubyGBA::IR::Backends::JS::Page::DEFAULT
-      RubyGBA::IR::Backends::JS.new.build_page(game, path, settings: given_settings, page: page)
+             File.join(File.dirname(File.expand_path(game_file)), game.default_filename.delete_suffix(".gba") + WEB_OUTPUTS.fetch(js))
+      web = RubyGBA::IR::Backends::JS.new
+      if js == "module"
+        web.build_module(game, path, settings: given_settings)
+      else
+        page = options[:page] ? File.expand_path(options[:page]) : RubyGBA::IR::Backends::JS::Page::DEFAULT
+        web.build_page(game, path, settings: given_settings, page: page)
+      end
       say "Built #{path}"
     rescue RubyGBA::IR::Backends::JS::LoweringError, RubyGBA::IR::Guardrails::ValidationError => e
       raise Thor::Error, e.message
