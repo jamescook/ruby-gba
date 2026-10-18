@@ -193,6 +193,23 @@ A page of your own, the game as a module for your site or a bundler, and the gam
 
 `rake test` plays every test's game this way too, under [node](https://nodejs.org), and compares every frame with the interpreter (`rake test:lowering:js` plays only that side).
 
+### Playing on a Game Boy Color
+
+A game can be built for the Game Boy Color too. It says so where it is named, and lays itself out from the screen it is being built for, `screen_width` and `screen_height`, rather than from 240 and 160:
+
+```ruby
+RubyGBA.game "PONG", consoles: %i[gba gbc] do
+  paddle_x = screen_width - 12
+  # ...
+end
+```
+
+```bash
+ruby-gba build examples/pong.rb --format=gbc   # pong.gbc, beside the game
+```
+
+The Color is a smaller machine: a 160×144 screen, eight buttons, one background, forty sprites and ten on a row of the screen, and lists of four colours. What every verb does there is decided once, in `Console::GBCFeatures`, and written out in [`.claude/dsl/game-boy-color.md`](.claude/dsl/game-boy-color.md): it **works**, it **degrades** — the build goes on and says once what will look different (a turning background is shown as drawn) — or it is **refused** in plain words before anything is made (a recording, the shoulder buttons). A painted screen works too, holding four colours at once; fades and tints move the Color's colours, the only way it has. `examples/pong.rb` and `examples/pacman.rb` build for both consoles, and `rake test` plays them on the Color against the interpreter, frame by frame (`rake test:lowering:gbc`).
+
 ### Testing a game on every lowering
 
 A game's own tests can do the same, with the library's test helper. In the game's test helper (minitest is in the game's Gemfile):
@@ -234,7 +251,7 @@ end
 
 It builds the cartridge, plays it in the emulator with the same buttons held, and compares every one of the 38,400 pixels with the interpreter's picture at the matching moment. `frames:` takes a list too (`frames: [2, 4, 6]`, or `1..20` for every frame of the first twenty), and each is compared. A difference fails the test with how many pixels differ, the first few by place and colour, and a map of the screen marking where. `backend_pictures` hands back both pictures instead, for a difference that is known and not yet fixed. It needs the ruby-gba-emulator gem in the game's Gemfile (the block under "Status", below); without it the test stops and says what to add. On the native and JavaScript sides there is no cartridge, so the same line checks the game as C, or as JavaScript, against the interpreter on every frame instead.
 
-`rake test` then plays every test three times, one run after the other: on the interpreter, which is what the cartridge is checked against; as C; and as JavaScript — where every frame of every game is compared with the interpreter and a difference fails that test, naming the frame. It ends with a line for each. `rake test:lowering:gba`, `rake test:lowering:native` and `rake test:lowering:js` play one side, and each takes `TEST=` for one file. The native side needs zig 0.17, and the JavaScript side node 18 or later. Both play their tests in several processes rather than Ractors, since each test starts a program. A test that only one side can play goes in a folder that side owns (`t.lowering_folders = { native: ["test/native"] }`), and `skip_on_native "why"` or `skip_on_js "why"` skips one test on that side, which counts its skips by reason at the end.
+`rake test` then plays every test four times, one run after the other: on the interpreter, which is what the cartridge is checked against; as C; as JavaScript; and as a Game Boy Color cartridge, for a game built for the Color — where every frame of every game is compared with the interpreter and a difference fails that test, naming the frame. It ends with a line for each. `rake test:lowering:gba`, `rake test:lowering:native`, `rake test:lowering:js` and `rake test:lowering:gbc` play one side, and each takes `TEST=` for one file. The native side needs zig 0.17, and the JavaScript side node 18 or later. Both play their tests in several processes rather than Ractors, since each test starts a program. A test that only one side can play goes in a folder that side owns (`t.lowering_folders = { native: ["test/native"] }`), and `skip_on_native "why"` or `skip_on_js "why"` skips one test on that side, which counts its skips by reason at the end.
 
 A game whose Rakefile keeps its own `rake test`, or a task for each group of its tests, makes only the runs it wants, under its own names, with `RubyGBA::Testing::TestTask`. That is rake's own test task told which lowering it is for, and it defines nothing else:
 
@@ -259,7 +276,6 @@ end
 The backend split is deliberate. Planned peers of the ARM, C and JavaScript backends, all reusing the same IR:
 
 - **Terminal (TTY)** — render the framebuffer as half-block ANSI; run a game in any terminal, even over SSH.
-- **Game Boy Color** — an all-new lowering (8-bit SM83, tile/OAM/palette rendering). Large, but the architecture already supports adding it cleanly.
 
 ---
 

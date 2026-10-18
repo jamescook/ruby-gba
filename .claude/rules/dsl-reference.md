@@ -198,6 +198,10 @@ variable; an `Integer` is a literal; a `Value` (from `var`) is an expression.
 
 - `RubyGBA.playthrough "name" do … end` — a script (`press`, `hold`, `wait`, `wait_until`, `hold_until`, `moment`); `.play(cartridge)` with `save:`, `lead_in:`, `pictures_in:`; `.tape`; `.compare(ours, theirs)` with its settings; `write_side_by_side_picture`; `ruby-gba play` and `ruby-gba compare`.
 
+## The Game Boy Color — `.claude/dsl/game-boy-color.md`
+
+- `RubyGBA.game "NAME", consoles: %i[gba gbc]` + `ruby-gba build --format=gbc` — the game on a Color too; what every verb does there (works, degrades, refused), and what its build does not make yet.
+
 ## Effects a game writes — `.claude/dsl/effects.md`
 
 - `uses MyPack` — bring in a module of verbs written in the game's own verbs, for this game alone; its checks report on this build.

@@ -39,4 +39,13 @@ class TestGBCFeatures < Minitest::Test
     vague = ANSWERS.reject { |_, answer| answer.works? }.select { |_, answer| answer.words == plain }
     assert_empty vague.keys
   end
+
+  # The reference a reader looks the answers up in is these answers, written out, with what the
+  # Color's build does not make yet.
+  def test_the_reference_says_what_the_answers_and_the_build_say
+    written = File.read(RubyGBA.root.join(".claude/dsl/game-boy-color.md"))
+    said = RubyGBA::Console::GBCFeatures.reference(not_yet: RubyGBA::IR::Backends::GBC::Lowering::NOT_LOWERED_YET)
+
+    assert_equal said, written, "the Game Boy Color reference is out of date: run `ruby tools/gbc_answers.rb`"
+  end
 end

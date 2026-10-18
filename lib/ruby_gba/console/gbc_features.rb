@@ -205,6 +205,46 @@ module RubyGBA
 
       # The answer for +verb+, or nil for a verb nobody has decided yet.
       def self.answer(verb) = ANSWERS[verb.to_sym]
+
+      # WHAT .claude/dsl/game-boy-color.md SAYS: every answer, in the order ANSWERS gives them, and
+      # what the Color's build does not make yet — +not_yet+, the lowering's own list of the
+      # program's kinds it refuses for now, by what they are part of. The file is this, written
+      # out, and a test holds the two to each other, so the reference cannot say one thing while
+      # the build does another. `ruby tools/gbc_answers.rb` writes it again.
+      def self.reference(not_yet: {})
+        lines = ANSWERS.map do |verb, answer|
+          verdict = { works: "works", degrades: "degrades", refused: "**refused**" }.fetch(answer.verdict)
+          "- `#{verb}` — #{verdict}: #{answer.words}"
+        end
+        <<~MARKDOWN
+          # The Game Boy Color — what every verb does there
+
+          A game built for the Color too (`RubyGBA.game "NAME", consoles: %i[gba gbc]`, then
+          `ruby-gba build --format=gbc`) is the same game on a smaller machine: a 160×144 screen
+          (`screen_width`, `screen_height`), eight buttons, one background, forty sprites (ten on a
+          row of the screen), and lists of four colours. Every verb has one of three answers there,
+          decided once in `Console::GBCFeatures`:
+
+          - **works** — the same game, played the same way. The Game Boy Color lowering's run of
+            `rake test` holds the cartridge to the interpreter on every frame.
+          - **degrades** — the build goes on and says, once, what will look different and why. The
+            interpreter shows the same difference when it plays the game for the Color.
+          - **refused** — the build stops before anything is made, saying what the game asked for
+            and what to use instead.
+
+          This file is `Console::GBCFeatures.reference` written out (`ruby tools/gbc_answers.rb`), and a
+          test fails when the two differ.
+
+          #{lines.join("\n")}
+
+          ## Not made yet
+
+          An answer above is what the Color does with a verb. The build for it is still growing, and
+          a game that reaches one of these steps is refused, naming the step, until it is made:
+
+          #{not_yet.map { |part, kinds| "- #{part}: #{kinds.map { |kind| "`#{kind}`" }.join(', ')}" }.join("\n")}
+        MARKDOWN
+      end
     end
   end
 end
