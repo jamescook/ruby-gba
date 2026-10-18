@@ -17,11 +17,27 @@ module RubyGBA
           A = Console::Hardware
           H = Console::GBCHardware
 
+          # The game's songs, as the player reads them (GBC::Music).
+          def music = @music
+
+          # The name the statements give the variable holding how loud the music is, or nil for a
+          # game that never says.
+          def music_level_name
+            variable_names.include?(Tunes::LEVEL) ? variable(Tunes::LEVEL).text : nil
+          end
+
           private
 
           def prepare_sound
             @defined_sounds = @program.walk.select { |node| node.kind == :define_sound }.to_h { |node| [node.name, node.effect] }
+            @music = Music.new(@program)
           end
+
+          # Reference#exec_play_song: the tune named, from the next frame, unless it is the one
+          # named already. Named `this_frame: true` it starts the same way, a frame on.
+          def lower_play_song(node) = [eval_call("rg_gbc_music_play", C::Int.new(@music.number(node.name)))]
+
+          def lower_stop_music(_node) = [eval_call("rg_gbc_music_stop")]
 
           def lower_enable_sound(_node) = sound_writes(RubyGBA::Audio::Sound::Registers.enable)
 

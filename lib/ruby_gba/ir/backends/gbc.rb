@@ -7,6 +7,7 @@ require_relative "gbc/runtime"
 require_relative "gbc/art"
 require_relative "gbc/picture"
 require_relative "gbc/sound"
+require_relative "gbc/music"
 require_relative "gbc/compiler"
 require_relative "gbc/lowering"
 require_relative "gbc/headless_run"
@@ -51,10 +52,13 @@ module RubyGBA
           statements = lowering.top_level
           memory = Memory.new
           # The runtime's places first, so they are in the half of work memory always in view.
-          runtime = Runtime.sections(memory, main: "game_#{lowering.main_routine}", art: lowering.art)
+          Runtime.reserve(memory, art: lowering.art)
           compiled = Compiler.new(memory: memory).compile(statements)
-          art = lowering.art.sections
-          linked = Linker.new(runtime + compiled.sections + art, fixed_from: Console::GBCHardware::HEADER_END).link
+          level = lowering.music_level_name&.then { |text| compiled.globals.fetch(text) }
+          runtime = Runtime.sections(memory, main: "game_#{lowering.main_routine}", art: lowering.art,
+                                             music_level: level, songs: lowering.music.any?)
+          data = [*lowering.art.sections, *(lowering.music.any? ? [lowering.music.section] : [])]
+          linked = Linker.new(runtime + compiled.sections + data, fixed_from: Console::GBCHardware::HEADER_END).link
           Cartridge::GBCROM.new(linked.banks, title: title, built: places(lowering, compiled, memory, program, linked))
         end
 

@@ -391,12 +391,17 @@ module RubyGBA
           # Jump to +label+ unless +condition+ holds. A comparison jumps on rt_cmp32's answer
           # straight away, without making a 1 or a 0 of it first.
           def jump_unless(condition, label)
+            condition = simplified(condition)
             known = folded(condition)
             if known
               @asm.jump(label) if known.zero?
             elsif (equal = equality_with_number(condition))
               compare_with_number(*equal)
               @asm.jump(condition.function.text == "rg_eq" ? :nz : :z, label)
+            elsif condition.is_a?(C::Call) && condition.function.text == "rg_both" && quiet?(condition.args.last)
+              # The second side is skipped when the first does not hold: the interpreter works both
+              # out, which is the same thing wherever working one out cannot stop the game.
+              condition.args.each { |side| jump_unless(side, label) }
             elsif condition.is_a?(C::Call) && COMPARISONS.key?(condition.function.text)
               compare(condition)
               _, holds_when = COMPARISONS.fetch(condition.function.text)
@@ -449,6 +454,59 @@ module RubyGBA
 
           # --- values: each leaves its number in BCDE ---
 
+          # The comparisons and the tests built of them, which come to 1 or 0 and nothing else.
+          YES_OR_NO = (COMPARISONS.keys + %w[rg_both rg_either]).freeze
+
+          # Each comparison and the one that holds exactly when it does not.
+          OPPOSITES = Ractor.make_shareable({ "rg_lt" => "rg_ge", "rg_ge" => "rg_lt", "rg_gt" => "rg_le",
+                                              "rg_le" => "rg_gt", "rg_eq" => "rg_ne", "rg_ne" => "rg_eq" })
+
+          # +node+ said more simply where a number written in the program makes part of it nothing:
+          # x × 1 and x + 0 are x, and a test that comes to 1 or 0, asked whether it is 1 (or not
+          # 0), is the test itself — so `active == 1` of a sprite whose `active` is `1 * (state ==
+          # 0)` is one comparison of `state` with 0.
+          def simplified(node)
+            return node unless node.is_a?(C::Call)
+
+            name = node.function.text
+            args = node.args.map { |arg| simplified(arg) }
+            numbers = args.map { |arg| folded(arg) }
+            case name
+            when "rg_mul"
+              return args[1] if numbers[0] == 1
+              return args[0] if numbers[1] == 1
+            when "rg_add"
+              return args[1] if numbers[0]&.zero?
+              return args[0] if numbers[1]&.zero?
+            when "rg_sub"
+              return args[0] if numbers[1]&.zero?
+            when "rg_eq", "rg_ne"
+              test, number = numbers[1] ? [args[0], numbers[1]] : [args[1], numbers[0]]
+              if yes_or_no?(test) && [0, 1].include?(number)
+                holds = (name == "rg_eq") == (number == 1)
+                return test if holds
+                return C::Call.new(function: C::Name.new(OPPOSITES.fetch(test.function.text)), args: test.args) if OPPOSITES.key?(test.function.text)
+              end
+            end
+            C::Call.new(function: node.function, args: args)
+          end
+
+          def yes_or_no?(node) = node.is_a?(C::Call) && YES_OR_NO.include?(node.function.text)
+
+          # The runtime's sums that only ever answer — none of them can stop the game.
+          QUIET = (FOLDED.keys + COMPARISONS.keys + %w[rg_clamp rg_held rg_pressed rg_mul_fix rg_div_fix]).freeze
+
+          # Can working +node+ out never stop the game? Reading a list past its end can, and so
+          # can a sprite's picture its pose does not name.
+          def quiet?(node)
+            case node
+            when C::Int, Integer, C::Name then true
+            when C::Index then quiet?(node.index)
+            when C::Call then QUIET.include?(node.function.text) && node.args.all? { |arg| quiet?(arg) }
+            else false
+            end
+          end
+
           # The number +node+ comes to when everything in it is written in the program, or nil.
           def folded(node)
             case node
@@ -472,6 +530,7 @@ module RubyGBA
           end
 
           def value(node)
+            node = simplified(node)
             known = folded(node)
             return load_constant(known) if known
 

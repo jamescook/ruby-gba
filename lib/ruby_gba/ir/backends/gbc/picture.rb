@@ -30,6 +30,8 @@ module RubyGBA
             @paint_colors = paint_colors
             @art = Art.new(paint_colors: @paint_colors&.first(Art::PLACES))
             @grids = {} # a background declaration -> its grid's number
+            # Every background's name, for a statement naming one (Native's #background_number).
+            @backgrounds = @program.walk.select { |node| node.kind == :background }.to_h { |bg| [bg.name, 0] }
             @drawing_arrays = []
           end
 
@@ -178,6 +180,13 @@ module RubyGBA
           def lower_scroll_background(node)
             background_number(node) # refuses a background nobody declared
             [eval_call("rg_gbc_background_scroll", value(node.x), value(node.y))]
+          end
+
+          # A background turned or resized: a Color cannot do either, so it is shown as drawn, as the
+          # interpreter shows it for a console that cannot turn a layer (Console::GBCFeatures).
+          def lower_affine_background(node)
+            background_number(node) # refuses a background nobody declared
+            []
           end
 
           # A background's cells as the Color's grid of 32×32 holds them: each cell's tile and

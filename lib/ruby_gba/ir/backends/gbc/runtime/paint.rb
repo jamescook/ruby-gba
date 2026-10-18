@@ -118,8 +118,10 @@ module RubyGBA
 
             # rg_gbc_screen(kind): the screen up is a painted one (PAINTED) or one of tiles. 1 when
             # that is a change of kind, which replaces the whole display: a painted screen comes
-            # up black, a tiled one with nothing up, and no sprite shows on either until the game
-            # says. 0, and nothing changes, for the kind already up.
+            # up black with no sprite on it, and a tiled one with nothing up — but the sprites this
+            # pass drew, which the interpreter keeps in front of whatever scenery arrives after
+            # them (Reference#redraw_sprites_over_arrived_scenery). 0, and nothing changes, for the
+            # kind already up.
             def emit_screen(asm, memory, painting:)
               h = Console::GBCHardware
               asm.label("rg_gbc_screen")
@@ -142,14 +144,14 @@ module RubyGBA
                 asm.xor_a(:a)
                 asm.call("rt_paint_clear_to") # black, as the interpreter's crossing leaves it
               end
+              asm.call("rg_gbc_sprites_begin")
+              asm.call("rg_gbc_sprites_end")
               asm.jump_relative("rg_gbc_screen_changed")
               asm.label("rg_gbc_screen_tiled")
               asm.and_a(~h::LCDC_BG_MAP1 & 0xFF)
               asm.load([memory[Picture::LCDC_WANTED]], :a)
               asm.call("rt_picture_take_down")
               asm.label("rg_gbc_screen_changed")
-              asm.call("rg_gbc_sprites_begin")
-              asm.call("rg_gbc_sprites_end")
               asm.load(:bc, 0)
               asm.load(:de, 1)
               asm.ret

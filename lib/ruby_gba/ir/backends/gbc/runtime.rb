@@ -8,6 +8,7 @@ require_relative "runtime/lists"
 require_relative "runtime/picture"
 require_relative "runtime/paint"
 require_relative "runtime/sound"
+require_relative "runtime/music"
 
 module RubyGBA
   module IR
@@ -25,13 +26,22 @@ module RubyGBA
         module Runtime
           module_function
 
-          # The runtime's sections: the processor's entry points, and everything else in one.
-          # +main+ is the label of the game's main routine, called in its own bank; +art+ is what its
-          # pictures were made into (GBC::Art), which the runtime puts in the console at power-on.
-          def sections(memory, main:, art:)
+          # The runtime's own places in work memory, asked for before the game's, so they are in
+          # the half always in view (a painted screen puts its banks in the other half while it
+          # works). +art+ is what the game's pictures were made into (GBC::Art).
+          def reserve(memory, art:)
             Frame.reserve(memory)
             Picture.reserve(memory)
             Paint.reserve(memory, painting: art.painting?)
+            Music.reserve(memory)
+          end
+
+          # The runtime's sections: the processor's entry points, and everything else in one.
+          # +main+ is the label of the game's main routine, called in its own bank; +art+ is what its
+          # pictures were made into (GBC::Art), which the runtime puts in the console at power-on;
+          # +music_level+ is where the game keeps how loud its music is (nil for at full), and
+          # +songs+ whether it has any songs at all.
+          def sections(memory, main:, art:, music_level: nil, songs: false)
             asm = SM83.new("runtime", home: :fixed)
             Boot.emit(asm, main: "rt_main")
             Boot.emit_display_off(asm)
@@ -43,6 +53,7 @@ module RubyGBA
             Picture.emit(asm, memory, sprite_tiles: art.sprite_tiles.length, background_tiles: art.background_tiles.length)
             Paint.emit(asm, memory, painting: art.painting?)
             Sound.emit(asm)
+            Music.emit(asm, memory, level: music_level, songs: songs)
             emit_start(asm)
             emit_main(asm, main)
             emit_unfinished(asm)

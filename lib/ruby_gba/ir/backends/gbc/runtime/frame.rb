@@ -62,12 +62,14 @@ module RubyGBA
               h = Console::GBCHardware
               vblank = memory.quick(1)
 
-              # The interrupt that says a frame has been drawn.
+              # The interrupt that says a frame has been drawn. The music plays on from here, a frame
+              # at a time, whatever the game is doing (Runtime::Music).
               asm.label("rt_vblank_interrupt")
-              asm.push(:af)
+              %i[af bc de hl].each { |pair| asm.push(pair) }
+              asm.call("rt_music_tick")
               asm.load(:a, 1)
               asm.load_high(vblank, :a)
-              asm.pop(:af)
+              %i[hl de bc af].each { |pair| asm.pop(pair) }
               asm.reti
 
               # The end of a pass: count it, say the game is waiting, and wait for the screen.

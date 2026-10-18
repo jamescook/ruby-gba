@@ -20,9 +20,9 @@ module RubyGBA
           # the day the Color does it; test_gbc_kind_coverage.rb holds the list to every kind.
           NOT_LOWERED_YET = Ractor.make_shareable({
             "the picture" => %i[inside camera blit blit_pose draw_column_at save_region restore_region
-                                affine_background scroll_rows shade_outside set_tile show_map background_colors
+                                scroll_rows shade_outside set_tile show_map background_colors
                                 copy_tiles copy_owed_tiles pixelate see_through],
-            "sound" => %i[play_song stop_music play_from_list play_sound_effect play_sample stop_sample],
+            "sound" => %i[play_from_list play_sound_effect play_sample stop_sample],
             "save memory" => %i[save_init save_store save_write save_erase save_read save_sum],
             "timers" => %i[timer_start timer_stop timer_ticks on_timer]
           })
@@ -31,7 +31,8 @@ module RubyGBA
           # each is made.
           MADE = %i[screen background scroll_background present_objects pixels_overlap color_list_holds
                     clear_screen fill_rect dma_fill_rect draw_rect_at pixel draw_text draw_digit fade tint
-                    enable_sound beep noise wave stop_wave].freeze
+                    affine_background
+                    enable_sound beep noise wave stop_wave play_song stop_music].freeze
 
           include Picture
           include Sound
