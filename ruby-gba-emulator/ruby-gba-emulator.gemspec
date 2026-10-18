@@ -15,7 +15,7 @@ Gem::Specification.new do |spec|
   DESC
   spec.homepage    = "https://github.com/jamescook/ruby-gba"
   spec.license     = "MIT" # our binding code; libmgba is linked separately (MPL-2.0)
-  spec.required_ruby_version = ">= 3.1"
+  spec.required_ruby_version = ">= 4.0"
 
   spec.files = Dir[
     "lib/**/*.rb",
