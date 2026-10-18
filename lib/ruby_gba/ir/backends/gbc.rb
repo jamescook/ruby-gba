@@ -4,6 +4,9 @@ require_relative "gbc/sm83"
 require_relative "gbc/linker"
 require_relative "gbc/memory"
 require_relative "gbc/runtime"
+require_relative "gbc/art"
+require_relative "gbc/picture"
+require_relative "gbc/sound"
 require_relative "gbc/compiler"
 require_relative "gbc/lowering"
 require_relative "gbc/headless_run"
@@ -46,9 +49,10 @@ module RubyGBA
           lowering = Lowering.new(program, title: title)
           statements = lowering.top_level
           memory = Memory.new
-          runtime = Runtime.sections(memory, main: "game_#{lowering.main_routine}")
           compiled = Compiler.new(memory: memory).compile(statements)
-          linked = Linker.new(runtime + compiled.sections, fixed_from: Console::GBCHardware::HEADER_END).link
+          art = lowering.art.sections
+          runtime = Runtime.sections(memory, main: "game_#{lowering.main_routine}", art: lowering.art)
+          linked = Linker.new(runtime + compiled.sections + art, fixed_from: Console::GBCHardware::HEADER_END).link
           Cartridge::GBCROM.new(linked.banks, title: title, built: places(lowering, compiled, memory, program))
         end
 

@@ -5,6 +5,8 @@ require_relative "runtime/int32"
 require_relative "runtime/calls"
 require_relative "runtime/frame"
 require_relative "runtime/lists"
+require_relative "runtime/picture"
+require_relative "runtime/sound"
 
 module RubyGBA
   module IR
@@ -13,7 +15,7 @@ module RubyGBA
         # THE RUNTIME every Game Boy Color cartridge carries, in bank 0 where every routine of the
         # game can reach it: from power-on to the game's first line (Boot), the arithmetic (Int32),
         # calls between banks and the runtime's numbers (Calls), the frame and the buttons (Frame),
-        # and the lists (Lists).
+        # the lists (Lists), the picture (Picture) and the sound (Sound).
         #
         # The game's code calls it by the names Native's runtime has (rg_wait_vblank, rg_list_push,
         # rg_held...), with the numbers on the stack, so the lowering the two share calls either
@@ -22,9 +24,11 @@ module RubyGBA
           module_function
 
           # The runtime's sections: the processor's entry points, and everything else in one.
-          # +main+ is the label of the game's main routine, called in its own bank.
-          def sections(memory, main:)
+          # +main+ is the label of the game's main routine, called in its own bank; +art+ is what its
+          # pictures were made into (GBC::Art), which the runtime puts in the console at power-on.
+          def sections(memory, main:, art:)
             Frame.reserve(memory)
+            Picture.reserve(memory)
             asm = SM83.new("runtime", home: :fixed)
             Boot.emit(asm, main: "rt_main")
             Boot.emit_display_off(asm)
@@ -33,6 +37,8 @@ module RubyGBA
             Calls.emit(asm, memory)
             Frame.emit(asm, memory)
             Lists.emit(asm, memory)
+            Picture.emit(asm, memory, sprite_tiles: art.sprite_tiles.length, background_tiles: art.background_tiles.length)
+            Sound.emit(asm)
             emit_start(asm)
             emit_main(asm, main)
             emit_unfinished(asm)
@@ -59,6 +65,7 @@ module RubyGBA
             asm.jump_relative("rt_start_next")
             asm.label("rt_start_lists")
             asm.call("rt_lists_start")
+            asm.call("rt_picture_start")
             asm.jump("rt_buttons_from_power_on")
           end
 
@@ -72,10 +79,8 @@ module RubyGBA
           end
 
           # What the runtime does at each frame boundary that the Game Boy Color lowering does not
-          # do anything for yet: nothing to copy to the console, nothing to move on.
+          # do anything for yet: nothing to move on.
           def emit_unfinished(asm)
-            asm.label("rt_upload")
-            asm.ret
             asm.label("rt_frame_begins")
             asm.ret
           end

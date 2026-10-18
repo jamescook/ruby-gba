@@ -42,21 +42,34 @@ module Pacman
   R     = SIZE / 2    # radius (and the centre offset)
   DIRS  = %i[right left up down].freeze
 
-  # The room's floor, in pixels: inside the one-tile wall border (8..231 across,
-  # 8..151 down). Pac and the pellets are kept within it.
-  FLOOR_X = (8..(240 - 8 - SIZE)).freeze
-  FLOOR_Y = (8..(160 - 8 - SIZE)).freeze
-  PELLET_SPOTS = Ractor.make_shareable([[112, 40], [48, 40], [184, 40], [48, 112], [184, 112]])
-  START = [(240 - SIZE) / 2, (160 - SIZE) / 2].freeze
+  # WHERE EVERYTHING GOES, worked out from the size of the screen the game is built for — the
+  # Advance's 240×160 or the Game Boy Color's 160×144 — so one game lays itself out on either.
+  # The room fills the screen, a one-tile wall round a floor; Pac and the pellets are kept on
+  # the floor; Pac starts in the middle; the pellets sit near the corners and the top middle.
+  Layout = Data.define(:width, :height) do
+    def floor_x = (8..(width - 8 - SIZE))
+    def floor_y = (8..(height - 8 - SIZE))
+    def start = [(width - SIZE) / 2, (height - SIZE) / 2]
+    def pellet_spots = [[(width / 2) - 8, 40], [48, 40], [width - 56, 40], [48, height - 48], [width - 56, height - 48]]
+
+    def room
+      cols = width / 8
+      ["#" * cols] + Array.new((height / 8) - 2, "##{'.' * (cols - 2)}#") + ["#" * cols]
+    end
+  end
+
+  # The Advance's layout, which the tests read the game's places from.
+  ADVANCE = Layout.new(width: 240, height: 160)
+  FLOOR_X = ADVANCE.floor_x
+  FLOOR_Y = ADVANCE.floor_y
+  PELLET_SPOTS = Ractor.make_shareable(ADVANCE.pellet_spots)
+  START = ADVANCE.start.freeze
   GHOST_START = [24, 24].freeze
 
   # The score readout in the top-left: where it starts, and the gap between the word
   # and its figures.
   HUD_X   = 8
   HUD_GAP = 6
-
-  # A bordered room that fills the screen: a wall around the edge, floor inside.
-  ROOM = Ractor.make_shareable((["#" * 30] + Array.new(18, "##{'.' * 28}#") + ["#" * 30]))
 
   # Pac-Man facing +dir+, as ASCII art: 'Y' is a lit (yellow) body pixel, '.' is
   # transparent. He's the disc of radius R. With his mouth open, a triangular wedge —
@@ -120,8 +133,9 @@ module Pacman
 
   # The game as a block the builder runs, so a test can drive the exact program that
   # ships — the headless interpreter runs THIS, the console runs the ROM.
-  GAME = RubyGBA.game("PACMAN") do
+  GAME = RubyGBA.game("PACMAN", consoles: %i[gba gbc]) do
     screen :tiled # tile mode: a background layer for the room + hardware sprites on top
+    here = Layout.new(width: screen_width, height: screen_height)
 
     # What is in front of what, back to front. Four things share this screen, and
     # without this line their order is whichever declaration happens to run first.
@@ -158,7 +172,7 @@ module Pacman
       ART
     end
     tiles :dungeon, "#" => :wall, "." => :floor
-    layer(:room) { background :room, tiles: :dungeon, map: ROOM }
+    layer(:room) { background :room, tiles: :dungeon, map: here.room }
 
     # --- Pac-Man: a two-frame chomp per direction, imported from a sprite sheet ---
     # pacman_sheet.png is a grid — one row per direction (in DIRS order), two columns
@@ -174,7 +188,7 @@ module Pacman
     # moment after the ghost catches him (see the loop), and the sheet is drawn once.
     colors :flash, %i[transparent white]
     pac = layer(:actors) do
-      sprite :pac, at: START, rate: 6,
+      sprite :pac, at: here.start, rate: 6,
                    facing_from: "assets/pacman_sheet.png", tile: SIZE,
                    dirs: DIRS, transparent: true, colors: %i[transparent yellow]
     end
@@ -182,7 +196,7 @@ module Pacman
 
     # --- the pellets: a sprite each, scattered on the floor ---
     image(:pellet, "." => :transparent, "o" => :white) { PELLET_ART }
-    pellets = layer(:pellets) { PELLET_SPOTS.map { |px, py| sprite :pellet, at: [px, py] } }
+    pellets = layer(:pellets) { here.pellet_spots.map { |px, py| sprite :pellet, at: [px, py] } }
     eaten = var :eaten, 0 # how many pellets Pac-Man has swallowed
 
     # --- the ghost ---
@@ -208,8 +222,8 @@ module Pacman
       held(:right).then { pac.move :right, by: SPEED }
       held(:up).then    { pac.move :up,    by: SPEED }
       held(:down).then  { pac.move :down,  by: SPEED }
-      pac.x.clamp! FLOOR_X.min, FLOOR_X.max # keep him inside the walls
-      pac.y.clamp! FLOOR_Y.min, FLOOR_Y.max
+      pac.x.clamp! here.floor_x.min, here.floor_x.max # keep him inside the walls
+      pac.y.clamp! here.floor_y.min, here.floor_y.max
 
       # Eat a pellet Pac is touching. Both are sprites, so each knows its rectangle —
       # no boxes: just ask whether they overlap. On a bite, count it, waka, and send
@@ -218,7 +232,7 @@ module Pacman
         pac.overlaps?(pellet).then do
           eaten.add! 1
           beep :waka
-          pellet.move_to rand(FLOOR_X), rand(FLOOR_Y)
+          pellet.move_to rand(here.floor_x), rand(here.floor_y)
         end
       end
 
@@ -233,7 +247,7 @@ module Pacman
       ghost.overlaps?(pac).then do
         beep :caught
         caught.add! 1
-        pac.move_to(*START)
+        pac.move_to(*here.start)
         ghost.move_to(*GHOST_START)
         stunned.set! 48
       end

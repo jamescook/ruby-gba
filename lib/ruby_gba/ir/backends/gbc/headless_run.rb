@@ -279,6 +279,7 @@ module RubyGBA
               "a copy of #{first} entries does not fit list :#{list} (capacity #{second})"
             when Runtime::Frame::COPY_PAST_TABLE
               "a copy of #{first} entries is longer than its table (#{second} entries)"
+            when Runtime::Frame::PICTURE_NOT_THERE then "a sprite is showing picture #{first} of its #{second}"
             else "the game went wrong (#{code})"
             end
           end

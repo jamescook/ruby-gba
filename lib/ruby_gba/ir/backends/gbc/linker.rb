@@ -14,9 +14,11 @@ module RubyGBA
         # BANKED, in one of the others, and a jump from one bank to another is not a jump at all
         # but a call through bank 0 that switches the bank in view first (see Runtime#far_call).
         #
-        # A section's +home+ says which: :fixed, :banked, a number (the address in bank 0 it must
-        # start at, for the processor's own entry points), or a label, which puts it in the same
-        # bank as the section that defines that label, so it can be jumped to directly.
+        # A section's +home+ says which: :fixed, :banked, :aligned16 (banked, starting at an address
+        # that is a multiple of 16, which the console's copy into picture memory reads from), a
+        # number (the address in bank 0 it must start at, for the processor's own entry points), or
+        # a label, which puts it in the same bank as the section that defines that label, so it can
+        # be jumped to directly.
         class Linker
           BANK_SIZE = 0x4000
           BANKED_START = 0x4000
@@ -86,12 +88,14 @@ module RubyGBA
               size = section.bytes.bytesize
               raise Error, "section #{section.name} is #{size} bytes, more than a bank holds" if size > BANK_SIZE
 
+              align = section.home == :aligned16 ? 16 : 1
+              start_in = ->(b) { ((room[b - 1] || 0) + align - 1) / align * align }
               bank = if section.home.is_a?(String)
                        label_bank.fetch(section.home) { raise Error, "section #{section.name} keeps with #{section.home}, which is not placed yet" }
                      else
-                       (1..).find { |b| (room[b - 1] || 0) + size <= BANK_SIZE }
+                       (1..).find { |b| start_in.call(b) + size <= BANK_SIZE }
                      end
-              used = room[bank - 1] || 0
+              used = start_in.call(bank)
               raise Error, "section #{section.name} does not fit in bank #{bank} beside what is there" if used + size > BANK_SIZE
 
               placed << Placed.new(section: section, bank: bank, address: BANKED_START + used)

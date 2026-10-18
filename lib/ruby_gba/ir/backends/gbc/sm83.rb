@@ -123,6 +123,12 @@ module RubyGBA
             emit(0)
           end
 
+          # LD r,n with n the number of the bank +label+ is in.
+          def load_bank_of(register, label)
+            emit(0x06 | (REG8.fetch(register) << 3))
+            data_bank_of(label)
+          end
+
           # Raw bytes, a String or an Array of numbers.
           def bytes_of(data)
             @bytes << (data.is_a?(String) ? data.b : data.pack("C*"))

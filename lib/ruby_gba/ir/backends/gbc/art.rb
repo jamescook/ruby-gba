@@ -1,0 +1,314 @@
+# frozen_string_literal: true
+
+module RubyGBA
+  module IR
+    module Backends
+      class GBC
+        # A GAME'S PICTURES, MADE INTO WHAT A GAME BOY COLOR DRAWS FROM, while the program is built.
+        #
+        # The Color draws everything from TILES: 8×8 pictures of two bits a pixel, so each pixel is
+        # one of four places in a list of colours (a PALETTE). The background is a grid of tiles,
+        # each cell naming a tile and one of eight palettes; a sprite is one or more tiles placed
+        # anywhere, each drawn from one of eight palettes of its own, whose place 0 is see-through.
+        #
+        # So a picture the game declared is cut into 8×8 pieces, each piece's pixels written as
+        # places in a list of four, and the lists the game's pictures need gathered into palettes.
+        # What cannot fit — a picture with more colours than a list holds, more lists than the
+        # Color has — is refused here with the picture's name.
+        #
+        # A background's place 0 is the BACKDROP, the colour shown where nothing is drawn, which on
+        # the Color as in the interpreter is black: a tile's see-through pixels show it. So a
+        # background tile has three colours of its own, and a sprite's picture three and
+        # see-through.
+        #
+        # Everything is kept in the cartridge (#sections) under the labels the runtime reads it by
+        # (Runtime::Picture): the tiles, copied into the console's memory at power-on; the
+        # palettes; for every sprite picture its pieces and the mask of its drawn pixels, which is
+        # what two sprites are tested against each other with; and every grid a background shows.
+        class Art
+          # The places a list holds, and how many are the picture's own: one is see-through.
+          PLACES = 4
+          OWN_COLORS = PLACES - 1
+
+          # How many palettes of each kind there are.
+          PALETTES = 8
+
+          # The backdrop: black, as the interpreter's empty screen is.
+          BACKDROP = 0
+
+          # How many tiles of each kind there is room for in the console's picture memory: sprites
+          # 128 to a bank, backgrounds 256 to a bank, two banks.
+          MOST_SPRITE_TILES = 256
+          MOST_BACKGROUND_TILES = 512
+
+          # The grid a background is drawn on: 32 cells each way, wrapping round.
+          GRID_CELLS = 32
+
+          # The widest and tallest picture a sprite can show: the mask a collision reads is kept a
+          # byte for every eight pixels of a row, and the runtime walks it in byte-sized steps.
+          LARGEST_SPRITE = 64
+
+          # A pixel of a picture that is not drawn (Native's NOT_DRAWN).
+          NOT_DRAWN = -1
+
+          # One 8×8 piece of a sprite's picture: where it sits in the picture, its tile, and
+          # whether that tile is drawn mirrored to make it.
+          Piece = Data.define(:dx, :dy, :tile, :flips)
+
+          # A sprite's picture, cut into pieces, with the place each pixel is drawn from (0 for one
+          # not drawn) and the mask of the pixels it draws.
+          SpritePicture = Data.define(:name, :number, :width, :height, :pieces, :places, :mask)
+
+          attr_reader :sprite_tiles, :sprite_palettes, :background_tiles, :background_palettes, :grids
+
+          def initialize
+            @sprite_tiles = []        # 16 bytes each
+            @sprite_tile_numbers = {} # bytes -> [number, flips]
+            @sprite_pictures = {}     # picture name -> SpritePicture
+            @sprite_palettes = []     # lists of four colours
+            @background_tiles = []
+            @background_tile_numbers = {}
+            @background_palettes = []
+            @background_tile_of = {} # picture name -> [tile number, palette number]
+            @grids = []               # 2048 bytes each: the cells' tiles, then their attributes
+            background_tile_number(Array.new(16, 0)) # tile 0: nothing but the backdrop, for an empty cell
+          end
+
+          # --- sprites ---
+
+          # The picture +name+ (an Assets::Image) as a sprite shows it: cut into pieces whose tiles
+          # are kept once each. +colors+ is the picture's own list by place, see-through first.
+          def sprite_picture(name, image)
+            @sprite_pictures[name] ||= begin
+              if image.width > LARGEST_SPRITE || image.height > LARGEST_SPRITE
+                raise LoweringError, "the sprite picture #{name.inspect} is #{image.width}×#{image.height}, and a " \
+                                     "Game Boy Color sprite is at most #{LARGEST_SPRITE}×#{LARGEST_SPRITE}."
+              end
+
+              places = sprite_places(name, image)
+              pieces = []
+              (0...image.height).step(8).each do |y0|
+                (0...image.width).step(8).each do |x0|
+                  piece = Array.new(64) do |i|
+                    x = x0 + (i % 8)
+                    y = y0 + (i / 8)
+                    x >= image.width || y >= image.height ? 0 : places[(y * image.width) + x]
+                  end
+                  next if piece.all?(&:zero?) # a piece with nothing in it is not drawn at all
+
+                  tile, flips = sprite_tile(piece)
+                  pieces << Piece.new(dx: x0, dy: y0, tile: tile, flips: flips)
+                end
+              end
+              mask = Array.new(image.width * image.height) { |i| image.drawn_at?(i) }
+              SpritePicture.new(name: name, number: @sprite_pictures.size, width: image.width, height: image.height,
+                                pieces: pieces, places: places, mask: mask)
+            end
+          end
+
+          # The palette a sprite picture drawn as +drawn+ shows is given: +drawn+ is each pixel's
+          # colour, or NOT_DRAWN, as the interpreter draws the picture (in its own colours or in
+          # another list's). The same list asked twice is the same palette.
+          def sprite_palette(name, image, drawn)
+            picture = sprite_picture(name, image)
+            colors = Array.new(PLACES, BACKDROP)
+            picture.places.each_with_index do |place, i|
+              next if place.zero? || drawn[i] == NOT_DRAWN
+
+              colors[place] = drawn[i] & 0x7FFF
+            end
+            palette_number(@sprite_palettes, colors, "sprites")
+          end
+
+          # --- backgrounds ---
+
+          # The tile number and palette number a background's tile picture +name+ is drawn with.
+          def background_tile(name, image)
+            @background_tile_of[name] ||= begin
+              unless image.width == 8 && image.height == 8
+                raise LoweringError, "the tile #{name.inspect} is #{image.width}×#{image.height}; the Game Boy Color " \
+                                     "build makes 8×8 tiles only so far."
+              end
+
+              drawn = (0...64).reject { |i| image.tile_see_through_at?(i) }.map { |i| image.color_at(i) & 0x7FFF }.uniq
+              if drawn.size > OWN_COLORS
+                raise LoweringError, "the tile #{name.inspect} has #{drawn.size} colours, and a Game Boy Color tile holds " \
+                                     "#{OWN_COLORS} and the backdrop. To fix this, draw it in #{OWN_COLORS} colours."
+              end
+
+              colors = [BACKDROP, *drawn]
+              places = Array.new(64) { |i| image.tile_see_through_at?(i) ? 0 : drawn.index(image.color_at(i) & 0x7FFF) + 1 }
+              [background_tile_number(encode(places)), palette_number(@background_palettes, padded(colors), "backgrounds")]
+            end
+          end
+
+          # The number of a grid of 32×32 cells, each [tile number, palette number] or nil for a
+          # cell with nothing in it, which shows the backdrop.
+          def grid(cells)
+            tiles = cells.flatten(1).map { |cell| cell ? cell.first : 0 }
+            attributes = cells.flatten(1).map do |cell|
+              next 0 unless cell
+
+              tile, palette = cell
+              palette | (tile >= 256 ? Console::GBCHardware::ATTR_TILE_BANK : 0)
+            end
+            bytes = tiles.map { |tile| tile & 0xFF } + attributes
+            @grids.index(bytes) || (@grids << bytes).length - 1
+          end
+
+          # --- the cartridge's copy ---
+
+          # The sections the art is kept in: the tiles and the grids in banks of their own (each a
+          # copy the runtime puts the bank in view for), and everything read as the game runs —
+          # the palettes, the pieces, the masks, where each grid is — in the part always in view.
+          def sections
+            refuse_too_many_tiles!
+            [tables_section, data_section("art sprite tiles", "art_sprite_tiles", @sprite_tiles.flatten),
+             data_section("art background tiles", "art_background_tiles", @background_tiles.flatten),
+             *@grids.each_with_index.map { |bytes, i| data_section("art grid #{i}", "art_grid_#{i}", bytes) }]
+          end
+
+          private
+
+          def tables_section
+            asm = SM83.new("art tables", home: :fixed)
+            asm.label("art_palettes")
+            [@background_palettes, @sprite_palettes].each do |palettes|
+              PALETTES.times do |i|
+                colors = palettes[i] || Array.new(PLACES, BACKDROP)
+                asm.data_words(colors)
+              end
+            end
+            pictures = @sprite_pictures.values
+            asm.label("art_pictures")
+            pictures.each { |picture| asm.data_words("art_pieces_#{picture.number}") }
+            asm.label("art_masks")
+            pictures.each { |picture| asm.data_words("art_mask_#{picture.number}") }
+            asm.label("art_grids")
+            @grids.each_index do |i|
+              asm.data_words("art_grid_#{i}")
+              asm.data_bank_of("art_grid_#{i}")
+            end
+            pictures.each do |picture|
+              asm.label("art_pieces_#{picture.number}")
+              asm.data_bytes(picture.pieces.length)
+              picture.pieces.each do |piece|
+                bank = piece.tile / 128
+                asm.data_bytes(piece.dx, piece.dy, piece.tile % 128,
+                               piece.flips | (bank.zero? ? 0 : Console::GBCHardware::OBJ_TILE_BANK))
+              end
+              asm.label("art_mask_#{picture.number}")
+              stride = (picture.width + 7) / 8
+              asm.data_bytes(picture.width, picture.height, stride)
+              picture.height.times do |y|
+                stride.times do |byte|
+                  bits = (0...8).sum do |bit|
+                    x = (byte * 8) + bit
+                    x < picture.width && picture.mask[(y * picture.width) + x] ? 0x80 >> bit : 0
+                  end
+                  asm.data_bytes(bits)
+                end
+              end
+            end
+            asm.section
+          end
+
+          # A copy the console's own copying (Runtime::Picture) reads 16 bytes at a time, from an
+          # address that is a multiple of 16 — which a bank's first byte is.
+          def data_section(name, label, bytes)
+            asm = SM83.new(name, home: :aligned16)
+            asm.label(label)
+            asm.data_bytes(bytes)
+            asm.data_bytes(0) if bytes.empty? # a label has to be somewhere
+            asm.section
+          end
+
+          def refuse_too_many_tiles!
+            if @sprite_tiles.length > MOST_SPRITE_TILES
+              raise LoweringError, "this game's sprites need #{@sprite_tiles.length} tiles of 8×8, and a Game Boy " \
+                                   "Color has room for #{MOST_SPRITE_TILES}. To fix this, give it fewer or smaller pictures."
+            end
+            return unless @background_tiles.length > MOST_BACKGROUND_TILES
+
+            raise LoweringError, "this game's backgrounds need #{@background_tiles.length} different tiles, and a Game " \
+                                 "Boy Color has room for #{MOST_BACKGROUND_TILES}."
+          end
+
+          # The place each pixel of a sprite's picture is drawn from: its own list's, where it came
+          # with one, or see-through and then every colour it draws in the order it draws them.
+          def sprite_places(name, image)
+            if image.places
+              places = Array.new(image.width * image.height) { |i| image.drawn_at?(i) ? image.place_at(i) : 0 }
+              refuse_sprite_colors!(name, places.max.to_i)
+              return places
+            end
+
+            colors = [nil]
+            Array.new(image.width * image.height) do |i|
+              next 0 unless image.drawn_at?(i)
+
+              color = image.color_at(i) & 0x7FFF
+              colors << color unless colors.include?(color)
+              colors.index(color)
+            end.tap { refuse_sprite_colors!(name, colors.length - 1) }
+          end
+
+          def refuse_sprite_colors!(name, colors)
+            return if colors <= OWN_COLORS
+
+            raise LoweringError, "the sprite picture #{name.inspect} has #{colors} colours, and a Game Boy Color " \
+                                 "sprite holds #{OWN_COLORS} and see-through. To fix this, draw it in " \
+                                 "#{OWN_COLORS} colours."
+          end
+
+          # Sixty-four places as the Color keeps a tile: two bytes a row, the low bit of each
+          # place in the first and the high bit in the second, the leftmost pixel in bit 7.
+          def encode(places)
+            (0...8).flat_map do |row|
+              line = places[row * 8, 8]
+              low = line.each_with_index.sum { |place, x| (place & 1) << (7 - x) }
+              high = line.each_with_index.sum { |place, x| ((place >> 1) & 1) << (7 - x) }
+              [low, high]
+            end
+          end
+
+          # A sprite tile: one already kept, drawn as it is or mirrored, or a new one. The Color
+          # mirrors a sprite's tile as it draws it, so a picture and its mirror image share tiles.
+          def sprite_tile(places)
+            h = Console::GBCHardware
+            turned = { 0 => places, h::OBJ_X_FLIP => mirrored(places), h::OBJ_Y_FLIP => upside_down(places),
+                       h::OBJ_X_FLIP | h::OBJ_Y_FLIP => upside_down(mirrored(places)) }
+            turned.each do |flips, version|
+              number = @sprite_tile_numbers[encode(version)]
+              return [number, flips] if number
+            end
+            bytes = encode(places)
+            @sprite_tile_numbers[bytes] = (@sprite_tiles << bytes).length - 1
+            [@sprite_tile_numbers[bytes], 0]
+          end
+
+          def mirrored(places) = places.each_slice(8).flat_map(&:reverse)
+          def upside_down(places) = places.each_slice(8).to_a.reverse.flatten
+
+          def background_tile_number(bytes)
+            @background_tile_numbers[bytes] ||= (@background_tiles << bytes).length - 1
+          end
+
+          def padded(colors) = colors + ([BACKDROP] * (PLACES - colors.length))
+
+          def palette_number(palettes, colors, kind)
+            found = palettes.index(colors)
+            return found if found
+
+            if palettes.length == PALETTES
+              raise LoweringError, "this game's #{kind} need more than the #{PALETTES} lists of colours a Game Boy Color " \
+                                   "holds for them. To fix this, draw more of them from the same colours."
+            end
+
+            (palettes << colors).length - 1
+          end
+        end
+      end
+    end
+  end
+end

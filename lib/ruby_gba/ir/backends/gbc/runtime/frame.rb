@@ -33,6 +33,7 @@ module RubyGBA
             LIST_EMPTY = 3
             COPY_TOO_LONG = 4
             COPY_PAST_TABLE = 5
+            PICTURE_NOT_THERE = 6
 
             # Where the reader finds each of them: the place in work memory each was given.
             STATE = "rt state" # RUNNING, HALTED or WENT_WRONG
@@ -60,7 +61,6 @@ module RubyGBA
             def emit(asm, memory)
               h = Console::GBCHardware
               vblank = memory.quick(1)
-              lcdc = h::LCDC_ON | h::LCDC_TILES_8000 | h::LCDC_SPRITES_ON | h::LCDC_BG_PRIORITY | h::LCDC_TALL_SPRITES
 
               # The interrupt that says a frame has been drawn.
               asm.label("rt_vblank_interrupt")
@@ -83,15 +83,14 @@ module RubyGBA
               asm.jump_relative(:nz, "rg_wait_vblank_sleep")
               # The screen is still off: this is the first frame. Everything set up so far is
               # copied while nothing is being drawn, and the screen comes on showing it.
-              asm.call("rt_upload")
+              asm.call("rt_upload_whole")
               asm.call("rt_shown_is_passes")
-              asm.load(:a, lcdc)
-              asm.load_high(h::LCDC, :a)
+              asm.call("rt_display_on")
               asm.call("rt_sleep_until_vblank")
               asm.jump_relative("rg_wait_vblank_buttons")
               asm.label("rg_wait_vblank_sleep")
               asm.call("rt_sleep_until_vblank")
-              asm.call("rt_upload")
+              asm.call("rt_upload_whole")
               asm.call("rt_shown_is_passes")
               asm.label("rg_wait_vblank_buttons")
               asm.call("rt_read_buttons")
@@ -119,9 +118,16 @@ module RubyGBA
               end
               asm.ret
 
+              # The screen on, with the switches the picture wants.
+              asm.label("rt_display_on")
+              asm.load(:a, [memory[Picture::LCDC_WANTED]])
+              asm.or_a(h::LCDC_ON)
+              asm.load_high(h::LCDC, :a)
+              asm.ret
+
               emit_increment(asm)
               emit_buttons(asm, memory)
-              emit_stopping(asm, memory, lcdc)
+              emit_stopping(asm, memory)
             end
 
             # The 32-bit number at HL, one more: each byte goes round to nought only when the one
@@ -218,7 +224,7 @@ module RubyGBA
             # for a game that never got as far as a frame), SHOWN says the end is on the screen, and
             # the processor sleeps from then on. Going wrong is the same, with what went wrong written
             # down first.
-            def emit_stopping(asm, memory, lcdc)
+            def emit_stopping(asm, memory)
               h = Console::GBCHardware
               asm.label("rg_halt")
               asm.load(:a, HALTED)
@@ -227,13 +233,12 @@ module RubyGBA
               asm.load_high(:a, h::LCDC)
               asm.bit(7, :a)
               asm.jump_relative(:nz, "rt_stop_on_screen")
-              asm.call("rt_upload")
-              asm.load(:a, lcdc)
-              asm.load_high(h::LCDC, :a)
+              asm.call("rt_upload_whole")
+              asm.call("rt_display_on")
               asm.jump_relative("rt_stop_shown")
               asm.label("rt_stop_on_screen")
               asm.call("rt_sleep_until_vblank")
-              asm.call("rt_upload")
+              asm.call("rt_upload_whole")
               asm.label("rt_stop_shown")
               asm.load(:hl, memory[SHOWN])
               asm.load(:a, 0xFF)

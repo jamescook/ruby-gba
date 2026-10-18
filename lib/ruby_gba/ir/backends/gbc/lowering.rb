@@ -19,20 +19,22 @@ module RubyGBA
           # EVERY KIND THIS LOWERING CANNOT MAKE YET, by what it is part of. A kind leaves the list
           # the day the Color does it; test_gbc_kind_coverage.rb holds the list to every kind.
           NOT_LOWERED_YET = Ractor.make_shareable({
-            "the picture" => %i[screen clear_screen fill_rect dma_fill_rect draw_rect_at pixel draw_text
+            "the picture" => %i[clear_screen fill_rect dma_fill_rect draw_rect_at pixel draw_text
                                 draw_digit inside camera blit blit_pose draw_column_at save_region restore_region
-                                background affine_background scroll_background scroll_rows shade_outside set_tile
-                                show_map background_colors color_list_holds copy_tiles copy_owed_tiles present_objects
-                                fade tint pixelate see_through pixels_overlap],
-            "sound" => %i[beep enable_sound play_song stop_music play_from_list play_sound_effect play_sample
-                          stop_sample wave stop_wave noise],
+                                affine_background scroll_rows shade_outside set_tile show_map background_colors
+                                copy_tiles copy_owed_tiles fade tint pixelate see_through],
+            "sound" => %i[play_song stop_music play_from_list play_sound_effect play_sample stop_sample],
             "save memory" => %i[save_init save_store save_write save_erase save_read save_sum],
             "timers" => %i[timer_start timer_stop timer_ticks on_timer]
           })
 
           # The kinds of the picture and the sound the Color makes, which come off NOT_LOWERED_YET as
           # each is made.
-          MADE = [].freeze
+          MADE = %i[screen background scroll_background present_objects pixels_overlap color_list_holds
+                    enable_sound beep noise wave stop_wave].freeze
+
+          include Picture
+          include Sound
 
           # Every variable the program keeps, by the game's name, beside the name the statements
           # call it by — so a reader of the running cartridge can find each one's place.
@@ -53,27 +55,17 @@ module RubyGBA
             main = C::Function.new(name: @names.own("main"), body: lower(@program), exported: true)
             [*variable_names.map { |name| C::Global.new(name: variable(name)) },
              *(@scenes.empty? ? [] : [C::Global.new(name: @names.own("scene"), value: -1)]),
-             *list_storage, *constant_arrays, *routine_table_declarations, *routines, main]
+             *held_colors_globals, *list_storage, *constant_arrays, *@drawing_arrays, *routine_table_declarations,
+             *routines, main]
           end
 
           private
 
           def build_name = "the Game Boy Color build"
 
-          # The picture and the sound are the Color's own (above), so nothing of Native's is worked
-          # out for them.
-          def prepare_picture
-            @stacking = Stacking.picture(@program)
-          end
-
-          def prepare_sound; end
-
           # The screen is switched off from power-on until the first frame is ready (Runtime::Boot),
           # which is the interpreter's held picture, so a program says nothing to start.
           def power_on = []
-
-          # A scene taking over changes nothing yet: there is no picture to change.
-          def scene_arrival(_scene) = []
 
           # Each statement of a body. Native paints a rebuild of its picture it owes before some of
           # them; the Color's picture is the console's own and is never rebuilt in software.
