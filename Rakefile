@@ -102,6 +102,7 @@ task test: :suite_lock
 task "test:lowering:gba" => %i[suite_lock compile_emulator clear_coverage]
 task "test:lowering:native" => %i[suite_lock compile_emulator]
 task "test:lowering:js" => %i[suite_lock compile_emulator]
+task "test:lowering:gbc" => %i[suite_lock compile_emulator]
 
 namespace :test do
   # The emulator gem has its OWN test suite (its C extension + probe, tested in isolation) —

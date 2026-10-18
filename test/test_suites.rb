@@ -4,14 +4,18 @@ require "test_helper"
 
 # `rake test` plays the suite once for each lowering: the GBA lowering's run (the interpreter,
 # with the cartridge checked in the emulator), the native lowering's (the game built as C,
-# checked against the interpreter) and the JavaScript lowering's (the game built as JavaScript,
-# checked the same way). Every test is played by all three, except a test of one lowering's own
-# output, which lives in a folder that lowering owns. Its other side is test_native_suite.rb and
-# test_js_suite.rb, in those lowerings' folders, which fail if another run ever plays them.
+# checked against the interpreter), the JavaScript lowering's (the game built as JavaScript,
+# checked the same way) and the Game Boy Color lowering's (the game built as a Game Boy Color
+# cartridge, played in the emulator and checked the same way). Every test is played by all four,
+# except a test of one lowering's own output, which lives in a folder that lowering owns. Its
+# other side is test_native_suite.rb, test_js_suite.rb and test_gbc_suite.rb, in those lowerings'
+# folders, which fail if another run ever plays them.
 class TestSuitesSplit < Minitest::Test
   PLAYERS = [Reference, CheckedPlayer, RubyGBA::IR::Backends::Native::CheckedRun,
              RubyGBA::IR::Backends::Native::HeadlessRun, RubyGBA::Testing::JSCheckedPlayer,
-             RubyGBA::IR::Backends::JS::CheckedRun, RubyGBA::IR::Backends::JS::HeadlessRun].freeze
+             RubyGBA::IR::Backends::JS::CheckedRun, RubyGBA::IR::Backends::JS::HeadlessRun,
+             RubyGBA::Testing::GBCCheckedPlayer, RubyGBA::IR::Backends::GBC::CheckedRun,
+             RubyGBA::IR::Backends::GBC::HeadlessRun].freeze
 
   # A test of one lowering's own output — the ARM a cartridge is made of, the cartridge played in
   # the emulator, the C the native lowering writes — lives in a folder that lowering owns, and
@@ -42,6 +46,16 @@ class TestSuitesSplit < Minitest::Test
     refute_includes files_for(:gba), "test/ruby_gba/ir/backends/js/test_js_suite.rb"
   end
 
+  def test_the_gbc_run_leaves_out_the_other_lowerings_folders_and_keeps_its_own
+    gbc_run = files_for(:gbc)
+
+    assert_includes gbc_run, "test/ruby_gba/ir/backends/gbc/test_gbc_suite.rb"
+    assert_includes gbc_run, "test/ruby_gba/dsl/test_pool_walk_order.rb"
+    refute_includes gbc_run, "test/ruby_gba/ir/backends/js/test_js_suite.rb"
+    refute_includes gbc_run, "test/ruby_gba/ir/backends/gba/test_asm.rb"
+    %i[gba native js].each { |other| refute_includes files_for(other), "test/ruby_gba/ir/backends/gbc/test_gbc_suite.rb" }
+  end
+
   # A test makes its player and runs a game the same way whichever lowering hands it the player,
   # so every player takes the interpreter's words. One added to the interpreter and not the
   # others fails here, on every run, rather than on the first native run that meets it.
@@ -69,6 +83,15 @@ class TestSuitesSplit < Minitest::Test
       assert_raises(Minitest::Skip) { skip_on_js "only says something on a JavaScript run" }
     else
       skip_on_js "only says something on a JavaScript run"
+      pass
+    end
+  end
+
+  def test_the_gbc_guard_skips_on_the_gbc_run_alone
+    if RubyGBA::Testing.gbc?
+      assert_raises(Minitest::Skip) { skip_on_gbc "only says something on a Game Boy Color run" }
+    else
+      skip_on_gbc "only says something on a Game Boy Color run"
       pass
     end
   end

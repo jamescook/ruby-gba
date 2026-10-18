@@ -40,6 +40,7 @@ module RubyGBA
     def self.lowering = LOWERING
     def self.native? = LOWERING == :native
     def self.javascript? = LOWERING == :js
+    def self.gbc? = LOWERING == :gbc
 
     # THE EMULATOR, IF THE GAME HAS IT, LOADED NOW rather than by the first test that wants it.
     # A suite may play its tests in Ractors, and loading it writes globals only the main Ractor
@@ -63,7 +64,8 @@ module RubyGBA
     end
 
     # The class game_player makes one of, on each lowering's run.
-    PLAYERS = Ractor.make_shareable({ gba: IR::Backends::Reference, native: CheckedPlayer, js: JSCheckedPlayer })
+    PLAYERS = Ractor.make_shareable({ gba: IR::Backends::Reference, native: CheckedPlayer, js: JSCheckedPlayer,
+                                      gbc: GBCCheckedPlayer })
 
     # The class game_player makes one of, for this run.
     def self.player_class = PLAYERS.fetch(LOWERING)
@@ -78,6 +80,11 @@ module RubyGBA
     # The same, for the JavaScript lowering's run.
     def skip_on_js(why)
       skip "JavaScript cannot play this yet: #{why}" if Testing.javascript?
+    end
+
+    # The same, for the Game Boy Color lowering's run.
+    def skip_on_gbc(why)
+      skip "Game Boy Color cannot play this yet: #{why}" if Testing.gbc?
     end
   end
 end

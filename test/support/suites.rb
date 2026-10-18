@@ -13,6 +13,7 @@
 module TestSuites
   NATIVE_DIR = "test/ruby_gba/ir/backends/native"
   JS_DIR = "test/ruby_gba/ir/backends/js"
+  GBC_DIR = "test/ruby_gba/ir/backends/gbc"
 
   # THE FOLDERS THAT BELONG TO ONE LOWERING. A test there is about that lowering's own output —
   # the ARM a cartridge is made of, the cartridge played in the emulator, the C the native
@@ -24,7 +25,7 @@ module TestSuites
   LOWERING_FOLDERS = Ractor.make_shareable({
                                              gba: ["test/ruby_gba/ir/backends/gba", "test/ruby_gba/diagnostics",
                                                    "test/ruby_gba/playthroughs"],
-                                             native: [NATIVE_DIR], js: [JS_DIR]
+                                             native: [NATIVE_DIR], js: [JS_DIR], gbc: [GBC_DIR]
                                            })
 
   # The test of the program a player runs, with its window. It builds with SDL, whose first build

@@ -6,32 +6,34 @@ module RubyGBA
     # loads. Both the rake tasks (RakeTasks) and the tests themselves (Testing.lowering) read it
     # from here, so the two cannot answer differently.
     #
-    # A game is played three ways. The GBA lowering's run plays it on the interpreter
+    # A game is played four ways. The GBA lowering's run plays it on the interpreter
     # (Backends::Reference), which is what the cartridge is checked against; the native
-    # lowering's run builds it as C and plays that, and the JavaScript lowering's run builds it
-    # as JavaScript and plays that under node, each checked against the interpreter on every
-    # frame. A test written once plays on whichever the run is for.
+    # lowering's run builds it as C and plays that, the JavaScript lowering's run builds it as
+    # JavaScript and plays that under node, and the Game Boy Color lowering's builds it as a
+    # Game Boy Color cartridge and plays that in the emulator, each checked against the
+    # interpreter on every frame. A test written once plays on whichever the run is for.
     module Lowering
       # The setting a run's lowering is read from. The native lowering's run sets it to
       # "native" and the JavaScript lowering's to "js"; left alone it is the GBA lowering's run.
       SETTING = "RUBY_GBA_LOWERING"
-      NAMES = %i[gba native js].freeze
+      NAMES = %i[gba native js gbc].freeze
 
       # What a sentence calls each lowering, in the order `rake test` plays them: "the GBA
       # lowering", "this JavaScript run". Everything that says a lowering's name to a person reads
       # it from here.
-      TITLES = { gba: "GBA", native: "native", js: "JavaScript" }.freeze
+      TITLES = { gba: "GBA", native: "native", js: "JavaScript", gbc: "Game Boy Color" }.freeze
 
       # The lowerings whose run plays the game itself, built for another machine and checked
       # against the interpreter, rather than the interpreter alone: a run of one of these starts
       # programs, so it is played in processes rather than Ractors.
-      CHECKED = %i[native js].freeze
+      CHECKED = %i[native js gbc].freeze
 
       # What `rake -T` says each lowering's run does, and what it needs besides Ruby.
       RUNS = {
         gba: "the game on the interpreter",
         native: "the game built as C, checked against the interpreter",
-        js: "the game built as JavaScript, checked against the interpreter"
+        js: "the game built as JavaScript, checked against the interpreter",
+        gbc: "the game built as a Game Boy Color cartridge, played in the emulator and checked against the interpreter"
       }.freeze
       NEEDS = { native: "zig", js: "node" }.freeze
 
