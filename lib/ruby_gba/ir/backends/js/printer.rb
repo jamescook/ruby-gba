@@ -36,6 +36,13 @@ module RubyGBA
                                            "int16_t" => "Int16Array", "uint16_t" => "Uint16Array",
                                            "int32_t" => "Int32Array", "char" => "Uint8Array" })
 
+          # The most numbers a table is written out as; a bigger one is written as base64.
+          MOST_WRITTEN_AS_NUMBERS = 256
+
+          # How each array's numbers are packed into bytes: little-endian, the width the array holds.
+          PACKING = Ractor.make_shareable({ "Int8Array" => "c*", "Uint8Array" => "C*", "Int16Array" => "s<*",
+                                            "Uint16Array" => "S<*", "Int32Array" => "l<*" })
+
           # The runtime's wait for the next frame, and its call of a routine picked from an array.
           WAIT = "rg_wait_vblank"
           CALL_ROUTINE = "rg_call_routine"
@@ -129,18 +136,32 @@ module RubyGBA
             line(0, "")
           end
 
-          # Sixteen numbers a line, as the C does, so a table of thousands is still a file a person
-          # can scroll.
+          # A small table is its numbers, sixteen a line, as the C writes it. A big one is its
+          # bytes in base64, read back when the script starts (rg_table_from_base64 says why: a
+          # browser runs out of memory reading millions of numbers written out as code).
           def print_const_array(item)
             type = ARRAYS.fetch(item.type) { raise LoweringError, "the printer has no array for C's #{item.type}" }
             values = item.values
             if values.empty?
               line(0, "const #{item.name.text} = new #{type}(1);")
-              return
+            elsif values.size > MOST_WRITTEN_AS_NUMBERS
+              print_table_as_base64(item.name.text, type, values)
+            else
+              line(0, "const #{item.name.text} = new #{type}([")
+              values.each_slice(16) { |row| line(1, "#{row.map { |v| integer(v) }.join(', ')},") }
+              line(0, "]);")
             end
-            line(0, "const #{item.name.text} = new #{type}([")
-            values.each_slice(16) { |row| line(1, "#{row.map { |v| integer(v) }.join(', ')},") }
-            line(0, "]);")
+          end
+
+          # The table's bytes in a template string, 76 characters a line, so the file stays one a
+          # person can scroll. Base64 holds no backtick and no `${`, so nothing in it is read as
+          # anything but text.
+          def print_table_as_base64(name, type, values)
+            values.each { |value| integer(value) } # refuses one that is not a 32-bit whole number
+            bytes = values.pack(PACKING.fetch(type))
+            line(0, "const #{name} = rg_table_from_base64(#{type}, `")
+            [bytes].pack("m76").each_line { |row| @out << row }
+            line(0, "`);")
           end
 
           def print_list_storage(item)

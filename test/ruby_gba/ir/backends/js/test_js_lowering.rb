@@ -115,6 +115,32 @@ class TestJSLowering < Minitest::Test
     assert_equal :end, run.moments.last.frame
   end
 
+  # A big table is written as its bytes in base64 rather than as numbers, which a browser runs out
+  # of memory reading by the million — and reads back the same at every width, negatives included.
+  def test_a_big_table_is_written_as_base64_and_reads_back_the_same
+    program = program_of do
+      screen :bitmap
+      halves = table :halves, (0...300).map { |i| (i * 97) - 15_000 }, width: :half
+      words = table :words, (0...300).map { |i| (i * 1_000_003) - 150_000_000 }, width: :word
+      bytes = table :bytes, (0...300).map { |i| (i % 256) - 128 }, width: :byte
+      at = var :at, 0
+      got_half = var :got_half, 0
+      got_word = var :got_word, 0
+      got_byte = var :got_byte, 0
+      game_loop do
+        at.set! 299
+        got_half.set! halves[at]
+        got_word.set! words[at]
+        got_byte.set! bytes[at]
+      end
+    end
+
+    assert_includes JS.new.lower(program), "rg_table_from_base64(Int16Array"
+    played = game_player.run(program, frames: 2)
+    assert_equal [(299 * 97) - 15_000, (299 * 1_000_003) - 150_000_000, (299 % 256) - 128],
+                 [played[:got_half], played[:got_word], played[:got_byte]]
+  end
+
   # Bytes of the console's own machine code only mean something on the console, so a program that
   # can reach them is refused by name, before anything is written.
   def test_raw_machine_code_the_game_reaches_is_refused_by_name
